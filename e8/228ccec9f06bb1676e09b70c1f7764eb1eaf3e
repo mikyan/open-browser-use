@@ -1,0 +1,45 @@
+apps/chrome-extension/content-cursor.test.mjs
+  s_08bbfd293d324f::t_7849966ae57157 269-272,277-289,292
+  s_08bbfd293d324f::t_e580d66a0250ca 213-243
+  s_08bbfd293d324f::t_c6ebf9bae36104 1-212,244-268,273-276,290-291,293-352
+apps/chrome-extension/pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_9fe9eba3001ac4 65-68,73,100,137,142,147-160,166,178,180,182-183,185,187-189,206-207,209,212,218-270
+  s_08bbfd293d324f::t_d9ff983e5592f0 1-64,69-72,74-99,101-136,138-141,143-146,161-165,167-177,179,181,184,186,190-205,208,210-211,213-217,271
+docs/histories/2026-09/20260923-1909-agent-pointer-feedback.md
+  s_08bbfd293d324f::t_f028040f1abc4a 47
+  s_08bbfd293d324f::t_a4b5e6aab3cdaa 1-42,46
+  s_08bbfd293d324f::t_ffb0ac322d5f27 43-45
+docs/exec-plans/completed/2026-09-23-agent-pointer-feedback.md
+  s_08bbfd293d324f::t_f028040f1abc4a 1-47
+apps/chrome-extension/content-cursor.js
+  s_08bbfd293d324f::t_cf66006ac60431 12-13,22,29,32,46-58,77,85,89-93,96,103-130,140-179,181-189,256,260,268-280,385-391
+  s_08bbfd293d324f::t_67d176e3af76af 14,86-88,97-98,180,190,192-195,410-419
+  s_08bbfd293d324f::t_e580d66a0250ca 131-139
+  s_08bbfd293d324f::t_fb8c778eec9173 191
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_7ad51d163cc396 12,584,593-595,597-599,601-614,657-668,671-696
+  s_08bbfd293d324f::t_3b01e508d1fd55 1363
+  s_08bbfd293d324f::t_b9a46ad44d5b9d 13,308,320,596,600,615-656,669-670,759,1359
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_d77962d117b1ba 7
+docs/FRONTEND.md
+  s_08bbfd293d324f::t_a4b5e6aab3cdaa 24-25
+  s_08bbfd293d324f::t_d77962d117b1ba 12-20,23,26-33,44
+  s_08bbfd293d324f::t_e580d66a0250ca 21-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e8228ccec9f06bb1676e09b70c1f7764eb1eaf3e",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
