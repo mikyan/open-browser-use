@@ -222,6 +222,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `ping`、`getInfo`、`getControlState` 在控制周期外调用。结束会先持久化失效旧
   epoch，再取消操作并释放 debugger；worker 重启也隔离旧 epoch。SDK/CLI/MCP
   不静默重放输入，显式 begin-turn 用于查询新控制状态后提交新工作。
+- 全局用户暂停独立于 task/turn：工具栏 popup 可暂停所有 Agent，持久 gate
+  拒绝包括 `getControlState` 在内的操作，只有 `ping`/`getInfo` 可读。暂停使
+  所有旧 epoch 失效；恢复不执行旧任务，Agent 必须显式开始新轮次。
+  raw CDP 和 CRX 共享原生输入跟踪，先释放原 attachment 的按键/指针，再
+  detach；清理失败保持阻断并允许用户重试，不关闭或移动页面。popup 验证、
+  异步清理身份和 worker 重启限制见 [control lifecycle](references/control-lifecycle.md)。
 - WebMCP 使用两层 content script：MAIN world 优先使用浏览器原生
   `document.modelContext`；如果浏览器没有提供该 API，则在页面代码运行前安装
   一个最小 page-facing shim，覆盖 `registerTool`、`getTools`、`executeTool`、
@@ -277,6 +283,7 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   helpers 共享捕获的 session/turn/epoch 与原始 deadline，不在阶段间换到新轮次。
 
 当前实现包含 task/tab/target 归属与持久 turn epoch，尚无站点允许/禁止 UI。
+全局暂停不构成站点沙箱；自己的扩展控制页和已知 raw Target 隧道路由被拒绝。
 Session ID 不承担授权认证；生产集成的用户级访问策略仍需单独实现和验收。
 
 ## 新项目需要补齐的内容

@@ -10,7 +10,7 @@ export const PLAYWRIGHT_CRX_VERSION = "0.15.0";
 const upstreamChunkSha256 = "ae0b36fa86fab5f0594530f29860721e5d05ea0cf06950df484a61f0e54c3b8c";
 const productionFiles = [
   "manifest.json", "background.js", "browser-action-engine.js", "browser-diagnostics.js", "browser-frame-adapter.js", "browser-input-adapter.js", "browser-runtime.js", "content-cursor.js", "content-webmcp-main.js", "content-webmcp-bridge.js",
-  "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png", "images/cursor-chat.png", "popup.css", "popup.html", "popup.js"
+  "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png", "images/cursor-chat.png", "popup.css", "popup.html", "popup.js", "popup-control.js"
 ];
 const sendExpression = "return await chrome.debugger.sendCommand(debuggee, method, commandParams);";
 
@@ -36,12 +36,20 @@ export function patchCrxTransport(source) {
   const eventDelivery = '      if (debugLogger.isEnabled(`chromedebugger`))';
   const emitMessage = '  _emitMessage(message) {\n    if (this.onmessage)\n      this.onmessage(message);\n  }';
   const nativeDetach = '    await chrome.debugger.detach({ tabId }).catch(() => {\n    });';
+  const transportDetach = '  async detach(tabOrTarget) {\n    var _a2;\n    const tabId = typeof tabOrTarget === "number" ? tabOrTarget : this._targetToTab.get(tabOrTarget);\n    if (!tabId)\n      return;\n    const targetInfo = this._tabToTarget.get(tabId);';
+  const appDetach = '  async _doDetach(targetId) {\n    var _a2;\n    if (!targetId)\n      return;\n    if (this._transport.isIncognito(targetId) !== this.isIncognito())\n      throw new Error("Tab is not in the expected browser context");\n    const crPage = this._crPageByTargetId(targetId);\n    if (!crPage)\n      return;';
+  const appTransportDetach = '    await this._transport.detach(targetId);\n    await closed;';
+  const appClosed = '    const closed = new Promise((x) => pageOrError.once(Page$1.Events.Close, x));';
   for (const expression of [eventHandler, eventDelivery, emitMessage]) {
     if (source.split(expression).length !== 2) throw new Error("Pinned Playwright CRX frame transport shape changed; review the frame attachment adapter before building");
   }
   if (source.split(nativeDetach).length !== 2) throw new Error("Pinned Playwright CRX input cleanup transport shape changed; review before building");
-  const patched = source.replace(sendExpression, `const result = await chrome.debugger.sendCommand(debuggee, method, commandParams);
-    observeCrxInputCommand(this, debuggee, method, commandParams);
+  for (const expression of [transportDetach, appDetach, appTransportDetach, appClosed]) {
+    if (source.split(expression).length !== 2) throw new Error("Pinned Playwright CRX detach identity shape changed; review before building");
+  }
+  const patched = source.replace(sendExpression, `const operation = () => chrome.debugger.sendCommand(debuggee, method, commandParams);
+    const result = await (openBrowserUseInputHooks ? openBrowserUseInputHooks.send(debuggee, method, commandParams, operation) : operation());
+    if (!openBrowserUseInputHooks) observeCrxInputCommand(this, debuggee, method, commandParams);
     if (method === "Input.dispatchMouseEvent") {
       try { Promise.resolve(openBrowserUseCommandObserver?.({ target: debuggee, method, commandParams })).catch(() => {}); } catch {}
     }
@@ -49,8 +57,25 @@ export function patchCrxTransport(source) {
     .replace(eventHandler, eventHandler.replace('({ tabId', 'async ({ tabId') + '\n      if (message === "Page.screencastFrame" && openBrowserUseEventFilter?.({ tabId, sessionId }, message, params)) return;')
     .replace(eventDelivery, '      if (message === "Target.attachedToTarget") await prepareCrxChildFrame(this, { tabId, sessionId }, params);\n' + eventDelivery)
     .replace(emitMessage, '  _emitMessage(message) {\n    observeCrxFrameMessage(this, message);\n    if (this.onmessage) this.onmessage(message);\n    refreshCrxCachedLifecycle(this, message).catch(() => {});\n  }')
-    .replace(nativeDetach, `    try { await releaseCrxInput(this, tabId); } finally {\n${nativeDetach}\n    }`);
-  return `// Modified by Open Browser Use: pointer observation, native OOPIF/BFCache lifecycle repair, shared rendering event ownership, and bounded input release after Playwright cancellation.\nimport { observeCrxFrameMessage, prepareCrxChildFrame, refreshCrxCachedLifecycle } from "../../../browser-frame-adapter.js";\nimport { observeCrxInputCommand, releaseCrxInput } from "../../../browser-input-adapter.js";\nlet openBrowserUseCommandObserver, openBrowserUseEventFilter;\nexport function setOpenBrowserUseCommandObserver(observer) { openBrowserUseCommandObserver = observer; }\nexport function setOpenBrowserUseEventFilter(filter) { openBrowserUseEventFilter = filter; }\n${patched.replace(/^\/\/# sourceMappingURL=.*$/gm, "")}`;
+    .replace(transportDetach, transportDetach.replace('detach(tabOrTarget)', 'detach(tabOrTarget, expectedTargetInfo)').replace('      return;', '      return false;') + `
+    if (expectedTargetInfo && targetInfo !== expectedTargetInfo) return false;
+    const inputRelease = openBrowserUseInputHooks?.prepareRelease(tabId);`)
+    .replace(appDetach, appDetach + `
+    const expectedTargetInfo = this._transport._tabToTarget.get(this._transport._targetToTab.get(targetId));
+    if (!expectedTargetInfo) return;
+    // OBU exposes no recorder/highlight API. Cancel Page work synchronously,
+    // before waiting for optional UI teardown that can leave locator scripts live.
+    if (openBrowserUseInputHooks) return this._transport.detach(targetId, expectedTargetInfo);`)
+    .replace(appTransportDetach, '    if (await this._transport.detach(targetId, expectedTargetInfo) === false) return;\n    await closed;')
+    .replace(appClosed, '    if (this._transport._tabToTarget.get(this._transport._targetToTab.get(targetId)) !== expectedTargetInfo) return;\n' + appClosed)
+    .replace(nativeDetach, `    if (inputRelease) {
+      await inputRelease.release();
+      if (inputRelease.isCurrent()) await inputRelease.detach();
+    } else {
+      await releaseCrxInput(this, tabId);
+${nativeDetach}
+    }`);
+  return `// Modified by Open Browser Use: pointer observation, native OOPIF/BFCache lifecycle repair, shared rendering event ownership, and bounded input release after Playwright cancellation.\nimport { observeCrxFrameMessage, prepareCrxChildFrame, refreshCrxCachedLifecycle } from "../../../browser-frame-adapter.js";\nimport { observeCrxInputCommand, releaseCrxInput } from "../../../browser-input-adapter.js";\nlet openBrowserUseCommandObserver, openBrowserUseEventFilter, openBrowserUseInputHooks;\nexport function setOpenBrowserUseCommandObserver(observer) { openBrowserUseCommandObserver = observer; }\nexport function setOpenBrowserUseEventFilter(filter) { openBrowserUseEventFilter = filter; }\nexport function setOpenBrowserUseInputHooks(hooks) { openBrowserUseInputHooks = hooks; }\n${patched.replace(/^\/\/# sourceMappingURL=.*$/gm, "")}`;
 }
 
 export async function buildChromeExtension(outputDir = path.join(repoRoot, "dist/chrome-extension-unpacked")) {
@@ -81,9 +106,9 @@ export async function buildChromeExtension(outputDir = path.join(repoRoot, "dist
   await fs.mkdir(path.join(vendor, "upstream"), { recursive: true });
   await fs.writeFile(path.join(vendor, "upstream/index.mjs"), entry.replace(/^\/\/# sourceMappingURL=.*$/gm, ""));
   await fs.writeFile(path.join(vendor, "upstream", chunks[0]), chunk);
-  await fs.writeFile(path.join(vendor, "index.mjs"), `export { crx } from "./upstream/index.mjs";\nexport { setOpenBrowserUseCommandObserver, setOpenBrowserUseEventFilter } from "./upstream/${chunks[0]}";\n`);
+  await fs.writeFile(path.join(vendor, "index.mjs"), `export { crx } from "./upstream/index.mjs";\nexport { setOpenBrowserUseCommandObserver, setOpenBrowserUseEventFilter, setOpenBrowserUseInputHooks } from "./upstream/${chunks[0]}";\n`);
   for (const name of ["LICENSE", "NOTICE"]) await fs.copyFile(path.join(packageDir, name), path.join(vendor, name));
-  await fs.writeFile(path.join(vendor, "MODIFICATIONS.txt"), "Open Browser Use modifies the pinned Playwright CRX transport to notify an optional observer after successful pointer commands and to deliver a missing Page.frameAttached before an already-loaded OOPIF target attachment. Frame ids and parent ids come exclusively from that attached child session's native Page.getFrameTree response; known frames and detached sessions are not replayed. After a native BackForwardCacheRestore navigation, it re-enables native lifecycle reporting on that owned session so Chromium supplies actual cached-document milestones, without fabricating load events or reloading. Internal rendering-lease screencast frames are filtered from the CRX transport so the backend remains their sole acknowledger; caller-owned screencasts are not filtered. The transport observes only its own successful input and releases remaining pressed buttons/keys and active dragging after Playwright Page cancellation but before native debugger detachment, with a bounded cleanup deadline and finally-detach. Locator/action semantics remain Playwright's. The pointer observer cannot change or fail the original command. The original Apache-2.0 LICENSE and NOTICE are included.\n");
+  await fs.writeFile(path.join(vendor, "MODIFICATIONS.txt"), "Open Browser Use modifies the pinned Playwright CRX transport to notify an optional observer after successful pointer commands and to deliver a missing Page.frameAttached before an already-loaded OOPIF target attachment. Frame ids and parent ids come exclusively from that attached child session's native Page.getFrameTree response; known frames and detached sessions are not replayed. After a native BackForwardCacheRestore navigation, it re-enables native lifecycle reporting on that owned session so Chromium supplies actual cached-document milestones, without fabricating load events or reloading. Internal rendering-lease screencast frames are filtered from the CRX transport so the backend remains their sole acknowledger; caller-owned screencasts are not filtered. Scoped native-send hooks share input intent, native in-flight promises, and attachment identity with the raw CDP route. After Playwright Page cancellation, bounded cleanup drains native sends and releases remaining input through its original root or child target before native debugger detachment. With production input hooks configured, Page cancellation is dispatched synchronously before optional recorder/highlight teardown; OBU exposes neither UI API. All new CRX native commands pass admission/release fences, while cleanup uses a separate native path. Standalone CRX without hooks retains upstream UI teardown. Detachment captures the original CRX target object before asynchronous Page cleanup and binds release/native detach to the original backend attachment token, so late cleanup cannot release or detach a replacement connection. Cleanup failure retains the native attachment for an explicit cleanup retry; it does not reattach or replay the failed action. Locator/action semantics remain Playwright's. The pointer observer cannot change or fail the original command. The original Apache-2.0 LICENSE and NOTICE are included.\n");
   await fs.writeFile(path.join(vendor, "version.json"), `${JSON.stringify({ package: "playwright-crx", version: PLAYWRIGHT_CRX_VERSION, playwrightVersion: "1.53.0", license: packageInfo.license, upstreamChunkSha256 }, null, 2)}\n`);
   return destination;
 }

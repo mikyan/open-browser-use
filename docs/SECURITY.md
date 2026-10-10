@@ -8,7 +8,7 @@ Security fixes are expected to cover the current Chrome route:
 
 - MV3 Chrome extension under `apps/chrome-extension/`.
 - Go native host and CLI under `cmd/open-browser-use/` and `internal/`.
-- JavaScript and Python SDK packages under `packages/`.
+- JavaScript, Python, and Go SDK packages under `packages/`.
 - Installer, manifest, release, and skill documentation that affects how users enable browser control.
 
 Experimental references, reverse-engineering notes, and archived planning material are useful context, but they are not independently supported interfaces unless they are wired into the current route.
@@ -30,25 +30,53 @@ Do not include real credentials, private cookies, personal browsing history, or 
 
 The Chrome route intentionally exposes powerful browser automation primitives to local callers that can reach the Open Browser Use socket.
 
-- The SDKs and CLI do not implement a Codex-style site policy, command allowlist, or user approval workflow.
+- The extension accepts an explicit set of public RPC methods and checks task ownership for tab/target operations. Arbitrary CDP within an owned target remains powerful; this is not a site policy or a security sandbox.
+- Persistent control epochs reject obsolete turns. Session IDs identify routing and ownership records; they are not authentication credentials.
 - Upper-layer runtimes are responsible for deciding which sites, methods, downloads, clipboard operations, and destructive actions are allowed.
 - The native host and extension are not a general-purpose sandbox for untrusted code.
 - Any integration that accepts remote instructions must add its own authentication, authorization, audit logging, and confirmation policy before invoking Open Browser Use.
 
 ## Local Transport
 
-The Go native host bridges Chrome Native Messaging stdio to a local Unix socket.
+The Go native host bridges Chrome Native Messaging stdio to local IPC: Unix sockets on Unix systems and a current-user-SID restricted named pipe on Windows.
 
-- The default socket registry is under `/tmp/open-browser-use/`.
-- `active.json` is written with `0600` permissions.
-- Socket files are created with the current user's local permissions.
-- The CLI may scan the socket directory when the active registry is missing or stale, so callers should treat access to the user's local account as access to the browser automation channel.
+- The default registry is `/tmp/open-browser-use` on Unix and the platform temporary directory's `open-browser-use` child on Windows; descriptors and `active.json` contain the actual endpoint.
+- Files request owner-only permissions on Unix; Windows pipe access is limited to the current user's SID. Descriptor files remain subject to their directory's Windows ACL.
+- The CLI may discover endpoints through the registry. Access-denied, busy, or timeout results are not evidence that an endpoint is stale and must be removed.
+- Scoped CDP/download notifications go only to connections that explicitly used the corresponding session. Unknown response IDs and unscoped event notifications are dropped; heartbeats are global.
+- Bounded per-client writers isolate slow readers. Overflow or a write deadline closes that connection and clears its pending responses; it never silently drops an individual response and continues the stream.
+- Callers should treat access to the user's local account as access to the browser automation channel. These controls do not authenticate separate applications running as that user.
 
-Planned hardening includes client tokens, peer validation, safer stale-socket handling, and security-focused failure-path tests.
+Application-level client authentication and user-configured site policies remain unimplemented. Transport behavior and tested failure boundaries are documented in [Local IPC transport](references/local-ipc-transport.md).
+
+## User Pause
+
+The browser action popup can pause all Agent sessions. Pause blocks new work,
+invalidates old control epochs, and releases tracked native input before
+detaching. It does not close or move pages. Failed cleanup stays blocked; Resume
+requires confirmed cleanup, and callers must explicitly begin a new turn.
+Persisted paused state survives a worker restart. It cannot undo an input that
+already reached a page or stop that page's own timers, network, or downloads.
+
+The native RPC interface has no Pause/Resume setter. Mutation messages require
+the extension's real action popup. Automation also rejects this extension's own
+control pages and raw Target attach/tunneling commands that bypass an owned tab.
+These guards protect the normal user-control path; they do not sandbox arbitrary
+CDP or authenticate hostile programs running under the same local account.
+See [control lifecycle](references/control-lifecycle.md) for exact sender checks,
+command compatibility limits, cleanup deadlines, and restart recovery limits.
 
 ## Chrome Extension Permissions
 
 The MV3 extension uses high-privilege Chrome APIs because browser control requires them:
+
+The development build declares Chromium 125 as its minimum API baseline: flat
+child debugger sessions require [Chrome 125](https://developer.chrome.com/docs/extensions/reference/api/debugger#type-DebuggerSession),
+and the user-control popup identity check uses
+[runtime.getContexts](https://developer.chrome.com/docs/extensions/reference/api/runtime#method-getContexts).
+This declaration is an API requirement, not evidence that every Chromium-based
+browser at that version has been tested. Current native acceptance is recorded
+separately in the capability matrix and Edge installation reference.
 
 - `chrome.debugger` for CDP access.
 - `tabs` and `tabGroups` for tab and session management.
@@ -63,7 +91,8 @@ Users must understand that installing and enabling the extension allows Open Bro
 Clipboard, download, and file chooser features are sensitive.
 
 - Clipboard helpers run through the controlled page context and should only be called for explicit user workflows.
-- Download paths and file chooser paths can reveal private filesystem structure; do not log them unless needed, and redact them from shared reports.
+- File chooser paths can reveal private filesystem structure; do not log them unless needed, and redact them from shared reports. The current download API tracks owned CDP GUIDs but cannot reliably map them to a local path, so `downloadPath` explicitly reports unsupported instead of guessing from global browser downloads.
+- Chooser records retain their originating tab, frame, attachment and control epoch; stale or foreign records are rejected. See [File transfers](references/file-transfers.md) for deadlines and unsupported cases.
 - Integrations should confirm uploads, downloads, file selection, form submission, purchases, deletion, and external message sending before execution.
 
 ## Secrets And Data Handling

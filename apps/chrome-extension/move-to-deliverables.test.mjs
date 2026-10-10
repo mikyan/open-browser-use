@@ -215,16 +215,17 @@ __obu_export("DELIVERABLE_GROUP_TITLE", DELIVERABLE_GROUP_TITLE);
 
 function makeController(SessionStore, BrowserBackend) {
   const store = new SessionStore();
-  // BrowserBackend constructor signature is unknown; build a minimal stub
-  // that only relies on `this.store`.
+  // This isolated grouping fixture permits automation explicitly; pause races
+  // are covered with the complete backend in pause-control.test.mjs.
   const controller = Object.create(BrowserBackend.prototype);
   controller.store = store;
+  controller.automationControl = { assertOpen() {} };
   controller.activeTabsBySession = new Map();
   return { controller, store };
 }
 
 async function run() {
-  const bgSource = (await readFile(BG_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
+  const bgSource = (await readFile(BG_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 
   // === Test 1: existing deliverable group is reused (no duplicate created) ===
   {

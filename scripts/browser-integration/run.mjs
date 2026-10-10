@@ -12,6 +12,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
+import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 
 // Playwright supplies the browser executable only. No Playwright page/context
 // connection is used: all browser actions go through the public SDK and host.
@@ -138,6 +139,7 @@ async function workerConnection(url) {
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/pause-fixture") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(pauseFixture()); return; }
   if (route === "/diagnostics/fail") { request.socket.destroy(); return; }
   if (route === "/diagnostics/redirect") { response.writeHead(302, { Location: "/diagnostics/data" + new URL(request.url, "http://localhost").search }); response.end(); return; }
   if (route === "/diagnostics/data") { response.setHeader("Content-Type", "application/json"); response.end('{"ok":true}'); return; }
@@ -216,6 +218,7 @@ try {
   };
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -247,7 +250,7 @@ try {
   await fs.writeFile(path.join(profile, "Default", "Preferences"), JSON.stringify({ download: { default_directory: path.join(runDir, "downloads"), prompt_for_download: false } }));
   chrome = spawn(chromiumBinary, [
     `--user-data-dir=${profile}`, "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
-    "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "--window-size=1280,1000", "about:blank"
+    "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "about:blank"
   ], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   chrome.stderr.on("data", data => browserLog.push(data.toString()));
   chrome.on("exit", (code, signal) => browserLog.push(`Browser exited: ${code} ${signal}\n`));
@@ -639,7 +642,7 @@ try {
   });
   await test("js-control-worker-restart", async () => {
     const recovery = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-worker-recovery", timeoutMs: 15000 });
-    let browserControl, popupControl, popupId;
+    let browserControl, popupControl, popupId, observerInstalled = false;
     try {
       const owned = await recovery.newTab({ url: fixtureURL });
       const oldEpoch = recovery.client.controlEpoch;
@@ -653,7 +656,9 @@ try {
       popupId = popup.targetId;
       const popupTarget = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id === popupId), "test popup target");
       popupControl = await workerConnection(popupTarget.webSocketDebuggerUrl);
+      await until(() => popupControl.evaluate(`location.href===${JSON.stringify(`chrome-extension://${extensionId}/popup.html`)}&&document.readyState==='complete'&&typeof chrome.tabs?.onActivated?.addListener==='function'`), "loaded activation observer document");
       await popupControl.evaluate("globalThis.__restartActivations=[];chrome.tabs.onActivated.addListener(info=>globalThis.__restartActivations.push(info))");
+      observerInstalled = true;
       await activeInvariant();
       await popupControl.call("ServiceWorker.enable");
       const workerVersion = await until(() => popupControl.events.filter(event => event.method === "ServiceWorker.workerVersionUpdated").flatMap(event => event.params.versions).find(value => value.scriptURL === oldTarget.url && value.runningStatus === "running"), "extension worker version");
@@ -665,6 +670,7 @@ try {
       worker = await workerConnection(restarted.webSocketDebuggerUrl);
       await until(() => extensionSocket !== priorSocket && extensionSocket?.readyState === WebSocket.OPEN, "restarted native adapter");
       const restartEvents = await popupControl.evaluate("globalThis.__restartActivations");
+      assert.ok(Array.isArray(restartEvents), "The activation observer document changed during worker restart");
       await worker.evaluate(`globalThis.__integrationActivations=${JSON.stringify([...previousActivations, ...restartEvents])};chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info))`);
       await assert.rejects(recovery.client.getTabs(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       assert.equal(recovery.client.controlEpoch, oldEpoch, "restart silently refreshed the client");
@@ -677,8 +683,9 @@ try {
     } finally {
       try { await recovery.client.finalizeTabs([]); } finally {
         recovery.close();
-        if (popupControl) {
+        if (observerInstalled) {
           const observed = await popupControl.evaluate("globalThis.__restartActivations");
+          assert.ok(Array.isArray(observed), "The activation observer document changed before cleanup");
           await worker.evaluate(`globalThis.__integrationActivations.push(...${JSON.stringify(observed)})`);
         }
         if (popupId) await browserControl?.call("Target.closeTarget", { targetId: popupId });
@@ -686,6 +693,38 @@ try {
       }
     }
   });
+  await test("js-user-global-pause-popup", async () => checkGlobalPause({
+    connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
+    getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until,
+    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify(detail, null, 2)),
+    connectPage: async url => {
+      const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
+      return workerConnection(target.webSocketDebuggerUrl);
+    },
+    capture: async (name, page) => {
+      const screenshot = await page.call("Page.captureScreenshot", { format: "png" });
+      const { bytes } = pngDimensions(screenshot.data);
+      await fs.writeFile(path.join(runDir, `${name}.png`), bytes);
+    },
+    restartWorker: async observer => {
+      const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
+      await observer.evaluate("globalThis.__pauseActivations=[];chrome.tabs.onActivated.addListener(info=>globalThis.__pauseActivations.push(info))");
+      const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
+      const oldTarget = targets.find(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
+      await observer.call("ServiceWorker.enable");
+      const version = await until(() => observer.events.filter(event => event.method === "ServiceWorker.workerVersionUpdated").flatMap(event => event.params.versions).find(value => value.scriptURL === oldTarget.url && value.runningStatus === "running"), "paused worker version");
+      const priorSocket = extensionSocket;
+      worker.close();
+      await observer.call("ServiceWorker.stopWorker", { versionId: version.versionId });
+      await observer.call("ServiceWorker.startWorker", { scopeURL: `chrome-extension://${extensionId}/` });
+      const restarted = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id !== oldTarget.id && target.type === "service_worker" && target.url === oldTarget.url), "paused restarted worker");
+      worker = await workerConnection(restarted.webSocketDebuggerUrl);
+      await until(() => extensionSocket !== priorSocket && extensionSocket?.readyState === WebSocket.OPEN, "paused restarted native adapter");
+      const observed = await observer.evaluate("globalThis.__pauseActivations");
+      await worker.evaluate(`globalThis.__integrationActivations=${JSON.stringify([...previousActivations, ...observed])};chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info))`);
+      return { oldTarget: oldTarget.id, restartedTarget: restarted.id, activeEvents: observed };
+    }
+  }));
   activeEvents = await worker.evaluate("globalThis.__integrationActivations");
 } catch (error) {
   records.push({ name: "fatal", passed: false, error: error.stack }); console.error(error);

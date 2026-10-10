@@ -465,6 +465,12 @@ waiters are blocking: use a separate client with the same session for the trigge
 and keep their control epoch current. Ending or detaching invalidates old chooser
 handles and cancels outstanding waits.
 
+Starting a separate Python/Go thread or process is not proof that the waiter has
+reached the extension before the trigger. These synchronous clients currently
+lack a public registration-ready acknowledgement; prefer the same-client JS
+pattern above for reliable concurrent chooser/click workflows instead of adding
+an arbitrary sleep or assuming process startup establishes ordering.
+
 Download waits similarly register before the trigger and return an opaque
 task-scoped GUID. Do not infer a local path or reuse another task's download ID.
 The current extension reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` for local path

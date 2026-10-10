@@ -2,15 +2,22 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
+import { createRequire } from "node:module";
+import { EventEmitter } from "node:events";
+
+const require = createRequire(new URL("../apps/chrome-extension/package.json", import.meta.url));
+const packageDir = path.dirname(require.resolve("playwright-crx/package.json"));
+const entry = await fs.readFile(path.join(packageDir, "lib/index.mjs"), "utf8");
+const chunkName = /from ["']\.\/([^"']+\.mjs)/.exec(entry)[1];
+const upstream = await fs.readFile(path.join(packageDir, "lib", chunkName), "utf8");
 import { buildChromeExtension, patchCrxTransport } from "./build-chrome-extension.mjs";
 
-test("CRX observer patch fails closed when pinned upstream transport changes", () => {
+test("CRX observer patch fails closed when pinned upstream transport changes", async () => {
   const command = "return await chrome.debugger.sendCommand(debuggee, method, commandParams);";
   assert.throws(() => patchCrxTransport("unexpected library"), /shape changed/);
   assert.throws(() => patchCrxTransport(command + command), /shape changed/);
   assert.throws(() => patchCrxTransport(command), /frame transport shape changed/);
-  const shape = [command, '__publicField(this, "_onDebuggerEvent", ({ tabId, sessionId }, message, params) => {', '      if (debugLogger.isEnabled(`chromedebugger`))', '  _emitMessage(message) {\n    if (this.onmessage)\n      this.onmessage(message);\n  }', '    await chrome.debugger.detach({ tabId }).catch(() => {\n    });'].join("\n");
-  const patched = patchCrxTransport(shape);
+  const patched = patchCrxTransport(upstream);
   assert.match(patched, /Modified by Open Browser Use/);
   assert.match(patched, /method === "Input.dispatchMouseEvent"/);
   assert.match(patched, /return result/);
@@ -18,8 +25,101 @@ test("CRX observer patch fails closed when pinned upstream transport changes", (
   assert.match(patched, /await prepareCrxChildFrame/);
   assert.match(patched, /observeCrxFrameMessage\(this, message\)/);
   assert.match(patched, /refreshCrxCachedLifecycle\(this, message\)/);
-  assert.match(patched, /try \{ await releaseCrxInput\(this, tabId\); \} finally/);
+  assert.match(patched, /openBrowserUseInputHooks\.send\(debuggee, method, commandParams, operation\)/);
   assert.match(patched, /observeCrxInputCommand\(this, debuggee, method, commandParams\)/);
+});
+
+function detachMethods(hooks, chrome, applicationHooks = hooks) {
+  const source = patchCrxTransport(upstream);
+  const transportBody = source.slice(source.indexOf('  async detach(tabOrTarget'), source.indexOf('  close() {', source.indexOf('  async detach(tabOrTarget')));
+  const appBody = source.slice(source.indexOf('  async _doDetach(targetId)'), source.indexOf('\n};', source.indexOf('  async _doDetach(targetId)')));
+  return {
+    transport: new Function('openBrowserUseInputHooks', 'chrome', 'releaseCrxInput', 'return ({'+transportBody+'}).detach')(hooks, chrome, async () => {}),
+    application: new Function('Page$1', 'openBrowserUseInputHooks', 'return ({'+appBody+'})._doDetach')({ Events: { Close: 'close' } }, applicationHooks)
+  };
+}
+function transportFixture(detach, targetInfo = { targetId: 'same-target' }) {
+  return { _tabToTarget: new Map([[42, targetInfo]]), _targetToTab: new Map([[targetInfo.targetId, 42]]), _emitDetachedToTarget() {}, isIncognito: () => false, detach };
+}
+
+test("CRX native cleanup preserves failures and binds input release before Page close", async () => {
+  let token = {}, releases = 0, nativeDetaches = 0, finishRelease;
+  const originalToken = token;
+  const hooks = { prepareRelease: () => {
+    const captured = token;
+    return { release: async () => { releases++; await new Promise(resolve => { finishRelease = resolve; }); }, isCurrent: () => token === captured, detach: async () => { nativeDetaches++; } };
+  } };
+  const methods = detachMethods(hooks, {});
+  const target = { targetId: 'same-target' };
+  const transport = transportFixture(methods.transport, target);
+  const oldDetach = transport.detach(42, target);
+  assert.equal(releases, 1);
+  token = {};
+  const successor = { targetId: 'same-target' };
+  transport._tabToTarget.set(42, successor);
+  transport._targetToTab.set(successor.targetId, 42);
+  finishRelease();
+  await oldDetach;
+  assert.equal(nativeDetaches, 0);
+  assert.equal(transport._tabToTarget.get(42), successor);
+  assert.notEqual(token, originalToken);
+
+  let failRelease = true;
+  const failureMethods = detachMethods({ prepareRelease: () => ({
+    release: async () => { if (failRelease) throw new Error('release pending'); },
+    isCurrent: () => true,
+    detach: async () => { nativeDetaches++; throw new Error('native detach failed'); }
+  }) }, {});
+  await assert.rejects(failureMethods.transport.call(transportFixture(failureMethods.transport), 42), /release pending/);
+  assert.equal(nativeDetaches, 0);
+  failRelease = false;
+  await assert.rejects(failureMethods.transport.call(transportFixture(failureMethods.transport), 42), /native detach failed/);
+  assert.equal(nativeDetaches, 1);
+});
+
+test("old CRX application detach cannot remove a replacement attachment after awaited page initialization", async () => {
+  let releases = 0, nativeDetaches = 0, finishInitialization;
+  const methods = detachMethods({ prepareRelease: () => ({ release: async () => { releases++; }, isCurrent: () => true, detach: async () => { nativeDetaches++; } }) }, {}, null);
+  const original = { targetId: 'same-target' };
+  const transport = transportFixture(methods.transport, original);
+  const page = Object.assign(new EventEmitter(), { hideHighlight: async () => {} });
+  const app = { _transport: transport, isIncognito: () => false, _crPageByTargetId: () => ({ _page: { waitForInitializedOrError: () => new Promise(resolve => { finishInitialization = resolve; }) } }) };
+  const oldDetach = methods.application.call(app, original.targetId);
+  const successor = { targetId: original.targetId };
+  transport._tabToTarget.set(42, successor);
+  finishInitialization(page);
+  await oldDetach;
+  assert.equal(releases, 0);
+  assert.equal(nativeDetaches, 0);
+  assert.equal(transport._tabToTarget.get(42), successor);
+  assert.equal(transport._targetToTab.get(successor.targetId), 42);
+
+  app._crPageByTargetId = () => ({ _page: { waitForInitializedOrError: async () => page } });
+  transport._emitDetachedToTarget = () => page.emit('close');
+  await methods.application.call(app, successor.targetId);
+  assert.equal(releases, 1);
+  assert.equal(nativeDetaches, 1);
+  assert.equal(transport._tabToTarget.size, 0);
+});
+
+test("production CRX detach closes Page before any optional initialization or highlight wait", async () => {
+  let finishRelease, pageClosed = false, detached = false;
+  const methods = detachMethods({ prepareRelease: () => ({
+    release: () => new Promise(resolve => { finishRelease = resolve; }),
+    isCurrent: () => true,
+    detach: async () => { detached = true; }
+  }) }, {});
+  const transport = transportFixture(methods.transport);
+  transport._emitDetachedToTarget = () => { pageClosed = true; };
+  const app = { _transport: transport, isIncognito: () => false, _crPageByTargetId: () => ({
+    _page: { waitForInitializedOrError() { throw new Error("must not wait for optional Page work before cancellation"); } }
+  }) };
+  const closing = methods.application.call(app, 'same-target');
+  assert.equal(pageClosed, true);
+  assert.equal(detached, false);
+  finishRelease();
+  await closing;
+  assert.equal(detached, true);
 });
 
 test("extension build includes runnable pinned ESM and third-party notices, not tests", async () => {

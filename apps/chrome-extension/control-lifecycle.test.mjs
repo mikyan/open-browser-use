@@ -4,7 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))
-  .replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
+  .replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 const code = source.slice(0, source.indexOf("chrome.runtime.onInstalled.addListener"));
 const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));

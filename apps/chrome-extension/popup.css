@@ -269,3 +269,37 @@ dd {
   outline: 2px solid #78a8ff;
   outline-offset: 2px;
 }
+
+.automation-message {
+  margin-top: 9px;
+  color: #323b4b;
+}
+
+.control-button {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #253b56;
+  border-radius: 7px;
+  background: #253b56;
+  color: white;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.control-button:hover:not(:disabled) { background: #354f70; }
+.control-button:disabled { opacity: 0.6; cursor: default; }
+.control-button:focus-visible { outline: 2px solid #78a8ff; outline-offset: 2px; }
+.control-hint { margin-top: 8px; color: #657084; font-size: 11px; }
+#automation-error { overflow-wrap: anywhere; }
+#automation-status-pill[data-state="unknown"] { border-color: #d9dee7; background: #f8fafc; color: #4b5565; }
+#automation-status-pill[data-state="unknown"] .status-dot { background: #9aa4b2; box-shadow: 0 0 0 3px rgba(154, 164, 178, 0.16); }
+
+.status-pill[data-state="running"] { border-color: #c9ead5; background: #f0fbf4; color: #146c33; }
+.status-pill[data-state="running"] .status-dot { background: #18a64a; box-shadow: 0 0 0 3px rgba(24, 166, 74, 0.16); }
+.status-pill[data-state="pausing"], .status-pill[data-state="paused"] { border-color: #f3d9b2; background: #fff8ed; color: #8a4b00; }
+.status-pill[data-state="pausing"] .status-dot, .status-pill[data-state="paused"] .status-dot { background: #d97706; box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.16); }
+.status-pill[data-state="error"] { border-color: #f1c4c0; background: #fff5f4; color: #a3342a; }
+.status-pill[data-state="error"] .status-dot { background: #d34235; box-shadow: 0 0 0 3px rgba(211, 66, 53, 0.16); }

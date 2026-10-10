@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "125",
   "name": "Open Browser Use",
   "description": "Open Browser Use Chrome automation extension.",
   "version": "1.0.0",

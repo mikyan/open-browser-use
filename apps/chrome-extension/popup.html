@@ -17,6 +17,20 @@
         <span class="version-pill" id="extension-version" aria-label="Extension version"></span>
       </header>
 
+      <section class="panel automation-panel" aria-labelledby="automation-title">
+        <div class="section-heading">
+          <span class="eyebrow" id="automation-title">Automation control</span>
+          <span class="status-pill" id="automation-status-pill" data-state="unknown" role="status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="automation-status-label">Checking</span>
+          </span>
+        </div>
+        <p class="automation-message" id="automation-message">Checking automation control…</p>
+        <button class="control-button" id="automation-toggle" type="button" disabled>Check status</button>
+        <p class="control-hint" id="automation-hint">After resuming, ask your agent to continue.</p>
+        <p class="error-message" id="automation-error" role="alert" hidden></p>
+      </section>
+
       <section class="panel" aria-labelledby="connection-title">
         <div class="section-heading">
           <span class="eyebrow" id="connection-title">Connection</span>
@@ -63,6 +77,6 @@
         </a>
       </section>
     </main>
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

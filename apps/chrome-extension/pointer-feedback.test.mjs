@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
+const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
 assert.notEqual(runtimeStart, -1);
 const session = { session_id: "pointer-test", turn_id: "turn-1" };
@@ -59,6 +59,8 @@ async function loadBackend({ sendCommand, sendMessage, inject } = {}) {
   state.activeTabId = 7;
   backend.activeTabsBySession.set(session.session_id, 7);
   backend.attachedTabs.add(7);
+  backend.attachmentEpochs.set(7, {});
+  backend.inputTracker.register(7, backend.attachmentEpochs.get(7));
   return { backend, calls, result };
 }
 
@@ -259,6 +261,8 @@ test("a detached queue cannot revive after a new attachment creates another queu
   const oldQueue = backend.pointerFeedbackByTabId.get(7);
   await backend.detachTab(7);
   backend.attachedTabs.add(7);
+  backend.attachmentEpochs.set(7, {});
+  backend.inputTracker.register(7, backend.attachmentEpochs.get(7));
   await backend.executeCdp(mouse("mouseMoved", { commandParams: { type: "mouseMoved", x: 240, y: 160 } }));
   await flushFeedback(backend);
   ping.resolve({ ok: true });

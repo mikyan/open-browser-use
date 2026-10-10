@@ -77,6 +77,108 @@ A never-observed legacy turn ID cannot reveal whether it is a delayed old reques
 or an intentional new cycle. Strict rejection of that case requires negotiated
 epochs. Removing finalized tab state does not remove the control ledger.
 
+## User Pause and Resume
+
+The action popup sends `GET_AUTOMATION_CONTROL_STATUS`, `PAUSE_AUTOMATION`, and
+`RESUME_AUTOMATION` extension messages. Resume includes `expectedRevision` from
+the displayed status; a stale revision fails instead of replaying a transition.
+The status is `{state, inputBlocked, revision, cleanupComplete, error?}`, where
+`state` is `running`, `pausing`, `paused`, or `error`. The UI labels `error` as
+Failed and permits Retry pause, never Resume, until cleanup succeeds.
+
+Pause immediately blocks admission, cancels queued engine work and rendering
+leases, and hides pointer feedback. It persists the pause intent and outstanding
+tab IDs before acknowledging cleanup. It invalidates every session epoch,
+including idle bootstrap records, and permanently requires negotiated epochs
+for all legacy callers. `getControlState` also fails while paused; only `ping`
+and `getInfo` remain usable bootstrap RPCs. Resume does not create work, replay
+requests, or restore attachments. An Agent must explicitly begin a new turn.
+
+Cleanup shares raw CDP and CRX input state by exact attachment token and native
+child session. It waits for native input completion even if the caller already
+received an RPC timeout, then releases tracked pointer buttons, keys, touch,
+and drag state on the original target. A native debugger detach by itself is
+not proof that renderer-held input was released. Failed release retains the
+original native attachment for retry; the old request cannot resume input.
+Pointer/capture queues are cancelled even if that attachment must be retained.
+Every new CRX protocol command, including Runtime-based form mutations, checks
+the pause gate and attachment release state. Production teardown closes the
+Playwright Page before asynchronous native release instead of waiting for
+optional recorder/highlight cleanup. Native cleanup uses its separate direct
+send path so blocked automation can still release input.
+
+In an isolated Chromium 156 fixture, raw `dragCancel` retained pointer capture
+after a pressed mouse button. It therefore clears drag state but keeps the
+button tracked until native `mouseReleased` completes. The corrected Pause
+produced trusted `pointerup`/`lostpointercapture` events and cleared capture;
+the foreground sentinel stayed unchanged. A normal native release may also
+produce a click. Cleanup does not claim to undo application event handlers.
+
+Pause and Resume each have a 10-second deadline starting at message admission,
+including time queued behind an earlier transition. Pause immediately clears
+the cleanup-complete flag. Its budget also covers storage, pending attachments,
+native inputs, and accepted requests. Initial status queries bound their storage
+read by the same budget; a stuck read reports Failed and blocks admission, and
+a late stored Running value cannot reopen it. Failure or timeout
+keeps admission blocked and cleanup unconfirmed. Retry checks the original
+pending work instead of treating an empty tracker as successful release. A
+successful Pause durably records completion. If persistence fails, the current
+worker stays blocked and reports failure; it cannot promise persistence across
+a restart until a write actually succeeds.
+
+A timed-out Resume cannot unlock admission when its write eventually completes.
+The worker serializes a `paused: true` repair after any already-submitted
+`paused: false` write. Until that repair succeeds, a crash can observe the false
+write without the later true value; an uncertain Resume followed by a failed
+Pause does not establish durable pause across restart. The UI reports failure
+and the current worker remains blocked throughout that interval.
+
+On worker restart, a saved paused state remains blocked. Outstanding saved tab
+IDs indicate input whose in-memory release state was lost: recovery cannot
+silently certify it clean while the previously controlled page remains open.
+Close those previously controlled pages and retry Pause. The extension never
+closes, moves, groups, or activates tabs as part of Pause. An already-issued tab
+disposition can finish, but later disposition steps are fenced. IDs may be reused
+across a complete browser restart; this slice does not certify that scenario or
+identify an unrelated new tab as the original page.
+
+Mutation messages require the exact extension ID and popup URL, no sender tab,
+and a matching live `POPUP` context from `runtime.getContexts`. A sender document
+ID, when supplied, must match. Chrome 156's real action-popup sender omitted that
+field; ordinary extension-tab senders included it and a tab. The native RPC
+allowlist exposes no Pause/Resume setter. This is a user control boundary, not
+authentication against malicious same-account programs or arbitrary extension
+code. Page JavaScript timers and other effects already delivered cannot be
+rolled back by Pause.
+
+The product also refuses control of its own `chrome-extension://<id>/` pages:
+claim and session-tab authorization inspect both `url` and `pendingUrl`, and
+explicit `goto`, raw `Page.navigate`, and `Target.createTarget` destinations are
+checked. Matching parses the protocol and hostname, including URLs with query
+or fragment, instead of comparing a prefix or opaque URL origin. A native Edge
+probe proved that the debugger API itself permits attaching to the extension's
+ordinary popup tab, so the product cannot rely on Chrome to enforce this guard.
+
+Raw `Target.attachToTarget`, `Target.attachToBrowserTarget`, and
+`Target.sendMessageToTarget` are rejected. These can select or tunnel commands
+to targets outside the already authorized tab. Use `Target.setAutoAttach` and
+the returned flat child `sessionId` relative to the owned tab instead. Other
+raw `Target.*` commands carrying a `targetId` must prove that it is the same tab
+root; an unprovable iframe/worker target is rejected. The engine's internal CRX
+transport is separate from this raw entry point. These compatibility limits
+close known direct paths; they are not a general website policy or sandbox for
+arbitrary raw CDP/page programs.
+
+Native detach completion, rather than an assumed `onDetach` callback, is the
+explicit release boundary. In isolated Edge 153, explicit detach resolved in
+6 ms and produced no `onDetach` in the following 1.5-second observation window;
+closing the tab produced `target_closed` as a positive control. This agrees with
+[Chrome's documented onDetach event](https://developer.chrome.com/docs/extensions/reference/api/debugger#event-onDetach),
+which describes browser-initiated termination. Cleanup captures the native
+attachment token before asynchronous CRX teardown so an old release cannot
+release input or detach a successor. No sleep or nonexistent event barrier is
+used to claim completion.
+
 ## Errors and verification
 
 Lifecycle errors use the existing JSON-RPC `-32000` envelope and stable prefixes:
@@ -91,6 +193,15 @@ Lifecycle errors use the existing JSON-RPC `-32000` envelope and stable prefixes
 | `OBU_CONTROL_RELEASE_FAILED` | At least one debugger release failed |
 | `OBU_CONTROL_STATE_INVALID` | Persisted state is invalid; epochs are not reset |
 | `OBU_CONTROL_EPOCH_EXHAUSTED` | The global safe-integer counter cannot advance |
+| `OBU_AUTOMATION_PAUSED` | User control blocks requests, including epoch bootstrap |
+| `OBU_AUTOMATION_PAUSE_FAILED` | Pause cleanup is unconfirmed and admission stays blocked |
+| `OBU_AUTOMATION_CLEANUP_TIMEOUT` | Pause's total cleanup deadline expired |
+| `OBU_INPUT_RELEASE_UNCONFIRMED` | Native held input or restart cleanup is unresolved |
+| `OBU_AUTOMATION_PAUSE_INCOMPLETE` | Resume requires a successful cleanup first |
+| `OBU_CONTROL_REVISION_CONFLICT` | The popup attempted Resume using an old revision |
+| `OBU_CONTROL_FORBIDDEN` | The sender is not a current action popup |
+| `OBU_EXTENSION_UI_PROTECTED` | Automation attempted to control this extension's own UI |
+| `OBU_CDP_TARGET_UNOWNED` | A raw command selects or tunnels to an unproven target |
 
 Original storage and Chrome inventory errors are preserved. Public RPC dispatch
 uses an explicit allowlist; internal lifecycle helpers and inherited object
@@ -104,3 +215,28 @@ verified cancellation, successor name/create/attach, and actual service-worker
 stop/start: old epochs failed, a new epoch attached, and the foreground sentinel
 tab remained active throughout. Extension reload and browser/host process restart
 are separate deployment scenarios, not implied by that worker-restart check.
+
+`node --test apps/chrome-extension/pause-control.test.mjs` additionally covers
+durable pause, idle-epoch invalidation, startup/end/bootstrap races, stale
+Resume, late native input, failed release retry, bounded stuck cleanup, pending
+restart state, rendering cancellation, and exact attachment release tokens.
+The final native Edge 153 fixture `held-pause-final-9iHGCP` uses the real Go
+native host and JS SDK. The actual action popup pauses held pointer/Shift input
+and cancels a pending locator. A test-only native mouse-release failure leaves
+control blocked and displays Failed; removing that fault and clicking Retry
+pause releases the same attachment. Running, Paused, Failed, and successful
+retry screenshots were inspected. No active-tab event occurred, and the
+temporary host registration was removed. Stored source hashes match the final
+production backend, engine, input tracker, popup controller, and CRX bundle.
+
+Separate native fixtures reproduce dragCancel retaining pointer capture and
+the old asynchronous-highlight teardown allowing a date fill after Pause. The
+fixed versions release capture and keep the newly appeared date input empty.
+Those fixtures inject controlled scheduling/failures for reproducibility; they
+do not claim that a page's already-running JavaScript can be rolled back.
+
+The full headed acceptance suite passed 26/26 twice on identical production
+artifacts (`run-qjsIiJ`, `run-uTXspB`). Both runs recorded no active-tab events;
+normal Pause completed in 110 ms each. They include real popup sender checks,
+direct paused RPC rejection, dragCancel input release, persisted Pause across
+worker replacement, stale Resume rejection, and explicit new turns after Resume.

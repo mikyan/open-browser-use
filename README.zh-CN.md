@@ -119,6 +119,36 @@ args = ["mcp"]
 这个 MCP server 会暴露标签页列表、打开/接管标签页、导航、CDP、action plan
 和清理等浏览器工具。
 
+## 本地开发版
+
+本分支新增 Playwright 操作引擎、后台页面反馈和 Windows named-pipe 通信，
+尚未发布到上面的安装渠道。先构建匹配的本地产物：
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build:chrome-extension
+go build -o dist/ ./cmd/open-browser-use
+```
+
+在扩展管理页面加载 `dist/chrome-extension-unpacked/`。源码目录缺少生成的
+引擎依赖，不能直接加载。开发版要求 Chromium 125 或更新版本；这是 API 下限，
+实际测试过的浏览器与未完成项见[能力矩阵](docs/product-specs/browser-use-parity.md)。
+`scripts/package-chrome-extension.sh` 将相同构建产物打包成 ZIP。
+
+使用 `dist/` 中新构建的 CLI 和本仓库内的 SDK；公开发行包不包含这些本地改动。
+按实际加载的扩展 ID 注册这个 CLI 作为 native host，Windows Edge 的命令见
+[本地注册说明](docs/references/edge-installation.md)。
+
+扩展工具栏弹窗中的 **Pause all agents** 可暂停所有 Agent；清理失败时保持
+阻断，点击 **Retry pause** 重试。**Resume control** 只允许 Agent 开始新轮次，
+不会重放旧任务。暂停保留页面，无法撤销已发生的页面操作。
+
+JS、Python、Go SDK 提供语义定位与自动等待，CLI/MCP 共用
+[浏览器动作协议](docs/references/browser-action-protocol.md)。
+`make ci` 包含平台检查和 SDK 到真实 Go host 的通信回归，
+[浏览器验收套件](scripts/browser-integration/README.md)检查真实页面操作与前台标签页保持。
+
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE)。打包的 Playwright CRX/Playwright 组件保留 Apache-2.0 许可证，
+构建产物包含其 LICENSE 和 NOTICE。

@@ -142,14 +142,27 @@ Build matching local artifacts before trying the new SDK actions:
 ```sh
 pnpm install --frozen-lockfile
 pnpm build:chrome-extension
+go build -o dist/ ./cmd/open-browser-use
 ```
 
-Load `dist/chrome-extension-unpacked/` as the development extension. The source
+Load `dist/chrome-extension-unpacked/` as the development extension in Chromium
+125 or later. This is the API minimum; tested browsers are listed in the capability
+matrix. The source
 directory needs its generated engine dependencies and cannot be loaded directly.
 `scripts/package-chrome-extension.sh` packages the same built artifact, including
 the engine's Apache-2.0 LICENSE and NOTICE.
 
-JavaScript and Python SDKs expose semantic locators and automatic waits; all
+Use the CLI built in `dist/` and the SDK packages from this checkout; published
+packages do not include these local changes. Register that CLI as the native
+host for the loaded extension's actual ID. For Windows Edge, follow the
+[local manifest instructions](docs/references/edge-installation.md).
+
+Use **Pause all agents** in the extension's toolbar popup to block automation.
+Failed cleanup stays blocked and offers **Retry pause**. **Resume control**
+permits a new turn; it never replays old work. Pause preserves pages and cannot
+undo actions already delivered to them.
+
+JavaScript, Python, and Go SDKs expose semantic locators and automatic waits; all
 clients can use the shared [browser action protocol](docs/references/browser-action-protocol.md).
 The [capability matrix](docs/product-specs/browser-use-parity.md) records remaining
 work and verified scope. Run `make ci` for the platform checks, including real

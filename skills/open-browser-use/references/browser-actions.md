@@ -76,6 +76,23 @@ code. Incognito engine attachment, closed shadow roots, and newer Playwright AI
 snapshot refs/boxes are not supported. Coordinate input uses browser debugging
 commands and does not move the system cursor.
 
+## Respect user pause
+
+`getInfo.metadata.automationControl` reports whether browser automation is
+running, pausing, paused, or blocked by a cleanup/storage error. After
+`OBU_AUTOMATION_PAUSED` or `OBU_AUTOMATION_PAUSE_FAILED`, stop submitting browser
+work and tell the user the current state. Do not attempt to resume through CDP,
+extension storage, or another browser connection. The user controls Pause and
+Resume from the extension's toolbar popup.
+
+After the user resumes, explicitly call `beginTurn()` / `begin_turn()` /
+`BeginTurn()` (CLI: `begin-turn`; MCP: `begin_turn`) before submitting new work.
+Inspect the page again and choose the next action; never replay the old queue.
+Pause preserves tabs and cannot undo input already delivered to a page. Releasing
+a held mouse button may produce a normal pointerup/click. The page's own scripts,
+network requests and downloads already started can continue; pause stops new
+automation commands, not all page activity.
+
 ## Diagnose a failed page task
 
 Use `tab.diagnostics()` (Go: `tab.Diagnostics()`) or `browserAction` with

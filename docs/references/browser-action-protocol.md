@@ -102,8 +102,18 @@ so pending auto-waits are cancelled. Its deadline detaches before reporting expi
 including mouse/keyboard methods that lack native timeout options. Transport
 timeouts must leave enough time for the requested deadline and cancellation.
 An input already delivered to the browser cannot be undone and is never replayed.
-Teardown cancels Playwright first and then makes a bounded attempt to release
-observed pressed buttons, keys, and native dragging before detaching the debugger.
+Teardown cancels Playwright first and then makes a bounded attempt to drain
+native sends and release pressed buttons, keys, touches, and native dragging
+before detaching the debugger. Raw CDP and Playwright share one tracker keyed by
+the original attachment and root/child session. Input intent is recorded before
+the native send; an RPC timeout is not evidence that a `down` never arrived.
+Successful `up` completion clears only its matching press. Release uses the
+original target and last coordinates, including for out-of-process frames.
+Cleanup failure retains the original native attachment and unconfirmed input
+for an explicit cleanup retry; an empty later detach must not report success.
+Closing the original tab and confirming its removal is the recovery boundary
+when native input can no longer be released. Detaching a debugger by itself
+does not release captured pointers in Chromium.
 Buttons are released at their last known position to preserve native pointer-up
 and pointer-capture behavior.
 This is input cleanup, not transaction rollback: a delivered `mousedown` and its
@@ -174,10 +184,11 @@ builds this same artifact. Only production files and the pinned upstream ESM
 modules are copied; no generated multi-megabyte library is committed.
 
 The build verifies the pinned upstream chunk's SHA-256 and each modified source
-shape before applying explicit transport adapters to CRX. It
-notifies after successful CRX pointer commands, and cannot fail or change the
-command. This does not replace `chrome.debugger.sendCommand` globally or intercept
-the backend's raw CDP/screenshot implementation. Included LICENSE, NOTICE and
+shape before applying explicit transport adapters to CRX. Its pointer feedback
+observer runs after successful commands and cannot fail or change them.
+Separate scoped input hooks track native sends and release for both CRX and the
+backend's raw CDP route; they can refuse input while release is in progress.
+This does not replace `chrome.debugger.sendCommand` globally. Included LICENSE, NOTICE and
 MODIFICATIONS.txt preserve attribution and document the modifications.
 
 On late attachment, `chrome.debugger` can return a parent `Page.getFrameTree`
@@ -199,7 +210,7 @@ that a restored document will not emit.
 
 `browser-runtime.js` statically imports the vendor ESM: MV3 service workers do not
 support dynamic `import()`. The dispatcher itself takes an injected runtime for
-unit testing. The backend supplies `authorize`, `onBeforeAttach`, `onAttached`, `onDetached`, `onCommand`, `isInternalEvent`, and `aroundAction`
+unit testing. The backend supplies `authorize`, `onBeforeAttach`, `onAttached`, `onDetached`, `onCommand`, `isInternalEvent`, `inputHooks`, and `aroundAction`
 hooks. A known raw attachment is migrated before Playwright attaches; unrelated
 debuggers are not adopted. Attachment must use shared focus initialization and ownership state;
 detach must explicitly clear it. Browser-initiated detach invalidates engine
@@ -216,6 +227,31 @@ creation path before attaching; the engine never calls `attachAll` or creates
 tabs. Incognito is explicitly unsupported until CRX startup can be limited to
 owned tabs. Version 1.53 lacks later AI snapshot refs/boxes and newer cancellation
 interfaces; these remain parity work, not completed capability claims.
+
+The internal `controlSnapshot()` returns copied tab IDs and pending attachment,
+release, and action promises for global pause cleanup after the backend fences
+new requests. It is not a new wire RPC. Standalone tests that omit `inputHooks`
+retain the older CRX-only observation helper; production always uses the shared
+tracker. Failed cleanup must not clear backend ownership or its original token.
+CRX application detach captures the original target object before awaiting Page
+initialization or highlight cleanup. The transport checks this identity before
+removing mappings, and `inputHooks.prepareRelease(tabId)` binds its
+`release/isCurrent/detach` callbacks to the original backend attachment token.
+A late cleanup cannot release or detach a replacement attachment.
+Production uses that transport cancellation synchronously, before optional
+Playwright recorder/highlight teardown. OBU exposes neither UI API, and waiting
+for its teardown first would let existing locator scripts continue. Every new
+CRX native command, including Runtime/DOM commands, checks both the global gate
+and attachment release state. Cleanup uses a separate native path. This prevents
+new commands after cancellation; it cannot undo scripts already sent to a page.
+
+Explicit native detach completion is its Promise, not an assumed `onDetach`
+event. The [Chrome debugger API](https://developer.chrome.com/docs/extensions/reference/api/debugger#event-onDetach)
+documents that event for browser-terminated connections. An isolated Edge 153
+probe observed no event after explicit detach, successfully reattached and
+executed a native command, and received `target_closed` when the tab was then
+closed. Browser-initiated notifications still invalidate engine state; callers
+must not bypass the backend and expect explicit native detach to send one.
 
 Internal rendering-lease `Page.screencastFrame` events are acknowledged only by
 the backend. Its synchronous `isInternalEvent` predicate suppresses those events

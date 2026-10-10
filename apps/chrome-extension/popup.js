@@ -1,3 +1,5 @@
+import { createAutomationControl } from "./popup-control.js";
+
 const REPO_URL = "https://github.com/iFurySt/open-browser-use";
 const REFRESH_INTERVAL_MS = 5000;
 
@@ -12,10 +14,34 @@ const extensionVersion = document.getElementById("extension-version");
 const platformLabel = document.getElementById("platform-label");
 const cliCommands = document.getElementById("cli-commands");
 const chromeApi = globalThis.chrome;
+const automationButton = document.getElementById("automation-toggle");
+const automationStatus = document.getElementById("automation-status-pill");
+const automationControl = createAutomationControl({
+  sendMessage: message => {
+    if (!chromeApi?.runtime?.sendMessage) throw new Error("Extension control is unavailable.");
+    return chromeApi.runtime.sendMessage(message);
+  },
+  render: view => {
+    automationStatus.dataset.state = view.state;
+    automationStatus.dataset.revision = view.revision === null ? "" : String(view.revision);
+    document.getElementById("automation-status-label").textContent = view.label;
+    document.getElementById("automation-message").textContent = view.message;
+    automationButton.textContent = view.buttonText;
+    automationButton.disabled = view.disabled;
+    automationButton.dataset.action = view.action ?? "";
+    document.getElementById("automation-hint").textContent = view.hint;
+    const error = document.getElementById("automation-error");
+    error.hidden = !view.error;
+    error.textContent = view.error;
+  }
+});
+automationButton.addEventListener("click", () => { void automationControl.activate(); });
 
 renderExtensionVersion();
 renderInstallCommands();
 void refreshStatus();
+void automationControl.refresh();
+setInterval(() => { void automationControl.refresh(); }, 1000);
 setInterval(() => {
   void refreshStatus();
 }, REFRESH_INTERVAL_MS);

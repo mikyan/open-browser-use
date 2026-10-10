@@ -1,11 +1,14 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
+import { NativeInputTracker } from "./browser-input-adapter.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
 const NATIVE_HOST_STATUS_KEY = "OPEN_BROWSER_USE_NATIVE_HOST_STATUS";
 const SESSION_STATE_KEY = "OPEN_BROWSER_USE_SESSION_STATE";
 const CONTROL_STATE_KEY = "OPEN_BROWSER_USE_CONTROL_STATE";
+const AUTOMATION_CONTROL_KEY = "OPEN_BROWSER_USE_AUTOMATION_CONTROL";
 const MAX_CONTROL_SESSIONS = 64;
 const MAX_LEGACY_TURNS = 256;
+const AUTOMATION_CLEANUP_TIMEOUT_MS = 10_000;
 const WEBMCP_ENABLED_KEY = "OPEN_BROWSER_USE_WEBMCP_ENABLED";
 const RECONNECT_ALARM_NAME = "open-browser-use-native-reconnect";
 const HEARTBEAT_ALARM_NAME = "open-browser-use-heartbeat";
@@ -254,7 +257,8 @@ class SessionStore {
 // Epochs come from one persistent monotonic counter. Evicting an idle session
 // cannot make an old epoch valid again, even when that session is bootstrapped.
 class ControlLedger {
-  constructor() {
+  constructor(assertAdmission = () => {}) {
+    this.assertAdmission = assertAdmission;
     this.records = new Map();
     this.counter = 0;
     this.noNewLegacy = false;
@@ -302,7 +306,7 @@ class ControlLedger {
       this.records.delete(idle[0]);
       if (legacy) throw new Error("OBU_CONTROL_BOOTSTRAP_REQUIRED: call getControlState and send control_epoch");
     }
-    const record = { epoch: this.nextEpoch(), status: "idle", legacyTurns: [], legacyBlocked: false };
+    const record = { epoch: this.nextEpoch(), status: "idle", legacyTurns: [], legacyBlocked: this.noNewLegacy };
     this.records.set(sessionId, record);
     return record;
   }
@@ -313,12 +317,15 @@ class ControlLedger {
 
   async bootstrap(sessionId) {
     await this.ready;
+    this.assertAdmission();
     const record = this.records.get(sessionId) ?? this.create(sessionId);
     await this.save();
+    this.assertAdmission();
     return this.describe(record);
   }
 
   assertCurrent(params) {
+    this.assertAdmission();
     const record = this.records.get(params.session_id);
     if (params.control_epoch !== undefined) {
       if (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1) throw new Error("control_epoch must be a positive safe integer");
@@ -333,6 +340,7 @@ class ControlLedger {
 
   async admit(params) {
     await this.ready;
+    this.assertAdmission();
     let record = this.records.get(params.session_id);
     if (!record && params.control_epoch === undefined) {
       try { record = this.create(params.session_id, true); }
@@ -372,11 +380,93 @@ class ControlLedger {
     record.endedTurnId = endedTurnId;
   }
 
+  async invalidateAll() {
+    await this.ready;
+    this.noNewLegacy = true;
+    for (const record of this.records.values()) {
+      this.invalidate(record, "user-pause");
+      record.legacyBlocked = true;
+      record.legacyTurns = [];
+    }
+    await this.save();
+  }
+
   async finishEnd(record) {
     record.status = "idle";
     await this.save();
     const { closing, ...state } = this.describe(record);
     return { ...state, endedTurnId: record.endedTurnId };
+  }
+}
+
+// User control is separate from session epochs: pausing fences admission even
+// when storage or debugger cleanup fails. Only a trusted popup can resume it.
+class AutomationControlGate {
+  constructor() {
+    this.state = "running";
+    this.inputBlocked = false;
+    this.revision = 0;
+    this.cleanupComplete = false;
+    this.error = undefined;
+    this.requestedPause = false;
+    this.pauseSequence = 0;
+    this.pendingTabIds = new Set();
+    this.recoveredPendingTabs = new Set();
+    this.writes = Promise.resolve();
+    this.ready = this.load();
+  }
+
+  async load() {
+    try {
+      const { [AUTOMATION_CONTROL_KEY]: value } = await chrome.storage.local.get(AUTOMATION_CONTROL_KEY);
+      if (value !== undefined && (!value || value.version !== 1 || typeof value.paused !== "boolean" || !Number.isSafeInteger(value.revision) || value.revision < 0 ||
+          (value.pendingTabIds !== undefined && (!Array.isArray(value.pendingTabIds) || value.pendingTabIds.length > 10000 || value.pendingTabIds.some(id => !Number.isSafeInteger(id) || id < 0))) ||
+          (value.paused === false && value.pendingTabIds?.length))) {
+        throw new Error("OBU_AUTOMATION_STATE_INVALID: invalid persisted user control state");
+      }
+      this.revision = value?.revision ?? 0;
+      this.pendingTabIds = new Set(value?.pendingTabIds ?? []);
+      this.recoveredPendingTabs = new Set(this.pendingTabIds);
+      this.inputBlocked = this.requestedPause || value?.paused === true;
+      if (this.state !== "error") this.state = this.inputBlocked ? "pausing" : "running";
+    } catch (error) {
+      this.loadError = error;
+      this.fail(error);
+    }
+  }
+
+  block() {
+    this.pauseSequence++;
+    this.requestedPause = true;
+    this.inputBlocked = true;
+    this.state = "pausing";
+    this.cleanupComplete = false;
+  }
+
+  assertOpen() {
+    if (this.inputBlocked) throw new Error("OBU_AUTOMATION_PAUSED: browser automation is paused; resume in the extension popup, then begin a new turn explicitly");
+  }
+
+  status() {
+    return { state: this.state, inputBlocked: this.inputBlocked, revision: this.revision, cleanupComplete: this.cleanupComplete, ...(this.error ? { error: this.error } : {}) };
+  }
+
+  fail(error) {
+    this.requestedPause = true;
+    this.inputBlocked = true;
+    this.cleanupComplete = false;
+    this.state = "error";
+    this.error = String(error?.message ?? error);
+  }
+
+  async persist(paused) {
+    // Recovery writes must not replace unread durable revision/pending IDs
+    // with constructor defaults when startup storage is still unresolved.
+    await this.ready;
+    if (this.loadError) throw this.loadError;
+    const value = { version: 1, paused, revision: this.revision, pendingTabIds: [...this.pendingTabIds] };
+    this.writes = this.writes.catch(() => {}).then(() => chrome.storage.local.set({ [AUTOMATION_CONTROL_KEY]: value }));
+    await this.writes;
   }
 }
 
@@ -439,9 +529,15 @@ class WebMcpGate {
 }
 
 class BrowserBackend {
-  constructor({ webMcpGate = null, browserEngine = null } = {}) {
+  constructor({ webMcpGate = null, browserEngine = null, automationCleanupTimeoutMs = AUTOMATION_CLEANUP_TIMEOUT_MS } = {}) {
+    this.automationCleanupTimeoutMs = automationCleanupTimeoutMs;
+    this.automationControl = new AutomationControlGate();
     this.store = new SessionStore();
-    this.controlLedger = new ControlLedger();
+    this.controlLedger = new ControlLedger(() => this.automationControl.assertOpen());
+    this.acceptedRequests = new Set();
+    this.automationTransitions = Promise.resolve();
+    this.pauseReleaseFailures = new Map();
+    this.inputTracker = new NativeInputTracker();
     this.sessionMutations = new Map();
     this.endingSessions = new Map();
     this.webMcpGate = webMcpGate;
@@ -473,11 +569,201 @@ class BrowserBackend {
       if (typeof source.tabId === "number") {
         this.controlEpochs.set(source.tabId, (this.controlEpochs.get(source.tabId) ?? 0) + 1);
         this.browserEngine?.forget(source.tabId);
-        this.releaseEngineAttachment(source.tabId);
+        try { this.releaseEngineAttachment(source.tabId); }
+        catch (error) { this.pauseReleaseFailures.set(source.tabId, error); void this.pauseAutomation().catch(() => {}); }
       }
     });
+    chrome.tabs?.onRemoved?.addListener(tabId => {
+      this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId), { destroyed: true });
+      this.pauseReleaseFailures.delete(tabId);
+      this.automationControl.recoveredPendingTabs?.delete(tabId);
+      this.releaseEngineAttachment(tabId);
+    });
     this.controlReady = this.recoverControlState();
-    this.controlReady.catch(() => {});
+    this.controlReady.catch(error => this.automationControl.fail(error));
+    for (const method of PUBLIC_BROWSER_METHODS) {
+      if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
+      const handler = this[method].bind(this);
+      this[method] = (...args) => this.runControlledRequest(() => handler(...args));
+    }
+  }
+
+  async runControlledRequest(operation) {
+    await this.controlReady;
+    this.automationControl.assertOpen();
+    const pending = Promise.resolve().then(() => {
+      this.automationControl.assertOpen();
+      return operation();
+    });
+    this.acceptedRequests.add(pending);
+    try { return await pending; }
+    finally { this.acceptedRequests.delete(pending); }
+  }
+
+  async getAutomationControlStatus() {
+    // A timed-out storage read must not make the failed Pause response wait on
+    // that same unresolved read a second time merely to display its status.
+    if (this.automationControl.state !== "error") {
+      try { await this.automationDeadline().within(() => this.automationControl.ready); }
+      catch (error) { this.automationControl.fail(error); }
+    }
+    return this.automationControl.status();
+  }
+
+  automationDeadline() {
+    const at = Date.now() + this.automationCleanupTimeoutMs;
+    const error = new Error("OBU_AUTOMATION_CLEANUP_TIMEOUT: browser cleanup is unconfirmed; automation remains paused");
+    return { at, error, within: operation => {
+      const remaining = at - Date.now();
+      return remaining <= 0 ? Promise.reject(error) : withTimeout(remaining, operation, () => error);
+    } };
+  }
+
+  globalControlSnapshot() {
+    const engine = this.browserEngine?.controlSnapshot?.() ?? { tabIds: [...this.browserEngine?.pages?.keys?.() ?? [], ...this.browserEngine?.queues?.keys?.() ?? [], ...this.browserEngine?.releases?.keys?.() ?? []], pending: [] };
+    const input = this.inputTracker.controlSnapshot();
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds]);
+    for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+  }
+
+  cancelGlobalControl() {
+    const snapshot = this.globalControlSnapshot();
+    const error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user");
+    for (const setup of this.fileChooserSetupsByTabId.values()) setup.reject(error);
+    for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
+    this.cursorArrivalWaitersByKey.clear();
+    this.cursorByTabId.clear();
+    for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
+    const releases = [...snapshot.tabIds].map(tabId => {
+      this.cancelTabTransfers(tabId, error);
+      return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
+    });
+    releases.forEach(release => release.catch(() => {}));
+    return { tabIds: snapshot.tabIds, pending: snapshot.pending, releases };
+  }
+
+  pauseAutomation() {
+    const deadline = this.automationDeadline();
+    this.automationControl.block();
+    // Cancel known engine work synchronously, before a slow storage write can
+    // allow an already-running locator wait to deliver its first input.
+    const cancelled = this.cancelGlobalControl();
+    const operation = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause(cancelled, deadline));
+    this.automationTransitions = operation;
+    return deadline.within(() => operation).catch(error => {
+      if (error !== deadline.error) throw error;
+      const failure = new Error(`OBU_AUTOMATION_PAUSE_FAILED: ${error.message}`);
+      this.automationControl.fail(failure);
+      throw failure;
+    });
+  }
+
+  async finishAutomationPause(cancelled = this.cancelGlobalControl(), deadline = this.automationDeadline()) {
+    const gate = this.automationControl;
+    const errors = [];
+    const within = deadline.within;
+    const fail = () => {
+      const error = new Error(`OBU_AUTOMATION_PAUSE_FAILED: ${errors.map(error => String(error?.message ?? error)).join("; ")}`);
+      gate.fail(error);
+      throw error;
+    };
+    try {
+      await within(() => Promise.all([gate.ready, this.store.ready, this.controlLedger.ready]));
+      if (gate.revision >= Number.MAX_SAFE_INTEGER) throw new Error("OBU_AUTOMATION_REVISION_EXHAUSTED: user control revision cannot wrap");
+      gate.revision++;
+      gate.state = "pausing";
+      gate.cleanupComplete = false;
+      gate.error = undefined;
+      for (const tabId of [...cancelled.tabIds, ...this.globalControlSnapshot().tabIds]) gate.pendingTabIds.add(tabId);
+      await within(() => gate.persist(true));
+      await within(() => this.controlLedger.invalidateAll());
+    } catch (error) { errors.push(error); }
+    for (const tabId of gate.recoveredPendingTabs) {
+      try {
+        await within(() => chrome.tabs.get(tabId));
+        errors.push(new Error("OBU_INPUT_RELEASE_UNCONFIRMED: cannot confirm previous input release after worker restart; close the previously controlled pages, then retry Pause"));
+      } catch (error) {
+        if (/no tab with (given )?id|invalid tab id/i.test(String(error?.message ?? error))) {
+          gate.recoveredPendingTabs.delete(tabId);
+          gate.pendingTabIds.delete(tabId);
+        } else errors.push(error);
+      }
+    }
+    let outcomes;
+    try { outcomes = await within(() => Promise.allSettled([...cancelled.releases, ...cancelled.pending])); }
+    catch (error) { errors.push(error); return fail(); }
+    // Cancelled requests are expected to reject. Only release failures matter.
+    for (const result of outcomes.slice(0, cancelled.releases.length)) if (result.status === "rejected") errors.push(result.reason);
+    const tabIds = this.globalControlSnapshot().tabIds;
+    for (const sessionId of this.controlLedger.records.keys()) {
+      try { for (const tab of await within(() => this.getSessionTabs(sessionId, { strict: true }))) tabIds.add(tab.id); }
+      catch (error) { errors.push(error); }
+    }
+    for (const tabId of this.pauseReleaseFailures.keys()) tabIds.add(tabId);
+    let released;
+    try { released = await within(() => Promise.allSettled([...tabIds].map(tabId => this.detachTab(tabId)))); }
+    catch (error) { errors.push(error); return fail(); }
+    for (const result of released) if (result.status === "rejected") errors.push(result.reason);
+    try {
+      for (const sessionId of this.controlLedger.records.keys()) await within(() => this.clearSessionActivity(sessionId));
+      if (!errors.length) {
+        for (const record of this.controlLedger.records.values()) record.status = "idle";
+        await within(() => this.controlLedger.save());
+        gate.pendingTabIds.clear();
+        await within(() => gate.persist(true));
+      }
+    } catch (error) { errors.push(error); }
+    if (errors.length) {
+      return fail();
+    }
+    this.pauseReleaseFailures.clear();
+    gate.state = "paused";
+    gate.cleanupComplete = true;
+    return gate.status();
+  }
+
+  resumeAutomation(expectedRevision) {
+    const deadline = this.automationDeadline();
+    const gate = this.automationControl;
+    let failed = false;
+    const failResume = error => {
+      if (failed) return;
+      failed = true;
+      gate.block();
+      gate.fail(error);
+      // The native storage write may outlive its deadline. Serialize a paused
+      // repair after it; do not wait for that uncertain write to report Failed.
+      void gate.persist(true).catch(error => gate.fail(error));
+    };
+    const operation = this.automationTransitions.catch(() => {}).then(async () => {
+      await deadline.within(() => gate.ready);
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== gate.revision) throw new Error("OBU_CONTROL_REVISION_CONFLICT: refresh user control status before resuming");
+      if (gate.state !== "paused" || !gate.cleanupComplete) throw new Error("OBU_AUTOMATION_PAUSE_INCOMPLETE: retry Pause until browser control is fully released");
+      if (gate.revision >= Number.MAX_SAFE_INTEGER) throw new Error("OBU_AUTOMATION_REVISION_EXHAUSTED: user control revision cannot wrap");
+      gate.revision++;
+      const pauseSequence = gate.pauseSequence;
+      try {
+        await deadline.within(() => this.controlLedger.writes);
+        await deadline.within(() => gate.persist(false));
+      } catch (error) { failResume(error); throw error; }
+      if (gate.pauseSequence !== pauseSequence) {
+        void gate.persist(true).catch(error => gate.fail(error));
+        throw new Error("OBU_AUTOMATION_PAUSED: a newer Pause request superseded Resume");
+      }
+      if (failed || Date.now() >= deadline.at) { failResume(deadline.error); throw deadline.error; }
+      gate.requestedPause = false;
+      gate.inputBlocked = false;
+      gate.cleanupComplete = false;
+      gate.state = "running";
+      gate.error = undefined;
+      return gate.status();
+    });
+    this.automationTransitions = operation;
+    return deadline.within(() => operation).catch(error => {
+      if (error === deadline.error) failResume(error);
+      throw error;
+    });
   }
 
   ping() {
@@ -503,7 +789,8 @@ class BrowserBackend {
         extensionInstanceId,
         nativeHostName: NATIVE_HOST_NAME,
         browserActionProtocolVersion: 1,
-        turnLifecycleVersion: 1
+        turnLifecycleVersion: 1,
+        automationControl: await this.getAutomationControlStatus()
       }
     };
   }
@@ -514,7 +801,8 @@ class BrowserBackend {
 
   async createTabInTurn(params) {
     const session = await this.requireSession(params);
-    const chromeTab = await createBackgroundTab();
+    this.automationControl.assertOpen();
+    const chromeTab = await createBackgroundTab(() => this.automationControl.assertOpen());
     await this.ensureSessionGroup(session.sessionId, chromeTab.id, "agent");
     await this.setSessionActiveTab(session.sessionId, chromeTab.id);
     return { ...toBrowserTab(chromeTab), active: true };
@@ -607,6 +895,7 @@ class BrowserBackend {
     if (!hasTabId(tab)) {
       throw new Error(`Chrome tab ${tabId} has no id`);
     }
+    assertControllableTab(tab);
     if (tab.url?.startsWith("chrome://")) {
       throw new Error(`Chrome internal tab ${tabId} cannot be claimed`);
     }
@@ -683,12 +972,15 @@ class BrowserBackend {
         ...deliverableTabs,
         ...handoffTabs
       ]);
+      this.automationControl.assertOpen();
       if (agentTabsToClose.length > 0) {
         await chrome.tabs.remove(agentTabsToClose.length === 1 ? agentTabsToClose[0] : agentTabsToClose);
       }
+      this.automationControl.assertOpen();
       if (userTabsToRelease.length > 0 && chrome.tabs.ungroup) {
         await chrome.tabs.ungroup(userTabsToRelease.length === 1 ? userTabsToRelease[0] : userTabsToRelease);
       }
+      this.automationControl.assertOpen();
       if (deliverableTabs.length > 0) {
         await this.moveToDeliverables(deliverableTabs);
       }
@@ -719,6 +1011,7 @@ class BrowserBackend {
     const sessionState = await this.store.getSession(session.sessionId);
     sessionState.title = name;
     await this.store.save();
+    this.automationControl.assertOpen();
     if (typeof sessionState.chromeGroupId === "number") {
       await chrome.tabGroups.update(sessionState.chromeGroupId, { title: name }).catch(() => {});
     }
@@ -736,6 +1029,7 @@ class BrowserBackend {
     await this.requireSessionTab(params, "attach");
     if ((this.controlEpochs.get(tabId) ?? 0) !== epoch) throw new Error("Browser attachment was cancelled because tab control ended");
     await this.releasePreviousAttachmentOwner(params, tabId);
+    this.automationControl.assertOpen();
     if (this.browserEngine) {
       await this.browserEngine.attach(tabId);
       this.rememberAttachmentOwner(params, tabId);
@@ -744,10 +1038,12 @@ class BrowserBackend {
     if (!this.attachedTabs.has(tabId)) {
       let attachedHere = false;
       try {
+        this.pendingAttachmentTabs.add(tabId);
         await chrome.debugger.attach({ tabId }, "1.3");
         attachedHere = true;
       } catch (error) {
         if (!String(error?.message ?? error).includes("Another debugger")) {
+          this.pendingAttachmentTabs.delete(tabId);
           throw error;
         }
       }
@@ -757,6 +1053,7 @@ class BrowserBackend {
         // Do not leave a half-initialized debugger attached, or detach another
         // debugger when Chrome rejected our original attachment.
         if (attachedHere) await chrome.debugger.detach({ tabId }).catch(() => {});
+        this.pendingAttachmentTabs.delete(tabId);
         throw error;
       }
     }
@@ -775,6 +1072,16 @@ class BrowserBackend {
       onDetached: (tabId) => this.releaseEngineAttachment(tabId),
       aroundAction: ({ params, timeoutMs, run }) => this.withRenderingLease({ tabId: params.tabId }, timeoutMs, run, params.action),
       isInternalEvent: (source, method, params) => this.isInternalCdpEvent(source, method, params),
+      inputHooks: {
+        send: (target, method, params, operation) => {
+          this.automationControl.assertOpen();
+          const token = this.attachmentEpochs.get(target.tabId);
+          this.inputTracker.assertSend(target.tabId, token);
+          return this.inputTracker.send(target, token, method, params, operation);
+        },
+        release: tabId => this.releaseTrackedInput(tabId),
+        prepareRelease: tabId => this.prepareInputRelease(tabId)
+      },
       onCommand: ({ target, method, commandParams, metadata }) => {
         this.enqueuePointerFeedback({ ...metadata, target, method, commandParams });
       }
@@ -784,6 +1091,7 @@ class BrowserBackend {
 
   async browserAction(params) {
     const startedAt = Date.now();
+    if (params.action === "goto") assertControllableUrl(params.args?.url);
     const tabId = requireTabId(params, "browserAction");
     let epoch = this.controlEpochs.get(tabId) ?? 0;
     await this.controlReleases.get(tabId)?.catch(() => {});
@@ -822,12 +1130,18 @@ class BrowserBackend {
   }
 
   async prepareEngineAttachment(tabId) {
+    this.automationControl.assertOpen();
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
+      await this.releaseTrackedInput(tabId);
       await chrome.debugger.detach({ tabId });
       this.releaseEngineAttachment(tabId);
     }
+    this.automationControl.assertOpen();
+    const token = {};
+    this.inputTracker.register(tabId, token);
+    this.attachmentEpochs.set(tabId, token);
     this.pendingAttachmentTabs.add(tabId);
   }
 
@@ -835,13 +1149,17 @@ class BrowserBackend {
     // Shared with the action engine after it owns the native attachment. Keep
     // background pages responsive without activating their tab or window.
     // Chrome resets this renderer override when the debugger detaches.
+    this.automationControl.assertOpen();
+    if (!this.attachmentEpochs.has(tabId)) this.attachmentEpochs.set(tabId, {});
+    this.inputTracker.register(tabId, this.attachmentEpochs.get(tabId));
     await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true });
-    if (!this.attachedTabs.has(tabId)) this.attachmentEpochs.set(tabId, {});
+    this.automationControl.assertOpen();
     this.attachedTabs.add(tabId);
     this.pendingAttachmentTabs.delete(tabId);
   }
 
   releaseEngineAttachment(tabId) {
+    this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId));
     this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.attachmentOwners.delete(tabId);
     this.childSessionsByTabId.delete(tabId);
@@ -869,6 +1187,7 @@ class BrowserBackend {
     const startedAt = Date.now();
     const session = await this.requireSession(params);
     const target = await this.resolveCdpTarget(params);
+    await this.validateCdpCommandTarget(params, target);
     this.controlLedger.assertCurrent(params);
     if (Number.isInteger(target?.tabId)) {
       const owner = this.attachmentOwners.get(target.tabId);
@@ -884,12 +1203,13 @@ class BrowserBackend {
         : DEFAULT_CDP_TIMEOUT_MS;
     const setup = this.fileChooserSetupsByTabId.get(target?.tabId);
     if (setup?.sessionId === params.session_id) await this.withinTransferDeadline(startedAt + timeoutMs, () => setup.promise);
+    this.controlLedger.assertCurrent(params);
     const remaining = timeoutMs - (Date.now() - startedAt);
     if (remaining <= 0) throw new Error("Timed out preparing CDP command");
     const result = await withTimeout(remaining, async () => {
       if (params.method === "Target.getTargets") {
         const tabIds = new Set((await this.getSessionTabs(session.sessionId)).map((tab) => tab.id));
-        return { targetInfos: (await chrome.debugger.getTargets()).filter((info) => tabIds.has(info.tabId)) };
+        return { targetInfos: (await chrome.debugger.getTargets()).filter((info) => tabIds.has(info.tabId) && !isOwnExtensionUrl(info.url)) };
       }
       if (typeof params.method !== "string") {
         throw new Error("executeCdp requires method");
@@ -897,7 +1217,7 @@ class BrowserBackend {
       if (params.method === "Page.captureScreenshot" && target.sessionId === undefined) {
         return await this.captureScreenshot(target, params.commandParams ?? {}, remaining);
       }
-      const response = await chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {});
+      const response = await this.inputTracker.send(target, this.attachmentEpochs.get(target.tabId), params.method, params.commandParams ?? {}, () => chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {}));
       if (target.sessionId === undefined && params.method === "Page.startScreencast") {
         this.externalScreencastTabs.add(target.tabId);
       } else if (target.sessionId === undefined && params.method === "Page.stopScreencast") {
@@ -927,6 +1247,7 @@ class BrowserBackend {
     const withinDeadline = (operation) => withTimeout(Math.max(1, deadline - Date.now()), operation, timeoutError);
     const ownsAttachment = () => this.attachedTabs.has(tabId) && this.attachmentEpochs.get(tabId) === attachment;
     const assertCurrent = () => {
+      this.automationControl.assertOpen();
       if (expired || Date.now() >= deadline || !ownsAttachment()) throw new Error(`Rendering request expired before ${action}`);
     };
     const queued = previous.catch(() => {}).then(async () => {
@@ -1045,6 +1366,7 @@ class BrowserBackend {
       if (!Number.isInteger(info?.tabId) || info.tabId < 0) {
         throw new Error("executeCdp targetId does not identify a browser tab");
       }
+      assertControllableUrl(info.url);
       if (tabId !== undefined && tabId !== info.tabId) {
         throw new Error("executeCdp target.tabId and target.targetId identify different tabs");
       }
@@ -1065,7 +1387,24 @@ class BrowserBackend {
     return { tabId, ...(target.sessionId === undefined ? {} : { sessionId: target.sessionId }) };
   }
 
+  async validateCdpCommandTarget(params, target) {
+    const command = params.commandParams ?? {};
+    if (["Page.navigate", "Target.createTarget"].includes(params.method)) assertControllableUrl(command.url);
+    if (["Target.attachToTarget", "Target.attachToBrowserTarget", "Target.sendMessageToTarget"].includes(params.method)) {
+      throw new Error("OBU_CDP_TARGET_UNOWNED: use an owned tab and flat child session instead of browser-wide or tunneled target control");
+    }
+    if (params.method?.startsWith("Target.") && command.targetId !== undefined) {
+      const info = (await chrome.debugger.getTargets()).find(info => info.id === command.targetId);
+      if (!Number.isInteger(info?.tabId) || info.tabId !== target?.tabId) {
+        throw new Error("OBU_CDP_TARGET_UNOWNED: command targetId does not identify the owned tab root");
+      }
+      assertControllableUrl(info.url);
+      await this.requireSessionTab({ ...params, tabId: info.tabId }, "executeCdp command target");
+    }
+  }
+
   enqueuePointerFeedback(params) {
+    if (this.automationControl.inputBlocked) return;
     const { target, method, commandParams: event } = params;
     const tabId = target?.tabId;
     if (
@@ -1254,6 +1593,7 @@ class BrowserBackend {
         visible: cursor.visible
       });
       await arrivalWaiter?.promise;
+      this.controlLedger.assertCurrent(params);
     } catch (error) {
       arrivalWaiter?.cancel();
       throw error;
@@ -1672,6 +2012,7 @@ class BrowserBackend {
   }
 
   readCursorOverlayState(tabId) {
+    if (this.automationControl.inputBlocked) return { cursor: null, isVisible: false, sessionId: null, turnId: null };
     for (const [sessionId, activeTabId] of this.activeTabsBySession) {
       if (activeTabId === tabId) {
         return {
@@ -1745,6 +2086,7 @@ class BrowserBackend {
   }
 
   async evaluateJavascript(tabId, expression, awaitPromise) {
+    this.automationControl.assertOpen();
     const result = await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
       expression,
       returnByValue: true,
@@ -1762,17 +2104,20 @@ class BrowserBackend {
     if (typeof groupId === "number") {
       try {
         await chrome.tabGroups.get(groupId);
+        this.automationControl.assertOpen();
         await chrome.tabs.group({ groupId, tabIds: [tabId] });
       } catch {
         groupId = null;
       }
     }
+    this.automationControl.assertOpen();
     if (typeof groupId !== "number") {
       groupId = await chrome.tabs.group({ tabIds: [tabId] });
       session.chromeGroupId = groupId;
     }
     session.tabOrigins[String(tabId)] = origin;
     await this.store.save();
+    this.automationControl.assertOpen();
     await chrome.tabGroups.update(groupId, {
       title: session.title,
       color: "blue",
@@ -1782,6 +2127,7 @@ class BrowserBackend {
 
   async setSessionActiveTab(sessionId, tabId) {
     const session = await this.store.getSession(sessionId);
+    this.automationControl.assertOpen();
     session.activeTabId = tabId;
     this.activeTabsBySession.set(sessionId, tabId);
     await this.store.save();
@@ -1815,6 +2161,7 @@ class BrowserBackend {
       throw new Error("Missing required browser turn_id");
     }
     await this.controlReady;
+    this.automationControl.assertOpen();
     await this.controlLedger.admit(params);
     await this.store.getSession(params.session_id);
     this.controlLedger.assertCurrent(params);
@@ -1824,6 +2171,7 @@ class BrowserBackend {
   async getControlState(params) {
     if (typeof params?.session_id !== "string" || !params.session_id || params.session_id.length > 256) throw new Error("Missing required browser session_id");
     await this.controlReady;
+    this.automationControl.assertOpen();
     const record = this.controlLedger.records.get(params.session_id);
     if (record?.status === "closing" && !this.endingSessions.has(params.session_id)) {
       await this.recoverEndedSession(params.session_id, record);
@@ -1873,6 +2221,7 @@ class BrowserBackend {
       await release;
       await this.releaseSessionControl(params.session_id);
       try {
+        this.automationControl.assertOpen();
         await finish();
       } catch (error) {
         await this.clearSessionActivity(params.session_id);
@@ -1880,14 +2229,26 @@ class BrowserBackend {
         throw error;
       }
       await this.clearSessionActivity(params.session_id);
-      return this.controlLedger.finishEnd(record);
+      this.automationControl.assertOpen();
+      const result = await this.controlLedger.finishEnd(record);
+      this.automationControl.assertOpen();
+      return result;
     } finally {
       if (this.endingSessions.get(params.session_id) === ending) this.endingSessions.delete(params.session_id);
     }
   }
 
   async recoverControlState() {
-    await Promise.all([this.store.ready, this.controlLedger.ready]);
+    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready]);
+    if (this.automationControl.inputBlocked) {
+      // Startup recovery shares the popup transition queue. A Pause accepted
+      // while storage was loading already owns that recovery operation.
+      if (!this.automationControl.requestedPause) {
+        this.automationTransitions = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause());
+      }
+      await this.automationTransitions.catch(() => {});
+      return;
+    }
     const recovering = [];
     for (const [sessionId, record] of this.controlLedger.records) {
       if (record.status === "active") this.controlLedger.invalidate(record, "worker-restart");
@@ -1926,9 +2287,11 @@ class BrowserBackend {
     const session = await this.requireSession(params);
     const tabId = requireTabId(params, command);
     const tabs = await this.getSessionTabs(session.sessionId);
-    if (!tabs.some((tab) => tab.id === tabId)) {
+    const tab = tabs.find(tab => tab.id === tabId);
+    if (!tab) {
       throw new Error(`Tab ${tabId} is not part of browser session ${session.sessionId}`);
     }
+    assertControllableTab(tab);
     this.controlLedger.assertCurrent(params);
   }
 
@@ -1988,6 +2351,7 @@ class BrowserBackend {
             .map((t) => t.id)
             .filter((id) => typeof id === "number");
           if (dupTabIds.length > 0) {
+            this.automationControl.assertOpen();
             await chrome.tabs
               .group({ groupId: primaryGroupId, tabIds: dupTabIds })
               .catch(() => {});
@@ -1996,6 +2360,7 @@ class BrowserBackend {
       }
 
       if (typeof primaryGroupId === "number") {
+        this.automationControl.assertOpen();
         try {
           await chrome.tabs.group({ groupId: primaryGroupId, tabIds: windowTabIds });
         } catch {
@@ -2004,9 +2369,11 @@ class BrowserBackend {
       }
 
       if (typeof primaryGroupId !== "number") {
+        this.automationControl.assertOpen();
         primaryGroupId = await chrome.tabs.group({ tabIds: windowTabIds });
       }
 
+      this.automationControl.assertOpen();
       await chrome.tabGroups
         .update(primaryGroupId, {
           title: DELIVERABLE_GROUP_TITLE,
@@ -2030,6 +2397,9 @@ class BrowserBackend {
 
   detachTab(tabId) {
     this.controlEpochs.set(tabId, (this.controlEpochs.get(tabId) ?? 0) + 1);
+    // Input release may fail and deliberately retain the native attachment.
+    // End the rendering lease immediately even in that case.
+    this.internalScreencasts.get(tabId)?.cancel?.();
     if (this.controlReleases.has(tabId)) return this.controlReleases.get(tabId);
     const release = this.releaseTabControl(tabId);
     this.controlReleases.set(tabId, release);
@@ -2043,21 +2413,36 @@ class BrowserBackend {
   async releaseTabControl(tabId) {
     this.clearPointerFeedback(tabId);
     this.externalScreencastTabs.delete(tabId);
+    let engineError;
     try {
-      let engineError;
-      try {
-        await this.browserEngine?.detach(tabId);
-      } catch (error) {
-        engineError = error;
-      }
-      await chrome.debugger.detach({ tabId }).catch((error) => {
-        // The action engine may already have detached the same attachment.
-        if (!/not attached|no tab with given id/i.test(String(error?.message ?? error))) throw error;
-      });
-      if (engineError) throw engineError;
-    } finally {
-      this.releaseEngineAttachment(tabId);
+      await this.browserEngine?.detach(tabId);
+    } catch (error) {
+      engineError = error;
     }
+    // A debugger detach does not release renderer-held pointer/key state. Keep
+    // the original native target and token if normal input cleanup is uncertain.
+    await this.releaseTrackedInput(tabId);
+    await chrome.debugger.detach({ tabId }).catch((error) => {
+      if (!/not attached|no tab with given id/i.test(String(error?.message ?? error))) throw error;
+    });
+    this.releaseEngineAttachment(tabId);
+    if (engineError) throw engineError;
+  }
+
+  releaseTrackedInput(tabId) {
+    return this.prepareInputRelease(tabId).release();
+  }
+
+  prepareInputRelease(tabId) {
+    const token = this.attachmentEpochs.get(tabId);
+    const isCurrent = () => Boolean(token) && this.attachmentEpochs.get(tabId) === token;
+    return {
+      isCurrent,
+      release: () => isCurrent()
+        ? this.inputTracker.release(tabId, token, (target, method, params) => chrome.debugger.sendCommand(target, method, params))
+        : Promise.resolve(),
+      detach: () => isCurrent() ? chrome.debugger.detach({ tabId }) : Promise.resolve()
+    };
   }
 
   async ensureCursorContentScript(sessionId, tabId) {
@@ -2067,6 +2452,7 @@ class BrowserBackend {
         return true;
       }
     } catch {}
+    if (this.automationControl.inputBlocked) return false;
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -2086,6 +2472,7 @@ class BrowserBackend {
 
   async sendWebMcpRequest(tabId, request, timeoutMs) {
     await this.ensureWebMcpContentScripts(tabId);
+    this.automationControl.assertOpen();
     const response = await withWebMcpTimeout(timeoutMs, async () => {
       return await chrome.tabs.sendMessage(tabId, {
         type: "OPEN_BROWSER_USE_WEBMCP_REQUEST",
@@ -2111,11 +2498,13 @@ class BrowserBackend {
     } catch {}
 
     try {
+      this.automationControl.assertOpen();
       await chrome.scripting.executeScript({
         files: ["content-webmcp-main.js"],
         target: { tabId },
         world: "MAIN"
       });
+      this.automationControl.assertOpen();
       await chrome.scripting.executeScript({
         files: ["content-webmcp-bridge.js"],
         target: { tabId },
@@ -2152,6 +2541,23 @@ class BrowserBackend {
       return false;
     }
   }
+}
+
+function isOwnExtensionUrl(value) {
+  if (typeof value !== "string" || typeof chrome.runtime?.id !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "chrome-extension:" && url.hostname === chrome.runtime.id;
+  } catch { return false; }
+}
+
+function assertControllableUrl(value) {
+  if (isOwnExtensionUrl(value)) throw new Error("OBU_EXTENSION_UI_PROTECTED: automation cannot control this extension's own pages");
+}
+
+function assertControllableTab(tab) {
+  assertControllableUrl(tab?.url);
+  assertControllableUrl(tab?.pendingUrl);
 }
 
 function hasTabId(tab) {
@@ -2221,14 +2627,16 @@ function optionalPositiveInteger(value, fallback, field) {
   return value;
 }
 
-async function createBackgroundTab() {
+async function createBackgroundTab(assertAdmission = () => {}) {
   const windowId = await chooseWindowId();
+  assertAdmission();
   if (typeof windowId === "number") {
     const tab = await chrome.tabs.create({ active: false, url: "about:blank", windowId });
     if (hasTabId(tab)) {
       return tab;
     }
   }
+  assertAdmission();
   const win = await chrome.windows.create({
     focused: false,
     type: "normal",
@@ -2353,7 +2761,26 @@ const webMcpGate = new WebMcpGate();
 const backend = new BrowserBackend({ webMcpGate });
 const transport = new NativeTransport(NATIVE_HOST_NAME);
 const peer = new JsonRpcPeer(transport, backend);
+async function handleAutomationControlMessage(message, sender) {
+  if (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL("popup.html")) {
+    throw new Error("OBU_CONTROL_FORBIDDEN: user control is only available from the extension popup");
+  }
+  if (message.type === "GET_AUTOMATION_CONTROL_STATUS") return backend.getAutomationControlStatus();
+  if (sender.tab || typeof chrome.runtime.getContexts !== "function") {
+    throw new Error("OBU_CONTROL_FORBIDDEN: a real extension action popup is required");
+  }
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ["POPUP"], ...(typeof sender.documentId === "string" ? { documentIds: [sender.documentId] } : {}) });
+  if (!contexts.some(context => context.contextType === "POPUP" && (sender.documentId === undefined || context.documentId === sender.documentId) && context.documentUrl === chrome.runtime.getURL("popup.html"))) {
+    throw new Error("OBU_CONTROL_FORBIDDEN: the sending popup is no longer open");
+  }
+  if (message.type === "PAUSE_AUTOMATION") return backend.pauseAutomation();
+  return backend.resumeAutomation(message.expectedRevision);
+}
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (["GET_AUTOMATION_CONTROL_STATUS", "PAUSE_AUTOMATION", "RESUME_AUTOMATION"].includes(message?.type)) {
+    void handleAutomationControlMessage(message, sender).then(status => sendResponse({ ok: true, status }), async error => sendResponse({ ok: false, status: await backend.getAutomationControlStatus(), error: String(error?.message ?? error) }));
+    return true;
+  }
   if (message?.type === "GET_NATIVE_HOST_STATUS") {
     const status = transport.getStatus();
     sendResponse({ ok: status.state === "connected", status, error: status.error });
@@ -2373,8 +2800,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.debugger.onEvent.addListener((source, method, params) => {
   backend.handleCdpEvent(source, method, params);
   if (backend.isInternalCdpEvent(source, method, params)) return;
+  const owner = backend.attachmentOwners.get(source?.tabId);
   void backend.cdpEventMetadata(source).then(metadata => {
-    if (metadata) safeSendNotification(peer, "onCDPEvent", { source, method, params, ...metadata });
+    if (!metadata || backend.attachmentOwners.get(source?.tabId) !== owner) return;
+    // Metadata validation and this reaction are separate microtasks. Pause,
+    // epoch retirement, or attachment replacement may have happened between.
+    backend.assertTransferScope(owner);
+    safeSendNotification(peer, "onCDPEvent", { source, method, params, ...metadata });
   }).catch(() => {});
 });
 backend.addDownloadChangeListener((change) => {

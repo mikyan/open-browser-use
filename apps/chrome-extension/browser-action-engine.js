@@ -247,7 +247,7 @@ async function execute(page, params) {
 }
 
 export class BrowserActionEngine {
-  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {} } = {}) {
+  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, inputHooks } = {}) {
     this.loadRuntime = loadRuntime;
     this.onBeforeAttach = onBeforeAttach;
     this.onAttached = onAttached;
@@ -256,6 +256,7 @@ export class BrowserActionEngine {
     this.isInternalEvent = isInternalEvent;
     this.aroundAction = aroundAction;
     this.authorize = authorize;
+    this.inputHooks = inputHooks;
     this.pages = new Map();
     this.queues = new Map();
     this.generations = new Map();
@@ -267,6 +268,7 @@ export class BrowserActionEngine {
   async runtime() {
     if (!this.runtimePromise) {
       this.runtimePromise = this.loadRuntime().then(runtime => {
+        if (this.inputHooks) runtime.setOpenBrowserUseInputHooks(this.inputHooks);
         runtime.setOpenBrowserUseEventFilter(this.isInternalEvent);
         runtime.setOpenBrowserUseCommandObserver(({ target, method, commandParams }) => {
           const metadata = this.active.get(target.tabId);
@@ -296,9 +298,23 @@ export class BrowserActionEngine {
       await this.onBeforeAttach(tabId);
       if ((this.generations.get(tabId) ?? 0) !== generation) throw new Error("Browser action was cancelled before native attachment");
       const page = await app.attach(tabId);
-      if ((this.generations.get(tabId) ?? 0) !== generation) { await app.detach(tabId); throw new Error("Browser action was cancelled while attaching the tab"); }
+      if ((this.generations.get(tabId) ?? 0) !== generation) {
+        await app.detach(tabId);
+        const cancelled = new Error("Browser action was cancelled while attaching the tab");
+        cancelled.attachmentReleased = true;
+        throw cancelled;
+      }
       try { await this.onAttached(tabId); }
-      catch (error) { await app.detach(tabId).catch(() => {}); await this.onDetached(tabId); throw error; }
+      catch (error) {
+        try { await app.detach(tabId); await this.onDetached(tabId); }
+        catch (cleanupError) {
+          // A failed initialization is not proof that native ownership was
+          // released. Preserve its token for explicit backend cleanup retry.
+          if (error && typeof error === "object") error.cleanupError = cleanupError;
+          else error = Object.assign(new Error(String(error)), { cleanupError });
+        }
+        throw error;
+      }
       return { app, page };
     })();
     this.pages.set(tabId, pending);
@@ -408,17 +424,38 @@ export class BrowserActionEngine {
     const pending = this.pages.get(tabId);
     const release = (async () => {
       try {
-        const entry = await pending;
-        if (entry) { entry.diagnostics?.dispose(); await entry.app.detach(tabId); }
+        let entry;
+        try { entry = await pending; }
+        catch (error) {
+          // This exact cancellation path already completed native cleanup.
+          // Other attach errors may include an unconfirmed native release.
+          if (error?.attachmentReleased !== true) throw error;
+          await this.onDetached(tabId);
+          return;
+        }
+        if (entry) {
+          entry.diagnostics?.dispose();
+          await entry.app.detach(tabId);
+          await this.onDetached(tabId);
+        }
       }
       finally {
         if (this.pages.get(tabId) === pending) this.pages.delete(tabId);
-        await this.onDetached(tabId);
       }
     })();
     this.releases.set(tabId, release);
     release.finally(() => { if (this.releases.get(tabId) === release) this.releases.delete(tabId); }).catch(() => {});
     return release;
+  }
+
+  // The backend fences new admission before using this snapshot to cancel and
+  // drain all control, including attachments no longer in a task's tab group.
+  // Do not hide pending rejections: the caller decides which cleanup failed.
+  controlSnapshot() {
+    return {
+      tabIds: [...new Set([...this.pages.keys(), ...this.releases.keys(), ...this.queues.keys()])],
+      pending: [...new Set([...this.pages.values(), ...this.releases.values(), ...this.queues.values()])]
+    };
   }
 
   // Browser-initiated detach must invalidate queued operations as well.

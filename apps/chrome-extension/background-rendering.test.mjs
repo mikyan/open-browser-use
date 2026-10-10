@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
+const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
 assert.notEqual(runtimeStart, -1);
 const session = { session_id: "render-test", turn_id: "turn-1" };
@@ -87,10 +87,12 @@ test("engine migration releases our raw attachment but leaves unknown debuggers 
   await backend.prepareEngineAttachment(7);
   assert.deepEqual(calls, []);
   await attach();
+  const previousAttachment = backend.attachmentEpochs.get(7);
   await backend.prepareEngineAttachment(7);
   assert.equal(calls.at(-1)[0], "detach");
   assert.equal(backend.attachedTabs.has(7), false);
-  assert.equal(backend.attachmentEpochs.has(7), false);
+  assert.notEqual(backend.attachmentEpochs.get(7), previousAttachment);
+  assert.equal(backend.pendingAttachmentTabs.has(7), true);
 });
 
 test("a screenshot primes a frame and preserves all capture options and the result", async () => {

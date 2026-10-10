@@ -108,6 +108,29 @@ virtual display. The suite does not use disabled background-throttling flags.
   redirect identities, cursor pagination, bounded overflow, UTF-8 truncation,
   and capture expiry after ending a turn or transferring ownership.
 - The sentinel tab stays active throughout every successful action and failure.
+- The final global-pause case opens the real browser action popup, pauses two
+  sessions, checks held pointer/key release (including native pointer capture
+  remaining after raw `dragCancel`) and blocked high/low-level CDP admission,
+  restarts the worker while paused, and requires explicit new turns after Resume. It saves Running/Paused
+  popup screenshots. Claim, attachment, engine navigation and raw navigation to
+  this extension's own control pages must be rejected, including a control page
+  manually moved into an agent's group. Pause invalidates all session epochs, so
+  this case runs last.
+
+The pause authorization check uses real runtime messages from the action popup,
+an ordinary `popup.html` tab, and a fixture content script. In the tested Chromium
+156 build, ordinary extension-tab senders include `tab` and `documentId`; real
+action-popup senders include neither. `runtime.getContexts` separately identifies
+the live `POPUP` context. The worker therefore verifies the extension ID, exact
+popup URL, absence of `sender.tab`, and a matching live popup context. Context
+presence is an additional check, not a unique sender/document binding when the
+browser omits the sender document ID. These tests do not assert results on an
+untested minimum browser version.
+
+The runner leaves the browser window at its default size and validates screenshot
+dimensions against the actual viewport. In the tested Chromium 156 build, forcing
+`--window-size=1280,1000` made `action.openPopup()` hang even in a standalone
+extension probe with no SDK or engine actions. That launch option is omitted.
 
 Results, screenshots, the YAML snapshot, and diagnostic logs remain in the
 printed `.tmp/browser-integration/run-*/` directory. Results include the Git HEAD,

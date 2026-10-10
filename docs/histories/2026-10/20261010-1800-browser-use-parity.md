@@ -52,6 +52,21 @@
 - 三语言 SDK、CLI/MCP 的操作预算覆盖发现、协商、排队和发送；短 newTab(URL)
   预算耗尽时不创建 tab。复合调用固定同一 turn，raw navigation 检查实际 loaderId，
   不接受上一文档的 readyState，不静默重放动作。
+- 开发版增加工具栏全局 Pause/Resume，独立持久 gate 阻断新请求，全部旧 epoch
+  失效；恢复需要显式新轮次。暂停不关闭或移动页面，清理失败保持阻断并可重试。
+- raw CDP 与 CRX 共享 native input intent、真正原生调用的完成状态及 attachment
+  token，避免 RPC 超时后迟到按下未被释放。旧 CRX 清理在异步等待前捕获 target
+  身份，不能断开后来建立的连接。
+- 拒绝自动控制自身扩展 UI 和已知跨 target 的原始 CDP 隧道；popup 消息校验
+  使用真实 action popup 上下文，不假定 Chrome 一定提供 sender documentId。
+- 真实边界审计修复两项：dragCancel 后保留尚未释放的鼠标状态；生产 CRX
+  先取消 Page 调用上下文，再清理原生输入，不等待可选高亮 UI。所有新 CRX
+  命令受暂停门约束，避免日期 fill 等 Runtime 动作在暂停后继续改页面。
+- 状态读取与 Pause/Resume 的总预算包含排队及存储；未知存储状态不被默认值
+  覆盖，超时后的迟到 Resume 不会重开当前 worker。未确认持久写的崩溃窗口
+  与 worker 丢失原生按下记录后的恢复限制明确保留。
+- 同步开发构建/本地 host 注册、中英文 README、API 最低版本与 skill 暂停说明；
+  发行渠道仍不包含这些本地改动。
 
 ### 🧠 Design Intent (Why)
 
@@ -98,6 +113,22 @@
   编译依赖使用官方包在仓库临时目录解包，未更改系统软件。
 - 本地 checkpoint 仍是开发中版本；用户暂停/站点控制、其他平台、完整任务集
   及同组 Codex 对比仍待完成，不将这轮通过等同于全能力对齐。
+- 暂停切片的 Windows 完整 CI 通过；最后仅扩展/构建追加的边界修复经全部
+  225 项测试复验通过。Go/SDK 运行代码未在此切片中改变。
+- 真实原生 Edge 的暂停日期 fill 定向验收 `pause-late-runtime-CSVCcf` 通过：
+  目标在暂停后才出现，值保持空，旧调用因 Page 关闭取消；无活动 tab 切换，
+  临时 native registration 已清理。测试控制可选 UI teardown 的调度，不把它
+  当作已经投递到网页内部的脚本能被撤销。
+- Chromium 的 dragCancel 定向修后验收 `drag-drop-audit-gHI5dd` 确认暂停产生
+  可信 pointerup/lostpointercapture，capture 清零；未占用系统鼠标。
+- 最终原生 Edge `held-pause-final-9iHGCP` 通过正常暂停及注入释放故障后的
+  Failed→Retry pause；原 attachment 释放成功，活动 tab 事件为空，临时注册
+  已移除。Running/Paused/Failed/重试成功四种界面已截图人工检查，关键生产
+  文件哈希与最终本地构建一致。故障注入明确为测试行为，未注入用户浏览器。
+- 暂停切片最终 `run-qjsIiJ`、`run-uTXspB` 连续两轮各 26/26；活动 tab
+  事件均为空，正常暂停各 110 ms。生产 extension、host、SDK 与 harness
+  哈希一致，最终截图人工检查保留 AI 光标、点击圈和目标边框。测试层修复
+  action popup 的窗口尺寸参数问题，以及 worker 重启观察页初始化竞态。
 
 ### 📁 Files Modified
 

@@ -122,7 +122,7 @@ async function loadBridgeHarness({ modelContext }) {
 }
 
 async function loadBrowserBackend() {
-  const source = (await readFile(BACKGROUND_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
+  const source = (await readFile(BACKGROUND_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
   const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
   assert.notEqual(runtimeStart, -1);
   const chrome = {

@@ -214,12 +214,48 @@ test("ending control cancels queued actions instead of replaying them after deta
   assert.ok(!f.calls.some(call => call[0] === "click"));
 });
 
+test("control snapshot includes pending attachments, releases and queues without swallowing failures", async () => {
+  const engine = new BrowserActionEngine();
+  const attaching = Promise.resolve("attaching"), queued = Promise.resolve("queued");
+  let failRelease;
+  const releasing = new Promise((_, reject) => { failRelease = reject; });
+  engine.pages.set(1, attaching);
+  engine.queues.set(1, queued);
+  engine.queues.set(2, queued);
+  engine.releases.set(3, releasing);
+  const snapshot = engine.controlSnapshot();
+  assert.deepEqual(snapshot.tabIds, [1, 3, 2]);
+  assert.deepEqual(snapshot.pending, [attaching, releasing, queued]);
+  const drained = Promise.allSettled(snapshot.pending);
+  engine.pages.clear();
+  engine.queues.clear();
+  engine.releases.clear();
+  const cleanupError = new Error("release unconfirmed");
+  failRelease(cleanupError);
+  assert.equal((await drained)[1].reason, cleanupError);
+  assert.deepEqual(snapshot.tabIds, [1, 3, 2]);
+  assert.deepEqual(engine.controlSnapshot(), { tabIds: [], pending: [] });
+});
+
 test("failed attachment initialization detaches instead of leaking control", async () => {
   const f = fixture();
   const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, onAttached: () => { throw new Error("focus setup failed"); } });
   await assert.rejects(engine.dispatch(request("click", { locator })), /focus setup failed/);
   assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
   assert.equal(engine.pages.size, 0);
+});
+
+test("failed initialization preserves cleanup failure and does not announce native release", async () => {
+  const f = fixture();
+  const initialization = new Error("focus setup failed"), cleanup = new Error("native cleanup failed");
+  f.app.detach = async () => { throw cleanup; };
+  let detached = 0;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime,
+    onAttached: () => { throw initialization; }, onDetached: () => { detached++; } });
+  await assert.rejects(engine.dispatch(request("click", { locator })), error => error === initialization && error.cleanupError === cleanup);
+  assert.equal(detached, 0);
+  assert.equal(engine.pages.size, 0);
+  assert.ok(!f.calls.some(call => call[0] === "click"));
 });
 
 test("a queued deadline cannot cancel its predecessor or execute late", async () => {
@@ -250,6 +286,38 @@ test("an attachment completing after the deadline cannot execute or detach its s
   assert.equal(f.calls.filter(call => call[0] === "click").length, 1);
   assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
   assert.equal(attachCalls, 2);
+});
+
+test("late attachment cancellation rejects its action but confirmed cleanup drains successfully", async () => {
+  const f = fixture();
+  let finishAttach, started;
+  const ready = new Promise(resolve => { started = resolve; });
+  const originalAttach = f.app.attach;
+  f.app.attach = async () => { started(); await new Promise(resolve => { finishAttach = resolve; }); return originalAttach(); };
+  let cleaned = 0;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, onDetached: () => { cleaned++; } });
+  const action = engine.dispatch(request("click", { locator }));
+  const failedAction = assert.rejects(action, /cancelled while attaching/);
+  await ready;
+  const released = engine.detach(42);
+  finishAttach();
+  await released;
+  await failedAction;
+  assert.equal(cleaned, 1);
+  assert.ok(!f.calls.some(call => call[0] === "click"));
+});
+
+test("failed native input cleanup does not announce detachment or retry the cancelled Page", async () => {
+  const f = fixture({ click: async () => {} });
+  let cleaned = 0;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, onDetached: () => { cleaned++; } });
+  await engine.dispatch(request("click", { locator }));
+  f.app.detach = async () => { throw new Error("input release unconfirmed"); };
+  await assert.rejects(engine.detach(42), /input release unconfirmed/);
+  assert.equal(cleaned, 0);
+  // Backend retains the original native token and owns explicit cleanup retry.
+  await engine.detach(42);
+  assert.equal(cleaned, 0);
 });
 
 test("a rendering lease consumes the original screenshot budget and preserves Playwright output", async () => {

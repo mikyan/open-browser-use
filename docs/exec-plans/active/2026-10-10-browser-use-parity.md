@@ -9,7 +9,7 @@
 
 - 分支 `codex/browser-use-parity`，已将 upstream v1.0.0 合入现有光标反馈实现。
 - 不创建或重开 PR；本地开发提交保留在本项目。
-- 当前源码已确认私有 rewrite 未接入正式入口、Windows SDK 通信不兼容、targetId 越过任务归属。
+- 初始审计发现私有 rewrite 未接入正式入口、Windows SDK 通信不兼容及 targetId 越过任务归属；下文记录修复与剩余缺口。
 
 ## 工作流
 
@@ -33,6 +33,7 @@
 - [x] 持久 turn 生命周期及 worker stop/start 定向真实验收；完整进程重启与移组清理继续补。
 - [x] 后退/前进/刷新、逐键输入、HTML 拖放与捕获指针释放的真实 native Edge 验收。
 - [x] 文件/数据归属与取消、会话事件路由、公开诊断能力及当前范围整合验收；下载路径、同步客户端等待注册与更多数据能力仍见矩阵缺口。
+- [x] 工具栏全局暂停、持久阻断、原生输入释放与失败重试；真实 popup、暂停后 worker 恢复和迟到 Runtime 拒绝通过。网站策略仍未完成。
 - [ ] 完成矩阵 P01–P15，并逐项审计。
 
 ## 约束与风险
@@ -77,7 +78,7 @@ history 记录和能力矩阵。所有未通过或范围不足的验收保持未
 - 所有入口的显式短 action/wait deadline 包含发现、协商、排队、连接；newTab(URL) 的创建阶段在发送前也保留响应预算。raw CDP 导航同时匹配真实 loaderId 和文档 readiness，避免上一文档完成状态误判。
 - Host 每连接使用有界异步 FIFO writer，慢客户端不阻塞共享 extension reader；溢出或写超时关闭对应连接及其 pending，不丢弃单条响应后继续。真实 Windows pipe/Linux Unix slow-reader 回归与 WSL `go test -race ./internal/host ./internal/transport -count=1` 通过。竞态工具链仅解包到仓库临时目录，未安装系统软件。
 
-## 下一片：用户暂停控制
+## 用户暂停控制：实施与验收
 
 先实现 popup 的全局暂停/恢复，不把仅检查 URL 当作站点安全隔离。
 [Chromium 的 debugger 安全说明](https://chromium.googlesource.com/chromium/src/+/main/extensions/docs/security_faq.md)
@@ -91,3 +92,51 @@ raw CDP、导航与重定向、frame/document 生命周期等，另列未完成�
 - 恢复等待完整清理与 ledger 持久化，不回放旧动作；Agent 显式 beginTurn 后提交新工作。
 - 实测长等待、排队、按下未释放、chooser 和迟到 attach 的暂停，worker 重启保持暂停，
   存储/释放故障仍拒绝输入，前台 tab 不变；完成前不勾选 P14。
+- 用户暂停 UI 与持久 admission gate 已进入实现；验收前不计作完成。补充发现：
+  raw CDP 与引擎的 held-input 状态需共同清理，失败不可因第二次空 detach 而假报成功。
+- Edge 的真实 raw mouse-down 实验确认 native debugger detach 不会释放网页的
+  pointer capture/拖动状态；因此必须先在原 attachment 释放输入，失败保留状态重试，
+  不以“调试器已断开”替代“输入已释放”。该实验不是整套暂停验收通过的证据。
+- Chrome 156 实测真正 action popup 的 sender 没有 documentId；普通扩展 tab
+  则带 tab/documentId。因此校验扩展 ID、精确 popup URL、无 sender.tab，并检查
+  runtime.getContexts 的 POPUP；有 sender.documentId 时附加匹配，不杜撰必需字段。
+  这识别扩展 UI 入口，不构成恶意同账户客户端或本扩展任意代码的安全沙箱。
+- 扩展声明 Chromium 125 的最低 API 版本，与 flat debugger child sessions 的
+  官方要求一致；popup 的 getContexts 也在该下限内可用。这不是 Chrome 125
+  或所有 Chromium 品牌已经实测的声明。
+- 第一轮完整 Windows CI 通过（212 extension、8 build/script、50 JS SDK、
+  28 Python 与 Go 全包）；随后补充启动存储未读完时 Resume 超时不得覆盖
+  原 pending/revision 的回归，最终扩展与浏览器验收仍待收口。
+- 真实 native Edge 定向 `held-pause-BnRHyl` 验证 raw pointer capture/Shift
+  释放、等待取消及暂停后拒绝输入；活动 tab 事件为空。正常释放产生可信
+  pointerup/keyup/click，不承诺撤销此前的按下。该轮早于最终存储竞态补丁。
+- 正式 Chromium 套件的 action popup 打开挂起，经独立无引擎最小实验定位
+  到测试启动参数 `--window-size=1280,1000`；移除该参数后打开成功。
+  不将这一测试环境问题错误归因于按住输入或 CRX 引擎，最终回归使用实际 viewport。
+- 正式暂停定向 `run-14f1eY` 通过，111 ms 完成正常清理，含两个 session、
+  真实 popup、worker 重启和显式恢复；Running/Paused 图片已人工查看。
+  过程完整套件 `run-Yvt6Zu` 26/26 通过，但以下边界审计仍需修复后重跑。
+- 实测发现 `Input.dispatchDragEvent(dragCancel)` 不释放真实 pointer capture，
+  不能像 drop 一样清掉跟踪中的 left-down；必须保留到实际 mouseReleased。
+- 实测发现 CRX 等待 `hideHighlight` 期间日期 fill 可在 gate 已暂停后继续
+  发 Runtime 命令并改值。生产路径需立即关闭 Page 调用上下文，跳过没有公开
+  用途的 recorder/highlight 等待，同时围住所有新 CRX 命令；不能只拦 Input。
+  已投递到页面的脚本依然不可撤销，这不改变既有明确边界。
+
+### 本片最终结果
+
+- 上述两个边界已修复：native `drag-drop-audit-gHI5dd` 验证 dragCancel 后
+  可信 pointerup/capture 释放；Edge `pause-late-runtime-CSVCcf` 验证暂停后
+  出现的日期输入框值保持空，旧调用因 Page 关闭取消。
+- 最终扩展和构建脚本共 225/225 测试通过。此前本片完整 Windows CI 已
+  验证未改变的 Go、JS/Python SDK；不把旧 Linux CI 扩大为新暂停功能的
+  Linux 浏览器验收。
+- 正式冻结制品的 `run-qjsIiJ`、`run-uTXspB` 连续两轮各 26/26；所有生产
+  extension、host、SDK 与 harness 哈希相同，仅测试 transport 的动态端口不同。
+  两轮活动 tab 事件均为空，正常暂停各 110 ms。最终后台图片中的中文、
+  frame 结果、AI 光标、点击圈和元素边框经人工检查。
+- 最终 native Edge `held-pause-final-9iHGCP` 验证持有 pointer/Shift 的释放、
+  故障注入后的 Failed 与同 attachment 重试成功；四种 popup 图片已人工
+  查看，临时注册已清理，关键生产文件与最终构建哈希一致。
+- 仅本地保存，不推送或提 PR。P14 网站策略、完整进程重启及其他矩阵缺口
+  继续保留，长期目标没有完成。
