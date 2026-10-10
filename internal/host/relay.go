@@ -48,6 +48,8 @@ type Relay struct {
 	nextID            atomic.Int64
 	nextReqID         atomic.Int64
 	writeMu           sync.Mutex
+	nativeChunks      atomic.Bool
+	nativeQueuedBytes atomic.Int64
 	closing           bool
 	writers           sync.WaitGroup
 	clientWriteLimits clientWriteLimits
@@ -166,9 +168,10 @@ func (r *Relay) readClientLoop(client *clientConn) {
 		if err != nil {
 			return
 		}
+		receivedAt := time.Now()
 		forwarded, hostID, originalID, err := r.rewriteClientRequest(payload)
 		if err != nil {
-			r.writeClientError(client, nil, err)
+			r.writeClientError(client, originalID, err)
 			continue
 		}
 		if hostID != "" {
@@ -184,13 +187,21 @@ func (r *Relay) readClientLoop(client *clientConn) {
 			r.pending[hostID] = pendingRequest{client: client, originalID: originalID}
 			r.mu.Unlock()
 		}
-		if err := r.writeExtension(forwarded); err != nil {
+		if err := r.writeExtension(forwarded, hostID, receivedAt); err != nil {
+			respond := hostID == ""
 			if hostID != "" {
 				r.mu.Lock()
-				delete(r.pending, hostID)
+				if pending, exists := r.pending[hostID]; exists && pending.client == client {
+					delete(r.pending, hostID)
+					respond = true
+				}
 				r.mu.Unlock()
 			}
-			r.writeClientError(client, originalID, err)
+			// The receiver can report an assembly timeout while stdout is still
+			// writing. Only the side that consumes pending may finish this RPC.
+			if respond {
+				r.writeClientError(client, originalID, err)
+			}
 		}
 	}
 }
@@ -213,6 +224,9 @@ func (r *Relay) rewriteClientRequest(payload []byte) ([]byte, string, any, error
 		return nil, "", nil, err
 	}
 	id, hasID := message["id"]
+	if method, _ := message["method"].(string); isNativeTransportMethod(method) {
+		return nil, "", id, errNativeTransportReserved
+	}
 	if !hasID {
 		return payload, "", nil, nil
 	}
@@ -226,6 +240,9 @@ func (r *Relay) dispatchExtensionPayload(payload []byte) error {
 	var message map[string]any
 	if err := json.Unmarshal(payload, &message); err != nil {
 		return err
+	}
+	if r.consumeNativeTransportMessage(message) {
+		return nil
 	}
 	id, hasID := message["id"].(string)
 	if hasID {
@@ -309,12 +326,6 @@ func (r *Relay) bindRequestSession(client *clientConn, payload []byte) error {
 	}
 	client.sessions[request.Params.Session] = struct{}{}
 	return nil
-}
-
-func (r *Relay) writeExtension(payload []byte) error {
-	r.writeMu.Lock()
-	defer r.writeMu.Unlock()
-	return wire.WriteFrame(r.stdout, payload)
 }
 
 func (r *Relay) writeClientError(client *clientConn, id any, err error) {

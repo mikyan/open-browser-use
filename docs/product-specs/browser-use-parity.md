@@ -33,7 +33,7 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | ID | 能力 | 必须验证的行为 | 2026-10-11 当前证据与剩余缺口 |
 | --- | --- | --- | --- |
 | P01 | 正式入口 | CLI、MCP、公开 SDK 可做完整任务，不依赖 Codex 私有 native pipe 或临时内联脚本 | JS/Python/CLI/MCP 已通过正式 browserAction 链路；Go facade 已接通，完整任务范围继续扩展 |
-| P02 | 本地通信与安装 | Windows/macOS/Linux host、CLI、各 SDK 可连接；多 profile 选择明确；掉线可恢复 | Windows named pipe、Linux Unix socket 的真实 host/SDK CI 通过；Windows Edge 已验实际 native registration，macOS 通信及其他平台浏览器安装仍待验收 |
+| P02 | 本地通信与安装 | Windows/macOS/Linux host、CLI、各 SDK 可连接；多 profile 选择明确；掉线可恢复 | Windows named pipe、Linux Unix socket 的真实 host/SDK CI 通过；Windows Edge 实际 native registration 已验。新分片在真实 Edge 上通过双客户端超 2 MiB 内容/哈希/一次执行及旧扩展未协商时 host 拒绝后连接仍活；单帧限制 1 MiB。macOS 通信、完整断线恢复及其他平台浏览器安装仍待验收 |
 | P03 | 浏览器兼容 | Chrome、Edge、Brave、Opera、Vivaldi 的安装与发现正确，不把其他 browser selector 默默注册到 Chrome | Edge Stable 目录/selector/独立 native registration 已实现并真实 Windows 验证；Brave/Opera/Vivaldi 及其他系统实测待补 |
 | P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 原生 ARIA 与 scoped 快照已实测；新增有界 `snapshotAI` 递归 frame 快照和 capture refs，真实元数据、五种限额、过期与取消通过。iframe 备用文本保持合法 YAML；已有 locator boundingBox，快照内 boxes 等更广观察仍待补 |
 | P05 | 定位器 | CSS、role/name、text、label、placeholder、testId、链式筛选/nth；多匹配严格报错；动态元素等待 | 真正 Playwright locator 已接入；role/label/CSS/strictness/遮挡等待实测。capture ref 可信点击、同节点改名、删除/替换、过期及原始 selector 绕过拒绝已实测；更多普通组合继续补验收 |
@@ -46,7 +46,7 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属修复并实测；最新套件保留五次新未聚焦 popup 自身 tab 激活；原 sentinel 不变，页面操作未切窗口焦点。仅测试主动打开控制面板的精确焦点序列单独归因，光标/蓝框/点击圈可见；原生 popup 创建激活与多任务压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络/导航 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放。主动下载的 end/epoch/detach/转交/Pause 及启动超时后迟到 ID 取消经真实 HTTP 断流验证；清理屏障、重复 detach、挂起 path 唤醒由确定性回归覆盖。导航 timeout 不打断同页其他点击；auxiliary membership 经真实 worker 重启保留。未决原生调用可能阻止清理完成；worker 重启会丢失下载 handle，不能保证底层传输已取消。完整浏览器/host 重启和更广移组回收仍待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 工具栏全局暂停、持久阻断、旧 epoch 失效、清理失败重试及真实 popup 已验收；自身扩展页和已知 raw Target 隧道受限。session ID 仍是路由标签而非认证；网站策略 UI、未知持久写与完整浏览器重启边界未完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-toIMbt` 47/47，新增五入口主动下载真实文件/取消、同 URL 并发及所属任务清理证据；保留导航等待、popup、网络、snapshot/ref、文件、输入及 worker/Pause。383 项扩展/脚本测试、JS 74、Python 42 及 Go 全包通过；原始激活/焦点事件按精确 fixture 与 UI-open 索引保留归因，无未解释切换。Codex IAB 仍仅只读快照基准；原生 popup 创建、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-xMoFkk` 48/48，新增并发大请求哈希/一次执行及严格 1 MiB native 出口；独立 Edge `native-u7vkkz` 两组真实 native 正负对照通过，前台事件为空。保留五入口下载、导航等待、popup、网络、snapshot/ref、输入及 worker/Pause。420 项扩展/脚本、JS 74、Python 42 及 Go 全包通过；完整套件原始激活/焦点按精确 fixture 与 UI-open 索引保留归因。Codex IAB 仍仅只读快照基准；原生 popup 创建、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
 
 ## Evidence rules
 
@@ -61,3 +61,5 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 [`scripts/browser-integration/README.md`](../../scripts/browser-integration/README.md)。
 当前测试只替换 native messaging 的本地传输适配，用真实 Go host 与生产
 extension/engine；它不替代实际安装后的 native messaging 注册验收。
+独立 `native-message-checks.mjs` 使用真实 Edge native messaging，覆盖本片
+大消息与旧版本拒绝场景；同样不能代替所有平台及完整用户工作流验收。

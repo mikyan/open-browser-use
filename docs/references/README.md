@@ -20,6 +20,8 @@
   动作与定位器协议、固定依赖版本、构建方式和已知限制。
 - [Local IPC transport](local-ipc-transport.md)：Windows named pipe、Unix socket、
   endpoint discovery 与跨语言帧协议。
+- [Native message transport](native-message-transport.md)：浏览器 1 MiB 出口
+  上限、私有分片协商、有界组装、原预算和旧版本兼容。
 - [Browser control lifecycle](control-lifecycle.md)：持久 control epoch、结束与恢复、
   客户端显式开启新轮次，以及取消不能撤销已投递输入的边界。
 - [File transfers](file-transfers.md)：上传拦截准备、跨 frame 来源、清空文件、

@@ -14,6 +14,15 @@ framing, relay, extension dispatch, engine, and page behavior; it does **not**
 prove browser native-host registration or installed-extension discovery. The
 production extension is not modified and does not open a WebSocket service.
 
+The adapter enforces Chrome's directional physical frame limits: 1 MiB from
+host to extension and 64 MiB in reverse. `js-native-large-requests` submits
+concurrent multi-megabyte Unicode/HTML requests, checks page-computed hashes and
+exactly one execution, and verifies subsequent small calls on the same host.
+`nativeFrameStats` records frame sizes and private start/chunk/commit counts
+without retaining request bodies. These adapter checks are complemented by
+the separate [real native-message runner](native-message-checks.md), which uses
+isolated Windows profiles and temporary native-host registration.
+
 The worker-restart case keeps this test adapter's Go host process alive. It
 verifies extension epoch recovery over the same client connections. It does not
 claim automatic discovery/reconnection when a real native-host process exits;
@@ -92,15 +101,17 @@ virtual display. The suite does not use disabled background-throttling flags.
 ## What it checks
 
 The fresh isolated Windows Chromium 156 run
-`.tmp/browser-integration/run-toIMbt/results.json` passed all 47 cases, including
-the optional Go caller, direct downloads, auxiliary popups and navigation waits. Its raw activation/focus
+`.tmp/browser-integration/run-xMoFkk/results.json` passed all 48 cases, including
+the optional Go caller, large native requests, direct downloads, auxiliary popups and navigation waits. Its raw activation/focus
 events and narrowly scoped ledgers remain in the evidence. This does not verify
 native `window.open` focus suppression or full browser/extension restart.
 
 Direct downloads passed all eight focused cases in `run-1D7lpX` before the full
 run. Four new cases and the expanded Python, Go and Pause cases verify file bytes,
 exact ownership, timeout, late-ID cancellation, and cancellation before cleanup.
-The suite contains 47 cases with Go, or 46 without it.
+The suite contains 48 cases with Go, or 47 without it. The separate Windows Edge
+`native-u7vkkz` run passed both real native-port cases; see
+[native-message acceptance](native-message-checks.md).
 
 Navigation acceptance retains bounded stage and native request traces. The gated
 page consumes the complete body of its counting fetch as well as its held fetch;
@@ -285,7 +296,7 @@ the remaining gates, so cleanup cannot look like successful lifecycle progress.
   Select the four affected cases with
   `OBU_TEST_CASES='auxiliary-popup|control-worker-restart|user-global-pause'`;
   the required raw-navigation case makes this a five-case directed run. The
-  complete suite contains 47 cases with the optional Go caller, or 46 without it.
+  complete suite contains 48 cases with the optional Go caller, or 47 without it.
   The popup is independently created with `windows.create({focused:false})`,
   not by a page's `window.open`. Initial native popup activation remains
   unsupported as a no-interruption guarantee and is not counted as passing.

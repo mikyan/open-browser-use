@@ -5,6 +5,7 @@ import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
+import { NativeMessageReceiver } from "./native-message-receiver.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
 const NATIVE_HOST_STATUS_KEY = "OPEN_BROWSER_USE_NATIVE_HOST_STATUS";
@@ -63,12 +64,12 @@ class JsonRpcPeer {
   constructor(transport, handlers) {
     this.transport = transport;
     this.handlers = handlers;
-    this.transport.setMessageCallback((message) => {
-      void this.handleMessage(message);
+    this.transport.setMessageCallback((message, reply) => {
+      void this.handleMessage(message, reply);
     });
   }
 
-  async handleMessage(message) {
+  async handleMessage(message, reply = response => this.transport.sendMessage(response)) {
     if (!message || typeof message !== "object" || typeof message.method !== "string") {
       return;
     }
@@ -80,11 +81,11 @@ class JsonRpcPeer {
       }
       const result = await handler.call(this.handlers, message.params ?? {});
       if (id !== undefined) {
-        this.transport.sendMessage({ jsonrpc: "2.0", id, result: result ?? {} });
+        reply({ jsonrpc: "2.0", id, result: result ?? {} });
       }
     } catch (error) {
       if (id !== undefined) {
-        this.transport.sendMessage({
+        reply({
           jsonrpc: "2.0",
           id,
           error: {
@@ -105,6 +106,7 @@ class NativeTransport {
   constructor(hostName) {
     this.hostName = hostName;
     this.port = null;
+    this.receiver = null;
     this.messageCallback = null;
     this.reconnectAttempt = 0;
     this.status = {
@@ -137,20 +139,40 @@ class NativeTransport {
     if (this.port) {
       return;
     }
+    let port, receiver;
     try {
-      const port = chrome.runtime.connectNative(this.hostName);
+      port = chrome.runtime.connectNative(this.hostName);
       this.port = port;
-      this.reconnectAttempt = 0;
-      this.setStatus({ state: "connected" });
+      receiver = new NativeMessageReceiver({
+        dispatch: message => {
+          if (this.port === port && this.receiver === receiver) this.messageCallback?.(message, response => {
+            // A new native host starts a new request-ID namespace. A handler
+            // admitted on the old port must never reply on its replacement.
+            if (this.port === port && this.receiver === receiver) port.postMessage(response);
+          });
+        },
+        send: message => {
+          if (this.port === port && this.receiver === receiver) port.postMessage(message);
+        }
+      });
+      this.receiver = receiver;
       port.onMessage.addListener((message) => {
-        this.messageCallback?.(message);
+        if (this.port === port && this.receiver === receiver) receiver.receive(message);
       });
       port.onDisconnect.addListener(() => {
+        if (this.port !== port) return;
         this.port = null;
+        this.receiver = null;
+        receiver.close();
         this.scheduleReconnect(chrome.runtime.lastError?.message ?? "native host disconnected");
       });
+      port.postMessage({ jsonrpc: "2.0", method: "obu.native.hello", params: { version: 1 } });
+      this.reconnectAttempt = 0;
+      this.setStatus({ state: "connected" });
     } catch (error) {
-      this.port = null;
+      if (this.port === port) { this.port = null; this.receiver = null; }
+      receiver?.close();
+      try { port?.disconnect(); } catch {}
       this.scheduleReconnect(error instanceof Error ? error.message : String(error));
     }
   }

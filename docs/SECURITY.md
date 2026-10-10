@@ -114,6 +114,14 @@ Clipboard, download, and file chooser features are sensitive.
 
 ## Secrets And Data Handling
 
+Native message fragments are accepted only on the extension's actual host port.
+Local SDK clients cannot inject the private transport methods. A complete bounded
+assembly enters the same public method and control checks as a small request;
+fragments do not authorize actions. Disconnect, invalid framing and expired
+assembly discard the buffer without replay. Logical/physical byte limits and
+memory/deadline qualifications are documented in
+[native message transport](references/native-message-transport.md).
+
 Network wait handles bind to their original session, turn, epoch, tab and
 attachment. Every collect revalidates that scope; Pause, control end, transfer,
 detach and restart invalidate the handle. IDs are routing references rather than

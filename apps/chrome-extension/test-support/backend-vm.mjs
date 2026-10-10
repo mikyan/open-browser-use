@@ -6,6 +6,7 @@ import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "../browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "../auxiliary-tab-ownership.js";
+import { NativeMessageReceiver } from "../native-message-receiver.js";
 
 const sessionValuesByChrome = new WeakMap();
 function extendLegacyFixture(chrome) {
@@ -43,6 +44,7 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { NativeMessageReceiver } from "./native-message-receiver.js";', "")
   .replace('import { BrowserNetworkWaits } from "./browser-network-waits.js";', "")
   .replace('import { BrowserNavigationWaits } from "./browser-navigation-waits.js";', "")
   .replace('import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";', "")
@@ -50,7 +52,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, ...sandbox, AuxiliaryTabOwnership };
+  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

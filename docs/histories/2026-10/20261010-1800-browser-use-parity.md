@@ -313,6 +313,30 @@
 `.tmp/download-final-verification.json`。文档骨架、仓库卫生与 Action SHA
 检查通过；未重载用户日常扩展，未推送或提 PR。
 
+### 大请求的真实 native messaging
+
+- host→extension 严格执行 1 MiB 物理帧限制，v1 私有协商把最多 64 MiB 的
+  完整请求拆成 512 KiB 原始字节片。未协商或超限只拒绝该请求；128 MiB
+  大请求发送/排队额度不代表整个 host 内存上限。公开调用保持原样。
+- 单 port 有界组装，仅完整 commit 进入原有 RPC；UTF-8/JSON、ID、顺序、
+  字节数与双时钟 deadline 均校验，断连丢弃无重放。预算从 host 完整收帧
+  开始，不把未返回的 stdout 写入描述成已取消。
+- 独立审查复现旧异步 handler 将 `obu:1` 回复写进新 host 同号请求的
+  串线，改为原 port reply closure；成功/失败回归与独立重现通过。receiver
+  先报错、host 后 timeout 的双响应也修复，后续 ping 只收到自身结果。
+- 真正 Windows Edge native port `native-u7vkkz` 现代/legacy 两组通过：
+  双客户端分别发送 2,097,173/2,097,174 字节，页面哈希准确、各执行一次；
+  旧扩展未协商时 host 明确拒绝且小 ping 仍活。同 PID/endpoint、前台事件
+  为空、临时注册清理和所有测试进程退出均验证。
+- Chromium 156 完整 `run-xMoFkk` 48/48，适配器也强制 1 MiB 上限；两条
+  2,520,000 字节内容用 22 个片，最大帧 699,142 字节。420 项扩展/脚本、
+  JS 74、Python 42 和 Go 全包通过。图片保留光标/点击圈/蓝框，原始激活/
+  焦点记录保留精确 fixture 归因。只做本地提交/打包，不提 PR、不推送。
+- 最终制品核验 23 个生产 JS/JSON、33 个扩展包文件、6 个 skill 文件及
+  SDK/host/fixture 冻结哈希一致，两个独立真实输入哈希重新计算通过；
+  报告为 `.tmp/native-final-verification.json`。配套本地 host exe 与实测
+  二进制字节一致，需要和扩展一起更新；未修改用户日常安装。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

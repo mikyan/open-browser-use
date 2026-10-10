@@ -48,6 +48,7 @@ const allowedPopupActivations = [];
 const allowedWindowFocusEvents = [];
 const browserLog = [];
 const hostLog = [];
+const nativeFrameStats = { frames: 0, maxFrameBytes: 0, starts: 0, chunks: 0, commits: 0 };
 let bridgeClosing = false, bridgeFailure;
 function failNativeBridge(error) {
   hostLog.push(`Native adapter ${bridgeClosing ? "shutdown" : "failure"}: ${error.stack ?? error}\n`);
@@ -80,6 +81,7 @@ async function until(callback, label, timeout = 20000) {
 }
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));
+  assert.ok(body.length <= 64 * 1024 * 1024, "Extension message exceeds Chrome's 64 MiB native messaging limit");
   const header = Buffer.alloc(4);
   if (os.endianness() === "LE") header.writeUInt32LE(body.length); else header.writeUInt32BE(body.length);
   return Buffer.concat([header, body]);
@@ -326,15 +328,23 @@ try {
     socket.on("message", writeNativeMessage);
   });
   host.stdout.on("data", data => {
-    nativeBuffer = Buffer.concat([nativeBuffer, data]);
-    while (nativeBuffer.length >= 4) {
-      const length = os.endianness() === "LE" ? nativeBuffer.readUInt32LE() : nativeBuffer.readUInt32BE();
-      assert.ok(length <= 64 * 1024 * 1024, "Invalid native messaging frame");
-      if (nativeBuffer.length < 4 + length) break;
-      const message = nativeBuffer.subarray(4, 4 + length).toString();
-      nativeBuffer = nativeBuffer.subarray(4 + length);
-      if (extensionSocket?.readyState === WebSocket.OPEN) extensionSocket.send(message); else outbound.push(message);
-    }
+    try {
+      nativeBuffer = Buffer.concat([nativeBuffer, data]);
+      while (nativeBuffer.length >= 4) {
+        const length = os.endianness() === "LE" ? nativeBuffer.readUInt32LE() : nativeBuffer.readUInt32BE();
+        assert.ok(length <= 1024 * 1024, "Host message exceeds Chrome's 1 MiB native messaging limit");
+        if (nativeBuffer.length < 4 + length) break;
+        const message = nativeBuffer.subarray(4, 4 + length).toString();
+        nativeBuffer = nativeBuffer.subarray(4 + length);
+        nativeFrameStats.frames++;
+        nativeFrameStats.maxFrameBytes = Math.max(nativeFrameStats.maxFrameBytes, length);
+        const method = JSON.parse(message).method;
+        if (method === "obu.native.start") nativeFrameStats.starts++;
+        if (method === "obu.native.chunk") nativeFrameStats.chunks++;
+        if (method === "obu.native.commit") nativeFrameStats.commits++;
+        if (extensionSocket?.readyState === WebSocket.OPEN) extensionSocket.send(message); else outbound.push(message);
+      }
+    } catch (error) { failNativeBridge(error); }
   });
   const endpoint = (await until(async () => JSON.parse(await fs.readFile(path.join(socketDir, "active.json"), "utf8")), "host endpoint")).socketPath;
   const chromiumBinary = process.env.OBU_TEST_CHROMIUM_BINARY || chromium.executablePath();
@@ -427,6 +437,40 @@ try {
     await tab.getByRole("button", { name: "ARIA named action", exact: true }).click();
     assert.equal(await tab.locator("#role-result").textContent(), "clicked");
     return tab.engineInfo();
+  });
+  await test("js-native-large-requests", async () => {
+    const clients = [], before = { ...nativeFrameStats }, witnesses = [];
+    const hostPID = host.pid;
+    try {
+      for (let index = 0; index < 2; index++) {
+        const client = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `native-large-${index}`, timeoutMs: 15000 });
+        clients.push(client);
+        const owned = await client.newTab();
+        await client.cdp.navigate(owned.id, fixtureURL);
+        const text = `${index}:中文🌏<&>"\\\n`.repeat(140_000);
+        const bytes = Buffer.from(text, "utf8"), sha256 = createHash("sha256").update(bytes).digest("hex");
+        assert.ok(bytes.length > 2 * 1024 * 1024);
+        const expression = `(async()=>{const text=${JSON.stringify(text)};globalThis.__nativeLargeExecutions=(globalThis.__nativeLargeExecutions||0)+1;const bytes=new TextEncoder().encode(text);return {bytes:bytes.length,sha256:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join(''),executions:globalThis.__nativeLargeExecutions}})()`;
+        witnesses.push({ owned, expression, expected: { bytes: bytes.length, sha256, executions: 1 } });
+      }
+      const results = await Promise.all(witnesses.map(async value => {
+        const result = await value.owned.evaluate(value.expression, { awaitPromise: true });
+        assert.deepEqual(result, value.expected);
+        assert.equal(await value.owned.evaluate("globalThis.__nativeLargeExecutions"), 1);
+        return result;
+      }));
+      for (const client of clients) await client.client.request("ping");
+      assert.equal(host.pid, hostPID); assert.equal(host.exitCode, null);
+      assert.equal(nativeFrameStats.starts - before.starts, 2);
+      assert.equal(nativeFrameStats.commits - before.commits, 2);
+      assert.ok(nativeFrameStats.chunks - before.chunks >= 8);
+      const detail = { results, sameHostPID: hostPID, endpointUnchanged: true, nativeFrameLimit: 1024 * 1024,
+        maxFrameBytes: nativeFrameStats.maxFrameBytes, chunkFrames: nativeFrameStats.chunks - before.chunks };
+      await fs.writeFile(path.join(runDir, "native-large-requests.json"), JSON.stringify(detail, null, 2));
+      return detail;
+    } finally {
+      for (const client of clients) { try { await client.client.finalizeTabs([]); } finally { client.close(); } }
+    }
   });
   await test("js-element-screenshots-offscreen-frames", async () => checkElementScreenshots({
     browser, fixtureURL,
@@ -1181,7 +1225,7 @@ try {
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: true, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: true, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);

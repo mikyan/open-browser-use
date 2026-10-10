@@ -83,6 +83,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
 当前 M1 骨架已经提供：
 
 - native-endian 4-byte length-prefixed JSON frames。
+- host→extension 原生帧遵守浏览器 1 MiB 上限。扩展每个 port 的私有 hello
+  协商大请求分片，最大完整请求为重写后的 64 MiB；只有完整 commit 进入
+  原有 RPC 与控制权检查。旧扩展不协商时大请求明确拒绝且保留连接。
+  组装、预算与兼容边界见 `docs/references/native-message-transport.md`。
 - Windows host 使用当前用户 ACL 的本地 byte-mode named pipe；`active.json`
   保留 `socketPath` 字段并写入实际 pipe 路径，独立 endpoint descriptor 支持多个
   实例发现。macOS/Linux 继续使用 AF_UNIX。只有确认 endpoint 不存在时才删除

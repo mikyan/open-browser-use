@@ -411,3 +411,57 @@ Page GUID 路径仍明确不支持；本片不把主动重新下载冒充原网�
   哈希一致；独立复核真实文件、取消前缀/尾部、导航阶段和原始焦点记录。
   报告保存在 `.tmp/download-final-verification.json`，文档骨架、仓库卫生、
   Action SHA 检查通过。只更新本地包，未重载用户日常扩展。
+
+## 大请求与真实 native messaging：当前切片
+
+上一片 `b1c2acb` 已验证主动下载；本片解决大输入/富数据/CDP 参数在真实
+native messaging 上使共享连接断开的缺口。Chrome host→extension 单条消息
+上限为 1 MiB，反向为 64 MiB；现有本地适配器未模拟前者，64 MiB IPC codec
+不能作为浏览器传输容量的证明。文件 chooser 发送路径，大文件上传本身不是
+这个方向的大消息证据。
+
+- 保留 SDK/CLI/MCP 公开调用。新扩展每次 native port 发私有 v1 hello；host
+  对协商后的超 1 MiB 请求分成至多 512 KiB 原始字节的 base64 帧。所有
+  实际 host 出口帧均有 1 MiB 上限；未协商或完整消息超 64 MiB 时只拒绝
+  单请求，保持连接。SDK 不能伪造私有传输 method。
+- 每个实际 port 只保留一个有界 assembler，固定顺序/字节数/片数、严格
+  UTF-8/JSON 与原 host request ID。start/chunk 不执行任何操作，只有完整
+  commit 才进入原有 scope/epoch/ownership 检查；超时、错误或断链丢弃，
+  无自动重放，旧 port 回调不能污染新连接。
+- host 收到完整 IPC 帧后的重写、发送队列和分片耗时计入原显式 timeoutMs，
+  扩展继续扣除组装耗时。缺省组装预算 10 秒。该契约不代表 SDK→host
+  传输前已具有统一 deadline，也不把未返回的原生写入说成已取消。
+  start 同时携带原始绝对 Unix deadline，接收器用绝对与单调时间共同检查，
+  防止 Chrome 队列积压使相对预算重启。host 大请求排队/发送字节限额为
+  128 MiB，不将其冒充 IPC 读取/JSON 重写暂存或整个进程的内存上限。
+- 验收用公开 SDK 发送实际超过 1 MiB 的合成输入，页面只回长度、SHA-256
+  和执行次数；要求字节正确、只执行一次、不同客户端无串流、后续连接仍活。
+  新增正式真实 native registration 脚手架，独立 profile/env 与随机临时
+  HKCU host key，保留原始窗口焦点/tab 激活和产物哈希，finally 验证清理。
+  同时把既有适配器的 host→extension 上限改成 1 MiB，保留完整能力回归。
+- 本轮只本地开发/提交/打包，不提 PR、不推送，不重载日常浏览器扩展。
+
+本片结果：Windows Edge 真正 native port `native-u7vkkz` 现代/legacy 两组
+通过；两客户端各超过 2 MiB 的 UTF-8 内容与 SHA-256 一致、各执行一次，
+未协商的大请求由 host 拒绝且后续小 ping 正常，同 PID/endpoint 保留。
+两组原始 tab/window 事件为空，原 sentinel 不变；临时 HKCU key 已独立确认
+删除，浏览器/native host 已退出。未替换 connectNative 或调试页面的 CDP。
+
+完整 Chromium 156 `run-xMoFkk` 48/48；新增两条 2,520,000 字节内容请求，
+共 22 个数据片，物理帧最大 699,142 字节。420 项扩展/脚本、JS 74、Python
+42 与 Go 全包通过；SDK 测试包含最新真实 host。背景/popup 图片已查看，
+光标/蓝框/点击圈保留；原始五次新 popup 自身激活与主动打开 Pause UI 的
+两个精确焦点索引保留，没有未解释切换。
+
+独立审查发现并修复旧 native port 上的异步 handler 回复进入新 host 同号
+request 的竞态；成功/失败都绑定原 port reply closure，独立 VM 复现通过。
+同时修复 receiver 先报错、host 后超时导致的重复响应；原生 pipe 确定性
+回归证明后续 ping 不会先读到重复旧错误。双时钟回归覆盖 Chrome 入站队列
+与 JSON 解析耗时。完整能力矩阵仍有剩余项，长期目标继续 active。
+
+最终制品复核通过：23 个生产 JS/JSON、33 个扩展包文件、6 个 skill 文件，
+SDK/host/fixture 与 48 项运行及真实 Edge 原生验收冻结哈希一致；独立重算
+大内容 SHA-256，复核文件/导航/焦点账本与临时注册清理。报告为
+`.tmp/native-final-verification.json`。新增本地
+`dist/native-host/open-browser-use.exe` 与实测 host 字节一致；本片需要更新
+host 和扩展两者，未替用户更新日常安装。

@@ -318,6 +318,8 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   await fs.access(path.join(output, "browser-network-waits.js"));
   assert.equal(await fs.readFile(path.join(output, "browser-downloads.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "browser-downloads.js"), "utf8"));
+  assert.equal(await fs.readFile(path.join(output, "native-message-receiver.js"), "utf8"),
+    await fs.readFile(path.join("apps/chrome-extension", "native-message-receiver.js"), "utf8"));
   await fs.access(path.join(output, "browser-ai-snapshot.js"));
   await fs.access(path.join(output, "browser-observation.js"));
 });
