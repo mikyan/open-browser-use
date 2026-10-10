@@ -1,0 +1,58 @@
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_ad459630f6661d 720-723
+  s_08bbfd293d324f::t_9c3c935c0a281d 697-719,725-726
+  s_08bbfd293d324f::t_9fde1749b9388c 724
+scripts/browser-integration/browser-startup.mjs
+  s_08bbfd293d324f::t_9ce41952e54df4 1-21
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_ad459630f6661d 79-86
+  s_08bbfd293d324f::t_2a4af4ec0244c2 65-78,544-563
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_c84f437415a353 16,19,28-33
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_9ce41952e54df4 32,37-38,348,410,414-420
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_c84f437415a353 43-44,49
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_ad459630f6661d 497-502
+  s_08bbfd293d324f::t_9c3c935c0a281d 481-496,503
+docs/references/headed-browser-startup.md
+  s_08bbfd293d324f::t_a723c1c1cb06fd 156-159,171-173
+  s_08bbfd293d324f::t_6e8413875160c7 242-248
+  s_08bbfd293d324f::t_eba9b09ae1b021 216-220,225-241,259-266
+  s_08bbfd293d324f::t_752537b2fc76f5 221-224
+  s_08bbfd293d324f::t_23cfdfefef9a53 107,115-155,160-170,174-215,251-257
+  s_08bbfd293d324f::t_dd907f68871fc5 258
+scripts/browser-integration/browser-startup.test.mjs
+  s_08bbfd293d324f::t_9ce41952e54df4 1-45
+scripts/browser-integration/rendering-probe.test.mjs
+  s_08bbfd293d324f::t_6feb0fe0cff550 135-145,149-160,173-193,196-204,206-208,211-213,218-220,225,228,267-275
+  s_08bbfd293d324f::t_d59178470856ff 161,163-164,171-172
+  s_08bbfd293d324f::t_b297af7a270e9f 162,165-170
+  s_08bbfd293d324f::t_ffeb0b5cc153fe 194,216
+  s_08bbfd293d324f::t_f4a53735bad6fe 146-148,195,205,209-210,214-215,217,221-224,226-227,229-266
+scripts/browser-integration/rendering-probe.mjs
+  s_08bbfd293d324f::t_a0a059a961e4e4 177,190,195,304,309-389,393-394,407,411-414,435,439-441
+  s_08bbfd293d324f::t_c810b717588285 18-20,29-30,32-41,43-44,48-103
+  s_08bbfd293d324f::t_5547f1b10b79bf 390-391,398-404,406,408-410,415-434,436-438,629-633
+  s_08bbfd293d324f::t_a129ba0a6893bd 392,395-397,405
+  s_08bbfd293d324f::t_92ea84700accb7 479-481,483-494,499-500,509,522,564-565,580-581,583-584,628,634-635,670-682
+  s_08bbfd293d324f::t_d59178470856ff 21-23,45,150
+  s_08bbfd293d324f::t_b297af7a270e9f 15,24-28,42,46-47,151,482
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "7f402ce8da762aebfc8e4cdef49f2f75d442ffaa",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
