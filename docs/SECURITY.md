@@ -30,7 +30,7 @@ Do not include real credentials, private cookies, personal browsing history, or 
 
 The Chrome route intentionally exposes powerful browser automation primitives to local callers that can reach the Open Browser Use socket.
 
-- The extension accepts an explicit set of public RPC methods and checks task ownership for tab/target operations. Arbitrary CDP within an owned target remains powerful; this is not a site policy or a security sandbox.
+- The extension accepts an explicit set of public RPC methods and checks task ownership for tab/target operations. In the default all-websites mode, arbitrary CDP within an owned target remains powerful. Optional website restrictions check the complete live document tree and disable unaudited raw/data channels; see [website access settings](references/site-access-policy.md). This is not a network firewall or security sandbox.
 - Persistent control epochs reject obsolete turns. Session IDs identify routing and ownership records; they are not authentication credentials.
 - AI snapshot refs are bound to the current capture and native Element metadata, not parsed from page text. New snapshots, frame lifecycle or control changes expire them; native ref selectors require that capture context. These checks prevent accidental stale-element reuse, not arbitrary CDP access or hostile local clients. See [bounded observations](references/browser-action-protocol.md#bounded-recursive-observations).
 - Upper-layer runtimes are responsible for deciding which sites, methods, downloads, clipboard operations, and destructive actions are allowed.
@@ -48,7 +48,7 @@ The Go native host bridges Chrome Native Messaging stdio to local IPC: Unix sock
 - Bounded per-client writers isolate slow readers. Overflow or a write deadline closes that connection and clears its pending responses; it never silently drops an individual response and continues the stream.
 - Callers should treat access to the user's local account as access to the browser automation channel. These controls do not authenticate separate applications running as that user.
 
-Application-level client authentication and user-configured site policies remain unimplemented. Transport behavior and tested failure boundaries are documented in [Local IPC transport](references/local-ipc-transport.md).
+Application-level client authentication remains unimplemented. User-configured document-access policies do not authenticate local clients or block a website's own network traffic. Transport behavior and tested failure boundaries are documented in [Local IPC transport](references/local-ipc-transport.md).
 
 ## User Pause
 

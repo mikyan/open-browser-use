@@ -25,17 +25,21 @@ test("bounded snapshot patch verifies private schema, dispatch and original gene
   assert.throws(() => patchCrxAISnapshot(upstream.replace("\nfunction visitAllSelectorParts(selector, visitor) {", "\nfunction changedVisitor(selector, visitor) {")), /parser shape changed/);
 });
 
-test("native selector parser rejects direct, captured, composite and recursively nested unscoped refs", () => {
+function nativeSelectorGuard() {
   const source = patchCrxAISnapshot(upstream);
   // Execute the pinned tokenizer, CSS parser and selector parser unchanged.
   // Only the bundler's ordinary class-field helper is supplied by this VM.
   const parser = source.slice(source.indexOf("const between = function(num, first, last) {"), source.indexOf("\nfunction parseAttributeSelector(selector, allowUnquotedStrings) {"));
-  const guardStart = source.lastIndexOf("export function assertOpenBrowserUseSelector(selector) {");
+  const guardStart = source.lastIndexOf("export function assertOpenBrowserUseSelector(");
   const guardEnd = source.indexOf("\nconst obuSnapshotCaps", guardStart);
   const guard = source.slice(guardStart, guardEnd).replace("export function", "function");
-  const check = vm.runInNewContext(parser + guard + "\nassertOpenBrowserUseSelector;", {
+  return vm.runInNewContext(parser + guard + "\nassertOpenBrowserUseSelector;", {
     __publicField: (object, key, value) => Object.defineProperty(object, key, { value, enumerable: true, configurable: true, writable: true })
   });
+}
+
+test("native selector parser rejects direct, captured, composite and recursively nested unscoped refs", () => {
+  const check = nativeSelectorGuard();
   const nested = (kind, value, distance = "") => `body >> ${kind}=${JSON.stringify(value)}${distance}`;
   for (const selector of [
     "aria-ref=e1", " aria-ref = f2e7 ", "*aria-ref=e1", "body >> aria-ref=e1", "body >> *aria-ref=f2e7",
@@ -49,6 +53,41 @@ test("native selector parser rejects direct, captured, composite and recursively
     'xpath=//*[@data-x="aria-ref=e1"]', nested("internal:has", '[data-x="aria-ref=e1"]'),
     nested("internal:and", nested("internal:or", 'text="aria-ref=e1"')), '*css=button'
   ]) assert.doesNotThrow(() => check(selector), selector);
+});
+
+test("restricted native selector guard rejects custom and framework engines recursively", () => {
+  const check = nativeSelectorGuard();
+  const nested = (kind, value) => `body >> ${kind}=${JSON.stringify(value)}`;
+  for (const selector of [
+    "_react=Component", "_vue=Component", "custom=privatePayload", "body >> custom=privatePayload", "*custom=privatePayload",
+    "internal:control=unknown", ...["internal:has", "internal:has-not", "internal:and", "internal:or", "internal:chain"].map(kind => nested(kind, "_react=Component")),
+    nested("internal:and", nested("internal:or", "custom=privatePayload")),
+    "iframe >> internal:control=enter-frame >> _vue=Component"
+  ]) {
+    assert.throws(() => check(selector, true), error => {
+      assert.match(error.message, /OBU_SITE_ACCESS_UNSUPPORTED/);
+      assert.ok(!error.message.includes("privatePayload"));
+      return true;
+    }, selector);
+    assert.doesNotThrow(() => check(selector), `legacy guard: ${selector}`);
+  }
+  for (const selector of ["aria-ref=e1", nested("internal:has", "aria-ref=f2e3")])
+    assert.throws(() => check(selector, true), /OBU_REF_SELECTOR_REQUIRES_CAPTURE/);
+});
+
+test("restricted selector parsing preserves typed semantics and harmless engine-name literals", () => {
+  const check = nativeSelectorGuard();
+  for (const selector of [
+    "button", "css=button", "css:light=button", "xpath=//button", "xpath:light=//button", "text=Submit", "text:light=Submit",
+    "id=submit", "data-testid=submit", "data-test-id:light=submit", "data-test=submit", "button >> nth=0", "button >> visible=true",
+    'role=button[name="Submit"]', 'internal:role=button[name="Submit"s]', 'internal:label="Name"i', 'internal:testid=[data-testid="submit"s]',
+    'internal:attr=[placeholder="Name"i]', 'internal:text="Submit"i', 'button >> internal:has-text="Submit"i',
+    'button >> internal:has-not-text="Cancel"i', 'button >> internal:describe="fixture"',
+    'body >> internal:has="button"', 'body >> internal:has-not="button"', 'button >> internal:or="a"',
+    'iframe >> internal:control=enter-frame >> button', '[data-x="_react=Component"]', ':text-is("custom=thing")',
+    'text="body >> _vue=Component"', 'body >> internal:has="[data-x=\\\"custom=thing\\\"]"',
+    'css=[data-x="aria-ref=e1"]'
+  ]) assert.doesNotThrow(() => check(selector, true), selector);
 });
 
 test("bounded private channel retains old string client behavior and adds typed metadata", () => {

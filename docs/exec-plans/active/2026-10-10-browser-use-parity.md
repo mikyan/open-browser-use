@@ -465,3 +465,36 @@ SDK/host/fixture 与 48 项运行及真实 Edge 原生验收冻结哈希一致�
 `.tmp/native-final-verification.json`。新增本地
 `dist/native-host/open-browser-use.exe` 与实测 host 字节一致；本片需要更新
 host 和扩展两者，未替用户更新日常安装。
+
+### P14 网站访问控制（2026-10-11，开发与验收中）
+
+- 默认保持 all；新增 exact HTTP(S) origin allow/block。工具栏真实 popup
+  独占 setter，先同步暂停/清理/失效旧 epoch，再持久保存；恢复需显式操作。
+- 网站限制覆盖 live root 与所有 frame，未知/opaque/错误树拒绝整页。
+  webNavigation 事件撤权、CRX 每次 native send 与最终结果复核，共用原有
+  detach/input release，保留鼠标与前台不变要求。
+- 受限模式只保留已检查的 browserAction/locator/navigation 入口；任意
+  CDP、跨源网络诊断、WebMCP、剪贴板和文件传输暂不开放。用实际 parser
+  限定 selector 引擎，不将字符串过滤冒充脚本隔离。
+- 这是 Agent 文档控制，不是页面网络防火墙：跳转仍可能先加载再撤权，
+  不回滚已执行输入/网页自身请求。完整站点隔离和所有入口仍未完成。
+- 分别实施策略/树/后端/弹窗确定性测试；真实浏览器验收使用允许与拒绝的
+  两个测试站点、OOPIF、redirect、旧等待、真实 popup 设置和 worker 重启。
+  持续维护 [网站策略契约](../../references/site-access-policy.md)。
+- 所有修改只在本地，不推送、不提 PR、不改用户日常浏览器安装。
+
+本片最终 Chromium 156 `run-4A3rF0` **49/49**，扩展/脚本 **472/472**。
+真实 popup 应用 allow 规则用 115 ms 取消等待 click；旧 epoch 拒绝，显式
+恢复后允许站点填表/可信 click/截图成功。禁止 goto/claim/raw CDP、混合
+跨源 frame、redirect 后观察及非可信设置来源均拒绝；空白页只允许导航
+bootstrap，worker 重启后同 revision/policy 保留，再验证 block 规则。
+末尾通过同一真实 UI 恢复 all 并显式恢复。已有五个 auxiliary popup 激活
+保留精确归因；四个窗口焦点事件只属于两次真实控制面板打开，sentinel
+不变。所有浏览器进程已退出。三态 UI 和页面反馈 PNG 已检查。
+持久读/写挂起以有界 UI 错误返回，真实写入未结算仍阻止恢复；迟到结果
+不会自动恢复。运行中 root blank 导航和原生发送前微任务竞态有独立回归。
+
+独立制品复核 `.tmp/site-final-verification.json` 通过：26 个生产 JS/JSON
+及 10 个静态文件与实测冻结版本一致，扩展 ZIP 36 个文件逐字节匹配，
+skill 6 个文件及 SDK/host/fixture 哈希一致。权限与包内测试文件/凭据/
+私有机器路径扫描通过，精确验证所有原始前台事件。完整目标继续 active。

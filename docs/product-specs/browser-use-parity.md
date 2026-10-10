@@ -45,8 +45,8 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | diagnostics 的主页面/OOPIF、分页/丢弃/截断/换 owner 隔离经 native Edge 验证；新增 request/response ready→trigger→collect，五入口及冷 main/OOPIF、headers-before-body、redirect/503、精确匹配、历史拒绝和有界终态通过 Chromium 验收；更广调试与流读取仍待补 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属修复并实测；最新套件保留五次新未聚焦 popup 自身 tab 激活；原 sentinel 不变，页面操作未切窗口焦点。仅测试主动打开控制面板的精确焦点序列单独归因，光标/蓝框/点击圈可见；原生 popup 创建激活与多任务压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络/导航 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放。主动下载的 end/epoch/detach/转交/Pause 及启动超时后迟到 ID 取消经真实 HTTP 断流验证；清理屏障、重复 detach、挂起 path 唤醒由确定性回归覆盖。导航 timeout 不打断同页其他点击；auxiliary membership 经真实 worker 重启保留。未决原生调用可能阻止清理完成；worker 重启会丢失下载 handle，不能保证底层传输已取消。完整浏览器/host 重启和更广移组回收仍待补 |
-| P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 工具栏全局暂停、持久阻断、旧 epoch 失效、清理失败重试及真实 popup 已验收；自身扩展页和已知 raw Target 隧道受限。session ID 仍是路由标签而非认证；网站策略 UI、未知持久写与完整浏览器重启边界未完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-xMoFkk` 48/48，新增并发大请求哈希/一次执行及严格 1 MiB native 出口；独立 Edge `native-u7vkkz` 两组真实 native 正负对照通过，前台事件为空。保留五入口下载、导航等待、popup、网络、snapshot/ref、输入及 worker/Pause。420 项扩展/脚本、JS 74、Python 42 及 Go 全包通过；完整套件原始激活/焦点按精确 fixture 与 UI-open 索引保留归因。Codex IAB 仍仅只读快照基准；原生 popup 创建、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
+| P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及完整浏览器重启仍待完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-4A3rF0` 49/49，扩展/脚本 472/472；新增真实 popup 网站规则、禁止 iframe/redirect、旧输入取消、blank bootstrap 和 worker 持久化，保留三 SDK/CLI/MCP 等全部既有回归。五次 auxiliary popup 激活及两次控制面板的四个焦点事件按精确账本归因，sentinel 不变。上片真实 Edge native 大请求证据仍有效；Codex IAB 仍仅只读观察，原生 popup 创建、完整任务/其他平台浏览器和同组完整比较未完成 |
 
 ## Evidence rules
 

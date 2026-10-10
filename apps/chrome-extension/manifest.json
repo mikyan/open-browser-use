@@ -42,6 +42,7 @@
     "scripting",
     "storage",
     "tabGroups",
-    "tabs"
+    "tabs",
+    "webNavigation"
   ]
 }

@@ -31,6 +31,33 @@
         <p class="error-message" id="automation-error" role="alert" hidden></p>
       </section>
 
+      <section class="panel site-access-panel" aria-labelledby="site-access-title">
+        <div class="section-heading">
+          <span class="eyebrow" id="site-access-title">Website access</span>
+          <span class="site-access-state" id="site-access-status" role="status">Checking</span>
+        </div>
+        <label class="setting-label" for="site-access-mode">Allow agents to use</label>
+        <select id="site-access-mode" disabled>
+          <option value="all">All websites</option>
+          <option value="allow">Only listed origins</option>
+          <option value="block">Block listed origins</option>
+        </select>
+        <div id="site-access-list" hidden>
+          <label class="setting-label" for="site-access-origins">Origins, one per line (up to 100)</label>
+          <textarea id="site-access-origins" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="https://example.com&#10;http://localhost:3000" aria-describedby="site-access-origin-help" disabled></textarea>
+          <p class="control-hint" id="site-access-origin-help">Matches the exact scheme, host and port. A blocked embedded site blocks the whole tab. An empty “Only listed” list allows no websites.</p>
+        </div>
+        <p class="control-hint" id="site-access-message" role="status">Checking saved settings…</p>
+        <button class="control-button" id="site-access-apply" type="button" disabled>Apply and pause agents</button>
+        <button class="secondary-button" id="site-access-reload" type="button">Check saved settings</button>
+        <p class="error-message" id="site-access-error" role="alert" hidden></p>
+        <details class="site-access-details">
+          <summary>What this controls</summary>
+          <p>Restricted modes keep core locators, snapshots and screenshots available. Arbitrary CDP and page JavaScript, clipboard, WebMCP, network data, file transfers and the standalone cursor command are unavailable.</p>
+          <p>This controls agent access. It does not block a website’s network traffic. Applying settings pauses agents; it never resumes them.</p>
+        </details>
+      </section>
+
       <section class="panel" aria-labelledby="connection-title">
         <div class="section-heading">
           <span class="eyebrow" id="connection-title">Connection</span>

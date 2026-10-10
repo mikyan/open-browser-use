@@ -47,6 +47,15 @@ event to its original index, reason, checkpoint times and popup context;
 other focus event fails, including during subsequent popup close or auxiliary
 cleanup. No raw events are erased, and the original sentinel tab stays active.
 
+`js-user-site-access-popup` also uses the actual action popup and the same exact
+focus ledger. It verifies allow/block settings, cancellation of a waiting click,
+stale epochs, explicit resume, permitted semantic actions and PNG output, a
+denied origin, mixed cross-origin frames, redirect revocation, blank bootstrap,
+forged setters and persisted settings across a worker restart. It restores all
+websites through the popup before cleanup. Raw events are preserved for both
+intentional popup opens; no page actions receive a focus exception. Policy
+semantics and limitations are in [website access settings](../../docs/references/site-access-policy.md).
+
 ## Prerequisites and invocation
 
 Use a desktop session with Node.js 22+, Python 3.10+, the repository's Go

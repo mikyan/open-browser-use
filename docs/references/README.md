@@ -30,6 +30,8 @@
   等待契约，说明 ready/trigger/collect、同步入口、deadline、资源上限与控制权隔离。
 - [Navigation waits](navigation-waits.md)：URL/loadstate 的原生等待语义、独立
   注册/完成阶段、同步客户端 ready handle、取消与控制权边界。
+- [Website access settings](site-access-policy.md)：popup 独占的持久 origin
+  规则、完整 frame 检查、受限入口、暂停保存与网络防火墙之外的实际边界。
 - [Codex observation baseline](codex-observation-baseline.md)：隔离合成页面上的
   IAB 只读快照基线及其有限范围，不等同于输入、性能或完整能力对齐验收。
 - [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与

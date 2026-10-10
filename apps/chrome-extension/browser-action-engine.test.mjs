@@ -58,6 +58,37 @@ test("native selector guards run for CSS, frame and drag destinations before att
   }
 });
 
+test("restricted selector policy reaches CSS, frame and drag guards before native attachment", async () => {
+  for (const action of [
+    request("count", { locator: [{ kind: "css", selector: "custom=target" }] }),
+    request("count", { locator: [{ kind: "frame", selector: "custom=target" }, ...locator] }),
+    request("dragTo", { locator, args: { target: [{ kind: "css", selector: "custom=target" }] } })
+  ]) {
+    const f = fixture(), checked = [];
+    let attached = false, restricted = false;
+    f.app.attach = async () => { attached = true; return f.page; };
+    f.runtime.assertOpenBrowserUseSelector = (selector, mode) => {
+      checked.push([selector, mode]);
+      if (mode) throw new Error("OBU_SITE_ACCESS_UNSUPPORTED");
+    };
+    const engine = new BrowserActionEngine({
+      loadRuntime: async () => { restricted = true; return f.runtime; }, restrictedSelectors: () => restricted
+    });
+    await assert.rejects(engine.dispatch(action), /OBU_SITE_ACCESS_UNSUPPORTED/);
+    assert.deepEqual(checked, [["custom=target", true]]);
+    assert.equal(attached, false);
+  }
+});
+
+test("standalone engine selector guard defaults to unrestricted without adding wire fields", async () => {
+  const f = fixture({ count: async () => 1 }), checked = [];
+  f.runtime.assertOpenBrowserUseSelector = (selector, restricted) => checked.push([selector, restricted]);
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  assert.equal((await engine.dispatch(request("count", { locator: [{ kind: "css", selector: "button" }] }))).value, 1);
+  assert.deepEqual(checked, [["button", false]]);
+  assert.throws(() => validateBrowserAction(request("count", { locator, restrictedSelectors: false })), /does not support restrictedSelectors/);
+});
+
 test("capture refs route only emitted elements and ordinary snapshots invalidate the capture", async () => {
   const f = aiFixture({ innerText: async () => "Submit", ariaSnapshot: async () => '- button "Submit"' });
   const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });

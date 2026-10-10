@@ -337,6 +337,25 @@
   报告为 `.tmp/native-final-verification.json`。配套本地 host exe 与实测
   二进制字节一致，需要和扩展一起更新；未修改用户日常安装。
 
+### Website access
+
+网站策略片新增真实 popup 独占的 exact-origin all/allow/block 设置，保存
+复用完整暂停事务并保持暂停；持久 revision、草稿冲突、失败和未知写状态
+均显式处理。完整 live frame 树、导航撤权与 native send/结果证明接入
+现有控制生命周期；根 blank、混合 OOPIF、未知 selector 引擎均受限。
+受限模式保留 core browser actions，未审计的 raw CDP/数据入口明确拒绝；
+这是文档控制，不是网络防火墙，完整能力对齐仍有剩余项。
+
+最终真实浏览器 49/49、扩展/脚本 472 项通过。popup 保存 115 ms 取消旧
+等待，允许页可信输入与截图、禁止跳转/claim/混合 frame/redirect、worker
+重启持久化和三态 UI 均验收；五个新 popup 自身激活和两次主动打开控制
+面板的四条焦点事件保留精确归因。原前台不变。只本地开发、打包和提交，
+不提 PR、不推送、不改日常安装。
+
+独立最终核验确认 26 个生产 JS/JSON、10 个静态文件、36 文件扩展包与
+实测冻结产物一致；skill 6 文件及 SDK/host/fixture 哈希也相符。权限、
+包内敏感数据与原始前台事件扫描均通过。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

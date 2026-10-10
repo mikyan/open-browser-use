@@ -245,6 +245,11 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   raw CDP 和 CRX 共享原生输入跟踪，先释放原 attachment 的按键/指针，再
   detach；清理失败保持阻断并允许用户重试，不关闭或移动页面。popup 验证、
   异步清理身份和 worker 重启限制见 [control lifecycle](references/control-lifecycle.md)。
+- 可选网站规则复用暂停事务：真实 popup 保存 exact-origin allow/block 后
+  保持暂停；`site-access-policy.js` 管持久 revision，`site-access-frames.js`
+  检查 webNavigation 完整文档树，backend 在 native send/结果和导航事件
+  处撤权。受限模式禁未经验证的 raw/data 入口，默认 all 保持兼容；边界见
+  [website access settings](references/site-access-policy.md)。
 - WebMCP 使用两层 content script：MAIN world 优先使用浏览器原生
   `document.modelContext`；如果浏览器没有提供该 API，则在页面代码运行前安装
   一个最小 page-facing shim，覆盖 `registerTool`、`getTools`、`executeTool`、

@@ -303,3 +303,24 @@ dd {
 .status-pill[data-state="pausing"] .status-dot, .status-pill[data-state="paused"] .status-dot { background: #d97706; box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.16); }
 .status-pill[data-state="error"] { border-color: #f1c4c0; background: #fff5f4; color: #a3342a; }
 .status-pill[data-state="error"] .status-dot { background: #d34235; box-shadow: 0 0 0 3px rgba(211, 66, 53, 0.16); }
+
+.site-access-state { color: #657084; font-size: 11px; }
+.setting-label { display: block; margin: 10px 0 5px; color: #323b4b; font-size: 12px; font-weight: 650; }
+.site-access-panel select, .site-access-panel textarea {
+  width: 100%; box-sizing: border-box; border: 1px solid #c5ccd8; border-radius: 6px;
+  background: #fff; color: #1c2430; padding: 7px; font: inherit;
+}
+.site-access-panel textarea { display: block; resize: vertical; min-height: 70px; max-height: 160px; font-size: 12px; }
+.site-access-panel select:focus-visible, .site-access-panel textarea:focus-visible,
+.secondary-button:focus-visible, .site-access-details summary:focus-visible { outline: 2px solid #78a8ff; outline-offset: 2px; }
+.secondary-button {
+  width: 100%; margin-top: 7px; min-height: 30px; padding: 5px 8px;
+  border: 1px solid #c5ccd8; border-radius: 6px; background: #fff; color: #354f70;
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.secondary-button:hover:not(:disabled) { background: #f4f7fb; }
+.secondary-button:disabled { opacity: 0.6; cursor: default; }
+.site-access-details { margin-top: 10px; color: #657084; font-size: 11px; }
+.site-access-details summary { cursor: pointer; color: #354f70; }
+.site-access-details p { margin-top: 7px; }
+#site-access-error { overflow-wrap: anywhere; }

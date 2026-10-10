@@ -264,7 +264,7 @@ async function execute(page, params, resolveRef, selectedTarget) {
 }
 
 export class BrowserActionEngine {
-  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, inputHooks } = {}) {
+  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, restrictedSelectors = () => false, inputHooks } = {}) {
     this.loadRuntime = loadRuntime;
     this.onBeforeAttach = onBeforeAttach;
     this.onAttached = onAttached;
@@ -273,6 +273,7 @@ export class BrowserActionEngine {
     this.isInternalEvent = isInternalEvent;
     this.aroundAction = aroundAction;
     this.authorize = authorize;
+    this.restrictedSelectors = restrictedSelectors;
     this.inputHooks = inputHooks;
     this.pages = new Map();
     this.queues = new Map();
@@ -442,7 +443,7 @@ export class BrowserActionEngine {
         // Use the actual selector parser so reserved native ref engines cannot
         // bypass capture checks, including nested selectors. CSS/text literals
         // that happen to contain "aria-ref=" keep their native semantics.
-        for (const step of rawSelectors) runtime.assertOpenBrowserUseSelector(step.selector);
+        for (const step of rawSelectors) runtime.assertOpenBrowserUseSelector(step.selector, this.restrictedSelectors());
       }
       phase = "attaching";
       const entry = await this.attach(params.tabId, generation);

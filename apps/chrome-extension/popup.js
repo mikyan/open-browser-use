@@ -1,4 +1,5 @@
 import { createAutomationControl } from "./popup-control.js";
+import { createSiteAccessControl } from "./popup-site-access.js";
 
 const REPO_URL = "https://github.com/iFurySt/open-browser-use";
 const REFRESH_INTERVAL_MS = 5000;
@@ -37,13 +38,50 @@ const automationControl = createAutomationControl({
 });
 automationButton.addEventListener("click", () => { void automationControl.activate(); });
 
+const siteAccessMode = document.getElementById("site-access-mode");
+const siteAccessOrigins = document.getElementById("site-access-origins");
+const siteAccessApply = document.getElementById("site-access-apply");
+const siteAccessReload = document.getElementById("site-access-reload");
+const siteAccessControl = createSiteAccessControl({
+  sendMessage: message => {
+    if (!chromeApi?.runtime?.sendMessage) throw new Error("Extension control is unavailable.");
+    return chromeApi.runtime.sendMessage(message);
+  },
+  onApplied: () => { void automationControl.refresh(); },
+  render: view => {
+    const status = document.getElementById("site-access-status");
+    status.textContent = view.label;
+    status.dataset.revision = view.revision === null ? "" : String(view.revision);
+    if (siteAccessMode.value !== view.mode) siteAccessMode.value = view.mode;
+    if (siteAccessOrigins.value !== view.originsText) siteAccessOrigins.value = view.originsText;
+    siteAccessMode.disabled = view.editingDisabled;
+    siteAccessOrigins.disabled = view.editingDisabled;
+    document.getElementById("site-access-list").hidden = !view.listVisible;
+    document.getElementById("site-access-message").textContent = view.message;
+    siteAccessApply.textContent = view.applyText;
+    siteAccessApply.disabled = view.applyDisabled;
+    siteAccessReload.textContent = view.reloadText;
+    siteAccessReload.disabled = view.reloadDisabled;
+    const error = document.getElementById("site-access-error");
+    error.hidden = !view.error;
+    error.textContent = view.error;
+  }
+});
+const editSiteAccess = () => siteAccessControl.edit({ mode: siteAccessMode.value, originsText: siteAccessOrigins.value });
+siteAccessMode.addEventListener("change", editSiteAccess);
+siteAccessOrigins.addEventListener("input", editSiteAccess);
+siteAccessApply.addEventListener("click", () => { void siteAccessControl.apply(); });
+siteAccessReload.addEventListener("click", () => { void siteAccessControl.reload(); });
+
 renderExtensionVersion();
 renderInstallCommands();
 void refreshStatus();
 void automationControl.refresh();
+void siteAccessControl.refresh();
 setInterval(() => { void automationControl.refresh(); }, 1000);
 setInterval(() => {
   void refreshStatus();
+  void siteAccessControl.refresh();
 }, REFRESH_INTERVAL_MS);
 
 repoLink?.addEventListener("click", (event) => {

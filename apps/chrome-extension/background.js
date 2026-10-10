@@ -6,6 +6,8 @@ import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
 import { NativeMessageReceiver } from "./native-message-receiver.js";
+import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-policy.js";
+import { assertSiteAccessFrames } from "./site-access-frames.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
 const NATIVE_HOST_STATUS_KEY = "OPEN_BROWSER_USE_NATIVE_HOST_STATUS";
@@ -561,8 +563,17 @@ class BrowserBackend {
   constructor({ webMcpGate = null, browserEngine = null, automationCleanupTimeoutMs = AUTOMATION_CLEANUP_TIMEOUT_MS } = {}) {
     this.automationCleanupTimeoutMs = automationCleanupTimeoutMs;
     this.automationControl = new AutomationControlGate();
+    const trustedStorage = chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }) ?? Promise.resolve();
+    this.siteAccess = new SiteAccessPolicy({ storage: {
+      get: async key => { await trustedStorage; return chrome.storage.local.get(key); },
+      set: async value => { await trustedStorage; return chrome.storage.local.set(value); }
+    } });
+    this.siteNavigationVersions = new Map();
+    this.sitePendingFrames = new Map();
+    this.siteRevokedTabs = new Set();
+    this.sitePolicyUpdate = null;
     this.store = new SessionStore();
-    this.controlLedger = new ControlLedger(() => this.automationControl.assertOpen());
+    this.controlLedger = new ControlLedger(() => { this.automationControl.assertOpen(); this.siteAccess.assertReady(); });
     this.acceptedRequests = new Set();
     this.automationTransitions = Promise.resolve();
     this.pauseReleaseFailures = new Map();
@@ -613,6 +624,9 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      this.siteNavigationVersions.delete(tabId);
+      this.sitePendingFrames.delete(tabId);
+      this.siteRevokedTabs.delete(tabId);
       this.networkWaits.invalidateTab(tabId);
       this.navigationWaits.invalidateTab(tabId);
       void this.directDownloads.invalidateTab(tabId);
@@ -624,6 +638,7 @@ class BrowserBackend {
       if (claim) void this.releaseAuxiliaryClaim(claim, { destroyed: true }).catch(() => {});
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
+      if (change.url) this.onSiteNavigation({ tabId, frameId: 0, url: change.url }, "updated");
       if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
       if (Object.hasOwn(change, "groupId")) this.navigationWaits.invalidateTab(tabId);
       if (Object.hasOwn(change, "groupId")) {
@@ -634,11 +649,15 @@ class BrowserBackend {
     });
     chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab moved")); void this.directDownloads.invalidateTab(tabId); this.invalidateAuxiliaryTab(tabId); });
     chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.cancelTabTransfers(removed, new Error("OBU_TRANSFER_CANCELLED: tab replaced")); void this.directDownloads.invalidateTab(removed); this.invalidateAuxiliaryTab(removed); });
+    for (const [event, phase] of [["onBeforeNavigate", "pending"], ["onCommitted", "committed"], ["onErrorOccurred", "error"], ["onHistoryStateUpdated", "committed"], ["onReferenceFragmentUpdated", "committed"]]) {
+      chrome.webNavigation?.[event]?.addListener(details => this.onSiteNavigation(details, phase));
+    }
     this.controlReady = this.recoverControlState();
     this.controlReady.catch(error => this.automationControl.fail(error));
     for (const method of PUBLIC_BROWSER_METHODS) {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
-      const handler = this[method].bind(this);
+      const original = this[method].bind(this);
+      const handler = (...args) => { this.assertSiteMethod(method, args[0]); return original(...args); };
       if (method === "downloadURL") {
         this[method] = async params => {
           const record = this.directDownloads.reserve(params);
@@ -694,13 +713,130 @@ class BrowserBackend {
   async runControlledRequest(operation) {
     await this.controlReady;
     this.automationControl.assertOpen();
+    this.siteAccess.assertReady();
     const pending = Promise.resolve().then(() => {
       this.automationControl.assertOpen();
+      this.siteAccess.assertReady();
       return operation();
     });
     this.acceptedRequests.add(pending);
     try { return await pending; }
     finally { this.acceptedRequests.delete(pending); }
+  }
+
+  assertSiteMethod(method, params) {
+    this.siteAccess.assertReady();
+    if (!this.siteAccess.restricted) return;
+    // These channels can expose origins other than the tab's live documents.
+    // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
+    const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait", "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles"];
+    if (unsupported.includes(method) || (method === "browserAction" && params?.action === "diagnostics"))
+      throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
+  }
+
+  async getSiteAccessPolicy() {
+    try {
+      await withTimeout(this.automationCleanupTimeoutMs, () => this.siteAccess.ready.catch(() => {}),
+        () => new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings did not finish loading"));
+    } catch {
+      // Status must remain available even when the native read never settles.
+      // A late valid read may still finish normal startup; this response does
+      // not pretend the settings were loaded or change the global pause state.
+      return { ...this.siteAccess.status(), ready: false,
+        error: "OBU_SITE_ACCESS_UNAVAILABLE: website access settings did not finish loading" };
+    }
+    return this.siteAccess.status();
+  }
+
+  setSiteAccessPolicy(config, expectedRevision) {
+    const deadlineAt = Date.now() + this.automationCleanupTimeoutMs;
+    const timeout = () => new Error("OBU_SITE_ACCESS_UNAVAILABLE: website policy change is unconfirmed; automation remains paused");
+    const normalized = normalizeSiteAccessPolicy(config);
+    if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
+    const token = {};
+    this.sitePolicyUpdate = token;
+    // Pause fences input synchronously and drains native work before a policy
+    // can be replaced. Saving never resumes or replays the retired tasks.
+    const paused = this.pauseAutomation();
+    const operation = (async () => {
+      try {
+        await paused;
+        if (Date.now() >= deadlineAt) throw timeout();
+        return await this.siteAccess.replace(normalized, expectedRevision);
+      } finally {
+        if (this.sitePolicyUpdate === token) this.sitePolicyUpdate = null;
+      }
+    })();
+    // Keep the real operation/token alive after an outer deadline. Storage
+    // writes cannot be canceled; Resume stays fenced until its actual result.
+    return withTimeout(Math.max(1, deadlineAt - Date.now()), () => operation, timeout);
+  }
+
+  onSiteNavigation(details, phase) {
+    const { tabId, frameId, url } = details;
+    if (!this.siteAccess.restricted || !Number.isInteger(tabId) || tabId < 0) return;
+    // Track only tabs this backend controls; user browsing never grows a ledger.
+    if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.siteRevokedTabs.has(tabId)) return;
+    this.siteNavigationVersions.set(tabId, (this.siteNavigationVersions.get(tabId) ?? 0) + 1);
+    const pending = this.sitePendingFrames.get(tabId) ?? new Map();
+    if (frameId === 0 && phase === "committed") pending.clear();
+    if (phase === "pending" && pending.size >= 1000 && !pending.has(frameId)) { this.revokeSiteTab(tabId); return; }
+    if (phase === "pending") pending.set(frameId, url);
+    else if (phase !== "updated") pending.delete(frameId);
+    if (pending.size) this.sitePendingFrames.set(tabId, pending);
+    else this.sitePendingFrames.delete(tabId);
+    const inherited = frameId !== 0 && ["about:blank", "about:srcdoc"].includes(url);
+    // A newly created blank tab may bootstrap goto. A running document that
+    // navigates to blank is different: opener/page scripts may populate it.
+    if (phase === "error" || (!inherited && !this.siteAccess.allowsUrl(url))) this.revokeSiteTab(tabId);
+  }
+
+  revokeSiteTab(tabId) {
+    if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.browserEngine?.pages?.has(tabId) && !this.browserEngine?.queues?.has(tabId)) return;
+    if (this.siteRevokedTabs.has(tabId)) return;
+    this.siteRevokedTabs.add(tabId);
+    this.networkWaits.invalidateTab(tabId);
+    this.navigationWaits.invalidateTab(tabId);
+    this.cancelTabTransfers(tabId, new Error("OBU_SITE_ACCESS_DENIED: document access was revoked"));
+    void this.detachTab(tabId).catch(error => {
+      this.pauseReleaseFailures.set(tabId, error);
+      void this.pauseAutomation().catch(() => {});
+    });
+  }
+
+  async assertSiteTab(tabId, { recover = false, allowBlank = false } = {}) {
+    this.siteAccess.assertReady();
+    if (!this.siteAccess.restricted) return;
+    if (!recover && this.siteRevokedTabs.has(tabId)) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
+    const revision = this.siteAccess.status().revision;
+    const version = this.siteNavigationVersions.get(tabId) ?? 0;
+    for (const [frameId, url] of this.sitePendingFrames.get(tabId) ?? []) {
+      if (frameId !== 0 && ["about:blank", "about:srcdoc"].includes(url)) continue;
+      this.siteAccess.assertUrl(url, { allowBlank: frameId === 0 && allowBlank });
+    }
+    try {
+      const [tab, frames] = await withTimeout(1000, () => Promise.all([
+        chrome.tabs.get(tabId), chrome.webNavigation.getAllFrames({ tabId })
+      ]), () => new Error("OBU_SITE_ACCESS_UNVERIFIED: document inspection timed out"));
+      assertSiteAccessFrames(this.siteAccess, tab, frames);
+      if (!allowBlank && tab.url === "about:blank") throw new Error("OBU_SITE_ACCESS_UNVERIFIED: blank documents are available only for navigation to an allowed website");
+      this.siteAccess.assertReady();
+      if (revision !== this.siteAccess.status().revision || version !== (this.siteNavigationVersions.get(tabId) ?? 0))
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: documents changed during permission inspection");
+      if (recover) this.siteRevokedTabs.delete(tabId);
+      return { tabId, revision, version, documentId: frames.find(frame => frame.frameId === 0)?.documentId };
+    } catch (error) {
+      this.revokeSiteTab(tabId);
+      if (/^OBU_SITE_ACCESS_/.test(error?.message)) throw error;
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: live documents could not be inspected");
+    }
+  }
+
+  assertSiteProof(proof) {
+    this.siteAccess.assertReady();
+    if (!proof && !this.siteAccess.restricted) return;
+    if (!proof || this.siteRevokedTabs.has(proof.tabId) || proof.revision !== this.siteAccess.status().revision || proof.version !== (this.siteNavigationVersions.get(proof.tabId) ?? 0))
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: document permission changed before the browser command");
   }
 
   async getAutomationControlStatus() {
@@ -855,6 +991,8 @@ class BrowserBackend {
     };
     const operation = this.automationTransitions.catch(() => {}).then(async () => {
       await deadline.within(() => gate.ready);
+      this.siteAccess.assertReady();
+      if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: wait for the website policy change before resuming");
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== gate.revision) throw new Error("OBU_CONTROL_REVISION_CONFLICT: refresh user control status before resuming");
       if (gate.state !== "paused" || !gate.cleanupComplete) throw new Error("OBU_AUTOMATION_PAUSE_INCOMPLETE: retry Pause until browser control is fully released");
       if (gate.revision >= Number.MAX_SAFE_INTEGER) throw new Error("OBU_AUTOMATION_REVISION_EXHAUSTED: user control revision cannot wrap");
@@ -911,6 +1049,7 @@ class BrowserBackend {
         navigationWaitVersion: 1,
         auxiliaryTabsVersion: 1,
         directDownloadsVersion: 1,
+        siteAccess: { version: 1, mode: this.siteAccess.status().mode, restricted: this.siteAccess.restricted, ready: this.siteAccess.status().ready },
         automationControl: await this.getAutomationControlStatus()
       }
     };
@@ -936,13 +1075,14 @@ class BrowserBackend {
   async getTabsInTurn(params) {
     const session = await this.requireSession(params);
     const tabs = await this.getSessionTabs(session.sessionId);
-    return await this.withLogicalActive(session.sessionId, tabs.map(toBrowserTab));
+    return await this.withLogicalActive(session.sessionId, tabs.filter(tab => this.siteAccess.allowsUrl(tab.url, { allowBlank: true }) && (!tab.pendingUrl || this.siteAccess.allowsUrl(tab.pendingUrl, { allowBlank: true }))).map(toBrowserTab));
   }
 
   async getUserTabs(params) {
     await this.requireSession(params);
     const tabs = (await chrome.tabs.query({}))
       .filter(hasTabId)
+      .filter(tab => this.siteAccess.allowsUrl(tab.url) && (!tab.pendingUrl || this.siteAccess.allowsUrl(tab.pendingUrl)))
       .sort(compareLastAccessed)
       .slice(0, MAX_USER_TABS);
     const groupTitles = await readGroupTitles(tabs);
@@ -988,6 +1128,7 @@ class BrowserBackend {
       .flat()
       .filter((item) =>
         typeof item?.url === "string" &&
+        this.siteAccess.allowsUrl(item.url) &&
         typeof item.lastVisitTime === "number" &&
         Number.isFinite(new Date(item.lastVisitTime).getTime())
       )
@@ -1029,6 +1170,7 @@ class BrowserBackend {
       throw new Error(`Chrome tab ${tabId} has no id`);
     }
     assertControllableTab(tab);
+    await this.assertSiteTab(tabId, { recover: true });
     if (tab.url?.startsWith("chrome://")) {
       throw new Error(`Chrome internal tab ${tabId} cannot be claimed`);
     }
@@ -1046,6 +1188,7 @@ class BrowserBackend {
         const live = await chrome.tabs.get(tabId);
         check();
         assertControllableTab(live);
+        await this.assertSiteTab(tabId, { recover: true });
         if (live.windowId !== tab.windowId || live.groupId !== -1 || live.url?.startsWith("chrome://"))
           throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved or became uncontrollable");
       };
@@ -1231,6 +1374,7 @@ class BrowserBackend {
   async getBrowserEngine() {
     if (this.browserEngine) return this.browserEngine;
     this.browserEngine = createBrowserActionEngine({
+      restrictedSelectors: () => this.siteAccess.restricted,
       authorize: async (params) => {
         await this.requireSessionTab(params, "browserAction");
         this.rememberAttachmentOwner(params, params.tabId);
@@ -1245,6 +1389,12 @@ class BrowserBackend {
           this.automationControl.assertOpen();
           const token = this.attachmentEpochs.get(target.tabId);
           this.inputTracker.assertSend(target.tabId, token);
+          if (this.siteAccess.restricted) return this.assertSiteTab(target.tabId, { allowBlank: true }).then(proof => {
+            this.automationControl.assertOpen();
+            this.assertSiteProof(proof);
+            this.inputTracker.assertSend(target.tabId, token);
+            return this.inputTracker.send(target, token, method, params, operation);
+          });
           return this.inputTracker.send(target, token, method, params, operation);
         },
         release: tabId => this.releaseTrackedInput(tabId),
@@ -1267,7 +1417,10 @@ class BrowserBackend {
       if (value < 1) throw new Error("Browser action timed out during admission");
       return value;
     };
-    if (params.action === "goto") assertControllableUrl(params.args?.url);
+    if (params.action === "goto") {
+      assertControllableUrl(params.args?.url);
+      this.siteAccess.assertUrl(params.args?.url);
+    }
     const tabId = requireTabId(params, "browserAction");
     let epoch = this.controlEpochs.get(tabId) ?? 0;
     await this.controlReleases.get(tabId)?.catch(() => {});
@@ -1286,7 +1439,14 @@ class BrowserBackend {
       await this.withinTransferDeadline(startedAt + timeoutMs, () => setup.promise);
       await this.requireSessionTab(params, "browserAction");
     }
-    return await engine.dispatch({ ...params, timeoutMs: remaining() });
+    let result;
+    try { result = await engine.dispatch({ ...params, timeoutMs: remaining() }); }
+    catch (error) {
+      if (this.siteAccess.restricted && this.siteRevokedTabs.has(tabId)) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked during the browser action");
+      throw error;
+    }
+    this.assertSiteProof(await this.assertSiteTab(tabId));
+    return result;
   }
 
   async armNetworkWait(params, record) {
@@ -1455,6 +1615,7 @@ class BrowserBackend {
 
   async prepareEngineAttachment(tabId) {
     this.automationControl.assertOpen();
+    this.assertSiteProof(await this.assertSiteTab(tabId, { recover: true, allowBlank: true }));
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
@@ -1474,6 +1635,7 @@ class BrowserBackend {
     // background pages responsive without activating their tab or window.
     // Chrome resets this renderer override when the debugger detaches.
     this.automationControl.assertOpen();
+    this.assertSiteProof(await this.assertSiteTab(tabId, { allowBlank: true }));
     if (!this.attachmentEpochs.has(tabId)) this.attachmentEpochs.set(tabId, {});
     this.inputTracker.register(tabId, this.attachmentEpochs.get(tabId));
     await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -1810,13 +1972,18 @@ class BrowserBackend {
         if (!(await this.ensureCursorContentScript(params.session_id, tabId)) || !isCurrent()) {
           return;
         }
+        const proof = await this.assertSiteTab(tabId);
+        this.assertSiteProof(proof);
+        if (!isCurrent()) return;
+        const destination = this.siteMessageDestination(proof);
         await chrome.tabs.sendMessage(tabId, {
           type: "OPEN_BROWSER_USE_CURSOR",
           sessionId: params.session_id,
           turnId: params.turn_id,
           ...cursor
-        });
+        }, destination);
         if (event.type === "mousePressed" && isCurrent()) {
+          this.assertSiteProof(proof);
           await chrome.tabs.sendMessage(tabId, {
             type: "OPEN_BROWSER_USE_POINTER_EVENT",
             sessionId: params.session_id,
@@ -1824,7 +1991,7 @@ class BrowserBackend {
             eventType: event.type,
             x: event.x,
             y: event.y
-          });
+          }, destination);
         }
       });
     } finally {
@@ -1953,6 +2120,7 @@ class BrowserBackend {
 
   assertTransferScope(scope) {
     this.controlLedger.assertCurrent(scope);
+    if (this.siteAccess.restricted && this.siteRevokedTabs.has(scope.tabId)) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
     if (!this.attachedTabs.has(scope.tabId) || this.attachmentEpochs.get(scope.tabId) !== scope.attachment) {
       throw new Error("OBU_TRANSFER_CANCELLED: browser attachment changed");
     }
@@ -2310,6 +2478,10 @@ class BrowserBackend {
   handleCdpEvent(source, method, params = {}) {
     const tabId = source?.tabId;
     if (!Number.isInteger(tabId) || (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId))) return;
+    if (this.siteAccess.restricted) {
+      const url = method === "Page.frameNavigated" ? params.frame?.url : method === "Target.attachedToTarget" && params.targetInfo?.type === "iframe" ? params.targetInfo.url : undefined;
+      if (url && !["about:blank", "about:srcdoc"].includes(url) && !this.siteAccess.allowsUrl(url)) this.revokeSiteTab(tabId);
+    }
     if (method === "Target.attachedToTarget" && typeof params.sessionId === "string" && params.targetInfo?.type === "iframe") {
       const sessions = this.childSessionsByTabId.get(tabId) ?? new Set();
       sessions.add(params.sessionId); this.childSessionsByTabId.set(tabId, sessions);
@@ -2385,7 +2557,7 @@ class BrowserBackend {
   }
 
   readCursorOverlayState(tabId) {
-    if (this.automationControl.inputBlocked) return { cursor: null, isVisible: false, sessionId: null, turnId: null };
+    if (this.automationControl.inputBlocked || (this.siteAccess.restricted && this.siteRevokedTabs.has(tabId))) return { cursor: null, isVisible: false, sessionId: null, turnId: null };
     for (const [sessionId, activeTabId] of this.activeTabsBySession) {
       if (activeTabId === tabId) {
         return {
@@ -2446,6 +2618,9 @@ class BrowserBackend {
   }
 
   async cdpEventMetadata(source) {
+    // Raw events may describe workers, network bodies or origins outside the
+    // live frame tree. Restricted modes expose only audited action results.
+    if (this.siteAccess.restricted) return null;
     const scope = this.attachmentOwners.get(source?.tabId);
     if (!scope) return null;
     try {
@@ -2699,7 +2874,7 @@ class BrowserBackend {
   }
 
   async recoverControlState() {
-    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready]);
+    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready, this.siteAccess.ready]);
     if (this.automationControl.inputBlocked) {
       // Startup recovery shares the popup transition queue. A Pause accepted
       // while storage was loading already owns that recovery operation.
@@ -2752,6 +2927,7 @@ class BrowserBackend {
       throw new Error(`Tab ${tabId} is not part of browser session ${session.sessionId}`);
     }
     assertControllableTab(tab);
+    if (command !== "detach") await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
     this.controlLedger.assertCurrent(params);
   }
 
@@ -2917,22 +3093,35 @@ class BrowserBackend {
   }
 
   async ensureCursorContentScript(sessionId, tabId) {
+    let proof;
     try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_PING" });
+      proof = await this.assertSiteTab(tabId);
+      this.assertSiteProof(proof);
+    } catch { return false; }
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_PING" }, this.siteMessageDestination(proof));
       if (response?.ok) {
         return true;
       }
     } catch {}
     if (this.automationControl.inputBlocked) return false;
     try {
+      this.assertSiteProof(proof);
+      const destination = this.siteMessageDestination(proof);
       await chrome.scripting.executeScript({
-        target: { tabId },
+        target: { tabId, ...(destination.documentId ? { documentIds: [destination.documentId] } : {}) },
         files: ["content-cursor.js"]
       });
       return true;
     } catch {
       return false;
     }
+  }
+
+  siteMessageDestination(proof) {
+    if (!this.siteAccess.restricted) return {};
+    if (typeof proof?.documentId !== "string" || !proof.documentId) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: cursor document identity is unavailable");
+    return { documentId: proof.documentId };
   }
 
   async requireWebMcpEnabled() {
@@ -2999,14 +3188,21 @@ class BrowserBackend {
   }
 
   async publishCursorState(tabId) {
+    if (this.siteAccess.restricted && !this.readCursorOverlayState(tabId).isVisible) {
+      // Cleanup may hide an existing overlay on a revoked page, but must never
+      // inject a new script or publish a new visible cursor there.
+      return chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_CURSOR_STATE", state: { isVisible: false } }).then(response => response?.ok === true, () => false);
+    }
     if (!(await this.ensureCursorContentScript(null, tabId))) {
       return false;
     }
     try {
+      const proof = await this.assertSiteTab(tabId);
+      this.assertSiteProof(proof);
       const response = await chrome.tabs.sendMessage(tabId, {
         type: "OPEN_BROWSER_USE_CURSOR_STATE",
         state: this.readCursorOverlayState(tabId)
-      });
+      }, this.siteMessageDestination(proof));
       return response?.ok === true;
     } catch {
       return false;
@@ -3247,7 +3443,22 @@ async function handleAutomationControlMessage(message, sender) {
   if (message.type === "PAUSE_AUTOMATION") return backend.pauseAutomation();
   return backend.resumeAutomation(message.expectedRevision);
 }
+async function handleSiteAccessMessage(message, sender) {
+  if (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL("popup.html"))
+    throw new Error("OBU_CONTROL_FORBIDDEN: website settings are only available from the extension popup");
+  if (message.type === "GET_SITE_ACCESS_POLICY") return backend.getSiteAccessPolicy();
+  if (sender.tab || typeof chrome.runtime.getContexts !== "function")
+    throw new Error("OBU_CONTROL_FORBIDDEN: a real extension action popup is required");
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ["POPUP"], ...(typeof sender.documentId === "string" ? { documentIds: [sender.documentId] } : {}) });
+  if (!contexts.some(context => context.contextType === "POPUP" && (sender.documentId === undefined || context.documentId === sender.documentId) && context.documentUrl === sender.url))
+    throw new Error("OBU_CONTROL_FORBIDDEN: the sending popup is no longer open");
+  return backend.setSiteAccessPolicy(message.policy, message.expectedRevision);
+}
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY"].includes(message?.type)) {
+    void handleSiteAccessMessage(message, sender).then(policy => sendResponse({ ok: true, policy }), error => sendResponse({ ok: false, error: String(error?.message ?? error) }));
+    return true;
+  }
   if (["GET_AUTOMATION_CONTROL_STATUS", "PAUSE_AUTOMATION", "RESUME_AUTOMATION"].includes(message?.type)) {
     void handleAutomationControlMessage(message, sender).then(status => sendResponse({ ok: true, status }), async error => sendResponse({ ok: false, status: await backend.getAutomationControlStatus(), error: String(error?.message ?? error) }));
     return true;
