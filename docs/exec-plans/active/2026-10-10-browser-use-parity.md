@@ -206,3 +206,40 @@ claim 后操作、外部任务拒绝和结束释放；它不替代原生 window.
   和 [popup ownership design](../../references/popup-ownership-design.md)，不将
   测试专用补丁或方案文档计为生产能力。此轮没有修改 host/Python/Go 运行代码，
   没有重复宣称 Linux 或 macOS 浏览器验收。
+
+## 有界跨 frame 快照：完整实现切片
+
+按 `ai-snapshot-design.md` 落实新 `snapshotAI` 动作和 singleton `ref` 定位器，
+保留旧 `snapshot` 的 YAML 契约。运行时仍使用固定版 Playwright 原生 ARIA
+语义：稳定 Frame slot、真正 renderer 提供的 refs、完整性检查和全局预算
+一起实现，不从页面可伪造的文本提取授权列表。
+
+- 根负责 engine/state：每个 attachment 一个 capture，frame 生命周期、普通
+  快照、下一次快照、取消或 owner 改变时失效；截图通过真实 frame ancestor
+  预滚。已开始的点击可以因自身导航正常完成，之后的旧 ref 调用必须拒绝。
+- Runtime/build：私有 channel 的受限适配、生成注入代码限额、可信 metadata、
+  固定 digest/形状校验和 build 测试；不得改变普通 ARIA 算法或静默返回部分树。
+- SDK：JS/Python/Go 的有限 options/result 校验及 ref locator；CLI/MCP 复用
+  同一 RPC。SDK 不自动重拍快照、猜替代元素或重放动作。
+- 真实验收：root/shadow/same/OOPIF/nested、前插/重排/反复 frame 复用、伪 ref
+  文本、失效与取消、五种资源上限、离屏 ref 截图，以及全部既有用例。
+
+实现与验收完成后再更新能力矩阵、参考文档、history 和本地交付包；没有
+推送或 PR。Popup 与其他矩阵缺口继续独立保留，长期目标不缩小。
+
+### 有界快照切片结果
+
+- 生产 `snapshotAI`、capture 状态、三种 SDK 与 CLI/MCP 入口已完成。原生
+  renderer 提供可信 refs，Frame slot 在前插/重排/替换后仍指向真实文档。
+  独立审查补上原生 selector 绕过校验和 iframe 备用文本 YAML 容器修复。
+- Windows Chromium 156 正式 `run-rC27uZ` 31/31，活动 tab 事件为空；五种
+  入口各自生成 capture、读取并可信点击。20 次重复快照、8 次 frame 替换、
+  五种限额、缺失 body、节点改名/删除/替换、capture 过期与取消均通过。
+- 扩展/构建 255/255、JS 55/55、Python 32/32 及 Go 全包测试通过，JS/Python
+  启用真实 host 集成。本片没有将这些 Windows 结果算作 Linux/macOS 验收。
+- 离屏 nested ref 截图与普通 locator 控制图逐字节一致；尺寸遵循原生整数
+  裁剪后按实测 DPR 缩放。实际图片、中文和光标/点击圈/目标框已经查看。
+  本地扩展 ZIP 的 28 个文件与 unpacked 匹配；18 个生产 JS/JSON 文件、各
+  SDK、Go executable、host 与正式 fixture 哈希匹配，skill 包 6 文件匹配源码。
+- 仅保留本地提交与安装包，不推送、不提 PR。Popup ownership、原生创建
+  激活、两阶段网络等待、其他平台及完整 Codex 对照仍未完成，目标保持 active。

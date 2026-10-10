@@ -51,6 +51,7 @@ export type OpenBrowserUseWaitForLoadStateOptions = {
 export type OpenBrowserUseBrowserOptions = OpenBrowserUseClientOptions | { client: OpenBrowserUseClient };
 
 export type OpenBrowserUseLocatorStep =
+  | { kind: "ref"; captureId: string; ref: string }
   | { kind: "css" | "frame"; selector: string }
   | { kind: "role"; role: string; name?: string; exact?: boolean }
   | { kind: "text" | "label" | "placeholder" | "altText" | "title" | "testId"; value: string; exact?: boolean }
@@ -58,10 +59,22 @@ export type OpenBrowserUseLocatorStep =
   | { kind: "first" | "last" }
   | { kind: "filter"; hasText?: string; hasNotText?: string };
 
-export type OpenBrowserUseEngineInfo = { name: "playwright-crx"; version: string; playwrightVersion: string };
+export type OpenBrowserUseAISnapshotLimits = { maxBytes: number; maxNodes: number; maxRefs: number; maxFrames: number; maxDepth: number };
+export type OpenBrowserUseEngineInfo = {
+  name: "playwright-crx"; version: string; playwrightVersion: string;
+  capabilities?: { snapshotAI: 1; captureRefs: 1 };
+  snapshotLimits?: OpenBrowserUseAISnapshotLimits;
+};
 export type OpenBrowserUseActionResult = { value: JsonValue; engine: OpenBrowserUseEngineInfo };
 export type OpenBrowserUseActionOptions = { timeoutMs?: number; [key: string]: JsonValue | undefined };
 export type OpenBrowserUseScreenshot = { base64: string; mimeType: string };
+export type OpenBrowserUseAISnapshotOptions = {
+  timeoutMs?: number; maxBytes?: number; maxNodes?: number; maxRefs?: number; maxFrames?: number; maxDepth?: number;
+};
+export type OpenBrowserUseAISnapshot = {
+  captureId: string; snapshot: string; refs: string[];
+  stats: { bytes: number; nodes: number; refs: number; frames: number }; complete: true;
+};
 export type OpenBrowserUseControlState = { controlEpoch: number; closing: boolean; nextTurnId: string; lifecycleVersion: 1 };
 export type OpenBrowserUseDiagnosticsCursor = { captureId: string; sequence: number };
 export type OpenBrowserUseDiagnosticsOptions = { after?: OpenBrowserUseDiagnosticsCursor; limit?: number; timeoutMs?: number };
@@ -582,6 +595,11 @@ export class OpenBrowserUseTab {
     return expectString(await this.action("snapshot", actionArgs(options), options), "snapshot");
   }
 
+  async snapshotAI(options: OpenBrowserUseAISnapshotOptions = {}): Promise<OpenBrowserUseAISnapshot> {
+    const limits = aiSnapshotLimits(options);
+    return expectAISnapshot(await this.action("snapshotAI", actionArgs(options), options), limits);
+  }
+
   async screenshot(options: OpenBrowserUseActionOptions = {}): Promise<OpenBrowserUseScreenshot> {
     return expectScreenshot(await this.action("screenshot", actionArgs(options), options));
   }
@@ -597,6 +615,7 @@ export class OpenBrowserUseTab {
   }
 
   locator(selector: string): OpenBrowserUseLocator { return this.playwright.locator(selector); }
+  getByRef(captureId: string, ref: string): OpenBrowserUseLocator { return this.playwright.getByRef(captureId, ref); }
   frameLocator(selector: string): OpenBrowserUseLocator { return this.playwright.frameLocator(selector); }
   getByRole(role: string, options: { name?: string; exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByRole(role, options); }
   getByText(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByText(value, options); }
@@ -619,13 +638,22 @@ export class OpenBrowserUseLocator {
 
   constructor(tab: OpenBrowserUseTab, steps: readonly OpenBrowserUseLocatorStep[] = []) {
     this.tab = tab;
+    if (steps.some(step => step.kind === "ref")) {
+      if (steps.length !== 1 || steps[0].kind !== "ref") throw new Error("Ref locators cannot be chained");
+      assertCaptureRef(steps[0].captureId, steps[0].ref);
+    }
     this.steps = Object.freeze(steps.map(step => Object.freeze({ ...step })));
   }
 
   #append(step: OpenBrowserUseLocatorStep): OpenBrowserUseLocator {
+    if (this.steps.some(existing => existing.kind === "ref")) throw new Error("Ref locators cannot be chained");
     return new OpenBrowserUseLocator(this.tab, [...this.steps, step]);
   }
 
+  getByRef(captureId: string, ref: string): OpenBrowserUseLocator {
+    if (this.steps.length) throw new Error("Ref locators must be created directly from a tab");
+    return this.#append({ kind: "ref", captureId, ref });
+  }
   locator(selector: string): OpenBrowserUseLocator { return this.#append({ kind: "css", selector }); }
   frameLocator(selector: string): OpenBrowserUseLocator { return this.#append({ kind: "frame", selector }); }
   getByRole(role: string, options: { name?: string; exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "role", role, ...options }); }
@@ -686,6 +714,7 @@ export class OpenBrowserUseLocator {
 }
 
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+  snapshotAI(options: OpenBrowserUseAISnapshotOptions = {}): Promise<OpenBrowserUseAISnapshot> { return this.tab.snapshotAI(options); }
   goBack(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.goBack(options); }
   goForward(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.goForward(options); }
   reload(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.reload(options); }
@@ -730,6 +759,41 @@ function expectBoolean(value: JsonValue, action: string): boolean {
 function expectScreenshot(value: JsonValue): OpenBrowserUseScreenshot {
   if (!isObject(value) || typeof value.base64 !== "string" || typeof value.mimeType !== "string") throw new Error("Invalid screenshot result");
   return { base64: value.base64, mimeType: value.mimeType };
+}
+
+const aiLimits: Readonly<OpenBrowserUseAISnapshotLimits> = Object.freeze({ maxBytes: 262144, maxNodes: 5000, maxRefs: 2000, maxFrames: 32, maxDepth: 64 });
+function validRef(ref: unknown): ref is string {
+  return typeof ref === "string" && ref.length <= 64 && /^(?:f[1-9][0-9]*)?e[1-9][0-9]*$/.exec(ref)?.[0] === ref;
+}
+function assertCaptureRef(captureId: unknown, ref: unknown): void {
+  if (typeof captureId !== "string" || !captureId.length || captureId.length > 128) throw new Error("captureId must be a non-empty string of at most 128 characters");
+  if (!validRef(ref)) throw new Error("ref must be a native snapshot reference of at most 64 characters");
+}
+function aiSnapshotLimits(options: OpenBrowserUseAISnapshotOptions): typeof aiLimits {
+  const limits = { ...aiLimits };
+  for (const [key, value] of Object.entries(options)) {
+    if (key === "timeoutMs") continue;
+    if (!Object.hasOwn(aiLimits, key)) throw new Error(`snapshotAI does not support ${key}`);
+    if (value === undefined) continue;
+    const name = key as keyof typeof aiLimits;
+    if (!Number.isSafeInteger(value) || value < 1 || value > aiLimits[name]) throw new Error(`${key} must be a positive integer <= ${aiLimits[name]}`);
+    limits[name] = value;
+  }
+  return limits;
+}
+function expectAISnapshot(value: JsonValue, limits: typeof aiLimits): OpenBrowserUseAISnapshot {
+  const invalid = () => new Error("Invalid snapshotAI result");
+  if (!isObject(value) || Object.keys(value).some(key => !["captureId", "snapshot", "refs", "stats", "complete"].includes(key)) ||
+      value.complete !== true || typeof value.captureId !== "string" || !value.captureId.length || value.captureId.length > 128 ||
+      typeof value.snapshot !== "string" || !Array.isArray(value.refs) || value.refs.length > limits.maxRefs || value.refs.some(ref => !validRef(ref)) ||
+      new Set(value.refs).size !== value.refs.length || !isObject(value.stats)) throw invalid();
+  const stats = value.stats;
+  if (Object.keys(stats).some(key => !["bytes", "nodes", "refs", "frames"].includes(key)) ||
+      ["bytes", "nodes", "refs", "frames"].some(key => !Number.isSafeInteger(stats[key]) || (stats[key] as number) < 0) ||
+      stats.bytes !== Buffer.byteLength(value.snapshot, "utf8") || (stats.bytes as number) > limits.maxBytes ||
+      (stats.nodes as number) > limits.maxNodes || stats.refs !== value.refs.length ||
+      (stats.frames as number) < 1 || (stats.frames as number) > limits.maxFrames) throw invalid();
+  return value as OpenBrowserUseAISnapshot;
 }
 
 export class OpenBrowserUseCdp {

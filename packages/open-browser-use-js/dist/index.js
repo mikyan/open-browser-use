@@ -483,6 +483,10 @@ export class OpenBrowserUseTab {
     async domSnapshot(options = {}) {
         return expectString(await this.action("snapshot", actionArgs(options), options), "snapshot");
     }
+    async snapshotAI(options = {}) {
+        const limits = aiSnapshotLimits(options);
+        return expectAISnapshot(await this.action("snapshotAI", actionArgs(options), options), limits);
+    }
     async screenshot(options = {}) {
         return expectScreenshot(await this.action("screenshot", actionArgs(options), options));
     }
@@ -497,6 +501,7 @@ export class OpenBrowserUseTab {
         return value;
     }
     locator(selector) { return this.playwright.locator(selector); }
+    getByRef(captureId, ref) { return this.playwright.getByRef(captureId, ref); }
     frameLocator(selector) { return this.playwright.frameLocator(selector); }
     getByRole(role, options = {}) { return this.playwright.getByRole(role, options); }
     getByText(value, options = {}) { return this.playwright.getByText(value, options); }
@@ -515,10 +520,22 @@ export class OpenBrowserUseLocator {
     steps;
     constructor(tab, steps = []) {
         this.tab = tab;
+        if (steps.some(step => step.kind === "ref")) {
+            if (steps.length !== 1 || steps[0].kind !== "ref")
+                throw new Error("Ref locators cannot be chained");
+            assertCaptureRef(steps[0].captureId, steps[0].ref);
+        }
         this.steps = Object.freeze(steps.map(step => Object.freeze({ ...step })));
     }
     #append(step) {
+        if (this.steps.some(existing => existing.kind === "ref"))
+            throw new Error("Ref locators cannot be chained");
         return new _a(this.tab, [...this.steps, step]);
+    }
+    getByRef(captureId, ref) {
+        if (this.steps.length)
+            throw new Error("Ref locators must be created directly from a tab");
+        return this.#append({ kind: "ref", captureId, ref });
     }
     locator(selector) { return this.#append({ kind: "css", selector }); }
     frameLocator(selector) { return this.#append({ kind: "frame", selector }); }
@@ -581,6 +598,7 @@ export class OpenBrowserUseLocator {
 }
 _a = OpenBrowserUseLocator;
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+    snapshotAI(options = {}) { return this.tab.snapshotAI(options); }
     goBack(options = {}) { return this.tab.goBack(options); }
     goForward(options = {}) { return this.tab.goForward(options); }
     reload(options = {}) { return this.tab.reload(options); }
@@ -631,6 +649,48 @@ function expectScreenshot(value) {
     if (!isObject(value) || typeof value.base64 !== "string" || typeof value.mimeType !== "string")
         throw new Error("Invalid screenshot result");
     return { base64: value.base64, mimeType: value.mimeType };
+}
+const aiLimits = Object.freeze({ maxBytes: 262144, maxNodes: 5000, maxRefs: 2000, maxFrames: 32, maxDepth: 64 });
+function validRef(ref) {
+    return typeof ref === "string" && ref.length <= 64 && /^(?:f[1-9][0-9]*)?e[1-9][0-9]*$/.exec(ref)?.[0] === ref;
+}
+function assertCaptureRef(captureId, ref) {
+    if (typeof captureId !== "string" || !captureId.length || captureId.length > 128)
+        throw new Error("captureId must be a non-empty string of at most 128 characters");
+    if (!validRef(ref))
+        throw new Error("ref must be a native snapshot reference of at most 64 characters");
+}
+function aiSnapshotLimits(options) {
+    const limits = { ...aiLimits };
+    for (const [key, value] of Object.entries(options)) {
+        if (key === "timeoutMs")
+            continue;
+        if (!Object.hasOwn(aiLimits, key))
+            throw new Error(`snapshotAI does not support ${key}`);
+        if (value === undefined)
+            continue;
+        const name = key;
+        if (!Number.isSafeInteger(value) || value < 1 || value > aiLimits[name])
+            throw new Error(`${key} must be a positive integer <= ${aiLimits[name]}`);
+        limits[name] = value;
+    }
+    return limits;
+}
+function expectAISnapshot(value, limits) {
+    const invalid = () => new Error("Invalid snapshotAI result");
+    if (!isObject(value) || Object.keys(value).some(key => !["captureId", "snapshot", "refs", "stats", "complete"].includes(key)) ||
+        value.complete !== true || typeof value.captureId !== "string" || !value.captureId.length || value.captureId.length > 128 ||
+        typeof value.snapshot !== "string" || !Array.isArray(value.refs) || value.refs.length > limits.maxRefs || value.refs.some(ref => !validRef(ref)) ||
+        new Set(value.refs).size !== value.refs.length || !isObject(value.stats))
+        throw invalid();
+    const stats = value.stats;
+    if (Object.keys(stats).some(key => !["bytes", "nodes", "refs", "frames"].includes(key)) ||
+        ["bytes", "nodes", "refs", "frames"].some(key => !Number.isSafeInteger(stats[key]) || stats[key] < 0) ||
+        stats.bytes !== Buffer.byteLength(value.snapshot, "utf8") || stats.bytes > limits.maxBytes ||
+        stats.nodes > limits.maxNodes || stats.refs !== value.refs.length ||
+        stats.frames < 1 || stats.frames > limits.maxFrames)
+        throw invalid();
+    return value;
 }
 export class OpenBrowserUseCdp {
     client;

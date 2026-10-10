@@ -87,6 +87,38 @@ the engine to report its own timeout. No failed mutation is automatically replay
 The bundled engine version and remaining capability gaps are documented in
 `docs/product-specs/browser-use-parity.md`; this is not a claim of full parity.
 
+`tab.snapshot_ai()` and `tab.playwright.snapshot_ai()` return complete recursive
+frame observations. `AISnapshot` / `AISnapshotStats` are exported TypedDicts;
+the runtime result is a dictionary:
+
+```python
+capture = tab.snapshot_ai(max_bytes=65536, timeout_ms=10000)
+print(capture["snapshot"], capture["stats"])
+# Choose a ref listed in capture["refs"] after reading the observation.
+target = tab.get_by_ref(capture["captureId"], chosen_ref)
+target.click()
+```
+
+The result has `captureId`, `snapshot`, `refs`, `stats` (`bytes`, `nodes`, `refs`,
+`frames`) and `complete: True`. The SDK checks completeness, unique structured
+refs, UTF-8 bytes, counts and requested limits; it never extracts refs from page
+text. Optional positive integer budgets are `max_bytes` (262144), `max_nodes`
+(5000), `max_refs` (2000), `max_frames` (32 including root) and `max_depth` (64).
+Those are also the defaults and hard ceilings; `None` omits an option. Limit or
+child-capture failures are explicit, without a partial successful snapshot.
+Engine metadata advertises `capabilities: {snapshotAI: 1, captureRefs: 1}` and
+`snapshotLimits`; an unsupported extension fails without falling back.
+
+`get_by_ref` is also available through `tab.playwright`. Its singleton locator
+supports normal actions, reads, screenshots and same-tab drag targets, but cannot
+be chained with selectors, `get_by_*`, frame/ordinal builders or filters. It
+addresses the original connected Element, not a replacement found by text.
+Every new ordinary/AI snapshot and frame lifecycle event invalidates the capture,
+as do attachment, owner or epoch changes, pause and restart. A ref's
+`aria_snapshot()` uses the ref and invalidates its capture afterward. Expired
+refs are never recaptured or replayed automatically. `dom_snapshot()` retains
+its existing scoped ARIA behavior.
+
 ## Local transport
 
 Use the `socketPath` published by the host rather than constructing an endpoint.

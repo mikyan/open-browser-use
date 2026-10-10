@@ -1,12 +1,15 @@
 // The transport adapter owns tabs; Playwright owns locator and action semantics.
 // No page JavaScript or arbitrary method names are accepted by this dispatcher.
 import { BrowserDiagnostics } from "./browser-diagnostics.js";
+import { AI_SNAPSHOT_LIMITS, BrowserObservation, isAIRef, snapshotLimits } from "./browser-observation.js";
 export const BROWSER_ENGINE_INFO = Object.freeze({
   name: "playwright-crx",
   version: "0.15.0",
   playwrightVersion: "1.53.0",
   protocolVersion: 1,
-  limitations: ["No Playwright 1.59+ AI snapshot refs or boxes", "Closed shadow roots are unsupported", "Incognito engine attachment is not yet supported"]
+  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1 }),
+  snapshotLimits: AI_SNAPSHOT_LIMITS,
+  limitations: ["AI snapshots use OBU capture-scoped refs, not Playwright 1.59+ snapshot options or boxes", "Closed shadow roots are unsupported", "Incognito engine attachment is not yet supported"]
 });
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -24,7 +27,7 @@ const locatorActions = new Set([
   "boundingBox", "allTextContents", "allInnerTexts", "dragTo", "scrollIntoViewIfNeeded", "focus", "pressSequentially"
 ]);
 const actionArguments = {
-  engineInfo: [], snapshot: [], diagnostics: ["after", "limit"],
+  engineInfo: [], snapshot: [], snapshotAI: Object.keys(AI_SNAPSHOT_LIMITS), diagnostics: ["after", "limit"],
   click: ["button", "clickCount", "delay", "modifiers", "position", "force"],
   dblclick: ["button", "delay", "modifiers", "position", "force"],
   hover: ["modifiers", "position", "force"],
@@ -80,6 +83,7 @@ export function validateBrowserAction(params) {
   if (!Object.hasOwn(actionArguments, params.action)) throw new Error(`Unsupported browser action: ${params.action}`);
   const args = params.args ?? {};
   keys(args, actionArguments[params.action], `${params.action} args`);
+  if (params.action === "snapshotAI") snapshotLimits(args);
   const timeout = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   finite(timeout, "timeoutMs", 1);
   if (timeout > MAX_TIMEOUT_MS) throw new Error(`timeoutMs must be <= ${MAX_TIMEOUT_MS}`);
@@ -151,7 +155,14 @@ function validateLocator(steps) {
   for (const step of steps) {
     record(step, "locator step");
     const kind = step.kind;
-    if (["css", "frame"].includes(kind)) {
+    if (kind === "ref") {
+      keys(step, ["kind", "captureId", "ref"], "ref locator");
+      string(step.captureId, "captureId");
+      if (step.captureId.length > 128) throw new Error("captureId is too long");
+      if (!isAIRef(step.ref)) throw new Error("ref must be a native element reference of at most 64 characters");
+      if (steps.length !== 1) throw new Error("ref locator must be a singleton; chaining is unsupported");
+      element = true;
+    } else if (["css", "frame"].includes(kind)) {
       keys(step, ["kind", "selector"], "locator step"); string(step.selector, "selector"); element = kind === "css";
     } else if (kind === "role") {
       keys(step, ["kind", "role", "name", "exact"], "role locator"); string(step.role, "role");
@@ -172,10 +183,15 @@ function validateLocator(steps) {
   }
 }
 
-export function resolveBrowserLocator(page, steps) {
+export function resolveBrowserLocator(page, steps, resolveRef) {
   let target = page;
   for (const step of steps) {
     switch (step.kind) {
+      case "ref": {
+        if (!resolveRef) throw new Error("OBU_CAPTURE_EXPIRED: ref locator requires a current observation");
+        target = resolveRef(step);
+        break;
+      }
       case "css": target = target.locator(step.selector); break;
       case "frame": target = target.frameLocator(step.selector); break;
       case "role": target = target.getByRole(step.role, { name: step.name, exact: step.exact }); break;
@@ -194,9 +210,9 @@ export function resolveBrowserLocator(page, steps) {
   return target;
 }
 
-async function execute(page, params) {
+async function execute(page, params, resolveRef, selectedTarget) {
   const { action, args, locator, timeoutMs: timeout } = params;
-  const target = resolveBrowserLocator(page, locator);
+  const target = selectedTarget ?? resolveBrowserLocator(page, locator, resolveRef);
   const options = { ...args, timeout };
   switch (action) {
     case "snapshot": return (locator.length && locator.at(-1).kind !== "frame" ? target : target.locator("body")).ariaSnapshot({ timeout });
@@ -208,7 +224,7 @@ async function execute(page, params) {
     case "pressSequentially": { const { text, ...rest } = options; return target.pressSequentially(text, rest); }
     case "focus": return target.focus({ timeout });
     case "scrollIntoViewIfNeeded": return target.scrollIntoViewIfNeeded({ timeout });
-    case "dragTo": { const { target: destination, ...rest } = options; return target.dragTo(resolveBrowserLocator(page, destination), rest); }
+    case "dragTo": { const { target: destination, ...rest } = options; return target.dragTo(resolveBrowserLocator(page, destination, resolveRef), rest); }
     case "check": return target.check(options);
     case "uncheck": return target.uncheck(options);
     case "setChecked": { const { checked, ...rest } = options; return target.setChecked(checked, rest); }
@@ -344,6 +360,16 @@ export class BrowserActionEngine {
     const current = previous.catch(() => {}).then(async () => {
       await check();
       if (params.action === "engineInfo") return { value: BROWSER_ENGINE_INFO, engine: BROWSER_ENGINE_INFO };
+      const rawSelectors = [...params.locator, ...(params.action === "dragTo" ? params.args.target : [])]
+        .filter(step => step.kind === "css" || step.kind === "frame");
+      if (rawSelectors.length) {
+        const runtime = await this.runtime();
+        await check();
+        // Use the actual selector parser so reserved native ref engines cannot
+        // bypass capture checks, including nested selectors. CSS/text literals
+        // that happen to contain "aria-ref=" keep their native semantics.
+        for (const step of rawSelectors) runtime.assertOpenBrowserUseSelector(step.selector);
+      }
       phase = "attaching";
       const entry = await this.attach(params.tabId, generation);
       const { page } = entry;
@@ -356,6 +382,7 @@ export class BrowserActionEngine {
       if (!entry.diagnostics) {
         entry.diagnosticsOwner = diagnosticsOwner;
         entry.diagnostics = new BrowserDiagnostics(page);
+        entry.observation = new BrowserObservation(page);
       }
       phase = "running";
       this.active.set(params.tabId, { session_id: params.session_id, turn_id: params.turn_id });
@@ -363,15 +390,47 @@ export class BrowserActionEngine {
         const run = async () => {
           await check();
           if (params.action === "diagnostics") return entry.diagnostics.snapshot(params.args);
+          const observation = entry.observation;
+          const resolveRef = descriptor => {
+            observation.get(descriptor);
+            return page.locator(`aria-ref=${descriptor.ref}`);
+          };
+          if (params.action === "snapshotAI") {
+            const revision = observation.begin();
+            const limits = snapshotLimits(params.args);
+            const runtime = await this.runtime();
+            await check();
+            const result = await runtime.captureAISnapshot(page, { ...limits, timeoutMs: Math.max(1, deadlineAt - performance.now()) });
+            await check();
+            return observation.publish(result, revision, limits);
+          }
+          // Resolve before an ordinary scoped snapshot invalidates the map. A
+          // snapshot through a ref can run once; that capture then expires.
+          const selectedTarget = resolveBrowserLocator(page, params.locator, resolveRef);
+          if (params.action === "snapshot") observation.invalidate();
           if (params.action === "dragTo") {
             // Playwright presses the source before waiting for its destination.
             // A genuine locator wait prevents a certainly missing/hidden target
             // from starting input. Recheck ownership and the same total budget
             // afterward; a destination changing mid-drag remains observable.
-            await resolveBrowserLocator(page, params.args.target).waitFor({ state: "visible", timeout: Math.max(1, deadlineAt - performance.now()) });
+            await resolveBrowserLocator(page, params.args.target, resolveRef).waitFor({ state: "visible", timeout: Math.max(1, deadlineAt - performance.now()) });
             await check();
+            // A frame event during the destination wait invalidates either ref
+            // before Playwright can press the source mouse button.
+            for (const steps of [params.locator, params.args.target]) if (steps[0]?.kind === "ref") observation.get(steps[0]);
           }
           if (params.action === "screenshot") {
+            if (params.locator[0]?.kind === "ref") {
+              const descriptor = params.locator[0];
+              const capture = observation.get(descriptor);
+              const runtime = await this.runtime();
+              await runtime.scrollAIRefIntoView(page, descriptor.ref, capture, {
+                timeoutMs: Math.max(1, deadlineAt - performance.now()),
+                check: async () => { await check(); observation.check(capture); }
+              });
+              await check();
+              observation.check(capture);
+            }
             // Chromium can suspend animation frames inside an offscreen iframe.
             // Playwright waits for the screenshot element to become stable
             // before scrolling it, so first reveal each frame owner from the
@@ -386,7 +445,7 @@ export class BrowserActionEngine {
               await check();
             }
           }
-          return execute(page, { ...params, timeoutMs: Math.max(1, deadlineAt - performance.now()) });
+          return execute(page, { ...params, timeoutMs: Math.max(1, deadlineAt - performance.now()) }, resolveRef, selectedTarget);
         };
         const value = await (renderedActions.has(params.action)
           ? this.aroundAction({ params, timeoutMs: Math.max(1, deadlineAt - performance.now()), run })
@@ -451,6 +510,7 @@ export class BrowserActionEngine {
         }
         if (entry) {
           entry.diagnostics?.dispose();
+          entry.observation?.dispose();
           await entry.app.detach(tabId);
           await this.onDetached(tabId);
         }
@@ -478,7 +538,7 @@ export class BrowserActionEngine {
   forget(tabId) {
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
     this.active.delete(tabId);
-    this.pages.get(tabId)?.then(entry => entry.diagnostics?.dispose()).catch(() => {});
+    this.pages.get(tabId)?.then(entry => { entry.diagnostics?.dispose(); entry.observation?.dispose(); }).catch(() => {});
     this.pages.delete(tabId);
   }
 }

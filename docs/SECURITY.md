@@ -32,6 +32,7 @@ The Chrome route intentionally exposes powerful browser automation primitives to
 
 - The extension accepts an explicit set of public RPC methods and checks task ownership for tab/target operations. Arbitrary CDP within an owned target remains powerful; this is not a site policy or a security sandbox.
 - Persistent control epochs reject obsolete turns. Session IDs identify routing and ownership records; they are not authentication credentials.
+- AI snapshot refs are bound to the current capture and native Element metadata, not parsed from page text. New snapshots, frame lifecycle or control changes expire them; native ref selectors require that capture context. These checks prevent accidental stale-element reuse, not arbitrary CDP access or hostile local clients. See [bounded observations](references/browser-action-protocol.md#bounded-recursive-observations).
 - Upper-layer runtimes are responsible for deciding which sites, methods, downloads, clipboard operations, and destructive actions are allowed.
 - The native host and extension are not a general-purpose sandbox for untrusted code.
 - Any integration that accepts remote instructions must add its own authentication, authorization, audit logging, and confirmation policy before invoking Open Browser Use.

@@ -8,7 +8,8 @@ handling frames, or taking screenshots. The development extension exposes
    report that the installed extension needs an update before using this API.
 2. Use a tab created or claimed by the current task session. Read a semantic
    snapshot and derive locators from the observed role, accessible name, label,
-   text, or test ID. CSS remains available when those are insufficient.
+   text, or test ID. For a page with frames or an element that needs a snapshot
+   reference, use the bounded capture workflow below. CSS remains available.
 3. Execute the action with a finite deadline. Verify its result using the page's
    new snapshot, element state, URL, screenshot, or produced file. An RPC success
    alone is insufficient evidence that the user's task is complete.
@@ -54,6 +55,31 @@ actions use strict matching and Playwright actionability checks. Resolve a
 multiple-match error using observed page structure instead of selecting the
 first element by habit.
 
+## Bounded page capture and references
+
+Check `tab.engineInfo()` for `capabilities.snapshotAI === 1` and
+`capabilities.captureRefs === 1`. Then call `tab.snapshotAI()` (Python:
+`snapshot_ai()`, Go: `SnapshotAI()`) to observe the page and its iframe subtrees.
+Read `capture.snapshot` and choose the intended element's ref from that current
+observation; confirm it also appears in `capture.refs`. Use
+`tab.getByRef(capture.captureId, ref)` (`get_by_ref`, `GetByRef`) for its ordinary
+actions, reads or screenshot. Reference locators are complete locators, so use
+them directly without appending a selector, filter or ordinal.
+
+Keep the capture ID together with its refs. A new AI or ordinary snapshot,
+frame navigation/attachment/detachment, control end, owner change or Pause
+expires the capture. On `OBU_CAPTURE_EXPIRED`, inspect a new observation and
+decide the next action from its current state. Do not automatically replay an
+input; a click that navigated may already have succeeded. Removed nodes no
+longer match, while a renamed but otherwise unchanged Element can still be the
+same reference.
+
+Capture has finite byte/node/ref/frame/depth budgets and one shared deadline.
+`OBU_SNAPSHOT_LIMIT` or an incomplete-frame error is a failed observation, not a
+partial success. Wait for a loading frame when appropriate, or inspect a known
+frame with the existing scoped ARIA snapshot. Page text may contain fake-looking
+ref tokens; only the capture's separate `refs` list registers actual elements.
+
 ## CLI and MCP protocol
 
 Use `call --method browserAction --params '<json>'` with the existing task
@@ -64,8 +90,13 @@ replacing `tabId` with an observed owned tab ID:
 {"tabId":123,"action":"click","locator":[{"kind":"role","role":"button","name":"Continue","exact":true}],"timeoutMs":10000}
 ```
 
-Read page structure with `{"tabId":123,"action":"snapshot"}`. The result is
-`{value, engine}`; snapshot `value` is YAML containing semantic roles/names/states.
+Read page structure with `{"tabId":123,"action":"snapshot"}`, or use
+`action:"snapshotAI"` for the bounded recursive capture above. Its `value`
+contains `captureId`, `snapshot`, `refs`, `stats` and `complete:true`; a subsequent
+element action uses a singleton `locator:[{"kind":"ref","captureId":"...","ref":"e1"}]`
+with values taken from that observation. All actions return `{value, engine}`.
+Ordinary `snapshot` has a YAML string as `value`; `snapshotAI` has the structured
+capture above, with semantic roles/names/states in `value.snapshot`.
 For screenshot use `action: "screenshot"` and `args: {"fullPage": true}`; its
 value is `{base64, mimeType}`. CLI/MCP transport timeout must exceed the requested
 action deadline. Defaults are 10 seconds; `timeoutMs` accepts 1 through 120000.
@@ -86,8 +117,9 @@ and a first-click timeout in that case remains unresolved.
 
 The `engine` object identifies the bundled Playwright CRX and Playwright versions.
 The current engine supports public serialized actions, not arbitrary Playwright
-code. Incognito engine attachment, closed shadow roots, and newer Playwright AI
-snapshot refs/boxes are not supported. Coordinate input uses browser debugging
+code. Incognito engine attachment, closed shadow roots, and newer Playwright
+snapshot options/boxes are not supported; OBU's capture refs use the finite
+contract above. Coordinate input uses browser debugging
 commands and does not move the system cursor.
 
 ## Respect user pause

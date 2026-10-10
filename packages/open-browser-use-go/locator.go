@@ -13,6 +13,7 @@ type Locator struct {
 	Tab      *Tab
 	Selector string
 	steps    []Params
+	err      error
 }
 
 type TextOptions struct{ Exact bool }
@@ -77,6 +78,14 @@ func (p *TabPlaywright) GetByTitle(value string, options ...TextOptions) *Locato
 func (p *TabPlaywright) GetByTestID(value string) *Locator { return p.tab.GetByTestID(value) }
 
 func (l *Locator) chain(step Params) *Locator {
+	if l.err != nil {
+		return &Locator{Tab: l.Tab, err: l.err}
+	}
+	for _, existing := range l.locatorSteps() {
+		if existing["kind"] == "ref" {
+			return &Locator{Tab: l.Tab, err: errors.New("ref locators cannot be chained")}
+		}
+	}
 	steps := append([]Params(nil), l.locatorSteps()...)
 	return &Locator{Tab: l.Tab, steps: append(steps, step)}
 }
@@ -141,6 +150,9 @@ func (l *Locator) Filter(options FilterOptions) *Locator {
 }
 
 func (l *Locator) Action(action string, options BrowserActionOptions) (any, error) {
+	if l.err != nil {
+		return nil, l.err
+	}
 	if l.Tab == nil {
 		return nil, errors.New("locator requires a tab")
 	}
@@ -185,6 +197,9 @@ func (l *Locator) Hover(options ...BrowserActionOptions) error {
 func (l *Locator) DragTo(target *Locator, options ...BrowserActionOptions) error {
 	if target == nil || l.Tab == nil || target.Tab == nil || l.Tab.ID != target.Tab.ID || l.Tab.Browser.Client != target.Tab.Browser.Client {
 		return errors.New("drag target must belong to the same tab and client")
+	}
+	if target.err != nil {
+		return target.err
 	}
 	return l.perform("dragTo", Params{"target": target.locatorSteps()}, options)
 }

@@ -40,6 +40,7 @@ and limitations; it does not claim parity with current Playwright or Codex.
 | `nth` | nonnegative integer `index` | `nth(index)` |
 | `first`, `last` | none | `first()`, `last()` |
 | `filter` | optional string `hasText`, `hasNotText` | `filter(...)` |
+| `ref` | `captureId`, `ref`; singleton only | Native `aria-ref` locator after current capture validation |
 
 Ordinal/filter steps require an earlier element locator. Frame steps retain
 Playwright frame semantics, including OOPIF routing. Open shadow DOM is handled
@@ -67,6 +68,74 @@ activate their new tab/window. Popup activation and the observed first-click
 timeout after moving a separate popup are unresolved; this change only removes
 the unauthorized automatic attachment, not those lifecycle limitations.
 
+## Bounded recursive observations
+
+`snapshotAI` expands visible ARIA iframe subtrees, including owned OOPIFs and
+nested frames, using the same native Playwright accessibility implementation.
+It is an OBU contract, not the later Playwright snapshot API. Discover it through
+`engineInfo.capabilities.snapshotAI === 1` and `captureRefs === 1`; protocol v1
+and the embedded engine versions are unchanged.
+
+```json
+{"tabId":123,"action":"snapshotAI","args":{"maxBytes":262144,"maxNodes":5000,"maxRefs":2000,"maxFrames":32,"maxDepth":64},"timeoutMs":10000}
+```
+
+Each optional limit is a positive integer no greater than the value shown;
+omitting it selects that maximum. The limits apply to the whole observation,
+not independently to each iframe. Frames include the main frame; live frame
+slots are bounded too. Bytes count the final UTF-8 YAML, including indentation.
+Nodes/depth bound native traversal, including frame descent. These checks do
+not sandbox the browser's CPU or allocations inside accessible-name computation.
+
+The result `value` is:
+
+```json
+{"captureId":"opaque-id","snapshot":"- button \"Continue\" [ref=e1]","refs":["e1"],"stats":{"bytes":28,"nodes":2,"refs":1,"frames":1},"complete":true}
+```
+
+The counts above illustrate the shape; returned counts are computed from the
+actual observation. The `refs` list comes from the native renderer's emitted
+element records, never from matching page text against a token pattern. A label
+containing `[ref=e999]` cannot register that ref. Internal Frame objects are not
+returned. A resource limit throws `OBU_SNAPSHOT_LIMIT`; missing children or an
+inconsistent tree fail explicitly, including `OBU_SNAPSHOT_INCOMPLETE`, expiry,
+or deadline errors. No successful partial or silently truncated tree is returned.
+
+Use a ref printed in the current snapshot and present in its `refs` list:
+
+```json
+{"tabId":123,"action":"click","locator":[{"kind":"ref","captureId":"opaque-id","ref":"e1"}],"timeoutMs":10000}
+```
+
+The ref descriptor must be the only locator step. It supports the ordinary
+element actions/reads, screenshots and drag targets, but no further chaining.
+The SDK entry points are `snapshotAI`/`getByRef` (JS), `snapshot_ai`/`get_by_ref`
+(Python), and `SnapshotAI`/`GetByRef` (Go), on both tab and Playwright facades.
+
+Only one capture per Page attachment remains valid. Any new AI or ordinary ARIA
+snapshot invalidates the old capture before generation, even if generation
+fails. Frame attachment, detachment or navigation, Page close, ownership/epoch
+change, detach, Pause and worker restart invalidate it too. A frame event during
+generation prevents publication. The observation is not an atomic DOM snapshot
+across documents. Unknown refs raise `OBU_REF_NOT_IN_CAPTURE`; old IDs raise
+`OBU_CAPTURE_EXPIRED`. No automatic recapture, replacement-node selection or
+input replay takes place.
+
+A ref identifies an Element, not a frozen label. Renaming that same connected
+node need not invalidate it; a removed node no longer matches. A ref click that
+itself triggers navigation can finish normally, while later uses of its capture
+fail. A scoped ARIA snapshot through a valid ref may run once and expires the
+capture for subsequent operations. Screenshots resolve the captured Frame's real
+ancestors and scroll their owners outside-in under the ordinary shared deadline,
+rendering lease and cancellation checks.
+
+The public CSS/frame selector path rejects the native `aria-ref` selector engine,
+including composite/nested forms, with `OBU_REF_SELECTOR_REQUIRES_CAPTURE`. It
+uses the pinned native selector parser so ordinary CSS attributes/text containing
+the same characters are unaffected. Use the explicit `ref` descriptor instead.
+Arbitrary CDP remains powerful; capture IDs are not authentication credentials
+or a site security boundary.
+
 ## Actions
 
 All arguments are in `args`; unknown keys are rejected before attachment.
@@ -76,6 +145,7 @@ All arguments are in `args`; unknown keys are rejected before attachment.
 | Actions | Arguments |
 | --- | --- |
 | `engineInfo`, `snapshot` | none |
+| `snapshotAI` | optional positive integer `maxBytes`, `maxNodes`, `maxRefs`, `maxFrames`, `maxDepth`; no locator |
 | `diagnostics` | optional `after`: `{captureId, sequence}`, `limit`: integer 1–200 (default 100); no locator |
 | `click`, `dblclick`, `hover` | Appropriate Playwright `button`, `delay`, `modifiers`, `position`, `force`; `click` also supports `clickCount` |
 | `fill` | string `value`, optional `force` |
@@ -248,7 +318,8 @@ metadata to existing visual feedback. Tabs are created through OBU's background
 creation path before attaching; the engine never calls `attachAll` or creates
 tabs. Incognito is explicitly unsupported until CRX startup can be limited to
 owned tabs. Version 1.53 lacks later AI snapshot refs/boxes and newer cancellation
-interfaces; these remain parity work, not completed capability claims.
+interfaces. OBU adapts the pinned native ARIA implementation for the bounded
+capture contract documented here; it does not claim support for a newer Playwright API.
 
 The internal `controlSnapshot()` returns copied tab IDs and pending attachment,
 release, and action promises for global pause cleanup after the backend fences

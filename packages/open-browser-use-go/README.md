@@ -120,6 +120,39 @@ engine semantics. `Tab.Evaluate`, `Title`, `URL`, `Close` and explicit `CDP`
 helpers retain their raw CDP surface. `Tab.Screenshot` and locator screenshots
 return `Screenshot{Base64, MimeType}`; no local file is written automatically.
 
+`Tab.SnapshotAI` and `Tab.Playwright.SnapshotAI` return a complete recursive
+frame observation as `AISnapshot`:
+
+```go
+capture, err := tab.SnapshotAI(obu.AISnapshotOptions{MaxBytes: 65536, Timeout: 10 * time.Second})
+if err != nil { return err }
+fmt.Println(capture.Snapshot, capture.Stats)
+// Choose a reference listed in capture.Refs after reading the observation.
+target := tab.GetByRef(capture.CaptureID, chosenRef)
+if err := target.Click(); err != nil { return err }
+```
+
+The result has `CaptureID`, `Snapshot`, `Refs`, `Stats` (`Bytes`, `Nodes`, `Refs`,
+`Frames`) and `Complete`. Responses must be complete and pass strict UTF-8 byte,
+unique-ref and count validation against the requested budgets. No reference is
+extracted from page text. `AISnapshotOptions` allows lower positive `MaxBytes`
+(262144), `MaxNodes` (5000), `MaxRefs` (2000), `MaxFrames` (32 including the root)
+and `MaxDepth` (64); these are also the default hard ceilings. Zero-valued fields
+omit an option. Limit or child-capture failures return errors, not partial
+success. Engine metadata advertises `capabilities: {snapshotAI: 1, captureRefs: 1}`
+and `snapshotLimits`; unsupported engines do not fall back to ordinary snapshots.
+
+`GetByRef` is available on `Tab` and `TabPlaywright`. It returns a singleton
+locator for the original connected Element and supports ordinary actions, reads,
+screenshots and same-tab drag targets. Deriving CSS, semantic, frame, ordinal or
+filter chains from it records a builder error; the next action fails locally
+before transport. Invalid capture IDs or ref tokens behave the same way. A
+renamed node remains the same Element; the SDK does not locate a replacement by
+text. Any new ordinary/AI snapshot, frame lifecycle event, attachment/owner/epoch
+change, pause or restart expires the capture. `ARIASnapshot` on a ref uses it and
+invalidates the capture for subsequent calls. Expired refs never trigger an
+automatic recapture or replay. `DOMSnapshot` retains its existing scoped behavior.
+
 Windows uses the host's local named pipe and Unix platforms use AF_UNIX. Read
 `socketPath` from `active.json`, or use `ConnectActive`. Upgrade the host and SDK
 together. A request deadline covers fragmented reads and notifications; timeout

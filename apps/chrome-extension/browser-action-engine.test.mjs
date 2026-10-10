@@ -1,9 +1,131 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { EventEmitter } from "node:events";
 import { BrowserActionEngine, validateBrowserAction, BROWSER_ENGINE_INFO } from "./browser-action-engine.js";
 
 const request = (action, extra = {}) => ({ session_id: "test-session", turn_id: "test-turn", tabId: 42, action, ...extra });
 const locator = [{ kind: "role", role: "button", name: "Submit", exact: true }];
+
+const refLocator = capture => [{ kind: "ref", captureId: capture.captureId, ref: "e1" }];
+function aiFixture(methods) {
+  const f = fixture(methods);
+  const events = new EventEmitter();
+  f.page.on = events.on.bind(events);
+  f.page.off = events.off.bind(events);
+  f.page.emit = events.emit.bind(events);
+  const snapshot = '- button "Submit" [ref=e1]';
+  f.runtime.captureAISnapshot = async () => ({ snapshot, refs: ["e1"], stats: {
+    bytes: Buffer.byteLength(snapshot), nodes: 2, refs: 1, frames: 1
+  }, complete: true, refFrames: new Map([["e1", {}]]) });
+  f.runtime.scrollAIRefIntoView = async (_page, _ref, _capture, { check }) => check();
+  return f;
+}
+
+test("AI options and singleton reference selectors are finite before runtime attachment", async () => {
+  let loads = 0;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => { loads++; } });
+  for (const args of [{ maxBytes: 0 }, { maxNodes: 5001 }, { maxRefs: 1.1 }, { maxDepth: null }, { maxFrames: 33 }, { unknown: 1 }])
+    await assert.rejects(engine.dispatch(request("snapshotAI", { args })));
+  await assert.rejects(engine.dispatch(request("snapshotAI", { locator })));
+  for (const descriptor of [
+    [{ kind: "ref", captureId: "x", ref: "e1\n" }],
+    [{ kind: "ref", captureId: "", ref: "e1" }],
+    [{ kind: "ref", captureId: "x", ref: "e1" }, { kind: "first" }],
+    [{ kind: "css", selector: "body" }, { kind: "ref", captureId: "x", ref: "e1" }]
+  ]) await assert.rejects(engine.dispatch(request("click", { locator: descriptor })));
+  assert.equal(loads, 0);
+});
+
+test("native selector guards run for CSS, frame and drag destinations before attachment", async () => {
+  for (const action of [
+    request("count", { locator: [{ kind: "css", selector: "aria-ref=e1" }] }),
+    request("count", { locator: [{ kind: "frame", selector: "aria-ref=e1" }, ...locator] }),
+    request("dragTo", { locator, args: { target: [{ kind: "css", selector: "aria-ref=e1" }] } })
+  ]) {
+    const f = fixture();
+    let attached = false;
+    f.app.attach = async () => { attached = true; return f.page; };
+    const checked = [];
+    f.runtime.assertOpenBrowserUseSelector = selector => {
+      checked.push(selector);
+      throw new Error("OBU_REF_SELECTOR_REQUIRES_CAPTURE");
+    };
+    const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+    await assert.rejects(engine.dispatch(action), /OBU_REF_SELECTOR_REQUIRES_CAPTURE/);
+    assert.deepEqual(checked, ["aria-ref=e1"]);
+    assert.equal(attached, false);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test("capture refs route only emitted elements and ordinary snapshots invalidate the capture", async () => {
+  const f = aiFixture({ innerText: async () => "Submit", ariaSnapshot: async () => '- button "Submit"' });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const first = (await engine.dispatch(request("snapshotAI"))).value;
+  assert.equal((await engine.dispatch(request("innerText", { locator: refLocator(first) }))).value, "Submit");
+  assert.ok(f.calls.some(([method, args]) => method === "locator" && args[0] === "aria-ref=e1"));
+  assert.equal(first.refFrames, undefined);
+  await assert.rejects(engine.dispatch(request("click", { locator: [{ kind: "ref", captureId: first.captureId, ref: "e999" }] })), /OBU_REF_NOT_IN_CAPTURE/);
+  assert.equal((await engine.dispatch(request("snapshot", { locator: refLocator(first) }))).value, '- button "Submit"');
+  await assert.rejects(engine.dispatch(request("innerText", { locator: refLocator(first) })), /OBU_CAPTURE_EXPIRED/);
+  const next = (await engine.dispatch(request("snapshotAI"))).value;
+  assert.notEqual(next.captureId, first.captureId);
+  f.runtime.captureAISnapshot = async () => { throw new Error("OBU_SNAPSHOT_LIMIT"); };
+  await assert.rejects(engine.dispatch(request("snapshotAI")), /OBU_SNAPSHOT_LIMIT/);
+  await assert.rejects(engine.dispatch(request("innerText", { locator: refLocator(next) })), /OBU_CAPTURE_EXPIRED/);
+});
+
+test("frame events expire captures while a successful ref click may itself navigate", async () => {
+  const f = aiFixture({ click: async () => f.page.emit("framenavigated", {}) });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const first = (await engine.dispatch(request("snapshotAI"))).value;
+  await engine.dispatch(request("click", { locator: refLocator(first) }));
+  await assert.rejects(engine.dispatch(request("click", { locator: refLocator(first) })), /OBU_CAPTURE_EXPIRED/);
+  assert.equal(f.calls.filter(([method]) => method === "click").length, 1);
+  const capture = f.runtime.captureAISnapshot;
+  f.runtime.captureAISnapshot = async (...args) => { f.page.emit("frameattached", {}); return capture(...args); };
+  await assert.rejects(engine.dispatch(request("snapshotAI")), /OBU_CAPTURE_EXPIRED/);
+});
+
+test("ref screenshots pre-scroll real frame identities and cannot continue after invalidation", async () => {
+  const f = aiFixture({ screenshot: async () => Buffer.from("png") });
+  let remaining;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const capture = (await engine.dispatch(request("snapshotAI"))).value;
+  f.runtime.scrollAIRefIntoView = async (page, ref, metadata, { timeoutMs, check }) => {
+    assert.equal(page, f.page); assert.equal(ref, "e1"); assert.ok(metadata.refFrames.has(ref));
+    remaining = timeoutMs; await check();
+    f.page.emit("framenavigated", {});
+    await check();
+  };
+  await assert.rejects(engine.dispatch(request("screenshot", { locator: refLocator(capture), timeoutMs: 200 })), /OBU_CAPTURE_EXPIRED/);
+  assert.ok(remaining > 0 && remaining <= 200);
+  assert.ok(!f.calls.some(([method]) => method === "screenshot"));
+});
+
+test("ref drag cannot press a source after navigation during target preflight", async () => {
+  const f = aiFixture({ waitFor: async () => f.page.emit("framenavigated", {}) });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const capture = (await engine.dispatch(request("snapshotAI"))).value;
+  await assert.rejects(engine.dispatch(request("dragTo", { locator: refLocator(capture), args: { target: locator } })), /OBU_CAPTURE_EXPIRED/);
+  assert.ok(!f.calls.some(([method]) => method === "dragTo"));
+});
+
+test("late AI capture cannot publish after its deadline or leak into a successor attachment", async () => {
+  const f = aiFixture();
+  const capture = f.runtime.captureAISnapshot;
+  let finish;
+  f.runtime.captureAISnapshot = () => new Promise(resolve => { finish = async () => resolve(await capture()); });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.dispatch(request("snapshotAI", { timeoutMs: 15 })), /timed out/);
+  assert.equal(engine.pages.size, 0);
+  await finish();
+  f.runtime.captureAISnapshot = capture;
+  const fresh = (await engine.dispatch(request("snapshotAI"))).value;
+  assert.equal(fresh.refs[0], "e1");
+  await engine.detach(42);
+  await assert.rejects(engine.dispatch(request("count", { locator: refLocator(fresh) })), /OBU_CAPTURE_EXPIRED/);
+});
 
 test("finite action contract rejects executable and unbounded input before loading the engine", async () => {
   let loads = 0;
@@ -183,7 +305,7 @@ function fixture(methods = {}) {
     keyboard: { type: () => new Promise((_, reject) => { pendingReject = reject; }) }
   };
   const app = { attach: async () => page, detach: async () => { calls.push(["detach"]); pendingReject?.(new Error("Page detached")); } };
-  const runtime = { crx: { start: async () => app }, setOpenBrowserUseCommandObserver: () => {}, setOpenBrowserUseEventFilter: () => {} };
+  const runtime = { crx: { start: async () => app }, setOpenBrowserUseCommandObserver: () => {}, setOpenBrowserUseEventFilter: () => {}, assertOpenBrowserUseSelector: () => {} };
   globalThis.chrome = { tabs: { get: async () => ({ incognito: false }) } };
   return { calls, page, app, runtime };
 }

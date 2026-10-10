@@ -156,6 +156,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   MV3 worker 静态加载 `browser-runtime.js`；构建复制固定版本 ESM 和版权文件
   到 `dist/chrome-extension-unpacked/`，不把第三方生成 bundle 提交到源码。
   协议、构建和版本限制见 `docs/references/browser-action-protocol.md`。
+  `snapshotAI` 递归读取 iframe 的原生 ARIA 树，限制总字节、节点、refs、frames
+  和深度；renderer 提供真实元素 metadata，Frame 身份使用稳定 slot，避免
+  iframe 重排使引用串页。每个 attachment 只保留一个 capture；新快照、frame
+  生命周期或控制结束使旧引用失效。JS/Python/Go 与 CLI/MCP 共享这个有限
+  契约；普通 selector 使用原生解析器阻止未绑定 capture 的 `aria-ref`。
+  截图通过引用记录的真实 Frame 预滚 owner，capture ID 不承担身份认证。
   生产 CRX 禁用基于 `tabs.onCreated` 的 popup 隐式 Page attachment；新 tab
   必须先经过 backend 归属与 admission，OOPIF 子 session 发现仍保留。
   frame 元素截图先由外到内滚动 owner，避免离屏子 renderer 的稳定性等待

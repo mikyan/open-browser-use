@@ -45,15 +45,25 @@ cannot exist elsewhere in Codex.
 
 ## Implications for Open Browser Use
 
-The public `snapshot` action currently uses a native Playwright ARIA snapshot
+The public `snapshot` action continues to use a native Playwright ARIA snapshot
 for the selected element or frame body. JS `ariaSnapshot()`, Python
 `aria_snapshot()` and Go `ARIASnapshot()` allow explicitly scoped observation.
 This is useful but does not deliver automatic recursive frame expansion.
 
-Cross-frame observation belongs in P04/P07. If OBU adds capture-bound AI refs,
-they are its own finite contract and must have verified identity, expiry and
-resource bounds; historical private method names are not a current Codex API
-specification. See [AI snapshot design](ai-snapshot-design.md).
+OBU now implements a separate `snapshotAI` action with bounded recursive frame
+observations and `getByRef` SDK locators bound to a returned `captureId`. The
+engine retains real Playwright element/frame identities, accepts only emitted
+refs and invalidates captures on new snapshots and control/frame lifecycle
+changes. Existing `domSnapshot`/scoped ARIA behavior is unchanged. See the
+[implementation and evidence](ai-snapshot-design.md) and
+[public contract](browser-action-protocol.md).
+
+These are OBU's own finite APIs. The recursive observation addresses the specific
+gap demonstrated by this fixture, but neither the API name nor its ref format
+was observed in Codex's inspected Playwright surface. OBU's integrated browser
+acceptance is recorded in the implementation reference. It is separate from
+this read-only Codex baseline and cannot turn this check into a matched input or
+performance comparison.
 
 No latency comparison, input task, popup behavior, browser extension parity or
 P15 completion follows from this small read-only check.

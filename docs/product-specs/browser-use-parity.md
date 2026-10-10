@@ -35,18 +35,18 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P01 | 正式入口 | CLI、MCP、公开 SDK 可做完整任务，不依赖 Codex 私有 native pipe 或临时内联脚本 | JS/Python/CLI/MCP 已通过正式 browserAction 链路；Go facade 已接通，完整任务范围继续扩展 |
 | P02 | 本地通信与安装 | Windows/macOS/Linux host、CLI、各 SDK 可连接；多 profile 选择明确；掉线可恢复 | Windows named pipe、Linux Unix socket 的真实 host/SDK CI 通过；Windows Edge 已验实际 native registration，macOS 通信及其他平台浏览器安装仍待验收 |
 | P03 | 浏览器兼容 | Chrome、Edge、Brave、Opera、Vivaldi 的安装与发现正确，不把其他 browser selector 默默注册到 Chrome | Edge Stable 目录/selector/独立 native registration 已实现并真实 Windows 验证；Brave/Opera/Vivaldi 及其他系统实测待补 |
-| P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 正式 ARIA role/name 和 JS 元素级 ariaSnapshot（含 OOPIF）已实测；已有 locator boundingBox，但尚无递归 frame 快照或 capture-bound refs/boxes。内部 AI snapshot 有重排错路由，稳定 Frame slot 仅完成隔离原型，不能当作已交付能力 |
-| P05 | 定位器 | CSS、role/name、text、label、placeholder、testId、链式筛选/nth；多匹配严格报错；动态元素等待 | 真正 Playwright locator 已接入；role/label/CSS/strictness/遮挡等待实测，更多组合继续补验收 |
+| P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 原生 ARIA 与 scoped 快照已实测；新增有界 `snapshotAI` 递归 frame 快照和 capture refs，真实元数据、五种限额、过期与取消通过。iframe 备用文本保持合法 YAML；已有 locator boundingBox，快照内 boxes 等更广观察仍待补 |
+| P05 | 定位器 | CSS、role/name、text、label、placeholder、testId、链式筛选/nth；多匹配严格报错；动态元素等待 | 真正 Playwright locator 已接入；role/label/CSS/strictness/遮挡等待实测。capture ref 可信点击、同节点改名、删除/替换、过期及原始 selector 绕过拒绝已实测；更多普通组合继续补验收 |
 | P06 | 输入与动作 | click/dblclick/hover/fill/type/key/scroll/drag/select/check；等待稳定和遮挡，不误点；原生及受控表单 | 中文、React/contenteditable、可信逐键输入、HTML 拖放与捕获指针拖动已实测；取消释放会触发 pointerup/可能 click，不能回滚。完整表单矩阵待补 |
-| P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 已加载/动态创建/导航后 OOPIF、同源 frame、open shadow 实测；嵌套复杂组合待补 |
+| P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 同源/OOPIF/嵌套/open shadow 已实测；递归 refs 在 iframe 前插、保留文档重排、20 次重复快照和 8 次替换循环后命中正确节点，frame 生命周期使旧 capture 失效；更多复杂组合仍待补 |
 | P08 | 导航与页面生命周期 | goto/back/forward/reload、SPA、popup、关闭、wait URL/load；正确监听早到事件 | goto/BFCache/刷新及 SPA action→wait 已测；wait→action 会受同 tab 队列阻塞。禁用 CRX 隐式 popup attach；原生 popup 仍抢前台，独立 popup claim 移组后首 click 超时未解决 |
-| P09 | 截图与后台渲染 | viewport/full-page/element/crop，尺寸格式正确；闲置后台 tab 重复截图与输入稳定 | viewport/crop/full-page 与离屏根/同源/OOPIF/嵌套元素截图、导航后新内容两轮实测；frame-owner 预滚修复子 renderer stable 等待。冷首帧及独立 popup 移组后的首帧/压力范围仍待补 |
+| P09 | 截图与后台渲染 | viewport/full-page/element/crop，尺寸格式正确；闲置后台 tab 重复截图与输入稳定 | viewport/crop/full-page 与离屏根/同源/OOPIF/嵌套截图、导航后新内容已实测；frame-owner 预滚修复 stable 等待。新 ref 截图按真实 Frame 预滚，与普通定位器截图字节一致，尺寸按原生裁剪和实际 DPR 校验。冷首帧、独立 popup 移组首帧和压力范围待补 |
 | P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 正式并发 chooser→click、主 frame/OOPIF 上传字节及空列表清空通过；下载按所属 tab/epoch GUID 归属，路径映射明确不支持。剪贴板/媒体导出与完整下载链路待补 |
 | P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | 正式 diagnostics 记录真实 console/pageerror/network，主页面/OOPIF、分页/丢弃/截断/换 owner 隔离经 native Edge 验证；network matcher 等待、流和更多调试场景待补 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属修复并实测；正式套件两轮活动 tab 事件均为空，光标/蓝框/点击圈可见；原生 popup 激活与多任务压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 control epoch、结束取消、旧轮次拒绝、显式 beginTurn 和实际 worker stop/start 已通过；原生暂停验证 held input 释放、失败重试及迟到 Runtime 不改值。完整扩展/host 重启、移组 attachment 回收仍待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 工具栏全局暂停、持久阻断、旧 epoch 失效、清理失败重试及真实 popup 已验收；自身扩展页和已知 raw Target 隧道受限。session ID 仍是路由标签而非认证；网站策略 UI、未知持久写与完整浏览器重启边界未完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | JS/Python/Go/CLI/MCP 上一片相同制品两轮各 28/28；本片新增 scoped 快照和截图参数拒绝后再次 28/28、无活动 tab 事件，包与实测制品匹配。Codex IAB 已做有限只读快照基准；原生 popup、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-rC27uZ` 31/31，JS/Python/Go/CLI/MCP 均完成 snapshot→ref 读取和可信点击；活动 tab 事件为空。此前已有重复运行基线；本片扩展/构建 255、JS 55、Python 32 项及 Go 全包通过。Codex IAB 仅只读快照基准；原生 popup、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
 
 ## Evidence rules
 

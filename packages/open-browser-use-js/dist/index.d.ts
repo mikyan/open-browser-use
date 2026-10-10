@@ -28,6 +28,10 @@ export type OpenBrowserUseBrowserOptions = OpenBrowserUseClientOptions | {
     client: OpenBrowserUseClient;
 };
 export type OpenBrowserUseLocatorStep = {
+    kind: "ref";
+    captureId: string;
+    ref: string;
+} | {
     kind: "css" | "frame";
     selector: string;
 } | {
@@ -49,10 +53,22 @@ export type OpenBrowserUseLocatorStep = {
     hasText?: string;
     hasNotText?: string;
 };
+export type OpenBrowserUseAISnapshotLimits = {
+    maxBytes: number;
+    maxNodes: number;
+    maxRefs: number;
+    maxFrames: number;
+    maxDepth: number;
+};
 export type OpenBrowserUseEngineInfo = {
     name: "playwright-crx";
     version: string;
     playwrightVersion: string;
+    capabilities?: {
+        snapshotAI: 1;
+        captureRefs: 1;
+    };
+    snapshotLimits?: OpenBrowserUseAISnapshotLimits;
 };
 export type OpenBrowserUseActionResult = {
     value: JsonValue;
@@ -65,6 +81,26 @@ export type OpenBrowserUseActionOptions = {
 export type OpenBrowserUseScreenshot = {
     base64: string;
     mimeType: string;
+};
+export type OpenBrowserUseAISnapshotOptions = {
+    timeoutMs?: number;
+    maxBytes?: number;
+    maxNodes?: number;
+    maxRefs?: number;
+    maxFrames?: number;
+    maxDepth?: number;
+};
+export type OpenBrowserUseAISnapshot = {
+    captureId: string;
+    snapshot: string;
+    refs: string[];
+    stats: {
+        bytes: number;
+        nodes: number;
+        refs: number;
+        frames: number;
+    };
+    complete: true;
 };
 export type OpenBrowserUseControlState = {
     controlEpoch: number;
@@ -174,9 +210,11 @@ export declare class OpenBrowserUseTab {
     waitForLoadState(options?: OpenBrowserUseWaitForLoadStateOptions): Promise<void>;
     waitForURL(url: string, options?: OpenBrowserUseActionOptions): Promise<void>;
     domSnapshot(options?: OpenBrowserUseActionOptions): Promise<string>;
+    snapshotAI(options?: OpenBrowserUseAISnapshotOptions): Promise<OpenBrowserUseAISnapshot>;
     screenshot(options?: OpenBrowserUseActionOptions): Promise<OpenBrowserUseScreenshot>;
     diagnostics(options?: OpenBrowserUseDiagnosticsOptions): Promise<OpenBrowserUseDiagnosticsSnapshot>;
     locator(selector: string): OpenBrowserUseLocator;
+    getByRef(captureId: string, ref: string): OpenBrowserUseLocator;
     frameLocator(selector: string): OpenBrowserUseLocator;
     getByRole(role: string, options?: {
         name?: string;
@@ -208,6 +246,7 @@ export declare class OpenBrowserUseLocator {
     readonly tab: OpenBrowserUseTab;
     readonly steps: readonly OpenBrowserUseLocatorStep[];
     constructor(tab: OpenBrowserUseTab, steps?: readonly OpenBrowserUseLocatorStep[]);
+    getByRef(captureId: string, ref: string): OpenBrowserUseLocator;
     locator(selector: string): OpenBrowserUseLocator;
     frameLocator(selector: string): OpenBrowserUseLocator;
     getByRole(role: string, options?: {
@@ -271,6 +310,7 @@ export declare class OpenBrowserUseLocator {
     screenshot(options?: OpenBrowserUseActionOptions): Promise<OpenBrowserUseScreenshot>;
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+    snapshotAI(options?: OpenBrowserUseAISnapshotOptions): Promise<OpenBrowserUseAISnapshot>;
     goBack(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     goForward(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     reload(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;

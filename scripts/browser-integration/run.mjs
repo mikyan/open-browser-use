@@ -15,9 +15,10 @@ import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs"
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { elementScreenshotFixture, checkElementScreenshots } from "./element-screenshot-fixture.mjs";
 import { popupFixture, checkChildTabAuthorization } from "./popup-fixture.mjs";
+import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
 
-// Playwright supplies the browser executable only. No Playwright page/context
-// connection is used: all browser actions go through the public SDK and host.
+// Playwright supplies the executable and the fixture's static YAML parser. No
+// page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(directory, "../..");
 const sourceExecutable = process.env.OBU_TEST_HOST_BINARY;
@@ -43,7 +44,7 @@ const records = [];
 const browserLog = [];
 const hostLog = [];
 let sourceIdentity;
-const versions = { node: process.version, browserRunner: "playwright@1.64.0 (executable lookup only)" };
+const versions = { node: process.version, browserRunner: "playwright@1.64.0 (executable lookup and static YAML parsing; no page connection)" };
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 async function until(callback, label, timeout = 20000) {
   const end = Date.now() + timeout;
@@ -141,6 +142,7 @@ async function workerConnection(url) {
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   const route = new URL(request.url, "http://localhost").pathname;
+  if (["/ai-snapshot", "/ai-snapshot-leaf", "/ai-snapshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(aiSnapshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams)); return; }
   if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture()); return; }
   if (["/element-screenshots", "/element-screenshot-leaf", "/element-screenshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(elementScreenshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams.get("replacement"))); return; }
   if (route === "/pause-fixture") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(pauseFixture()); return; }
@@ -225,6 +227,7 @@ try {
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -337,6 +340,21 @@ try {
     getWorker: () => worker, fixtureURL, assert, until,
     saveDetail: detail => fs.writeFile(path.join(runDir, "child-tab-authorization.json"), JSON.stringify(detail, null, 2))
   }));
+  for (const [suffix, check] of [["refs-and-frames", checkAISnapshotRefs], ["lifecycle", checkAISnapshotLifecycle], ["limits-and-cancellation", checkAISnapshotLimits]]) {
+    await test(`js-ai-snapshot-${suffix}`, async () => {
+      const ai = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-ai-snapshot-${suffix}`, timeoutMs: 15000 });
+      try {
+        return await check({
+          browser: ai, fixtureURL,
+          saveDetail: (name, detail) => fs.writeFile(path.join(runDir, `${name}.json`), JSON.stringify(detail, null, 2)),
+          saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, `${name}.png`), bytes),
+          oopifTargets: () => worker.evaluate("globalThis.__integrationFrames"),
+          ungroup: tabId => worker.evaluate(`chrome.tabs.ungroup(${tabId})`),
+          connectSuccessor: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-ai-successor-${suffix}`, timeoutMs: 15000 })
+        });
+      } finally { try { await ai.client.finalizeTabs([]); } finally { ai.close(); } }
+    });
+  }
   await test("js-role-name-yaml-snapshot", async () => {
     const snapshot = await tab.domSnapshot();
     assert.match(snapshot, /button "ARIA named action"/);
@@ -476,20 +494,31 @@ try {
     await call("fill", locator, { value: "CLI 中文" });
     assert.equal((await call("inputValue", locator)).value, "CLI 中文");
     assert.equal(await tab.locator("#controlled-result").textContent(), "CLI 中文");
-    return (await call("snapshot")).engine;
+    const engine = (await call("snapshot")).engine;
+    await tab.evaluate("document.querySelector('#role-result').textContent='';globalThis.__integrationRootEvents=[]");
+    const capture = (await call("snapshotAI")).value;
+    const reference = [{ kind: "ref", captureId: capture.captureId, ref: fixtureRef(capture, "ARIA named action") }];
+    assert.equal((await call("textContent", reference)).value, "Icon");
+    await call("click", reference);
+    assert.equal(await tab.locator("#role-result").textContent(), "clicked");
+    assert.equal(await tab.evaluate("__integrationRootEvents.some(event=>event.event==='click'&&event.trusted)"), true);
+    return { engine, aiCaptureId: capture.captureId, aiRef: reference[0].ref };
   });
   await test("mcp-browser-action", async () => {
+    await tab.evaluate("document.querySelector('#role-result').textContent='';globalThis.__integrationRootEvents=[]");
     const params = { tabId: tab.id, timeoutMs: 10000 };
+    const toolCall = (id, action, locator, args = {}) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "call", arguments: { method: "browserAction", params: { ...params, action, locator, args } } } });
     const messages = [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "obu-browser-integration", version: "1.0.0" } } },
       { jsonrpc: "2.0", method: "notifications/initialized" },
       { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "call", arguments: { method: "browserAction", params: { ...params, action: "fill", locator: [{ kind: "label", value: "Controlled name", exact: true }], args: { value: "MCP 中文" } } } } },
-      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "call", arguments: { method: "browserAction", params: { ...params, action: "textContent", locator: [{ kind: "css", selector: "#controlled-result" }] } } } }
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "call", arguments: { method: "browserAction", params: { ...params, action: "textContent", locator: [{ kind: "css", selector: "#controlled-result" }] } } } },
+      toolCall(4, "snapshotAI")
     ];
     const replies = await new Promise((resolve, reject) => {
       const child = spawn(path.resolve(executable), ["mcp", "--socket", endpoint, "--session-id", "js-browser-integration", "--timeout", "15s"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
       const responses = [];
-      let buffer = "", errors = "";
+      let buffer = "", errors = "", reference;
       const timer = setTimeout(() => { child.kill(); reject(new Error("MCP acceptance deadline exceeded")); }, 45000);
       const send = message => child.stdin.write(JSON.stringify(message) + "\n");
       child.stdout.on("data", chunk => {
@@ -502,7 +531,14 @@ try {
             // Complete the MCP initialization handshake before tools/call.
             if (response.id === 1) { send(messages[1]); send(messages[2]); }
             else if (response.id === 2) send(messages[3]);
-            else if (response.id === 3) child.stdin.end();
+            else if (response.id === 3) send(messages[4]);
+            else if (response.id === 4) {
+              const capture = response.result?.structuredContent?.result?.value;
+              assert.ok(capture, JSON.stringify(response));
+              reference = [{ kind: "ref", captureId: capture.captureId, ref: fixtureRef(capture, "ARIA named action") }];
+              send(toolCall(5, "textContent", reference));
+            } else if (response.id === 5) send(toolCall(6, "click", reference));
+            else if (response.id === 6) child.stdin.end();
           } catch (error) { child.kill(); reject(error); }
         }
       });
@@ -511,7 +547,7 @@ try {
       child.once("exit", code => { clearTimeout(timer); code === 0 ? resolve(responses) : reject(new Error(`MCP exited ${code}: ${errors}`)); });
       send(messages[0]);
     });
-    assert.equal(replies.length, 3);
+    assert.equal(replies.length, 6);
     assert.equal(replies[0].result.protocolVersion, "2025-06-18");
     for (const reply of replies.slice(1)) {
       assert.equal(reply.error, undefined);
@@ -520,8 +556,12 @@ try {
       assert.equal(reply.result.structuredContent.result.engine.name, "playwright-crx");
     }
     assert.equal(replies[2].result.structuredContent.result.value, "MCP 中文");
+    assert.equal(replies[4].result.structuredContent.result.value, "Icon");
     assert.equal(await tab.getByLabel("Controlled name").inputValue(), "MCP 中文");
-    return { protocolVersion: replies[0].result.protocolVersion, engine: replies[2].result.structuredContent.result.engine };
+    assert.equal(await tab.locator("#role-result").textContent(), "clicked");
+    assert.equal(await tab.evaluate("__integrationRootEvents.some(event=>event.event==='click'&&event.trusted)"), true);
+    return { protocolVersion: replies[0].result.protocolVersion, engine: replies[2].result.structuredContent.result.engine,
+      aiCaptureId: replies[3].result.structuredContent.result.value.captureId };
   });
   await test("python-public-sdk", async () => {
     const result = await new Promise((resolve, reject) => {

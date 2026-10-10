@@ -3,6 +3,7 @@ import json
 import sys
 import base64
 import struct
+import re
 from open_browser_use import connect_open_browser_use
 
 endpoint, url = sys.argv[1:3]
@@ -36,6 +37,21 @@ try:
         assert frame.get_by_label("Frame field").input_value() == "Python frame 中文"
         assert frame.locator("#frame-result").text_content() == "clicked"
     checks.append("shadow-and-frames")
+    tab.evaluate("document.querySelector('#role-result').textContent='';globalThis.__integrationRootEvents=[]")
+    capture = tab.snapshot_ai()
+    assert capture["complete"] and capture["stats"]["bytes"] == len(capture["snapshot"].encode("utf-8"))
+    # Parse only this fixture's unique accessible-name line. Untrusted page
+    # text is not the production source of authorized refs.
+    lines = [line for line in capture["snapshot"].splitlines() if 'button "ARIA named action"' in line]
+    assert len(lines) == 1
+    refs = re.findall(r"\[ref=([^\]]+)\]", lines[0])
+    assert len(refs) == 1 and refs[0] in capture["refs"]
+    referenced = tab.get_by_ref(capture["captureId"], refs[0])
+    assert referenced.text_content() == "Icon"
+    referenced.click()
+    assert tab.locator("#role-result").text_content() == "clicked"
+    assert tab.evaluate("__integrationRootEvents.some(event=>event.event==='click'&&event.trusted)")
+    checks.append("bounded-ai-snapshot-ref-read-and-trusted-click")
     shot = tab.screenshot()
     png = base64.b64decode(shot["base64"], validate=True)
     assert shot["mimeType"] == "image/png" and png[:8] == b"\x89PNG\r\n\x1a\n"

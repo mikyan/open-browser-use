@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenBrowserUseBrowser, OpenBrowserUseClient } from "../dist/index.js";
+import { OpenBrowserUseBrowser, OpenBrowserUseClient, OpenBrowserUseLocator } from "../dist/index.js";
 
-const engine = { name: "playwright-crx", version: "0.15.0", playwrightVersion: "1.53.0" };
+const engine = { name: "playwright-crx", version: "0.15.0", playwrightVersion: "1.53.0", capabilities: { snapshotAI: 1, captureRefs: 1 }, snapshotLimits: { maxBytes: 262144, maxNodes: 5000, maxRefs: 2000, maxFrames: 32, maxDepth: 64 } };
 class RecordedClient extends OpenBrowserUseClient {
   calls = [];
   result = null;
@@ -147,4 +147,85 @@ test("diagnostics preserves typed cursors and rejects malformed snapshots", asyn
   await assert.rejects(tab.diagnostics(), /Invalid diagnostics/);
   client.result = { captureId: "missing-cursor", entries: [] };
   await assert.rejects(tab.diagnostics(), /Invalid diagnostics/);
+});
+
+const aiResult = () => {
+  const snapshot = '- button "Save 中文 [ref=e999]" [ref=e1]\n- button "Child" [ref=f1e2]';
+  return { captureId: "capture-one", snapshot, refs: ["e1", "f1e2"], stats: { bytes: Buffer.byteLength(snapshot), nodes: 4, refs: 2, frames: 2 }, complete: true };
+};
+
+test("snapshotAI sends finite budgets separately from timeout and preserves trusted structured refs", async () => {
+  const client = new RecordedClient();
+  const tab = new OpenBrowserUseBrowser({ client }).tab(100);
+  client.result = aiResult();
+  const options = { maxBytes: 1024, maxNodes: 20, maxRefs: 10, maxFrames: 3, maxDepth: 12, timeoutMs: 3000 };
+  const capture = await tab.playwright.snapshotAI(options);
+  assert.deepEqual(capture, client.result);
+  assert.ok(!capture.refs.includes("e999"), "refs must never be extracted from page-controlled text");
+  assert.deepEqual(client.calls[0].params.args, { maxBytes: 1024, maxNodes: 20, maxRefs: 10, maxFrames: 3, maxDepth: 12 });
+  assert.equal(client.calls[0].params.action, "snapshotAI");
+  assert.equal(client.calls[0].params.timeoutMs, 3000);
+  assert.equal(client.calls[0].options.timeoutMs, 4000);
+  client.result = "Child";
+  assert.equal(await tab.playwright.getByRef(capture.captureId, "f1e2").innerText(), "Child");
+  assert.deepEqual(client.calls[1].params.locator, [{ kind: "ref", captureId: "capture-one", ref: "f1e2" }]);
+});
+
+test("snapshotAI rejects invalid limits before sending and never falls back to snapshot", async () => {
+  const client = new RecordedClient();
+  const tab = new OpenBrowserUseBrowser({ client }).tab(100);
+  for (const [key, maximum] of Object.entries(engine.snapshotLimits)) {
+    for (const value of [0, -1, 1.5, true, maximum + 1, Infinity]) await assert.rejects(tab.snapshotAI({ [key]: value }), /positive integer/);
+  }
+  await assert.rejects(tab.snapshotAI({ mode: "ai" }), /does not support/);
+  assert.equal(client.calls.length, 0);
+  client.request = async (method, params) => { client.calls.push({ method, params }); throw new Error("Unsupported browser action: snapshotAI"); };
+  await assert.rejects(tab.snapshotAI(), /Unsupported/);
+  assert.deepEqual(client.calls.map(call => call.params.action), ["snapshotAI"]);
+});
+
+test("snapshotAI strictly validates complete metadata, byte counts, refs, and requested limits", async () => {
+  const client = new RecordedClient();
+  const tab = new OpenBrowserUseBrowser({ client }).tab(100);
+  for (const mutate of [
+    value => { delete value.complete; }, value => { value.complete = false; }, value => { value.complete = 1; },
+    value => { value.captureId = ""; }, value => { value.captureId = "x".repeat(129); },
+    value => { value.refs = ["e1", "e1"]; }, value => { value.refs[0] = "e1\n"; },
+    value => { value.stats.refs = 3; }, value => { value.stats.bytes = value.snapshot.length; },
+    value => { value.stats.nodes = 1.5; }, value => { value.stats.frames = 0; },
+    value => { delete value.stats.bytes; }, value => { value.stats.extra = 1; }, value => { value.extra = true; }
+  ]) {
+    client.result = aiResult(); mutate(client.result);
+    await assert.rejects(tab.snapshotAI(), /Invalid snapshotAI/);
+  }
+  client.result = aiResult();
+  for (const options of [{ maxBytes: 1 }, { maxNodes: 1 }, { maxRefs: 1 }, { maxFrames: 1 }]) await assert.rejects(tab.snapshotAI(options), /Invalid snapshotAI/);
+});
+
+test("ref locators are immutable singletons: actions work but every derived chain is rejected", async () => {
+  const client = new RecordedClient();
+  const tab = new OpenBrowserUseBrowser({ client }).tab(100);
+  const ref = tab.getByRef("capture", "e1");
+  for (const chain of [
+    () => ref.locator("div"), () => ref.frameLocator("iframe"), () => ref.getByRole("button"),
+    () => ref.getByText("x"), () => ref.getByLabel("x"), () => ref.getByPlaceholder("x"),
+    () => ref.getByAltText("x"), () => ref.getByTitle("x"), () => ref.getByTestId("x"),
+    () => ref.first(), () => ref.last(), () => ref.nth(0), () => ref.filter({ hasText: "x" }),
+    () => ref.getByRef("capture", "e2"), () => tab.locator("div").getByRef("capture", "e1"),
+    () => new OpenBrowserUseLocator(tab, [...ref.steps, { kind: "first" }])
+  ]) assert.throws(chain, /Ref locators/);
+  for (const invalid of ["e0", "f0e1", "e1\n", "aria-ref=e1", "e1 >> button", "e" + "1".repeat(64)]) assert.throws(() => tab.getByRef("capture", invalid), /native snapshot/);
+  for (const invalid of ["", "x".repeat(129)]) assert.throws(() => tab.getByRef(invalid, "e1"), /captureId/);
+  assert.equal(client.calls.length, 0);
+  await ref.click();
+  await tab.locator("#source").dragTo(ref);
+  assert.deepEqual(client.calls[1].params.args.target, ref.steps);
+  client.result = { base64: "AA==", mimeType: "image/png" };
+  assert.deepEqual(await ref.screenshot(), client.result);
+  client.result = '- button "Save"';
+  assert.equal(await ref.ariaSnapshot(), client.result);
+  const count = client.calls.length;
+  client.request = async (method, params) => { client.calls.push({ method, params }); throw new Error("OBU_CAPTURE_EXPIRED"); };
+  await assert.rejects(ref.click(), /OBU_CAPTURE_EXPIRED/);
+  assert.equal(client.calls.length, count + 1, "expired refs must not recapture or replay");
 });

@@ -173,6 +173,36 @@
   unpacked，16 个生产 JS/JSON 文件和 JS SDK runtime 哈希与正式验收一致。
   没有重新加载用户正在使用的扩展，没有推送或创建 PR。
 
+### 2026-10-11 bounded recursive observation checkpoint
+
+- 新增生产 `snapshotAI`，递归原生 ARIA iframe 子树并返回 capture ID、真实
+  renderer refs、完整性与统计；总 UTF-8 字节、节点、refs、frames 和深度受限。
+  不从页面文本推断允许操作的 ref，不将不完整子树作为成功结果返回。
+- 稳定 live Frame slot 修复重排后的引用串页；capture 绑定当前 attachment，
+  新/普通快照、frame 生命周期、控制变化使旧引用失效。元素改名保留节点
+  身份，删除或替换不把旧引用转给新节点；引用级 ARIA 快照可读一次后过期。
+- JS/Python/Go 提供快照与 ref 定位接口，CLI/MCP 复用同一 RPC；非法参数、
+  未知/过期引用明确失败，不自动重拍或重放。原生 parser 拒绝普通 selector
+  中的 `aria-ref`，包括 nested/composite/frame/drag target，同时保留普通字面量。
+- 独立审查发现 iframe 备用文本拼接会破坏 YAML；bounded renderer 使用
+  原生集合分支修复，普通 ARIA 行为保持兼容。真实 fixture 用 YAML parser
+  验证备用文本和 iframe 子按钮处于正确结构。
+- Windows Chromium 156 `run-rC27uZ` 31/31、活动 tab 事件为空。五个公开入口
+  各自完成 snapshot/ref 读取和可信点击；root/open shadow/same/OOPIF/nested、
+  前插/重排、20 次重复快照、8 次替换循环、过期/限额/取消通过。缺失 root/
+  child body 分别约 604/612 ms 失败，控制结束取消 pending capture 约 11 ms。
+- 扩展/构建 255/255、JS 55/55、Python 32/32、Go 全包通过；JS/Python
+  运行真实 host 集成。本片未重复声称 Linux CI、macOS 或其他浏览器验收。
+- nested ref 与普通语义 locator 截图字节相同，实测 DPR 1.5、原生整数裁剪
+  得到 360×74 PNG；图片显示完整目标按钮。背景截图的中文、光标、点击圈
+  与蓝色目标框经人工检查。最初测试误将 CSS 高度直接乘 DPR，已按原生
+  enclosing clip 修正精确断言，没有放宽为尺寸容差。
+- 本地扩展与 skill 包已重建：28 个扩展文件逐字节匹配 unpacked，18 个
+  生产 JS/JSON、JS/Python 源码、Go caller/host 及 fixtures 与正式验收哈希匹配；
+  skill 的 6 文件匹配源码。未重载用户扩展，没有推送或创建 PR。
+- P04/P05/P07/P09/P15 矩阵、协议/设计/架构/安全与 skill 文档同步更新；
+  Codex 对比仍仅限此前只读观察。Popup 与完整长期目标仍未完成。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

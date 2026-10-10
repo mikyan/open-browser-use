@@ -19,8 +19,9 @@ verifies extension epoch recovery over the same client connections. It does not
 claim automatic discovery/reconnection when a real native-host process exits;
 that requires reading its new endpoint and creating a new SDK client.
 
-The runner launches headed Chromium directly. Playwright is used only to locate
-the downloaded browser executable. A small raw CDP connection inspects the
+The runner launches headed Chromium directly. Playwright locates the downloaded
+browser executable and supplies the static YAML parser used by snapshot checks.
+A small raw CDP connection inspects the
 extension service worker; there is no Playwright page/context connection or
 foreground activation. A sentinel tab remains active, and the suite checks both
 the current active tab and every activation event to catch transient focus
@@ -84,11 +85,44 @@ virtual display. The suite does not use disabled background-throttling flags.
 - JS locator `ariaSnapshot()` in the main document and an OOPIF. Element
   screenshots reject page-only `clip`/`fullPage` options before the same locator
   goes on to produce a valid screenshot.
+- Bounded `snapshotAI()` captures and real `getByRef()` clicks in the root,
+  open shadow DOM, same-origin, OOPIF and nested frames. The fixture inserts an
+  earlier sibling iframe, then reorders live iframe documents with `moveBefore`,
+  and checks each clicked document's actual counter to catch ref aliasing. It
+  repeats capture 20 times and replaces an iframe eight times while keeping
+  `maxFrames:6` and six live frames, checking public refs without reading private
+  engine slot state. It
+  checks offscreen nested-ref PNG dimensions against Playwright's enclosing
+  document clip and DPR, and saves both the ref image and a public semantic
+  locator control image. Actual bounding boxes, root scroll offsets and clips
+  are recorded; fractional iframe origins can make the integer clip larger than
+  the CSS element size.
+  `moveBefore` must be available; this acceptance case does not silently replace
+  it with document-destroying `appendChild` or claim coverage on older browsers.
+  An iframe's fallback text and actual child button must both appear under its
+  parsed YAML collection; malformed inline fallback output must fail parsing.
+- AI capture expiry after a new capture, ordinary locator `ariaSnapshot`, root
+  or child navigation, iframe owner replacement, turn end, and ownership
+  transfer. Page text that resembles a ref cannot register a permitted ref.
+  Raw native refs in root/frame/composite/nested selectors cannot bypass the
+  capture contract; an ordinary CSS attribute value containing `aria-ref=e1`
+  remains queryable. A renamed node retains its identity, a replacement node
+  does not inherit the old ref, and a ref-scoped ARIA snapshot succeeds once
+  before expiring that capture.
+  Each size/depth/frame/ref limit rejects explicitly; missing root or child
+  bodies fail within their deadline, and ending control cancels an outstanding
+  capture. These three `js-ai-snapshot-*` cases can be selected with
+  `OBU_TEST_CASES=ai-snapshot`; their JSON evidence and fixture source digest are
+  included in the run artifacts. Snapshot-text parsing in the test selects only
+  a fixed unique fixture label; production ref authorization is not regex-based.
 - Waiting for an overlay, real React controlled inputs, contenteditable,
   open shadow DOM, same-origin frames, and an actual out-of-process iframe.
 - Raw CDP navigation before engine attachment, and raw CDP/engine coexistence.
 - CLI `call --method browserAction` and MCP `initialize` / `tools/call` through
   the real executable, with actual page mutations and engine metadata checks.
+  CLI, MCP, Python, and the optional Go caller each take their own bounded AI
+  snapshot, read a capture-scoped ref, and click it with a trusted page event;
+  they do not consume a capture manufactured by the JS test caller.
 - Agent cursor presence and background screenshot PNG validity, viewport/crop/
   full-page dimensions, and image changes after a visible DOM mutation.
 - Navigation/load waits, returned engine version metadata, finalize cleanup and

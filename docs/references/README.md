@@ -27,9 +27,10 @@
 - [Network waits design](network-waits-design.md)：尚未实现的两阶段 request/response
   等待设计，说明同步入口、deadline、资源上限与控制权隔离。
 - [Codex observation baseline](codex-observation-baseline.md)：隔离合成页面上的
-  当前 IAB 快照对照及其有限范围，不把历史私有方法当作当前公开 API。
-- [AI snapshot design](ai-snapshot-design.md)：尚未实现的跨 frame 观察与引用方案，
-  包括真实错路由证据、capture 失效、可信 metadata 与资源边界。
+  IAB 只读快照基线及其有限范围，不等同于输入、性能或完整能力对齐验收。
+- [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与
+  capture ref 契约，记录历史错路由证据、可信 metadata、失效与资源边界；
+  附本片 Windows 真实浏览器验收范围，完整 Codex 任务对照仍待完成。
 - [Popup ownership design](popup-ownership-design.md)：跨窗口移组造成渲染停滞的
   正负对照，以及尚未实现的独立窗口归属与回收设计。
 - [Edge 安装与发现](edge-installation.md)：Edge Stable selector、独立 native host

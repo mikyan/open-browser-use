@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._ai_snapshot import validate_capture_ref
+
 
 def action_options(options: dict[str, Any]) -> dict[str, Any]:
     names = {"full_page": "fullPage", "omit_background": "omitBackground",
@@ -49,9 +51,20 @@ class LocatorFactory:
     def __init__(self, tab: Any, steps: list[dict[str, Any]] | None = None) -> None:
         self._tab = tab
         self._steps = steps or []
+        if any(step.get("kind") == "ref" for step in self._steps):
+            if len(self._steps) != 1:
+                raise ValueError("Ref locators cannot be chained")
+            validate_capture_ref(self._steps[0].get("captureId"), self._steps[0].get("ref"))
 
     def _append(self, step: dict[str, Any]) -> "OpenBrowserUseLocator":
+        if any(existing.get("kind") == "ref" for existing in self._steps):
+            raise ValueError("Ref locators cannot be chained")
         return OpenBrowserUseLocator(self._tab, [*self._steps, step])
+
+    def get_by_ref(self, capture_id: str, ref: str) -> "OpenBrowserUseLocator":
+        if self._steps:
+            raise ValueError("Ref locators must be created directly from a tab")
+        return self._append({"kind": "ref", "captureId": capture_id, "ref": ref})
 
     def locator(self, selector: str) -> "OpenBrowserUseLocator":
         if not selector:

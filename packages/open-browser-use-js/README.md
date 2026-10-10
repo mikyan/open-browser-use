@@ -144,6 +144,39 @@ returns `{ value, engine }` and validates that the extension supports the engine
 High-level methods return the action value. There is no silent text-only
 snapshot fallback when the extension is outdated.
 
+`tab.snapshotAI()` (also `tab.playwright.snapshotAI()`) returns a complete
+observation including frame subtrees:
+
+```js
+const capture = await tab.snapshotAI({ maxBytes: 65536, timeoutMs: 10000 });
+console.log(capture.snapshot, capture.stats);
+// Choose a reference actually listed in capture.refs after reading the snapshot.
+const target = tab.getByRef(capture.captureId, chosenRef);
+await target.click();
+```
+
+The result is `{ captureId, snapshot, refs, stats: { bytes, nodes, refs, frames },
+complete: true }`. References come from structured native metadata, never from
+scanning page text. The SDK rejects incomplete/malformed responses and checks
+UTF-8 bytes, unique references, counts and requested limits. Optional positive
+integer limits are `maxBytes` (262144), `maxNodes` (5000), `maxRefs` (2000),
+`maxFrames` (32 including the root) and `maxDepth` (64); parentheses give the
+default and maximum. Exceeding a limit fails instead of truncating the capture.
+`engineInfo()` advertises `capabilities.snapshotAI === 1`, `captureRefs === 1`
+and `snapshotLimits`; the bundled Playwright version alone is not a capability
+test. An outdated extension fails explicitly; there is no fallback.
+
+`getByRef(captureId, ref)` creates a singleton locator for the original connected
+Element. It supports ordinary actions, reads and element screenshots, including
+use as a same-tab drag target, but rejects `locator`, `frameLocator`, `getBy*`,
+`filter`, `first`, `last` and `nth` derivation. A renamed Element remains the same
+Element; a removed node is not replaced by another element with matching text.
+Captures expire on any new ordinary/AI snapshot, frame lifecycle change,
+attachment/owner/epoch change, pause or restart. Calling a ref's `ariaSnapshot()`
+uses that ref and then invalidates the capture for subsequent calls. The SDK
+never recaptures or replays after expiry. `domSnapshot()` keeps its existing
+scoped ARIA behavior; use `snapshotAI()` for recursive frame observations.
+
 Action `timeoutMs` must be between 1 and 120000. It is sent separately from
 Playwright arguments, and the outer IPC deadline allows the requested action
 budget plus a one-second response margin. Engine actions and event waits default
@@ -369,9 +402,10 @@ await browser.client.finalizeTabs([{ tabId: tab.id, status: "handoff" }]);
 - The browser is the user's real Chrome profile. Do not inspect unrelated data.
 - The SDK does not include Codex-specific site policy or approval prompts; add
   policy in your own runtime if needed.
-- The bundled engine uses Playwright CRX 0.15.0 / Playwright 1.53.0. It does not
-  provide newer AI snapshot references/boxes, closed shadow-root access, or
-  incognito engine attachment; `engineInfo()` reports these limitations.
+- The bundled engine uses Playwright CRX 0.15.0 / Playwright 1.53.0 with the finite
+  `snapshotAI` / capture-ref adapter described above. It does not expose newer
+  Playwright snapshot boxes, closed shadow-root access, or incognito engine
+  attachment; `engineInfo()` reports supported capabilities and limitations.
 - If connection fails, run `open-browser-use ping` and `open-browser-use info`.
 - If there is no active socket, open Chrome with the extension enabled or rerun
   setup according to the Open Browser Use installation guide.

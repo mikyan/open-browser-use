@@ -33,6 +33,28 @@ func action(err error) {
 	}
 }
 
+// This parser is limited to a known unique label in the synthetic fixture. The
+// extension's structured native-ref allowlist remains the authority.
+func fixtureRef(capture obu.AISnapshot, label string) string {
+	lines := []string{}
+	for _, line := range strings.Split(capture.Snapshot, "\n") {
+		if strings.Contains(line, `button "`+label+`"`) {
+			lines = append(lines, line)
+		}
+	}
+	require(len(lines) == 1, "fixture button line is not unique")
+	_, suffix, found := strings.Cut(lines[0], "[ref=")
+	require(found, "fixture line has no native ref")
+	ref, _, found := strings.Cut(suffix, "]")
+	require(found && !strings.Contains(suffix, "[ref="), "fixture line has ambiguous native refs")
+	allowed := false
+	for _, emitted := range capture.Refs {
+		allowed = allowed || emitted == ref
+	}
+	require(allowed, "fixture ref absent from structured allowlist")
+	return ref
+}
+
 func main() {
 	if len(os.Args) != 3 {
 		panic("usage: go-checks endpoint fixtureURL")
@@ -66,6 +88,15 @@ func main() {
 		require(must(frame.Locator("#frame-result").InnerText(time.Second)) == "clicked", selector+" click mismatch")
 	}
 	checks = append(checks, "shadow-and-frames")
+	must(tab.Evaluate("document.querySelector('#role-result').textContent='';globalThis.__integrationRootEvents=[]"))
+	capture := must(tab.SnapshotAI(obu.AISnapshotOptions{}))
+	require(capture.Complete && capture.Stats.Bytes == len(capture.Snapshot), "invalid bounded AI snapshot")
+	referenced := tab.GetByRef(capture.CaptureID, fixtureRef(capture, "ARIA named action"))
+	require(must(referenced.InnerText(time.Second)) == "Icon", "native ref read addressed the wrong element")
+	action(referenced.Click())
+	require(must(tab.Locator("#role-result").InnerText(time.Second)) == "clicked", "native ref click did not reach the page")
+	require(must(tab.Evaluate("__integrationRootEvents.some(event=>event.event==='click'&&event.trusted)")) == true, "native ref click was not trusted")
+	checks = append(checks, "bounded-ai-snapshot-ref-read-and-trusted-click")
 	shot := must(tab.Screenshot())
 	require(shot.MimeType == "image/png", "screenshot MIME type mismatch")
 	pixels := must(png.Decode(bytes.NewReader(must(base64.StdEncoding.DecodeString(shot.Base64)))))
