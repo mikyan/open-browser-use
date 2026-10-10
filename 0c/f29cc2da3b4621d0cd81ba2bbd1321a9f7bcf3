@@ -1,0 +1,61 @@
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_6109eddfffbf95 3-9,14
+README.md
+  s_08bbfd293d324f::t_361d14268cea6d 60-67
+README.zh-CN.md
+  s_08bbfd293d324f::t_b2e8c8459357d2 50-56
+apps/chrome-extension/manifest.json
+  s_08bbfd293d324f::t_4dd687cde2ccef 5
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_ee83b7d32037f4 30,143,151-160,180-182,198-206,217-291,393,513
+cmd/open-browser-use/main_test.go
+  s_08bbfd293d324f::t_6f90baaf53623f 308,312-330,333-403
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_5f4164960be149 108-110,120-122
+docs/CHROME_WEB_STORE_RELEASE.md
+  s_08bbfd293d324f::t_9b3178f6508bde 45-54
+docs/exec-plans/active/2026-05-12-chrome-profile-selection.md
+  s_08bbfd293d324f::t_1629cf3dbb9db6 79,105-107
+docs/exec-plans/completed/2026-10-09-release-v1.0.0.md
+  s_08bbfd293d324f::t_ed59899d2e7f80 1-65
+docs/histories/2026-09/20260928-2058-connected-profile-selection.md
+  s_08bbfd293d324f::t_e3dfdad547d6cd 1-37
+docs/histories/2026-10/20261009-1917-setup-local-extension-zip.md
+  s_08bbfd293d324f::t_dc3563796e9825 1-41
+docs/histories/2026-10/20261009-2101-release-v1.0.0.md
+  s_08bbfd293d324f::t_db0dc451c5c636 1-68
+packages/browser-client-rewrite/package.json
+  s_08bbfd293d324f::t_886c260efaf488 3
+packages/browser-use-protocol/package.json
+  s_08bbfd293d324f::t_e9b84d7a006e9b 3
+packages/open-browser-use-cli/README.md
+  s_08bbfd293d324f::t_43610587837354 52-61
+packages/open-browser-use-cli/package.json
+  s_08bbfd293d324f::t_f5a35becb2c219 3
+packages/open-browser-use-js/package.json
+  s_08bbfd293d324f::t_589782dd7623b7 3
+packages/open-browser-use-python/pyproject.toml
+  s_08bbfd293d324f::t_eae3be352f2b61 3
+skills/open-browser-use/SKILL.md
+  s_08bbfd293d324f::t_945bf936f6f10f 15,44-47,62-64,66-69,71-73,75-81,88,92,103
+skills/open-browser-use/references/installation.md
+  s_08bbfd293d324f::t_9ce6157e4cad34 51-63,83-84
+skills/open-browser-use/references/troubleshooting.md
+  s_08bbfd293d324f::t_1e29006b5dfb68 50-53,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "0cf29cc2da3b4621d0cd81ba2bbd1321a9f7bcf3",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
