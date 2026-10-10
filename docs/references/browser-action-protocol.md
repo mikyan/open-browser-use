@@ -48,6 +48,23 @@ executable callbacks are not part of v1. Element actions require a locator;
 snapshot defaults to `body`, or a selected frame's body. Screenshot without a
 locator captures the page.
 
+Element/frame screenshots reveal each iframe owner from the outside in before
+the final Playwright screenshot. Offscreen child renderers can suspend animation
+frames, leaving the element's stability wait unable to finish before its normal
+scroll step. The preparatory scrolls use strict Playwright locators within the
+same rendering lease and remaining request budget; ownership and cancellation
+are checked between steps. Page screenshots without frame steps are unchanged.
+
+Production CRX does not automatically attach a newly created popup from its
+`tabs.onCreated` listener. Every Page must first pass the backend's ownership and
+admission checks; flat OOPIF child-session discovery is retained. A child already
+in the task group can use the ordinary tab API; an unowned child requires an
+explicit claim. Claim uses the existing task-group model and can move a popup
+tab into the task window. Native `target=_blank` and `window.open` can still
+activate their new tab/window. Popup activation and the observed first-click
+timeout after moving a separate popup are unresolved; this change only removes
+the unauthorized automatic attachment, not those lifecycle limitations.
+
 ## Actions
 
 All arguments are in `args`; unknown keys are rejected before attachment.
@@ -94,6 +111,9 @@ hidden destination. Both waits share the original deadline; ownership is checked
 again before dragging. The page can still change after this preflight.
 
 The engine serializes actions per tab and revalidates ownership before execution.
+Consequently, start a `waitForURL` after the action that triggers navigation;
+putting a waiting call first in a concurrent pair can block the triggering action
+behind it. An already reached URL is checked by Playwright, including SPA state.
 The monotonic deadline includes time spent in the queue and in attachment;
 expiration in the queue does not cancel the action ahead of it. An attachment
 that finishes after expiry is cleaned up before any successor can attach.

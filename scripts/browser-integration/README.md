@@ -108,6 +108,15 @@ virtual display. The suite does not use disabled background-throttling flags.
   redirect identities, cursor pagination, bounded overflow, UTF-8 truncation,
   and capture expiry after ending a turn or transferring ownership.
 - The sentinel tab stays active throughout every successful action and failure.
+- Element screenshots reveal offscreen same-origin, OOPIF and nested iframe
+  owners, including after frame navigation and a cross-origin-to-same-origin
+  replacement. The fixture checks exact PNG dimensions, waits for replacement
+  content and compares changed pixels; images are retained for visual review.
+- A real `tabs.onCreated` background child is left unattached until explicit
+  backend claim, then supports snapshot/read/click and normal end-turn cleanup.
+  Another session cannot use it. This fixture uses extension tab creation with
+  `active:false`; renderer `window.open`/`target=_blank` activation and the first
+  rendering lease after moving an independent popup remain separate known gaps.
 - The final global-pause case opens the real browser action popup, pauses two
   sessions, checks held pointer/key release (including native pointer capture
   remaining after raw `dragCancel`) and blocked high/low-level CDP admission,

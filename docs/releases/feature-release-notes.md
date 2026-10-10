@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-11 | Frame screenshots / child tabs（开发版，未发布） | 后台页面可截取视口外同源、跨域和嵌套 iframe 的元素；新子标签通过正常任务归属检查后才接管。 | 截图前按层级滚动 iframe owner，保留统一 deadline/取消与原生严格定位；关闭 CRX 隐式 popup attachment。230 项测试及两轮各 28 项浏览器验收通过；原生 popup 激活与移组后首帧超时仍未解决。 |
 | 2026-10-11 | User pause（开发版，未发布） | 用户可在工具栏弹窗暂停所有 Agent，保留已打开的页面；恢复后 Agent 需要开始新轮次。 | 暂停状态持久保存、旧请求失效，原生按键/指针先释放再断开调试连接；清理失败继续阻断并显示重试。不能撤销已送达输入或停止网页自身活动；自己的扩展控制页和已知跨目标 CDP 隧道路由受到保护，尚不构成站点沙箱。 |
 | 2026-10-10 | Browser actions（开发版，未发布） | Agent 可通过公开 SDK 使用语义定位、自动等待、表单、frame、拖放及后台截图，并查看页面错误/网络摘要；Windows SDK 与本地主机通信，Edge 可独立安装。 | 接入固定 Playwright 引擎并保留页内反馈；新增持久 turn epoch、复合调用 deadline、会话通知隔离、OOPIF 上传及按归属等待下载。下载本地路径无法可靠映射时明确报错。完整能力矩阵仍在验收，尚不宣称全部对齐。 |
 | 2026-10-09 | Open Browser Use 1.0 | CLI、Chrome extension 与多语言 SDK 进入首个稳定正式版本；用户可以在真实 Chrome profile 中使用完整的 tab/CDP/history/download/file chooser/WebMCP 能力，并通过 npm、PyPI、Homebrew 或 GitHub Release 安装。 | 发布 `v1.0.0`，统一 CLI、extension、protocol、JavaScript SDK、Python SDK 和内部 client-rewrite 的版本；收录 `v0.1.42` 以来的 WebMCP 页面工具、多关键词历史搜索、connected profile 选择优化和本地 ZIP setup。 |

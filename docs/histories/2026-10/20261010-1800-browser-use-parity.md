@@ -130,6 +130,25 @@
   哈希一致，最终截图人工检查保留 AI 光标、点击圈和目标边框。测试层修复
   action popup 的窗口尺寸参数问题，以及 worker 重启观察页初始化竞态。
 
+- 生命周期/观察审计后，生产 CRX 禁用隐式 popup Page attachment，所有新 tab
+  经 backend 归属和 admission；保留独立 upstream 行为与 OOPIF child 自动发现。
+  后台真实 onCreated 回归验证未 claim 不 attach、显式 claim 后 snapshot/read/click
+  可用、跨任务拒绝和 turn end 释放。该回归使用扩展创建的后台子标签，不能
+  替代 renderer 原生 window.open 的完整生命周期验收。
+- 修复离屏 OOPIF 元素 screenshot 卡在 stable 等待：在相同 rendering lease
+  内由外到内用真实 PW locator 滚动 owner；每步重新核对归属、取消与剩余
+  deadline。原生 Edge `observation-production-6gXof4` 的 OOPIF、nested、导航
+  和 owner 替换截图通过，233–297 ms；活动 tab 事件为空、临时注册已清理。
+- 本片最终扩展/构建 230/230 测试通过；正式同版本 `run-TMvHso`、
+  `run-hlLoF3` 连续两轮各 28/28，通过新增元素截图和后台子标签归属用例。
+  活动 tab 事件为空；生产 extension、host、各 SDK 和 fixture 哈希一致，
+  26 个本地 ZIP 内容与 unpacked 构建逐文件一致。实际图片的中文、导航后
+  内容、光标和目标反馈经人工检查。PNG 尺寸使用实测 DPR，不能混淆 CSS 像素。
+- 原生 popup 抢前台仍未解决；独立 popup 移组后首次 click 实测卡在 rendering
+  lease 等首帧，初始化已完成却无 screencastFrame，不能声称 popup 全面通过。
+  waitForURL 先于触发动作也会堵住同 tab 队列。两阶段 network waiter 仅保存
+  设计，未实现。公开 AI refs/boxes、批量结构化读取等继续留在长期目标中。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

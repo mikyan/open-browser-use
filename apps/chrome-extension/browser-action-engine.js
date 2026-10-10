@@ -370,6 +370,21 @@ export class BrowserActionEngine {
             await resolveBrowserLocator(page, params.args.target).waitFor({ state: "visible", timeout: Math.max(1, deadlineAt - performance.now()) });
             await check();
           }
+          if (params.action === "screenshot") {
+            // Chromium can suspend animation frames inside an offscreen iframe.
+            // Playwright waits for the screenshot element to become stable
+            // before scrolling it, so first reveal each frame owner from the
+            // outside in. Keep genuine locator strictness/scroll semantics and
+            // resolve every prefix afresh after navigation or DOM replacement.
+            for (let index = 0; index < params.locator.length; index++) {
+              const step = params.locator[index];
+              if (step.kind !== "frame") continue;
+              await check();
+              const owner = resolveBrowserLocator(page, params.locator.slice(0, index)).locator(step.selector);
+              await owner.scrollIntoViewIfNeeded({ timeout: Math.max(1, deadlineAt - performance.now()) });
+              await check();
+            }
+          }
           return execute(page, { ...params, timeoutMs: Math.max(1, deadlineAt - performance.now()) });
         };
         const value = await (renderedActions.has(params.action)

@@ -353,6 +353,81 @@ test("control ending while a screenshot waits for its rendering lease prevents c
   assert.ok(!f.calls.some(call => call[0] === "screenshot"));
 });
 
+function frameScreenshotFixture(onScroll = async () => {}) {
+  const f = fixture();
+  const calls = [];
+  const node = prefix => ({
+    locator: selector => node(`${prefix}.locator(${selector})`),
+    frameLocator: selector => node(`${prefix}.frameLocator(${selector})`),
+    scrollIntoViewIfNeeded: async options => { calls.push({ method: "scroll", prefix, options }); await onScroll(prefix, options); },
+    screenshot: async options => { calls.push({ method: "screenshot", prefix, options }); return Buffer.from("frame image"); }
+  });
+  Object.assign(f.page, node("page"));
+  return { ...f, frameCalls: calls };
+}
+
+const nestedScreenshot = [{ kind: "css", selector: "#container" }, { kind: "frame", selector: "#outer" }, { kind: "frame", selector: "#inner" }, { kind: "css", selector: "#target" }];
+
+test("nested screenshot reveals frame owners outside-in under the same rendering lease and deadline", async () => {
+  let leased = false;
+  const f = frameScreenshotFixture(async (_prefix, options) => {
+    assert.equal(leased, true);
+    assert.ok(options.timeout > 0 && options.timeout <= 300);
+    await new Promise(resolve => setTimeout(resolve, 12));
+  });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, aroundAction: async ({ run }) => {
+    leased = true;
+    try { return await run(); } finally { leased = false; }
+  } });
+  const result = await engine.dispatch(request("screenshot", { locator: nestedScreenshot, timeoutMs: 300 }));
+  assert.deepEqual(result.value, { base64: Buffer.from("frame image").toString("base64"), mimeType: "image/png" });
+  assert.deepEqual(f.frameCalls.map(({ method, prefix }) => [method, prefix]), [
+    ["scroll", "page.locator(#container).locator(#outer)"],
+    ["scroll", "page.locator(#container).frameLocator(#outer).locator(#inner)"],
+    ["screenshot", "page.locator(#container).frameLocator(#outer).frameLocator(#inner).locator(#target)"]
+  ]);
+  assert.ok(f.frameCalls[1].options.timeout < f.frameCalls[0].options.timeout);
+  assert.ok(f.frameCalls[2].options.timeout < f.frameCalls[1].options.timeout);
+  assert.equal(leased, false);
+});
+
+test("frame-owner screenshot preflight rechecks ownership and releases the lease on failure", async () => {
+  let authorized = true, released = 0;
+  const f = frameScreenshotFixture(async () => { authorized = false; });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime,
+    authorize: () => { if (!authorized) throw new Error("owner changed during scroll"); },
+    aroundAction: async ({ run }) => { try { return await run(); } finally { released++; } }
+  });
+  await assert.rejects(engine.dispatch(request("screenshot", { locator: nestedScreenshot })), /owner changed/);
+  assert.equal(f.frameCalls.length, 1);
+  assert.equal(released, 1);
+});
+
+test("a late frame-owner scroll cannot capture after cancellation or its request deadline", async () => {
+  for (const end of ["detach", "timeout"]) {
+    let continueScroll, entered;
+    const scrolling = new Promise(resolve => { entered = resolve; });
+    const f = frameScreenshotFixture(async () => { entered(); await new Promise(resolve => { continueScroll = resolve; }); });
+    const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+    const capture = engine.dispatch(request("screenshot", { locator: nestedScreenshot, timeoutMs: end === "timeout" ? 20 : 1000 }));
+    const rejected = assert.rejects(capture, end === "timeout" ? /timed out/ : /cancelled/);
+    await scrolling;
+    if (end === "detach") await engine.detach(42);
+    else await rejected;
+    continueScroll();
+    await rejected;
+    await Promise.allSettled(engine.controlSnapshot().pending);
+    assert.equal(f.frameCalls.length, 1);
+  }
+});
+
+test("an ambiguous frame owner cannot be bypassed to capture a different element", async () => {
+  const f = frameScreenshotFixture(async () => { throw new Error("strict mode violation: two frame owners"); });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.dispatch(request("screenshot", { locator: nestedScreenshot })), /strict mode violation/);
+  assert.equal(f.frameCalls.length, 1);
+});
+
 test("only pointer hit testing and screenshots acquire a rendering lease", async () => {
   const f = fixture({ screenshot: async () => Buffer.from("image"), inputValue: async () => "text" });
   f.page.mouse = { move: async () => {}, click: async () => {}, wheel: async () => {}, down: async () => {}, up: async () => {} };

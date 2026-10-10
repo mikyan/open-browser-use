@@ -156,6 +156,11 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   MV3 worker 静态加载 `browser-runtime.js`；构建复制固定版本 ESM 和版权文件
   到 `dist/chrome-extension-unpacked/`，不把第三方生成 bundle 提交到源码。
   协议、构建和版本限制见 `docs/references/browser-action-protocol.md`。
+  生产 CRX 禁用基于 `tabs.onCreated` 的 popup 隐式 Page attachment；新 tab
+  必须先经过 backend 归属与 admission，OOPIF 子 session 发现仍保留。
+  frame 元素截图先由外到内滚动 owner，避免离屏子 renderer 的稳定性等待
+  挂起；每步仍使用同一剩余 deadline 和控制权检查。原生 popup 抢前台与
+  独立 popup 移组后首次点击超时仍是明确缺口。
 - Homebrew formula 从 GitHub Release 下载平台匹配的预编译 CLI tarball，
   安装后提供 `open-browser-use` 和 `obu`，并在 caveats 中提示用户运行显式
   `open-browser-use setup`；安装阶段不依赖 Go，也不在用户机器上编译。

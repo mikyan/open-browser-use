@@ -157,6 +157,11 @@ packages do not include these local changes. Register that CLI as the native
 host for the loaded extension's actual ID. For Windows Edge, follow the
 [local manifest instructions](docs/references/edge-installation.md).
 
+Native `target=_blank` and `window.open` can still activate a new tab/window;
+popup handling does not yet meet the background-only goal. New popup pages must
+pass normal ownership checks before attachment. See the
+[action protocol and limits](docs/references/browser-action-protocol.md).
+
 Use **Pause all agents** in the extension's toolbar popup to block automation.
 Failed cleanup stays blocked and offers **Retry pause**. **Resume control**
 permits a new turn; it never replays old work. Pause preserves pages and cannot

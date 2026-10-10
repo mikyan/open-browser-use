@@ -27,6 +27,26 @@ test("CRX observer patch fails closed when pinned upstream transport changes", a
   assert.match(patched, /refreshCrxCachedLifecycle\(this, message\)/);
   assert.match(patched, /openBrowserUseInputHooks\.send\(debuggee, method, commandParams, operation\)/);
   assert.match(patched, /observeCrxInputCommand\(this, debuggee, method, commandParams\)/);
+  assert.throws(() => patchCrxTransport(upstream.replace('"_onPopupCreated"', '"_unexpectedPopupHandler"')), /popup attachment shape changed/);
+});
+
+test("production CRX popup creation cannot bypass backend ownership while standalone retains auto-attachment", async () => {
+  const source = patchCrxTransport(upstream);
+  const start = source.indexOf('__publicField(this, "_onPopupCreated"');
+  const listener = source.slice(start, source.indexOf('__publicField(this, "_onRemoved"', start));
+  const create = new Function('openBrowserUseInputHooks', '__publicField', listener + 'return this._onPopupCreated;');
+  const attached = [];
+  const transport = { _tabToTarget: new Map([[42, { targetId: 'owned-opener' }]]), attach: async id => { attached.push(id); } };
+  const define = (object, name, value) => { object[name] = value; };
+  const production = create.call(transport, { send() {} }, define);
+  await production({ openerTabId: 42, id: 51 });
+  await production({ openerTabId: 99, id: 52 });
+  assert.deepEqual(attached, [], 'native attach must wait for explicit backend authorization');
+  const standalone = create.call(transport, undefined, define);
+  await standalone({ openerTabId: 42, id: 51 });
+  await standalone({ openerTabId: 99, id: 52 });
+  await standalone({ id: 53 });
+  assert.deepEqual(attached, [51]);
 });
 
 function detachMethods(hooks, chrome, applicationHooks = hooks) {
@@ -129,6 +149,7 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   assert.match(await fs.readFile(path.join(vendor, "NOTICE"), "utf8"), /Playwright/);
   assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /observer/);
   assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /BackForwardCacheRestore/);
+  assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /popup auto-attachment/);
   assert.equal(JSON.parse(await fs.readFile(path.join(vendor, "version.json"), "utf8")).playwrightVersion, "1.53.0");
   const entry = await fs.readFile(path.join(vendor, "index.mjs"), "utf8");
   for (const match of entry.matchAll(/from "(.+?)"/g)) await fs.access(path.join(vendor, match[1]));

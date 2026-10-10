@@ -24,6 +24,8 @@
   客户端显式开启新轮次，以及取消不能撤销已投递输入的边界。
 - [File transfers](file-transfers.md)：上传拦截准备、跨 frame 来源、清空文件、
   按任务等待下载和当前本地路径查找限制。
+- [Network waits design](network-waits-design.md)：尚未实现的两阶段 request/response
+  等待设计，说明同步入口、deadline、资源上限与控制权隔离。
 - [Edge 安装与发现](edge-installation.md)：Edge Stable selector、独立 native host
   manifest/registry、手动 ZIP 安装和实际 Windows 验证范围。
 - `chrome/0.1.7/skills/chrome/SKILL.md`：OpenAI bundled Chrome plugin

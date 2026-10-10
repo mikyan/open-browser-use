@@ -51,6 +51,12 @@ Application-level client authentication and user-configured site policies remain
 
 ## User Pause
 
+The production runtime disables CRX's implicit `tabs.onCreated` popup attachment.
+New Pages must pass backend ownership/admission hooks; iframe child sessions
+continue through the existing owned-root route. This prevents a popup from
+bypassing input tracking and pause cleanup, but does not prevent Chromium from
+activating a native popup or provide website-origin isolation.
+
 The browser action popup can pause all Agent sessions. Pause blocks new work,
 invalidates old control epochs, and releases tracked native input before
 detaching. It does not close or move pages. Failed cleanup stays blocked; Resume

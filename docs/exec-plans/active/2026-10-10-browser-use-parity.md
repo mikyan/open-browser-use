@@ -140,3 +140,39 @@ raw CDP、导航与重定向、frame/document 生命周期等，另列未完成�
   查看，临时注册已清理，关键生产文件与最终构建哈希一致。
 - 仅本地保存，不推送或提 PR。P14 网站策略、完整进程重启及其他矩阵缺口
   继续保留，长期目标没有完成。
+
+## 页面生命周期与离屏 frame：实施与验收
+
+真实隔离浏览器审计发现两个需要优先修正的既有缺陷：
+
+- 页面原生 popup 会触发 CRX 的隐式自动 attachment，绕过 backend 的
+  ownership、输入跟踪和暂停接入；之后显式 claim 仍可能报重复 debugger。
+  生产运行时必须关闭这条旁路，由已授权的普通 attach 路径统一接管。
+  OOPIF child-session 的自动发现与此不同，必须保留。
+- 先截根页面离屏元素，再截当前视口之外的 OOPIF 元素，真实截图会卡在
+  子 frame 的稳定性等待。验证按 frame 链从外到内滚动后再使用原生
+  Playwright screenshot；保持严格定位、同一 deadline 与取消检查。
+
+验收包括固定 build patch 行为测试、真实 popup 未接管/显式 claim 后操作、
+后台根元素/同源/OOPIF/嵌套 frame 截图、取消后无迟到操作、原正式套件。
+原生 window.open 的前台激活是另一个尚未解决的问题，不用事后切回掩盖。
+审计模式的成功只代表完成观测，不代表其观测到的失败能力已经通过。
+
+网络等待暂保留为下一片：现有同步 Python request/read、Go requestLock 和
+CLI/MCP 串行入口不适合依赖同一客户端并发触发。采用先注册并确认 ready、
+再触发动作、最后取结果的两阶段接口候选，后续单独落实有界资源与 epoch
+隔离；本片不提前宣称网络匹配等待已实现。
+具体候选协议保存在 [Network waits design](../../references/network-waits-design.md)。
+
+本片结果：生产 popup 隐式 attach 旁路已关闭，截图 frame-owner 预滚已实现。
+230/230 扩展/构建测试通过；正式相同冻结制品的 `run-TMvHso`、`run-hlLoF3`
+连续两轮各 28/28，活动 tab 事件均为空。新增截图覆盖根元素、同源/OOPIF、
+嵌套、导航与跨源变同源的新内容；尺寸按真实 DPR 校验、图片人工检查。
+子 tab 测试使用真实后台 `tabs.onCreated`，验证 claim 前无 attachment、
+claim 后操作、外部任务拒绝和结束释放；它不替代原生 window.open 验收。
+原生 Edge `observation-production-6gXof4` 截图验证通过、临时注册已清理。
+
+独立 popup 移组后首次 click 的 trace 表明 CRX 初始化约 3 ms 完成，卡在
+`Page.startScreencast` 后 10 秒无首帧；尚未发送该 click 的 Runtime/Input。
+这与原生 popup 抢前台、waitForURL 队列问题仍待后续修复。
+本片 host/SDK 运行代码未改，未声称重跑 Linux 全 CI 或其他系统浏览器验收。

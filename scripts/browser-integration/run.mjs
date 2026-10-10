@@ -13,6 +13,8 @@ import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
+import { elementScreenshotFixture, checkElementScreenshots } from "./element-screenshot-fixture.mjs";
+import { popupFixture, checkChildTabAuthorization } from "./popup-fixture.mjs";
 
 // Playwright supplies the browser executable only. No Playwright page/context
 // connection is used: all browser actions go through the public SDK and host.
@@ -139,6 +141,8 @@ async function workerConnection(url) {
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture()); return; }
+  if (["/element-screenshots", "/element-screenshot-leaf", "/element-screenshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(elementScreenshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams.get("replacement"))); return; }
   if (route === "/pause-fixture") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(pauseFixture()); return; }
   if (route === "/diagnostics/fail") { request.socket.destroy(); return; }
   if (route === "/diagnostics/redirect") { response.writeHead(302, { Location: "/diagnostics/data" + new URL(request.url, "http://localhost").search }); response.end(); return; }
@@ -219,6 +223,8 @@ try {
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -321,6 +327,16 @@ try {
     assert.equal(await tab.locator("#role-result").textContent(), "clicked");
     return tab.engineInfo();
   });
+  await test("js-element-screenshots-offscreen-frames", async () => checkElementScreenshots({
+    browser, fixtureURL,
+    saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, `${name}.png`), bytes),
+    oopifTargets: () => worker.evaluate("globalThis.__integrationFrames")
+  }));
+  await test("js-child-tab-attachment-authorization", async () => checkChildTabAuthorization({
+    connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
+    getWorker: () => worker, fixtureURL, assert, until,
+    saveDetail: detail => fs.writeFile(path.join(runDir, "child-tab-authorization.json"), JSON.stringify(detail, null, 2))
+  }));
   await test("js-role-name-yaml-snapshot", async () => {
     const snapshot = await tab.domSnapshot();
     assert.match(snapshot, /button "ARIA named action"/);

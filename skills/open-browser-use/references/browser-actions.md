@@ -70,6 +70,20 @@ For screenshot use `action: "screenshot"` and `args: {"fullPage": true}`; its
 value is `{base64, mimeType}`. CLI/MCP transport timeout must exceed the requested
 action deadline. Defaults are 10 seconds; `timeoutMs` accepts 1 through 120000.
 
+To capture an element, supply its locator and omit page-only `fullPage`/`clip`.
+Frame screenshots scroll iframe owners from the outside in before capturing the
+element. After navigation, resolve the locator again and verify the new content.
+Call `waitForURL` after the triggering action: actions share a per-tab queue, so
+starting the wait first can block its trigger.
+
+Native `target=_blank` and `window.open` can currently activate the new tab or
+window. When the task requires staying in the background, use an observed link
+URL with the public background tab-creation API when that preserves the task's
+meaning. Do not silently replace scripted popups that depend on their opener.
+New tabs are attached only after backend ownership checks. A child outside the
+task group needs explicit claim; claim can move a popup into the task window,
+and a first-click timeout in that case remains unresolved.
+
 The `engine` object identifies the bundled Playwright CRX and Playwright versions.
 The current engine supports public serialized actions, not arbitrary Playwright
 code. Incognito engine attachment, closed shadow roots, and newer Playwright AI
