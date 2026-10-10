@@ -1,0 +1,59 @@
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_0143bb311f2944 684
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_0143bb311f2944 34-49
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_94b919068c134b 344-345
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_0143bb311f2944 49-51
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_96f1c9bcc996e0 7
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_94b919068c134b 179-190
+  s_08bbfd293d324f::t_96f1c9bcc996e0 191-208
+docs/references/ai-snapshot-design.md
+  s_08bbfd293d324f::t_f80fbda056c24d 122,134
+  s_08bbfd293d324f::t_f7cddf2befae87 1-121,123-133,135-255
+docs/references/codex-observation-baseline.md
+  s_08bbfd293d324f::t_96f1c9bcc996e0 1-59
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_905eea44507cfa 95-96,135-137
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_96f1c9bcc996e0 152-171,175
+  s_08bbfd293d324f::t_2a3ed15a896697 172-174
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_0143bb311f2944 90
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_96f1c9bcc996e0 84-86
+scripts/browser-integration/element-screenshot-fixture.mjs
+  s_08bbfd293d324f::t_94b919068c134b 44-45
+docs/references/README.md
+  s_08bbfd293d324f::t_96f1c9bcc996e0 29-34
+docs/references/popup-ownership-design.md
+  s_08bbfd293d324f::t_5f7b26df74deea 1-216
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_96f1c9bcc996e0 26-30,38
+  s_08bbfd293d324f::t_2a3ed15a896697 49
+packages/open-browser-use-js/test/browser-action.test.mjs
+  s_08bbfd293d324f::t_0143bb311f2944 69-84
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_4e07431faae1f9 270
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_e189d083e0ffc5 579
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "295e579548df3ac2f07585c8219e0982b57cdf0d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
