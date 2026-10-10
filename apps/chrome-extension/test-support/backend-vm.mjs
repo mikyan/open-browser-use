@@ -2,6 +2,8 @@
 // APIs. Keep its ownership and network registries real and share its clock.
 import vm from "node:vm";
 import { BrowserNetworkWaits } from "../browser-network-waits.js";
+import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
+import { BROWSER_ENGINE_INFO, validateBrowserAction } from "../browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "../auxiliary-tab-ownership.js";
 
 const sessionValuesByChrome = new WeakMap();
@@ -41,10 +43,12 @@ function extendLegacyFixture(chrome) {
 
 const source = code => code
   .replace('import { BrowserNetworkWaits } from "./browser-network-waits.js";', "")
+  .replace('import { BrowserNavigationWaits } from "./browser-navigation-waits.js";', "")
+  .replace('import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";', "")
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { BrowserNetworkWaits, performance, ...sandbox, AuxiliaryTabOwnership };
+  return { BrowserNetworkWaits, BrowserNavigationWaits, BROWSER_ENGINE_INFO, validateBrowserAction, performance, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

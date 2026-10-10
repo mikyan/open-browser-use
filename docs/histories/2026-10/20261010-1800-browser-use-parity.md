@@ -257,6 +257,33 @@
   各 SDK/host/fixture 的哈希匹配正式验收；skill 的 6 个文件匹配源码。保留
   本地提交，无推送或 PR，也没有重载用户正在使用的浏览器扩展。
 
+### 导航观察器与 ready handles
+
+- 保留 pinned Playwright 的 URL/glob、当前状态、生命周期和错误语义；原生
+  bridge 只补实际监听就绪与精确 Waiter 取消。待完成 observer 不占动作队列，
+  setup 在首次 await 前预留，后续同 scope 点击/CDP/attach 等待其注册完成。
+- 新增 arm/collect/cancelNavigationWait、独立 capability 及三种 SDK ready
+  handle；CLI/MCP 采用相同协议。固定 scope、原始 deadline、容量和终态 TTL，
+  不通过新 turn 复活或自动重放。arm 失败也追踪实际原生清理供 Pause 等待。
+- warm setup 超时不拆已有 Page；cold setup 只清理自己创建的连接。复核还
+  修复了监听就绪后的点击权限检查未扣预算，防止短 deadline 后迟到输入。
+- 扩展/构建 361/361，JS SDK 66/66、Python 39/39 和 Go 全包通过；SDK 包含
+  真实 host。Windows Chromium 156 定向 10/10，完整 `run-9ZuGbE` 43/43，
+  覆盖冷并发 wait/click、五入口、快速/SPA/中间 URL/redirect、独立加载状态、
+  超时隔离、end/Pause/移组/detach/close/worker restart。
+- 加载测试曾因旧 goto 不支持 commit，以及计数 fetch 未消费响应体失败。
+  通过公开 commit observer 与原生 requestId trace 定位后修正 fixture；
+  保留实际 loadingFinished、清理前阶段记录，没有改变原生 idle 或放宽断言。
+- 完整套件仍保留五次新未聚焦 popup 的自身 tab 创建记录；sentinel 不变。
+  窗口焦点仅由测试主动打开 Pause UI 的两个精确索引归因，其他切换仍失败。
+  背景与 popup 图片已查看，AI 光标、蓝框、点击圈保留。
+- 协议、skill、设计、架构、矩阵、质量、计划与发布记录同步。仍未解决原生
+  popup 初始激活、完整 host/browser 重启、网站策略、其他平台及完整 Codex
+  同组任务比较；长期目标继续 active。用户明确不提 PR，仅保留本地成果。
+- 本地交付包重建并验证：21 个生产 JS/JSON 与验收一致，31 个扩展文件与
+  unpacked 逐字节匹配，6 个 skill 文件及全部 SDK/host/fixture 哈希一致。
+  新增 JS 导航模块的生成 JS/声明文件一同版本化，用户扩展未自动重载。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

@@ -300,14 +300,18 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /BackForwardCacheRestore/);
   assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /popup auto-attachment/);
   assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /bounded.*ARIA|ARIA.*bounded/);
+  assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /private client navigation Waiter hook/);
   assert.equal(JSON.parse(await fs.readFile(path.join(vendor, "version.json"), "utf8")).playwrightVersion, "1.53.0");
   const entry = await fs.readFile(path.join(vendor, "index.mjs"), "utf8");
   assert.match(entry, /assertOpenBrowserUseSelector/);
+  assert.match(entry, /createOpenBrowserUseNavigationWait/);
   for (const match of entry.matchAll(/from "(.+?)"/g)) await fs.access(path.join(vendor, match[1]));
   assert.ok(!(await fs.readdir(output)).some(file => file.endsWith(".test.mjs")));
   assert.equal(await fs.readFile(path.join(output, "auxiliary-tab-ownership.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "auxiliary-tab-ownership.js"), "utf8"));
   await fs.access(path.join(output, "browser-action-engine.js"));
+  assert.equal(await fs.readFile(path.join(output, "browser-navigation-waits.js"), "utf8"),
+    await fs.readFile(path.join("apps/chrome-extension", "browser-navigation-waits.js"), "utf8"));
   await fs.access(path.join(output, "browser-frame-adapter.js"));
   await fs.access(path.join(output, "browser-input-adapter.js"));
   await fs.access(path.join(output, "browser-diagnostics.js"));

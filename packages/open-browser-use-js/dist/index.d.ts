@@ -1,3 +1,5 @@
+import { OpenBrowserUseNavigationWait, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
+export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 import { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions } from "./network-waits.js";
 export { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions, type OpenBrowserUseNetworkWaitResult } from "./network-waits.js";
 export type JsonValue = null | boolean | number | string | JsonValue[] | {
@@ -130,6 +132,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
         kind: "console" | "pageerror" | "request" | "response" | "requestfinished" | "requestfailed";
     })[];
 };
+declare const navigationWaitSymbol: unique symbol;
 declare const networkWaitSymbol: unique symbol;
 declare const controlScopeSymbol: unique symbol;
 type ControlScope = {
@@ -151,6 +154,7 @@ export declare class OpenBrowserUseClient {
         timeoutMs?: number;
     }): Promise<JsonValue>;
     [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    [navigationWaitSymbol](tabId: number, params: BrowserUseRequestParams): Promise<OpenBrowserUseNavigationWait>;
     getControlState(): Promise<JsonValue>;
     beginTurn(turnId?: string): Promise<OpenBrowserUseControlState | null>;
     refreshControlState(): Promise<OpenBrowserUseControlState | null>;
@@ -209,6 +213,8 @@ export declare class OpenBrowserUseTab {
     engineInfo(): Promise<OpenBrowserUseEngineInfo>;
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    expectURL(url: string, options?: OpenBrowserUseURLWaitOptions): Promise<OpenBrowserUseNavigationWait>;
+    expectLoadState(options?: OpenBrowserUseLoadStateWaitOptions): Promise<OpenBrowserUseNavigationWait>;
     goto(url: string, options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     goBack(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     goForward(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
@@ -323,6 +329,8 @@ export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     goForward(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     reload(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     waitForLoadState(options?: OpenBrowserUseWaitForLoadStateOptions): Promise<void>;
+    expectURL(url: string, options?: OpenBrowserUseURLWaitOptions): Promise<OpenBrowserUseNavigationWait>;
+    expectLoadState(options?: OpenBrowserUseLoadStateWaitOptions): Promise<OpenBrowserUseNavigationWait>;
     waitForURL(url: string, options?: OpenBrowserUseActionOptions): Promise<void>;
     domSnapshot(options?: OpenBrowserUseActionOptions): Promise<string>;
     engineInfo(): Promise<OpenBrowserUseEngineInfo>;

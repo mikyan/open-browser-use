@@ -41,10 +41,11 @@ func controlDiscoveryMethod(method string) bool {
 
 func (c *Client) observeControlSupport(info any) error {
 	version := 0
-	var networkVersion any
+	var networkVersion, navigationVersion any
 	if object, ok := info.(map[string]any); ok {
 		if metadata, ok := object["metadata"].(map[string]any); ok {
 			networkVersion = metadata["networkWaitVersion"]
+			navigationVersion = metadata["navigationWaitVersion"]
 			if advertised, exists := metadata["turnLifecycleVersion"]; exists {
 				if advertised != float64(1) {
 					return fmt.Errorf("unsupported turn lifecycle version %v; update the SDK", advertised)
@@ -56,6 +57,7 @@ func (c *Client) observeControlSupport(info any) error {
 	c.controlMu.Lock()
 	defer c.controlMu.Unlock()
 	c.networkWaitKnown, c.networkWaitVersion = true, networkVersion
+	c.navigationWaitKnown, c.navigationWaitVersion = true, navigationVersion
 	if c.control.version != 1 {
 		c.control.version = version
 	}

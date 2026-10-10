@@ -34,6 +34,7 @@
 - [x] 后退/前进/刷新、逐键输入、HTML 拖放与捕获指针释放的真实 native Edge 验收。
 - [x] 文件/数据归属与取消、会话事件路由、公开诊断能力及当前范围整合验收；下载路径、同步客户端等待注册与更多数据能力仍见矩阵缺口。
 - [x] 工具栏全局暂停、持久阻断、原生输入释放与失败重试；真实 popup、暂停后 worker 恢复和迟到 Runtime 拒绝通过。网站策略仍未完成。
+- [x] 原生 URL/loadstate observer、跨语言 ready handles、冷 wait→click 顺序与精确取消；五入口及独立生命周期关卡通过，完整进程恢复仍待补。
 - [ ] 完成矩阵 P01–P15，并逐项审计。
 
 ## 约束与风险
@@ -317,3 +318,45 @@ closing 等待，不能把这说成已取消写入或有界结束。长期 P01�
 
 扩展 ZIP 的 30 个文件逐字节匹配 unpacked，20 个生产 JS/JSON、全部冻结
 SDK/host/Go caller/fixture 哈希匹配正式验收，skill 包 6 个文件匹配源码。
+
+## 导航等待：当前实现切片
+
+上一片 `a2955b3` 已完成并验证独立 popup 归属，正式套件 38/38，属于进展。
+本片处理先提交 `waitForURL` 再并发点击被同 tab 队列阻塞的问题：
+
+- 保留原生 Playwright URL/glob、当前 URL、loadstate 和导航错误语义；增加
+  有界、可取消的独立监听生命周期，只把短注册阶段放入动作队列。
+- 在首次 await 前预留等待和原始 deadline；后提交的同 scope 动作等待监听
+  就绪，防止冷引擎、权限检查与快速跳转使触发越过注册。
+- `armNavigationWait` → 触发 → `collectNavigationWait` / `cancelNavigationWait`
+  对 JS/Python/Go/CLI/MCP 提供明确 ready ACK；原 `waitForURL` / `waitForLoadState`
+  继续可用。已满足的 URL/loadstate 可以立即完成，不能把它描述为等待下一次导航。
+- 等待超时或取消仅清理本次原生 waiter，不 detach 同页正在执行的动作；
+  end/Pause、关闭、移动与换 owner 使旧 waiter 失效，结果与 scope 不跨轮次复用。
+- 用真实冷页面、快速导航、SPA、redirect、状态就绪和五个入口验证，并保留
+  全套后台光标、截图、文件、输入、归属与暂停回归。仅本地开发，不推送或 PR。
+
+本片结果：导航专项 `run-o6Oc7z` 10/10；完整 Windows Chromium 156
+`run-9ZuGbE` 43/43，保留五个公开入口、光标/蓝框/点击圈、截图、frames、
+文件、popup、网络及 worker/Pause 回归。扩展/构建 361/361、JS SDK 66/66、
+Python 39/39 与 Go 全包通过，SDK 测试包含真实 host。
+
+审查修复两处边界：触发动作在监听就绪后的权限检查仍沿用原剩余预算，
+不再迟到点击；原生 observer 在 arm 检查前已过期时，实际取消完成仍进入
+Pause drain。warm setup 超时保留其他监听和输入，cold setup 只清理自身
+创建的 attachment。独立回归覆盖前置阻塞、迟到原生调用与 ownership 变化。
+
+真实加载测试先暴露两个 fixture 问题：旧 goto 不接受 commit，改由原生
+commit observer 就绪后公开 CDP 导航；计数 fetch 未消费 body，native trace
+证实缺少该 requestId 的 loadingFinished。读取响应体后正常结束，新增阶段、
+清理前快照及两个精确请求完成断言；没有伪造 lifecycle、放宽断言或延长超时。
+完整套件的原始五次新 popup 自身 tab 激活保留，sentinel 不变；窗口焦点仍
+只在测试主动打开 Pause UI 的两个精确索引变化，页面动作无额外切换。
+背景页面与 popup 图片已查看。该片只做本地提交/打包，不提 PR、不推送。
+原生 popup 初始激活、完整 host/browser 重启、网站策略、更多平台与完整
+Codex 同组任务比较仍未完成，长期目标保持 active。
+
+本地制品最终校验通过：21 个生产 JS/JSON、31 个扩展包文件、6 个 skill
+文件及 SDK/host/全部 fixture 哈希与正式验收一致，导航阶段与原始焦点
+记录独立复核通过。报告保存为 `.tmp/navigation-final-verification.json`。
+未重载用户日常扩展；本轮交付仍是本地开发包。

@@ -92,10 +92,18 @@ virtual display. The suite does not use disabled background-throttling flags.
 ## What it checks
 
 The fresh isolated Windows Chromium 156 run
-`.tmp/browser-integration/run-hpWHwC/results.json` passed all 38 cases, including
-the optional Go caller and auxiliary-popup additions. Its raw activation/focus
+`.tmp/browser-integration/run-9ZuGbE/results.json` passed all 43 cases, including
+the optional Go caller, auxiliary popups and navigation waits. Its raw activation/focus
 events and narrowly scoped ledgers remain in the evidence. This does not verify
 native `window.open` focus suppression or full browser/extension restart.
+
+Navigation acceptance retains bounded stage and native request traces. The gated
+page consumes the complete body of its counting fetch as well as its held fetch;
+both exact request IDs must emit `Network.loadingFinished` before idle success.
+An earlier failed diagnostic run proved that an unread counting response remained
+unfinished in Chromium. The fixture was corrected; native idle semantics and
+deadlines were not changed. Failure evidence captures state before finally opens
+the remaining gates, so cleanup cannot look like successful lifecycle progress.
 
 - JS, Python, and the optional Go caller's semantic role/name locators, YAML snapshots and duplicate-match
   strictness.
@@ -189,6 +197,35 @@ native `window.open` focus suppression or full browser/extension restart.
   Short discovery/attach deadline injection, per-session/global capacity and
   the 30-second terminal TTL use deterministic unit tests; this headed suite
   does not claim to exercise those timings or quotas.
+- Navigation waits through all five entry points: JS, synchronous Python,
+  optional Go, CLI `call` and MCP `tools/call`. A cold public raw navigation is
+  followed by an acknowledged `expectURL`/`armNavigationWait`, one trusted
+  click, and collection of the void result. An independent HTTP counter must
+  show exactly one destination document request; CLI calls retain one explicit
+  session, turn and epoch. Python and Go establish listener readiness without
+  threads or a second connection.
+  `js-navigation-waits-direct-and-ready` also checks cold direct
+  `Promise.all([waitForURL(...), click(...)])`, SPA/history URL changes, native
+  glob matching, a transient intermediate URL, redirects, repeated collect,
+  and rejection of a historical intermediate URL. Current-URL and cached
+  load-state waits complete immediately: `expectLoadState` observes the current
+  document and is not a promise to wait for the next navigation.
+  `js-navigation-waits-load-states` uses separate HTTP script, image and fetch
+  gates to hold DOMContentLoaded, load and networkidle. A direct state wait must
+  not block a concurrent trusted click; the server releases each lifecycle gate
+  explicitly, without sleeps for listener readiness.
+  `js-navigation-waits-lifecycle` verifies that a URL timeout does not detach a
+  concurrently waiting click, and checks cancel, end, explicit detach, ownership
+  transfer and tab closure. Existing worker-restart and Pause cases invalidate
+  pending navigation handles as well as network handles. Native observer
+  cleanup, queue/attach deadline injection, capacity and terminal TTL are covered
+  separately by deterministic tests.
+  The fixture digest, `navigation-waits-*.json` witnesses and
+  `navigation-server.json` counters are retained. Select the five new cases and
+  both synchronous SDK callers with
+  `OBU_TEST_CASES='navigation-waits|python-public-sdk|go-public-sdk'` (eight cases
+  including the mandatory raw prerequisite when Go is configured). Add
+  `|control-worker-restart|user-global-pause` for ten cases including recovery.
 - The sentinel tab stays active throughout every successful action and failure.
 - Element screenshots reveal offscreen same-origin, OOPIF and nested iframe
   owners, including after frame navigation and a cross-origin-to-same-origin
@@ -216,7 +253,7 @@ native `window.open` focus suppression or full browser/extension restart.
   Select the four affected cases with
   `OBU_TEST_CASES='auxiliary-popup|control-worker-restart|user-global-pause'`;
   the required raw-navigation case makes this a five-case directed run. The
-  complete suite contains 38 cases with the optional Go caller, or 37 without it.
+  complete suite contains 43 cases with the optional Go caller, or 42 without it.
   The popup is independently created with `windows.create({focused:false})`,
   not by a page's `window.open`. Initial native popup activation remains
   unsupported as a no-interruption guarantee and is not counted as passing.

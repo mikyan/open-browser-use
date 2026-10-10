@@ -48,16 +48,18 @@ type notificationSubscription struct {
 type Client struct {
 	options Options
 
-	mu                   requestLock
-	conn                 net.Conn
-	nextID               int64
-	controlMu            sync.Mutex
-	control              clientControlState
-	networkWaitKnown     bool
-	networkWaitVersion   any
-	notificationMu       sync.Mutex
-	nextHandlerID        uint64
-	notificationHandlers []notificationSubscription
+	mu                    requestLock
+	conn                  net.Conn
+	nextID                int64
+	controlMu             sync.Mutex
+	control               clientControlState
+	navigationWaitKnown   bool
+	navigationWaitVersion any
+	networkWaitKnown      bool
+	networkWaitVersion    any
+	notificationMu        sync.Mutex
+	nextHandlerID         uint64
+	notificationHandlers  []notificationSubscription
 }
 
 func NewClient(options Options) *Client {
@@ -148,7 +150,7 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 	if err := json.Unmarshal(encodedParams, &frozenParams); err != nil {
 		return nil, err
 	}
-	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" {
+	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait") {
 		requested := float64(10000)
 		valid := true
 		if value, exists := frozenParams["timeoutMs"]; exists {
@@ -233,6 +235,26 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, errors.New("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1")
 		}
 	}
+	if isNavigationWaitMethod(method) {
+		c.controlMu.Lock()
+		known := c.navigationWaitKnown
+		c.controlMu.Unlock()
+		if !known {
+			info, err := c.requestLocked("getInfo", scopedParams(merged, nil), deadline)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.observeControlSupport(info); err != nil {
+				return nil, err
+			}
+		}
+		c.controlMu.Lock()
+		supported := c.navigationWaitVersion == float64(1)
+		c.controlMu.Unlock()
+		if !supported {
+			return nil, errors.New("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension does not advertise navigationWaitVersion 1")
+		}
+	}
 	result, err := execute(merged, deadline)
 	if err != nil {
 		return nil, err
@@ -286,12 +308,12 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 	if len(responseReserve) > 0 && time.Until(deadline) <= responseReserve[0] {
 		return nil, fmt.Errorf("%s deadline expired during discovery or connection; request was not sent", method)
 	}
-	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" {
+	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait") {
 		requested := int64(10000)
 		valid := true
 		switch value := merged["timeoutMs"].(type) {
 		case nil:
-			if _, exists := merged["timeoutMs"]; method == "armNetworkWait" && exists {
+			if _, exists := merged["timeoutMs"]; (method == "armNetworkWait" || method == "armNavigationWait") && exists {
 				valid = false
 			}
 		case int64:
@@ -300,7 +322,7 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 			requested = int64(value)
 		case float64:
 			valid = value >= 1 && value <= 120000
-			if method == "armNetworkWait" {
+			if method == "armNetworkWait" || method == "armNavigationWait" {
 				valid = valid && value == math.Trunc(value)
 			}
 			if valid {
@@ -309,8 +331,8 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 		default:
 			valid = false
 		}
-		if method == "armNetworkWait" && (!valid || requested < 1 || requested > 120000) {
-			return nil, errors.New("armNetworkWait timeoutMs must be an integer from 1 to 120000")
+		if (method == "armNetworkWait" || method == "armNavigationWait") && (!valid || requested < 1 || requested > 120000) {
+			return nil, fmt.Errorf("%s timeoutMs must be an integer from 1 to 120000", method)
 		}
 		if valid && requested >= 1 && requested <= 120000 {
 			available := (time.Until(deadline) - time.Second).Milliseconds()

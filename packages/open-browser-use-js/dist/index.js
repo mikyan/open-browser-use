@@ -1,4 +1,6 @@
 var _a;
+import { OpenBrowserUseNavigationWait, navigationWaitAck, navigationWaitParams } from "./navigation-waits.js";
+export { OpenBrowserUseNavigationWait } from "./navigation-waits.js";
 import { createConnection } from "node:net";
 import { endianness } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -8,8 +10,10 @@ const headerBytes = 4;
 const maxFrameBytes = 64 * 1024 * 1024;
 const defaultNavigationTimeoutMs = 10_000;
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
+const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
+const navigationWaitSymbol = Symbol("navigationWait");
 const networkWaitSymbol = Symbol("networkWait");
 const controlScopeSymbol = Symbol("controlScope");
 export class OpenBrowserUseClient {
@@ -20,6 +24,7 @@ export class OpenBrowserUseClient {
     #control = null;
     #controlInitialization = null;
     #controlRevision = 0;
+    #navigationWaitVersion = undefined;
     #networkWaitVersion = undefined;
     #socket = null;
     #connecting = null;
@@ -130,6 +135,12 @@ export class OpenBrowserUseClient {
             if (this.#networkWaitVersion !== 1)
                 throw new Error("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1");
         }
+        if (navigationWaitMethods.has(method)) {
+            if (this.#navigationWaitVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+            if (this.#navigationWaitVersion !== 1)
+                throw new Error("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension does not advertise navigationWaitVersion 1");
+        }
         capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
         const result = await this.#sendRequest(method, merged, deadline);
         if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
@@ -157,6 +168,18 @@ export class OpenBrowserUseClient {
             throw new Error("Network waits require an explicit control epoch");
         const params = { ...binding, tabId, waiterId: ack.waiterId };
         return new OpenBrowserUseNetworkWait(ack, event, (method, timeout) => this.request(method, params, { timeoutMs: timeout }));
+    }
+    async [navigationWaitSymbol](tabId, params) {
+        const timeoutMs = params.timeoutMs;
+        let binding;
+        const value = await this.#request("armNavigationWait", { ...params, tabId }, { timeoutMs: timeoutMs + 1000 }, metadata => {
+            if (!Number.isSafeInteger(metadata.control_epoch) || metadata.control_epoch < 1)
+                throw new Error("Navigation waits require an explicit control epoch");
+            binding = metadata;
+        });
+        const ack = navigationWaitAck(value, timeoutMs);
+        const captured = { ...binding, tabId, waiterId: ack.waiterId };
+        return new OpenBrowserUseNavigationWait(ack, (method, timeout) => this.request(method, captured, { timeoutMs: timeout }));
     }
     getControlState() { return this.request("getControlState"); }
     async beginTurn(turnId) {
@@ -229,7 +252,7 @@ export class OpenBrowserUseClient {
         if (remaining <= reservedResponseMs)
             throw new Error(`Open Browser Use request timed out before ${method} could start`);
         if (method === "browserAction" || eventWaitMethods.has(method)) {
-            const requested = method === "armNetworkWait" && params.timeoutMs !== undefined ? params.timeoutMs : params.timeoutMs ?? 10_000;
+            const requested = ["armNetworkWait", "armNavigationWait"].includes(method) && params.timeoutMs !== undefined ? params.timeoutMs : params.timeoutMs ?? 10_000;
             if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested)))
                 throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
             const available = Math.floor(remaining - 1000);
@@ -259,6 +282,8 @@ export class OpenBrowserUseClient {
             this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
         }
         const result = await promise;
+        if (method === "getInfo")
+            this.#navigationWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.navigationWaitVersion ?? null : null;
         if (method === "getInfo")
             this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
         return result;
@@ -493,6 +518,12 @@ export class OpenBrowserUseTab {
     expectResponse(match, options = {}) {
         return this.browser.client[networkWaitSymbol](this.id, "response", match, options);
     }
+    expectURL(url, options = {}) {
+        return this.browser.client[navigationWaitSymbol](this.id, navigationWaitParams("url", url, options));
+    }
+    expectLoadState(options = {}) {
+        return this.browser.client[navigationWaitSymbol](this.id, navigationWaitParams("loadstate", undefined, options));
+    }
     goto(url, options = {}) {
         if (!url)
             return Promise.reject(new Error("goto requires a URL"));
@@ -643,6 +674,8 @@ export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     goForward(options = {}) { return this.tab.goForward(options); }
     reload(options = {}) { return this.tab.reload(options); }
     waitForLoadState(options = {}) { return this.tab.waitForLoadState(options); }
+    expectURL(url, options = {}) { return this.tab.expectURL(url, options); }
+    expectLoadState(options = {}) { return this.tab.expectLoadState(options); }
     waitForURL(url, options = {}) { return this.tab.waitForURL(url, options); }
     domSnapshot(options = {}) { return this.tab.domSnapshot(options); }
     engineInfo() { return this.tab.engineInfo(); }

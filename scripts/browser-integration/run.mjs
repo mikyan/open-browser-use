@@ -17,6 +17,7 @@ import { elementScreenshotFixture, checkElementScreenshots } from "./element-scr
 import { popupFixture, checkChildTabAuthorization, checkAuxiliaryPopupRendering, checkAuxiliaryPopupLifecycle } from "./popup-fixture.mjs";
 import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
 import { createNetworkWaitFixtures, networkPageURL, networkAPIURL, networkButton, checkNetworkReady, checkNetworkMatching, checkNetworkLifecycle } from "./network-waits-fixture.mjs";
+import { createNavigationWaitFixtures, navigationPageURL, navigationTargetURL, navigationButton, navigationWitness, checkNavigationDirectAndReady, checkNavigationLoadStates, checkNavigationLifecycle } from "./navigation-waits-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -207,9 +208,11 @@ async function workerConnection(url) {
 }
 
 const networkFixtures = createNetworkWaitFixtures();
+const navigationFixtures = createNavigationWaitFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
+  if (navigationFixtures.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (["/ai-snapshot", "/ai-snapshot-leaf", "/ai-snapshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(aiSnapshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams)); return; }
   if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture(httpPort)); return; }
@@ -298,6 +301,7 @@ try {
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -475,6 +479,45 @@ try {
       } finally { try { await network.client.finalizeTabs([]); } finally { network.close(); } }
     });
   }
+  for (const [suffix, check] of [["direct-and-ready", checkNavigationDirectAndReady], ["load-states", checkNavigationLoadStates], ["lifecycle", checkNavigationLifecycle]]) {
+    await test(`js-navigation-waits-${suffix}`, async () => {
+      const navigation = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-navigation-waits-${suffix}`, timeoutMs: 15000 });
+      try {
+        const detail = await check({ browser: navigation, fixtureURL, server: navigationFixtures, until,
+          connectOther: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-navigation-successor-${suffix}`, timeoutMs: 15000 }),
+          ungroup: tabId => worker.evaluate(`chrome.tabs.ungroup(${tabId})`),
+          startTrace: tabId => worker.evaluate(`(()=>{
+            const tabId=${JSON.stringify(tabId)};
+            const traces=globalThis.__integrationNavigationNetwork??=new Map();
+            const prior=traces.get(tabId);if(prior)chrome.debugger.onEvent.removeListener(prior.listener);
+            const entry={tabId,startedAt:Date.now(),events:[],dropped:0};
+            entry.listener=(source,method,params)=>{
+              if(source.tabId!==tabId||!['Network.requestWillBeSent','Network.responseReceived','Network.loadingFinished','Network.loadingFailed'].includes(method))return;
+              if(entry.events.length>=200){entry.dropped++;return;}
+              const event={method,source:{tabId:source.tabId,sessionId:source.sessionId},at:Date.now(),requestId:params.requestId,timestamp:params.timestamp,type:params.type,frameId:params.frameId,loaderId:params.loaderId};
+              if(params.request)event.request={url:params.request.url.slice(0,4096),method:params.request.method};
+              if(params.response)event.response={url:params.response.url.slice(0,4096),status:params.response.status,protocol:params.response.protocol};
+              if(params.redirectResponse)event.redirectResponse={url:params.redirectResponse.url.slice(0,4096),status:params.redirectResponse.status};
+              if(method==='Network.loadingFinished')event.encodedDataLength=params.encodedDataLength;
+              if(method==='Network.loadingFailed'){event.errorText=params.errorText?.slice(0,512);event.canceled=params.canceled;event.blockedReason=params.blockedReason;}
+              entry.events.push(event);
+            };
+            traces.set(tabId,entry);chrome.debugger.onEvent.addListener(entry.listener);return {tabId,startedAt:entry.startedAt};
+          })()`),
+          getTrace: tabId => worker.evaluate(`(()=>{
+            const tabId=${JSON.stringify(tabId)},traces=globalThis.__integrationNavigationNetwork,entry=traces?.get(tabId);
+            if(!entry)return {tabId,error:'Native network trace was not registered'};
+            chrome.debugger.onEvent.removeListener(entry.listener);traces.delete(tabId);
+            return {tabId,startedAt:entry.startedAt,events:entry.events,dropped:entry.dropped};
+          })()`) });
+        await fs.writeFile(path.join(runDir, `navigation-waits-${suffix}.json`), JSON.stringify(detail, null, 2));
+        return detail;
+      } catch (error) {
+        if (error.navigationFixture) await fs.writeFile(path.join(runDir, `navigation-waits-${suffix}-failure.json`), JSON.stringify({ error: String(error), ...error.navigationFixture }, null, 2));
+        throw error;
+      } finally { try { await navigation.client.finalizeTabs([]); } finally { navigation.close(); } }
+    });
+  }
   await test("js-role-name-yaml-snapshot", async () => {
     const snapshot = await tab.domSnapshot();
     assert.match(snapshot, /button "ARIA named action"/);
@@ -634,6 +677,31 @@ try {
         return response.result;
       });
     } finally { try { await network.client.finalizeTabs([]); } finally { network.close(); } }
+  });
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-navigation-waits-cold-arm`, async () => {
+    const sessionId = `${kind}-navigation-integration`, key = `${kind}-navigation-cold`;
+    const navigation = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "navigation-acceptance", timeoutMs: 15000 });
+    try {
+      const owned = await navigation.newTab();
+      await navigation.cdp.navigate(owned.id, navigationPageURL(fixtureURL, key));
+      const scope = { session_id: sessionId, turn_id: navigation.client.turnId, control_epoch: navigation.client.controlEpoch };
+      const check = async call => {
+        const armed = await call("armNavigationWait", { ...scope, tabId: owned.id, event: "url", url: navigationTargetURL(fixtureURL, key), timeoutMs: 10000 });
+        assert.ok(armed.waiterId && armed.remainingMs > 0);
+        const handle = { ...scope, tabId: owned.id, waiterId: armed.waiterId };
+        try {
+          await call("browserAction", { ...scope, tabId: owned.id, action: "click", locator: [{ kind: "role", role: "button", name: navigationButton, exact: true }], timeoutMs: 5000 });
+          assert.deepEqual(await call("collectNavigationWait", handle), {});
+          assert.deepEqual(await call("collectNavigationWait", handle), {});
+          return { ...await navigationWitness(owned, navigationFixtures, key), fixedScope: scope };
+        } finally { await call("cancelNavigationWait", handle); }
+      };
+      if (kind === "mcp") return await withMCPClient(executable, endpoint, sessionId, check);
+      return await check(async (method, params) => {
+        const result = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+        assert.equal(result.error, undefined, JSON.stringify(result)); return result.result;
+      });
+    } finally { try { await navigation.client.finalizeTabs([]); } finally { navigation.close(); } }
   });
   await test("cli-browser-action", async () => {
     async function call(action, locator, args = {}) {
@@ -863,6 +931,7 @@ try {
       const oldEpoch = recovery.client.controlEpoch;
       const oldTurn = recovery.client.turnId;
       const networkWait = await recovery.client.request("armNetworkWait", { tabId: owned.id, event: "response", match: { url: fixtureURL + "never-worker-network" }, timeoutMs: 120000 });
+      const navigationWait = await recovery.client.request("armNavigationWait", { tabId: owned.id, event: "url", url: "**/never-worker-navigation", timeoutMs: 120000 });
       const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
       const previousFocus = await worker.evaluate("globalThis.__integrationWindowFocus");
       const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
@@ -895,10 +964,12 @@ try {
       await worker.evaluate(`globalThis.__integrationWindowFocus=${JSON.stringify([...previousFocus, ...restartFocus])};chrome.windows.onFocusChanged.addListener(id=>globalThis.__integrationWindowFocus.push(id))`);
       await assert.rejects(recovery.client.getTabs(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
+      await assert.rejects(recovery.client.request("collectNavigationWait", { tabId: owned.id, waiterId: navigationWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       assert.equal(recovery.client.controlEpoch, oldEpoch, "restart silently refreshed the client");
       await recovery.client.beginTurn();
       assert.ok(recovery.client.controlEpoch > oldEpoch);
       await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId }), /OBU_NETWORK_WAIT_EXPIRED/);
+      await assert.rejects(recovery.client.request("collectNavigationWait", { tabId: owned.id, waiterId: navigationWait.waiterId }), /OBU_NAVIGATION_WAIT_EXPIRED/);
       assert.ok((await recovery.getTabs()).some(tab => tab.id === auxiliaryTab.id));
       await auxiliaryTab.getByRole("button", { name: "Child action", exact: true }).click();
       assert.deepEqual(await auxiliaryTab.evaluate("childClicks"), [{ trusted: true }]);
@@ -906,7 +977,7 @@ try {
       assert.match(await owned.domSnapshot(), /Controlled name/);
       await owned.getByLabel("Controlled name").fill("recovered after worker restart");
       assert.equal(await owned.getByLabel("Controlled name").inputValue(), "recovered after worker restart");
-      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents, restartFocus, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true };
+      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents, restartFocus, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true };
     } finally {
       try { await recovery.client.finalizeTabs([]); } finally {
         recovery.close();
@@ -926,7 +997,7 @@ try {
   });
   await test("js-user-global-pause-popup", async () => {
     const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
-    let pauseNetworkOutcome, pausedWait, pausedTab, pauseAuxiliary;
+    let pauseNetworkOutcome, pauseNavigationOutcome, pausedWait, pausedNavigationWait, pausedTab, pauseAuxiliary;
     const focusTrace = [];
     let beforeActionPopup;
     const traceFocus = async phase => {
@@ -960,10 +1031,12 @@ try {
       await traceFocus("pause-auxiliary:claimed");
       pausedWait = await pausedTab.expectResponse({ url: networkAPIURL(fixtureURL, "js-paused-network") }, { timeoutMs: 120000 });
       const pendingNetwork = pausedWait.result({ timeoutMs: 120000 }).then(value => pauseNetworkOutcome = { value }, error => pauseNetworkOutcome = { error: String(error) });
+      pausedNavigationWait = await pausedTab.expectURL("**/never-paused-navigation", { timeoutMs: 120000 });
+      const pendingNavigation = pausedNavigationWait.result({ timeoutMs: 120000 }).then(() => pauseNavigationOutcome = { succeeded: true }, error => pauseNavigationOutcome = { error: String(error) });
       const detail = await checkGlobalPause({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until, traceFocus,
-    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome }, null, 2)),
+    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome }, null, 2)),
     connectPage: async url => {
       const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
       return workerConnection(target.webSocketDebuggerUrl);
@@ -976,6 +1049,8 @@ try {
     restartWorker: async observer => {
       await until(() => pauseNetworkOutcome, "Pause cancelled the pending network collect", 5000);
       assert.match(pauseNetworkOutcome.error, /OBU_NETWORK_WAIT_EXPIRED|paused|ended|cancel|stale/i);
+      await until(() => pauseNavigationOutcome, "Pause cancelled the pending navigation collect", 5000);
+      assert.match(pauseNavigationOutcome.error, /OBU_NAVIGATION_WAIT_EXPIRED|paused|ended|cancel|stale/i);
       assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       assert.equal((await worker.evaluate("chrome.debugger.getTargets()")).some(target => target.tabId === auxiliaryId && target.attached), false);
       assert.equal((await worker.evaluate(`chrome.tabs.get(${auxiliaryId})`)).windowId, pauseAuxiliary.id);
@@ -1002,7 +1077,9 @@ try {
     }
       });
       await pendingNetwork;
+      await pendingNavigation;
       await assert.rejects(pausedWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NETWORK_WAIT_EXPIRED/);
+      await assert.rejects(pausedNavigationWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NAVIGATION_WAIT_EXPIRED/);
       await network.client.beginTurn();
       assert.ok((await network.getTabs()).some(tab => tab.id === auxiliaryId));
       await network.tab(auxiliaryId).getByRole("button", { name: "Child action", exact: true }).click();
@@ -1011,7 +1088,7 @@ try {
       assert.deepEqual(await pausedTab.evaluate("networkClicks"), [], "Resume replayed a network trigger");
       assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       await network.client.finalizeTabs([]);
-      return { ...detail, networkWait: pauseNetworkOutcome, networkNotReplayed: true };
+      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, networkNotReplayed: true };
     } finally {
       network.close();
       if (pauseAuxiliary) {
@@ -1036,8 +1113,10 @@ try {
   for (const client of ws.clients) client.terminate();
   await new Promise(resolve => ws.close(resolve));
   networkFixtures.close();
+  navigationFixtures.close();
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
+  await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: true, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));

@@ -255,7 +255,9 @@ test("browserAction enforces ownership and preserves the action engine response"
   await assert.rejects(backend.browserAction({ ...request, tabId: 99 }), /not part/);
   assert.equal(requests.length, 0);
   assert.equal(await backend.browserAction(request), result);
-  assert.equal(requests[0], request);
+  const { timeoutMs, ...forwarded } = requests[0];
+  assert.deepEqual(forwarded, request);
+  assert.ok(timeoutMs > 0 && timeoutMs <= 10000);
 });
 
 test("turnEnded waits for action cancellation before releasing native tab control", async () => {

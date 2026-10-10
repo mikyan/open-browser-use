@@ -235,3 +235,44 @@ the response. A blocking waiter and its trigger need separate clients with the
 same session. Download IDs are task-scoped opaque GUIDs; `DownloadPath` reports
 `OBU_DOWNLOAD_PATH_UNAVAILABLE` because the extension API cannot reliably map
 those GUIDs to local paths. Upload file paths remain supported.
+
+## Ready navigation waits
+
+`Tab.ExpectURL` and `Tab.ExpectLoadState` also exist on `Tab.Playwright`. They
+return a ready `*NavigationWait`, so a synchronous client can trigger before
+calling `Result` without goroutines or a second connection.
+
+```go
+func continueToNext(tab *obu.Tab) error {
+    pending, err := tab.ExpectURL("**/complete", obu.NavigationWaitOptions{
+        WaitUntil: "load", Timeout: 5 * time.Second,
+    })
+    if err != nil { return err }
+    defer func() { _ = pending.Cancel() }()
+    if err := tab.GetByRole("button", obu.RoleOptions{Name: "Continue", Exact: true}).Click(); err != nil {
+        return err
+    }
+    return pending.Result()
+}
+```
+
+`NavigationWaitOptions.WaitUntil` is URL-only: `load` (default),
+`domcontentloaded`, `networkidle`, or `commit`. For load state use
+`ExpectLoadState(NavigationWaitOptions{State: "domcontentloaded"})`; `State`
+excludes `commit` and defaults to `load`. Current URL/load state may already
+satisfy an observer during arming; a load-state observer alone does not identify
+a future navigation. Native Playwright URL globs are accepted, capped at 4096
+UTF-8 bytes. Existing `WaitForURL` remains available.
+
+Requires extension `metadata.navigationWaitVersion == 1`; no fallback or input
+replay occurs. `Timeout` zero defaults to 10 seconds for arming; nonzero values
+must be whole milliseconds from 1 through 120000. The original budget covers
+discovery, queue and attachment with one second added for transport. The handle
+keeps its exact session/turn/epoch through `BeginTurn` and reconnects.
+
+`Result(options ...NavigationWaitOptions) error` and `Cancel(...) error` accept
+only `Timeout`, defaulting to 120 and 10 seconds respectively. These read budgets
+cannot renew the observer deadline. Terminal outcomes remain for 30 seconds;
+calling `Cancel` releases capacity. Pause, end, detach, ownership loss and worker
+restart invalidate the handle. Do not hold this client's request gate in `Result`
+while expecting another goroutine to trigger navigation through the same client.

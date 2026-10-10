@@ -131,8 +131,24 @@ try:
     request.cancel()
     response.cancel()
     checks.append("network-wait-cold-ready-trusted-click-and-single-request")
+    navigation = browser.new_tab()
+    browser.cdp.navigate(navigation.id, url + "navigation-waits?key=python-navigation-ready&mode=document")
+    navigation_url = url + "navigation-waits/target?key=python-navigation-ready"
+    navigation_wait = navigation.expect_url(navigation_url, wait_until="load", timeout_ms=5000)
+    navigation.get_by_role("button", name="Navigate fixture", exact=True).click()
+    assert navigation_wait.result() is None and navigation_wait.result() is None
+    assert navigation.evaluate("location.href") == navigation_url
+    navigation_clicks = navigation.evaluate("navigationClicks")
+    assert navigation_clicks == [{"trusted": True}]
+    navigation_counts = navigation.evaluate("fetch('/navigation-waits/stats?key=python-navigation-ready').then(response=>response.json())", await_promise=True)
+    assert navigation_counts["targets"] == 1
+    navigation_wait.cancel()
+    loaded = navigation.expect_load_state(state="load", timeout_ms=1000)
+    assert loaded.result() is None
+    loaded.cancel()
+    checks.append("navigation-wait-cold-ready-trusted-click-single-document-and-cached-load")
     browser.client.finalize_tabs([])
     checks.append("finalize")
-    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts}, ensure_ascii=False))
+    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts, "navigationWait": {"url": navigation_url, "clicks": navigation_clicks, "server": navigation_counts}}, ensure_ascii=False))
 finally:
     browser.close()

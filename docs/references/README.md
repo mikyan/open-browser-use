@@ -26,13 +26,15 @@
   按任务等待下载和当前本地路径查找限制。
 - [Network waits](network-waits-design.md)：已实现的两阶段 request/response
   等待契约，说明 ready/trigger/collect、同步入口、deadline、资源上限与控制权隔离。
+- [Navigation waits](navigation-waits.md)：URL/loadstate 的原生等待语义、独立
+  注册/完成阶段、同步客户端 ready handle、取消与控制权边界。
 - [Codex observation baseline](codex-observation-baseline.md)：隔离合成页面上的
   IAB 只读快照基线及其有限范围，不等同于输入、性能或完整能力对齐验收。
 - [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与
   capture ref 契约，记录历史错路由证据、可信 metadata、失效与资源边界；
   附本片 Windows 真实浏览器验收范围，完整 Codex 任务对照仍待完成。
 - [Popup ownership design](popup-ownership-design.md)：跨窗口移组造成渲染停滞的
-  正负对照，以及尚未实现的独立窗口归属与回收设计。
+  正负对照，以及已实现并验收的独立窗口归属与回收；原生创建焦点仍有缺口。
 - [Edge 安装与发现](edge-installation.md)：Edge Stable selector、独立 native host
   manifest/registry、手动 ZIP 安装和实际 Windows 验证范围。
 - `chrome/0.1.7/skills/chrome/SKILL.md`：OpenAI bundled Chrome plugin

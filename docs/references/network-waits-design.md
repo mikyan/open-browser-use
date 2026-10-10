@@ -14,8 +14,9 @@
 
 这是正式的 ready ACK，不需要 sleep、并发启动线程或预热引擎来猜监听时机。
 同步 Python、Go、CLI 和 MCP 均可顺序完成。不要先阻塞 collect，再指望同一串行
-通道发送触发动作。文件选择器、下载和 `waitForURL` 没有因此获得两阶段接口，仍
-遵守各自限制。本片不提供任意 predicate、regex、响应体、请求头或网络拦截。
+通道发送触发动作。文件选择器和下载仍遵守各自限制；URL/loadstate 另有
+[导航等待](navigation-waits.md) ready 接口。本片不提供任意 predicate、regex、
+响应体、请求头或网络拦截。
 
 ## Wire 与能力协商
 

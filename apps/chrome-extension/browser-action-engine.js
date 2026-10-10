@@ -297,11 +297,14 @@ export class BrowserActionEngine {
     return this.runtimePromise;
   }
 
-  async attach(tabId, expectedGeneration = this.generations.get(tabId) ?? 0) {
+  async attach(tabId, expectedGeneration = this.generations.get(tabId) ?? 0, beforeCreate) {
     // Do not allow stale attachment cleanup to detach a newer owner of the tab.
     await this.releases.get(tabId)?.catch(() => {});
     if ((this.generations.get(tabId) ?? 0) !== expectedGeneration) throw new Error("Browser action was cancelled before tab attachment");
     if (this.pages.has(tabId)) return this.pages.get(tabId);
+    // Internal setup fence runs only for the actual creator, after release and
+    // shared-attachment checks. It can reject a deadline before native work.
+    beforeCreate?.();
     const generation = this.generations.get(tabId) ?? 0;
     const pending = (async () => {
       const runtime = await this.runtime();
@@ -340,16 +343,23 @@ export class BrowserActionEngine {
   }
 
   // Short, internal Page setup shares the action queue and attachment identity.
-  // A network listener's lifetime and collect operation must never run here.
-  async withPage(params, { deadlineAt }, callback) {
+  // An observer's lifetime and collect operation must never run here.
+  async withPage(params, {
+    deadlineAt,
+    isolateTimeout = false,
+    timeoutError = () => new Error("OBU_NETWORK_WAIT_TIMEOUT: Page setup deadline expired"),
+    expiredError = () => new Error("OBU_NETWORK_WAIT_EXPIRED: tab control ended during setup")
+  }, callback) {
     integer(params.tabId, "tabId");
     string(params.session_id, "session_id");
     string(params.turn_id, "turn_id");
     if (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1) throw new Error("control_epoch must be a positive safe integer");
-    if (!Number.isFinite(deadlineAt) || typeof callback !== "function") throw new Error("Invalid Page setup deadline or callback");
+    if (!Number.isFinite(deadlineAt) || typeof isolateTimeout !== "boolean" || typeof callback !== "function" || typeof timeoutError !== "function" || typeof expiredError !== "function") throw new Error("Invalid Page setup deadline, callback or error factory");
     const generation = this.generations.get(params.tabId) ?? 0;
-    let expired = false, phase = "queued", timer;
-    const timeout = () => new Error("OBU_NETWORK_WAIT_TIMEOUT: Page setup deadline expired");
+    let expired = false, phase = "queued", timer, createdAttachment = false;
+    const canDetachOnTimeout = () => phase !== "queued" && phase !== "finished" &&
+      (!isolateTimeout || createdAttachment) && (this.generations.get(params.tabId) ?? 0) === generation;
+    const timeout = timeoutError;
     const remainingMs = () => {
       const remaining = deadlineAt - performance.now();
       if (expired || remaining <= 0) { expired = true; throw timeout(); }
@@ -357,16 +367,21 @@ export class BrowserActionEngine {
     };
     const check = async () => {
       remainingMs();
-      if ((this.generations.get(params.tabId) ?? 0) !== generation) throw new Error("OBU_NETWORK_WAIT_EXPIRED: tab control ended during setup");
+      if ((this.generations.get(params.tabId) ?? 0) !== generation) throw expiredError();
       await this.authorize(params);
       remainingMs();
-      if ((this.generations.get(params.tabId) ?? 0) !== generation) throw new Error("OBU_NETWORK_WAIT_EXPIRED: tab control ended during setup");
+      if ((this.generations.get(params.tabId) ?? 0) !== generation) throw expiredError();
     };
     const previous = this.queues.get(params.tabId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
       await check();
       phase = "attaching";
-      const entry = await this.attach(params.tabId, generation);
+      // Observer registration may share a Page with other waits or held input,
+      // including an attach already queued behind an asynchronous release.
+      const entry = await this.attach(params.tabId, generation, () => {
+        remainingMs();
+        createdAttachment = true;
+      });
       await check();
       phase = "registering";
       const result = await callback({ page: entry.page, entry, check, remainingMs });
@@ -381,7 +396,7 @@ export class BrowserActionEngine {
         expired = true;
         // A setup that never started must not cancel the unrelated action in
         // front of it, nor may a stale setup detach a replacement generation.
-        if (phase !== "queued" && phase !== "finished" && (this.generations.get(params.tabId) ?? 0) === generation)
+        if (canDetachOnTimeout())
           this.detach(params.tabId).catch(() => {});
         reject(timeout());
       }, Math.max(0, deadlineAt - performance.now()));
@@ -391,7 +406,7 @@ export class BrowserActionEngine {
       // An awaited native operation can finish beyond the deadline before its
       // timer callback gets a turn. That path needs the same identity-fenced
       // cleanup as the timer, without cancelling a queued predecessor.
-      if ((expired || performance.now() >= deadlineAt) && phase !== "queued" && phase !== "finished" && (this.generations.get(params.tabId) ?? 0) === generation)
+      if ((expired || performance.now() >= deadlineAt) && canDetachOnTimeout())
         this.detach(params.tabId).catch(() => {});
       throw error;
     }

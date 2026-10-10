@@ -11,6 +11,7 @@ from typing import Any, Callable, Literal
 from ._transport import Transport, connect_transport, remaining_time
 from ._browser_actions import BrowserKeyboard, BrowserMouse, LocatorFactory, OpenBrowserUseLocator, action_options
 from ._ai_snapshot import AISnapshot, snapshot_limits, validate_snapshot
+from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait, navigation_ack, navigation_params, navigation_timeout
 from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, OpenBrowserUseNetworkWait, network_ack, network_match, network_timeout
 
 
@@ -20,7 +21,8 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait"})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"})
+NAVIGATION_WAIT_METHODS = frozenset({"armNavigationWait", "collectNavigationWait", "cancelNavigationWait"})
 NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
 
@@ -40,6 +42,7 @@ class OpenBrowserUseClient:
         self.browser_engine: JsonObject | None = None
         self._lifecycle_version: int | None = None
         self._control_epoch: int | None = None
+        self._navigation_wait_version: Any = None
         self._network_wait_version: Any = None
 
     def connect(self) -> "OpenBrowserUseClient":
@@ -104,6 +107,11 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._network_wait_version) is not int or self._network_wait_version != 1:
                 raise RuntimeError("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1")
+        if method in NAVIGATION_WAIT_METHODS:
+            if self._navigation_wait_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._navigation_wait_version) is not int or self._navigation_wait_version != 1:
+                raise RuntimeError("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension does not advertise navigationWaitVersion 1")
         if prepare is not None:
             prepare(merged_params, deadline)
         result = (self._wire_request(method, merged_params, deadline) if execute is None
@@ -121,6 +129,7 @@ class OpenBrowserUseClient:
 
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
+        self._navigation_wait_version = metadata.get("navigationWaitVersion", 0) if isinstance(metadata, dict) else 0
         self._network_wait_version = metadata.get("networkWaitVersion", 0) if isinstance(metadata, dict) else 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
         if version is not None and (type(version) is not int or version != 1):
@@ -161,10 +170,10 @@ class OpenBrowserUseClient:
         self._next_id += 1
         if method in BOUNDED_WAIT_METHODS:
             requested = merged_params.get("timeoutMs", 10000)
-            if method == "armNetworkWait":
+            if method in {"armNetworkWait", "armNavigationWait"}:
                 if requested is None:
-                    raise ValueError("armNetworkWait timeoutMs must be an integer from 1 to 120000")
-                network_timeout(requested)
+                    raise ValueError(f"{method} timeoutMs must be an integer from 1 to 120000")
+                (navigation_timeout if method == "armNavigationWait" else network_timeout)(requested)
             if type(requested) in (int, float) and math.isfinite(requested) and 1 <= requested <= 120000:
                 available_ms = math.floor((deadline - time.monotonic() - 1) * 1000)
                 if available_ms < 1:
@@ -214,6 +223,19 @@ class OpenBrowserUseClient:
 
         return self._request("armNetworkWait", {"tabId": tab_id, "event": event, "match": frozen, "timeoutMs": timeout},
                              timeout=timeout / 1000 + 1, execute=arm)
+
+    def _expect_navigation(self, tab_id: int, params: JsonObject) -> OpenBrowserUseNavigationWait:
+        timeout = params["timeoutMs"]
+        def arm(metadata: JsonObject, deadline: float) -> OpenBrowserUseNavigationWait:
+            if type(metadata.get("control_epoch")) is not int or metadata["control_epoch"] < 1:
+                raise RuntimeError("Navigation waits require an explicit control epoch")
+            binding = {key: metadata[key] for key in ("session_id", "turn_id", "control_epoch")}
+            ack = self._wire_request("armNavigationWait", metadata, deadline)
+            waiter_id, remaining = navigation_ack(ack, timeout)
+            captured = {**binding, "tabId": tab_id, "waiterId": waiter_id}
+            return OpenBrowserUseNavigationWait(waiter_id, remaining,
+                lambda method, read_timeout: self.request(method, captured, timeout=read_timeout))
+        return self._request("armNavigationWait", {**params, "tabId": tab_id}, timeout=timeout / 1000 + 1, execute=arm)
 
     def _dispatch_notification(self, notification: JsonObject) -> None:
         for handler in list(self._notification_handlers):
@@ -458,6 +480,12 @@ class OpenBrowserUseTab(LocatorFactory):
                                        "maxRefs": max_refs, "maxFrames": max_frames, "maxDepth": max_depth})
         return validate_snapshot(self.action("snapshotAI", args=args, timeout_ms=timeout_ms), limits)
 
+    def expect_url(self, url: str, *, wait_until: NavigationWaitUntil = "load", timeout_ms: int | None = None) -> OpenBrowserUseNavigationWait:
+        return self.browser.client._expect_navigation(self.id, navigation_params("url", url, wait_until, timeout_ms))
+
+    def expect_load_state(self, *, state: NavigationLoadState = "load", timeout_ms: int | None = None) -> OpenBrowserUseNavigationWait:
+        return self.browser.client._expect_navigation(self.id, navigation_params("loadstate", None, state, timeout_ms))
+
     def wait_for_url(self, url: str, *, timeout_ms: int | None = None,
                      wait_until: LoadState = "load") -> None:
         self.action("waitForURL", args={"url": url, "waitUntil": wait_until}, timeout_ms=timeout_ms)
@@ -521,6 +549,12 @@ class OpenBrowserUseTabPlaywright(LocatorFactory):
 
     def screenshot(self, *, timeout_ms: int | None = None, **options: Any) -> JsonObject:
         return self.tab.screenshot(timeout_ms=timeout_ms, **options)
+
+    def expect_url(self, url: str, *, wait_until: NavigationWaitUntil = "load", timeout_ms: int | None = None) -> OpenBrowserUseNavigationWait:
+        return self.tab.expect_url(url, wait_until=wait_until, timeout_ms=timeout_ms)
+
+    def expect_load_state(self, *, state: NavigationLoadState = "load", timeout_ms: int | None = None) -> OpenBrowserUseNavigationWait:
+        return self.tab.expect_load_state(state=state, timeout_ms=timeout_ms)
 
     def wait_for_url(self, url: str, *, timeout_ms: int | None = None,
                      wait_until: LoadState = "load") -> None:

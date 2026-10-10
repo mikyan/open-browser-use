@@ -183,14 +183,18 @@ hidden destination. Both waits share the original deadline; ownership is checked
 again before dragging. The page can still change after this preflight.
 
 The engine serializes actions per tab and revalidates ownership before execution.
-Consequently, start a `waitForURL` after the action that triggers navigation;
-putting a waiting call first in a concurrent pair can block the triggering action
-behind it. An already reached URL is checked by Playwright, including SPA state.
+Navigation observers reserve their short setup before later same-scope actions,
+then release the queue while waiting. `waitForURL` may therefore precede its
+concurrent trigger; already reached URLs and load states retain native immediate
+semantics. Sequential clients use `expectURL` / `expectLoadState` ready handles.
+These observers have isolated timeout/cancellation and do not detach a running
+action. Their separate capability, scope and quotas are specified in
+[navigation waits](navigation-waits.md).
 The monotonic deadline includes time spent in the queue and in attachment;
 expiration in the queue does not cancel the action ahead of it. An attachment
 that finishes after expiry is cleaned up before any successor can attach.
 Ending tab control invalidates queued operations and detaches the Playwright Page,
-so pending auto-waits are cancelled. Its deadline detaches before reporting expiry,
+so pending auto-waits are cancelled. An ordinary action deadline detaches before reporting expiry,
 including mouse/keyboard methods that lack native timeout options. Transport
 timeouts must leave enough time for the requested deadline and cancellation.
 An input already delivered to the browser cannot be undone and is never replayed.

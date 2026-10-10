@@ -104,8 +104,10 @@ action deadline. Defaults are 10 seconds; `timeoutMs` accepts 1 through 120000.
 To capture an element, supply its locator and omit page-only `fullPage`/`clip`.
 Frame screenshots scroll iframe owners from the outside in before capturing the
 element. After navigation, resolve the locator again and verify the new content.
-Call `waitForURL` after the triggering action: actions share a per-tab queue, so
-starting the wait first can block its trigger.
+For action-triggered navigation, use the ready handle below so registration is
+confirmed before the trigger. With `navigationWaitVersion === 1`, direct
+`waitForURL` / `waitForLoadState` observers no longer hold the action queue while
+pending; their short setup runs before later same-scope actions.
 
 Native `target=_blank` and `window.open` can currently activate the new tab or
 window. When the task requires staying in the background, use an observed link
@@ -128,6 +130,26 @@ code. Incognito engine attachment, closed shadow roots, and newer Playwright
 snapshot options/boxes are not supported; OBU's capture refs use the finite
 contract above. Coordinate input uses browser debugging
 commands and does not move the system cursor.
+
+## Wait for navigation
+
+Check `getInfo.metadata.navigationWaitVersion === 1`. Await
+`tab.expectURL(observedURL, { timeoutMs: 5000 })` or
+`tab.expectLoadState({ state: "load", timeoutMs: 5000 })`, trigger the action once,
+then await `handle.result()` and verify the page. Cancel the handle in cleanup,
+preserving any original trigger error. Python uses `expect_url` /
+`expect_load_state`; Go uses `ExpectURL` / `ExpectLoadState` and `Result` / `Cancel`.
+CLI/MCP use `armNavigationWait`, `collectNavigationWait`, `cancelNavigationWait`
+through `call`, with the original session, turn, epoch and tab.
+
+URL matching uses native exact/glob semantics. A matching current URL or an
+already reached load state can finish immediately; these APIs do not mean
+"wait for the next navigation". `networkidle` does not prove application success.
+Do not collect before the trigger on a synchronous channel. Reading does not
+renew the original timeout. On timeout or control expiry, inspect the page
+before deciding what to do next; never replay the trigger automatically.
+See [Navigation waits](sdk-and-protocol.md#navigation-waits) for options and wire
+fields. Missing capability requires an extension update, not guessed sleeps.
 
 ## Wait for a request or response
 

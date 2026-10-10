@@ -29,12 +29,13 @@ func readLegacyCLIRequest(conn net.Conn, request *map[string]any) error {
 }
 
 type controlFixture struct {
-	mu                 sync.Mutex
-	calls              []map[string]any
-	epoch              int64
-	loseEnd            bool
-	delayInfo          time.Duration
-	withoutNetworkWait bool
+	mu                    sync.Mutex
+	calls                 []map[string]any
+	epoch                 int64
+	loseEnd               bool
+	delayInfo             time.Duration
+	withoutNetworkWait    bool
+	withoutNavigationWait bool
 }
 
 func (fixture *controlFixture) methods() []string {
@@ -93,6 +94,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 						result = map[string]any{"metadata": map[string]any{"turnLifecycleVersion": 1}}
 						if !fixture.withoutNetworkWait {
 							result.(map[string]any)["metadata"].(map[string]any)["networkWaitVersion"] = 1
+						}
+						if !fixture.withoutNavigationWait {
+							result.(map[string]any)["metadata"].(map[string]any)["navigationWaitVersion"] = 1
 						}
 					case "getControlState":
 						result = state()
@@ -194,7 +198,7 @@ func TestCLIControlLostEndRequiresExplicitRecovery(t *testing.T) {
 }
 
 func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"} {
 		t.Run(method, func(t *testing.T) {
 			for _, timeout := range []time.Duration{1500 * time.Millisecond, 1050 * time.Millisecond} {
 				t.Run(timeout.String(), func(t *testing.T) {
@@ -222,7 +226,7 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 }
 
 func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
-	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait"} {
+	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"} {
 		for _, invalid := range []any{float64(0), float64(-1), 1.5, float64(120001), "1000"} {
 			if err := boundCLIActionDeadline(method, map[string]any{"timeoutMs": invalid}, time.Now().Add(20*time.Second)); err == nil {
 				t.Fatalf("accepted %s timeout %v", method, invalid)
@@ -236,7 +240,7 @@ func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
 }
 
 func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"} {
 		t.Run(method, func(t *testing.T) {
 			f := &controlFixture{epoch: 34, delayInfo: 250 * time.Millisecond}
 			options := f.start(t)
@@ -252,7 +256,7 @@ func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
 }
 
 func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
-	for _, method := range []string{"waitForDownload", "armNetworkWait"} {
+	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait"} {
 		f := &controlFixture{epoch: 34}
 		options := f.start(t)
 		options.timeout = 10 * time.Second
@@ -378,5 +382,42 @@ func TestCLIExplicitEpochDoesNotChangeManagedState(t *testing.T) {
 	}
 	if options.control.snapshot().epoch != 50 {
 		t.Fatal("manual token changed managed state")
+	}
+}
+
+func TestCLINavigationWaitCapabilityAndFixedRawBinding(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		f := &controlFixture{epoch: 36, withoutNavigationWait: true}
+		options := f.start(t)
+		options.timeout = 5 * time.Second
+		params := map[string]any{"tabId": 1, "event": "url", "url": "https://fixture.test"}
+		if manual {
+			params["control_epoch"], params["session_id"], params["turn_id"] = 36, "fixture", "fixed"
+		}
+		if _, err := invokeWithOptions(options, "armNavigationWait", params); err == nil || !strings.Contains(err.Error(), "OBU_NAVIGATION_WAIT_UNSUPPORTED") {
+			t.Fatalf("unsupported extension accepted network wait: %v", err)
+		}
+		for _, method := range f.methods() {
+			if cliNavigationWaitMethod(method) {
+				t.Fatal("unsupported network RPC reached extension")
+			}
+		}
+	}
+	f := &controlFixture{epoch: 37}
+	options := f.start(t)
+	options.timeout = 5 * time.Second
+	params := map[string]any{"tabId": 1, "waiterId": "ready-wait", "control_epoch": 37, "session_id": "fixture", "turn_id": "original-turn"}
+	for _, method := range []string{"collectNavigationWait", "cancelNavigationWait"} {
+		response, err := invokeWithOptions(options, method, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := response["result"].(map[string]any)
+		if result["turn_id"] != "original-turn" || result["control_epoch"] != float64(37) {
+			t.Fatal(result)
+		}
+		if _, exists := result["timeoutMs"]; exists {
+			t.Fatal("collect/cancel reset the network deadline")
+		}
 	}
 }

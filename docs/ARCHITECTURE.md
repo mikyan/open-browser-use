@@ -297,6 +297,15 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   未绑定的预留，控制结束、暂停、页面转交或 detach 清除旧等待。三个 SDK
   和 CLI/MCP 通过 `networkWaitVersion=1` 协商，旧扩展明确失败，不重放请求。
   详见 [network waits](references/network-waits-design.md)。
+- `armNavigationWait` / `collectNavigationWait` / `cancelNavigationWait` 同样提供
+  ready handle，但条件由 pinned Playwright 的原生 URL/glob 与 lifecycle 等待
+  判断。私有 bridge 只暴露实际 listener 注册、完成和精确 Waiter 取消；没有
+  JavaScript 轮询或伪造 load 事件。旧 browserAction URL/load wait 使用同一
+  有界注册表，首次 await 前预留；短 setup barrier 保证后续同 scope 动作不越过
+  监听注册，等待完成不占 tab 动作队列。触发动作的剩余 deadline 覆盖权限检查，
+  observer 超时只取消自身；warm setup 保留既有 Page，cold setup 按创建身份清理。
+  三个 SDK 和 CLI/MCP 通过 `navigationWaitVersion=1` 协商，handle 固定原 scope；
+  Pause 追踪真正原生清理完成。详见 [navigation waits](references/navigation-waits.md)。
 - JS、Python 和 Go SDK：连接 Windows named pipe 或 Unix socket 发送 Browser Use JSON-RPC。
   JS SDK 支持订阅 native socket 上的 JSON-RPC notification；Python SDK 会在
   同步 request loop 中分发并跳过 notification，避免 CDP event 插队破坏响应读取；

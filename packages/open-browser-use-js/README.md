@@ -452,3 +452,38 @@ await browser.client.finalizeTabs([{ tabId: tab.id, status: "handoff" }]);
 - If connection fails, run `open-browser-use ping` and `open-browser-use info`.
 - If there is no active socket, open Chrome with the extension enabled or rerun
   setup according to the Open Browser Use installation guide.
+
+## Ready navigation waits
+
+`tab.expectURL(url, options)` and `tab.expectLoadState(options)` return a ready
+observer; both also exist on `tab.playwright`. Await readiness, trigger the
+action, then collect. URL strings use native Playwright glob matching (at most
+4096 UTF-8 bytes); functions and RegExp objects are not accepted.
+
+```js
+const pending = await tab.expectURL("**/complete", { waitUntil: "load", timeoutMs: 5000 });
+try {
+  await tab.getByRole("button", { name: "Continue", exact: true }).click();
+  await pending.result();
+} finally {
+  await pending.cancel().catch(() => {});
+}
+```
+
+`expectLoadState({state: "domcontentloaded", timeoutMs: 5000})` observes the current
+document's load state. An already satisfied URL/load state may complete during
+arming; use a destination URL when waiting for an action's navigation. URL
+`waitUntil` accepts `load` (default), `domcontentloaded`, `networkidle`, or `commit`;
+load-state `state` excludes `commit`. Existing `waitForURL` remains available.
+
+The extension must advertise `getInfo.metadata.navigationWaitVersion === 1`;
+unsupported versions fail explicitly. Arm defaults to 10 seconds, accepts integer
+1–120000 ms, and includes discovery, queueing and cold attachment. The SDK reserves
+one additional second for transport. Handles retain their original session, turn
+and epoch: neither reconnect nor `beginTurn` rebinds or replays them.
+
+`result({timeoutMs})` returns void and has an independent read budget (default
+120 seconds); `cancel({timeoutMs})` defaults to 10 seconds. Neither resets the
+observer deadline. Terminal results are retained for 30 seconds; cancel releases
+capacity when finished. Pause, end, detach, ownership loss or worker restart
+invalidates the handle. A load-state observer is not a response-body wait.

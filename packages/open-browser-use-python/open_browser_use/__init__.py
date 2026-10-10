@@ -10,7 +10,12 @@ from .client import (
 from ._ai_snapshot import AISnapshot, AISnapshotStats
 from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResult, OpenBrowserUseNetworkWait
 
+from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait
+
 __all__ = [
+    "NavigationLoadState",
+    "NavigationWaitUntil",
+    "OpenBrowserUseNavigationWait",
     "NetworkWaitEvent",
     "NetworkWaitMatch",
     "NetworkWaitResult",

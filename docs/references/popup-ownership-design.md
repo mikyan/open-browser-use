@@ -277,9 +277,15 @@ native initial-focus suppression. Full browser/extension restart remains a
 separate acceptance task. See the [harness contract](../../scripts/browser-integration/README.md).
 
 The separate serial-queue issue with `Promise.all([waitForURL(...), click()])`
-also remains open: a wait submitted first occupies the tab queue and prevents
-its trigger from running. Fixing auxiliary ownership must not be described as
-fixing navigation wait registration or native popup foreground behavior.
+has since been fixed by the [navigation wait implementation](navigation-waits.md).
+Only native listener registration occupies the tab queue; the pending observer
+allows its trigger to run, and sequential clients can use explicit ready handles.
+Fresh headed Windows Chromium 156 evidence in
+`.tmp/browser-integration/run-o6Oc7z/results.json` passed all 10 focused cases,
+including independent DOMContentLoaded, load and networkidle gates with matching
+native request-completion evidence. The subsequent complete navigation suite
+`run-9ZuGbE` passed 43/43. This separate change does not resolve native popup
+initial activation or the full browser/extension restart boundary above.
 
 ## Initial activation: read-only research, 2026-10-11
 

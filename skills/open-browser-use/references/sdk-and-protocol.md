@@ -450,6 +450,53 @@ Treat finalization as the last Open Browser Use browser action of the turn. If
 more browser work is needed, do it before finalizing, then finalize once with
 the final tab disposition.
 
+## Navigation waits
+
+Check `getInfo.metadata.navigationWaitVersion === 1`. Use an owned tab, a URL
+derived from the task/page and an observed trigger:
+
+```js
+const pending = await tab.expectURL(destinationURL, { timeoutMs: 5000 });
+try {
+  await tab.getByRole("button", { name: "Continue", exact: true }).click();
+  await pending.result();
+  console.log(await tab.domSnapshot());
+} finally {
+  await pending.cancel().catch(() => {});
+}
+```
+
+Python uses `tab.expect_url(destination_url, wait_until="load", timeout_ms=5000)`
+then synchronous trigger, `pending.result()` and `pending.cancel()`. Go uses
+`tab.ExpectURL(destinationURL, obu.NavigationWaitOptions{WaitUntil: "load",
+Timeout: 5 * time.Second})`, then trigger, `Result()` and `Cancel()` with normal
+error checks. Load-state forms are `expectLoadState({state:"load",timeoutMs:5000})`,
+`expect_load_state(state="load", timeout_ms=5000)` and
+`ExpectLoadState(obu.NavigationWaitOptions{State:"load", Timeout:5*time.Second})`.
+The Playwright facades expose the same helpers.
+
+URL waits use native exact/glob strings, at most 4096 UTF-8 bytes. `waitUntil`
+accepts `commit`, `domcontentloaded`, `load` or `networkidle`; load-state `state`
+accepts the last three. Both default to `load`. Matching the current URL or a
+cached load state may finish immediately, so neither promises the next navigation.
+No executable predicates or serialized regular expressions are accepted.
+
+| RPC through CLI/MCP `call` | Extra fields besides fixed scope and `tabId` | Success |
+| --- | --- | --- |
+| `armNavigationWait` | `event:"url"`, `url`, `waitUntil?`, `timeoutMs?`; or `event:"loadstate"`, `state?`, `timeoutMs?` | `{waiterId, remainingMs}` after native readiness |
+| `collectNavigationWait` | `waiterId` | `{}`; SDK handle result returns void/None/error |
+| `cancelNavigationWait` | `waiterId` | `{}` |
+
+Keep arm's exact `session_id`, `turn_id`, positive `control_epoch` and `tabId`
+for collect/cancel. The timeout is 1–120000 integer milliseconds, default 10000,
+including discovery, negotiation and setup. Collect never extends the observer's
+deadline. Terminal results/errors remain for 30 seconds; cancel releases them.
+Limits include pending and terminal records: 16/tab, 32/session and 128 total.
+End, Pause, detach, ownership changes and worker restart invalidate old handles.
+New turns do not revive them. Cancel a failed trigger's handle without masking
+the original error; never re-arm and replay automatically. Direct blocking URL
+and load waits remain available but are completion calls, not ready ACKs.
+
 ## Network event waits
 
 Use this sequence for a request/response caused by a page action: **await ready,

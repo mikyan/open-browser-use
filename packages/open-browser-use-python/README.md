@@ -211,3 +211,37 @@ with the same session for a synchronous waiter and its trigger. Download IDs are
 opaque GUIDs scoped to the originating task; never infer a local filename from
 them. `download_path` reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` because the browser
 does not expose a reliable GUID-to-local-path mapping through this extension API.
+
+## Ready navigation waits
+
+`tab.expect_url` and `tab.expect_load_state` (also on `tab.playwright`) return a
+ready observer, allowing this synchronous client to arm, trigger, and collect
+without threads. Do not collect a pending wait before its trigger on this client.
+
+```py
+pending = tab.expect_url("**/complete", wait_until="load", timeout_ms=5000)
+try:
+    tab.get_by_role("button", name="Continue", exact=True).click()
+    pending.result()
+finally:
+    try:
+        pending.cancel()
+    except Exception:
+        pass  # Preserve the original action/result error.
+```
+
+URL strings use native Playwright glob matching and are limited to 4096 UTF-8
+bytes. `wait_until` is `load` (default), `domcontentloaded`, `networkidle`, or
+`commit`. `expect_load_state(state="load", timeout_ms=5000)` excludes `commit`
+and observes the current document, so an already reached state can complete
+during arming. Use a destination URL to wait for a future navigation. Existing
+`wait_for_url` remains available.
+
+Requires `getInfo.metadata.navigationWaitVersion == 1`, with no legacy fallback.
+The arm's default 10000 ms and integer range 1–120000 include discovery, queue
+and attachment; transport has one additional second. Handles keep their original
+session/turn/epoch and never refresh or replay after cancellation or `begin_turn`.
+`result(timeout_ms=...)` and `cancel(timeout_ms=...)` return None. Their independent
+read budgets default to 120000 and 10000 ms respectively, without renewing the
+observer deadline. Terminal results remain readable for 30 seconds; cancel frees
+capacity. End, Pause, detach, ownership loss and worker restart invalidate handles.

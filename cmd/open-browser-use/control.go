@@ -30,12 +30,13 @@ func newBeginTurnCommand() *cobra.Command {
 // A submission owns its turn and epoch before waiting for the transport. Ends
 // invalidate queued submissions; they never silently move to the next turn.
 type cliControlSnapshot struct {
-	session, turn        string
-	version              int // -1: unknown, 0: legacy, 1: epoch protocol
-	epoch                int64
-	generation           uint64
-	deadline             time.Time // populated only on queued MCP submissions
-	networkWaitSupported bool
+	session, turn           string
+	version                 int // -1: unknown, 0: legacy, 1: epoch protocol
+	epoch                   int64
+	generation              uint64
+	deadline                time.Time // populated only on queued MCP submissions
+	networkWaitSupported    bool
+	navigationWaitSupported bool
 }
 
 type cliControl struct {
@@ -180,6 +181,25 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_NETWORK_WAIT_UNSUPPORTED: extension requires networkWaitVersion 1")
 		}
 	}
+	if cliNavigationWaitMethod(method) {
+		if manual {
+			// A raw CLI handle supplies its original session/turn/epoch across
+			// processes, but still negotiates this extension's navigation contract.
+			infoResponse, err := sendCLIRequest(conn, "cli-navigation-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
+		}
+		if !captured.navigationWaitSupported {
+			return nil, errors.New("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension requires navigationWaitVersion 1")
+		}
+	}
 	if err := boundCLIActionDeadline(method, params, deadline); err != nil {
 		return nil, err
 	}
@@ -213,8 +233,12 @@ func cliNetworkWaitMethod(method string) bool {
 	return method == "armNetworkWait" || method == "collectNetworkWait" || method == "cancelNetworkWait"
 }
 
+func cliNavigationWaitMethod(method string) bool {
+	return method == "armNavigationWait" || method == "collectNavigationWait" || method == "cancelNavigationWait"
+}
+
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait"
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait"
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -271,6 +295,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	}
 	metadata, _ := info["metadata"].(map[string]any)
 	captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
+	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
 	version, exists := metadata["turnLifecycleVersion"]
 	if !exists {
 		captured.version = 0

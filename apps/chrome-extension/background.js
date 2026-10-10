@@ -1,6 +1,8 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
+import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
+import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
@@ -52,6 +54,7 @@ const PUBLIC_BROWSER_METHODS = new Set([
   "attach", "detach", "executeCdp", "browserAction", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool",
   "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadPath", "readClipboardText", "writeClipboardText",
   "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
+  "armNavigationWait", "collectNavigationWait", "cancelNavigationWait",
   "readClipboard", "writeClipboard", "turnEnded", "executeUnhandledCommand"
 ]);
 
@@ -542,6 +545,8 @@ class BrowserBackend {
     this.pauseReleaseFailures = new Map();
     this.inputTracker = new NativeInputTracker();
     this.networkWaits = new BrowserNetworkWaits();
+    this.navigationWaits = new BrowserNavigationWaits();
+    this.navigationSetups = new Map();
     this.auxiliaryTabs = new AuxiliaryTabOwnership({ storage: chrome.storage.session });
     this.auxiliaryReleases = new Map();
     this.sessionMutations = new Map();
@@ -574,6 +579,7 @@ class BrowserBackend {
     chrome.debugger.onDetach.addListener((source) => {
       if (typeof source.tabId === "number") {
         this.networkWaits.invalidateTab(source.tabId);
+        this.navigationWaits.invalidateTab(source.tabId);
         this.controlEpochs.set(source.tabId, (this.controlEpochs.get(source.tabId) ?? 0) + 1);
         this.browserEngine?.forget(source.tabId);
         try { this.releaseEngineAttachment(source.tabId); }
@@ -582,6 +588,7 @@ class BrowserBackend {
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
       this.networkWaits.invalidateTab(tabId);
+      this.navigationWaits.invalidateTab(tabId);
       this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId), { destroyed: true });
       this.pauseReleaseFailures.delete(tabId);
       this.automationControl.recoveredPendingTabs?.delete(tabId);
@@ -591,16 +598,28 @@ class BrowserBackend {
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
       if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
+      if (Object.hasOwn(change, "groupId")) this.navigationWaits.invalidateTab(tabId);
       if (Object.hasOwn(change, "groupId")) this.invalidateAuxiliaryTab(tabId);
     });
-    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.invalidateAuxiliaryTab(tabId); });
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.invalidateAuxiliaryTab(removed); });
+    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.invalidateAuxiliaryTab(tabId); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.invalidateAuxiliaryTab(removed); });
     this.controlReady = this.recoverControlState();
     this.controlReady.catch(error => this.automationControl.fail(error));
     for (const method of PUBLIC_BROWSER_METHODS) {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
       const handler = this[method].bind(this);
-      if (method === "claimUserTab") {
+      if (method === "armNavigationWait") {
+        this[method] = params => this.startNavigationWait(params);
+      } else if (["browserAction", "executeCdp", "attach"].includes(method)) {
+        this[method] = params => {
+          if (method === "browserAction" && ["waitForURL", "waitForLoadState"].includes(params?.action))
+            return this.startNavigationWait(params, { direct: true });
+          // Capture earlier setups synchronously: a later wait must not hold an
+          // already accepted trigger, and a fast trigger cannot overtake setup.
+          const setups = this.captureNavigationSetups(params);
+          return this.runAfterNavigationSetups(params, setups, handler);
+        };
+      } else if (method === "claimUserTab") {
         this[method] = async params => {
           const reservation = this.auxiliaryTabs.reserve(params);
           try {
@@ -664,16 +683,18 @@ class BrowserBackend {
     const engine = this.browserEngine?.controlSnapshot?.() ?? { tabIds: [...this.browserEngine?.pages?.keys?.() ?? [], ...this.browserEngine?.queues?.keys?.() ?? [], ...this.browserEngine?.releases?.keys?.() ?? []], pending: [] };
     const input = this.inputTracker.controlSnapshot();
     const network = this.networkWaits.controlSnapshot();
+    const navigation = this.navigationWaits.controlSnapshot();
     const auxiliary = this.auxiliaryTabs.controlSnapshot();
-    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...auxiliary.tabIds]);
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds]);
     for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...auxiliary.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl() {
     const snapshot = this.globalControlSnapshot();
     const error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user");
     this.networkWaits.invalidateAll();
+    this.navigationWaits.invalidateAll();
     this.auxiliaryTabs.cancelPending();
     for (const setup of this.fileChooserSetupsByTabId.values()) setup.reject(error);
     for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
@@ -843,6 +864,7 @@ class BrowserBackend {
         browserActionProtocolVersion: 1,
         turnLifecycleVersion: 1,
         networkWaitVersion: 1,
+        navigationWaitVersion: 1,
         auxiliaryTabsVersion: 1,
         automationControl: await this.getAutomationControlStatus()
       }
@@ -1192,27 +1214,34 @@ class BrowserBackend {
 
   async browserAction(params) {
     const startedAt = Date.now();
+    const timeoutMs = params.timeoutMs ?? DEFAULT_CDP_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw new Error("timeoutMs must be between 1 and 120000");
+    const deadlineAt = performance.now() + timeoutMs;
+    const remaining = () => {
+      const value = deadlineAt - performance.now();
+      if (value < 1) throw new Error("Browser action timed out during admission");
+      return value;
+    };
     if (params.action === "goto") assertControllableUrl(params.args?.url);
     const tabId = requireTabId(params, "browserAction");
     let epoch = this.controlEpochs.get(tabId) ?? 0;
     await this.controlReleases.get(tabId)?.catch(() => {});
+    remaining();
     await this.requireSessionTab(params, "browserAction");
-    if (await this.releasePreviousAttachmentOwner(params, tabId)) epoch = this.controlEpochs.get(tabId) ?? 0;
+    remaining();
+    if (await this.releasePreviousAttachmentOwner(params, tabId, remaining)) epoch = this.controlEpochs.get(tabId) ?? 0;
+    remaining();
     const engine = await this.getBrowserEngine();
+    remaining();
     const setup = this.fileChooserSetupsByTabId.get(tabId);
     if (setup?.sessionId !== params.session_id && (this.controlEpochs.get(tabId) ?? 0) !== epoch) {
       throw new Error("Browser action was cancelled while loading the engine");
     }
     if (setup?.sessionId === params.session_id) {
-      const timeoutMs = params.timeoutMs === undefined ? DEFAULT_CDP_TIMEOUT_MS : params.timeoutMs;
-      if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw new Error("timeoutMs must be an integer between 1 and 120000");
       await this.withinTransferDeadline(startedAt + timeoutMs, () => setup.promise);
       await this.requireSessionTab(params, "browserAction");
-      const remaining = timeoutMs - (Date.now() - startedAt);
-      if (remaining < 1) throw new Error("Browser action timed out while preparing file chooser interception");
-      params = { ...params, timeoutMs: remaining };
     }
-    return await engine.dispatch(params);
+    return await engine.dispatch({ ...params, timeoutMs: remaining() });
   }
 
   async armNetworkWait(params, record) {
@@ -1248,6 +1277,117 @@ class BrowserBackend {
   async cancelNetworkWait(params) {
     await this.requireSessionTab(params, "cancelNetworkWait");
     return this.networkWaits.cancel(params);
+  }
+
+  captureNavigationSetups(params) {
+    return [...this.navigationSetups].filter(([record]) => {
+      const scope = record.params;
+      return scope.session_id === params?.session_id && scope.turn_id === params?.turn_id &&
+        (params?.tabId === undefined || scope.tabId === params.tabId) &&
+        (params?.control_epoch === undefined || scope.control_epoch === undefined || scope.control_epoch === params.control_epoch);
+    }).map(([, pending]) => pending);
+  }
+
+  async runAfterNavigationSetups(params, setups, handler) {
+    if (!setups.length) return this.runControlledRequest(() => handler(params));
+    const timeoutMs = params.timeoutMs ?? DEFAULT_CDP_TIMEOUT_MS;
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw new Error("timeoutMs must be between 1 and 120000");
+    const deadlineAt = performance.now() + timeoutMs;
+    const remaining = () => {
+      const value = deadlineAt - performance.now();
+      if (value <= 0) throw new Error("OBU_NAVIGATION_SETUP_TIMEOUT: action expired before navigation listener setup");
+      return value;
+    };
+    await withTimeout(remaining(), () => this.runControlledRequest(async () => {
+      remaining();
+      await Promise.all(setups);
+    }), () => new Error("OBU_NAVIGATION_SETUP_TIMEOUT: action expired before navigation listener setup"));
+    return this.runControlledRequest(() => {
+      const timeoutMs = Math.max(1, Math.floor(remaining()));
+      return handler({ ...params, timeoutMs });
+    });
+  }
+
+  async startNavigationWait(request, { direct = false } = {}) {
+    let params = request;
+    if (direct) {
+      const action = validateBrowserAction(request);
+      params = {
+        session_id: action.session_id, turn_id: action.turn_id, control_epoch: action.control_epoch,
+        tabId: action.tabId, timeoutMs: action.timeoutMs,
+        ...(action.action === "waitForURL" ? { event: "url", url: action.args.url, waitUntil: action.args.waitUntil }
+          : { event: "loadstate", state: action.args.state })
+      };
+    }
+    const record = this.navigationWaits.reserve(params, { allowLegacyEpoch: direct });
+    const setup = this.navigationWaits.within(record, () => this.runControlledRequest(() => this.setupNavigationWait(record)));
+    this.navigationSetups.set(record, setup);
+    setup.finally(() => { if (this.navigationSetups.get(record) === setup) this.navigationSetups.delete(record); }).catch(() => {});
+    try {
+      const ack = await setup;
+      if (!direct) return ack;
+      await this.runControlledRequest(() => this.collectNavigationWait({
+        session_id: record.params.session_id, turn_id: record.params.turn_id, control_epoch: record.params.control_epoch,
+        tabId: record.params.tabId, waiterId: ack.waiterId
+      }));
+      return { value: null, engine: BROWSER_ENGINE_INFO };
+    } catch (error) {
+      this.navigationWaits.fail(record, error);
+      throw error;
+    } finally {
+      if (direct) this.navigationWaits.remove(record);
+    }
+  }
+
+  async armNavigationWait(_params, record) {
+    return this.setupNavigationWait(record);
+  }
+
+  async setupNavigationWait(record) {
+    const check = () => this.navigationWaits.check(record);
+    check();
+    const tabId = record.params.tabId;
+    await this.controlReleases.get(tabId)?.catch(() => {});
+    check();
+    await this.requireSessionTab(record.params, "armNavigationWait");
+    check();
+    const params = { ...record.params, control_epoch: this.controlLedger.assertCurrent(record.params).epoch };
+    await this.releasePreviousAttachmentOwner(params, tabId, check, { preserveNavigationArming: true });
+    check();
+    const engine = await this.getBrowserEngine();
+    check();
+    return engine.withPage(params, {
+      deadlineAt: record.deadlineAt,
+      isolateTimeout: true,
+      timeoutError: () => new Error("OBU_NAVIGATION_WAIT_TIMEOUT: Page setup deadline expired"),
+      expiredError: () => new Error("OBU_NAVIGATION_WAIT_EXPIRED: tab control ended during setup")
+    }, async ({ page, check: checkPage, remainingMs }) => {
+      check();
+      await checkPage();
+      await this.requireSessionTab(params, "armNavigationWait");
+      check();
+      this.rememberAttachmentOwner(params, tabId);
+      const scope = { ...this.attachmentOwners.get(tabId) };
+      this.assertTransferScope(scope);
+      const runtime = await engine.runtime();
+      check();
+      const observer = runtime.createOpenBrowserUseNavigationWait(page, {
+        event: params.event, url: params.url, waitUntil: params.waitUntil, state: params.state,
+        timeoutMs: remainingMs()
+      });
+      try { return await this.navigationWaits.arm(record, observer, scope, value => this.validateTransferScope(value)); }
+      catch (error) { observer.cancel(error); throw error; }
+    });
+  }
+
+  async collectNavigationWait(params) {
+    await this.requireSessionTab(params, "collectNavigationWait");
+    return this.navigationWaits.collect(params);
+  }
+
+  async cancelNavigationWait(params) {
+    await this.requireSessionTab(params, "cancelNavigationWait");
+    return this.navigationWaits.cancel(params);
   }
 
   async releasePreviousAttachmentOwner(params, tabId, check = () => {}, options = {}) {
@@ -1302,6 +1442,7 @@ class BrowserBackend {
     // Release only waits bound to the retiring Page here. External detach,
     // explicit cancellation and ownership events also retire unbound setups.
     this.networkWaits.invalidateAttachedTab(tabId);
+    this.navigationWaits.invalidateAttachedTab(tabId);
     this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId));
     this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.attachmentOwners.delete(tabId);
@@ -2405,6 +2546,7 @@ class BrowserBackend {
 
   async releaseSessionControl(sessionId) {
     this.networkWaits.invalidateSession(sessionId);
+    this.navigationWaits.invalidateSession(sessionId);
     this.auxiliaryTabs.cancelPending(sessionId);
     // An inventory failure is not proof that control was released. Keep the
     // session record so explicit recovery can retry the same owned group.
@@ -2435,6 +2577,7 @@ class BrowserBackend {
     try {
       this.controlLedger.assertCurrent(params);
       this.networkWaits.invalidateSession(params.session_id);
+      this.navigationWaits.invalidateSession(params.session_id);
       this.auxiliaryTabs.cancelPending(params.session_id);
       const record = await this.controlLedger.beginEnd(params);
       const release = this.releaseSessionControl(params.session_id);
@@ -2620,9 +2763,11 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId, { preserveNetworkArming = false } = {}) {
+  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false } = {}) {
     if (preserveNetworkArming) this.networkWaits.invalidateAttachedTab(tabId);
     else this.networkWaits.invalidateTab(tabId);
+    if (preserveNavigationArming) this.navigationWaits.invalidateAttachedTab(tabId);
+    else this.navigationWaits.invalidateTab(tabId);
     this.controlEpochs.set(tabId, (this.controlEpochs.get(tabId) ?? 0) + 1);
     // Input release may fail and deliberately retain the native attachment.
     // End the rendering lease immediately even in that case.

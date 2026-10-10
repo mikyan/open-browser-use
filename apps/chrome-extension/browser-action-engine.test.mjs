@@ -312,6 +312,27 @@ function fixture(methods = {}) {
 
 const pageSetupParams = { session_id: "test-session", turn_id: "test-turn", control_epoch: 1, tabId: 42 };
 
+test("short Page setup allows observer-specific timeout and cancellation errors", async () => {
+  const f = fixture();
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const timeoutError = new Error("OBU_NAVIGATION_WAIT_TIMEOUT: setup expired");
+  await assert.rejects(engine.withPage(pageSetupParams, {
+    deadlineAt: performance.now() - 1, timeoutError: () => timeoutError
+  }, () => assert.fail("expired setup must not register")), error => error === timeoutError);
+  let release, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  engine.authorize = async () => { entered(); await new Promise(resolve => { release = resolve; }); };
+  const expiredError = new Error("OBU_NAVIGATION_WAIT_EXPIRED: turn ended");
+  const pending = engine.withPage(pageSetupParams, {
+    deadlineAt: performance.now() + 1000, expiredError: () => expiredError
+  }, () => assert.fail("cancelled setup must not register"));
+  await started;
+  await engine.detach(pageSetupParams.tabId);
+  release();
+  await assert.rejects(pending, error => error === expiredError);
+  assert.ok(!f.calls.some(call => call[0] === "attach"));
+});
+
 test("short Page setup shares the action attachment and releases its queue before event collection", async () => {
   const events = new EventEmitter(); let attaches = 0;
   const f = fixture({ click: async () => events.emit("response", "real event placeholder") });
@@ -341,6 +362,89 @@ test("queued Page setup expiry cannot cancel a predecessor or register a late li
   assert.ok(!f.calls.some(call => call[0] === "detach"));
   release(); await click; await Promise.allSettled(engine.controlSnapshot().pending);
   assert.equal(registered, false);
+});
+
+test("isolated warm setup timeout preserves the shared Page while its callback drains", async () => {
+  const f = fixture({ click: async () => undefined });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 1000 }, () => {});
+  const attachment = engine.pages.get(42), generation = engine.generations.get(42);
+  let release, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const pending = engine.withPage(pageSetupParams, {
+    deadlineAt: performance.now() + 15, isolateTimeout: true
+  }, async () => { entered(); await new Promise(resolve => { release = resolve; }); });
+  await started;
+  await assert.rejects(pending, /TIMEOUT/);
+  assert.equal(engine.pages.get(42), attachment);
+  assert.equal(engine.generations.get(42), generation);
+  assert.ok(!f.calls.some(call => call[0] === "detach"));
+  release(); await Promise.allSettled(engine.controlSnapshot().pending);
+  await engine.dispatch(request("click", { locator }));
+  assert.equal(engine.pages.get(42), attachment);
+});
+
+test("warm setup deadline caught before its timer isolates navigation but preserves network default cleanup", async t => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  for (const isolateTimeout of [true, false]) {
+    now = 0;
+    const f = fixture(); const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+    await engine.withPage(pageSetupParams, { deadlineAt: 1000 }, () => {});
+    const attachment = engine.pages.get(42);
+    await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: 10, isolateTimeout }, () => { now = 11; }), /TIMEOUT/);
+    await Promise.allSettled(engine.controlSnapshot().pending);
+    assert.equal(f.calls.filter(call => call[0] === "detach").length, isolateTimeout ? 0 : 1);
+    assert.equal(engine.pages.get(42), isolateTimeout ? attachment : undefined);
+  }
+});
+
+test("isolated cold setup timeout still cleans its late attachment without detaching a successor", async () => {
+  let release, attaches = 0, registered = 0;
+  const f = fixture();
+  f.app.attach = async () => { if (++attaches === 1) await new Promise(resolve => { release = resolve; }); return f.page; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 15, isolateTimeout: true }, () => { registered++; }), /TIMEOUT/);
+  const successor = engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 1000, isolateTimeout: true }, () => { registered++; return "successor"; });
+  release();
+  assert.equal(await successor, "successor");
+  assert.equal(attaches, 2); assert.equal(registered, 1);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+  assert.equal(engine.pages.size, 1);
+});
+
+test("isolated setup sharing a raw attachment behind a release barrier cannot detach its creator", async () => {
+  const f = fixture(); const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  let finishRelease, finishSetup, entered;
+  const releasing = new Promise(resolve => { finishRelease = resolve; });
+  engine.releases.set(42, releasing);
+  const rawAttachment = engine.attach(42);
+  const started = new Promise(resolve => { entered = resolve; });
+  const pending = engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 30, isolateTimeout: true }, async () => {
+    entered(); await new Promise(resolve => { finishSetup = resolve; });
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(engine.pages.size, 0);
+  engine.releases.delete(42); finishRelease();
+  const original = await rawAttachment; await started;
+  await assert.rejects(pending, /TIMEOUT/);
+  assert.equal(await engine.pages.get(42), original);
+  assert.ok(!f.calls.some(call => call[0] === "detach"));
+  finishSetup(); await Promise.allSettled(engine.controlSnapshot().pending);
+  assert.equal(await engine.pages.get(42), original);
+});
+
+test("isolated setup expiring behind release cannot create an attachment when the barrier finishes", async () => {
+  const f = fixture(); let attaches = 0;
+  f.app.attach = async () => { attaches++; return f.page; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  let finishRelease;
+  engine.releases.set(42, new Promise(resolve => { finishRelease = resolve; }));
+  await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 15, isolateTimeout: true }, () => assert.fail("late callback")), /TIMEOUT/);
+  engine.releases.delete(42); finishRelease();
+  await Promise.allSettled(engine.controlSnapshot().pending);
+  assert.equal(attaches, 0); assert.equal(engine.pages.size, 0);
+  assert.ok(!f.calls.some(call => call[0] === "detach"));
 });
 
 test("late setup attachment is cleaned without registering or detaching a successor", async () => {
