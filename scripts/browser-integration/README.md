@@ -23,9 +23,20 @@ The runner launches headed Chromium directly. Playwright locates the downloaded
 browser executable and supplies the static YAML parser used by snapshot checks.
 A small raw CDP connection inspects the
 extension service worker; there is no Playwright page/context connection or
-foreground activation. A sentinel tab remains active, and the suite checks both
-the current active tab and every activation event to catch transient focus
-stealing.
+foreground activation. A sentinel tab remains active in its original window,
+and every tab activation and window-focus event is retained. Auxiliary popup
+fixtures use `chrome.windows.create({type:'popup',focused:false})`: Chrome may
+emit one activation for that new window's sole tab. The runner permits only that
+exact tab/window pair once and records it in `allowedPopupActivations`. Claim,
+input, cleanup and recovery must not change the focused window. The final Pause
+test intentionally opens the user's toolbar control with `chrome.action.openPopup`.
+Only across that exact call, with a live matching `POPUP` context, it permits
+either no focus event or precisely `[sentinelWindowId, -1]`, the sequence observed
+on the tested Chromium build. `allowedWindowFocusEvents` binds each allowed
+event to its original index, reason, checkpoint times and popup context;
+`pause-focus-trace.json` preserves the surrounding native window states. Every
+other focus event fails, including during subsequent popup close or auxiliary
+cleanup. No raw events are erased, and the original sentinel tab stays active.
 
 ## Prerequisites and invocation
 
@@ -79,6 +90,12 @@ browser setting. A headed browser is required; Linux CI needs a desktop or
 virtual display. The suite does not use disabled background-throttling flags.
 
 ## What it checks
+
+The fresh isolated Windows Chromium 156 run
+`.tmp/browser-integration/run-hpWHwC/results.json` passed all 38 cases, including
+the optional Go caller and auxiliary-popup additions. Its raw activation/focus
+events and narrowly scoped ledgers remain in the evidence. This does not verify
+native `window.open` focus suppression or full browser/extension restart.
 
 - JS, Python, and the optional Go caller's semantic role/name locators, YAML snapshots and duplicate-match
   strictness.
@@ -180,8 +197,34 @@ virtual display. The suite does not use disabled background-throttling flags.
 - A real `tabs.onCreated` background child is left unattached until explicit
   backend claim, then supports snapshot/read/click and normal end-turn cleanup.
   Another session cannot use it. This fixture uses extension tab creation with
-  `active:false`; renderer `window.open`/`target=_blank` activation and the first
-  rendering lease after moving an independent popup remain separate known gaps.
+  `active:false`; renderer `window.open`/`target=_blank` activation remains a
+  separate known gap.
+- `js-auxiliary-popup-rendering` and `js-auxiliary-popup-lifecycle` require
+  `getInfo.metadata.auxiliaryTabsVersion=1`. They claim real unfocused popup
+  windows and check that ownership preserves the original window and group-less
+  state. The first engine operation is a single click with its original 10-second
+  deadline, followed by a screenshot, real OOPIF input and a network wait.
+  Foreign session/tab-target access, concurrent claims, deliverable rejection,
+  handoff retention, omission without closing the user's window, external
+  movement and closed-window invalidation are checked through public APIs.
+  These tests do not claim to repair Chromium rendering after an external
+  cross-window move; the normal popup claim avoids that move entirely.
+  The existing worker-restart and global-Pause cases also retain and reclaim an
+  auxiliary popup, verify old control is rejected, and click only after explicit
+  recovery. This is a worker-restart check, not a full browser or extension
+  restart check. Clearing `storage.session` is modeled separately in unit tests.
+  Select the four affected cases with
+  `OBU_TEST_CASES='auxiliary-popup|control-worker-restart|user-global-pause'`;
+  the required raw-navigation case makes this a five-case directed run. The
+  complete suite contains 38 cases with the optional Go caller, or 37 without it.
+  The popup is independently created with `windows.create({focused:false})`,
+  not by a page's `window.open`. Initial native popup activation remains
+  unsupported as a no-interruption guarantee and is not counted as passing.
+  Storage-delay/failure and end/Pause races use deterministic unit tests rather
+  than injected faults in this native suite. The claim response is bounded at
+  10 seconds, but Chrome's underlying writes remain tracked; a never-settling
+  write can keep the existing turn-end drain pending. Pause instead fails closed
+  within its cleanup budget. See [popup ownership](../../docs/references/popup-ownership-design.md).
 - The final global-pause case opens the real browser action popup, pauses two
   sessions, checks held pointer/key release (including native pointer capture
   remaining after raw `dragCancel`) and blocked high/low-level CDP admission,

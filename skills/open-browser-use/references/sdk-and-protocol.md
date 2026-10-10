@@ -418,6 +418,13 @@ _, err := browser.Client.Request("executeCdp", obu.Params{
 3. Claim it with `open-browser-use claim-tab --session-id "$OBU_SESSION_ID" --tab-id <id>` or SDK `claimUserTab` / `claim_user_tab` / `ClaimUserTab`.
 4. Use the returned controllable tab for later commands.
 
+For a tab in an independent popup, check `metadata.auxiliaryTabsVersion === 1`.
+Claim preserves that popup window and keeps membership across worker restart,
+turn end, and Pause. A full browser restart requires a fresh explicit claim.
+Concurrent foreign claims and claims during unconfirmed cleanup fail. If claim
+times out, inspect state before retrying: pending native storage remains tracked,
+and end can remain `closing` until it settles.
+
 Never invent or reuse stale tab ids.
 
 ## Tab Cleanup
@@ -433,6 +440,11 @@ the turn. Use `status: "deliverable"` for a user-facing output or requested
 open page. Use `status: "handoff"` only when the task is still in progress and
 the user or a later turn should continue from the current task group, such as a
 page waiting for login, approval, payment, CAPTCHA, or other user input.
+
+Independent auxiliary popups are the exception: use `handoff` whenever their
+membership should be retained. `deliverable` is rejected before ending control
+because grouping would move the popup. Omitting a popup releases its ownership
+without closing or moving the window.
 
 Treat finalization as the last Open Browser Use browser action of the turn. If
 more browser work is needed, do it before finalizing, then finalize once with

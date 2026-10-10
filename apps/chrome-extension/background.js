@@ -1,6 +1,7 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
+import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
 const NATIVE_HOST_STATUS_KEY = "OPEN_BROWSER_USE_NATIVE_HOST_STATUS";
@@ -541,6 +542,8 @@ class BrowserBackend {
     this.pauseReleaseFailures = new Map();
     this.inputTracker = new NativeInputTracker();
     this.networkWaits = new BrowserNetworkWaits();
+    this.auxiliaryTabs = new AuxiliaryTabOwnership({ storage: chrome.storage.session });
+    this.auxiliaryReleases = new Map();
     this.sessionMutations = new Map();
     this.endingSessions = new Map();
     this.webMcpGate = webMcpGate;
@@ -583,18 +586,34 @@ class BrowserBackend {
       this.pauseReleaseFailures.delete(tabId);
       this.automationControl.recoveredPendingTabs?.delete(tabId);
       this.releaseEngineAttachment(tabId);
+      const claim = this.auxiliaryTabs.entry(tabId);
+      if (claim) void this.releaseAuxiliaryClaim(claim, { destroyed: true }).catch(() => {});
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
       if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
+      if (Object.hasOwn(change, "groupId")) this.invalidateAuxiliaryTab(tabId);
     });
-    chrome.tabs?.onDetached?.addListener(tabId => this.networkWaits.invalidateTab(tabId));
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => this.networkWaits.invalidateTab(removed));
+    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.invalidateAuxiliaryTab(tabId); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.invalidateAuxiliaryTab(removed); });
     this.controlReady = this.recoverControlState();
     this.controlReady.catch(error => this.automationControl.fail(error));
     for (const method of PUBLIC_BROWSER_METHODS) {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
       const handler = this[method].bind(this);
-      if (method === "armNetworkWait") {
+      if (method === "claimUserTab") {
+        this[method] = async params => {
+          const reservation = this.auxiliaryTabs.reserve(params);
+          try {
+            return await withTimeout(DEFAULT_CDP_TIMEOUT_MS,
+              () => this.runControlledRequest(() => handler(params, reservation)),
+              () => new Error("OBU_AUXILIARY_CLAIM_TIMEOUT: tab claim deadline expired"));
+          } catch (error) {
+            if (this.auxiliaryTabs.owner(reservation.tabId) !== reservation)
+              void this.releaseAuxiliaryClaim(reservation).catch(() => {});
+            throw error;
+          }
+        };
+      } else if (method === "armNetworkWait") {
         this[method] = async params => {
           // Reserve before controlReady or any other await. Setup and the event
           // consume one deadline; a delayed worker bootstrap cannot extend it.
@@ -645,15 +664,17 @@ class BrowserBackend {
     const engine = this.browserEngine?.controlSnapshot?.() ?? { tabIds: [...this.browserEngine?.pages?.keys?.() ?? [], ...this.browserEngine?.queues?.keys?.() ?? [], ...this.browserEngine?.releases?.keys?.() ?? []], pending: [] };
     const input = this.inputTracker.controlSnapshot();
     const network = this.networkWaits.controlSnapshot();
-    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds]);
+    const auxiliary = this.auxiliaryTabs.controlSnapshot();
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...auxiliary.tabIds]);
     for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...auxiliary.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl() {
     const snapshot = this.globalControlSnapshot();
     const error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user");
     this.networkWaits.invalidateAll();
+    this.auxiliaryTabs.cancelPending();
     for (const setup of this.fileChooserSetupsByTabId.values()) setup.reject(error);
     for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
     this.cursorArrivalWaitersByKey.clear();
@@ -664,6 +685,13 @@ class BrowserBackend {
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     });
     releases.forEach(release => release.catch(() => {}));
+    for (const record of this.auxiliaryTabs.entries()) {
+      if (record.phase !== "committed") {
+        const release = this.releaseAuxiliaryClaim(record);
+        release.catch(() => {});
+        releases.push(release);
+      }
+    }
     return { tabIds: snapshot.tabIds, pending: snapshot.pending, releases };
   }
 
@@ -693,7 +721,7 @@ class BrowserBackend {
       throw error;
     };
     try {
-      await within(() => Promise.all([gate.ready, this.store.ready, this.controlLedger.ready]));
+      await within(() => Promise.all([gate.ready, this.store.ready, this.controlLedger.ready, this.auxiliaryTabs.ready]));
       if (gate.revision >= Number.MAX_SAFE_INTEGER) throw new Error("OBU_AUTOMATION_REVISION_EXHAUSTED: user control revision cannot wrap");
       gate.revision++;
       gate.state = "pausing";
@@ -815,6 +843,7 @@ class BrowserBackend {
         browserActionProtocolVersion: 1,
         turnLifecycleVersion: 1,
         networkWaitVersion: 1,
+        auxiliaryTabsVersion: 1,
         automationControl: await this.getAutomationControlStatus()
       }
     };
@@ -909,14 +938,26 @@ class BrowserBackend {
       }));
   }
 
-  async claimUserTab(params) {
-    return this.runSessionMutation(params, () => this.claimUserTabInTurn(params));
+  async claimUserTab(params, reservation) {
+    reservation = this.auxiliaryTabs.check(reservation);
+    return this.runSessionMutation(params, () => this.claimUserTabInTurn(params, reservation));
   }
 
-  async claimUserTabInTurn(params) {
+  async claimUserTabInTurn(params, reservation) {
     const session = await this.requireSession(params);
     const tabId = requireTabId(params, "claimUserTab");
+    const epoch = this.controlLedger.assertCurrent(params).epoch;
+    const revision = this.automationControl.revision;
+    const check = () => {
+      this.auxiliaryTabs.check(reservation);
+      if (this.controlLedger.assertCurrent(params).epoch !== epoch || this.automationControl.revision !== revision)
+        throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: browser control changed");
+    };
+    check();
+    await this.auxiliaryTabs.settled(tabId);
+    check();
     const tab = await chrome.tabs.get(tabId);
+    check();
     if (!hasTabId(tab)) {
       throw new Error(`Chrome tab ${tabId} has no id`);
     }
@@ -926,12 +967,38 @@ class BrowserBackend {
     }
     if (typeof tab.groupId === "number" && tab.groupId !== -1) {
       const owner = await this.store.findSessionByGroup(tab.groupId);
+      check();
       if (owner && owner.sessionId !== session.sessionId) {
         throw new Error(`Tab ${tabId} is already part of browser session ${owner.sessionId}`);
       }
     }
-    await this.ensureSessionGroup(session.sessionId, tab.id, "user");
-    await this.setSessionActiveTab(session.sessionId, tab.id);
+    const window = await chrome.windows.get(tab.windowId);
+    check();
+    if (window.type === "popup") {
+      const validate = async () => {
+        const live = await chrome.tabs.get(tabId);
+        check();
+        assertControllableTab(live);
+        if (live.windowId !== tab.windowId || live.groupId !== -1 || live.url?.startsWith("chrome://"))
+          throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved or became uncontrollable");
+      };
+      reservation = await this.auxiliaryTabs.commit(reservation, {
+        windowId: tab.windowId, control_epoch: epoch, controlRevision: revision, check, validate
+      });
+      check();
+      await this.setSessionActiveTab(session.sessionId, tab.id, check);
+      check();
+    } else {
+      if (this.auxiliaryTabs.owner(tabId)) {
+        await this.releaseAuxiliaryClaim(reservation);
+        throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved; explicitly claim it again");
+      }
+      await this.ensureSessionGroup(session.sessionId, tab.id, "user", check);
+      check();
+      await this.setSessionActiveTab(session.sessionId, tab.id, check);
+      check();
+      await this.auxiliaryTabs.remove(reservation);
+    }
     return { ...toBrowserTab(tab), active: true };
   }
 
@@ -958,6 +1025,9 @@ class BrowserBackend {
       if (status !== "handoff" && status !== "deliverable") {
         throw new Error(`finalizeTabs received invalid status ${String(status)}`);
       }
+      if (status === "deliverable" && this.auxiliaryTabs.owner(tabId)?.session_id === session.sessionId) {
+        throw new Error("OBU_AUXILIARY_DELIVERABLE_UNSUPPORTED: use handoff to preserve the popup window");
+      }
       keep.set(tabId, status);
     }
     return this.endSessionControl(params, async () => {
@@ -967,6 +1037,7 @@ class BrowserBackend {
       const userTabsToRelease = [];
       const deliverableTabs = [];
       const handoffTabs = [];
+      const auxiliaryToRelease = [];
       for (const tab of tabs) {
         if (!hasTabId(tab)) {
           continue;
@@ -980,7 +1051,10 @@ class BrowserBackend {
           deliverableTabs.push(tab.id);
           continue;
         }
-        if (sessionState.tabOrigins[String(tab.id)] === "agent") {
+        const auxiliary = this.auxiliaryTabs.owner(tab.id);
+        if (auxiliary?.session_id === session.sessionId) {
+          auxiliaryToRelease.push(auxiliary);
+        } else if (sessionState.tabOrigins[String(tab.id)] === "agent") {
           agentTabsToClose.push(tab.id);
         } else {
           userTabsToRelease.push(tab.id);
@@ -995,8 +1069,10 @@ class BrowserBackend {
         ...agentTabsToClose,
         ...userTabsToRelease,
         ...deliverableTabs,
-        ...handoffTabs
+        ...handoffTabs,
+        ...auxiliaryToRelease.map(record => record.tabId)
       ]);
+      for (const record of auxiliaryToRelease) await this.releaseAuxiliaryClaim(record);
       this.automationControl.assertOpen();
       if (agentTabsToClose.length > 0) {
         await chrome.tabs.remove(agentTabsToClose.length === 1 ? agentTabsToClose[0] : agentTabsToClose);
@@ -1697,14 +1773,13 @@ class BrowserBackend {
 
   async validateTransferScope(scope) {
     this.assertTransferScope(scope);
-    const session = Object.hasOwn(this.store.state.sessions, scope.session_id) ? this.store.state.sessions[scope.session_id] : null;
-    const groupId = session?.chromeGroupId;
-    if (!Number.isInteger(groupId)) throw new Error("Transfer tab is no longer owned by this session");
-    const tabs = await chrome.tabs.query({ groupId });
+    const tabs = await this.getSessionTabs(scope.session_id, { strict: true });
     this.assertTransferScope(scope);
-    if (this.store.state.sessions[scope.session_id] !== session || session.chromeGroupId !== groupId || !tabs.some(tab => tab.id === scope.tabId)) {
+    const tab = tabs.find(tab => tab.id === scope.tabId);
+    if (!tab) {
       throw new Error("Transfer tab is no longer owned by this session");
     }
+    assertControllableTab(tab);
   }
 
   async transferScope(params, command, deadline) {
@@ -2165,56 +2240,120 @@ class BrowserBackend {
     return result.result?.value;
   }
 
-  async ensureSessionGroup(sessionId, tabId, origin) {
+  async ensureSessionGroup(sessionId, tabId, origin, check = () => this.automationControl.assertOpen()) {
     const session = await this.store.getSession(sessionId);
+    check();
     let groupId = session.chromeGroupId;
     if (typeof groupId === "number") {
       try {
         await chrome.tabGroups.get(groupId);
-        this.automationControl.assertOpen();
+        check();
         await chrome.tabs.group({ groupId, tabIds: [tabId] });
+        check();
       } catch {
+        check();
         groupId = null;
       }
     }
-    this.automationControl.assertOpen();
+    check();
     if (typeof groupId !== "number") {
       groupId = await chrome.tabs.group({ tabIds: [tabId] });
+      check();
       session.chromeGroupId = groupId;
     }
     session.tabOrigins[String(tabId)] = origin;
     await this.store.save();
-    this.automationControl.assertOpen();
+    check();
     await chrome.tabGroups.update(groupId, {
       title: session.title,
       color: "blue",
       collapsed: false
     });
+    check();
   }
 
-  async setSessionActiveTab(sessionId, tabId) {
+  async setSessionActiveTab(sessionId, tabId, check = () => this.automationControl.assertOpen()) {
     const session = await this.store.getSession(sessionId);
-    this.automationControl.assertOpen();
+    check();
     session.activeTabId = tabId;
     this.activeTabsBySession.set(sessionId, tabId);
     await this.store.save();
+    check();
     await this.publishCursorState(tabId);
+    check();
   }
 
   async getSessionTabs(sessionId, { strict = false } = {}) {
+    await this.auxiliaryTabs.ready;
     const session = await this.store.getSession(sessionId);
-    if (typeof session.chromeGroupId !== "number") {
-      return [];
+    const auxiliary = [];
+    for (const record of this.auxiliaryTabs.list(sessionId)) {
+      const tab = await this.liveAuxiliaryTab(record, { strict });
+      if (tab) auxiliary.push([record, tab]);
     }
-    try {
-      return (await chrome.tabs.query({ groupId: session.chromeGroupId })).filter(
-        (tab) => hasTabId(tab) && !tab.url?.startsWith("chrome://")
-      );
-    } catch (error) {
-      if (strict) throw error;
-      await this.store.removeSession(sessionId);
-      return [];
+    let grouped = [];
+    const groupId = session.chromeGroupId;
+    if (typeof groupId === "number") {
+      try {
+        grouped = await chrome.tabs.query({ groupId });
+        if (session.chromeGroupId !== groupId) grouped = [];
+      } catch (error) {
+        if (strict) throw error;
+        // An inventory failure does not prove that the group or an auxiliary
+        // popup disappeared. Preserve ownership for a later explicit retry.
+      }
     }
+    const tabs = new Map();
+    for (const tab of grouped) {
+      const claim = this.auxiliaryTabs.entry(tab.id);
+      if (!hasTabId(tab) || (claim && claim.windowId !== null)) continue;
+      tabs.set(tab.id, tab);
+    }
+    for (const [record, tab] of auxiliary)
+      if (this.auxiliaryTabs.owner(tab.id) === record) tabs.set(tab.id, tab);
+    return [...tabs.values()].filter(tab => !tab.url?.startsWith("chrome://"));
+  }
+
+  async liveAuxiliaryTab(record, { strict = false } = {}) {
+    if (this.auxiliaryTabs.owner(record.tabId) !== record) return null;
+    let tab;
+    try { tab = await chrome.tabs.get(record.tabId); }
+    catch (error) {
+      if (/no tab with (given )?id|invalid tab id/i.test(String(error?.message ?? error))) {
+        await this.releaseAuxiliaryClaim(record, { destroyed: true });
+      } else if (strict) throw error;
+      return null;
+    }
+    if (this.auxiliaryTabs.owner(record.tabId) !== record) return null;
+    if (tab.windowId !== record.windowId || tab.groupId !== -1) {
+      await this.releaseAuxiliaryClaim(record);
+      return null;
+    }
+    return tab;
+  }
+
+  invalidateAuxiliaryTab(tabId) {
+    const record = this.auxiliaryTabs.entry(tabId);
+    // An ordinary claim also reserves the tab while it is grouped. Its own
+    // group operation must not be mistaken for an auxiliary window transfer.
+    if (record && record.windowId !== null)
+      void this.releaseAuxiliaryClaim(record).catch(() => {});
+  }
+
+  releaseAuxiliaryClaim(record, { destroyed = false } = {}) {
+    if (this.auxiliaryTabs.entry(record.tabId) !== record) return Promise.resolve();
+    if (this.auxiliaryReleases.has(record)) return this.auxiliaryReleases.get(record);
+    this.auxiliaryTabs.quarantine(record);
+    const owner = this.attachmentOwners.get(record.tabId);
+    // Revoke old engine/input admission immediately, before queued storage
+    // work. A surviving foreign attachment must never be torn down by this ID.
+    const controlsTab = owner ? owner.session_id === record.session_id : record.windowId !== null;
+    const cleanup = destroyed || !controlsTab ? Promise.resolve() : this.detachTab(record.tabId);
+    cleanup.catch(() => {});
+    const release = this.auxiliaryTabs.remove(record, { cleanup: () => cleanup });
+    this.auxiliaryReleases.set(record, release);
+    release.finally(() => { if (this.auxiliaryReleases.get(record) === release) this.auxiliaryReleases.delete(record); }).catch(() => {});
+    return release;
   }
 
   async requireSession(params) {
@@ -2266,10 +2405,25 @@ class BrowserBackend {
 
   async releaseSessionControl(sessionId) {
     this.networkWaits.invalidateSession(sessionId);
+    this.auxiliaryTabs.cancelPending(sessionId);
     // An inventory failure is not proof that control was released. Keep the
     // session record so explicit recovery can retry the same owned group.
     const tabs = await this.getSessionTabs(sessionId, { strict: true });
-    const outcomes = await Promise.allSettled(tabs.filter(hasTabId).map(tab => this.detachTab(tab.id)));
+    const tabIds = new Set(tabs.filter(hasTabId).map(tab => tab.id));
+    // A reservation can still be awaiting ordinary-tab ownership validation.
+    // It cannot authorize detaching another session's unpublished attachment.
+    for (const claim of this.auxiliaryTabs.entries(sessionId)) {
+      if (claim.windowId !== null) tabIds.add(claim.tabId);
+    }
+    for (const owner of this.attachmentOwners.values()) if (owner.session_id === sessionId) tabIds.add(owner.tabId);
+    const releases = [...tabIds].filter(tabId => {
+      const owner = this.attachmentOwners.get(tabId);
+      return !owner || owner.session_id === sessionId;
+    }).map(tabId => this.detachTab(tabId));
+    for (const claim of this.auxiliaryTabs.entries(sessionId)) {
+      if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
+    }
+    const outcomes = await Promise.allSettled(releases);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -2281,6 +2435,7 @@ class BrowserBackend {
     try {
       this.controlLedger.assertCurrent(params);
       this.networkWaits.invalidateSession(params.session_id);
+      this.auxiliaryTabs.cancelPending(params.session_id);
       const record = await this.controlLedger.beginEnd(params);
       const release = this.releaseSessionControl(params.session_id);
       release.catch(() => {});
@@ -2309,7 +2464,7 @@ class BrowserBackend {
   }
 
   async recoverControlState() {
-    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready]);
+    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready]);
     if (this.automationControl.inputBlocked) {
       // Startup recovery shares the popup transition queue. A Pause accepted
       // while storage was loading already owns that recovery operation.

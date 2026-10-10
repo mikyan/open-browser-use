@@ -305,6 +305,8 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   assert.match(entry, /assertOpenBrowserUseSelector/);
   for (const match of entry.matchAll(/from "(.+?)"/g)) await fs.access(path.join(vendor, match[1]));
   assert.ok(!(await fs.readdir(output)).some(file => file.endsWith(".test.mjs")));
+  assert.equal(await fs.readFile(path.join(output, "auxiliary-tab-ownership.js"), "utf8"),
+    await fs.readFile(path.join("apps/chrome-extension", "auxiliary-tab-ownership.js"), "utf8"));
   await fs.access(path.join(output, "browser-action-engine.js"));
   await fs.access(path.join(output, "browser-frame-adapter.js"));
   await fs.access(path.join(output, "browser-input-adapter.js"));

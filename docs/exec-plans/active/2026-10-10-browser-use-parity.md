@@ -285,3 +285,35 @@ claim 后操作、外部任务拒绝和结束释放；它不替代原生 window.
 - 本地扩展 ZIP 的 29 个文件逐字节匹配 unpacked；19 个生产 JS/JSON 文件、
   JS/Python SDK、Go caller/host 和 fixture 与完整验收哈希一致，skill 包的
   6 个文件匹配源码。没有重新加载用户正在使用的扩展。
+
+## 独立弹窗归属：当前实现切片
+
+上一轮 `95f0f41` 的网络等待已提交，正式套件 36/36，属于已验证进展。
+本轮按 `popup-ownership-design.md` 实现显式 claim 后保留 popup 原窗口，解决
+跨窗口移组使渲染首帧和点击挂起的问题；原生创建时抢焦点单独研究，不将
+事后恢复焦点或测试创建未聚焦窗口视为已解决该要求。
+
+- 独立归属模块保存有界反向索引和 session storage 记录；pending claim 不授权，
+  durable commit 后才可调用。跨任务冲突、延迟写、取消和重启使用精确 identity。
+- backend 的 list、动作、raw target、transfer/event 和清理使用同一成员集合；
+  外部移动先撤销授权，再释放旧 attachment。组查询失败不删除独立弹窗归属。
+- 结束/Pause 保留已提交 membership 并释放控制；finalize 遗漏保留用户弹窗但
+  释放归属，handoff 不移窗，deliverable 在任何结束操作前明确拒绝。
+- 单元测试覆盖并发 claim、Pause/end/关闭/移动与存储失败；真实 headed 测试
+  验证原窗口内点击、截图、其他任务拒绝、重启和前台事件，保留全套回归。
+
+继续仅本地开发、打包和提交；不推送、不创建 PR。
+
+本片结果：扩展/构建 313/313、store/backend 专项 31/31；Windows Chromium
+156 正式 `run-hpWHwC` 38/38。首次独立 popup 可信点击 98 ms，截图、frame、
+网络、竞争 claim、外部移动/关闭、handoff、Pause 与 worker 恢复通过。
+五次新 popup 自身唯一 tab 激活保持原始记录，原 sentinel 不变；窗口焦点仅有
+主动打开控制面板时的已验证两事件，按原始索引与真实 POPUP context 归因，
+后续页面动作未新增焦点变化。原生 popup 创建抢前台仍未解决。
+
+审查补充并修复未验证普通 claim 预留误拆其他 session 未发布 attachment 的
+竞态；原生存储长期不完成时，claim 响应会超时但写入仍被跟踪，end 会保持
+closing 等待，不能把这说成已取消写入或有界结束。长期 P01–P15 目标继续 active。
+
+扩展 ZIP 的 30 个文件逐字节匹配 unpacked，20 个生产 JS/JSON、全部冻结
+SDK/host/Go caller/fixture 哈希匹配正式验收，skill 包 6 个文件匹配源码。

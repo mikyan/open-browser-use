@@ -225,7 +225,35 @@
   集成。该片未声称 macOS/Linux 或其他浏览器实测。背景截图中的中文、光标、
   点击圈与目标蓝框已查看。协议/skill/架构/矩阵/质量及发布记录同步；完整
   Codex 能力对齐、popup 与其他平台继续未完成。
-- 本地交付包已重建：29 个扩展文件与 unpacked 逐字节一致，19 个生产文件、
+- 该网络等待片的交付包：29 个扩展文件、19 个生产文件与当时正式验收匹配；
+  skill 6 个文件与源码一致，没有重新加载用户正在使用的浏览器扩展。
+
+### 独立 popup 归属与渲染保留
+
+- 新增 `auxiliary-tab-ownership.js`：同步预留、有界反向锁、trusted-context
+  session storage、pending/committed/quarantined 阶段和精确 identity 清理。
+  已提交 popup 归属加入统一 list/action/target/transfer/event 检查，显式
+  claim 保留原窗口，避免跨窗口移组造成无首帧和首次点击超时。
+- End/Pause 释放输入和 attachment，保留已提交 membership；worker 重启
+  可恢复，完整浏览器重启需重新 claim。外部移动先隔离归属，清理成功后才
+  允许新 owner；handoff 保留，finalize 遗漏只释放归属，deliverable 提前拒绝。
+- 审查修复了未验证的普通 claim 预留误拆外部 session 冷 attachment 的竞态；
+  回归在原生 attach 成功、owner 尚未发布时触发 end，确认外部连接不受影响。
+  16 项 store 与 15 项 backend 专项通过，扩展/构建总计 313/313。
+- Windows Chromium 156 正式 `run-hpWHwC` 38/38，含五个公开入口既有回归。
+  独立 popup 首次可信点击 98 ms，759×495 截图与实际 viewport/DPR 匹配，
+  frame、网络、并发认领、移动/关闭、handoff、Pause 和 worker 恢复通过。
+  图片已查看，AI 光标、点击圈和目标蓝框保留。
+- 原始 tab activation 保留五次新未聚焦窗口自身 sole-tab 创建记录；原 sentinel
+  一直 active。首次严格窗口焦点断言失败，经分阶段 trace 确认是测试主动
+  `chrome.action.openPopup` 打开控制 UI 时的 `[sentinelWindowId,-1]`，而非
+  页面动作。最终验收用精确事件索引和真实 POPUP context 归因，未清空原始
+  日志，其他阶段任何焦点变化仍失败；页面动作没有额外焦点切换。
+- Claim 的 10 秒响应上限不取消底层存储写；未决写仍被跟踪，end 可能维持
+  closing 等待它落定，Pause 有界失败并保持阻断。原生 popup 创建抢前台、
+  用户自行移窗后的渲染、完整浏览器/host 重启及完整能力矩阵仍未解决。
+- 文档、skill 与本地扩展包同步；仅本地保存，不推送或创建 PR。
+- 本地交付包已重建：30 个扩展文件与 unpacked 逐字节一致，20 个生产文件、
   各 SDK/host/fixture 的哈希匹配正式验收；skill 的 6 个文件匹配源码。保留
   本地提交，无推送或 PR，也没有重载用户正在使用的浏览器扩展。
 

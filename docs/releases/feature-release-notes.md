@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-11 | Auxiliary popup ownership（开发版，未发布） | 显式接管独立弹窗后保留原窗口，可直接点击、截图和操作 frame；结束或暂停保留页面。 | 增加有界 session-storage 归属、并发认领隔离、移动撤权、worker 恢复和安全清理；handoff 保留，finalize 遗漏只释放归属，deliverable 提前拒绝。313 项扩展/构建测试及 38 项真实浏览器验收通过；记录并区分新窗口自身 tab 激活与主动打开控制面板的焦点事件。原生 window.open 创建抢前台和完整浏览器重启仍有缺口，仅本地开发。 |
 | 2026-10-11 | Network waits（开发版，未发布） | Agent 可先确认网络监听就绪，再点击并检查请求或响应，同步 SDK 和 CLI 也能顺序调用。 | 新增有界 request/response 等待、固定控制归属、原始 deadline、取消与终态保留；headers 到达即可完成，旧事件不会命中。282 项扩展/构建测试、三种 SDK 和 36 项真实浏览器验收通过，活动 tab 事件为空；保留 AI 光标与目标反馈。完整能力对齐仍在推进。 |
 | 2026-10-11 | Recursive observation（开发版，未发布） | Agent 可一次读取 iframe 子页面，并使用本次快照的元素引用执行操作；页面变化后过期引用会明确失败。 | 新增有界 `snapshotAI` 与三种 SDK 的 ref 定位，修复 iframe 重排串页和备用文本 YAML；导航、换快照或结束控制使 capture 失效。255 项扩展/构建测试、三种 SDK 测试及 31 项真实浏览器验收通过，活动 tab 事件为空。完整 Codex 能力对齐仍在推进。 |
 | 2026-10-11 | Scoped observation（开发版，未发布） | JS 调用方可直接读取选中元素或 iframe 内元素的语义快照；元素截图不再静默忽略页面截图参数。 | 增加 locator `ariaSnapshot()`，沿用既有超时和归属检查；元素截图明确拒绝 `clip` 和 `fullPage`（含 false）。231 项扩展/构建测试、JS SDK 与 28 项正式浏览器验收通过；递归 frame 快照和安全元素引用仍在开发。 |

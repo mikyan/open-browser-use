@@ -112,8 +112,15 @@ window. When the task requires staying in the background, use an observed link
 URL with the public background tab-creation API when that preserves the task's
 meaning. Do not silently replace scripted popups that depend on their opener.
 New tabs are attached only after backend ownership checks. A child outside the
-task group needs explicit claim; claim can move a popup into the task window,
-and a first-click timeout in that case remains unresolved.
+task group needs explicit claim. Check `info.metadata.auxiliaryTabsVersion === 1`
+before relying on popup preservation: explicit claim of an independent popup
+keeps its original window and shares ordinary action/target authorization.
+Turn end and Pause release control but retain its membership. Use `handoff` to
+retain a popup at finalization; `deliverable` is rejected before mutation, and
+omitting it releases ownership while leaving the window open. After the user
+moves it, wait for confirmed cleanup and explicitly claim its current tab again.
+An older extension can move a popup into the task window and encounter a known
+first-click timeout. Initial native popup activation remains unresolved in both.
 
 The `engine` object identifies the bundled Playwright CRX and Playwright versions.
 The current engine supports public serialized actions, not arbitrary Playwright

@@ -58,6 +58,15 @@ continue through the existing owned-root route. This prevents a popup from
 bypassing input tracking and pause cleanup, but does not prevent Chromium from
 activating a native popup or provide website-origin isolation.
 
+Explicit popup claims preserve the original window and commit ownership through
+a bounded trusted-context `chrome.storage.session` store. An unvalidated ordinary
+tab reservation grants no authority to detach another session's attachment.
+Moving an auxiliary tab quarantines its old claim before cleanup; failed cleanup
+retains the reverse lock. End/Pause retain durable membership while releasing
+control. This state survives worker replacement, not a full browser restart.
+Claim timeout leaves real unresolved writes tracked; session end remains fenced
+in `closing` until those writes settle. See [popup ownership](references/popup-ownership-design.md).
+
 The browser action popup can pause all Agent sessions. Pause blocks new work,
 invalidates old control epochs, and releases tracked native input before
 detaching. It does not close or move pages. Failed cleanup stays blocked; Resume

@@ -165,8 +165,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   生产 CRX 禁用基于 `tabs.onCreated` 的 popup 隐式 Page attachment；新 tab
   必须先经过 backend 归属与 admission，OOPIF 子 session 发现仍保留。
   frame 元素截图先由外到内滚动 owner，避免离屏子 renderer 的稳定性等待
-  挂起；每步仍使用同一剩余 deadline 和控制权检查。原生 popup 抢前台与
-  独立 popup 移组后首次点击超时仍是明确缺口。
+  挂起；每步仍使用同一剩余 deadline 和控制权检查。显式 claim 独立 popup
+  时通过 auxiliary ownership 保留其原窗口，避免移组造成首次点击超时。
+  原生 popup 创建抢前台和用户自行跨窗口移动后的渲染恢复仍有缺口。
 - Homebrew formula 从 GitHub Release 下载平台匹配的预编译 CLI tarball，
   安装后提供 `open-browser-use` 和 `obu`，并在 caveats 中提示用户运行显式
   `open-browser-use setup`；安装阶段不依赖 Go，也不在用户机器上编译。
@@ -252,6 +253,13 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
 - Session state persists the Chrome tab group id, tab origins, group title,
   deliverable group id, and logical active tab id in `chrome.storage.local` so
   MV3 service worker restarts can recover session tab listing semantics.
+  `getInfo.metadata.auxiliaryTabsVersion=1` 表示显式 popup claim 保留原窗口。
+  `auxiliary-tab-ownership.js` 在 trusted-context `chrome.storage.session`
+  保存有界归属与隔离锁，普通动作、target、通知和 transfer 共用成员检查。
+  结束/暂停释放控制但保留已提交归属；handoff 保留窗口，finalize 遗漏则释放
+  归属而不关闭页面；auxiliary deliverable 在修改前拒绝。用户移走 popup
+  会隔离旧归属，清理成功前禁止新 owner。完整浏览器重启需重新显式 claim，
+  详见 [popup ownership](references/popup-ownership-design.md)。
   新 session 的默认任务组名是 `Task - OBU`，上层 runtime 应通过
   `nameSession`/`name-session` 按 `<short task> - OBU` 设置更具体的任务名；
   `deliverable` tabs 统一移动到共享 `✅ Open Browser Use` tab group，`handoff`

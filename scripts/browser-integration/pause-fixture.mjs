@@ -5,11 +5,12 @@ export function pauseFixture() {
     <script>globalThis.events=[];for(const type of ['pointerdown','pointerup','pointermove','click','keydown','keyup'])document.addEventListener(type,event=>{events.push({type,trusted:event.isTrusted,buttons:event.buttons,key:event.key,pointerId:event.pointerId,target:event.target.id});if(type==='pointerdown')event.target.setPointerCapture(event.pointerId)});</script>`;
 }
 
-export async function checkGlobalPause({ connectBrowser, getWorker, connectPage, popupURL, windowId, fixtureURL, restartWorker, capture, saveDetail, assert, until }) {
+export async function checkGlobalPause({ connectBrowser, getWorker, connectPage, popupURL, windowId, fixtureURL, restartWorker, capture, saveDetail, assert, until, traceFocus = async () => {} }) {
   const first = await connectBrowser("pause-first"), second = await connectBrowser("pause-second");
   let forgedPage, forgedTab, popup;
   const detail = {};
   try {
+    await traceFocus("pause-fixture:start");
     await getWorker().evaluate(`globalThis.__pauseTargets=[];
       chrome.debugger.onEvent.addListener((source,method,params)=>{if(method==='Target.attachedToTarget'&&__pauseTargets.length<100)__pauseTargets.push({source,method,params})});
       chrome.tabs.onCreated.addListener(tab=>{if(__pauseTargets.length<100)__pauseTargets.push({createdTab:tab})})`);
@@ -53,7 +54,9 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     await second.cdp.call(b.id, "Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
     const pending = a.locator("#never-present").click({ timeoutMs: 15000 }).then(() => ({ succeeded: true }), error => ({ error: error.message }));
     detail.stage = "open action popup";
+    await traceFocus("action-popup:before-open");
     await getWorker().evaluate(`chrome.action.openPopup({windowId:${windowId}})`);
+    await traceFocus("action-popup:after-open");
     detail.stage = "connect action popup";
     popup = await connectPage(popupURL);
     const view = () => popup.evaluate(`({state:document.querySelector('#automation-status-label')?.textContent,revision:Number(document.querySelector('#automation-status-pill')?.dataset.revision),button:document.querySelector('#automation-toggle')?.textContent,disabled:document.querySelector('#automation-toggle')?.disabled,hint:document.querySelector('#automation-hint')?.textContent})`);
@@ -66,8 +69,10 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     detail.before = before.status;
     const pauseStarted = Date.now();
     detail.stage = "pause from real popup";
+    await traceFocus("pause:before-toggle");
     await popup.evaluate("document.querySelector('#automation-toggle').click()");
     await until(async () => (await view()).state === "Paused", "real popup Paused");
+    await traceFocus("pause:after-paused");
     detail.pauseElapsedMs = Date.now() - pauseStarted;
     detail.pending = await pending;
     assert.match(detail.pending.error, /paused|ended|cancel|stale/i);
@@ -79,7 +84,9 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     await assert.rejects(second.cdp.call(b.id, "Runtime.evaluate", { expression: "document.querySelector('#name').value='must not run'" }), /OBU_AUTOMATION_PAUSED/);
     await assert.rejects(second.client.request("executeCdp", { target: { tabId: b.id }, method: "Runtime.evaluate", commandParams: { expression: "document.querySelector('#name').value='must not run either'" } }), /OBU_AUTOMATION_PAUSED/);
     detail.stage = "restart paused worker";
+    await traceFocus("paused-worker:before-restart");
     detail.restart = await restartWorker(popup);
+    await traceFocus("paused-worker:after-restart");
     await until(async () => (await view()).state === "Paused", "persisted pause after worker restart");
     detail.afterRestart = (await popup.evaluate("chrome.runtime.sendMessage({type:'GET_AUTOMATION_CONTROL_STATUS'})")).status;
     assert.equal(detail.afterRestart.inputBlocked, true);
@@ -87,9 +94,11 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     detail.staleResume = await popup.evaluate(`chrome.runtime.sendMessage({type:'RESUME_AUTOMATION',expectedRevision:${before.status.revision}})`);
     assert.equal(detail.staleResume.ok, false); assert.match(detail.staleResume.error, /OBU_CONTROL_REVISION_CONFLICT/);
     await until(async () => (await view()).revision === detail.afterRestart.revision, "popup current revision after worker restart");
+    await traceFocus("resume:before-toggle");
     await popup.evaluate("document.querySelector('#automation-toggle').click()");
     detail.stage = "resume from real popup";
     await until(async () => (await view()).state === "Running", "real popup resumed Running");
+    await traceFocus("resume:after-running");
     assert.match((await view()).hint, /ask your agent to continue/);
     for (const browser of [first, second]) await assert.rejects(browser.client.getTabs(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
     await first.client.beginTurn(); await second.client.beginTurn();
@@ -103,7 +112,9 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     assert.equal(await b.getByLabel("Name").inputValue(), "");
     await a.getByLabel("Name").fill("explicitly resumed");
     assert.equal(await a.getByLabel("Name").inputValue(), "explicitly resumed");
+    await traceFocus("resumed-actions:complete");
     await first.client.finalizeTabs([]); await second.client.finalizeTabs([]);
+    await traceFocus("pause-fixture:finalized");
     detail.stage = "complete";
     return detail;
   } catch (error) {
@@ -120,6 +131,10 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     await saveDetail(detail);
     first.close(); second.close(); forgedPage?.close();
     if (forgedTab) await getWorker().evaluate(`chrome.tabs.remove(${forgedTab.id})`).catch(() => {});
-    if (popup) { try { await popup.evaluate("window.close()"); } catch {} popup.close(); }
+    if (popup) {
+      await traceFocus("action-popup:before-close");
+      try { await popup.evaluate("window.close()"); } catch {} popup.close();
+      await traceFocus("action-popup:after-close");
+    }
   }
 }
