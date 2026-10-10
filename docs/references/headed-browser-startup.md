@@ -104,7 +104,7 @@ before root Display aggregation services the copy. It does not identify which
 was unsatisfied. Initial native window creation precedes the trace, so absence
 of a recorded startup root-frame event is not proof that no root ever existed.
 
-The startup scenario remains failed. All observed extension-native promises,
+That startup scenario remains failed. All observed extension-native promises,
 including stop/detach, settled; the trace stream closed and the browser root
 exited normally. This does not claim that the uncompleted internal Viz capture
 had already settled. The event ledger contains only the secondary window's
@@ -112,17 +112,158 @@ exact initial tab activation and no focus events, within the stated listener
 coverage. This sequential, instrumented run is neither a production fix nor
 evidence about OS foreground state, locked desktops or other Chromium builds.
 
+## Startup trace: root Surface remains pending
+
+The later `rendering-MCMbt8` probe starts tracing through a configuration file
+passed before browser spawn. Its retained Perfetto trace begins 328.6355 ms
+before the first `Widget::Init` and includes native `WM_NCCREATE`, `WM_CREATE`
+and window-show events. Typed scheduler and Surface arguments are retained;
+the analysis reports no trace errors or data loss. This closes the earlier
+trace's missing startup interval without changing the extension's behavior.
+
+The browser UI scheduler is visible, can draw, has an unpaused BeginFrame
+source and an active layer-tree frame sink. Its frame number advances from 17
+to 587, while one submitted frame remains pending and the last submitted frame
+number stays at 2. Thus the trace does not support a simple absence of
+BeginFrames or an invisible UI compositor as the explanation.
+
+The initial root `FrameSinkId(0, 1)` commits a frame but never records
+`Surface::ActivateFrame`. Its `SurfaceQueuedPending` interval remains open
+through the trace's end. The dependency arguments identify two distinct sinks:
+
+- `FrameSinkId(5, 3)` maps to the `chrome://webui-toolbar.top-chrome/` renderer.
+- `FrameSinkId(6, 3)` maps to the initial `about:blank` renderer. After sentinel
+  navigation replaces that renderer, the old sink unregisters; the root's
+  pending interval still does not end within the trace.
+
+The child page activates a Surface, but the root never activates or services
+the queued copy. GPU `SendNoActiveSurface` events do not carry a sink ID, so
+their individual counts cannot be attributed to this root or its deadline.
+The evidence identifies the blocked root and its dependencies; it does not
+alone explain every dependency's deadline behavior.
+
+## Testing field trial and controlled comparisons
+
+The original browser had no explicit feature-enabling argument, but its trace
+metadata contains study/group hashes `3158107110 / 1621198459`. Applying
+Chromium's [field-trial name hash](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/base/metrics/metrics_hashes.cc#L42)
+to the pinned configuration yields exactly one matching pair:
+`WebUIReloadButtonStudy / EnabledWithSurfaceSync_20260902`.
+The [Windows experiment](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/testing/variations/fieldtrial_testing_config.json#L20542)
+enables 23 features, including `InitialWebUI`, `InitialWebUISurfaceSync`,
+`PerDependencyDeadlines` and individual WebUI toolbar controls. It configures
+`deadline_in_frames=12000` and `renderer_commit_delay_ms=100000`, rather than
+the feature's [source defaults](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/common/features.cc#L813)
+of 600 frames and 10,000 ms. Runtime membership is observed; those parameter
+values come from the matching pinned experiment, not a separate runtime
+parameter dump.
+
+| Run | Explicit test-config change | Startup / secondary first frame | Native outcome |
+| --- | --- | --- | --- |
+| `rendering-MCMbt8` | None | Timeout at 10,011.6 ms / 84 ms | Startup: zero frames/ACKs, no input or PNG. Secondary: two ACKs, one trusted click and a valid PNG. |
+| `rendering-3V0dDE` | Generated control: `--disable-features=InitialWebUISurfaceSync` | 83.6 / 53.3 ms | Both: two ACKs, one trusted click and valid PNGs. |
+| `rendering-7USN6G` | Formal control: same single feature argument | 75 / 54.5 ms | Both: two ACKs, one trusted click and valid PNGs. |
+| `rendering-b4WKbw` | `--disable-field-trial-config`; no feature override | 59.3 / 68.6 ms | Both: two ACKs, one trusted click and valid PNGs. |
+
+All four runs retain zero observed window-focus events and exactly the
+secondary window's initial sole-tab activation; both sentinels remain active.
+The successful images are 1,877 × 1,748 and 1,878 × 1,832 pixels, with recorded
+hashes. The three-run Surface audit independently checks PNG structure/pixels
+for `MCMbt8`, `3V0dDE` and `b4WKbw`. Native command promises and cleanup settle.
+The original startup failure remains a failure.
+
+The single feature argument is **not a single effective-feature comparison**.
+Chromium [skips an entire testing experiment](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/variations/field_trial_config/field_trial_util.cc#L84)
+when any of its features is overridden on the command line, before creating
+the trial or applying its parameters. The study hash is absent from both
+single-feature control traces, consistent with that rule. Their success cannot
+isolate `InitialWebUISurfaceSync` from the other features and parameters removed
+with it. In `3V0dDE`, only the old page sink remains a root dependency, for
+56.0126 ms before root activation. In `b4WKbw`, that pending interval ends after
+62.923 ms and the startup root records 22 activations. Its trace also covers
+native window creation, beginning 279.4215 ms before the first `Widget::Init`.
+
+The retained audit inputs and queries are
+`.tmp/p09-startup-surface-audit.json`,
+`.tmp/first-surface-source/fieldtrial-runtime-match.json`, and each run's
+`fieldtrial-metadata.csv`. They preserve the raw hashes, typed Surface
+dependencies, trace/binary/config hashes, image checks and event ledgers.
+`7USN6G` has native-result and field-trial/hash verification; its full Surface
+timeline was not independently decoded for the three-run Surface audit.
+
+## Why the explicit test baseline disables testing config
+
+Chromium [documents this configuration](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/testing/variations/README.md#L6)
+for developer and Chrome for Testing builds; Chrome-branded builds do not use
+it by default. The first matching experiment is selected after platform
+filtering. The same documentation lists `--disable-field-trial-config` as a
+supported way for other Chromium builds to disable these testing experiments.
+
+The installed Playwright **1.64.0** launcher also includes this flag in its
+default Chromium arguments, matching its
+[versioned official source](https://github.com/microsoft/playwright/blob/v1.64.0/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L56).
+The local `playwright-core/lib/coreBundle.js` contains it at line 36207 and
+expands those switches in `_innerDefaultArgs` at line 44754. The manual probe
+borrowed only Playwright's executable path, so it did not inherit that default.
+
+An explicit, reported testing-config baseline is therefore justified for this
+isolated acceptance browser. It does not modify the extension, user profiles,
+installed-browser feature settings or production behavior. It does not import
+Playwright's unrelated background-throttling or occlusion switches. The saved
+unmodified baseline and the whole-study confound remain part of the evidence;
+the successful native probe alone is not a production-suite result.
+
+## Headed integration under the declared baseline
+
+The production build subsequently passed the focused `run-Uq8Fkj` **3/3**:
+raw navigation before engine attachment, offscreen-frame element screenshots,
+and page screenshots. Its continuous event ledger contains no activation or
+window-focus event and passes final validation. Its recorded production
+extension, native-host, JavaScript SDK and Python SDK hashes match the earlier
+failed `run-XLWzut`; the passing comparison does not incorporate a production
+rendering patch. The complete headed
+`run-NJ72u2` then passed **61/61**, including the public SDK/CLI/MCP paths,
+worker restart, Pause and website-access controls. Both runs record the exact
+browser binary and `--disable-field-trial-config` in `browser-startup.json`.
+The existing isolated loopback transport adapter and test-only lifecycle
+injections remain declared in `sourceIdentity`; these are not unmodified
+native-messaging transport acceptance runs.
+
+The full run is **not zero-focus**. Its uninterrupted observer history contains
+five activations, each bound to the observed creation interval of a synthetic
+popup's sole tab, and four window-focus events. The latter are two exact pairs
+`[sentinelWindowId, -1]`, occurring only during the harness's two deliberate
+`chrome.action.openPopup` calls for Pause/Resume and website-access settings.
+Each allowance retains its original event index, sequence, interval and live
+`POPUP` context proof; the final sentinel stays active and
+`focusLedger.finalValidation` is `passed`. There are no unaccounted events in
+that observer interval. Process setup and teardown remain outside its scope.
+
+An independent audit of `NJ72u2` verifies 35 retained PNGs (18 screenshots and
+17 two-pixel media downloads), PNG CRCs/decoded pixels and recorded hashes,
+plus the signatures, sizes and hashes of the five PDF/MHTML pairs. Its frozen
+production extension, SDK and host hashes also match `Uq8Fkj` and `XLWzut`.
+The saved audit is `.tmp/p09-headed-full-audit.json`; checks of those exact
+test-run paths found no remaining browser, host or caller process.
+
 ## Remaining diagnosis
 
-These runs record a first-window rendering difference; they
-do not yet identify a single Chromium root cause or justify moving user tabs
-to another window. A useful next comparison begins tracing before native
-window creation and retains the startup UI compositor and DisplayScheduler
-state: visibility, output-surface loss, missing root frame and pending damage.
-Any proposed initialization change must then pass the ordinary headed suite
-with the same strict activation/focus ledger and real screenshot/input checks.
-Do not replace that evidence with arbitrary delays, focus restoration, a
-headless run or persistent system settings.
+Startup tracing now identifies a nonactivating root Surface with WebUI toolbar
+and initial-page dependencies, and runtime metadata establishes involvement of
+the pinned testing experiment. It does not isolate one feature as the complete
+cause, establish behavior under installed-browser Finch configurations, or
+justify moving user tabs to another window. A true single-feature causal test
+would need both arms to retain the same other experiment features and
+parameters, with effective runtime configuration checked again.
+
+The headed integration results above establish this build's tested actions
+under the declared baseline, with real screenshot/input checks and the exact
+event allowances described above. They do not erase the failed unmodified
+testing configuration or establish a general extension-side rendering repair.
+No arbitrary delays, focus restoration, headless substitution or persistent
+system settings can replace that evidence. Screenshot-associated focus events
+on other builds also remain a separate constraint; the startup diagnosis does
+not authorize an exception for them.
 
 ## Acceptance event-log correction
 

@@ -694,3 +694,33 @@ release；导航场景另以对应 context 的真实销毁事件、不同 docume
 诊断而非生产方案。Page GUID 路径/取消、headed OS 剪贴板、video/audio、
 blob/data/Canvas 内容和其他平台继续未完成。完整契约见
 [媒体下载](../../references/media-downloads.md)。
+
+### P09：启动 trace 与 Chromium 测试实验配置
+
+最小探针新增启动前原始 Perfetto 追踪和只读 HWND 快照，保留实际
+`traceFormat`、流关闭、部分数据、源码/二进制 hash 与阶段时钟。
+`rendering-MCMbt8` 的原配置仍失败：root Surface `(0,1)` 提交后一直等待
+toolbar 和最初 about:blank 两个依赖，页面 child Surface 已激活；1,813 个
+Browser scheduler 状态均 visible/can_draw=true、pending_submit_frames=1。
+这比“窗口不可见”更具体，不能把 HWND foreground=0 解释为锁屏。
+
+原 trace 的 study/group hash 精确匹配 pinned Chromium testing config 的
+`WebUIReloadButtonStudy/EnabledWithSurfaceSync_20260902`：它启用一组实验，
+配置 100,000ms renderer commit delay 和 12,000-frame deadline。单独命令行
+覆盖 `InitialWebUISurfaceSync` 会让整个 study 跳过，相关两窗口成功对照
+不能被称为单一 feature 的因果证明。原失败与字段名修正前丢流的过程失败
+均保留，不改为通过。
+
+独立 `--disable-field-trial-config` 对照 `rendering-b4WKbw` 两窗口均有真实
+帧、ACK、可信点击及 PNG；root pending 62.923ms 后激活，focus 记录为空。
+正式验收脚本现采用 Playwright 同版本 launcher 的这一测试基线开关；不导入
+其余 background/occlusion 参数，生产插件及用户浏览器配置不变。
+`OBU_TEST_FIELD_TRIAL_CONFIG=browser-default` 可复现旧策略；未知值启动前
+拒绝，`browser-startup.json` 保存实际参数与 binary hash。
+三项正式链路定向 `run-Uq8Fkj` 3/3；完整 headed `run-NJ72u2` **61/61**，
+包含 JS/Python/Go/CLI/MCP 与八项图片下载/生命周期用例。连续 observer 的
+最终校验通过；五次辅助窗口首个 tab 激活、两次测试明确打开控制面板的
+四条 focus 事件精确归因，网页操作没有额外前台事件。脚手架 Node 回归
+**30/30**、文档与仓库卫生检查通过；本轮仅改脚手架，未重复完整产品 CI。
+这修正的是验收环境，实验配置下的生产兼容性仍是限制，全部 P01–P15
+目标保持未完成。证据见 [启动诊断](../../references/headed-browser-startup.md)。

@@ -62,6 +62,28 @@ including on failed cases; a lost observer or an unexpected late event fails
 the run. Teardown after that checkpoint is outside the measured action interval.
 The pure event-ledger unit tests run in ordinary CI without browser dependencies.
 
+The acceptance runner explicitly disables Chromium's **testing field-trial
+configuration** with `--disable-field-trial-config`, matching Playwright's
+normal launcher for the same executable. It does not inherit Playwright's
+background/occlusion flags. This matters because an unbranded Chromium build
+otherwise loads experiments from `fieldtrial_testing_config.json`: the pinned
+build's toolbar experiment includes a 100-second renderer commit delay and a
+12,000-frame surface deadline. This is a controlled test baseline, not a
+production extension workaround or proof about all user experiment settings.
+Set `OBU_TEST_FIELD_TRIAL_CONFIG=browser-default` to reproduce the previous
+unmodified launch policy; the default is `disabled`, and other values fail
+before launch. `browser-startup.json` records the selected policy, exact spawn
+arguments, binary hash and `windowsHide`; it is separate from focus evidence.
+See the [startup trace and experiment evidence](../../docs/references/headed-browser-startup.md).
+
+On this controlled baseline, `run-Uq8Fkj` passed the three directed input/image
+cases and `run-NJ72u2` passed all **61 headed cases**, including the Go client
+and eight media cases. The continuous observer passed final validation: five
+exact sole-tab popup activations and four focus events from the two intentional
+control-popup openings were recorded and attributed. Ordinary page actions had
+no additional foreground events. Earlier browser-default failures remain
+failed evidence; this result is not cross-platform or all-configuration parity.
+
 `js-user-site-access-popup` also uses the actual action popup and the same exact
 focus ledger. It verifies allow/block settings, cancellation of a waiting click,
 stale epochs, explicit resume, permitted semantic actions and PNG output, a
@@ -519,8 +541,23 @@ activation/focus events, browser/source hashes and cleanup. A missing first
 frame produces a nonzero exit and is never replaced by rAF success or replayed
 input. Artifacts remain under `.tmp/browser-integration/rendering-*`.
 
-The probe closes only its private browser. Root-process exit and native command
-settlement are reported separately; descendant processes and OS foreground HWND
-state are not inventoried by this portable script. These diagnostics do not
-change the normal acceptance runner's startup settings or repair production
-rendering. See the [retained failures and source analysis](../../docs/references/headed-browser-startup.md).
+`--startup-trace` (only with `startup-and-secondary`) starts tracing before
+browser creation and retains the raw Perfetto stream, exact revision, config
+and source hashes, stage clock markers and bounded stream cleanup. Its Windows
+helper takes read-only root-process HWND snapshots; these are not a continuous
+OS foreground log. The probe preserves native promises after observation
+deadlines and retains partial or unexpected trace bytes as failed evidence.
+Offline decoding must verify startup coverage and typed scheduler fields;
+successful tracing setup alone never proves either.
+
+The probe defaults to the browser's own field-trial policy, independently of the
+acceptance runner. Add `--disable-field-trial-config` with `--startup-trace` for
+the controlled baseline. The alternative `--disable-initial-surface-sync`
+reproduces the narrower command-line experiment; Chromium can skip an entire
+testing study when any of its features is overridden, so it is **not** an
+isolated single-feature experiment. The two comparison flags cannot be combined.
+
+The probe closes only its private browser. Root-process exit, actual native
+command settlement and trace-stream cleanup are reported separately;
+descendant processes are not inventoried. These diagnostics do not repair
+production rendering. See the [retained failures and source analysis](../../docs/references/headed-browser-startup.md).

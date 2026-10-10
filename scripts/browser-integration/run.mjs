@@ -29,10 +29,13 @@ import { createNetworkWaitFixtures, networkPageURL, networkAPIURL, networkButton
 import { createNavigationWaitFixtures, navigationPageURL, navigationTargetURL, navigationButton, navigationWitness, checkNavigationDirectAndReady, checkNavigationLoadStates, checkNavigationLifecycle } from "./navigation-waits-fixture.mjs";
 import { createDirectDownloadFixtures, directDownloadURL, directDownloadErrors, prepareDirectDownloadTab, verifyDownloadedFile, checkDirectDownloads, checkDirectDownloadLifecycle } from "./direct-downloads-fixture.mjs";
 import { FocusLedger, assertQuietObserverSetup, currentWorkerVersion, focusArrays, focusObserverHTML, focusObserverSource, focusSnapshotExpression, installFocusObserver, readFocusEvidence } from "./focus-ledger.mjs";
+import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startup.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
+// Reject unknown settings before filesystem setup, servers, or process launch.
+const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
 const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
 let memoryClipboardGuard;
 const repo = path.resolve(directory, "../..");
@@ -342,6 +345,7 @@ try {
   };
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
+  sourceIdentity.sha256.browserStartup = createHash("sha256").update(await fs.readFile(path.join(directory, "browser-startup.mjs"))).digest("hex");
   sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
@@ -403,11 +407,17 @@ try {
   await fs.mkdir(path.join(profile, "Default"), { recursive: true });
   await fs.mkdir(path.join(runDir, "downloads"));
   await fs.writeFile(path.join(profile, "Default", "Preferences"), JSON.stringify({ download: { default_directory: path.join(runDir, "downloads"), prompt_for_download: false } }));
-  chrome = spawn(chromiumBinary, [
+  const startup = browserStartupOptions([
     ...(memoryClipboard ? ["--headless=new", "--enable-automation", "--disable-background-networking", "--disable-component-update"] : []),
     `--user-data-dir=${profile}`, "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
     "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "about:blank"
-  ], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+  ], fieldTrialConfig);
+  await fs.writeFile(path.join(runDir, "browser-startup.json"), JSON.stringify({
+    ...startup,
+    binary: path.resolve(chromiumBinary),
+    binarySha256: createHash("sha256").update(await fs.readFile(chromiumBinary)).digest("hex")
+  }, null, 2));
+  chrome = spawn(chromiumBinary, startup.args, { windowsHide: startup.windowsHide, stdio: ["ignore", "ignore", "pipe"] });
   chrome.stderr.on("data", data => browserLog.push(data.toString()));
   chrome.on("exit", (code, signal) => browserLog.push(`Browser exited: ${code} ${signal}\n`));
   const debugPort = await until(async () => (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0], "Chromium debug port");

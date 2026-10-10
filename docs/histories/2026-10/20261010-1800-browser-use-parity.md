@@ -478,6 +478,29 @@ headed `run-XLWzut` 8/9，仅 mandatory raw-navigation 仍失败，八项媒体�
 其余生产文件与两轮冻结副本一致，包内没有测试 hook。CI 产生的平台 PNG
 压缩差异已还原后重新打包，不涉及生产逻辑变更。
 
+### P09：启动追踪与测试实验配置
+
+为首帧问题增加可复跑的启动前 Perfetto 追踪、原生流保留与关闭、Windows
+只读 HWND 快照；修正请求 `streamFormat` 与返回 `traceFormat` 混淆，并用
+真实 native event 形状覆盖回归。最终 metadata 失败也不会跳过 trace 收尾。
+原配置 root Surface 等待依赖、UI scheduler pending frame 和页面已绘制的
+证据被区分保存，首窗口失败仍保留。
+
+通过 trace study/group hash 与固定 Chromium testing config 对照，定位到
+包含 100 秒 renderer 延迟的 toolbar 实验组。单 feature 命令行覆盖实际会
+跳过整组，因此没有将该对照错误解释为单 feature 修复。验收 launcher
+现在显式采用同版本 Playwright 的 `--disable-field-trial-config` 测试基线，
+提供 `browser-default` 复现旧配置，保留参数和二进制 hash。只改变测试
+环境，不修改生产插件、用户设置、窗口/标签选择或严格焦点检查。
+
+原生对照 `rendering-b4WKbw` 两窗口均完成帧/ACK、可信点击及 PNG，定向
+公开链路 `run-Uq8Fkj` 3/3，完整受控基线 headed `run-NJ72u2` **61/61**，
+涵盖全部八项媒体及五调用入口。五次辅助窗口初始激活与两次控制面板的
+四条 focus 事件有精确归因；连续 observer 最终校验通过，不能将其写成
+整个测试期间零事件。测试脚本 **30/30**、文档和仓库卫生检查通过；此次
+没有生产改动，不重复完整产品 CI。完整能力目标继续有效，无 PR 或推送。
+详细证据与兼容性边界见启动 reference。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

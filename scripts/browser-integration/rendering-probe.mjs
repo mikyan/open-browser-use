@@ -12,12 +12,95 @@ import WebSocket from "ws";
 
 const modes = ["startup-and-secondary", "no-startup-window", "popup-then-normal", "app-startup"];
 if (process.argv[2] === "--help" && process.argv.length === 3) {
-  console.log(`Usage: node scripts/browser-integration/rendering-probe.mjs [${modes.join("|")}]`);
+  console.log(`Usage: node scripts/browser-integration/rendering-probe.mjs [${modes.join("|")}] [--startup-trace] [--disable-initial-surface-sync | --disable-field-trial-config]\n--startup-trace requires startup-and-secondary and retains an isolated startup Perfetto trace plus read-only Windows HWND snapshots.\nBoth diagnostic overrides require --startup-trace. A feature override can cause Chromium to skip its entire testing experiment; these are configuration comparisons, not production fixes.`);
   process.exit(0);
 }
-assert.ok(process.argv.length <= 3, "Only one rendering probe mode is accepted");
-const mode = process.argv[2] ?? modes[0];
+const probeArguments = process.argv.slice(2);
+const startupTrace = probeArguments.includes("--startup-trace");
+assert.equal(probeArguments.filter(value => value === "--startup-trace").length, startupTrace ? 1 : 0, "Duplicate startup trace option");
+const disableInitialSurfaceSync = probeArguments.includes("--disable-initial-surface-sync");
+assert.equal(probeArguments.filter(value => value === "--disable-initial-surface-sync").length, disableInitialSurfaceSync ? 1 : 0, "Duplicate surface sync diagnostic option");
+assert.ok(!disableInitialSurfaceSync || startupTrace, "Surface sync comparison requires retained startup tracing");
+const disableFieldTrialConfig = probeArguments.includes("--disable-field-trial-config");
+assert.equal(probeArguments.filter(value => value === "--disable-field-trial-config").length, disableFieldTrialConfig ? 1 : 0, "Duplicate field trial diagnostic option");
+assert.ok(!disableFieldTrialConfig || startupTrace, "Field trial comparison requires retained startup tracing");
+assert.ok(!(disableFieldTrialConfig && disableInitialSurfaceSync), "Use one diagnostic configuration comparison at a time");
+const positionalArguments = probeArguments.filter(value => !["--startup-trace", "--disable-initial-surface-sync", "--disable-field-trial-config"].includes(value));
+assert.ok(positionalArguments.length <= 1, "Only one rendering probe mode is accepted");
+const mode = positionalArguments[0] ?? modes[0];
 assert.ok(modes.includes(mode), `Unknown rendering probe mode: ${mode}`);
+assert.ok(!startupTrace || mode === "startup-and-secondary", "Startup tracing uses only the fixed startup-and-secondary comparison");
+
+// The pinned browser's first browser-level Tracing.start adopts this startup
+// session before returning the exact already-started error. A normal success
+// would mean it started a new, late trace, so it must never count as adoption.
+const TRACE_REVISION = "@f842f52ef39fd97b449eb27cff414bf05a98ddce";
+const TRACE_ADOPTION_ERROR = "Tracing has already been started (possibly in another tab).";
+const TRACE_CATEGORIES = ["__metadata", "startup", "content", "viz", "gpu.capture", "cc", "benchmark", "toplevel", "views",
+  "blink.user_timing", "disabled-by-default-viz.surface_id_flow", "disabled-by-default-viz.surface_lifetime",
+  "disabled-by-default-cc.debug.scheduler", "disabled-by-default-devtools.timeline"];
+function startupTraceConfiguration(configPath, { disableSurfaceSync = false, disableFieldTrials = false } = {}) {
+  return {
+    config: { startup_duration: 0, trace_config: { record_mode: "record-until-full", trace_buffer_size_in_kb: 65536, included_categories: [...TRACE_CATEGORIES] } },
+    args: [`--trace-config-file=${configPath}`, "--trace-startup-owner=devtools",
+      ...(disableSurfaceSync ? ["--disable-features=InitialWebUISurfaceSync"] : []),
+      ...(disableFieldTrials ? ["--disable-field-trial-config"] : [])],
+  };
+}
+function isStartupAdoptionError(error) {
+  try {
+    const response = JSON.parse(error.message);
+    return response.code === -32000 && response.message === TRACE_ADOPTION_ERROR;
+  } catch { return false; }
+}
+
+// Only read-only Win32 calls. Run once before Chrome so compiling this observer
+// cannot create a varying per-stage warm-up delay. Do not inspect user titles,
+// activate/restore windows, or infer a locked desktop from foreground == 0.
+const NATIVE_WINDOW_SCRIPT = String.raw`$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class ProbeWindowReadOnly {
+ public delegate bool Callback(IntPtr window, IntPtr context);
+ [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+ [DllImport("user32.dll")] public static extern bool EnumWindows(Callback callback, IntPtr context);
+ [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+ [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+ [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int bytes);
+ public static object[] ForProcess(uint desired, IntPtr foreground) {
+  var result = new List<object>();
+  if (desired == 0) return result.ToArray();
+  EnumWindows((window, unused) => {
+   uint processId; GetWindowThreadProcessId(window, out processId);
+   if (processId == desired) {
+    Rect rect; bool hasRect = GetWindowRect(window, out rect);
+    int cloaked; int dwmResult = DwmGetWindowAttribute(window, 14, out cloaked, 4);
+    result.Add(new { handle = window.ToInt64().ToString(), processId, visible = IsWindowVisible(window), iconic = IsIconic(window),
+      cloaked, dwmResult, hasRect, rect, foreground = window == foreground });
+   }
+   return true;
+  }, IntPtr.Zero);
+  return result.ToArray();
+ }
+}
+'@
+[Console]::Out.WriteLine('{"ready":true}')
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+ try {
+  $request = $line | ConvertFrom-Json
+  if ($request.stop -eq $true) { break }
+  $foreground = [ProbeWindowReadOnly]::GetForegroundWindow()
+  $result = [pscustomobject]@{ id = $request.id; at = [DateTime]::UtcNow.ToString('o'); processId = $request.processId;
+    foreground = $foreground.ToInt64().ToString(); windows = @([ProbeWindowReadOnly]::ForProcess([uint32]$request.processId, $foreground)) }
+  [Console]::Out.WriteLine(($result | ConvertTo-Json -Depth 6 -Compress))
+ } catch { [Console]::Out.WriteLine(([pscustomobject]@{ id = $request.id; error = $_.Exception.Message } | ConvertTo-Json -Compress)) }
+}
+`;
 
 const sourceFile = fileURLToPath(import.meta.url);
 const repo = await fs.realpath(path.resolve(path.dirname(sourceFile), "../.."));
@@ -64,6 +147,8 @@ const report = {
   runDir, mode, startedAt: new Date().toISOString(), sourceSHA256: sha256(sourceBytes),
   workerSHA256: sha256(workerSource), fixtureSHA256: sha256(fixture),
   syntheticOnly: true, windowsHide: true, noOcclusionFlags: true,
+  diagnosticFeatureOverrides: disableInitialSurfaceSync ? ["disable:InitialWebUISurfaceSync"] : [],
+  fieldTrialTestingConfig: disableFieldTrialConfig ? "disabled" : "browser-default",
   ledgerCoverage: "Raw extension events from worker listener installation; native process startup may precede those listeners. No foreground HWND claim is made.",
   nativeWindowState: { observed: false, reason: "This portable probe does not inspect native HWND/foreground state." },
   scenarios: [], failures: [], allowedActivationEvents: [], windowCreations: [], cleanup: {}
@@ -89,7 +174,7 @@ async function until(operation, label, timeoutMs = 15000) {
 }
 
 async function connect(url) {
-  const socket = new WebSocket(url), pending = new Map();
+  const socket = new WebSocket(url), pending = new Map(), listeners = new Set();
   const opened = await observe(new Promise((resolve, reject) => {
     socket.once("open", resolve); socket.once("error", reject);
   }), 5000, "CDP connection");
@@ -102,11 +187,12 @@ async function connect(url) {
   socket.on("error", fail); socket.on("close", () => fail(new Error("CDP connection closed")));
   socket.on("message", bytes => {
     const message = JSON.parse(bytes), entry = pending.get(message.id);
-    if (!entry) return;
+    if (!entry) { for (const listener of listeners) listener(message); return; }
     clearTimeout(entry.timer); pending.delete(message.id);
     message.error ? entry.reject(new Error(JSON.stringify(message.error))) : entry.resolve(message.result);
   });
   return {
+    onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     call(method, params = {}, timeoutMs = 40000) {
       return new Promise((resolve, reject) => {
         const id = ++nextId, timer = setTimeout(() => {
@@ -215,10 +301,144 @@ async function nativeCheck(tabId) {
 }
 
 let browser, worker, browserConnection;
+let traceRequested = false, traceComplete, windowObserver;
 const browserLogs = [];
 async function persist() { await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify(report, null, 2)); }
 async function ledger() { return worker.evaluate("structuredClone(probeLedger)"); }
 const failure = (stage, detail) => report.failures.push({ stage, detail });
+
+async function startWindowObserver() {
+  if (process.platform !== "win32") {
+    report.nativeWindowState = { observed: false, reason: "Read-only HWND snapshots are Windows-only." };
+    return;
+  }
+  const scriptPath = path.join(runDir, "native-window-state.ps1");
+  await fs.writeFile(scriptPath, NATIVE_WINDOW_SCRIPT);
+  const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+    { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  const requests = new Map(); let lineBuffer = "", nextId = 0, resolveReady, rejectReady;
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  const state = report.nativeWindowState = { observed: false, readOnly: true, observerPid: child.pid,
+    sourceSHA256: sha256(NATIVE_WINDOW_SCRIPT), snapshots: [], stderr: "",
+    coverage: "Point-in-time root-process HWND snapshots, not a continuous OS foreground event log; no window titles are read." };
+  const rejectAll = error => { rejectReady(error); for (const request of requests.values()) request.reject(error); requests.clear(); };
+  child.on("error", rejectAll);
+  child.on("exit", (code, signal) => { state.exit = { code, signal }; rejectAll(new Error("Read-only HWND observer exited")); });
+  child.stdin.on("error", rejectAll);
+  child.stderr.on("data", bytes => { state.stderr += bytes.toString(); });
+  child.stdout.on("data", bytes => {
+    lineBuffer += bytes.toString();
+    while (lineBuffer.includes("\n")) {
+      const end = lineBuffer.indexOf("\n"), line = lineBuffer.slice(0, end).trim(); lineBuffer = lineBuffer.slice(end + 1);
+      if (!line) continue;
+      try {
+        const value = JSON.parse(line);
+        if (value.ready === true) { resolveReady(); continue; }
+        const request = requests.get(value.id); if (!request) throw new Error("Unknown HWND observer response");
+        requests.delete(value.id); value.error ? request.reject(new Error(value.error)) : request.resolve(value);
+      } catch (error) { rejectAll(error); }
+    }
+  });
+  windowObserver = { child, async snapshot(label, processId) {
+    assert.ok(Number.isSafeInteger(processId) && processId >= 0);
+    const id = ++nextId, requestedAt = Date.now();
+    const result = new Promise((resolve, reject) => { requests.set(id, { resolve, reject }); });
+    child.stdin.write(`${JSON.stringify({ id, processId })}\n`);
+    const observed = await observe(result, 5000, `HWND snapshot ${label}`);
+    state.snapshots.push({ label, requestedAt, observation: observed });
+    assert.ok(observed.settled && !observed.error, `HWND snapshot failed: ${label}`);
+    state.observed = true;
+    return observed.value;
+  } };
+  const started = await observe(ready, 10000, "Read-only HWND observer ready");
+  assert.ok(started.settled && !started.error, "Read-only HWND observer did not become ready");
+}
+async function windowSnapshot(label) {
+  if (windowObserver) return windowObserver.snapshot(label, browser?.pid ?? 0);
+}
+async function adoptStartupTrace() {
+  assert.equal(report.browserVersion.revision, TRACE_REVISION, "Startup trace adoption is pinned to the audited Chromium revision");
+  let resolveComplete;
+  traceComplete = new Promise(resolve => { resolveComplete = resolve; });
+  browserConnection.onEvent(event => {
+    if (event.method === "Tracing.tracingComplete") resolveComplete(event.params);
+  });
+  traceRequested = true;
+  try {
+    await browserConnection.call("Tracing.start", { transferMode: "ReturnAsStream", streamFormat: "proto", tracingBackend: "chrome" }, 10000);
+    throw new Error("Expected startup adoption error; a successful Tracing.start is a late trace, not startup evidence");
+  } catch (error) {
+    report.trace.adoption = { at: Date.now(), response: String(error), expectedPinnedResponse: isStartupAdoptionError(error) };
+    if (!isStartupAdoptionError(error)) throw error;
+  }
+}
+async function traceMarker(label) {
+  if (!startupTrace || !traceRequested) return;
+  const marker = { label, at: Date.now(), nodeMonotonicMs: performance.now() };
+  report.trace.markers.push(marker);
+  await browserConnection.call("Tracing.recordClockSyncMarker", { syncId: label }, 5000);
+  marker.targets = (await browserConnection.call("Target.getTargets", {}, 5000)).targetInfos;
+}
+async function finishStartupTrace() {
+  if (!traceRequested) return;
+  traceRequested = false;
+  const tracing = report.trace;
+  tracing.stop = await observe(browserConnection.call("Tracing.end", {}, 10000), 10000, "End adopted startup trace");
+  assert.ok(tracing.stop.settled && !tracing.stop.error, "Startup tracing did not stop");
+  tracing.complete = await observe(traceComplete, 15000, "Startup tracing complete");
+  assert.ok(tracing.complete.settled && !tracing.complete.error && tracing.complete.value.stream, "Startup tracing did not provide its stream");
+  const completion = tracing.complete.value, parts = []; let length = 0, eof = false, readError;
+  tracing.reads = [];
+  const readDeadline = performance.now() + 30000;
+  try {
+    while (true) {
+      const remaining = readDeadline - performance.now();
+      assert.ok(remaining > 0, "Trace stream exceeded its total read deadline");
+      const part = await browserConnection.call("IO.read", { handle: completion.stream, size: 1024 * 1024 }, Math.min(5000, remaining));
+      assert.equal(typeof part.data, "string", "Trace stream data is missing");
+      const bytes = Buffer.from(part.data, part.base64Encoded === true ? "base64" : "utf8");
+      const available = 128 * 1024 * 1024 - length;
+      const retained = bytes.subarray(0, available);
+      parts.push(retained); length += retained.length;
+      tracing.reads.push({ bytes: bytes.length, retainedBytes: retained.length, base64Encoded: part.base64Encoded ?? null, eof: part.eof === true });
+      assert.ok(bytes.length <= available, "Trace exceeds retained-byte cap");
+      assert.ok(bytes.length > 0 || part.eof, "Trace stream made no progress");
+      if (part.eof) { eof = true; break; }
+    }
+  } catch (error) {
+    readError = error;
+    tracing.readError = String(error);
+  } finally {
+    tracing.streamClose = await observe(browserConnection.call("IO.close", { handle: completion.stream }, 5000), 5000, "Close owned trace stream");
+  }
+  const bytes = Buffer.concat(parts);
+  // Retain bytes even when a protocol field is absent, parsing fails, or a read
+  // stopped early. Tracing.start's option is streamFormat, but the completion
+  // event's field is traceFormat (confirmed by the actual 156 native event).
+  // Byte probing is only a hint; it cannot establish protobuf validity or the
+  // presence of typed scheduler state. The offline parser must establish both.
+  let byteProbe = "unknown";
+  if (bytes[0] === 0x0a) byteProbe = "protobuf-packet-prefix";
+  const text = bytes.toString("utf8");
+  if (/^\s*\{/.test(text)) {
+    try { if (Array.isArray(JSON.parse(text).traceEvents)) byteProbe = "trace-event-json"; } catch { /* Retain partial or unknown data below. */ }
+  }
+  const filename = byteProbe === "trace-event-json" ? "startup-trace.json"
+    : byteProbe === "protobuf-packet-prefix" ? "startup-trace.pftrace" : "startup-trace.bin";
+  await fs.writeFile(path.join(runDir, filename), bytes);
+  tracing.artifact = { filename, bytes: bytes.length, sha256: sha256(bytes), completeRead: eof,
+    reportedTraceFormat: completion.traceFormat ?? null, reportedStreamCompression: completion.streamCompression ?? null,
+    byteProbe, firstBytesHex: bytes.subarray(0, 32).toString("hex"), decoded: false, coverageVerified: false,
+    typedStateEvidence: byteProbe === "trace-event-json" ? "unavailable: JSON conversion may omit typed fields" : "unverified: requires offline protobuf decoding",
+    note: "Retained native stream bytes, including partial/unexpected formats. Offline parsing must verify typed scheduler fields, early native window/root compositor events and their ordering; switches/adoption alone are not proof of coverage." };
+  if (readError) throw readError;
+  assert.ok(bytes.length > 0, "Empty startup trace");
+  assert.notEqual(byteProbe, "trace-event-json", "Startup trace returned JSON; typed-state preservation is not established");
+  assert.equal(completion.traceFormat, "proto", "Unexpected or missing native traceFormat; retained bytes require offline inspection");
+  assert.ok(completion.streamCompression === undefined || completion.streamCompression === "none", "Unexpected trace compression; original bytes were retained");
+  assert.ok(tracing.streamClose.settled && !tracing.streamClose.error, "Trace stream close did not settle successfully");
+  assert.equal(completion.dataLossOccurred, false, "Startup trace reports missing data");
+}
 function assertLedgerPrefix(before, after) {
   for (const kind of ["activations", "focus", "created"]) {
     assert.deepEqual(after[kind].slice(0, before[kind].length), before[kind], `${kind} ledger prefix changed`);
@@ -256,11 +476,28 @@ try {
   const base = `http://127.0.0.1:${server.address().port}`;
   const binary = chromium.executablePath(); report.binary = binary;
   report.binarySHA256 = sha256(await fs.readFile(binary));
+  let traceArgs = [];
+  if (startupTrace) {
+    const configPath = path.join(runDir, "startup-trace-config.json");
+    const configured = startupTraceConfiguration(configPath, { disableSurfaceSync: disableInitialSurfaceSync, disableFieldTrials: disableFieldTrialConfig });
+    const configBytes = JSON.stringify(configured.config, null, 2);
+    await fs.writeFile(configPath, configBytes);
+    traceArgs = configured.args;
+    report.trace = { requestedBeforeSpawn: true, config: configured.config, configSHA256: sha256(configBytes),
+      configFilename: "startup-trace-config.json", categories: TRACE_CATEGORIES, markers: [],
+      requestedStreamFormat: "proto", nativeWindowCreationCoverage: "unverified until the retained trace is decoded",
+      primarySources: [
+        `https://github.com/chromium/chromium/blob/${TRACE_REVISION.slice(1)}/services/tracing/public/cpp/trace_startup_config.cc`,
+        `https://github.com/chromium/chromium/blob/${TRACE_REVISION.slice(1)}/content/browser/devtools/protocol/tracing_handler.cc`,
+      ] };
+    await startWindowObserver(); await windowSnapshot("before-browser-spawn");
+  }
   const initialArgs = ["no-startup-window", "popup-then-normal"].includes(mode) ? ["--no-startup-window"]
     : mode === "app-startup" ? [`--app=${base}/sentinel-app`] : ["about:blank"];
   report.args = [`--user-data-dir=${profile}`, "--remote-debugging-port=0",
     `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
-    "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", ...initialArgs];
+    "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", ...traceArgs, ...initialArgs];
+  report.spawnRequestedAt = Date.now();
   browser = spawn(binary, report.args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   report.pid = browser.pid;
   browser.on("error", error => { report.spawnError = String(error); });
@@ -269,6 +506,7 @@ try {
   const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
   browserConnection = await connect(version.webSocketDebuggerUrl);
   report.browserVersion = await browserConnection.call("Browser.getVersion");
+  if (startupTrace) { await adoptStartupTrace(); await traceMarker("browser-connection-ready"); }
   worker = await until(async () => {
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     for (const target of targets.filter(candidate => candidate.type === "service_worker")) {
@@ -281,6 +519,7 @@ try {
   }, "exact diagnostic extension worker");
   report.initialWindows = await worker.evaluate("chrome.windows.getAll({populate:true})");
   report.initialLedger = await ledger();
+  await windowSnapshot("worker-ready");
   const background = await fs.readFile(path.join(repo, "apps/chrome-extension/background.js"), "utf8");
   const start = background.indexOf("async function chooseWindowId()"), end = background.indexOf("async function readGroupTitles", start);
   assert.ok(start >= 0 && end > start, "Production window selection source shape changed");
@@ -322,6 +561,8 @@ try {
   }
   const stages = ["startup-and-secondary", "app-startup"].includes(mode) ? 2 : 1;
   for (let index = 0; index < stages; index++) {
+    await traceMarker(`stage-${index}-before-window`);
+    await windowSnapshot(`stage-${index}-before-window`);
     let scenario = scenarios[index];
     if (!scenario) {
       const created = await createUnfocusedWindow({ type: "normal", left: 10, top: 10, width: 1266, height: 1372, url: base + "/sentinel-normal" }, "normal window sole-tab creation");
@@ -336,7 +577,11 @@ try {
     assert.equal(target.windowId, scenario.sentinel.windowId);
     if (!scenario.targetIsSyntheticSentinel) assert.equal(target.active, false);
     await until(() => worker.evaluate(`chrome.tabs.get(${target.id}).then(t=>t.status==='complete')`), "synthetic target load");
+    await traceMarker(`${scenario.name}-before-native`);
+    await windowSnapshot(`${scenario.name}-before-native`);
     scenario.observation = await worker.evaluate(`(${nativeCheck.toString()})(${target.id})`);
+    await traceMarker(`${scenario.name}-after-native`);
+    await windowSnapshot(`${scenario.name}-after-native`);
     const observation = scenario.observation;
     const data = observation.screenshot?.value?.data;
     if (typeof data === "string") {
@@ -380,6 +625,14 @@ try {
   }
 } catch (error) { report.error = error.stack; failure("probe", String(error)); }
 finally {
+  if (traceRequested) {
+    try { await traceMarker("probe-before-cleanup"); }
+    catch (error) { report.trace.finalMarkerError = String(error); failure("startup trace marker", String(error)); }
+    try { await windowSnapshot("probe-before-cleanup"); }
+    catch (error) { report.trace.finalWindowSnapshotError = String(error); failure("startup trace window snapshot", String(error)); }
+    try { await finishStartupTrace(); }
+    catch (error) { report.trace.error = String(error); failure("startup trace", String(error)); }
+  }
   if (worker) {
     try {
       report.preCleanupLedger = await ledger();
@@ -414,6 +667,19 @@ finally {
   report.cleanup.browserRootExited = !!browser && (browser.exitCode !== null || browser.signalCode !== null);
   report.cleanup.descendantProcessInventory = "not observed; no claim that a timed-out native promise fulfilled";
   if (browser && !report.cleanup.browserRootExited) failure("cleanup", "Private browser root is still running");
+  if (windowObserver) {
+    const child = windowObserver.child;
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise(resolve => child.once("exit", (code, signal) => resolve({ code, signal })));
+      child.stdin.end(`${JSON.stringify({ stop: true })}\n`);
+      report.cleanup.windowObserverExit = await observe(exited, 3000, "Read-only HWND observer exit");
+      if (!report.cleanup.windowObserverExit.settled) {
+        child.kill(); report.cleanup.windowObserverKilled = true;
+        report.cleanup.windowObserverAfterKill = await observe(exited, 3000, "Read-only HWND observer killed");
+        failure("cleanup", "Read-only HWND observer required termination");
+      }
+    }
+  }
   if (server.listening) await new Promise(resolve => server.close(resolve));
   report.endedAt = new Date().toISOString(); report.passed = report.failures.length === 0;
   await fs.writeFile(path.join(runDir, "browser.log"), browserLogs.join("")); await persist();
