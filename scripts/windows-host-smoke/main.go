@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/ifuryst/open-browser-use/internal/transport"
 )
 
 func main() {
@@ -23,10 +24,13 @@ func main() {
 		failf("resolve exe: %v", err)
 	}
 
-	socketDir := filepath.Join(os.TempDir(), "open-browser-use")
-	_ = os.RemoveAll(socketDir)
+	socketDir, err := os.MkdirTemp("", "obu-smoke-")
+	if err != nil {
+		failf("create isolated discovery directory: %v", err)
+	}
+	defer os.RemoveAll(socketDir)
 
-	cmd := exec.Command(exe, "--parent-window=0")
+	cmd := exec.Command(exe, "host", "--socket-dir", socketDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		failf("stdin pipe: %v", err)
@@ -49,7 +53,7 @@ func main() {
 	go discard(stderr)
 
 	socketPath := waitActiveSocket(filepath.Join(socketDir, "active.json"), 5*time.Second)
-	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	conn, err := transport.DialTimeout(socketPath, 2*time.Second)
 	if err != nil {
 		failf("dial unix socket %s: %v", socketPath, err)
 	}

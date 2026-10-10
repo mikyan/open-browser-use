@@ -8,6 +8,12 @@ importers:
 
   .: {}
 
+  apps/chrome-extension:
+    dependencies:
+      playwright-crx:
+        specifier: 0.15.0
+        version: 0.15.0
+
   packages/browser-client-rewrite: {}
 
   packages/browser-use-protocol:
@@ -37,6 +43,11 @@ packages:
     dependencies:
       undici-types: 6.21.0
     dev: true
+
+  /playwright-crx@0.15.0:
+    resolution: {integrity: sha512-yIz2AchvFOKj+oiGz5AAonMCPK5l6ttt4Xijd7Ggjm6D4OUNdVg+R2dnAnKIoBnvjoOBihlL1lyQVYPswV4Xow==}
+    engines: {node: '>=18'}
+    dev: false
 
   /typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}

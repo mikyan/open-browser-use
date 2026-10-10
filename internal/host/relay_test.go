@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 )
 
@@ -25,7 +26,7 @@ func TestRelayRemapsRequestIDs(t *testing.T) {
 	defer extensionToHostWriter.Close()
 
 	socketDir := shortSocketDir(t)
-	socketPath := filepath.Join(socketDir, "obu.sock")
+	socketPath := transport.NewEndpoint(socketDir, filepath.Base(socketDir))
 	relay := NewRelay(Config{SocketDir: socketDir, SocketPath: socketPath}, extensionToHostReader, hostToExtensionWriter)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -33,7 +34,7 @@ func TestRelayRemapsRequestIDs(t *testing.T) {
 	go func() { errCh <- relay.Serve(ctx) }()
 	waitForSocket(t, socketPath)
 
-	client, err := net.Dial("unix", socketPath)
+	client, err := transport.DialTimeout(socketPath, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestRelayRemapsRequestIDs(t *testing.T) {
 	}
 }
 
-func TestRelayBroadcastsExtensionNotificationsToSDKClients(t *testing.T) {
+func TestRelayBroadcastsGlobalHeartbeatToSDKClients(t *testing.T) {
 	hostToExtensionReader, hostToExtensionWriter := net.Pipe()
 	defer hostToExtensionReader.Close()
 	defer hostToExtensionWriter.Close()
@@ -90,7 +91,7 @@ func TestRelayBroadcastsExtensionNotificationsToSDKClients(t *testing.T) {
 	defer extensionToHostWriter.Close()
 
 	socketDir := shortSocketDir(t)
-	socketPath := filepath.Join(socketDir, "obu.sock")
+	socketPath := transport.NewEndpoint(socketDir, filepath.Base(socketDir))
 	relay := NewRelay(Config{SocketDir: socketDir, SocketPath: socketPath}, extensionToHostReader, hostToExtensionWriter)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -98,12 +99,12 @@ func TestRelayBroadcastsExtensionNotificationsToSDKClients(t *testing.T) {
 	go func() { errCh <- relay.Serve(ctx) }()
 	waitForSocket(t, socketPath)
 
-	firstClient, err := net.Dial("unix", socketPath)
+	firstClient, err := transport.DialTimeout(socketPath, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer firstClient.Close()
-	secondClient, err := net.Dial("unix", socketPath)
+	secondClient, err := transport.DialTimeout(socketPath, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestRelayBroadcastsExtensionNotificationsToSDKClients(t *testing.T) {
 
 	notification := map[string]any{
 		"jsonrpc": "2.0",
-		"method":  "onDownloadChange",
+		"method":  "heartbeat",
 		"params":  map[string]any{"id": "download-1", "status": "started"},
 	}
 	if err := wire.WriteJSON(extensionToHostWriter, notification); err != nil {
@@ -125,7 +126,7 @@ func TestRelayBroadcastsExtensionNotificationsToSDKClients(t *testing.T) {
 		if err := wire.ReadJSON(client, &received); err != nil {
 			t.Fatalf("client %d did not receive notification: %v", index+1, err)
 		}
-		if received["method"] != "onDownloadChange" {
+		if received["method"] != "heartbeat" {
 			encoded, _ := json.Marshal(received)
 			t.Fatalf("client %d received unexpected payload: %s", index+1, encoded)
 		}
@@ -141,7 +142,7 @@ func TestRelayBroadcastsExtensionNotificationsToSDKClients(t *testing.T) {
 
 func TestActiveSocketRecordLifecycle(t *testing.T) {
 	socketDir := t.TempDir()
-	socketPath := filepath.Join(socketDir, "obu.sock")
+	socketPath := transport.NewEndpoint(socketDir, filepath.Base(socketDir))
 
 	if err := WriteActiveSocketRecord(socketDir, socketPath); err != nil {
 		t.Fatal(err)
@@ -179,6 +180,12 @@ func TestDefaultSocketPathUsesUUIDFilename(t *testing.T) {
 	socketDir := t.TempDir()
 	relay := NewRelay(Config{SocketDir: socketDir}, nil, nil)
 	socketPath := relay.SocketPath()
+	if runtime.GOOS == "windows" {
+		if !transport.IsNamedPipe(socketPath) {
+			t.Fatalf("expected named pipe, got %q", socketPath)
+		}
+		return
+	}
 	if filepath.Dir(socketPath) != socketDir {
 		t.Fatalf("expected socket path under %q, got %q", socketDir, socketPath)
 	}
@@ -251,6 +258,13 @@ func waitForSocket(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
+		if transport.IsNamedPipe(path) {
+			conn, err := transport.DialTimeout(path, 20*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				return
+			}
+		}
 		if _, err := os.Stat(path); err == nil {
 			return
 		}
@@ -279,7 +293,7 @@ func waitForClients(t *testing.T, relay *Relay, count int) {
 
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "obu-")
+	dir, err := os.MkdirTemp(socketTestTempRoot(), "obu-")
 	if err != nil {
 		t.Fatal(err)
 	}

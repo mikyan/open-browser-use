@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = await readFile(new URL("./background.js", import.meta.url), "utf8");
+const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
 const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
 assert.notEqual(runtimeStart, -1);
 const session = { session_id: "pointer-test", turn_id: "turn-1" };
@@ -107,7 +107,6 @@ test("non-pointer, invalid coordinate and child-session commands do not guess a 
   for (const params of [
     { ...mouse(), method: "Input.insertText", commandParams: { text: "example" } },
     mouse("mouseMoved", { target: { tabId: 7, sessionId: "child-frame" } }),
-    mouse("mouseMoved", { target: { targetId: "other-target" } }),
     ...[NaN, Infinity, "120", undefined].map((x) => mouse("mouseMoved", { commandParams: { type: "mouseMoved", x, y: 80 } })),
     mouse("unknown"),
     mouse("mouseMoved", { commandParams: undefined })

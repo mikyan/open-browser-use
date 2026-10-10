@@ -192,7 +192,7 @@ async function seedSession(backend, chrome, { sessionId, groupId, tabOrigins, ac
 }
 
 async function run() {
-  const bgSource = await readFile(BG_PATH, "utf8");
+  const bgSource = (await readFile(BG_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
 
   // === Test 1: handoff tab stays open + grouped, but debugger detaches ===
   {

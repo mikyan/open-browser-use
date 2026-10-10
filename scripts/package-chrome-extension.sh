@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-extension_dir="${repo_root}/apps/chrome-extension"
+extension_dir="${repo_root}/dist/chrome-extension-unpacked"
 dist_dir="${repo_root}/dist/chrome-extension"
 
 if ! command -v node >/dev/null 2>&1; then
@@ -16,6 +16,7 @@ if ! command -v zip >/dev/null 2>&1; then
   exit 1
 fi
 
+node "${repo_root}/scripts/build-chrome-extension.mjs" >&2
 manifest_path="${extension_dir}/manifest.json"
 version="$(node -e 'const fs=require("fs"); const manifest=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(manifest.version);' "${manifest_path}")"
 package_name="open-browser-use-chrome-extension-${version}.zip"
@@ -34,6 +35,11 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const requiredFiles = [
   "manifest.json",
   "background.js",
+  "browser-action-engine.js",
+  "browser-runtime.js",
+  "vendor/playwright-crx/index.mjs",
+  "vendor/playwright-crx/LICENSE",
+  "vendor/playwright-crx/NOTICE",
   "content-cursor.js",
   "content-webmcp-main.js",
   "content-webmcp-bridge.js",
@@ -97,6 +103,7 @@ if (errors.length > 0) {
 NODE
 
 node --check "${extension_dir}/background.js" >&2
+node --check "${extension_dir}/browser-action-engine.js" >&2
 node --check "${extension_dir}/content-cursor.js" >&2
 node --check "${extension_dir}/content-webmcp-main.js" >&2
 node --check "${extension_dir}/content-webmcp-bridge.js" >&2
@@ -107,41 +114,11 @@ mkdir -p "${dist_dir}"
 staging_dir="${dist_dir}/extension-staging"
 mkdir -p "${staging_dir}"
 
-while IFS= read -r file; do
-  mkdir -p "${staging_dir}/$(dirname "${file}")"
-  cp "${extension_dir}/${file}" "${staging_dir}/${file}"
-done <<'EOF'
-manifest.json
-background.js
-content-cursor.js
-content-webmcp-main.js
-content-webmcp-bridge.js
-icons/icon-16.png
-icons/icon-32.png
-icons/icon-48.png
-icons/icon-128.png
-images/cursor-chat.png
-popup.css
-popup.html
-popup.js
-EOF
+cp -R "${extension_dir}/." "${staging_dir}/"
 
 (
   cd "${staging_dir}"
-  zip -q -r "${zip_path}" \
-    manifest.json \
-    background.js \
-    content-cursor.js \
-    content-webmcp-main.js \
-    content-webmcp-bridge.js \
-    icons/icon-16.png \
-    icons/icon-32.png \
-    icons/icon-48.png \
-    icons/icon-128.png \
-    images/cursor-chat.png \
-    popup.css \
-    popup.html \
-    popup.js
+  zip -q -r "${zip_path}" .
 )
 
 rm -rf "${staging_dir}"

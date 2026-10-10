@@ -122,7 +122,7 @@ async function loadBridgeHarness({ modelContext }) {
 }
 
 async function loadBrowserBackend() {
-  const source = await readFile(BACKGROUND_PATH, "utf8");
+  const source = (await readFile(BACKGROUND_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
   const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
   assert.notEqual(runtimeStart, -1);
   const chrome = {

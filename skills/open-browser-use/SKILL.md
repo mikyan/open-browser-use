@@ -16,7 +16,7 @@ Open Browser Use connects an MV3 Chrome extension, a local native messaging host
 3. Choose a unique browser session id for the current agent task before opening or claiming tabs. Prefer the surrounding runtime's conversation/session id when available; otherwise create a short unique id such as `obu-<task-slug>-<timestamp>`. Reuse that same id for every Open Browser Use command in this task.
 4. Name the current browser task group before opening or claiming tabs. Use a short task label followed by ` - OBU`; if no better task label is available, use `Task - OBU`.
 5. Before opening a new tab, run `user-tabs` / `user_tabs` and check whether the task continues from an existing tab, including tabs in `✅ Open Browser Use` or an earlier `handoff` task group. If the URL/title/group clearly matches the current task, claim that tab and continue from it instead of opening a duplicate. When verifying or accepting a local change, this also covers a dev server tab the user already has open (for example `localhost`, `127.0.0.1`, or a `*.local` / `*.test` host): claim and reuse it rather than opening a second copy of the same app.
-6. Use the CLI for simple inspection or one-shot actions: `info`, `tabs`, `user-tabs`, `history`, `open-tab`, `navigate`, `cdp`, and `call`.
+6. Use the CLI for simple inspection or one-shot actions: `info`, `tabs`, `user-tabs`, `history`, `open-tab`, `navigate`, `cdp`, and `call`. For semantic snapshots, element actions, forms, frames, or screenshots, read [references/browser-actions.md](references/browser-actions.md) and use the bundled Playwright engine when available.
 7. Use `open-browser-use run` / `obu run` for CLI-level multi-step orchestration when a small line-oriented action plan is enough and writing SDK code would be unnecessary.
 8. If the surrounding agent runtime supports local MCP servers, configure `obu mcp` and call the exposed browser tools directly. Use the `run_action_plan` MCP tool for the same line-oriented orchestration from MCP. Read [references/sdk-and-protocol.md](references/sdk-and-protocol.md).
 9. Use the JavaScript, Python, or Go SDK for larger multi-step workflows, event subscriptions, richer control flow, or when the surrounding agent runtime already runs code. Read [references/sdk-and-protocol.md](references/sdk-and-protocol.md).
@@ -182,4 +182,5 @@ each individual browser operation.
 
 - [references/installation.md](references/installation.md): one-time CLI and browser extension setup, including cases where user cooperation is required.
 - [references/sdk-and-protocol.md](references/sdk-and-protocol.md): JavaScript, Python, Go, socket, and JSON-RPC usage details.
+- [references/browser-actions.md](references/browser-actions.md): semantic locators, automatic waits, forms, frames, screenshots, and action deadlines.
 - [references/troubleshooting.md](references/troubleshooting.md): connection failures, stale sockets, extension/native host checks, and permission issues.

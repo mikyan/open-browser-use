@@ -17,10 +17,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 )
 
 const NativeHostName = "com.ifuryst.open_browser_use.extension"
+const maxClientSessions = 128
+const maxClientSessionBytes = 1024
 
 var DefaultSocketDir = defaultSocketDir()
 
@@ -39,18 +42,15 @@ type Relay struct {
 
 	listener net.Listener
 
-	mu        sync.Mutex
-	clients   map[int64]*clientConn
-	pending   map[string]pendingRequest
-	nextID    atomic.Int64
-	nextReqID atomic.Int64
-	writeMu   sync.Mutex
-}
-
-type clientConn struct {
-	id   int64
-	conn net.Conn
-	mu   sync.Mutex
+	mu                sync.Mutex
+	clients           map[int64]*clientConn
+	pending           map[string]pendingRequest
+	nextID            atomic.Int64
+	nextReqID         atomic.Int64
+	writeMu           sync.Mutex
+	closing           bool
+	writers           sync.WaitGroup
+	clientWriteLimits clientWriteLimits
 }
 
 type pendingRequest struct {
@@ -70,12 +70,13 @@ func NewRelay(config Config, stdin io.Reader, stdout io.Writer) *Relay {
 		logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
 	return &Relay{
-		config:  config,
-		logger:  logger,
-		stdin:   stdin,
-		stdout:  stdout,
-		clients: make(map[int64]*clientConn),
-		pending: make(map[string]pendingRequest),
+		config:            config,
+		logger:            logger,
+		stdin:             stdin,
+		stdout:            stdout,
+		clients:           make(map[int64]*clientConn),
+		pending:           make(map[string]pendingRequest),
+		clientWriteLimits: defaultClientWriteLimits,
 	}
 }
 
@@ -83,26 +84,30 @@ func (r *Relay) SocketPath() string {
 	if r.config.SocketPath != "" {
 		return r.config.SocketPath
 	}
-	return filepath.Join(socketDir(r.config.SocketDir), fmt.Sprintf("%s.sock", randomID()))
+	return transport.NewEndpoint(socketDir(r.config.SocketDir), randomID())
 }
 
 func (r *Relay) Serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	socketPath := r.SocketPath()
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
-		return err
+	if !transport.IsNamedPipe(socketPath) {
+		if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
+			return err
+		}
 	}
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := transport.Listen(socketPath)
 	if err != nil {
-		return fmt.Errorf("listen unix socket %q (path length %d): %w", socketPath, len(socketPath), err)
+		return fmt.Errorf("listen local endpoint %q (path length %d): %w", socketPath, len(socketPath), err)
 	}
 	r.listener = listener
-	if err := os.Chmod(socketPath, 0o600); err != nil {
+	if err := WriteEndpointRecord(r.config.SocketDir, socketPath); err != nil {
 		_ = listener.Close()
 		return err
 	}
 	if err := WriteActiveSocketRecord(r.config.SocketDir, socketPath); err != nil {
 		_ = listener.Close()
+		_ = RemoveEndpointRecord(r.config.SocketDir, socketPath)
 		return err
 	}
 	r.logger.Info("open-browser-use native host listening", "socket", socketPath)
@@ -118,7 +123,8 @@ func (r *Relay) Serve(ctx context.Context) error {
 
 	err = <-errCh
 	_ = listener.Close()
-	_ = os.Remove(socketPath)
+	_ = transport.RemoveEndpoint(socketPath)
+	_ = RemoveEndpointRecord(r.config.SocketDir, socketPath)
 	_ = RemoveActiveSocketRecord(r.config.SocketDir, socketPath)
 	r.closeClients()
 	if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
@@ -137,26 +143,23 @@ func (r *Relay) acceptLoop(ctx context.Context) error {
 			return err
 		}
 		id := r.nextID.Add(1)
-		client := &clientConn{id: id, conn: conn}
+		client := newClientConn(id, conn, r.clientWriteLimits, r.removeClient)
 		r.mu.Lock()
+		if r.closing {
+			r.mu.Unlock()
+			client.close(nil)
+			return net.ErrClosed
+		}
 		r.clients[id] = client
+		r.writers.Add(1)
 		r.mu.Unlock()
+		go func() { defer r.writers.Done(); client.writeLoop() }()
 		go r.readClientLoop(client)
 	}
 }
 
 func (r *Relay) readClientLoop(client *clientConn) {
-	defer func() {
-		_ = client.conn.Close()
-		r.mu.Lock()
-		delete(r.clients, client.id)
-		for requestID, pending := range r.pending {
-			if pending.client == client {
-				delete(r.pending, requestID)
-			}
-		}
-		r.mu.Unlock()
-	}()
+	defer client.close(nil)
 
 	for {
 		payload, err := wire.ReadFrame(client.conn, wire.DefaultMaxFrame)
@@ -169,7 +172,15 @@ func (r *Relay) readClientLoop(client *clientConn) {
 			continue
 		}
 		if hostID != "" {
+			if err := r.bindRequestSession(client, payload); err != nil {
+				r.writeClientError(client, originalID, err)
+				continue
+			}
 			r.mu.Lock()
+			if r.clients[client.id] != client {
+				r.mu.Unlock()
+				return
+			}
 			r.pending[hostID] = pendingRequest{client: client, originalID: originalID}
 			r.mu.Unlock()
 		}
@@ -233,7 +244,70 @@ func (r *Relay) dispatchExtensionPayload(payload []byte) error {
 			return pending.client.write(rewritten)
 		}
 	}
-	r.broadcast(payload)
+	// Responses belong only to the client whose request ID we rewrote. A timed
+	// out/disconnected client may have gone away before its response arrives;
+	// broadcasting that response would corrupt every other client's RPC stream.
+	if _, isResponse := message["id"]; isResponse {
+		return nil
+	}
+	method, ok := message["method"].(string)
+	if !ok || method == "" {
+		return nil
+	}
+	params, _ := message["params"].(map[string]any)
+	if value, scoped := params["session_id"]; scoped {
+		session, valid := value.(string)
+		if valid && session != "" {
+			r.broadcast(payload, session)
+		}
+		return nil
+	}
+	// Only this existing notification is global. In particular, older unscoped
+	// CDP/download messages must not disclose tab data to unrelated clients.
+	if method == "heartbeat" {
+		if _, scoped := params["tabId"]; scoped {
+			return nil
+		}
+		if _, scoped := params["source"]; scoped {
+			return nil
+		}
+		r.broadcast(payload, "")
+	}
+	return nil
+}
+
+func (r *Relay) bindRequestSession(client *clientConn, payload []byte) error {
+	var request struct {
+		JSONRPC string `json:"jsonrpc"`
+		Method  string `json:"method"`
+		ID      any    `json:"id"`
+		Params  struct {
+			Session string `json:"session_id"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(payload, &request) != nil || request.JSONRPC != "2.0" || request.Method == "" || request.Params.Session == "" {
+		return nil
+	}
+	switch request.ID.(type) {
+	case string, float64:
+	default:
+		return nil
+	}
+	if len(request.Params.Session) > maxClientSessionBytes {
+		return fmt.Errorf("OBU_SESSION_SUBSCRIPTION_LIMIT: session_id exceeds %d bytes", maxClientSessionBytes)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := client.sessions[request.Params.Session]; exists {
+		return nil
+	}
+	if len(client.sessions) >= maxClientSessions {
+		return fmt.Errorf("OBU_SESSION_SUBSCRIPTION_LIMIT: one connection supports at most %d explicit sessions; open a separate connection", maxClientSessions)
+	}
+	if client.sessions == nil {
+		client.sessions = make(map[string]struct{})
+	}
+	client.sessions[request.Params.Session] = struct{}{}
 	return nil
 }
 
@@ -257,10 +331,15 @@ func (r *Relay) writeClientError(client *clientConn, id any, err error) {
 	})
 }
 
-func (r *Relay) broadcast(payload []byte) {
+func (r *Relay) broadcast(payload []byte, session string) {
 	r.mu.Lock()
 	clients := make([]*clientConn, 0, len(r.clients))
 	for _, client := range r.clients {
+		if session != "" {
+			if _, subscribed := client.sessions[session]; !subscribed {
+				continue
+			}
+		}
 		clients = append(clients, client)
 	}
 	r.mu.Unlock()
@@ -271,6 +350,7 @@ func (r *Relay) broadcast(payload []byte) {
 
 func (r *Relay) closeClients() {
 	r.mu.Lock()
+	r.closing = true
 	clients := make([]*clientConn, 0, len(r.clients))
 	for _, client := range r.clients {
 		clients = append(clients, client)
@@ -279,22 +359,25 @@ func (r *Relay) closeClients() {
 	r.pending = make(map[string]pendingRequest)
 	r.mu.Unlock()
 	for _, client := range clients {
-		_ = client.conn.Close()
+		client.close(nil)
 	}
+	r.writers.Wait()
 }
 
-func (c *clientConn) writeJSON(value any) error {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return err
+func (r *Relay) removeClient(client *clientConn, reason error) {
+	r.mu.Lock()
+	if r.clients[client.id] == client {
+		delete(r.clients, client.id)
 	}
-	return c.write(payload)
-}
-
-func (c *clientConn) write(payload []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return wire.WriteFrame(c.conn, payload)
+	for id, pending := range r.pending {
+		if pending.client == client {
+			delete(r.pending, id)
+		}
+	}
+	r.mu.Unlock()
+	if reason != nil {
+		r.logger.Warn("closed browser client", "client", client.id, "error", reason)
+	}
 }
 
 func socketDir(configured string) string {
@@ -316,24 +399,18 @@ func ActiveSocketRecordPath(configuredDir string) string {
 }
 
 func WriteActiveSocketRecord(configuredDir string, socketPath string) error {
-	dir := socketDir(configuredDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	record := ActiveSocketRecord{
 		SocketPath: socketPath,
 		PID:        os.Getpid(),
 		StartedAt:  time.Now().UTC(),
 	}
-	payload, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return err
-	}
-	path := ActiveSocketRecordPath(configuredDir)
-	if err := os.WriteFile(path, append(payload, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return SaveActiveSocketRecord(configuredDir, record)
+}
+
+// SaveActiveSocketRecord atomically replaces discovery state. Callers repairing
+// a registry can preserve an unknown PID instead of assigning their own PID.
+func SaveActiveSocketRecord(configuredDir string, record ActiveSocketRecord) error {
+	return writeSocketRecord(ActiveSocketRecordPath(configuredDir), record)
 }
 
 func ReadActiveSocketRecord(configuredDir string) (ActiveSocketRecord, error) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 )
 
@@ -92,13 +93,28 @@ func TestHighLevelBrowserTabHelpers(t *testing.T) {
 			method, _ := request["method"].(string)
 			params, _ := request["params"].(map[string]any)
 			cdpMethod, _ := params["method"].(string)
+			if method == "browserAction" {
+				cdpMethod, _ = params["action"].(string)
+			}
 			calls = append(calls, [2]string{method, cdpMethod})
 			result := map[string]any{}
 			switch {
 			case method == "createTab":
 				result = map[string]any{"id": 123}
-			case method == "executeCdp" && cdpMethod == "Page.navigate":
-				result = map[string]any{"frameId": "frame-1"}
+			case method == "browserAction":
+				var value any
+				if cdpMethod == "snapshot" {
+					value = "- button \"Open\"\n- button \"Closed\""
+				}
+				if cdpMethod == "innerText" {
+					value = "Open\nClosed\nIssues\nStarred"
+				}
+				result = Params{"value": value, "engine": Params{"name": "playwright-crx", "version": "0.15.0", "playwrightVersion": "1.53.0"}}
+			case method == "finalizeTabs":
+				keep, ok := params["keep"].([]any)
+				if !ok || len(keep) != 0 {
+					t.Errorf("empty keep must be an array, got %#v", params["keep"])
+				}
 			case method == "executeCdp" && cdpMethod == "Runtime.evaluate":
 				commandParams, _ := params["commandParams"].(map[string]any)
 				expression, _ := commandParams["expression"].(string)
@@ -117,20 +133,19 @@ func TestHighLevelBrowserTabHelpers(t *testing.T) {
 				}
 			}
 			writeResponse(t, conn, request["id"], result)
-			if len(calls) >= 14 {
+			if len(calls) >= 13 {
 				expected := [][2]string{
+					{"getInfo", ""},
 					{"createTab", ""},
+					{"browserAction", "goto"},
+					{"browserAction", "waitForLoadState"},
 					{"attach", ""},
-					{"executeCdp", "Page.enable"},
-					{"executeCdp", "Page.navigate"},
-					{"executeCdp", "Page.enable"},
 					{"executeCdp", "Runtime.evaluate"},
-					{"executeCdp", "Page.enable"},
+					{"attach", ""},
 					{"executeCdp", "Runtime.evaluate"},
-					{"executeCdp", "Runtime.evaluate"},
-					{"executeCdp", "Runtime.evaluate"},
-					{"executeCdp", "Runtime.evaluate"},
-					{"executeCdp", "Runtime.evaluate"},
+					{"browserAction", "snapshot"},
+					{"browserAction", "innerText"},
+					{"attach", ""},
 					{"executeCdp", "Page.close"},
 					{"finalizeTabs", ""},
 				}
@@ -183,7 +198,7 @@ func TestHighLevelBrowserTabHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text != "Open\nClosed\nIssues\nStarred" {
+	if text != "- button \"Open\"\n- button \"Closed\"" {
 		t.Fatalf("unexpected snapshot: %q", text)
 	}
 	locatorText, err := tab.Locator("body").InnerText(time.Second)
@@ -212,6 +227,7 @@ func TestDownloadAndClipboardWrappers(t *testing.T) {
 		{"writeClipboardText", map[string]any{"tabId": float64(123), "text": "hello"}},
 	}
 	socketPath, closeServer := startSDKServer(t, func(conn net.Conn) {
+		legacyControlHandshake(t, conn)
 		for _, item := range expected {
 			request := readRequest(t, conn)
 			if request["method"] != item.method {
@@ -219,6 +235,13 @@ func TestDownloadAndClipboardWrappers(t *testing.T) {
 			}
 			params := request["params"].(map[string]any)
 			for key, value := range item.params {
+				if key == "timeoutMs" {
+					actual, ok := params[key].(float64)
+					if !ok || actual <= 0 || actual > value.(float64) {
+						t.Fatalf("invalid remaining wait budget: %#v", params[key])
+					}
+					continue
+				}
 				if !reflect.DeepEqual(params[key], value) {
 					t.Fatalf("expected %s=%#v, got %#v", key, value, params[key])
 				}
@@ -247,12 +270,12 @@ func TestDownloadAndClipboardWrappers(t *testing.T) {
 
 func startSDKServer(t *testing.T, handler func(net.Conn)) (string, func()) {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "obu-go-sdk-")
+	dir, err := os.MkdirTemp(socketTestTempRoot(), "obu-go-sdk-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	socketPath := filepath.Join(dir, "obu.sock")
-	listener, err := net.Listen("unix", socketPath)
+	socketPath := transport.NewEndpoint(dir, filepath.Base(dir))
+	listener, err := transport.Listen(socketPath)
 	if err != nil {
 		t.Fatal(err)
 	}

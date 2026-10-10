@@ -6,6 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@8.15.9",
   "scripts": {
+    "build:chrome-extension": "node scripts/build-chrome-extension.mjs",
     "build": "pnpm -r --if-present build",
     "generate:chrome-extension-icons": "node scripts/generate-chrome-extension-icons.mjs",
     "package:chrome-extension": "./scripts/package-chrome-extension.sh",

@@ -1,7 +1,6 @@
 package obu
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -26,7 +25,49 @@ func (b *Browser) Close() error {
 }
 
 func (b *Browser) NewTab(options ...GotoOptions) (*Tab, error) {
-	result, err := b.Client.CreateTab()
+	option := GotoOptions{}
+	if len(options) > 0 {
+		option = options[0]
+	}
+	timeout := option.Timeout
+	if timeout == 0 {
+		timeout = DefaultNavigationTimeout
+	}
+	if option.URL != "" && (timeout < time.Millisecond || timeout > 120*time.Second) {
+		return nil, errors.New("navigation timeout must be between 1ms and 120s")
+	}
+	budget := b.Client.options.Timeout
+	if option.URL != "" {
+		budget = timeout + time.Second
+	}
+	result, err := b.Client.requestInScope("createTab", nil, budget, func(metadata Params, deadline time.Time) (any, error) {
+		reserve := time.Duration(0)
+		if option.URL != "" {
+			reserve = time.Second
+		}
+		created, err := b.Client.requestLocked("createTab", metadata, deadline, reserve)
+		if err != nil || option.URL == "" {
+			return created, err
+		}
+		tabID, err := tabIDFromValue(created, "createTab response")
+		if err != nil {
+			return nil, err
+		}
+		args := Params{"url": option.URL}
+		if option.WaitUntil != "" {
+			args["waitUntil"] = option.WaitUntil
+		}
+		navigated, err := b.Client.requestLocked("browserAction", scopedParams(metadata, Params{
+			"tabId": tabID, "action": "goto", "args": args, "timeoutMs": timeout.Milliseconds(),
+		}), deadline)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := decodeBrowserActionResult(navigated); err != nil {
+			return nil, err
+		}
+		return created, nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -34,13 +75,7 @@ func (b *Browser) NewTab(options ...GotoOptions) (*Tab, error) {
 	if err != nil {
 		return nil, err
 	}
-	tab := b.Tab(tabID)
-	if len(options) > 0 && options[0].URL != "" {
-		if _, err := tab.Goto(options[0].URL, options[0]); err != nil {
-			return nil, err
-		}
-	}
-	return tab, nil
+	return b.Tab(tabID), nil
 }
 
 func (b *Browser) Tab(tabID int) *Tab {
@@ -57,6 +92,8 @@ type Tab struct {
 	Browser    *Browser
 	ID         int
 	Playwright *TabPlaywright
+	Mouse      *BrowserMouse
+	Keyboard   *BrowserKeyboard
 }
 
 func (t *Tab) Goto(url string, options ...GotoOptions) (any, error) {
@@ -64,7 +101,11 @@ func (t *Tab) Goto(url string, options ...GotoOptions) (any, error) {
 	if len(options) > 0 {
 		option = options[0]
 	}
-	return t.Browser.CDP.Navigate(t.ID, url, option)
+	args := Params{"url": url}
+	if option.WaitUntil != "" {
+		args["waitUntil"] = option.WaitUntil
+	}
+	return t.Action("goto", BrowserActionOptions{Args: args, Timeout: option.Timeout})
 }
 
 func (t *Tab) WaitForLoadState(options ...WaitForLoadStateOptions) error {
@@ -72,18 +113,16 @@ func (t *Tab) WaitForLoadState(options ...WaitForLoadStateOptions) error {
 	if len(options) > 0 {
 		option = options[0]
 	}
-	return t.Browser.CDP.WaitForLoadState(t.ID, option)
+	args := Params{}
+	if option.State != "" {
+		args["state"] = option.State
+	}
+	_, err := t.Action("waitForLoadState", BrowserActionOptions{Args: args, Timeout: option.Timeout})
+	return err
 }
 
 func (t *Tab) DOMSnapshot() (string, error) {
-	value, err := t.Evaluate("document.body?.innerText ?? ''")
-	if err != nil {
-		return "", err
-	}
-	if value == nil {
-		return "", nil
-	}
-	return fmt.Sprint(value), nil
+	return actionString(t.Action("snapshot", BrowserActionOptions{}))
 }
 
 func (t *Tab) Evaluate(expression string, awaitPromise ...bool) (any, error) {
@@ -135,6 +174,8 @@ func (t *Tab) initPlaywright() {
 		t.Playwright = &TabPlaywright{}
 	}
 	t.Playwright.tab = t
+	t.Mouse = &BrowserMouse{tab: t}
+	t.Keyboard = &BrowserKeyboard{tab: t}
 }
 
 func (p *TabPlaywright) WaitForLoadState(options ...WaitForLoadStateOptions) error {
@@ -161,38 +202,12 @@ func (p *TabPlaywright) Locator(selector string) *Locator {
 	return p.tab.Locator(selector)
 }
 
-type Locator struct {
-	Tab      *Tab
-	Selector string
-}
-
-func (l *Locator) InnerText(timeout time.Duration) (string, error) {
-	if l.Selector == "" {
-		return "", errors.New("locator requires a selector")
-	}
-	if timeout < 0 {
-		return "", errors.New("timeout must be non-negative")
-	}
-	if timeout == 0 {
-		timeout = DefaultNavigationTimeout
-	}
-	value, err := l.Tab.Evaluate(locatorInnerTextExpression(l.Selector, timeout), true)
-	if err != nil {
-		return "", err
-	}
-	if value == nil {
-		return "", nil
-	}
-	return fmt.Sprint(value), nil
-}
-
 type CDP struct {
-	client        *Client
-	attachedTabID map[int]bool
+	client *Client
 }
 
 func NewCDP(client *Client) *CDP {
-	return &CDP{client: client, attachedTabID: map[int]bool{}}
+	return &CDP{client: client}
 }
 
 type CDPCallOptions struct {
@@ -215,9 +230,6 @@ type WaitForLoadStateOptions struct {
 }
 
 func (c *CDP) Call(tabID int, method string, commandParams Params, options CDPCallOptions) (any, error) {
-	if err := c.EnsureAttached(tabID); err != nil {
-		return nil, err
-	}
 	params := Params{
 		"target":        Params{"tabId": tabID},
 		"method":        method,
@@ -226,7 +238,17 @@ func (c *CDP) Call(tabID int, method string, commandParams Params, options CDPCa
 	if options.Timeout > 0 {
 		params["timeoutMs"] = int(options.Timeout / time.Millisecond)
 	}
-	return c.client.Request("executeCdp", params)
+	return c.client.requestWithPreparation("executeCdp", params, c.client.options.Timeout, func(metadata Params, deadline time.Time) error {
+		// Timeouts and browser/user actions can detach behind this client. Keep
+		// idempotent attach and the command in the same captured turn and gate;
+		// do not retry executeCdp if attachment changes again.
+		attach := Params{"tabId": tabID, "session_id": metadata["session_id"], "turn_id": metadata["turn_id"]}
+		if epoch, ok := metadata["control_epoch"]; ok {
+			attach["control_epoch"] = epoch
+		}
+		_, err := c.client.requestLocked("attach", attach, deadline)
+		return err
+	})
 }
 
 func (c *CDP) Evaluate(tabID int, expression string, options EvaluateOptions) (any, error) {
@@ -273,22 +295,29 @@ func (c *CDP) Navigate(tabID int, url string, options GotoOptions) (any, error) 
 	if timeout == 0 {
 		timeout = DefaultNavigationTimeout
 	}
-	if _, err := c.Call(tabID, "Page.enable", nil, CDPCallOptions{}); err != nil {
-		return nil, err
-	}
-	result, err := c.Call(tabID, "Page.navigate", Params{"url": url}, CDPCallOptions{Timeout: timeout})
-	if err != nil {
-		return nil, err
-	}
-	if resultMap, ok := result.(map[string]any); ok {
-		if errorText, ok := resultMap["errorText"].(string); ok && errorText != "" {
-			return nil, fmt.Errorf("browser failed to navigate tab %d: %s", tabID, errorText)
+	return c.client.requestInScope("executeCdp", nil, timeout, func(metadata Params, deadline time.Time) (any, error) {
+		if _, err := c.client.requestLocked("attach", scopedParams(metadata, Params{"tabId": tabID}), deadline); err != nil {
+			return nil, err
 		}
-	}
-	if err := c.WaitForLoadState(tabID, WaitForLoadStateOptions{State: waitUntil, Timeout: timeout}); err != nil {
-		return nil, err
-	}
-	return result, nil
+		if _, err := c.callScoped(tabID, "Page.enable", nil, metadata, deadline); err != nil {
+			return nil, err
+		}
+		result, err := c.callScoped(tabID, "Page.navigate", Params{"url": url}, metadata, deadline)
+		if err != nil {
+			return nil, err
+		}
+		loaderID := ""
+		if resultMap, ok := result.(map[string]any); ok {
+			if errorText, ok := resultMap["errorText"].(string); ok && errorText != "" {
+				return nil, fmt.Errorf("browser failed to navigate tab %d: %s", tabID, errorText)
+			}
+			loaderID, _ = resultMap["loaderId"].(string)
+		}
+		if err := c.waitForLoadStateScoped(tabID, waitUntil, loaderID, metadata, deadline); err != nil {
+			return nil, err
+		}
+		return result, nil
+	})
 }
 
 func (c *CDP) WaitForLoadState(tabID int, options WaitForLoadStateOptions) error {
@@ -303,19 +332,80 @@ func (c *CDP) WaitForLoadState(tabID int, options WaitForLoadStateOptions) error
 	if timeout == 0 {
 		timeout = DefaultNavigationTimeout
 	}
-	if _, err := c.Call(tabID, "Page.enable", nil, CDPCallOptions{}); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(timeout)
-	for {
-		documentState, _ := c.ReadDocumentState(tabID)
-		if documentStateMatches(documentState, state) {
-			return nil
+	_, err := c.client.requestInScope("executeCdp", nil, timeout, func(metadata Params, deadline time.Time) (any, error) {
+		if _, err := c.client.requestLocked("attach", scopedParams(metadata, Params{"tabId": tabID}), deadline); err != nil {
+			return nil, err
 		}
-		if time.Now().After(deadline) {
+		return nil, c.waitForLoadStateScoped(tabID, state, "", metadata, deadline)
+	})
+	return err
+}
+
+func (c *CDP) callScoped(tabID int, method string, params Params, metadata Params, deadline time.Time) (any, error) {
+	return c.client.requestLocked("executeCdp", scopedParams(metadata, Params{
+		"target": Params{"tabId": tabID}, "method": method, "commandParams": params,
+	}), deadline)
+}
+
+func (c *CDP) waitForLoadStateScoped(tabID int, state, loaderID string, metadata Params, deadline time.Time) error {
+	sameLoader := func() (bool, error) {
+		if loaderID == "" {
+			return true, nil
+		}
+		tree, err := c.callScoped(tabID, "Page.getFrameTree", nil, metadata, deadline)
+		if err != nil {
+			return false, err
+		}
+		result, _ := tree.(map[string]any)
+		frameTree, _ := result["frameTree"].(map[string]any)
+		frame, _ := frameTree["frame"].(map[string]any)
+		return frame["loaderId"] == loaderID, nil
+	}
+	pause := func() error {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return fmt.Errorf("timed out waiting for %s in tab %d", state, tabID)
 		}
-		time.Sleep(100 * time.Millisecond)
+		if remaining > 100*time.Millisecond {
+			remaining = 100 * time.Millisecond
+		}
+		time.Sleep(remaining)
+		return nil
+	}
+	for {
+		matched, err := sameLoader()
+		if err != nil {
+			return err
+		}
+		if !matched {
+			if err := pause(); err != nil {
+				return err
+			}
+			continue
+		}
+		result, err := c.callScoped(tabID, "Runtime.evaluate", Params{
+			"expression": "({ href: window.location.href, readyState: document.readyState })", "returnByValue": true,
+		}, metadata, deadline)
+		if err != nil {
+			return err
+		}
+		response, _ := result.(map[string]any)
+		remote, _ := response["result"].(map[string]any)
+		documentState, _ := remote["value"].(map[string]any)
+		loaded := documentStateMatches(documentState, state)
+		if loaded && loaderID != "" {
+			// A complete old document must not satisfy a newly issued navigation.
+			loaded, err = sameLoader()
+			if err != nil {
+				return err
+			}
+		}
+		if loaded {
+			return nil
+		}
+		if err := pause(); err != nil {
+			return err
+		}
 	}
 }
 
@@ -331,13 +421,9 @@ func (c *CDP) ReadDocumentState(tabID int) (map[string]any, error) {
 }
 
 func (c *CDP) EnsureAttached(tabID int) error {
-	if c.attachedTabID[tabID] {
-		return nil
-	}
 	if _, err := c.client.Attach(tabID); err != nil {
 		return err
 	}
-	c.attachedTabID[tabID] = true
 	return nil
 }
 
@@ -374,22 +460,4 @@ func assertSupportedLoadState(state string) error {
 func documentStateMatches(documentState map[string]any, state string) bool {
 	readyState, _ := documentState["readyState"].(string)
 	return readyState == "complete" || (state == LoadStateDOMContentLoaded && readyState == "interactive")
-}
-
-func locatorInnerTextExpression(selector string, timeout time.Duration) string {
-	selectorJSON, _ := json.Marshal(selector)
-	return fmt.Sprintf(`(async () => {
-  const selector = %s;
-  const deadline = performance.now() + %d;
-  while (true) {
-    const element = document.querySelector(selector);
-    if (element) {
-      return element.innerText ?? element.textContent ?? "";
-    }
-    if (performance.now() >= deadline) {
-      throw new Error("Timed out waiting for locator " + selector);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-})()`, selectorJSON, int(timeout/time.Millisecond))
 }

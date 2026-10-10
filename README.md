@@ -134,6 +134,28 @@ args = ["mcp"]
 The server exposes browser tools for tab listing, opening, claiming,
 navigation, CDP, action plans, and cleanup.
 
+## Development build
+
+This branch adds a bundled Playwright engine and Windows named-pipe transport.
+Build matching local artifacts before trying the new SDK actions:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build:chrome-extension
+```
+
+Load `dist/chrome-extension-unpacked/` as the development extension. The source
+directory needs its generated engine dependencies and cannot be loaded directly.
+`scripts/package-chrome-extension.sh` packages the same built artifact, including
+the engine's Apache-2.0 LICENSE and NOTICE.
+
+JavaScript and Python SDKs expose semantic locators and automatic waits; all
+clients can use the shared [browser action protocol](docs/references/browser-action-protocol.md).
+The [capability matrix](docs/product-specs/browser-use-parity.md) records remaining
+work and verified scope. Run `make ci` for the platform checks, including real
+SDK-to-native-host round trips.
+
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Bundled Playwright CRX/Playwright components retain their
+Apache-2.0 license and notices in the generated extension.

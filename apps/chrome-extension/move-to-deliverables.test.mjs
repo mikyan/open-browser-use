@@ -224,7 +224,7 @@ function makeController(SessionStore, BrowserBackend) {
 }
 
 async function run() {
-  const bgSource = await readFile(BG_PATH, "utf8");
+  const bgSource = (await readFile(BG_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
 
   // === Test 1: existing deliverable group is reused (no duplicate created) ===
   {

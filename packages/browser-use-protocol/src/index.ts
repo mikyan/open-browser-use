@@ -17,6 +17,18 @@ export const WEBMCP_INVOKE_TOOL_METHOD = "webmcp_invoke_tool";
 export type BrowserSessionParams = {
   session_id: string;
   turn_id: string;
+  control_epoch?: number;
+};
+
+export type BrowserControlState = {
+  controlEpoch: number;
+  closing: boolean;
+  nextTurnId: string;
+  lifecycleVersion: 1;
+};
+
+export type BrowserTurnEndedResult = Omit<BrowserControlState, "closing"> & {
+  endedTurnId: string;
 };
 
 export type WebMcpToolAnnotations = {

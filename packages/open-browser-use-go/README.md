@@ -67,5 +67,94 @@ func main() {
 }
 ```
 
-Use `Client.Request(method, params)` when you need an unrestricted Browser Use
+Use `Client.Request(method, params)` when you need a public Browser Use
 JSON-RPC call, or `Client.ExecuteCDP` / `Browser.CDP.Call` for raw CDP commands.
+
+## Playwright actions
+
+The development extension uses its genuine Playwright engine for tab navigation,
+semantic snapshots and immutable locators. For example, after inspecting a
+snapshot of an owned tab:
+
+```go
+snapshot, err := tab.DOMSnapshot()
+name := tab.GetByLabel("Name", obu.TextOptions{Exact: true})
+err = name.Fill("Ada")
+err = tab.GetByRole("button", obu.RoleOptions{Name: "Continue", Exact: true}).Click()
+frameName := tab.FrameLocator("#account").GetByLabel("Name")
+value, err := frameName.InputValue()
+```
+
+Locators support CSS, role/name, text, label, placeholder, alt text, title and
+test ID, plus frame, filter, first/last and nth chains. Actions include click,
+double-click, hover, fill, key press, checkbox, selection, waiting, text/state
+reads, ARIA snapshots and screenshots. Multiple matches fail strictness instead
+of choosing the first match. Action options accept a bounded `Timeout` and an
+`Args` map with the finite options documented in the protocol.
+`Tab.GoBack`, `GoForward`, `Reload`, locator `Focus`, `PressSequentially`,
+`ScrollIntoViewIfNeeded`, `DragTo` and `Tab.Mouse.Down`/`Up` expose richer input.
+An absent drag target fails before pressing; cancelling after input was sent
+releases held buttons and may emit `pointerup`/click, without rolling back effects.
+
+`Tab.Diagnostics(DiagnosticsOptions{Limit: 100})` reads console, page error and
+network summaries recorded since the first engine action on this attachment.
+Pass the returned `Cursor` as `After` for the next page. The result includes a
+capture ID and cumulative dropped count; detach invalidates its cursor and
+history. Headers, bodies and activity before attachment are not recorded.
+
+Use `Client.BrowserAction` to inspect the returned engine metadata or call any
+action from the protocol directly:
+
+```go
+result, err := browser.Client.BrowserAction(tab.ID, "click", obu.BrowserActionOptions{
+    Locator: []obu.Params{{"kind": "role", "role": "button", "name": "Continue", "exact": true}},
+    Timeout: 15 * time.Second,
+})
+```
+
+The result has `Value` and `Engine` fields. `snapshot` returns a semantic ARIA
+snapshot; `screenshot` returns a value with `base64` and `mimeType`. The serialized
+locator/action contract is documented in `docs/references/browser-action-protocol.md`.
+`Tab.Goto`, `WaitForLoadState`, `DOMSnapshot` and `Locator.InnerText` now use
+engine semantics. `Tab.Evaluate`, `Title`, `URL`, `Close` and explicit `CDP`
+helpers retain their raw CDP surface. `Tab.Screenshot` and locator screenshots
+return `Screenshot{Base64, MimeType}`; no local file is written automatically.
+
+Windows uses the host's local named pipe and Unix platforms use AF_UNIX. Read
+`socketPath` from `active.json`, or use `ConnectActive`. Upgrade the host and SDK
+together. A request deadline covers fragmented reads and notifications; timeout
+or invalid framing closes the connection. A later explicit request reconnects,
+without silently replaying the failed browser operation.
+
+Notification callbacks run synchronously in the request loop. They may register
+or remove handlers, including removing themselves; use a separate client for a
+nested browser request from a callback.
+
+## Turn lifecycle
+
+The first protected request discovers the extension's lifecycle version. Current
+extensions provide a persistent control epoch; the client includes it in each
+request and advances to the returned epoch/turn only after successful `TurnEnded`
+or `FinalizeTabs`. Already submitted work keeps its original turn. A queued call
+from an ended turn fails, and waiting for the connection consumes its deadline.
+
+After inspecting a stale-epoch error or an uncertain end result, call
+`browser.Client.BeginTurn()` explicitly before submitting new work. The SDK never
+silently refreshes control state or replays browser input. Extensions without the
+capability flag retain legacy behavior. Use one client per session.
+
+Discovery, connection and input share the same deadline. Before sending a browser
+action, the SDK reduces its engine timeout to fit the remaining budget with one
+second reserved for cancellation and the response. An exhausted budget fails
+before sending input.
+
+`Browser.NewTab` with a URL and the raw CDP navigation/loading helpers hold one
+request gate, original deadline and captured control binding across all stages.
+Raw navigation matches its loader ID before accepting document readiness.
+
+`WaitForFileChooser` and `WaitForDownload` take integer milliseconds from 1 to
+120000; zero chooses 10000 ms. Their transport budget includes one second for
+the response. A blocking waiter and its trigger need separate clients with the
+same session. Download IDs are task-scoped opaque GUIDs; `DownloadPath` reports
+`OBU_DOWNLOAD_PATH_UNAVAILABLE` because the extension API cannot reliably map
+those GUIDs to local paths. Upload file paths remain supported.

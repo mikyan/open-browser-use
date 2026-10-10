@@ -8,3 +8,8 @@
 - 从用户问题和可见结果写起，不要一上来就写实现。
 - 写清验收标准和外部可观察到的变化。
 - 关联对应的 execution plan、release note 和架构调整。
+
+## 当前规格
+
+- [Browser Use parity](browser-use-parity.md)：正式入口、后台操作、跨平台通信、
+  页面交互与完整任务验收矩阵。

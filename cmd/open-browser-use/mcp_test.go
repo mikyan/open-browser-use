@@ -62,7 +62,7 @@ func TestMCPInitializeAndListTools(t *testing.T) {
 }
 
 func TestMCPToolCallInvokesBrowserSocket(t *testing.T) {
-	socketDir, err := os.MkdirTemp("/tmp", "obu-mcp-test-")
+	socketDir, err := os.MkdirTemp(socketTestTempRoot(), "obu-mcp-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestMCPToolCallInvokesBrowserSocket(t *testing.T) {
 		defer conn.Close()
 
 		var request map[string]any
-		if err := wire.ReadJSON(conn, &request); err != nil {
+		if err := readLegacyCLIRequest(conn, &request); err != nil {
 			serverDone <- err
 			return
 		}

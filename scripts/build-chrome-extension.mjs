@@ -1,0 +1,95 @@
+import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourceDir = path.join(repoRoot, "apps/chrome-extension");
+export const PLAYWRIGHT_CRX_VERSION = "0.15.0";
+const upstreamChunkSha256 = "ae0b36fa86fab5f0594530f29860721e5d05ea0cf06950df484a61f0e54c3b8c";
+const productionFiles = [
+  "manifest.json", "background.js", "browser-action-engine.js", "browser-diagnostics.js", "browser-frame-adapter.js", "browser-input-adapter.js", "browser-runtime.js", "content-cursor.js", "content-webmcp-main.js", "content-webmcp-bridge.js",
+  "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png", "images/cursor-chat.png", "popup.css", "popup.html", "popup.js"
+];
+const sendExpression = "return await chrome.debugger.sendCommand(debuggee, method, commandParams);";
+
+async function assertGeneratedOutput(destination) {
+  const actualRoot = await fs.realpath(repoRoot);
+  const segments = path.relative(repoRoot, destination).split(path.sep);
+  let current = repoRoot;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    let stat;
+    try { stat = await fs.lstat(current); }
+    catch (error) { if (error.code === "ENOENT") break; throw error; }
+    if (stat.isSymbolicLink()) throw new Error(`Extension output cannot traverse a symlink or junction: ${current}`);
+    const actual = await fs.realpath(current);
+    const relative = path.relative(actualRoot, actual);
+    if (!relative || path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) throw new Error("Extension output resolves outside its generated repository subtree");
+  }
+}
+
+export function patchCrxTransport(source) {
+  if (source.split(sendExpression).length !== 2) throw new Error("Pinned Playwright CRX transport shape changed; review the command observer patch before building");
+  const eventHandler = '__publicField(this, "_onDebuggerEvent", ({ tabId, sessionId }, message, params) => {';
+  const eventDelivery = '      if (debugLogger.isEnabled(`chromedebugger`))';
+  const emitMessage = '  _emitMessage(message) {\n    if (this.onmessage)\n      this.onmessage(message);\n  }';
+  const nativeDetach = '    await chrome.debugger.detach({ tabId }).catch(() => {\n    });';
+  for (const expression of [eventHandler, eventDelivery, emitMessage]) {
+    if (source.split(expression).length !== 2) throw new Error("Pinned Playwright CRX frame transport shape changed; review the frame attachment adapter before building");
+  }
+  if (source.split(nativeDetach).length !== 2) throw new Error("Pinned Playwright CRX input cleanup transport shape changed; review before building");
+  const patched = source.replace(sendExpression, `const result = await chrome.debugger.sendCommand(debuggee, method, commandParams);
+    observeCrxInputCommand(this, debuggee, method, commandParams);
+    if (method === "Input.dispatchMouseEvent") {
+      try { Promise.resolve(openBrowserUseCommandObserver?.({ target: debuggee, method, commandParams })).catch(() => {}); } catch {}
+    }
+    return result;`)
+    .replace(eventHandler, eventHandler.replace('({ tabId', 'async ({ tabId') + '\n      if (message === "Page.screencastFrame" && openBrowserUseEventFilter?.({ tabId, sessionId }, message, params)) return;')
+    .replace(eventDelivery, '      if (message === "Target.attachedToTarget") await prepareCrxChildFrame(this, { tabId, sessionId }, params);\n' + eventDelivery)
+    .replace(emitMessage, '  _emitMessage(message) {\n    observeCrxFrameMessage(this, message);\n    if (this.onmessage) this.onmessage(message);\n    refreshCrxCachedLifecycle(this, message).catch(() => {});\n  }')
+    .replace(nativeDetach, `    try { await releaseCrxInput(this, tabId); } finally {\n${nativeDetach}\n    }`);
+  return `// Modified by Open Browser Use: pointer observation, native OOPIF/BFCache lifecycle repair, shared rendering event ownership, and bounded input release after Playwright cancellation.\nimport { observeCrxFrameMessage, prepareCrxChildFrame, refreshCrxCachedLifecycle } from "../../../browser-frame-adapter.js";\nimport { observeCrxInputCommand, releaseCrxInput } from "../../../browser-input-adapter.js";\nlet openBrowserUseCommandObserver, openBrowserUseEventFilter;\nexport function setOpenBrowserUseCommandObserver(observer) { openBrowserUseCommandObserver = observer; }\nexport function setOpenBrowserUseEventFilter(filter) { openBrowserUseEventFilter = filter; }\n${patched.replace(/^\/\/# sourceMappingURL=.*$/gm, "")}`;
+}
+
+export async function buildChromeExtension(outputDir = path.join(repoRoot, "dist/chrome-extension-unpacked")) {
+  const destination = path.resolve(outputDir);
+  const relative = path.relative(repoRoot, destination);
+  if (!relative || path.isAbsolute(relative) || relative.startsWith(`..${path.sep}`) || relative === ".." || !["dist", ".tmp"].includes(relative.split(path.sep)[0]) || relative.split(path.sep).length < 2) {
+    throw new Error("Extension build output must be a child directory of this repository's dist/ or .tmp/");
+  }
+  await assertGeneratedOutput(destination);
+  const require = createRequire(path.join(sourceDir, "package.json"));
+  const packageFile = require.resolve("playwright-crx/package.json");
+  const packageDir = path.dirname(packageFile);
+  const packageInfo = JSON.parse(await fs.readFile(packageFile, "utf8"));
+  if (packageInfo.version !== PLAYWRIGHT_CRX_VERSION || packageInfo.license !== "Apache-2.0") throw new Error("Unexpected Playwright CRX version/license; install the frozen workspace lockfile");
+  const entry = await fs.readFile(path.join(packageDir, "lib/index.mjs"), "utf8");
+  const chunks = [...new Set([...entry.matchAll(/from\s+["']\.\/([^"']+\.mjs)["']/g)].map(match => match[1]))];
+  if (chunks.length !== 1 || chunks[0].includes("/")) throw new Error("Unexpected Playwright CRX ESM entry layout");
+  const upstreamChunk = await fs.readFile(path.join(packageDir, "lib", chunks[0]), "utf8");
+  if (createHash("sha256").update(upstreamChunk).digest("hex") !== upstreamChunkSha256) throw new Error("Pinned Playwright CRX chunk digest changed; review and repin the transport adapters before building");
+  const chunk = patchCrxTransport(upstreamChunk);
+  // All resolved deletion targets are restricted to a generated subtree above.
+  await fs.rm(destination, { recursive: true, force: true });
+  for (const file of productionFiles) {
+    await fs.mkdir(path.dirname(path.join(destination, file)), { recursive: true });
+    await fs.copyFile(path.join(sourceDir, file), path.join(destination, file));
+  }
+  const vendor = path.join(destination, "vendor/playwright-crx");
+  await fs.mkdir(path.join(vendor, "upstream"), { recursive: true });
+  await fs.writeFile(path.join(vendor, "upstream/index.mjs"), entry.replace(/^\/\/# sourceMappingURL=.*$/gm, ""));
+  await fs.writeFile(path.join(vendor, "upstream", chunks[0]), chunk);
+  await fs.writeFile(path.join(vendor, "index.mjs"), `export { crx } from "./upstream/index.mjs";\nexport { setOpenBrowserUseCommandObserver, setOpenBrowserUseEventFilter } from "./upstream/${chunks[0]}";\n`);
+  for (const name of ["LICENSE", "NOTICE"]) await fs.copyFile(path.join(packageDir, name), path.join(vendor, name));
+  await fs.writeFile(path.join(vendor, "MODIFICATIONS.txt"), "Open Browser Use modifies the pinned Playwright CRX transport to notify an optional observer after successful pointer commands and to deliver a missing Page.frameAttached before an already-loaded OOPIF target attachment. Frame ids and parent ids come exclusively from that attached child session's native Page.getFrameTree response; known frames and detached sessions are not replayed. After a native BackForwardCacheRestore navigation, it re-enables native lifecycle reporting on that owned session so Chromium supplies actual cached-document milestones, without fabricating load events or reloading. Internal rendering-lease screencast frames are filtered from the CRX transport so the backend remains their sole acknowledger; caller-owned screencasts are not filtered. The transport observes only its own successful input and releases remaining pressed buttons/keys and active dragging after Playwright Page cancellation but before native debugger detachment, with a bounded cleanup deadline and finally-detach. Locator/action semantics remain Playwright's. The pointer observer cannot change or fail the original command. The original Apache-2.0 LICENSE and NOTICE are included.\n");
+  await fs.writeFile(path.join(vendor, "version.json"), `${JSON.stringify({ package: "playwright-crx", version: PLAYWRIGHT_CRX_VERSION, playwrightVersion: "1.53.0", license: packageInfo.license, upstreamChunkSha256 }, null, 2)}\n`);
+  return destination;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const args = process.argv.slice(2);
+  if (args.length && (args.length !== 2 || args[0] !== "--output")) throw new Error("Usage: node scripts/build-chrome-extension.mjs [--output <repository dist/.tmp child>]");
+  console.log(await buildChromeExtension(args[1]));
+}

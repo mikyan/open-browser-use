@@ -1189,7 +1189,7 @@ func TestInvokeRemovesStaleActiveSocketRecord(t *testing.T) {
 }
 
 func TestInvokeSkipsNotificationsBeforeResponse(t *testing.T) {
-	socketDir, err := os.MkdirTemp("/tmp", "obu-notification-test-")
+	socketDir, err := os.MkdirTemp(socketTestTempRoot(), "obu-notification-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1249,7 +1249,7 @@ func TestInvokeSkipsNotificationsBeforeResponse(t *testing.T) {
 }
 
 func TestInvokeScansSocketDirWhenActiveRecordMissing(t *testing.T) {
-	socketDir, err := os.MkdirTemp("/tmp", "obu-socket-test-")
+	socketDir, err := os.MkdirTemp(socketTestTempRoot(), "obu-socket-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1325,7 +1325,7 @@ func TestInvokeScansSocketDirWhenActiveRecordMissing(t *testing.T) {
 }
 
 func TestInvokeCleansStaleSocketFilesDuringScan(t *testing.T) {
-	socketDir, err := os.MkdirTemp("/tmp", "obu-socket-test-")
+	socketDir, err := os.MkdirTemp(socketTestTempRoot(), "obu-socket-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1402,7 +1402,7 @@ func TestPickSocketForBrowserRepairsActiveRecord(t *testing.T) {
 	writeLocalStateAtRoot(t, chromeBetaRootForTest(home), `{"profile":{"info_cache":{"Default":{"name":"Beta"}}}}`)
 	writeExtensionStorageAtRoot(t, chromeBetaRootForTest(home), "Default", defaultChromeExtensionID, "beta-instance")
 
-	socketDir, err := os.MkdirTemp("/tmp", "obu-browser-route-")
+	socketDir, err := os.MkdirTemp(socketTestTempRoot(), "obu-browser-route-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1486,7 +1486,7 @@ func TestCobraRunActionPlan(t *testing.T) {
 				return
 			}
 			var request map[string]any
-			if err := wire.ReadJSON(conn, &request); err != nil {
+			if err := readLegacyCLIRequest(conn, &request); err != nil {
 				_ = conn.Close()
 				serverDone <- err
 				return
@@ -1626,7 +1626,7 @@ func TestInvokeWithOptionsUsesSessionID(t *testing.T) {
 		}
 		defer conn.Close()
 		var request map[string]any
-		if err := wire.ReadJSON(conn, &request); err != nil {
+		if err := readLegacyCLIRequest(conn, &request); err != nil {
 			serverDone <- err
 			return
 		}

@@ -24,6 +24,10 @@ open-browser-use ping --socket /tmp/open-browser-use/example.sock
 ```
 
 For SDKs, create a client with `socketPath` / `socket_path` / `SocketPath`.
+Read that value from the native host's `active.json`: it is a local named pipe
+on Windows and a Unix socket on macOS/Linux. Keep host and SDK versions together;
+Windows SDKs cannot connect to the old host's AF_UNIX `.sock` endpoint.
+For locators and page interaction, read [browser-actions.md](browser-actions.md).
 
 ## Browser Session Scope
 
@@ -351,7 +355,8 @@ with `#`, shell-like quotes, shared session/turn, and a default tab set by
 `open-tab` or `claim-tab`. Supported actions include `ping`, `info`, `tabs`,
 `user-tabs`, `history`, `name-session`, `open-tab`, `claim-tab`, `navigate`,
 `wait-load`, `page-info`, `cdp`, `move-mouse`, `wait-file-chooser`,
-`set-file-chooser-files`, `finalize-tabs`, `turn-ended`, and `call`.
+`set-file-chooser-files`, `finalize-tabs`, `turn-ended`, `begin-turn`,
+`control-state`, and `call`.
 
 ## MCP Server
 
@@ -370,7 +375,7 @@ mirror the CLI action surface:
 - `ping`, `info`, `tabs`, `user_tabs`, `history`
 - `open_tab`, `claim_tab`, `navigate`, `wait_load`, `page_info`
 - `cdp`, `move_mouse`, `wait_file_chooser`, `set_file_chooser_files`
-- `name_session`, `finalize_tabs`, `turn_ended`, `call`, `run_action_plan`
+- `name_session`, `finalize_tabs`, `turn_ended`, `begin_turn`, `control_state`, `call`, `run_action_plan`
 
 Pass `--socket` or `--socket-dir` in the MCP `args` only when the runtime needs
 an explicit Open Browser Use socket. Otherwise the server uses the same socket
@@ -441,3 +446,26 @@ open-browser-use set-file-chooser-files --file-chooser-id <id> --file /absolute/
 ```
 
 Use repeated `--file` values or comma-separated paths for multiple files.
+
+Register the waiter before triggering input. In JavaScript, start both without
+waiting for the chooser result before the click:
+
+```js
+const [chooser] = await Promise.all([
+  browser.client.waitForFileChooser(tab.id, 10000),
+  tab.getByLabel("Upload", { exact: true }).click(),
+]);
+await browser.client.setFileChooserFiles(chooser.fileChooserId, [absoluteFilePath]);
+```
+
+Use the actual observed file-input label and a user-authorized local file. The
+extension synchronizes interception setup with the click and retains OOPIF
+chooser ownership. An empty files array clears the selected input. Python and Go
+waiters are blocking: use a separate client with the same session for the trigger,
+and keep their control epoch current. Ending or detaching invalidates old chooser
+handles and cancels outstanding waits.
+
+Download waits similarly register before the trigger and return an opaque
+task-scoped GUID. Do not infer a local path or reuse another task's download ID.
+The current extension reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` for local path
+lookup; this limitation does not prevent uploading known local files.

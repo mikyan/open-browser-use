@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { endianness, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,7 @@ test("encodes native-endian length-prefixed JSON frames", () => {
 
 test("dispatches JSON-RPC notifications from the native socket", async () => {
   const directory = await mkdtemp(join(tmpdir(), "obu-sdk-js-"));
-  const socketPath = join(directory, "obu.sock");
+  const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\obu-sdk-js-${randomUUID()}` : join(directory, "obu.sock");
   const server = createServer((socket) => {
     socket.write(
       encodeFrame({
@@ -54,7 +55,7 @@ test("dispatches JSON-RPC notifications from the native socket", async () => {
 
 test("high-level browser tabs can goto, wait for load state, and read a DOM snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "obu-sdk-js-"));
-  const socketPath = join(directory, "obu.sock");
+  const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\obu-sdk-js-${randomUUID()}` : join(directory, "obu.sock");
   const calls = [];
   const server = createServer((socket) => {
     let pending = Buffer.alloc(0);
@@ -67,28 +68,15 @@ test("high-level browser tabs can goto, wait for load state, and read a DOM snap
         }
         const request = JSON.parse(pending.subarray(4, 4 + length).toString("utf8"));
         pending = pending.subarray(4 + length);
-        calls.push([request.method, request.params.method ?? null]);
+        calls.push([request.method, request.params.action ?? request.params.method ?? null]);
         let result = {};
         if (request.method === "createTab") {
           result = { id: 123 };
-        } else if (request.method === "executeCdp" && request.params.method === "Page.navigate") {
-          socket.write(
-            encodeFrame({
-              jsonrpc: "2.0",
-              method: "onCDPEvent",
-              params: {
-                source: { tabId: 123 },
-                method: "Page.domContentEventFired",
-                params: {}
-              }
-            })
-          );
-          result = { frameId: "frame-1" };
-        } else if (request.method === "executeCdp" && request.params.method === "Runtime.evaluate") {
-          const expression = request.params.commandParams.expression;
-          result = expression.includes("readyState")
-            ? { result: { value: { href: "https://example.test/issues", readyState: "interactive" } } }
-            : { result: { value: "Open\nClosed\nIssues\nStarred" } };
+        } else if (request.method === "browserAction") {
+          result = {
+            value: request.params.action === "snapshot" ? '- heading "Issues"\n- link "Open"\n- link "Closed"' : null,
+            engine: { name: "playwright-crx", version: "0.15.0", playwrightVersion: "1.53.0" }
+          };
         }
         socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result }));
       }
@@ -104,15 +92,13 @@ test("high-level browser tabs can goto, wait for load state, and read a DOM snap
     const tab = await browser.newTab();
     await tab.goto("https://example.test/issues", { waitUntil: "domcontentloaded", timeoutMs: 1000 });
     await tab.playwright.waitForLoadState({ state: "domcontentloaded", timeoutMs: 1000 });
-    assert.equal(await tab.playwright.domSnapshot(), "Open\nClosed\nIssues\nStarred");
+    assert.equal(await tab.playwright.domSnapshot(), '- heading "Issues"\n- link "Open"\n- link "Closed"');
     assert.deepEqual(calls, [
+      ["getInfo", null],
       ["createTab", null],
-      ["attach", null],
-      ["executeCdp", "Page.enable"],
-      ["executeCdp", "Page.navigate"],
-      ["executeCdp", "Page.enable"],
-      ["executeCdp", "Runtime.evaluate"],
-      ["executeCdp", "Runtime.evaluate"]
+      ["browserAction", "goto"],
+      ["browserAction", "waitForLoadState"],
+      ["browserAction", "snapshot"]
     ]);
   } finally {
     browser.close();
@@ -124,11 +110,12 @@ test("high-level browser tabs can goto, wait for load state, and read a DOM snap
 
 test("sends file chooser wrapper requests", async () => {
   const directory = await mkdtemp(join(tmpdir(), "obu-sdk-js-"));
-  const socketPath = join(directory, "obu.sock");
+  const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\obu-sdk-js-${randomUUID()}` : join(directory, "obu.sock");
   const server = createServer((socket) => {
-    socket.once("data", (chunk) => {
+    socket.on("data", (chunk) => {
       const length = endianness() === "LE" ? chunk.readUInt32LE(0) : chunk.readUInt32BE(0);
       const request = JSON.parse(chunk.subarray(4, 4 + length).toString("utf8"));
+      if (request.method === "getInfo") { socket.write(encodeFrame({jsonrpc: "2.0", id: request.id, result: {}})); return; }
       assert.equal(request.method, "waitForFileChooser");
       assert.equal(request.params.tabId, 123);
       socket.write(
@@ -161,7 +148,7 @@ test("sends file chooser wrapper requests", async () => {
 
 test("sends download and clipboard wrapper requests", async () => {
   const directory = await mkdtemp(join(tmpdir(), "obu-sdk-js-"));
-  const socketPath = join(directory, "obu.sock");
+  const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\obu-sdk-js-${randomUUID()}` : join(directory, "obu.sock");
   const expected = [
     ["waitForDownload", { tabId: 123, timeoutMs: 5000 }],
     ["downloadPath", { downloadId: "download-1" }],
@@ -173,11 +160,15 @@ test("sends download and clipboard wrapper requests", async () => {
     socket.on("data", (chunk) => {
       const length = endianness() === "LE" ? chunk.readUInt32LE(0) : chunk.readUInt32BE(0);
       const request = JSON.parse(chunk.subarray(4, 4 + length).toString("utf8"));
+      if (request.method === "getInfo") { socket.write(encodeFrame({jsonrpc: "2.0", id: request.id, result: {}})); return; }
       const [method, params] = expected[index++];
       assert.equal(request.method, method);
+      if (method === "waitForDownload") {
+        assert.ok(Number.isInteger(request.params.timeoutMs) && request.params.timeoutMs > 0 && request.params.timeoutMs <= params.timeoutMs);
+      }
       assert.deepEqual(
-        Object.fromEntries(Object.entries(params).map(([key, value]) => [key, request.params[key]])),
-        params
+        Object.fromEntries(Object.entries(params).filter(([key]) => key !== "timeoutMs").map(([key]) => [key, request.params[key]])),
+        Object.fromEntries(Object.entries(params).filter(([key]) => key !== "timeoutMs"))
       );
       socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: {} }));
     });

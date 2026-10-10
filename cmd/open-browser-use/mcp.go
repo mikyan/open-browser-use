@@ -81,12 +81,35 @@ func (server *mcpServer) serve(reader io.Reader, writer io.Writer) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	encoder := json.NewEncoder(writer)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	type submission struct {
+		payload []byte
+		control cliControlSnapshot
+	}
+	queue := make(chan submission, 16)
+	done := make(chan struct{})
+	defer close(done)
+	scanResult := make(chan error, 1)
+	go func() {
+		defer close(queue)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+			captured := server.runner.options.control.snapshot()
+			captured.deadline = time.Now().Add(server.options.timeout)
+			select {
+			case queue <- submission{[]byte(line), captured}:
+			case <-done:
+				return
+			}
 		}
-		responses := server.handleLine([]byte(line))
+		scanResult <- scanner.Err()
+	}()
+	for submitted := range queue {
+		server.runner.submitted = &submitted.control
+		responses := server.handleLine(submitted.payload)
+		server.runner.submitted = nil
 		for _, response := range responses {
 			if response == nil {
 				continue
@@ -96,10 +119,18 @@ func (server *mcpServer) serve(reader io.Reader, writer io.Writer) error {
 			}
 		}
 	}
-	return scanner.Err()
+	return <-scanResult
 }
 
 func (server *mcpServer) handleLine(payload []byte) []map[string]any {
+	// All members of an already submitted batch share its captured generation.
+	// A preceding end must not silently relabel the remaining members as new work.
+	if server.runner.submitted == nil {
+		captured := server.runner.options.control.snapshot()
+		captured.deadline = time.Now().Add(server.options.timeout)
+		server.runner.submitted = &captured
+		defer func() { server.runner.submitted = nil }()
+	}
 	if len(payload) > 0 && payload[0] == '[' {
 		var batch []json.RawMessage
 		if err := json.Unmarshal(payload, &batch); err != nil {
@@ -355,6 +386,16 @@ func mcpTools() []mcpTool {
 			InputSchema: emptyObjectSchema(),
 		},
 		{
+			Name: "begin_turn", Title: "Begin Browser Turn",
+			Description: "Explicitly refresh control after a stale epoch or lost end acknowledgement. Does not replay actions.",
+			InputSchema: emptyObjectSchema(),
+		},
+		{
+			Name: "control_state", Title: "Get Browser Control State",
+			Description: "Read current control state without updating this client's bound epoch.",
+			InputSchema: emptyObjectSchema(),
+		},
+		{
 			Name:        "call",
 			Title:       "Call Browser RPC",
 			Description: "Send an unrestricted Open Browser Use JSON-RPC request to the browser backend.",
@@ -494,6 +535,10 @@ func (server *mcpServer) runTool(name string, arguments map[string]any) (any, er
 		return server.invoke("nameSession", map[string]any{"name": name})
 	case "turn_ended":
 		return server.invoke("turnEnded", map[string]any{})
+	case "control_state":
+		return server.invoke("getControlState", map[string]any{})
+	case "begin_turn":
+		return server.runner.options.control.begin(server.runner.options, server.runner.submitted)
 	case "call":
 		method, err := requiredStringArg(arguments, "method")
 		if err != nil {

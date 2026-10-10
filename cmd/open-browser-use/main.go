@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ifuryst/open-browser-use/internal/host"
+	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 	"github.com/spf13/cobra"
 )
@@ -106,6 +107,8 @@ func newRootCommand() *cobra.Command {
 		newWaitFileChooserCommand(),
 		newSetFileChooserFilesCommand(),
 		newSimpleRPCCommand("turn-ended", "turnEnded", "End the current browser turn"),
+		newSimpleRPCCommand("control-state", "getControlState", "Read the current browser control state"),
+		newBeginTurnCommand(),
 		newProfilesCommand(),
 		newVersionCommand(),
 	)
@@ -123,8 +126,8 @@ func newHostCommand() *cobra.Command {
 			return runHost(socketDir, socketPath)
 		},
 	}
-	cmd.Flags().StringVar(&socketDir, "socket-dir", host.DefaultSocketDir, "directory for SDK Unix sockets")
-	cmd.Flags().StringVar(&socketPath, "socket-path", "", "explicit SDK Unix socket path")
+	cmd.Flags().StringVar(&socketDir, "socket-dir", host.DefaultSocketDir, "directory for SDK endpoint discovery")
+	cmd.Flags().StringVar(&socketPath, "socket-path", "", "explicit local endpoint (Unix socket or Windows named pipe)")
 	return cmd
 }
 
@@ -178,7 +181,7 @@ func newSetupCommand() *cobra.Command {
 	cmd.Flags().StringVar(&binaryPath, "path", "", "native host binary target for the stable host link")
 	cmd.Flags().StringVar(&externalExtensionOutput, "external-extension-output", "", "Chrome external extension JSON output path")
 	cmd.Flags().StringVar(&zipPath, "zip", "", "existing extension ZIP path; use it instead of the Chrome Web Store")
-	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, bitbrowser, or BitBrowser instance id)")
+	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, bitbrowser, or BitBrowser instance id)")
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "register Chrome integration without opening Chrome or the file manager")
 	cmd.AddCommand(newSetupBetaCommand())
 	return cmd
@@ -209,7 +212,7 @@ func newSetupBetaCommand() *cobra.Command {
 	cmd.Flags().StringVar(&extensionID, "extension-id", defaultChromeExtensionID, "Chrome extension id for allowed_origins")
 	cmd.Flags().StringVar(&binaryPath, "path", "", "native host binary target for the stable host link")
 	cmd.Flags().StringVar(&zipPath, "zip", "", "existing extension zip path; defaults to the latest GitHub Release zip")
-	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, bitbrowser, or BitBrowser instance id)")
+	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, bitbrowser, or BitBrowser instance id)")
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "download and unpack the extension without opening Chrome")
 	return cmd
 }
@@ -225,6 +228,13 @@ type manualSetupOptions struct {
 }
 
 func runManualSetupCommand(cmd *cobra.Command, options manualSetupOptions) error {
+	browser, err := browserRootForInstallSelector(options.Browser)
+	if err != nil {
+		return err
+	}
+	if browser.BrowserID == "edge" && !options.NoOpen {
+		return errors.New("automatic Edge launching is not implemented; use --browser edge --no-open, then load the unpacked extension at edge://extensions")
+	}
 	resolvedZIPPath := options.ZIPPath
 	if resolvedZIPPath == "" {
 		if !options.AllowDownload {
@@ -279,6 +289,7 @@ func runManualSetupCommand(cmd *cobra.Command, options manualSetupOptions) error
 	skillUpdate := maybeUpdateInstalledSkill()
 	return renderManualSetupResult(cmd.OutOrStdout(), manualSetupResult{
 		Title:              options.Title,
+		BrowserID:          browser.BrowserID,
 		NativeManifestPath: manifestPath,
 		ExtensionID:        effectiveExtensionID,
 		ZIPPath:            installZIPPath,
@@ -330,7 +341,7 @@ func newInstallManifestCommand() *cobra.Command {
 	cmd.Flags().StringVar(&extensionID, "extension-id", defaultChromeExtensionID, "Chrome extension id for allowed_origins")
 	cmd.Flags().StringVar(&binaryPath, "path", "", "native host binary target for the stable host link")
 	cmd.Flags().StringVar(&outputPath, "output", "", "native host manifest output path")
-	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, bitbrowser, or BitBrowser instance id)")
+	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, bitbrowser, or BitBrowser instance id)")
 	return cmd
 }
 
@@ -338,7 +349,15 @@ func installNativeManifest(extensionID string, binaryPath string, outputPath str
 	return installNativeManifestForBrowser(extensionID, binaryPath, outputPath, "")
 }
 
+// Kept at the operating-system boundary so install tests never change a user's
+// real native-host registration.
+var registerNativeHostManifest = regAddDefaultString
+
 func installNativeManifestForBrowser(extensionID string, binaryPath string, outputPath string, browserSelector string) (string, error) {
+	plan, err := nativeManifestPlanForBrowser(browserSelector, outputPath)
+	if err != nil {
+		return "", err
+	}
 	targetPath, err := resolveNativeHostTarget(binaryPath)
 	if err != nil {
 		return "", err
@@ -354,13 +373,7 @@ func installNativeManifestForBrowser(extensionID string, binaryPath string, outp
 	if err != nil {
 		return "", err
 	}
-	path := outputPath
-	if path == "" {
-		path, err = defaultNativeHostManifestPathForBrowser(browserSelector)
-		if err != nil {
-			return "", err
-		}
-	}
+	path := plan.ManifestPath
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
@@ -371,10 +384,9 @@ func installNativeManifestForBrowser(extensionID string, binaryPath string, outp
 	if err := os.WriteFile(path, append(payload, '\n'), 0o600); err != nil {
 		return "", err
 	}
-	if outputPath == "" && runtime.GOOS == "windows" {
-		key := `HKCU\Software\Google\Chrome\NativeMessagingHosts\` + host.NativeHostName
-		if err := regAddDefaultString(key, path); err != nil {
-			return "", fmt.Errorf("failed to register native messaging host %q: %w", key, err)
+	if plan.RegistryKey != "" {
+		if err := registerNativeHostManifest(plan.RegistryKey, path); err != nil {
+			return "", fmt.Errorf("failed to register native messaging host %q: %w", plan.RegistryKey, err)
 		}
 	}
 	return path, nil
@@ -390,6 +402,7 @@ type setupResult struct {
 }
 
 type manualSetupResult struct {
+	BrowserID          string
 	Title              string
 	NativeManifestPath string
 	ExtensionID        string
@@ -420,7 +433,14 @@ type skillUpdateStatus struct {
 }
 
 func setupChrome(extensionID string, binaryPath string, externalExtensionOutput string, browserSelector string) (setupResult, error) {
-	if root, err := browserRootForInstallSelector(browserSelector); err == nil && root.BrowserID == "bitbrowser" {
+	root, err := browserRootForInstallSelector(browserSelector)
+	if err != nil {
+		return setupResult{}, err
+	}
+	if root.BrowserID == "edge" {
+		return setupResult{}, errors.New("automatic Edge extension installation is not implemented; use install-manifest --browser edge for an installed extension, or setup --zip <extension.zip> --browser edge --no-open")
+	}
+	if root.BrowserID == "bitbrowser" {
 		return setupResult{}, fmt.Errorf("BitBrowser does not support Chrome External Extensions setup; install the extension in BitBrowser, then run `open-browser-use install-manifest --browser %s`", bitBrowserInstallSelector(root))
 	}
 	manifestPath, err := installNativeManifestForBrowser(extensionID, binaryPath, "", browserSelector)
@@ -519,6 +539,10 @@ func renderManualSetupResult(writer io.Writer, result manualSetupResult, status 
 	fmt.Fprintln(writer)
 	if status.isReady() {
 		fmt.Fprintln(writer, "All set. Browser extension is installed, connected, and on the expected version.")
+		return nil
+	}
+	if result.BrowserID == "edge" {
+		fmt.Fprintf(writer, "Next: open edge://extensions, enable Developer mode, choose Load unpacked and select %s, then run `open-browser-use info --browser edge`.\n", result.UnpackedPath)
 		return nil
 	}
 	if result.OpenedChrome && result.OpenedFileManager {
@@ -1088,6 +1112,13 @@ func installChromeExternalExtension(extensionID string, outputPath string) (stri
 }
 
 func installChromeExternalExtensionForBrowser(extensionID string, outputPath string, browserSelector string) (string, error) {
+	browser, err := browserRootForInstallSelector(browserSelector)
+	if err != nil {
+		return "", err
+	}
+	if browser.BrowserID == "edge" {
+		return "", errors.New("automatic Edge extension installation is not implemented; use install-manifest --browser edge or setup --zip <extension.zip> --browser edge --no-open")
+	}
 	allowedExtensionID := strings.TrimSpace(extensionID)
 	if allowedExtensionID == "" {
 		allowedExtensionID = defaultChromeExtensionID
@@ -1124,6 +1155,7 @@ func installChromeExternalExtensionForBrowser(extensionID string, outputPath str
 }
 
 type socketOptions struct {
+	control    *cliControl
 	socketPath string
 	socketDir  string
 	timeout    time.Duration
@@ -1136,11 +1168,13 @@ func addSocketFlags(cmd *cobra.Command, options *socketOptions) {
 	if options.sessionID == "" {
 		options.sessionID = defaultCLISessionID
 	}
+	// Initialize lazily after flags have supplied the session ID.
+	options.control = &cliControl{}
 	cmd.Flags().StringVar(&options.socketPath, "socket", "", "open-browser-use Unix socket path")
 	cmd.Flags().StringVar(&options.socketDir, "socket-dir", host.DefaultSocketDir, "directory containing active socket registry")
 	cmd.Flags().DurationVar(&options.timeout, "timeout", 10*time.Second, "request timeout")
 	cmd.Flags().StringVar(&options.sessionID, "session-id", options.sessionID, "browser session id used for tab grouping and cleanup")
-	cmd.Flags().StringVar(&options.browser, "browser", "", "browser selector (chrome, chrome-beta, bitbrowser, or display name)")
+	cmd.Flags().StringVar(&options.browser, "browser", "", "browser selector (chrome, chrome-beta, edge, bitbrowser, or display name)")
 	cmd.Flags().StringVar(&options.profile, "profile", "", "Chrome profile selector (directory name like \"Default\" / \"Profile 1\" or display name like \"Eva\")")
 }
 
@@ -1543,12 +1577,6 @@ func newProfilesCommand() *cobra.Command {
 
 const connectedProbeTimeout = 800 * time.Millisecond
 
-type browserDefinition struct {
-	ID          string
-	Name        string
-	UserDataDir string
-}
-
 type browserProfileRoot struct {
 	BrowserID       string
 	BrowserName     string
@@ -1561,52 +1589,18 @@ func supportedBrowserProfileRoots() ([]browserProfileRoot, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		roots := []browserProfileRoot{
-			{
-				BrowserID:   "chrome",
-				BrowserName: "Google Chrome",
-				Root:        filepath.Join(home, "Library/Application Support/Google/Chrome"),
-			},
-			{
-				BrowserID:   "chrome-beta",
-				BrowserName: "Google Chrome Beta",
-				Root:        filepath.Join(home, "Library/Application Support/Google/Chrome Beta"),
-			},
-		}
+	roots, err := browserCatalogue(runtime.GOOS, home, os.Getenv("LOCALAPPDATA"))
+	if err != nil {
+		return nil, err
+	}
+	if runtime.GOOS == "darwin" {
 		bitBrowserRoots, err := bitBrowserProfileRoots(home)
 		if err != nil {
 			return nil, err
 		}
 		roots = append(roots, bitBrowserRoots...)
-		return roots, nil
-	case "linux":
-		return []browserProfileRoot{{
-			BrowserID:   "chrome",
-			BrowserName: "Google Chrome",
-			Root:        filepath.Join(home, ".config/google-chrome"),
-		}}, nil
-	case "windows":
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if strings.TrimSpace(localAppData) == "" {
-			localAppData = filepath.Join(home, "AppData", "Local")
-		}
-		return []browserProfileRoot{
-			{
-				BrowserID:   "chrome",
-				BrowserName: "Google Chrome",
-				Root:        filepath.Join(localAppData, "Google", "Chrome", "User Data"),
-			},
-			{
-				BrowserID:   "chrome-beta",
-				BrowserName: "Google Chrome Beta",
-				Root:        filepath.Join(localAppData, "Google", "Chrome Beta", "User Data"),
-			},
-		}, nil
-	default:
-		return nil, fmt.Errorf("browser profile detection is not implemented for %s", runtime.GOOS)
 	}
+	return roots, nil
 }
 
 func bitBrowserProfileRoots(home string) ([]browserProfileRoot, error) {
@@ -1648,7 +1642,7 @@ func probeConnectedProfiles(socketDir string) []connectedProfileInfo {
 	probeTimeout := connectedProbeTimeout
 	var out []connectedProfileInfo
 	for _, candidate := range candidates {
-		conn, err := net.DialTimeout("unix", candidate.path, probeTimeout)
+		conn, err := dialLocalEndpoint(candidate.path, probeTimeout)
 		if err != nil {
 			continue
 		}
@@ -1793,9 +1787,8 @@ func (profile installedChromeProfile) browserLabel() string {
 
 type actionRunner struct {
 	options      socketOptions
-	sessionID    string
-	turnID       string
 	currentTabID int
+	submitted    *cliControlSnapshot
 }
 
 type actionRunOutput struct {
@@ -1815,10 +1808,9 @@ func newActionRunner(options socketOptions) *actionRunner {
 	if sessionID == "" {
 		sessionID = defaultCLISessionID
 	}
+	options.control = newCLIControl(sessionID, "")
 	return &actionRunner{
-		options:   options,
-		sessionID: sessionID,
-		turnID:    fmt.Sprintf("%s-%d", sessionID, time.Now().UnixNano()),
+		options: options,
 	}
 }
 
@@ -1866,6 +1858,11 @@ func (runner *actionRunner) runAction(action string, args []string) (map[string]
 		return runner.invoke("getUserTabs", map[string]any{})
 	case "turn-ended":
 		return runner.invoke("turnEnded", map[string]any{})
+	case "control-state":
+		return runner.invoke("getControlState", map[string]any{})
+	case "begin-turn":
+		response, err := runner.options.control.begin(runner.options, runner.submitted)
+		return response, runner.currentTabID, err
 	case "name-session":
 		if len(args) == 0 {
 			return nil, 0, errors.New("name-session requires a name")
@@ -2150,12 +2147,7 @@ func (runner *actionRunner) attach(tabID int) error {
 }
 
 func (runner *actionRunner) invoke(method string, params map[string]any) (map[string]any, int, error) {
-	if params == nil {
-		params = map[string]any{}
-	}
-	params["session_id"] = runner.sessionID
-	params["turn_id"] = runner.turnID
-	response, err := invokeWithProfile(runner.options.socketPath, runner.options.socketDir, runner.options.browser, runner.options.profile, method, params, runner.options.timeout)
+	response, err := runner.options.control.invoke(runner.options, method, params, runner.submitted)
 	return response, runner.currentTabID, err
 }
 
@@ -2336,8 +2328,22 @@ func invokeAndWrite(options socketOptions, method string, params map[string]any)
 }
 
 func invokeWithOptions(options socketOptions, method string, params map[string]any) (map[string]any, error) {
-	applySessionDefaults(params, options.sessionID)
-	return invokeWithProfile(options.socketPath, options.socketDir, options.browser, options.profile, method, params, options.timeout)
+	control := options.control
+	if control == nil {
+		control = &cliControl{}
+	}
+	control.mu.Lock()
+	if control.gate == nil {
+		session, _ := params["session_id"].(string)
+		turn, _ := params["turn_id"].(string)
+		if session == "" {
+			session = options.sessionID
+		}
+		initial := newCLIControl(session, turn)
+		control.gate, control.state = initial.gate, initial.state
+	}
+	control.mu.Unlock()
+	return control.invoke(options, method, params, nil)
 }
 
 func invoke(socketPath string, socketDir string, method string, params map[string]any, timeout time.Duration) (map[string]any, error) {
@@ -2345,24 +2351,7 @@ func invoke(socketPath string, socketDir string, method string, params map[strin
 }
 
 func invokeWithProfile(socketPath string, socketDir string, browser string, profile string, method string, params map[string]any, timeout time.Duration) (map[string]any, error) {
-	conn, err := dialBrowserSocketForProfile(socketPath, socketDir, browser, profile, timeout)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-	applySessionDefaults(params, defaultCLISessionID)
-	requestID := "cli-1"
-	request := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      requestID,
-		"method":  method,
-		"params":  params,
-	}
-	if err := wire.WriteJSON(conn, request); err != nil {
-		return nil, err
-	}
-	return readResponseForID(conn, requestID)
+	return invokeWithOptions(socketOptions{socketPath: socketPath, socketDir: socketDir, browser: browser, profile: profile, timeout: timeout}, method, params)
 }
 
 func readResponseForID(conn net.Conn, requestID string) (map[string]any, error) {
@@ -2399,7 +2388,7 @@ func dialBrowserSocketForProfile(socketPath string, socketDir string, browser st
 	// is the right browser/profile. This protects the user from accidentally
 	// talking to the wrong browser.
 	if socketPath != "" {
-		conn, err := net.DialTimeout("unix", socketPath, timeout)
+		conn, err := dialLocalEndpoint(socketPath, timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -2423,22 +2412,29 @@ func dialBrowserSocketForProfile(socketPath string, socketDir string, browser st
 
 func dialBrowserSocket(socketPath string, socketDir string, timeout time.Duration) (net.Conn, error) {
 	if socketPath != "" {
-		return net.DialTimeout("unix", socketPath, timeout)
+		return dialLocalEndpoint(socketPath, timeout)
 	}
 
 	record, err := host.ReadActiveSocketRecord(socketDir)
 	if err == nil {
-		conn, dialErr := net.DialTimeout("unix", record.SocketPath, timeout)
+		conn, dialErr := dialLocalEndpoint(record.SocketPath, timeout)
 		if dialErr == nil {
 			return conn, nil
 		}
-		_ = host.RemoveActiveSocketRecord(socketDir, record.SocketPath)
-		removeSocketPathIfInDir(socketDir, record.SocketPath)
+		stale := transport.IsStale(dialErr)
+		if stale {
+			_ = host.RemoveActiveSocketRecord(socketDir, record.SocketPath)
+			removeSocketPathIfInDir(socketDir, record.SocketPath)
+		}
 		conn, scanErr := scanSocketDir(socketDir, record.SocketPath, timeout)
 		if scanErr == nil {
 			return conn, nil
 		}
-		return nil, fmt.Errorf("active socket registry points to unavailable socket %q; removed stale registry entry; no connectable socket found by scanning: %w", record.SocketPath, dialErr)
+		state := "preserved registry entry after temporary connection failure"
+		if stale {
+			state = "removed stale registry entry"
+		}
+		return nil, fmt.Errorf("active socket registry points to unavailable socket %q; %s; no connectable socket found by scanning: %w", record.SocketPath, state, dialErr)
 	}
 
 	conn, scanErr := scanSocketDir(socketDir, "", timeout)
@@ -2447,6 +2443,8 @@ func dialBrowserSocket(socketPath string, socketDir string, timeout time.Duratio
 	}
 	return nil, fmt.Errorf("socket not provided and active socket registry is unavailable; no connectable socket found by scanning: %w", err)
 }
+
+var dialLocalEndpoint = transport.DialTimeout
 
 type socketCandidate struct {
 	path    string
@@ -2591,9 +2589,9 @@ func pickSocketForProfile(socketDir string, browserSelector string, profileSelec
 	}
 	var seen []connectedProfileInfo
 	for _, candidate := range candidates {
-		conn, err := net.DialTimeout("unix", candidate.path, probeTimeout)
+		conn, err := dialLocalEndpoint(candidate.path, probeTimeout)
 		if err != nil {
-			removeSocketPathIfInDir(socketDir, candidate.path)
+			removeStaleSocketPath(socketDir, candidate.path, err)
 			continue
 		}
 		resp, err := getInfoOverConn(conn, probeTimeout)
@@ -2637,15 +2635,23 @@ func listSocketCandidates(socketDir string) ([]socketCandidate, error) {
 	}
 	var candidates []socketCandidate
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sock") {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".sock") && !strings.HasSuffix(entry.Name(), host.EndpointRecordSuffix)) {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
+		path := filepath.Join(dir, entry.Name())
+		if strings.HasSuffix(entry.Name(), host.EndpointRecordSuffix) {
+			record, readErr := host.ReadEndpointRecord(path)
+			if readErr != nil {
+				continue
+			}
+			path = record.SocketPath
+		}
 		candidates = append(candidates, socketCandidate{
-			path:    filepath.Join(dir, entry.Name()),
+			path:    path,
 			modTime: info.ModTime(),
 		})
 	}
@@ -2680,13 +2686,13 @@ func scanSocketDir(socketDir string, skipPath string, timeout time.Duration) (ne
 		if candidate.path == skipPath {
 			continue
 		}
-		conn, err := net.DialTimeout("unix", candidate.path, probeTimeout)
+		conn, err := dialLocalEndpoint(candidate.path, probeTimeout)
 		if err == nil {
 			repairActiveSocketRecord(dir, candidate)
 			cleanupStaleSocketCandidates(dir, candidates, candidate.path, probeTimeout)
 			return conn, nil
 		}
-		removeSocketPathIfInDir(dir, candidate.path)
+		removeStaleSocketPath(dir, candidate.path, err)
 		lastErr = err
 	}
 	if lastErr == nil {
@@ -2704,12 +2710,12 @@ func cleanupStaleSocketCandidates(socketDir string, candidates []socketCandidate
 		if candidate.path == keepPath {
 			continue
 		}
-		conn, err := net.DialTimeout("unix", candidate.path, cleanupTimeout)
+		conn, err := dialLocalEndpoint(candidate.path, cleanupTimeout)
 		if err == nil {
 			_ = conn.Close()
 			continue
 		}
-		removeSocketPathIfInDir(socketDir, candidate.path)
+		removeStaleSocketPath(socketDir, candidate.path, err)
 	}
 }
 
@@ -2719,18 +2725,14 @@ func repairActiveSocketRecord(socketDir string, candidate socketCandidate) {
 		PID:        0,
 		StartedAt:  candidate.modTime.UTC(),
 	}
-	payload, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return
-	}
-	path := host.ActiveSocketRecordPath(socketDir)
-	if err := os.WriteFile(path, append(payload, '\n'), 0o600); err != nil {
-		return
-	}
-	_ = os.Chmod(path, 0o600)
+	_ = host.SaveActiveSocketRecord(socketDir, record)
 }
 
 func removeSocketPathIfInDir(socketDir string, socketPath string) {
+	if transport.IsNamedPipe(socketPath) {
+		_ = host.RemoveEndpointRecord(socketDir, socketPath)
+		return
+	}
 	dir := socketDir
 	if dir == "" {
 		dir = host.DefaultSocketDir
@@ -2751,6 +2753,12 @@ func removeSocketPathIfInDir(socketDir string, socketPath string) {
 		return
 	}
 	_ = os.Remove(pathAbs)
+}
+
+func removeStaleSocketPath(socketDir, path string, err error) {
+	if transport.IsStale(err) {
+		removeSocketPathIfInDir(socketDir, path)
+	}
 }
 
 func writeJSON(value any) error {
@@ -2918,30 +2926,23 @@ func defaultNativeHostManifestPath() (string, error) {
 	return defaultNativeHostManifestPathForBrowser("")
 }
 
-func defaultNativeHostManifestPathForBrowser(browserSelector string) (string, error) {
+func nativeManifestPlanForBrowser(browserSelector, outputPath string) (nativeManifestInstallPlan, error) {
+	// Resolve even when --output is supplied, before creating the stable binary,
+	// unpacking an extension, writing a manifest, or touching the registry.
+	browser, err := browserRootForInstallSelector(browserSelector)
+	if err != nil {
+		return nativeManifestInstallPlan{}, err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return nativeManifestInstallPlan{}, err
 	}
-	filename := host.NativeHostName + ".json"
-	switch runtime.GOOS {
-	case "darwin":
-		root, err := browserRootForInstallSelector(browserSelector)
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(root.Root, "NativeMessagingHosts", filename), nil
-	case "linux":
-		return filepath.Join(home, ".config/google-chrome/NativeMessagingHosts", filename), nil
-	case "windows":
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if strings.TrimSpace(localAppData) == "" {
-			localAppData = filepath.Join(home, "AppData", "Local")
-		}
-		return filepath.Join(localAppData, "OpenBrowserUse", "NativeMessagingHosts", filename), nil
-	default:
-		return "", fmt.Errorf("default manifest install path is not implemented for %s; pass --output", runtime.GOOS)
-	}
+	return planNativeManifestInstall(runtime.GOOS, home, os.Getenv("LOCALAPPDATA"), browser, outputPath)
+}
+
+func defaultNativeHostManifestPathForBrowser(browserSelector string) (string, error) {
+	plan, err := nativeManifestPlanForBrowser(browserSelector, "")
+	return plan.ManifestPath, err
 }
 
 func browserRootForInstallSelector(selector string) (browserProfileRoot, error) {

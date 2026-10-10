@@ -21,9 +21,13 @@ fi
 node "${repo_root}/scripts/generate-chrome-extension-icons.mjs"
 "${repo_root}/scripts/package-chrome-extension.sh" >/dev/null
 "${repo_root}/scripts/package-skill.sh" >/dev/null
+host_test_dir="${repo_root}/.tmp/ci-sdk-host"
+mkdir -p "${host_test_dir}"
+export OBU_TEST_HOST_BINARY="${host_test_dir}/open-browser-use$(go env GOEXE)"
 (
   cd "${repo_root}"
   go test ./...
+  go build -o "${OBU_TEST_HOST_BINARY}" ./cmd/open-browser-use
   node --test apps/chrome-extension/*.test.mjs
   node --test scripts/*.test.mjs
   pnpm -r --if-present test

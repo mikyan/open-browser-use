@@ -23,7 +23,8 @@ debugger、history 和 tab groups。
 - `cmd/open-browser-use/`：Go native messaging host 和 CLI 主入口。二进制
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。
-- `internal/host/`：Go native messaging stdio 到本地 Unix socket 的中继。
+- `internal/host/`：Go native messaging stdio 到本地 IPC endpoint 的中继。
+- `internal/transport/`：Unix socket 与 Windows 当前用户 named pipe 的平台边界。
 - `internal/wire/`：Open Browser Use native frame codec。
 - `packages/browser-client-rewrite/`：当前 Browser Use client 的可读重写
   和协议行为参考。
@@ -61,7 +62,7 @@ Chrome route 的目标拓扑：
 
 ```text
 upper-layer runtime / SDK / CLI
-  -> /tmp/open-browser-use/<uuid>.sock
+  -> Unix socket / Windows current-user named pipe
   -> open-browser-use Go native host
   -> Chrome Native Messaging stdio
   -> Open Browser Use MV3 service worker
@@ -82,10 +83,18 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
 当前 M1 骨架已经提供：
 
 - native-endian 4-byte length-prefixed JSON frames。
-- `open-browser-use host`：启动 Chrome native messaging stdio 到 SDK Unix
-  socket 的中继；默认 socket 路径是
-  `/tmp/open-browser-use/<uuid>.sock`，并写入
-  `/tmp/open-browser-use/active.json` 供 CLI/SDK 自动发现当前活跃 socket。
+- Windows host 使用当前用户 ACL 的本地 byte-mode named pipe；`active.json`
+  保留 `socketPath` 字段并写入实际 pipe 路径，独立 endpoint descriptor 支持多个
+  实例发现。macOS/Linux 继续使用 AF_UNIX。只有确认 endpoint 不存在时才删除
+  stale 记录，权限拒绝和连接超时不会删除其他实例的记录。
+  详见 `docs/references/local-ipc-transport.md`。
+- relay 只将 notification 广播到连接的 SDK；带未知 id 的响应直接丢弃，避免
+  已断开客户端的迟到结果进入其他会话。SDK 不自动重放超时的浏览器操作。
+- `open-browser-use host`：启动 Chrome native messaging stdio 到 SDK 本地
+  IPC endpoint 的中继；Unix 默认路径为 `/tmp/open-browser-use/<uuid>.sock`，
+  Windows 默认使用 `\\.\pipe\open-browser-use-<uuid>`。Unix registry 位于
+  `/tmp/open-browser-use/active.json`，Windows 位于系统临时目录下的
+  `open-browser-use/active.json`，供 CLI/SDK 自动发现当前活跃 endpoint。
   Chrome native messaging 以 `chrome-extension://...` origin 参数启动二进制时，
   CLI 会自动进入 host mode。
 - 无参数运行 `open-browser-use` 或 `obu` 输出 CLI 版本、浏览器插件检测状态、
@@ -100,6 +109,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   并注册
   `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.ifuryst.open_browser_use.extension`
   的默认值指向该 manifest。
+- Edge Stable 使用 `install-manifest --browser edge` 和独立 Edge manifest/registry，
+  `setup --zip ... --browser edge --no-open` 提供手动 unpacked 安装入口；未知 selector
+  在写入前失败，`--output` 仅导出而不注册。浏览器目录及验证边界见
+  `docs/references/edge-installation.md`。
 - `open-browser-use setup`：显式安装流程，先调用 native host manifest
   注册，再写入 Chrome External Extensions JSON。只有检测到浏览器插件未安装或
   版本低于当前 CLI 期望版本时，CLI 才打开 Chrome Web Store 正式扩展页，引导
@@ -135,6 +148,14 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   CLI 包 `open-browser-use` 混淆。JavaScript 使用
   `import { ... } from "open-browser-use-sdk"`；Python distribution 安装名是
   `open-browser-use-sdk`，代码 import 模块名仍是 `open_browser_use`。
+- 开发版 `browserAction` 由 extension 内真正的 Playwright CRX 引擎执行。
+  JS/Python 的定位器和语义快照发送有限的可序列化描述；Go 提供同协议 wrapper，
+  CLI/MCP 通过现有 `call` 使用。单 tab 动作排队、请求 deadline 覆盖排队和
+  attachment、结束控制时取消等待，所有动作仍检查 session/tab ownership。
+  原生 CDP 与引擎通过共享 attachment/focus/光标反馈 hooks 协作。
+  MV3 worker 静态加载 `browser-runtime.js`；构建复制固定版本 ESM 和版权文件
+  到 `dist/chrome-extension-unpacked/`，不把第三方生成 bundle 提交到源码。
+  协议、构建和版本限制见 `docs/references/browser-action-protocol.md`。
 - Homebrew formula 从 GitHub Release 下载平台匹配的预编译 CLI tarball，
   安装后提供 `open-browser-use` 和 `obu`，并在 caveats 中提示用户运行显式
   `open-browser-use setup`；安装阶段不依赖 Go，也不在用户机器上编译。
@@ -146,12 +167,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   自身不承载额外自定义 argv，因此 Chrome extension 专用启动信号使用这个
   Chrome 提供的 origin argv。Windows Chrome 还可能只暴露 `--parent-window=<handle>`
   形状，因此 CLI 也把该参数识别为 native host mode。
-- `open-browser-use call`：unrestricted JSON-RPC 入口，允许上层应用发送
-  任意 method/params；未显式传入 `--socket` 时会优先读取 active socket
-  registry。registry 缺失时，CLI 会按修改时间扫描 `--socket-dir` 下的
-  `*.sock` 并连接最新可用 socket，连接成功后修复 active registry；如果
-  registry 指向不可连接的旧 socket，CLI 会移除 stale registry entry 和对应
-  stale socket file，再尝试目录扫描，避免后续命令持续命中同一个失效 socket。
+- `open-browser-use call`：通用 JSON-RPC 入口，允许上层应用发送
+  公开 method/params；extension 使用显式方法 allowlist，拒绝原型与内部 helper。
+  未显式传入 `--socket` 时会优先读取 active socket
+  registry。registry 缺失时，CLI 会扫描 `--socket-dir` 下的 `*.sock` 与
+  Windows endpoint descriptor 并连接可用实例，连接成功后修复 active registry；
+  确认旧 endpoint 不存在时才删除 stale 记录，再尝试目录扫描。
   CLI 和复用同一 runner 的 MCP tools 会按 JSON-RPC request id 等待对应响应，
   跳过其间插入的 `heartbeat`、CDP event 等 notification，避免把通知误当成命令结果。
 - `open-browser-use run`：line-oriented action plan 入口，支持一次执行多条
@@ -165,18 +186,19 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   newline-delimited JSON-RPC，完成 `initialize` 生命周期握手，并暴露
   `tools/list` 与 `tools/call`。MCP tools 复用 CLI/runner 能力，包括
   `user_tabs`、`open_tab`、`navigate`、`page_info`、`cdp`、
-  `run_action_plan`、`finalize_tabs` 和 unrestricted `call`，适合 Codex
+  `run_action_plan`、`finalize_tabs` 和通用 `call`，适合 Codex
   等支持本地 MCP server 的 agent runtime 直接接入。
 - CLI 便捷子命令覆盖当前 SDK 核心能力：`ping`、`info`、`tabs`、
   `user-tabs`、`history`、`open-tab`、`navigate`、`claim-tab`、
   `finalize-tabs`、`name-session`、`cdp`、`move-mouse`、
-  `wait-file-chooser`、`set-file-chooser-files`、`turn-ended`、`profiles`。
+  `wait-file-chooser`、`set-file-chooser-files`、`turn-ended`、`begin-turn`、
+  `control-state`、`profiles`。
 - Multi-browser / multi-profile 支持：`open-browser-use profiles` 扫描 Chrome
-  Stable、Chrome Beta 和 BitBrowser user-data roots，在每个 profile 目录中
+  Stable、Chrome Beta、Edge Stable 和 BitBrowser user-data roots，在每个 profile 目录中
   通过 CRX 与 unpacked 两条路径找到已经装好插件的 profile，附带 browser id、
   browser display name、profile directory 和展示名（来自
   `Local State.profile.info_cache`）。所有面向用户的命令支持
-  `--browser <chrome|chrome-beta|bitbrowser|displayName|instance>` 和
+  `--browser <chrome|chrome-beta|edge|bitbrowser|displayName|instance>` 和
   `--profile <directory|displayName>`：CLI 枚举 `socket-dir` 下的 `.sock`
   文件，对每个连通的 socket 调用 `getInfo`，把
   `metadata.extensionInstanceId` 反查到 browser/profile（grep 每个支持 browser
@@ -184,17 +206,22 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   选出匹配 socket。`obu mcp --browser ... --profile ...` 在 MCP server 启动时锁定
   selector，每次工具调用复用同一个解析结果。selector 不匹配时 CLI 列出当前已连通
   target 列表，提示用户打开对应 browser/profile。Windows 当前覆盖 Chrome
-  Stable 和 Chrome Beta 的 `%LOCALAPPDATA%\Google\...\User Data` roots；BitBrowser
+  Stable 和 Chrome Beta 的 `%LOCALAPPDATA%\Google\...\User Data` roots，以及 Edge
+  的 `%LOCALAPPDATA%\Microsoft\Edge\User Data`；BitBrowser
   root 仍只在 macOS 路径中自动发现。未显式选择时仍保留
   `active.json` 快速路径；`active.json` 缺失或失效时，CLI 会扫描 socket 目录并
   修复 registry，因此不需要重装扩展。
-- MV3 extension core handlers：`getInfo`、`createTab`、`getTabs`、
+- MV3 extension core handlers：`getInfo`、`getControlState`、`browserAction`、`createTab`、`getTabs`、
   `getUserTabs`、`getUserHistory`、`claimUserTab`、`finalizeTabs`、
   `nameSession`、`attach`、`detach`、`executeCdp`、`moveMouse`、
   `webmcp_list_tools`、`webmcp_invoke_tool`、
   `waitForFileChooser`、`setFileChooserFiles`、`waitForDownload`、
   `downloadPath`、`readClipboardText`、`writeClipboardText`、
   `readClipboard`、`writeClipboard`、`turnEnded`。
+- `getInfo.metadata.turnLifecycleVersion=1` 协商持久 `control_epoch`；只允许
+  `ping`、`getInfo`、`getControlState` 在控制周期外调用。结束会先持久化失效旧
+  epoch，再取消操作并释放 debugger；worker 重启也隔离旧 epoch。SDK/CLI/MCP
+  不静默重放输入，显式 begin-turn 用于查询新控制状态后提交新工作。
 - WebMCP 使用两层 content script：MAIN world 优先使用浏览器原生
   `document.modelContext`；如果浏览器没有提供该 API，则在页面代码运行前安装
   一个最小 page-facing shim，覆盖 `registerTool`、`getTools`、`executeTool`、
@@ -216,16 +243,26 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   仅在该窗口完全没有同名分组时才新建。
   `turnEnded` and `finalizeTabs` clear active session state when control ends
   so download notifications only fire while a browser session is active.
-- MV3 extension event forwarding：`chrome.debugger.onEvent` 转发为
-  `onCDPEvent`，`chrome.downloads` 创建/变更转发为 `onDownloadChange`，
+- MV3 extension event forwarding：仅将有当前 session/epoch/attachment 归属的
+  `chrome.debugger.onEvent` 转发为 `onCDPEvent`。下载使用 owned tab 的
+  `Page.downloadWillBegin` / `Page.downloadProgress`，保留 GUID 与来源，
+  不通过全局 `chrome.downloads` 事件猜 URL、时间或文件路径。
+  Host 将有 `session_id` 的通知只转给明确请求过该 session 的连接，只有
+  `heartbeat` 全局发送。Session ID 是路由标签，不是身份验证凭据。
   cursor content script 会回报 cursor arrival 以支持 `moveMouse`
   等待落点。file chooser 通过 CDP `Page.setInterceptFileChooserDialog` 和
   `Page.fileChooserOpened` 事件截获，再使用 `DOM.setFileInputFiles` 写入
-  本地文件路径。download wait/path 和 clipboard helpers 由 extension backend
-  暴露给 SDK；agent-facing Browser Use command rewrite 还覆盖 DOM CUA、media
+  本地文件路径，并保留 OOPIF child session、frame 与 attachment/epoch 信息。
+  `downloadPath` 无法在现有 extension API 下可靠映射 GUID 到本地路径，明确
+  返回 `OBU_DOWNLOAD_PATH_UNAVAILABLE`。Clipboard helpers 仍需独立实测。
+  历史私有 Browser Use command rewrite 含有 DOM CUA、media
   download、element info/screenshot、locator bulk reads、generic tab export 和
-  clipboard commands。
-- JS、Python 和 Go SDK：直接连接 Unix socket 发送 Browser Use JSON-RPC。
+  clipboard commands，但它们不等于正式公开入口已完成这些能力。
+- 公开 `browserAction diagnostics` 使用真实 Playwright Page 事件记录 console、
+  pageerror 和 network 摘要；第一条有归属的 engine action 前开始记录，最多
+  500 条/1 MiB，返回 capture/cursor/dropped。Detach 或归属改变丢弃历史，
+  旧 cursor 不能读取后续 attachment；第一版不记录 headers/body 或历史流量。
+- JS、Python 和 Go SDK：连接 Windows named pipe 或 Unix socket 发送 Browser Use JSON-RPC。
   JS SDK 支持订阅 native socket 上的 JSON-RPC notification；Python SDK 会在
   同步 request loop 中分发并跳过 notification，避免 CDP event 插队破坏响应读取；
   Go SDK 同样在同步 request loop 中分发 notification，并可自动读取 active
@@ -236,11 +273,11 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `locator(...).inner_text(...)` 等适合 Jupyter/Python REPL 编排的薄封装，Go SDK
   提供对应的 `Title`、`URL`、`WaitForTimeout` 和 `Locator(...).InnerText(...)`
   helper。三个 SDK 同时提供核心 Browser Use method wrappers、download/clipboard
-  convenience wrappers，也保留 unrestricted `request`。
+  convenience wrappers，也保留公开协议 `request`。复合 new-tab/navigation/CDP
+  helpers 共享捕获的 session/turn/epoch 与原始 deadline，不在阶段间换到新轮次。
 
-当前 SDK 不内置 Codex 风格的站点限制、turn policy 或二次确认。上层应用
-可以自由调用；生产集成如果需要安全策略，应在上层 runtime 或 host 前置网关
-中实现。
+当前实现包含 task/tab/target 归属与持久 turn epoch，尚无站点允许/禁止 UI。
+Session ID 不承担授权认证；生产集成的用户级访问策略仍需单独实现和验收。
 
 ## 新项目需要补齐的内容
 

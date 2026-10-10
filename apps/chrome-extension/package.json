@@ -1,0 +1,9 @@
+{
+  "name": "@open-browser-use/chrome-extension",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-crx": "0.15.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "open-browser-use-browser-integration",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node run.mjs" },
+  "dependencies": {
+    "esbuild": "0.25.0",
+    "playwright": "1.64.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "ws": "8.22.0"
+  }
+}

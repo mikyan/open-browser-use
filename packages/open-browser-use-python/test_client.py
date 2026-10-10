@@ -1,12 +1,11 @@
 import json
-import socket
 import struct
 import tempfile
 import threading
 import unittest
-from pathlib import Path
 
-from open_browser_use.client import OpenBrowserUseClient, connect_open_browser_use, encode_frame
+from open_browser_use.client import OpenBrowserUseClient, connect_open_browser_use, encode_frame, read_frame
+from test_transport_support import local_server
 
 
 class OpenBrowserUseClientTest(unittest.TestCase):
@@ -18,10 +17,7 @@ class OpenBrowserUseClientTest(unittest.TestCase):
 
     def test_request_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            socket_path = str(Path(directory) / "obu.sock")
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(socket_path)
-            server.listen(1)
+            socket_path, server = local_server(directory)
 
             def serve_once() -> None:
                 conn, _ = server.accept()
@@ -49,14 +45,14 @@ class OpenBrowserUseClientTest(unittest.TestCase):
 
     def test_file_chooser_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            socket_path = str(Path(directory) / "obu.sock")
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(socket_path)
-            server.listen(1)
+            socket_path, server = local_server(directory)
 
             def serve_once() -> None:
                 conn, _ = server.accept()
                 with conn:
+                    info = read_frame(conn)
+                    self.assertEqual(info["method"], "getInfo")
+                    conn.sendall(encode_frame({"id": info["id"], "result": {"metadata": {}}}))
                     header = conn.recv(4)
                     (length,) = struct.unpack("=I", header)
                     payload = conn.recv(length)
@@ -85,11 +81,9 @@ class OpenBrowserUseClientTest(unittest.TestCase):
 
     def test_download_and_clipboard_wrappers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            socket_path = str(Path(directory) / "obu.sock")
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(socket_path)
-            server.listen(1)
+            socket_path, server = local_server(directory)
             expected = [
+                ("getInfo", {}),
                 ("waitForDownload", {"tabId": 123, "timeoutMs": 5000}),
                 ("downloadPath", {"downloadId": "download-1"}),
                 ("readClipboardText", {"tabId": 123}),
@@ -106,7 +100,11 @@ class OpenBrowserUseClientTest(unittest.TestCase):
                         request = json.loads(payload)
                         self.assertEqual(request["method"], method)
                         for key, value in params.items():
-                            self.assertEqual(request["params"][key], value)
+                            if key == "timeoutMs":
+                                self.assertGreater(request["params"][key], 0)
+                                self.assertLessEqual(request["params"][key], value)
+                            else:
+                                self.assertEqual(request["params"][key], value)
                         response = {
                             "jsonrpc": "2.0",
                             "id": request["id"],
@@ -129,10 +127,7 @@ class OpenBrowserUseClientTest(unittest.TestCase):
 
     def test_high_level_browser_tab_helpers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            socket_path = str(Path(directory) / "obu.sock")
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(socket_path)
-            server.listen(1)
+            socket_path, server = local_server(directory)
             calls: list[tuple[str, str | None]] = []
 
             def serve() -> None:
@@ -151,6 +146,12 @@ class OpenBrowserUseClientTest(unittest.TestCase):
                         result = {}
                         if method == "createTab":
                             result = {"id": 123}
+                        elif method == "browserAction":
+                            action = request["params"]["action"]
+                            value = "Open\nClosed\nIssues\nStarred" if action in ("snapshot", "innerText") else None
+                            result = {"value": value, "engine": {"name": "playwright-crx", "version": "test", "playwrightVersion": "test"}}
+                            if action == "goto":
+                                conn.sendall(encode_frame({"method": "onCDPEvent", "params": {"source": {"tabId": 123}, "method": "Page.domContentEventFired", "params": {}}}))
                         elif method == "executeCdp" and cdp_method == "Page.navigate":
                             conn.sendall(
                                 encode_frame(
@@ -206,18 +207,16 @@ class OpenBrowserUseClientTest(unittest.TestCase):
                 self.assertEqual(
                     calls,
                     [
+                        ("getInfo", None),
                         ("createTab", None),
+                        ("browserAction", None),
+                        ("browserAction", None),
                         ("attach", None),
-                        ("executeCdp", "Page.enable"),
-                        ("executeCdp", "Page.navigate"),
-                        ("executeCdp", "Page.enable"),
                         ("executeCdp", "Runtime.evaluate"),
-                        ("executeCdp", "Page.enable"),
+                        ("attach", None),
                         ("executeCdp", "Runtime.evaluate"),
-                        ("executeCdp", "Runtime.evaluate"),
-                        ("executeCdp", "Runtime.evaluate"),
-                        ("executeCdp", "Runtime.evaluate"),
-                        ("executeCdp", "Runtime.evaluate"),
+                        ("browserAction", None),
+                        ("browserAction", None),
                     ],
                 )
             finally:

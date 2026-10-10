@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = await readFile(new URL("./background.js", import.meta.url), "utf8");
+const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "");
 const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
 assert.notEqual(runtimeStart, -1);
 const session = { session_id: "history-test", turn_id: "turn-1" };

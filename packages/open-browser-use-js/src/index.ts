@@ -1,5 +1,6 @@
 import { Socket, createConnection } from "node:net";
 import { endianness } from "node:os";
+import { randomUUID } from "node:crypto";
 
 export type JsonValue =
   | null
@@ -32,6 +33,7 @@ export type OpenBrowserUseNotification = {
 export type NotificationHandler = (notification: OpenBrowserUseNotification) => void;
 
 const headerBytes = 4;
+const maxFrameBytes = 64 * 1024 * 1024;
 const defaultNavigationTimeoutMs = 10_000;
 
 export type OpenBrowserUseLoadState = "domcontentloaded" | "load";
@@ -48,12 +50,41 @@ export type OpenBrowserUseWaitForLoadStateOptions = {
 
 export type OpenBrowserUseBrowserOptions = OpenBrowserUseClientOptions | { client: OpenBrowserUseClient };
 
+export type OpenBrowserUseLocatorStep =
+  | { kind: "css" | "frame"; selector: string }
+  | { kind: "role"; role: string; name?: string; exact?: boolean }
+  | { kind: "text" | "label" | "placeholder" | "altText" | "title" | "testId"; value: string; exact?: boolean }
+  | { kind: "nth"; index: number }
+  | { kind: "first" | "last" }
+  | { kind: "filter"; hasText?: string; hasNotText?: string };
+
+export type OpenBrowserUseEngineInfo = { name: "playwright-crx"; version: string; playwrightVersion: string };
+export type OpenBrowserUseActionResult = { value: JsonValue; engine: OpenBrowserUseEngineInfo };
+export type OpenBrowserUseActionOptions = { timeoutMs?: number; [key: string]: JsonValue | undefined };
+export type OpenBrowserUseScreenshot = { base64: string; mimeType: string };
+export type OpenBrowserUseControlState = { controlEpoch: number; closing: boolean; nextTurnId: string; lifecycleVersion: 1 };
+export type OpenBrowserUseDiagnosticsCursor = { captureId: string; sequence: number };
+export type OpenBrowserUseDiagnosticsOptions = { after?: OpenBrowserUseDiagnosticsCursor; limit?: number; timeoutMs?: number };
+export type OpenBrowserUseDiagnosticsSnapshot = {
+  captureId: string; startedAt: string; cursor: OpenBrowserUseDiagnosticsCursor; dropped: number;
+  entries: (BrowserUseRequestParams & { sequence: number; timestamp: string; kind: "console" | "pageerror" | "request" | "response" | "requestfinished" | "requestfailed" })[];
+};
+type ControlBinding = { controlEpoch: number | null; closing: boolean; nextTurnId?: string };
+const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload"]);
+const controlScopeSymbol = Symbol("controlScope");
+type ControlScope = { request(method: string, params?: BrowserUseRequestParams, reservedResponseMs?: number): Promise<JsonValue>; remaining(): number };
+
 export class OpenBrowserUseClient {
   readonly socketPath: string;
   readonly sessionId: string;
-  readonly turnId: string;
   readonly timeoutMs: number;
+  #turnId: string;
+  #control: ControlBinding | null = null;
+  #controlInitialization: Promise<ControlBinding> | null = null;
+  #controlRevision = 0;
   #socket: Socket | null = null;
+  #connecting: Promise<void> | null = null;
   #pendingData = Buffer.alloc(0);
   #nextId = 1;
   #pending = new Map<string, PendingRequest>();
@@ -62,29 +93,59 @@ export class OpenBrowserUseClient {
   constructor(options: OpenBrowserUseClientOptions) {
     this.socketPath = options.socketPath;
     this.sessionId = options.sessionId ?? "open-browser-use-js";
-    this.turnId = options.turnId ?? `turn-${Date.now()}`;
+    this.#turnId = options.turnId ?? `turn-${randomUUID()}`;
     this.timeoutMs = options.timeoutMs ?? 10_000;
+    assertTimeout(this.timeoutMs);
   }
 
+  get turnId(): string { return this.#turnId; }
+  get controlEpoch(): number | null { return this.#control?.controlEpoch ?? null; }
+
   async connect(): Promise<this> {
+    if (this.#connecting) {
+      await this.#connecting;
+      return this;
+    }
     if (this.#socket) {
       return this;
     }
     const socket = createConnection(this.socketPath);
     this.#socket = socket;
-    socket.on("data", (chunk) => this.#handleData(Buffer.from(chunk)));
-    socket.on("close", () => this.#rejectAll(new Error("Open Browser Use socket closed")));
-    socket.on("error", (error) => this.#rejectAll(error));
-    await new Promise<void>((resolve, reject) => {
-      socket.once("connect", resolve);
-      socket.once("error", reject);
+    this.#pendingData = Buffer.alloc(0);
+    socket.on("data", (chunk) => {
+      if (this.#socket !== socket) return;
+      try {
+        this.#handleData(Buffer.from(chunk));
+      } catch (error) {
+        this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
+      }
     });
+    socket.on("end", () => this.#disconnect(socket, new Error(
+      this.#pendingData.length ? "Open Browser Use socket closed with an incomplete frame" : "Open Browser Use socket closed"
+    )));
+    socket.on("close", () => this.#disconnect(socket, new Error("Open Browser Use socket closed")));
+    socket.on("error", (error) => this.#disconnect(socket, error));
+    const connecting = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const error = new Error("Open Browser Use connection timed out");
+        this.#disconnect(socket, error);
+        reject(error);
+      }, this.timeoutMs);
+      socket.once("connect", () => { clearTimeout(timer); resolve(); });
+      socket.once("error", error => { clearTimeout(timer); reject(error); });
+      socket.once("close", () => { clearTimeout(timer); reject(new Error("Open Browser Use socket closed before connecting")); });
+    });
+    this.#connecting = connecting;
+    try {
+      await connecting;
+    } finally {
+      if (this.#connecting === connecting) this.#connecting = null;
+    }
     return this;
   }
 
   close(): void {
-    this.#socket?.end();
-    this.#socket = null;
+    if (this.#socket) this.#disconnect(this.#socket, new Error("Open Browser Use client closed"));
   }
 
   onNotification(handler: NotificationHandler): () => void {
@@ -94,38 +155,163 @@ export class OpenBrowserUseClient {
     };
   }
 
-  async request(method: string, params: BrowserUseRequestParams = {}): Promise<JsonValue> {
-    await this.connect();
+  async request(method: string, params: BrowserUseRequestParams = {}, options: { timeoutMs?: number } = {}): Promise<JsonValue> {
+    assertTimeout(options.timeoutMs ?? this.timeoutMs);
+    const submittedAt = Date.now();
+    let deadline = submittedAt + (options.timeoutMs ?? this.timeoutMs);
+    // Capture before the first await. A concurrent end must never rebind work
+    // already submitted by the caller to its newly issued turn or epoch.
+    const turnId = this.#turnId;
+    const captured = JSON.parse(JSON.stringify(params)) as BrowserUseRequestParams;
+    if (method === "browserAction" || eventWaitMethods.has(method)) {
+      const requested = captured.timeoutMs ?? 10_000;
+      if (typeof requested === "number" && Number.isFinite(requested) && requested >= 1 && requested <= 120_000) deadline = Math.min(deadline, submittedAt + requested + 1000);
+    }
+    const merged: BrowserUseRequestParams = { session_id: this.sessionId, turn_id: turnId, ...captured };
+    if (controlExemptMethods.has(method)) return this.#sendRequest(method, merged, deadline);
+    const explicitEpoch = Object.hasOwn(captured, "control_epoch");
+    let binding: ControlBinding | undefined;
+    if (explicitEpoch) {
+      if (!Number.isSafeInteger(captured.control_epoch) || (captured.control_epoch as number) < 0) throw new Error("control_epoch must be a non-negative safe integer");
+    } else {
+      if (merged.session_id !== this.sessionId || merged.turn_id !== turnId) throw new Error("Use a separate client or an explicit control_epoch when overriding session_id or turn_id");
+      binding = this.#control ?? await beforeDeadline(this.#initializeControl(turnId, deadline), deadline, method);
+      if (binding.closing) throw new Error("OBU_CONTROL_ENDING: call beginTurn() explicitly after control has ended");
+      if (binding.controlEpoch !== null) merged.control_epoch = binding.controlEpoch;
+    }
+    const result = await this.#sendRequest(method, merged, deadline);
+    if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
+      const next = binding.controlEpoch === null ? { controlEpoch: null, closing: false, nextTurnId: `turn-${randomUUID()}` } : parseEndedControl(result);
+      if (binding.controlEpoch !== null && (next.controlEpoch! <= binding.controlEpoch || !isObject(result) || result.endedTurnId !== turnId)) throw new Error("Invalid control-end acknowledgement; call beginTurn() explicitly to recover");
+      if (this.#control === binding && this.#turnId === turnId) {
+        this.#controlRevision++;
+        this.#control = next;
+        this.#turnId = next.nextTurnId!;
+      }
+    }
+    return result;
+  }
+
+  getControlState(): Promise<JsonValue> { return this.request("getControlState"); }
+
+  async beginTurn(turnId?: string): Promise<OpenBrowserUseControlState | null> {
+    if (turnId !== undefined && !turnId.trim()) throw new Error("beginTurn requires a non-empty turn ID");
+    const revision = ++this.#controlRevision;
+    const binding = await this.#negotiateControl(this.#turnId, Date.now() + this.timeoutMs);
+    if (binding.closing) throw new Error("OBU_CONTROL_ENDING: control is still ending");
+    if (revision !== this.#controlRevision) throw new Error("Control changed while beginTurn was pending; call beginTurn() again explicitly");
+    this.#control = binding;
+    this.#turnId = turnId ?? binding.nextTurnId ?? `turn-${randomUUID()}`;
+    return binding.controlEpoch === null ? null : { controlEpoch: binding.controlEpoch, closing: false, nextTurnId: this.#turnId, lifecycleVersion: 1 };
+  }
+
+  refreshControlState(): Promise<OpenBrowserUseControlState | null> { return this.beginTurn(); }
+
+  [controlScopeSymbol](timeoutMs: number): ControlScope {
+    assertTimeout(timeoutMs);
+    const deadline = Date.now() + timeoutMs, turnId = this.#turnId, revision = this.#controlRevision;
+    const binding = this.#control ?? this.#initializeControl(turnId, deadline);
+    return {
+      remaining: () => Math.max(0, deadline - Date.now()),
+      request: async (method, params = {}, reservedResponseMs = 0) => {
+        const captured = JSON.parse(JSON.stringify(params)) as BrowserUseRequestParams;
+        const fixed = await beforeDeadline(Promise.resolve(binding), deadline, method);
+        if (revision !== this.#controlRevision || fixed.closing) throw new Error("OBU_STALE_CONTROL_EPOCH: control changed while the compound operation was pending");
+        return this.#sendRequest(method, { ...captured, session_id: this.sessionId, turn_id: turnId,
+          ...(fixed.controlEpoch === null ? {} : { control_epoch: fixed.controlEpoch }) }, deadline, reservedResponseMs);
+      }
+    };
+  }
+
+  async #initializeControl(turnId: string, deadline: number): Promise<ControlBinding> {
+    if (this.#controlInitialization) return this.#controlInitialization;
+    const revision = this.#controlRevision;
+    const initialization = this.#negotiateControl(turnId, deadline).then(binding => {
+      if (revision === this.#controlRevision) this.#control = binding;
+      return binding;
+    });
+    this.#controlInitialization = initialization;
+    try { return await initialization; }
+    finally { if (this.#controlInitialization === initialization) this.#controlInitialization = null; }
+  }
+
+  async #negotiateControl(turnId: string, deadline: number): Promise<ControlBinding> {
+    const params = { session_id: this.sessionId, turn_id: turnId };
+    const info = await this.#sendRequest("getInfo", params, deadline);
+    const version = isObject(info) && isObject(info.metadata) ? info.metadata.turnLifecycleVersion : undefined;
+    if (version === undefined) return { controlEpoch: null, closing: false };
+    if (version !== 1) throw new Error(`Unsupported turn lifecycle version: ${version}`);
+    return parseControlState(await this.#sendRequest("getControlState", params, deadline));
+  }
+
+  async #sendRequest(method: string, params: BrowserUseRequestParams, deadline: number, reservedResponseMs = 0): Promise<JsonValue> {
+    await beforeDeadline(this.connect(), deadline, method);
     const socket = this.#socket;
     if (!socket) {
       throw new Error("Open Browser Use socket is not connected");
     }
+    const remaining = deadline - Date.now();
+    if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
+    if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
+    if (method === "browserAction" || eventWaitMethods.has(method)) {
+      const requested = params.timeoutMs ?? 10_000;
+      if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested))) throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
+      const available = Math.floor(remaining - 1000);
+      if (available < 1) throw new Error(`Open Browser Use request timed out before ${method} could start`);
+      params = { ...params, timeoutMs: Math.min(requested, available) };
+    }
     const id = String(this.#nextId++);
-    const mergedParams = {
-      session_id: this.sessionId,
-      turn_id: this.turnId,
-      ...params
-    };
     const message = {
       jsonrpc: "2.0",
       id,
       method,
-      params: mergedParams
+      params
     };
     const payload = encodeFrame(message);
     const promise = new Promise<JsonValue>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Open Browser Use request timed out: ${method}`));
-      }, this.timeoutMs);
+      }, Math.max(1, deadline - Date.now()));
       this.#pending.set(id, { resolve, reject, timeout });
     });
-    socket.write(payload);
+    try {
+      socket.write(payload);
+    } catch (error) {
+      this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
+    }
     return await promise;
   }
 
   getInfo(): Promise<JsonValue> {
     return this.request("getInfo");
+  }
+
+  async browserAction(tabId: number, action: string, options: {
+    locator?: readonly OpenBrowserUseLocatorStep[];
+    args?: BrowserUseRequestParams;
+    timeoutMs?: number;
+  } = {}): Promise<OpenBrowserUseActionResult> {
+    const timeoutMs = options.timeoutMs ?? 10_000;
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) {
+      throw new Error("browserAction timeoutMs must be between 1 and 120000");
+    }
+    const result = await this.request("browserAction", {
+      tabId, action,
+      ...(options.locator ? { locator: [...options.locator] as JsonValue[] } : {}),
+      ...(options.args ? { args: options.args } : {}),
+      timeoutMs
+    }, {
+      // Allow the browser engine to return its own actionability timeout before
+      // the outer IPC deadline expires. Longer requested waits keep their budget.
+      timeoutMs: timeoutMs + 1000
+    });
+    if (!isObject(result) || !("value" in result) || !isObject(result.engine) ||
+        result.engine.name !== "playwright-crx" || typeof result.engine.version !== "string" ||
+        typeof result.engine.playwrightVersion !== "string") {
+      throw new Error("Invalid browserAction response; update the Open Browser Use extension");
+    }
+    return { value: result.value, engine: result.engine as OpenBrowserUseEngineInfo };
   }
 
   createTab(): Promise<JsonValue> {
@@ -177,10 +363,7 @@ export class OpenBrowserUseClient {
   }
 
   waitForFileChooser(tabId: number, timeoutMs?: number): Promise<JsonValue> {
-    return this.request("waitForFileChooser", {
-      tabId,
-      ...(timeoutMs === undefined ? {} : { timeoutMs })
-    });
+    return this.#waitForTabEvent("waitForFileChooser", tabId, timeoutMs);
   }
 
   setFileChooserFiles(fileChooserId: string, files: string[]): Promise<JsonValue> {
@@ -188,10 +371,12 @@ export class OpenBrowserUseClient {
   }
 
   waitForDownload(tabId: number, timeoutMs?: number): Promise<JsonValue> {
-    return this.request("waitForDownload", {
-      tabId,
-      ...(timeoutMs === undefined ? {} : { timeoutMs })
-    });
+    return this.#waitForTabEvent("waitForDownload", tabId, timeoutMs);
+  }
+
+  #waitForTabEvent(method: string, tabId: number, timeoutMs = 10_000): Promise<JsonValue> {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) return Promise.reject(new Error("timeoutMs must be an integer between 1 and 120000"));
+    return this.request(method, { tabId, timeoutMs }, { timeoutMs: timeoutMs + 1000 });
   }
 
   downloadPath(downloadId: string, timeoutMs?: number): Promise<JsonValue> {
@@ -232,6 +417,7 @@ export class OpenBrowserUseClient {
         endianness() === "LE"
           ? this.#pendingData.readUInt32LE(0)
           : this.#pendingData.readUInt32BE(0);
+      if (length > maxFrameBytes) throw new Error(`Open Browser Use frame too large: ${length} > ${maxFrameBytes}`);
       const total = headerBytes + length;
       if (this.#pendingData.length < total) {
         return;
@@ -280,6 +466,16 @@ export class OpenBrowserUseClient {
       pending.reject(error);
     }
   }
+
+  #disconnect(socket: Socket, error: Error): void {
+    // A delayed close event from an older connection must not tear down a retry.
+    if (this.#socket !== socket) return;
+    this.#socket = null;
+    this.#connecting = null;
+    this.#pendingData = Buffer.alloc(0);
+    this.#rejectAll(error);
+    socket.destroy();
+  }
 }
 
 export async function connectOpenBrowserUse(options: OpenBrowserUseBrowserOptions): Promise<OpenBrowserUseBrowser> {
@@ -307,11 +503,15 @@ export class OpenBrowserUseBrowser {
   }
 
   async newTab(options: OpenBrowserUseGotoOptions & { url?: string } = {}): Promise<OpenBrowserUseTab> {
-    const created = await this.client.createTab();
+    const { url, waitUntil = "load" } = options;
+    const timeoutMs = options.timeoutMs ?? (url ? defaultNavigationTimeoutMs : this.client.timeoutMs);
+    if (url) assertSupportedLoadState(waitUntil);
+    const scope = this.client[controlScopeSymbol](timeoutMs + (url ? 1000 : 0));
+    const created = await scope.request("createTab", {}, url ? 1000 : 0);
     const tabId = tabIdFromValue(created, "createTab response");
     const tab = this.tab(tabId);
-    if (options.url) {
-      await tab.goto(options.url, options);
+    if (url) {
+      await scope.request("browserAction", { tabId, action: "goto", args: { url, waitUntil }, timeoutMs });
     }
     return tab;
   }
@@ -329,53 +529,210 @@ export class OpenBrowserUseTab {
   readonly browser: OpenBrowserUseBrowser;
   readonly id: number;
   readonly playwright: OpenBrowserUseTabPlaywright;
+  readonly mouse: OpenBrowserUseMouse;
+  readonly keyboard: OpenBrowserUseKeyboard;
 
   constructor(browser: OpenBrowserUseBrowser, id: number) {
     this.browser = browser;
     this.id = id;
     this.playwright = new OpenBrowserUseTabPlaywright(this);
+    this.mouse = new OpenBrowserUseMouse(this);
+    this.keyboard = new OpenBrowserUseKeyboard(this);
+  }
+
+  async action(action: string, args: BrowserUseRequestParams = {}, options: { timeoutMs?: number } = {}): Promise<JsonValue> {
+    return (await this.browser.client.browserAction(this.id, action, { args, ...options })).value;
+  }
+
+  async engineInfo(): Promise<OpenBrowserUseEngineInfo> {
+    return (await this.browser.client.browserAction(this.id, "engineInfo")).engine;
   }
 
   goto(url: string, options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> {
-    return this.browser.cdp.navigate(this.id, url, options);
+    if (!url) return Promise.reject(new Error("goto requires a URL"));
+    assertSupportedLoadState(options.waitUntil ?? "load");
+    return this.action("goto", { url, waitUntil: options.waitUntil ?? "load" }, options);
   }
 
-  waitForLoadState(options: OpenBrowserUseWaitForLoadStateOptions = {}): Promise<void> {
-    return this.browser.cdp.waitForLoadState(this.id, options);
+  goBack(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> {
+    assertSupportedLoadState(options.waitUntil ?? "load");
+    return this.action("goBack", { waitUntil: options.waitUntil ?? "load" }, options);
   }
 
-  domSnapshot(): Promise<string> {
-    return this.browser.cdp.evaluate(this.id, "document.body?.innerText ?? ''").then((value) => String(value ?? ""));
+  goForward(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> {
+    assertSupportedLoadState(options.waitUntil ?? "load");
+    return this.action("goForward", { waitUntil: options.waitUntil ?? "load" }, options);
   }
+
+  reload(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> {
+    assertSupportedLoadState(options.waitUntil ?? "load");
+    return this.action("reload", { waitUntil: options.waitUntil ?? "load" }, options);
+  }
+
+  async waitForLoadState(options: OpenBrowserUseWaitForLoadStateOptions = {}): Promise<void> {
+    assertSupportedLoadState(options.state ?? "load");
+    await this.action("waitForLoadState", { state: options.state ?? "load" }, options);
+  }
+
+  async waitForURL(url: string, options: OpenBrowserUseActionOptions = {}): Promise<void> {
+    await this.action("waitForURL", { ...actionArgs(options), url }, options);
+  }
+
+  async domSnapshot(options: OpenBrowserUseActionOptions = {}): Promise<string> {
+    return expectString(await this.action("snapshot", actionArgs(options), options), "snapshot");
+  }
+
+  async screenshot(options: OpenBrowserUseActionOptions = {}): Promise<OpenBrowserUseScreenshot> {
+    return expectScreenshot(await this.action("screenshot", actionArgs(options), options));
+  }
+
+  async diagnostics(options: OpenBrowserUseDiagnosticsOptions = {}): Promise<OpenBrowserUseDiagnosticsSnapshot> {
+    const value = await this.action("diagnostics", actionArgs(options), options);
+    if (!isObject(value) || typeof value.captureId !== "string" || typeof value.startedAt !== "string" ||
+        !Number.isSafeInteger(value.dropped) || (value.dropped as number) < 0 || !Array.isArray(value.entries) ||
+        !isObject(value.cursor) || value.cursor.captureId !== value.captureId || !Number.isSafeInteger(value.cursor.sequence) || (value.cursor.sequence as number) < 0 ||
+        value.entries.some(entry => !isObject(entry) || !Number.isSafeInteger(entry.sequence) || typeof entry.timestamp !== "string" ||
+          !["console", "pageerror", "request", "response", "requestfinished", "requestfailed"].includes(String(entry.kind)))) throw new Error("Invalid diagnostics snapshot");
+    return value as OpenBrowserUseDiagnosticsSnapshot;
+  }
+
+  locator(selector: string): OpenBrowserUseLocator { return this.playwright.locator(selector); }
+  frameLocator(selector: string): OpenBrowserUseLocator { return this.playwright.frameLocator(selector); }
+  getByRole(role: string, options: { name?: string; exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByRole(role, options); }
+  getByText(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByText(value, options); }
+  getByLabel(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByLabel(value, options); }
+  getByPlaceholder(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByPlaceholder(value, options); }
+  getByAltText(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByAltText(value, options); }
+  getByTitle(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.playwright.getByTitle(value, options); }
+  getByTestId(value: string): OpenBrowserUseLocator { return this.playwright.getByTestId(value); }
 
   evaluate(expression: string, options: { awaitPromise?: boolean } = {}): Promise<JsonValue> {
     return this.browser.cdp.evaluate(this.id, expression, options);
   }
 
-  close(): Promise<JsonValue> {
-    return this.browser.cdp.call(this.id, "Page.close");
-  }
+  close(): Promise<JsonValue> { return this.browser.cdp.call(this.id, "Page.close"); }
 }
 
-export class OpenBrowserUseTabPlaywright {
+export class OpenBrowserUseLocator {
   readonly tab: OpenBrowserUseTab;
+  readonly steps: readonly OpenBrowserUseLocatorStep[];
 
-  constructor(tab: OpenBrowserUseTab) {
+  constructor(tab: OpenBrowserUseTab, steps: readonly OpenBrowserUseLocatorStep[] = []) {
     this.tab = tab;
+    this.steps = Object.freeze(steps.map(step => Object.freeze({ ...step })));
   }
 
-  waitForLoadState(options: OpenBrowserUseWaitForLoadStateOptions = {}): Promise<void> {
-    return this.tab.waitForLoadState(options);
+  #append(step: OpenBrowserUseLocatorStep): OpenBrowserUseLocator {
+    return new OpenBrowserUseLocator(this.tab, [...this.steps, step]);
   }
 
-  domSnapshot(): Promise<string> {
-    return this.tab.domSnapshot();
+  locator(selector: string): OpenBrowserUseLocator { return this.#append({ kind: "css", selector }); }
+  frameLocator(selector: string): OpenBrowserUseLocator { return this.#append({ kind: "frame", selector }); }
+  getByRole(role: string, options: { name?: string; exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "role", role, ...options }); }
+  getByText(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "text", value, ...options }); }
+  getByLabel(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "label", value, ...options }); }
+  getByPlaceholder(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "placeholder", value, ...options }); }
+  getByAltText(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "altText", value, ...options }); }
+  getByTitle(value: string, options: { exact?: boolean } = {}): OpenBrowserUseLocator { return this.#append({ kind: "title", value, ...options }); }
+  getByTestId(value: string): OpenBrowserUseLocator { return this.#append({ kind: "testId", value }); }
+  first(): OpenBrowserUseLocator { return this.#append({ kind: "first" }); }
+  last(): OpenBrowserUseLocator { return this.#append({ kind: "last" }); }
+  nth(index: number): OpenBrowserUseLocator { return this.#append({ kind: "nth", index }); }
+  filter(options: { hasText?: string; hasNotText?: string }): OpenBrowserUseLocator { return this.#append({ kind: "filter", ...options }); }
+
+  async #perform(action: string, options: OpenBrowserUseActionOptions = {}): Promise<JsonValue> {
+    return (await this.tab.browser.client.browserAction(this.tab.id, action, {
+      locator: this.steps, args: actionArgs(options), timeoutMs: options.timeoutMs
+    })).value;
   }
+
+  async click(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("click", options); }
+  async dblclick(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("dblclick", options); }
+  async hover(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("hover", options); }
+  async focus(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("focus", options); }
+  async scrollIntoViewIfNeeded(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("scrollIntoViewIfNeeded", options); }
+  async pressSequentially(text: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("pressSequentially", { ...options, text }); }
+  async dragTo(target: OpenBrowserUseLocator, options: OpenBrowserUseActionOptions = {}): Promise<void> {
+    if (!(target instanceof OpenBrowserUseLocator) || target.tab.id !== this.tab.id || target.tab.browser.client !== this.tab.browser.client) {
+      throw new Error("dragTo requires a target locator from the same tab and client");
+    }
+    await this.#perform("dragTo", { ...options, target: [...target.steps] as JsonValue[] });
+  }
+  async fill(value: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("fill", { ...options, value }); }
+  async press(key: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("press", { ...options, key }); }
+  async check(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("check", options); }
+  async uncheck(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("uncheck", options); }
+  async setChecked(checked: boolean, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("setChecked", { ...options, checked }); }
+  async selectOption(values: JsonValue, options: OpenBrowserUseActionOptions = {}): Promise<string[]> { return expectStrings(await this.#perform("selectOption", { ...options, values }), "selectOption"); }
+  async waitFor(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("waitFor", options); }
+  async count(): Promise<number> { const value = await this.#perform("count"); if (typeof value !== "number") throw new Error("Invalid count result"); return value; }
+  async innerText(options: OpenBrowserUseActionOptions = {}): Promise<string> { return expectString(await this.#perform("innerText", options), "innerText"); }
+  async textContent(options: OpenBrowserUseActionOptions = {}): Promise<string | null> { const value = await this.#perform("textContent", options); return value === null ? null : expectString(value, "textContent"); }
+  async inputValue(options: OpenBrowserUseActionOptions = {}): Promise<string> { return expectString(await this.#perform("inputValue", options), "inputValue"); }
+  async getAttribute(name: string, options: OpenBrowserUseActionOptions = {}): Promise<string | null> { const value = await this.#perform("getAttribute", { ...options, name }); return value === null ? null : expectString(value, "getAttribute"); }
+  async isVisible(): Promise<boolean> { return expectBoolean(await this.#perform("isVisible"), "isVisible"); }
+  async isEnabled(): Promise<boolean> { return expectBoolean(await this.#perform("isEnabled"), "isEnabled"); }
+  async isChecked(): Promise<boolean> { return expectBoolean(await this.#perform("isChecked"), "isChecked"); }
+  async boundingBox(options: OpenBrowserUseActionOptions = {}): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    const value = await this.#perform("boundingBox", options);
+    if (value === null) return null;
+    if (!isObject(value) || ["x", "y", "width", "height"].some(key => typeof value[key] !== "number")) throw new Error("Invalid boundingBox result");
+    return value as { x: number; y: number; width: number; height: number };
+  }
+  async allTextContents(): Promise<string[]> { return expectStrings(await this.#perform("allTextContents"), "allTextContents"); }
+  async allInnerTexts(): Promise<string[]> { return expectStrings(await this.#perform("allInnerTexts"), "allInnerTexts"); }
+  async screenshot(options: OpenBrowserUseActionOptions = {}): Promise<OpenBrowserUseScreenshot> { return expectScreenshot(await this.#perform("screenshot", options)); }
+}
+
+export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+  goBack(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.goBack(options); }
+  goForward(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.goForward(options); }
+  reload(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.reload(options); }
+  waitForLoadState(options: OpenBrowserUseWaitForLoadStateOptions = {}): Promise<void> { return this.tab.waitForLoadState(options); }
+  waitForURL(url: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { return this.tab.waitForURL(url, options); }
+  domSnapshot(options: OpenBrowserUseActionOptions = {}): Promise<string> { return this.tab.domSnapshot(options); }
+  engineInfo(): Promise<OpenBrowserUseEngineInfo> { return this.tab.engineInfo(); }
+}
+
+export class OpenBrowserUseMouse {
+  constructor(readonly tab: OpenBrowserUseTab) {}
+  async move(x: number, y: number, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.tab.action("mouse.move", { ...actionArgs(options), x, y }, options); }
+  async click(x: number, y: number, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.tab.action("mouse.click", { ...actionArgs(options), x, y }, options); }
+  async down(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.tab.action("mouse.down", actionArgs(options), options); }
+  async up(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.tab.action("mouse.up", actionArgs(options), options); }
+  async wheel(deltaX: number, deltaY: number): Promise<void> { await this.tab.action("mouse.wheel", { deltaX, deltaY }); }
+}
+
+export class OpenBrowserUseKeyboard {
+  constructor(readonly tab: OpenBrowserUseTab) {}
+  async press(key: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.tab.action("keyboard.press", { ...actionArgs(options), key }, options); }
+  async type(text: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.tab.action("keyboard.type", { ...actionArgs(options), text }, options); }
+  async insertText(text: string): Promise<void> { await this.tab.action("keyboard.insertText", { text }); }
+}
+
+function actionArgs(options: object): BrowserUseRequestParams {
+  return Object.fromEntries(Object.entries(options).filter(([key, value]) => key !== "timeoutMs" && value !== undefined)) as BrowserUseRequestParams;
+}
+
+function expectString(value: JsonValue, action: string): string {
+  if (typeof value !== "string") throw new Error(`Invalid ${action} result`);
+  return value;
+}
+function expectStrings(value: JsonValue, action: string): string[] {
+  if (!Array.isArray(value) || value.some(item => typeof item !== "string")) throw new Error(`Invalid ${action} result`);
+  return value as string[];
+}
+function expectBoolean(value: JsonValue, action: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`Invalid ${action} result`);
+  return value;
+}
+function expectScreenshot(value: JsonValue): OpenBrowserUseScreenshot {
+  if (!isObject(value) || typeof value.base64 !== "string" || typeof value.mimeType !== "string") throw new Error("Invalid screenshot result");
+  return { base64: value.base64, mimeType: value.mimeType };
 }
 
 export class OpenBrowserUseCdp {
   readonly client: OpenBrowserUseClient;
-  #attachedTabIds = new Set<number>();
 
   constructor(client: OpenBrowserUseClient) {
     this.client = client;
@@ -387,12 +744,19 @@ export class OpenBrowserUseCdp {
     commandParams: BrowserUseRequestParams = {},
     options: { timeoutMs?: number } = {}
   ): Promise<JsonValue> {
-    await this.ensureAttached(tabId);
-    return this.client.request("executeCdp", {
+    return this.#call(this.client[controlScopeSymbol](options.timeoutMs ?? this.client.timeoutMs), tabId, method, commandParams);
+  }
+
+  async #call(scope: ControlScope, tabId: number, method: string, commandParams: BrowserUseRequestParams = {}): Promise<JsonValue> {
+    const commands = JSON.parse(JSON.stringify(commandParams)) as BrowserUseRequestParams;
+    await scope.request("attach", { tabId });
+    const remaining = scope.remaining();
+    if (remaining < 1) throw new Error("Open Browser Use CDP request timed out before sending");
+    return scope.request("executeCdp", {
       target: { tabId },
       method,
-      commandParams,
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+      commandParams: commands,
+      timeoutMs: remaining
     });
   }
 
@@ -415,31 +779,45 @@ export class OpenBrowserUseCdp {
     const waitUntil = options.waitUntil ?? "load";
     assertSupportedLoadState(waitUntil);
     const timeoutMs = options.timeoutMs ?? defaultNavigationTimeoutMs;
-    await this.call(tabId, "Page.enable");
-    const wait = this.waitForLoadEvent(tabId, waitUntil, timeoutMs);
-    const result = await this.call(tabId, "Page.navigate", { url }, { timeoutMs });
+    const scope = this.client[controlScopeSymbol](timeoutMs);
+    await this.#call(scope, tabId, "Page.enable");
+    const result = await this.#call(scope, tabId, "Page.navigate", { url });
     if (isObject(result) && typeof result.errorText === "string" && result.errorText) {
       throw new Error(`Browser failed to navigate tab ${tabId}: ${result.errorText}`);
     }
-    await wait.catch(async (error) => {
-      const state = await this.readDocumentState(tabId);
-      if (documentStateMatches(state, waitUntil)) {
-        return;
-      }
-      throw error;
-    });
+    const loaderId = isObject(result) ? stringValue(result.loaderId) : undefined;
+    await this.#waitForLoadState(scope, tabId, waitUntil, loaderId);
     return result;
   }
 
   async waitForLoadState(tabId: number, options: OpenBrowserUseWaitForLoadStateOptions = {}): Promise<void> {
     const state = options.state ?? "load";
     assertSupportedLoadState(state);
-    await this.call(tabId, "Page.enable");
-    const documentState = await this.readDocumentState(tabId);
-    if (documentStateMatches(documentState, state)) {
-      return;
+    const scope = this.client[controlScopeSymbol](options.timeoutMs ?? defaultNavigationTimeoutMs);
+    await this.#call(scope, tabId, "Page.enable");
+    await this.#waitForLoadState(scope, tabId, state);
+  }
+
+  async #waitForLoadState(scope: ControlScope, tabId: number, state: OpenBrowserUseLoadState, loaderId?: string): Promise<void> {
+    const sameLoader = async (): Promise<boolean> => {
+      if (!loaderId) return true;
+      const tree = await this.#call(scope, tabId, "Page.getFrameTree");
+      return isObject(tree) && isObject(tree.frameTree) && isObject(tree.frameTree.frame) && tree.frameTree.frame.loaderId === loaderId;
+    };
+    while (true) {
+      // A previous document's load event or complete readyState cannot satisfy
+      // navigation. Check the returned loader on both sides of the state read.
+      if (await sameLoader() && documentStateMatches(await this.#readDocumentState(scope, tabId), state) && await sameLoader()) return;
+      const remaining = scope.remaining();
+      if (remaining < 1) throw new Error(`Timed out waiting for ${state} in tab ${tabId}`);
+      await new Promise(resolve => setTimeout(resolve, Math.min(50, remaining)));
     }
-    await this.waitForLoadEvent(tabId, state, options.timeoutMs ?? defaultNavigationTimeoutMs);
+  }
+
+  async #readDocumentState(scope: ControlScope, tabId: number): Promise<{ href?: string; readyState?: string } | undefined> {
+    const result = await this.#call(scope, tabId, "Runtime.evaluate", { expression: "({ href: window.location.href, readyState: document.readyState })", returnByValue: true });
+    const value = isObject(result) && isObject(result.result) ? result.result.value : undefined;
+    return isObject(value) ? { href: stringValue(value.href), readyState: stringValue(value.readyState) } : undefined;
   }
 
   async readDocumentState(tabId: number): Promise<{ href?: string; readyState?: string } | undefined> {
@@ -514,16 +892,15 @@ export class OpenBrowserUseCdp {
   }
 
   async ensureAttached(tabId: number): Promise<void> {
-    if (this.#attachedTabIds.has(tabId)) {
-      return;
-    }
+    // Engine deadlines, navigation, and turn cleanup can detach while this
+    // client remains connected. Attach is idempotent; execute is never replayed.
     await this.client.attach(tabId);
-    this.#attachedTabIds.add(tabId);
   }
 }
 
 export function encodeFrame(value: JsonValue | Record<string, unknown>): Buffer {
   const payload = Buffer.from(JSON.stringify(value), "utf8");
+  if (payload.length > maxFrameBytes) throw new Error("Open Browser Use frame exceeds 64 MiB");
   const frame = Buffer.alloc(headerBytes + payload.length);
   if (endianness() === "LE") {
     frame.writeUInt32LE(payload.length, 0);
@@ -532,6 +909,32 @@ export function encodeFrame(value: JsonValue | Record<string, unknown>): Buffer 
   }
   payload.copy(frame, headerBytes);
   return frame;
+}
+
+function parseControlState(value: JsonValue): OpenBrowserUseControlState {
+  if (!isObject(value) || value.lifecycleVersion !== 1 || !Number.isSafeInteger(value.controlEpoch) || (value.controlEpoch as number) < 0 ||
+      typeof value.closing !== "boolean" || typeof value.nextTurnId !== "string" || !value.nextTurnId) throw new Error("Invalid control state; update the Open Browser Use extension");
+  return { controlEpoch: value.controlEpoch as number, closing: value.closing, nextTurnId: value.nextTurnId, lifecycleVersion: 1 };
+}
+
+function parseEndedControl(value: JsonValue): ControlBinding {
+  if (!isObject(value) || typeof value.endedTurnId !== "string" || !value.endedTurnId) throw new Error("Invalid control-end acknowledgement; call beginTurn() explicitly to recover");
+  return parseControlState({ ...value, closing: false });
+}
+
+async function beforeDeadline<T>(work: Promise<T>, deadline: number, method: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Open Browser Use request timed out: ${method}`)), Math.max(0, deadline - Date.now()));
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+function assertTimeout(timeoutMs: number): void {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+    throw new Error("timeoutMs must be a positive finite timer duration");
+  }
 }
 
 function isObject(value: JsonValue | unknown): value is { [key: string]: JsonValue } {

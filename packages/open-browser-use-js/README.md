@@ -2,14 +2,17 @@
 
 JavaScript/TypeScript client for controlling a real Chrome profile through
 Open Browser Use. The SDK keeps the low-level JSON-RPC/CDP surface available and
-also provides higher-level browser/tab helpers for common agent workflows.
+also provides semantic locators, frame locators, screenshots, and input through
+the extension's Playwright engine.
 
 ## Prerequisites
 
 - The `open-browser-use` CLI and Chrome extension are installed and connected.
 - `open-browser-use ping` returns `"pong"`.
-- The native host has written an active socket registry at
-  `/tmp/open-browser-use/active.json`.
+- The matching native host and extension include the `browserAction` engine.
+- The native host has written `active.json` under `/tmp/open-browser-use` on
+  macOS/Linux or `%TEMP%\open-browser-use` on Windows. Windows uses local named
+  pipes; restart an older host which still exposes an AF_UNIX socket.
 
 ```sh
 open-browser-use ping
@@ -29,11 +32,14 @@ Node runtime.
 
 ```js
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { connectOpenBrowserUse } from "open-browser-use-sdk";
 
-const registry = JSON.parse(
-  await readFile("/tmp/open-browser-use/active.json", "utf8")
-);
+const registryPath = process.platform === "win32"
+  ? join(tmpdir(), "open-browser-use", "active.json")
+  : "/tmp/open-browser-use/active.json";
+const registry = JSON.parse(await readFile(registryPath, "utf8"));
 
 const browser = await connectOpenBrowserUse({
   socketPath: registry.socketPath,
@@ -49,7 +55,7 @@ try {
 
   tab = await browser.newTab();
 
-  await tab.goto("https://github.com/iFurySt/open-codex-computer-use/issues", {
+  await tab.goto("https://github.com/iFurySt/open-browser-use/issues", {
     waitUntil: "domcontentloaded",
     timeoutMs: 15000,
   });
@@ -63,7 +69,7 @@ try {
   const relevant = snapshot
     .split("\n")
     .filter((line) =>
-      /Open|Closed|Issues|issue|No results|open-codex-computer-use|Pull requests|Starred/.test(line)
+      /Open|Closed|Issues|issue|No results|open-browser-use|Pull requests|Starred/.test(line)
     );
 
   console.log(relevant.slice(0, 160).join("\n"));
@@ -82,37 +88,106 @@ const text = await tab.domSnapshot();
 const value = await tab.evaluate("document.title");
 ```
 
+## Semantic Locators and Input
+
+High-level actions execute in the extension's Playwright engine. `domSnapshot()`
+returns an accessibility-oriented YAML snapshot containing roles and names.
+Locators use Playwright's strict matching, visibility/actionability checks, and
+waiting behavior. Locator chains are immutable, so one base locator can safely
+be reused for several operations.
+
+```js
+const form = tab.getByRole("form", { name: "Profile" });
+await form.getByLabel("Display name").fill("Ada");
+await form.getByRole("checkbox", { name: "Notifications" }).setChecked(true);
+await form.getByRole("button", { name: "Save", exact: true }).click({ timeoutMs: 15000 });
+await tab.getByRole("status").waitFor({ state: "visible" });
+console.log(await tab.getByRole("status").innerText());
+
+const frameButton = tab.frameLocator("iframe#settings").getByRole("button", { name: "Apply" });
+await frameButton.click();
+
+const rows = tab.locator(".result").filter({ hasText: "Published" });
+console.log(await rows.count(), await rows.allInnerTexts());
+await rows.nth(0).click();
+
+const screenshot = await tab.screenshot({ fullPage: true, type: "png" });
+const imageBytes = Buffer.from(screenshot.base64, "base64");
+console.log(screenshot.mimeType, imageBytes.length);
+
+await tab.mouse.move(120, 80);
+await tab.mouse.wheel(0, 400);
+await tab.keyboard.press("Control+A");
+await tab.keyboard.insertText("Hello");
+```
+
+The same locators are available through `tab.playwright`. Supported builders are
+`locator`, `frameLocator`, `getByRole`, `getByText`, `getByLabel`,
+`getByPlaceholder`, `getByAltText`, `getByTitle`, and `getByTestId`, followed by
+`first`, `last`, `nth`, or `filter({ hasText, hasNotText })`. Text/role names in
+this JSON protocol are strings. JavaScript functions and RegExp objects are not
+serialized as locators.
+
+Actions include click/double-click/hover, fill/press, checkbox/select controls,
+waits, text/value/attribute reads, visibility/enabled/checked state, bounding
+boxes, bulk text reads, and element screenshots. `tab.waitForURL` supports URL
+patterns understood by Playwright. Raw `tab.evaluate` and `browser.cdp` remain
+available for CDP work.
+
+`await tab.engineInfo()` reports the engine and bundled Playwright versions.
+The low-level `client.browserAction(tabId, action, { locator, args, timeoutMs })`
+returns `{ value, engine }` and validates that the extension supports the engine.
+High-level methods return the action value. There is no silent text-only
+snapshot fallback when the extension is outdated.
+
+Action `timeoutMs` must be between 1 and 120000. It is sent separately from
+Playwright arguments, and the outer IPC deadline allows the requested action
+budget plus a one-second response margin. Engine actions and event waits default
+to 10000 ms; a longer client-level default does not extend a shorter operation.
+Connection and handshake time consume that operation's budget. A transport error does not replay an
+operation: a later explicit request may reconnect, while the caller decides
+whether a previous mutation needs checking.
+
+## Console, errors, and network diagnostics
+
+`tab.diagnostics()` reads bounded snapshots of real page console, page-error,
+request, response, request-finished, and request-failed events, including frames.
+Capture begins on engine attachment; it does not reconstruct earlier events.
+
+```js
+const before = await tab.diagnostics();
+await tab.getByRole("button", { name: "Load results" }).click();
+const after = await tab.diagnostics({ after: before.cursor, limit: 100 });
+console.log(after.entries, after.dropped);
+```
+
+The recorder retains at most 500 entries / 1 MiB, truncates long text, and reports
+discarded records in `dropped`. Pages are limited to 1–200 entries. Network events
+include request identities and redirect links, but omit headers and bodies.
+A cursor belongs to one capture: detach, turn end, or ownership change expires it
+with `OBU_DIAGNOSTICS_EXPIRED`. Start a fresh snapshot explicitly after recovery;
+the SDK does not silently restart or replay an expired query.
+
 ## Multi-Tab Workflows
 
-For multiple pages, create tabs first, then run navigation and extraction in
-parallel. This avoids backend session races while still parallelizing the slow
-page work.
+The extension queues engine actions within each tab. Different tabs can execute
+concurrently and share backend and transport resources. Await each operation
+when its full timeout budget is needed; requests queued for the same tab consume
+their deadline while waiting.
 
 ```js
 const targets = [
-  ["repo", "https://github.com/iFurySt/open-codex-computer-use"],
-  ["issues", "https://github.com/iFurySt/open-codex-computer-use/issues"],
-  ["pulls", "https://github.com/iFurySt/open-codex-computer-use/pulls"],
+  ["repo", "https://github.com/iFurySt/open-browser-use"],
+  ["issues", "https://github.com/iFurySt/open-browser-use/issues"],
+  ["pulls", "https://github.com/iFurySt/open-browser-use/pulls"],
 ];
 
-const tabs = [];
-for (const [kind] of targets) {
-  tabs.push([kind, await browser.newTab()]);
+const results = [];
+for (const [kind, url] of targets) {
+  const tab = await browser.newTab();
+  await tab.goto(url, { waitUntil: "load", timeoutMs: 25000 });
+  results.push({ kind, tabId: tab.id, text: await tab.domSnapshot() });
 }
-
-await Promise.all(
-  targets.map(([_, url], index) =>
-    tabs[index][1].goto(url, { waitUntil: "load", timeoutMs: 25000 })
-  )
-);
-
-const results = await Promise.all(
-  tabs.map(async ([kind, tab]) => ({
-    kind,
-    tabId: tab.id,
-    text: await tab.playwright.domSnapshot(),
-  }))
-);
 ```
 
 ## Low-Level Client API
@@ -122,11 +197,14 @@ raw CDP commands.
 
 ```js
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { OpenBrowserUseClient } from "open-browser-use-sdk";
 
-const { socketPath } = JSON.parse(
-  await readFile("/tmp/open-browser-use/active.json", "utf8")
-);
+const registryPath = process.platform === "win32"
+  ? join(tmpdir(), "open-browser-use", "active.json")
+  : "/tmp/open-browser-use/active.json";
+const { socketPath } = JSON.parse(await readFile(registryPath, "utf8"));
 
 const client = new OpenBrowserUseClient({
   socketPath,
@@ -173,6 +251,12 @@ await client.request("executeCdp", {
 The JS SDK can subscribe to JSON-RPC notifications from the native socket. This
 is useful for downloads and CDP events.
 
+CDP/download notifications include `session_id`, `turn_id`, `control_epoch`, and
+`tabId` in their top-level params. The host routes them only to connections that
+explicitly requested that session; heartbeat remains global. A connection may
+request up to 128 sessions (1024 UTF-8 bytes per ID). Session IDs are routing
+labels, not authentication credentials. Older unscoped tab events are dropped.
+
 ```js
 const unsubscribe = client.onNotification((event) => {
   if (event.method === "onDownloadChange") {
@@ -193,10 +277,68 @@ unsubscribe();
 - Tabs: `createTab`, `getTabs`, `getUserTabs`, `claimUserTab`, `finalizeTabs`
 - CDP: `attach`, `detach`, `executeCdp`, `request`
 - Input: `moveMouse`
+- Engine navigation: `tab.goto`, `goBack`, `goForward`, `reload`
+- Engine input: locator `focus`, `pressSequentially`, `scrollIntoViewIfNeeded`,
+  `dragTo`; `tab.mouse.down` and `up` support manual drag sequences. Drag targets
+  must belong to the same tab and client.
 - File chooser: `waitForFileChooser`, `setFileChooserFiles`
 - Downloads: `waitForDownload`, `downloadPath`
+- Diagnostics: `tab.diagnostics`
 - Clipboard: `readClipboardText`, `writeClipboardText`, `readClipboard`,
   `writeClipboard`
+
+File chooser and download waits use a default 10000 ms, accept integers from 1
+through 120000, and reserve one second for the reply. Handshake/queue time is
+deducted before the wait is sent. `setFileChooserFiles` accepts local upload
+paths for an owned chooser; an empty array clears it. Download events cannot
+prove a local filesystem path, so `downloadPath` fails explicitly with
+`OBU_DOWNLOAD_PATH_UNAVAILABLE` instead of guessing one.
+Drag input is not transactional: cancelling after a delivered mouse-down can
+produce normal pointer-up/click handlers while releasing the held button. The
+SDK neither rolls those effects back nor repeats the operation.
+
+## Turn lifecycle
+
+The first protected request negotiates `getInfo.metadata.turnLifecycleVersion`.
+Version 1 explicitly bootstraps `getControlState` once and binds subsequent
+requests to a control epoch. Only `ping`, `getInfo`, and `getControlState` bypass
+this handshake; tab and history reads are protected too. Extensions without
+the metadata flag continue using the legacy protocol.
+
+Successful `turnEnded()` and `finalizeTabs()` advance both `client.turnId` and
+`client.controlEpoch`. Requests already submitted retain their original binding
+and are rejected when that turn ends. The SDK never replays an action after a
+stale epoch, extension restart, or lost end acknowledgement. To resume explicitly:
+
+```js
+await client.beginTurn(); // refreshControlState() is an alias
+await client.createTab(); // newly submitted work uses the new binding
+```
+
+`getControlState()` only queries the extension; it does not update the client's
+binding. Use a separate client for another session. Low-level callers may supply
+an explicit `control_epoch` with custom session/turn metadata, but those requests
+do not update the client's managed lifecycle state.
+
+Connection, bootstrap, and queue time consume the original request deadline.
+Immediately before sending a `browserAction`, its engine timeout is capped to
+the remaining transport budget minus one second for the response. If no action
+budget remains, the SDK fails without sending it.
+
+`newTab({url})` and the legacy CDP navigation/load helpers bind all their RPC
+stages to one original turn, epoch, and deadline. If control changes between
+stages, the remaining work is rejected. Raw CDP calls check attachment each time
+because engine cancellation can detach the debugger; sent CDP commands are
+never retried automatically. Raw navigation checks the returned document loader
+before and after reading readiness, so a previous document's load event cannot
+finish the new navigation. Only unfinished readiness is polled; RPC errors are
+reported immediately.
+
+If the extension worker restarts while the native host/socket survives, call
+`beginTurn()` explicitly to recover its new epoch. If the native host itself
+restarts, read the new endpoint from `active.json` and construct a new client;
+the SDK does not silently change its configured endpoint. Notification
+subscriptions are rebuilt by that new client's explicit requests.
 
 ## Cleanup
 
@@ -223,6 +365,9 @@ await browser.client.finalizeTabs([{ tabId: tab.id, status: "handoff" }]);
 - The browser is the user's real Chrome profile. Do not inspect unrelated data.
 - The SDK does not include Codex-specific site policy or approval prompts; add
   policy in your own runtime if needed.
+- The bundled engine uses Playwright CRX 0.15.0 / Playwright 1.53.0. It does not
+  provide newer AI snapshot references/boxes, closed shadow-root access, or
+  incognito engine attachment; `engineInfo()` reports these limitations.
 - If connection fails, run `open-browser-use ping` and `open-browser-use info`.
 - If there is no active socket, open Chrome with the extension enabled or rerun
   setup according to the Open Browser Use installation guide.
