@@ -681,6 +681,7 @@ export class OpenBrowserUseLocator {
   }
   async allTextContents(): Promise<string[]> { return expectStrings(await this.#perform("allTextContents"), "allTextContents"); }
   async allInnerTexts(): Promise<string[]> { return expectStrings(await this.#perform("allInnerTexts"), "allInnerTexts"); }
+  async ariaSnapshot(options: OpenBrowserUseActionOptions = {}): Promise<string> { return expectString(await this.#perform("snapshot", options), "snapshot"); }
   async screenshot(options: OpenBrowserUseActionOptions = {}): Promise<OpenBrowserUseScreenshot> { return expectScreenshot(await this.#perform("screenshot", options)); }
 }
 

@@ -149,6 +149,30 @@
   waitForURL 先于触发动作也会堵住同 tab 队列。两阶段 network waiter 仅保存
   设计，未实现。公开 AI refs/boxes、批量结构化读取等继续留在长期目标中。
 
+### 2026-10-11 scoped observation checkpoint
+
+- 用户再次明确不用提 PR；继续只在本地修改和提交。
+- JS locator 新增 `ariaSnapshot()`，与 Python/Go 的既有 snapshot 动作对齐；
+  元素截图在 attachment 前拒绝 page-only `clip`/`fullPage`，包括显式 false。
+  正式浏览器回归同时覆盖根元素与 OOPIF 的 scoped 快照，以及拒绝非法
+  截图参数后继续成功截图。
+- 扩展/构建 231/231，JS SDK 50 项普通测试通过；缺省跳过的真实 Go host
+  测试单独启用后通过。正式 `run-zMs5ju` 28/28、活动 tab 事件为空。
+  背景截图中的中文、光标、点击圈与目标框，以及嵌套 frame 导航后内容
+  经人工检查。本片未重复声称其他平台浏览器或完整 Linux CI 验证。
+- 当前 Codex IAB 合成页面的只读快照展开同源/跨源 iframe，没有 AI ref；
+  AX 入口另有数字索引。记录有限基准，不将历史私有 API 当作产品规范。
+- AI snapshot 隔离审计实证前插 iframe 后 refs 重复与错路由；稳定 Frame
+  slot 的原型通过前插、重排、100 次快照及有限 slot 复用。真实生命周期
+  测试验证 turn end 和 ownership 变化取消 pending，公开接口尚未实现。
+- Popup 对照实证保留独立窗口可点击并出帧，随后跨窗移组即超时；后台
+  测试 popup 保留窗口也能收到可信输入且不切走 sentinel。方案文档提出
+  显式 auxiliary ownership，未落生产，原生 popup 创建抢前台仍未解决。
+- AI refs、popup ownership 和两阶段网络等待均保持未完成；长期目标继续。
+- 本地扩展 ZIP、unpacked 与 skill 包已重建；ZIP 26 个文件逐字节匹配
+  unpacked，16 个生产 JS/JSON 文件和 JS SDK runtime 哈希与正式验收一致。
+  没有重新加载用户正在使用的扩展，没有推送或创建 PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

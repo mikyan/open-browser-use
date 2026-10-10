@@ -341,6 +341,8 @@ try {
     const snapshot = await tab.domSnapshot();
     assert.match(snapshot, /button "ARIA named action"/);
     assert.match(snapshot, /textbox "Controlled name"/);
+    assert.match(await tab.getByLabel("Controlled name").ariaSnapshot(), /textbox "Controlled name"/);
+    assert.match(await tab.frameLocator("#cross-frame").getByRole("button", { name: "Frame action", exact: true }).ariaSnapshot(), /button "Frame action"/);
     await fs.writeFile(path.join(runDir, "snapshot.yaml"), snapshot);
   });
   await test("js-strictness", async () => {

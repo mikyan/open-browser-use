@@ -176,3 +176,33 @@ claim 后操作、外部任务拒绝和结束释放；它不替代原生 window.
 `Page.startScreencast` 后 10 秒无首帧；尚未发送该 click 的 Runtime/Input。
 这与原生 popup 抢前台、waitForURL 队列问题仍待后续修复。
 本片 host/SDK 运行代码未改，未声称重跑 Linux 全 CI 或其他系统浏览器验收。
+
+## 可引用页面观察与 popup 渲染：当前实施
+
+- 补齐 JS locator scoped `ariaSnapshot()`，使同一公开动作协议在 JS、Python、Go
+  都能直接读取单个元素；对元素截图静默忽略的 page-only `clip`/`fullPage`
+  改为运行前明确拒绝。通过正式 iframe 读取和截图参数回归验证。
+- 隔离验证固定运行时内部 `_snapshotForAI()`：实际递归 frame、ref/node 身份、
+  新快照与导航后的过期、输出边界、超时和取消。不因函数存在就声明已可用。
+  只有证据支持后才暴露带 capture 身份的有限公开入口，保留现有 ARIA 语义。
+- 独立追查 popup 跨窗口移组后无首帧，候选恢复必须产生真实帧并通过实际
+  click/截图证明；不得激活标签、移动系统鼠标或把人工事件伪装成原生证明。
+- 所有修改仅本地提交；完整能力矩阵继续有效。
+
+### 本片结果与下个完整切片
+
+- JS 元素级快照和截图参数校验已完成，扩展/构建 231 项测试通过；JS SDK
+  50 项普通测试通过，另单独启用真实 Go host 测试通过。正式 Chromium
+  `run-zMs5ju` 28/28，活动 tab 事件为空，反馈和导航后截图已人工检查。
+- Codex IAB 的当前合成页面对照确认快照会展开同源/跨源 iframe；它没有
+  输出 AI ref，不能把我们的候选 refs 接口说成当前 Codex 同名 API。
+- 固定运行时的 AI snapshot 会在 iframe 前插后生成重复 ref 并错读元素。
+  保持 live Frame ID 对应稳定 slot 的隔离修补通过重排、100 次读取与 slot
+  复用；公开接口仍待可信 metadata、capture 失效与输出限额完整实现。
+- 原生 popup 保留原窗口时实际点击/出帧成功，再按现生产 claim 跨窗口移组
+  即退化为 10 秒无帧；测试创建的 unfocused popup 保持原窗口也可工作。
+  需要完整 auxiliary ownership 生命周期，原生创建抢前台仍是独立缺口。
+- 候选方案分别记录在 [AI snapshot design](../../references/ai-snapshot-design.md)
+  和 [popup ownership design](../../references/popup-ownership-design.md)，不将
+  测试专用补丁或方案文档计为生产能力。此轮没有修改 host/Python/Go 运行代码，
+  没有重复宣称 Linux 或 macOS 浏览器验收。

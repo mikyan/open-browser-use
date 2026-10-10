@@ -23,6 +23,11 @@
 导出的工程验收矩阵；需要用同组任务补充实测对比，不能宣称已获得未公开内部实现。
 仓库 `docs/wiki/browser-client/` 仅作为历史参考，不把旧命令表等同当前完整产品。
 
+2026-10-11 又用当前 Codex IAB 对隔离合成页面做了只读观察：
+`playwright.domSnapshot()` 同时展开同源和跨源 iframe，未输出 AI ref token；
+CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完整任务
+对比，详细范围见 [observation baseline](../references/codex-observation-baseline.md)。
+
 ## Acceptance matrix
 
 | ID | 能力 | 必须验证的行为 | 2026-10-11 当前证据与剩余缺口 |
@@ -30,7 +35,7 @@
 | P01 | 正式入口 | CLI、MCP、公开 SDK 可做完整任务，不依赖 Codex 私有 native pipe 或临时内联脚本 | JS/Python/CLI/MCP 已通过正式 browserAction 链路；Go facade 已接通，完整任务范围继续扩展 |
 | P02 | 本地通信与安装 | Windows/macOS/Linux host、CLI、各 SDK 可连接；多 profile 选择明确；掉线可恢复 | Windows named pipe、Linux Unix socket 的真实 host/SDK CI 通过；Windows Edge 已验实际 native registration，macOS 通信及其他平台浏览器安装仍待验收 |
 | P03 | 浏览器兼容 | Chrome、Edge、Brave、Opera、Vivaldi 的安装与发现正确，不把其他 browser selector 默默注册到 Chrome | Edge Stable 目录/selector/独立 native registration 已实现并真实 Windows 验证；Brave/Opera/Vivaldi 及其他系统实测待补 |
-| P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 正式语义 ARIA snapshot 的 role/name 已实测；公开入口尚未提供 AI refs/boxes。固定 bundle 的内部 AI snapshot 需另行适配与验证，不能当作已交付能力 |
+| P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 正式 ARIA role/name 和 JS 元素级 ariaSnapshot（含 OOPIF）已实测；已有 locator boundingBox，但尚无递归 frame 快照或 capture-bound refs/boxes。内部 AI snapshot 有重排错路由，稳定 Frame slot 仅完成隔离原型，不能当作已交付能力 |
 | P05 | 定位器 | CSS、role/name、text、label、placeholder、testId、链式筛选/nth；多匹配严格报错；动态元素等待 | 真正 Playwright locator 已接入；role/label/CSS/strictness/遮挡等待实测，更多组合继续补验收 |
 | P06 | 输入与动作 | click/dblclick/hover/fill/type/key/scroll/drag/select/check；等待稳定和遮挡，不误点；原生及受控表单 | 中文、React/contenteditable、可信逐键输入、HTML 拖放与捕获指针拖动已实测；取消释放会触发 pointerup/可能 click，不能回滚。完整表单矩阵待补 |
 | P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 已加载/动态创建/导航后 OOPIF、同源 frame、open shadow 实测；嵌套复杂组合待补 |
@@ -41,7 +46,7 @@
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属修复并实测；正式套件两轮活动 tab 事件均为空，光标/蓝框/点击圈可见；原生 popup 激活与多任务压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 control epoch、结束取消、旧轮次拒绝、显式 beginTurn 和实际 worker stop/start 已通过；原生暂停验证 held input 释放、失败重试及迟到 Runtime 不改值。完整扩展/host 重启、移组 attachment 回收仍待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 工具栏全局暂停、持久阻断、旧 epoch 失效、清理失败重试及真实 popup 已验收；自身扩展页和已知 raw Target 隧道受限。session ID 仍是路由标签而非认证；网站策略 UI、未知持久写与完整浏览器重启边界未完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | JS/Python/Go/CLI/MCP 正式链路最终同版本两轮各 28/28，新增离屏/嵌套元素截图和后台子 tab 归属；包含文件、诊断、通知隔离、结束、worker 恢复与全局暂停。冻结制品哈希一致；原生 popup、完整任务集、其他平台浏览器和 Codex 同组对比未完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | JS/Python/Go/CLI/MCP 上一片相同制品两轮各 28/28；本片新增 scoped 快照和截图参数拒绝后再次 28/28、无活动 tab 事件，包与实测制品匹配。Codex IAB 已做有限只读快照基准；原生 popup、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
 
 ## Evidence rules
 

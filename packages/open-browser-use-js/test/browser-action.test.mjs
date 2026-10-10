@@ -66,6 +66,22 @@ test("navigation and snapshots use the engine with metadata and explicit timeout
   assert.equal(client.calls[1].params.timeoutMs, 5000);
 });
 
+test("locator ariaSnapshot preserves selected frame scope, timeout, and YAML result", async () => {
+  const client = new RecordedClient();
+  const selected = new OpenBrowserUseBrowser({ client }).tab(93).frameLocator("#settings").getByRole("region", { name: "Preferences" });
+  client.result = '- region "Preferences":\n  - checkbox "Notifications" [checked]';
+  assert.equal(await selected.ariaSnapshot({ timeoutMs: 1500 }), client.result);
+  assert.equal(client.calls[0].params.action, "snapshot");
+  assert.deepEqual(client.calls[0].params.locator, [
+    { kind: "frame", selector: "#settings" }, { kind: "role", role: "region", name: "Preferences" }
+  ]);
+  assert.deepEqual(client.calls[0].params.args, {});
+  assert.equal(client.calls[0].params.timeoutMs, 1500);
+  assert.equal(client.calls[0].options.timeoutMs, 2500);
+  client.result = { text: "not a YAML string" };
+  await assert.rejects(selected.ariaSnapshot(), /Invalid snapshot/);
+});
+
 test("unavailable or incompatible engine response fails clearly", async () => {
   const client = new RecordedClient();
   client.request = async () => ({ value: "plain text", engine: { name: "fallback" } });

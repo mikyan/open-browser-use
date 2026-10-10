@@ -81,6 +81,9 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 - JS, Python, and the optional Go caller's semantic role/name locators, YAML snapshots and duplicate-match
   strictness.
+- JS locator `ariaSnapshot()` in the main document and an OOPIF. Element
+  screenshots reject page-only `clip`/`fullPage` options before the same locator
+  goes on to produce a valid screenshot.
 - Waiting for an overlay, real React controlled inputs, contenteditable,
   open shadow DOM, same-origin frames, and an actual out-of-process iframe.
 - Raw CDP navigation before engine attachment, and raw CDP/engine coexistence.

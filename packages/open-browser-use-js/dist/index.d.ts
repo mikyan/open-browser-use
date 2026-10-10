@@ -267,6 +267,7 @@ export declare class OpenBrowserUseLocator {
     } | null>;
     allTextContents(): Promise<string[]>;
     allInnerTexts(): Promise<string[]>;
+    ariaSnapshot(options?: OpenBrowserUseActionOptions): Promise<string>;
     screenshot(options?: OpenBrowserUseActionOptions): Promise<OpenBrowserUseScreenshot>;
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {

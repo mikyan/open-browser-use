@@ -46,7 +46,9 @@ Playwright frame semantics, including OOPIF routing. Open shadow DOM is handled
 by Playwright; closed shadow roots are unsupported. Regular expressions and
 executable callbacks are not part of v1. Element actions require a locator;
 snapshot defaults to `body`, or a selected frame's body. Screenshot without a
-locator captures the page.
+locator captures the page. `fullPage` and `clip` are page-only options and are
+rejected for every element/frame locator screenshot, including explicit
+`fullPage: false`; unsupported options are never silently ignored.
 
 Element/frame screenshots reveal each iframe owner from the outside in before
 the final Playwright screenshot. Offscreen child renderers can suspend animation

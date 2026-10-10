@@ -31,6 +31,22 @@ test("contract validates frame locator chains and preserves semantic descriptors
   assert.throws(() => validateBrowserAction(request("selectOption", { locator, args: { values: { label: "A", index: 1 } } })), /exactly one/);
 });
 
+test("locator and frame screenshots reject page-only options before attachment", async () => {
+  let loads = 0;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => { loads++; } });
+  for (const selected of [locator, [{ kind: "frame", selector: "#child" }]]) {
+    for (const args of [{ fullPage: true }, { fullPage: false }, { clip: { x: 0, y: 0, width: 10, height: 10 } }]) {
+      await assert.rejects(engine.dispatch(request("screenshot", { locator: selected, args })), /Locator screenshots do not support fullPage or clip/);
+    }
+  }
+  assert.equal(loads, 0);
+  for (const args of [{ fullPage: true }, { fullPage: false }, { clip: { x: 0, y: 0, width: 10, height: 10 } }]) {
+    assert.deepEqual(validateBrowserAction(request("screenshot", { args })).args, args);
+  }
+  const args = { type: "jpeg", quality: 80, omitBackground: false };
+  assert.deepEqual(validateBrowserAction(request("screenshot", { locator, args })).args, args);
+});
+
 test("diagnostics rejects unbounded or malformed cursors before attaching", async () => {
   let loads = 0;
   const engine = new BrowserActionEngine({ loadRuntime: async () => { loads++; } });

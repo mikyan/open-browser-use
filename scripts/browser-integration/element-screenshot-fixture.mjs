@@ -41,6 +41,8 @@ export async function checkElementScreenshots({ browser, fixtureURL, saveScreens
   await capture("element-same-frame", same);
   await capture("element-root-again", root);
   const cross = tab.frameLocator("#cross").locator("#tile");
+  await assert.rejects(cross.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } }), /clip.*page|page.*clip/i);
+  await assert.rejects(cross.screenshot({ fullPage: false }), /fullPage.*page|page.*fullPage/i);
   await capture("element-cross-frame", cross);
   await capture("element-root-before-nested", root);
   const nested = tab.frameLocator("#nested").frameLocator("#inner").locator("#tile");

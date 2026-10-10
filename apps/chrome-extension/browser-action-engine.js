@@ -87,6 +87,7 @@ export function validateBrowserAction(params) {
   validateLocator(steps);
   if (locatorActions.has(params.action) && (!steps.length || steps.at(-1)?.kind === "frame")) throw new Error(`${params.action} requires an element locator`);
   if (!locatorActions.has(params.action) && !["snapshot", "screenshot"].includes(params.action) && steps.length) throw new Error(`${params.action} does not accept a locator`);
+  if (params.action === "screenshot" && steps.length && (Object.hasOwn(args, "fullPage") || Object.hasOwn(args, "clip"))) throw new Error("Locator screenshots do not support fullPage or clip; use a page screenshot instead");
   for (const key of ["force", "fullPage", "omitBackground"]) if (args[key] !== undefined) boolean(args[key], key);
   for (const key of ["delay", "quality"]) if (args[key] !== undefined) finite(args[key], key, 0);
   if (args.quality !== undefined && (!Number.isInteger(args.quality) || args.quality > 100)) throw new Error("quality must be an integer from 0 to 100");

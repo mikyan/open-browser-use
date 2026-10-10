@@ -92,6 +92,8 @@ const value = await tab.evaluate("document.title");
 
 High-level actions execute in the extension's Playwright engine. `domSnapshot()`
 returns an accessibility-oriented YAML snapshot containing roles and names.
+`locator.ariaSnapshot({ timeoutMs })` returns the same format for the selected
+element, or for the selected frame's body when called on a frame locator.
 Locators use Playwright's strict matching, visibility/actionability checks, and
 waiting behavior. Locator chains are immutable, so one base locator can safely
 be reused for several operations.
@@ -130,7 +132,9 @@ serialized as locators.
 
 Actions include click/double-click/hover, fill/press, checkbox/select controls,
 waits, text/value/attribute reads, visibility/enabled/checked state, bounding
-boxes, bulk text reads, and element screenshots. `tab.waitForURL` supports URL
+boxes, bulk text reads, and element screenshots. `fullPage` and `clip` are only
+accepted by page screenshots; locator screenshots reject these options, including
+`fullPage: false`. `tab.waitForURL` supports URL
 patterns understood by Playwright. Raw `tab.evaluate` and `browser.cdp` remain
 available for CDP work.
 

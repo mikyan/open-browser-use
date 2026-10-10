@@ -576,6 +576,7 @@ export class OpenBrowserUseLocator {
     }
     async allTextContents() { return expectStrings(await this.#perform("allTextContents"), "allTextContents"); }
     async allInnerTexts() { return expectStrings(await this.#perform("allInnerTexts"), "allInnerTexts"); }
+    async ariaSnapshot(options = {}) { return expectString(await this.#perform("snapshot", options), "snapshot"); }
     async screenshot(options = {}) { return expectScreenshot(await this.#perform("screenshot", options)); }
 }
 _a = OpenBrowserUseLocator;
