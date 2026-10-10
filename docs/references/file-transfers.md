@@ -157,9 +157,11 @@ request reaches the extension before another connection clicks. Cross-connection
 ordering remains unverified and needs an explicit readiness protocol or direct
 locator upload before that pattern can be considered reliable.
 
-Text and rich clipboard helpers remain a separate audit. A fresh browser profile
-does not isolate the operating system clipboard, so these tests do not read or
-overwrite the user's clipboard. Directory upload, page-triggered download paths,
-exported media/documents, browser policy/prompt behavior, and direct locator upload
-still need broader product and end-to-end coverage; this slice does not claim
-complete P10 parity.
+Text and rich clipboard helpers now have a separate [contract and isolated
+acceptance](clipboard.md). A fresh browser profile does not isolate the operating
+system clipboard, so this headed suite does not read or overwrite it. PDF/MHTML
+exports also have their own [contract and native acceptance](page-exports.md).
+Directory upload, page-triggered download paths, media and specialized document
+exports, browser policy/prompt behavior, and direct locator upload still need
+broader product and end-to-end coverage; these slices do not claim complete P10
+parity.

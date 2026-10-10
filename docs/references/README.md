@@ -41,6 +41,8 @@
   附本片 Windows 真实浏览器验收范围，完整 Codex 任务对照仍待完成。
 - [Popup ownership design](popup-ownership-design.md)：跨窗口移组造成渲染停滞的
   正负对照，以及已实现并验收的独立窗口归属与回收；原生创建焦点仍有缺口。
+- [Headed browser startup](headed-browser-startup.md)：Windows 隔离验收中首窗口
+  原生首帧停滞的对照证据、固定版本源码和诊断限制。
 - [Edge 安装与发现](edge-installation.md)：Edge Stable selector、独立 native host
   manifest/registry、手动 ZIP 安装和实际 Windows 验证范围。
 - [Clipboard](clipboard.md)：可信隐藏文档、有限富内容契约、真实写入结算、

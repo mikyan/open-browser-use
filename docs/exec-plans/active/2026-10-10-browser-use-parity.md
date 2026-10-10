@@ -574,3 +574,100 @@ tab activation 精确属于重启测试自己创建的 unfocused auxiliary windo
 10 秒无帧，另发无 clip 截图 5 秒未结算，再等 2 秒仍无帧；前台、视口、
 滚动均不变。证据排除了此问题只由本次 clipboard 接线引入的判断，但
 尚未证明具体系统原因或找到修复；没有为通过测试而激活用户标签。
+
+### P09 原生诊断与连续事件日志
+
+新增可直接运行的 `scripts/browser-integration/rendering-probe.mjs`，使用最小
+原生扩展和合成页面，不加载生产插件。正式 `rendering-M8L3l9` 保留失败：
+启动窗口后台 tab 10 秒内零帧，后建未聚焦 normal window 约 154 ms 收到
+首帧、2 帧/2 ACK、一次可信点击和 PNG，视口及滚动不变。前述 app、无窗口
+启动等变体的阴性结果保留；这不是通用启动修复，生产渲染逻辑未改动。
+探针原始预算覆盖 start 与真实 ACK，迟到 ACK 不发输入；超时不冒充 native
+Promise 已结束。两个阶段实际命令均结算，独立检查本轮测试进程已退出。
+
+代码审查另发现旧验收脚本在 worker 重启期间拼接日志可能漏记或重复事件。
+已改为 staged-only 常驻扩展观察页，在全部被测动作与多次重启期间使用
+同一 document identity 和本地 sequence，保留重复事件；窗口创建许可仅
+绑定当时实际事件 index，sentinel 不再任意豁免。最终实际保存的快照再次
+验证，observer 丢失、截断、迟到事件均失败，并分别保存有效历史和失败读取。
+初始进程/observer 建立和最终 checkpoint 后的 teardown 不纳入连续覆盖。
+旧日志不能作为跨 worker 重启期间完全无事件的独立证明，完整 headed
+回归及更广 OS 仍待重新验收。
+
+本片新增 **15/15** Node-only 单元纳入 CI。真实 `run-IajAnU` 固定 Headless
+内存环境 **4/4**，包含 raw 前置、准备中 clipboard 的真实 worker 重启、
+Pause 与网站策略各一次真实重启；常驻 observer 不变，只有两个辅助窗口
+初始 tab 激活、零 focus。此结果不替代 headed OS 剪贴板或桌面焦点验收。
+有界面 `run-8j69VK` 三个关键场景仍 **0/3**，完整原始日志保留、无额外
+前台事件。未盲重跑全套，也未把失败改算通过。仅本地提交，无 PR/推送。
+
+### P10 媒体来源与下载（只读设计，尚未实施）
+
+当前先恢复完整 headed 验收。本小节只记录可实施分片，不把媒体或 P10
+标记完成；image、video、audio、canvas、blob/content bytes，以及现有
+Page GUID 路径/取消、系统剪贴板和更广数据导出余项继续保留。
+
+- 首片建议 `locator.downloadMedia({filename?, timeoutMs?}) -> Download`，
+  三 SDK 共用有限 locator 描述、独立媒体能力协商及现有 opaque download
+  handle。只接收精确匹配的 `<img>`，取得浏览器已经选择的 HTTP(S)
+  `currentSrc` 后发起一次显式 GET；空源、其他类型或协议明确拒绝。不隐式
+  查找后代媒体、滚动、点隐藏下载链接，或把空 `currentSrc` 猜成 `src`。
+  这不保证资源已解码，也不保证重新 GET 的内容等于页面已经显示的字节。
+- 首片以外的后续分片分别验证 video/audio 的 progressive HTTP(S) 源、
+  原 frame 中的 blob/data 字节、Canvas 原生编码，以及有界内容返回。
+  MSE、MediaStream、DRM、跨域 tainted Canvas 必须区分并明确拒绝尚不支持
+  的情况；不能将一个 blob URL 当作一定可下载的完整视频。GSuite 等专用
+  导出另需真实格式/认证验收，不直接移植参考 rewrite 的无界 fetch。
+
+内部 seam 应放在原生定位器解析与下载来源绑定之间。当前
+`BrowserDownloads.reserve` 要求 URL 已知；需增加仅内部使用的未解析来源
+预留/绑定入口，复用它的精确 numeric ID、迟到 start 取消和 path/cancel
+归属。不能在 SDK 中先 evaluate 再调用公开 downloadURL，也不能用占位 URL
+绕过校验。SDK 像现有下载 helper 一样只捕获一次 session/turn/epoch，并以
+一次 RPC 返回同一 scope 的 Download；后台在首次 await 前 reserve，容量
+从此刻占用，原始 deadline 覆盖 admission、排队、定位、来源读取/复核及
+原生 start，不能在取得 URL 后重新计时。`BrowserDownloads` 的墙钟 deadline
+和 engine.withPage 的单调钟 deadline 需以当时剩余预算转换，并保留原检查。
+
+可信来源读取不能直接使用公开 locator.evaluate：已检查的 pinned CRX
+0.15.0 / Playwright 1.53 代码会将查询得到的 ElementHandle adopt 到 main
+context，页面可修改该 world 的 getter。最小实现应仿照现有 AI snapshot
+adapter，在原生 parser 解析 locator、frame 和 capture ref 后，使用实际
+frame 的 `_utilityContext()`；必要时通过原生 backend node identity adopt
+到同文档 utility context，禁止重新查询替代节点。只开放固定媒体读取函数，
+在该 isolated world 用原生 prototype getter 读取 currentSrc、节点连接状态
+及所属文档，不执行调用者代码；拒绝自定义/main-world selector engines。
+engine 内部短 setup seam 应复用 capture ref 校验和已有 action 队列，不能
+在队列内递归调用公开 browserAction/downloadURL 而形成自等待。当前这些
+私有接缝来自本地固定产物的源码审计，尚未做媒体原生 PoC。
+
+来源绑定至少包含 attachment、根文档 revision、实际 frame/document 身份
+和精确元素 handle。定位与首次原生 getter 读取应在同一次 renderer 调用
+完成，提交前复核同一节点/文档及来源；可观察的导航、移除、替换或源改变
+明确失败，不自动转而下载新节点。但最后一次读取与 Chrome GET 是跨进程
+操作，无法组成原子事务：契约必须限定为已授权元素的一次 source snapshot，
+不能声称二次比较消除了所有 TOCTOU，也不能保证请求发出时 DOM 仍未变化。
+Chrome downloads 的 HTTP(S) GET 会使用该 hostname 当前 cookies，但它无
+tab/frame 上下文参数；页面 POST、Authorization、Referer 和分区认证语义
+不能据此宣称等价，需保留失败且不静默换认证路径。初片受限网站模式拒绝。
+
+解析期和后续 start 均须跟踪真实未结算的 engine/native Promise，超时只
+结束调用者等待，不能释放容量后让同一批挂起操作无限增长。Pause/end、
+移组、detach、文档变化取消旧来源并等待实际清理；对冷 raw→engine 迁移仅
+保留精确未绑定预留。清理不能等待正在等待自身 detach 的 admission；真实
+pending 仍进入 controlSnapshot。迟到 native download ID 只按该 ID 取消，
+不得发布旧 handle，失败保留重试清理证据。来源 handle 释放与下载终态分开，
+不得用等待整个文件完成占据 tab action 队列。
+
+后续 blob/content seam 保持同一来源身份，可在原 frame 内取得并固定实际
+Blob/Canvas 编码结果，以有界 chunk 读取、总字节/像素上限和真实取消结算
+交付。URL 来源与字节来源是不同内部实现，不能把原 frame blob 字符串移到
+扩展页直接 fetch；公开字节结果沿用严格 MIME/base64/byteLength artifact
+校验，下载则沿用精确 ID sink。Canvas 安全错误不能静默改成截图成功。
+
+最小真实验收需包含：main/same-origin/OOPIF/open shadow 和 capture-ref
+定位、srcset/picture 选源、main-world getter/实例属性补丁无影响；同 URL
+双 session 精确 ID 与文件字节、HttpOnly cookies、无 activation/focus/input；
+解析中节点替换/frame 导航/src 改变、队列/解析超时与容量占用、旧 epoch、
+Pause/end、迟到 ID 精确取消和零重复 GET。blob/canvas/video/audio 的完整
+内容与资源释放必须在各后续分片另验，不能由首片通过推定。

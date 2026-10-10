@@ -24,6 +24,7 @@ import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLife
 import { createNetworkWaitFixtures, networkPageURL, networkAPIURL, networkButton, checkNetworkReady, checkNetworkMatching, checkNetworkLifecycle } from "./network-waits-fixture.mjs";
 import { createNavigationWaitFixtures, navigationPageURL, navigationTargetURL, navigationButton, navigationWitness, checkNavigationDirectAndReady, checkNavigationLoadStates, checkNavigationLifecycle } from "./navigation-waits-fixture.mjs";
 import { createDirectDownloadFixtures, directDownloadURL, directDownloadErrors, prepareDirectDownloadTab, verifyDownloadedFile, checkDirectDownloads, checkDirectDownloadLifecycle } from "./direct-downloads-fixture.mjs";
+import { FocusLedger, assertQuietObserverSetup, currentWorkerVersion, focusArrays, focusObserverHTML, focusObserverSource, focusSnapshotExpression, installFocusObserver, readFocusEvidence } from "./focus-ledger.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -53,6 +54,15 @@ const extension = path.join(runDir, "extension");
 const records = [];
 const allowedPopupActivations = [];
 const allowedWindowFocusEvents = [];
+const focusLedger = new FocusLedger();
+const focusEvidence = { scope: "single test observer delivery history, after ready through final snapshot; fixture startup and teardown are outside agent coverage", setup: {} };
+let focusObserver, observerBrowserControl, observerTargetId, observerSetupStarted = false;
+async function readFocusLedger() {
+  return readFocusEvidence(focusLedger, focusEvidence, () => {
+    assert.ok(focusObserver, "Persistent focus observer is unavailable");
+    return focusObserver.evaluate(focusSnapshotExpression);
+  });
+}
 const browserLog = [];
 const hostLog = [];
 const nativeFrameStats = { frames: 0, maxFrameBytes: 0, starts: 0, chunks: 0, commits: 0 };
@@ -301,13 +311,17 @@ try {
   const manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
   manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replace("connect-src 'self'", `connect-src 'self' ${websocketURL}`);
   await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2));
+  // A single staged-only document survives every worker restart. It is never
+  // packaged in the production extension or controlled through the SDK.
+  await fs.writeFile(path.join(extension, "integration-observer.html"), focusObserverHTML);
+  await fs.writeFile(path.join(extension, "integration-observer.js"), focusObserverSource);
   const pythonSnapshot = path.join(runDir, "python-sdk/open_browser_use");
   await fs.mkdir(pythonSnapshot, { recursive: true });
   for (const file of await fs.readdir(path.join(repo, "packages/open-browser-use-python/open_browser_use"))) {
     if (file.endsWith(".py")) await fs.copyFile(path.join(repo, "packages/open-browser-use-python/open_browser_use", file), path.join(pythonSnapshot, file));
   }
   sourceIdentity = {
-    testHooks: memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [],
+    testHooks: ["staged-only persistent activation/focus observer document", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
     gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(),
     dirty: (await subprocess("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo })).trim().length > 0,
     sha256: {
@@ -321,6 +335,8 @@ try {
     }
   };
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
+  sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-fixture.mjs"))).digest("hex");
@@ -406,26 +422,40 @@ try {
   versions.chromium = await worker.evaluate("navigator.userAgent");
   versions.extension = await worker.evaluate("chrome.runtime.getManifest().version");
   sentinel = await worker.evaluate(`chrome.tabs.create({url:${JSON.stringify(`http://127.0.0.1:${httpPort}/sentinel`)},active:true})`);
-  await worker.evaluate(`globalThis.__integrationActivations=[];globalThis.__integrationFrames=[];chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info));chrome.debugger.onEvent.addListener((source,method,params)=>{if(method==='Target.attachedToTarget'&&params?.targetInfo?.type==='iframe')globalThis.__integrationFrames.push({tabId:source.tabId,source,sessionId:params.sessionId,targetId:params.targetInfo.targetId,type:params.targetInfo.type,url:params.targetInfo.url});})`);
-  await worker.evaluate("globalThis.__integrationWindowFocus=[];chrome.windows.onFocusChanged.addListener(windowId=>globalThis.__integrationWindowFocus.push(windowId))");
+  await worker.evaluate(`globalThis.__integrationFrames=[];chrome.debugger.onEvent.addListener((source,method,params)=>{if(method==='Target.attachedToTarget'&&params?.targetInfo?.type==='iframe')globalThis.__integrationFrames.push({tabId:source.tabId,source,sessionId:params.sessionId,targetId:params.targetInfo.targetId,type:params.targetInfo.type,url:params.targetInfo.url});})`);
+  observerSetupStarted = true;
+  await worker.evaluate(`(${installFocusObserver.toString()})(chrome,globalThis,'setup-worker');`);
+  focusEvidence.setup.before = await worker.evaluate(focusSnapshotExpression);
+  const observerURL = `chrome-extension://${extensionId}/integration-observer.html`;
+  const browserVersion = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
+  observerBrowserControl = await workerConnection(browserVersion.webSocketDebuggerUrl);
+  observerTargetId = (await observerBrowserControl.call("Target.createTarget", { url: observerURL, background: true })).targetId;
+  focusEvidence.targetId = observerTargetId;
+  const observerTarget = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id === observerTargetId), "persistent focus observer target");
+  focusObserver = await workerConnection(observerTarget.webSocketDebuggerUrl);
+  await until(() => focusObserver.evaluate(`location.href===${JSON.stringify(observerURL)}&&globalThis.__integrationFocusLedger?.snapshot().ready===true`), "persistent focus observer ready");
+  focusEvidence.setup.observer = await readFocusLedger();
+  focusEvidence.setup.worker = await worker.evaluate(focusSnapshotExpression);
+  assertQuietObserverSetup(focusEvidence.setup.worker, focusEvidence.setup.observer);
+  // Both observed setup segments must be quiet. They are not merged and do not
+  // establish atomic cross-context coverage before the observer was ready.
+  focusEvidence.readyAt = Date.now();
   const fixtureURL = `http://127.0.0.1:${httpPort}/`;
   console.log("HARNESS", JSON.stringify({ endpoint, fixtureURL, runDir, sentinelId: sentinel.id }));
   browser = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-browser-integration", turnId: "acceptance", timeoutMs: 15000 });
   const tab = await browser.newTab();
   async function activeInvariant() {
-    const active = await worker.evaluate(`chrome.tabs.query({active:true,windowId:${sentinel.windowId}})`);
+    const active = await focusObserver.evaluate(`chrome.tabs.query({active:true,windowId:${sentinel.windowId}})`);
     assert.equal(active[0]?.id, sentinel.id, "Agent action changed the active tab");
-    const events = await worker.evaluate("globalThis.__integrationActivations");
-    assert.ok(events.every(event => event.tabId === sentinel.id || allowedPopupActivations.some(allowed => allowed.tabId === event.tabId && allowed.windowId === event.windowId)), `Agent temporarily activated another tab: ${JSON.stringify(events)}`);
-    for (const allowed of allowedPopupActivations) assert.ok(events.filter(event => event.tabId === allowed.tabId && event.windowId === allowed.windowId).length <= 1, "Popup activation repeated after its sole-tab creation");
-    const focusEvents = await worker.evaluate("globalThis.__integrationWindowFocus");
-    assert.ok(focusEvents.every((windowId, index) => allowedWindowFocusEvents.some(allowed => allowed.index === index && allowed.windowId === windowId)), `Unexpected browser window focus event: ${JSON.stringify(focusEvents)}`);
-    assert.ok(allowedWindowFocusEvents.every(allowed => focusEvents[allowed.index] === allowed.windowId), "Window-focus history changed after attribution");
+    focusLedger.assertAllowed(await readFocusLedger(), allowedPopupActivations, allowedWindowFocusEvents);
   }
   async function createAuxiliaryPopup(url) {
+    const before = await readFocusLedger();
+    focusLedger.assertAllowed(before, allowedPopupActivations, allowedWindowFocusEvents);
     const popup = await worker.evaluate(`chrome.windows.create({url:${JSON.stringify(url)},type:'popup',focused:false,width:520,height:480})`);
+    const after = await readFocusLedger();
     assert.equal(popup.type, "popup"); assert.equal(popup.focused, false); assert.equal(popup.tabs.length, 1);
-    allowedPopupActivations.push({ tabId: popup.tabs[0].id, windowId: popup.id, url, fixture: new URL(url).searchParams.get("auxiliary"), reason: "sole tab created in an unfocused popup window" });
+    allowedPopupActivations.push(...focusLedger.allowPopupCreation(before, after, { tabId: popup.tabs[0].id, windowId: popup.id, url, fixture: new URL(url).searchParams.get("auxiliary"), reason: "sole tab created in an unfocused popup window" }));
     return popup;
   }
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
@@ -1119,7 +1149,7 @@ try {
   });
   await test(memoryClipboard ? "js-clipboard-worker-restart" : "js-control-worker-restart", async () => {
     const recovery = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-worker-recovery", timeoutMs: 15000 });
-    let browserControl, popupControl, popupId, auxiliary, observerInstalled = false, clipboardPending, clipboardOutcome;
+    let auxiliary, clipboardPending, clipboardOutcome;
     const clipboardSentinel = "OBU clipboard survives worker restart 中文";
     try {
       const owned = await recovery.newTab({ url: fixtureURL });
@@ -1139,36 +1169,7 @@ try {
           () => { clipboardOutcome = { succeeded: true }; }, error => { clipboardOutcome = { error: error.message }; });
         await until(() => worker.evaluate("__clipboardReady"), "prepared clipboard write before worker restart");
       }
-      const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
-      const previousFocus = await worker.evaluate("globalThis.__integrationWindowFocus");
-      const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
-      const oldTarget = targets.find(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
-      const version = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
-      browserControl = await workerConnection(version.webSocketDebuggerUrl);
-      // This background page observes tab activations while the worker is down.
-      const popup = await browserControl.call("Target.createTarget", { url: `chrome-extension://${extensionId}/popup.html`, background: true });
-      popupId = popup.targetId;
-      const popupTarget = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id === popupId), "test popup target");
-      popupControl = await workerConnection(popupTarget.webSocketDebuggerUrl);
-      await until(() => popupControl.evaluate(`location.href===${JSON.stringify(`chrome-extension://${extensionId}/popup.html`)}&&document.readyState==='complete'&&typeof chrome.tabs?.onActivated?.addListener==='function'`), "loaded activation observer document");
-      await popupControl.evaluate("globalThis.__restartActivations=[];chrome.tabs.onActivated.addListener(info=>globalThis.__restartActivations.push(info))");
-      await popupControl.evaluate("globalThis.__restartWindowFocus=[];chrome.windows.onFocusChanged.addListener(id=>globalThis.__restartWindowFocus.push(id))");
-      observerInstalled = true;
-      await activeInvariant();
-      await popupControl.call("ServiceWorker.enable");
-      const workerVersion = await until(() => popupControl.events.filter(event => event.method === "ServiceWorker.workerVersionUpdated").flatMap(event => event.params.versions).find(value => value.scriptURL === oldTarget.url && value.runningStatus === "running"), "extension worker version");
-      const priorSocket = extensionSocket;
-      worker.close();
-      await popupControl.call("ServiceWorker.stopWorker", { versionId: workerVersion.versionId });
-      await popupControl.call("ServiceWorker.startWorker", { scopeURL: `chrome-extension://${extensionId}/` });
-      const restarted = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id !== oldTarget.id && target.type === "service_worker" && target.url === oldTarget.url), "restarted extension worker");
-      worker = await workerConnection(restarted.webSocketDebuggerUrl);
-      await until(() => extensionSocket !== priorSocket && extensionSocket?.readyState === WebSocket.OPEN, "restarted native adapter");
-      const restartEvents = await popupControl.evaluate("globalThis.__restartActivations");
-      assert.ok(Array.isArray(restartEvents), "The activation observer document changed during worker restart");
-      await worker.evaluate(`globalThis.__integrationActivations=${JSON.stringify([...previousActivations, ...restartEvents])};chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info))`);
-      const restartFocus = await popupControl.evaluate("globalThis.__restartWindowFocus");
-      await worker.evaluate(`globalThis.__integrationWindowFocus=${JSON.stringify([...previousFocus, ...restartFocus])};chrome.windows.onFocusChanged.addListener(id=>globalThis.__integrationWindowFocus.push(id))`);
+      const restarted = await restartObservedWorker();
       await assert.rejects(recovery.client.getTabs(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       await assert.rejects(recovery.client.request("collectNavigationWait", { tabId: owned.id, waiterId: navigationWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
@@ -1190,7 +1191,7 @@ try {
       assert.match(await owned.domSnapshot(), /Controlled name/);
       await owned.getByLabel("Controlled name").fill("recovered after worker restart");
       assert.equal(await owned.getByLabel("Controlled name").inputValue(), "recovered after worker restart");
-      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents, restartFocus, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true,
+      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: restarted.oldTarget, restartedTarget: restarted.restartedTarget, restartEvents: restarted.activeEvents, restartFocus: restarted.windowFocusEvents, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true,
         ...(memoryClipboard ? {clipboardUnchanged:true,clipboardNotReplayed:true,oldClipboardOutcome:clipboardOutcome} : {}) };
     } finally {
       if (memoryClipboard) {
@@ -1206,17 +1207,7 @@ try {
       }
       try { await recovery.client.finalizeTabs([]); } finally {
         recovery.close();
-        if (observerInstalled) {
-          const observed = await popupControl.evaluate("globalThis.__restartActivations");
-          assert.ok(Array.isArray(observed), "The activation observer document changed before cleanup");
-          await worker.evaluate(`globalThis.__integrationActivations.push(...${JSON.stringify(observed)})`);
-          const observedFocus = await popupControl.evaluate("globalThis.__restartWindowFocus");
-          assert.ok(Array.isArray(observedFocus), "The window-focus observer document changed before cleanup");
-          await worker.evaluate(`globalThis.__integrationWindowFocus.push(...${JSON.stringify(observedFocus)})`);
-        }
-        if (popupId) await browserControl?.call("Target.closeTarget", { targetId: popupId });
         if (auxiliary) await closeAuxiliaryPopup(auxiliary.id);
-        popupControl?.close(); browserControl?.close();
       }
     }
   });
@@ -1224,50 +1215,48 @@ try {
     const focusTrace = [];
     let beforeActionPopup;
     const traceFocus = async phase => {
-      const snapshot = await worker.evaluate(`(async()=>({phase:${JSON.stringify(phase)},at:Date.now(),events:[...globalThis.__integrationWindowFocus],windows:(await chrome.windows.getAll({populate:true})).map(window=>({id:window.id,type:window.type,focused:window.focused,tabs:window.tabs.map(tab=>({id:tab.id,active:tab.active}))})),contexts:(await chrome.runtime.getContexts({contextTypes:['POPUP']})).map(context=>({type:context.contextType,windowId:context.windowId,documentId:context.documentId,documentUrl:context.documentUrl}))}))()`);
+      const metadata = await focusObserver.evaluate("(async()=>({windows:(await chrome.windows.getAll({populate:true})).map(window=>({id:window.id,type:window.type,focused:window.focused,tabs:window.tabs.map(tab=>({id:tab.id,active:tab.active}))})),contexts:(await chrome.runtime.getContexts({contextTypes:['POPUP']})).map(context=>({type:context.contextType,windowId:context.windowId,documentId:context.documentId,documentUrl:context.documentUrl}))}))()");
+      const ledger = await readFocusLedger();
+      const snapshot = { phase, at: ledger.at, events: focusArrays(ledger).windowFocusEvents, ledger, ...metadata };
       focusTrace.push(snapshot);
       await fs.writeFile(path.join(runDir, `${name}-focus-trace.json`), JSON.stringify(focusTrace, null, 2));
       if (phase === "action-popup:before-open") {
         await activeInvariant();
-        beforeActionPopup = snapshot;
+        beforeActionPopup = ledger;
       } else if (phase === "action-popup:after-open") {
         assert.ok(beforeActionPopup, "Missing focus checkpoint immediately before intentional action popup opening");
-        assert.deepEqual(snapshot.events.slice(0, beforeActionPopup.events.length), beforeActionPopup.events, "Opening the action popup rewrote the focus history");
-        const observed = snapshot.events.slice(beforeActionPopup.events.length);
-        assert.ok(observed.length === 0 || (observed.length === 2 && observed[0] === sentinel.windowId && observed[1] === -1), `Unexpected focus sequence during action.openPopup: ${JSON.stringify(observed)}`);
         const contexts = snapshot.contexts.filter(context => context.type === "POPUP" && context.documentUrl === `chrome-extension://${extensionId}/popup.html`);
-        assert.ok(contexts.length > 0, "Focus attribution requires a live real action POPUP context");
-        for (const [offset, windowId] of observed.entries()) allowedWindowFocusEvents.push({
-          index: beforeActionPopup.events.length + offset, windowId,
-          reason,
-          beforeAt: beforeActionPopup.at, afterAt: snapshot.at, popupContexts: contexts
-        });
+        allowedWindowFocusEvents.push(...focusLedger.allowActionPopup(beforeActionPopup, ledger, {
+          windowId: sentinel.windowId, popupURL: `chrome-extension://${extensionId}/popup.html`, popupContexts: contexts, reason
+        }));
         beforeActionPopup = null;
       }
     };
     return traceFocus;
   }
-  async function restartObservedWorker(observer) {
-      const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
-      const previousFocus = await worker.evaluate("globalThis.__integrationWindowFocus");
-      await observer.evaluate("globalThis.__pauseActivations=[];chrome.tabs.onActivated.addListener(info=>globalThis.__pauseActivations.push(info))");
-      await observer.evaluate("globalThis.__pauseWindowFocus=[];chrome.windows.onFocusChanged.addListener(id=>globalThis.__pauseWindowFocus.push(id))");
+  async function restartObservedWorker() {
+      const before = await readFocusLedger();
+      focusLedger.assertAllowed(before, allowedPopupActivations, allowedWindowFocusEvents);
       const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
       const oldTarget = targets.find(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
-      await observer.call("ServiceWorker.enable");
-      const version = await until(() => observer.events.filter(event => event.method === "ServiceWorker.workerVersionUpdated").flatMap(event => event.params.versions).find(value => value.scriptURL === oldTarget.url && value.runningStatus === "running"), "paused worker version");
+      await focusObserver.call("ServiceWorker.enable");
+      const version = await until(() => currentWorkerVersion(focusObserver.events, { url: oldTarget.url, targetId: oldTarget.id }), "unique running worker version");
       const priorSocket = extensionSocket;
       worker.close();
-      await observer.call("ServiceWorker.stopWorker", { versionId: version.versionId });
-      await observer.call("ServiceWorker.startWorker", { scopeURL: `chrome-extension://${extensionId}/` });
+      await focusObserver.call("ServiceWorker.stopWorker", { versionId: version.versionId });
+      await focusObserver.call("ServiceWorker.startWorker", { scopeURL: `chrome-extension://${extensionId}/` });
       const restarted = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id !== oldTarget.id && target.type === "service_worker" && target.url === oldTarget.url), "paused restarted worker");
       worker = await workerConnection(restarted.webSocketDebuggerUrl);
       await until(() => extensionSocket !== priorSocket && extensionSocket?.readyState === WebSocket.OPEN, "paused restarted native adapter");
-      const observed = await observer.evaluate("globalThis.__pauseActivations");
-      await worker.evaluate(`globalThis.__integrationActivations=${JSON.stringify([...previousActivations, ...observed])};chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info))`);
-      const observedFocus = await observer.evaluate("globalThis.__pauseWindowFocus");
-      await worker.evaluate(`globalThis.__integrationWindowFocus=${JSON.stringify([...previousFocus, ...observedFocus])};chrome.windows.onFocusChanged.addListener(id=>globalThis.__integrationWindowFocus.push(id))`);
-      return { oldTarget: oldTarget.id, restartedTarget: restarted.id, activeEvents: observed, windowFocusEvents: observedFocus };
+      const after = await readFocusLedger();
+      focusLedger.assertAllowed(after, allowedPopupActivations, allowedWindowFocusEvents);
+      // Only derive a report of this interval. Never overwrite, concatenate or
+      // deduplicate the authoritative observer's full delivery history.
+      const delta = after.events.slice(before.events.length);
+      return { oldTarget: oldTarget.id, restartedTarget: restarted.id, observerIdentity: after.identity,
+        beforeSequence: before.events.length, afterSequence: after.events.length,
+        activeEvents: delta.filter(event => event.kind === "activation").map(event => event.value),
+        windowFocusEvents: delta.filter(event => event.kind === "focus").map(event => event.value) };
   }
   await test("js-user-global-pause-popup", async () => {
     const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
@@ -1363,17 +1352,57 @@ try {
       }
     });
   });
-  activeEvents = await worker.evaluate("globalThis.__integrationActivations");
-  windowFocusEvents = await worker.evaluate("globalThis.__integrationWindowFocus");
 } catch (error) {
   records.push({ name: "fatal", passed: false, error: error.stack }); console.error(error);
 } finally {
+  // A failed setup/test must retain its evidence. The final exact snapshot is
+  // validated too, so events delivered after the last case cannot yield exit 0.
+  if (observerSetupStarted) {
+    if (!focusEvidence.setup.worker && worker) {
+      try { focusEvidence.setup.worker = await worker.evaluate(focusSnapshotExpression); }
+      catch (error) { focusEvidence.setup.workerError = error.message; }
+    }
+    try {
+      let state, stateError;
+      try {
+        assert.ok(focusObserver, "Persistent focus observer was never ready");
+        state = await focusObserver.evaluate(`(async()=>({windows:await chrome.windows.getAll({populate:true}),active:await chrome.tabs.query({active:true,windowId:${sentinel.windowId}})}))()`);
+      } catch (error) {
+        stateError = error;
+        focusEvidence.finalStateError = error.stack ?? String(error);
+      }
+      // Attempt the raw snapshot even if the final window query failed.
+      const snapshot = await readFocusLedger();
+      ({ activeEvents, windowFocusEvents } = focusArrays(snapshot));
+      focusEvidence.finalState = state;
+      focusEvidence.coverageEndedAt = snapshot.at;
+      if (stateError) throw stateError;
+      assert.equal(state.active[0]?.id, sentinel.id, "Agent action changed the active sentinel tab");
+      focusLedger.assertAllowed(snapshot, allowedPopupActivations, allowedWindowFocusEvents);
+      focusEvidence.finalValidation = "passed";
+    } catch (error) {
+      focusEvidence.finalValidation = "failed";
+      focusEvidence.error = error.stack ?? String(error);
+      records.push({ name: "focus-ledger-final", passed: false, error: focusEvidence.error });
+    }
+  } else focusEvidence.finalValidation = "not-started";
+  // A failed final read still reports every previously accepted native event,
+  // explicitly as an incomplete known prefix, not a fresh empty clean ledger.
+  if (focusEvidence.lastAccepted) ({ activeEvents, windowFocusEvents } = focusArrays(focusEvidence.lastAccepted));
+  focusEvidence.rawHistoryStatus = focusEvidence.finalValidation === "passed" ? "validated-final-snapshot" : "incomplete-known-prefix";
+  focusEvidence.teardown = "begins after final snapshot validation and persistence; observer destruction and test window removals are outside agent coverage";
+  await fs.writeFile(path.join(runDir, "focus-ledger.json"), JSON.stringify({ ...focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents }, null, 2));
   // Capture the HTTP witness before teardown can close an unfinished response.
   await fs.writeFile(path.join(runDir, "direct-download-server.json"), JSON.stringify(directDownloads.allStats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;
   browser?.close();
+  if (observerTargetId) {
+    try { await observerBrowserControl?.call("Target.closeTarget", { targetId: observerTargetId }); }
+    catch (error) { hostLog.push(`Focus observer teardown: ${error.message}\n`); }
+  }
+  focusObserver?.close(); observerBrowserControl?.close();
   if (worker) { try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
   if (chrome && chrome.exitCode === null) chrome.kill();
   if (host && host.exitCode === null) { if (!host.stdin.destroyed && !host.stdin.writableEnded) host.stdin.end(); await Promise.race([new Promise(resolve => host.once("exit", resolve)), delay(1000)]); if (host.exitCode === null) host.kill(); }
@@ -1385,7 +1414,7 @@ try {
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);

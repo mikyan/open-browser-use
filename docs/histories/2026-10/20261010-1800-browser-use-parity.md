@@ -407,6 +407,38 @@ screencast 首帧之前，独立最小扩展也复现，额外无 clip 截图没
 成功截图仍显示 AI 光标、蓝框与点击圈。所有测试进程按各运行清理，
 开发包只保存在本地，不推送、不提 PR、不修改日常浏览器安装。
 
+### Headed startup diagnosis
+
+继续使用最小原生扩展对照启动窗口和后续窗口，保留全部失败。普通启动
+窗口首帧超时后的第二个未聚焦 normal window 曾成功取得帧、ACK、可信
+点击与 PNG；无窗口启动后的首 normal、popup 后的第二 normal，以及
+HTTP app 后的第二 normal 均仍超时。HTTP app 原窗口自身成功仅说明该
+活动合成页面可绘制，不是后台 tab 验收。所有探针仅使用隔离 profile，
+其浏览器进程均已关闭。
+
+源码核对表明 `windowsHide` 会影响 Win32 startup show state，但 Chromium
+另有后续 ShowWindow 路径，不能据此推断永久隐藏。DOM 可见、rAF 正常和
+startScreencast 成功也不能证明首个原生 capture frame 已存在；窗口未
+最小化及 foreground HWND 为空不足以断定锁屏。没有把任一启动变体写入
+生产修复，也没有重放用户动作或放大预算。
+
+把最小原生探针沉淀为正式脚本，并修正 start+ACK 共用预算。新增常驻测试
+观察页，消除旧验收在 worker 重启期间拼接日志的遗漏/重复窗口；仅允许
+创建时实际记录的精确事件，最终快照再次验证，失败也保留最后有效历史。
+旧日志不能独自证明重启区间连续无事件。观察页仅加入 staged 测试扩展，
+生产插件和现有安装包不含该 hook。
+
+15 项 Node-only 回归通过并纳入 CI；固定 Headless 内存环境 4 项通过，
+涵盖同一 observer 下三次真实 worker 重启，两条辅助窗口初始 activation、
+零 focus。有界面三项关键场景仍全部首帧失败；正式最小探针同样保留启动
+窗口失败及第二窗口真实点击/PNG 成功，不冒充渲染修复或完整对齐。所有
+本轮测试浏览器与 host 已清理。
+
+同时记录媒体导出的后续实现方案：精确 locator 的隔离环境来源读取、
+原始预算和容量、现有下载 ID 的复用及真实清理。HTTP(S) 图片来源快照
+无法和跨进程 GET 原子化，blob/Canvas/video/audio 等继续作为独立验收
+范围；本轮未宣称媒体已实现或完整能力已对齐。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

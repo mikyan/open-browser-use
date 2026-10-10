@@ -5,9 +5,11 @@ production extension → real Chromium pages**. It creates an isolated browser
 profile and local test pages; it does not install an extension in a user's
 profile, read user browsing data, or change the native-host registry.
 
-The staged extension is produced by `buildChromeExtension`. Its only test
+The staged extension is produced by `buildChromeExtension`. Its transport
 adaptation replaces `chrome.runtime.connectNative` with a Port-compatible local
-WebSocket adapter, with the matching local CSP permission. The adapter bridges
+WebSocket adapter, with the matching local CSP permission. A separate test-only
+extension document records native activation/focus events throughout the run,
+including worker restarts; it is absent from production packages. The adapter bridges
 the real host's native-message stdin/stdout frames. SDK connections still use
 the host's actual Windows named pipe or Unix socket. This proves the SDK,
 framing, relay, extension dispatch, engine, and page behavior; it does **not**
@@ -31,12 +33,14 @@ that requires reading its new endpoint and creating a new SDK client.
 The runner launches headed Chromium directly. Playwright locates the downloaded
 browser executable and supplies the static YAML parser used by snapshot checks.
 A small raw CDP connection inspects the
-extension service worker; there is no Playwright page/context connection or
+extension service worker and the test observer; there is no Playwright page/context connection or
 foreground activation. A sentinel tab remains active in its original window,
 and every tab activation and window-focus event is retained. Auxiliary popup
 fixtures use `chrome.windows.create({type:'popup',focused:false})`: Chrome may
 emit one activation for that new window's sole tab. The runner permits only that
-exact tab/window pair once and records it in `allowedPopupActivations`. Claim,
+exact event index and sequence actually recorded across that creation call in
+`allowedPopupActivations`. No observed event means no allowance for a later
+activation; even the sentinel has no reactivation exemption. Claim,
 input, cleanup and recovery must not change the focused window. The final Pause
 test intentionally opens the user's toolbar control with `chrome.action.openPopup`.
 Only across that exact call, with a live matching `POPUP` context, it permits
@@ -46,6 +50,17 @@ event to its original index, reason, checkpoint times and popup context;
 `pause-focus-trace.json` preserves the surrounding native window states. Every
 other focus event fails, including during subsequent popup close or auxiliary
 cleanup. No raw events are erased, and the original sentinel tab stays active.
+
+The observer has one stable document identity and a local delivery sequence;
+these are not Chrome-wide event IDs. It retains duplicate events, rejects
+overflow and history truncation, and does not hand logs between replacement
+workers. The initial worker and observer setup snapshots are saved separately
+and must both be quiet. This is an initialization check, not proof of complete
+coverage before observer readiness or during process startup. All tested agent
+actions begin after readiness. The final saved snapshot is validated again,
+including on failed cases; a lost observer or an unexpected late event fails
+the run. Teardown after that checkpoint is outside the measured action interval.
+The pure event-ledger unit tests run in ordinary CI without browser dependencies.
 
 `js-user-site-access-popup` also uses the actual action popup and the same exact
 focus ledger. It verifies allow/block settings, cancellation of a waiting click,
@@ -132,7 +147,17 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 ## What it checks
 
-The fresh isolated Windows Chromium 156 run
+The suite currently contains 53 cases with the optional Go caller. The latest
+complete headed run, `run-obwspc`, passed 29/53; background first-frame waits
+failed. The continuous-observer revision's three affected headed cases in
+`run-8j69VK` still failed, with the final raw event ledger retained and checked.
+The isolated Headless run `run-IajAnU` passed four selected cases, including
+three real worker restarts in the same observer lifetime, with two exact
+auxiliary-window initial tab activations and no focus events. That focused
+result is not a headed, system-clipboard or complete-suite pass. The 15 pure
+ledger/deadline tests pass without launching a browser.
+
+The earlier isolated Windows Chromium 156 run
 `.tmp/browser-integration/run-xMoFkk/results.json` passed all 48 cases, including
 the optional Go caller, large native requests, direct downloads, auxiliary popups and navigation waits. Its raw activation/focus
 events and narrowly scoped ledgers remain in the evidence. This does not verify
@@ -141,7 +166,7 @@ native `window.open` focus suppression or full browser/extension restart.
 Direct downloads passed all eight focused cases in `run-1D7lpX` before the full
 run. Four new cases and the expanded Python, Go and Pause cases verify file bytes,
 exact ownership, timeout, late-ID cancellation, and cancellation before cleanup.
-The suite contains 48 cases with Go, or 47 without it. The separate Windows Edge
+That historical suite contained 48 cases with Go, or 47 without it. The separate Windows Edge
 `native-u7vkkz` run passed both real native-port cases; see
 [native-message acceptance](native-message-checks.md).
 
@@ -407,3 +432,27 @@ These checks establish behavior against Chromium's in-memory clipboard, not
 headed OS clipboard behavior or desktop focus. The temporary process currently
 uses `--no-sandbox`; no daily browser profile, installed extension or native
 clipboard is touched. See the [contract and limitations](../../docs/references/clipboard.md).
+
+## Native first-frame diagnosis
+
+`node scripts/browser-integration/rendering-probe.mjs` runs the minimal native
+extension independently of the SDK, host and production extension. It uses the
+pinned Playwright executable, a fresh profile and generated loopback pages.
+The default `startup-and-secondary` mode compares inactive targets in the
+startup window and a subsequently created unfocused normal window. The other
+explicit modes are `no-startup-window`, `popup-then-normal` and `app-startup`.
+The app mode tests the original synthetic app page itself before the normal
+window; that first result is an active-page control, not inactive-tab acceptance.
+
+Each stage requires a real screencast frame and completed ACK before sending
+one trusted synthetic-page click and capturing a PNG. It records native promise
+settlement separately from observation timeouts, viewport/scroll state, raw
+activation/focus events, browser/source hashes and cleanup. A missing first
+frame produces a nonzero exit and is never replaced by rAF success or replayed
+input. Artifacts remain under `.tmp/browser-integration/rendering-*`.
+
+The probe closes only its private browser. Root-process exit and native command
+settlement are reported separately; descendant processes and OS foreground HWND
+state are not inventoried by this portable script. These diagnostics do not
+change the normal acceptance runner's startup settings or repair production
+rendering. See the [retained failures and source analysis](../../docs/references/headed-browser-startup.md).
