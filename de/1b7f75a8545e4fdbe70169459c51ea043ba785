@@ -1,0 +1,148 @@
+packages/open-browser-use-python/open_browser_use/_page_exports.py
+  s_08bbfd293d324f::t_40c87a50aeeb89 1-91
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_1ad9090d61f222 360-361
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_2c162acf30c54d 7
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_bd41f279007f70 359-368,374-378
+  s_08bbfd293d324f::t_9669c8c2135ae0 379-383
+  s_08bbfd293d324f::t_4fea78cf72cfdb 369-373
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_4fea78cf72cfdb 7
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_2c162acf30c54d 300-305
+  s_08bbfd293d324f::t_2ad05fd20f04b0 342-344
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_1f36edb41b4f2f 314-351
+scripts/browser-integration/page-exports-fixture.mjs
+  s_08bbfd293d324f::t_7fb222b18a1c31 1-21,23-86
+  s_08bbfd293d324f::t_057f9f095a83e2 22
+  s_08bbfd293d324f::t_223275f6a481c8 87-114
+apps/chrome-extension/browser-page-exports.test.mjs
+  s_08bbfd293d324f::t_31a48e3f26a708 294-313
+  s_08bbfd293d324f::t_f70912ddfa22a6 1-226
+  s_08bbfd293d324f::t_8a5a906d16e96d 227-273
+  s_08bbfd293d324f::t_942aa56a1230b5 274-293
+packages/open-browser-use-go/page_export.go
+  s_08bbfd293d324f::t_44c97e069f8099 1-108
+  s_08bbfd293d324f::t_ce9ebd90aa90e9 109-152
+cmd/open-browser-use/page_exports_test.go
+  s_08bbfd293d324f::t_e5cf85e53d6828 1-233
+  s_08bbfd293d324f::t_d9b71ed49b914b 234-417
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_9deccb136a1b98 41,98-103,228-233,236,239,243,342
+  s_08bbfd293d324f::t_7dd4f030a57833 234-235,237-238,240-242,244,283
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_3b6e67eb146234 59-81,331
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_2b98f780ea4e77 2-3,95,113,228-231,344,372,645-652
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_2b2b8bc13f440c 148-149
+  s_08bbfd293d324f::t_2b98f780ea4e77 12,26,48,124-128,147,191-192,466-478
+packages/open-browser-use-go/page_export_test.go
+  s_08bbfd293d324f::t_240503c6ac0c59 1-14,18-19,23-32,45,52,59-62,65,69,78,85-88,95-98,115-117,119,133,140-142,178-180,197,210-213,231-233,255-259,263,267,286
+  s_08bbfd293d324f::t_c5806239c2914a 15-17,20-22,33-44,46-51,53-58,63-64,66-68,70-77,79-84,89-94,99-114,118,120-132,134-139,143-177,181-196,198-209,214-230,234-254,260-262,264-266,268-285
+  s_08bbfd293d324f::t_18cca859b598f5 287-290
+apps/chrome-extension/browser-page-exports.js
+  s_08bbfd293d324f::t_59edd44fd0ac4d 71,77,155-157,175,191-196,211-212,218
+  s_08bbfd293d324f::t_942aa56a1230b5 274
+  s_08bbfd293d324f::t_fb6dc80e1dcabb 64,123,131,140,182,219,234,239,244,252,272-273
+  s_08bbfd293d324f::t_da3e3b2765d3fb 1-63,65-70,72-76,78-90,92-102,104,111-113,121-122,124-130,132-139,142-154,158-174,176-181,183-190,197-210,213-217,220-233,236-238,240-243,245-249,251,253-256,258-271,275-278
+  s_08bbfd293d324f::t_31a48e3f26a708 91,103,105-110,114-120,141,235,250,257
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_1f36edb41b4f2f 281-313
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_38e57b80b1e6ff 16
+packages/open-browser-use-js/src/page-exports.ts
+  s_08bbfd293d324f::t_40c87a50aeeb89 1-62
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_2ad05fd20f04b0 501,503-517
+  s_08bbfd293d324f::t_9669c8c2135ae0 530-535
+  s_08bbfd293d324f::t_4fea78cf72cfdb 502,518-529
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_dd3dc4109eb194 2349-2358,2363,2376-2401,2403-2410,2412-2439,2599-2602,2936-2937,2958,2970,3159,3169,3173-3174
+  s_08bbfd293d324f::t_25243cf793562f 2359-2362,2364-2375
+  s_08bbfd293d324f::t_7d688beed9e41a 6,63,586-591,627,636,642,651-654,660,664-665,667-670,678-681,683-684,756,891-892,894,908,1076,1647,1680
+  s_08bbfd293d324f::t_92afbfd2df7aa7 3215-3223
+  s_08bbfd293d324f::t_9efaea6dfcfb99 682
+  s_08bbfd293d324f::t_dc30d7d51f41f6 2402,2411
+packages/open-browser-use-python/open_browser_use/__init__.py
+  s_08bbfd293d324f::t_2b98f780ea4e77 2,18-20
+packages/open-browser-use-go/control.go
+  s_08bbfd293d324f::t_2b98f780ea4e77 44,48,62
+apps/chrome-extension/page-exports-backend.test.mjs
+  s_08bbfd293d324f::t_1ad9090d61f222 1-119,171-175,177-179
+  s_08bbfd293d324f::t_9efaea6dfcfb99 176
+  s_08bbfd293d324f::t_897bf5dd5507a6 144-157
+  s_08bbfd293d324f::t_25f6f672120277 120-143
+  s_08bbfd293d324f::t_bf7212302e15c5 158-170
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_2b98f780ea4e77 58-59,157,282-287,291,293
+  s_08bbfd293d324f::t_de0519ea4cfe34 288-290,292,294-301,355,360,369,378
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_1f36edb41b4f2f 525-556
+packages/open-browser-use-js/test/page-exports.test.mjs
+  s_08bbfd293d324f::t_b02b2ea4baa906 1-124
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_dd3dc4109eb194 15
+packages/open-browser-use-cli/README.md
+  s_08bbfd293d324f::t_575ebf1b2eb7b7 201
+  s_08bbfd293d324f::t_9296f72027ed76 145-169,188,192-200,202
+  s_08bbfd293d324f::t_c68ad8cc9bf49c 203
+docs/references/README.md
+  s_08bbfd293d324f::t_69c09bd9e01810 35-36
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_4fea78cf72cfdb 44,49
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_9deccb136a1b98 228,489-490
+cmd/open-browser-use/page_exports.go
+  s_08bbfd293d324f::t_9296f72027ed76 29-31,35-37,46-48,56-60,63-65,67-69,73-75,79-81,83,86-88,92-93,95-97,100-102,106-108,111-113,117-121,134-136,138-145,147-152,159-164,166-168,170-172,175-177,179-181,183-185,187-189,191-193,195-200,207-209,211-213,216-232,238-242,245-247,250-252,258,262-263
+  s_08bbfd293d324f::t_e5cf85e53d6828 89-91,94,98
+  s_08bbfd293d324f::t_9deccb136a1b98 1-28,32-34,38-45,49-55,61-62,66,70-72,76-78,82,84-85,99,103-105,109-110,114-116,122-133,137,146,153-158,165,169,173-174,178,182,186,190,194,201-206,210,214-215,233-237,243-244,248-249,253-257,259-261,264-272
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_9deccb136a1b98 95,2332-2335,2351
+docs/references/site-access-policy.md
+  s_08bbfd293d324f::t_2c162acf30c54d 60-62
+packages/open-browser-use-python/test_page_exports.py
+  s_08bbfd293d324f::t_31ab34262f03b7 1-160
+docs/references/page-exports.md
+  s_08bbfd293d324f::t_25f6f672120277 89-93
+  s_08bbfd293d324f::t_69c09bd9e01810 1-88,94-110,120-123
+  s_08bbfd293d324f::t_4fea78cf72cfdb 111-119
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_dd3dc4109eb194 7,56,61
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_7fb222b18a1c31 17,160,224-227,314,680-686,718
+  s_08bbfd293d324f::t_eead37fb88d158 687-717,719-732,901,914,1283
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_951833435ec27a 2-3,221-223
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_4baf23ad3caf50 3,16,32,156-161,284,316-317,549-555
+packages/open-browser-use-js/dist/page-exports.d.ts
+  s_08bbfd293d324f::t_4c75b21556d888 1-32
+packages/open-browser-use-js/dist/page-exports.js
+  s_08bbfd293d324f::t_43886e6d04ce4c 1-58
+scripts/browser-integration/go-checks/main.go
+  s_08bbfd293d324f::t_5d92073289efed 242-272,275
+scripts/browser-integration/python-checks.py
+  s_08bbfd293d324f::t_c040fac364b770 192-219,222
+scripts/browser-integration/site-access-fixture.mjs
+  s_08bbfd293d324f::t_4dd2996abd5257 12,116-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "de1b7f75a8545e4fdbe70169459c51ea043ba785",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
