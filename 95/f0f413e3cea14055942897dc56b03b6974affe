@@ -1,0 +1,184 @@
+packages/open-browser-use-go/control.go
+  s_08bbfd293d324f::t_9a04cd088c568d 44,47,58
+docs/SECURITY.md
+  s_08bbfd293d324f::t_9a949ea12234d0 107-115
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_161cda794cb791 4,89-91,103,177-180,204-208,222-224,229-234,323-325,593-600
+  s_08bbfd293d324f::t_434bf2a4f181eb 297
+  s_08bbfd293d324f::t_5fec36848f1fd5 5,225-228,754-755
+packages/open-browser-use-js/src/network-waits.ts
+  s_08bbfd293d324f::t_a7e1f630946118 1-14,16-64
+  s_08bbfd293d324f::t_434bf2a4f181eb 15
+packages/open-browser-use-js/test/network-waits.test.mjs
+  s_08bbfd293d324f::t_301dcd2542c242 1-108,110-123
+  s_08bbfd293d324f::t_bccf772ce643a5 109
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_5be3916a02adcc 38,95,164-182,212-213
+  s_08bbfd293d324f::t_a964681dc5278f 33-37,214-219,225,273
+apps/chrome-extension/browser-network-waits.test.mjs
+  s_08bbfd293d324f::t_3dc31821bcea30 1-27,53-122,159-228
+  s_08bbfd293d324f::t_36c8f061c5d4a3 123-136,147-158
+  s_08bbfd293d324f::t_210fd71f20ab41 28-52
+  s_08bbfd293d324f::t_cfc1c5799e38a2 137-146
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_2d5d7c48daafd8 1-13
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_660f20c00c3f82 13
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_8457b9aec465ec 440
+  s_08bbfd293d324f::t_4c7be3e8dd0f74 830-831,859,863,867,881-888,891,902-904,922-931
+  s_08bbfd293d324f::t_a5d1afa9f8ec08 115-159
+  s_08bbfd293d324f::t_be81ed7521393f 580-583
+  s_08bbfd293d324f::t_5fd6ba09148b41 575-579,584-607
+  s_08bbfd293d324f::t_2a33ef1a6f83d3 19,207,210,298,434-437,439,441-447,945
+  s_08bbfd293d324f::t_8bc155e581d3fa 47-64,71,303-307,311-312,316,366,936-938,942
+  s_08bbfd293d324f::t_825425f31748b2 438,947
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_2d5d7c48daafd8 3,53,543,587-591,597-609,647-648,650,656,817,1142-1149,1151-1176,1184,1187,1189,2268,2283
+  s_08bbfd293d324f::t_68d6d2d63e1af0 573,581,1150,1177,1186,1225-1228,2468-2470
+  s_08bbfd293d324f::t_a5d45e9d1e910f 2282
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_12981f617956a6 313-369
+  s_08bbfd293d324f::t_474418bca24204 370-382
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_825425f31748b2 147-159,165-174
+  s_08bbfd293d324f::t_a2bb1b1b63478c 160-164
+scripts/browser-integration/python-checks.py
+  s_08bbfd293d324f::t_9925a3a9e9107c 114-115,118-133,136
+  s_08bbfd293d324f::t_be81ed7521393f 116-117
+cmd/open-browser-use/control_test.go
+  s_08bbfd293d324f::t_68d6d2d63e1af0 255,268-275,279-280,286-293,297
+  s_08bbfd293d324f::t_5be3916a02adcc 37,197,225,239
+  s_08bbfd293d324f::t_7a2d2e6202f969 8,32-36,56-58,94-96,256-266,276-278,281-285,294-296,298-303
+packages/open-browser-use-python/open_browser_use/_network_waits.py
+  s_08bbfd293d324f::t_770fce1b242e8f 1-98
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_b51d7f8b88e81e 45,49
+  s_08bbfd293d324f::t_8f614aa155e1cb 47
+docs/references/README.md
+  s_08bbfd293d324f::t_9a949ea12234d0 27-28
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_d0a48d0218814d 283-291
+  s_08bbfd293d324f::t_8ff0bd59804e8e 228
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_f07d474d506070 312
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_f415bc0f8df906 266-364
+skills/open-browser-use/references/sdk-and-protocol.md
+  s_08bbfd293d324f::t_bc7998f510b528 441-525
+  s_08bbfd293d324f::t_443bd5734abfda 244-246
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_b51d7f8b88e81e 7
+skills/open-browser-use/references/browser-actions.md
+  s_08bbfd293d324f::t_443bd5734abfda 4,125-150
+  s_08bbfd293d324f::t_218fd51f9af285 151
+scripts/browser-integration/network-waits-fixture.mjs
+  s_08bbfd293d324f::t_83c2c4efeeaeb1 1-28,30-55,57-63,65,67-77,79,81-97,105-107,109-111,113-117,119-123,125-128,130-134,136-137,139-147,149-155,157-171,173,175-176,179,183,185,187-205,207,212,221-222,224-225,227-231,233-238,241-244,246,248-252,256-278
+  s_08bbfd293d324f::t_a2bb1b1b63478c 78,80,208-211,213-220,232
+  s_08bbfd293d324f::t_be81ed7521393f 98-103,118,135,148,156,174,206,223,239-240
+  s_08bbfd293d324f::t_8457b9aec465ec 112,129
+  s_08bbfd293d324f::t_825425f31748b2 29
+  s_08bbfd293d324f::t_d47711a97a89c1 56,64,66,104,108,124,138,172,184,226,247,253-255
+  s_08bbfd293d324f::t_fa2e40800d38b2 177-178,180-182,186,245
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_d0a48d0218814d 16,20
+packages/open-browser-use-python/open_browser_use/__init__.py
+  s_08bbfd293d324f::t_60d2a43ace414f 11,14-17
+apps/chrome-extension/network-wait-backend.test.mjs
+  s_08bbfd293d324f::t_b1935d543576aa 180
+  s_08bbfd293d324f::t_6f6a4a13fb6515 1-179,181-188
+scripts/browser-integration/go-checks/main.go
+  s_08bbfd293d324f::t_be81ed7521393f 168-169
+  s_08bbfd293d324f::t_9925a3a9e9107c 166-167,170-180,182-185,188
+  s_08bbfd293d324f::t_59a660f97854ec 181
+packages/open-browser-use-python/test_network_waits.py
+  s_08bbfd293d324f::t_7f72cff79b8912 1-108
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_59a8b6de7d43d7 73-116
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_60d2a43ace414f 407-412,502-507
+  s_08bbfd293d324f::t_59a8b6de7d43d7 165-166
+  s_08bbfd293d324f::t_770fce1b242e8f 14,23-24,43,102-106,124,164,167,200-216
+  s_08bbfd293d324f::t_8504af4adf2261 217
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_434bf2a4f181eb 222-227,232-234,294-296,303,312
+  s_08bbfd293d324f::t_9a04cd088c568d 7,56-57,151,216-221,228-231,235,289
+  s_08bbfd293d324f::t_770762637f2378 304-305,313-314
+apps/chrome-extension/browser-network-waits.js
+  s_08bbfd293d324f::t_eae2c97f69d77a 53-56,93-94,155-156,159,174-175,186-190,243,249,251,266
+  s_08bbfd293d324f::t_007348b8040451 100,103,112,114,118,125-126,215
+  s_08bbfd293d324f::t_ecda816d8ff1ec 77
+  s_08bbfd293d324f::t_49fd13f46d50da 200-201,209-210
+  s_08bbfd293d324f::t_a78230de545b48 116-117,119-123,194,211-212,217,233,235-236
+  s_08bbfd293d324f::t_5f0f8fdc7a941a 231-232,239,263
+  s_08bbfd293d324f::t_98f700d06de89b 1-52,57-76,78-92,95-99,101-102,104-111,113,115,124,127-154,157-158,160-173,176-185,191-193,195-199,202-208,213-214,216,218-230,234,237-238,240-242,244-248,250,252-262,264-265,267
+packages/open-browser-use-go/network_wait.go
+  s_08bbfd293d324f::t_9a04cd088c568d 1-147
+  s_08bbfd293d324f::t_4c8afd7bfa2e7f 148-212
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_b51d7f8b88e81e 266-284
+  s_08bbfd293d324f::t_8f614aa155e1cb 285-287
+  s_08bbfd293d324f::t_a5d45e9d1e910f 246-265
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_59a8b6de7d43d7 91-133
+packages/open-browser-use-go/network_wait_test.go
+  s_08bbfd293d324f::t_7f72cff79b8912 1-3,8,10-11,18-19,97-99,129-131,150-152,192
+  s_08bbfd293d324f::t_bccf772ce643a5 4-7,9,12-17,20-96,100-128,132-149,153-191
+  s_08bbfd293d324f::t_1764e38ea1ef77 193-200
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_b51d7f8b88e81e 206-227,231
+  s_08bbfd293d324f::t_8f614aa155e1cb 228-230
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_59a8b6de7d43d7 52-53,55-97
+  s_08bbfd293d324f::t_822431cf18ed04 54
+docs/references/network-waits-design.md
+  s_08bbfd293d324f::t_8200ff68c6c735 1,3-5,7,9-13,15-18,20,22-24,26-30,32-37,39,41-43,45-49,51-53,55,57-59,61,64-112,115-230,234-248
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_cf4a863b9ee9b2 394
+  s_08bbfd293d324f::t_f33cb85b68bcc9 342-354,356-389,398-400
+  s_08bbfd293d324f::t_6e1bf2e23fe427 355,390-393,395-397
+apps/chrome-extension/background-rendering.test.mjs
+  s_08bbfd293d324f::t_1f28bd65454da1 4
+apps/chrome-extension/cdp-target-ownership.test.mjs
+  s_08bbfd293d324f::t_4a24ef97e974a9 4
+apps/chrome-extension/control-lifecycle.test.mjs
+  s_08bbfd293d324f::t_4f381a47191971 3
+apps/chrome-extension/finalize-detach.test.mjs
+  s_08bbfd293d324f::t_1a49e1b2fb72d7 14
+apps/chrome-extension/history.test.mjs
+  s_08bbfd293d324f::t_a11ed7d29613cd 4
+apps/chrome-extension/move-to-deliverables.test.mjs
+  s_08bbfd293d324f::t_d224edfa9e943f 13
+apps/chrome-extension/pause-control.test.mjs
+  s_08bbfd293d324f::t_ffe72d884f6c55 3
+apps/chrome-extension/pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_712704b1294cdf 4
+apps/chrome-extension/transfers.test.mjs
+  s_08bbfd293d324f::t_5e38cb4fb4b8ad 3
+apps/chrome-extension/webmcp.test.mjs
+  s_08bbfd293d324f::t_796f25d9929c68 6
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_0dbeb295896d7d 1-2,133,153,210-211,319-320
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_ffad83579140da 5-6,11-13,23,94-96,127-133,147-160,232,261-264,490-495,639-640
+packages/open-browser-use-js/dist/network-waits.d.ts
+  s_08bbfd293d324f::t_1bee1982740131 1-41
+packages/open-browser-use-js/dist/network-waits.js
+  s_08bbfd293d324f::t_1f21ccd47858ec 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "95f0f413e3cea14055942897dc56b03b6974affe",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
