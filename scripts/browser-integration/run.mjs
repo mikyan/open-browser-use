@@ -15,6 +15,9 @@ import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs"
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
+import { clipboardFixture, clipboardPNG, checkClipboard, checkClipboardLifecycle, holdClipboardPreparation } from "./clipboard-fixture.mjs";
+import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
+import { checkPythonClipboard, checkGoClipboard, checkCLIClipboard, checkMCPClipboard } from "./clipboard-callers.mjs";
 import { elementScreenshotFixture, checkElementScreenshots } from "./element-screenshot-fixture.mjs";
 import { popupFixture, checkChildTabAuthorization, checkAuxiliaryPopupRendering, checkAuxiliaryPopupLifecycle } from "./popup-fixture.mjs";
 import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
@@ -25,6 +28,8 @@ import { createDirectDownloadFixtures, directDownloadURL, directDownloadErrors, 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
+const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
+let memoryClipboardGuard;
 const repo = path.resolve(directory, "../..");
 const sourceExecutable = process.env.OBU_TEST_HOST_BINARY;
 if (!sourceExecutable) throw new Error("Set OBU_TEST_HOST_BINARY to a built open-browser-use executable; see README.md");
@@ -221,6 +226,10 @@ const http = createServer(async (request, response) => {
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/clipboard") {
+    const fixture = clipboardFixture();
+    response.setHeader("Content-Type", fixture.type); response.end(fixture.body); return;
+  }
   if (route === "/page-exports" || route.startsWith("/page-exports/")) {
     const fixture = pageExportFixture(route, httpPort);
     response.setHeader("Content-Type", fixture.type); response.end(fixture.body); return;
@@ -284,7 +293,10 @@ try {
   const background = await fs.readFile(backgroundFile, "utf8");
   const nativeCall = "chrome.runtime.connectNative(this.hostName)";
   assert.equal(background.split(nativeCall).length, 2, "Production connectNative call changed");
-  await fs.writeFile(backgroundFile, nativeAdapter(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)"));
+  // The optional clipboard fixture can hold an actual scope check. Expose the
+  // instance only in this isolated staged build, never in a production package.
+  const clipboardTestHook = memoryClipboard ? "\nglobalThis.__integrationClipboardBackend = backend;\n" : "";
+  await fs.writeFile(backgroundFile, nativeAdapter(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook);
   const manifestFile = path.join(extension, "manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
   manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replace("connect-src 'self'", `connect-src 'self' ${websocketURL}`);
@@ -295,6 +307,7 @@ try {
     if (file.endsWith(".py")) await fs.copyFile(path.join(repo, "packages/open-browser-use-python/open_browser_use", file), path.join(pythonSnapshot, file));
   }
   sourceIdentity = {
+    testHooks: memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [],
     gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(),
     dirty: (await subprocess("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo })).trim().length > 0,
     sha256: {
@@ -312,6 +325,9 @@ try {
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pageExportsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "page-exports-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.clipboardFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.memoryClipboardGuard = createHash("sha256").update(await fs.readFile(path.join(directory, "memory-clipboard.mjs"))).digest("hex");
+  sourceIdentity.sha256.clipboardCallers = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-callers.mjs"))).digest("hex");
   sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
@@ -363,12 +379,21 @@ try {
   await fs.mkdir(path.join(runDir, "downloads"));
   await fs.writeFile(path.join(profile, "Default", "Preferences"), JSON.stringify({ download: { default_directory: path.join(runDir, "downloads"), prompt_for_download: false } }));
   chrome = spawn(chromiumBinary, [
+    ...(memoryClipboard ? ["--headless=new", "--enable-automation", "--disable-background-networking", "--disable-component-update"] : []),
     `--user-data-dir=${profile}`, "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
     "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "about:blank"
   ], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   chrome.stderr.on("data", data => browserLog.push(data.toString()));
   chrome.on("exit", (code, signal) => browserLog.push(`Browser exited: ${code} ${signal}\n`));
   const debugPort = await until(async () => (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0], "Chromium debug port");
+  if (memoryClipboard) {
+    const nativeInfo = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
+    const connection = await workerConnection(nativeInfo.webSocketDebuggerUrl);
+    try { memoryClipboardGuard = await verifyMemoryClipboard(connection, chromiumBinary); }
+    finally { connection.close(); }
+    await fs.writeFile(path.join(runDir,"memory-clipboard-guard.json"),JSON.stringify(memoryClipboardGuard,null,2));
+    await fs.writeFile(path.join(runDir,"clipboard-input.png"),clipboardPNG());
+  }
   await until(() => extensionSocket?.readyState === WebSocket.OPEN && extensionId, "extension native adapter");
   worker = await until(async () => {
     const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
@@ -676,6 +701,24 @@ try {
     await tab.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     assert.equal(await tab.locator("#raw-result").textContent(), "clicked");
     await tab.mouse.wheel(0, 20);
+  });
+  if (memoryClipboard) await test("js-clipboard", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath:endpoint, sessionId:"js-clipboard", timeoutMs:15000 });
+    const foreign = await connectOpenBrowserUse({ socketPath:endpoint, sessionId:"js-clipboard-foreign", timeoutMs:15000 });
+    try { return await checkClipboard({browser:owner,foreignBrowser:foreign,fixtureURL,guard:memoryClipboardGuard,
+      saveArtifact: (name,data)=>fs.writeFile(path.join(runDir,name),data)}); }
+    finally { await owner.client.finalizeTabs([]); await foreign.client.finalizeTabs([]); owner.close(); foreign.close(); }
+  });
+  if (memoryClipboard) for (const [kind, check] of [["python",checkPythonClipboard],["go",checkGoClipboard],["cli",checkCLIClipboard],["mcp",checkMCPClipboard]]) {
+    await test(`${kind}-clipboard`,()=>check({endpoint,fixtureURL,runDir,
+      pngPath:path.join(runDir,"clipboard-input.png"),executable,
+      goClipboardExe:process.env.OBU_TEST_GO_CLIPBOARD_BINARY,
+      pythonSDKSnapshot:path.dirname(pythonSnapshot),pythonExecutable:"python",subprocess,withMCPClient,memoryClipboardGuard}));
+  }
+  if (memoryClipboard) await test("js-clipboard-lifecycle",async()=>{
+    const owner=await connectOpenBrowserUse({socketPath:endpoint,sessionId:"js-clipboard-lifecycle",timeoutMs:15000});
+    try { return await checkClipboardLifecycle({browser:owner,fixtureURL,guard:memoryClipboardGuard,worker,until}); }
+    finally { await owner.client.finalizeTabs([]);owner.close(); }
   });
   await test("js-page-exports", async () => {
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-page-exports", timeoutMs: 15000 });
@@ -1074,9 +1117,10 @@ try {
     assert.ok(!tabs.some(candidate => candidate.id === tab.id), "Finalized tab was not closed");
     return outcome;
   });
-  await test("js-control-worker-restart", async () => {
+  await test(memoryClipboard ? "js-clipboard-worker-restart" : "js-control-worker-restart", async () => {
     const recovery = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-worker-recovery", timeoutMs: 15000 });
-    let browserControl, popupControl, popupId, auxiliary, observerInstalled = false;
+    let browserControl, popupControl, popupId, auxiliary, observerInstalled = false, clipboardPending, clipboardOutcome;
+    const clipboardSentinel = "OBU clipboard survives worker restart 中文";
     try {
       const owned = await recovery.newTab({ url: fixtureURL });
       auxiliary = await createAuxiliaryPopup(fixtureURL + "popup-child-authorization?auxiliary=restart");
@@ -1087,6 +1131,14 @@ try {
       const oldTurn = recovery.client.turnId;
       const networkWait = await recovery.client.request("armNetworkWait", { tabId: owned.id, event: "response", match: { url: fixtureURL + "never-worker-network" }, timeoutMs: 120000 });
       const navigationWait = await recovery.client.request("armNavigationWait", { tabId: owned.id, event: "url", url: "**/never-worker-navigation", timeoutMs: 120000 });
+      if (memoryClipboard) {
+        assert.equal(memoryClipboardGuard?.verified, true);
+        await owned.clipboard.writeText(clipboardSentinel);
+        await holdClipboardPreparation(worker);
+        clipboardPending = owned.clipboard.writeText("must not replay after restart", { timeoutMs: 5000 }).then(
+          () => { clipboardOutcome = { succeeded: true }; }, error => { clipboardOutcome = { error: error.message }; });
+        await until(() => worker.evaluate("__clipboardReady"), "prepared clipboard write before worker restart");
+      }
       const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
       const previousFocus = await worker.evaluate("globalThis.__integrationWindowFocus");
       const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
@@ -1123,6 +1175,12 @@ try {
       assert.equal(recovery.client.controlEpoch, oldEpoch, "restart silently refreshed the client");
       await recovery.client.beginTurn();
       assert.ok(recovery.client.controlEpoch > oldEpoch);
+      if (memoryClipboard) {
+        await clipboardPending;
+        assert.ok(clipboardOutcome?.error, "Old clipboard write succeeded after worker restart");
+        assert.equal(await owned.clipboard.readText(), clipboardSentinel, "Worker recovery replayed a prepared clipboard write");
+        assert.deepEqual(await worker.evaluate("chrome.runtime.getContexts({contextTypes:['OFFSCREEN_DOCUMENT']})"), []);
+      }
       await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId }), /OBU_NETWORK_WAIT_EXPIRED/);
       await assert.rejects(recovery.client.request("collectNavigationWait", { tabId: owned.id, waiterId: navigationWait.waiterId }), /OBU_NAVIGATION_WAIT_EXPIRED/);
       assert.ok((await recovery.getTabs()).some(tab => tab.id === auxiliaryTab.id));
@@ -1132,8 +1190,20 @@ try {
       assert.match(await owned.domSnapshot(), /Controlled name/);
       await owned.getByLabel("Controlled name").fill("recovered after worker restart");
       assert.equal(await owned.getByLabel("Controlled name").inputValue(), "recovered after worker restart");
-      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents, restartFocus, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true };
+      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents, restartFocus, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true,
+        ...(memoryClipboard ? {clipboardUnchanged:true,clipboardNotReplayed:true,oldClipboardOutcome:clipboardOutcome} : {}) };
     } finally {
+      if (memoryClipboard) {
+        let ending;
+        if (clipboardPending && !clipboardOutcome) {
+          ending = recovery.client.turnEnded();
+          ending.catch(()=>{});
+          await until(()=>clipboardOutcome,"clipboard restart fixture cleanup cancellation").catch(()=>{});
+        }
+        await worker.evaluate("globalThis.__clipboardContinue?.();if(globalThis.__clipboardOriginalValidation)__clipboardBroker.validateScope=__clipboardOriginalValidation;").catch(()=>{});
+        await clipboardPending;
+        await ending?.catch(()=>{});
+      }
       try { await recovery.client.finalizeTabs([]); } finally {
         recovery.close();
         if (observerInstalled) {
@@ -1315,7 +1385,7 @@ try {
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: true, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);

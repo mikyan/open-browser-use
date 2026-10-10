@@ -160,7 +160,7 @@ test("sends download and clipboard wrapper requests", async () => {
     socket.on("data", (chunk) => {
       const length = endianness() === "LE" ? chunk.readUInt32LE(0) : chunk.readUInt32BE(0);
       const request = JSON.parse(chunk.subarray(4, 4 + length).toString("utf8"));
-      if (request.method === "getInfo") { socket.write(encodeFrame({jsonrpc: "2.0", id: request.id, result: {}})); return; }
+      if (request.method === "getInfo") { socket.write(encodeFrame({jsonrpc: "2.0", id: request.id, result: { metadata: { clipboardVersion: 1 } }})); return; }
       const [method, params] = expected[index++];
       assert.equal(request.method, method);
       if (method === "waitForDownload") {
@@ -170,7 +170,7 @@ test("sends download and clipboard wrapper requests", async () => {
         Object.fromEntries(Object.entries(params).filter(([key]) => key !== "timeoutMs").map(([key]) => [key, request.params[key]])),
         Object.fromEntries(Object.entries(params).filter(([key]) => key !== "timeoutMs"))
       );
-      socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: {} }));
+      socket.write(encodeFrame({ jsonrpc: "2.0", id: request.id, result: method === "readClipboardText" ? { text: "" } : {} }));
     });
   });
   await new Promise((resolve, reject) => {

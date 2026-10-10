@@ -4,6 +4,8 @@ import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
 import { BrowserPageExports } from "./browser-page-exports.js";
+import { BrowserClipboard } from "./browser-clipboard.js";
+import { BrowserClipboardBroker } from "./clipboard-broker.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
 import { NativeMessageReceiver } from "./native-message-receiver.js";
@@ -589,6 +591,12 @@ class BrowserBackend {
       validateScope: scope => this.validatePageExportScope(scope),
       assertScope: scope => this.assertPageExportScope(scope)
     });
+    this.clipboardBroker = new BrowserClipboardBroker({ chrome, validateScope: scope => this.validateClipboardScope(scope) });
+    this.clipboard = new BrowserClipboard({
+      execute: (...args) => this.clipboardBroker.execute(...args),
+      validateScope: scope => this.validateClipboardScope(scope),
+      assertScope: scope => this.assertClipboardScope(scope)
+    });
     this.navigationSetups = new Map();
     this.auxiliaryTabs = new AuxiliaryTabOwnership({ storage: chrome.storage.session });
     this.auxiliaryReleases = new Map();
@@ -625,6 +633,7 @@ class BrowserBackend {
         this.navigationWaits.invalidateTab(source.tabId);
         void this.directDownloads.invalidateTab(source.tabId);
         void this.pageExports.invalidateTab(source.tabId).catch(() => {});
+        void this.clipboard.invalidateTab(source.tabId).catch(() => {});
         this.controlEpochs.set(source.tabId, (this.controlEpochs.get(source.tabId) ?? 0) + 1);
         this.browserEngine?.forget(source.tabId);
         try { this.releaseEngineAttachment(source.tabId); }
@@ -640,6 +649,7 @@ class BrowserBackend {
       this.navigationWaits.invalidateTab(tabId);
       void this.directDownloads.invalidateTab(tabId);
       void this.pageExports.invalidateTab(tabId).catch(() => {});
+      void this.clipboard.invalidateTab(tabId).catch(() => {});
       this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId), { destroyed: true });
       this.pauseReleaseFailures.delete(tabId);
       this.automationControl.recoveredPendingTabs?.delete(tabId);
@@ -658,11 +668,12 @@ class BrowserBackend {
         this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab ownership changed"));
         void this.directDownloads.invalidateTab(tabId);
         void this.pageExports.invalidateTab(tabId).catch(() => {});
+        void this.clipboard.invalidateTab(tabId).catch(() => {});
         this.invalidateAuxiliaryTab(tabId);
       }
     });
-    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab moved")); void this.directDownloads.invalidateTab(tabId); void this.pageExports.invalidateTab(tabId).catch(() => {}); this.invalidateAuxiliaryTab(tabId); });
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.cancelTabTransfers(removed, new Error("OBU_TRANSFER_CANCELLED: tab replaced")); void this.directDownloads.invalidateTab(removed); void this.pageExports.invalidateTab(removed).catch(() => {}); this.invalidateAuxiliaryTab(removed); });
+    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab moved")); void this.directDownloads.invalidateTab(tabId); void this.pageExports.invalidateTab(tabId).catch(() => {}); void this.clipboard.invalidateTab(tabId).catch(() => {}); this.invalidateAuxiliaryTab(tabId); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.cancelTabTransfers(removed, new Error("OBU_TRANSFER_CANCELLED: tab replaced")); void this.directDownloads.invalidateTab(removed); void this.pageExports.invalidateTab(removed).catch(() => {}); void this.clipboard.invalidateTab(removed).catch(() => {}); this.invalidateAuxiliaryTab(removed); });
     for (const [event, phase] of [["onBeforeNavigate", "pending"], ["onCommitted", "committed"], ["onErrorOccurred", "error"], ["onHistoryStateUpdated", "committed"], ["onReferenceFragmentUpdated", "committed"]]) {
       chrome.webNavigation?.[event]?.addListener(details => {
         this.invalidatePageExportDocument(details.tabId);
@@ -675,7 +686,13 @@ class BrowserBackend {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
       const original = this[method].bind(this);
       const handler = (...args) => { this.assertSiteMethod(method, args[0]); return original(...args); };
-      if (method === "exportPage") {
+      if (["readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard"].includes(method)) {
+        this[method] = async params => {
+          const record = this.clipboard.reserve(method, params);
+          try { return await this.clipboard.within(record, () => this.runControlledRequest(() => handler(record.params, record))); }
+          catch (error) { void this.clipboard.cancel(record, error).catch(() => {}); throw error; }
+        };
+      } else if (method === "exportPage") {
         this[method] = async params => {
           const record = this.pageExports.reserve(params);
           try { return await this.pageExports.within(record, () => this.runControlledRequest(() => handler(record.params, record))); }
@@ -889,9 +906,11 @@ class BrowserBackend {
     const auxiliary = this.auxiliaryTabs.controlSnapshot();
     const downloads = this.directDownloads.controlSnapshot();
     const exports = this.pageExports.controlSnapshot();
-    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds]);
+    const clipboard = this.clipboard.controlSnapshot();
+    const broker = this.clipboardBroker.controlSnapshot();
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl() {
@@ -905,7 +924,7 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -956,6 +975,11 @@ class BrowserBackend {
       await within(() => gate.persist(true));
       await within(() => this.controlLedger.invalidateAll());
     } catch (error) { errors.push(error); }
+    // Explicit Pause/Retry may reconcile only the original broker document.
+    // This never replays a clipboard read/write or creates a replacement for
+    // an uncertain native operation, and may unblock the captured drain below.
+    try { await within(() => this.clipboardBroker.retryCleanup()); }
+    catch (error) { errors.push(error); }
     for (const tabId of gate.recoveredPendingTabs) {
       try {
         await within(() => chrome.tabs.get(tabId));
@@ -1074,6 +1098,7 @@ class BrowserBackend {
         auxiliaryTabsVersion: 1,
         directDownloadsVersion: 1,
         pageExportVersion: 1,
+        clipboardVersion: 1,
         siteAccess: { version: 1, mode: this.siteAccess.status().mode, restricted: this.siteAccess.restricted, ready: this.siteAccess.status().ready },
         automationControl: await this.getAutomationControlStatus()
       }
@@ -1644,7 +1669,10 @@ class BrowserBackend {
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
-      await this.pageExports.invalidateAttachedTab(tabId);
+      const releases = [this.pageExports.invalidateAttachedTab(tabId), this.clipboard.invalidateAttachedTab(tabId)];
+      const results = await Promise.allSettled(releases);
+      const failure = results.find(result => result.status === "rejected");
+      if (failure) throw failure.reason;
       await this.releaseTrackedInput(tabId);
       await chrome.debugger.detach({ tabId });
       this.releaseEngineAttachment(tabId);
@@ -1678,6 +1706,7 @@ class BrowserBackend {
     this.navigationWaits.invalidateAttachedTab(tabId);
     void this.directDownloads.invalidateAttachedTab(tabId);
     void this.pageExports.invalidateAttachedTab(tabId).catch(() => {});
+    void this.clipboard.invalidateAttachedTab(tabId).catch(() => {});
     this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId));
     this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.attachmentOwners.delete(tabId);
@@ -2353,15 +2382,21 @@ class BrowserBackend {
     // export starts, every root/child document change invalidates the artifact.
     void this.pageExports.invalidateAttachedTab(tabId,
       new Error("OBU_EXPORT_DOCUMENT_CHANGED: page documents changed during export")).catch(() => {});
+    void this.clipboard.invalidateAttachedTab(tabId,
+      new Error("OBU_CLIPBOARD_DOCUMENT_CHANGED: clipboard authorization document changed")).catch(() => {});
   }
 
   async pageExportSource(params) {
+    return this.ownedDocumentSource(params, "EXPORT");
+  }
+
+  async ownedDocumentSource(params, feature) {
     await this.auxiliaryTabs.ready;
     const session = await this.store.getSession(params.session_id);
     const claim = this.auxiliaryTabs.entry(params.tabId);
     const tab = await chrome.tabs.get(params.tabId);
     this.controlLedger.assertCurrent(params);
-    const unowned = () => new Error("OBU_EXPORT_CANCELLED: export tab is no longer owned by this session");
+    const unowned = () => new Error(`OBU_${feature}_CANCELLED: tab is no longer owned by this session`);
     if (!tab || this.auxiliaryTabs.entry(params.tabId) !== claim) throw unowned();
     if (claim && claim.windowId !== null) {
       if (claim.session_id !== params.session_id || this.auxiliaryTabs.owner(params.tabId) !== claim) throw unowned();
@@ -2377,7 +2412,7 @@ class BrowserBackend {
     let url;
     try { url = new URL(tab.url); } catch {}
     if (!url || !["http:", "https:"].includes(url.protocol))
-      throw new Error("OBU_EXPORT_UNSUPPORTED: page exports require an HTTP(S) document");
+      throw new Error(`OBU_${feature}_UNSUPPORTED: operation requires an owned HTTP(S) document`);
     return tab.url;
   }
 
@@ -2461,94 +2496,43 @@ class BrowserBackend {
     throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: Chrome's tab-scoped download events do not expose a proven local path");
   }
 
-  async readClipboardText(params) {
-    await this.requireSessionTab(params, "readClipboardText");
-    const tabId = requireTabId(params, "readClipboardText");
-    if (!this.attachedTabs.has(tabId)) {
-      await this.attach(params);
-    }
-    const text = await this.evaluateJavascript(tabId, "navigator.clipboard.readText()", true);
-    return { text: typeof text === "string" ? text : "" };
+  readClipboardText(params, record) { return this.clipboardOperation("readClipboardText", params, record); }
+  writeClipboardText(params, record) { return this.clipboardOperation("writeClipboardText", params, record); }
+  readClipboard(params, record) { return this.clipboardOperation("readClipboard", params, record); }
+  writeClipboard(params, record) { return this.clipboardOperation("writeClipboard", params, record); }
+
+  assertClipboardScope(scope) {
+    this.assertTransferScope(scope);
+    this.assertSiteMethod(scope.method, scope);
+    if (scope.documentRevision !== (this.exportDocumentRevisions.get(scope.tabId) ?? 0))
+      throw new Error("OBU_CLIPBOARD_DOCUMENT_CHANGED: clipboard authorization document changed");
   }
 
-  async writeClipboardText(params) {
-    await this.requireSessionTab(params, "writeClipboardText");
-    const tabId = requireTabId(params, "writeClipboardText");
-    if (typeof params.text !== "string") {
-      throw new Error("writeClipboardText requires text");
-    }
-    if (!this.attachedTabs.has(tabId)) {
-      await this.attach(params);
-    }
-    await this.evaluateJavascript(tabId, `navigator.clipboard.writeText(${JSON.stringify(params.text)})`, true);
+  async validateClipboardScope(scope) {
+    this.assertClipboardScope(scope);
+    const sourceURL = await this.ownedDocumentSource(scope, "CLIPBOARD");
+    this.assertClipboardScope(scope);
+    if (sourceURL !== scope.sourceURL) throw new Error("OBU_CLIPBOARD_DOCUMENT_CHANGED: clipboard authorization document changed");
   }
 
-  async readClipboard(params) {
-    await this.requireSessionTab(params, "readClipboard");
-    const tabId = requireTabId(params, "readClipboard");
-    if (!this.attachedTabs.has(tabId)) {
-      await this.attach(params);
-    }
-    const items = await this.evaluateJavascript(
-      tabId,
-      `((async () => {
-        const clipboardItems = await navigator.clipboard.read();
-        return await Promise.all(clipboardItems.map(async (item) => {
-          const entries = await Promise.all(item.types.map(async (type) => {
-            const blob = await item.getType(type);
-            if (type.startsWith("text/")) {
-              return { mime_type: type, text: await blob.text() };
-            }
-            const base64 = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onerror = () => reject(reader.error);
-              reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-              reader.readAsDataURL(blob);
-            });
-            return { mime_type: type, base64 };
-          }));
-          return { entries, presentation_style: item.presentationStyle ?? "unspecified" };
-        }));
-      })())`,
-      true
-    );
-    return { items: Array.isArray(items) ? items : [] };
-  }
-
-  async writeClipboard(params) {
-    await this.requireSessionTab(params, "writeClipboard");
-    const tabId = requireTabId(params, "writeClipboard");
-    if (!Array.isArray(params.items)) {
-      throw new Error("writeClipboard requires items");
-    }
-    if (!this.attachedTabs.has(tabId)) {
-      await this.attach(params);
-    }
-    await this.evaluateJavascript(
-      tabId,
-      `((async (items) => {
-        const clipboardItems = items.map((item) => {
-          const entries = {};
-          for (const entry of item.entries ?? []) {
-            const mime = entry.mime_type;
-            if (!mime) continue;
-            if (entry.text !== undefined) {
-              entries[mime] = new Blob([entry.text], { type: mime });
-            } else if (entry.base64 !== undefined) {
-              const binary = atob(entry.base64);
-              const bytes = new Uint8Array(binary.length);
-              for (let index = 0; index < binary.length; index += 1) {
-                bytes[index] = binary.charCodeAt(index);
-              }
-              entries[mime] = new Blob([bytes], { type: mime });
-            }
-          }
-          return new ClipboardItem(entries, { presentationStyle: item.presentation_style ?? "unspecified" });
-        });
-        await navigator.clipboard.write(clipboardItems);
-      })(${JSON.stringify(params.items)}))`,
-      true
-    );
+  async clipboardOperation(method, params, record) {
+    const check = () => this.clipboard.check(record);
+    check();
+    await this.controlReleases.get(params.tabId);
+    check();
+    await this.requireSessionTab(params, method);
+    check();
+    await this.ownedDocumentSource(params, "CLIPBOARD");
+    check();
+    await this.prepareTransferAttachment(params, record.deadlineAt, { preserveClipboardRecord: record, check });
+    check();
+    const owner = { ...this.attachmentOwners.get(params.tabId) };
+    const documentRevision = this.exportDocumentRevisions.get(params.tabId) ?? 0;
+    const sourceURL = await this.ownedDocumentSource(params, "CLIPBOARD");
+    check();
+    const scope = { ...owner, documentRevision, sourceURL, method };
+    this.assertClipboardScope(scope);
+    return this.clipboard.run(record, scope);
   }
 
   async turnEnded(params) {
@@ -2935,6 +2919,10 @@ class BrowserBackend {
     const downloadsReleased = this.directDownloads.invalidateSession(sessionId);
     const exportsReleased = this.pageExports.invalidateSession(sessionId);
     exportsReleased.catch(() => {});
+    const clipboardReleased = this.clipboard.invalidateSession(sessionId);
+    clipboardReleased.catch(() => {});
+    const brokerReleased = this.clipboardBroker.waitForSession(sessionId);
+    brokerReleased.catch(() => {});
     this.networkWaits.invalidateSession(sessionId);
     this.navigationWaits.invalidateSession(sessionId);
     this.auxiliaryTabs.cancelPending(sessionId);
@@ -2955,7 +2943,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([downloadsReleased, exportsReleased, ...releases]);
+    const outcomes = await Promise.allSettled([downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -2968,6 +2956,7 @@ class BrowserBackend {
       this.controlLedger.assertCurrent(params);
       void this.directDownloads.invalidateSession(params.session_id);
       void this.pageExports.invalidateSession(params.session_id).catch(() => {});
+      void this.clipboard.invalidateSession(params.session_id).catch(() => {});
       this.networkWaits.invalidateSession(params.session_id);
       this.navigationWaits.invalidateSession(params.session_id);
       this.auxiliaryTabs.cancelPending(params.session_id);
@@ -3000,6 +2989,16 @@ class BrowserBackend {
 
   async recoverControlState() {
     await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready, this.siteAccess.ready]);
+    try { await this.clipboardBroker.recover(); }
+    catch (error) {
+      // Keep admission blocked and old epochs invalid, but do not poison the
+      // ready Promise forever after a recoverable clipboard cleanup failure.
+      // The user can retry Pause, then explicitly Resume and begin a new turn.
+      this.automationControl.fail(error);
+      await this.controlLedger.invalidateAll();
+      await this.automationControl.persist(true);
+      return;
+    }
     if (this.automationControl.inputBlocked) {
       // Startup recovery shares the popup transition queue. A Pause accepted
       // while storage was loading already owns that recovery operation.
@@ -3156,7 +3155,7 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveDirectRecord = null, preserveExportRecord = null } = {}) {
+  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
     if (preserveNetworkArming) this.networkWaits.invalidateAttachedTab(tabId);
     else this.networkWaits.invalidateTab(tabId);
     if (preserveNavigationArming) this.navigationWaits.invalidateAttachedTab(tabId);
@@ -3167,11 +3166,16 @@ class BrowserBackend {
     this.internalScreencasts.get(tabId)?.cancel?.();
     const downloadsReleased = this.directDownloads.invalidateTab(tabId, preserveDirectRecord);
     const exportsReleased = this.pageExports.invalidateTab(tabId, preserveExportRecord);
+    const clipboardReleased = this.clipboard.invalidateTab(tabId, preserveClipboardRecord);
     // A repeated explicit detach must also cancel a reservation intentionally
     // preserved by an earlier owner migration. Reuse the actual native release,
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
-    const nativeRelease = exportsReleased.then(() => previousRelease ?? this.releaseTabControl(tabId));
+    const nativeRelease = Promise.allSettled([exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousRelease]).then(results => {
+      const failure = results.find(result => result.status === "rejected");
+      if (failure) throw failure.reason;
+      return previousRelease ? undefined : this.releaseTabControl(tabId);
+    });
     const release = Promise.allSettled([downloadsReleased, nativeRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
@@ -3217,7 +3221,10 @@ class BrowserBackend {
         // CRX also detaches on action timeout. Its captured release hook must
         // close exports on this exact attachment before native detach, without
         // cancelling an unbound reservation or a later attachment's work.
-        await this.pageExports.invalidateAttachment(tabId, token);
+        const releases = [this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
+        const results = await Promise.allSettled(releases);
+        const failure = results.find(result => result.status === "rejected");
+        if (failure) throw failure.reason;
         if (isCurrent()) await this.inputTracker.release(tabId, token,
           (target, method, params) => chrome.debugger.sendCommand(target, method, params));
       },

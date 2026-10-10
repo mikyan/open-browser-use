@@ -533,3 +533,44 @@ Chrome 正常运行时延的测量。原五条 auxiliary tab 激活和四条控�
 冻结版本一致；五入口产物重新计算哈希并解析内容。包内无测试源码、凭据
 形状或机器私有路径。导出 PDF、后台光标高亮及控制 popup 截图已查看。
 测试浏览器与 host 已退出；本地包已更新，日常浏览器安装未改动。
+
+### P10 剪贴板（公开入口与生命周期验收中）
+
+- 保留四个现有 RPC 和 snake_case 富内容字段，改由打包的 offscreen 文档
+  读写文本、HTML、PNG。可信 Port 结合唯一 live context 与原生 target
+  nonce 验证；只给隐藏文档做 focus emulation，不激活标签或移动系统鼠标。
+- 三 SDK、CLI/MCP 协商 `clipboardVersion=1`；统一 16 MiB 解码与 48 MiB
+  JSON 编码上限，后者包含 host 的 HTML/Unicode 转义。严格拒绝非法 Unicode，
+  PNG 限尺寸并在原生提交前完整解码；富内容文件原子创建且不覆盖已有文件。
+- 原预算覆盖 admission、编码和原生执行；系统剪贴板是共享资源，操作应
+  全局串行。已提交写入不能回滚或自动重放，Pause/end 必须追踪真实结算。
+  网页、会话、控制周期变化应废弃旧结果；受限网站模式继续拒绝这四个入口。
+- 测试不读取或覆盖日常系统剪贴板。Windows 新 window station 探针在当前
+  非管理员令牌下失败，未启动浏览器、未访问剪贴板。已核实 Chromium
+  headless 独立内存剪贴板的固定源码、二进制和运行参数，作为协议测试环境；这种
+  实验不能替代 headed 浏览器与系统原生剪贴板的完整验收。
+- 本片仍仅本地开发、测试和提交，不推送、不提 PR、不改日常浏览器安装。
+
+固定 Headless 内存剪贴板专项 `run-ueXaBw` **8/8**：五入口三 MIME 内容，
+提交前取消等待真实清理，实际 worker stop/start 后不重放旧写入。独立
+Pillow 解码确认五份 PNG 都是 2×1 红/绿 RGBA 像素（浏览器重编码为 90 字节）；
+CLI/MCP 元数据、文件不覆盖与无内容重复通过。原始焦点账本为空；唯一
+tab activation 精确属于重启测试自己创建的 unfocused auxiliary window。
+591 项扩展/脚本、JS 90、Python 59 和 Go SDK 52 项通过，Go 全包也通过。
+有界面完整回归独立进行，不把 Headless 结果当作系统剪贴板或完整矩阵验收。
+
+本轮 headed `run-obwspc` **29/53**，未通过。只读原生事件与 worker heap
+定位到主窗口后台 tab 的 `startScreencast` 已完成却没有首帧，动作仍卡在
+`withRenderingLease`，尚未进入 locator/input；当时没有 offscreen context
+或剪贴板工作。独立 popup 同类动作、填表/快照与后段部分主窗口动作通过。
+窗口未最小化，document visible/focus/rAF 正常；这些事实不足以确定系统
+锁屏或遮挡原因。接着做改动前基线和无激活原生绘制探针，不盲目扩大超时。
+全轮前台事件仍只属于五个合成 auxiliary tabs 与两次真实设置 popup，
+截图中的光标、蓝框、点击圈已查看。尚不能将本轮完整回归标记为通过。
+
+对照 `run-scGSgB` 使用改动前 `de1b7f7` 的 background/manifest；30 个
+其余既有生产输入逐项校验相同。三个早期关键场景同样全部首帧超时。
+最小原生扩展探针（不含本项目或剪贴板代码）也在 startScreencast 成功后
+10 秒无帧，另发无 clip 截图 5 秒未结算，再等 2 秒仍无帧；前台、视口、
+滚动均不变。证据排除了此问题只由本次 clipboard 接线引入的判断，但
+尚未证明具体系统原因或找到修复；没有为通过测试而激活用户标签。

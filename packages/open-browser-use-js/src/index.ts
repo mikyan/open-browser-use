@@ -1,3 +1,6 @@
+import { clipboardMethods, clipboardParams, validateClipboardResult, OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
+export { OpenBrowserUseClipboard } from "./clipboard.js";
+export type { OpenBrowserUseClipboardOptions, OpenBrowserUseClipboardItem, OpenBrowserUseClipboardEntry } from "./clipboard.js";
 import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { pageExportParams, validatePageExport, type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
 export { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePDFOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
@@ -31,6 +34,7 @@ type PendingRequest = {
   resolve: (value: JsonValue) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  strictUTF8: boolean;
 };
 
 export type OpenBrowserUseNotification = {
@@ -92,7 +96,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 };
 type ControlBinding = { controlEpoch: number | null; closing: boolean; nextTurnId?: string };
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
@@ -111,6 +115,7 @@ export class OpenBrowserUseClient {
   #controlRevision = 0;
   #directDownloadsVersion: unknown = undefined;
   #pageExportVersion: unknown = undefined;
+  #clipboardVersion: unknown = undefined;
   #navigationWaitVersion: unknown = undefined;
   #networkWaitVersion: unknown = undefined;
   #socket: Socket | null = null;
@@ -229,6 +234,10 @@ export class OpenBrowserUseClient {
       if (this.#pageExportVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#pageExportVersion !== 1) throw new Error("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1");
     }
+    if (clipboardMethods.has(method)) {
+      if (this.#clipboardVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+      if (this.#clipboardVersion !== 1) throw new Error("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1");
+    }
     capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
     const result = await this.#sendRequest(method, merged, deadline);
     if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
@@ -341,7 +350,7 @@ export class OpenBrowserUseClient {
     if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
     if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
-      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
+      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
       if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested))) throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
       const available = Math.floor(remaining - 1000);
       if (available < 1) throw new Error(`Open Browser Use request timed out before ${method} could start`);
@@ -360,7 +369,7 @@ export class OpenBrowserUseClient {
         this.#pending.delete(id);
         reject(new Error(`Open Browser Use request timed out: ${method}`));
       }, Math.max(1, deadline - Date.now()));
-      this.#pending.set(id, { resolve, reject, timeout });
+      this.#pending.set(id, { resolve, reject, timeout, strictUTF8: clipboardMethods.has(method) });
     });
     try {
       socket.write(payload);
@@ -369,6 +378,7 @@ export class OpenBrowserUseClient {
     }
     const result = await promise;
     if (method === "getInfo") this.#directDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.directDownloadsVersion ?? null : null;
+    if (method === "getInfo") this.#clipboardVersion = isObject(result) && isObject(result.metadata) ? result.metadata.clipboardVersion ?? null : null;
     if (method === "getInfo") this.#pageExportVersion = isObject(result) && isObject(result.metadata) ? result.metadata.pageExportVersion ?? null : null;
     if (method === "getInfo") this.#navigationWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.navigationWaitVersion ?? null : null;
     if (method === "getInfo") this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
@@ -480,20 +490,22 @@ export class OpenBrowserUseClient {
     return this.getUserHistory(params);
   }
 
-  readClipboardText(tabId: number): Promise<JsonValue> {
-    return this.request("readClipboardText", { tabId });
+  async readClipboardText(tabId: number, options: OpenBrowserUseClipboardOptions = {}): Promise<JsonValue> {
+    return this.#clipboard("readClipboardText", tabId, {}, options);
   }
-
-  writeClipboardText(tabId: number, text: string): Promise<JsonValue> {
-    return this.request("writeClipboardText", { tabId, text });
+  async writeClipboardText(tabId: number, text: string, options: OpenBrowserUseClipboardOptions = {}): Promise<JsonValue> {
+    return this.#clipboard("writeClipboardText", tabId, { text }, options);
   }
-
-  readClipboard(tabId: number): Promise<JsonValue> {
-    return this.request("readClipboard", { tabId });
+  async readClipboard(tabId: number, options: OpenBrowserUseClipboardOptions = {}): Promise<JsonValue> {
+    return this.#clipboard("readClipboard", tabId, {}, options);
   }
-
-  writeClipboard(tabId: number, items: JsonValue[]): Promise<JsonValue> {
-    return this.request("writeClipboard", { tabId, items });
+  async writeClipboard(tabId: number, items: JsonValue[], options: OpenBrowserUseClipboardOptions = {}): Promise<JsonValue> {
+    return this.#clipboard("writeClipboard", tabId, { items }, options);
+  }
+  async #clipboard(method: string, tabId: number, payload: BrowserUseRequestParams, options: OpenBrowserUseClipboardOptions): Promise<JsonValue> {
+    const params = clipboardParams(method, tabId, payload, options);
+    const value = await this.request(method, params, { timeoutMs: (params.timeoutMs as number) + 1000 });
+    return validateClipboardResult(method, value, params.maxBytes as number);
   }
 
   turnEnded(): Promise<JsonValue> {
@@ -514,11 +526,11 @@ export class OpenBrowserUseClient {
       }
       const payload = this.#pendingData.subarray(headerBytes, total);
       this.#pendingData = this.#pendingData.subarray(total);
-      this.#handleMessage(JSON.parse(payload.toString("utf8")) as JsonValue);
+      this.#handleMessage(JSON.parse(payload.toString("utf8")) as JsonValue, payload);
     }
   }
 
-  #handleMessage(message: JsonValue): void {
+  #handleMessage(message: JsonValue, payload: Buffer): void {
     if (!isObject(message)) {
       return;
     }
@@ -542,6 +554,17 @@ export class OpenBrowserUseClient {
     }
     this.#pending.delete(id);
     clearTimeout(pending.timeout);
+    // Identify the response using the existing decoder, but never publish
+    // clipboard text after Buffer.toString has repaired malformed UTF-8.
+    // A literal, correctly encoded U+FFFD remains valid clipboard content.
+    if (pending.strictUTF8) {
+      try {
+        new TextDecoder("utf-8", { fatal: true }).decode(payload);
+      } catch {
+        pending.reject(new Error("Invalid clipboard response: UTF-8 is malformed"));
+        return;
+      }
+    }
     if (isObject(message.error)) {
       pending.reject(new Error(String(message.error.message ?? "Open Browser Use request failed")));
       return;
@@ -616,6 +639,7 @@ export class OpenBrowserUseBrowser {
 }
 
 export class OpenBrowserUseTab {
+  get clipboard(): OpenBrowserUseClipboard { return new OpenBrowserUseClipboard(this.browser.client, this.id); }
   readonly browser: OpenBrowserUseBrowser;
   readonly id: number;
   readonly playwright: OpenBrowserUseTabPlaywright;

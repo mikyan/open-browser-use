@@ -43,6 +43,8 @@
   正负对照，以及已实现并验收的独立窗口归属与回收；原生创建焦点仍有缺口。
 - [Edge 安装与发现](edge-installation.md)：Edge Stable selector、独立 native host
   manifest/registry、手动 ZIP 安装和实际 Windows 验证范围。
+- [Clipboard](clipboard.md)：可信隐藏文档、有限富内容契约、真实写入结算、
+  SDK/CLI/MCP 接口与隔离内存剪贴板验收边界。
 - `chrome/0.1.7/skills/chrome/SKILL.md`：OpenAI bundled Chrome plugin
   `0.1.7` 的官方 Chrome skill 原文快照，用于对照官方 browser session、
   tab claiming、file upload 和 tab cleanup 约定；后续版本按同一路径新增。

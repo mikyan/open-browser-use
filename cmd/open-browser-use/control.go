@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ifuryst/open-browser-use/internal/wire"
+	obu "github.com/ifuryst/open-browser-use/packages/open-browser-use-go"
 	"github.com/spf13/cobra"
 )
 
@@ -39,6 +40,7 @@ type cliControlSnapshot struct {
 	navigationWaitSupported  bool
 	directDownloadsSupported bool
 	pageExportSupported      bool
+	clipboardSupported       bool
 }
 
 type cliControl struct {
@@ -91,12 +93,23 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	if !captured.deadline.IsZero() {
 		deadline = captured.deadline
 	}
+	if cliClipboardMethod(method) {
+		if err := validateClipboardValueUnicode(params); err != nil {
+			return nil, err
+		}
+	}
 	params, err := copyCLIParams(params)
 	if err != nil {
 		return nil, err
 	}
 	if method == "exportPage" {
 		params, err = validateCLIPageExportParams(params)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if cliClipboardMethod(method) {
+		params, err = validateCLIClipboardParams(method, params)
 		if err != nil {
 			return nil, err
 		}
@@ -242,12 +255,36 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_PAGE_EXPORT_UNSUPPORTED: extension requires pageExportVersion 1")
 		}
 	}
+	if cliClipboardMethod(method) {
+		if manual {
+			infoResponse, err := sendCLIRequest(conn, "cli-clipboard-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.clipboardSupported = metadata["clipboardVersion"] == float64(1)
+		}
+		if !captured.clipboardSupported {
+			return nil, errors.New("OBU_CLIPBOARD_UNSUPPORTED: extension requires clipboardVersion 1")
+		}
+	}
 	if err := boundCLIActionDeadline(method, params, deadline); err != nil {
 		return nil, err
 	}
 	response, err := sendCLIRequest(conn, "cli-1", method, params)
 	if err != nil {
 		return nil, err
+	}
+	if cliClipboardMethod(method) && response["error"] == nil {
+		value, err := obu.ValidateClipboardResult(method, response["result"], int(params["maxBytes"].(float64)))
+		if err != nil {
+			return nil, err
+		}
+		response["result"] = value
 	}
 	if !manual && (method == "turnEnded" || method == "finalizeTabs") && response["error"] == nil {
 		next := captured
@@ -280,7 +317,7 @@ func cliNavigationWaitMethod(method string) bool {
 }
 
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "downloadURL" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage"
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "downloadURL" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -311,7 +348,7 @@ func sendCLIRequest(conn net.Conn, id, method string, params map[string]any) (ma
 	if err := wire.WriteJSON(conn, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
-	return readResponseForID(conn, id)
+	return readResponseForID(conn, id, cliClipboardMethod(method))
 }
 
 func cliResult(response map[string]any) (map[string]any, error) {
@@ -340,6 +377,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)
+	captured.clipboardSupported = metadata["clipboardVersion"] == float64(1)
 	version, exists := metadata["turnLifecycleVersion"]
 	if !exists {
 		captured.version = 0

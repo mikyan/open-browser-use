@@ -224,7 +224,7 @@ func mcpErrorResponse(id any, code int, message string) map[string]any {
 }
 
 func mcpTools() []mcpTool {
-	return []mcpTool{
+	return append(clipboardTools(), []mcpTool{
 		pageExportTool(),
 		{
 			Name:        "ping",
@@ -417,7 +417,7 @@ func mcpTools() []mcpTool {
 				"script": stringSchema("Line-oriented action plan script."),
 			}, []string{"script"}),
 		},
-	}
+	}...)
 }
 
 func emptyObjectSchema() map[string]any {
@@ -477,15 +477,34 @@ func (server *mcpServer) callTool(params json.RawMessage) (map[string]any, error
 	if request.Arguments == nil {
 		request.Arguments = map[string]any{}
 	}
+	if strings.Contains(request.Name, "clipboard") || (request.Name == "call" && cliClipboardMethod(fmt.Sprint(request.Arguments["method"]))) {
+		if err := validateClipboardJSONUnicode(params); err != nil {
+			return mcpToolErrorResult(err.Error()), nil
+		}
+	}
 	output, err := server.runTool(request.Name, request.Arguments)
 	if err != nil {
 		return mcpToolErrorResult(err.Error()), nil
+	}
+	if request.Name == "read_clipboard_text" {
+		value, ok := output.(map[string]any)
+		if !ok {
+			return mcpToolErrorResult("invalid clipboard text result"), nil
+		}
+		text, ok := value["text"].(string)
+		if !ok {
+			return mcpToolErrorResult("invalid clipboard text result"), nil
+		}
+		// Clipboard text can be large and sensitive: include it only once.
+		return map[string]any{"isError": false, "content": []map[string]any{{"type": "text", "text": text}}}, nil
 	}
 	return mcpToolResult(output)
 }
 
 func (server *mcpServer) runTool(name string, arguments map[string]any) (any, error) {
 	switch name {
+	case "read_clipboard_text", "write_clipboard_text", "read_clipboard", "write_clipboard":
+		return server.runClipboardTool(name, arguments)
 	case "export_page":
 		return server.runExportPageTool(arguments)
 	case "ping":

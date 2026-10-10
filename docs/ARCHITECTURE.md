@@ -293,7 +293,6 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   浏览器记录路径，`cancelDownload` 取消该 ID。它们绑定原控制 scope，不把
   新 GET 冒充网页点击触发的下载；Page GUID 路径仍明确返回
   `OBU_DOWNLOAD_PATH_UNAVAILABLE`。详见 [文件传输](references/file-transfers.md)。
-  Clipboard helpers 仍需独立实测。
   历史私有 Browser Use command rewrite 含有 DOM CUA、media
   download、element info/screenshot、locator bulk reads、generic tab export 和
   clipboard commands，但它们不等于正式公开入口已完成这些能力。
@@ -303,6 +302,15 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   16 MiB，至多四项未完成工作且每 tab 一项；挂起 admission 仍占容量。
   MHTML 在受限网站模式拒绝，PDF 复核完整 frame 树。SDK 返回统一字节对象，
   CLI/MCP 在验证后原子创建新文件，详见 [page exports](references/page-exports.md)。
+- `clipboardVersion=1` 保留四个剪贴板 RPC，支持有限的文本、HTML 和 PNG。
+  `BrowserClipboard` 管全局单项 admission、scope、deadline 与真实结算；
+  broker 通过 live offscreen context 和原生 target nonce 验证私有 Port。
+  只有打包的隐藏文档调用原生 Clipboard API，页面脚本不接触内容。
+  prepare 后重新检查归属再 commit，end/Pause 等待实际清理，恢复不重放写入；
+  未确认原始操作状态时保持阻断。解码上限 16 MiB，含 host 转义的 JSON
+  上限 48 MiB。三个 SDK 与 CLI/MCP 共用能力协商和验证；CLI/MCP 富内容
+  使用显式 JSON 文件且原子不覆盖。系统剪贴板仍是共享资源，受限网站模式
+  拒绝调用。验证环境与平台边界见 [clipboard](references/clipboard.md)。
 - 公开 `browserAction diagnostics` 使用真实 Playwright Page 事件记录 console、
   pageerror 和 network 摘要；第一条有归属的 engine action 前开始记录，最多
   500 条/1 MiB，返回 capture/cursor/dropped。Detach 或归属改变丢弃历史，

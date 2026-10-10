@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
+from ._clipboard import CLIPBOARD_METHODS, OpenBrowserUseClipboard, clipboard_params, clipboard_timeout, validate_clipboard_result
 from ._downloads import OpenBrowserUseDownload, download_id, download_params, download_timeout
 from ._page_exports import ExportFormat, PDFOptions, PageExport, export_params, export_timeout, validate_export
 from ._transport import Transport, connect_transport, remaining_time
@@ -23,7 +24,7 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage", *CLIPBOARD_METHODS})
 NAVIGATION_WAIT_METHODS = frozenset({"armNavigationWait", "collectNavigationWait", "cancelNavigationWait"})
 NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
@@ -46,6 +47,7 @@ class OpenBrowserUseClient:
         self._control_epoch: int | None = None
         self._direct_downloads_version: Any = None
         self._page_export_version: Any = None
+        self._clipboard_version: Any = None
         self._navigation_wait_version: Any = None
         self._network_wait_version: Any = None
 
@@ -126,6 +128,11 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._page_export_version) is not int or self._page_export_version != 1:
                 raise RuntimeError("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1")
+        if method in CLIPBOARD_METHODS:
+            if self._clipboard_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._clipboard_version) is not int or self._clipboard_version != 1:
+                raise RuntimeError("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1")
         if prepare is not None:
             prepare(merged_params, deadline)
         result = (self._wire_request(method, merged_params, deadline) if execute is None
@@ -144,6 +151,9 @@ class OpenBrowserUseClient:
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
         self._direct_downloads_version = metadata.get("directDownloadsVersion", 0) if isinstance(metadata, dict) else 0
+        self._clipboard_version = (metadata.get("clipboardVersion", 0) if isinstance(metadata, dict) else 0)
+        if self._clipboard_version is None:
+            self._clipboard_version = 0
         self._page_export_version = metadata.get("pageExportVersion", 0) if isinstance(metadata, dict) else 0
         if self._page_export_version is None:
             self._page_export_version = 0
@@ -190,6 +200,8 @@ class OpenBrowserUseClient:
             requested = merged_params.get("timeoutMs", 10000)
             if method == "exportPage":
                 export_timeout(requested)
+            if method in CLIPBOARD_METHODS:
+                clipboard_timeout(requested)
             if method in {"downloadURL", "downloadPath", "cancelDownload"}:
                 if requested is None:
                     raise ValueError("Download timeoutMs must be an integer from 1 to 120000")
@@ -379,17 +391,22 @@ class OpenBrowserUseClient:
     def browser_user_history(self, **params: Any) -> Any:
         return self.get_user_history(**params)
 
-    def read_clipboard_text(self, tab_id: int) -> Any:
-        return self.request("readClipboardText", {"tabId": tab_id})
+    def _clipboard(self, method: str, tab_id: int, payload: JsonObject, max_bytes: int | None, timeout_ms: int | None) -> Any:
+        params = clipboard_params(method, tab_id, payload, max_bytes, timeout_ms)
+        value = self.request(method, params, timeout=params["timeoutMs"] / 1000 + 1)
+        return validate_clipboard_result(method, value, params["maxBytes"])
 
-    def write_clipboard_text(self, tab_id: int, text: str) -> Any:
-        return self.request("writeClipboardText", {"tabId": tab_id, "text": text})
+    def read_clipboard_text(self, tab_id: int, *, max_bytes: int | None = None, timeout_ms: int | None = None) -> Any:
+        return self._clipboard("readClipboardText", tab_id, {}, max_bytes, timeout_ms)
 
-    def read_clipboard(self, tab_id: int) -> Any:
-        return self.request("readClipboard", {"tabId": tab_id})
+    def write_clipboard_text(self, tab_id: int, text: str, *, max_bytes: int | None = None, timeout_ms: int | None = None) -> Any:
+        return self._clipboard("writeClipboardText", tab_id, {"text": text}, max_bytes, timeout_ms)
 
-    def write_clipboard(self, tab_id: int, items: list[JsonObject]) -> Any:
-        return self.request("writeClipboard", {"tabId": tab_id, "items": items})
+    def read_clipboard(self, tab_id: int, *, max_bytes: int | None = None, timeout_ms: int | None = None) -> Any:
+        return self._clipboard("readClipboard", tab_id, {}, max_bytes, timeout_ms)
+
+    def write_clipboard(self, tab_id: int, items: list[JsonObject], *, max_bytes: int | None = None, timeout_ms: int | None = None) -> Any:
+        return self._clipboard("writeClipboard", tab_id, {"items": items}, max_bytes, timeout_ms)
 
     def turn_ended(self) -> Any:
         return self.request("turnEnded")
@@ -460,6 +477,10 @@ class OpenBrowserUseBrowser:
 
 
 class OpenBrowserUseTab(LocatorFactory):
+    @property
+    def clipboard(self) -> OpenBrowserUseClipboard:
+        return OpenBrowserUseClipboard(self.browser.client, self.id)
+
     def download_url(self, url: str, *, filename: str | None = None, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
         return self.browser.client._download(self.id, "downloadURL", download_params(url, filename, timeout_ms))
 

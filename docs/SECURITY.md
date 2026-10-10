@@ -106,7 +106,14 @@ Users must understand that installing and enabling the extension allows Open Bro
 
 Clipboard, download, and file chooser features are sensitive.
 
-- Clipboard helpers run through the controlled page context and should only be called for explicit user workflows.
+- Clipboard helpers require an owned HTTP(S) tab and current control epoch, but
+  execute in a packaged offscreen document over an authenticated private Port.
+  The native clipboard remains shared across applications and sessions; only
+  explicit clipboard workflows should call them. Page JavaScript does not
+  receive clipboard payloads, and website-restricted modes reject the helpers.
+  Payloads are bounded, never persisted, and a native write is never replayed
+  after timeout or recovery. Unknown cleanup state blocks further work; see
+  [clipboard](references/clipboard.md) for the contract and test limits.
 - File chooser and download paths can reveal private filesystem structure; do not log them unless needed, and redact them from shared reports. Explicit `downloadURL` binds only the numeric ID returned by its native API call; path/cancel operations revalidate the original control scope. Its GET uses browser cookies, permits HTTP(S) without embedded credentials, and requests a unique filename without accepting dangerous downloads or opening the file. Browser settings and policy can still require UI.
 - Page-triggered downloads retain owned CDP GUIDs whose local paths remain unavailable; neither URL/timing guesses nor live History database reads provide that mapping. A browser-reported path is not proof that the file still exists or that its bytes remain unchanged.
 - Chooser records retain their originating tab, frame, attachment and control epoch; stale or foreign records are rejected. See [File transfers](references/file-transfers.md) for deadlines and unsupported cases.

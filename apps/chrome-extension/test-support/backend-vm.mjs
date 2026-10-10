@@ -5,6 +5,8 @@ import { BrowserNetworkWaits } from "../browser-network-waits.js";
 import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
 import { BrowserPageExports } from "../browser-page-exports.js";
+import { BrowserClipboard } from "../browser-clipboard.js";
+import { BrowserClipboardBroker } from "../clipboard-broker.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "../browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "../auxiliary-tab-ownership.js";
 import { NativeMessageReceiver } from "../native-message-receiver.js";
@@ -47,6 +49,8 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { BrowserClipboard } from "./browser-clipboard.js";', "")
+  .replace('import { BrowserClipboardBroker } from "./clipboard-broker.js";', "")
   .replace('import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-policy.js";', "")
   .replace('import { assertSiteAccessFrames } from "./site-access-frames.js";', "")
   .replace('import { NativeMessageReceiver } from "./native-message-receiver.js";', "")
@@ -58,7 +62,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, BrowserPageExports, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

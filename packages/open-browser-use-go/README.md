@@ -349,3 +349,51 @@ callers; `ValidatePageExport` checks a JSON-decoded response's five fields,
 matching format/MIME, canonical Base64 and decoded size against the caller cap.
 Native export may still fail for unsupported pages, browser conditions or an
 expired control scope.
+
+### Clipboard
+
+`tab.Clipboard().ReadText(...)` returns `(string, error)`; `Read(...)` returns
+`([]ClipboardItem, error)`. `WriteText(text, ...)` and `Write(items, ...)` return
+`error`. Client methods retain wire-envelope results. All four require
+`metadata.clipboardVersion == 1`, including explicit-epoch requests.
+`ClipboardOptions{MaxBytes, Timeout}` uses zero for defaults: 16 MiB and 10 seconds.
+Nonzero timeout must be whole milliseconds from 1ms through 120s. At most one
+options value is accepted. `ClipboardEntry.Text` and `.Base64` are pointers to
+distinguish an empty string from an absent representation.
+
+```go
+text, err := tab.Clipboard().ReadText(obu.ClipboardOptions{
+    MaxBytes: 65536, Timeout: 5 * time.Second,
+})
+if err != nil { return err }
+err = tab.Clipboard().WriteText(text)
+```
+
+`ClipboardParams` validates finite RPC options and copies payloads;
+`ValidateClipboardResult` returns the validated wire envelope. The SDK also
+rejects malformed UTF-8 and unpaired surrogate escapes before Go's JSON decoder
+can replace them silently.
+
+Only `text/plain` and `text/html` strings and canonical Base64 `image/png` are
+supported. Rich values preserve wire keys `entries`, `mime_type`, `text` or
+`base64`, and optional `presentation_style` (`unspecified`, `inline`, `attachment`).
+There is at most one item with 1–3 unique representations. `write([])` is a
+no-op, not a clipboard clear; an empty text string is valid. Reads return only
+these three supported representations, and an empty clipboard may return `[]`.
+Unknown fields, duplicate MIME types and mixed text/Base64 payloads are rejected.
+
+The byte cap counts actual UTF-8 text and decoded PNG bytes in aggregate, defaults
+to 16 MiB and cannot exceed 16 MiB. Normalized JSON bodies also have a 48 MiB
+limit, including the Go host’s HTML escaping; excess encoded data rejects with
+OBU_CLIPBOARD_LIMIT before a write is submitted. PNG preflight checks signature, IHDR and a
+16,777,216-pixel limit; it is not a complete image decoder. The trusted browser
+adapter must finish decoding. Results are validated again before returning.
+HTML may be sanitized and PNG re-encoded by the browser, so byte-for-byte
+round trips are not promised. The host's separate 64 MiB JSON limit also applies.
+
+These operations access the system's shared clipboard, not a per-tab clipboard.
+They are disabled by restricted website policies. Each invocation retains its
+original session/turn/epoch; discovery and queueing consume its total deadline,
+with one extra second for the reply. Writes are never automatically retried.
+A timeout or Pause cannot guarantee reversal of a write already submitted to the
+native clipboard. No clipboard contents are saved to disk by these helpers.

@@ -381,6 +381,32 @@ worker 重启不能充当关闭证明。MHTML 结果上限不代表浏览器内�
 产物内容、原始前台事件和包内卫生再次检查通过。测试进程已退出，日常安装
 未改动。
 
+### Clipboard
+
+四个既有 RPC 保留，新增统一有限的文本/HTML/PNG 契约、三 SDK facade 和
+CLI/MCP 文件入口。原生 API 移入打包 offscreen 文档；唯一 live context、
+精确无 tab 原生 target 与 nonce 联合验证私有 Port，页面不能截获正文。
+prepare/commit 分离，原始 deadline、归属、文档与 attachment 检查贯穿；
+超时仍追踪实际结算，取消不回滚或重放写入。启动 marker 读取失败和未知
+原生状态保持阻断，显式 Retry Pause 才重新确认并清理。
+
+修复实际 Port 不带 documentId、原生 createImageBitmap 接收者错误、
+Go 转义膨胀超过传输上限、JS 对非法 UTF-8 静默替换，以及恢复 pending
+未纳入暂停等待等问题。591 项扩展/脚本、JS 90、Python 59、Go SDK 52
+及 Go 全包通过。固定 Chromium Headless 内存剪贴板专项 8/8，五入口实际
+三 MIME 内容、独立 PNG 像素、空列表 no-op、无效写入不改变内容、文件
+不覆盖、任务结束等待清理与真实 worker 重启不重放均通过。仅使用合成
+内容，未读取或修改日常系统剪贴板；这不构成 headed OS 剪贴板验收。
+
+独立核验源码/SDK/host/fixture 哈希与五份产物；41 文件扩展包逐字节匹配，
+不含测试 hook。完整 headed 本轮 29/53：主窗口多项动作卡在原生
+screencast 首帧之前，独立最小扩展也复现，额外无 clip 截图没有恢复。
+改动前 background/manifest 的三个关键场景对照同样失败，其他既有生产
+输入哈希相同，不能把该现象归因于本次剪贴板接线。
+没有将重试、额外截图或前台切换当作修复；该渲染问题保留为 P09 缺口。
+成功截图仍显示 AI 光标、蓝框与点击圈。所有测试进程按各运行清理，
+开发包只保存在本地，不推送、不提 PR、不修改日常浏览器安装。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

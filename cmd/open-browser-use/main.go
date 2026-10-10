@@ -93,6 +93,7 @@ func newRootCommand() *cobra.Command {
 		newRunCommand(),
 		newMCPCommand(),
 		newExportPageCommand(),
+		newClipboardCommand(),
 		newOpenTabCommand(),
 		newNavigateCommand(),
 		newSimpleRPCCommand("ping", "ping", "Ping the browser backend"),
@@ -1191,6 +1192,11 @@ func newCallCommand() *cobra.Command {
 			if method == "" {
 				return errors.New("call requires --method")
 			}
+			if cliClipboardMethod(method) {
+				if err := validateClipboardJSONUnicode([]byte(params)); err != nil {
+					return err
+				}
+			}
 			var paramValue map[string]any
 			if err := json.Unmarshal([]byte(params), &paramValue); err != nil {
 				return err
@@ -2136,6 +2142,11 @@ func (runner *actionRunner) runCallAction(args []string) (map[string]any, int, e
 		paramsJSON = "{}"
 	}
 	var params map[string]any
+	if cliClipboardMethod(method) {
+		if err := validateClipboardJSONUnicode([]byte(paramsJSON)); err != nil {
+			return nil, 0, err
+		}
+	}
 	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
 		return nil, 0, fmt.Errorf("call params must be a JSON object: %w", err)
 	}
@@ -2359,10 +2370,19 @@ func invokeWithProfile(socketPath string, socketDir string, browser string, prof
 	return invokeWithOptions(socketOptions{socketPath: socketPath, socketDir: socketDir, browser: browser, profile: profile, timeout: timeout}, method, params)
 }
 
-func readResponseForID(conn net.Conn, requestID string) (map[string]any, error) {
+func readResponseForID(conn net.Conn, requestID string, strictUnicode ...bool) (map[string]any, error) {
 	for {
 		var response map[string]any
-		if err := wire.ReadJSON(conn, &response); err != nil {
+		var raw json.RawMessage
+		if err := wire.ReadJSON(conn, &raw); err != nil {
+			return nil, err
+		}
+		if len(strictUnicode) > 0 && strictUnicode[0] {
+			if err := validateClipboardJSONUnicode(raw); err != nil {
+				return nil, err
+			}
+		}
+		if err := json.Unmarshal(raw, &response); err != nil {
 			return nil, err
 		}
 		if responseID, ok := response["id"].(string); ok && responseID == requestID {

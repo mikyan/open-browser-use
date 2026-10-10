@@ -359,6 +359,9 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
     await fs.readFile(path.join("apps/chrome-extension", "browser-downloads.js"), "utf8"));
   assert.equal(await fs.readFile(path.join(output, "browser-page-exports.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "browser-page-exports.js"), "utf8"));
+  for (const file of ["browser-clipboard.js", "clipboard-broker.js", "clipboard-offscreen.html", "clipboard-offscreen.js"]) {
+    assert.equal(await fs.readFile(path.join(output, file), "utf8"), await fs.readFile(path.join("apps/chrome-extension", file), "utf8"));
+  }
   assert.equal(await fs.readFile(path.join(output, "native-message-receiver.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "native-message-receiver.js"), "utf8"));
   await fs.access(path.join(output, "browser-ai-snapshot.js"));

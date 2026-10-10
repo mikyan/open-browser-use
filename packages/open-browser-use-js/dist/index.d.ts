@@ -1,3 +1,6 @@
+import { OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
+export { OpenBrowserUseClipboard } from "./clipboard.js";
+export type { OpenBrowserUseClipboardOptions, OpenBrowserUseClipboardItem, OpenBrowserUseClipboardEntry } from "./clipboard.js";
 import { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
 export { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePDFOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
@@ -187,10 +190,10 @@ export declare class OpenBrowserUseClient {
     waitForDownload(tabId: number, timeoutMs?: number): Promise<JsonValue>;
     downloadPath(downloadId: string, timeoutMs?: number): Promise<JsonValue>;
     browserUserHistory(params?: BrowserUseRequestParams): Promise<JsonValue>;
-    readClipboardText(tabId: number): Promise<JsonValue>;
-    writeClipboardText(tabId: number, text: string): Promise<JsonValue>;
-    readClipboard(tabId: number): Promise<JsonValue>;
-    writeClipboard(tabId: number, items: JsonValue[]): Promise<JsonValue>;
+    readClipboardText(tabId: number, options?: OpenBrowserUseClipboardOptions): Promise<JsonValue>;
+    writeClipboardText(tabId: number, text: string, options?: OpenBrowserUseClipboardOptions): Promise<JsonValue>;
+    readClipboard(tabId: number, options?: OpenBrowserUseClipboardOptions): Promise<JsonValue>;
+    writeClipboard(tabId: number, items: JsonValue[], options?: OpenBrowserUseClipboardOptions): Promise<JsonValue>;
     turnEnded(): Promise<JsonValue>;
 }
 export declare function connectOpenBrowserUse(options: OpenBrowserUseBrowserOptions): Promise<OpenBrowserUseBrowser>;
@@ -207,6 +210,7 @@ export declare class OpenBrowserUseBrowser {
     getTabs(): Promise<JsonValue>;
 }
 export declare class OpenBrowserUseTab {
+    get clipboard(): OpenBrowserUseClipboard;
     readonly browser: OpenBrowserUseBrowser;
     readonly id: number;
     readonly playwright: OpenBrowserUseTabPlaywright;

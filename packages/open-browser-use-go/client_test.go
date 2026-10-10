@@ -227,7 +227,8 @@ func TestDownloadAndClipboardWrappers(t *testing.T) {
 		{"writeClipboardText", map[string]any{"tabId": float64(123), "text": "hello"}},
 	}
 	socketPath, closeServer := startSDKServer(t, func(conn net.Conn) {
-		legacyControlHandshake(t, conn)
+		hello := readRequest(t, conn)
+		writeResponse(t, conn, hello["id"], Params{"metadata": Params{"clipboardVersion": 1}})
 		for _, item := range expected {
 			request := readRequest(t, conn)
 			if request["method"] != item.method {
@@ -246,7 +247,11 @@ func TestDownloadAndClipboardWrappers(t *testing.T) {
 					t.Fatalf("expected %s=%#v, got %#v", key, value, params[key])
 				}
 			}
-			writeResponse(t, conn, request["id"], map[string]any{})
+			result := map[string]any{}
+			if item.method == "readClipboardText" {
+				result["text"] = ""
+			}
+			writeResponse(t, conn, request["id"], result)
 		}
 	})
 	defer closeServer()

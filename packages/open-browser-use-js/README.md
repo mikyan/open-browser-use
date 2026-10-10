@@ -554,3 +554,45 @@ Omitted values use browser defaults. Unknown options are rejected. The SDK
 verifies the exact response fields, format/MIME, canonical Base64 and decoded
 length against the requested cap before returning. Native export may still fail
 for unsupported pages, browser conditions or an expired control scope.
+
+### Clipboard
+
+`tab.clipboard.readText(options)` returns a string; `read(options)` returns
+`OpenBrowserUseClipboardItem[]`. `writeText(text, options)` and `write(items,
+options)` return `Promise<void>`. The four existing Client methods still return
+wire envelopes (`{text}`, `{items}`, or `{}`). Every method requires
+`metadata.clipboardVersion === 1`, including explicit control-epoch calls.
+Options are `{maxBytes?, timeoutMs?}`; timeout defaults to 10000 and accepts
+integer milliseconds from 1 to 120000.
+
+```ts
+const text = await tab.clipboard.readText({ maxBytes: 65536, timeoutMs: 5000 });
+await tab.clipboard.write([{ entries: [
+  { mime_type: "text/plain", text: "Report" },
+  { mime_type: "text/html", text: "<b>Report</b>" },
+] }]);
+```
+
+Only `text/plain` and `text/html` strings and canonical Base64 `image/png` are
+supported. Rich values preserve wire keys `entries`, `mime_type`, `text` or
+`base64`, and optional `presentation_style` (`unspecified`, `inline`, `attachment`).
+There is at most one item with 1–3 unique representations. `write([])` is a
+no-op, not a clipboard clear; an empty text string is valid. Reads return only
+these three supported representations, and an empty clipboard may return `[]`.
+Unknown fields, duplicate MIME types and mixed text/Base64 payloads are rejected.
+
+The byte cap counts actual UTF-8 text and decoded PNG bytes in aggregate, defaults
+to 16 MiB and cannot exceed 16 MiB. Normalized JSON bodies also have a 48 MiB
+limit, including the Go host’s HTML escaping; excess encoded data rejects with
+OBU_CLIPBOARD_LIMIT before a write is submitted. PNG preflight checks signature, IHDR and a
+16,777,216-pixel limit; it is not a complete image decoder. The trusted browser
+adapter must finish decoding. Results are validated again before returning.
+HTML may be sanitized and PNG re-encoded by the browser, so byte-for-byte
+round trips are not promised. The host's separate 64 MiB JSON limit also applies.
+
+These operations access the system's shared clipboard, not a per-tab clipboard.
+They are disabled by restricted website policies. Each invocation retains its
+original session/turn/epoch; discovery and queueing consume its total deadline,
+with one extra second for the reply. Writes are never automatically retried.
+A timeout or Pause cannot guarantee reversal of a write already submitted to the
+native clipboard. No clipboard contents are saved to disk by these helpers.

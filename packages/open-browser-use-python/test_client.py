@@ -108,7 +108,7 @@ class OpenBrowserUseClientTest(unittest.TestCase):
                         response = {
                             "jsonrpc": "2.0",
                             "id": request["id"],
-                            "result": {},
+                            "result": {"metadata": {"clipboardVersion": 1}} if method == "getInfo" else {"text": ""} if method == "readClipboardText" else {},
                         }
                         conn.sendall(encode_frame(response))
                 server.close()

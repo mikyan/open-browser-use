@@ -369,3 +369,41 @@ run. Executables and SDKs are copied into the run directory before execution,
 so a concurrent rebuild cannot change the tested artifacts. The short temporary IPC
 directory is validated and removed at exit. Browser windows and the host created
 by this run are closed. A nonzero exit means at least one acceptance check failed.
+
+## Isolated clipboard acceptance
+
+The default headed suite never reads or writes the system clipboard. Clipboard
+checks require `OBU_TEST_MEMORY_CLIPBOARD=1` and the exact Windows Chromium
+binary audited in `memory-clipboard.mjs`. Before any clipboard call the runner
+checks the executable SHA-256, native version/revision and actual Headless
+command line. A new profile alone is not a clipboard isolation boundary.
+
+Set `OBU_TEST_CASES='clipboard'`, `OBU_TEST_HOST_BINARY` to the freshly built CLI
+and `OBU_TEST_GO_CLIPBOARD_BINARY` to the separately built
+`./scripts/browser-integration/go-clipboard-checks` executable. Python must be
+available on PATH. The five public callers use their copied SDKs/executables,
+synthetic Unicode text, HTML and a two-pixel PNG. Results retain the guard,
+source hashes and native clipboard artifacts for independent pixel inspection.
+Windows text newline conversion and browser HTML/PNG rewriting are expected;
+the test does not require byte-identical PNG encoding.
+
+The lifecycle fixture holds the production broker's final asynchronous scope
+validation after preparation, ends the turn, and checks that cancellation
+prevents native commit while turn end waits for cleanup. This is explicit
+fault injection through a backend reference added only to the staged test build;
+it does not mock native clipboard APIs or grant authorization. The reference is
+recorded in `sourceIdentity.testHooks` and absent from production packages.
+Preparation and ownership errors must leave the seeded
+clipboard unchanged. Tab activation and window focus ledgers remain checked.
+
+The memory mode also runs `js-clipboard-worker-restart`: a real worker stop/start
+interrupts a prepared write. The old caller must fail, an explicit new turn must
+read the seeded content, and recovery must close the original offscreen document
+without replaying the write. Together with the mandatory raw navigation case,
+the clipboard selection contains eight cases. Committed native promise hangs
+and marker-storage failures use separate deterministic tests.
+
+These checks establish behavior against Chromium's in-memory clipboard, not
+headed OS clipboard behavior or desktop focus. The temporary process currently
+uses `--no-sandbox`; no daily browser profile, installed extension or native
+clipboard is touched. See the [contract and limitations](../../docs/references/clipboard.md).
