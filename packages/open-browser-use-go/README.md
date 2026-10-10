@@ -276,3 +276,38 @@ cannot renew the observer deadline. Terminal outcomes remain for 30 seconds;
 calling `Cancel` releases capacity. Pause, end, detach, ownership loss and worker
 restart invalidate the handle. Do not hold this client's request gate in `Result`
 while expecting another goroutine to trigger navigation through the same client.
+
+### Active URL downloads
+
+`Tab.DownloadURL` explicitly starts an HTTP(S) GET when the extension advertises
+`directDownloadsVersion: 1`. The optional filename is a portable single basename
+(up to 255 UTF-8 bytes), not a directory. Chrome uses `saveAs: false` and
+`uniquify`; POST, custom headers, URL credentials and overwrite are not exposed.
+Browser preferences or enterprise policy may still require confirmation UI.
+
+```go
+download, err := tab.DownloadURL("https://example.test/report.csv",
+    obu.DownloadURLOptions{Filename: "report.csv", Timeout: 10 * time.Second})
+if err != nil { return err }
+path, err := download.Path(obu.DownloadOptions{Timeout: 30 * time.Second})
+if err != nil { return err }
+_ = path // Completed browser path; read/copy the file explicitly if needed.
+// To explicitly stop an active download instead:
+// err = download.Cancel(obu.DownloadOptions{Timeout: 10 * time.Second})
+```
+
+The typed `Download` exposes `DownloadID`; `Path` returns `(string, error)` and
+`Cancel` returns `error`. The SDK does not verify file bytes. Zero `Timeout` uses
+10 seconds; nonzero timeouts must be whole milliseconds from 1ms to 120s. Setup
+consumes that original budget, with one second reserved for the response. A path
+timeout leaves the download running; explicitly retry that same handle or cancel
+it. A start timeout can mean the download already began; no automatic GET replay
+occurs.
+
+Handles retain their original session, turn and epoch. End, pause or lost
+ownership may invalidate a handle; `BeginTurn` does not rebind it.
+`Tab.WaitForDownload(...DownloadOptions)` gives the same bound handle for observed
+page downloads, whose GUID path/cancel remains unsupported. That observer does
+not promise cross-connection readiness. Existing Client methods retain raw JSON
+and current-invocation scope semantics; use the typed handle for later operations,
+or provide the original scope explicitly through `Request`.

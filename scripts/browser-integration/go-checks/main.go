@@ -4,11 +4,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image/png"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -200,8 +202,45 @@ func main() {
 	action(loaded.Result())
 	action(loaded.Cancel())
 	checks = append(checks, "navigation-wait-cold-ready-trusted-click-single-document-and-cached-load")
+	direct := must(browser.NewTab())
+	must(direct.Goto(os.Args[2] + "direct-downloads/page"))
+	require(must(direct.Evaluate("document.cookie.includes('obu_direct_download_fixture')")) == false, "HttpOnly fixture cookie is exposed")
+	download := must(direct.DownloadURL(os.Args[2]+"direct-downloads/file?key=go-direct&mode=fast", obu.DownloadURLOptions{Filename: "go-direct.txt", Timeout: 5 * time.Second}))
+	downloadedPath := must(download.Path(obu.DownloadOptions{Timeout: 5 * time.Second}))
+	downloadRoot := must(filepath.EvalSymlinks(os.Getenv("OBU_TEST_DOWNLOAD_ROOT")))
+	resolvedDownload := must(filepath.EvalSymlinks(downloadedPath))
+	relativeDownload := must(filepath.Rel(downloadRoot, resolvedDownload))
+	require(relativeDownload != "." && relativeDownload != ".." && !strings.HasPrefix(relativeDownload, ".."+string(filepath.Separator)) && !filepath.IsAbs(relativeDownload), "Download path escaped isolated fixture directory")
+	downloadedBytes := must(os.ReadFile(resolvedDownload))
+	downloadedHash := fmt.Sprintf("%x", sha256.Sum256(downloadedBytes))
+	downloadStats := must(direct.Evaluate("fetch('/direct-downloads/stats?key=go-direct').then(response=>response.json())", true)).(map[string]any)
+	downloadRequests := downloadStats["requests"].([]any)
+	require(len(downloadRequests) == 1, "direct download was replayed")
+	downloadRequest := downloadRequests[0].(map[string]any)
+	require(downloadRequest["method"] == "GET" && downloadRequest["cookie"] == true, "direct download omitted HttpOnly cookie or changed method")
+	require(downloadRequest["sha256"] == downloadedHash && downloadRequest["bytes"] == float64(len(downloadedBytes)) && downloadRequest["payload"] == string(downloadedBytes), "direct download path did not contain exact response bytes")
+	pendingDownload := must(direct.DownloadURL(os.Args[2]+"direct-downloads/file?key=go-direct-cancel&mode=slow", obu.DownloadURLOptions{Timeout: 5 * time.Second}))
+	_, err = pendingDownload.Path(obu.DownloadOptions{Timeout: 150 * time.Millisecond})
+	require(err != nil && strings.Contains(err.Error(), "OBU_DOWNLOAD_TIMEOUT"), "pending path did not time out")
+	action(pendingDownload.Cancel(obu.DownloadOptions{Timeout: 5 * time.Second}))
+	downloadCancel := must(direct.Evaluate(`(async()=>{
+		const deadline=performance.now()+5000;
+		for(;;){
+			const stats=await fetch('/direct-downloads/stats?key=go-direct-cancel').then(response=>response.json());
+			if(stats.requests.length===1&&stats.requests[0].closed)return stats;
+			if(performance.now()>=deadline)throw new Error('Canceled native download did not close before finalize');
+			await new Promise(resolve=>setTimeout(resolve,10));
+		}
+	})()`, true)).(map[string]any)
+	cancelRequests := downloadCancel["requests"].([]any)
+	require(len(cancelRequests) == 1, "native cancellation request count changed")
+	cancelRequest := cancelRequests[0].(map[string]any)
+	require(cancelRequest["closed"] == true && cancelRequest["finished"] == false, "native cancellation did not close unfinished response before finalize")
+	_, err = pendingDownload.Path(obu.DownloadOptions{Timeout: 500 * time.Millisecond})
+	require(err != nil && strings.Contains(err.Error(), "OBU_DOWNLOAD_EXPIRED"), "cancelled download retained a path handle")
+	checks = append(checks, "direct-download-http-only-cookie-exact-file-hash-path-timeout-and-cancel")
 	must(browser.Client.FinalizeTabs(nil))
 	checks = append(checks, "finalize")
-	result := must(json.Marshal(map[string]any{"passed": true, "goVersion": runtime.Version(), "checks": checks, "networkWait": received, "networkServer": networkCounts, "navigationWait": map[string]any{"url": navigationURL, "clicks": navigationClicks, "server": navigationCounts}}))
+	result := must(json.Marshal(map[string]any{"passed": true, "goVersion": runtime.Version(), "checks": checks, "networkWait": received, "networkServer": networkCounts, "navigationWait": map[string]any{"url": navigationURL, "clicks": navigationClicks, "server": navigationCounts}, "directDownload": map[string]any{"path": resolvedDownload, "bytes": len(downloadedBytes), "sha256": downloadedHash, "cancelBeforeFinalize": downloadCancel}}))
 	fmt.Println(string(result))
 }

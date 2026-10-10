@@ -229,7 +229,7 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `armNetworkWait`、`collectNetworkWait`、`cancelNetworkWait`、
   `webmcp_list_tools`、`webmcp_invoke_tool`、
   `waitForFileChooser`、`setFileChooserFiles`、`waitForDownload`、
-  `downloadPath`、`readClipboardText`、`writeClipboardText`、
+  `downloadURL`、`downloadPath`、`cancelDownload`、`readClipboardText`、`writeClipboardText`、
   `readClipboard`、`writeClipboard`、`turnEnded`。
 - `getInfo.metadata.turnLifecycleVersion=1` 协商持久 `control_epoch`；只允许
   `ping`、`getInfo`、`getControlState` 在控制周期外调用。结束会先持久化失效旧
@@ -279,8 +279,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   等待落点。file chooser 通过 CDP `Page.setInterceptFileChooserDialog` 和
   `Page.fileChooserOpened` 事件截获，再使用 `DOM.setFileInputFiles` 写入
   本地文件路径，并保留 OOPIF child session、frame 与 attachment/epoch 信息。
-  `downloadPath` 无法在现有 extension API 下可靠映射 GUID 到本地路径，明确
-  返回 `OBU_DOWNLOAD_PATH_UNAVAILABLE`。Clipboard helpers 仍需独立实测。
+  `downloadURL` 通过原生 downloads API 主动发起有限 HTTP(S) GET，以返回的
+  numeric ID 绑定独立有界 handle；`downloadPath` 等待完成并返回该 ID 的
+  浏览器记录路径，`cancelDownload` 取消该 ID。它们绑定原控制 scope，不把
+  新 GET 冒充网页点击触发的下载；Page GUID 路径仍明确返回
+  `OBU_DOWNLOAD_PATH_UNAVAILABLE`。详见 [文件传输](references/file-transfers.md)。
+  Clipboard helpers 仍需独立实测。
   历史私有 Browser Use command rewrite 含有 DOM CUA、media
   download、element info/screenshot、locator bulk reads、generic tab export 和
   clipboard commands，但它们不等于正式公开入口已完成这些能力。

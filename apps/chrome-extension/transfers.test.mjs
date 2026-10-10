@@ -12,9 +12,11 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; };
 const params = (turn = "first", extra = {}) => ({ session_id: "task", turn_id: turn, ...extra });
 
-function environment({ attachGate, storage = {}, write } = {}) {
+function environment({ attachGate, storage = {}, write, downloads } = {}) {
   const calls = [], attached = new Set(), tabs = new Map([[7, { id: 7, groupId: 10, windowId: 1, url: "https://fixture.test" }]]);
+  const events = {};
   const chrome = {
+    downloads,
     storage: { local: {
       async get(key) { return Object.hasOwn(storage, key) ? { [key]: clone(storage[key]) } : {}; },
       async set(value) { await write?.(value); Object.assign(storage, clone(value)); calls.push(["save", Object.keys(value)[0]]); }
@@ -26,6 +28,9 @@ function environment({ attachGate, storage = {}, write } = {}) {
       async sendCommand(target, method) { calls.push([method, target.tabId]); return {}; }
     },
     tabs: {
+      onUpdated: { addListener(listener) { events.updated = listener; } },
+      onDetached: { addListener(listener) { events.detached = listener; } },
+      onReplaced: { addListener(listener) { events.replaced = listener; } },
       async query(filter) { return [...tabs.values()].filter(tab => filter?.groupId === undefined || tab.groupId === filter.groupId); },
       async remove(ids) { for (const id of Array.isArray(ids) ? ids : [ids]) tabs.delete(id); },
       async ungroup(ids) { for (const id of Array.isArray(ids) ? ids : [ids]) tabs.get(id).groupId = -1; },
@@ -47,7 +52,7 @@ function environment({ attachGate, storage = {}, write } = {}) {
     };
   };
   const classes = vm.runInNewContext(`${code}\n({BrowserBackend,ControlLedger,JsonRpcPeer});`, { chrome, Date, setTimeout, clearTimeout, crypto, createBrowserActionEngine });
-  return { ...classes, chrome, calls, tabs, attached, storage };
+  return { ...classes, chrome, calls, tabs, attached, storage, events };
 }
 
 async function backendFor(env) {
@@ -135,8 +140,148 @@ test('unknown and stale CDP event sources have no outbound metadata',async()=>{
 test('download progress uses the same proven source and bounded records',async()=>{
  const {backend}=await twoSessions(),events=[];backend.addDownloadChangeListener(change=>events.push(change));
  const pending=backend.waitForDownload(task());await tick();begin(backend,7,'owned');progress(backend,8,'owned');await pending;
- assert.notEqual(backend.downloadsById.get('owned').status,'complete');progress(backend,7,'owned');
+ assert.notEqual(backend.downloadsById.get('owned').status,'complete');progress(backend,7,'owned');await tick();
  assert.equal(events.at(-1).status,'complete');assert.equal(events.at(-1).session_id,'task');assert.equal(events.at(-1).tabId,7);assert.ok(events.at(-1).control_epoch>0);
+});
+
+test('download progress revalidates live ownership, not just the surviving attachment', async () => {
+  const { backend, tabs } = await twoSessions(), events = [];
+  backend.addDownloadChangeListener(change => events.push(change));
+  const pending = backend.waitForDownload(task()); await tick(); begin(backend, 7, 'moved'); await pending;
+  events.length = 0; tabs.get(7).groupId = 20;
+  progress(backend, 7, 'moved'); await tick();
+  assert.deepEqual(events, []); assert.equal(backend.downloadsById.has('moved'), false);
+});
+
+test('old progress validation cannot publish over a newer state or replaced record', async () => {
+  const { backend } = await twoSessions(), events = [], gate = deferred();
+  backend.addDownloadChangeListener(change => events.push(change));
+  const pending = backend.waitForDownload(task()); await tick(); begin(backend, 7, 'ordered'); await pending;
+  const original = backend.validateTransferScope.bind(backend); let first = true;
+  backend.validateTransferScope = async scope => { if (first) { first = false; await gate.promise; } return original(scope); };
+  events.length = 0;
+  backend.handleCdpEvent({tabId:7}, 'Page.downloadProgress', {guid:'ordered',state:'inProgress'});
+  progress(backend, 7, 'ordered'); await tick(); gate.resolve(); await tick();
+  assert.deepEqual(events.map(event => event.status), ['complete']);
+  const replacementGate = deferred(); backend.validateTransferScope = async () => replacementGate.promise;
+  progress(backend,7,'ordered'); const replacement = { ...backend.downloadsById.get('ordered'), status:'started' };
+  backend.downloadsById.set('ordered',replacement); replacementGate.resolve(); await tick();
+  assert.equal(replacement.status,'started'); assert.equal(events.length,1);
+});
+
+async function directEnvironment() {
+  const native = [], items = new Map(); let id = 0;
+  const downloads = {
+    async download(options) { native.push(['download', options]); const next = ++id;items.set(next,{id:next,state:'complete',danger:'safe',filename:`C:\\Downloads\\${next}.csv`});return next; },
+    async search(query) { native.push(['search',query]);return items.has(query.id) ? [items.get(query.id)] : []; },
+    async cancel(value) { native.push(['cancel',value]); }
+  };
+  const env = environment({downloads}), backend = await backendFor(env);
+  const state = await backend.getControlState(params('direct'));
+  const direct = {...params('direct'),control_epoch:state.controlEpoch,tabId:7,url:'https://fixture.test/file'};
+  return {...env,backend,direct,native,items};
+}
+
+test('cold direct download and later engine attachment retain the same exact handle', async () => {
+  const {backend,direct,native}=await directEnvironment();
+  // Exercise raw-to-engine migration, then reuse that engine for another action.
+  await backend.attach(direct);
+  const result=await backend.downloadURL(direct);
+  await (await backend.getBrowserEngine()).attach(7);
+  assert.equal((await backend.downloadPath({...direct,...result})).path,'C:\\Downloads\\1.csv');
+  assert.deepEqual(native.filter(([method])=>method==='search'),[['search',{id:1}]]);
+  await backend.turnEnded(direct);
+  assert.deepEqual(native.at(-1),['cancel',1]);
+});
+
+test('first download by a proven new owner preserves only its own unbound setup', async () => {
+  const {backend,direct,tabs,native}=await directEnvironment();
+  await backend.attach(direct);
+  const next=await backend.store.getSession('other');next.chromeGroupId=20;next.tabOrigins={7:'user'};await backend.store.save();
+  tabs.get(7).groupId=20;
+  const state=await backend.getControlState({session_id:'other',turn_id:'direct'});
+  const params={...direct,session_id:'other',control_epoch:state.controlEpoch};
+  const result=await backend.downloadURL(params);
+  assert.equal((await backend.downloadPath({...params,...result})).path,'C:\\Downloads\\1.csv');
+  assert.equal(native.filter(([method])=>method==='download').length,1);
+});
+
+test('explicit download is isolated from native Page waiters and guessed numeric IDs', async () => {
+  const {backend,direct}=await directEnvironment();
+  const handle=await backend.downloadURL(direct);
+  const waiting=assert.rejects(backend.waitForDownload({...direct,timeoutMs:15}),/OBU_TRANSFER_TIMEOUT/);
+  await backend.downloadPath({...direct,...handle});await waiting;
+  await assert.rejects(backend.downloadPath({...direct,downloadId:'1'}),/OBU_DOWNLOAD_EXPIRED/);
+  await backend.cancelDownload({...direct,...handle});
+  await assert.rejects(backend.downloadPath({...direct,...handle}),/OBU_DOWNLOAD_EXPIRED/);
+});
+
+test('group movement invalidates transfers immediately and cancels only direct native IDs', async () => {
+  const {backend,direct,events,tabs,native}=await directEnvironment();
+  const handle=await backend.downloadURL(direct);
+  tabs.get(7).groupId=20;events.updated(7,{groupId:20});await tick();
+  assert.deepEqual(native.at(-1),['cancel',1]);
+  await assert.rejects(backend.downloadPath({...direct,...handle}),/OBU_DOWNLOAD_EXPIRED/);
+});
+
+test('detach failure keeps its real cleanup barrier until delayed native detach settles', async () => {
+  const {backend,direct,chrome}=await directEnvironment(),gate=deferred();
+  await backend.downloadURL(direct);
+  chrome.downloads.cancel=async()=>{throw new Error('cancel failed');};
+  chrome.debugger.detach=async()=>gate.promise;
+  const first=backend.detachTab(7);const rejected=assert.rejects(first,/cancel failed/);
+  await tick();assert.equal(backend.controlReleases.get(7),first);
+  const second=backend.detachTab(7);const secondRejected=assert.rejects(second,/cancel failed/);
+  assert.equal(backend.controlReleases.get(7),second);
+  gate.resolve();await rejected;await secondRejected;
+  assert.equal(backend.controlReleases.has(7),false);
+  chrome.downloads.cancel=async()=>{};await backend.detachTab(7);
+  assert.equal(backend.directDownloads.records.size,0);
+});
+
+test('Pause does not report cleanup complete while a native direct start is still unresolved', async () => {
+  const {backend,direct,chrome,native}=await directEnvironment(),gate=deferred();
+  backend.automationCleanupTimeoutMs=25;
+  chrome.downloads.download=()=>gate.promise;
+  const starting=assert.rejects(backend.downloadURL(direct),/OBU_DOWNLOAD_EXPIRED|OBU_AUTOMATION_PAUSED/);
+  await tick();await assert.rejects(backend.pauseAutomation(),/OBU_AUTOMATION_PAUSE_FAILED/);await starting;
+  const failed=await backend.getAutomationControlStatus();
+  assert.equal(failed.state,'error');assert.equal(failed.cleanupComplete,false);assert.ok(backend.directDownloads.controlSnapshot().pending.length);
+  gate.resolve(81);await tick();
+  const paused=await backend.pauseAutomation();
+  assert.equal(paused.state,'paused');assert.equal(paused.cleanupComplete,true);assert.deepEqual(native.at(-1),['cancel',81]);
+});
+
+test('new direct setup waits for prior native cleanup and does not start after its own deadline', async () => {
+  const {backend,direct,native,calls}=await directEnvironment(),gate=deferred();
+  backend.controlReleases.set(7,gate.promise);
+  await assert.rejects(backend.downloadURL({...direct,timeoutMs:15}),/OBU_DOWNLOAD_TIMEOUT|OBU_TRANSFER_TIMEOUT/);
+  assert.equal(calls.some(([name])=>name==='attach'),false);assert.deepEqual(native,[]);
+  gate.resolve();await tick();assert.deepEqual(native,[]);
+});
+
+test('retired cold setup cannot attach after asynchronous engine lookup', async () => {
+  const {backend,direct,native,calls}=await directEnvironment(),gate=deferred();
+  const engine=await backend.getBrowserEngine();backend.getBrowserEngine=async()=>{await gate.promise;return engine;};
+  const starting=assert.rejects(backend.downloadURL(direct),/OBU_DOWNLOAD_EXPIRED/);
+  await tick();await backend.directDownloads.invalidateTab(7);gate.resolve();await starting;await tick();
+  assert.equal(calls.some(([name])=>name==='attach'),false);assert.deepEqual(native,[]);
+});
+
+test('explicit detach during owner migration cancels its previously preserved download reservation', async () => {
+  const {backend,direct,tabs,chrome,native}=await directEnvironment(),gate=deferred();
+  await backend.attach(direct);
+  const next=await backend.store.getSession('other');next.chromeGroupId=20;next.tabOrigins={7:'user'};await backend.store.save();
+  tabs.get(7).groupId=20;
+  const state=await backend.getControlState({session_id:'other',turn_id:'direct'});
+  const params={...direct,session_id:'other',control_epoch:state.controlEpoch};
+  chrome.debugger.detach=async()=>gate.promise;
+  const starting=assert.rejects(backend.downloadURL(params),/OBU_DOWNLOAD_EXPIRED/);
+  await tick();assert.ok(backend.controlReleases.has(7));
+  const detached=backend.detach(params);await tick();gate.resolve();
+  await detached;await starting;await tick();
+  assert.equal(native.some(([method])=>method==='download'),false);
+  assert.equal(backend.directDownloads.records.size,0);
 });
 
 test('transfer deadlines reject invalid values before touching the browser',async()=>{

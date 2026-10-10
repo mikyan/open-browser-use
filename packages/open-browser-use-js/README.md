@@ -487,3 +487,38 @@ and epoch: neither reconnect nor `beginTurn` rebinds or replays them.
 observer deadline. Terminal results are retained for 30 seconds; cancel releases
 capacity when finished. Pause, end, detach, ownership loss or worker restart
 invalidates the handle. A load-state observer is not a response-body wait.
+
+### Active URL downloads
+
+`tab.downloadURL` explicitly starts an HTTP(S) GET in Chrome; it requires
+`getInfo().metadata.directDownloadsVersion === 1`. It accepts an optional portable
+basename (up to 255 UTF-8 bytes), never an output directory. Chrome uses
+`saveAs: false` and `conflictAction: "uniquify"`. POST, custom headers, credentials
+in the URL, save dialogs and overwriting files are not options.
+Browser preferences or enterprise policy may still require confirmation UI.
+
+```ts
+const download = await tab.downloadURL("https://example.test/report.csv", {
+  filename: "report.csv", timeoutMs: 10_000,
+});
+const path = await download.path({ timeoutMs: 30_000 });
+// Or explicitly stop an active download:
+// await download.cancel({ timeoutMs: 10_000 });
+```
+
+The handle exposes `downloadId`; `path()` returns the browser's completed path
+as a string and `cancel()` returns void. The SDK does not read or validate the
+file's bytes. Each operation defaults to 10 seconds, accepts integer milliseconds
+from 1 to 120000, and includes connection/discovery in that budget plus one second
+for the response. A path timeout leaves the download running: explicitly retry
+`path()` on the same handle or cancel it. A start timeout can mean Chrome already
+started the download; the SDK never retries the GET automatically.
+
+Handles retain the original session, turn and control epoch. Ending a turn,
+pausing, or losing ownership may invalidate them; beginning a new turn does not
+rebind an old handle. `tab.waitForDownload({ timeoutMs })` also returns a bound
+handle for an observed page download, but its GUID-based path/cancel operations
+remain unsupported. This observer has no cross-connection readiness guarantee.
+The legacy Client methods still return raw JSON using the current invocation's
+scope; use typed Tab handles when retaining a download across calls, or supply
+original scope explicitly with `request`.

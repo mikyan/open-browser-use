@@ -4,6 +4,9 @@ import sys
 import base64
 import struct
 import re
+import hashlib
+import os
+from pathlib import Path
 from open_browser_use import connect_open_browser_use
 
 endpoint, url = sys.argv[1:3]
@@ -147,8 +150,47 @@ try:
     assert loaded.result() is None
     loaded.cancel()
     checks.append("navigation-wait-cold-ready-trusted-click-single-document-and-cached-load")
+    assert browser.client.get_info()["metadata"]["directDownloadsVersion"] == 1
+    direct = browser.new_tab(url + "direct-downloads/page")
+    assert not direct.evaluate("document.cookie.includes('obu_direct_download_fixture')")
+    download = direct.download_url(url + "direct-downloads/file?key=python-direct&mode=fast", filename="python-direct.txt", timeout_ms=5000)
+    downloaded_path = download.path(timeout_ms=5000)
+    resolved_download = Path(downloaded_path).resolve(strict=True)
+    download_root = Path(os.environ["OBU_TEST_DOWNLOAD_ROOT"]).resolve(strict=True)
+    assert resolved_download != download_root and resolved_download.is_relative_to(download_root), "Download path escaped isolated fixture directory"
+    downloaded_bytes = resolved_download.read_bytes()
+    download_stats = direct.evaluate("fetch('/direct-downloads/stats?key=python-direct').then(response=>response.json())", await_promise=True)
+    expected = download_stats["requests"]
+    assert len(expected) == 1 and expected[0]["cookie"] and expected[0]["method"] == "GET"
+    assert len(downloaded_bytes) == expected[0]["bytes"] and hashlib.sha256(downloaded_bytes).hexdigest() == expected[0]["sha256"]
+    assert downloaded_bytes.decode("utf-8") == expected[0]["payload"]
+    pending_download = direct.download_url(url + "direct-downloads/file?key=python-direct-cancel&mode=slow", timeout_ms=5000)
+    try:
+        pending_download.path(timeout_ms=150)
+    except RuntimeError as error:
+        assert "OBU_DOWNLOAD_TIMEOUT" in str(error)
+    else:
+        raise AssertionError("Pending native download path did not time out")
+    pending_download.cancel(timeout_ms=5000)
+    download_cancel = direct.evaluate("""(async()=>{
+        const deadline=performance.now()+5000;
+        for (;;) {
+            const stats=await fetch('/direct-downloads/stats?key=python-direct-cancel').then(response=>response.json());
+            if(stats.requests.length===1&&stats.requests[0].closed)return stats;
+            if(performance.now()>=deadline)throw new Error('Canceled native download did not close before finalize');
+            await new Promise(resolve=>setTimeout(resolve,10));
+        }
+    })()""", await_promise=True)
+    assert len(download_cancel["requests"]) == 1 and download_cancel["requests"][0]["closed"] and not download_cancel["requests"][0]["finished"]
+    try:
+        pending_download.path(timeout_ms=500)
+    except RuntimeError as error:
+        assert "OBU_DOWNLOAD_EXPIRED" in str(error)
+    else:
+        raise AssertionError("Canceled download still exposed a path")
+    checks.append("direct-download-http-only-cookie-exact-file-hash-path-timeout-and-cancel")
     browser.client.finalize_tabs([])
     checks.append("finalize")
-    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts, "navigationWait": {"url": navigation_url, "clicks": navigation_clicks, "server": navigation_counts}}, ensure_ascii=False))
+    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts, "navigationWait": {"url": navigation_url, "clicks": navigation_clicks, "server": navigation_counts}, "directDownload": {"path": downloaded_path, "bytes": len(downloaded_bytes), "sha256": hashlib.sha256(downloaded_bytes).hexdigest(), "cancelBeforeFinalize": download_cancel}}, ensure_ascii=False))
 finally:
     browser.close()

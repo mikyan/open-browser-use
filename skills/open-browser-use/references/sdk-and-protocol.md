@@ -240,7 +240,9 @@ Common Browser Use JSON-RPC methods:
 - `waitForFileChooser`
 - `setFileChooserFiles`
 - `waitForDownload`
+- `downloadURL`
 - `downloadPath`
+- `cancelDownload`
 - `armNetworkWait`
 - `collectNetworkWait`
 - `cancelNetworkWait`
@@ -620,5 +622,37 @@ an arbitrary sleep or assuming process startup establishes ordering.
 
 Download waits similarly register before the trigger and return an opaque
 task-scoped GUID. Do not infer a local path or reuse another task's download ID.
-The current extension reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` for local path
-lookup; this limitation does not prevent uploading known local files.
+The extension reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` for Page GUID path lookup.
+This limitation does not prevent uploading known local files.
+
+## Direct Downloads
+
+When the user authorizes downloading a known HTTP(S) resource with GET, check
+`getInfo.metadata.directDownloadsVersion === 1` and use `tab.downloadURL(url,
+{filename, timeoutMs})`. It returns a handle whose `path({timeoutMs})` waits for
+completion and whose `cancel({timeoutMs})` cancels that exact download. `filename`
+is optional and must be a single basename. The browser selects a unique filename
+in its configured Downloads directory; the API does not accept an absolute path.
+
+This makes a new request using browser cookies. It is suitable for a directly
+downloadable URL, not a replacement for an already-triggered page download, a
+POST form, a blob URL, or an expiring single-use link. The extension requests
+`saveAs:false` but browser settings or policy may still show confirmation UI.
+The returned path is browser metadata; read the file separately to verify bytes.
+
+CLI `call` and MCP `call` use the same protocol:
+
+1. `downloadURL` with `tabId`, `url`, optional `filename`, and `timeoutMs` returns
+   `{downloadId}` after binding the native API's exact ID.
+2. `downloadPath` with that `downloadId` and `timeoutMs` returns `{path}` once
+   complete. A path timeout stops waiting; it does not restart or cancel the GET.
+3. `cancelDownload` with that `downloadId` and `timeoutMs` returns `{cancelled:true}`
+   after the native cancellation call. Cancellation does not delete a finished file.
+
+Keep the original `session_id`, `turn_id`, and positive `control_epoch` across
+these calls. SDK handles retain them. Ending, detaching, transferring ownership,
+Pause, or worker replacement invalidates the handle; begin-turn does not revive
+it. Live-worker cleanup attempts to cancel explicitly initiated pending downloads;
+failed cancellation remains tracked and must be retried before Pause can succeed.
+A worker restart can lose their in-memory IDs; do not assume it stopped
+the browser's transfer. Page-triggered downloads still use the separate GUID flow.

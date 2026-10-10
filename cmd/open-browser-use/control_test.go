@@ -29,13 +29,14 @@ func readLegacyCLIRequest(conn net.Conn, request *map[string]any) error {
 }
 
 type controlFixture struct {
-	mu                    sync.Mutex
-	calls                 []map[string]any
-	epoch                 int64
-	loseEnd               bool
-	delayInfo             time.Duration
-	withoutNetworkWait    bool
-	withoutNavigationWait bool
+	mu                     sync.Mutex
+	calls                  []map[string]any
+	epoch                  int64
+	loseEnd                bool
+	delayInfo              time.Duration
+	withoutNetworkWait     bool
+	withoutNavigationWait  bool
+	withoutDirectDownloads bool
 }
 
 func (fixture *controlFixture) methods() []string {
@@ -97,6 +98,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 						}
 						if !fixture.withoutNavigationWait {
 							result.(map[string]any)["metadata"].(map[string]any)["navigationWaitVersion"] = 1
+						}
+						if !fixture.withoutDirectDownloads {
+							result.(map[string]any)["metadata"].(map[string]any)["directDownloadsVersion"] = 1
 						}
 					case "getControlState":
 						result = state()
@@ -198,7 +202,7 @@ func TestCLIControlLostEndRequiresExplicitRecovery(t *testing.T) {
 }
 
 func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			for _, timeout := range []time.Duration{1500 * time.Millisecond, 1050 * time.Millisecond} {
 				t.Run(timeout.String(), func(t *testing.T) {
@@ -226,8 +230,8 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 }
 
 func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
-	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"} {
-		for _, invalid := range []any{float64(0), float64(-1), 1.5, float64(120001), "1000"} {
+	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
+		for _, invalid := range []any{nil, float64(0), float64(-1), 1.5, float64(120001), "1000"} {
 			if err := boundCLIActionDeadline(method, map[string]any{"timeoutMs": invalid}, time.Now().Add(20*time.Second)); err == nil {
 				t.Fatalf("accepted %s timeout %v", method, invalid)
 			}
@@ -240,7 +244,7 @@ func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
 }
 
 func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			f := &controlFixture{epoch: 34, delayInfo: 250 * time.Millisecond}
 			options := f.start(t)
@@ -256,7 +260,7 @@ func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
 }
 
 func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
-	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait"} {
+	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
 		f := &controlFixture{epoch: 34}
 		options := f.start(t)
 		options.timeout = 10 * time.Second
@@ -267,6 +271,45 @@ func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
 		}
 		if len(f.methods()) != 0 {
 			t.Fatal("expired queued operation connected or sent work")
+		}
+	}
+}
+
+func TestCLIDirectDownloadsCapabilityAndFixedRawBinding(t *testing.T) {
+	for _, method := range []string{"downloadURL", "cancelDownload"} {
+		for _, manual := range []bool{false, true} {
+			f := &controlFixture{epoch: 36, withoutDirectDownloads: true}
+			options := f.start(t)
+			options.timeout = 5 * time.Second
+			params := map[string]any{"tabId": 1, "url": "https://fixture.test/file", "downloadId": "owned"}
+			if manual {
+				params["control_epoch"], params["session_id"], params["turn_id"] = 36, "fixture", "fixed"
+			}
+			if _, err := invokeWithOptions(options, method, params); err == nil || !strings.Contains(err.Error(), "OBU_DIRECT_DOWNLOADS_UNSUPPORTED") {
+				t.Fatalf("unsupported %s reached extension: %v", method, err)
+			}
+			for _, sent := range f.methods() {
+				if sent == method {
+					t.Fatal("unsupported download operation was sent")
+				}
+			}
+		}
+	}
+	f := &controlFixture{epoch: 37}
+	options := f.start(t)
+	options.timeout = 5 * time.Second
+	params := map[string]any{"downloadId": "owned", "control_epoch": 37, "session_id": "fixture", "turn_id": "original", "timeoutMs": 1000}
+	for _, method := range []string{"downloadPath", "cancelDownload"} {
+		response, err := invokeWithOptions(options, method, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := response["result"].(map[string]any)
+		if result["turn_id"] != "original" || result["control_epoch"] != float64(37) || result["downloadId"] != "owned" {
+			t.Fatal("download handle binding changed", result)
+		}
+		if budget, ok := result["timeoutMs"].(float64); !ok || budget <= 0 || budget > 1000 {
+			t.Fatal("download request budget changed", result)
 		}
 	}
 }

@@ -30,13 +30,14 @@ func newBeginTurnCommand() *cobra.Command {
 // A submission owns its turn and epoch before waiting for the transport. Ends
 // invalidate queued submissions; they never silently move to the next turn.
 type cliControlSnapshot struct {
-	session, turn           string
-	version                 int // -1: unknown, 0: legacy, 1: epoch protocol
-	epoch                   int64
-	generation              uint64
-	deadline                time.Time // populated only on queued MCP submissions
-	networkWaitSupported    bool
-	navigationWaitSupported bool
+	session, turn            string
+	version                  int // -1: unknown, 0: legacy, 1: epoch protocol
+	epoch                    int64
+	generation               uint64
+	deadline                 time.Time // populated only on queued MCP submissions
+	networkWaitSupported     bool
+	navigationWaitSupported  bool
+	directDownloadsSupported bool
 }
 
 type cliControl struct {
@@ -200,6 +201,23 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension requires navigationWaitVersion 1")
 		}
 	}
+	if method == "downloadURL" || method == "cancelDownload" {
+		if manual {
+			infoResponse, err := sendCLIRequest(conn, "cli-download-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
+		}
+		if !captured.directDownloadsSupported {
+			return nil, errors.New("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension requires directDownloadsVersion 1")
+		}
+	}
 	if err := boundCLIActionDeadline(method, params, deadline); err != nil {
 		return nil, err
 	}
@@ -238,7 +256,7 @@ func cliNavigationWaitMethod(method string) bool {
 }
 
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait"
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "downloadURL" || method == "downloadPath" || method == "cancelDownload"
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -296,6 +314,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	metadata, _ := info["metadata"].(map[string]any)
 	captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
+	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	version, exists := metadata["turnLifecycleVersion"]
 	if !exists {
 		captured.version = 0

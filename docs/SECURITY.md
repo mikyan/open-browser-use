@@ -97,7 +97,7 @@ separately in the capability matrix and Edge installation reference.
 - `chrome.debugger` for CDP access.
 - `tabs` and `tabGroups` for tab and session management.
 - `history` for history lookup.
-- `downloads` for download observation.
+- `downloads` for scoped download observation and explicit HTTP(S) GET downloads.
 - Native Messaging to communicate with the local host.
 
 Users must understand that installing and enabling the extension allows Open Browser Use to inspect and operate real Chrome tabs in their active profile. The native messaging host manifest must keep `allowed_origins` restricted to the expected Open Browser Use extension ID.
@@ -107,7 +107,8 @@ Users must understand that installing and enabling the extension allows Open Bro
 Clipboard, download, and file chooser features are sensitive.
 
 - Clipboard helpers run through the controlled page context and should only be called for explicit user workflows.
-- File chooser paths can reveal private filesystem structure; do not log them unless needed, and redact them from shared reports. The current download API tracks owned CDP GUIDs but cannot reliably map them to a local path, so `downloadPath` explicitly reports unsupported instead of guessing from global browser downloads.
+- File chooser and download paths can reveal private filesystem structure; do not log them unless needed, and redact them from shared reports. Explicit `downloadURL` binds only the numeric ID returned by its native API call; path/cancel operations revalidate the original control scope. Its GET uses browser cookies, permits HTTP(S) without embedded credentials, and requests a unique filename without accepting dangerous downloads or opening the file. Browser settings and policy can still require UI.
+- Page-triggered downloads retain owned CDP GUIDs whose local paths remain unavailable; neither URL/timing guesses nor live History database reads provide that mapping. A browser-reported path is not proof that the file still exists or that its bytes remain unchanged.
 - Chooser records retain their originating tab, frame, attachment and control epoch; stale or foreign records are rejected. See [File transfers](references/file-transfers.md) for deadlines and unsupported cases.
 - Integrations should confirm uploads, downloads, file selection, form submission, purchases, deletion, and external message sending before execution.
 

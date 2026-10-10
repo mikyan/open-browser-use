@@ -1,3 +1,5 @@
+import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+export { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, navigationWaitAck, navigationWaitParams, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 import { Socket, createConnection } from "node:net";
@@ -88,9 +90,10 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 };
 type ControlBinding = { controlEpoch: number | null; closing: boolean; nextTurnId?: string };
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
+const downloadSymbol = Symbol("download");
 const navigationWaitSymbol = Symbol("navigationWait");
 const networkWaitSymbol = Symbol("networkWait");
 const controlScopeSymbol = Symbol("controlScope");
@@ -104,6 +107,7 @@ export class OpenBrowserUseClient {
   #control: ControlBinding | null = null;
   #controlInitialization: Promise<ControlBinding> | null = null;
   #controlRevision = 0;
+  #directDownloadsVersion: unknown = undefined;
   #navigationWaitVersion: unknown = undefined;
   #networkWaitVersion: unknown = undefined;
   #socket: Socket | null = null;
@@ -214,6 +218,10 @@ export class OpenBrowserUseClient {
       if (this.#navigationWaitVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#navigationWaitVersion !== 1) throw new Error("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension does not advertise navigationWaitVersion 1");
     }
+    if (method === "downloadURL" || method === "cancelDownload") {
+      if (this.#directDownloadsVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+      if (this.#directDownloadsVersion !== 1) throw new Error("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1");
+    }
     capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
     const result = await this.#sendRequest(method, merged, deadline);
     if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
@@ -226,6 +234,17 @@ export class OpenBrowserUseClient {
       }
     }
     return result;
+  }
+
+  async [downloadSymbol](tabId: number, method: "downloadURL" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload> {
+    const timeoutMs = params.timeoutMs as number;
+    let binding: BrowserUseRequestParams | undefined;
+    const value = await this.#request(method, { ...params, tabId }, { timeoutMs: timeoutMs + 1000 }, metadata => {
+      if (!Number.isSafeInteger(metadata.control_epoch) || (metadata.control_epoch as number) < 1) throw new Error("Download handles require an explicit control epoch");
+      binding = metadata;
+    });
+    const id = downloadID(value), captured = { ...binding!, downloadId: id };
+    return new OpenBrowserUseDownload(id, (operation, timeout) => this.request(operation, { ...captured, timeoutMs: timeout }, { timeoutMs: timeout + 1000 }));
   }
 
   async [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> {
@@ -315,7 +334,7 @@ export class OpenBrowserUseClient {
     if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
     if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
-      const requested = ["armNetworkWait", "armNavigationWait"].includes(method) && params.timeoutMs !== undefined ? params.timeoutMs : params.timeoutMs ?? 10_000;
+      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
       if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested))) throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
       const available = Math.floor(remaining - 1000);
       if (available < 1) throw new Error(`Open Browser Use request timed out before ${method} could start`);
@@ -342,6 +361,7 @@ export class OpenBrowserUseClient {
       this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
     }
     const result = await promise;
+    if (method === "getInfo") this.#directDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.directDownloadsVersion ?? null : null;
     if (method === "getInfo") this.#navigationWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.navigationWaitVersion ?? null : null;
     if (method === "getInfo") this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
     return result;
@@ -444,10 +464,8 @@ export class OpenBrowserUseClient {
   }
 
   downloadPath(downloadId: string, timeoutMs?: number): Promise<JsonValue> {
-    return this.request("downloadPath", {
-      downloadId,
-      ...(timeoutMs === undefined ? {} : { timeoutMs })
-    });
+    const timeout = downloadTimeout({ timeoutMs });
+    return this.request("downloadPath", { downloadId, timeoutMs: timeout }, { timeoutMs: timeout + 1000 });
   }
 
   browserUserHistory(params: BrowserUseRequestParams = {}): Promise<JsonValue> {
@@ -610,6 +628,14 @@ export class OpenBrowserUseTab {
 
   async engineInfo(): Promise<OpenBrowserUseEngineInfo> {
     return (await this.browser.client.browserAction(this.id, "engineInfo")).engine;
+  }
+
+  downloadURL(url: string, options: OpenBrowserUseDownloadURLOptions = {}): Promise<OpenBrowserUseDownload> {
+    return this.browser.client[downloadSymbol](this.id, "downloadURL", downloadURLParams(url, options));
+  }
+
+  waitForDownload(options: OpenBrowserUseDownloadOptions = {}): Promise<OpenBrowserUseDownload> {
+    return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });
   }
 
   expectRequest(match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> {

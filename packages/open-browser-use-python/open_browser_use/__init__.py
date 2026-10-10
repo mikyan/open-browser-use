@@ -1,3 +1,4 @@
+from ._downloads import OpenBrowserUseDownload
 from .client import (
     OpenBrowserUseBrowser,
     OpenBrowserUseCdp,
@@ -13,6 +14,7 @@ from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResul
 from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait
 
 __all__ = [
+    "OpenBrowserUseDownload",
     "NavigationLoadState",
     "NavigationWaitUntil",
     "OpenBrowserUseNavigationWait",

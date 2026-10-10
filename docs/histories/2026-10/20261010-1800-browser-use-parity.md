@@ -284,6 +284,35 @@
   unpacked 逐字节匹配，6 个 skill 文件及全部 SDK/host/fixture 哈希一致。
   新增 JS 导航模块的生成 JS/声明文件一同版本化，用户扩展未自动重载。
 
+### 主动下载与精确文件路径
+
+- 通过原生 `chrome.downloads.download` 返回 ID 建立有限记录，新增
+  `downloadURL`/`cancelDownload` 与三个 SDK 固定控制 scope 的 handle。
+  `downloadPath` 等完成后返回该 ID 的路径；同网址/同文件名互不猜配。
+  CLI/MCP 通用入口补能力协商与从提交开始的预算，短超时不能变成迟到 GET。
+- 活 History 数据库正常只读访问失败，未采用锁绕过或复制活库；网页点击
+  的 Page GUID 仍无可靠本地路径。只开放有限 HTTP(S) GET 与单文件名，
+  不覆盖文件、不接受危险下载，不增加依赖或任意 host 文件读写入口。
+- 实际未结 start/cancel/search 保留到原生操作结束；超时不伪装清理成功。
+  修复移组后的 progress 通知泄漏、取消唤醒、原生清理提前退出和第二次
+  detach 越过迁移清理而迟到启动下载的竞态，独立复测无 GET 或残留记录。
+- 扩展/构建 383 项、JS 74、Python 42 与 Go 全包通过，含真实 host SDK 测试。
+  下载专项 8/8，完整 Windows Chromium 156 `run-toIMbt` 47/47；五入口验证
+  实际 UTF-8 文件和 SHA-256，同 URL 双任务各自独立，cancel 在 finalize
+  之前确认断流，无归属 native 下载拒绝越权后仍能完成，Pause 不重放。
+- 首次慢下载夹具仅发送 1 字节，阻塞了原生 MIME 嗅探和 ID 生成。依据
+  Chromium 源码与 HTTP 证据改为 4096 字节前缀/1 字节尾部门控；保持原
+  超时和产品代码，后续真实测试通过，未把 finally 放行算作取消成功。
+- 真实图片已查看；光标、蓝框和点击圈保留。前台原始记录只含已解释的
+  popup sole-tab 创建与明确打开 Pause UI，原 sentinel 不变。文档和 skill
+  同步，用户不提 PR 的要求持续有效；长期完整能力对齐目标保持 active。
+
+主动下载制品复核通过：22 个生产 JS/JSON、32 个扩展包文件、6 个 skill
+文件及 SDK/host/fixture 与正式运行冻结哈希一致；实际文件、取消前已发送
+4096 字节且尾部未发送、导航阶段和原始焦点事件均独立核验。报告保存为
+`.tmp/download-final-verification.json`。文档骨架、仓库卫生与 Action SHA
+检查通过；未重载用户日常扩展，未推送或提 PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

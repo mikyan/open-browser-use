@@ -18,6 +18,7 @@ import { popupFixture, checkChildTabAuthorization, checkAuxiliaryPopupRendering,
 import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
 import { createNetworkWaitFixtures, networkPageURL, networkAPIURL, networkButton, checkNetworkReady, checkNetworkMatching, checkNetworkLifecycle } from "./network-waits-fixture.mjs";
 import { createNavigationWaitFixtures, navigationPageURL, navigationTargetURL, navigationButton, navigationWitness, checkNavigationDirectAndReady, checkNavigationLoadStates, checkNavigationLifecycle } from "./navigation-waits-fixture.mjs";
+import { createDirectDownloadFixtures, directDownloadURL, directDownloadErrors, prepareDirectDownloadTab, verifyDownloadedFile, checkDirectDownloads, checkDirectDownloadLifecycle } from "./direct-downloads-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -209,10 +210,12 @@ async function workerConnection(url) {
 
 const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
+const directDownloads = createDirectDownloadFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
+  if (directDownloads.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (["/ai-snapshot", "/ai-snapshot-leaf", "/ai-snapshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(aiSnapshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams)); return; }
   if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture(httpPort)); return; }
@@ -302,6 +305,7 @@ try {
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.directDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "direct-downloads-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -787,7 +791,7 @@ try {
   await test("python-public-sdk", async () => {
     const result = await new Promise((resolve, reject) => {
       const python = spawn(process.env.OBU_TEST_PYTHON || "python", [pythonChecks, endpoint, fixtureURL], {
-        windowsHide: true, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8" }, stdio: ["ignore", "pipe", "pipe"]
+        windowsHide: true, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads") }, stdio: ["ignore", "pipe", "pipe"]
       });
       let output = "", error = "";
       python.stdout.on("data", data => output += data.toString());
@@ -800,7 +804,7 @@ try {
     return result;
   });
   if (goExecutable) await test("go-public-sdk", async () => {
-    const result = JSON.parse(await subprocess(goExecutable, [endpoint, fixtureURL], { timeoutMs: 120000 }));
+    const result = JSON.parse(await subprocess(goExecutable, [endpoint, fixtureURL], { timeoutMs: 120000, env: { ...process.env, OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads") } }));
     assert.equal(result.passed, true);
     return result;
   });
@@ -868,6 +872,50 @@ try {
       await fs.writeFile(path.join(runDir, "download-events.json"), JSON.stringify(events, null, 2));
       await Promise.all(clients.map(async client => { try { await client.client.finalizeTabs([]); } finally { client.close(); } }));
     }
+  });
+  await test("js-direct-downloads-files-cookie-and-cancel", async () => {
+    const detail = await checkDirectDownloads({
+      connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
+      fixtureURL, server: directDownloads, until, downloadRoot: path.join(runDir, "downloads"),
+      unownedDownload: url => worker.evaluate(`chrome.downloads.download({url:${JSON.stringify(url)},saveAs:false,conflictAction:'uniquify',filename:'unowned-direct-download.txt'})`),
+      nativeItem: id => worker.evaluate(`chrome.downloads.search({id:${id}}).then(items=>items[0])`)
+    });
+    await fs.writeFile(path.join(runDir, "direct-download-files.json"), JSON.stringify(detail, null, 2));
+    return detail;
+  });
+  await test("js-direct-downloads-lifecycle", async () => {
+    const detail = await checkDirectDownloadLifecycle({
+      connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
+      fixtureURL, server: directDownloads, until, ungroup: id => worker.evaluate(`chrome.tabs.ungroup(${id})`)
+    });
+    await fs.writeFile(path.join(runDir, "direct-download-lifecycle.json"), JSON.stringify(detail, null, 2));
+    return detail;
+  });
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-direct-downloads`, async () => {
+    const sessionId = `${kind}-direct-downloads`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "download-acceptance", timeoutMs: 15000 });
+    const key = `${kind}-direct`, cancelKey = `${kind}-direct-cancel`;
+    try {
+      const owned = await prepareDirectDownloadTab(owner, fixtureURL);
+      const scope = { session_id: sessionId, turn_id: owner.client.turnId, control_epoch: owner.client.controlEpoch };
+      const check = async call => {
+        const started = await call("downloadURL", { ...scope, tabId: owned.id, url: directDownloadURL(fixtureURL, key), filename: `${kind}-direct.txt`, timeoutMs: 5000 });
+        assert.equal(typeof started.downloadId, "string");
+        const result = await call("downloadPath", { ...scope, downloadId: started.downloadId, timeoutMs: 5000 });
+        const file = await verifyDownloadedFile(result.path, directDownloads, key, path.join(runDir, "downloads"));
+        const slow = await call("downloadURL", { ...scope, tabId: owned.id, url: directDownloadURL(fixtureURL, cancelKey, "slow"), timeoutMs: 5000 });
+        await until(() => directDownloads.stats(cancelKey).requests.length === 1, `${kind} pending download`);
+        assert.deepEqual(await call("cancelDownload", { ...scope, downloadId: slow.downloadId, timeoutMs: 5000 }), { cancelled: true });
+        await until(() => directDownloads.stats(cancelKey).requests[0].closed, `${kind} canceled native response`);
+        assert.equal(directDownloads.stats(cancelKey).requests[0].finished, false);
+        assert.equal(directDownloads.stats(key).requests.length, 1);
+        return { file, cancelled: true, fixedScope: scope };
+      };
+      if (kind === "mcp") return await withMCPClient(executable, endpoint, sessionId, check);
+      return await check(async (method, params) => {
+        const result = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+        assert.equal(result.error, undefined, JSON.stringify(result)); return result.result;
+      });
+    } finally { directDownloads.release(cancelKey); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
   });
   await test("js-bounded-console-error-network-diagnostics", async () => {
     const diagnostics = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-diagnostics", timeoutMs: 15000 });
@@ -997,7 +1045,7 @@ try {
   });
   await test("js-user-global-pause-popup", async () => {
     const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
-    let pauseNetworkOutcome, pauseNavigationOutcome, pausedWait, pausedNavigationWait, pausedTab, pauseAuxiliary;
+    let pauseNetworkOutcome, pauseNavigationOutcome, pauseDownloadOutcome, pausedWait, pausedNavigationWait, pausedDownload, pausedTab, pauseAuxiliary;
     const focusTrace = [];
     let beforeActionPopup;
     const traceFocus = async phase => {
@@ -1033,10 +1081,14 @@ try {
       const pendingNetwork = pausedWait.result({ timeoutMs: 120000 }).then(value => pauseNetworkOutcome = { value }, error => pauseNetworkOutcome = { error: String(error) });
       pausedNavigationWait = await pausedTab.expectURL("**/never-paused-navigation", { timeoutMs: 120000 });
       const pendingNavigation = pausedNavigationWait.result({ timeoutMs: 120000 }).then(() => pauseNavigationOutcome = { succeeded: true }, error => pauseNavigationOutcome = { error: String(error) });
+      const downloadTab = await prepareDirectDownloadTab(network, fixtureURL);
+      pausedDownload = await downloadTab.downloadURL(directDownloadURL(fixtureURL, "js-paused-direct-download", "slow"));
+      await until(() => directDownloads.stats("js-paused-direct-download").requests.length === 1, "owned native download before Pause");
+      const pendingDownload = pausedDownload.path({ timeoutMs: 120000 }).then(value => pauseDownloadOutcome = { value }, error => pauseDownloadOutcome = { error: String(error) });
       const detail = await checkGlobalPause({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until, traceFocus,
-    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome }, null, 2)),
+    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, directDownload: pauseDownloadOutcome }, null, 2)),
     connectPage: async url => {
       const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
       return workerConnection(target.webSocketDebuggerUrl);
@@ -1051,6 +1103,10 @@ try {
       assert.match(pauseNetworkOutcome.error, /OBU_NETWORK_WAIT_EXPIRED|paused|ended|cancel|stale/i);
       await until(() => pauseNavigationOutcome, "Pause cancelled the pending navigation collect", 5000);
       assert.match(pauseNavigationOutcome.error, /OBU_NAVIGATION_WAIT_EXPIRED|paused|ended|cancel|stale/i);
+      await until(() => pauseDownloadOutcome, "Pause canceled pending download path", 5000);
+      assert.match(pauseDownloadOutcome.error, directDownloadErrors.paused);
+      await until(() => directDownloads.stats("js-paused-direct-download").requests[0].closed, "Pause canceled exact native download response", 5000);
+      assert.equal(directDownloads.stats("js-paused-direct-download").requests[0].finished, false);
       assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       assert.equal((await worker.evaluate("chrome.debugger.getTargets()")).some(target => target.tabId === auxiliaryId && target.attached), false);
       assert.equal((await worker.evaluate(`chrome.tabs.get(${auxiliaryId})`)).windowId, pauseAuxiliary.id);
@@ -1078,9 +1134,12 @@ try {
       });
       await pendingNetwork;
       await pendingNavigation;
+      await pendingDownload;
       await assert.rejects(pausedWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NETWORK_WAIT_EXPIRED/);
       await assert.rejects(pausedNavigationWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NAVIGATION_WAIT_EXPIRED/);
+      await assert.rejects(pausedDownload.path({ timeoutMs: 500 }), directDownloadErrors.epoch);
       await network.client.beginTurn();
+      await assert.rejects(network.client.request("downloadPath", { downloadId: pausedDownload.downloadId, timeoutMs: 500 }), directDownloadErrors.expired);
       assert.ok((await network.getTabs()).some(tab => tab.id === auxiliaryId));
       await network.tab(auxiliaryId).getByRole("button", { name: "Child action", exact: true }).click();
       assert.deepEqual(await network.tab(auxiliaryId).evaluate("childClicks"), [{ trusted: true }]);
@@ -1088,8 +1147,10 @@ try {
       assert.deepEqual(await pausedTab.evaluate("networkClicks"), [], "Resume replayed a network trigger");
       assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       await network.client.finalizeTabs([]);
-      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, networkNotReplayed: true };
+      assert.equal(directDownloads.stats("js-paused-direct-download").requests.length, 1, "Resume replayed the native download");
+      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, directDownload: pauseDownloadOutcome, networkNotReplayed: true };
     } finally {
+      directDownloads.release("js-paused-direct-download");
       network.close();
       if (pauseAuxiliary) {
         await traceFocus("pause-auxiliary:before-close");
@@ -1103,6 +1164,8 @@ try {
 } catch (error) {
   records.push({ name: "fatal", passed: false, error: error.stack }); console.error(error);
 } finally {
+  // Capture the HTTP witness before teardown can close an unfinished response.
+  await fs.writeFile(path.join(runDir, "direct-download-server.json"), JSON.stringify(directDownloads.allStats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;
@@ -1114,6 +1177,7 @@ try {
   await new Promise(resolve => ws.close(resolve));
   networkFixtures.close();
   navigationFixtures.close();
+  directDownloads.close();
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));

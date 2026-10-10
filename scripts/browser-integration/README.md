@@ -92,10 +92,15 @@ virtual display. The suite does not use disabled background-throttling flags.
 ## What it checks
 
 The fresh isolated Windows Chromium 156 run
-`.tmp/browser-integration/run-9ZuGbE/results.json` passed all 43 cases, including
-the optional Go caller, auxiliary popups and navigation waits. Its raw activation/focus
+`.tmp/browser-integration/run-toIMbt/results.json` passed all 47 cases, including
+the optional Go caller, direct downloads, auxiliary popups and navigation waits. Its raw activation/focus
 events and narrowly scoped ledgers remain in the evidence. This does not verify
 native `window.open` focus suppression or full browser/extension restart.
+
+Direct downloads passed all eight focused cases in `run-1D7lpX` before the full
+run. Four new cases and the expanded Python, Go and Pause cases verify file bytes,
+exact ownership, timeout, late-ID cancellation, and cancellation before cleanup.
+The suite contains 47 cases with Go, or 46 without it.
 
 Navigation acceptance retains bounded stage and native request traces. The gated
 page consumes the complete body of its counting fetch as well as its held fetch;
@@ -166,6 +171,33 @@ the remaining gates, so cleanup cannot look like successful lifecycle progress.
 - Concurrent same-URL downloads have distinct GUIDs and scoped notifications,
   produce the fixture bytes, reject foreign IDs, report unsupported local path
   lookup, and do not satisfy a fresh wait with an earlier download.
+- Explicit `downloadURL` / `download_url` / `DownloadURL` requests through JS,
+  synchronous Python, optional Go, CLI `call` and MCP `tools/call` use HTTP GET
+  with a real HttpOnly cookie. Two JS sessions request the same URL and basename;
+  each returned path must remain inside the isolated download directory, name a
+  different file, and contain one exact server response verified by bytes and
+  SHA-256. Public opaque handles reject foreign sessions and unrelated native
+  numeric download IDs. The unrelated download is created directly by the test
+  worker, without an owning task RPC; this does not simulate a human click.
+  Server gates verify slow completion, path timeout followed by successful retry,
+  explicit cancellation, and cancellation of a late native ID after the start
+  deadline. The body gate sends a 4096-byte prefix and retains a nonzero suffix;
+  the original one-byte prefix stalled Chromium's native MIME sniffing before
+  a download ID existed. `prefixBytes`, `suffixBytes` and `sentPrefixBytes` are
+  retained as server witnesses. Native start can wait for response headers and
+  sniffed bytes: a rejected start deadline does not cancel its unresolved native
+  promise, and cleanup must cancel the exact ID if it arrives later. Timeouts
+  were not increased to accommodate that fixture correction.
+  Ending a turn, detaching, transferring ownership and the real Pause
+  control invalidate owned direct downloads and stop their HTTP streams. Resume
+  must not issue another request. Native Page-GUID downloads retain the separate
+  unsupported-path behavior above; this suite never queries browser history.
+  Paths and per-file hashes stay in ignored run artifacts. The isolated browser
+  has `download.prompt_for_download=false`; passing here does not promise that
+  other preferences, enterprise policies or extensions cannot display download
+  UI. Files are neither opened nor shown. Select this coverage with
+  `OBU_TEST_CASES='direct-downloads|python-public-sdk|go-public-sdk|user-global-pause'`
+  (eight cases including the mandatory raw prerequisite when Go is configured).
 - Console/page-error/network diagnostics from the main document and OOPIF,
   redirect identities, cursor pagination, bounded overflow, UTF-8 truncation,
   and capture expiry after ending a turn or transferring ownership.
@@ -253,7 +285,7 @@ the remaining gates, so cleanup cannot look like successful lifecycle progress.
   Select the four affected cases with
   `OBU_TEST_CASES='auxiliary-popup|control-worker-restart|user-global-pause'`;
   the required raw-navigation case makes this a five-case directed run. The
-  complete suite contains 43 cases with the optional Go caller, or 42 without it.
+  complete suite contains 47 cases with the optional Go caller, or 46 without it.
   The popup is independently created with `windows.create({focused:false})`,
   not by a page's `window.open`. Initial native popup activation remains
   unsupported as a no-interruption guarantee and is not counted as passing.

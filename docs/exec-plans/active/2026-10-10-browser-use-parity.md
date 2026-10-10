@@ -360,3 +360,54 @@ Codex 同组任务比较仍未完成，长期目标保持 active。
 文件及 SDK/host/全部 fixture 哈希与正式验收一致，导航阶段与原始焦点
 记录独立复核通过。报告保存为 `.tmp/navigation-final-verification.json`。
 未重载用户日常扩展；本轮交付仍是本地开发包。
+
+## 主动下载：当前实现切片
+
+上一片 `f464871` 已完成导航等待并通过 43 项正式浏览器测试，属于已验证进展。
+本片补齐插件主动发起 HTTP(S) GET 下载到可归属本地路径的流程：
+
+- `downloadURL` 以原生 `chrome.downloads.download` 返回的 numeric ID 绑定
+  opaque handle；`downloadPath` 只查询这个确切 ID，`cancelDownload` 只取消
+  它。三个 SDK 暴露绑定原 session/turn/epoch 的 handle，CLI/MCP 使用同一 RPC。
+- 原生选项固定 `saveAs:false` 和 `conflictAction:uniquify`，有限 URL 与可选
+  单文件名，拒绝内嵌凭据和路径穿越，不接受危险下载。浏览器设置或企业策略
+  仍可能要求 UI，不能把无保存对话框选项说成所有环境均不聚焦。
+- 设置、等待、晚到的创建结果、结束与 Pause 清理均保持原始 deadline 和
+  scope；路径仅表示浏览器报告的位置，真实文件字节由独立 fixture 校验。
+- 修复下载 progress 在 tab 移组后仍可能向旧任务发通知的窗口；每次异步
+  输出复核实时归属、attachment 和 record identity。
+- 真实测试覆盖同 URL 并发、cookie、完成/中断/取消/超时、无关下载、控制权
+  失效和五个正式入口，同时保留前台、光标和已有完整回归。
+
+前置 PoC 已证明两个主动下载返回独立 ID、路径及正确文件字节；活浏览器
+History SQLite 使用正常只读锁的 15 次读取全部失败。History 的写入还可能
+延迟，因此不采用数据库锁绕过、复制活库或 URL/时间猜配。网页点击产生的
+Page GUID 路径仍明确不支持；本片不把主动重新下载冒充原网页下载。
+只做本地开发、验证与打包，不推送或提 PR，长期矩阵目标保持 active。
+
+### 主动下载切片结果
+
+- 独立 `BrowserDownloads`、三个 SDK 的固定 scope handle 及 CLI/MCP 通用入口
+  已落生产；有限 GET 参数、精确 native ID、路径重试与显式取消共享原预算。
+  保留 Page GUID 路径不支持；无 SQLite 或新依赖，无全局 URL/时间猜配。
+- 审查补上移组后的 native progress 泄漏、取消后的挂起 path 唤醒、真实
+  cleanup barrier，以及旧 owner 迁移期间再次显式 detach 后仍启动 GET 的
+  竞态。独立重现最终为零 GET、旧 start EXPIRED、无残留记录。
+- 扩展 353 与脚本 30 共 383 项通过，JS 74/74、Python 42/42、Go 全包通过；
+  SDK 测试含真实 host。Windows Chromium 156 下载专项 `run-1D7lpX` 8/8，
+  完整 `run-toIMbt` 47/47。五入口均校验下载文件 UTF-8 字节和 SHA-256，
+  cancel 证据在 finalize 前确认；无归属下载在拒绝非法操作后继续完成。
+- 初次真实慢下载失败源于 fixture 只发 1 字节，浏览器等待 MIME 嗅探才
+  给出下载 ID。改为 4096 字节前缀加 1 字节尾部门控后通过；没有延长超时
+  或修改原生行为。原始 start 可能先于 ID 超时，清理需等实际返回再尝试取消；
+  永不返回/取消失败仍可能使 end 等待或 Pause 保持 Failed。
+- 47 项保留导航、网络、frames、输入、截图、popup、worker/Pause 回归。
+  背景和 popup 图片已查看，光标、点击圈、蓝框保留；原始五次 popup 自身
+  tab 激活与控制 UI 的两个精确焦点事件仍有记录，sentinel 不变。
+  页面点击下载路径、剪贴板/导出、原生 popup 初始激活、网站策略、完整重启、
+  更多平台与完整 Codex 比较继续待补；没有缩小长期目标。
+- 最终制品复核通过：22 个生产 JS/JSON、32 个扩展 ZIP 文件、6 个 skill
+  文件，SDK 运行时代码与声明、host、Go 客户端及 fixture 均与正式验收冻结
+  哈希一致；独立复核真实文件、取消前缀/尾部、导航阶段和原始焦点记录。
+  报告保存在 `.tmp/download-final-verification.json`，文档骨架、仓库卫生、
+  Action SHA 检查通过。只更新本地包，未重载用户日常扩展。

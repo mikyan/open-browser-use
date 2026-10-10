@@ -1,3 +1,5 @@
+import { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+export { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 import { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions } from "./network-waits.js";
@@ -132,6 +134,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
         kind: "console" | "pageerror" | "request" | "response" | "requestfinished" | "requestfailed";
     })[];
 };
+declare const downloadSymbol: unique symbol;
 declare const navigationWaitSymbol: unique symbol;
 declare const networkWaitSymbol: unique symbol;
 declare const controlScopeSymbol: unique symbol;
@@ -153,6 +156,7 @@ export declare class OpenBrowserUseClient {
     request(method: string, params?: BrowserUseRequestParams, options?: {
         timeoutMs?: number;
     }): Promise<JsonValue>;
+    [downloadSymbol](tabId: number, method: "downloadURL" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload>;
     [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     [navigationWaitSymbol](tabId: number, params: BrowserUseRequestParams): Promise<OpenBrowserUseNavigationWait>;
     getControlState(): Promise<JsonValue>;
@@ -211,6 +215,8 @@ export declare class OpenBrowserUseTab {
         timeoutMs?: number;
     }): Promise<JsonValue>;
     engineInfo(): Promise<OpenBrowserUseEngineInfo>;
+    downloadURL(url: string, options?: OpenBrowserUseDownloadURLOptions): Promise<OpenBrowserUseDownload>;
+    waitForDownload(options?: OpenBrowserUseDownloadOptions): Promise<OpenBrowserUseDownload>;
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectURL(url: string, options?: OpenBrowserUseURLWaitOptions): Promise<OpenBrowserUseNavigationWait>;

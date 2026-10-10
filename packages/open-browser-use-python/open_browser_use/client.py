@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
+from ._downloads import OpenBrowserUseDownload, download_id, download_params, download_timeout
 from ._transport import Transport, connect_transport, remaining_time
 from ._browser_actions import BrowserKeyboard, BrowserMouse, LocatorFactory, OpenBrowserUseLocator, action_options
 from ._ai_snapshot import AISnapshot, snapshot_limits, validate_snapshot
@@ -21,7 +22,7 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait"})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"})
 NAVIGATION_WAIT_METHODS = frozenset({"armNavigationWait", "collectNavigationWait", "cancelNavigationWait"})
 NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
@@ -42,6 +43,7 @@ class OpenBrowserUseClient:
         self.browser_engine: JsonObject | None = None
         self._lifecycle_version: int | None = None
         self._control_epoch: int | None = None
+        self._direct_downloads_version: Any = None
         self._navigation_wait_version: Any = None
         self._network_wait_version: Any = None
 
@@ -112,6 +114,11 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._navigation_wait_version) is not int or self._navigation_wait_version != 1:
                 raise RuntimeError("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension does not advertise navigationWaitVersion 1")
+        if method in {"downloadURL", "cancelDownload"}:
+            if self._direct_downloads_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._direct_downloads_version) is not int or self._direct_downloads_version != 1:
+                raise RuntimeError("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1")
         if prepare is not None:
             prepare(merged_params, deadline)
         result = (self._wire_request(method, merged_params, deadline) if execute is None
@@ -129,6 +136,7 @@ class OpenBrowserUseClient:
 
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
+        self._direct_downloads_version = metadata.get("directDownloadsVersion", 0) if isinstance(metadata, dict) else 0
         self._navigation_wait_version = metadata.get("navigationWaitVersion", 0) if isinstance(metadata, dict) else 0
         self._network_wait_version = metadata.get("networkWaitVersion", 0) if isinstance(metadata, dict) else 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
@@ -170,6 +178,10 @@ class OpenBrowserUseClient:
         self._next_id += 1
         if method in BOUNDED_WAIT_METHODS:
             requested = merged_params.get("timeoutMs", 10000)
+            if method in {"downloadURL", "downloadPath", "cancelDownload"}:
+                if requested is None:
+                    raise ValueError("Download timeoutMs must be an integer from 1 to 120000")
+                download_timeout(requested)
             if method in {"armNetworkWait", "armNavigationWait"}:
                 if requested is None:
                     raise ValueError(f"{method} timeoutMs must be an integer from 1 to 120000")
@@ -205,6 +217,18 @@ class OpenBrowserUseClient:
             message = response["error"].get("message", "Open Browser Use request failed")
             raise RuntimeError(message)
         return response.get("result")
+
+    def _download(self, tab_id: int, method: str, params: JsonObject) -> OpenBrowserUseDownload:
+        timeout = params["timeoutMs"]
+        def start(metadata: JsonObject, deadline: float) -> OpenBrowserUseDownload:
+            if type(metadata.get("control_epoch")) is not int or metadata["control_epoch"] < 1:
+                raise RuntimeError("Download handles require an explicit control epoch")
+            binding = {key: metadata[key] for key in ("session_id", "turn_id", "control_epoch")}
+            identifier = download_id(self._wire_request(method, metadata, deadline))
+            captured = {**binding, "downloadId": identifier}
+            return OpenBrowserUseDownload(identifier, lambda operation, budget:
+                self.request(operation, {**captured, "timeoutMs": budget}, timeout=budget / 1000 + 1))
+        return self._request(method, {**params, "tabId": tab_id}, timeout=timeout / 1000 + 1, execute=start)
 
     def _expect_network(self, tab_id: int, event: NetworkWaitEvent, match: NetworkWaitMatch,
                         timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
@@ -337,10 +361,8 @@ class OpenBrowserUseClient:
         return self._wait_for_tab_event("waitForDownload", tab_id, timeout_ms)
 
     def download_path(self, download_id: str, timeout_ms: int | None = None) -> Any:
-        params: JsonObject = {"downloadId": download_id}
-        if timeout_ms is not None:
-            params["timeoutMs"] = timeout_ms
-        return self.request("downloadPath", params)
+        timeout = download_timeout(timeout_ms)
+        return self.request("downloadPath", {"downloadId": download_id, "timeoutMs": timeout}, timeout=timeout / 1000 + 1)
 
     def browser_user_history(self, **params: Any) -> Any:
         return self.get_user_history(**params)
@@ -426,6 +448,12 @@ class OpenBrowserUseBrowser:
 
 
 class OpenBrowserUseTab(LocatorFactory):
+    def download_url(self, url: str, *, filename: str | None = None, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
+        return self.browser.client._download(self.id, "downloadURL", download_params(url, filename, timeout_ms))
+
+    def wait_for_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
+        return self.browser.client._download(self.id, "waitForDownload", {"timeoutMs": download_timeout(timeout_ms)})
+
     def expect_request(self, match: NetworkWaitMatch, *, timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
         return self.browser.client._expect_network(self.id, "request", match, timeout_ms)
 

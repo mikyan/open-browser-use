@@ -175,7 +175,7 @@ each individual browser operation.
 ## File Choosers, Downloads, And Clipboard
 
 - File uploads use the intercepted file chooser flow: start waiting, trigger the chooser in the page, then set absolute local paths with `set-file-chooser-files` or the SDK equivalent.
-- Downloads can be observed with SDK notification handlers or Browser Use methods such as `waitForDownload` and `downloadPath`.
+- For an authorized HTTP(S) GET download with a local path, use `tab.downloadURL` and its handle's `path`/`cancel` methods after checking `directDownloadsVersion`. For a download triggered by a page action, register `waitForDownload` first; its GUID does not currently provide a local path. See the [SDK reference](references/sdk-and-protocol.md#direct-downloads) for scope and timeout rules.
 - Clipboard helpers operate through the current controlled tab and should be treated as sensitive user actions.
 
 ## References

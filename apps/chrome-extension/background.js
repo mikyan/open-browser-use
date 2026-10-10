@@ -2,6 +2,7 @@ import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
+import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
 
@@ -52,7 +53,7 @@ const WEBMCP_CONTENT_SCRIPTS = [
 const PUBLIC_BROWSER_METHODS = new Set([
   "ping", "getInfo", "getControlState", "createTab", "getTabs", "getUserTabs", "getUserHistory", "claimUserTab", "finalizeTabs", "nameSession",
   "attach", "detach", "executeCdp", "browserAction", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool",
-  "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadPath", "readClipboardText", "writeClipboardText",
+  "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "readClipboardText", "writeClipboardText",
   "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
   "armNavigationWait", "collectNavigationWait", "cancelNavigationWait",
   "readClipboard", "writeClipboard", "turnEnded", "executeUnhandledCommand"
@@ -546,6 +547,8 @@ class BrowserBackend {
     this.inputTracker = new NativeInputTracker();
     this.networkWaits = new BrowserNetworkWaits();
     this.navigationWaits = new BrowserNavigationWaits();
+    this.directDownloads = new BrowserDownloads({ downloads: chrome.downloads, extensionId: chrome.runtime?.id,
+      validateScope: scope => this.validateTransferScope(scope), assertScope: scope => this.assertTransferScope(scope) });
     this.navigationSetups = new Map();
     this.auxiliaryTabs = new AuxiliaryTabOwnership({ storage: chrome.storage.session });
     this.auxiliaryReleases = new Map();
@@ -580,6 +583,7 @@ class BrowserBackend {
       if (typeof source.tabId === "number") {
         this.networkWaits.invalidateTab(source.tabId);
         this.navigationWaits.invalidateTab(source.tabId);
+        void this.directDownloads.invalidateTab(source.tabId);
         this.controlEpochs.set(source.tabId, (this.controlEpochs.get(source.tabId) ?? 0) + 1);
         this.browserEngine?.forget(source.tabId);
         try { this.releaseEngineAttachment(source.tabId); }
@@ -589,6 +593,7 @@ class BrowserBackend {
     chrome.tabs?.onRemoved?.addListener(tabId => {
       this.networkWaits.invalidateTab(tabId);
       this.navigationWaits.invalidateTab(tabId);
+      void this.directDownloads.invalidateTab(tabId);
       this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId), { destroyed: true });
       this.pauseReleaseFailures.delete(tabId);
       this.automationControl.recoveredPendingTabs?.delete(tabId);
@@ -599,16 +604,32 @@ class BrowserBackend {
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
       if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
       if (Object.hasOwn(change, "groupId")) this.navigationWaits.invalidateTab(tabId);
-      if (Object.hasOwn(change, "groupId")) this.invalidateAuxiliaryTab(tabId);
+      if (Object.hasOwn(change, "groupId")) {
+        this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab ownership changed"));
+        void this.directDownloads.invalidateTab(tabId);
+        this.invalidateAuxiliaryTab(tabId);
+      }
     });
-    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.invalidateAuxiliaryTab(tabId); });
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.invalidateAuxiliaryTab(removed); });
+    chrome.tabs?.onDetached?.addListener(tabId => { this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab moved")); void this.directDownloads.invalidateTab(tabId); this.invalidateAuxiliaryTab(tabId); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.cancelTabTransfers(removed, new Error("OBU_TRANSFER_CANCELLED: tab replaced")); void this.directDownloads.invalidateTab(removed); this.invalidateAuxiliaryTab(removed); });
     this.controlReady = this.recoverControlState();
     this.controlReady.catch(error => this.automationControl.fail(error));
     for (const method of PUBLIC_BROWSER_METHODS) {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
       const handler = this[method].bind(this);
-      if (method === "armNavigationWait") {
+      if (method === "downloadURL") {
+        this[method] = async params => {
+          const record = this.directDownloads.reserve(params);
+          try { return await this.directDownloads.within(record, record.deadlineAt, () => this.runControlledRequest(() => handler(record.params, record))); }
+          catch (error) { void this.directDownloads.retire(record).catch(() => {}); throw error; }
+        };
+      } else if (["downloadPath", "cancelDownload"].includes(method)) {
+        this[method] = params => {
+          const deadline = downloadDeadline(params);
+          return withTimeout(Math.max(1, deadline - Date.now()), () => this.runControlledRequest(() => handler(params, deadline)),
+            () => new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired"));
+        };
+      } else if (method === "armNavigationWait") {
         this[method] = params => this.startNavigationWait(params);
       } else if (["browserAction", "executeCdp", "attach"].includes(method)) {
         this[method] = params => {
@@ -685,9 +706,10 @@ class BrowserBackend {
     const network = this.networkWaits.controlSnapshot();
     const navigation = this.navigationWaits.controlSnapshot();
     const auxiliary = this.auxiliaryTabs.controlSnapshot();
-    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds]);
+    const downloads = this.directDownloads.controlSnapshot();
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds]);
     for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...downloads.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl() {
@@ -701,10 +723,10 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [...snapshot.tabIds].map(tabId => {
+    const releases = [this.directDownloads.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
-    });
+    })];
     releases.forEach(release => release.catch(() => {}));
     for (const record of this.auxiliaryTabs.entries()) {
       if (record.phase !== "committed") {
@@ -866,6 +888,7 @@ class BrowserBackend {
         networkWaitVersion: 1,
         navigationWaitVersion: 1,
         auxiliaryTabsVersion: 1,
+        directDownloadsVersion: 1,
         automationControl: await this.getAutomationControlStatus()
       }
     };
@@ -1443,6 +1466,7 @@ class BrowserBackend {
     // explicit cancellation and ownership events also retire unbound setups.
     this.networkWaits.invalidateAttachedTab(tabId);
     this.navigationWaits.invalidateAttachedTab(tabId);
+    void this.directDownloads.invalidateAttachedTab(tabId);
     this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId));
     this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.attachmentOwners.delete(tabId);
@@ -1932,21 +1956,29 @@ class BrowserBackend {
     return { ...this.attachmentOwners.get(params.tabId) };
   }
 
-  async prepareTransferAttachment(params, deadline) {
+  async prepareTransferAttachment(params, deadline, options = {}) {
     let engine, generation, attaching = false, ownsPending = false;
+    const check = options.check ?? (() => {});
     try {
       await this.withinTransferDeadline(deadline, async () => {
+        check();
         await this.requireSessionTab(params, "transfer attachment");
+        check();
         engine = await this.getBrowserEngine();
-        await this.releasePreviousAttachmentOwner(params, params.tabId);
+        check();
+        await this.releasePreviousAttachmentOwner(params, params.tabId, check, options);
+        check();
         await this.requireSessionTab(params, "transfer attachment");
+        check();
         if (Date.now() >= deadline) throw new Error("OBU_TRANSFER_TIMEOUT: transfer deadline expired");
         generation = engine.generations?.get(params.tabId) ?? 0;
         ownsPending = !engine.pages?.has(params.tabId);
         attaching = true;
         await engine.attach(params.tabId);
         attaching = false;
+        check();
         await this.requireSessionTab(params, "transfer attachment");
+        check();
         this.rememberAttachmentOwner(params, params.tabId);
       });
     } catch (error) {
@@ -2084,10 +2116,38 @@ class BrowserBackend {
     }
   }
 
-  async downloadPath(params) {
+  async downloadURL(params, record) {
+    this.directDownloads.check(record);
+    await this.withinTransferDeadline(record.deadlineAt, () => this.controlReleases.get(params.tabId));
+    this.directDownloads.check(record);
+    // Establish CRX first: a later engine action must not migrate away from
+    // the raw attachment that owns a newly returned download handle.
+    await this.prepareTransferAttachment(params, record.deadlineAt, { preserveDirectRecord: record, check: () => this.directDownloads.check(record) });
+    this.directDownloads.check(record);
+    const scope = await this.transferScope(params, "downloadURL", record.deadlineAt);
+    this.directDownloads.check(record);
+    return this.directDownloads.start(record, scope);
+  }
+
+  async cancelDownload(params, deadline) {
+    if (deadline <= Date.now()) throw new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired");
     await this.requireSession(params);
+    if (this.downloadsById.has(params.downloadId)) {
+      const record = this.downloadsById.get(params.downloadId);
+      if (record.scope.session_id !== params.session_id) throw new Error("OBU_DOWNLOAD_EXPIRED: unknown or unowned download");
+      await this.validateTransferScope(record.scope);
+      this.assertTransferScope(record.scope);
+      throw new Error("OBU_DOWNLOAD_CANCEL_UNSUPPORTED: webpage GUIDs cannot be cancelled by the direct download API");
+    }
+    return this.directDownloads.cancel(params, deadline);
+  }
+
+  async downloadPath(params, deadline) {
+    if (deadline <= Date.now()) throw new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired");
+    await this.requireSession(params);
+    if (this.directDownloads.has(params.downloadId)) return this.directDownloads.path(params, deadline);
     const record = this.downloadsById.get(params.downloadId);
-    if (!record || record.scope.session_id !== params.session_id) throw new Error("Unknown or unowned download id");
+    if (!record || record.scope.session_id !== params.session_id) throw new Error("OBU_DOWNLOAD_EXPIRED: Unknown or unowned download id");
     this.assertTransferScope(record.scope);
     await this.requireSessionTab({ ...params, tabId: record.scope.tabId }, "downloadPath");
     throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: Chrome's tab-scoped download events do not expose a proven local path");
@@ -2244,13 +2304,21 @@ class BrowserBackend {
     }
     if (method === "Page.fileChooserOpened") void this.handleFileChooserOpened(source, params).catch(() => {});
     if (method === "Page.downloadWillBegin") void this.handleOwnedDownload(source, params).catch(() => {});
-    if (method === "Page.downloadProgress") {
-      const record = this.downloadsById.get(params.guid);
-      if (!record || record.scope.tabId !== tabId || record.targetSessionId !== source.sessionId) return;
-      try { this.assertTransferScope(record.scope); } catch { this.downloadsById.delete(params.guid); return; }
-      record.status = params.state === "completed" ? "complete" : params.state === "canceled" ? "canceled" : "in_progress";
+    if (method === "Page.downloadProgress") void this.handleOwnedDownloadProgress(source, params).catch(() => {});
+  }
+
+  async handleOwnedDownloadProgress(source, params) {
+    const record = this.downloadsById.get(params.guid);
+    if (!record || record.scope.tabId !== source.tabId || record.targetSessionId !== source.sessionId) return;
+    const revision = record.progressRevision = (record.progressRevision ?? 0) + 1;
+    const status = params.state === "completed" ? "complete" : params.state === "canceled" ? "canceled" : "in_progress";
+    try {
+      await this.validateTransferScope(record.scope);
+      this.assertTransferScope(record.scope);
+      if (this.downloadsById.get(params.guid) !== record || record.progressRevision !== revision) return;
+      record.status = status;
       if (record.authorized) this.emitDownloadChange(record);
-    }
+    } catch { if (this.downloadsById.get(params.guid) === record) this.downloadsById.delete(params.guid); }
   }
 
   async handleFileChooserOpened(source, params) {
@@ -2545,6 +2613,7 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId) {
+    const downloadsReleased = this.directDownloads.invalidateSession(sessionId);
     this.networkWaits.invalidateSession(sessionId);
     this.navigationWaits.invalidateSession(sessionId);
     this.auxiliaryTabs.cancelPending(sessionId);
@@ -2565,7 +2634,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled(releases);
+    const outcomes = await Promise.allSettled([downloadsReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -2576,6 +2645,7 @@ class BrowserBackend {
     this.endingSessions.set(params.session_id, ending);
     try {
       this.controlLedger.assertCurrent(params);
+      void this.directDownloads.invalidateSession(params.session_id);
       this.networkWaits.invalidateSession(params.session_id);
       this.navigationWaits.invalidateSession(params.session_id);
       this.auxiliaryTabs.cancelPending(params.session_id);
@@ -2763,7 +2833,7 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false } = {}) {
+  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveDirectRecord = null } = {}) {
     if (preserveNetworkArming) this.networkWaits.invalidateAttachedTab(tabId);
     else this.networkWaits.invalidateTab(tabId);
     if (preserveNavigationArming) this.navigationWaits.invalidateAttachedTab(tabId);
@@ -2772,8 +2842,15 @@ class BrowserBackend {
     // Input release may fail and deliberately retain the native attachment.
     // End the rendering lease immediately even in that case.
     this.internalScreencasts.get(tabId)?.cancel?.();
-    if (this.controlReleases.has(tabId)) return this.controlReleases.get(tabId);
-    const release = this.releaseTabControl(tabId);
+    const downloadsReleased = this.directDownloads.invalidateTab(tabId, preserveDirectRecord);
+    // A repeated explicit detach must also cancel a reservation intentionally
+    // preserved by an earlier owner migration. Reuse the actual native release,
+    // but keep the barrier until both it and this new cleanup have settled.
+    const nativeRelease = this.controlReleases.get(tabId) ?? this.releaseTabControl(tabId);
+    const release = Promise.allSettled([downloadsReleased, nativeRelease]).then(results => {
+      const failure = results.find(result => result.status === "rejected");
+      if (failure) throw failure.reason;
+    });
     this.controlReleases.set(tabId, release);
     const cleanup = () => {
       if (this.controlReleases.get(tabId) === release) this.controlReleases.delete(tabId);

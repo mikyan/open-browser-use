@@ -245,3 +245,36 @@ session/turn/epoch and never refresh or replay after cancellation or `begin_turn
 read budgets default to 120000 and 10000 ms respectively, without renewing the
 observer deadline. Terminal results remain readable for 30 seconds; cancel frees
 capacity. End, Pause, detach, ownership loss and worker restart invalidate handles.
+
+### Active URL downloads
+
+`tab.download_url` explicitly starts an HTTP(S) GET and requires the extension's
+`directDownloadsVersion: 1` capability. An optional filename is a portable single
+basename, at most 255 UTF-8 bytes. Chrome uses `saveAs: false` and `uniquify`;
+POST, custom headers, URL credentials, output directories and overwrite are not
+supported options.
+Browser preferences or enterprise policy may still require confirmation UI.
+
+```python
+download = tab.download_url("https://example.test/report.csv",
+                            filename="report.csv", timeout_ms=10000)
+path = download.path(timeout_ms=30000)
+# Or explicitly stop an active download:
+# download.cancel(timeout_ms=10000)
+```
+
+The `OpenBrowserUseDownload` exposes `download_id`; `path()` returns the browser's
+completed path as a string and `cancel()` returns `None`. The SDK does not read or
+validate the file bytes. Each operation defaults to 10000 integer milliseconds,
+accepts 1..120000, and includes connection/discovery in the operation budget plus
+one second for its response. A path timeout does not cancel the download: the
+same handle can explicitly retry `path()` or cancel. A start timeout may already
+have started a download, so the SDK never repeats the GET automatically.
+
+The handle permanently retains its original session/turn/epoch; end, pause and
+ownership loss can invalidate it. A new turn does not revive it.
+`tab.wait_for_download(timeout_ms=...)` returns the same bound handle for an
+observed page download, whose GUID path/cancel remains unsupported; the observer
+has no cross-connection readiness guarantee. Legacy Client methods retain raw
+JSON and current-invocation scope semantics. Prefer typed Tab handles for later
+operations, or supply the original scope explicitly to `request`.
