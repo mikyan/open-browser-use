@@ -635,6 +635,24 @@ test("control snapshot includes pending attachments, releases and queues without
   assert.deepEqual(engine.controlSnapshot(), { tabIds: [], pending: [] });
 });
 
+test("synchronous invalidation rejects queued work while preserving the Page for actual cleanup", async () => {
+  const f = fixture({ click: async () => assert.fail("revoked queued click") });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const entry = await engine.attach(42);
+  let finish;
+  engine.queues.set(42, new Promise(resolve => { finish = resolve; }));
+  const queued = engine.dispatch(request("click", { locator }));
+  const rejected = assert.rejects(queued, /cancelled/);
+  engine.invalidate(42);
+  assert.equal(await engine.pages.get(42), entry);
+  assert.equal(engine.releases.size, 0);
+  finish();
+  await rejected;
+  assert.equal(await engine.pages.get(42), entry);
+  await engine.detach(42);
+  assert.equal(engine.pages.has(42), false);
+});
+
 test("failed attachment initialization detaches instead of leaking control", async () => {
   const f = fixture();
   const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, onAttached: () => { throw new Error("focus setup failed"); } });

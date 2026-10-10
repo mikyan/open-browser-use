@@ -52,10 +52,10 @@ The epoch protects admission and cancellable engine work, not transactional
 rollback. Input already delivered, page JavaScript already scheduled by raw CDP,
 and completed external effects cannot be undone. File chooser/download wait
 cancellation and attribution are described in [file transfers](file-transfers.md);
-clipboard helpers remain separately audited. Release currently discovers tabs from the session's Chrome
-group; an attachment manually moved outside that group is not yet tracked by a
-automatic cleanup listener. A subsequent legitimate session attachment releases
-the previous attachment before reusing that tab.
+clipboard helpers remain separately audited. Release includes retained native
+attachments as well as session inventory. Tab movement events synchronously
+retire the old attachment and start cleanup; a subsequent explicit claim waits
+for that release before reusing the tab.
 
 ## Bounded state and legacy callers
 
@@ -215,6 +215,57 @@ verified cancellation, successor name/create/attach, and actual service-worker
 stop/start: old epochs failed, a new epoch attached, and the foreground sentinel
 tab remained active throughout. Extension reload and browser/host process restart
 are separate deployment scenarios, not implied by that worker-restart check.
+
+## Task-tab movement and native host disconnection
+
+A task tab leaving its group, moving to another window, or being replaced
+retires its current attachment. The event fences native sends and queued engine
+work synchronously, before asynchronous resource cleanup. It then drains media,
+exports and clipboard work, releases held input on the original attachment, and
+detaches. Cleanup does not move or activate the tab. A group update preserving
+the current task membership does not retire it. An explicit later claim waits
+for the original release; a failed release keeps the old attachment blocked.
+Closing a tab can race with an already-started CRX detach. A native
+`tabs.onRemoved` or debugger `target_closed` event marks the original attachment
+token destroyed; only that evidence can turn its late detach error into
+completed cleanup. An error message saying the tab is absent is insufficient.
+
+The native Port lifetime has its own recovery gate. Disconnection closes
+admission and cancels accepted work before a replacement connection is tried.
+It durably invalidates control epochs, releases attachments and clears active
+session state without changing the user's Pause setting. Replies from the old
+Port are never sent to the replacement host's request-ID namespace. Reconnection
+does not replay browser actions: callers must explicitly reconnect and begin a
+new turn. Same-browser task membership remains available after this cleanup.
+
+`OBU_NATIVE_RECOVERY_PENDING` means actual cleanup is still running;
+`OBU_NATIVE_RECOVERY_FAILED` leaves admission blocked and permits an explicit
+begin-turn attempt to retry cleanup. `OBU_TAB_CONTROL_REVOKED` rejects work using
+a retired tab attachment. These errors use the existing JSON-RPC envelope.
+A deadline is not proof that a native operation stopped. Already executed page
+JavaScript cannot be rolled back.
+
+The isolated acceptance runner includes `js-owned-tab-revocation` and
+`js-native-host-restart`. It observes a real pending locator before removing
+group membership, transferring to a different group or moving to another
+unfocused normal window. After revocation it inserts the formerly absent
+target and checks that the old action does not click it. Trusted pointer/key
+release events, pointer capture, debugger state and explicit reclamation are
+checked separately. The host case kills the real host process, awaits its exit,
+closes that process's loopback Port adapter, and launches a new PID and endpoint
+while preserving the browser, worker and continuous focus observer. It checks
+old epoch rejection and explicit recovery. This is actual process replacement
+through a declared test adapter, not native-host registration/launcher recovery.
+The staged build also observes original release failures synchronously before
+Pause can clear them, and retains them on failed cases. That hook changes no
+production cleanup result and is excluded from the distributable extension.
+
+Full browser restart remains separate. Chrome only guarantees numeric tab IDs
+within a [browser session](https://developer.chrome.com/docs/extensions/reference/api/tabs#property-Tab-id).
+Persisted task groups, deliverables and pending Pause cleanup need a shared
+browser-lifetime identity before cross-browser-process restoration is safe.
+Clearing only a group ID, or treating missing session storage as confirmed
+input release, is insufficient.
 
 `node --test apps/chrome-extension/pause-control.test.mjs` additionally covers
 durable pause, idle-epoch invalidation, startup/end/bootstrap races, stale

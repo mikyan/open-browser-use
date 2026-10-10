@@ -523,6 +523,42 @@ the headed startup compositor or establish complete Browser Use parity.
 See the [media contract](../../docs/references/media-downloads.md) for unsupported
 video/audio, blob/data and Canvas sources.
 
+## Ownership and host recovery
+
+Select `OBU_TEST_CASES='js-owned-tab-revocation|js-native-host-restart'` for the
+ownership/disconnection checks (mandatory raw navigation also runs). The
+synthetic pages retain trusted pointer/key events and a target which appears
+only after revocation. The fixture checks three actual Chrome tab operations:
+ungroup, transfer into a foreign task group, and move to an unfocused normal
+window. It verifies cancellation, release of pointer capture and Shift,
+debugger detachment, and explicit reclamation. Observation uses fixed scripting
+reads on the exact fixture document and does not reattach through the SDK.
+
+The host case terminates the real frozen host executable and waits for its PID
+to exit before closing that generation's WebSocket Port adapter. A new host
+gets a new PID and endpoint; the extension reconnects using its normal alarm.
+No queued old native frame or response is replayed. The same browser, worker,
+profile and continuous focus observer remain alive. The fixture explicitly
+connects and begins a new turn, and verifies the old epoch cannot act.
+
+`recovery-tab-ownership.json`, `recovery-native-host.json`, source hashes and
+`results.json.nativeHostGenerations` retain the evidence, including failed
+cleanup. A new window's sole-tab creation activation is attributed to that
+exact creation interval; the later tab move gets no activation/focus exception.
+This is not a full browser restart, extension reload, or installed native-host
+launcher test. Run the entire suite after lifecycle changes because existing
+worker, transfer, Pause and policy recovery must remain compatible.
+
+Final `run-PeM3FT` passed 63/63 on the controlled headed baseline, with matching
+production/SDK/host/harness hashes. The continuous ledger contains five popup
+and one normal fixture window's sole-tab creation activations, plus four focus
+events from two deliberate action-popup opens. No other foreground event was
+allowed. Earlier full `run-ssmjWr` remains 12/63: normal target closure exposed
+a late CRX detach failure which incorrectly triggered global Pause. The focused
+failure `run-4NEQV8` and original release-error witness are retained. Successful
+cleanup now requires the original attachment's native destruction evidence;
+error text alone is never treated as proof.
+
 ## Native first-frame diagnosis
 
 `node scripts/browser-integration/rendering-probe.mjs` runs the minimal native

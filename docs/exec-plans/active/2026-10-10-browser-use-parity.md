@@ -724,3 +724,36 @@ Browser scheduler 状态均 visible/can_draw=true、pending_submit_frames=1。
 **30/30**、文档与仓库卫生检查通过；本轮仅改脚手架，未重复完整产品 CI。
 这修正的是验收环境，实验配置下的生产兼容性仍是限制，全部 P01–P15
 目标保持未完成。证据见 [启动诊断](../../references/headed-browser-startup.md)。
+
+### P13：普通 tab 撤权与 native host 断线（局部能力已验收）
+
+只读生产类 VM 重现两个接线缺口：普通 task tab 被用户移出 group 后，旧
+attachment 和按键/指针仍保留，CRX send hook 可继续发命令；native port 断线
+仅隔离旧回复，未撤销已经接收的动作。此片在第一个 await 前封锁旧控制，
+复用原 attachment 的输入释放、真实 native drain 和 detach；host 断线另行
+持久失效 epoch，重连要求显式新轮次，不能改变用户的 Pause 设置或重放输入。
+
+验收覆盖真实 ungroup、转入其他任务分组和跨窗口移动，以及同一浏览器内
+终止/重启实际 host 进程。检查待执行 locator 不再点击迟到元素、可信
+pointerup/keyup、原 debugger 释放、显式重新领取/连接可继续；连续 focus
+observer 保持原验收规则。异常及迟到结果、清理失败由生产类 Node 回归覆盖。
+
+完整浏览器重启仍是独立未完成项：groupId、tabId、deliverable 与 Pause
+待释放 tab 列表都属于 browser lifetime。不能只清空 groupId，或把 session
+storage 缺失当作旧输入已释放的证明。媒体完整字节导出和其他浏览器安装
+继续保留在整体范围内，本片不宣称 P13 或 P01–P15 完成。不提 PR、不推送。
+
+真实新增定向首次 3/3；完整 `run-ssmjWr` 12/63 暴露正常 tab 关闭与 CRX
+异步 detach 的竞态，导致意外全局 Pause。保留失败并以只观察原清理错误的
+staged hook 定位，不通过自动 Resume 绕过。`run-4NEQV8` 1/2 复现后，按
+原 attachment token 的原生销毁证据修复，`run-T5lvEC` 定向 4/4。另补原生
+输入释放和 detach 实际 pending 期间关闭 tab 的回归：成功与拒绝都重新
+核对原 token 销亡证据，不再发送下一条旧目标命令；未知失败仍保持阻断。
+
+最终完整 CI 通过：扩展/脚本 **706**（627+43+36）、JS **93**、Python
+**63**、Go 全包及 workspace 检查。最终同源码 headed `run-PeM3FT`
+**63/63**，独立核验代码、SDK、host、fixture 和 harness hash 一致；每个
+新场景的实际 selector 等待、可信 pointerup/keyup、原目标 detach、迟到
+点击为零及显式恢复均保留原始证据。三种移组/移窗取消为 123/122/248ms，
+host 断线动作取消 118ms。连续 observer 的六条窗口首 tab 激活与两次
+测试打开 popup 的四条 focus 事件精确归因；没有其他激活/焦点事件。

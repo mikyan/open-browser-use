@@ -239,6 +239,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `ping`、`getInfo`、`getControlState` 在控制周期外调用。结束会先持久化失效旧
   epoch，再取消操作并释放 debugger；worker 重启也隔离旧 epoch。SDK/CLI/MCP
   不静默重放输入，显式 begin-turn 用于查询新控制状态后提交新工作。
+  native Port 断线同步关闭独立恢复 gate，持久失效 epoch，并等待原 attachment
+  的输入和资源清理；重连必须显式开始新轮次，保留用户 Pause 设置。普通 task
+  tab 移组/移窗会同步撤销旧 attachment 和 engine generation，清理后才允许
+  重新领取。完整 browser lifetime 的数字 ID 恢复仍未完成，详见 control reference。
 - 全局用户暂停独立于 task/turn：工具栏 popup 可暂停所有 Agent，持久 gate
   拒绝包括 `getControlState` 在内的操作，只有 `ping`/`getInfo` 可读。暂停使
   所有旧 epoch 失效；恢复不执行旧任务，Agent 必须显式开始新轮次。

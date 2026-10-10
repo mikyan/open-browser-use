@@ -624,9 +624,15 @@ export class BrowserActionEngine {
     finally { clearTimeout(timer); }
   }
 
-  detach(tabId) {
+  // Revoke queued/attaching work without destroying the native context needed
+  // by pending media, export, clipboard, or held-input cleanup.
+  invalidate(tabId) {
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
     this.active.delete(tabId);
+  }
+
+  detach(tabId) {
+    this.invalidate(tabId);
     if (this.releases.has(tabId)) return this.releases.get(tabId);
     const pending = this.pages.get(tabId);
     const release = (async () => {

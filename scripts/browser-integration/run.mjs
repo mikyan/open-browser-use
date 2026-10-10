@@ -30,6 +30,8 @@ import { createNavigationWaitFixtures, navigationPageURL, navigationTargetURL, n
 import { createDirectDownloadFixtures, directDownloadURL, directDownloadErrors, prepareDirectDownloadTab, verifyDownloadedFile, checkDirectDownloads, checkDirectDownloadLifecycle } from "./direct-downloads-fixture.mjs";
 import { FocusLedger, assertQuietObserverSetup, currentWorkerVersion, focusArrays, focusObserverHTML, focusObserverSource, focusSnapshotExpression, installFocusObserver, readFocusEvidence } from "./focus-ledger.mjs";
 import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startup.mjs";
+import { NativeHostBridge, nativeAdapterSource } from "./native-host-bridge.mjs";
+import { lifecycleRecoveryFixture, checkOwnedTabRevocation, checkNativeHostRestart } from "./lifecycle-recovery-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -81,16 +83,6 @@ function failNativeBridge(error) {
   records.push({ name: "native-adapter-failure", passed: false, error: error.stack ?? String(error) });
   console.error("FAIL native adapter", error.message ?? error);
 }
-function writeNativeMessage(message) {
-  if (bridgeClosing || bridgeFailure) return;
-  if (host.stdin.destroyed || host.stdin.writableEnded || host.exitCode !== null) {
-    failNativeBridge(new Error("Native host input closed during active acceptance"));
-    return;
-  }
-  try {
-    host.stdin.write(frame(JSON.parse(message.toString())), error => { if (error) failNativeBridge(error); });
-  } catch (error) { failNativeBridge(error); }
-}
 let sourceIdentity;
 const versions = { node: process.version, browserRunner: "playwright@1.64.0 (executable lookup and static YAML parsing; no page connection)" };
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -102,13 +94,6 @@ async function until(callback, label, timeout = 20000) {
     await delay(100);
   }
   throw new Error(`Timed out waiting for ${label}`);
-}
-function frame(message) {
-  const body = Buffer.from(JSON.stringify(message));
-  assert.ok(body.length <= 64 * 1024 * 1024, "Extension message exceeds Chrome's 64 MiB native messaging limit");
-  const header = Buffer.alloc(4);
-  if (os.endianness() === "LE") header.writeUInt32LE(body.length); else header.writeUInt32BE(body.length);
-  return Buffer.concat([header, body]);
 }
 function pngDimensions(base64) {
   const bytes = Buffer.from(base64, "base64");
@@ -187,19 +172,6 @@ async function withMCPClient(executable, endpoint, sessionId, use) {
     fail(new Error("MCP fixture closed"));
   }
 }
-function nativeAdapter(url) {
-  return `function __integrationConnectNative(name) {
-    const messages = new Set(), disconnects = new Set(), queued = [];
-    const socket = new WebSocket(${JSON.stringify(url)} + '?extensionId=' + chrome.runtime.id);
-    socket.onopen = () => { for (const message of queued.splice(0)) socket.send(message); };
-    socket.onmessage = event => { const message = JSON.parse(event.data); for (const fn of messages) fn(message); };
-    socket.onclose = () => { for (const fn of disconnects) fn(); };
-    return { name, onMessage: { addListener: fn => messages.add(fn), removeListener: fn => messages.delete(fn) },
-      onDisconnect: { addListener: fn => disconnects.add(fn), removeListener: fn => disconnects.delete(fn) },
-      postMessage: message => { const text = JSON.stringify(message); if (socket.readyState === 1) socket.send(text); else queued.push(text); },
-      disconnect: () => socket.close() };
-  }\n`;
-}
 async function workerConnection(url) {
   const socket = new WebSocket(url);
   await new Promise((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
@@ -245,6 +217,7 @@ const http = createServer(async (request, response) => {
   if (directDownloads.handle(request, response)) return;
   if (mediaDownloads.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
     const fixture = clipboardFixture();
     response.setHeader("Content-Type", fixture.type); response.end(fixture.body); return;
@@ -299,7 +272,7 @@ const http = createServer(async (request, response) => {
     <script src="/fixture.js"></script></body></html>`);
 });
 const ws = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-let host, chrome, worker, browser, sentinel, activeEvents = [], windowFocusEvents = [];
+let nativeBridge, chrome, worker, browser, sentinel, activeEvents = [], windowFocusEvents = [];
 try {
   await build({ entryPoints: [path.join(directory, "react-app.jsx")], outfile: path.join(runDir, "fixture.js"), bundle: true, format: "iife", platform: "browser" });
   await new Promise(resolve => http.listen(0, resolve));
@@ -315,7 +288,19 @@ try {
   // The optional clipboard fixture can hold an actual scope check. Expose the
   // instance only in this isolated staged build, never in a production package.
   const clipboardTestHook = memoryClipboard ? "\nglobalThis.__integrationClipboardBackend = backend;\n" : "";
-  await fs.writeFile(backgroundFile, nativeAdapter(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook);
+  // Preserve the original release failure before a subsequent Pause clears it.
+  // This staged-only observer returns the exact production promise and does
+  // not change synchronous ordering, admission, or cleanup outcomes.
+  const recoveryAuditHook = `\n{
+    globalThis.__integrationReleaseFailures=[];
+    const pause=backend.pauseAutomation;
+    backend.pauseAutomation=function(...args){
+      if(this.pauseReleaseFailures.size&&__integrationReleaseFailures.length<64)
+        __integrationReleaseFailures.push({at:Date.now(),failures:[...this.pauseReleaseFailures].map(([tabId,error])=>({tabId,error:error.stack??String(error)}))});
+      return pause.apply(this,args);
+    };
+  }\n`;
+  await fs.writeFile(backgroundFile, nativeAdapterSource(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook + recoveryAuditHook);
   const manifestFile = path.join(extension, "manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
   manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replace("connect-src 'self'", `connect-src 'self' ${websocketURL}`);
@@ -330,7 +315,7 @@ try {
     if (file.endsWith(".py")) await fs.copyFile(path.join(repo, "packages/open-browser-use-python/open_browser_use", file), path.join(pythonSnapshot, file));
   }
   sourceIdentity = {
-    testHooks: ["staged-only persistent activation/focus observer document", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
+    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
     gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(),
     dirty: (await subprocess("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo })).trim().length > 0,
     sha256: {
@@ -345,6 +330,8 @@ try {
   };
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
+  sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
+  sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.browserStartup = createHash("sha256").update(await fs.readFile(path.join(directory, "browser-startup.mjs"))).digest("hex");
   sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
@@ -365,43 +352,9 @@ try {
   sourceIdentity.sha256.mediaReferenceFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-reference-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
-  host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
-  host.stderr.on("data", data => hostLog.push(data.toString()));
-  host.stdin.on("error", failNativeBridge);
-  host.once("error", failNativeBridge);
-  host.once("exit", (code, signal) => {
-    if (!bridgeClosing) failNativeBridge(new Error(`Native host exited during active acceptance: ${code} ${signal}`));
-  });
-  let extensionSocket, extensionId, nativeBuffer = Buffer.alloc(0);
-  const outbound = [];
-  ws.on("connection", (socket, request) => {
-    socket.on("error", failNativeBridge);
-    if (bridgeClosing || bridgeFailure) { socket.terminate(); return; }
-    extensionSocket = socket;
-    extensionId = new URL(request.url, websocketURL).searchParams.get("extensionId");
-    for (const message of outbound.splice(0)) socket.send(message);
-    socket.on("message", writeNativeMessage);
-  });
-  host.stdout.on("data", data => {
-    try {
-      nativeBuffer = Buffer.concat([nativeBuffer, data]);
-      while (nativeBuffer.length >= 4) {
-        const length = os.endianness() === "LE" ? nativeBuffer.readUInt32LE() : nativeBuffer.readUInt32BE();
-        assert.ok(length <= 1024 * 1024, "Host message exceeds Chrome's 1 MiB native messaging limit");
-        if (nativeBuffer.length < 4 + length) break;
-        const message = nativeBuffer.subarray(4, 4 + length).toString();
-        nativeBuffer = nativeBuffer.subarray(4 + length);
-        nativeFrameStats.frames++;
-        nativeFrameStats.maxFrameBytes = Math.max(nativeFrameStats.maxFrameBytes, length);
-        const method = JSON.parse(message).method;
-        if (method === "obu.native.start") nativeFrameStats.starts++;
-        if (method === "obu.native.chunk") nativeFrameStats.chunks++;
-        if (method === "obu.native.commit") nativeFrameStats.commits++;
-        if (extensionSocket?.readyState === WebSocket.OPEN) extensionSocket.send(message); else outbound.push(message);
-      }
-    } catch (error) { failNativeBridge(error); }
-  });
-  const endpoint = (await until(async () => JSON.parse(await fs.readFile(path.join(socketDir, "active.json"), "utf8")), "host endpoint")).socketPath;
+  nativeBridge = new NativeHostBridge({ server: ws, executable, socketDir, stats: nativeFrameStats,
+    log: text => hostLog.push(text), onFailure: failNativeBridge });
+  let { endpoint } = await nativeBridge.start();
   const chromiumBinary = process.env.OBU_TEST_CHROMIUM_BINARY || chromium.executablePath();
   await fs.access(chromiumBinary);
   await fs.mkdir(path.join(profile, "Default"), { recursive: true });
@@ -429,7 +382,8 @@ try {
     await fs.writeFile(path.join(runDir,"memory-clipboard-guard.json"),JSON.stringify(memoryClipboardGuard,null,2));
     await fs.writeFile(path.join(runDir,"clipboard-input.png"),clipboardPNG());
   }
-  await until(() => extensionSocket?.readyState === WebSocket.OPEN && extensionId, "extension native adapter");
+  await nativeBridge.waitForConnection();
+  const extensionId = nativeBridge.extensionId;
   worker = await until(async () => {
     const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
     for (const target of targets.filter(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`)) {
@@ -468,15 +422,16 @@ try {
     assert.equal(active[0]?.id, sentinel.id, "Agent action changed the active tab");
     focusLedger.assertAllowed(await readFocusLedger(), allowedPopupActivations, allowedWindowFocusEvents);
   }
-  async function createAuxiliaryPopup(url) {
+  async function createFixtureWindow(url, type) {
     const before = await readFocusLedger();
     focusLedger.assertAllowed(before, allowedPopupActivations, allowedWindowFocusEvents);
-    const popup = await worker.evaluate(`chrome.windows.create({url:${JSON.stringify(url)},type:'popup',focused:false,width:520,height:480})`);
+    const popup = await worker.evaluate(`chrome.windows.create({url:${JSON.stringify(url)},type:${JSON.stringify(type)},focused:false,width:520,height:480})`);
     const after = await readFocusLedger();
-    assert.equal(popup.type, "popup"); assert.equal(popup.focused, false); assert.equal(popup.tabs.length, 1);
-    allowedPopupActivations.push(...focusLedger.allowPopupCreation(before, after, { tabId: popup.tabs[0].id, windowId: popup.id, url, fixture: new URL(url).searchParams.get("auxiliary"), reason: "sole tab created in an unfocused popup window" }));
+    assert.equal(popup.type, type); assert.equal(popup.focused, false); assert.equal(popup.tabs.length, 1);
+    allowedPopupActivations.push(...focusLedger.allowPopupCreation(before, after, { tabId: popup.tabs[0].id, windowId: popup.id, url, fixture: new URL(url).searchParams.get("auxiliary"), reason: `sole tab created in an unfocused ${type} window` }));
     return popup;
   }
+  const createAuxiliaryPopup = url => createFixtureWindow(url, "popup");
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
@@ -485,7 +440,12 @@ try {
     let detail, failure;
     try { detail = await run(); } catch (error) { failure = error; }
     try { await activeInvariant(); } catch (error) { failure = failure ? new AggregateError([failure, error], `${failure.message}; ${error.message}`) : error; }
-    if (failure) { records.push({ name, passed: false, elapsedMs: Date.now() - start, error: failure.stack }); console.error("FAIL", name, failure.message); }
+    if (failure) {
+      let recovery;
+      try { recovery = await worker.evaluate("(async()=>({failures:globalThis.__integrationReleaseFailures??[],automation:await chrome.storage.local.get('OPEN_BROWSER_USE_AUTOMATION_CONTROL')}))()"); }
+      catch (error) { recovery = { observationError: error.message }; }
+      records.push({ name, passed: false, elapsedMs: Date.now() - start, error: failure.stack, recovery }); console.error("FAIL", name, failure.message);
+    }
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
   await test("js-file-chooser-public-concurrent", async () => {
@@ -524,7 +484,7 @@ try {
   });
   await test("js-native-large-requests", async () => {
     const clients = [], before = { ...nativeFrameStats }, witnesses = [];
-    const hostPID = host.pid;
+    const hostPID = nativeBridge.host.pid;
     try {
       for (let index = 0; index < 2; index++) {
         const client = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `native-large-${index}`, timeoutMs: 15000 });
@@ -544,7 +504,7 @@ try {
         return result;
       }));
       for (const client of clients) await client.client.request("ping");
-      assert.equal(host.pid, hostPID); assert.equal(host.exitCode, null);
+      assert.equal(nativeBridge.host.pid, hostPID); assert.equal(nativeBridge.host.exitCode, null);
       assert.equal(nativeFrameStats.starts - before.starts, 2);
       assert.equal(nativeFrameStats.commits - before.commits, 2);
       assert.ok(nativeFrameStats.chunks - before.chunks >= 8);
@@ -1351,13 +1311,13 @@ try {
       const oldTarget = targets.find(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
       await focusObserver.call("ServiceWorker.enable");
       const version = await until(() => currentWorkerVersion(focusObserver.events, { url: oldTarget.url, targetId: oldTarget.id }), "unique running worker version");
-      const priorSocket = extensionSocket;
+      const priorSocket = nativeBridge.socket;
       worker.close();
       await focusObserver.call("ServiceWorker.stopWorker", { versionId: version.versionId });
       await focusObserver.call("ServiceWorker.startWorker", { scopeURL: `chrome-extension://${extensionId}/` });
       const restarted = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.id !== oldTarget.id && target.type === "service_worker" && target.url === oldTarget.url), "paused restarted worker");
       worker = await workerConnection(restarted.webSocketDebuggerUrl);
-      await until(() => extensionSocket !== priorSocket && extensionSocket?.readyState === WebSocket.OPEN, "paused restarted native adapter");
+      await until(() => nativeBridge.socket !== priorSocket && nativeBridge.socket?.readyState === WebSocket.OPEN, "paused restarted native adapter");
       const after = await readFocusLedger();
       focusLedger.assertAllowed(after, allowedPopupActivations, allowedWindowFocusEvents);
       // Only derive a report of this interval. Never overwrite, concatenate or
@@ -1462,6 +1422,33 @@ try {
       }
     });
   });
+  await test("js-owned-tab-revocation", () => checkOwnedTabRevocation({
+    connect: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
+    fixtureURL, worker, until, createWindow: url => createFixtureWindow(url, "normal"), closeWindow: closeAuxiliaryPopup,
+    saveDetail: detail => fs.writeFile(path.join(runDir, "recovery-tab-ownership.json"), JSON.stringify(detail, null, 2))
+  }));
+  await test("js-native-host-restart", async () => {
+    const detail = await checkNativeHostRestart({
+      connect: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
+      fixtureURL, worker, until,
+      restartHost: async () => {
+        const before = await readFocusLedger();
+        focusLedger.assertAllowed(before, allowedPopupActivations, allowedWindowFocusEvents);
+        const result = await nativeBridge.restart();
+        endpoint = result.newEndpoint;
+        const after = await readFocusLedger();
+        focusLedger.assertAllowed(after, allowedPopupActivations, allowedWindowFocusEvents);
+        return { ...result, observerIdentity: after.identity, beforeSequence: before.events.length, afterSequence: after.events.length };
+      },
+      saveDetail: detail => fs.writeFile(path.join(runDir, "recovery-native-host.json"), JSON.stringify(detail, null, 2))
+    });
+    // This is an explicit harness recovery, never an SDK replay or implicit
+    // epoch refresh. The fixture first checks that the old client is fenced.
+    browser.close();
+    browser = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-browser-integration", timeoutMs: 15000 });
+    await browser.client.beginTurn();
+    return { ...detail, harnessRecovery: { explicitReconnect: true, explicitBeginTurn: true, controlEpoch: browser.client.controlEpoch } };
+  });
 } catch (error) {
   records.push({ name: "fatal", passed: false, error: error.stack }); console.error(error);
 } finally {
@@ -1508,6 +1495,7 @@ try {
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;
+  if (nativeBridge) nativeBridge.closing = true;
   browser?.close();
   if (observerTargetId) {
     try { await observerBrowserControl?.call("Target.closeTarget", { targetId: observerTargetId }); }
@@ -1516,7 +1504,8 @@ try {
   focusObserver?.close(); observerBrowserControl?.close();
   if (worker) { try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
   if (chrome && chrome.exitCode === null) chrome.kill();
-  if (host && host.exitCode === null) { if (!host.stdin.destroyed && !host.stdin.writableEnded) host.stdin.end(); await Promise.race([new Promise(resolve => host.once("exit", resolve)), delay(1000)]); if (host.exitCode === null) host.kill(); }
+  try { await nativeBridge?.close(); }
+  catch (error) { records.push({ name: "native-host-cleanup", passed: false, error: error.stack ?? String(error) }); }
   for (const client of ws.clients) client.terminate();
   await new Promise(resolve => ws.close(resolve));
   networkFixtures.close();
@@ -1525,7 +1514,7 @@ try {
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);

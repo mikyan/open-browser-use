@@ -501,6 +501,44 @@ headed `run-XLWzut` 8/9，仅 mandatory raw-navigation 仍失败，八项媒体�
 没有生产改动，不重复完整产品 CI。完整能力目标继续有效，无 PR 或推送。
 详细证据与兼容性边界见启动 reference。
 
+### P13：移组撤权与 native host 断线恢复
+
+修复普通 task tab 移组/移窗时旧 debugger 与 held input 未回收、native
+Port 断线后已接纳操作仍可能继续的问题。旧 attachment 和 engine generation
+在异步清理前撤权，原生输入与资源释放仍保留实际完成屏障；断线使用独立
+恢复 gate 和持久 epoch 失效，不改变用户 Pause 状态，不重放原动作。新连接
+显式开始新轮次后恢复同一浏览器内的任务 tab。
+
+新增真实 fixture 覆盖 ungroup、转入另一任务组、跨 normal window 移动及
+实际 host 进程终止/替换。浏览器、worker、profile 和连续焦点 observer
+保持不变；每代 host 独立解析 native 流，真实旧 PID 退出后才触发适配 Port
+关闭，丢弃迟到消息。检查真实 locator 等待先于撤权、可信 pointerup/keyup、
+原 debugger 释放、迟到目标零点击和显式恢复。测试仍通过声明过的 loopback
+Port adapter，不称为原生注册 launcher 或完整浏览器重启验收。
+
+完整 browser lifetime 的数字 ID 恢复另列缺口：task group、deliverable、
+active tab、Pause 待清理列表需要共同设计。媒体扩展与其他浏览器安装继续
+保留范围。只进行本地开发，不提 PR、不推送。
+
+首次完整 headed `run-ssmjWr` 保留 **12/63** 失败：network lifecycle 正常
+关闭 tab 时，迟到的 CRX detach “No tab” 错误被误判为清理失败并触发全局
+Pause，导致后续用例全部被拒绝。增加仅 staged 构建的同步原错误观察后，
+`run-4NEQV8` **1/2** 精确复现。生产现在凭原 attachment 的 `onRemoved` /
+`target_closed` 事件确认销毁，不按错误文本吞异常；未知失败仍阻止自动化。
+修后定向 `run-T5lvEC` **4/4**，覆盖原失败与新撤权/实际 host 重启场景。
+
+独立回归继续捕获在 native input release 已经 pending 时关闭原 tab 的
+同类晚拒绝；修复原 token 的成功/失败两条结算路径，并在每次私有输入
+清理发送前检查销亡或换代。22 项新增 P13 回归、engine generation 回归
+及六项 host bridge 回归均通过。最终完整 CI 为扩展/脚本 **706**、JS
+**93**、Python **63**、Go 全包和 workspace 检查。最终 headed
+`run-PeM3FT` **63/63**，源码/SDK/host/harness hash 与实际冻结副本一致。
+三个 tab 撤权和 host 断线分别在 123/122/248/118ms 取消旧动作；每个场景
+可信输入释放、迟到目标零点击、原 debugger detached、显式恢复有独立核验。
+连续 observer 只包含五个 popup 与一个 normal 测试窗口首 tab 激活、两次
+主动打开控制面板的四条 focus 事件；没有额外前台事件。完整浏览器重启
+与原生 launcher 崩溃恢复仍不在这些证据覆盖内。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
