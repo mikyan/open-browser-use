@@ -149,7 +149,7 @@ function validateSelectValues(values) {
   }
 }
 
-function validateLocator(steps) {
+export function validateLocator(steps) {
   if (!Array.isArray(steps) || steps.length > 32) throw new Error("locator must be an array of at most 32 steps");
   let element = false;
   for (const step of steps) {
@@ -414,6 +414,63 @@ export class BrowserActionEngine {
     finally { clearTimeout(timer); }
   }
 
+  // Actual settlement seam for source reservations. The caller owns the outer
+  // budget/cancellation race and capacity; this promise retains the queue until
+  // all native reads and source-handle cleanup really settle. Never detach here:
+  // backend detach may itself be waiting for this source reservation to drain.
+  resolveMediaSource(request, { deadlineAt, check: sourceCheck }) {
+    const validated = validateBrowserAction({
+      session_id: request.session_id, turn_id: request.turn_id, control_epoch: request.control_epoch,
+      tabId: request.tabId, action: "getAttribute", args: { name: "currentSrc" },
+      locator: request.locator, timeoutMs: request.timeoutMs
+    });
+    if (!Number.isSafeInteger(validated.control_epoch) || validated.control_epoch < 1 || !Number.isFinite(deadlineAt) || typeof sourceCheck !== "function") throw new Error("Invalid media source admission");
+    const params = { ...validated, locator: validated.locator.map(step => Object.freeze({ ...step })) };
+    const generation = this.generations.get(params.tabId) ?? 0;
+    const timeout = () => new Error("OBU_DOWNLOAD_TIMEOUT: media source deadline expired");
+    const expired = () => new Error("OBU_MEDIA_SOURCE_CHANGED: media attachment or document changed");
+    const remaining = () => { if (performance.now() >= deadlineAt) throw timeout(); };
+    const attachment = this.pages.get(params.tabId);
+    if (!attachment) throw expired();
+    let entry, observation, revision;
+    const check = async () => {
+      remaining();
+      if ((this.generations.get(params.tabId) ?? 0) !== generation || (attachment && this.pages.get(params.tabId) !== attachment)) throw expired();
+      await sourceCheck(); remaining();
+      if ((this.generations.get(params.tabId) ?? 0) !== generation || (attachment && this.pages.get(params.tabId) !== attachment)) throw expired();
+      if (observation && (entry.observation !== observation || observation.disposed || observation.revision !== revision)) throw expired();
+    };
+    const previous = this.queues.get(params.tabId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(async () => {
+      await check();
+      const runtime = await this.runtime(); await check();
+      // Media provenance always requires audited utility-world selector engines,
+      // even when the user's ordinary browser actions are unrestricted.
+      for (const step of params.locator) if (step.kind === "css" || step.kind === "frame") runtime.assertOpenBrowserUseSelector(step.selector, true);
+      // Admission already established this exact attachment. A stale source
+      // must never reacquire a tab or enter ownership cleanup recursively.
+      entry = await attachment; await check();
+      const owner = JSON.stringify([params.session_id, params.control_epoch]);
+      if (entry.diagnosticsOwner && entry.diagnosticsOwner !== owner) throw expired();
+      entry.diagnosticsOwner = owner;
+      observation = entry.observation ??= new BrowserObservation(entry.page);
+      revision = observation.revision;
+      const resolveRef = descriptor => { observation.get(descriptor); return entry.page.locator(`aria-ref=${descriptor.ref}`); };
+      const locator = resolveBrowserLocator(entry.page, params.locator, resolveRef);
+      const checkedSource = async () => {
+        await check();
+        if (params.locator[0]?.kind === "ref") observation.get(params.locator[0]);
+      };
+      await checkedSource();
+      const result = await runtime.readMediaSource(locator, { deadlineAt, check: checkedSource, runNativeTask: runtime.runOpenBrowserUseMediaTask });
+      await checkedSource();
+      return result;
+    });
+    this.queues.set(params.tabId, current);
+    current.finally(() => { if (this.queues.get(params.tabId) === current) this.queues.delete(params.tabId); }).catch(() => {});
+    return current;
+  }
+
   async dispatch(request) {
     const params = validateBrowserAction(request);
     const generation = this.generations.get(params.tabId) ?? 0;
@@ -457,8 +514,8 @@ export class BrowserActionEngine {
       if (!entry.diagnostics) {
         entry.diagnosticsOwner = diagnosticsOwner;
         entry.diagnostics = new BrowserDiagnostics(page);
-        entry.observation = new BrowserObservation(page);
       }
+      entry.observation ??= new BrowserObservation(page);
       phase = "running";
       this.active.set(params.tabId, { session_id: params.session_id, turn_id: params.turn_id });
       try {

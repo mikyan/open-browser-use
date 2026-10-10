@@ -5,7 +5,7 @@ import test_lifecycle as lifecycle
 from open_browser_use import OpenBrowserUseBrowser, OpenBrowserUseClient, OpenBrowserUseDownload
 from open_browser_use._downloads import download_id
 
-INFO = {"result": {"metadata": {"turnLifecycleVersion": 1, "directDownloadsVersion": 1}}}
+INFO = {"result": {"metadata": {"turnLifecycleVersion": 1, "directDownloadsVersion": 1, "mediaDownloadsVersion": 1}}}
 
 
 class DownloadTest(unittest.TestCase):
@@ -13,7 +13,7 @@ class DownloadTest(unittest.TestCase):
     state = lifecycle.ControlLifecycleTest.state
 
     def test_path_retry_cancel_and_bound_scope(self):
-        for source in ("downloadURL", "waitForDownload"):
+        for source in ("downloadURL", "downloadMedia", "waitForDownload"):
             def check(p):
                 self.assertEqual((p["turn_id"], p["control_epoch"]), ("initial", 7))
                 self.assertTrue(0 < p["timeoutMs"] <= 1000)
@@ -24,10 +24,15 @@ class DownloadTest(unittest.TestCase):
                     self.assertEqual(p["filename"], "报告.csv")
                     self.assertEqual(p["url"], "https://fixture.test/file")
 
+                if source == "downloadMedia":
+                    self.assertEqual(p["locator"], [{"kind": "css", "selector": "img"}])
+                    self.assertNotIn("url", p)
+
             def exercise(client):
                 tab = OpenBrowserUseBrowser(client).tab(9)
                 item = (tab.download_url("https://fixture.test/file", filename="报告.csv", timeout_ms=1000)
-                        if source == "downloadURL" else tab.wait_for_download(timeout_ms=1000))
+                        if source == "downloadURL" else tab.locator("img").download_media(filename="image.png", timeout_ms=1000)
+                        if source == "downloadMedia" else tab.wait_for_download(timeout_ms=1000))
                 self.assertEqual(item.download_id, "opaque")
                 with self.assertRaisesRegex(RuntimeError, "OBU_DOWNLOAD_TIMEOUT"):
                     item.path(timeout_ms=1000)

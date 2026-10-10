@@ -1,10 +1,10 @@
 import { OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
 export { OpenBrowserUseClipboard } from "./clipboard.js";
 export type { OpenBrowserUseClipboardOptions, OpenBrowserUseClipboardItem, OpenBrowserUseClipboardEntry } from "./clipboard.js";
-import { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+import { OpenBrowserUseDownload, type OpenBrowserUseMediaDownloadOptions, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
 export { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePDFOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
-export { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+export { OpenBrowserUseDownload, type OpenBrowserUseMediaDownloadOptions, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 import { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions } from "./network-waits.js";
@@ -161,7 +161,7 @@ export declare class OpenBrowserUseClient {
     request(method: string, params?: BrowserUseRequestParams, options?: {
         timeoutMs?: number;
     }): Promise<JsonValue>;
-    [downloadSymbol](tabId: number, method: "downloadURL" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload>;
+    [downloadSymbol](tabId: number, method: "downloadURL" | "downloadMedia" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload>;
     [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     [navigationWaitSymbol](tabId: number, params: BrowserUseRequestParams): Promise<OpenBrowserUseNavigationWait>;
     getControlState(): Promise<JsonValue>;
@@ -303,6 +303,7 @@ export declare class OpenBrowserUseLocator {
         hasText?: string;
         hasNotText?: string;
     }): OpenBrowserUseLocator;
+    downloadMedia(options?: OpenBrowserUseMediaDownloadOptions): Promise<OpenBrowserUseDownload>;
     click(options?: OpenBrowserUseActionOptions): Promise<void>;
     dblclick(options?: OpenBrowserUseActionOptions): Promise<void>;
     hover(options?: OpenBrowserUseActionOptions): Promise<void>;

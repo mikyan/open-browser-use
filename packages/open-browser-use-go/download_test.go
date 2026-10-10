@@ -10,11 +10,11 @@ import (
 )
 
 func directDownloadInfo() Params {
-	return Params{"metadata": Params{"turnLifecycleVersion": 1, "directDownloadsVersion": 1}}
+	return Params{"metadata": Params{"turnLifecycleVersion": 1, "directDownloadsVersion": 1, "mediaDownloadsVersion": 1}}
 }
 
 func TestDownloadPathRetryCancellationAndScope(t *testing.T) {
-	for _, source := range []string{"downloadURL", "waitForDownload"} {
+	for _, source := range []string{"downloadURL", "downloadMedia", "waitForDownload"} {
 		t.Run(source, func(t *testing.T) {
 			done := make(chan struct{})
 			path, cleanup := startSDKServer(t, func(conn net.Conn) {
@@ -49,6 +49,15 @@ func TestDownloadPathRetryCancellationAndScope(t *testing.T) {
 							t.Errorf("start options=%#v", params)
 						}
 						value = Params{"downloadId": "opaque"}
+					case "downloadMedia":
+						if _, ok := params["url"]; ok {
+							t.Error("media source must be read by the browser")
+						}
+						steps, ok := params["locator"].([]any)
+						if !ok || len(steps) != 1 || steps[0].(map[string]any)["selector"] != "img" {
+							t.Errorf("locator=%v", steps)
+						}
+						value = Params{"downloadId": "opaque"}
 					case "waitForDownload":
 						value = Params{"downloadId": "opaque"}
 					case "downloadPath":
@@ -80,6 +89,8 @@ func TestDownloadPathRetryCancellationAndScope(t *testing.T) {
 			var err error
 			if source == "downloadURL" {
 				item, err = tab.DownloadURL("https://fixture.test/file", DownloadURLOptions{Filename: "报告.csv", Timeout: time.Second})
+			} else if source == "downloadMedia" {
+				item, err = tab.Locator("img").DownloadMedia(MediaDownloadOptions{Filename: "image.png", Timeout: time.Second})
 			} else {
 				item, err = tab.WaitForDownload(DownloadOptions{Timeout: time.Second})
 			}
@@ -171,7 +182,7 @@ func TestDownloadValidationAndUnsupportedVersion(t *testing.T) {
 }
 
 func TestDownloadRejectsMalformedAcknowledgements(t *testing.T) {
-	for _, method := range []string{"downloadURL", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			path, cleanup := startSDKServer(t, func(conn net.Conn) {
 				req := readRequest(t, conn)
@@ -179,7 +190,10 @@ func TestDownloadRejectsMalformedAcknowledgements(t *testing.T) {
 				req = readRequest(t, conn)
 				writeResponse(t, conn, req["id"], testControlState(7, "next"))
 				req = readRequest(t, conn)
-				if method == "downloadURL" {
+				if method == "downloadURL" || method == "downloadMedia" {
+					if req["method"] != method {
+						t.Errorf("start method=%v want=%s", req["method"], method)
+					}
 					writeResponse(t, conn, req["id"], Params{"downloadId": "d", "path": "untrusted"})
 					return
 				}
@@ -194,8 +208,14 @@ func TestDownloadRejectsMalformedAcknowledgements(t *testing.T) {
 			defer cleanup()
 			client := NewClient(Options{SocketPath: path})
 			defer client.Close()
-			item, err := NewBrowser(client).Tab(9).DownloadURL("https://fixture.test/")
-			if method == "downloadURL" {
+			var item *Download
+			var err error
+			if method == "downloadMedia" {
+				item, err = NewBrowser(client).Tab(9).Locator("img").DownloadMedia()
+			} else {
+				item, err = NewBrowser(client).Tab(9).DownloadURL("https://fixture.test/")
+			}
+			if method == "downloadURL" || method == "downloadMedia" {
 				if err == nil {
 					t.Fatal("malformed start accepted")
 				}

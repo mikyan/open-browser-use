@@ -41,10 +41,11 @@ func controlDiscoveryMethod(method string) bool {
 
 func (c *Client) observeControlSupport(info any) error {
 	version := 0
-	var networkVersion, navigationVersion, directDownloadsVersion, pageExportVersion, clipboardVersion any
+	var networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion any
 	if object, ok := info.(map[string]any); ok {
 		if metadata, ok := object["metadata"].(map[string]any); ok {
 			directDownloadsVersion = metadata["directDownloadsVersion"]
+			mediaDownloadsVersion = metadata["mediaDownloadsVersion"]
 			pageExportVersion = metadata["pageExportVersion"]
 			clipboardVersion = metadata["clipboardVersion"]
 			networkVersion = metadata["networkWaitVersion"]
@@ -60,6 +61,7 @@ func (c *Client) observeControlSupport(info any) error {
 	c.controlMu.Lock()
 	defer c.controlMu.Unlock()
 	c.directDownloadsKnown, c.directDownloadsVersion = true, directDownloadsVersion
+	c.mediaDownloadsKnown, c.mediaDownloadsVersion = true, mediaDownloadsVersion
 	c.pageExportKnown, c.pageExportVersion = true, pageExportVersion
 	c.clipboardKnown, c.clipboardVersion = true, clipboardVersion
 	c.networkWaitKnown, c.networkWaitVersion = true, networkVersion

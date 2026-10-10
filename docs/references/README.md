@@ -34,6 +34,8 @@
   规则、完整 frame 检查、受限入口、暂停保存与网络防火墙之外的实际边界。
 - [Page exports](page-exports.md)：PDF 流关闭、MHTML 字节与网站边界、任务
   生命周期、三个 SDK 和 CLI/MCP 原子创建文件契约。
+- [Media downloads](media-downloads.md)：精确图片定位器、utility world 原生选源、
+  原始预算与真实清理、三个 SDK 和 CLI/MCP 入口及新 GET 的语义边界。
 - [Codex observation baseline](codex-observation-baseline.md)：隔离合成页面上的
   IAB 只读快照基线及其有限范围，不等同于输入、性能或完整能力对齐验收。
 - [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与

@@ -279,6 +279,13 @@ while expecting another goroutine to trigger navigation through the same client.
 
 ### Active URL downloads
 
+`Locator.DownloadMedia(MediaDownloadOptions{Filename: "image.png"})` resolves an
+exact HTML image's selected HTTP(S) source and returns the same `Download`.
+It requires `mediaDownloadsVersion: 1`, preserves the original scope and uses
+one deadline for source resolution and native start. This is a new GET; blob/data,
+other media types and restricted website mode remain unsupported. See the
+[media contract](../../docs/references/media-downloads.md).
+
 `Tab.DownloadURL` explicitly starts an HTTP(S) GET when the extension advertises
 `directDownloadsVersion: 1`. The optional filename is a portable single basename
 (up to 255 UTF-8 bytes), not a directory. Chrome uses `saveAs: false` and

@@ -24,7 +24,7 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage", *CLIPBOARD_METHODS})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", *CLIPBOARD_METHODS})
 NAVIGATION_WAIT_METHODS = frozenset({"armNavigationWait", "collectNavigationWait", "cancelNavigationWait"})
 NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
@@ -46,6 +46,7 @@ class OpenBrowserUseClient:
         self._lifecycle_version: int | None = None
         self._control_epoch: int | None = None
         self._direct_downloads_version: Any = None
+        self._media_downloads_version: Any = None
         self._page_export_version: Any = None
         self._clipboard_version: Any = None
         self._navigation_wait_version: Any = None
@@ -123,6 +124,11 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._direct_downloads_version) is not int or self._direct_downloads_version != 1:
                 raise RuntimeError("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1")
+        if method == "downloadMedia":
+            if self._media_downloads_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._media_downloads_version) is not int or self._media_downloads_version != 1:
+                raise RuntimeError("OBU_MEDIA_DOWNLOADS_UNSUPPORTED: extension does not advertise mediaDownloadsVersion 1")
         if method == "exportPage":
             if self._page_export_version is None:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
@@ -150,6 +156,7 @@ class OpenBrowserUseClient:
 
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
+        self._media_downloads_version = metadata.get("mediaDownloadsVersion", 0) if isinstance(metadata, dict) else 0
         self._direct_downloads_version = metadata.get("directDownloadsVersion", 0) if isinstance(metadata, dict) else 0
         self._clipboard_version = (metadata.get("clipboardVersion", 0) if isinstance(metadata, dict) else 0)
         if self._clipboard_version is None:
@@ -202,7 +209,7 @@ class OpenBrowserUseClient:
                 export_timeout(requested)
             if method in CLIPBOARD_METHODS:
                 clipboard_timeout(requested)
-            if method in {"downloadURL", "downloadPath", "cancelDownload"}:
+            if method in {"downloadURL", "downloadMedia", "downloadPath", "cancelDownload"}:
                 if requested is None:
                     raise ValueError("Download timeoutMs must be an integer from 1 to 120000")
                 download_timeout(requested)

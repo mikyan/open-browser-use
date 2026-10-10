@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -15,6 +16,9 @@ import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs"
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
+import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
+import { checkMediaLifecycle, checkMediaNavigationCleanup } from "./media-lifecycle-fixture.mjs";
+import { checkMediaReferences } from "./media-reference-fixture.mjs";
 import { clipboardFixture, clipboardPNG, checkClipboard, checkClipboardLifecycle, holdClipboardPreparation } from "./clipboard-fixture.mjs";
 import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
 import { checkPythonClipboard, checkGoClipboard, checkCLIClipboard, checkMCPClipboard } from "./clipboard-callers.mjs";
@@ -230,11 +234,13 @@ async function workerConnection(url) {
 const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const directDownloads = createDirectDownloadFixtures();
+const mediaDownloads = createMediaDownloadFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
+  if (mediaDownloads.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/clipboard") {
     const fixture = clipboardFixture();
@@ -350,6 +356,9 @@ try {
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.directDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "direct-downloads-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.mediaDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-downloads-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.mediaLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-lifecycle-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.mediaReferenceFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-reference-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -1071,6 +1080,97 @@ try {
     await fs.writeFile(path.join(runDir, "direct-download-lifecycle.json"), JSON.stringify(detail, null, 2));
     return detail;
   });
+  await test("js-media-downloads", async () => {
+    const owner = await connectOpenBrowserUse({socketPath:endpoint,sessionId:"media-js",timeoutMs:15000});
+    const foreign = await connectOpenBrowserUse({socketPath:endpoint,sessionId:"media-foreign",timeoutMs:15000});
+    try {
+      const detail = await checkMediaDownloads({browser:owner,foreignBrowser:foreign,fixtureURL,server:mediaDownloads,downloadRoot:path.join(runDir,"downloads")});
+      await fs.writeFile(path.join(runDir,"media-js.json"),JSON.stringify(detail,null,2));
+      return detail;
+    } finally { try { await owner.client.finalizeTabs([]); await foreign.client.finalizeTabs([]); } finally { owner.close();foreign.close(); } }
+  });
+  await test("js-media-downloads-references", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "media-references", timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      detail = await checkMediaReferences({ browser: owner, fixtureURL, server: mediaDownloads, downloadRoot: path.join(runDir, "downloads") });
+    } catch (error) { failure = error; }
+    finally {
+      try { await owner.client.finalizeTabs([]); }
+      catch (error) { if (failure) failure.finalizeError = error.message; else failure = error; }
+      finally { owner.close(); }
+    }
+    await fs.writeFile(path.join(runDir, "media-references.json"), JSON.stringify(failure ? {
+      failed: true, error: failure.message, finalizeError: failure.finalizeError, detail: failure.mediaReferences ?? detail
+    } : detail, null, 2));
+    if (failure) throw failure;
+    return detail;
+  });
+  for (const [name, check] of [["lifecycle", checkMediaLifecycle], ["navigation-cleanup", checkMediaNavigationCleanup]]) {
+    await test(`js-media-downloads-${name}`, async () => {
+      const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `media-${name}`, timeoutMs: 15000 });
+      const artifact = path.join(runDir, `media-${name}.json`);
+      sourceIdentity.testHooks.push(`media ${name}: Runtime.callFunctionOn response delivery held after actual native settlement; exact-tab native navigation mutation and fixed read-only MAIN-world scripting evidence`);
+      let detail, failure;
+      try {
+        detail = await check({ browser: owner, fixtureURL, server: mediaDownloads, worker, until });
+      } catch (error) { failure = error; }
+      finally {
+        try { await owner.client.finalizeTabs([]); }
+        catch (error) { if (failure) failure.finalizeError = error.message; else failure = error; }
+        finally { owner.close(); }
+      }
+      await fs.writeFile(artifact, JSON.stringify(failure ? {
+        failed: true, error: failure.message, finalizeError: failure.finalizeError, detail: failure.mediaLifecycle ?? detail
+      } : detail, null, 2));
+      if (failure) throw failure;
+      return detail;
+    });
+  }
+  for (const kind of ["cli","mcp"]) await test(`${kind}-media-downloads`, async () => {
+    const sessionId = `media-${kind}`, owner = await connectOpenBrowserUse({socketPath:endpoint,sessionId,timeoutMs:15000});
+    try {
+      const tab = await owner.newTab({url:fixtureURL+"media-downloads/page"});
+      await tab.waitForLoadState({state:"load"});
+      const scope = {session_id:sessionId,turn_id:owner.client.turnId,control_epoch:owner.client.controlEpoch};
+      const check = async call => {
+        const before = mediaDownloads.stats().length;
+        const ack = await call("downloadMedia",{...scope,tabId:tab.id,locator:[{kind:"css",selector:"#selected"}],filename:`${kind}-media.png`,timeoutMs:5000});
+        const result = await call("downloadPath",{...scope,downloadId:ack.downloadId,timeoutMs:5000});
+        const file = await verifyMediaFile(result.path,path.join(runDir,"downloads"));
+        assert.deepEqual(await call("cancelDownload",{...scope,downloadId:ack.downloadId,timeoutMs:5000}),{cancelled:true});
+        const requests = mediaDownloads.stats().slice(before);
+        assert.equal(requests.length,1);assert.equal(requests[0].path,"/media-downloads/selected.png");assert.equal(requests[0].cookie,true);
+        assert.deepEqual(await tab.evaluate("({events:mediaEvents,traps:getterTraps})"),{events:[],traps:[]});
+        return {file,requests,scope};
+      };
+      const detail = kind === "mcp" ? await withMCPClient(executable,endpoint,sessionId,check) : await check(async (method,params) => {
+        const response = JSON.parse(await subprocess(path.resolve(executable),["call","--socket",endpoint,"--session-id",sessionId,"--method",method,"--params",JSON.stringify(params),"--timeout","15s"]));
+        assert.equal(response.error,undefined,JSON.stringify(response));return response.result;
+      });
+      await fs.writeFile(path.join(runDir,`media-${kind}.json`),JSON.stringify(detail,null,2));return detail;
+    } finally {try {await owner.client.finalizeTabs([]);} finally {owner.close();}}
+  });
+  for (const kind of ["python","go"]) await test(`${kind}-media-downloads`, async () => {
+    const script = path.join(directory, kind === "python" ? "media-checks.py" : "go-media-checks/main.go");
+    const frozenSource = path.join(runDir, kind === "python" ? "media-checks.py" : "media-checks.go");
+    await fs.copyFile(script,frozenSource,fsConstants.COPYFILE_EXCL);
+    const artifact = path.join(runDir,`media-${kind}.json`);
+    let executablePath = process.env.OBU_TEST_PYTHON || "python", args = [frozenSource,endpoint,fixtureURL,artifact];
+    const proof = {sourceSHA256:createHash("sha256").update(await fs.readFile(frozenSource)).digest("hex")};
+    if (kind === "go") {
+      assert.ok(process.env.OBU_TEST_GO_MEDIA_BINARY,"Set OBU_TEST_GO_MEDIA_BINARY for the media Go caller");
+      executablePath=path.join(runDir,"go-media-client.exe");
+      await fs.copyFile(process.env.OBU_TEST_GO_MEDIA_BINARY,executablePath,fsConstants.COPYFILE_EXCL);
+      args=[endpoint,fixtureURL,artifact];proof.binarySHA256=createHash("sha256").update(await fs.readFile(executablePath)).digest("hex");
+    }
+    const result=JSON.parse(await subprocess(executablePath,args,{timeoutMs:45000,env:{...process.env,PYTHONPATH:path.dirname(pythonSnapshot),PYTHONIOENCODING:"utf-8",PYTHONDONTWRITEBYTECODE:"1",OBU_TEST_DOWNLOAD_ROOT:path.join(runDir,"downloads")}}));
+    assert.equal(result.passed,true);assert.deepEqual(Buffer.from(result.base64,"base64"),mediaPNG);
+    const file=await verifyMediaFile(result.path,path.join(runDir,"downloads"));
+    assert.equal(result.sha256,file.sha256);assert.equal(result.bytes,file.bytes);
+    await fs.writeFile(path.join(runDir,`media-${kind}-proof.json`),JSON.stringify(proof,null,2));
+    return {...result,proof};
+  });
   for (const kind of ["cli", "mcp"]) await test(`${kind}-direct-downloads`, async () => {
     const sessionId = `${kind}-direct-downloads`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "download-acceptance", timeoutMs: 15000 });
     const key = `${kind}-direct`, cancelKey = `${kind}-direct-cancel`;
@@ -1394,6 +1494,7 @@ try {
   await fs.writeFile(path.join(runDir, "focus-ledger.json"), JSON.stringify({ ...focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents }, null, 2));
   // Capture the HTTP witness before teardown can close an unfinished response.
   await fs.writeFile(path.join(runDir, "direct-download-server.json"), JSON.stringify(directDownloads.allStats(), null, 2));
+  await fs.writeFile(path.join(runDir, "media-download-server.json"), JSON.stringify(mediaDownloads.stats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;

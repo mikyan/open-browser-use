@@ -10,6 +10,8 @@ import (
 )
 
 type DownloadOptions struct{ Timeout time.Duration }
+type MediaDownloadOptions = DownloadURLOptions
+
 type DownloadURLOptions struct {
 	Filename string
 	Timeout  time.Duration
@@ -23,7 +25,7 @@ type Download struct {
 }
 
 func isDownloadOperation(method string) bool {
-	return method == "downloadURL" || method == "downloadPath" || method == "cancelDownload"
+	return method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload"
 }
 
 func downloadTimeout(options []DownloadOptions) (time.Duration, error) {
@@ -52,11 +54,20 @@ func downloadURLParams(rawURL string, options DownloadURLOptions) (Params, error
 			return nil, errors.New("invalid download URL")
 		}
 	}
+	params, err := downloadFileParams(options)
+	if err != nil {
+		return nil, err
+	}
+	params["url"] = rawURL
+	return params, nil
+}
+
+func downloadFileParams(options DownloadURLOptions) (Params, error) {
 	timeout, err := downloadTimeout([]DownloadOptions{{Timeout: options.Timeout}})
 	if err != nil {
 		return nil, err
 	}
-	params := Params{"url": rawURL, "timeoutMs": timeout.Milliseconds()}
+	params := Params{"timeoutMs": timeout.Milliseconds()}
 	if name := options.Filename; name != "" {
 		if !utf8.ValidString(name) || len(name) > 255 || strings.ContainsAny(name, "<>:\"/\\|?*") || strings.HasSuffix(name, ".") || strings.HasSuffix(name, " ") || reservedDownloadBasename.MatchString(name) {
 			return nil, errors.New("invalid download filename: require a single portable basename")
@@ -84,6 +95,29 @@ func (t *Tab) DownloadURL(url string, options ...DownloadURLOptions) (*Download,
 		return nil, err
 	}
 	return t.startDownload("downloadURL", params)
+}
+
+// DownloadMedia starts a new GET from the exact image's selected HTTP(S) source.
+func (l *Locator) DownloadMedia(options ...MediaDownloadOptions) (*Download, error) {
+	if l.err != nil {
+		return nil, l.err
+	}
+	if len(l.locatorSteps()) == 0 {
+		return nil, errors.New("DownloadMedia requires a nonempty locator")
+	}
+	if len(options) > 1 {
+		return nil, errors.New("at most one media download options value is accepted")
+	}
+	var option MediaDownloadOptions
+	if len(options) == 1 {
+		option = options[0]
+	}
+	params, err := downloadFileParams(option)
+	if err != nil {
+		return nil, err
+	}
+	params["locator"] = l.locatorSteps()
+	return l.Tab.startDownload("downloadMedia", params)
 }
 
 func (t *Tab) WaitForDownload(options ...DownloadOptions) (*Download, error) {

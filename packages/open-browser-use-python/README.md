@@ -248,6 +248,13 @@ capacity. End, Pause, detach, ownership loss and worker restart invalidate handl
 
 ### Active URL downloads
 
+`locator.download_media(filename="image.png", timeout_ms=10000)` resolves an
+exact HTML image's selected HTTP(S) source and returns the same `Download`.
+It requires `mediaDownloadsVersion: 1`, preserves the original scope and uses
+one deadline for source resolution and native start. This is a new GET; blob/data,
+other media types and restricted website mode remain unsupported. See the
+[media contract](../../docs/references/media-downloads.md).
+
 `tab.download_url` explicitly starts an HTTP(S) GET and requires the extension's
 `directDownloadsVersion: 1` capability. An optional filename is a portable single
 basename, at most 255 UTF-8 bytes. Chrome uses `saveAs: false` and `uniquify`;

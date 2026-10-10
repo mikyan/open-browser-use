@@ -23,7 +23,11 @@ def download_params(url: str, filename: str | None, timeout_ms: int | None) -> d
         valid = False
     if not valid:
         raise ValueError("Invalid download URL: require HTTP(S) without credentials")
-    params: dict[str, Any] = {"url": url, "timeoutMs": download_timeout(timeout_ms)}
+    return {**download_file_params(filename, timeout_ms), "url": url}
+
+
+def download_file_params(filename: str | None, timeout_ms: int | None) -> dict[str, Any]:
+    params: dict[str, Any] = {"timeoutMs": download_timeout(timeout_ms)}
     if filename is not None:
         if (not isinstance(filename, str) or not filename or len(filename.encode("utf-8")) > 255
                 or re.search(r'[<>:"/\\|?*\x00-\x1f\x7f]', filename) or filename.endswith((".", " "))

@@ -601,13 +601,13 @@ Pause 与网站策略各一次真实重启；常驻 observer 不变，只有两�
 有界面 `run-8j69VK` 三个关键场景仍 **0/3**，完整原始日志保留、无额外
 前台事件。未盲重跑全套，也未把失败改算通过。仅本地提交，无 PR/推送。
 
-### P10 媒体来源与下载（只读设计，尚未实施）
+### P10 媒体来源与下载（HTTP(S) 图片首片已实现，广义范围继续）
 
-当前先恢复完整 headed 验收。本小节只记录可实施分片，不把媒体或 P10
-标记完成；image、video、audio、canvas、blob/content bytes，以及现有
-Page GUID 路径/取消、系统剪贴板和更广数据导出余项继续保留。
+正式 RPC `downloadMedia`、三 SDK locator helper 和 CLI/MCP generic call
+已接通；能力协商要求 `getInfo.metadata.mediaDownloadsVersion === 1`。
+这只交付 HTTP(S) 图片来源下载，不把媒体或 P10 标记完成。
 
-- 首片建议 `locator.downloadMedia({filename?, timeoutMs?}) -> Download`，
+- 首片提供 `locator.downloadMedia({filename?, timeoutMs?}) -> Download`，
   三 SDK 共用有限 locator 描述、独立媒体能力协商及现有 opaque download
   handle。只接收精确匹配的 `<img>`，取得浏览器已经选择的 HTTP(S)
   `currentSrc` 后发起一次显式 GET；空源、其他类型或协议明确拒绝。不隐式
@@ -619,27 +619,24 @@ Page GUID 路径/取消、系统剪贴板和更广数据导出余项继续保留
   的情况；不能将一个 blob URL 当作一定可下载的完整视频。GSuite 等专用
   导出另需真实格式/认证验收，不直接移植参考 rewrite 的无界 fetch。
 
-内部 seam 应放在原生定位器解析与下载来源绑定之间。当前
-`BrowserDownloads.reserve` 要求 URL 已知；需增加仅内部使用的未解析来源
-预留/绑定入口，复用它的精确 numeric ID、迟到 start 取消和 path/cancel
+内部 seam 位于原生定位器解析与下载来源绑定之间。
+`BrowserDownloads.reserveSource` 在 URL 未知时预留，复用精确 numeric ID、迟到 start 取消和 path/cancel
 归属。不能在 SDK 中先 evaluate 再调用公开 downloadURL，也不能用占位 URL
 绕过校验。SDK 像现有下载 helper 一样只捕获一次 session/turn/epoch，并以
 一次 RPC 返回同一 scope 的 Download；后台在首次 await 前 reserve，容量
 从此刻占用，原始 deadline 覆盖 admission、排队、定位、来源读取/复核及
 原生 start，不能在取得 URL 后重新计时。`BrowserDownloads` 的墙钟 deadline
-和 engine.withPage 的单调钟 deadline 需以当时剩余预算转换，并保留原检查。
+和私有 engine source task 的单调钟 deadline 以当时剩余预算转换，并保留原检查。
 
 可信来源读取不能直接使用公开 locator.evaluate：已检查的 pinned CRX
 0.15.0 / Playwright 1.53 代码会将查询得到的 ElementHandle adopt 到 main
-context，页面可修改该 world 的 getter。最小实现应仿照现有 AI snapshot
+context，页面可修改该 world 的 getter。实现使用固定 runtime 的私有
 adapter，在原生 parser 解析 locator、frame 和 capture ref 后，使用实际
-frame 的 `_utilityContext()`；必要时通过原生 backend node identity adopt
-到同文档 utility context，禁止重新查询替代节点。只开放固定媒体读取函数，
+frame 的 `_utilityContext()`，禁止重新查询替代节点。只开放固定媒体读取函数，
 在该 isolated world 用原生 prototype getter 读取 currentSrc、节点连接状态
 及所属文档，不执行调用者代码；拒绝自定义/main-world selector engines。
-engine 内部短 setup seam 应复用 capture ref 校验和已有 action 队列，不能
-在队列内递归调用公开 browserAction/downloadURL 而形成自等待。当前这些
-私有接缝来自本地固定产物的源码审计，尚未做媒体原生 PoC。
+engine 私有 source task 复用 capture ref 校验和已有 action 队列，不在
+队列内递归调用公开 browserAction/downloadURL；没有开放页面自定义代码。
 
 来源绑定至少包含 attachment、根文档 revision、实际 frame/document 身份
 和精确元素 handle。定位与首次原生 getter 读取应在同一次 renderer 调用
@@ -647,7 +644,7 @@ engine 内部短 setup seam 应复用 capture ref 校验和已有 action 队列�
 明确失败，不自动转而下载新节点。但最后一次读取与 Chrome GET 是跨进程
 操作，无法组成原子事务：契约必须限定为已授权元素的一次 source snapshot，
 不能声称二次比较消除了所有 TOCTOU，也不能保证请求发出时 DOM 仍未变化。
-Chrome downloads 的 HTTP(S) GET 会使用该 hostname 当前 cookies，但它无
+Chrome downloads 的 HTTP(S) GET 使用浏览器下载上下文中的 cookies，但它无
 tab/frame 上下文参数；页面 POST、Authorization、Referer 和分区认证语义
 不能据此宣称等价，需保留失败且不静默换认证路径。初片受限网站模式拒绝。
 
@@ -665,9 +662,35 @@ Blob/Canvas 编码结果，以有界 chunk 读取、总字节/像素上限和真
 扩展页直接 fetch；公开字节结果沿用严格 MIME/base64/byteLength artifact
 校验，下载则沿用精确 ID sink。Canvas 安全错误不能静默改成截图成功。
 
-最小真实验收需包含：main/same-origin/OOPIF/open shadow 和 capture-ref
-定位、srcset/picture 选源、main-world getter/实例属性补丁无影响；同 URL
-双 session 精确 ID 与文件字节、HttpOnly cookies、无 activation/focus/input；
-解析中节点替换/frame 导航/src 改变、队列/解析超时与容量占用、旧 epoch、
-Pause/end、迟到 ID 精确取消和零重复 GET。blob/canvas/video/audio 的完整
-内容与资源释放必须在各后续分片另验，不能由首片通过推定。
+阶段证据 `run-yzlAP6` 为固定 Chromium Headless 的 **6/6**，包含 mandatory
+raw-navigation 和 JS/Python/Go/CLI/MCP 五入口。JS 核验 root、语义 locator、
+open shadow、同源、OOPIF 与嵌套 frame 的 picture/srcset 来源；五入口共十份
+文件独立解码为正确的 2×1 红绿 PNG。页面 prototype/实例 getter 未触发，
+严格性、非图片/空源/不支持协议与跨 session 拒绝通过，observer 连续且
+activation/focus 为空。源码、SDK、host 和调用器的冻结哈希一致。
+
+保留全部服务端记录：六次 JS 下载均为选定资源的一次 GET，非 cross 来源
+携带合成 HttpOnly cookie，localhost OOPIF 来源没有 cookie。这是请求观测，
+不直接证明浏览器的第三方 cookie 设置，也不承诺 frame 分区认证等价。
+此前 `run-lAlw0I` 因“所有来源均带 cookie”断言失败，仍记为 **5/6**。
+
+最终本地完整 `scripts/ci.sh` 通过：扩展/脚本 **663/663**、JS **93**、
+Python **63**、Go 全包及其余 workspace 检查。Windows 使用 Git Bash，并仅
+为该测试进程指定 npm shell；此前默认 cmd 执行 `.sh` 失败日志保留。
+native context lease 清理修复后，固定 Headless `run-FDmPto`
+为 **9/9**，同源码 headed `run-XLWzut` 为 **8/9**：八项媒体均通过，既有
+mandatory raw-navigation 仍超时。两轮生产 extension、SDK、host 与 fixture
+哈希一致，各十七份 PNG 像素、十七次下载 GET 和连续零前台事件已独立核验。
+
+追加五种 capture-ref 路由、旧/移除 ref 拒绝、双 session 同 URL 的不同 ID
+和绝对路径；来源改变、节点替换和 turn end 后均无下载 GET。测试明确在
+真实 native capture 已结算后暂缓结果交付，随后核对原 object 的一次实际
+release；导航场景另以对应 context 的真实销毁事件、不同 documentId 证明
+资源失效，end 等待迟到结果清理后才成功。该注入不等于 native 命令挂起。
+过程轮 `run-cAYlXr` 仍记 **6/9** 失败：fixture 自身的 picture fallback 请求、
+队列中导航自等待及 end 后 SDK 观察重新 attachment 已分别修正，不改失败记录。
+
+媒体定向通过不代表 P09 首帧已修复或完整 headed 套件通过；P09 trace 仍是
+诊断而非生产方案。Page GUID 路径/取消、headed OS 剪贴板、video/audio、
+blob/data/Canvas 内容和其他平台继续未完成。完整契约见
+[媒体下载](../../references/media-downloads.md)。

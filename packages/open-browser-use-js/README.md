@@ -490,6 +490,15 @@ invalidates the handle. A load-state observer is not a response-body wait.
 
 ### Active URL downloads
 
+`locator.downloadMedia({filename?, timeoutMs?})` starts a new HTTP(S) GET from an
+exact HTML image's selected `currentSrc` and returns the same `Download`. It
+requires `mediaDownloadsVersion: 1`; source resolution, queueing and native start
+share one deadline. Frame and open-shadow locators are supported. Page getter
+overrides do not supply the source. Other media types, blob/data and restricted
+website mode are explicitly unsupported in this slice. See the
+[media contract](../../docs/references/media-downloads.md) for source and cleanup
+limits. This is a new GET, not a copy of previously displayed bytes.
+
 `tab.downloadURL` explicitly starts an HTTP(S) GET in Chrome; it requires
 `getInfo().metadata.directDownloadsVersion === 1`. It accepts an optional portable
 basename (up to 255 UTF-8 bytes), never an output directory. Chrome uses

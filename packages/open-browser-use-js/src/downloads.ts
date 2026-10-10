@@ -2,6 +2,7 @@ import type { BrowserUseRequestParams, JsonValue } from "./index.js";
 
 export type OpenBrowserUseDownloadOptions = { timeoutMs?: number };
 export type OpenBrowserUseDownloadURLOptions = OpenBrowserUseDownloadOptions & { filename?: string };
+export type OpenBrowserUseMediaDownloadOptions = OpenBrowserUseDownloadURLOptions;
 
 function validateOptions(options: unknown, keys: string[]): asserts options is Record<string, unknown> {
   if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some(key => !keys.includes(key))) throw new Error("Invalid download options: unexpected field");
@@ -15,11 +16,16 @@ export function downloadTimeout(options: OpenBrowserUseDownloadOptions = {}): nu
 }
 
 export function downloadURLParams(url: string, options: OpenBrowserUseDownloadURLOptions = {}): BrowserUseRequestParams {
-  validateOptions(options, ["timeoutMs", "filename"]);
+  const params = downloadFileParams(options);
   let parsed: URL;
   try { parsed = new URL(url); } catch { throw new Error("Invalid download URL"); }
   if (typeof url !== "string" || !url || Buffer.byteLength(url, "utf8") > 8192 || /[\x00-\x1f\x7f]/.test(url) || url !== url.trim() || !["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Invalid download URL: require HTTP(S) without credentials");
-  const params: BrowserUseRequestParams = { url, timeoutMs: downloadTimeout({ timeoutMs: options.timeoutMs }) };
+  return { ...params, url };
+}
+
+export function downloadFileParams(options: OpenBrowserUseMediaDownloadOptions = {}): BrowserUseRequestParams {
+  validateOptions(options, ["timeoutMs", "filename"]);
+  const params: BrowserUseRequestParams = { timeoutMs: downloadTimeout({ timeoutMs: options.timeoutMs }) };
   if (options.filename !== undefined) {
     const name = options.filename;
     if (typeof name !== "string" || !name || Buffer.byteLength(name, "utf8") > 255 || /[<>:"/\\|?*\x00-\x1f\x7f]/.test(name) || /[. ]$/.test(name) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) throw new Error("Invalid download filename: require a single portable basename");

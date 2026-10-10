@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-11 | Image source downloads（开发版，未发布） | Agent 可通过精确图片 locator 下载浏览器选定的 HTTP(S) 图片，取得独立文件路径并显式取消。 | 三 SDK 和 CLI/MCP 共用原始预算、任务归属与精确下载 ID；隔离页面 getter 补丁，明确拒绝非图片、空源和不支持协议。五入口及 ref/清理专项固定 Headless 9/9、同源码 headed 8/9，媒体八项均通过但原有 raw-navigation 仍失败。每轮十七份 PNG 与真实清理核验；完整本地 CI 通过，含663项扩展/脚本、JS 93、Python 63 和 Go 全包。video/audio/blob/Canvas 未实现，P09 首帧仍未修复，仅本地开发。 |
 | 2026-10-11 | Clipboard（开发版，未发布） | Agent 可通过三 SDK、CLI/MCP 后台读写有限文本、HTML 与 PNG，CLI/MCP 可保存富内容文件且保留已有文件。 | 可信 offscreen 私有通道、原始预算、16 MiB 解码及 48 MiB JSON 限制；取消/恢复不重放写入，未知清理阻断。固定 Headless 内存剪贴板五入口及生命周期 8/8，独立验证实际像素与文件；591 项扩展/脚本、JS 90、Python 59、Go SDK 52 通过。Headed OS 剪贴板未验；本轮完整 headed 29/53，原生首帧停滞另待修复。仅本地开发，未发布或改日常安装。 |
 | 2026-10-11 | Page exports（开发版，未发布） | Agent 可后台导出 PDF 或完整网页 MHTML；CLI/MCP 保存到明确路径并保留已有文件。 | 三 SDK、CLI/MCP 五入口验证实际内容、跨域 frame/资源、大小限制及取消后的精确流关闭；受限模式允许经完整文档检查的 PDF，MHTML 暂不可用。完整浏览器 53/53、扩展/脚本 512 项、JS 82、Python 50 和 Go 全包通过，无新增前台切换。16 MiB 返回上限不代表原生内存上限；外部断开导致的未知 stream 清理仍报失败，仅本地开发。 |
 | 2026-10-11 | Website access（开发版，未发布） | 用户可选择所有网站、仅列出站点或屏蔽列出站点；保存先暂停 Agent，旧任务不会沿用旧权限。 | Exact HTTP(S) origin 规则持久保存，完整 frame 树和原生命令前复核，拒绝不可靠文档及受限模式未经验证的 raw/data 入口。真实 popup、跨域 iframe、重定向、旧输入取消和 worker 重启通过；完整浏览器 49/49、扩展/脚本 472 项通过。默认 all 保持兼容；不是网站网络防火墙，仅本地开发。 |

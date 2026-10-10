@@ -53,6 +53,8 @@ type Client struct {
 	nextID                 int64
 	controlMu              sync.Mutex
 	control                clientControlState
+	mediaDownloadsKnown    bool
+	mediaDownloadsVersion  any
 	directDownloadsKnown   bool
 	directDownloadsVersion any
 	clipboardKnown         bool
@@ -279,6 +281,26 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 		c.controlMu.Unlock()
 		if !supported {
 			return nil, errors.New("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1")
+		}
+	}
+	if method == "downloadMedia" {
+		c.controlMu.Lock()
+		known := c.mediaDownloadsKnown
+		c.controlMu.Unlock()
+		if !known {
+			info, err := c.requestLocked("getInfo", scopedParams(merged, nil), deadline)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.observeControlSupport(info); err != nil {
+				return nil, err
+			}
+		}
+		c.controlMu.Lock()
+		supported := c.mediaDownloadsVersion == float64(1)
+		c.controlMu.Unlock()
+		if !supported {
+			return nil, errors.New("OBU_MEDIA_DOWNLOADS_UNSUPPORTED: extension does not advertise mediaDownloadsVersion 1")
 		}
 	}
 	if method == "exportPage" {

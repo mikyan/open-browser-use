@@ -3,6 +3,8 @@ import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
+import { validateMediaDownload } from "./browser-media-source.js";
+import { MediaContextLifetimes } from "./browser-media-lifetime.js";
 import { BrowserPageExports } from "./browser-page-exports.js";
 import { BrowserClipboard } from "./browser-clipboard.js";
 import { BrowserClipboardBroker } from "./clipboard-broker.js";
@@ -59,7 +61,7 @@ const WEBMCP_CONTENT_SCRIPTS = [
 const PUBLIC_BROWSER_METHODS = new Set([
   "ping", "getInfo", "getControlState", "createTab", "getTabs", "getUserTabs", "getUserHistory", "claimUserTab", "finalizeTabs", "nameSession",
   "attach", "detach", "executeCdp", "browserAction", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool",
-  "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "readClipboardText", "writeClipboardText",
+  "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "readClipboardText", "writeClipboardText",
   "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
   "armNavigationWait", "collectNavigationWait", "cancelNavigationWait",
   "readClipboard", "writeClipboard", "exportPage", "turnEnded", "executeUnhandledCommand"
@@ -584,7 +586,7 @@ class BrowserBackend {
     this.networkWaits = new BrowserNetworkWaits();
     this.navigationWaits = new BrowserNavigationWaits();
     this.directDownloads = new BrowserDownloads({ downloads: chrome.downloads, extensionId: chrome.runtime?.id,
-      validateScope: scope => this.validateTransferScope(scope), assertScope: scope => this.assertTransferScope(scope) });
+      validateScope: scope => this.validateDirectDownloadScope(scope), assertScope: scope => this.assertDirectDownloadScope(scope) });
     this.exportDocumentRevisions = new Map();
     this.pageExports = new BrowserPageExports({
       send: (scope, method, args, options) => this.sendPageExportCommand(scope, method, args, options),
@@ -698,6 +700,14 @@ class BrowserBackend {
           try { return await this.pageExports.within(record, () => this.runControlledRequest(() => handler(record.params, record))); }
           catch (error) { void this.pageExports.cancel(record, error, false).catch(() => {}); throw error; }
         };
+      } else if (method === "downloadMedia") {
+        this[method] = async params => {
+          const request = validateMediaDownload(params);
+          const { locator, ...base } = request;
+          const record = this.directDownloads.reserveSource(base);
+          try { return await this.directDownloads.within(record, record.deadlineAt, () => this.runControlledRequest(() => handler(request, record))); }
+          catch (error) { void this.directDownloads.retire(record).catch(() => {}); throw error; }
+        };
       } else if (method === "downloadURL") {
         this[method] = async params => {
           const record = this.directDownloads.reserve(params);
@@ -770,7 +780,7 @@ class BrowserBackend {
     // These channels can expose origins other than the tab's live documents.
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
     const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait", "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles"];
-    if (unsupported.includes(method) || (method === "browserAction" && params?.action === "diagnostics") || (method === "exportPage" && params?.format === "mhtml"))
+    if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && params?.action === "diagnostics") || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
 
@@ -1099,6 +1109,7 @@ class BrowserBackend {
         directDownloadsVersion: 1,
         pageExportVersion: 1,
         clipboardVersion: 1,
+        mediaDownloadsVersion: 1,
         siteAccess: { version: 1, mode: this.siteAccess.status().mode, restricted: this.siteAccess.restricted, ready: this.siteAccess.status().ready },
         automationControl: await this.getAutomationControlStatus()
       }
@@ -1435,6 +1446,7 @@ class BrowserBackend {
       aroundAction: ({ params, timeoutMs, run }) => this.withRenderingLease({ tabId: params.tabId }, timeoutMs, run, params.action),
       isInternalEvent: (source, method, params) => this.isInternalCdpEvent(source, method, params),
       inputHooks: {
+        prepareMediaCleanup: (target, contextId) => this.prepareMediaCleanup(target, contextId),
         send: (target, method, params, operation) => {
           this.automationControl.assertOpen();
           const token = this.attachmentEpochs.get(target.tabId);
@@ -1669,7 +1681,8 @@ class BrowserBackend {
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
-      const releases = [this.pageExports.invalidateAttachedTab(tabId), this.clipboard.invalidateAttachedTab(tabId)];
+      const releases = [this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
+        this.pageExports.invalidateAttachedTab(tabId), this.clipboard.invalidateAttachedTab(tabId)];
       const results = await Promise.allSettled(releases);
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
@@ -2375,9 +2388,48 @@ class BrowserBackend {
     return this.directDownloads.start(record, scope);
   }
 
+  assertDirectDownloadScope(scope) {
+    this.assertTransferScope(scope);
+    if (!scope.mediaDownload) return;
+    this.assertSiteMethod("downloadMedia", scope);
+    if (scope.documentRevision !== (this.exportDocumentRevisions.get(scope.tabId) ?? 0))
+      throw new Error("OBU_MEDIA_DOCUMENT_CHANGED: media source document changed");
+  }
+
+  async validateDirectDownloadScope(scope) {
+    if (!scope.mediaDownload) return this.validateTransferScope(scope);
+    this.assertDirectDownloadScope(scope);
+    const sourceURL = await this.ownedDocumentSource(scope, "MEDIA");
+    this.assertDirectDownloadScope(scope);
+    if (sourceURL !== scope.sourceURL) throw new Error("OBU_MEDIA_DOCUMENT_CHANGED: media source document changed");
+  }
+
+  async downloadMedia(params, record) {
+    const check = () => this.directDownloads.check(record);
+    check();
+    await this.controlReleases.get(params.tabId);
+    check();
+    await this.requireSessionTab(params, "downloadMedia");
+    check();
+    await this.prepareTransferAttachment(params, record.deadlineAt, { preserveDirectRecord: record, check });
+    check();
+    const documentRevision = this.exportDocumentRevisions.get(params.tabId) ?? 0;
+    const sourceURL = await this.ownedDocumentSource(params, "MEDIA");
+    check();
+    const scope = { ...this.attachmentOwners.get(params.tabId), mediaDownload: true, documentRevision, sourceURL };
+    this.assertDirectDownloadScope(scope);
+    const engine = await this.getBrowserEngine();
+    check();
+    return this.directDownloads.startFromSource(record, scope, options => engine.resolveMediaSource(params, {
+      deadlineAt: performance.now() + Math.max(0, options.deadlineAt - Date.now()),
+      check: async () => { options.check(); await this.directDownloads.validate(record); options.check(); }
+    }));
+  }
+
   invalidatePageExportDocument(tabId) {
     if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId)) return;
     this.exportDocumentRevisions.set(tabId, (this.exportDocumentRevisions.get(tabId) ?? 0) + 1);
+    void this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload).catch(() => {});
     // Initial CRX frame discovery must not cancel an unbound reservation. Once
     // export starts, every root/child document change invalidates the artifact.
     void this.pageExports.invalidateAttachedTab(tabId,
@@ -3165,13 +3217,14 @@ class BrowserBackend {
     // End the rendering lease immediately even in that case.
     this.internalScreencasts.get(tabId)?.cancel?.();
     const downloadsReleased = this.directDownloads.invalidateTab(tabId, preserveDirectRecord);
+    const mediaReleased = this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload);
     const exportsReleased = this.pageExports.invalidateTab(tabId, preserveExportRecord);
     const clipboardReleased = this.clipboard.invalidateTab(tabId, preserveClipboardRecord);
     // A repeated explicit detach must also cancel a reservation intentionally
     // preserved by an earlier owner migration. Reuse the actual native release,
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId);
@@ -3221,7 +3274,8 @@ class BrowserBackend {
         // CRX also detaches on action timeout. Its captured release hook must
         // close exports on this exact attachment before native detach, without
         // cancelling an unbound reservation or a later attachment's work.
-        const releases = [this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
+        const releases = [this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
+          this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
         const results = await Promise.allSettled(releases);
         const failure = results.find(result => result.status === "rejected");
         if (failure) throw failure.reason;
@@ -3230,6 +3284,41 @@ class BrowserBackend {
       },
       detach: () => isCurrent() ? chrome.debugger.detach({ tabId }) : Promise.resolve()
     };
+  }
+
+  prepareMediaCleanup(target, contextId) {
+    if (!target || !Number.isSafeInteger(target.tabId) || target.tabId < 1 || Object.keys(target).some(key => !["tabId", "sessionId"].includes(key)))
+      throw new Error("OBU_MEDIA_CLEANUP_FAILED: invalid native media target");
+    const token = this.attachmentEpochs.get(target.tabId);
+    const original = Object.freeze({ ...target });
+    const check = () => {
+      if (!token || this.attachmentEpochs.get(original.tabId) !== token || !this.attachedTabs.has(original.tabId) ||
+          (original.sessionId !== undefined && !this.childSessionsByTabId.get(original.tabId)?.has(original.sessionId)))
+        throw new Error("OBU_MEDIA_CLEANUP_FAILED: original native media target is unavailable");
+    };
+    check();
+    this.mediaContextLifetimes ??= new MediaContextLifetimes({
+      onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach, onTabRemoved: chrome.tabs.onRemoved
+    });
+    const lifetime = this.mediaContextLifetimes.capture(original, contextId);
+    let closed = false;
+    return Object.freeze({ release: objectId => {
+      if (closed || typeof objectId !== "string" || !objectId || objectId.length > 4096)
+        throw new Error("OBU_MEDIA_CLEANUP_FAILED: invalid native media object");
+      // A native context-destruction event also destroys its remote objects.
+      // Local Playwright cancellation or a replaced attachment is not evidence.
+      if (lifetime.isGone()) return Promise.resolve();
+      check();
+      // Only the private, fixed runtime adapter obtains this closure. The exact
+      // target and attachment remain captured when Pause closes normal commands.
+      return chrome.debugger.sendCommand(original, "Runtime.releaseObject", { objectId }).catch(error => {
+        if (!lifetime.isGone()) throw error;
+      });
+    }, close: () => {
+      if (closed) return;
+      closed = true;
+      lifetime.close();
+    } });
   }
 
   async ensureCursorContentScript(sessionId, tabId) {

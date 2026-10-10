@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ._ai_snapshot import validate_capture_ref
+from ._downloads import OpenBrowserUseDownload, download_file_params
 
 
 def action_options(options: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +138,13 @@ class OpenBrowserUseLocator(LocatorFactory):
 
     def click(self, *, timeout_ms: int | None = None, **options: Any) -> None:
         self._action("click", options, timeout_ms)
+
+    def download_media(self, *, filename: str | None = None, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
+        """Start a new GET from the exact image's selected HTTP(S) source."""
+        if not self._steps:
+            raise ValueError("download_media requires a nonempty locator")
+        return self._tab.browser.client._download(self._tab.id, "downloadMedia",
+            {**download_file_params(filename, timeout_ms), "locator": self._steps})
 
     def dblclick(self, *, timeout_ms: int | None = None, **options: Any) -> None:
         self._action("dblclick", options, timeout_ms)

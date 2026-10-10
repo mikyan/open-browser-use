@@ -433,6 +433,74 @@ headed OS clipboard behavior or desktop focus. The temporary process currently
 uses `--no-sandbox`; no daily browser profile, installed extension or native
 clipboard is touched. See the [contract and limitations](../../docs/references/clipboard.md).
 
+## Image source downloads
+
+The media fixture exercises `locator.downloadMedia` through JS, Python, Go,
+CLI and MCP. It downloads the exact image's selected HTTP(S) source using the
+production utility-world adapter, then checks the file bytes against a synthetic
+two-pixel red/green PNG. `picture`/`srcset`, semantic locators, open shadow roots,
+same-origin, OOPIF and nested frames are covered. Main-world prototype and
+instance getters return a poison URL; neither those getters nor input events
+may run. Unsupported elements/sources, strictness and foreign ownership must
+fail without a download GET.
+
+Build the current host and the separate Go caller, then set
+`OBU_TEST_HOST_BINARY` and `OBU_TEST_GO_MEDIA_BINARY` to their executables:
+
+```sh
+go build -o .tmp/media-host ./cmd/open-browser-use
+go build -o .tmp/go-media-checks ./scripts/browser-integration/go-media-checks
+OBU_TEST_HOST_BINARY=.tmp/media-host \
+OBU_TEST_GO_MEDIA_BINARY=.tmp/go-media-checks \
+OBU_TEST_CASES='^(js|python|go|cli|mcp)-media-downloads$' \
+node scripts/browser-integration/run.mjs
+```
+
+On Windows, use `.exe` outputs and the equivalent PowerShell environment
+assignments. Python must be available on PATH. The runner supplies each caller
+with the endpoint, fixture URL, exclusive output path and this run's download
+directory. The Python/Go helpers do not launch a browser or inspect a real user
+profile. They retain file bytes, SHA-256 and base64 evidence, then cancel the
+download handle and finalize their independent sessions.
+
+`media-js.json`, `media-{python,go,cli,mcp}.json`, the copied callers and
+`media-download-server.json` retain source hosts, GET counts, cookie presence,
+files and source/binary hashes. Cross-frame cookies are observed separately:
+downloads have no tab/frame parameter, and this test does not prove partitioned
+authentication or inspect browser third-party cookie settings.
+
+The phase result `run-yzlAP6` passed six cases, including mandatory raw
+navigation, using the pinned Headless guard enabled by
+`OBU_TEST_MEMORY_CLIPBOARD=1`. Ten PNGs and all recorded hashes were independently
+checked; the continuous observer recorded no activation or window-focus event.
+That guard name comes from clipboard isolation; this media selection performs
+no clipboard operation. This is not headed acceptance or a fix for P09.
+The final selection `OBU_TEST_CASES='media-downloads'` also runs reference,
+lifecycle and navigation checks. With the context-lease fix, `run-FDmPto` passed
+9/9 under that guard; the same production, SDK, host and fixture hashes ran
+headed in `run-XLWzut`: all eight media cases passed, while mandatory raw
+navigation timed out, so the run remains 8/9. Each run retains seventeen PNGs
+with verified red/green pixels and seventeen explicit download GETs. The
+continuous observer recorded no activation or focus event in either run.
+
+References cover root/shadow/same-origin/OOPIF/nested images, stale/removed refs,
+foreign handles and separate files/IDs for the same URL in two sessions. The
+lifecycle fixture deliberately holds delivery of an already settled native
+capture result, changes its source/node, ends the turn, or navigates the exact
+tab. It requires either one completed release of the original object or native
+destruction of that object's exact context, and no extra download GET. This is
+explicit delivery fault injection, not evidence of an unresolved native call.
+The failed process run `run-cAYlXr` remains 6/9. Its fixture interference was
+corrected by distinguishing one renderer fallback load, avoiding a navigation
+queued behind its own held source, and observing the page without SDK
+reattachment after turn end. No failed record was rewritten as passing.
+
+Complete local CI passed with 663 extension/script tests, 93 JS tests, 63 Python
+tests, Go packages and the other workspace checks. These results do not repair
+the headed startup compositor or establish complete Browser Use parity.
+See the [media contract](../../docs/references/media-downloads.md) for unsupported
+video/audio, blob/data and Canvas sources.
+
 ## Native first-frame diagnosis
 
 `node scripts/browser-integration/rendering-probe.mjs` runs the minimal native

@@ -10,7 +10,7 @@ export function downloadTimeout(options = {}) {
     return timeout;
 }
 export function downloadURLParams(url, options = {}) {
-    validateOptions(options, ["timeoutMs", "filename"]);
+    const params = downloadFileParams(options);
     let parsed;
     try {
         parsed = new URL(url);
@@ -20,7 +20,11 @@ export function downloadURLParams(url, options = {}) {
     }
     if (typeof url !== "string" || !url || Buffer.byteLength(url, "utf8") > 8192 || /[\x00-\x1f\x7f]/.test(url) || url !== url.trim() || !["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password)
         throw new Error("Invalid download URL: require HTTP(S) without credentials");
-    const params = { url, timeoutMs: downloadTimeout({ timeoutMs: options.timeoutMs }) };
+    return { ...params, url };
+}
+export function downloadFileParams(options = {}) {
+    validateOptions(options, ["timeoutMs", "filename"]);
+    const params = { timeoutMs: downloadTimeout({ timeoutMs: options.timeoutMs }) };
     if (options.filename !== undefined) {
         const name = options.filename;
         if (typeof name !== "string" || !name || Buffer.byteLength(name, "utf8") > 255 || /[<>:"/\\|?*\x00-\x1f\x7f]/.test(name) || /[. ]$/.test(name) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name))

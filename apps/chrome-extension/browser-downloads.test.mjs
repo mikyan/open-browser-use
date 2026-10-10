@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BrowserDownloads, downloadDeadline, validateDownloadURL } from "./browser-downloads.js";
+import { BrowserDownloads, downloadDeadline, validateDownloadSource, validateDownloadURL } from "./browser-downloads.js";
 
 const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const request = (extra = {}) => ({ session_id: "one", turn_id: "turn", control_epoch: 1, tabId: 7, url: "https://fixture.test/file", ...extra });
+const sourceRequest = (extra = {}) => { const { url: _url, ...params } = request(extra); return params; };
+const scope = record => ({ ...record.params, attachment: {}, docRevision: 1 });
 function fixture(options = {}) {
   let id = 0, current = true;
   const calls = [], items = new Map();
@@ -131,4 +133,252 @@ test("cold setup timeout never starts a later download after admission unblocks"
   await assert.rejects(result, /OBU_DOWNLOAD_TIMEOUT/);
   await env.registry.retire(record); gate.resolve(); await tick();
   assert.deepEqual(env.calls, []);
+});
+
+test("source reservations validate the base request without a placeholder URL and take capacity immediately", async () => {
+  const env = fixture({ maxRecords: 1, now: () => 100 });
+  for (const extra of [{ url: "https://fixture.test/file" }, { locator: {} }, { headers: [] }, { timeoutMs: null }, { control_epoch: 0 }, { filename: "../file" }])
+    assert.throws(() => validateDownloadSource({ ...sourceRequest(), ...extra }));
+  const params = sourceRequest({ filename: "图片.png", timeoutMs: 50 });
+  const record = env.registry.reserveSource(params);
+  params.filename = "changed.png"; params.timeoutMs = 120000;
+  assert.equal(record.params.filename, "图片.png");
+  assert.equal(record.deadlineAt, 150);
+  assert.equal(Object.isFrozen(record.params), true);
+  assert.equal(Object.hasOwn(record.params, "url"), false);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_DOWNLOAD_LIMIT/);
+  assert.throws(() => env.registry.reserve(request()), /OBU_DOWNLOAD_LIMIT/);
+  assert.deepEqual(env.calls, []);
+  await env.registry.invalidateAll();
+});
+
+test("nested admission and source resolution produce one exact-ID handle after actual source cleanup", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest({ filename: "picture.png" }));
+  const disposal = deferred(), entered = deferred();
+  const started = env.registry.within(record, record.deadlineAt, () => env.registry.startFromSource(record, scope(record), async options => {
+    assert.equal(options.deadlineAt, record.deadlineAt);
+    options.check(); entered.resolve();
+    await disposal.promise;
+    return { url: "https://fixture.test/current-picture.png" };
+  }));
+  await entered.promise;
+  assert.deepEqual(env.calls, []);
+  disposal.resolve();
+  const ack = await started;
+  await tick();
+  assert.equal(record.pendingCount, 0);
+  assert.equal(env.registry.records.size, 1);
+  assert.deepEqual(env.calls, [["download", { url: "https://fixture.test/current-picture.png", filename: "picture.png", saveAs: false, conflictAction: "uniquify" }]]);
+  assert.deepEqual(await env.registry.path({ ...record.params, ...ack }), { path: "/downloads/file-1" });
+  await env.registry.invalidateAll();
+});
+
+test("source snapshot validation cannot start non-HTTP, malformed, or ambiguous resolver results", async () => {
+  for (const source of [null, [], "https://fixture.test/file", {}, { url: request().url, extra: true }, { url: "blob:https://fixture.test/id" }, { url: "data:image/png;base64,eA==" }, { url: "https://u:p@fixture.test/file" }, { url: "https://fixture.test/a b" }]) {
+    const env = fixture(), record = env.registry.reserveSource(sourceRequest());
+    await assert.rejects(env.registry.startFromSource(record, scope(record), async () => source));
+    await env.registry.invalidateAll(); await tick();
+    assert.deepEqual(env.calls, []);
+    assert.equal(env.registry.records.size, 0);
+  }
+});
+
+test("source timeout retains the actual resolver and capacity until its native disposal settles", async () => {
+  const env = fixture({ maxRecords: 1 }), record = env.registry.reserveSource(sourceRequest({ timeoutMs: 15 }));
+  const nativeDisposal = deferred(), entered = deferred();
+  const started = assert.rejects(env.registry.startFromSource(record, scope(record), async () => {
+    entered.resolve(); await nativeDisposal.promise; return { url: request().url };
+  }), /OBU_DOWNLOAD_TIMEOUT/);
+  await entered.promise; await started;
+  assert.equal(record.invalid, true);
+  assert.equal(env.registry.records.size, 1);
+  assert.ok(env.registry.controlSnapshot().pending.length > 0);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_DOWNLOAD_LIMIT/);
+  let drained = false;
+  const cleanup = env.registry.invalidateSession("one").then(() => { drained = true; });
+  await tick(); assert.equal(drained, false);
+  nativeDisposal.resolve(); await cleanup; await tick();
+  assert.deepEqual(env.calls, []);
+  assert.equal(env.registry.records.size, 0);
+  assert.deepEqual(env.registry.controlSnapshot().pending, []);
+});
+
+test("canceled unbound admission avoids a detach cycle but retains capacity until the actual admission settles", async () => {
+  const env = fixture({ maxRecords: 1 }), record = env.registry.reserveSource(sourceRequest());
+  const admission = deferred(), entered = deferred(); let resolved = false;
+  const running = assert.rejects(env.registry.within(record, record.deadlineAt, async () => {
+    entered.resolve(); await admission.promise;
+    return env.registry.startFromSource(record, scope(record), async () => { resolved = true; return { url: request().url }; });
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  // The real admission may be waiting for this very cleanup in a cold owner
+  // migration. Cleanup must not await admission, while capacity must retain it.
+  await env.registry.invalidateSession("one"); await running;
+  assert.equal(record.scope, undefined);
+  assert.equal(env.registry.records.size, 1);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_DOWNLOAD_LIMIT/);
+  assert.ok(env.registry.controlSnapshot().pending.length > 0);
+  admission.resolve(); await tick();
+  assert.equal(resolved, false); assert.deepEqual(env.calls, []);
+  assert.equal(env.registry.records.size, 0);
+});
+
+test("end during bound source resolution rejects promptly but drains the actual source before completing", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest());
+  const native = deferred(), entered = deferred();
+  const started = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ check }) => {
+    entered.resolve(); await native.promise; check(); return { url: request().url };
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise; let drained = false;
+  const cleanup = env.registry.invalidateSession("one").then(() => { drained = true; });
+  await started; await tick();
+  assert.equal(drained, false);
+  assert.ok(env.registry.controlSnapshot().pending.length > 0);
+  native.resolve(); await cleanup; await tick();
+  assert.equal(env.registry.records.size, 0); assert.deepEqual(env.calls, []);
+});
+
+test("source resolution and final asynchronous scope validation spend the original total deadline", async () => {
+  let now = 100, validations = 0;
+  const lastScope = deferred(), entered = deferred();
+  const env = fixture({ now: () => now, validateScope: async () => { if (++validations === 2) { entered.resolve(); await lastScope.promise; } } });
+  const record = env.registry.reserveSource(sourceRequest({ timeoutMs: 100 }));
+  const started = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ deadlineAt, check }) => {
+    assert.equal(deadlineAt, 200); now = 190; check(); return { url: request().url };
+  }), /OBU_DOWNLOAD_TIMEOUT/);
+  await entered.promise; now = 201; lastScope.resolve(); await started;
+  await env.registry.invalidateAll(); await tick();
+  assert.deepEqual(env.calls, []);
+  assert.equal(record.deadlineAt, 200);
+  assert.equal(env.registry.records.size, 0);
+});
+
+test("a changed source document cannot publish or begin a download after source resolution", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest());
+  const source = deferred(), entered = deferred();
+  const started = assert.rejects(env.registry.startFromSource(record, scope(record), () => { entered.resolve(); return source.promise; }), /scope changed/);
+  await entered.promise; env.invalidateScope(); source.resolve({ url: request().url });
+  await started; await env.registry.invalidateAll(); await tick();
+  assert.deepEqual(env.calls, []); assert.equal(env.registry.records.size, 0);
+});
+
+test("a source start that times out after native dispatch cancels only its exact late numeric ID", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest({ timeoutMs: 15 }));
+  const native = deferred(), cancellation = deferred(), entered = deferred();
+  env.downloads.download = options => { env.calls.push(["download", options]); entered.resolve(); return native.promise; };
+  env.downloads.cancel = id => { env.calls.push(["cancel", id]); return cancellation.promise; };
+  const started = assert.rejects(env.registry.startFromSource(record, scope(record), async () => ({ url: request().url })), /OBU_DOWNLOAD_TIMEOUT/);
+  await entered.promise; await started;
+  let drained = false; const cleanup = env.registry.invalidateAll().then(() => { drained = true; });
+  native.resolve(84); await tick();
+  assert.deepEqual(env.calls.at(-1), ["cancel", 84]); assert.equal(drained, false);
+  cancellation.resolve(); await cleanup; await tick();
+  assert.equal(env.registry.records.size, 0);
+});
+
+test("concurrent starts are fenced before ownership validation can await", async () => {
+  for (const fromSource of [false, true]) {
+    const validation = deferred(), entered = deferred();
+    const env = fixture({ validateScope: async () => { entered.resolve(); await validation.promise; } });
+    const record = fromSource ? env.registry.reserveSource(sourceRequest()) : env.registry.reserve(request());
+    let resolutions = 0;
+    const start = () => fromSource ? env.registry.startFromSource(record, scope(record), async () => { resolutions++; return { url: request().url }; }) : env.registry.start(record, scope(record));
+    const first = start(); await entered.promise;
+    await assert.rejects(start(), /OBU_DOWNLOAD_EXPIRED/);
+    validation.resolve(); await first;
+    assert.equal(resolutions, fromSource ? 1 : 0);
+    assert.equal(env.calls.filter(([method]) => method === "download").length, 1);
+    await env.registry.invalidateAll();
+  }
+});
+
+test("only the exact unbound source survives migration; a bound source is canceled even when named for preservation", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest()), other = env.registry.reserveSource(sourceRequest());
+  await env.registry.invalidateTab(7, record);
+  env.registry.check(record); assert.throws(() => env.registry.check(other), /OBU_DOWNLOAD_EXPIRED/);
+  const source = deferred(), entered = deferred();
+  const started = assert.rejects(env.registry.startFromSource(record, scope(record), () => { entered.resolve(); return source.promise; }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  const cleanup = env.registry.invalidateTab(7, record);
+  await started;
+  source.resolve({ url: request().url }); await cleanup; await tick();
+  assert.deepEqual(env.calls, []); assert.equal(env.registry.records.size, 0);
+});
+
+test("same source URL in separate sessions retains exact native identity and old scope validation", async () => {
+  const env = fixture();
+  const a = env.registry.reserveSource(sourceRequest());
+  const b = env.registry.reserveSource(sourceRequest({ session_id: "two", tabId: 8 }));
+  const one = await env.registry.startFromSource(a, scope(a), async () => ({ url: request().url }));
+  const two = await env.registry.startFromSource(b, scope(b), async () => ({ url: request().url }));
+  assert.notEqual(one.downloadId, two.downloadId);
+  assert.deepEqual(await env.registry.path({ ...a.params, ...one }), { path: "/downloads/file-1" });
+  assert.deepEqual(await env.registry.path({ ...b.params, ...two }), { path: "/downloads/file-2" });
+  await assert.rejects(env.registry.path({ ...b.params, ...one }), /OBU_DOWNLOAD_EXPIRED/);
+  await env.registry.invalidateAll();
+});
+
+test("failed native source disposal stays bounded and only explicit lifecycle cleanup retries that handle", async () => {
+  const env = fixture({ maxRecords: 1 }), record = env.registry.reserveSource(sourceRequest());
+  let resolutions = 0, retries = 0, release = false;
+  const failure = Object.assign(new Error("OBU_MEDIA_CLEANUP_FAILED: exact handle disposal failed"), {
+    mediaCleanupFailed: true,
+    async retryMediaCleanup() { retries++; if (!release) throw new Error("same handle still unavailable"); }
+  });
+  await assert.rejects(env.registry.startFromSource(record, scope(record), async () => { resolutions++; throw failure; }), /OBU_MEDIA_CLEANUP_FAILED/);
+  await tick();
+  // A wrapper rejecting the same RPC must not turn into an automatic retry.
+  await assert.rejects(env.registry.retire(record), /OBU_MEDIA_CLEANUP_FAILED/);
+  assert.equal(retries, 0);
+  assert.equal(env.registry.records.size, 1);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_DOWNLOAD_LIMIT/);
+  await assert.rejects(env.registry.invalidateAll(), /OBU_DOWNLOAD_CLEANUP_FAILED/);
+  assert.equal(retries, 1); assert.equal(env.registry.records.size, 1);
+  release = true;
+  await env.registry.invalidateAttachedTab(7); await tick();
+  assert.equal(retries, 2); assert.equal(resolutions, 1);
+  assert.equal(env.registry.records.size, 0); assert.deepEqual(env.calls, []);
+});
+
+test("a pending cleanup retry stays visible and holds capacity until actual handle disposal settles", async () => {
+  const env = fixture({ maxRecords: 1 }), record = env.registry.reserveSource(sourceRequest());
+  const disposal = deferred(), entered = deferred();
+  const failure = Object.assign(new Error("OBU_MEDIA_CLEANUP_FAILED"), {
+    mediaCleanupFailed: true,
+    retryMediaCleanup() { entered.resolve(); return disposal.promise; }
+  });
+  await assert.rejects(env.registry.startFromSource(record, scope(record), async () => { throw failure; }), /OBU_MEDIA_CLEANUP_FAILED/);
+  await tick(); let drained = false;
+  const cleanup = env.registry.invalidateSession("one").then(() => { drained = true; });
+  await entered.promise;
+  assert.equal(drained, false);
+  assert.ok(env.registry.controlSnapshot().pending.length > 0);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_DOWNLOAD_LIMIT/);
+  disposal.resolve(); await cleanup; await tick();
+  assert.equal(env.registry.records.size, 0);
+  assert.deepEqual(env.registry.controlSnapshot().pending, []);
+});
+
+test("nested admission preserves the original source failure instead of masking it with retirement", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest());
+  const original = new Error("OBU_MEDIA_UNSUPPORTED: fixture source is not an HTTP image");
+  const pending = env.registry.within(record, record.deadlineAt, () =>
+    env.registry.startFromSource(record, scope(record), async () => { throw original; }));
+  await assert.rejects(pending, error => error === original);
+  await env.registry.invalidateAll(); await tick();
+  assert.equal(env.registry.records.size, 0); assert.deepEqual(env.calls, []);
+});
+
+test("an earlier external cancellation keeps precedence over a late source failure", async () => {
+  const env = fixture(), record = env.registry.reserveSource(sourceRequest());
+  const entered = deferred(), source = deferred();
+  const original = new Error("OBU_MEDIA_UNSUPPORTED: late fixture source error");
+  const pending = assert.rejects(env.registry.within(record, record.deadlineAt, () =>
+    env.registry.startFromSource(record, scope(record), async () => { entered.resolve(); await source.promise; throw original; })), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  const cleanup = env.registry.invalidateSession("one");
+  await pending;
+  source.resolve(); await cleanup; await tick();
+  assert.equal(record.error, undefined);
+  assert.equal(env.registry.records.size, 0); assert.deepEqual(env.calls, []);
 });

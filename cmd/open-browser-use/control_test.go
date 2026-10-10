@@ -37,6 +37,7 @@ type controlFixture struct {
 	withoutNetworkWait     bool
 	withoutNavigationWait  bool
 	withoutDirectDownloads bool
+	withoutMediaDownloads  bool
 }
 
 func (fixture *controlFixture) methods() []string {
@@ -98,6 +99,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 						}
 						if !fixture.withoutNavigationWait {
 							result.(map[string]any)["metadata"].(map[string]any)["navigationWaitVersion"] = 1
+						}
+						if !fixture.withoutMediaDownloads {
+							result.(map[string]any)["metadata"].(map[string]any)["mediaDownloadsVersion"] = 1
 						}
 						if !fixture.withoutDirectDownloads {
 							result.(map[string]any)["metadata"].(map[string]any)["directDownloadsVersion"] = 1
@@ -202,7 +206,7 @@ func TestCLIControlLostEndRequiresExplicitRecovery(t *testing.T) {
 }
 
 func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			for _, timeout := range []time.Duration{1500 * time.Millisecond, 1050 * time.Millisecond} {
 				t.Run(timeout.String(), func(t *testing.T) {
@@ -230,7 +234,7 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 }
 
 func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
-	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		for _, invalid := range []any{nil, float64(0), float64(-1), 1.5, float64(120001), "1000"} {
 			if err := boundCLIActionDeadline(method, map[string]any{"timeoutMs": invalid}, time.Now().Add(20*time.Second)); err == nil {
 				t.Fatalf("accepted %s timeout %v", method, invalid)
@@ -244,7 +248,7 @@ func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
 }
 
 func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			f := &controlFixture{epoch: 34, delayInfo: 250 * time.Millisecond}
 			options := f.start(t)
@@ -260,7 +264,7 @@ func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
 }
 
 func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
-	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		f := &controlFixture{epoch: 34}
 		options := f.start(t)
 		options.timeout = 10 * time.Second
@@ -310,6 +314,39 @@ func TestCLIDirectDownloadsCapabilityAndFixedRawBinding(t *testing.T) {
 		}
 		if budget, ok := result["timeoutMs"].(float64); !ok || budget <= 0 || budget > 1000 {
 			t.Fatal("download request budget changed", result)
+		}
+	}
+}
+
+func TestCLIMediaDownloadCapability(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		for _, unsupported := range []bool{false, true} {
+			f := &controlFixture{epoch: 36, withoutMediaDownloads: unsupported}
+			options := f.start(t)
+			options.timeout = 5 * time.Second
+			params := map[string]any{"tabId": 1, "locator": []any{map[string]any{"kind": "css", "selector": "img"}}, "timeoutMs": 1000}
+			if manual {
+				params["control_epoch"], params["session_id"], params["turn_id"] = 36, "fixture", "fixed"
+			}
+			response, err := invokeWithOptions(options, "downloadMedia", params)
+			if unsupported {
+				if err == nil || !strings.Contains(err.Error(), "OBU_MEDIA_DOWNLOADS_UNSUPPORTED") {
+					t.Fatalf("unsupported media: %v", err)
+				}
+				for _, sent := range f.methods() {
+					if sent == "downloadMedia" {
+						t.Fatal("unsupported media was sent")
+					}
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				result := response["result"].(map[string]any)
+				if result["control_epoch"] != float64(36) || result["timeoutMs"].(float64) > 1000 {
+					t.Fatal(result)
+				}
+			}
 		}
 	}
 }

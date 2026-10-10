@@ -439,6 +439,45 @@ startScreencast 成功也不能证明首个原生 capture frame 已存在；窗�
 无法和跨进程 GET 原子化，blob/Canvas/video/audio 等继续作为独立验收
 范围；本轮未宣称媒体已实现或完整能力已对齐。
 
+### Media downloads：HTTP(S) 图片首片
+
+正式 `downloadMedia` RPC 和三 SDK locator helper 已接入；CLI/MCP 使用同一
+generic call。独立版本协商、单 RPC 固定 scope 与原始 deadline 贯穿来源
+定位和原生下载。固定 runtime 在 utility world 读取精确图片的 currentSrc，
+绕过页面 getter 补丁；不猜测 src、不触发点击、不接受调用者 URL。下载
+继续使用 Chrome 返回的精确 ID，真实 source/handle 清理不能被超时替代。
+
+阶段 Headless 验收 `run-yzlAP6` 6/6，包括 mandatory raw-navigation 与五个
+公开入口。root、语义、shadow、同源/OOPIF/嵌套 frame 的选源和十份实际
+PNG 像素通过独立核验，源码及输入哈希一致，同一 observer 零激活/焦点。
+保留完整请求记录，cross 来源没有 cookie，其他 JS 来源携带合成 HttpOnly
+cookie；这不证明浏览器第三方设置，也不承诺分区认证等价。此前错误地
+要求所有来源带 cookie 的过程轮保留为 5/6 失败。JS 93、Python 63 和 Go
+全包阶段测试通过。
+
+最终修复以原生 context 生命周期确认已销毁来源对象，保留对仍存活对象的
+精确 release。最终本地完整 `scripts/ci.sh` 通过：扩展/脚本 663/663、
+JS 93、Python 63、Go 全包及其余 workspace 检查。Windows 的 npm shell
+仅在测试进程切到 Git Bash，默认 cmd 执行 `.sh` 的过程失败保留。
+固定 Headless `run-FDmPto` 9/9，同源码
+headed `run-XLWzut` 8/9，仅 mandatory raw-navigation 仍失败，八项媒体均
+通过。每轮十七份 PNG 和十七次下载 GET、五类 ref 路由、双 session ID/路径
+隔离、节点/来源变化及结束/导航清理均核验，冻结输入哈希一致，连续 observer
+零激活/焦点。生命周期测试明确暂缓已结算 native capture 的结果交付，验证
+迟到对象精确释放或原生 context 销毁，未将注入称为普通浏览器时延。过程轮
+6/9 失败原样保留，修正 fixture 干扰后独立重跑。
+
+首片未涵盖 video/audio、blob/data、Canvas 或已呈现字节
+导出；重新 GET 不是 DOM 与网络的原子事务。独立 P09 trace 已证明启动
+窗口 child surface 激活但 copy request 未完成，secondary 有真实 copy/帧；
+没有据此修复生产渲染，Headless 媒体成功不替代 headed 完整回归。仅本地
+开发，无 PR、推送或日常安装变更。
+
+最终本地扩展包 43 个成员通过 ZIP CRC 和解压目录逐字节核验；原生代码
+哈希与两轮浏览器实测一致。除明确声明的 staged background/manifest 外，
+其余生产文件与两轮冻结副本一致，包内没有测试 hook。CI 产生的平台 PNG
+压缩差异已还原后重新打包，不涉及生产逻辑变更。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

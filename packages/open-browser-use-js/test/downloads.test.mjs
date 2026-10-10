@@ -10,7 +10,7 @@ import { join, dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OpenBrowserUseBrowser, OpenBrowserUseClient, encodeFrame } from "../dist/index.js";
 
-const info = { metadata: { turnLifecycleVersion: 1, directDownloadsVersion: 1 } };
+const info = { metadata: { turnLifecycleVersion: 1, directDownloadsVersion: 1, mediaDownloadsVersion: 1 } };
 const state = epoch => ({ controlEpoch: epoch, nextTurnId: `turn-${epoch}`, lifecycleVersion: 1, closing: false });
 async function fixture(t, handler, native = false) {
   const root = await realpath(tmpdir()), directory = await mkdtemp(join(root, "obu-nav-"));
@@ -50,6 +50,44 @@ async function fixture(t, handler, native = false) {
   return { client, calls, tab: new OpenBrowserUseBrowser({ client }).tab(9) };
 }
 
+test("media download sends one frozen locator, uses its own capability and returns a scoped Download", async t => {
+  const f = await fixture(t, (req, reply) => {
+    if (req.method === "getInfo") return reply(info);
+    if (req.method === "getControlState") return reply(state(7));
+    assert.equal(req.params.control_epoch, 7);
+    if (req.method === "downloadMedia") {
+      assert.deepEqual(req.params.locator, [{ kind: "frame", selector: "#child" }, { kind: "css", selector: "img" }]);
+      assert.equal(req.params.filename, "image.png");
+      assert.equal(req.params.url, undefined);
+      return reply({ downloadId: "media" });
+    }
+    assert.equal(req.params.downloadId, "media");
+    reply(req.method === "downloadPath" ? { path: "C:\\Downloads\\image.png" } : { cancelled: true });
+  });
+  const options = { filename: "image.png", timeoutMs: 1000 };
+  const pending = f.tab.frameLocator("#child").locator("img").downloadMedia(options);
+  options.filename = "changed.png";
+  const result = await pending;
+  assert.equal(await result.path(), "C:\\Downloads\\image.png");
+  await result.cancel();
+  assert.equal(f.calls.filter(x => x.method === "downloadMedia").length, 1);
+  assert.ok(!f.calls.some(x => x.method === "browserAction" || x.method === "downloadURL"));
+});
+
+test("media download rejects missing capability and includes discovery in the original budget", async t => {
+  for (const version of [undefined, true, 2]) {
+    const f = await fixture(t, (req, reply) => reply(req.method === "getInfo" ? { metadata: { ...info.metadata, mediaDownloadsVersion: version } } : state(7)));
+    await assert.rejects(f.tab.locator("img").downloadMedia(), /OBU_MEDIA_DOWNLOADS_UNSUPPORTED/);
+    await assert.rejects(f.client.request("downloadMedia", { tabId: 9, locator: [{kind: "css", selector: "img"}], control_epoch: 7 }), /OBU_MEDIA_DOWNLOADS_UNSUPPORTED/);
+    assert.ok(!f.calls.some(x => x.method === "downloadMedia"));
+  }
+  const f = await fixture(t, (req, reply) => req.method === "getInfo" ? void setTimeout(() => reply(info), 250) : reply(state(7)));
+  await assert.rejects(f.tab.locator("img").downloadMedia({timeoutMs: 100}), /timed out/);
+  assert.ok(!f.calls.some(x => x.method === "downloadMedia"));
+  assert.throws(() => f.tab.playwright.downloadMedia(), /nonempty locator/);
+  assert.throws(() => f.tab.locator("img").downloadMedia({filename: "../x"}), /filename/);
+});
+
 for (const native of [false, true]) test(`direct download path retry and cancel through ${native ? "real host" : "IPC"}`, { skip: native && !process.env.OBU_TEST_HOST_BINARY }, async t => {
   let reads = 0;
   const f = await fixture(t, (req, reply, fail) => {
@@ -75,7 +113,7 @@ for (const native of [false, true]) test(`direct download path retry and cancel 
   assert.equal(f.calls.filter(req => req.method === "downloadURL").length, 1);
 });
 
-for (const method of ["downloadURL", "waitForDownload"]) test(`${method} late ACK handle retains its original epoch`, async t => {
+for (const method of ["downloadURL", "downloadMedia", "waitForDownload"]) test(`${method} late ACK handle retains its original epoch`, async t => {
   let finish;
   const f = await fixture(t, (req, reply, fail) => {
     if (req.method === "getInfo") return reply(info);
@@ -84,7 +122,7 @@ for (const method of ["downloadURL", "waitForDownload"]) test(`${method} late AC
     if (req.method === "turnEnded") return reply({ ...state(8), endedTurnId: "initial" });
     assert.equal(req.params.control_epoch, 7); assert.equal(req.params.turn_id, "initial"); fail("OBU_STALE_CONTROL_EPOCH");
   });
-  const pending = method === "downloadURL" ? f.tab.downloadURL("https://fixture.test/file") : f.tab.waitForDownload();
+  const pending = method === "downloadURL" ? f.tab.downloadURL("https://fixture.test/file") : method === "downloadMedia" ? f.tab.locator("img").downloadMedia() : f.tab.waitForDownload();
   while (!finish) await delay(1);
   await f.client.turnEnded(); finish(); const download = await pending;
   await assert.rejects(download.path(), /STALE_CONTROL_EPOCH/); await assert.rejects(download.cancel(), /STALE_CONTROL_EPOCH/);
@@ -124,7 +162,7 @@ test("raw download deadlines reject null and NaN instead of silently defaulting"
     assert.ok(["getInfo", "getControlState"].includes(req.method));
     reply(req.method === "getInfo" ? info : state(7));
   });
-  for (const method of ["downloadURL", "downloadPath", "cancelDownload"]) {
+  for (const method of ["downloadURL", "downloadMedia", "downloadPath", "cancelDownload"]) {
     for (const timeoutMs of [null, NaN, 0, true, 1.5]) await assert.rejects(f.client.request(method, { downloadId: "d", tabId: 9, url: "https://fixture.test/", timeoutMs }), /timeoutMs/);
   }
 });

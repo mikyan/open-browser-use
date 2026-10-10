@@ -78,13 +78,47 @@ prove that this capture prerequisite exists. See [screencast startup](https://gi
 [capture-region requirements](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/frame_sinks/compositor_frame_sink_support.cc#L1367)
 and [refresh behavior](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/frame_sinks/video_capture/frame_sink_video_capturer_impl.cc#L657).
 
+## Trace: child surface exists, capture does not complete
+
+The fixed-configuration run `render-trace-gQvPvp` retained `content`, `viz`,
+`gpu.capture` and compositor traces with stage clock markers. The trace contains
+115,167 events, reports no data loss, and has SHA-256
+`6a42fda25e11f433366eb23b1bd2bf244a331dd8c7a96c0369d0d405bd90767a`.
+It disproves the initial hypothesis that the startup target never activates a
+child Surface:
+
+| Observed stage | Startup window | Secondary unfocused window |
+| --- | --- | --- |
+| Child Surface | `FrameSinkId(7, 7)` commits and activates; capture region is 1,877 × 1,748. | `FrameSinkId(13, 7)` commits and activates. |
+| Capture | `Capture` and `CopyOutputRequest` begin, without a terminal event before tracing stops. | First `Capture` completes in 215.872 ms; two frames are delivered and acknowledged. |
+| Display/copy service during the native test interval | No `Display::DrawAndSwap`, `Surface::RequestCopyOfOutput` or Skia `CopyOutput` event. | Root `FrameSinkId(0, 2)` activates; Display drawing, Surface copy dispatch and Skia copying occur. |
+| Public observation | First-frame wait expires at 10,003.2 ms; no input follows. | First frame arrives in 236.1 ms; one trusted click and a valid PNG follow. |
+
+The pinned implementation [queues the capture request](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/frame_sinks/video_capture/frame_sink_video_capturer_impl.cc#L1270)
+on [frame-sink support](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/frame_sinks/compositor_frame_sink_support.cc#L1447).
+[Surface aggregation takes that request](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/display/surface_aggregator.cc#L2083)
+for [Surface copy dispatch](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/surfaces/surface.cc#L948).
+The evidence therefore narrows this run's stall to after child-frame activation,
+before root Display aggregation services the copy. It does not identify which
+[DisplayScheduler drawing prerequisite](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/viz/service/display/display_scheduler.cc#L602)
+was unsatisfied. Initial native window creation precedes the trace, so absence
+of a recorded startup root-frame event is not proof that no root ever existed.
+
+The startup scenario remains failed. All observed extension-native promises,
+including stop/detach, settled; the trace stream closed and the browser root
+exited normally. This does not claim that the uncompleted internal Viz capture
+had already settled. The event ledger contains only the secondary window's
+exact initial tab activation and no focus events, within the stated listener
+coverage. This sequential, instrumented run is neither a production fix nor
+evidence about OS foreground state, locked desktops or other Chromium builds.
+
 ## Remaining diagnosis
 
 These runs record a first-window rendering difference; they
 do not yet identify a single Chromium root cause or justify moving user tabs
-to another window. A useful next comparison retains actual HWND state together
-with `content`, `viz` and `gpu.capture` traces, correlating the target's
-`Surface::ActivateFrame`, compositor-frame submission and capture delivery.
+to another window. A useful next comparison begins tracing before native
+window creation and retains the startup UI compositor and DisplayScheduler
+state: visibility, output-surface loss, missing root frame and pending damage.
 Any proposed initialization change must then pass the ordinary headed suite
 with the same strict activation/focus ledger and real screenshot/input checks.
 Do not replace that evidence with arbitrary delays, focus restoration, a

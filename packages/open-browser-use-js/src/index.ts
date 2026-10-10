@@ -1,10 +1,10 @@
 import { clipboardMethods, clipboardParams, validateClipboardResult, OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
 export { OpenBrowserUseClipboard } from "./clipboard.js";
 export type { OpenBrowserUseClipboardOptions, OpenBrowserUseClipboardItem, OpenBrowserUseClipboardEntry } from "./clipboard.js";
-import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams, downloadFileParams, type OpenBrowserUseMediaDownloadOptions, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { pageExportParams, validatePageExport, type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
 export { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePDFOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
-export { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+export { OpenBrowserUseDownload, type OpenBrowserUseMediaDownloadOptions, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, navigationWaitAck, navigationWaitParams, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 import { Socket, createConnection } from "node:net";
@@ -96,7 +96,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 };
 type ControlBinding = { controlEpoch: number | null; closing: boolean; nextTurnId?: string };
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
@@ -114,6 +114,7 @@ export class OpenBrowserUseClient {
   #controlInitialization: Promise<ControlBinding> | null = null;
   #controlRevision = 0;
   #directDownloadsVersion: unknown = undefined;
+  #mediaDownloadsVersion: unknown = undefined;
   #pageExportVersion: unknown = undefined;
   #clipboardVersion: unknown = undefined;
   #navigationWaitVersion: unknown = undefined;
@@ -230,6 +231,10 @@ export class OpenBrowserUseClient {
       if (this.#directDownloadsVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#directDownloadsVersion !== 1) throw new Error("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1");
     }
+    if (method === "downloadMedia") {
+      if (this.#mediaDownloadsVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+      if (this.#mediaDownloadsVersion !== 1) throw new Error("OBU_MEDIA_DOWNLOADS_UNSUPPORTED: extension does not advertise mediaDownloadsVersion 1");
+    }
     if (method === "exportPage") {
       if (this.#pageExportVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#pageExportVersion !== 1) throw new Error("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1");
@@ -252,7 +257,7 @@ export class OpenBrowserUseClient {
     return result;
   }
 
-  async [downloadSymbol](tabId: number, method: "downloadURL" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload> {
+  async [downloadSymbol](tabId: number, method: "downloadURL" | "downloadMedia" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload> {
     const timeoutMs = params.timeoutMs as number;
     let binding: BrowserUseRequestParams | undefined;
     const value = await this.#request(method, { ...params, tabId }, { timeoutMs: timeoutMs + 1000 }, metadata => {
@@ -350,7 +355,7 @@ export class OpenBrowserUseClient {
     if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
     if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
-      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
+      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
       if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested))) throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
       const available = Math.floor(remaining - 1000);
       if (available < 1) throw new Error(`Open Browser Use request timed out before ${method} could start`);
@@ -377,6 +382,7 @@ export class OpenBrowserUseClient {
       this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
     }
     const result = await promise;
+    if (method === "getInfo") this.#mediaDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.mediaDownloadsVersion ?? null : null;
     if (method === "getInfo") this.#directDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.directDownloadsVersion ?? null : null;
     if (method === "getInfo") this.#clipboardVersion = isObject(result) && isObject(result.metadata) ? result.metadata.clipboardVersion ?? null : null;
     if (method === "getInfo") this.#pageExportVersion = isObject(result) && isObject(result.metadata) ? result.metadata.pageExportVersion ?? null : null;
@@ -804,6 +810,11 @@ export class OpenBrowserUseLocator {
     return (await this.tab.browser.client.browserAction(this.tab.id, action, {
       locator: this.steps, args: actionArgs(options), timeoutMs: options.timeoutMs
     })).value;
+  }
+
+  downloadMedia(options: OpenBrowserUseMediaDownloadOptions = {}): Promise<OpenBrowserUseDownload> {
+    if (!this.steps.length) throw new Error("downloadMedia requires a nonempty locator");
+    return this.tab.browser.client[downloadSymbol](this.tab.id, "downloadMedia", { ...downloadFileParams(options), locator: [...this.steps] as JsonValue[] });
   }
 
   async click(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("click", options); }

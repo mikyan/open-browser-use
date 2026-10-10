@@ -233,7 +233,7 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `armNetworkWait`、`collectNetworkWait`、`cancelNetworkWait`、
   `webmcp_list_tools`、`webmcp_invoke_tool`、
   `waitForFileChooser`、`setFileChooserFiles`、`waitForDownload`、
-  `downloadURL`、`downloadPath`、`cancelDownload`、`readClipboardText`、`writeClipboardText`、
+  `downloadURL`、`downloadMedia`、`downloadPath`、`cancelDownload`、`readClipboardText`、`writeClipboardText`、
   `readClipboard`、`writeClipboard`、`turnEnded`。
 - `getInfo.metadata.turnLifecycleVersion=1` 协商持久 `control_epoch`；只允许
   `ping`、`getInfo`、`getControlState` 在控制周期外调用。结束会先持久化失效旧
@@ -302,6 +302,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   16 MiB，至多四项未完成工作且每 tab 一项；挂起 admission 仍占容量。
   MHTML 在受限网站模式拒绝，PDF 复核完整 frame 树。SDK 返回统一字节对象，
   CLI/MCP 在验证后原子创建新文件，详见 [page exports](references/page-exports.md)。
+- `mediaDownloadsVersion=1` 为有限 locator 提供 `downloadMedia`，首片取精确
+  HTML 图片已选定的 HTTP(S) `currentSrc`，发起新的原生 GET 并复用下载
+  handle/path/cancel。固定 CRX adapter 在真实 frame 的 utility world 读取
+  原生 getter，保留节点/文档并复核，实际原生句柄释放完成后才返回来源。
+  解析前预留下载容量，原始 deadline 包含排队、来源和 GET，取消不重放。
+  详见 [media downloads](references/media-downloads.md)。
 - `clipboardVersion=1` 保留四个剪贴板 RPC，支持有限的文本、HTML 和 PNG。
   `BrowserClipboard` 管全局单项 admission、scope、deadline 与真实结算；
   broker 通过 live offscreen context 和原生 target nonce 验证私有 Port。

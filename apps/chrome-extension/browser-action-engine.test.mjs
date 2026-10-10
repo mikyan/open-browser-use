@@ -343,6 +343,61 @@ function fixture(methods = {}) {
 
 const pageSetupParams = { session_id: "test-session", turn_id: "test-turn", control_epoch: 1, tabId: 42 };
 
+const mediaParams = { ...pageSetupParams, locator: [{ kind: "css", selector: "img" }], timeoutMs: 1000 };
+const mediaOptions = check => ({ deadlineAt: performance.now() + 1000, check: check ?? (async () => {}) });
+
+test("media source requires pre-admitted exact attachment and cannot reattach or enter ordinary authorization", async () => {
+  const f = aiFixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  assert.throws(() => engine.resolveMediaSource(mediaParams, mediaOptions()), /OBU_MEDIA_SOURCE_CHANGED/);
+  await engine.attach(42);
+  engine.authorize = async () => assert.fail("source check must not recursively enter backend ownership cleanup");
+  let guards = 0, checks = 0;
+  f.runtime.assertOpenBrowserUseSelector = (value, restricted) => { assert.equal(value, "img"); assert.equal(restricted, true); guards++; };
+  f.runtime.readMediaSource = async (_locator, { check }) => { await check(); return { url: "https://image.test/source" }; };
+  assert.deepEqual(await engine.resolveMediaSource(mediaParams, mediaOptions(() => { checks++; })), { url: "https://image.test/source" });
+  assert.ok(checks > 1); assert.equal(guards, 1); assert.equal(f.calls.some(call => call[0] === "detach"), false);
+});
+
+test("media source queue and drain retain actual source cleanup after its caller has expired", async () => {
+  const f = aiFixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime }); await engine.attach(42);
+  let entered, release, valid = true, settled = false, nextRan = false;
+  const started = new Promise(resolve => { entered = resolve; });
+  f.runtime.readMediaSource = async (_locator, { check }) => {
+    entered(); await new Promise(resolve => { release = resolve; }); await check(); return { url: "https://image.test/source" };
+  };
+  const source = engine.resolveMediaSource(mediaParams, mediaOptions(() => { if (!valid) throw new Error("OBU_DOWNLOAD_EXPIRED"); }));
+  const rejected = assert.rejects(source, /OBU_DOWNLOAD_EXPIRED/); source.finally(() => { settled = true; }).catch(() => {});
+  await started; valid = false;
+  assert.ok(engine.controlSnapshot().pending.includes(source));
+  const next = engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 1000 }, () => { nextRan = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false); assert.equal(nextRan, false);
+  release(); await rejected; await next; assert.equal(nextRan, true);
+  assert.equal(f.calls.some(call => call[0] === "detach"), false);
+});
+
+test("media source checks frame observation, capture refs and exact attachment after every native await", async () => {
+  for (const invalidate of ["frame", "attachment", "capture"]) {
+    const f = aiFixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+    const capture = (await engine.dispatch(request("snapshotAI", { control_epoch: 1 }))).value;
+    f.runtime.readMediaSource = async (_locator, { check }) => {
+      if (invalidate === "frame") f.page.emit("framenavigated", {});
+      if (invalidate === "capture") (await engine.pages.get(42)).observation.begin();
+      if (invalidate === "attachment") engine.pages.set(42, Promise.resolve({ page: f.page }));
+      await check(); assert.fail("invalid source must not return");
+    };
+    await assert.rejects(engine.resolveMediaSource({ ...mediaParams, locator: refLocator(capture) }, mediaOptions()), /OBU_MEDIA_SOURCE_CHANGED|OBU_CAPTURE_EXPIRED/);
+    assert.equal(f.calls.some(call => call[0] === "detach"), false);
+  }
+});
+
+test("media queued deadline fails without invoking native source or detaching the existing Page", async () => {
+  const f = aiFixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime }); await engine.attach(42);
+  f.runtime.readMediaSource = async () => assert.fail("expired source must not execute");
+  await assert.rejects(engine.resolveMediaSource(mediaParams, { ...mediaOptions(), deadlineAt: performance.now() - 1 }), /OBU_DOWNLOAD_TIMEOUT/);
+  assert.ok(engine.pages.has(42)); assert.equal(f.calls.some(call => call[0] === "detach"), false);
+});
+
 test("short Page setup allows observer-specific timeout and cancellation errors", async () => {
   const f = fixture();
   const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });

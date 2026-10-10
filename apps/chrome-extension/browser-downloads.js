@@ -12,20 +12,29 @@ export function downloadDeadline(params, now = Date.now()) {
   return now + value;
 }
 
-export function validateDownloadURL(params) {
-  if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("downloadURL requires an object");
-  for (const key of Object.keys(params)) if (![...scopeKeys, "tabId", "url", "filename", "timeoutMs"].includes(key)) throw new Error(`downloadURL does not support ${key}`);
+function validateRequest(params, source) {
+  const name = source ? "download source" : "downloadURL";
+  if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error(`${name} requires an object`);
+  for (const key of Object.keys(params)) if (![...scopeKeys, "tabId", "filename", "timeoutMs", ...(source ? [] : ["url"])].includes(key)) throw new Error(`${name} does not support ${key}`);
   for (const key of ["session_id", "turn_id"]) if (typeof params[key] !== "string" || !params[key] || size(params[key]) > 4096) throw new Error(`${key} must be nonempty and at most 4096 UTF-8 bytes`);
   if (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1) throw new Error("control_epoch must be a positive safe integer");
   if (!Number.isSafeInteger(params.tabId) || params.tabId < 0) throw new Error("tabId must be a nonnegative safe integer");
-  if (typeof params.url !== "string" || !params.url || size(params.url) > 8192 || params.url.trim() !== params.url || /[\x00-\x20\x7f]/.test(params.url)) throw new Error("url must be an absolute HTTP(S) URL of at most 8192 UTF-8 bytes without whitespace or controls");
-  let url; try { url = new URL(params.url); } catch { throw new Error("url must be an absolute HTTP(S) URL"); }
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("url must use HTTP(S) without embedded credentials");
-  const name = params.filename;
-  if (name !== undefined && (typeof name !== "string" || !name || size(name) > 255 || /[<>:"/\\|?*\x00-\x1f\x7f]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name))) throw new Error("filename must be a safe single basename of at most 255 UTF-8 bytes");
+  if (!source) validateURL(params.url);
+  const filename = params.filename;
+  if (filename !== undefined && (typeof filename !== "string" || !filename || size(filename) > 255 || /[<>:"/\\|?*\x00-\x1f\x7f]/.test(filename) || /[. ]$/.test(filename) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(filename))) throw new Error("filename must be a safe single basename of at most 255 UTF-8 bytes");
   downloadDeadline(params);
   return Object.freeze({ ...params });
 }
+
+function validateURL(value) {
+  if (typeof value !== "string" || !value || size(value) > 8192 || value.trim() !== value || /[\x00-\x20\x7f]/.test(value)) throw new Error("url must be an absolute HTTP(S) URL of at most 8192 UTF-8 bytes without whitespace or controls");
+  let url; try { url = new URL(value); } catch { throw new Error("url must be an absolute HTTP(S) URL"); }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("url must use HTTP(S) without embedded credentials");
+  return value;
+}
+
+export function validateDownloadURL(params) { return validateRequest(params, false); }
+export function validateDownloadSource(params) { return validateRequest(params, true); }
 
 export class BrowserDownloads {
   constructor({ downloads, extensionId, validateScope, assertScope = () => {}, now = () => Date.now(), pollMs = 100, maxRecords = 128 } = {}) {
@@ -35,9 +44,18 @@ export class BrowserDownloads {
   }
 
   reserve(request) {
-    const params = validateDownloadURL(request);
+    return this.reserveRecord(validateDownloadURL(request), false);
+  }
+
+  // Internal unresolved-source seam. Locator validation belongs to the engine;
+  // no placeholder URL or caller-provided native node handle is accepted here.
+  reserveSource(request) {
+    return this.reserveRecord(validateDownloadSource(request), true);
+  }
+
+  reserveRecord(params, unresolvedSource) {
     if (this.records.size >= this.maxRecords) throw new Error("OBU_DOWNLOAD_LIMIT: direct download capacity reached");
-    const record = { params, downloadId: crypto.randomUUID(), deadlineAt: downloadDeadline(params, this.now()), invalid: false, cancellationListeners: new Set() };
+    const record = { params, downloadId: crypto.randomUUID(), deadlineAt: downloadDeadline(params, this.now()), invalid: false, cancellationListeners: new Set(), unresolvedSource, pendingCount: 0, cleanupComplete: false, started: false };
     this.records.set(record.downloadId, record);
     return record;
   }
@@ -45,7 +63,7 @@ export class BrowserDownloads {
   has(id) { return this.records.has(id); }
 
   check(record) {
-    if (record.invalid || this.records.get(record.downloadId) !== record) throw expired();
+    if (record.invalid || this.records.get(record.downloadId) !== record) throw record.error ?? expired();
     if (record.scope) this.assertScope(record.scope);
   }
 
@@ -63,10 +81,26 @@ export class BrowserDownloads {
     this.check(record);
   }
 
-  track(promise) {
+  track(record, promise) {
+    record.pendingCount += 1;
     this.operations.add(promise);
-    promise.then(() => this.operations.delete(promise), () => this.operations.delete(promise));
+    const settled = () => {
+      this.operations.delete(promise);
+      record.pendingCount -= 1;
+      this.retireSettled(record);
+    };
+    promise.then(settled, settled);
     return promise;
+  }
+
+  retireSettled(record) {
+    if (record.invalid && record.cleanupComplete && record.pendingCount === 0 && this.records.get(record.downloadId) === record)
+      this.records.delete(record.downloadId);
+  }
+
+  checkStart(record) {
+    this.check(record);
+    if (this.now() >= record.deadlineAt) throw timeout();
   }
 
   // The outer deadline never substitutes for actual native settlement in the
@@ -78,8 +112,8 @@ export class BrowserDownloads {
     let timer, cancel;
     try {
       const value = await Promise.race([
-        Promise.resolve().then(() => { this.check(record); if (deadlineAt <= this.now()) throw timeout(); return operation(); }),
-        new Promise((_, reject) => { cancel = () => reject(expired()); record.cancellationListeners.add(cancel); }),
+        this.track(record, Promise.resolve().then(() => { this.check(record); if (deadlineAt <= this.now()) throw timeout(); return operation(); })),
+        new Promise((_, reject) => { cancel = () => reject(record.error ?? expired()); record.cancellationListeners.add(cancel); }),
         new Promise((_, reject) => { timer = setTimeout(() => reject(timeout()), remaining); })
       ]);
       this.check(record);
@@ -89,23 +123,64 @@ export class BrowserDownloads {
   }
 
   async start(record, scope) {
-    this.check(record);
-    if (record.startPromise || scopeKeys.some(key => scope[key] !== record.params[key]) || scope.tabId !== record.params.tabId) throw expired();
+    this.beginStart(record, scope, false);
+    return this.within(record, record.deadlineAt, () => this.startNative(record, record.params.url));
+  }
+
+  beginStart(record, scope, fromSource) {
+    this.checkStart(record);
+    if (record.started || record.unresolvedSource !== fromSource || !scope || scopeKeys.some(key => scope[key] !== record.params[key]) || scope.tabId !== record.params.tabId) throw expired();
+    // Fence concurrent starts before any ownership inspection can await.
+    record.started = true;
     record.scope = Object.freeze({ ...scope });
-    return this.within(record, record.deadlineAt, async () => {
-      await this.validate(record);
-      if (this.now() >= record.deadlineAt) throw timeout();
-      if (!this.downloads?.download) throw new Error("OBU_DOWNLOAD_UNAVAILABLE: native downloads API is unavailable");
-      const options = { url: record.params.url, saveAs: false, conflictAction: "uniquify", ...(record.params.filename === undefined ? {} : { filename: record.params.filename }) };
-      record.startPromise = this.track(Promise.resolve(this.downloads.download(options)).then(id => {
-        if (!Number.isSafeInteger(id) || id < 0) throw new Error("OBU_DOWNLOAD_FAILED: invalid native download ID");
-        record.nativeId = id;
-        return id;
-      }));
-      await record.startPromise;
-      await this.validate(record);
-      return { downloadId: record.downloadId };
-    });
+  }
+
+  async startFromSource(record, scope, resolveSource) {
+    if (typeof resolveSource !== "function") throw new Error("download source resolver must be a function");
+    this.beginStart(record, scope, true);
+    try {
+      return await this.within(record, record.deadlineAt, async () => {
+        await this.validate(record);
+        this.checkStart(record);
+        // This must be the resolver's ACTUAL Promise, including native work and
+        // handle disposal, never its caller-facing timeout/cancellation race.
+        record.sourcePromise = this.track(record, Promise.resolve().then(() => {
+          this.checkStart(record);
+          return resolveSource({ check: () => this.checkStart(record), deadlineAt: record.deadlineAt });
+        }).catch(error => {
+          // The trusted resolver distinguishes a source failure with successful
+          // disposal from an unresolved exact handle cleanup failure.
+          if (error?.mediaCleanupFailed === true) record.sourceCleanupError = error;
+          throw error;
+        }));
+        const source = await record.sourcePromise;
+        this.checkStart(record);
+        if (!source || typeof source !== "object" || Array.isArray(source) || Object.keys(source).length !== 1 || !Object.hasOwn(source, "url")) throw new Error("OBU_DOWNLOAD_SOURCE_INVALID: resolver must return one URL snapshot");
+        record.sourceURL = validateURL(source.url);
+        // The immutable URL is an authorized source snapshot. It is not an
+        // atomic transaction with subsequent DOM changes or the Chrome GET.
+        return this.startNative(record, record.sourceURL);
+      });
+    } catch (error) {
+      void this.retire(record, { error }).catch(() => {});
+      throw error;
+    }
+  }
+
+  async startNative(record, url) {
+    await this.validate(record);
+    this.checkStart(record);
+    if (!this.downloads?.download) throw new Error("OBU_DOWNLOAD_UNAVAILABLE: native downloads API is unavailable");
+    const options = { url, saveAs: false, conflictAction: "uniquify", ...(record.params.filename === undefined ? {} : { filename: record.params.filename }) };
+    record.startPromise = this.track(record, Promise.resolve(this.downloads.download(options)).then(id => {
+      if (!Number.isSafeInteger(id) || id < 0) throw new Error("OBU_DOWNLOAD_FAILED: invalid native download ID");
+      record.nativeId = id;
+      return id;
+    }));
+    await record.startPromise;
+    await this.validate(record);
+    this.checkStart(record);
+    return { downloadId: record.downloadId };
   }
 
   async path(params, deadlineAt = downloadDeadline(params, this.now())) {
@@ -114,7 +189,7 @@ export class BrowserDownloads {
       while (true) {
         await this.validate(record);
         if (this.now() >= deadlineAt) throw timeout();
-        const items = await this.track(Promise.resolve(this.downloads.search({ id: record.nativeId })));
+        const items = await this.track(record, Promise.resolve(this.downloads.search({ id: record.nativeId })));
         await this.validate(record);
         const item = items?.length === 1 && items[0];
         if (!item || item.id !== record.nativeId || (this.extensionId && item.byExtensionId !== this.extensionId)) throw new Error("OBU_DOWNLOAD_NOT_FOUND: exact extension-created download is unavailable");
@@ -144,8 +219,10 @@ export class BrowserDownloads {
       return { cancelled: true };
     }).then(result => {
       this.check(record);
-      this.records.delete(record.downloadId);
+      record.invalid = true;
+      record.cleanupComplete = true;
       for (const cancel of record.cancellationListeners) cancel();
+      this.retireSettled(record);
       return result;
     });
   }
@@ -153,22 +230,39 @@ export class BrowserDownloads {
   cancelNative(record) {
     if (record.cancelled || record.nativeId === undefined) return Promise.resolve();
     if (record.cancelPromise) return record.cancelPromise;
-    const pending = this.track(Promise.resolve().then(() => this.downloads.cancel(record.nativeId)).then(() => { record.cancelled = true; }));
+    const pending = this.track(record, Promise.resolve().then(() => this.downloads.cancel(record.nativeId)).then(() => { record.cancelled = true; }));
     record.cancelPromise = pending;
     pending.finally(() => { if (record.cancelPromise === pending) record.cancelPromise = null; }).catch(() => {});
     return pending;
   }
 
-  retire(record) {
+  retire(record, { retrySourceCleanup = false, error } = {}) {
     if (this.records.get(record.downloadId) !== record) return Promise.resolve();
+    // A nested source failure must reach the outer admission deadline race.
+    // Once external cancellation wins, a late resolver error cannot replace it.
+    if (!record.invalid && error !== undefined) record.error = error;
     record.invalid = true;
     for (const cancel of record.cancellationListeners) cancel();
     if (record.cleanup) return record.cleanup;
-    const cleanup = this.track((async () => {
+    const cleanup = this.track(record, (async () => {
+      // Source resolution is bound work and includes exact native handle
+      // disposal. Unbound admission is retained for capacity/controlSnapshot,
+      // but not awaited here: it may itself be waiting for this detach barrier.
+      await record.sourcePromise?.catch(() => {});
+      if (record.sourceCleanupError) {
+        const failure = record.sourceCleanupError;
+        // Ordinary RPC rejection must not silently retry a failed native
+        // disposal. Explicit lifecycle cleanup may retry that exact handle;
+        // it must never repeat source resolution or start a new download.
+        if (!retrySourceCleanup || typeof failure.retryMediaCleanup !== "function") throw failure;
+        await this.track(record, Promise.resolve().then(() => failure.retryMediaCleanup()));
+        if (record.sourceCleanupError === failure) record.sourceCleanupError = null;
+      }
       // Rejected start created no ID. A still-pending start stays in the drain.
       await record.startPromise?.catch(() => {});
       await this.cancelNative(record);
-      if (this.records.get(record.downloadId) === record) this.records.delete(record.downloadId);
+      record.cleanupComplete = true;
+      this.retireSettled(record);
     })());
     record.cleanup = cleanup;
     cleanup.finally(() => { if (record.cleanup === cleanup) record.cleanup = null; }).catch(() => {});
@@ -176,7 +270,7 @@ export class BrowserDownloads {
   }
 
   invalidate(predicate) {
-    const pending = [...this.records.values()].filter(predicate).map(record => this.retire(record));
+    const pending = [...this.records.values()].filter(predicate).map(record => this.retire(record, { retrySourceCleanup: true }));
     const cleanup = Promise.allSettled(pending).then(results => {
       const failed = results.find(result => result.status === "rejected");
       if (failed) throw new Error(`OBU_DOWNLOAD_CLEANUP_FAILED: ${String(failed.reason?.message ?? failed.reason)}`);
@@ -185,7 +279,7 @@ export class BrowserDownloads {
     return cleanup;
   }
   invalidateTab(tabId, preserveRecord = null) { return this.invalidate(record => record.params.tabId === tabId && (record !== preserveRecord || !!record.scope)); }
-  invalidateAttachedTab(tabId) { return this.invalidate(record => record.params.tabId === tabId && !!record.scope && !record.invalid); }
+  invalidateAttachedTab(tabId) { return this.invalidate(record => record.params.tabId === tabId && !!record.scope); }
   invalidateSession(sessionId) { return this.invalidate(record => record.params.session_id === sessionId); }
   invalidateAll() { return this.invalidate(() => true); }
   controlSnapshot() { return { tabIds: [...new Set([...this.records.values()].map(record => record.params.tabId))], pending: [...this.operations] }; }

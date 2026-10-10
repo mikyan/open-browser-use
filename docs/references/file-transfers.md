@@ -161,7 +161,8 @@ Text and rich clipboard helpers now have a separate [contract and isolated
 acceptance](clipboard.md). A fresh browser profile does not isolate the operating
 system clipboard, so this headed suite does not read or overwrite it. PDF/MHTML
 exports also have their own [contract and native acceptance](page-exports.md).
-Directory upload, page-triggered download paths, media and specialized document
+Exact image-locator HTTP(S) downloads have a separate [media contract](media-downloads.md).
+Directory upload, page-triggered download paths, broader media and specialized document
 exports, browser policy/prompt behavior, and direct locator upload still need
 broader product and end-to-end coverage; these slices do not claim complete P10
 parity.
