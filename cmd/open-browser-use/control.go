@@ -30,11 +30,12 @@ func newBeginTurnCommand() *cobra.Command {
 // A submission owns its turn and epoch before waiting for the transport. Ends
 // invalidate queued submissions; they never silently move to the next turn.
 type cliControlSnapshot struct {
-	session, turn string
-	version       int // -1: unknown, 0: legacy, 1: epoch protocol
-	epoch         int64
-	generation    uint64
-	deadline      time.Time // populated only on queued MCP submissions
+	session, turn        string
+	version              int // -1: unknown, 0: legacy, 1: epoch protocol
+	epoch                int64
+	generation           uint64
+	deadline             time.Time // populated only on queued MCP submissions
+	networkWaitSupported bool
 }
 
 type cliControl struct {
@@ -91,7 +92,7 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	if err != nil {
 		return nil, err
 	}
-	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" {
+	if cliActionBudget(method) {
 		requested := float64(10_000)
 		if value, exists := params["timeoutMs"]; exists {
 			requested, _ = value.(float64)
@@ -160,6 +161,25 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			params["control_epoch"] = captured.epoch
 		}
 	}
+	if cliNetworkWaitMethod(method) {
+		if manual {
+			// A raw CLI handle supplies its original session/turn/epoch across
+			// processes, but still negotiates this extension's network contract.
+			infoResponse, err := sendCLIRequest(conn, "cli-network-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
+		}
+		if !captured.networkWaitSupported {
+			return nil, errors.New("OBU_NETWORK_WAIT_UNSUPPORTED: extension requires networkWaitVersion 1")
+		}
+	}
 	if err := boundCLIActionDeadline(method, params, deadline); err != nil {
 		return nil, err
 	}
@@ -189,12 +209,20 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	return response, nil
 }
 
+func cliNetworkWaitMethod(method string) bool {
+	return method == "armNetworkWait" || method == "collectNetworkWait" || method == "cancelNetworkWait"
+}
+
+func cliActionBudget(method string) bool {
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait"
+}
+
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		return errors.New("request timed out before sending")
 	}
-	if method != "browserAction" && method != "waitForFileChooser" && method != "waitForDownload" {
+	if !cliActionBudget(method) {
 		return nil
 	}
 	requested := float64(10_000)
@@ -242,6 +270,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 		return captured, err
 	}
 	metadata, _ := info["metadata"].(map[string]any)
+	captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
 	version, exists := metadata["turnLifecycleVersion"]
 	if !exists {
 		captured.version = 0

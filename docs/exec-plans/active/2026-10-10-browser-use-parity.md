@@ -243,3 +243,45 @@ claim 后操作、外部任务拒绝和结束释放；它不替代原生 window.
   SDK、Go executable、host 与正式 fixture 哈希匹配，skill 包 6 文件匹配源码。
 - 仅保留本地提交与安装包，不推送、不提 PR。Popup ownership、原生创建
   激活、两阶段网络等待、其他平台及完整 Codex 对照仍未完成，目标保持 active。
+
+## 网络等待：当前实现切片
+
+上一片 `38d35a3` 已提交且工作树干净，31 项正式浏览器测试通过，属于已验证进展。
+本片按 `network-waits-design.md` 实施 request/response 的 ready ACK 协议：
+
+- backend 在首次 await 之前验证和预留有界 waiter，冷 engine attachment 和
+  短注册阶段共用动作队列，之后 listener/collect 不占队列。所有设置与等待
+  消耗 arm 的原 deadline；匹配事件在异步归属复核前同步选定，不扫描历史。
+- waiter 保存精确 session/turn/epoch/tab/attachment，结束、暂停、外部 detach、
+  移组、关闭和重启取消旧记录。内部 raw→CRX 迁移只释放已绑定旧 Page 的
+  记录，新 arm 的未绑定预留仍需通过 generation、deadline 和归属复核。
+- JS/Python/Go handle 保留 arm 实际提交元数据；CLI/MCP 通用 call 提供相同
+  三阶段流程。CLI 跨进程需显式保留相同 session/turn/epoch。仅 arm 收紧
+  网络操作 deadline，collect/cancel 不续期；旧扩展明确不支持。
+- 验证真实 cold main/OOPIF、headers/body 时序、HTTP 错误/redirect、精确匹配、
+  历史事件拒绝、终态读取、资源上限及取消；五个公开入口都需实际触发且
+  服务端计数为一次。保留既有 AI refs、页面操作、暂停、光标和前台不变回归。
+
+完成后再更新协议、SDK/skill、矩阵、history 与本地交付包；无推送或 PR。
+
+### 网络等待切片结果
+
+- 两阶段 API、三种 SDK 与 CLI/MCP 已落生产。真实测试发现默认定时器被绑定
+  到 registry 导致浏览器 `Illegal invocation`；改用包装调用并补原生 receiver
+  约束回归。迟到 setup 清理受 phase/generation 限定，不能取消排队前驱或后继。
+- Windows Chromium 156 `run-CbeZgJ` 36/36，活动 tab 事件为空。五入口各自冷
+  arm 后触发一次可信点击并读取事件；正常请求的服务端计数均为一次。main/
+  OOPIF、headers/body gate、redirect/503、历史拒绝、重复与迟到读取、16 条
+  保留终态上限、end/detach/转交/close/worker restart/Pause 均通过。
+- 连接在 headers 前被关闭的 fixture 观察到一次点击、一次 fetch、三次传输
+  尝试。测试分别保存这些计数，response 仍必须超时；不把浏览器网络层行为
+  混同为 Agent 重放。修复验收退出时最后一条通知写入已关闭 stdin 的竞态。
+- 扩展/构建 282/282、JS 61/61、Python 36/36、Go 全包通过；SDK 测试包含
+  真实 host。短 discovery/attach 预算、早于 ACK 的事件、30 秒 TTL 和 session/
+  global 上限由确定性单元测试覆盖，没有将其描述为完整浏览器实测。
+- 背景截图已查看，中文、AI 光标、点击圈和蓝色目标框保留。协议、SDK/skill、
+  架构、质量与矩阵同步；该片仅本地开发，不推送或 PR。Popup、导航等待、
+  网站策略、更多平台与完整同组 Codex 比较继续留在 active 目标中。
+- 本地扩展 ZIP 的 29 个文件逐字节匹配 unpacked；19 个生产 JS/JSON 文件、
+  JS/Python SDK、Go caller/host 和 fixture 与完整验收哈希一致，skill 包的
+  6 个文件匹配源码。没有重新加载用户正在使用的扩展。

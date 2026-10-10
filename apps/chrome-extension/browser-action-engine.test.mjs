@@ -310,6 +310,76 @@ function fixture(methods = {}) {
   return { calls, page, app, runtime };
 }
 
+const pageSetupParams = { session_id: "test-session", turn_id: "test-turn", control_epoch: 1, tabId: 42 };
+
+test("short Page setup shares the action attachment and releases its queue before event collection", async () => {
+  const events = new EventEmitter(); let attaches = 0;
+  const f = fixture({ click: async () => events.emit("response", "real event placeholder") });
+  f.page.on = events.on.bind(events); f.page.off = events.off.bind(events);
+  f.app.attach = async () => { attaches++; return f.page; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  let event;
+  const ready = await engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 1000 }, async ({ page, entry, check, remainingMs }) => {
+    assert.equal(page, entry.page); await check(); assert.ok(remainingMs() > 0);
+    event = new Promise(resolve => page.on("response", resolve));
+    return "ready";
+  });
+  assert.equal(ready, "ready");
+  await engine.dispatch(request("click", { locator }));
+  assert.equal(await event, "real event placeholder"); assert.equal(attaches, 1);
+});
+
+test("queued Page setup expiry cannot cancel a predecessor or register a late listener", async () => {
+  let entered, release;
+  const started = new Promise(resolve => { entered = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  const f = fixture({ click: async () => { entered(); await blocked; } });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const click = engine.dispatch(request("click", { locator })); await started;
+  let registered = false;
+  await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 15 }, () => { registered = true; }), /TIMEOUT/);
+  assert.ok(!f.calls.some(call => call[0] === "detach"));
+  release(); await click; await Promise.allSettled(engine.controlSnapshot().pending);
+  assert.equal(registered, false);
+});
+
+test("late setup attachment is cleaned without registering or detaching a successor", async () => {
+  let release; let attaches = 0, registered = 0;
+  const f = fixture();
+  f.app.attach = async () => { if (++attaches === 1) await new Promise(resolve => { release = resolve; }); return f.page; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 15 }, () => { registered++; }), /TIMEOUT/);
+  const successor = engine.withPage(pageSetupParams, { deadlineAt: performance.now() + 1000 }, () => { registered++; return "new setup"; });
+  release();
+  assert.equal(await successor, "new setup"); assert.equal(attaches, 2); assert.equal(registered, 1);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+});
+
+test("setup deadline checked after native completion cleans its attachment even before the timer runs", async t => {
+  let now = 0, registered = false;
+  t.mock.method(performance, "now", () => now);
+  const f = fixture();
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, onAttached: () => { now = 11; } });
+  await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: 10 }, () => { registered = true; }), /TIMEOUT/);
+  await Promise.allSettled(engine.controlSnapshot().pending);
+  assert.equal(registered, false);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+  assert.equal(engine.pages.size, 0);
+});
+
+test("a setup callback's deadline failure still cleans up when it beats the engine timer", async t => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const f = fixture();
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.withPage(pageSetupParams, { deadlineAt: 10 }, () => {
+    now = 11;
+    throw new Error("OBU_NETWORK_WAIT_TIMEOUT: registry setup expired first");
+  }), /TIMEOUT/);
+  await Promise.allSettled(engine.controlSnapshot().pending);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+});
+
 test("dispatch uses actual locator method contract and keeps response arrays and YAML", async () => {
   const f = fixture({ click: async () => undefined, allInnerTexts: async () => ["one", "two"], ariaSnapshot: async () => '- button "Submit"' });
   const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });

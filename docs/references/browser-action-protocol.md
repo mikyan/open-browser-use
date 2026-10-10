@@ -263,10 +263,105 @@ restart discards the capture; an old `captureId` fails with
 sessions cannot query a former owner's records. A capture ID is an identity
 token, not authorization; ordinary tab ownership and control checks still apply.
 
-Event-triggered network waits and streaming diagnostic subscriptions remain
-unimplemented. In particular, this snapshot action must not be described as
-`waitForRequest` or `waitForResponse`; a correct waiter cannot hold the same action
-queue needed by its triggering click.
+Diagnostics remains a snapshot API. For a future request or response, use the
+independent network wait RPCs below; they do not scan this recorder's history.
+Streaming diagnostic subscriptions are not implemented.
+
+## Network request and response waits
+
+Support is advertised by `getInfo.metadata.networkWaitVersion === 1`, independently
+of `browserActionProtocolVersion` and `engineInfo`. These are separate RPC methods,
+not `browserAction` actions. SDKs and CLI/MCP reject an older extension with
+`OBU_NETWORK_WAIT_UNSUPPORTED`; they never substitute diagnostics polling.
+
+Use this order: **arm and await ready → trigger the page action → collect**.
+Arm briefly uses the tab's action queue to authorize, attach the shared Playwright
+Page and register its listener. The ready acknowledgement proves registration is
+complete. The pending listener and collect do not hold that action queue, but a
+blocking Python/Go/CLI/MCP collect can occupy the channel needed to send a trigger.
+Do not collect first. Cancel the handle when abandoning the operation.
+
+All three methods require the original `session_id`, `turn_id`, `control_epoch`
+and `tabId`. The two IDs are nonempty strings of at most 4096 UTF-8 bytes;
+`control_epoch` is a positive safe integer and `tabId` a nonnegative safe integer.
+SDK handles retain arm's submitted scope even if an end succeeds before its ACK.
+
+| Method | Additional params | Result |
+| --- | --- | --- |
+| `armNetworkWait` | `event`: `request` or `response`; `match`; optional `timeoutMs` | `{waiterId, remainingMs}` after listener registration |
+| `collectNetworkWait` | `waiterId` | First matching event's bounded metadata, or the saved terminal error |
+| `cancelNetworkWait` | `waiterId` | `{}`; releases the record without changing the page |
+
+`waiterId` is an opaque nonempty string of at most 128 UTF-8 bytes. `remainingMs`
+is the positive remaining arm budget at acknowledgement, rounded up to whole
+milliseconds; it is not a fresh timeout. Match fields are:
+
+| Field | Constraint |
+| --- | --- |
+| `url` | Required nonempty string, at most 4096 UTF-8 bytes |
+| `urlMatch` | Optional `exact` (default) or literal `contains` |
+| `method` | Optional nonempty string, at most 128 UTF-8 bytes; exact, case-preserving match |
+| `status` | Optional integer 100–599; response waits only |
+
+Unknown fields, callbacks and regex conditions are rejected. Matching uses the
+full native values before display truncation. Only events delivered after
+registration qualify. A request that began earlier can have a qualifying response
+after registration. A response means headers/status arrived, not body completion;
+HTTP error statuses can match, while a connection failure may never emit response.
+
+The collect result is a plain object, without the `{value, engine}` envelope:
+
+```json
+{"event":"response","requestId":"request-1","url":"https://example.test/api/save","method":"POST","resourceType":"fetch","frameUrl":"https://example.test/","status":201,"statusText":"Created"}
+```
+
+Required fields are `event`, `requestId`, `url`, `method` and `resourceType`;
+response results also require `status`. Optional fields are `frameUrl`,
+`redirectedFrom`, `statusText` (response only) and `truncated`. Native response
+records supply `statusText`, including the empty string. IDs are attachment-local
+and at most 128 bytes. URL/frame URL fields are at most 4096 bytes, method/resource
+type 128, status text 1024, and the whole serialized result 16 KiB. Truncation sets
+`truncated:true`. Headers, cookies, post data and bodies are not returned.
+
+Arm's `timeoutMs` defaults to 10000 and accepts integers 1–120000. Discovery,
+negotiation, connection, client/backend queues and cold attachment consume the
+original budget. SDK wrappers reserve an additional 1000 ms for the RPC response;
+raw requests and CLI/MCP use the smaller of their transport budget and this
+operation budget plus that reserve. The final wire timeout is reduced after
+setup; no arm is sent when less than 1 ms of operation time remains.
+
+The first matching candidate must arrive before the original deadline. Its
+ownership validation has a separate bounded 10-second budget; a later candidate
+cannot replace it. Collect also revalidates ownership before and after waiting,
+with bounded 10-second checks. These checks can delay delivery beyond the network
+deadline but cannot extend the event matching window. SDK `result` has an
+independent read timeout, default 120000 ms; cancel defaults to 10000 ms. Both
+accept 1–120000 ms and add the same 1000 ms RPC reserve. A shorter read timeout
+does not renew, replay or automatically cancel the backend waiter.
+
+Matched, timed-out and failed records remain readable for 30 seconds from
+settlement, including after the original arm deadline; repeated collect returns
+the retained result/error. Cancel removes the record immediately and is idempotent
+for an unknown handle after ordinary control/ownership checks. Reserved, pending
+and retained records all count toward limits of 16 per tab, 32 per session and
+128 globally. New arms fail instead of evicting valid records.
+
+Errors use the ordinary JSON-RPC error envelope. Stable network prefixes are
+`OBU_NETWORK_WAIT_TIMEOUT`, `OBU_NETWORK_WAIT_EXPIRED`, `OBU_NETWORK_WAIT_LIMIT`,
+`OBU_NETWORK_WAIT_FAILED` and the client capability error
+`OBU_NETWORK_WAIT_UNSUPPORTED`. Ordinary Pause, stale-epoch and ownership failures
+can precede these. Invalid or foreign handles cannot expose another owner's data.
+End/finalize, Pause, detach, tab closure, group/window ownership changes and worker
+restart invalidate pending and retained waits. Waiters are not persisted; an
+ordinary navigation within the same authorized Page attachment can still be the
+event's trigger. Session IDs and waiter IDs are routing identities, not credentials.
+
+JS exposes `tab.expectRequest/expectResponse(match, options)` and
+`handle.result()/cancel()`. Python uses `expect_request/expect_response`;
+Go uses `ExpectRequest/ExpectResponse` and `Result/Cancel`. The Playwright facades
+expose the same helpers. BeginTurn does not rebind an old handle, and no failure
+automatically re-arms or replays input. See [network wait workflows and acceptance
+criteria](network-waits-design.md) for SDK, CLI and MCP examples.
 
 ## Build and adapter boundaries
 

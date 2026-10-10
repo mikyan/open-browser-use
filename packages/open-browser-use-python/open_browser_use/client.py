@@ -11,6 +11,7 @@ from typing import Any, Callable, Literal
 from ._transport import Transport, connect_transport, remaining_time
 from ._browser_actions import BrowserKeyboard, BrowserMouse, LocatorFactory, OpenBrowserUseLocator, action_options
 from ._ai_snapshot import AISnapshot, snapshot_limits, validate_snapshot
+from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, OpenBrowserUseNetworkWait, network_ack, network_match, network_timeout
 
 
 JsonObject = dict[str, Any]
@@ -19,7 +20,8 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload"})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait"})
+NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
 
 @dataclass
@@ -38,6 +40,7 @@ class OpenBrowserUseClient:
         self.browser_engine: JsonObject | None = None
         self._lifecycle_version: int | None = None
         self._control_epoch: int | None = None
+        self._network_wait_version: Any = None
 
     def connect(self) -> "OpenBrowserUseClient":
         return self._connect(self.timeout)
@@ -96,6 +99,11 @@ class OpenBrowserUseClient:
                     epoch, _ = self._validate_control_state(state)
                     self._control_epoch = epoch
                 merged_params["control_epoch"] = epoch
+        if method in NETWORK_WAIT_METHODS:
+            if self._network_wait_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._network_wait_version) is not int or self._network_wait_version != 1:
+                raise RuntimeError("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1")
         if prepare is not None:
             prepare(merged_params, deadline)
         result = (self._wire_request(method, merged_params, deadline) if execute is None
@@ -113,6 +121,7 @@ class OpenBrowserUseClient:
 
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
+        self._network_wait_version = metadata.get("networkWaitVersion", 0) if isinstance(metadata, dict) else 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
         if version is not None and (type(version) is not int or version != 1):
             raise RuntimeError(f"Unsupported turn lifecycle version: {version!r}; update the SDK")
@@ -152,6 +161,10 @@ class OpenBrowserUseClient:
         self._next_id += 1
         if method in BOUNDED_WAIT_METHODS:
             requested = merged_params.get("timeoutMs", 10000)
+            if method == "armNetworkWait":
+                if requested is None:
+                    raise ValueError("armNetworkWait timeoutMs must be an integer from 1 to 120000")
+                network_timeout(requested)
             if type(requested) in (int, float) and math.isfinite(requested) and 1 <= requested <= 120000:
                 available_ms = math.floor((deadline - time.monotonic() - 1) * 1000)
                 if available_ms < 1:
@@ -183,6 +196,24 @@ class OpenBrowserUseClient:
             message = response["error"].get("message", "Open Browser Use request failed")
             raise RuntimeError(message)
         return response.get("result")
+
+    def _expect_network(self, tab_id: int, event: NetworkWaitEvent, match: NetworkWaitMatch,
+                        timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
+        timeout = network_timeout(timeout_ms)
+        frozen = network_match(event, match)
+
+        def arm(metadata: JsonObject, deadline: float) -> OpenBrowserUseNetworkWait:
+            if type(metadata.get("control_epoch")) is not int or metadata["control_epoch"] < 1:
+                raise RuntimeError("Network waits require an explicit control epoch")
+            binding = {key: metadata[key] for key in ("session_id", "turn_id", "control_epoch")}
+            ack = self._wire_request("armNetworkWait", metadata, deadline)
+            waiter_id, remaining = network_ack(ack, timeout)
+            params = {**binding, "tabId": tab_id, "waiterId": waiter_id}
+            return OpenBrowserUseNetworkWait(waiter_id, remaining, event,
+                lambda method, read_timeout: self.request(method, params, timeout=read_timeout))
+
+        return self._request("armNetworkWait", {"tabId": tab_id, "event": event, "match": frozen, "timeoutMs": timeout},
+                             timeout=timeout / 1000 + 1, execute=arm)
 
     def _dispatch_notification(self, notification: JsonObject) -> None:
         for handler in list(self._notification_handlers):
@@ -373,6 +404,12 @@ class OpenBrowserUseBrowser:
 
 
 class OpenBrowserUseTab(LocatorFactory):
+    def expect_request(self, match: NetworkWaitMatch, *, timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
+        return self.browser.client._expect_network(self.id, "request", match, timeout_ms)
+
+    def expect_response(self, match: NetworkWaitMatch, *, timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
+        return self.browser.client._expect_network(self.id, "response", match, timeout_ms)
+
     def __init__(self, browser: OpenBrowserUseBrowser, tab_id: int) -> None:
         self.browser = browser
         self.id = tab_id
@@ -462,6 +499,12 @@ class OpenBrowserUseTab(LocatorFactory):
 
 
 class OpenBrowserUseTabPlaywright(LocatorFactory):
+    def expect_request(self, match: NetworkWaitMatch, *, timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
+        return self.tab.expect_request(match, timeout_ms=timeout_ms)
+
+    def expect_response(self, match: NetworkWaitMatch, *, timeout_ms: int | None = None) -> OpenBrowserUseNetworkWait:
+        return self.tab.expect_response(match, timeout_ms=timeout_ms)
+
     def __init__(self, tab: OpenBrowserUseTab) -> None:
         super().__init__(tab)
         self.tab = tab

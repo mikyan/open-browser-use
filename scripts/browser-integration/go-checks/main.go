@@ -163,8 +163,28 @@ func main() {
 		require(entry["text"] != "Go diagnostics 中文", "diagnostics leaked previous turn")
 	}
 	checks = append(checks, "diagnostics-pagination-and-turn-isolation")
+	// Arm returns ready before the sequential click; no goroutine is needed to
+	// establish ordering on the synchronous client's RPC connection.
+	network := must(browser.NewTab())
+	must(browser.CDP.Navigate(network.ID, os.Args[2]+"network-waits?key=go-network&mode=normal&status=201&method=POST", obu.GotoOptions{}))
+	networkURL := os.Args[2] + "network-waits/api?key=go-network&mode=normal&status=201"
+	request := must(network.ExpectRequest(obu.NetworkWaitMatch{URL: networkURL, Method: "POST"}, obu.NetworkWaitOptions{Timeout: 5 * time.Second}))
+	response := must(network.ExpectResponse(obu.NetworkWaitMatch{URL: networkURL, Method: "POST", Status: 201}, obu.NetworkWaitOptions{Timeout: 5 * time.Second}))
+	action(network.GetByRole("button", obu.RoleOptions{Name: "Send main network request", Exact: true}).Click())
+	sent, received := must(request.Result()), must(response.Result())
+	require(sent.Event == "request" && received.Event == "response", "network event kinds mismatch")
+	require(sent.RequestID == received.RequestID, "request and response identity mismatch")
+	require(received.URL == networkURL && received.Method == "POST" && received.Status == 201, "network response metadata mismatch")
+	require(received.ResourceType == "fetch" && strings.Contains(received.FrameURL, "go-network"), "network frame metadata mismatch")
+	require(must(response.Result()) == received, "repeated collect changed its result")
+	require(must(network.Evaluate("networkClicks.length===1&&networkClicks[0].trusted")) == true, "network click was not exactly one trusted event")
+	networkCounts := must(network.Evaluate("fetch('/network-waits/stats?key=go-network').then(response=>response.json())", true))
+	require(len(networkCounts.(map[string]any)["requests"].([]any)) == 1, "network trigger was replayed")
+	action(request.Cancel())
+	action(response.Cancel())
+	checks = append(checks, "network-wait-cold-ready-trusted-click-and-single-request")
 	must(browser.Client.FinalizeTabs(nil))
 	checks = append(checks, "finalize")
-	result := must(json.Marshal(map[string]any{"passed": true, "goVersion": runtime.Version(), "checks": checks}))
+	result := must(json.Marshal(map[string]any{"passed": true, "goVersion": runtime.Version(), "checks": checks, "networkWait": received, "networkServer": networkCounts}))
 	fmt.Println(string(result))
 }

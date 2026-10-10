@@ -1,181 +1,248 @@
-# 网络事件等待：两阶段 API 设计（尚未实现）
+# 网络事件等待：实现契约与验收
 
-状态：**设计提案，尚未实现，也不是当前可调用的公开 API**。本次审计基于
-`8181d12`；下文所有新 RPC、SDK 方法、capability、错误码和资源限额均为建议契约，
-需在实现、跨语言测试和真实浏览器验收后才能列为已支持能力。
+状态：两阶段 request / response 等待已接入开发版 extension、JS/Python/Go SDK
+及 CLI/MCP 通用 `call`。本页描述实现契约和验收要求，**不作为真实浏览器验收通过的
+证明**。正式运行结果以 harness 保存的版本、制品哈希和日志为准。
 
-## 问题与范围
+## 使用顺序
 
-当前 `browserAction diagnostics` 可读取真实 Playwright Page 的网络事件摘要，
-但没有公开的 `waitForRequest` / `waitForResponse`。直接把长等待加进同 tab 的
-`browserAction` 队列，会阻塞本应触发网络请求的后续 click。只让调用者同时发两个
-RPC 也不能解决冷引擎 attach、监听器注册和动作执行之间的竞态。
+1. 对当前任务拥有的 tab 调用 `expectRequest` / `expectResponse`，等待返回 handle。
+   返回意味着授权、冷引擎 attachment 和监听注册已完成，不代表网络事件已经发生。
+2. 在同一任务轮次触发页面动作。使用已观察到的按钮或其他真实触发条件。
+3. 调用 handle 的 `result` 读取首个匹配事件；验证 URL、method、status 和页面结果。
+4. 不再需要 handle 时 `cancel`。触发失败时尽力 cancel，但保留原动作错误。
 
-首片只实现 request / response 两类事件的有限匹配。URL、popup、download 等将来
-可以参考同样的 ready ACK 模式，但本片不引入通用事件框架，不修改现有文件选择器、
-下载或 URL 等待语义，也不提供任意 JavaScript predicate、响应体或请求头读取。
+这是正式的 ready ACK，不需要 sleep、并发启动线程或预热引擎来猜监听时机。
+同步 Python、Go、CLI 和 MCP 均可顺序完成。不要先阻塞 collect，再指望同一串行
+通道发送触发动作。文件选择器、下载和 `waitForURL` 没有因此获得两阶段接口，仍
+遵守各自限制。本片不提供任意 predicate、regex、响应体、请求头或网络拦截。
 
-## 当前代码依据
+## Wire 与能力协商
 
-| 路径 | 相关约束或可复用部分 |
-| --- | --- |
-| `apps/chrome-extension/browser-action-engine.js` | `dispatch` 使用每 tab 的队列；`attach`、generation、`detach` / `forget` 和授权 hooks 决定 Page 生命周期。长等待不能占住该队列。 |
-| `apps/chrome-extension/browser-diagnostics.js` | 真实 Page request / response 监听、请求 ID 和 redirect 关联、有限元数据序列化可参考；不能用其截断后的 URL 做匹配或扫描旧 ring 命中事件。 |
-| `apps/chrome-extension/background.js` | 公开 RPC allowlist、`runControlledRequest`、session/epoch 校验、`transferScope` / `validateTransferScope`、attachment token、Pause 和结束清理。文件选择器已有短 setup ACK barrier，但网络等待需要正式公开 ready ACK。 |
-| `packages/open-browser-use-js/src/index.ts` | 异步 pending response map 支持并发；`controlScopeSymbol` 和 deadline clamp 可承载固定绑定。并发本身不等于监听已经 ready。 |
-| `packages/open-browser-use-python/open_browser_use/client.py` | 同步响应读取器，没有支持并发 RPC 的后台 reader 或请求互斥协议；并发读可能收到其他 request ID 并关闭连接。应使用顺序 arm → action → collect。 |
-| `packages/open-browser-use-go/client.go`、`control.go` | `requestLock` 覆盖一次完整 RPC；`requestInScope` 可取得固定控制元数据。应在释放 arm 的调用锁后触发动作。 |
-| `cmd/open-browser-use/control.go`、`mcp.go` | CLI control gate 和 MCP 主消费循环串行处理；顺序的通用 `call` 可以执行三阶段，不必先重写并发模型。 |
-| `internal/host/relay.go` | 按 request ID 转发一般 RPC，按 session 路由已有通知；新协议不需要 host 中转层保存 waiter 或增加通知类型。 |
-| `scripts/browser-integration/diagnostics-fixture.mjs`、`run.mjs` | 已有 main / OOPIF 请求、重定向、网络失败 fixture 和真实 SDK → pipe → host → extension 验收链路。 |
+检查 `getInfo.metadata.networkWaitVersion === 1`。SDK 和 CLI/MCP 自动检查该能力；
+旧 extension 明确返回 `OBU_NETWORK_WAIT_UNSUPPORTED`，不回退到 diagnostics 缓存。
+能力版本独立于 `browserActionProtocolVersion`，以下三个 RPC 不是 browserAction：
 
-实现需同步 [browser action 协议](browser-action-protocol.md)、各 SDK 文档及公开
-capability；本文件的设计状态不能替代这些交付证明。
-
-## 最小 wire API
-
-建议使用独立 RPC，而非把长等待塞入 `browserAction`：
-
-| RPC | 参数（均另含标准控制元数据） | 结果与边界 |
+| RPC | 标准 scope 以外的参数 | 成功结果 |
 | --- | --- | --- |
-| `armNetworkWait` | `tabId`, `event: "request" \| "response"`, `match`, `timeoutMs?` | 完成授权、冷 Page attach 和监听注册之后返回 `{waiterId, remainingMs}`。这是 ready ACK。 |
-| `collectNetworkWait` | `tabId`, `waiterId` | 返回已保存的匹配元数据；仍 pending 则只等到该 waiter 的原始 deadline。不能续期。 |
-| `cancelNetworkWait` | `tabId`, `waiterId` | 取消并释放记录、监听与定时器；不改变页面，不重放动作。 |
+| `armNetworkWait` | `tabId`, `event: "request" \| "response"`, `match`, `timeoutMs?` | `{waiterId, remainingMs}`，监听已就绪 |
+| `collectNetworkWait` | `tabId`, `waiterId` | 有限的请求/响应元数据；pending 时等待原网络期限内的事件 |
+| `cancelNetworkWait` | `tabId`, `waiterId` | `{}`，删除记录与监听，不改变页面 |
 
-标准控制元数据是 `session_id`、`turn_id`、`control_epoch`。通过
-`getInfo.metadata.networkWaitVersion = 1` 协商支持；旧 extension 无该 capability
-时应明确不支持，不能退化成读取 diagnostics 历史或伪 ready。
+scope 为 arm 实际提交的 `session_id`、`turn_id`、正整数 `control_epoch`；三个 RPC
+必须始终使用同一组值。`match` 包含非空 `url`（最多 4096 UTF-8 字节）、可选
+`urlMatch: "exact" | "contains"`（默认 exact）、可选非空 `method`（最多 128 字节，
+保留大小写精确匹配），以及仅 response 接受的整数 `status`（100–599）。未知字段
+被拒绝。完整字段、字节上限与错误契约见
+[Browser action protocol 的网络等待章节](browser-action-protocol.md#network-request-and-response-waits)。
 
-`match` 第一版限定为非空 `url`、`urlMatch: "exact" | "contains"`（默认 exact）、
-可选 `method`，以及仅 response 接受的可选 `status`。拒绝未知字段、无效枚举和
-任意 predicate / regex。字符串设明确字节上限，并在分配 waiter 前验证；建议 URL
-4096 字节、method 128 字节。匹配针对真实事件上的完整值，不能对截断后的展示文本
-判断命中。方法按明确的字符串规则匹配，不隐式修改用户条件。
+collect 返回普通对象，没有 `{value, engine}` 包装：
 
-返回值为有限元数据对象：event、requestId、url、method、resourceType、frameUrl、
-可选 redirectedFrom；response 另有 status。与 diagnostics 统一字段含义及字节截断
-规则，不包含 headers、cookies、postData 或 body。requestId 只在原始 attachment
-生命周期内关联，不是跨 Page 或 worker 重启的全局请求标识。
-
-response 表示收到状态与响应头，不表示 body 已下载完成。HTTP 404 / 503 仍可触发
-response；网络连接失败可能只有 requestfailed，随后 response waiter 超时。redirect
-产生新的 Request，可用 redirectedFrom 关联。依据：
-[Playwright Request 生命周期](https://playwright.dev/docs/api/class-request)。
-
-## SDK 与顺序调用
-
-建议将高层方法命名为 `expectRequest` / `expectResponse`，返回含 `result()` 和
-`cancel()` 的固定绑定 handle，避免把 ready ACK 误认成最终网络事件：
-
-```js
-// 设计示例；当前 SDK 尚未提供这些方法。
-const pending = await tab.expectResponse({
-  url: `${base}/api/save`, method: "POST", status: 200
-}, { timeoutMs: 5000 });
-await tab.getByRole("button", { name: "Save" }).click();
-const response = await pending.result();
+```json
+{"event":"response","requestId":"request-1","url":"https://example.test/api/save","method":"POST","resourceType":"fetch","frameUrl":"https://example.test/","status":201,"statusText":"Created"}
 ```
 
-Python、Go、CLI 和 MCP 同样先 arm，再触发，再 collect，不需要调用者启动线程。
-collect 在 pending 时仍可能占用客户端的串行 RPC 通道，因此不能先 collect 再依靠
-同一通道提交触发动作。第一版 CLI / MCP 用通用 `call` 即可，不必同时新增便捷命令。
+`frameUrl`、`redirectedFrom` 和 `truncated` 可选，response 有 `status` 及原生
+`statusText`（允许空字符串）。元数据整体最多 16 KiB；截断会标记 `truncated:true`。
+匹配始终使用截断前的原生 URL/method。requestId 仅在原 attachment 内关联，不能
+当作跨 Page、诊断 capture 或 worker 重启的全局 ID。redirect 产生新 Request，
+`redirectedFrom` 可关联前一请求。
 
-handle 必须保存 **arm 调用实际提交时**的 session、turn、epoch，不能在 arm 返回后
-读取 client 的最新状态：并发的 end 可能已推进 epoch。实现可复用固定 scope 的内部
-request preparation；同一 handle 的 collect / cancel 始终发送原元数据。beginTurn
-不会让旧 handle 复活，也不能在 stale 错误后静默刷新、重新 arm 或重放 click。
+response 表示状态和响应头已到达，不表示 body 下载结束。404/503 仍可匹配；网络
+连接失败可能只有 requestfailed，因此 response wait 会超时。只观察注册后送达的
+所选事件，不扫描历史；注册前开始、注册后收到响应的请求可以匹配 response wait。
 
-触发动作失败时可以 best-effort cancel，但取消错误不能覆盖原动作错误。用户没有
-调用 cancel 或 arm ACK 在网络中丢失时，backend 仍必须按原 deadline 和终态 TTL
-自行回收。不要依赖 SDK finalizer 才能回收资源。
+## SDK 示例
 
-## Ready、队列与事件顺序
+以下示例假定 `tab` 已由同一个 SDK browser 创建或领取，页面有已观察到的 Save
+按钮，会向 `api_url`/`apiURL` 发出 POST 并返回 200。示例的等待方法也可通过
+`tab.playwright`（Go：`tab.Playwright`）调用。
 
-1. backend 同步验证参数、预留容量、记录请求进入时刻和原始 deadline，然后开始
-   admission / controlReady / ownership / engine attach。所有前置等待共用该预算。
-2. arm 仅在短初始化与注册阶段进入同 tab 队列，复用触发 click 的同一个 CRX Page
-   attachment。不能先 raw attach 监听，再在 click 时迁移 attachment 并丢掉监听。
-3. listener 已安装且 scope 仍有效才返回 ready ACK；队列此时释放。监听存续和
-   collect 均不占该动作队列。若事件先于 ACK 到达，保存终态供随后 collect 读取。
-4. 只观察注册之后送达的事件，不扫描 diagnostics ring 或旧缓存。注册前已经结束
-   的 response 不能命中；请求在注册前开始、response 在注册后到达则可以命中，
-   因为该 API 按所选事件的发生时刻定义，而非按请求发起时刻定义。
-5. 第一条匹配事件同步选定，再执行必要的异步归属复核，不能让较慢的复核改变事件
-   顺序。若该候选事件失去归属，取消 waiter，不能偷偷继续等待下一条事件。
+JavaScript：
 
-## Deadline 与终态
+```js
+async function save(tab, apiURL) {
+  const pending = await tab.expectResponse(
+    { url: apiURL, method: "POST", status: 200 }, { timeoutMs: 5000 });
+  try {
+    await tab.getByRole("button", { name: "Save", exact: true }).click();
+    const response = await pending.result();
+    console.log(response.requestId, response.status);
+    return response;
+  } finally {
+    await pending.cancel().catch(() => {});
+  }
+}
+```
 
-`timeoutMs` 默认 10000，整数范围 1..120000；表示从 arm 调用提交起到匹配事件的
-总操作预算。discovery、协商、连接、客户端排队、controlReady、attach、backend
-队列和监听等待都消耗它。客户端保留现有 1 秒响应余量，最终 wire 发送前扣除已耗
-预算；不足 1ms 操作预算时不发 arm。默认 client 的 10 秒不能把显式 100ms 拉长。
+Python（无需线程）：
 
-backend 尤其要在 `runControlledRequest` 等待 `controlReady` **之前**捕获进入时刻，
-不能在 handler 真正开始时重新计算一个完整 timeout。每次 await 后检查原 deadline、
-generation 和 scope；超时后迟到的 attach 只清理自己的 attachment，不能注册监听、
-发出伪 ready 或 detach 新 owner。不能因为 collect 后到就重置网络 deadline。
+```py
+def save(tab, api_url):
+    pending = tab.expect_response(
+        {"url": api_url, "method": "POST", "status": 200}, timeout_ms=5000)
+    try:
+        tab.get_by_role("button", name="Save", exact=True).click()
+        response = pending.result()
+        print(response["requestId"], response["status"])
+        return response
+    finally:
+        try:
+            pending.cancel()
+        except Exception:
+            pass  # Cleanup must not hide the original action/result error.
+```
 
-状态机为 pending → matched / timed-out / cancelled / failed，单向且只提交一次。
-deadline 前匹配的结果，允许在 deadline 后的保留期内读取；不能把“稍晚来取结果”
-误报为网络超时。collect 的读取传输可使用有限的独立 RPC 预算，但它不延长 waiter
-网络预算。仍 pending 的 collect 最多等到原 deadline 加传输余量。
+Go（函数位于已导入 `fmt`、`time` 和 SDK 别名 `obu` 的文件中）：
 
-建议 matched、timed-out 和 failed 终态保留 30 秒，以便重复 collect 幂等读取同一
-结果或错误；保留期从终态提交开始。过期或已显式 cancel 的 handle 返回统一
-`OBU_NETWORK_WAIT_EXPIRED`，不暴露是否属于其他 session。Pause/end/归属失效可以
-立即删除旧终态，不能为了幂等性让旧 owner 继续读取。取消不存在的记录可在调用者
-scope 验证成功后幂等返回，不能绕过全局 Pause 或 epoch 检查。
+```go
+func save(tab *obu.Tab, apiURL string) error {
+    pending, err := tab.ExpectResponse(obu.NetworkWaitMatch{
+        URL: apiURL, Method: "POST", Status: 200,
+    }, obu.NetworkWaitOptions{Timeout: 5 * time.Second})
+    if err != nil { return err }
+    defer func() { _ = pending.Cancel() }()
+    if err := tab.GetByRole("button", obu.RoleOptions{Name: "Save", Exact: true}).Click(); err != nil {
+        return err
+    }
+    response, err := pending.Result()
+    if err != nil { return err }
+    fmt.Println(response.RequestID, response.Status)
+    return nil
+}
+```
 
-## 控制权与资源上限
+请求等待对应 `expectRequest` / `expect_request` / `ExpectRequest`，不能设置 status。
+JS/Python match 使用 wire 字段名 `urlMatch`。Go 使用 `NetworkWaitMatch.URLMatch`；
+空值表示 exact，空 Method 和零 Status 表示未指定。Go `NetworkWaitOptions.Timeout`
+必须为整毫秒，零值选择默认。JS/Python 结果保留 camelCase wire 字段；Go 返回
+`NetworkWaitResult`，字段包括 `RequestID`、`FrameURL`、`RedirectedFrom`、`StatusText`。
 
-记录绑定精确的 `{session_id, turn_id, control_epoch, tabId, attachmentToken}`。
-在 arm ready、事件提交及结果返回前均复核原 owner、tab group、epoch 和 attachment
-identity。Session ID 是路由标签，不是认证凭据；waiterId 也不是越权读取令牌。
+JS 的 `result({timeoutMs})`、Python 的 `result(timeout_ms=...)`、Go 的
+`Result(NetworkWaitOptions{Timeout: ...})` 都可设置独立读取预算；cancel 接受同样
+选项。handle 的 `waiterId`/`waiter_id`/`WaiterID` 为不透明 ID；
+`remainingMs`/`remaining_ms`/`RemainingMS` 只是 ready 时的剩余时间，不可用来续期。
 
-Pause、end、finalize、tab close、detach、owner/group 换代以及 worker 重启都使原
-waiter 失效，释放 listener 和 timer，唤醒 pending collect。新 owner 不继承旧记录。
-没有持久化 waiter，也不跨 worker restart 自动恢复网络等待。
+## CLI 与 MCP
 
-建议每 tab 最多 16 个、每 session 最多 32 个、全局最多 128 个，**包括 pending
-和保留中的终态**；每份结果最多 16 KiB。容量不足时以明确的
-`OBU_NETWORK_WAIT_LIMIT` 拒绝新 arm，不驱逐仍有效的 waiter。预留应在首次 await
-之前完成，失败路径归还容量；终态取消监听，仅保留有限元数据。全局 Pause 快照与
-清理要包含 pending arming、waiter 和 collect，不能只扫描已 ready 的记录。
+没有额外的专用 network 命令；使用通用 `call`。多个 CLI 进程不会自动共享 turn，
+因此先取控制状态，再保存 **原始** session/turn/epoch，并在 arm、触发、collect、
+cancel 中全部显式传入。不要在各步之间调用 begin-turn 或重新取最新 epoch。
 
-## 最小实现拆分
+下面是 Bash + jq 示例。先设置 `OBU_SESSION_ID`、`OBU_TAB_ID`、`OBU_API_URL`，分别为
+当前任务 ID、已领取的 tab ID 和页面 Save 按钮的真实 POST URL。各调用应指向同一
+浏览器/profile；需要时在函数中加入相同的 `--socket` 或 browser/profile 选择参数。
 
-- extension 新增独立 network wait registry，负责有限匹配、单次结算、scope、TTL
-  和限额。engine 暴露短 arm 注册入口及 Page 生命周期清理 hooks；backend 暴露
-  上述三个 allowlist RPC，并把资源纳入结束与暂停清理。首片不建立通用 waiter 框架。
-- 三 SDK 新增 typed match/result/handle，复用固定 scope；仅 arm 加入现有“操作
-  timeout + 1 秒余量”分类。collect/cancel 是读取或清理原 waiter，不能套用会重新
-  启动网络预算的分类。通用 raw request 也要遵守 arm 的提交 deadline。
-- CLI `control.go` 对 arm 做提交时与最终 wire 的同样预算收紧；MCP 复用最早
-  captured submission 时间。同步客户端和 MCP 的顺序调用方式须明确写进文档。
-- host、IPC framing、endpoint discovery 不需要修改。避免为了等待事件重写三种
-  客户端的并发 reader 或引入新的跨 session 通知。
+```sh
+set -euo pipefail
+obu_call() {
+  open-browser-use call --session-id "$OBU_SESSION_ID" --timeout 121s \
+    --method "$1" --params "$2" |
+    jq -e 'if .error then error(.error.message) else .result end'
+}
+state=$(obu_call getControlState '{}')
+jq -e '.closing == false' <<<"$state" >/dev/null
+scope=$(jq -cn --arg session "$OBU_SESSION_ID" --argjson tab "$OBU_TAB_ID" \
+  --argjson state "$state" \
+  '{session_id:$session,turn_id:$state.nextTurnId,control_epoch:$state.controlEpoch,tabId:$tab}')
+armed=$(obu_call armNetworkWait "$(jq -c --arg url "$OBU_API_URL" \
+  '. + {event:"response",match:{url:$url,method:"POST",status:200},timeoutMs:5000}' <<<"$scope")")
+handle=$(jq -c --argjson ack "$armed" '. + {waiterId:$ack.waiterId}' <<<"$scope")
+trap 'obu_call cancelNetworkWait "$handle" >/dev/null || true' EXIT
+obu_call browserAction "$(jq -c \
+  '. + {action:"click",locator:[{kind:"role",role:"button",name:"Save",exact:true}],timeoutMs:5000}' <<<"$scope")"
+obu_call collectNetworkWait "$handle"
+```
 
-## 正式验收（全部待实施）
+CLI 输出保留 JSON-RPC envelope，上例提取 `.result` 并拒绝 `.error`。`--timeout` 是
+一次请求的总 transport 预算；arm 仍只使用 timeoutMs 加 1 秒中的更小预算，发现
+endpoint、协商和排队会扣掉可用时间。collect 没有 timeoutMs 参数，使用独立的
+CLI transport 预算。示例 121 秒是读取上限，不把网络等待延长为 121 秒。
 
-可复用 `scripts/browser-integration/diagnostics-fixture.mjs` 的 main / OOPIF 和
-`run.mjs` 的 data / redirect / fail 路由，再加入带 server 计数的 POST、延迟 response
-及先发 headers 后延迟 body 的路由。经正式 SDK / CLI / MCP 走实际 host 和生产
-extension 的 Page 事件；测试代码不能用 CDP 伪造网络事件或先偷偷暖引擎。
+MCP server 以 `obu mcp --session-id <task-id> --timeout 121s` 启动，经 initialize
+后，用 `tools/call` 的 `call` 工具依次提交这三个方法。例如 arm 请求：
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call","arguments":{"method":"armNetworkWait","params":{"session_id":"task-id","turn_id":"observed-turn","control_epoch":1,"tabId":123,"event":"response","match":{"url":"https://example.test/api/save","method":"POST","status":200},"timeoutMs":5000}}}}
+```
+
+用实际 `control_state` 返回的 epoch/turn 和已领取的 tab ID 替换示例值。等待 ready
+工具结果后，再用同样的 scope 发送 `browserAction`；最后用 `collectNetworkWait`
+和 `{...scope,tabId,waiterId}` 读取。取消使用 `cancelNetworkWait`。检查外层 JSON-RPC
+error、工具 `isError` 和 `structuredContent.error`；成功 ready 数据位于
+`structuredContent.result`。同一个未结束的 MCP server 会自动补入其绑定 scope，
+但显式携带已保存的值可防止调用者混用新轮次。MCP 的输入队列时间也消耗原 arm 预算。
+
+## Deadline、保留期与失效
+
+- arm 默认 10000 ms，整数范围 1..120000。从 SDK/CLI 提交起计算，discovery、
+  协商、连接、前置队列、controlReady 和 attach 都消耗预算。最终 wire 前再次收紧；
+  不足 1 ms 操作时间则不发 arm。默认 client timeout 不会扩大显式短预算。
+- 第一条匹配候选必须在原 deadline 前送达并同步选定。归属复核独立限时 10 秒，
+  不改变事件时间，也不换成后来的候选。collect 前后归属复核同样各有 10 秒上限，
+  因此结果送达可晚于网络 deadline；复核挂起不能无限保留执行中的校验。
+- SDK result 默认独立读取预算 120000 ms，cancel 默认 10000 ms；可设 1..120000 ms，
+  均加 1000 ms RPC 余量。读取超时不自动取消 waiter、重新 arm 或重放输入。
+- matched、timed-out、failed 终态自结算起保留 30 秒；期间重复 collect 读取同一
+  结果或错误。迟到 collect 可以读取 deadline 前已选定的事件。cancel 立即删除。
+- 16/tab、32/session、128/global 容量同时计入预留、pending 和保留终态；新 arm
+  达限失败，不驱逐有效记录。即使 ready ACK 丢失，也由 backend deadline/TTL 回收。
+
+记录绑定 session、turn、epoch、tab 与原 attachment identity。Pause、end/finalize、
+detach、tab close、移组/跨窗口归属变化和 worker restart 使 pending 与已匹配结果
+失效，唤醒等待中的 collect。相同已授权 Page attachment 内的普通导航可以触发匹配，
+无需为了导航把等待提前取消。没有持久化或自动恢复 waiter。Session ID 是路由标签，
+不是认证凭据；waiterId 不能绕过 owner、group 和 epoch 复核。
+
+| 错误前缀 | 调用者处理 |
+| --- | --- |
+| `OBU_NETWORK_WAIT_UNSUPPORTED` | 当前 extension 未声明 v1；报告版本限制，不假装轮询等价。 |
+| `OBU_NETWORK_WAIT_TIMEOUT` | 原期限内无可提交的匹配；检查页面与诊断，不自动重触发。 |
+| `OBU_NETWORK_WAIT_EXPIRED` | 记录不存在、已取消/过期或不属于原 scope；旧 handle 不可恢复。 |
+| `OBU_NETWORK_WAIT_LIMIT` | 释放不再需要的当前 handle，或等待 TTL；不自动重放动作。 |
+| `OBU_NETWORK_WAIT_FAILED` | 事件描述或有限归属校验失败；保留错误并检查控制状态。 |
+
+普通 stale epoch、ownership、Pause 错误可能先于上述错误。未知 handle 的 cancel
+在普通控制/归属校验通过后幂等返回 `{}`，不能用于绕过 Pause。`beginTurn` 只用于
+显式开始后续工作，不会给旧 handle 换绑。恢复后先检查当前页面再决定新的动作。
+
+## 实现位置
+
+| 路径 | 职责 |
+| --- | --- |
+| `apps/chrome-extension/browser-network-waits.js` | 有限匹配、容量预留、事件选择、scope 复核、终态、TTL 与清理 |
+| `apps/chrome-extension/browser-action-engine.js` | `withPage` 短 setup 队列与真实 CRX Page；长监听/collect 不占动作队列 |
+| `apps/chrome-extension/background.js` | RPC allowlist、capability、controlReady 前预留、ownership/attachment 与 Pause/end 清理 |
+| `packages/open-browser-use-js/src/network-waits.ts` 与 `src/index.ts` | typed handle、严格响应验证、提交时 scope 和预算 |
+| `packages/open-browser-use-python/open_browser_use/_network_waits.py` 与 `client.py` | 同步 ready/trigger/collect 与固定 scope |
+| `packages/open-browser-use-go/network_wait.go` 与 `client.go` | typed 同步 handle、固定 scope 与串行 gate 预算 |
+| `cmd/open-browser-use/control.go` 与 `mcp.go` | capability、显式跨调用 scope 和最早提交时刻预算 |
+
+host、IPC framing 和 endpoint discovery 沿用既有实现；该协议不依赖跨 session
+事件广播，也不通过扫描 diagnostics ring 补发旧事件。
+
+## 正式验收要求
+
+可复用 `scripts/browser-integration/network-waits-fixture.mjs`、`run.mjs` 与各语言
+checker。经过实际 Go host 和生产 extension 的 Page 事件，不能伪造 CDP 网络事件
+或为了通过冷启动测试先预热引擎。以下是验收条件，不是本页对运行结果的声明。
+事件早于 ready ACK 的调度边界由定向 unit test 控制验证；不能把事件早于 collect
+的真实浏览器测试写成已覆盖早于 ACK。容量、TTL 和人为挂起校验同样应注明测试层。
 
 | 场景 | 必须观察到的结果 |
 | --- | --- |
-| 冷引擎 arm → 立即 click → collect | ready 前已安装监听；无同 tab 队列死锁，主 frame 和 OOPIF 都返回实际请求元数据，server 只收到一次触发。 |
-| 事件早于 collect / ACK | 结果保留；重复 collect 在 TTL 内返回同一结果，不再次触发网络。 |
-| 旧事件及精确条件 | 注册前完成的请求不命中；method/status/URL 条件生效；contains 与 exact 有明确不同；未知字段被拒绝。 |
-| response 语义 | headers 到达即可完成，不等延迟 body；404/503 匹配；redirect IDs 可关联；网络断开不伪造 response。 |
-| 短 deadline | 显式 100ms、前置协商或 attach 延迟 250ms 时无新监听/ready；排队消耗原预算；迟到 setup 不污染下一 owner。 |
-| 两 session 同 URL | 各自只得到自己 tab 的事件；交换 waiterId 或换 session/epoch 不能读对方结果。 |
-| 结束与暂停 | pending arm / collect 被取消；旧 handle 不能自动 beginTurn 或重绑；Resume 后原动作没有重放。 |
-| detach / 移组 / close / worker restart | 老结果与监听失效，新 owner 的 capture 干净；迟到清理不影响 replacement attachment。 |
-| 资源和保留期 | 三层限额含终态；拒绝新 arm 无资源泄漏；TTL/cancel 清理完成，原 timer/listener 数归零。 |
-| 所有公开调用入口 | JS、同步 Python、Go、CLI call、MCP tools/call 均独立执行 arm → action → collect；验证页面状态和 server 计数，不能只看 RPC 没报错。 |
-| 用户操作不被打断 | headed 独立 profile 保留 sentinel 前台；记录 `activeEvents=[]`，不通过 Playwright page focus 或真实鼠标掩盖隐藏页问题。 |
+| 冷引擎 arm → 立即 click → collect | 主 frame/OOPIF 得到真实元数据，无队列死锁；server 只收到一次触发。 |
+| 事件早于 collect/ACK | 结果保留，TTL 内重复读相同结果，不再次触发网络。 |
+| 旧事件和匹配条件 | 注册前完成事件不命中；URL exact/contains、method、status 生效，未知字段拒绝。 |
+| response 语义 | headers 到达即可完成；延迟 body、错误状态、redirect IDs 和断网均不伪造成功。 |
+| 短 deadline | 100ms 预算被 250ms setup 消耗后无新监听/ready；迟到 setup 不影响后继 attachment。 |
+| 两 session 同 URL | 只看到自己 Page；交换 ID、换 epoch 或新 owner 均不能读旧结果。 |
+| Pause/end/close/detach/移组/restart | pending 被取消、终态失效；Resume/BeginTurn 不重放原动作。 |
+| 资源与 TTL | 预留及终态计入上限；超额 arm 拒绝、cancel/TTL 释放 listener/timer。 |
+| 公开入口 | JS、同步 Python、Go、CLI call、MCP tools/call 都顺序执行并验证 server 计数及可信输入。 |
+| 前台不受影响 | headed 独立 profile 保留 sentinel，记录 tab activation；不能通过 page focus 或真实鼠标掩盖问题。 |
 
-最终结果须记录源码标识、实际 staged extension / host / SDK 哈希和浏览器版本。
-WS native-port adapter 验收证明的是正式协议链路，不等于已安装 registry/native-host
-启动路径验收；沿用现有 harness 文档对这两个边界的区分。
+最终结果应保存源码标识、实际 staged extension/host/SDK 哈希、浏览器版本与
+`network-server.json`。WS native-port adapter 验收证明协议链路，不等于系统已安装
+registry/native-host 启动路径验收；详细边界见
+[正式 browser integration harness](../../scripts/browser-integration/README.md)。

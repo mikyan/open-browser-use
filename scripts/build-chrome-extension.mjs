@@ -10,7 +10,7 @@ const sourceDir = path.join(repoRoot, "apps/chrome-extension");
 export const PLAYWRIGHT_CRX_VERSION = "0.15.0";
 const upstreamChunkSha256 = "ae0b36fa86fab5f0594530f29860721e5d05ea0cf06950df484a61f0e54c3b8c";
 const productionFiles = [
-  "manifest.json", "background.js", "browser-action-engine.js", "browser-observation.js", "browser-ai-snapshot.js", "browser-diagnostics.js", "browser-frame-adapter.js", "browser-input-adapter.js", "browser-runtime.js", "content-cursor.js", "content-webmcp-main.js", "content-webmcp-bridge.js",
+  "manifest.json", "background.js", "browser-action-engine.js", "browser-network-waits.js", "browser-observation.js", "browser-ai-snapshot.js", "browser-diagnostics.js", "browser-frame-adapter.js", "browser-input-adapter.js", "browser-runtime.js", "content-cursor.js", "content-webmcp-main.js", "content-webmcp-bridge.js",
   "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png", "images/cursor-chat.png", "popup.css", "popup.html", "popup.js", "popup-control.js"
 ];
 const sendExpression = "return await chrome.debugger.sendCommand(debuggee, method, commandParams);";

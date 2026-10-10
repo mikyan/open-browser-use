@@ -11,7 +11,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import vm from "node:vm";
+import vm from "./test-support/backend-vm.mjs";
 import assert from "node:assert/strict";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

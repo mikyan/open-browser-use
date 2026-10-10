@@ -144,6 +144,34 @@ virtual display. The suite does not use disabled background-throttling flags.
 - Console/page-error/network diagnostics from the main document and OOPIF,
   redirect identities, cursor pagination, bounded overflow, UTF-8 truncation,
   and capture expiry after ending a turn or transferring ownership.
+- Network wait ready handles through JS, synchronous Python, optional Go, CLI
+  `call`, and MCP `tools/call`: create a blank tab, navigate with the public raw
+  CDP helper, arm before the first engine click, then collect. Each entry point
+  checks a trusted click and an independent server counter of exactly one
+  request. CLI processes carry the same explicit session, turn and control
+  epoch through all three RPCs; creating another CLI process must not silently
+  change the waiter's binding.
+  The three `js-network-waits-*` cases also cover cold main/OOPIF request and
+  response listeners, exact/contains URL and method/status matching, 503s,
+  redirects with request identity, failed connections, historical rejection,
+  cancellation, repeated collect, and matched results read after their original
+  deadline. Server gates prove response completion at headers before the body
+  finishes, and a response can match when its request began before registration.
+  The connection-failure fixture separately records its one trusted click,
+  one page `fetch` invocation and all server attempts: Chromium can retry the
+  POST when the socket closes without response bytes. Only that failure case
+  permits multiple transport attempts; the normal five-entry-point requests
+  retain the exact-one server assertion. Its response wait must still time out.
+  Same-URL sessions cannot exchange waiter IDs; end, detach, owner transfer and
+  tab closure invalidate old waits. Sixteen retained terminal records still
+  consume a tab's capacity; cancellation permits another arm.
+  The existing worker-restart case rejects pre-restart waiters even after an
+  explicit new turn. The final Pause case cancels a pending network collect
+  before restart, then verifies Resume does not replay the trigger. The fixture
+  source digest and `network-server.json` counters are saved even on failure.
+  Short discovery/attach deadline injection, per-session/global capacity and
+  the 30-second terminal TTL use deterministic unit tests; this headed suite
+  does not claim to exercise those timings or quotas.
 - The sentinel tab stays active throughout every successful action and failure.
 - Element screenshots reveal offscreen same-origin, OOPIF and nested iframe
   owners, including after frame navigation and a cross-origin-to-same-origin

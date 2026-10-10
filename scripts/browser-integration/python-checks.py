@@ -111,8 +111,28 @@ try:
         raise AssertionError("Diagnostics cursor survived detach")
     assert not any(entry.get("text") == "Python diagnostics 中文" for entry in tab.diagnostics()["entries"])
     checks.append("diagnostics-pagination-and-turn-isolation")
+    # Synchronous clients use the ready handle before the trigger; no thread or
+    # second connection is needed to establish listener ordering.
+    network = browser.new_tab()
+    browser.cdp.navigate(network.id, url + "network-waits?key=python-network&mode=normal&status=201&method=POST")
+    network_url = url + "network-waits/api?key=python-network&mode=normal&status=201"
+    request = network.expect_request({"url": network_url, "method": "POST"}, timeout_ms=5000)
+    response = network.expect_response({"url": network_url, "method": "POST", "status": 201}, timeout_ms=5000)
+    network.get_by_role("button", name="Send main network request", exact=True).click()
+    sent, received = request.result(), response.result()
+    assert sent["event"] == "request" and received["event"] == "response"
+    assert sent["requestId"] == received["requestId"]
+    assert received["url"] == network_url and received["method"] == "POST" and received["status"] == 201
+    assert received["resourceType"] == "fetch" and "python-network" in received["frameUrl"]
+    assert response.result() == received
+    assert network.evaluate("networkClicks") == [{"trusted": True}]
+    network_counts = network.evaluate("fetch('/network-waits/stats?key=python-network').then(response=>response.json())", await_promise=True)
+    assert len(network_counts["requests"]) == 1
+    request.cancel()
+    response.cancel()
+    checks.append("network-wait-cold-ready-trusted-click-and-single-request")
     browser.client.finalize_tabs([])
     checks.append("finalize")
-    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks}, ensure_ascii=False))
+    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts}, ensure_ascii=False))
 finally:
     browser.close()

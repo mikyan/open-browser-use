@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -28,11 +29,12 @@ func readLegacyCLIRequest(conn net.Conn, request *map[string]any) error {
 }
 
 type controlFixture struct {
-	mu        sync.Mutex
-	calls     []map[string]any
-	epoch     int64
-	loseEnd   bool
-	delayInfo time.Duration
+	mu                 sync.Mutex
+	calls              []map[string]any
+	epoch              int64
+	loseEnd            bool
+	delayInfo          time.Duration
+	withoutNetworkWait bool
 }
 
 func (fixture *controlFixture) methods() []string {
@@ -51,7 +53,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
-	endpoint := transport.NewEndpoint(socketDir, fmt.Sprintf("control-%d", time.Now().UnixNano()))
+	// Windows pipe names do not include socketDir. Reuse its random basename
+	// instead of a clock value that can repeat in fast sequential fixtures.
+	endpoint := transport.NewEndpoint(socketDir, "control-"+filepath.Base(socketDir))
 	listener, err := transport.Listen(endpoint)
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +91,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 					switch method {
 					case "getInfo":
 						result = map[string]any{"metadata": map[string]any{"turnLifecycleVersion": 1}}
+						if !fixture.withoutNetworkWait {
+							result.(map[string]any)["metadata"].(map[string]any)["networkWaitVersion"] = 1
+						}
 					case "getControlState":
 						result = state()
 					default:
@@ -187,7 +194,7 @@ func TestCLIControlLostEndRequiresExplicitRecovery(t *testing.T) {
 }
 
 func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait"} {
 		t.Run(method, func(t *testing.T) {
 			for _, timeout := range []time.Duration{1500 * time.Millisecond, 1050 * time.Millisecond} {
 				t.Run(timeout.String(), func(t *testing.T) {
@@ -215,7 +222,7 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 }
 
 func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
-	for _, method := range []string{"waitForFileChooser", "waitForDownload"} {
+	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait"} {
 		for _, invalid := range []any{float64(0), float64(-1), 1.5, float64(120001), "1000"} {
 			if err := boundCLIActionDeadline(method, map[string]any{"timeoutMs": invalid}, time.Now().Add(20*time.Second)); err == nil {
 				t.Fatalf("accepted %s timeout %v", method, invalid)
@@ -229,7 +236,7 @@ func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
 }
 
 func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait"} {
 		t.Run(method, func(t *testing.T) {
 			f := &controlFixture{epoch: 34, delayInfo: 250 * time.Millisecond}
 			options := f.start(t)
@@ -245,16 +252,55 @@ func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
 }
 
 func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
-	f := &controlFixture{epoch: 34}
-	options := f.start(t)
-	options.timeout = 10 * time.Second
-	submitted := options.control.snapshot()
-	submitted.deadline = time.Now().Add(8 * time.Second) // submitted two seconds ago
-	if _, err := options.control.invoke(options, "waitForDownload", map[string]any{"timeoutMs": 100}, &submitted); err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("queued operation accepted: %v", err)
+	for _, method := range []string{"waitForDownload", "armNetworkWait"} {
+		f := &controlFixture{epoch: 34}
+		options := f.start(t)
+		options.timeout = 10 * time.Second
+		submitted := options.control.snapshot()
+		submitted.deadline = time.Now().Add(8 * time.Second) // submitted two seconds ago
+		if _, err := options.control.invoke(options, method, map[string]any{"timeoutMs": 100}, &submitted); err == nil || !strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("queued operation accepted: %v", err)
+		}
+		if len(f.methods()) != 0 {
+			t.Fatal("expired queued operation connected or sent work")
+		}
 	}
-	if len(f.methods()) != 0 {
-		t.Fatal("expired queued operation connected or sent work")
+}
+
+func TestCLINetworkWaitCapabilityAndFixedRawBinding(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		f := &controlFixture{epoch: 36, withoutNetworkWait: true}
+		options := f.start(t)
+		options.timeout = 5 * time.Second
+		params := map[string]any{"tabId": 1, "event": "request", "match": map[string]any{"url": "https://fixture.test"}}
+		if manual {
+			params["control_epoch"], params["session_id"], params["turn_id"] = 36, "fixture", "fixed"
+		}
+		if _, err := invokeWithOptions(options, "armNetworkWait", params); err == nil || !strings.Contains(err.Error(), "OBU_NETWORK_WAIT_UNSUPPORTED") {
+			t.Fatalf("unsupported extension accepted network wait: %v", err)
+		}
+		for _, method := range f.methods() {
+			if cliNetworkWaitMethod(method) {
+				t.Fatal("unsupported network RPC reached extension")
+			}
+		}
+	}
+	f := &controlFixture{epoch: 37}
+	options := f.start(t)
+	options.timeout = 5 * time.Second
+	params := map[string]any{"tabId": 1, "waiterId": "ready-wait", "control_epoch": 37, "session_id": "fixture", "turn_id": "original-turn"}
+	for _, method := range []string{"collectNetworkWait", "cancelNetworkWait"} {
+		response, err := invokeWithOptions(options, method, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := response["result"].(map[string]any)
+		if result["turn_id"] != "original-turn" || result["control_epoch"] != float64(37) {
+			t.Fatal(result)
+		}
+		if _, exists := result["timeoutMs"]; exists {
+			t.Fatal("collect/cancel reset the network deadline")
+		}
 	}
 }
 

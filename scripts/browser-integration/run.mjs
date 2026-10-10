@@ -16,6 +16,7 @@ import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { elementScreenshotFixture, checkElementScreenshots } from "./element-screenshot-fixture.mjs";
 import { popupFixture, checkChildTabAuthorization } from "./popup-fixture.mjs";
 import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
+import { createNetworkWaitFixtures, networkPageURL, networkAPIURL, networkButton, checkNetworkReady, checkNetworkMatching, checkNetworkLifecycle } from "./network-waits-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -43,12 +44,31 @@ const extension = path.join(runDir, "extension");
 const records = [];
 const browserLog = [];
 const hostLog = [];
+let bridgeClosing = false, bridgeFailure;
+function failNativeBridge(error) {
+  hostLog.push(`Native adapter ${bridgeClosing ? "shutdown" : "failure"}: ${error.stack ?? error}\n`);
+  if (bridgeClosing || bridgeFailure) return;
+  bridgeFailure = error;
+  records.push({ name: "native-adapter-failure", passed: false, error: error.stack ?? String(error) });
+  console.error("FAIL native adapter", error.message ?? error);
+}
+function writeNativeMessage(message) {
+  if (bridgeClosing || bridgeFailure) return;
+  if (host.stdin.destroyed || host.stdin.writableEnded || host.exitCode !== null) {
+    failNativeBridge(new Error("Native host input closed during active acceptance"));
+    return;
+  }
+  try {
+    host.stdin.write(frame(JSON.parse(message.toString())), error => { if (error) failNativeBridge(error); });
+  } catch (error) { failNativeBridge(error); }
+}
 let sourceIdentity;
 const versions = { node: process.version, browserRunner: "playwright@1.64.0 (executable lookup and static YAML parsing; no page connection)" };
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 async function until(callback, label, timeout = 20000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
+    if (bridgeFailure) throw bridgeFailure;
     try { const value = await callback(); if (value) return value; } catch {}
     await delay(100);
   }
@@ -91,6 +111,51 @@ async function hashTree(root) {
   }
   await visit();
   return files;
+}
+async function withMCPClient(executable, endpoint, sessionId, use) {
+  const child = spawn(path.resolve(executable), ["mcp", "--socket", endpoint, "--session-id", sessionId, "--timeout", "15s"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  let id = 0, buffer = "", stderr = "";
+  const pending = new Map();
+  const fail = error => { for (const item of pending.values()) { clearTimeout(item.timer); item.reject(error); } pending.clear(); };
+  const send = message => child.stdin.write(JSON.stringify(message) + "\n");
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const requestId = ++id;
+    const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(`MCP ${method} timed out`)); }, 20000);
+    pending.set(requestId, { resolve, reject, timer });
+    send({ jsonrpc: "2.0", id: requestId, method, params });
+  });
+  child.stdout.on("data", chunk => {
+    buffer += chunk.toString();
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+      try {
+        const response = JSON.parse(line), item = pending.get(response.id);
+        if (!item) continue;
+        pending.delete(response.id); clearTimeout(item.timer);
+        response.error ? item.reject(new Error(JSON.stringify(response.error))) : item.resolve(response.result);
+      } catch (error) { fail(error); }
+    }
+  });
+  child.stderr.on("data", chunk => stderr += chunk.toString());
+  child.once("error", fail);
+  const closed = new Promise(resolve => child.once("exit", code => { fail(new Error(`MCP exited ${code}: ${stderr}`)); resolve(code); }));
+  try {
+    const initialized = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "obu-network-integration", version: "1.0.0" } });
+    assert.equal(initialized.protocolVersion, "2025-06-18");
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    return await use(async (method, params) => {
+      const response = await request("tools/call", { name: "call", arguments: { method, params } });
+      assert.equal(response.isError, false, JSON.stringify(response));
+      assert.equal(response.structuredContent.error, undefined, JSON.stringify(response));
+      return response.structuredContent.result;
+    });
+  } finally {
+    child.stdin.end();
+    const code = await Promise.race([closed, delay(2000).then(() => "timeout")]);
+    if (code === "timeout") child.kill();
+    fail(new Error("MCP fixture closed"));
+  }
 }
 function nativeAdapter(url) {
   return `function __integrationConnectNative(name) {
@@ -139,8 +204,10 @@ async function workerConnection(url) {
   };
 }
 
+const networkFixtures = createNetworkWaitFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
+  if (networkFixtures.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (["/ai-snapshot", "/ai-snapshot-leaf", "/ai-snapshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(aiSnapshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams)); return; }
   if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture()); return; }
@@ -228,17 +295,25 @@ try {
   sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   host = spawn(path.resolve(executable), ["host", "--socket-dir", socketDir], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   host.stderr.on("data", data => hostLog.push(data.toString()));
+  host.stdin.on("error", failNativeBridge);
+  host.once("error", failNativeBridge);
+  host.once("exit", (code, signal) => {
+    if (!bridgeClosing) failNativeBridge(new Error(`Native host exited during active acceptance: ${code} ${signal}`));
+  });
   let extensionSocket, extensionId, nativeBuffer = Buffer.alloc(0);
   const outbound = [];
   ws.on("connection", (socket, request) => {
+    socket.on("error", failNativeBridge);
+    if (bridgeClosing || bridgeFailure) { socket.terminate(); return; }
     extensionSocket = socket;
     extensionId = new URL(request.url, websocketURL).searchParams.get("extensionId");
     for (const message of outbound.splice(0)) socket.send(message);
-    socket.on("message", message => host.stdin.write(frame(JSON.parse(message.toString()))));
+    socket.on("message", writeNativeMessage);
   });
   host.stdout.on("data", data => {
     nativeBuffer = Buffer.concat([nativeBuffer, data]);
@@ -288,6 +363,7 @@ try {
     assert.ok(events.every(event => event.tabId === sentinel.id), `Agent temporarily activated another tab: ${JSON.stringify(events)}`);
   }
   async function test(name, run) {
+    if (bridgeFailure) throw bridgeFailure;
     if (process.env.OBU_TEST_CASES && name !== "js-raw-navigation-before-engine" && !new RegExp(process.env.OBU_TEST_CASES).test(name)) return;
     const start = Date.now();
     let detail, failure;
@@ -353,6 +429,20 @@ try {
           connectSuccessor: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-ai-successor-${suffix}`, timeoutMs: 15000 })
         });
       } finally { try { await ai.client.finalizeTabs([]); } finally { ai.close(); } }
+    });
+  }
+  for (const [suffix, check] of [["ready-and-headers", checkNetworkReady], ["matching-and-retention", checkNetworkMatching], ["lifecycle", checkNetworkLifecycle]]) {
+    await test(`js-network-waits-${suffix}`, async () => {
+      const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-network-${suffix}`, timeoutMs: 15000 });
+      try {
+        assert.equal((await network.client.getInfo()).metadata.networkWaitVersion, 1);
+        const detail = await check({ browser: network, fixtureURL, server: networkFixtures, until,
+          oopifTargets: () => worker.evaluate("globalThis.__integrationFrames"),
+          ungroup: tabId => worker.evaluate(`chrome.tabs.ungroup(${tabId})`),
+          connectSuccessor: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-network-successor-${suffix}`, timeoutMs: 15000 }) });
+        await fs.writeFile(path.join(runDir, `network-waits-${suffix}.json`), JSON.stringify(detail, null, 2));
+        return detail;
+      } finally { try { await network.client.finalizeTabs([]); } finally { network.close(); } }
     });
   }
   await test("js-role-name-yaml-snapshot", async () => {
@@ -481,6 +571,39 @@ try {
     await tab.waitForURL(fixtureURL + "?navigated=1");
     await tab.waitForLoadState();
     assert.equal(await tab.getByLabel("Controlled name").inputValue(), "");
+  });
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-network-waits-cold-arm`, async () => {
+    const sessionId = `${kind}-network-integration`;
+    const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "network-acceptance", timeoutMs: 15000 });
+    const key = `${kind}-network-cold`;
+    try {
+      // Explicit raw navigation keeps the first engine attachment and its
+      // ready acknowledgement in the entry point under test.
+      const owned = await network.newTab();
+      await network.cdp.navigate(owned.id, networkPageURL(fixtureURL, key));
+      const scope = { session_id: sessionId, turn_id: network.client.turnId, control_epoch: network.client.controlEpoch };
+      const check = async call => {
+        const url = networkAPIURL(fixtureURL, key);
+        const armed = await call("armNetworkWait", { ...scope, tabId: owned.id, event: "response", match: { url, method: "POST", status: 201 }, timeoutMs: 10000 });
+        assert.ok(armed.waiterId && armed.remainingMs > 0);
+        try {
+          await call("browserAction", { ...scope, tabId: owned.id, action: "click", locator: [{ kind: "role", role: "button", name: networkButton, exact: true }], timeoutMs: 5000 });
+          const event = await call("collectNetworkWait", { ...scope, tabId: owned.id, waiterId: armed.waiterId });
+          assert.equal(event.event, "response"); assert.equal(event.url, url); assert.equal(event.method, "POST"); assert.equal(event.status, 201);
+          assert.ok(event.requestId); assert.equal(event.resourceType, "fetch");
+          assert.deepEqual(await call("collectNetworkWait", { ...scope, tabId: owned.id, waiterId: armed.waiterId }), event);
+          assert.deepEqual(await owned.evaluate("networkClicks"), [{ trusted: true }]);
+          assert.equal(networkFixtures.stats(key).requests.length, 1, `${kind} replayed the HTTP trigger`);
+          return { event, server: networkFixtures.stats(key), fixedScope: scope };
+        } finally { await call("cancelNetworkWait", { ...scope, tabId: owned.id, waiterId: armed.waiterId }); }
+      };
+      if (kind === "mcp") return await withMCPClient(executable, endpoint, sessionId, check);
+      return await check(async (method, params) => {
+        const response = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+        assert.equal(response.error, undefined, JSON.stringify(response));
+        return response.result;
+      });
+    } finally { try { await network.client.finalizeTabs([]); } finally { network.close(); } }
   });
   await test("cli-browser-action", async () => {
     async function call(action, locator, args = {}) {
@@ -704,6 +827,8 @@ try {
     try {
       const owned = await recovery.newTab({ url: fixtureURL });
       const oldEpoch = recovery.client.controlEpoch;
+      const oldTurn = recovery.client.turnId;
+      const networkWait = await recovery.client.request("armNetworkWait", { tabId: owned.id, event: "response", match: { url: fixtureURL + "never-worker-network" }, timeoutMs: 120000 });
       const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
       const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
       const oldTarget = targets.find(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
@@ -731,13 +856,15 @@ try {
       assert.ok(Array.isArray(restartEvents), "The activation observer document changed during worker restart");
       await worker.evaluate(`globalThis.__integrationActivations=${JSON.stringify([...previousActivations, ...restartEvents])};chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info))`);
       await assert.rejects(recovery.client.getTabs(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
+      await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       assert.equal(recovery.client.controlEpoch, oldEpoch, "restart silently refreshed the client");
       await recovery.client.beginTurn();
       assert.ok(recovery.client.controlEpoch > oldEpoch);
+      await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId }), /OBU_NETWORK_WAIT_EXPIRED/);
       assert.match(await owned.domSnapshot(), /Controlled name/);
       await owned.getByLabel("Controlled name").fill("recovered after worker restart");
       assert.equal(await owned.getByLabel("Controlled name").inputValue(), "recovered after worker restart");
-      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents };
+      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: oldTarget.id, restartedTarget: restarted.id, restartEvents, oldNetworkWaitExpired: true };
     } finally {
       try { await recovery.client.finalizeTabs([]); } finally {
         recovery.close();
@@ -751,10 +878,17 @@ try {
       }
     }
   });
-  await test("js-user-global-pause-popup", async () => checkGlobalPause({
+  await test("js-user-global-pause-popup", async () => {
+    const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
+    let pauseNetworkOutcome, pausedWait, pausedTab;
+    try {
+      pausedTab = await network.newTab({ url: networkPageURL(fixtureURL, "js-paused-network") });
+      pausedWait = await pausedTab.expectResponse({ url: networkAPIURL(fixtureURL, "js-paused-network") }, { timeoutMs: 120000 });
+      const pendingNetwork = pausedWait.result({ timeoutMs: 120000 }).then(value => pauseNetworkOutcome = { value }, error => pauseNetworkOutcome = { error: String(error) });
+      const detail = await checkGlobalPause({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until,
-    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify(detail, null, 2)),
+    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome }, null, 2)),
     connectPage: async url => {
       const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
       return workerConnection(target.webSocketDebuggerUrl);
@@ -765,6 +899,9 @@ try {
       await fs.writeFile(path.join(runDir, `${name}.png`), bytes);
     },
     restartWorker: async observer => {
+      await until(() => pauseNetworkOutcome, "Pause cancelled the pending network collect", 5000);
+      assert.match(pauseNetworkOutcome.error, /OBU_NETWORK_WAIT_EXPIRED|paused|ended|cancel|stale/i);
+      assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       const previousActivations = await worker.evaluate("globalThis.__integrationActivations");
       await observer.evaluate("globalThis.__pauseActivations=[];chrome.tabs.onActivated.addListener(info=>globalThis.__pauseActivations.push(info))");
       const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
@@ -782,18 +919,32 @@ try {
       await worker.evaluate(`globalThis.__integrationActivations=${JSON.stringify([...previousActivations, ...observed])};chrome.tabs.onActivated.addListener(info=>globalThis.__integrationActivations.push(info))`);
       return { oldTarget: oldTarget.id, restartedTarget: restarted.id, activeEvents: observed };
     }
-  }));
+      });
+      await pendingNetwork;
+      await assert.rejects(pausedWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NETWORK_WAIT_EXPIRED/);
+      await network.client.beginTurn();
+      assert.deepEqual(await pausedTab.evaluate("networkClicks"), [], "Resume replayed a network trigger");
+      assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
+      await network.client.finalizeTabs([]);
+      return { ...detail, networkWait: pauseNetworkOutcome, networkNotReplayed: true };
+    } finally { network.close(); }
+  });
   activeEvents = await worker.evaluate("globalThis.__integrationActivations");
 } catch (error) {
   records.push({ name: "fatal", passed: false, error: error.stack }); console.error(error);
 } finally {
+  // Tab/window removal can emit a last extension notification. Stop accepting
+  // bridge writes before ending stdin, including callbacks already queued by ws.
+  bridgeClosing = true;
   browser?.close();
   if (worker) { try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
   if (chrome && chrome.exitCode === null) chrome.kill();
-  if (host && host.exitCode === null) { host.stdin.end(); await Promise.race([new Promise(resolve => host.once("exit", resolve)), delay(1000)]); if (host.exitCode === null) host.kill(); }
+  if (host && host.exitCode === null) { if (!host.stdin.destroyed && !host.stdin.writableEnded) host.stdin.end(); await Promise.race([new Promise(resolve => host.once("exit", resolve)), delay(1000)]); if (host.exitCode === null) host.kill(); }
   for (const client of ws.clients) client.terminate();
   await new Promise(resolve => ws.close(resolve));
+  networkFixtures.close();
   await new Promise(resolve => http.close(resolve));
+  await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: true, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, activeEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));

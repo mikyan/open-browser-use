@@ -88,6 +88,49 @@ const text = await tab.domSnapshot();
 const value = await tab.evaluate("document.title");
 ```
 
+## Network request and response waits
+
+Register the listener first, trigger the action, then collect its result. The
+ready acknowledgement means the listener is installed on the same engine Page
+used by the action; the pending listener does not occupy the tab's action queue.
+These helpers are available on both `tab` and `tab.playwright`.
+
+```js
+const pending = await tab.expectResponse({
+  url: "https://your-test-site.example/api/save", method: "POST", status: 200,
+}, { timeoutMs: 5000 });
+try {
+  await tab.getByRole("button", { name: "Save", exact: true }).click();
+  const response = await pending.result();
+  console.log(response.requestId, response.status);
+} catch (error) {
+  await pending.cancel().catch(() => {});
+  throw error;
+}
+```
+
+`expectRequest` uses the same match object without `status`. URL matching is
+`exact` by default; set `urlMatch: "contains"` for a literal substring. URL is
+nonempty and at most 4096 UTF-8 bytes; optional `method` is nonempty and at most
+128 bytes, with case preserved. Only response waits accept integer status
+100–599. Predicates, regular expressions and unknown fields are rejected.
+
+The arm timeout defaults to 10,000 ms, accepts integers 1–120,000, and includes
+negotiation, connection and queue time. `result({ timeoutMs })` has a separate
+read budget (default 120,000 ms); each RPC reserves one additional second for
+its response. Reading never extends the original network deadline. Matched
+results and terminal errors remain available for the backend's 30-second TTL;
+repeated `result()` reads that retained state. `cancel()` releases the record.
+
+Handles preserve the session, turn and epoch submitted by arm. Ending control,
+pause, detach, ownership change or restart invalidates them; `beginTurn()` does
+not rebind an old handle. Errors never trigger automatic re-arm, recapture or
+input replay. The extension must advertise `getInfo.metadata.networkWaitVersion`
+as `1`; older extensions fail explicitly, with no diagnostics-cache fallback.
+Results contain bounded request/response metadata, optional redirect linkage
+and a `truncated` flag, never headers or bodies. A response means headers arrived,
+not that its body finished; HTTP errors can match, network failures can time out.
+
 ## Semantic Locators and Input
 
 High-level actions execute in the extension's Playwright engine. `domSnapshot()`

@@ -1,6 +1,8 @@
 import { Socket, createConnection } from "node:net";
 import { endianness } from "node:os";
 import { randomUUID } from "node:crypto";
+import { OpenBrowserUseNetworkWait, networkWaitAck, networkWaitMatch, networkWaitTimeout, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions } from "./network-waits.js";
+export { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions, type OpenBrowserUseNetworkWaitResult } from "./network-waits.js";
 
 export type JsonValue =
   | null
@@ -84,7 +86,9 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 };
 type ControlBinding = { controlEpoch: number | null; closing: boolean; nextTurnId?: string };
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait"]);
+const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
+const networkWaitSymbol = Symbol("networkWait");
 const controlScopeSymbol = Symbol("controlScope");
 type ControlScope = { request(method: string, params?: BrowserUseRequestParams, reservedResponseMs?: number): Promise<JsonValue>; remaining(): number };
 
@@ -96,6 +100,7 @@ export class OpenBrowserUseClient {
   #control: ControlBinding | null = null;
   #controlInitialization: Promise<ControlBinding> | null = null;
   #controlRevision = 0;
+  #networkWaitVersion: unknown = undefined;
   #socket: Socket | null = null;
   #connecting: Promise<void> | null = null;
   #pendingData = Buffer.alloc(0);
@@ -169,6 +174,10 @@ export class OpenBrowserUseClient {
   }
 
   async request(method: string, params: BrowserUseRequestParams = {}, options: { timeoutMs?: number } = {}): Promise<JsonValue> {
+    return this.#request(method, params, options);
+  }
+
+  async #request(method: string, params: BrowserUseRequestParams, options: { timeoutMs?: number }, capture?: (metadata: BrowserUseRequestParams) => void): Promise<JsonValue> {
     assertTimeout(options.timeoutMs ?? this.timeoutMs);
     const submittedAt = Date.now();
     let deadline = submittedAt + (options.timeoutMs ?? this.timeoutMs);
@@ -192,6 +201,11 @@ export class OpenBrowserUseClient {
       if (binding.closing) throw new Error("OBU_CONTROL_ENDING: call beginTurn() explicitly after control has ended");
       if (binding.controlEpoch !== null) merged.control_epoch = binding.controlEpoch;
     }
+    if (networkWaitMethods.has(method)) {
+      if (this.#networkWaitVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+      if (this.#networkWaitVersion !== 1) throw new Error("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1");
+    }
+    capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
     const result = await this.#sendRequest(method, merged, deadline);
     if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
       const next = binding.controlEpoch === null ? { controlEpoch: null, closing: false, nextTurnId: `turn-${randomUUID()}` } : parseEndedControl(result);
@@ -203,6 +217,19 @@ export class OpenBrowserUseClient {
       }
     }
     return result;
+  }
+
+  async [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> {
+    const timeoutMs = networkWaitTimeout(options), frozen = networkWaitMatch(event, match);
+    let binding: BrowserUseRequestParams | undefined;
+    const value = await this.#request("armNetworkWait", { tabId, event, match: frozen, timeoutMs }, { timeoutMs: timeoutMs + 1000 }, metadata => {
+      if (!Number.isSafeInteger(metadata.control_epoch) || (metadata.control_epoch as number) < 1) throw new Error("Network waits require an explicit control epoch");
+      binding = metadata;
+    });
+    const ack = networkWaitAck(value, timeoutMs);
+    if (!binding || !Number.isSafeInteger(binding.control_epoch) || (binding.control_epoch as number) < 1) throw new Error("Network waits require an explicit control epoch");
+    const params = { ...binding, tabId, waiterId: ack.waiterId };
+    return new OpenBrowserUseNetworkWait(ack, event, (method, timeout) => this.request(method, params, { timeoutMs: timeout }));
   }
 
   getControlState(): Promise<JsonValue> { return this.request("getControlState"); }
@@ -267,7 +294,7 @@ export class OpenBrowserUseClient {
     if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
     if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
-      const requested = params.timeoutMs ?? 10_000;
+      const requested = method === "armNetworkWait" && params.timeoutMs !== undefined ? params.timeoutMs : params.timeoutMs ?? 10_000;
       if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested))) throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
       const available = Math.floor(remaining - 1000);
       if (available < 1) throw new Error(`Open Browser Use request timed out before ${method} could start`);
@@ -293,7 +320,9 @@ export class OpenBrowserUseClient {
     } catch (error) {
       this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
     }
-    return await promise;
+    const result = await promise;
+    if (method === "getInfo") this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
+    return result;
   }
 
   getInfo(): Promise<JsonValue> {
@@ -561,6 +590,14 @@ export class OpenBrowserUseTab {
     return (await this.browser.client.browserAction(this.id, "engineInfo")).engine;
   }
 
+  expectRequest(match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> {
+    return this.browser.client[networkWaitSymbol](this.id, "request", match, options);
+  }
+
+  expectResponse(match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> {
+    return this.browser.client[networkWaitSymbol](this.id, "response", match, options);
+  }
+
   goto(url: string, options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> {
     if (!url) return Promise.reject(new Error("goto requires a URL"));
     assertSupportedLoadState(options.waitUntil ?? "load");
@@ -714,6 +751,8 @@ export class OpenBrowserUseLocator {
 }
 
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+  expectRequest(match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> { return this.tab.expectRequest(match, options); }
+  expectResponse(match: OpenBrowserUseNetworkWaitMatch, options: OpenBrowserUseNetworkWaitOptions = {}): Promise<OpenBrowserUseNetworkWait> { return this.tab.expectResponse(match, options); }
   snapshotAI(options: OpenBrowserUseAISnapshotOptions = {}): Promise<OpenBrowserUseAISnapshot> { return this.tab.snapshotAI(options); }
   goBack(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.goBack(options); }
   goForward(options: OpenBrowserUseGotoOptions = {}): Promise<JsonValue> { return this.tab.goForward(options); }

@@ -241,6 +241,9 @@ Common Browser Use JSON-RPC methods:
 - `setFileChooserFiles`
 - `waitForDownload`
 - `downloadPath`
+- `armNetworkWait`
+- `collectNetworkWait`
+- `cancelNetworkWait`
 - `readClipboardText`
 - `writeClipboardText`
 - `readClipboard`
@@ -434,6 +437,91 @@ page waiting for login, approval, payment, CAPTCHA, or other user input.
 Treat finalization as the last Open Browser Use browser action of the turn. If
 more browser work is needed, do it before finalizing, then finalize once with
 the final tab disposition.
+
+## Network event waits
+
+Use this sequence for a request/response caused by a page action: **await ready,
+trigger, collect, cancel**. Check `getInfo.metadata.networkWaitVersion === 1`;
+older extensions fail with `OBU_NETWORK_WAIT_UNSUPPORTED`. Do not replace a
+missing capability with diagnostics polling or a guessed sleep.
+
+With an owned `tab`, a URL derived from the page/task, and an observed Save button:
+
+```js
+const pending = await tab.expectResponse(
+  { url: apiURL, method: "POST", status: 200 }, { timeoutMs: 5000 });
+try {
+  await tab.getByRole("button", { name: "Save", exact: true }).click();
+  const response = await pending.result();
+  console.log(response.requestId, response.status);
+} finally {
+  await pending.cancel().catch(() => {});
+}
+```
+
+Python's equivalent is `tab.expect_response(match, timeout_ms=5000)`, followed
+by the synchronous trigger and `pending.result()` / `pending.cancel()`.
+Go uses `tab.ExpectResponse(obu.NetworkWaitMatch{URL: apiURL, Method: "POST",
+Status: 200}, obu.NetworkWaitOptions{Timeout: 5 * time.Second})`, followed by
+the trigger and `pending.Result()` / `pending.Cancel()` with normal error checks.
+Request variants are `expectRequest`, `expect_request` and `ExpectRequest`.
+All methods are also on the Playwright facade. Preserve the trigger's error when
+best-effort cancellation fails; do not report cleanup failure as successful work.
+
+Match `url` is required and nonempty, at most 4096 UTF-8 bytes. `urlMatch` is
+`exact` by default or literal `contains`; optional `method` is nonempty, at most
+128 bytes, and matched without changing case. Only response waits accept `status`,
+an integer 100–599. There are no regexes or executable predicates; unknown fields
+are rejected. Go uses `URLMatch`, `Method` and `Status`, with empty/zero optional
+values omitted. Matching uses complete native values before display truncation.
+
+Results include `event`, `requestId`, `url`, `method`, `resourceType`, optional
+`frameUrl` and `redirectedFrom`, and response `status`/`statusText`. They contain
+no headers, cookies or bodies, and are limited to 16 KiB with `truncated:true`
+when shortened. Verify the fields and page state required by the task. HTTP error
+statuses are still responses; a broken connection may never produce one.
+
+Arm defaults to 10000 ms and accepts integer 1–120000 ms, including connection,
+negotiation and queue time. SDK result reads default to an independent 120000 ms
+budget; cancel defaults to 10000 ms. Both accept the same range and add one second
+of RPC response allowance. Reading never renews the original network deadline.
+Matched results and terminal errors remain readable for 30 seconds after
+settlement; cancel frees them immediately. Capacity is bounded at 16 per tab,
+32 per session and 128 globally, including reserved and retained records.
+
+For CLI/MCP, the same workflow uses independent RPCs through `call`:
+
+| Method | Params in addition to original scope and `tabId` | Success |
+| --- | --- | --- |
+| `armNetworkWait` | `event: "request"` or `"response"`, `match`, optional `timeoutMs` | `{waiterId, remainingMs}`: listener ready |
+| `collectNetworkWait` | `waiterId` | Matched metadata, without a browserAction `{value, engine}` wrapper |
+| `cancelNetworkWait` | `waiterId` | `{}` |
+
+Read `control-state` / `control_state` once and retain its `controlEpoch` and
+`nextTurnId` with your task session ID. Explicitly pass these as `control_epoch`,
+`turn_id`, `session_id` to every step when using separate CLI processes. For MCP,
+use the `call` tool with `arguments: {method, params}` and await each ready reply
+before triggering. Check RPC errors and MCP `isError` as well as nested backend
+errors; the tool's `structuredContent.result` holds a successful backend result.
+Set a finite CLI/MCP `--timeout` long enough for the intended read; it is a total
+transport budget. Do not put `timeoutMs` in collect/cancel params. A default
+10-second transport timeout can end a longer read early.
+
+The handle always belongs to arm's original session, turn, epoch and attachment.
+Do not fetch a newer epoch or begin a new turn to read an old handle. Pause,
+control end, detach, tab close, group/window ownership changes and restart
+invalidate both pending and retained records. Ordinary navigation on the same
+authorized Page attachment can still trigger the wait. `OBU_NETWORK_WAIT_EXPIRED`
+means the handle is unavailable; `OBU_NETWORK_WAIT_TIMEOUT` means its original
+event deadline expired; `OBU_NETWORK_WAIT_LIMIT` means capacity is full;
+`OBU_NETWORK_WAIT_FAILED` indicates a bounded processing/ownership-check failure.
+Stale-control and Pause errors may occur first. Inspect the current page and
+decide fresh work explicitly; never automatically re-arm or replay the trigger.
+
+The pending listener does not hold the tab's action queue, but collecting first
+can occupy a synchronous client or MCP channel and prevent its trigger. The
+ready-first API is specific to network waits; file chooser/download registration
+has the separate limitations below.
 
 ## File Chooser Pattern
 

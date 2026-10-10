@@ -49,6 +49,52 @@ finally:
 Use `OpenBrowserUseClient` directly when you need raw Browser Use JSON-RPC or
 CDP methods.
 
+## Network request and response waits
+
+The synchronous API uses arm → action → collect, without threads. Receiving the
+ready acknowledgement installs the listener before the action, including a cold
+engine. Call the trigger before `result()`, because a pending collect occupies
+this client's synchronous transport. The helpers exist on `tab` and
+`tab.playwright`.
+
+```py
+pending = tab.expect_response({
+    "url": "https://your-test-site.example/api/save", "method": "POST", "status": 200,
+}, timeout_ms=5000)
+try:
+    tab.get_by_role("button", name="Save", exact=True).click()
+    response = pending.result()
+    print(response["requestId"], response["status"])
+except BaseException:
+    try:
+        pending.cancel()
+    except Exception:
+        pass  # Keep the original action/result error.
+    raise
+```
+
+`expect_request` accepts the same match dictionary without `status`. `urlMatch`
+is `"exact"` by default or `"contains"` for a literal substring. URL is nonempty
+and at most 4096 UTF-8 bytes; optional method is nonempty, case-preserving and at
+most 128 bytes. Response status is an integer from 100 to 599. Unknown fields,
+predicates and regular expressions are rejected. `NetworkWaitMatch`,
+`NetworkWaitResult` and `OpenBrowserUseNetworkWait` are exported types.
+
+The arm timeout defaults to 10,000 ms and must be an integer from 1 to 120,000.
+Discovery, capability negotiation, connection and queues consume it.
+`result(timeout_ms=...)` has an independent read budget (default 120,000 ms),
+plus one second of transport response allowance. It never renews the network
+deadline. Backend terminal states remain collectible for 30 seconds; repeated
+collect reads the retained result/error. `cancel()` removes the record.
+
+Each handle keeps arm's submitted session/turn/epoch. Pause, end, detach,
+ownership changes and restart invalidate it; `begin_turn()` cannot revive it.
+No automatic re-arm or input replay occurs. Older extensions without
+`getInfo.metadata.networkWaitVersion == 1` fail explicitly. Results are bounded
+metadata, optionally marked `truncated`, with no headers or bodies. Response
+means headers arrived, not body completion; HTTP failures can match while
+network failures may time out.
+
 ## Locators and browser actions
 
 The development extension bundles a real Playwright engine. Update the host,

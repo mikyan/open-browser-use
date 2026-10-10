@@ -70,6 +70,50 @@ func main() {
 Use `Client.Request(method, params)` when you need a public Browser Use
 JSON-RPC call, or `Client.ExecuteCDP` / `Browser.CDP.Call` for raw CDP commands.
 
+## Network request and response waits
+
+Arm a listener, trigger the action, then call `Result`. The ready acknowledgement
+installs the listener before the trigger, including on a cold engine. This
+sequence uses the synchronous client without goroutines; collecting a pending
+wait first would occupy the channel needed by the trigger. Both `Tab` and
+`Tab.Playwright` expose the helpers.
+
+```go
+pending, err := tab.ExpectResponse(obu.NetworkWaitMatch{
+    URL: "https://your-test-site.example/api/save", Method: "POST", Status: 200,
+}, obu.NetworkWaitOptions{Timeout: 5 * time.Second})
+if err != nil { return err }
+if err = tab.GetByRole("button", obu.RoleOptions{Name: "Save", Exact: true}).Click(); err != nil {
+    _ = pending.Cancel() // Preserve the original action error.
+    return err
+}
+response, err := pending.Result()
+if err != nil { _ = pending.Cancel(); return err }
+fmt.Println(response.RequestID, response.Status)
+```
+
+`ExpectRequest` uses the same match without `Status`. Empty `URLMatch` defaults
+to exact matching; `"contains"` selects a literal substring. URL is nonempty
+and at most 4096 UTF-8 bytes. Optional method preserves case and is at most
+128 bytes; empty means omitted. `Status` is response-only, 100–599, with zero
+meaning omitted. There are no predicates or regex matches.
+
+`NetworkWaitOptions.Timeout` must be a whole number of milliseconds from 1 to
+120,000; zero selects the default. Arm defaults to 10 seconds, including
+discovery, negotiation, connection and queue time. `Result` defaults to a
+separate 120-second read budget, plus one second of RPC response allowance;
+it never renews the network deadline. Retained terminal results/errors can be
+collected repeatedly during the backend's 30-second TTL. `Cancel` removes the
+record and defaults to a 10-second read/cleanup budget plus the same allowance.
+
+The handle retains arm's submitted session, turn and epoch. Pause, end, detach,
+ownership changes and restart invalidate it; `BeginTurn` never rebinds it, and
+the SDK never re-arms or replays input. The extension must advertise
+`getInfo.metadata.networkWaitVersion == 1`; older versions fail explicitly.
+`NetworkWaitResult` contains bounded metadata, optional redirect linkage and
+`Truncated`, not headers or bodies. Response means headers arrived, not that
+the body completed; HTTP failures can match, network failures can time out.
+
 ## Playwright actions
 
 The development extension uses its genuine Playwright engine for tab navigation,

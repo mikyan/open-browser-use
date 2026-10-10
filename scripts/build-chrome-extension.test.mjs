@@ -309,6 +309,7 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   await fs.access(path.join(output, "browser-frame-adapter.js"));
   await fs.access(path.join(output, "browser-input-adapter.js"));
   await fs.access(path.join(output, "browser-diagnostics.js"));
+  await fs.access(path.join(output, "browser-network-waits.js"));
   await fs.access(path.join(output, "browser-ai-snapshot.js"));
   await fs.access(path.join(output, "browser-observation.js"));
 });

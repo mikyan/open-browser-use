@@ -1,5 +1,6 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
+import { BrowserNetworkWaits } from "./browser-network-waits.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
 const NATIVE_HOST_STATUS_KEY = "OPEN_BROWSER_USE_NATIVE_HOST_STATUS";
@@ -49,6 +50,7 @@ const PUBLIC_BROWSER_METHODS = new Set([
   "ping", "getInfo", "getControlState", "createTab", "getTabs", "getUserTabs", "getUserHistory", "claimUserTab", "finalizeTabs", "nameSession",
   "attach", "detach", "executeCdp", "browserAction", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool",
   "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadPath", "readClipboardText", "writeClipboardText",
+  "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
   "readClipboard", "writeClipboard", "turnEnded", "executeUnhandledCommand"
 ]);
 
@@ -538,6 +540,7 @@ class BrowserBackend {
     this.automationTransitions = Promise.resolve();
     this.pauseReleaseFailures = new Map();
     this.inputTracker = new NativeInputTracker();
+    this.networkWaits = new BrowserNetworkWaits();
     this.sessionMutations = new Map();
     this.endingSessions = new Map();
     this.webMcpGate = webMcpGate;
@@ -567,6 +570,7 @@ class BrowserBackend {
     this.nextCursorMoveSequence = 1;
     chrome.debugger.onDetach.addListener((source) => {
       if (typeof source.tabId === "number") {
+        this.networkWaits.invalidateTab(source.tabId);
         this.controlEpochs.set(source.tabId, (this.controlEpochs.get(source.tabId) ?? 0) + 1);
         this.browserEngine?.forget(source.tabId);
         try { this.releaseEngineAttachment(source.tabId); }
@@ -574,17 +578,35 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      this.networkWaits.invalidateTab(tabId);
       this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId), { destroyed: true });
       this.pauseReleaseFailures.delete(tabId);
       this.automationControl.recoveredPendingTabs?.delete(tabId);
       this.releaseEngineAttachment(tabId);
     });
+    chrome.tabs?.onUpdated?.addListener((tabId, change) => {
+      if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
+    });
+    chrome.tabs?.onDetached?.addListener(tabId => this.networkWaits.invalidateTab(tabId));
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => this.networkWaits.invalidateTab(removed));
     this.controlReady = this.recoverControlState();
     this.controlReady.catch(error => this.automationControl.fail(error));
     for (const method of PUBLIC_BROWSER_METHODS) {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
       const handler = this[method].bind(this);
-      this[method] = (...args) => this.runControlledRequest(() => handler(...args));
+      if (method === "armNetworkWait") {
+        this[method] = async params => {
+          // Reserve before controlReady or any other await. Setup and the event
+          // consume one deadline; a delayed worker bootstrap cannot extend it.
+          const record = this.networkWaits.reserve(params);
+          try {
+            return await this.networkWaits.within(record, () => this.runControlledRequest(() => handler(record.params, record)));
+          } catch (error) {
+            this.networkWaits.fail(record, error);
+            throw error;
+          }
+        };
+      } else this[method] = (...args) => this.runControlledRequest(() => handler(...args));
     }
   }
 
@@ -622,14 +644,16 @@ class BrowserBackend {
   globalControlSnapshot() {
     const engine = this.browserEngine?.controlSnapshot?.() ?? { tabIds: [...this.browserEngine?.pages?.keys?.() ?? [], ...this.browserEngine?.queues?.keys?.() ?? [], ...this.browserEngine?.releases?.keys?.() ?? []], pending: [] };
     const input = this.inputTracker.controlSnapshot();
-    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds]);
+    const network = this.networkWaits.controlSnapshot();
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds]);
     for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl() {
     const snapshot = this.globalControlSnapshot();
     const error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user");
+    this.networkWaits.invalidateAll();
     for (const setup of this.fileChooserSetupsByTabId.values()) setup.reject(error);
     for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
     this.cursorArrivalWaitersByKey.clear();
@@ -790,6 +814,7 @@ class BrowserBackend {
         nativeHostName: NATIVE_HOST_NAME,
         browserActionProtocolVersion: 1,
         turnLifecycleVersion: 1,
+        networkWaitVersion: 1,
         automationControl: await this.getAutomationControlStatus()
       }
     };
@@ -1114,16 +1139,54 @@ class BrowserBackend {
     return await engine.dispatch(params);
   }
 
-  async releasePreviousAttachmentOwner(params, tabId) {
+  async armNetworkWait(params, record) {
+    const check = () => this.networkWaits.check(record);
+    check();
+    const tabId = requireTabId(params, "armNetworkWait");
+    await this.controlReleases.get(tabId)?.catch(() => {});
+    check();
+    await this.requireSessionTab(params, "armNetworkWait");
+    check();
+    await this.releasePreviousAttachmentOwner(params, tabId, check, { preserveNetworkArming: true });
+    check();
+    const engine = await this.getBrowserEngine();
+    check();
+    return engine.withPage(params, { deadlineAt: record.deadlineAt }, async ({ page, check: checkPage }) => {
+      check();
+      await checkPage();
+      check();
+      await this.requireSessionTab(params, "armNetworkWait");
+      check();
+      this.rememberAttachmentOwner(params, tabId);
+      const scope = { ...this.attachmentOwners.get(tabId) };
+      this.assertTransferScope(scope);
+      return this.networkWaits.arm(record, page, scope, value => this.validateTransferScope(value));
+    });
+  }
+
+  async collectNetworkWait(params) {
+    await this.requireSessionTab(params, "collectNetworkWait");
+    return this.networkWaits.collect(params);
+  }
+
+  async cancelNetworkWait(params) {
+    await this.requireSessionTab(params, "cancelNetworkWait");
+    return this.networkWaits.cancel(params);
+  }
+
+  async releasePreviousAttachmentOwner(params, tabId, check = () => {}, options = {}) {
     const owner = this.attachmentOwners.get(tabId);
     const current = this.controlLedger.assertCurrent(params);
     if (!owner || (owner.session_id === params.session_id && owner.control_epoch === current.epoch)) return false;
     // Prove the new owner before releasing the exact old attachment. The tab
     // may have been regrouped by the user while its old Page was still alive.
     await this.requireSessionTab({ ...params, tabId }, "attachment transfer");
+    check();
     if (this.attachmentOwners.get(tabId) === owner && this.attachmentEpochs.get(tabId) === owner.attachment) {
-      await this.detachTab(tabId);
+      await this.detachTab(tabId, options);
+      check();
       await this.requireSessionTab({ ...params, tabId }, "attachment transfer");
+      check();
       return true;
     }
     return false;
@@ -1159,6 +1222,10 @@ class BrowserBackend {
   }
 
   releaseEngineAttachment(tabId) {
+    // A cold network arm reserves capacity before the raw-to-CRX migration.
+    // Release only waits bound to the retiring Page here. External detach,
+    // explicit cancellation and ownership events also retire unbound setups.
+    this.networkWaits.invalidateAttachedTab(tabId);
     this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId));
     this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.attachmentOwners.delete(tabId);
@@ -2198,6 +2265,7 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId) {
+    this.networkWaits.invalidateSession(sessionId);
     // An inventory failure is not proof that control was released. Keep the
     // session record so explicit recovery can retry the same owned group.
     const tabs = await this.getSessionTabs(sessionId, { strict: true });
@@ -2211,6 +2279,8 @@ class BrowserBackend {
     const ending = {};
     this.endingSessions.set(params.session_id, ending);
     try {
+      this.controlLedger.assertCurrent(params);
+      this.networkWaits.invalidateSession(params.session_id);
       const record = await this.controlLedger.beginEnd(params);
       const release = this.releaseSessionControl(params.session_id);
       release.catch(() => {});
@@ -2395,7 +2465,9 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId) {
+  detachTab(tabId, { preserveNetworkArming = false } = {}) {
+    if (preserveNetworkArming) this.networkWaits.invalidateAttachedTab(tabId);
+    else this.networkWaits.invalidateTab(tabId);
     this.controlEpochs.set(tabId, (this.controlEpochs.get(tabId) ?? 0) + 1);
     // Input release may fail and deliberately retain the native attachment.
     // End the rendering lease immediately even in that case.

@@ -24,8 +24,8 @@
   客户端显式开启新轮次，以及取消不能撤销已投递输入的边界。
 - [File transfers](file-transfers.md)：上传拦截准备、跨 frame 来源、清空文件、
   按任务等待下载和当前本地路径查找限制。
-- [Network waits design](network-waits-design.md)：尚未实现的两阶段 request/response
-  等待设计，说明同步入口、deadline、资源上限与控制权隔离。
+- [Network waits](network-waits-design.md)：已实现的两阶段 request/response
+  等待契约，说明 ready/trigger/collect、同步入口、deadline、资源上限与控制权隔离。
 - [Codex observation baseline](codex-observation-baseline.md)：隔离合成页面上的
   IAB 只读快照基线及其有限范围，不等同于输入、性能或完整能力对齐验收。
 - [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与

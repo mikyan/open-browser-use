@@ -8,8 +8,13 @@ from .client import (
     connect_open_browser_use,
 )
 from ._ai_snapshot import AISnapshot, AISnapshotStats
+from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResult, OpenBrowserUseNetworkWait
 
 __all__ = [
+    "NetworkWaitEvent",
+    "NetworkWaitMatch",
+    "NetworkWaitResult",
+    "OpenBrowserUseNetworkWait",
     "AISnapshot",
     "AISnapshotStats",
     "OpenBrowserUseBrowser",

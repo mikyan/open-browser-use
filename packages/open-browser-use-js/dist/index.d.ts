@@ -1,3 +1,5 @@
+import { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions } from "./network-waits.js";
+export { OpenBrowserUseNetworkWait, type OpenBrowserUseNetworkWaitEvent, type OpenBrowserUseNetworkWaitMatch, type OpenBrowserUseNetworkWaitOptions, type OpenBrowserUseNetworkWaitResult } from "./network-waits.js";
 export type JsonValue = null | boolean | number | string | JsonValue[] | {
     [key: string]: JsonValue;
 };
@@ -128,6 +130,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
         kind: "console" | "pageerror" | "request" | "response" | "requestfinished" | "requestfailed";
     })[];
 };
+declare const networkWaitSymbol: unique symbol;
 declare const controlScopeSymbol: unique symbol;
 type ControlScope = {
     request(method: string, params?: BrowserUseRequestParams, reservedResponseMs?: number): Promise<JsonValue>;
@@ -147,6 +150,7 @@ export declare class OpenBrowserUseClient {
     request(method: string, params?: BrowserUseRequestParams, options?: {
         timeoutMs?: number;
     }): Promise<JsonValue>;
+    [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     getControlState(): Promise<JsonValue>;
     beginTurn(turnId?: string): Promise<OpenBrowserUseControlState | null>;
     refreshControlState(): Promise<OpenBrowserUseControlState | null>;
@@ -203,6 +207,8 @@ export declare class OpenBrowserUseTab {
         timeoutMs?: number;
     }): Promise<JsonValue>;
     engineInfo(): Promise<OpenBrowserUseEngineInfo>;
+    expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     goto(url: string, options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     goBack(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     goForward(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
@@ -310,6 +316,8 @@ export declare class OpenBrowserUseLocator {
     screenshot(options?: OpenBrowserUseActionOptions): Promise<OpenBrowserUseScreenshot>;
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+    expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     snapshotAI(options?: OpenBrowserUseAISnapshotOptions): Promise<OpenBrowserUseAISnapshot>;
     goBack(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
     goForward(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;
@@ -359,4 +367,3 @@ export declare class OpenBrowserUseCdp {
     ensureAttached(tabId: number): Promise<void>;
 }
 export declare function encodeFrame(value: JsonValue | Record<string, unknown>): Buffer;
-export {};

@@ -1,7 +1,7 @@
 # Browser actions
 
 Read this when interacting with page elements, inspecting semantic structure,
-handling frames, or taking screenshots. The development extension exposes
+handling frames, taking screenshots, or waiting for a request/response. The development extension exposes
 `browserAction` through CLI/MCP `call` and the JavaScript/Python/Go SDKs.
 
 1. Check `info` for `metadata.browserActionProtocolVersion`. If absent,
@@ -121,6 +121,33 @@ code. Incognito engine attachment, closed shadow roots, and newer Playwright
 snapshot options/boxes are not supported; OBU's capture refs use the finite
 contract above. Coordinate input uses browser debugging
 commands and does not move the system cursor.
+
+## Wait for a request or response
+
+Check `getInfo.metadata.networkWaitVersion === 1`. Use the ready handle workflow
+when verifying a request caused by a page action:
+
+1. Await `tab.expectResponse(match, options)` (or `expectRequest`) until it returns
+   a handle. This confirms the listener is installed, including on a cold engine.
+2. Trigger the observed page action in the same task turn.
+3. Await `handle.result()` and verify the returned URL, method and status together
+   with the page outcome. A response confirms headers arrived, not body completion.
+4. Cancel the handle when finished or when the trigger fails. Keep the original
+   action error if cancellation also fails.
+
+Python uses `expect_response` / `expect_request`; Go uses `ExpectResponse` /
+`ExpectRequest` and `Result` / `Cancel`. All are available on the tab and
+Playwright facades. Synchronous callers do not need threads: arm, trigger, then
+collect. Never collect before sending a trigger on the same blocking channel.
+CLI/MCP use `armNetworkWait`, `collectNetworkWait` and `cancelNetworkWait` through
+`call`, preserving arm's exact session, turn and epoch. For examples and fields,
+read [Network event waits](sdk-and-protocol.md#network-event-waits).
+
+These waits observe new events; diagnostics history is not a substitute. Old
+handles expire after control end, Pause, ownership change, detach or restart.
+BeginTurn does not revive them. On timeout or expiry, inspect the page before
+choosing a new action; never automatically re-arm and replay the trigger. This
+ready protocol does not change the file chooser, download or URL wait APIs.
 
 ## Respect user pause
 

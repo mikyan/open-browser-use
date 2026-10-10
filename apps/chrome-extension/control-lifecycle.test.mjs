@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import vm from "node:vm";
+import vm from "./test-support/backend-vm.mjs";
 import test from "node:test";
 
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))

@@ -203,6 +203,32 @@
 - P04/P05/P07/P09/P15 矩阵、协议/设计/架构/安全与 skill 文档同步更新；
   Codex 对比仍仅限此前只读观察。Popup 与完整长期目标仍未完成。
 
+### 2026-10-11 network wait checkpoint
+
+- 用户再次明确不提 PR，本片仍只在本地实现。新增 `armNetworkWait`、
+  `collectNetworkWait`、`cancelNetworkWait` 和独立 capability；监听完成后
+  返回 ready，不占住后续触发动作的 tab 队列。JS/Python/Go handle 固定 arm
+  提交时的控制 scope；CLI/MCP 通用 call 使用相同协议，不依赖线程或历史轮询。
+- 首次 await 前验证并预留容量，原始 deadline 覆盖 discovery/队列/冷 attach；
+  匹配完整 URL/method/status，返回有限元数据。终态保留 30 秒，重复 collect
+  不重触发；Pause/end/转交/detach/close/restart 使旧等待失效。单元测试覆盖
+  早于 ACK、临界事件时刻、迟到 setup、容量、TTL 和不影响后继 attachment。
+- 真实浏览器暴露原生 setTimeout receiver 的 `Illegal invocation`，已修复
+  并补回归；测试 host 退出期间晚到通知写入已结束 stdin 的竞态也已修正。
+  连接失败 fixture 分别记录可信点击、fetch 次数与 transport attempts，避免
+  将浏览器对无响应连接的多次尝试误当成 Agent 重放；正常请求仍断言一次。
+- Windows Chromium 156 `run-CbeZgJ` 36/36，活动 tab 事件为空。五个入口均从
+  冷 raw attachment arm 后可信点击并读取事件；main/OOPIF、headers-before-body、
+  redirect/503、历史拒绝、重复/迟到 collect、16 条终态上限和生命周期通过。
+  暂停与 worker restart 增加旧 waiter 失效及恢复后零触发断言。
+- 扩展/构建 282/282、JS 61/61、Python 36/36 和 Go 全包通过；SDK 含真实 host
+  集成。该片未声称 macOS/Linux 或其他浏览器实测。背景截图中的中文、光标、
+  点击圈与目标蓝框已查看。协议/skill/架构/矩阵/质量及发布记录同步；完整
+  Codex 能力对齐、popup 与其他平台继续未完成。
+- 本地交付包已重建：29 个扩展文件与 unpacked 逐字节一致，19 个生产文件、
+  各 SDK/host/fixture 的哈希匹配正式验收；skill 的 6 个文件匹配源码。保留
+  本地提交，无推送或 PR，也没有重载用户正在使用的浏览器扩展。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

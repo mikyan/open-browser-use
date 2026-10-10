@@ -225,6 +225,7 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
 - MV3 extension core handlers：`getInfo`、`getControlState`、`browserAction`、`createTab`、`getTabs`、
   `getUserTabs`、`getUserHistory`、`claimUserTab`、`finalizeTabs`、
   `nameSession`、`attach`、`detach`、`executeCdp`、`moveMouse`、
+  `armNetworkWait`、`collectNetworkWait`、`cancelNetworkWait`、
   `webmcp_list_tools`、`webmcp_invoke_tool`、
   `waitForFileChooser`、`setFileChooserFiles`、`waitForDownload`、
   `downloadPath`、`readClipboardText`、`writeClipboardText`、
@@ -279,6 +280,15 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   pageerror 和 network 摘要；第一条有归属的 engine action 前开始记录，最多
   500 条/1 MiB，返回 capture/cursor/dropped。Detach 或归属改变丢弃历史，
   旧 cursor 不能读取后续 attachment；第一版不记录 headers/body 或历史流量。
+- `armNetworkWait` / `collectNetworkWait` / `cancelNetworkWait` 通过真实 Page
+  request/response 事件提供先监听、后触发的有限等待。短注册阶段共享 tab
+  队列，ready 后监听与读取不占动作队列；不查询 diagnostics 历史。记录在
+  首次 await 前预留容量，绑定 session/turn/epoch/tab/attachment，受原始
+  deadline、终态 30 秒保留及每 tab/session/global 数量上限约束。匹配只接受
+  URL、method 与 response status；结果只含有界元数据。冷 raw→CRX 迁移保留
+  未绑定的预留，控制结束、暂停、页面转交或 detach 清除旧等待。三个 SDK
+  和 CLI/MCP 通过 `networkWaitVersion=1` 协商，旧扩展明确失败，不重放请求。
+  详见 [network waits](references/network-waits-design.md)。
 - JS、Python 和 Go SDK：连接 Windows named pipe 或 Unix socket 发送 Browser Use JSON-RPC。
   JS SDK 支持订阅 native socket 上的 JSON-RPC notification；Python SDK 会在
   同步 request loop 中分发并跳过 notification，避免 CDP event 插队破坏响应读取；

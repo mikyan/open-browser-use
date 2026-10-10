@@ -42,11 +42,11 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P08 | 导航与页面生命周期 | goto/back/forward/reload、SPA、popup、关闭、wait URL/load；正确监听早到事件 | goto/BFCache/刷新及 SPA action→wait 已测；wait→action 会受同 tab 队列阻塞。禁用 CRX 隐式 popup attach；原生 popup 仍抢前台，独立 popup claim 移组后首 click 超时未解决 |
 | P09 | 截图与后台渲染 | viewport/full-page/element/crop，尺寸格式正确；闲置后台 tab 重复截图与输入稳定 | viewport/crop/full-page 与离屏根/同源/OOPIF/嵌套截图、导航后新内容已实测；frame-owner 预滚修复 stable 等待。新 ref 截图按真实 Frame 预滚，与普通定位器截图字节一致，尺寸按原生裁剪和实际 DPR 校验。冷首帧、独立 popup 移组首帧和压力范围待补 |
 | P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 正式并发 chooser→click、主 frame/OOPIF 上传字节及空列表清空通过；下载按所属 tab/epoch GUID 归属，路径映射明确不支持。剪贴板/媒体导出与完整下载链路待补 |
-| P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | 正式 diagnostics 记录真实 console/pageerror/network，主页面/OOPIF、分页/丢弃/截断/换 owner 隔离经 native Edge 验证；network matcher 等待、流和更多调试场景待补 |
+| P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | diagnostics 的主页面/OOPIF、分页/丢弃/截断/换 owner 隔离经 native Edge 验证；新增 request/response ready→trigger→collect，五入口及冷 main/OOPIF、headers-before-body、redirect/503、精确匹配、历史拒绝和有界终态通过 Chromium 验收；更广调试与流读取仍待补 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属修复并实测；正式套件两轮活动 tab 事件均为空，光标/蓝框/点击圈可见；原生 popup 激活与多任务压力仍有缺口 |
-| P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 control epoch、结束取消、旧轮次拒绝、显式 beginTurn 和实际 worker stop/start 已通过；原生暂停验证 held input 释放、失败重试及迟到 Runtime 不改值。完整扩展/host 重启、移组 attachment 回收仍待补 |
+| P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放触发。短 setup deadline 与迟到 attachment 由确定性测试覆盖；完整浏览器/host 重启和更广移组回收仍待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 工具栏全局暂停、持久阻断、旧 epoch 失效、清理失败重试及真实 popup 已验收；自身扩展页和已知 raw Target 隧道受限。session ID 仍是路由标签而非认证；网站策略 UI、未知持久写与完整浏览器重启边界未完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-rC27uZ` 31/31，JS/Python/Go/CLI/MCP 均完成 snapshot→ref 读取和可信点击；活动 tab 事件为空。此前已有重复运行基线；本片扩展/构建 255、JS 55、Python 32 项及 Go 全包通过。Codex IAB 仅只读快照基准；原生 popup、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 正式 `run-CbeZgJ` 36/36，五入口均完成冷网络 arm→可信点击→collect，保留已有 snapshot/ref、文件、输入和暂停回归；活动 tab 事件为空。本片扩展/构建 282、JS 61、Python 36 项及 Go 全包通过。Codex IAB 仍仅只读快照基准；原生 popup、完整任务集、其他平台浏览器和同组完整任务比较未完成 |
 
 ## Evidence rules
 

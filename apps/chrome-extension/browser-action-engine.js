@@ -339,6 +339,65 @@ export class BrowserActionEngine {
     return pending;
   }
 
+  // Short, internal Page setup shares the action queue and attachment identity.
+  // A network listener's lifetime and collect operation must never run here.
+  async withPage(params, { deadlineAt }, callback) {
+    integer(params.tabId, "tabId");
+    string(params.session_id, "session_id");
+    string(params.turn_id, "turn_id");
+    if (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1) throw new Error("control_epoch must be a positive safe integer");
+    if (!Number.isFinite(deadlineAt) || typeof callback !== "function") throw new Error("Invalid Page setup deadline or callback");
+    const generation = this.generations.get(params.tabId) ?? 0;
+    let expired = false, phase = "queued", timer;
+    const timeout = () => new Error("OBU_NETWORK_WAIT_TIMEOUT: Page setup deadline expired");
+    const remainingMs = () => {
+      const remaining = deadlineAt - performance.now();
+      if (expired || remaining <= 0) { expired = true; throw timeout(); }
+      return remaining;
+    };
+    const check = async () => {
+      remainingMs();
+      if ((this.generations.get(params.tabId) ?? 0) !== generation) throw new Error("OBU_NETWORK_WAIT_EXPIRED: tab control ended during setup");
+      await this.authorize(params);
+      remainingMs();
+      if ((this.generations.get(params.tabId) ?? 0) !== generation) throw new Error("OBU_NETWORK_WAIT_EXPIRED: tab control ended during setup");
+    };
+    const previous = this.queues.get(params.tabId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(async () => {
+      await check();
+      phase = "attaching";
+      const entry = await this.attach(params.tabId, generation);
+      await check();
+      phase = "registering";
+      const result = await callback({ page: entry.page, entry, check, remainingMs });
+      await check();
+      phase = "finished";
+      return result;
+    });
+    this.queues.set(params.tabId, current);
+    current.finally(() => { if (this.queues.get(params.tabId) === current) this.queues.delete(params.tabId); }).catch(() => {});
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        expired = true;
+        // A setup that never started must not cancel the unrelated action in
+        // front of it, nor may a stale setup detach a replacement generation.
+        if (phase !== "queued" && phase !== "finished" && (this.generations.get(params.tabId) ?? 0) === generation)
+          this.detach(params.tabId).catch(() => {});
+        reject(timeout());
+      }, Math.max(0, deadlineAt - performance.now()));
+    });
+    try { return await Promise.race([current, deadline]); }
+    catch (error) {
+      // An awaited native operation can finish beyond the deadline before its
+      // timer callback gets a turn. That path needs the same identity-fenced
+      // cleanup as the timer, without cancelling a queued predecessor.
+      if ((expired || performance.now() >= deadlineAt) && phase !== "queued" && phase !== "finished" && (this.generations.get(params.tabId) ?? 0) === generation)
+        this.detach(params.tabId).catch(() => {});
+      throw error;
+    }
+    finally { clearTimeout(timer); }
+  }
+
   async dispatch(request) {
     const params = validateBrowserAction(request);
     const generation = this.generations.get(params.tabId) ?? 0;

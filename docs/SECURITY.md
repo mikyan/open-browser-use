@@ -104,6 +104,15 @@ Clipboard, download, and file chooser features are sensitive.
 
 ## Secrets And Data Handling
 
+Network wait handles bind to their original session, turn, epoch, tab and
+attachment. Every collect revalidates that scope; Pause, control end, transfer,
+detach and restart invalidate the handle. IDs are routing references rather than
+credentials. Matchers accept finite literal URL/method/status fields, and results
+contain bounded metadata without headers or bodies. URLs can still contain private
+query values, so treat these results as page data and redact before sharing.
+Pending and retained waits have fixed capacity, deadlines and terminal expiry;
+see [network waits](references/network-waits-design.md).
+
 - Never commit credentials, cookies, API keys, browser profile data, native host manifests with private machine-specific paths, or captured user data.
 - Keep examples synthetic and minimal.
 - Redact local usernames, home directories, tokens, session IDs, and private browsing history from docs, history entries, release notes, and issue reports.
