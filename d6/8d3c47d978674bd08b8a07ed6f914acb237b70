@@ -1,0 +1,208 @@
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_309e6fe2f8ff2f 43,258,267,285
+  s_08bbfd293d324f::t_5b08348fc29d94 13,96-100,111-113,259-265,268-274,282-284
+  s_08bbfd293d324f::t_eee5d06d4594e2 114-116,266,286-288,320,351,380
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_b924177239159a 536,538,545-548,551-552
+  s_08bbfd293d324f::t_3f37d60cf97eda 561-569
+  s_08bbfd293d324f::t_96d30321b46d5e 570-576
+  s_08bbfd293d324f::t_06d683ba195747 537,539-544,549-550
+  s_08bbfd293d324f::t_196492396420f6 553-560
+packages/open-browser-use-python/open_browser_use/_clipboard.py
+  s_08bbfd293d324f::t_c71755ba292f93 1-5,7-12,14-16,29-79,82-128,130-132,135-138,140-141,143-163
+  s_08bbfd293d324f::t_27894010e488ca 6,13,17-28,129,139,142
+  s_08bbfd293d324f::t_b2c508ebac54cb 80-81,133-134
+apps/chrome-extension/clipboard-backend.test.mjs
+  s_08bbfd293d324f::t_0f545982ad3871 29-31,172-201
+  s_08bbfd293d324f::t_f6621d660fb6f5 328-364
+  s_08bbfd293d324f::t_ac75b71429d009 1-28,32-70,72-171,202-252,287
+  s_08bbfd293d324f::t_9f0fc4ae5ed5a4 71,253-281,283-286
+  s_08bbfd293d324f::t_7188e701d8ff1c 282
+  s_08bbfd293d324f::t_9e205fd1c7db39 288-327
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_8a9b68c89cf6e6 305-313
+scripts/browser-integration/memory-clipboard.mjs
+  s_08bbfd293d324f::t_9a0128c6834a57 1-38
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_d4acfa597c806e 8-9,52-53,65
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_f3849f3020267d 7
+scripts/browser-integration/go-clipboard-checks/main.go
+  s_08bbfd293d324f::t_9f849eb63edc6d 1-49
+  s_08bbfd293d324f::t_cc4db668d3b053 50-84
+packages/open-browser-use-python/test_clipboard.py
+  s_08bbfd293d324f::t_eb7a6f367b845e 126
+  s_08bbfd293d324f::t_520642b60c0f32 4,15-35
+  s_08bbfd293d324f::t_1542599eefa980 1-3,5-14,36-125,127-135,151-153
+  s_08bbfd293d324f::t_b2c508ebac54cb 136-150
+docs/references/clipboard.md
+  s_08bbfd293d324f::t_07d4bdf6c5c2a7 23-26,35-36
+  s_08bbfd293d324f::t_f2be3ac563f95f 1-21,27-34,37-46,51-105
+  s_08bbfd293d324f::t_196492396420f6 106-128
+  s_08bbfd293d324f::t_06d683ba195747 22,47-50
+packages/open-browser-use-go/clipboard.go
+  s_08bbfd293d324f::t_432b82d327c123 1-3,11-13,15,72,75-76,80-81,84-86,88-89,103-104,112-113,159,230-231,398
+  s_08bbfd293d324f::t_cbf315559f7d6e 4-5,7-10,29-31,70-71,73-74,77-79,82-83,87,90-102,105-111,114-158,160-229,232-275,278-297,299-307,309-397
+  s_08bbfd293d324f::t_27894010e488ca 6,14,16-28,32-69,276-277,298,308
+apps/chrome-extension/clipboard-offscreen.js
+  s_08bbfd293d324f::t_f6bcfadb5b92dd 1-12,16-80,83-85,87-91,99-100,102-107,109-168,170-205
+  s_08bbfd293d324f::t_a6b642f17f9a02 13-15
+  s_08bbfd293d324f::t_4ea1be3c9fdf9e 108,169
+  s_08bbfd293d324f::t_7a28f472014273 81-82,86,92-98,101
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_96d30321b46d5e 404-405
+  s_08bbfd293d324f::t_f3849f3020267d 384-403,406-409
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_d4acfa597c806e 14
+packages/open-browser-use-go/clipboard_test.go
+  s_08bbfd293d324f::t_520642b60c0f32 4-13,17-47,50-116,120-151,155-199,203-229,233-260,264-295,299-312
+  s_08bbfd293d324f::t_eb7a6f367b845e 1-3,14-16,48-49,117-119,152-154,200-202,230-232,261-263,296-298,313
+apps/chrome-extension/manifest.json
+  s_08bbfd293d324f::t_d4acfa597c806e 37-38,44
+apps/chrome-extension/clipboard-broker.js
+  s_08bbfd293d324f::t_67d41547ff4996 252,260,265,294,306-307,329,332-333
+  s_08bbfd293d324f::t_0f3254b78f7dc3 50,53,121
+  s_08bbfd293d324f::t_333a28fb25df22 23,202-210,226,242,339,346-347,352-353
+  s_08bbfd293d324f::t_170f7dd79f1e2e 18,42-44,49,51,57,66-71,84-86,94-120,122-134,136
+  s_08bbfd293d324f::t_4ea1be3c9fdf9e 212-217,223
+  s_08bbfd293d324f::t_cc245eaa99a39b 279-284,345,348-349,351,354-355
+  s_08bbfd293d324f::t_1974da49aa8404 1-17,19-22,24-41,45-48,52,54-56,58-65,72-83,87-93,135,137-201,211,224-225,227,241,247-251,253-259,261-264,266-278,285-293,295-305,308-328,330-331,334-338,340-344,350,356-357
+  s_08bbfd293d324f::t_9eee42dc46d54d 218-222,228-240,243-246
+apps/chrome-extension/browser-clipboard.test.mjs
+  s_08bbfd293d324f::t_d992d6a0ee43bd 1-152,170-385
+  s_08bbfd293d324f::t_49d6252bc59922 153-169
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_1be559b3d46c5a 393-396
+  s_08bbfd293d324f::t_8a9b68c89cf6e6 372-392,397-398,406-409
+  s_08bbfd293d324f::t_196492396420f6 399-405
+docs/references/README.md
+  s_08bbfd293d324f::t_f2be3ac563f95f 46-47
+scripts/browser-integration/clipboard-checks.py
+  s_08bbfd293d324f::t_9f849eb63edc6d 1-68
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_a2c89b40d77277 362-364
+packages/open-browser-use-js/src/clipboard.ts
+  s_08bbfd293d324f::t_27894010e488ca 4-19,89,97,100
+  s_08bbfd293d324f::t_b2c508ebac54cb 50,92
+  s_08bbfd293d324f::t_6de0774be2a963 1-3,20-49,51-88,90-91,93-96,98-99,101-111
+scripts/browser-integration/clipboard-callers.mjs
+  s_08bbfd293d324f::t_efdf66b497c7b2 106-107,109,134-137
+  s_08bbfd293d324f::t_889ccca6579546 1-105,108,110-133,138-140
+scripts/browser-integration/clipboard-callers.test.mjs
+  s_08bbfd293d324f::t_78fb5e190c46bf 1-25
+docs/SECURITY.md
+  s_08bbfd293d324f::t_0a6033440a41ce 109-116
+packages/open-browser-use-js/test/clipboard.test.mjs
+  s_08bbfd293d324f::t_9a9dfd836216ea 29-33,119-141
+  s_08bbfd293d324f::t_adc9a2b7924e9d 1-28,34-118,142-143
+  s_08bbfd293d324f::t_520642b60c0f32 144-158
+cmd/open-browser-use/clipboard.go
+  s_08bbfd293d324f::t_0437c754d32542 11,13,58-60,62-64,70-72,76-78,82-84,88-90,92-95,99-101,109,116-119,123-127,131,134-142,144-146,148-154,158-159,167,178,192-194,200-205,207-209,211-213,215-217,219-222,224-226,228-230,233-235,237-239,249,251-255,258-260,269-275,277-279,288,291,294,303-304,308-311,313-315,318-320,322-326,330-334,337-340,342-344,346-349,356,358-360,365-375,377
+  s_08bbfd293d324f::t_6fc5db6b79ae55 1-9,12,14-26,53-57,61,65-69,73-75,79-81,85-87,91,96-98,102-108,120-122,132-133,143,147,195-199,206,210,214,218,223,227,231-232,236,240-248,250,256-257,261-268,276,280-287,289-290,292-293,295-302,305-307,312,316-317,321,327-329,335-336,341,345,350-355,357,361-364,376,378-380
+  s_08bbfd293d324f::t_5b08348fc29d94 10,27-52,110-115,128-130,155-157,160-166,168-177,179-191
+  s_08bbfd293d324f::t_1bb8429596e9bf 381-402
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_f3849f3020267d 43
+  s_08bbfd293d324f::t_0a6033440a41ce 44
+apps/chrome-extension/clipboard-broker.test.mjs
+  s_08bbfd293d324f::t_67d41547ff4996 407
+  s_08bbfd293d324f::t_b81e9924496425 23-27,159-179,342-356,359
+  s_08bbfd293d324f::t_25bfe5f6f34cb4 279-330
+  s_08bbfd293d324f::t_90d4077bf26d8f 50-51,93,188-189,248-249,357-358,408-439
+  s_08bbfd293d324f::t_333a28fb25df22 239-247,253-276
+  s_08bbfd293d324f::t_4ea1be3c9fdf9e 341,360-375
+  s_08bbfd293d324f::t_7a28f472014273 12,86,194,210-238,250-252,277-278,447-455
+  s_08bbfd293d324f::t_a6b642f17f9a02 54-57
+  s_08bbfd293d324f::t_4cf010557b7a1f 1-11,13-22,28-49,52-53,58-85,87-92,94-158,180-187,190-193,195-209,331-340,376-406,440-446,456
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_9a9dfd836216ea 1-3,37,99,118,237-240,353,372,381,493-494,496-497,499-500,502-508,529,533,557-567,642
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_63a3bf3f4e1c91 1672-1675,3225-3227
+  s_08bbfd293d324f::t_25fbbb0f870c1f 3175-3178
+  s_08bbfd293d324f::t_a2c89b40d77277 910-911,913,2924-2925,2946,3174,3224
+  s_08bbfd293d324f::t_a1e3871c38f0a7 675-676
+  s_08bbfd293d324f::t_2cea80d01a90f2 978-982,2992-3001
+  s_08bbfd293d324f::t_d4acfa597c806e 2499-2502,2504-2508,2511-2515,2518-2535,2922-2923,2959,3158,3169
+  s_08bbfd293d324f::t_bb64fced78e49d 7-8,594-599,636,652,671,689-695,909,927,1101,1709,2385-2386,2390-2393,2399,2415
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_f3849f3020267d 16,19
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_3f0e9a3b9ef4f3 1195,1199,2145,2149
+  s_08bbfd293d324f::t_5b08348fc29d94 1196-1198,2146-2148,2373,2376-2383
+  s_08bbfd293d324f::t_309e6fe2f8ff2f 96
+  s_08bbfd293d324f::t_15148aa5c9d8d9 2384-2385
+apps/chrome-extension/browser-clipboard.js
+  s_08bbfd293d324f::t_c9d94def1fdbdc 111-122
+  s_08bbfd293d324f::t_dd52abcc1bf8c1 1-4,6-103,126-148,150-158,160-163,165-167,169-313
+  s_08bbfd293d324f::t_35ce970ec09ffe 5,104-110,123-125,149,159,164,168
+apps/chrome-extension/clipboard-offscreen.html
+  s_08bbfd293d324f::t_f6bcfadb5b92dd 1-9
+scripts/browser-integration/clipboard-fixture.mjs
+  s_08bbfd293d324f::t_e2646b947571f2 70,72-74,90,92-96,98-103,113-115
+  s_08bbfd293d324f::t_1be559b3d46c5a 75,77-79,111
+  s_08bbfd293d324f::t_7f01e9ab12261c 71,81-88
+  s_08bbfd293d324f::t_9a0128c6834a57 1-42,44,46-54,56-61,63-65,67-69
+  s_08bbfd293d324f::t_2e78e93fe35ff5 89,91,104-110,112
+  s_08bbfd293d324f::t_07d4bdf6c5c2a7 43,45,55,62,66,76,80,97
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_0437c754d32542 480-484,489-491,493-495,497-498
+  s_08bbfd293d324f::t_309e6fe2f8ff2f 227,420,492,496
+  s_08bbfd293d324f::t_89ee73963c9038 499-500,506-507
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_e2646b947571f2 718-722
+  s_08bbfd293d324f::t_871ed5fcf36da8 716,1388
+  s_08bbfd293d324f::t_9a0128c6834a57 19,31-32,229-232,328-329,382,389-396,705-711
+  s_08bbfd293d324f::t_1be559b3d46c5a 296-299,310
+  s_08bbfd293d324f::t_7f01e9ab12261c 18,1120,1122-1123,1134-1141,1178-1183,1193-1194,1196,1203-1204,1206
+  s_08bbfd293d324f::t_a2144119298a2b 20,330,712-715,717
+  s_08bbfd293d324f::t_2e78e93fe35ff5 1197-1202,1205
+cmd/open-browser-use/clipboard_test.go
+  s_08bbfd293d324f::t_3f0e9a3b9ef4f3 19-20,22-23,29-33,35-37,40,44-46,48-51,54-59,64-70,73-75,78-80,82-84,89-90,94-95,97-101,108,112-119,121-132,136-137,139-146,151,153-156,160-163,165,168-172,177,181-194,196-198,203-214,218-230,234-235,240
+  s_08bbfd293d324f::t_5b08348fc29d94 231-233,236-238,241-261
+  s_08bbfd293d324f::t_c3bc9bdca9dace 1-18,21,24-28,34,38-39,41-43,47,52-53,60-63,71-72,76-77,81,85-88,91-93,96,102-107,109-111,120,133-135,138,147-150,152,157-159,164,166-167,173-176,178-180,195,199-202,215-217,239,262
+  s_08bbfd293d324f::t_eb52fd959fd937 263-267
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_b3d4e7b700a22c 352-399
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_764d4031a91381 58-59,159,304-323,377,382,391,400,438-449,573-574,576-577,579-580,582-583
+packages/open-browser-use-go/client_test.go
+  s_08bbfd293d324f::t_7fe7858276c968 230-231,250-254
+packages/open-browser-use-go/control.go
+  s_08bbfd293d324f::t_86189b697679c2 44,49,64
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_47df3ae0a9c42e 557-598
+packages/open-browser-use-js/dist/clipboard.d.ts
+  s_08bbfd293d324f::t_ac32f1a7acb2fd 1-30
+packages/open-browser-use-js/dist/clipboard.js
+  s_08bbfd293d324f::t_dc8322a5c9e9a5 1-138
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_792f1ca4e13a44 1-3,193-196,213
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_3ba6c4744d58b0 2-3,18,35,165-170,293,314,325-326,418-419,421-422,424-425,427-433,452,455,479-490,556
+packages/open-browser-use-js/test/frame.test.mjs
+  s_08bbfd293d324f::t_bbc3ee88f78ee1 163,173
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_83a19763405548 314-354
+packages/open-browser-use-python/open_browser_use/__init__.py
+  s_08bbfd293d324f::t_503e4a10395b54 1,19
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_fb4da3390a8327 11,27,50,131-135,154-156,203-204,394-400,402-403,405-406,408-409,480-483
+packages/open-browser-use-python/test_client.py
+  s_08bbfd293d324f::t_c9b0f9bfa002ce 111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "d68d3c47d978674bd08b8a07ed6f914acb237b70",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
