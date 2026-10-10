@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 from ._downloads import OpenBrowserUseDownload, download_id, download_params, download_timeout
+from ._page_exports import ExportFormat, PDFOptions, PageExport, export_params, export_timeout, validate_export
 from ._transport import Transport, connect_transport, remaining_time
 from ._browser_actions import BrowserKeyboard, BrowserMouse, LocatorFactory, OpenBrowserUseLocator, action_options
 from ._ai_snapshot import AISnapshot, snapshot_limits, validate_snapshot
@@ -22,7 +23,7 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"})
 NAVIGATION_WAIT_METHODS = frozenset({"armNavigationWait", "collectNavigationWait", "cancelNavigationWait"})
 NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
@@ -44,6 +45,7 @@ class OpenBrowserUseClient:
         self._lifecycle_version: int | None = None
         self._control_epoch: int | None = None
         self._direct_downloads_version: Any = None
+        self._page_export_version: Any = None
         self._navigation_wait_version: Any = None
         self._network_wait_version: Any = None
 
@@ -119,6 +121,11 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._direct_downloads_version) is not int or self._direct_downloads_version != 1:
                 raise RuntimeError("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1")
+        if method == "exportPage":
+            if self._page_export_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._page_export_version) is not int or self._page_export_version != 1:
+                raise RuntimeError("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1")
         if prepare is not None:
             prepare(merged_params, deadline)
         result = (self._wire_request(method, merged_params, deadline) if execute is None
@@ -137,6 +144,9 @@ class OpenBrowserUseClient:
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
         self._direct_downloads_version = metadata.get("directDownloadsVersion", 0) if isinstance(metadata, dict) else 0
+        self._page_export_version = metadata.get("pageExportVersion", 0) if isinstance(metadata, dict) else 0
+        if self._page_export_version is None:
+            self._page_export_version = 0
         self._navigation_wait_version = metadata.get("navigationWaitVersion", 0) if isinstance(metadata, dict) else 0
         self._network_wait_version = metadata.get("networkWaitVersion", 0) if isinstance(metadata, dict) else 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
@@ -178,6 +188,8 @@ class OpenBrowserUseClient:
         self._next_id += 1
         if method in BOUNDED_WAIT_METHODS:
             requested = merged_params.get("timeoutMs", 10000)
+            if method == "exportPage":
+                export_timeout(requested)
             if method in {"downloadURL", "downloadPath", "cancelDownload"}:
                 if requested is None:
                     raise ValueError("Download timeoutMs must be an integer from 1 to 120000")
@@ -450,6 +462,19 @@ class OpenBrowserUseBrowser:
 class OpenBrowserUseTab(LocatorFactory):
     def download_url(self, url: str, *, filename: str | None = None, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
         return self.browser.client._download(self.id, "downloadURL", download_params(url, filename, timeout_ms))
+
+    def export_page(self, format: ExportFormat, *, max_bytes: int | None = None,
+                    timeout_ms: int | None = None, pdf: PDFOptions | None = None) -> PageExport:
+        params = export_params(format, max_bytes, timeout_ms, pdf)
+        value = self.browser.client.request("exportPage", {**params, "tabId": self.id}, timeout=params["timeoutMs"] / 1000 + 1)
+        return validate_export(value, format, params["maxBytes"])
+
+    def export_pdf(self, *, max_bytes: int | None = None, timeout_ms: int | None = None,
+                   pdf: PDFOptions | None = None) -> PageExport:
+        return self.export_page("pdf", max_bytes=max_bytes, timeout_ms=timeout_ms, pdf=pdf)
+
+    def export_mhtml(self, *, max_bytes: int | None = None, timeout_ms: int | None = None) -> PageExport:
+        return self.export_page("mhtml", max_bytes=max_bytes, timeout_ms=timeout_ms)
 
     def wait_for_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
         return self.browser.client._download(self.id, "waitForDownload", {"timeoutMs": download_timeout(timeout_ms)})

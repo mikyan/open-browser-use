@@ -189,8 +189,36 @@ try:
     else:
         raise AssertionError("Canceled download still exposed a path")
     checks.append("direct-download-http-only-cookie-exact-file-hash-path-timeout-and-cancel")
+    assert browser.client.get_info()["metadata"]["pageExportVersion"] == 1
+    exported_tab = browser.new_tab(url + "page-exports")
+    assert exported_tab.frame_locator("#export-frame").get_by_text("跨域子页面中文内容", exact=True).text_content() == "跨域子页面中文内容"
+    assert exported_tab.evaluate("document.fonts.ready.then(()=>[...document.images].every(image=>image.complete&&image.naturalWidth>0))", await_promise=True)
+    page_exports = {}
+    for export_format in ("pdf", "mhtml"):
+        artifact = exported_tab.export_pdf(pdf={"printBackground": True, "preferCSSPageSize": True}) if export_format == "pdf" else exported_tab.export_mhtml()
+        assert set(artifact) == {"format", "mimeType", "encoding", "data", "byteLength"}
+        assert artifact["format"] == export_format and artifact["encoding"] == "base64"
+        assert artifact["mimeType"] == ("application/pdf" if export_format == "pdf" else "multipart/related")
+        exported_bytes = base64.b64decode(artifact["data"], validate=True)
+        assert len(exported_bytes) == artifact["byteLength"] and 1000 < len(exported_bytes) <= 16 * 1024 * 1024
+        if export_format == "pdf":
+            assert exported_bytes.startswith(b"%PDF-") and exported_bytes.rstrip().endswith(b"%%EOF")
+        else:
+            from email.parser import BytesParser
+            from email import policy
+            archive = BytesParser(policy=policy.default).parsebytes(exported_bytes)
+            assert archive.get_content_type() == "multipart/related"
+            parts = list(archive.iter_parts())
+            assert len(parts) >= 4
+            html = "\n".join(part.get_payload(decode=True).decode("utf-8") for part in parts if part.get_content_type() == "text/html")
+            assert "导出示例：中文可搜索文本" in html and "跨域子页面中文内容" in html
+        artifact_path = Path(os.environ["OBU_TEST_EXPORT_ROOT"]) / ("page-export-python." + export_format)
+        with artifact_path.open("xb") as output:
+            output.write(exported_bytes)
+        page_exports[export_format] = {"artifact": artifact_path.name, "bytes": len(exported_bytes), "sha256": hashlib.sha256(exported_bytes).hexdigest()}
+    checks.append("page-exports-pdf-and-mhtml-exact-file-bytes")
     browser.client.finalize_tabs([])
     checks.append("finalize")
-    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts, "navigationWait": {"url": navigation_url, "clicks": navigation_clicks, "server": navigation_counts}, "directDownload": {"path": downloaded_path, "bytes": len(downloaded_bytes), "sha256": hashlib.sha256(downloaded_bytes).hexdigest(), "cancelBeforeFinalize": download_cancel}}, ensure_ascii=False))
+    print(json.dumps({"passed": True, "pythonVersion": sys.version, "checks": checks, "networkWait": received, "networkServer": network_counts, "navigationWait": {"url": navigation_url, "clicks": navigation_clicks, "server": navigation_counts}, "pageExports": page_exports, "directDownload": {"path": downloaded_path, "bytes": len(downloaded_bytes), "sha256": hashlib.sha256(downloaded_bytes).hexdigest(), "cancelBeforeFinalize": download_cancel}}, ensure_ascii=False))
 finally:
     browser.close()

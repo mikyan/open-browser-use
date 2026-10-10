@@ -297,6 +297,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   历史私有 Browser Use command rewrite 含有 DOM CUA、media
   download、element info/screenshot、locator bulk reads、generic tab export 和
   clipboard commands，但它们不等于正式公开入口已完成这些能力。
+- `exportPage` 提供 PDF 与 MHTML，原控制 scope、attachment 和文档 revision
+  绑定结果。PDF 使用内部 stream 与精确 close，超时后仍追踪真实完成；CRX
+  内部 detach 和主动释放都先等待该 attachment 的导出清理。默认/硬上限
+  16 MiB，至多四项未完成工作且每 tab 一项；挂起 admission 仍占容量。
+  MHTML 在受限网站模式拒绝，PDF 复核完整 frame 树。SDK 返回统一字节对象，
+  CLI/MCP 在验证后原子创建新文件，详见 [page exports](references/page-exports.md)。
 - 公开 `browserAction diagnostics` 使用真实 Playwright Page 事件记录 console、
   pageerror 和 network 摘要；第一条有归属的 engine action 前开始记录，最多
   500 条/1 MiB，返回 capture/cursor/dropped。Detach 或归属改变丢弃历史，
@@ -333,8 +339,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   convenience wrappers，也保留公开协议 `request`。复合 new-tab/navigation/CDP
   helpers 共享捕获的 session/turn/epoch 与原始 deadline，不在阶段间换到新轮次。
 
-当前实现包含 task/tab/target 归属与持久 turn epoch，尚无站点允许/禁止 UI。
-全局暂停不构成站点沙箱；自己的扩展控制页和已知 raw Target 隧道路由被拒绝。
+当前实现包含 task/tab/target 归属、持久 turn epoch 和 popup 独占的 origin
+允许/禁止规则。全局暂停与网站规则不构成页面网络防火墙；自己的扩展控制页
+和已知 raw Target 隧道路由被拒绝。
 Session ID 不承担授权认证；生产集成的用户级访问策略仍需单独实现和验收。
 
 ## 新项目需要补齐的内容

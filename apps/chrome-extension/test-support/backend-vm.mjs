@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { BrowserNetworkWaits } from "../browser-network-waits.js";
 import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
+import { BrowserPageExports } from "../browser-page-exports.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "../browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "../auxiliary-tab-ownership.js";
 import { NativeMessageReceiver } from "../native-message-receiver.js";
@@ -52,11 +53,12 @@ const source = code => code
   .replace('import { BrowserNetworkWaits } from "./browser-network-waits.js";', "")
   .replace('import { BrowserNavigationWaits } from "./browser-navigation-waits.js";', "")
   .replace('import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";', "")
+  .replace('import { BrowserPageExports } from "./browser-page-exports.js";', "")
   .replace('import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";', "")
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, BrowserPageExports, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

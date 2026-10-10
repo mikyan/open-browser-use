@@ -38,6 +38,7 @@ type cliControlSnapshot struct {
 	networkWaitSupported     bool
 	navigationWaitSupported  bool
 	directDownloadsSupported bool
+	pageExportSupported      bool
 }
 
 type cliControl struct {
@@ -93,6 +94,12 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	params, err := copyCLIParams(params)
 	if err != nil {
 		return nil, err
+	}
+	if method == "exportPage" {
+		params, err = validateCLIPageExportParams(params)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if cliActionBudget(method) {
 		requested := float64(10_000)
@@ -218,6 +225,23 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension requires directDownloadsVersion 1")
 		}
 	}
+	if method == "exportPage" {
+		if manual {
+			infoResponse, err := sendCLIRequest(conn, "cli-export-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)
+		}
+		if !captured.pageExportSupported {
+			return nil, errors.New("OBU_PAGE_EXPORT_UNSUPPORTED: extension requires pageExportVersion 1")
+		}
+	}
 	if err := boundCLIActionDeadline(method, params, deadline); err != nil {
 		return nil, err
 	}
@@ -256,7 +280,7 @@ func cliNavigationWaitMethod(method string) bool {
 }
 
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "downloadURL" || method == "downloadPath" || method == "cancelDownload"
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "downloadURL" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage"
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -315,6 +339,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
+	captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)
 	version, exists := metadata["turnLifecycleVersion"]
 	if !exists {
 		captured.version = 0

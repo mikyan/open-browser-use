@@ -41,10 +41,11 @@ func controlDiscoveryMethod(method string) bool {
 
 func (c *Client) observeControlSupport(info any) error {
 	version := 0
-	var networkVersion, navigationVersion, directDownloadsVersion any
+	var networkVersion, navigationVersion, directDownloadsVersion, pageExportVersion any
 	if object, ok := info.(map[string]any); ok {
 		if metadata, ok := object["metadata"].(map[string]any); ok {
 			directDownloadsVersion = metadata["directDownloadsVersion"]
+			pageExportVersion = metadata["pageExportVersion"]
 			networkVersion = metadata["networkWaitVersion"]
 			navigationVersion = metadata["navigationWaitVersion"]
 			if advertised, exists := metadata["turnLifecycleVersion"]; exists {
@@ -58,6 +59,7 @@ func (c *Client) observeControlSupport(info any) error {
 	c.controlMu.Lock()
 	defer c.controlMu.Unlock()
 	c.directDownloadsKnown, c.directDownloadsVersion = true, directDownloadsVersion
+	c.pageExportKnown, c.pageExportVersion = true, pageExportVersion
 	c.networkWaitKnown, c.networkWaitVersion = true, networkVersion
 	c.navigationWaitKnown, c.navigationWaitVersion = true, navigationVersion
 	if c.control.version != 1 {

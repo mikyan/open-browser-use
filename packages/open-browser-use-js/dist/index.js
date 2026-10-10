@@ -1,5 +1,6 @@
 var _a;
 import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams } from "./downloads.js";
+import { pageExportParams, validatePageExport } from "./page-exports.js";
 export { OpenBrowserUseDownload } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, navigationWaitAck, navigationWaitParams } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait } from "./navigation-waits.js";
@@ -12,7 +13,7 @@ const headerBytes = 4;
 const maxFrameBytes = 64 * 1024 * 1024;
 const defaultNavigationTimeoutMs = 10_000;
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
@@ -28,6 +29,7 @@ export class OpenBrowserUseClient {
     #controlInitialization = null;
     #controlRevision = 0;
     #directDownloadsVersion = undefined;
+    #pageExportVersion = undefined;
     #navigationWaitVersion = undefined;
     #networkWaitVersion = undefined;
     #socket = null;
@@ -151,6 +153,12 @@ export class OpenBrowserUseClient {
             if (this.#directDownloadsVersion !== 1)
                 throw new Error("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1");
         }
+        if (method === "exportPage") {
+            if (this.#pageExportVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+            if (this.#pageExportVersion !== 1)
+                throw new Error("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1");
+        }
         capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
         const result = await this.#sendRequest(method, merged, deadline);
         if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
@@ -273,7 +281,7 @@ export class OpenBrowserUseClient {
         if (remaining <= reservedResponseMs)
             throw new Error(`Open Browser Use request timed out before ${method} could start`);
         if (method === "browserAction" || eventWaitMethods.has(method)) {
-            const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
+            const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
             if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested)))
                 throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
             const available = Math.floor(remaining - 1000);
@@ -305,6 +313,8 @@ export class OpenBrowserUseClient {
         const result = await promise;
         if (method === "getInfo")
             this.#directDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.directDownloadsVersion ?? null : null;
+        if (method === "getInfo")
+            this.#pageExportVersion = isObject(result) && isObject(result.metadata) ? result.metadata.pageExportVersion ?? null : null;
         if (method === "getInfo")
             this.#navigationWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.navigationWaitVersion ?? null : null;
         if (method === "getInfo")
@@ -536,6 +546,13 @@ export class OpenBrowserUseTab {
     downloadURL(url, options = {}) {
         return this.browser.client[downloadSymbol](this.id, "downloadURL", downloadURLParams(url, options));
     }
+    async exportPage(format, options = {}) {
+        const params = pageExportParams(format, options);
+        const value = await this.browser.client.request("exportPage", { ...params, tabId: this.id }, { timeoutMs: params.timeoutMs + 1000 });
+        return validatePageExport(value, format, params.maxBytes);
+    }
+    exportPDF(options = {}) { return this.exportPage("pdf", options); }
+    exportMHTML(options = {}) { return this.exportPage("mhtml", options); }
     waitForDownload(options = {}) {
         return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });
     }

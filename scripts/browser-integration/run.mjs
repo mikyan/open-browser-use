@@ -14,6 +14,7 @@ import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
+import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { elementScreenshotFixture, checkElementScreenshots } from "./element-screenshot-fixture.mjs";
 import { popupFixture, checkChildTabAuthorization, checkAuxiliaryPopupRendering, checkAuxiliaryPopupLifecycle } from "./popup-fixture.mjs";
 import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
@@ -156,7 +157,7 @@ async function withMCPClient(executable, endpoint, sessionId, use) {
       assert.equal(response.isError, false, JSON.stringify(response));
       assert.equal(response.structuredContent.error, undefined, JSON.stringify(response));
       return response.structuredContent.result;
-    });
+    }, (name, args) => request("tools/call", { name, arguments: args }));
   } finally {
     child.stdin.end();
     const code = await Promise.race([closed, delay(2000).then(() => "timeout")]);
@@ -220,6 +221,10 @@ const http = createServer(async (request, response) => {
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/page-exports" || route.startsWith("/page-exports/")) {
+    const fixture = pageExportFixture(route, httpPort);
+    response.setHeader("Content-Type", fixture.type); response.end(fixture.body); return;
+  }
   if (["/ai-snapshot", "/ai-snapshot-leaf", "/ai-snapshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(aiSnapshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams)); return; }
   if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture(httpPort)); return; }
   if (["/element-screenshots", "/element-screenshot-leaf", "/element-screenshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(elementScreenshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams.get("replacement"))); return; }
@@ -306,6 +311,7 @@ try {
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.pageExportsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "page-exports-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
@@ -671,6 +677,59 @@ try {
     assert.equal(await tab.locator("#raw-result").textContent(), "clicked");
     await tab.mouse.wheel(0, 20);
   });
+  await test("js-page-exports", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-page-exports", timeoutMs: 15000 });
+    const foreign = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-page-exports-foreign", timeoutMs: 15000 });
+    try {
+      return await checkPageExports({ browser: owner, foreignBrowser: foreign, fixtureURL, assert,
+        saveArtifact: async (name, data) => { await fs.writeFile(path.join(runDir, name), data); return name; },
+        saveDetail: detail => fs.writeFile(path.join(runDir, "page-exports-js.json"), JSON.stringify(detail, null, 2)) });
+    } finally { await owner.client.finalizeTabs([]); await foreign.client.finalizeTabs([]); owner.close(); foreign.close(); }
+  });
+  await test("js-page-exports-lifecycle", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-page-exports-lifecycle", timeoutMs: 15000 });
+    try {
+      return await checkPageExportLifecycle({ browser: owner, fixtureURL, worker, assert, until,
+        saveDetail: detail => fs.writeFile(path.join(runDir, "page-exports-lifecycle.json"), JSON.stringify(detail, null, 2)) });
+    } finally { await owner.client.finalizeTabs([]); owner.close(); }
+  });
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-page-exports`, async () => {
+    const sessionId = `${kind}-page-exports`;
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 });
+    try {
+      const owned = await preparePageExportTab(owner, fixtureURL, assert);
+      const check = async tool => {
+        const detail = {};
+        for (const format of ["pdf", "mhtml"]) {
+          const target = path.join(runDir, `page-export-${kind}.${format}`);
+          const args = { tab_id: owned.id, format, output_path: target, max_bytes: 16 * 1024 * 1024, timeout_ms: 10000 };
+          if (format === "pdf") args.pdf = { printBackground: true, preferCSSPageSize: true };
+          let metadata;
+          if (kind === "mcp") {
+            const response = await tool("export_page", args);
+            assert.equal(response.isError, false, JSON.stringify(response));
+            metadata = response.structuredContent;
+            const existing = await tool("export_page", args);
+            assert.equal(existing.isError, true, "MCP overwrote an existing artifact");
+          } else {
+            const argv = ["export-page", "--socket", endpoint, "--session-id", sessionId, "--tab-id", String(owned.id), "--format", format, "--output", target, "--timeout", "15s"];
+            if (args.pdf) argv.push("--pdf-options", JSON.stringify(args.pdf));
+            metadata = JSON.parse(await subprocess(path.resolve(executable), argv));
+            await assert.rejects(subprocess(path.resolve(executable), argv), /already exists/i);
+          }
+          assert.deepEqual(Object.keys(metadata).sort(), ["byteLength", "format", "mimeType", "path"]);
+          assert.equal(metadata.path, target); assert.equal(metadata.format, format);
+          assert.equal(metadata.mimeType, format === "pdf" ? "application/pdf" : "multipart/related");
+          const bytes = await fs.readFile(target);
+          assert.equal(metadata.byteLength, bytes.length);
+          detail[format] = { ...verifyExportBytes(bytes, format, assert), artifact: path.basename(target), noOverwrite: true };
+        }
+        return detail;
+      };
+      if (kind === "mcp") return await withMCPClient(executable, endpoint, sessionId, (_call, tool) => check(tool));
+      return await check();
+    } finally { await owner.client.finalizeTabs([]); owner.close(); }
+  });
   await test("js-screenshot", async () => {
     const dimensions = await tab.evaluate("({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})");
     const screenshot = await tab.screenshot();
@@ -839,7 +898,7 @@ try {
   await test("python-public-sdk", async () => {
     const result = await new Promise((resolve, reject) => {
       const python = spawn(process.env.OBU_TEST_PYTHON || "python", [pythonChecks, endpoint, fixtureURL], {
-        windowsHide: true, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads") }, stdio: ["ignore", "pipe", "pipe"]
+        windowsHide: true, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads"), OBU_TEST_EXPORT_ROOT: runDir }, stdio: ["ignore", "pipe", "pipe"]
       });
       let output = "", error = "";
       python.stdout.on("data", data => output += data.toString());
@@ -852,7 +911,7 @@ try {
     return result;
   });
   if (goExecutable) await test("go-public-sdk", async () => {
-    const result = JSON.parse(await subprocess(goExecutable, [endpoint, fixtureURL], { timeoutMs: 120000, env: { ...process.env, OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads") } }));
+    const result = JSON.parse(await subprocess(goExecutable, [endpoint, fixtureURL], { timeoutMs: 120000, env: { ...process.env, OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads"), OBU_TEST_EXPORT_ROOT: runDir } }));
     assert.equal(result.passed, true);
     return result;
   });
@@ -1221,6 +1280,7 @@ try {
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       assert, until, traceFocus, restartWorker: restartObservedWorker,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-control.json"), JSON.stringify(detail, null, 2)),
+      saveArtifact: async (name, data) => { await fs.writeFile(path.join(runDir, name), data); return { artifact: name, bytes: data.length, sha256: createHash("sha256").update(data).digest("hex") }; },
       connectPage: async url => {
         const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "website settings page target");
         return workerConnection(target.webSocketDebuggerUrl);

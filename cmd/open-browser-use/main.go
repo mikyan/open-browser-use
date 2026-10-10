@@ -92,6 +92,7 @@ func newRootCommand() *cobra.Command {
 		newCallCommand(),
 		newRunCommand(),
 		newMCPCommand(),
+		newExportPageCommand(),
 		newOpenTabCommand(),
 		newNavigateCommand(),
 		newSimpleRPCCommand("ping", "ping", "Ping the browser backend"),
@@ -2328,6 +2329,10 @@ func invokeAndWrite(options socketOptions, method string, params map[string]any)
 }
 
 func invokeWithOptions(options socketOptions, method string, params map[string]any) (map[string]any, error) {
+	return initializedCLIControl(options, params).invoke(options, method, params, nil)
+}
+
+func initializedCLIControl(options socketOptions, params map[string]any) *cliControl {
 	control := options.control
 	if control == nil {
 		control = &cliControl{}
@@ -2343,7 +2348,7 @@ func invokeWithOptions(options socketOptions, method string, params map[string]a
 		control.gate, control.state = initial.gate, initial.state
 	}
 	control.mu.Unlock()
-	return control.invoke(options, method, params, nil)
+	return control
 }
 
 func invoke(socketPath string, socketDir string, method string, params map[string]any, timeout time.Duration) (map[string]any, error) {

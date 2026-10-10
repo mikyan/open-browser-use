@@ -311,3 +311,41 @@ page downloads, whose GUID path/cancel remains unsupported. That observer does
 not promise cross-connection readiness. Existing Client methods retain raw JSON
 and current-invocation scope semantics; use the typed handle for later operations,
 or provide the original scope explicitly through `Request`.
+
+### PDF and MHTML page exports
+
+`Tab.ExportPage(format, ...ExportPageOptions)`, `ExportPDF` and `ExportMHTML`
+return `(PageExport, error)` when the extension advertises `pageExportVersion: 1`.
+`PageExport` contains `Format`, `MimeType`, `Encoding` (`"base64"`), `Data` and
+`ByteLength`. No local file is written automatically.
+
+```go
+background := true
+zeroMargin := 0.0
+exported, err := tab.ExportPDF(obu.ExportPageOptions{
+    MaxBytes: 8 * 1024 * 1024, Timeout: 30 * time.Second,
+    PDF: &obu.PDFOptions{PrintBackground: &background, MarginTop: &zeroMargin},
+})
+if err != nil { return err }
+content, err := base64.StdEncoding.DecodeString(exported.Data)
+if err != nil { return err }
+_ = content // Save explicitly if needed.
+```
+
+Zero `MaxBytes` selects 16 MiB; positive values cannot exceed 16 MiB. Zero
+`Timeout` selects 10 seconds; nonzero values must be whole milliseconds from
+1ms to 120s. The same deadline covers request queueing, connection, discovery
+and browser setup, with one additional second for the reply. The request keeps
+its submitted control scope and is never replayed after a failure.
+
+Only PDF accepts `PDF *PDFOptions`. Its optional pointer fields preserve explicit
+false/zero values: boolean `Landscape`, `PrintBackground`, `PreferCSSPageSize`,
+`GenerateTaggedPDF`, `GenerateDocumentOutline`; `Scale` from 0.1 to 2;
+`PaperWidth`/`PaperHeight` in inches greater than 0 and at most 200;
+`MarginTop`/`MarginBottom`/`MarginLeft`/`MarginRight` from 0 to 200 inches; and
+`PageRanges` of at most 1024 ASCII digits, commas, hyphens and spaces. Nil values
+use browser defaults. `ExportPageParams` exposes this validation for finite RPC
+callers; `ValidatePageExport` checks a JSON-decoded response's five fields,
+matching format/MIME, canonical Base64 and decoded size against the caller cap.
+Native export may still fail for unsupported pages, browser conditions or an
+expired control scope.

@@ -1,4 +1,6 @@
 import { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+import { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
+export { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePDFOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
 export { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
@@ -216,6 +218,9 @@ export declare class OpenBrowserUseTab {
     }): Promise<JsonValue>;
     engineInfo(): Promise<OpenBrowserUseEngineInfo>;
     downloadURL(url: string, options?: OpenBrowserUseDownloadURLOptions): Promise<OpenBrowserUseDownload>;
+    exportPage(format: OpenBrowserUseExportFormat, options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
+    exportPDF(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
+    exportMHTML(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     waitForDownload(options?: OpenBrowserUseDownloadOptions): Promise<OpenBrowserUseDownload>;
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;

@@ -55,6 +55,8 @@ type Client struct {
 	control                clientControlState
 	directDownloadsKnown   bool
 	directDownloadsVersion any
+	pageExportKnown        bool
+	pageExportVersion      any
 	navigationWaitKnown    bool
 	navigationWaitVersion  any
 	networkWaitKnown       bool
@@ -152,7 +154,7 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 	if err := json.Unmarshal(encodedParams, &frozenParams); err != nil {
 		return nil, err
 	}
-	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait") || isDownloadOperation(method) {
+	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait") || isDownloadOperation(method) || method == "exportPage" {
 		requested := float64(10000)
 		valid := true
 		if value, exists := frozenParams["timeoutMs"]; exists {
@@ -277,6 +279,26 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, errors.New("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1")
 		}
 	}
+	if method == "exportPage" {
+		c.controlMu.Lock()
+		known := c.pageExportKnown
+		c.controlMu.Unlock()
+		if !known {
+			info, err := c.requestLocked("getInfo", scopedParams(merged, nil), deadline)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.observeControlSupport(info); err != nil {
+				return nil, err
+			}
+		}
+		c.controlMu.Lock()
+		supported := c.pageExportVersion == float64(1)
+		c.controlMu.Unlock()
+		if !supported {
+			return nil, errors.New("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1")
+		}
+	}
 	result, err := execute(merged, deadline)
 	if err != nil {
 		return nil, err
@@ -330,12 +352,12 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 	if len(responseReserve) > 0 && time.Until(deadline) <= responseReserve[0] {
 		return nil, fmt.Errorf("%s deadline expired during discovery or connection; request was not sent", method)
 	}
-	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait") || isDownloadOperation(method) {
+	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait") || isDownloadOperation(method) || method == "exportPage" {
 		requested := int64(10000)
 		valid := true
 		switch value := merged["timeoutMs"].(type) {
 		case nil:
-			if _, exists := merged["timeoutMs"]; (method == "armNetworkWait" || method == "armNavigationWait" || isDownloadOperation(method)) && exists {
+			if _, exists := merged["timeoutMs"]; (method == "armNetworkWait" || method == "armNavigationWait" || isDownloadOperation(method) || method == "exportPage") && exists {
 				valid = false
 			}
 		case int64:
@@ -344,7 +366,7 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 			requested = int64(value)
 		case float64:
 			valid = value >= 1 && value <= 120000
-			if method == "armNetworkWait" || method == "armNavigationWait" || isDownloadOperation(method) {
+			if method == "armNetworkWait" || method == "armNavigationWait" || isDownloadOperation(method) || method == "exportPage" {
 				valid = valid && value == math.Trunc(value)
 			}
 			if valid {
@@ -353,7 +375,7 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 		default:
 			valid = false
 		}
-		if (method == "armNetworkWait" || method == "armNavigationWait" || isDownloadOperation(method)) && (!valid || requested < 1 || requested > 120000) {
+		if (method == "armNetworkWait" || method == "armNavigationWait" || isDownloadOperation(method) || method == "exportPage") && (!valid || requested < 1 || requested > 120000) {
 			return nil, fmt.Errorf("%s timeoutMs must be an integer from 1 to 120000", method)
 		}
 		if valid && requested >= 1 && requested <= 120000 {

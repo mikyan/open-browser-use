@@ -57,6 +57,9 @@ In either restricted mode:
   direct downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
   notifications are suppressed. These channels can refer to origins outside the
   live document tree and have not been certified for this restricted mode.
+- PDF page export uses the same complete-frame permission checks before native
+  commands and final delivery. MHTML export is rejected because its captured
+  resources can extend beyond those document origins. See [page exports](page-exports.md).
 - Tab listings and history omit disallowed origins. Session cleanup can still
   release owned resources. Policy changes never activate, move or close tabs.
 

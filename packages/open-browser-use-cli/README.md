@@ -142,6 +142,31 @@ finalize-tabs [{"tabId":<tab-id>,"status":"handoff"}]
 '
 ```
 
+## Export PDF or MHTML
+
+Export an owned tab to a new local file with the current extension's
+`pageExportVersion: 1` capability:
+
+```sh
+obu export-page --tab-id 123 --format pdf --output report.pdf --pdf-options '{"printBackground":true,"preferCSSPageSize":true}'
+obu export-page --tab-id 123 --format mhtml --output archive.mhtml --max-bytes 4194304
+```
+
+The parent directory must exist. The CLI validates the response, writes and
+syncs a temporary file with mode `0600`, and publishes it with an atomic hard
+link. Existing files are never overwritten, including concurrent creates.
+Filesystems without hard-link support return an error. The result contains
+`path`, `format`, `mimeType`, and `byteLength`; it does not repeat base64 data.
+
+Both formats allow at most 16 MiB. `--timeout` is the total RPC and publication
+budget (default `10s`, maximum `120s`); discovery and queues consume it, with
+one second reserved for the response. The filesystem write/sync/link calls are
+synchronous: the CLI checks the deadline before writing and before publishing,
+but cannot cancel an operating-system call already in progress. Exports are
+not retried. Website restrictions permit PDF after verifying the live frame
+origins; MHTML requires unrestricted mode. Print-layout and offline-archive
+limits are described in [Page exports](../../docs/references/page-exports.md).
+
 ## MCP Server
 
 Use `mcp` when an agent runtime supports local MCP servers over stdio:
@@ -160,9 +185,21 @@ args = ["mcp"]
 
 The MCP server exposes browser tools such as `user_tabs`, `open_tab`,
 `claim_tab`, `navigate`, `wait_load`, `page_info`, `cdp`, `history`,
-`run_action_plan`, `finalize_tabs`, and unrestricted `call`. It uses the same
+`run_action_plan`, `finalize_tabs`, `export_page`, and unrestricted `call`. It uses the same
 socket discovery as the CLI; pass `--socket <path>` or `--socket-dir <dir>` in
 `args` only when the runtime needs an explicit socket.
+
+The `export_page` tool requires an explicit output path and uses the same
+validated, no-overwrite file publication as the CLI:
+
+```json
+{"name":"export_page","arguments":{"tab_id":123,"format":"pdf","output_path":"report.pdf","max_bytes":4194304,"timeout_ms":10000,"pdf":{"printBackground":true}}}
+```
+
+`pdf` is accepted only for PDF exports. MCP errors use `isError: true`; successful
+content is the small file metadata object. Generic `call` with method
+`exportPage` remains available when the caller needs the base64 wire result
+and wants to manage bytes itself; it does not write an output file.
 
 ## Low-Level JSON-RPC
 

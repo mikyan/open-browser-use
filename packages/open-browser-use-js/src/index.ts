@@ -1,4 +1,6 @@
 import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
+import { pageExportParams, validatePageExport, type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
+export { type OpenBrowserUseExportFormat, type OpenBrowserUseExportOptions, type OpenBrowserUsePDFOptions, type OpenBrowserUsePageExport } from "./page-exports.js";
 export { OpenBrowserUseDownload, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
 import { OpenBrowserUseNavigationWait, navigationWaitAck, navigationWaitParams, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
 export { OpenBrowserUseNavigationWait, type OpenBrowserUseNavigationWaitOptions, type OpenBrowserUseURLWaitOptions, type OpenBrowserUseLoadStateWaitOptions } from "./navigation-waits.js";
@@ -90,7 +92,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 };
 type ControlBinding = { controlEpoch: number | null; closing: boolean; nextTurnId?: string };
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
@@ -108,6 +110,7 @@ export class OpenBrowserUseClient {
   #controlInitialization: Promise<ControlBinding> | null = null;
   #controlRevision = 0;
   #directDownloadsVersion: unknown = undefined;
+  #pageExportVersion: unknown = undefined;
   #navigationWaitVersion: unknown = undefined;
   #networkWaitVersion: unknown = undefined;
   #socket: Socket | null = null;
@@ -222,6 +225,10 @@ export class OpenBrowserUseClient {
       if (this.#directDownloadsVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#directDownloadsVersion !== 1) throw new Error("OBU_DIRECT_DOWNLOADS_UNSUPPORTED: extension does not advertise directDownloadsVersion 1");
     }
+    if (method === "exportPage") {
+      if (this.#pageExportVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+      if (this.#pageExportVersion !== 1) throw new Error("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1");
+    }
     capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
     const result = await this.#sendRequest(method, merged, deadline);
     if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
@@ -334,7 +341,7 @@ export class OpenBrowserUseClient {
     if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
     if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
-      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload"].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
+      const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadPath", "cancelDownload", "exportPage"].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
       if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested))) throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
       const available = Math.floor(remaining - 1000);
       if (available < 1) throw new Error(`Open Browser Use request timed out before ${method} could start`);
@@ -362,6 +369,7 @@ export class OpenBrowserUseClient {
     }
     const result = await promise;
     if (method === "getInfo") this.#directDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.directDownloadsVersion ?? null : null;
+    if (method === "getInfo") this.#pageExportVersion = isObject(result) && isObject(result.metadata) ? result.metadata.pageExportVersion ?? null : null;
     if (method === "getInfo") this.#navigationWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.navigationWaitVersion ?? null : null;
     if (method === "getInfo") this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
     return result;
@@ -633,6 +641,14 @@ export class OpenBrowserUseTab {
   downloadURL(url: string, options: OpenBrowserUseDownloadURLOptions = {}): Promise<OpenBrowserUseDownload> {
     return this.browser.client[downloadSymbol](this.id, "downloadURL", downloadURLParams(url, options));
   }
+
+  async exportPage(format: OpenBrowserUseExportFormat, options: OpenBrowserUseExportOptions = {}): Promise<OpenBrowserUsePageExport> {
+    const params = pageExportParams(format, options);
+    const value = await this.browser.client.request("exportPage", { ...params, tabId: this.id }, { timeoutMs: (params.timeoutMs as number) + 1000 });
+    return validatePageExport(value, format, params.maxBytes as number);
+  }
+  exportPDF(options: OpenBrowserUseExportOptions = {}): Promise<OpenBrowserUsePageExport> { return this.exportPage("pdf", options); }
+  exportMHTML(options: OpenBrowserUseExportOptions = {}): Promise<OpenBrowserUsePageExport> { return this.exportPage("mhtml", options); }
 
   waitForDownload(options: OpenBrowserUseDownloadOptions = {}): Promise<OpenBrowserUseDownload> {
     return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });

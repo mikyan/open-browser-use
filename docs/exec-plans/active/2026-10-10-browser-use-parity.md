@@ -498,3 +498,38 @@ bootstrap，worker 重启后同 revision/policy 保留，再验证 block 规则�
 及 10 个静态文件与实测冻结版本一致，扩展 ZIP 36 个文件逐字节匹配，
 skill 6 个文件及 SDK/host/fixture 哈希一致。权限与包内测试文件/凭据/
 私有机器路径扫描通过，精确验证所有原始前台事件。完整目标继续 active。
+
+### P10 页面导出（本片已验收，完整矩阵继续）
+
+- 实际 headed Chromium 已证明 PDF stream 与 MHTML 原生导出可行；无标签
+  激活或窗口焦点事件。正式 API 仍需单独验收，探测不算产品能力完成。
+- 新增 `exportPage`，只导出当前任务拥有的 HTTP(S) 页面。PDF 固定流模式，
+  精确关闭内部 IO handle 后才交付；MHTML 不开放受限网站模式。返回统一
+  base64 artifact，默认及硬上限 16 MiB，SDK 不隐式写文件。
+- 整个 admission、原生命令、流读取和关闭共用原始 deadline；取消后仍追踪
+  真正原生完成，迟到 stream 仅关闭。导航、文档/frame 变化、失去归属、
+  Pause 和任务结束使旧结果失效，不能在关闭前主动 detach。
+- 三 SDK、CLI、MCP 协商 `pageExportVersion=1`；CLI/MCP 显式输出路径，
+  验证完整结果后原子创建且不覆盖已有文件。测试包含真实内容、跨域 frame、
+  大小限制、超时清理、不同会话、受限 PDF 与完整五入口调用。
+- MHTML 原生 snapshot 整体返回，结果字节上限不代表原生内存上限。PDF
+  中文视觉正确但部分字体 ToUnicode 映射可能不逐码点保真；不修改导出字节。
+- 仅本地开发、测试和提交；不推送、不提 PR、不改日常浏览器安装。
+
+本片正式 Chromium 156 `run-BfrpnY` **53/53**，导出专项 `run-svvViO`
+**8/8**，扩展/脚本 **512/512**；新 host 下 JS **82/82**、Python
+**50/50** 无跳过，Go 全包通过。五入口实际 PDF/MHTML 均已解析内容；
+JS PDF 本次 81,260 字节约 215 ms，MHTML 2,783 字节约 22 ms，限于合成
+fixture 单次观察而非跨平台性能承诺。跨域 frame、CSS/SVG 和中文保留，
+CLI/MCP 旧文件不覆盖；受限 PDF 成功，混合禁止 frame 的 PDF 与 MHTML 拒绝。
+
+迟到流测试明确保留真实 Chrome stream 后延迟其 Promise 交付，证明任务
+结束先拒绝结果、仅精确 IO.close 无 IO.read，并等关闭后确认结束；不是
+Chrome 正常运行时延的测量。原五条 auxiliary tab 激活和四条控制 popup
+焦点事件保留精确账本，导出没有新增前台事件。原 sentinel 不变。
+
+最终独立核验 `.tmp/export-final-verification.json` 通过：27 个生产 JS/JSON、
+37 个扩展 ZIP 成员、6 个 skill 成员、host、SDK 与全部 fixture 均和实测
+冻结版本一致；五入口产物重新计算哈希并解析内容。包内无测试源码、凭据
+形状或机器私有路径。导出 PDF、后台光标高亮及控制 popup 截图已查看。
+测试浏览器与 host 已退出；本地包已更新，日常浏览器安装未改动。

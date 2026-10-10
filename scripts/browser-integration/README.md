@@ -56,6 +56,29 @@ websites through the popup before cleanup. Raw events are preserved for both
 intentional popup opens; no page actions receive a focus exception. Policy
 semantics and limitations are in [website access settings](../../docs/references/site-access-policy.md).
 
+The page-export cases call the public JS, Python, Go, CLI and MCP APIs and retain
+`page-export-{js,python,go,cli,mcp}.{pdf,mhtml}` with byte lengths and SHA-256
+digests. They verify PDF signatures and final markers, MHTML resource/frame
+parts, cross-session denial, bounded-output failure and recovery, and CLI/MCP
+no-overwrite publication with small metadata responses. The website-policy case
+also retains an allowed PDF and rejects mixed-origin PDF and restricted MHTML.
+Native errors fail these tests; no print dialog or headless fallback is used.
+
+`js-page-exports-lifecycle` deliberately holds the resolution of a **real**
+`Page.printToPDF` Promise after Chrome creates its stream. It verifies that
+session end rejects the result, waits for the native operation, and closes the
+exact late stream without reading it. This is a deterministic fault injection,
+not a claim that normal Chrome printing exhibits that delay. The worker hook is
+restored before later tests. Ordinary successful exports use unmodified native
+commands. Render retained PDFs with Poppler and inspect their page images;
+parse MHTML with a MIME parser to check decoded Chinese/frame content. PDF font
+maps may extract visually similar Unicode radicals despite correct rendering;
+the test does not rewrite exported bytes.
+
+Select the affected public callers and policy check with
+`OBU_TEST_CASES='page-exports|python-public-sdk|go-public-sdk|user-site-access'`
+(eight cases including the mandatory raw prerequisite when Go is configured).
+
 ## Prerequisites and invocation
 
 Use a desktop session with Node.js 22+, Python 3.10+, the repository's Go
@@ -305,7 +328,7 @@ the remaining gates, so cleanup cannot look like successful lifecycle progress.
   Select the four affected cases with
   `OBU_TEST_CASES='auxiliary-popup|control-worker-restart|user-global-pause'`;
   the required raw-navigation case makes this a five-case directed run. The
-  complete suite contains 48 cases with the optional Go caller, or 47 without it.
+  complete suite contains 53 cases with the optional Go caller, or 52 without it.
   The popup is independently created with `windows.create({focused:false})`,
   not by a page's `window.open`. Initial native popup activation remains
   unsupported as a no-interruption guarantee and is not counted as passing.

@@ -239,8 +239,39 @@ func main() {
 	_, err = pendingDownload.Path(obu.DownloadOptions{Timeout: 500 * time.Millisecond})
 	require(err != nil && strings.Contains(err.Error(), "OBU_DOWNLOAD_EXPIRED"), "cancelled download retained a path handle")
 	checks = append(checks, "direct-download-http-only-cookie-exact-file-hash-path-timeout-and-cancel")
+	exportedTab := must(browser.NewTab(obu.GotoOptions{URL: os.Args[2] + "page-exports"}))
+	require(must(exportedTab.FrameLocator("#export-frame").GetByText("跨域子页面中文内容", obu.TextOptions{Exact: true}).InnerText(time.Second)) == "跨域子页面中文内容", "export iframe not loaded")
+	require(must(exportedTab.Evaluate("document.fonts.ready.then(()=>[...document.images].every(image=>image.complete&&image.naturalWidth>0))", true)) == true, "export resources not loaded")
+	pageExports := map[string]any{}
+	for _, format := range []string{"pdf", "mhtml"} {
+		var artifact obu.PageExport
+		if format == "pdf" {
+			yes := true
+			artifact = must(exportedTab.ExportPDF(obu.ExportPageOptions{PDF: &obu.PDFOptions{PrintBackground: &yes, PreferCSSPageSize: &yes}}))
+		} else {
+			artifact = must(exportedTab.ExportMHTML())
+		}
+		require(artifact.Format == format && artifact.Encoding == "base64", "export format mismatch")
+		exportedBytes := must(base64.StdEncoding.DecodeString(artifact.Data))
+		require(len(exportedBytes) == artifact.ByteLength && len(exportedBytes) > 1000, "export byte length mismatch")
+		if format == "pdf" {
+			require(artifact.MimeType == "application/pdf" && bytes.HasPrefix(exportedBytes, []byte("%PDF-")) && bytes.HasSuffix(bytes.TrimSpace(exportedBytes), []byte("%%EOF")), "invalid PDF artifact")
+		} else {
+			require(artifact.MimeType == "multipart/related" && bytes.Contains(exportedBytes, []byte("MIME-Version: 1.0")), "invalid MHTML artifact")
+			for _, resource := range []string{"/page-exports/style.css", "/page-exports/resource.svg", "/page-exports/frame"} {
+				require(bytes.Contains(exportedBytes, []byte(resource)), "MHTML resource missing")
+			}
+		}
+		name := "page-export-go." + format
+		output := must(os.OpenFile(filepath.Join(os.Getenv("OBU_TEST_EXPORT_ROOT"), name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600))
+		written := must(output.Write(exportedBytes))
+		action(output.Close())
+		require(written == len(exportedBytes), "partial export write")
+		pageExports[format] = map[string]any{"artifact": name, "bytes": len(exportedBytes), "sha256": fmt.Sprintf("%x", sha256.Sum256(exportedBytes))}
+	}
+	checks = append(checks, "page-exports-pdf-and-mhtml-exact-file-bytes")
 	must(browser.Client.FinalizeTabs(nil))
 	checks = append(checks, "finalize")
-	result := must(json.Marshal(map[string]any{"passed": true, "goVersion": runtime.Version(), "checks": checks, "networkWait": received, "networkServer": networkCounts, "navigationWait": map[string]any{"url": navigationURL, "clicks": navigationClicks, "server": navigationCounts}, "directDownload": map[string]any{"path": resolvedDownload, "bytes": len(downloadedBytes), "sha256": downloadedHash, "cancelBeforeFinalize": downloadCancel}}))
+	result := must(json.Marshal(map[string]any{"passed": true, "goVersion": runtime.Version(), "checks": checks, "networkWait": received, "networkServer": networkCounts, "navigationWait": map[string]any{"url": navigationURL, "clicks": navigationClicks, "server": navigationCounts}, "pageExports": pageExports, "directDownload": map[string]any{"path": resolvedDownload, "bytes": len(downloadedBytes), "sha256": downloadedHash, "cancelBeforeFinalize": downloadCancel}}))
 	fmt.Println(string(result))
 }

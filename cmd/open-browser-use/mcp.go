@@ -225,6 +225,7 @@ func mcpErrorResponse(id any, code int, message string) map[string]any {
 
 func mcpTools() []mcpTool {
 	return []mcpTool{
+		pageExportTool(),
 		{
 			Name:        "ping",
 			Title:       "Ping Browser Backend",
@@ -485,6 +486,8 @@ func (server *mcpServer) callTool(params json.RawMessage) (map[string]any, error
 
 func (server *mcpServer) runTool(name string, arguments map[string]any) (any, error) {
 	switch name {
+	case "export_page":
+		return server.runExportPageTool(arguments)
 	case "ping":
 		return server.invoke("ping", map[string]any{})
 	case "info":

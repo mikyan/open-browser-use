@@ -356,6 +356,31 @@
 实测冻结产物一致；skill 6 文件及 SDK/host/fixture 哈希也相符。权限、
 包内敏感数据与原始前台事件扫描均通过。
 
+### Page exports
+
+新增公开 `exportPage` 与三种 SDK 的 PDF/MHTML helper，CLI/MCP 在验证结果后
+原子创建新文件且不覆盖。PDF 使用流读取并精确关闭，MHTML 返回原生 UTF-8
+快照；统一五字段字节对象、16 MiB 上限及原始总预算。受限网站模式允许经
+完整 frame 树检查的 PDF，MHTML 暂不开放。
+
+导出绑定控制 epoch、attachment 与 root/child 文档版本；超时和取消不抹去
+真实原生工作，迟到 stream 只关闭。审查修复了异步权限检查后迟到发令、CRX
+内部 detach 绕过流清理、辅助窗口变更等待自身清理、超时 admission 提前释放
+容量等竞态。512 项扩展/脚本回归通过；真实 Chromium 完整 53/53、专项
+8/8，JS 82/82、Python 50/50 和 Go 全包通过。五入口 PDF/MHTML 内容、跨域
+frame/资源、大小限制、文件不覆盖及受限 PDF 通过。结束时迟到流测试在
+真实原生结果边界作明确故障注入，验证无读取、精确关闭和之后恢复。
+原五条 auxiliary 激活与四条控制 popup 焦点事件精确归因，导出无新增。
+
+外部 debugger detach 丢失旧 stream 的关闭能力仍明确保留 cleanup-failed，
+worker 重启不能充当关闭证明。MHTML 结果上限不代表浏览器内存上限，PDF
+中文视觉正确也不代表任意字体逐码点文本提取保真。只本地开发与提交，无 PR。
+
+独立最终核验 `.tmp/export-final-verification.json` 确认 27 个生产 JS/JSON、
+37 个扩展 ZIP 成员、6 个 skill 成员和 host/SDK/fixture 与实测冻结版本一致；
+产物内容、原始前台事件和包内卫生再次检查通过。测试进程已退出，日常安装
+未改动。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

@@ -522,3 +522,35 @@ remain unsupported. This observer has no cross-connection readiness guarantee.
 The legacy Client methods still return raw JSON using the current invocation's
 scope; use typed Tab handles when retaining a download across calls, or supply
 original scope explicitly with `request`.
+
+### PDF and MHTML page exports
+
+`tab.exportPage("pdf" | "mhtml", options)`, `tab.exportPDF(options)` and
+`tab.exportMHTML(options)` require `getInfo().metadata.pageExportVersion === 1`.
+They return `{format, mimeType, encoding: "base64", data, byteLength}` and do not
+write a local file. PDF uses `application/pdf`; MHTML uses `multipart/related`.
+
+```ts
+const exported = await tab.exportPDF({
+  maxBytes: 8 * 1024 * 1024, timeoutMs: 30_000,
+  pdf: { printBackground: true, preferCSSPageSize: true, marginTop: 0 },
+});
+const bytes = Buffer.from(exported.data, "base64");
+const archive = await tab.exportMHTML({ timeoutMs: 30_000 });
+```
+
+`maxBytes` is a positive integer, defaults to 16 MiB, and cannot exceed 16 MiB.
+`timeoutMs` defaults to 10000 and accepts integer values from 1 to 120000.
+Connection, capability discovery and browser setup consume the original budget;
+the transport reserves one additional second for its reply. The request retains
+its submitted session/turn/epoch and is never replayed after failure.
+
+Only PDF accepts `pdf`: boolean `landscape`, `printBackground`,
+`preferCSSPageSize`, `generateTaggedPDF`, `generateDocumentOutline`; `scale`
+from 0.1 to 2; `paperWidth`/`paperHeight` in inches greater than 0 and at most
+200; `marginTop`/`marginBottom`/`marginLeft`/`marginRight` from 0 to 200 inches;
+and `pageRanges` of at most 1024 ASCII digits, commas, hyphens and spaces.
+Omitted values use browser defaults. Unknown options are rejected. The SDK
+verifies the exact response fields, format/MIME, canonical Base64 and decoded
+length against the requested cap before returning. Native export may still fail
+for unsupported pages, browser conditions or an expired control scope.

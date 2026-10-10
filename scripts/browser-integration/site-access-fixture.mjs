@@ -9,7 +9,7 @@ export function siteAccessFixture(route, port, query) {
 }
 
 export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, popupURL, windowId,
-  fixtureURL, restartWorker, capture, saveDetail, assert, until, traceFocus }) {
+  fixtureURL, restartWorker, capture, saveArtifact, saveDetail, assert, until, traceFocus }) {
   const browser = await connectBrowser("site-access");
   const allowedOrigin = new URL(fixtureURL).origin;
   const blockedOrigin = allowedOrigin.replace("127.0.0.1", "localhost");
@@ -113,6 +113,14 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     assert.equal(await allowed.locator("#trusted-click").textContent(), "true");
     assert.match(await allowed.domSnapshot(), /Website access fixture/);
     detail.allowedScreenshot = await capture("site-access-allowed-page", await allowed.screenshot());
+    const permittedPDF = await allowed.exportPDF();
+    const permittedBytes = Buffer.from(permittedPDF.data, "base64");
+    assert.equal(permittedPDF.mimeType, "application/pdf");
+    assert.equal(permittedBytes.length, permittedPDF.byteLength);
+    assert.equal(permittedBytes.subarray(0, 5).toString(), "%PDF-");
+    detail.allowedPDF = await saveArtifact("page-export-restricted.pdf", permittedBytes);
+    await denied("restrictedMHTML", allowed.exportMHTML());
+    await denied("mixedPDF", mixed.exportPDF());
     await denied("goto", allowed.goto(blockedURL));
     await denied("claim", browser.client.claimUserTab(unownedBlockedTab.id));
     await denied("rawCDP", browser.client.request("executeCdp", { target: { tabId: allowed.id }, method: "Runtime.evaluate", commandParams: { expression: "document.querySelector('#allowed-field').value='forbidden'" } }));

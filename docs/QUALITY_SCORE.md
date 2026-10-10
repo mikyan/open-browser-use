@@ -13,7 +13,7 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收；网络/导航等待支持 ready/trigger/collect。新增主动 HTTP(S) 下载、精确 ID 路径和取消，五入口校验实际文件字节；Page GUID 路径和原生 popup 初始激活仍有缺口。 | 按 browser-use-parity 矩阵补页面下载、平台、数据导出、受限模式数据入口及完整任务比较。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收；网络/导航等待、精确 ID 主动下载已验。新增 PDF/MHTML 五入口真实产物、关闭与不覆盖文件；完整浏览器 53 项通过。 | 按 browser-use-parity 矩阵补 Page GUID 路径/取消、剪贴板/媒体、平台及完整任务比较；原生 popup 初始激活仍有缺口。 |
 | 架构文档 | B | 本地 IPC、动作协议、有界递归观察与 capture refs、持久 control 生命周期、全局暂停和文件来源边界已有独立 reference。 | 继续记录完整进程重启及更多受限入口的设计/证据。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查，草稿和冲突不被轮询覆盖。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
 | 测试 | B | `make ci` 包含跨语言真实 host 通信；独立 headed Chromium 套件覆盖五个公开入口，适配器严格执行 1 MiB 原生出口上限。独立 native Edge 验证超过 2 MiB 的双客户端请求与 legacy 拒绝后保连接；另验安装、暂停、故障重试和迟到输入。 | 完整 browser/host 重启、更多 OS/浏览器、同组 Codex 对比。 |

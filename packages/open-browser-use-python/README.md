@@ -278,3 +278,36 @@ observed page download, whose GUID path/cancel remains unsupported; the observer
 has no cross-connection readiness guarantee. Legacy Client methods retain raw
 JSON and current-invocation scope semantics. Prefer typed Tab handles for later
 operations, or supply the original scope explicitly to `request`.
+
+### PDF and MHTML page exports
+
+`tab.export_page("pdf" | "mhtml", ...)`, `tab.export_pdf(...)` and
+`tab.export_mhtml(...)` require `getInfo.metadata.pageExportVersion == 1`.
+They return the `PageExport` typed dictionary with exactly `format`, `mimeType`,
+`encoding: "base64"`, `data` and `byteLength`. No file is written automatically.
+
+```python
+import base64
+
+exported = tab.export_pdf(max_bytes=8 * 1024 * 1024, timeout_ms=30000,
+                          pdf={"printBackground": True, "marginTop": 0})
+content = base64.b64decode(exported["data"], validate=True)
+archive = tab.export_mhtml(timeout_ms=30000)
+```
+
+`max_bytes` defaults to 16 MiB and accepts integers from 1 to 16 MiB.
+`timeout_ms` defaults to 10000 and accepts integer values from 1 to 120000;
+`None` selects these defaults. Setup and capability discovery consume the same
+budget, with one extra second for the reply. The original session/turn/epoch is
+retained, and a timeout or failure never triggers an automatic replay.
+
+The optional PDF-only `pdf` dictionary uses CDP camelCase keys: boolean
+`landscape`, `printBackground`, `preferCSSPageSize`, `generateTaggedPDF`,
+`generateDocumentOutline`; `scale` from 0.1 to 2; `paperWidth`/`paperHeight` in
+inches greater than 0 and at most 200; `marginTop`, `marginBottom`, `marginLeft`,
+`marginRight` from 0 to 200 inches; and `pageRanges` of at most 1024 ASCII digits,
+commas, hyphens and spaces. Omitted fields use browser defaults; unknown fields
+and PDF options on MHTML are rejected. Results are checked for exact schema,
+matching format/MIME (`application/pdf` or `multipart/related`), canonical Base64,
+and decoded byte count within your cap. Native export may still fail for an
+unsupported page, browser condition or expired control scope.
