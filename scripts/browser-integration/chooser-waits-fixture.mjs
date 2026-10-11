@@ -120,7 +120,7 @@ export async function chooserFrameEvidence(worker, tabId, key, variant) {
   return { frames: value.frames, targets: related, attachedTargets: value.attachedTargets };
 }
 
-export async function checkChooserReady({ owner, trigger, fixtureURL, server, files, worker, until, prefix }) {
+export async function checkChooserReady({ owner, trigger, fixtureURL, server, files, worker, until, prefix, diagnostic }) {
   assert.equal((await owner.client.getInfo()).metadata.fileChooserWaitVersion, 1);
   const detail = { caller: "js", independentConnections: true, variants: [] };
   try {
@@ -131,6 +131,7 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
     const item = { key, variant, tabId: tab.id, waits: [] }; detail.variants.push(item);
     await worker.evaluate(`(${installChooserTrace.toString()})(chrome,globalThis,${tab.id})`);
     try {
+    if (diagnostic) await diagnostic.start({ owner, item });
     for (let sequence = 1; sequence <= 2; sequence++) {
       item.armStartedAt = Date.now();
       const wait = await tab.expectFileChooser({ timeoutMs: 10000 });
@@ -144,8 +145,20 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
         assert.equal(typeof event.result.fileChooserId, "string");
         await owner.client.setFileChooserFiles(event.result.fileChooserId, sequence === 1 ? (variant === "root" ? files.slice(0, 1) : files).map(file => file.path) : []);
         await until(() => server.stats(key).posts.length === sequence && server.stats(key).posts.at(-1).receipt, "chooser server received selected file bytes");
-      } catch (error) { event.error = error.stack; event.failedAt = Date.now(); throw error; }
-      finally { event.cancelSubmittedAt = Date.now(); await wait.cancel(); event.cancelCompletedAt = Date.now(); }
+      } catch (error) {
+        event.error = error.stack; event.failedAt = Date.now();
+        if (diagnostic) await diagnostic.failure({ owner, item });
+        throw error;
+      }
+      finally {
+        event.cancelSubmittedAt = Date.now();
+        try { await wait.cancel(); event.cancelCompletedAt = Date.now(); }
+        catch (error) {
+          if (!diagnostic) throw error;
+          event.cancelError = error.stack; event.cancelFailedAt = Date.now();
+          if (!event.error) throw error;
+        }
+      }
     }
     item.scope = chooserScope(owner); assert.deepEqual(chooserScope(trigger), item.scope, "Independent connections did not share the same scope");
     item.server = checkChooserReceipts(server.stats(key), files, variant); item.frames = await chooserFrameEvidence(worker, tab.id, key, variant);
@@ -155,10 +168,22 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
     try { await assert.rejects(historical.result(), /OBU_FILE_CHOOSER_WAIT_TIMEOUT|deadline|timeout|timed out/i); }
     finally { await historical.cancel(); }
     assert.equal(server.stats(key).posts.length, 2, "A historical chooser replayed an upload"); item.historicalEventRejected = true;
-    } catch (error) { item.error = error.stack; item.failedAt = Date.now(); throw error; }
+    } catch (error) {
+      item.error = error.stack; item.failedAt = Date.now();
+      if (diagnostic) await diagnostic.failure({ owner, item });
+      throw error;
+    }
     finally {
+      if (diagnostic) await diagnostic.finish({ item });
+      try {
       item.nativeTrace = await worker.evaluate("(()=>{const trace=globalThis.__chooserReadyTrace;if(!trace)throw new Error('Chooser trace missing');chrome.debugger.onEvent.removeListener(trace.listener);delete globalThis.__chooserReadyTrace;return{tabId:trace.tabId,startedAt:trace.startedAt,completedAt:Date.now(),events:trace.events,overflow:trace.overflow}})()");
       item.serverAtEnd = server.stats(key); assert.equal(item.nativeTrace.overflow, false, "Chooser native trace overflow");
+      } catch (error) {
+        if (!diagnostic) throw error;
+        item.nativeTraceError = error.stack; item.serverAtEnd = server.stats(key);
+        if (item.diagnostic) item.diagnostic.collectionComplete = false;
+        if (!item.error) throw error;
+      }
     }
   }
   return detail;

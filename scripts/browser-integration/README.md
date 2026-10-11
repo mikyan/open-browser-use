@@ -4,6 +4,72 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
+## Opt-in chooser ready diagnostic
+
+`OBU_TEST_CHOOSER_DIAGNOSTIC=1` runs only the unchanged
+`js-file-chooser-ready-two-connections` and mandatory
+`js-raw-navigation-before-engine` cases. It is exclusive with `OBU_TEST_CASES`,
+geometry, background-parallel and memory-clipboard settings. Build the normal
+host and JS SDK first, then run with the usual `OBU_TEST_HOST_BINARY` and browser
+prerequisites below:
+
+```powershell
+$env:OBU_TEST_CHOOSER_DIAGNOSTIC = '1'
+node scripts/browser-integration/run.mjs
+```
+
+The original root/static-OOPIF/dynamic-OOPIF HTML, two-connection actions,
+10-second waiter deadline, upload bytes and historical-event rejection remain
+unchanged. The default 104 cases do not install this additional probe.
+Only the selected tab's original `Input.*`, chooser interception, `Page.enable`,
+`Page.disable` and `Runtime.runIfWaitingForDebugger` calls are observed, along
+with the seven existing frame/target/chooser event methods. Commands and events
+share a worker sequence and worker identity; the 1,024-record/1-Mi-character
+trace marks dropped/truncated payloads and pending or unobservable settlements
+as incomplete. The wrapper preserves the receiver, arguments, returned Promise
+and thrown/rejected values. Serialization and Promise side chains can affect
+scheduling and rejection reporting, so this is not a timing-neutral control.
+
+On the first original failure in a variant, before its original cancellation
+and finalization, a single diagnostic pass records the native windows, current
+window, exact tab, frames and the continuous focus ledger. It then attempts
+one read-only `Runtime.evaluate` per root and uniquely observed child session,
+through public `executeCdp` with the original session/turn/epoch. This has a
+separate total 3-second budget covering the trace, native metadata, focus and
+DOM reads, does not revive the expired waiter,
+attach a debugger, replay input, dismiss a dialog or change focus. Rejection
+under revoked scope is retained. These reads delay cleanup and observe the
+later DOM, not the click-time state. Root hit testing uses the recorded native
+press point; a child center hit is only a labeled current-state observation,
+never a guessed projection of root coordinates. Window metadata alone cannot
+identify an OS file dialog or attribute focus changes to a person.
+
+`chooser-js.json` retains the original task error, server bytes, passive trace
+and each variant's additional `diagnostic` evidence, including failed reads and
+cleanup errors. `chooser-diagnostic.json` and `results.json.chooserDiagnostic`
+separate `originalTaskPassed` from `collectionComplete` (both a complete native
+trace and, on failure, the required DOM/metadata observations); each variant
+also retains `traceComplete` and `observationComplete`. `acceptancePassed`
+is always false. Exit failure preserves any original test failure or incomplete
+trace. Even a successful diagnostic is not a new acceptance run. Existing
+continuous focus checks receive no new exemptions.
+
+Recorded diagnostic `run-Yh4Yz7` completed with terminal exit 0 and both original
+cases passing. Independent review checked 69 acknowledged native commands,
+six chooser events and six actual upload/clear POSTs, with no foreground event
+in the 2,691 ms observation interval. The dynamic child's interception ACK
+preceded its upload click. The earlier `run-7YcNf9` timeout was not reproduced;
+there was no production fix, and the failure-only DOM branch was not exercised
+in that real run. The diagnostic remains `acceptancePassed: false`.
+
+The following default run, `run-ZzBRWH`, cleared the diagnostic flag and passed
+the unchanged 104-case set with terminal exit 0 and independent artifact review.
+Its worker and results contained no diagnostic probe. The continuous 194,500 ms
+focus record retained the original six auxiliary-window activations and four
+explicit settings-popup focus events, with no added background allowance.
+This successful regression preserves the earlier failure and does not establish
+its cause. Startup and teardown remain outside the focus observation interval.
+
 ## Opt-in snapshot geometry acceptance
 
 The default suite remains 104 cases. `OBU_TEST_SNAPSHOT_GEOMETRY=1` selects a

@@ -1846,3 +1846,31 @@ MimeType，检查器要求小写字段。改caller显式映射，不改SDK截图
 下一步增加独立opt-in的有界被动native send/ACK与失败后只读DOM证据，
 不改原动作/HTML、deadline或重试策略，先定位chooser；焦点失败另核。
 本片为progress，P04专项完成而全套未通过，整体目标继续active。
+
+用户随后对20:20–20:24新一轮回复“可能点了点窗口啥的”。因此补记
+`7YcNf9`可能存在外部操作；原失败和独立审计保留，不认定所有focus或
+minimized事件均由用户造成，也不把更早chooser超时归因于此。该轮不
+作为无外部操作的焦点回归对照。继续进行有界chooser诊断。
+
+新增独占 `OBU_TEST_CHOOSER_DIAGNOSTIC=1`，只选择原JS chooser及原始raw
+导航对照。按原tab记录native命令/ACK和frame/chooser事件，保留原Promise、
+参数、异常与动作；失败后用原scope做总计3秒的只读采集，先于原cancel。
+截断、丢失、未结算或失败DOM缺失均标为采集不完整。原HTML、上传字节、
+10秒期限及默认104项保持不变；探针会影响调度，不作为时间中性对照。
+
+最终集成脚手架250/250，独立定向15/15及六份HTML字节对比通过。v28冻结
+396源码/237旧结果，生产48文件ZIP、host和SDK未改。诊断 `Yh4Yz7` 终端
+exit0、原两项通过，三variant共6次真实chooser/POST；动态child拦截ACK
+先于原点击，同child事件早于关闭拦截。此次未复现旧超时，不能称修复；
+失败后DOM分支未在真实故障中触发，诊断acceptancePassed始终为false。
+
+随后关闭所有专项/诊断标志，默认 `ZzBRWH` 原104/104、真实终端exit0及
+独立审计通过。没有诊断对象、variant插桩、额外诊断文件或worker探针。
+194500ms同一observer内六激活精确对应原auxiliary窗口创建、四focus
+对应原两次设置popup，后台豁免0，root初末normal/focusedtrue。启动和
+退出不在此账本覆盖内。原15研究任务的90来源、15真实POST及75创建/
+60关闭/15保留另行核验，源文件与生产身份匹配，237旧结果保持。
+
+本片P04及最终默认回归完成；chooser旧失败原因仍未知，没有据成功轮
+增加生产补丁或重放策略。Vivaldi无点击输入、Edge原生焦点及其他平台/
+完整任务边界继续保留。整体目标active，仅本地提交，无推送或PR。

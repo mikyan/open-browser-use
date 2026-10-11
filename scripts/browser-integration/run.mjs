@@ -45,12 +45,14 @@ import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-wait
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
+import { chooserDiagnosticEnabled, chooserDiagnosticCases, createChooserDiagnostic } from "./chooser-ready-diagnostic.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const chooserDiagnostic = chooserDiagnosticEnabled(process.env);
 const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
 if (process.env.OBU_TEST_BACKGROUND_PARALLEL !== undefined && process.env.OBU_TEST_BACKGROUND_PARALLEL !== "1")
   throw new Error("OBU_TEST_BACKGROUND_PARALLEL must be 1 or unset");
@@ -393,6 +395,7 @@ try {
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.snapshotGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "snapshot-geometry-fixture.mjs"))).digest("hex");
+  if (chooserDiagnostic) sourceIdentity.sha256.chooserDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-ready-diagnostic.mjs"))).digest("hex");
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
@@ -501,6 +504,7 @@ try {
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (chooserDiagnostic && !chooserDiagnosticCases.includes(name)) return;
     if (snapshotGeometry && name !== "js-raw-navigation-before-engine" && !name.includes("snapshot-geometry") && !name.startsWith("js-ai-snapshot-")) return;
     if (process.env.OBU_TEST_CASES && name !== "js-raw-navigation-before-engine" && !new RegExp(process.env.OBU_TEST_CASES).test(name)) return;
     const start = Date.now();
@@ -574,7 +578,9 @@ try {
     try {
       if (lifecycle) sourceIdentity.testHooks.push("chooser lifecycle: bounded passive native Page.fileChooserOpened listener only, removed after the uncollected-cancel case; no native event or result changes");
       else sourceIdentity.testHooks.push("chooser ready JS: per-variant bounded passive chrome.debugger.onEvent frame/target/fileChooserOpened trace for the exact tab; original native payloads retained on success/failure, listener removed afterward; no backend hooks or event/result changes");
-      const parameters = { owner, trigger, foreign, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, prefix: "js-chooser" };
+      if (chooserDiagnostic) sourceIdentity.testHooks.push("chooser diagnostic opt-in: exact-tab original native Input/chooser-interception/Page.enable/disable/Runtime.runIfWaitingForDebugger commands and chooser/frame events share one bounded sequence; transparent Promise side chains may affect scheduling; once-only current-scope raw DOM/window/focus reads on failure before cancellation; no action replay, new attachment or production hook");
+      const parameters = { owner, trigger, foreign, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, prefix: "js-chooser",
+        ...(chooserDiagnostic ? { diagnostic: createChooserDiagnostic({ worker, readFocus: readFocusLedger }) } : {}) };
       detail = await (lifecycle ? checkChooserLifecycle(parameters) : checkChooserReady(parameters)); return detail;
     } catch (error) { detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
     finally {
@@ -2086,7 +2092,18 @@ try {
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  let chooserDiagnosticResult;
+  if (chooserDiagnostic) {
+    let artifact;
+    try { artifact = JSON.parse(await fs.readFile(path.join(runDir, "chooser-js.json"), "utf8")); }
+    catch (error) { artifact = { readError: String(error) }; }
+    chooserDiagnosticResult = { mode: "chooser-ready-diagnostic", acceptancePassed: false,
+      originalTaskPassed: records.find(record => record.name === "js-file-chooser-ready-two-connections")?.passed ?? false,
+      collectionComplete: artifact.variants?.length > 0 && artifact.variants.every(item => item.diagnostic?.collectionComplete === true),
+      evidence: "chooser-js.json", readError: artifact.readError };
+    await fs.writeFile(path.join(runDir, "chooser-diagnostic.json"), JSON.stringify(chooserDiagnosticResult, null, 2));
+  }
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);
@@ -2097,5 +2114,5 @@ try {
   assert.equal(actualSocketDirectory, socketDir);
   await fs.rm(actualSocketDirectory, { recursive: true, force: true });
   console.log("RESULT", path.join(runDir, "results.json"));
-  process.exitCode = records.some(record => !record.passed) ? 1 : 0;
+  process.exitCode = records.some(record => !record.passed) || (chooserDiagnosticResult && !chooserDiagnosticResult.collectionComplete) ? 1 : 0;
 }
