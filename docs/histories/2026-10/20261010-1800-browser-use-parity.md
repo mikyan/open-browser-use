@@ -1819,6 +1819,15 @@ Python109pass/1 Windows路径skip，全新host、helper与JS重建通过，外�
 零旧请求、新client恢复。首次临时目录被环境清空的启动失败保留，后续
 新持久短路径一次完成；未跑Linux浏览器、macOS或CGO race。
 
+### 下一片原页面文件交付
+
+SDK实现`19a39ef`已推送fork并核远端一致。当前Page GUID路径仍明确不支持，
+新GET不能代替原POST/Blob。只读调查确认真正Browser CDP的GUID/filePath和
+受控context的allowAndName为待验候选；extension debugger没有该域，冻结
+CRX的resolved Promise和synthetic目录均非证据。历史Codex1.1.4全局下载
+通知也不证明当前任务归属。新计划先核当前Codex同场文件任务与原生通路，
+保留登录/授权UI、context配置及品牌边界，不把新运行模式当作全面完成。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

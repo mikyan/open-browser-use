@@ -2657,6 +2657,7 @@ Go523pass/10平台skip、JS142pass、Python109pass/1 Windows路径skip，186源�
 
 下一步优先页面导出原文件闭环：页面POST/Blob生成的原文件要能由Agent
 可靠取得用于分析，不能把新GET当原下载、不能按URL/时间/文件名猜归属。
-先补同组Codex文件任务对照与原生映射可行性证据，再决定实现。后台新页
+先补同组Codex文件任务对照与原生映射可行性证据，再决定实现，详见
+[原页面下载计划](2026-10-12-original-page-downloads.md)。后台新页
 ready/跟进工作流、guard丢失恢复、平台生命周期及P01–P15仍开放，完整目标
 保持active。
