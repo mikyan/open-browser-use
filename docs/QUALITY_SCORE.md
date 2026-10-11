@@ -11,13 +11,21 @@
 
 ## 当前评分
 
+最新完整 `0prwDM` **110/110、exit0**，原109项名称与相对顺序保留，新增
+录屏并发用例通过。root raw start/stop与内部渲染共享真实原生命令队尾，
+frame ACK独立通行；旧实机负对照`rjMBXn`1/2、新专项`hmPQNY`2/2，确认
+修复截图清理误停新录屏的竞态。Node1416/1416、独立定向107/107通过。
+完整178702ms连续账本仍为原11次精确激活与4次控制popup focus、无新增
+豁免；sentinel身份/选择不变，视口高度1222→1192，不能称几何完全不变。
+本轮chooser成功不解释此前跨调用器的动态OOPIF失败，P01–P15仍未完成。
+
 显式 `createTab({backgroundWindow:true})` / SDK `newTab` 已接入正式路径：
 创建独立、不聚焦的 normal 窗口，任务页只在自己的新窗口中选中；省略或
 false 保留原路径。能力协商、混合分组归属、持久撤权和只关闭自有 tab 的
 finalize 已实现。它会增加一个可见窗口，未解除默认 inactive 页的目录限制，
 也没有把点击、移动用户页或激活用户窗口作为隐式补救。
 
-最新完整 `XHmJdq` **108/109、exit1**：原105项名称/顺序全部保留且通过，
+此前完整 `XHmJdq` **108/109、exit1**：原105项名称/顺序全部保留且通过，
 新增四项通过三项。后台窗口目录用例在 dynamic OOPIF 首轮 collect 超时，
 尚无 chooser、setter、失败时 DOM 或原生输入记录，不能确认点击是否到达。
 root/static 共12轮核验9POST、20份文件载荷、272实际字节；8次可信目录选择、
@@ -49,6 +57,12 @@ pointer完整性仍为null，不能替代此前13项上下文中的失败。随�
 中间轮Go dynamic首轮collect再次超时，无chooser结果/setter；6ms失败后
 精确文档观察仍见root可信frameAdd、child无click/change。JS均通过且pointer
 未读，不能当作投递证据或生产修复。下一步覆盖实际失败的Go路径。
+
+Go目标观察随后接入相同13项上下文，定向及独立60/60通过。三轮`N6jxEP`、
+`a95b4d`、`gx2jRn`分别12/13、13/13、12/13，实际exit1/0/1；MCP及Python
+发生chooser timeout，Go仍未触发pointer读取。两失败路径只保留root/static
+各2POST与dynamic零POST，缺少完整阶段/点击ACK/失败DOM，不能宣称新根因。
+生产源码在这组实验中未改，跨调用器的动态输入稳定性继续未完成。
 
 此前完整 `zyiYQg` **106/109、exit1**，原105项名称/顺序保留，四项新增
 检查全部通过。JS 单次提交、JS 双连接和 Go 双连接的动态 OOPIF 首轮均在

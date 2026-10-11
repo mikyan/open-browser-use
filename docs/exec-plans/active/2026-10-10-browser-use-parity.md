@@ -2176,3 +2176,74 @@ root/static的4POST/3文件/62字节。通过者不覆盖dynamic的零POST失败
 original move receipt只能证明观察到相符事件，不能绑定CDP request或证明
 后续命中；未取得真实投递证据前不增加输入、不引入猜测的渲染屏障。完整
 P01–P15、生产稳定性和旧发布包边界继续保留。
+
+已以 `pointer-go-context` 复用同13项顺序，仅Go三fixture key启用原有
+被动记录，parent既有失败观察继续在Go子进程取消/关闭后、finalize前执行。
+Go成功顶层variants与失败callerResult分开校验；观察必须精确绑定唯一失败
+项的tab/key/variant。作者及独立定向60/60通过；原JS模式和已有HTML、Go
+helper均保持。生产源码在这一阶段不变，诊断运行全部终止后才开始下述
+独立录屏并发修复，避免混淆两类变更。
+
+有限三轮 `N6jxEP` 12/13、exit1，`a95b4d` 13/13、exit0，`gx2jRn` 12/13、
+exit1；失败分别是MCP与Python chooser timeout，Go均通过且未读pointer。
+每轮114源身份相符，生产及host/SDK三轮一致；原五次精确激活允许项保留，
+零window focus。五入口chooser加目录原始POST为41/43/41，实际文件字节
+858/893/858，三host分别正常退出。MCP只有error+server，Python另有缺失
+partial caller文件，均只证root/static各2POST、dynamic零POST；缺少具体
+序号、click ACK、阶段和失败DOM，不能把推断写成已证投递。已知任务页
+清理通过，但失败MCP/Python缺少原tab身份；不将此写成其精确身份验收。
+
+这三轮没有取得Go pointer故障证据，目标完整性保持null、全体业务结果
+为false/true/false，失败退出没有被目标成功覆盖。停止该组重复实验，保留
+跨调用器的动态输入稳定性问题。后续调查应降低观测时序影响并补MCP/Python
+原失败阶段记录，而不是继续逐个新增模式追逐未复现的目标。
+
+并行源码审计发现可达的独立问题：内部截图lease期间，同scope raw stop /
+start可以绕过rendering队列，原lease的finally stop随后关闭新外部stream，
+留下external记录与原生状态不一致。仅在已有流上直接raw start会被浏览器
+拒绝，不能误称该路径可接管。计划先留确定性旧源码失败，再共享start/stop
+与内部lease的序列保护；原总deadline、scope/attachment复核、Pause/detach及
+迟到ACK必须保留。普通frame ACK不可排进该队列以免死锁；观察超时不能
+当作原生命令已结束。该问题不作为Go动态点击故障的已证根因。
+
+旧生产源码的并发回归26项中24通过、2失败，保留原始失败记录；新增修复
+让root raw start/stop与内部lease共用队列，frame ACK和其他命令不排队。
+队尾跟踪真实native Promise，晚到ACK仅更新仍有效的原scope/attachment；
+确认detach后的新附件不继承旧队尾，旧Promise仍保留在全局drains集合。
+作者及独立定向107/107、零skip/cancel，覆盖原总deadline、迟到start/stop、
+撤权、Pause、新旧附件隔离及targetId归一化。完整浏览器验收尚待本轮执行。
+
+本轮开始将前一目标开发轮归为progress：已产生生产修复与确定性新旧测试
+证据；随后用户安装说明已答复。恢复时核对工作树与冻结hash相符，未发现
+仍运行的browser-integration进程。下一步以真实浏览器的两个公开SDK连接，
+受控延迟实际截图结果交付，检验native命令顺序、真实帧/ACK及nonce像素。
+该用例明确是ACK并发压力，不能冒充自然故障频率或动态OOPIF修复证明。
+
+后续动态输入调查已确认两个证据丢失点：wire chooser helper只在成功时
+返回detail，cancel错误可能覆盖原异常；Python helper仅在run成功后写文件，
+因此超时没有partial且close也可能覆盖原错。下一片应在现有caller登记原
+tab/key/variant与每轮arm/click ACK/collect/cancel阶段，失败也输出partial，
+原业务和清理错误分开保留。成功请求、参数、顺序及期限不变，不加browser
+API；parent仅在原进程/连接关闭后、finalize前复用现有3秒失败观察，并校验
+精确身份。newTab/arm失败、业务与cancel同时失败、真实Python子进程退出及
+成功调用序列需要覆盖；没有身份必须拒读。暂未实现，不扩增诊断模式追逐
+逐次变化的失败调用器。
+
+录屏并发新case已接默认路径，pure8/8、复用像素解码器合跑15/15，全部
+Node1416/1416且零skip/cancel。真实新版专项`hmPQNY`2/2、exit0；旧生产
+负对照`rjMBXn`1/2、exit1，只有background切回`b05ba42`的旧字节，其余
+harness/host/SDK一致。旧native顺序为held13→rawstop15→rawstart18→
+release27→delivered28→internalstop29，更新phase1后没有新帧。新版先
+结束内部lease再执行外部stop/start，两个更新阶段都收到匹配nonce的PNG。
+独立核新专项四PNG共64格RGB，公开帧/ACK、精确tab/target清理和hook恢复。
+两专项零激活/window focus/豁免，host均exit0。首次旧对照`QlbMqw`因旧
+PowerShell错误流处理未生成总results，只保留partial；完整负对照改为直接
+Node子进程，未掩盖原失败。测试后已逐字节恢复新版2ce78674…6edfdd。
+
+恢复后的默认完整`0prwDM`实际**110/110、exit0**，对照`XHmJdq`确认原
+109项名称与相对顺序完整；新增case和五入口chooser均通过。178702ms连续
+focus账本11次激活/4次focus，沿用原精确允许项，无新增豁免；sentinel的
+身份/选中状态保持，视口高度1222→1192，不能宣称几何不变。原host重启
+case按预期终止第一代host，第二代正常exit0。这是一次完整通过，不关闭
+先前动态OOPIF偶发失败或其他P01–P15缺口；下一步仍补MCP/Python原失败
+阶段与partial，以完整证据调查实际输入投递。旧preview包保持不变。

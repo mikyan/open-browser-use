@@ -1,5 +1,36 @@
 # Browser integration acceptance
 
+## Screencast concurrency
+
+The ordinary `js-screencast-concurrency` case uses two independent public SDK
+connections in one task scope. An exact-tab test hook holds delivery of the first
+actual native screenshot result while the second connection requests raw
+`Page.stopScreencast` and `Page.startScreencast`. The original native screenshot
+has already settled; its result, command arguments and frame events are not
+replaced. Other native calls retain their original promises. The hook and source
+file hashes are recorded in `sourceIdentity` and the hook is restored afterward.
+
+A same-client public read barrier and a 300ms controlled overlap window keep
+both requests observable before releasing the screenshot ACK. Neither request
+receipt nor elapsed time proves queue admission or native execution. The case
+independently requires actual internal-stop, external-stop and external-start
+ordering, two real screenshot results, native frames with public acknowledgements,
+and nonce/sequence pixels from the resulting PNGs. It changes the page through
+public CDP to verify that the external stream continues after the second capture.
+No activation or focus allowance is added. `screencast-concurrency.json` and four
+PNG files retain the evidence, with original errors and cleanup failures separate.
+
+This is controlled ACK timing acceptance, not a natural reproduction or performance
+measurement. An older implementation whose requests do not reach native execution
+inside the overlap window might not reproduce the race; deterministic production
+unit regressions supply that negative evidence. The original 109 cases retain
+their relative order. For a focused run select
+`OBU_TEST_CASES=^js-screencast-concurrency$`; the mandatory raw-navigation control
+is also included. On every exit the helper releases its gate, drains the original
+public requests, stops/finalizes its own task, removes the listeners, and restores
+the exact hook. Missing settlement, failed cleanup or incomplete native evidence
+cannot count as a pass.
+
 Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
@@ -258,6 +289,29 @@ is complete. The existing `null`/`false`/`true` collection meanings apply: a
 successful target has no pointer read, missing or incomplete failure evidence
 is false, and complete failure evidence never turns its task into a success.
 The old `1` and `pointer-only` modes continue to select only their two cases.
+
+`OBU_TEST_CHOOSER_DIAGNOSTIC=pointer-go-context` keeps the same fixed 13-case
+selection, but records pointer HTML only for `go-chooser-root`,
+`go-chooser-oopif` and `go-chooser-dynamic-oopif`. All JS and other caller pages
+keep their default HTML. Go's arguments, environment construction, actions,
+waiter cancellation and connection close are unchanged; no native diagnostic
+hook or JSONL handshake is enabled. Success adds no API or pointer read.
+After an original Go process failure, the parent uses its existing exact
+document-ID observer with the same 3-second budget, after Go cancellation and
+connection close but before parent finalization. This observes the later
+document and can itself be incomplete; it cannot prove click-time state.
+
+Its summary mode is `chooser-pointer-go-context-diagnostic`, with evidence in
+`chooser-go.json` and `originalTaskPassed` referring to Go. Successful artifacts
+have top-level variants; failed artifacts retain the original `callerResult`
+and the parent's separate `failureObservation`. Summary code creates a
+read-only view only when that observation's tab ID, key and variant match the
+unique failed Go variant. It does not rewrite either artifact. Missing,
+unreadable, mismatched or incomplete evidence cannot report complete; a
+successful Go target without a read remains `null`. Selection integrity,
+`allOriginalTasksPassed`, exit failure for any original case failure and
+`acceptancePassed: false` retain the context-mode meanings above. Existing
+`1`, `pointer-only` and JS `pointer-context` behavior is unchanged.
 
 The two-connection actions, 10-second waiter deadline, upload bytes and
 historical-event rejection remain unchanged. The default root/static-OOPIF/

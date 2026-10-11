@@ -471,8 +471,9 @@ debuggers are not adopted. Attachment must use shared focus initialization and o
 detach must explicitly clear it. Browser-initiated detach invalidates engine
 state through `forget(tabId)`. `aroundAction` holds a shared rendering lease for
 screenshots, scrolling, dragging, and pointer actions (`click`, `dblclick`,
-`hover`, checkbox actions, and `mouse.*`). This lets background OOPIF compositor surfaces commit before
-native hit testing, including newly created or navigated frames. Reads, fill,
+`hover`, checkbox actions, and `mouse.*`). This keeps background rendering active
+during the operation. A root screencast frame or input acknowledgement does not
+prove that a newly created OOPIF is ready for native hit testing. Reads, fill,
 selection and keyboard operations do not take this lease. The wrapper invokes
 the original Playwright operation exactly once and preserves screenshot
 crop/element/full-page semantics. The request-wide deadline and ownership checks
@@ -514,3 +515,19 @@ the backend. Its synchronous `isInternalEvent` predicate suppresses those events
 inside the CRX transport, preventing duplicate acknowledgements by Playwright.
 It does not replace global Chrome event delivery or suppress caller-owned
 screencasts; all other protocol events still reach Playwright.
+
+Root raw `Page.startScreencast` and `Page.stopScreencast` share the rendering
+queue with internal leases. This prevents an internal screenshot's cleanup from
+stopping a caller stream started during that screenshot. Frame acknowledgements,
+other raw commands, and child-session commands stay outside this queue so that
+a stream can receive its acknowledgements while a rendered operation is pending.
+The original request deadline covers queueing; scope and attachment are checked
+again before native dispatch. Expired queued commands are not sent later.
+
+The queue holds native start/stop operations until their actual Promises settle,
+even if the caller has stopped waiting. A late successful raw start is recorded
+only while its original scope and attachment remain valid. A confirmed attachment
+release gives a replacement attachment a new queue; the old Promise stays in the
+global cleanup ledger until it actually settles. Its late acknowledgement cannot
+claim the replacement's stream or remove its queue. Cancellation removes frame
+listeners promptly, but a timeout alone is not evidence of native cleanup.

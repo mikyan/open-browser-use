@@ -732,6 +732,7 @@ class BrowserBackend {
     this.cursorByTabId = new Map();
     this.pointerFeedbackByTabId = new Map();
     this.renderingQueues = new Map();
+    this.renderingDrains = new Set();
     this.externalScreencastTabs = new Set();
     this.internalScreencasts = new Map();
     this.downloadsById = new Map();
@@ -1245,7 +1246,7 @@ class BrowserBackend {
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of downloadWaits.tabIds) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
@@ -2606,6 +2607,10 @@ class BrowserBackend {
     this.pendingAttachmentEpochs.delete(tabId);
     this.documentEpochs.delete(tabId);
     this.internalScreencasts.get(tabId)?.cancel?.();
+    // A confirmed attachment release ends its native stream. A successor
+    // attachment must not inherit an old unresolved API reply, which remains
+    // tracked separately until its actual Promise settles.
+    this.renderingQueues.delete(tabId);
     this.clearPointerFeedback(tabId);
     this.externalScreencastTabs.delete(tabId);
     this.internalScreencasts.delete(tabId);
@@ -2669,18 +2674,27 @@ class BrowserBackend {
       if (params.method === "Page.captureScreenshot" && target.sessionId === undefined) {
         return await this.captureScreenshot(target, params.commandParams ?? {}, remaining);
       }
-      const response = await this.inputTracker.send(target, attachment, params.method, params.commandParams ?? {}, () => {
+      const send = () => this.inputTracker.send(target, attachment, params.method, params.commandParams ?? {}, () => {
         checkTarget();
         this.controlLedger.assertCurrent(params);
         if (Date.now() >= startedAt + timeoutMs) throw new Error("Timed out preparing CDP command before native send");
         return chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {});
       });
-      if (target.sessionId === undefined && params.method === "Page.startScreencast") {
-        this.externalScreencastTabs.add(target.tabId);
-      } else if (target.sessionId === undefined && params.method === "Page.stopScreencast") {
-        this.externalScreencastTabs.delete(target.tabId);
+      if (target.sessionId === undefined && ["Page.startScreencast", "Page.stopScreencast"].includes(params.method)) {
+        return await this.queueRendering(target.tabId, async () => {
+          const response = await send();
+          // A timed-out RPC is not a completed native operation. Record a late
+          // ACK only for its original live owner, before releasing the queue.
+          checkTarget();
+          this.controlLedger.assertCurrent(params);
+          if (params.method === "Page.startScreencast") this.externalScreencastTabs.add(target.tabId);
+          else this.externalScreencastTabs.delete(target.tabId);
+          return response;
+        });
       }
-      return response;
+      // Frame ACKs must stay outside the queue: an external stream can need
+      // them while a rendering operation holds the lease.
+      return await send();
     });
     // The low-level CLI/SDK route must show the same pointer as moveMouse.
     // Feedback is optional: a restricted or unresponsive page must not turn a
@@ -2693,12 +2707,25 @@ class BrowserBackend {
     return this.withRenderingLease(target, timeoutMs, () => chrome.debugger.sendCommand(target, "Page.captureScreenshot", commandParams), "screenshot");
   }
 
+  queueRendering(tabId, operation) {
+    const previous = this.renderingQueues.get(tabId) ?? Promise.resolve();
+    const queued = previous.catch(() => {}).then(operation);
+    this.renderingQueues.set(tabId, queued);
+    this.renderingDrains.add(queued);
+    const cleanup = () => {
+      this.renderingDrains.delete(queued);
+      if (this.renderingQueues.get(tabId) === queued) this.renderingQueues.delete(tabId);
+    };
+    queued.then(cleanup, cleanup);
+    return queued;
+  }
+
   async withRenderingLease(target, timeoutMs, operation, action = "rendered action") {
     const tabId = target.tabId;
-    const previous = this.renderingQueues.get(tabId) ?? Promise.resolve();
     const deadline = Date.now() + timeoutMs;
     const attachment = this.attachmentEpochs.get(tabId);
     let expired = false;
+    let closeCapture;
     let phase = `waiting in rendering queue for ${action}`;
     const timeoutError = () => Object.assign(new Error(`Timed out after ${timeoutMs}ms ${phase}.`), { name: "TimeoutError" });
     const withinDeadline = (operation) => withTimeout(Math.max(1, deadline - Date.now()), operation, timeoutError);
@@ -2708,7 +2735,7 @@ class BrowserBackend {
       this.assertAttachmentAdmission(tabId, attachment);
       if (expired || Date.now() >= deadline || !ownsAttachment()) throw new Error(`Rendering request expired before ${action}`);
     };
-    const queued = previous.catch(() => {}).then(async () => {
+    const queued = this.queueRendering(tabId, async () => {
       assertCurrent();
       if (this.externalScreencastTabs.has(tabId)) {
         phase = `running ${action} with caller-owned stream`;
@@ -2735,56 +2762,47 @@ class BrowserBackend {
       });
       // Attach a rejection handler before cleanup can reject an unused waiter.
       frame.catch(() => {});
-      stream.cancel = () => {
+      closeCapture = error => {
         expired = true;
         chrome.debugger.onEvent.removeListener(onFrame);
-        const error = new Error("Rendered action was cancelled because tab control ended");
         rejectFrame(error);
         cancelCapture(error);
       };
+      stream.cancel = () => closeCapture(new Error("Rendered action was cancelled because tab control ended"));
       try {
-        return await withinDeadline(async () => {
-          phase = `waiting for background frame before ${action}`;
-          // Keep rendering active throughout a screenshot or pointer action.
-          // Stopping after a warm-up frame lets hidden renderers stall again
-          // during capture, or leaves a new iframe's hit-test surface stale.
-          await chrome.debugger.sendCommand(target, "Page.enable");
-          assertCurrent();
-          stream.active = true;
-          await chrome.debugger.sendCommand(target, "Page.startScreencast", {
-            format: "png", everyNthFrame: 1
-          }).then(async () => {
-            started = true;
-            if (expired && ownsAttachment()) await chrome.debugger.sendCommand(target, "Page.stopScreencast").catch(() => {});
-          });
-          assertCurrent();
-          await frame;
-          assertCurrent();
-          phase = `running ${action}`;
-          const result = await Promise.race([operation(), cancelled]);
-          assertCurrent();
-          return result;
+        phase = `waiting for background frame before ${action}`;
+        // Keep the queue through real native start/stop settlement. The outer
+        // deadline can stop waiting and remove listeners, but cannot grant a
+        // successor permission to replace a stream whose ACK is still pending.
+        await chrome.debugger.sendCommand(target, "Page.enable");
+        assertCurrent();
+        stream.active = true;
+        await chrome.debugger.sendCommand(target, "Page.startScreencast", {
+          format: "png", everyNthFrame: 1
         });
+        started = true;
+        assertCurrent();
+        await frame;
+        assertCurrent();
+        phase = `running ${action}`;
+        const result = await withinDeadline(() => Promise.race([operation(), cancelled]));
+        assertCurrent();
+        return result;
       } finally {
-        expired = true;
-        chrome.debugger.onEvent.removeListener(onFrame);
-        rejectFrame(new Error("Rendering frame waiter closed"));
+        closeCapture(new Error("Rendering frame waiter closed"));
         if (started && ownsAttachment()) {
-          await withTimeout(1_000, () => chrome.debugger.sendCommand(target, "Page.stopScreencast")).catch(() => {});
+          try { await chrome.debugger.sendCommand(target, "Page.stopScreencast"); }
+          catch { /* Preserve the rendered operation's original result/error. */ }
         }
         stream.active = false;
         delete stream.cancel;
       }
     });
-    this.renderingQueues.set(tabId, queued);
-    const cleanup = () => {
-      if (this.renderingQueues.get(tabId) === queued) this.renderingQueues.delete(tabId);
-    };
-    queued.then(cleanup, cleanup);
     try {
       return await withTimeout(timeoutMs, () => queued, timeoutError);
     } finally {
       expired = true;
+      closeCapture?.(timeoutError());
     }
   }
 

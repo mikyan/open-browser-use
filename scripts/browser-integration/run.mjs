@@ -50,12 +50,13 @@ import { directoryWorldHTML, checkDirectoryWorld } from "./directory-world-fixtu
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
-import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary } from "./chooser-ready-diagnostic.mjs";
+import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
 import { downloadDiagnosticEnabled, downloadDiagnosticCases, createDownloadDiagnostic } from "./download-ready-diagnostic.mjs";
 import { goChooserDiagnosticEnabled, goChooserDiagnosticCases, summarizeGoChooserDiagnostic } from "./go-chooser-diagnostic-mode.mjs";
 import { createGoChooserDiagnostic } from "./go-chooser-diagnostic.mjs";
 import { runChooserProcess } from "./chooser-process.mjs";
+import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -263,7 +264,8 @@ const formWorkflows = createFormWorkflowFixture();
 const researchWorkflows = createResearchWorkflowFixture();
 const backgroundParallelFixture = createBackgroundParallelFixture();
 const chooserFixtures = createChooserWaitFixtures({ pointerEvidence: chooserDiagnostic,
-  ...(chooserMode === "pointer-context" ? { pointerEvidenceKeys: chooserPointerContextKeys } : {}) });
+  ...(chooserMode === "pointer-context" ? { pointerEvidenceKeys: chooserPointerContextKeys } :
+    chooserMode === "pointer-go-context" ? { pointerEvidenceKeys: chooserPointerGoContextKeys } : {}) });
 const directoryUploads = createDirectoryUploadFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
@@ -284,6 +286,11 @@ const http = createServer(async (request, response) => {
   if (snapshotGeometryFixtures.handle(request, response, httpPort)) return;
   if (mcpBinding && mcpBindingFixture.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/screencast-concurrency") {
+    const nonce = new URL(request.url, "http://localhost").searchParams.get("nonce");
+    if (!/^[a-f0-9]{8}$/.test(nonce ?? "")) { response.writeHead(400); response.end("Invalid fixture nonce"); return; }
+    response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(screencastConcurrencyHTML(nonce)); return;
+  }
   if (route === "/directory-world") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(directoryWorldHTML); return; }
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -445,6 +452,8 @@ try {
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   }
   sourceIdentity.sha256.backgroundParallelWorkflow = createHash("sha256").update(await fs.readFile(path.join(directory, "background-parallel-workflow.mjs"))).digest("hex");
+  sourceIdentity.sha256.screencastConcurrencyFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "screencast-concurrency-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.screencastConcurrencyProbe = createHash("sha256").update(installScreencastConcurrencyProbe.toString()).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   nativeBridge = new NativeHostBridge({ server: ws, executable, socketDir, stats: nativeFrameStats,
@@ -540,7 +549,7 @@ try {
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
     if (mcpBinding && !mcpBindingCases.includes(name)) return;
-    if (chooserDiagnostic && !(chooserMode === "pointer-context" ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;
+    if (chooserDiagnostic && !(["pointer-context", "pointer-go-context"].includes(chooserMode) ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;
     if (snapshotGeometry && name !== "js-raw-navigation-before-engine" && !name.includes("snapshot-geometry") && !name.startsWith("js-ai-snapshot-")) return;
     if (process.env.OBU_TEST_CASES && name !== "js-raw-navigation-before-engine" && !new RegExp(process.env.OBU_TEST_CASES).test(name)) return;
     const start = Date.now();
@@ -750,6 +759,7 @@ try {
     }
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: prefix, turnId: "chooser-ready", timeoutMs: 15000 });
     const diagnostic = kind === "go" && goChooserDiagnostic ? createGoChooserDiagnostic({ worker, readFocus: readFocusLedger }) : null;
+    if (kind === "go" && chooserMode === "pointer-go-context") sourceIdentity.testHooks.push("chooser pointer-go-context diagnostic: original 13-case order; passive pointer/mouse HTML only for go-chooser-root/oopif/dynamic-oopif keys, all JS and other fixture HTML unchanged; original Go process arguments/actions/cancel/close retained without native diagnostic hooks; parent failure-only exact documentId observation after Go cancellation/close and before parent finalize, same 3-second budget; no success read or input replay; recorder may affect scheduling");
     let childProcess, callerResult, failure;
     try {
       const env = { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" };
@@ -788,6 +798,7 @@ try {
         const failedItem = Array.isArray(callerResult?.variants) ? callerResult.variants.findLast(item => item && (item.error || item.originalError || item.failedAt)) : null;
         if (failedItem && ["root", "oopif", "dynamic-oopif"].includes(failedItem.variant) && failedItem.key === `${prefix}-${failedItem.variant}`)
           detail.failureObservation = await observeChooserFailure({ worker, item: structuredClone(failedItem), fixtureURL,
+          ...(chooserMode === "pointer-go-context" ? { pointerEvidence: true } : {}),
           timing: "After original Go process failure and its waiter cancellation/connection close; before parent task finalization" });
         else detail.failureObservation = { complete: false, errors: ["No failed Go variant identity in the retained partial result; no page read attempted"] };
       }
@@ -1221,6 +1232,15 @@ try {
     assert.ok(full.height >= Math.round(1600 * dimensions.dpr));
     assert.ok(full.height > viewport.height);
     return { viewport: { width: viewport.width, height: viewport.height }, crop: { width: crop.width, height: crop.height }, full: { width: full.width, height: full.height }, bytes: viewport.bytes.length };
+  });
+  await test("js-screencast-concurrency", async () => {
+    sourceIdentity.testHooks.push("screencast concurrency: exact-tab native command/frame recorder and first actual screenshot ACK delivery gate; two public SDK connections share one scope, a same-client read barrier and 300ms controlled overlap are not queue-admission/native-execution proof; actual stream command ordering, frames, public ACKs and PNG pixels are checked; no simulated result/frame, production private queue wrapper, focus allowance or natural failure/performance claim");
+    return checkScreencastConcurrency({
+      connectBrowser: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-screencast-concurrency", turnId: "native-stream-concurrency", timeoutMs: 20000 }),
+      worker, fixtureURL,
+      saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
+      saveDetail: detail => fs.writeFile(path.join(runDir, "screencast-concurrency.json"), JSON.stringify(detail, null, 2))
+    });
   });
   await test("js-navigation", async () => {
     await tab.goto(fixtureURL + "?navigated=1");
@@ -2288,10 +2308,11 @@ try {
   let chooserDiagnosticResult;
   if (chooserDiagnostic) {
     let artifact;
-    try { artifact = JSON.parse(await fs.readFile(path.join(runDir, "chooser-js.json"), "utf8")); }
+    try { artifact = JSON.parse(await fs.readFile(path.join(runDir, chooserMode === "pointer-go-context" ? "chooser-go.json" : "chooser-js.json"), "utf8")); }
     catch (error) { artifact = { readError: String(error) }; }
     const originalTaskPassed = records.find(record => record.name === "js-file-chooser-ready-two-connections")?.passed ?? false;
-    chooserDiagnosticResult = chooserMode === "pointer-context" ? chooserPointerContextSummary(artifact, records) :
+    chooserDiagnosticResult = chooserMode === "pointer-go-context" ? chooserPointerGoContextSummary(artifact, records) :
+      chooserMode === "pointer-context" ? chooserPointerContextSummary(artifact, records) :
       chooserMode === "pointer-only" ? chooserPointerDiagnosticSummary(artifact, originalTaskPassed) : { mode: "chooser-ready-diagnostic", acceptancePassed: false,
       originalTaskPassed,
       collectionComplete: artifact.variants?.length > 0 && artifact.variants.every(item => item.diagnostic?.collectionComplete === true),

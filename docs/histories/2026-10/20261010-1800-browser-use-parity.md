@@ -1510,6 +1510,41 @@ child无click/change。JS目标三轮未读pointer，完整性null，不能证�
 每轮目录13POST/30文件/408字节，中间轮Go仅root/static的4POST/3文件/
 62字节通过；dynamic零POST保留为失败，诊断没有获得完整原鼠标序列。
 
+Go目标的 `pointer-go-context` 复用固定13项与有界记录，只更换精确Go三key；
+原子进程参数、动作、取消/关闭均不变，parent既有失败读取仍在其后执行。
+成功顶层variants与失败callerResult分别只读验证；观察须精确对应唯一失败
+项的tab/key/variant。旧JS模式、原fixture HTML和Go helper均保持，作者及
+独立定向60/60通过。
+
+生产不变下三轮 `N6jxEP`12/13、exit1，`a95b4d`13/13、exit0，`gx2jRn`
+12/13、exit1。MCP/Python分别chooser timeout；Go全部成功且未读pointer。
+两失败均只有root/static各2POST、dynamic零POST，缺少点击ACK、完整阶段与
+失败DOM，不能定位实际鼠标投递。114项源身份及生产/host/SDK一致，每轮
+原五次精确激活允许项、零window focus；五入口加目录41/43/41POST、实际
+858/893/858文件字节核验。已知任务页清理通过，失败MCP/Python的精确tab
+身份不足另行保留。停止本组三轮，未把目标成功或证据未读当成问题修复。
+
+独立录屏并发修复将root raw start/stop纳入内部渲染队列，frame ACK保持
+直通；原总期限不刷新、迟到ACK只更新仍有效的原scope/attachment。实际
+native Promise未结算时保留队尾；确认detach后新附件使用新队列，旧Promise
+仍列入全局cleanup。旧26项回归24通过2失败，作者及独立定向107/107，
+完整Node1416/1416且零skip/cancel。
+
+新增真实双连接 `js-screencast-concurrency`，仅延迟第一次实际截图结果的
+交付，300ms重叠窗口不当作queue admission证明。新版`hmPQNY`2/2、exit0，
+两张截图及两个更新阶段的原生PNG均核16格nonce像素，公开帧ACK、精确
+任务清理和hook恢复通过。旧实现负对照`rjMBXn`1/2、exit1：held期间raw
+stop/start已成功，release后的内部stop结束新流，phase1不再收到更新帧。
+两轮同harness/host/SDK，生产只切换background；两轮零激活/window focus，
+host正常退出。第一次旧对照`QlbMqw`因PowerShell 5错误流提升未落总results，
+其partial保留，不作为完整验收；改用直接Node子进程后才取得上述完整对照。
+工作树已按原始字节恢复新版；旧发布包不变，动态OOPIF问题仍未解决。
+
+最终默认完整`0prwDM`110/110、exit0，原109项相对顺序核验完整。连续
+178702ms账本保留原11激活/4控制popup focus允许项，无新增豁免；sentinel
+身份和选择保持，视口高度1222→1192。预期host重启后新进程exit0，当前
+没有活测试进程。完整通过不替代此前动态OOPIF失败的根因调查。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

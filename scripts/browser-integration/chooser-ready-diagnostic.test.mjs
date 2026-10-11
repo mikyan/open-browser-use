@@ -3,8 +3,8 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { readFileSync } from "node:fs";
-import { chooserDiagnosticCases, chooserDiagnosticEnabled, chooserDiagnosticMode, chooserPointerDiagnosticSummary, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerContextSummary, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
-import { checkChooserReady, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
+import { chooserDiagnosticCases, chooserDiagnosticEnabled, chooserDiagnosticMode, chooserPointerDiagnosticSummary, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerContextSummary, chooserPointerGoContextSummary, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
+import { checkChooserReady, installChooserPointerEvidence, createChooserWaitFixtures, chooserPageHTML } from "./chooser-waits-fixture.mjs";
 
 function setup(sendCommand = function () { return Promise.resolve({}); }, options) {
   const listeners = new Set(), target = { crypto: { randomUUID } };
@@ -93,6 +93,86 @@ test("context summary fails missing/extra/reordered case selections while keepin
   failure.variants[2].failureObservation.complete = false;
   assert.equal(chooserPointerContextSummary(failure, failedRecords).collectionComplete, false);
   assert.equal(chooserPointerContextSummary(undefined, records).collectionComplete, false);
+});
+
+function goPointerArtifact(failed = false) {
+  const records = chooserPointerContextCases.map(name => ({ name, passed: true }));
+  const caller = { caller: "go", independentConnections: true,
+    variants: ["root", "oopif", "dynamic-oopif"].map((variant, index) => ({ variant, key: `go-chooser-${variant}`, tabId: 42 + index, passed: true })) };
+  if (!failed) return { records, artifact: caller };
+  records[10].passed = false; caller.error = "original collect timeout";
+  const item = caller.variants[2]; item.passed = false; item.error = caller.error; item.originalError = caller.error;
+  return { records, artifact: { error: "Go process exit 1", callerResult: caller, failureObservation: {
+    tabId: item.tabId, key: item.key, variant: item.variant, fixtureKind: "chooser", errors: [], complete: true,
+    pointerEvidenceExpected: true, pointerObservationRequested: true, pointerObservationComplete: true } } };
+}
+
+test("Go context is explicit and enables pointer HTML only for exact Go keys, leaving JS and old selections unchanged", () => {
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-go-context" }), "pointer-go-context");
+  for (const key of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD"])
+    assert.throws(() => chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-go-context", [key]: "1" }), /cannot be combined/);
+  assert.deepEqual(chooserPointerGoContextKeys, ["go-chooser-root", "go-chooser-oopif", "go-chooser-dynamic-oopif"]);
+  const fixture = createChooserWaitFixtures({ pointerEvidence: true, pointerEvidenceKeys: chooserPointerGoContextKeys });
+  for (const variant of ["root", "oopif", "dynamic-oopif"]) for (const route of ["page", "frame"]) {
+    for (const prefix of ["go-chooser", "js-chooser", "js-chooser-submission", "js-chooser-lifecycle", "cli-chooser", "mcp-chooser", "python-chooser", "go-chooser-extra"]) {
+      const url = new URL(`http://127.0.0.1/chooser-waits/${route}?key=${prefix}-${variant}&variant=${variant}`); let html;
+      fixture.handle({ url: url.pathname + url.search }, { setHeader() {}, end(value) { html = value; } }, 1234);
+      assert.equal(html, chooserPageHTML(url, 1234, { pointerEvidence: prefix === "go-chooser" }));
+    }
+  }
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-context" }), "pointer-context");
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-only" }), "pointer-only");
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "1" }), "native");
+});
+
+test("Go context preserves success null and binds complete failure only through a read-only exact variant view", () => {
+  for (const failed of [false, true]) {
+    const { artifact, records } = goPointerArtifact(failed), before = JSON.stringify(artifact);
+    const freeze = value => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } };
+    freeze(artifact);
+    const summary = chooserPointerGoContextSummary(artifact, records);
+    assert.equal(summary.mode, "chooser-pointer-go-context-diagnostic"); assert.equal(summary.evidence, "chooser-go.json");
+    assert.equal(summary.originalTaskPassed, !failed); assert.equal(summary.allOriginalTasksPassed, !failed);
+    assert.equal(summary.caseSelectionComplete, true); assert.equal(summary.acceptancePassed, false); assert.equal(summary.nativeCommandProbeInstalled, false);
+    assert.equal(summary.collectionComplete, failed ? true : null); assert.equal(summary.pointerObservationComplete, failed ? true : null);
+    assert.equal(JSON.stringify(artifact), before); assert.equal(artifact.callerResult?.variants[2].failureObservation, undefined);
+    records[0].passed = false;
+    assert.equal(chooserPointerGoContextSummary(artifact, records).allOriginalTasksPassed, false);
+    assert.equal(chooserPointerGoContextSummary(artifact, records.slice(1)).collectionComplete, false);
+    assert.equal(chooserPointerGoContextSummary(artifact, [...records].reverse()).caseSelectionComplete, false);
+    assert.equal(chooserPointerGoContextSummary(artifact, [...records, records[0]]).caseSelectionComplete, false);
+  }
+});
+
+test("Go failure rejects missing, foreign, duplicate, unread or incomplete evidence without mutating the partial result", () => {
+  for (const mutate of [
+    value => { delete value.failureObservation; },
+    value => { value.callerReadError = "partial file read failed"; },
+    value => { value.readError = "artifact missing"; },
+    value => { value.diagnostic = {}; },
+    value => { value.failureObservation.tabId++; },
+    value => { value.failureObservation.key = "go-chooser-root"; },
+    value => { value.failureObservation.variant = "oopif"; },
+    value => { value.failureObservation.fixtureKind = "directory"; },
+    value => { value.failureObservation.errors.push("observation failed"); },
+    value => { delete value.failureObservation.errors; },
+    ...["complete", "pointerEvidenceExpected", "pointerObservationRequested", "pointerObservationComplete"].map(key => value => { value.failureObservation[key] = false; }),
+    value => { value.callerResult.caller = "python"; },
+    value => { value.callerResult.variants[2].tabId = value.callerResult.variants[0].tabId; },
+    value => { value.callerResult.variants[2].key = "foreign-key"; },
+    value => { value.callerResult.variants[2].passed = true; },
+    value => { value.callerResult.variants[1].passed = false; value.callerResult.variants[1].error = "earlier failure"; },
+    value => { delete value.callerResult.variants[2].error; delete value.callerResult.variants[2].originalError; },
+    value => { value.callerResult.variants[2].failureObservation = value.failureObservation; },
+    value => { value.callerResult.variants.reverse(); },
+    value => { value.callerResult.variants.push(value.callerResult.variants[2]); }
+  ]) {
+    const { artifact, records } = goPointerArtifact(true); mutate(artifact); const before = JSON.stringify(artifact);
+    assert.equal(chooserPointerGoContextSummary(artifact, records).collectionComplete, false);
+    assert.equal(JSON.stringify(artifact), before);
+  }
+  const { artifact, records } = goPointerArtifact(); delete artifact.variants[0].passed;
+  assert.equal(chooserPointerGoContextSummary(artifact, records).collectionComplete, false);
 });
 
 test("chooser opt-in is exclusive and selects the original case plus mandatory raw control", () => {
@@ -246,12 +326,18 @@ test("lost worker and revoked scope remain explicit, are not replayed, and do no
 
 test("runner keeps default case filtering and explicitly labels this diagnostic as non-acceptance", () => {
   const runner = readFileSync(new URL("./run.mjs", import.meta.url), "utf8");
-  assert.match(runner, /if \(chooserDiagnostic && !\(chooserMode === "pointer-context" \? chooserPointerContextCases : chooserDiagnosticCases\)\.includes\(name\)\) return/);
+  assert.ok(runner.includes('if (chooserDiagnostic && !(["pointer-context", "pointer-go-context"].includes(chooserMode) ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;'));
   assert.match(runner, /mode: "chooser-ready-diagnostic", acceptancePassed: false/);
   assert.match(runner, /originalTaskPassed:/);
   assert.match(runner, /chooserMode === "pointer-context" \? \{ pointerEvidenceKeys: chooserPointerContextKeys \}/);
   assert.match(runner, /!lifecycle && \["pointer-only", "pointer-context"\]\.includes\(chooserMode\) \? \{ pointerEvidence: true \}/);
   assert.match(runner, /chooserMode === "pointer-context" \? chooserPointerContextSummary\(artifact, records\)/);
+  assert.match(runner, /chooserMode === "pointer-go-context" \? \{ pointerEvidenceKeys: chooserPointerGoContextKeys \}/);
+  assert.match(runner, /chooserMode === "pointer-go-context" \? chooserPointerGoContextSummary\(artifact, records\)/);
+  assert.match(runner, /chooserMode === "pointer-go-context" \? "chooser-go.json" : "chooser-js.json"/);
+  assert.match(runner, /item: structuredClone\(failedItem\), fixtureURL,\s*\.\.\.\(chooserMode === "pointer-go-context" \? \{ pointerEvidence: true \} : \{\}\)/);
+  assert.match(runner, /const diagnostic = kind === "go" && goChooserDiagnostic \? createGoChooserDiagnostic/);
+  assert.match(runner, /const stdout = await subprocess\(executablePath, args, \{ timeoutMs: 120000, env \}\)/);
   assert.match(runner, /process.exitCode = records.some\(record => !record.passed\) \|\| chooserDiagnosticResult\?\.collectionComplete === false/);
   const fixture = readFileSync(new URL("./chooser-waits-fixture.mjs", import.meta.url), "utf8");
   assert.ok(fixture.indexOf("await diagnostic.failure({ owner, item })") < fixture.indexOf("await wait.cancel()"));

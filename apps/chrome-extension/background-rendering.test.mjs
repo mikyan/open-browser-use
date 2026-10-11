@@ -22,6 +22,7 @@ async function loadBackend({ attachError, command, detach, frames = true } = {})
     debugger: {
       onEvent: { addListener(fn) { listeners.add(fn); }, removeListener(fn) { listeners.delete(fn); } },
       onDetach: { addListener(fn) { detachListener = fn; } },
+      async getTargets() { return [{ id: "target-7", tabId: 7, url: "https://fixture.test" }]; },
       async attach(target) { calls.push(["attach", json(target)]); if (attachError) throw attachError; },
       async detach(target) { calls.push(["detach", json(target)]); await detach?.(target); },
       async sendCommand(target, method, params) {
@@ -244,6 +245,344 @@ test("raw and engine captures share the same per-tab screenshot queue", async ()
   const methods = calls.map(([method]) => method);
   assert.equal(methods.filter(method => method === "Page.startScreencast").length, 2);
   assert.ok(methods.indexOf("Page.stopScreencast") < methods.lastIndexOf("Page.startScreencast"));
+});
+
+test("raw screencast mutations cannot replace a running internal lease's stream", async () => {
+  const entered = defer(), completion = defer();
+  let nativeStream = null;
+  const { backend, attach, cdp, calls } = await loadBackend({ command: (method, params) => {
+    if (method === "Page.startScreencast") {
+      if (nativeStream) throw new Error("Screencast is already active");
+      nativeStream = params.format;
+    }
+    if (method === "Page.stopScreencast") nativeStream = null;
+    if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+  } });
+  await attach();
+  const attachment = backend.attachmentEpochs.get(7);
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  const stop = cdp("Page.stopScreencast", {}, { timeoutMs: 1000, target: { targetId: "target-7" } });
+  const restart = stop.then(() => cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 1000 }));
+  // Allow both public requests to pass their asynchronous authorization checks.
+  await tick();
+  const whileCapturing = { nativeStream, stops: calls.filter(([method]) => method === "Page.stopScreencast").length };
+  completion.resolve({ data: "original-image" });
+  const results = await Promise.allSettled([capture, stop, restart]);
+  assert.ok(results.every(result => result.status === "fulfilled"));
+  assert.equal(backend.attachmentEpochs.get(7), attachment);
+  assert.equal(whileCapturing.nativeStream, "png", "raw stop/start must wait for the original rendering operation");
+  assert.equal(whileCapturing.stops, 0);
+  assert.equal(nativeStream, "jpeg", "the old lease must not stop the later caller-owned stream");
+  assert.equal(backend.externalScreencastTabs.has(7), true);
+  await cdp("Page.stopScreencast");
+});
+
+test("raw screencast queued timeout cannot send a late stop after a rendering lease", async () => {
+  const entered = defer(), completion = defer();
+  const { attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+  } });
+  await attach();
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  const stop = cdp("Page.stopScreencast", {}, { timeoutMs: 15 });
+  const [result] = await Promise.allSettled([stop]);
+  const stopsBeforeCompletion = calls.filter(([method]) => method === "Page.stopScreencast").length;
+  completion.resolve({ data: "original-image" });
+  await capture;
+  await tick();
+  assert.equal(result.status, "rejected", "the caller's original budget must include the rendering queue");
+  assert.match(result.reason.message, /timed out|expired/i);
+  assert.equal(stopsBeforeCompletion, 0);
+  assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, 1, "only the internal owner's cleanup may stop its stream");
+});
+
+test("raw screencast frame ACK is not blocked behind a rendering lease", async () => {
+  const entered = defer(), completion = defer();
+  const { attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+  } });
+  await attach();
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  try {
+    await cdp("Page.screencastFrameAck", { sessionId: 73 }, { timeoutMs: 50 });
+    assert.ok(calls.some(([method, , params]) => method === "Page.screencastFrameAck" && params.sessionId === 73));
+  } finally {
+    completion.resolve({ data: "original-image" });
+    await capture;
+  }
+});
+
+test("external stream ACKs and unrelated or child commands bypass its active rendering lease", async () => {
+  const entered = defer(), completion = defer();
+  const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+  } });
+  await attach();
+  await cdp("Page.startScreencast", { format: "jpeg" });
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  try {
+    await cdp("Page.screencastFrameAck", { sessionId: 73 }, { timeoutMs: 100 });
+    await cdp("Runtime.evaluate", { expression: "1" }, { timeoutMs: 100 });
+    await cdp("Page.stopScreencast", {}, { target: { tabId: 7, sessionId: "child-session" }, timeoutMs: 100 });
+    assert.ok(calls.some(([method, target]) => method === "Page.stopScreencast" && target.sessionId === "child-session"));
+    assert.equal(backend.externalScreencastTabs.has(7), true, "a child command cannot update root stream ownership");
+  } finally {
+    completion.resolve({ data: "original-image" });
+    await capture;
+    await cdp("Page.stopScreencast");
+  }
+});
+
+test("a timed-out raw start holds the queue until its real ACK and records the still-live external stream", async () => {
+  const start = defer(), entered = defer();
+  let nativeStream = null;
+  const { backend, attach, cdp, calls } = await loadBackend({ command: (method, params) => {
+    if (method === "Page.startScreencast") {
+      if (nativeStream) throw new Error("Screencast is already active");
+      nativeStream = params.format;
+      if (params.format === "jpeg") { entered.resolve(); return start.promise; }
+    }
+    if (method === "Page.stopScreencast") nativeStream = null;
+  } });
+  await attach();
+  const pending = assert.rejects(cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await pending;
+  assert.equal(backend.externalScreencastTabs.has(7), false, "an unacknowledged native operation is still pending");
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  const result = Promise.allSettled([capture]);
+  await tick();
+  const beforeACK = calls.map(([method]) => method);
+  start.resolve({});
+  const [completed] = await result;
+  assert.equal(beforeACK.filter(method => method === "Page.startScreencast").length, 1);
+  assert.equal(beforeACK.includes("Page.captureScreenshot"), false);
+  assert.equal(completed.status, "fulfilled");
+  assert.deepEqual(completed.value, { data: "original-image" });
+  assert.equal(backend.externalScreencastTabs.has(7), true);
+  assert.equal(nativeStream, "jpeg");
+  assert.equal(calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  await cdp("Page.stopScreencast");
+});
+
+test("a timed-out raw stop retains stream exclusion until the native stop settles", async () => {
+  const stop = defer(), entered = defer();
+  let stops = 0;
+  const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.stopScreencast" && ++stops === 1) { entered.resolve(); return stop.promise; }
+  } });
+  await attach();
+  await cdp("Page.startScreencast", { format: "jpeg" });
+  const pending = assert.rejects(cdp("Page.stopScreencast", {}, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await pending;
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  const result = Promise.allSettled([capture]);
+  await tick();
+  const capturesBeforeACK = calls.filter(([method]) => method === "Page.captureScreenshot").length;
+  stop.resolve({});
+  assert.equal((await result)[0].status, "fulfilled");
+  assert.equal(capturesBeforeACK, 0);
+  assert.equal(backend.externalScreencastTabs.has(7), false);
+  assert.equal(calls.filter(([method]) => method === "Page.startScreencast").length, 2);
+  assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, 2);
+});
+
+test("an internal late start is stopped before a queued caller-owned stream starts", async () => {
+  const start = defer(), entered = defer();
+  const { backend, attach, cdp, calls, listeners } = await loadBackend({ command: (method, params) => {
+    if (method === "Page.startScreencast" && params.format === "png") { entered.resolve(); return start.promise; }
+  } });
+  await attach();
+  const capture = assert.rejects(cdp("Page.captureScreenshot", {}, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await capture;
+  assert.equal(listeners.size, 0, "RPC timeout still removes the frame listener immediately");
+  const external = cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 1000 });
+  const result = Promise.allSettled([external]);
+  await tick();
+  const startsBeforeACK = calls.filter(([method]) => method === "Page.startScreencast").length;
+  start.resolve({});
+  assert.equal((await result)[0].status, "fulfilled");
+  assert.equal(startsBeforeACK, 1);
+  const methods = calls.map(([method]) => method);
+  assert.ok(methods.indexOf("Page.stopScreencast") < methods.lastIndexOf("Page.startScreencast"));
+  assert.equal(methods.filter(method => method === "Page.stopScreencast").length, 1);
+  assert.equal(methods.includes("Page.captureScreenshot"), false);
+  assert.equal(backend.externalScreencastTabs.has(7), true);
+  await cdp("Page.stopScreencast");
+});
+
+test("an internal stop's real lifetime outlasts its former one-second cleanup observer", async () => {
+  const stop = defer(), entered = defer();
+  let stops = 0;
+  const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.stopScreencast" && ++stops === 1) { entered.resolve(); return stop.promise; }
+  } });
+  await attach();
+  const capture = assert.rejects(cdp("Page.captureScreenshot", {}, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await capture;
+  const external = cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 3000 });
+  const result = Promise.allSettled([external]);
+  await new Promise(resolve => setTimeout(resolve, 1050));
+  const startsBeforeACK = calls.filter(([method]) => method === "Page.startScreencast").length;
+  stop.resolve({});
+  assert.equal((await result)[0].status, "fulfilled");
+  assert.equal(startsBeforeACK, 1, "the one-second observer must not release native stream ownership");
+  assert.equal(backend.externalScreencastTabs.has(7), true);
+  await cdp("Page.stopScreencast");
+});
+
+test("a queued raw mutation cannot cross a revoked original tab control epoch", async () => {
+  const entered = defer(), completion = defer();
+  const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+  } });
+  await attach();
+  const capture = cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  const stop = cdp("Page.stopScreencast", {}, { timeoutMs: 1000 });
+  const result = Promise.allSettled([stop]);
+  await tick();
+  backend.controlEpochs.set(7, (backend.controlEpochs.get(7) ?? 0) + 1);
+  completion.resolve({ data: "original-image" });
+  await capture;
+  const [completed] = await result;
+  assert.equal(completed.status, "rejected");
+  assert.match(completed.reason.message, /original tab control ended/);
+  assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, 1, "only the original internal cleanup sends stop");
+});
+
+test("a late raw start ACK cannot revive external stream state on a successor attachment", async () => {
+  const start = defer(), entered = defer();
+  const { backend, attach, cdp, calls } = await loadBackend({ command: (method, params) => {
+    if (method === "Page.startScreencast" && params.format === "jpeg") { entered.resolve(); return start.promise; }
+  } });
+  await attach();
+  const original = backend.attachmentEpochs.get(7);
+  const pending = assert.rejects(cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await pending;
+  await backend.detach({ ...session, tabId: 7 });
+  await attach();
+  assert.notEqual(backend.attachmentEpochs.get(7), original);
+  start.resolve({});
+  await tick();
+  assert.equal(backend.externalScreencastTabs.has(7), false);
+  assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, 0, "old ACK cleanup must not send to a successor attachment");
+  await cdp("Page.captureScreenshot");
+  assert.equal(calls.filter(([method]) => method === "Page.startScreencast").length, 2);
+});
+
+test("confirmed detach frees a successor stream queue while the old native reply remains tracked", async () => {
+  const start = defer(), entered = defer();
+  let nativeStream = null, firstStart = true;
+  const { backend, attach, cdp, calls } = await loadBackend({
+    detach: () => { nativeStream = null; },
+    command: (method, params) => {
+      if (method === "Page.startScreencast") {
+        if (nativeStream) throw new Error("Screencast is already active");
+        nativeStream = params.format;
+        if (firstStart) { firstStart = false; entered.resolve(); return start.promise; }
+      }
+      if (method === "Page.stopScreencast") nativeStream = null;
+    }
+  });
+  await attach();
+  const pending = assert.rejects(cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await pending;
+  const oldTail = backend.renderingQueues.get(7);
+  await backend.detach({ ...session, tabId: 7 });
+  await attach();
+  const successor = backend.attachmentEpochs.get(7);
+  try {
+    await cdp("Page.captureScreenshot");
+    await cdp("Page.startScreencast", { format: "jpeg" });
+    assert.equal(backend.renderingQueues.has(7), false);
+    assert.equal(backend.renderingDrains.has(oldTail), true);
+    assert.ok(backend.globalControlSnapshot().pending.includes(oldTail));
+  } finally {
+    start.resolve({});
+    await tick();
+  }
+  assert.equal(backend.renderingDrains.has(oldTail), false);
+  assert.equal(backend.attachmentEpochs.get(7), successor);
+  assert.equal(backend.externalScreencastTabs.has(7), true);
+  assert.equal(nativeStream, "jpeg");
+  assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, 1, "old ACK must not stop the new external stream");
+  await cdp("Page.stopScreencast");
+});
+
+test("late raw start ACK after original scope revocation cannot reauthorize its retained attachment", async () => {
+  const start = defer(), entered = defer();
+  const { backend, attach, cdp } = await loadBackend({ command: method => {
+    if (method === "Page.startScreencast") { entered.resolve(); return start.promise; }
+  } });
+  await attach();
+  const original = backend.attachmentEpochs.get(7);
+  const result = Promise.allSettled([cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 1000 })]);
+  await entered.promise;
+  backend.controlEpochs.set(7, (backend.controlEpochs.get(7) ?? 0) + 1);
+  start.resolve({});
+  const [completed] = await result;
+  assert.equal(completed.status, "rejected");
+  assert.match(completed.reason.message, /original tab control ended/);
+  assert.equal(backend.attachmentEpochs.get(7), original);
+  assert.equal(backend.externalScreencastTabs.has(7), false);
+  await backend.detach({ ...session, tabId: 7 });
+});
+
+test("Pause drains a timed-out native start after detach without reviving external control", async () => {
+  const start = defer(), entered = defer();
+  const { backend, attach, cdp } = await loadBackend({ command: method => {
+    if (method === "Page.startScreencast") { entered.resolve(); return start.promise; }
+  } });
+  await attach();
+  const original = assert.rejects(cdp("Page.startScreencast", { format: "jpeg" }, { timeoutMs: 20 }), /Timed out/);
+  await entered.promise;
+  await original;
+  let pauseSettled = false;
+  const pause = backend.pauseAutomation().finally(() => { pauseSettled = true; });
+  const result = Promise.allSettled([pause]);
+  await tick();
+  const beforeACK = { pauseSettled, pending: backend.renderingDrains.size };
+  start.resolve({});
+  assert.equal((await result)[0].status, "fulfilled");
+  assert.equal(beforeACK.pauseSettled, false);
+  assert.equal(beforeACK.pending, 1);
+  assert.equal(backend.externalScreencastTabs.has(7), false);
+  assert.equal(backend.renderingDrains.size, 0);
+  await assert.rejects(cdp("Page.startScreencast", { format: "jpeg" }), /paused/i);
+});
+
+test("raw native already-active and stop failures preserve exact errors and the caller-owned stream", async () => {
+  const activeError = new Error("Screencast is already active"), stopError = new Error("native stop failed");
+  let started = false, rejectStop = true;
+  const { backend, attach, cdp } = await loadBackend({ command: method => {
+    if (method === "Page.startScreencast") {
+      if (started) throw activeError;
+      started = true;
+    }
+    if (method === "Page.stopScreencast") {
+      if (rejectStop) throw stopError;
+      started = false;
+    }
+  } });
+  await attach();
+  await cdp("Page.startScreencast", { format: "jpeg" });
+  await assert.rejects(cdp("Page.startScreencast", { format: "png" }), error => error === activeError);
+  await assert.rejects(cdp("Page.stopScreencast"), error => error === stopError);
+  assert.equal(backend.externalScreencastTabs.has(7), true);
+  await cdp("Page.captureScreenshot");
+  rejectStop = false;
+  await cdp("Page.stopScreencast");
+  assert.equal(backend.externalScreencastTabs.has(7), false);
 });
 
 test("browserAction enforces ownership and preserves the action engine response", async () => {

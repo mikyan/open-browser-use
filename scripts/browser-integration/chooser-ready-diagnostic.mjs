@@ -21,9 +21,10 @@ export const chooserPointerContextCases = Object.freeze([
   "js-raw-navigation-before-engine"
 ]);
 export const chooserPointerContextKeys = Object.freeze(["js-chooser-root", "js-chooser-oopif", "js-chooser-dynamic-oopif"]);
+export const chooserPointerGoContextKeys = Object.freeze(["go-chooser-root", "go-chooser-oopif", "go-chooser-dynamic-oopif"]);
 export function chooserDiagnosticMode(env) {
   const value = env.OBU_TEST_CHOOSER_DIAGNOSTIC;
-  assert.ok(value === undefined || value === "1" || value === "pointer-only" || value === "pointer-context", "OBU_TEST_CHOOSER_DIAGNOSTIC must be 1, pointer-only, pointer-context or unset");
+  assert.ok(value === undefined || ["1", "pointer-only", "pointer-context", "pointer-go-context"].includes(value), "OBU_TEST_CHOOSER_DIAGNOSTIC must be 1, pointer-only, pointer-context, pointer-go-context or unset");
   if (value === undefined) return null;
   for (const name of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD"])
     assert.equal(env[name], undefined, `Chooser diagnostic cannot be combined with ${name}`);
@@ -58,17 +59,60 @@ export function chooserPointerDiagnosticSummary(artifact, originalTaskPassed) {
     evidence: "chooser-js.json", readError: artifact?.readError };
 }
 
-export function chooserPointerContextSummary(artifact, records) {
+function contextSummary(artifact, records, caller, mode, evidence) {
   const cases = Array.isArray(records) ? records : [];
   const caseSelectionComplete = cases.length === chooserPointerContextCases.length &&
     cases.every((record, index) => record?.name === chooserPointerContextCases[index] && typeof record.passed === "boolean");
-  const target = cases.filter(record => record?.name === "js-file-chooser-ready-two-connections");
-  const pointer = chooserPointerDiagnosticSummary(artifact, target.length === 1 && target[0].passed === true);
-  return { ...pointer, mode: "chooser-pointer-context-diagnostic", caseSelectionComplete,
+  const target = cases.filter(record => record?.name === `${caller}-file-chooser-ready-two-connections`);
+  const originalTaskPassed = target.length === 1 && target[0].passed === true;
+  const pointer = chooserPointerDiagnosticSummary(caller === "go" ? goPointerView(artifact, originalTaskPassed) : artifact, originalTaskPassed);
+  return { ...pointer, mode, evidence, caseSelectionComplete,
     expectedCases: [...chooserPointerContextCases], actualCases: cases.map(record => record?.name ?? null),
     allOriginalTasksPassed: caseSelectionComplete && cases.every(record => record.passed === true),
     collectionComplete: caseSelectionComplete ? pointer.collectionComplete : false };
 }
+
+export const chooserPointerContextSummary = (artifact, records) =>
+  contextSummary(artifact, records, "js", "chooser-pointer-context-diagnostic", "chooser-js.json");
+
+// Go success is already a top-level validated caller result; failure retains
+// the untouched partial caller result plus a separate parent observation.
+// Bind only a unique exact failed item in a new view; never edit the artifact.
+function goPointerView(artifact, originalTaskPassed) {
+  const invalid = reason => ({ readError: artifact?.readError || artifact?.callerReadError || reason });
+  if (!artifact || artifact.readError || artifact.callerReadError || artifact.diagnostic || artifact.childProcess)
+    return invalid("Go pointer artifact missing, unreadable, or contains a native diagnostic");
+  const caller = originalTaskPassed ? artifact : artifact.callerResult;
+  const variants = caller?.variants;
+  if (caller?.caller !== "go" || caller.independentConnections !== true || !Array.isArray(variants) || variants.length < 1 || variants.length > 3)
+    return invalid("Go pointer caller identity or variants missing");
+  const order = ["root", "oopif", "dynamic-oopif"], ids = new Set();
+  for (const [index, item] of variants.entries()) {
+    if (!item || item.variant !== order[index] || item.key !== chooserPointerGoContextKeys[index] ||
+        !Number.isSafeInteger(item.tabId) || item.tabId < 0 || ids.has(item.tabId) || item.diagnostic || item.failureObservation)
+      return invalid("Go pointer variant identity differs");
+    ids.add(item.tabId);
+  }
+  const errorText = value => typeof value === "string" && value.length > 0;
+  if (originalTaskPassed) {
+    if (variants.length !== 3 || artifact.error || artifact.failureObservation ||
+        variants.some(item => item.passed !== true || item.error || item.originalError || item.failedAt))
+      return invalid("Go success contains missing or failed variant evidence");
+    return { variants: variants.map(item => ({ ...item })) };
+  }
+  const failed = variants.filter(item => item.passed === false && (errorText(item.error) || errorText(item.originalError)));
+  const observation = artifact.failureObservation;
+  if (!errorText(artifact.error) || !errorText(caller.error) || failed.length !== 1 || failed[0] !== variants.at(-1) ||
+      variants.slice(0, -1).some(item => item.passed !== true || item.error || item.originalError || item.failedAt) ||
+      !observation || observation.fixtureKind !== "chooser" || !Array.isArray(observation.errors) || observation.errors.length ||
+      ["tabId", "key", "variant"].some(key => observation[key] !== failed[0][key]))
+    return invalid("Go failure observation does not bind the unique original failed variant");
+  return { variants: variants.map(item => item === failed[0] ?
+    { ...item, error: item.error || item.originalError, failureObservation: observation } : { ...item }) };
+}
+
+export const chooserPointerGoContextSummary = (artifact, records) =>
+  contextSummary(artifact, records, "go", "chooser-pointer-go-context-diagnostic", "chooser-go.json");
 
 // Serialized into the isolated worker on explicit opt-in. Never invokes an API
 // action itself; the original receiver, arguments, Promise and errors survive.

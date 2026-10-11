@@ -42,6 +42,13 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+最新完整 `0prwDM` **110/110、exit0**，原109项相对顺序保留并加入双连接
+录屏并发验收。新专项`hmPQNY`2/2、旧生产负对照`rjMBXn`1/2，真实顺序与
+更新后的PNG像素验证截图cleanup不会误停后来启动的外部流；Node1416/1416。
+完整focus沿用原11激活/4控制popup focus允许项，零新增豁免；sentinel保持
+选中但视口高度有变化。该修复独立于动态OOPIF输入故障，既有失败不因本次
+通过而关闭；完整目标和旧发布包边界不变。
+
 显式后台窗口已进入正式接口：`createTab({backgroundWindow:true})` 与 SDK
 `newTab` 创建独立 `normal`、`focused:false` 窗口，不移动既有页；省略/false
 保持原行为。三 SDK 与 CLI/MCP 先协商 `backgroundWindowVersion:1`，旧扩展
@@ -51,7 +58,7 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 处理；finalize 只关自有 tab，保留窗口中的其他页，详见
 [显式后台窗口](../references/background-windows.md)。
 
-最新完整 `XHmJdq` **108/109、exit1**：原105项名称/顺序保留且全过，新增
+此前完整 `XHmJdq` **108/109、exit1**：原105项名称/顺序保留且全过，新增
 四项通过三项。正式后台窗口目录用例在 dynamic OOPIF 首轮 collect 超时，
 没有进入该轮 setter；目前缺少该文档的点击/原生投递证据，不能确定根因。
 root/static 共12轮中8次可信目录选择、一次合成清空、三项拒绝通过，核验
@@ -80,6 +87,12 @@ pointer完整性为null，输入稳定性未完成。随后回到此前13项顺�
 dynamic首轮collect超时，click已返回但没有chooser/setter；6ms当前文档
 观察仍见child无click/change。JS目标三轮未失败，pointer均未读且完整性
 为null，全体业务结果明确保留中间轮失败。输入稳定性及完整目标未完成。
+
+随后Go目标的同13项诊断三轮为`N6jxEP`12/13、`a95b4d`13/13、`gx2jRn`
+12/13，actual exit1/0/1；MCP/Python超时而Go均成功、pointer仍未读。原始
+失败材料只有root/static各2POST、dynamic零POST，缺少完整阶段/点击ACK/
+失败DOM，不能据此确定具体序号或投递原因。该片定向及独立60/60通过，
+不改变普通验收的失败状态，也不是生产输入修复。
 
 此前正式完整 `zyiYQg` **106/109、exit1**：原105项名称/顺序不变，隔离世界、
 inactive 目录拒绝、正式后台窗口目录、混合 finalize 四项新检查全部通过。
