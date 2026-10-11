@@ -1076,7 +1076,9 @@ class BrowserBackend {
       try { await this.automationDeadline().within(() => this.automationControl.ready); }
       catch (error) { this.automationControl.fail(error); }
     }
-    return this.automationControl.status();
+    const status = this.automationControl.status();
+    const inputRecovery = status.inputBlocked ? this.browserLifetime.inputRecoveryGuidance() : null;
+    return inputRecovery ? { ...status, inputRecovery } : status;
   }
 
   automationDeadline() {

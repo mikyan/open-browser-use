@@ -119,11 +119,13 @@ test("popup screenshots require the rendered label and enabled action to match t
   assert.equal(popupUIReflectsStatus({ state: "paused", cleanupComplete: false }, { state: "paused", label: "Paused", buttonText: "Resume control", buttonDisabled: false }), false);
 });
 
-test("browser-restart acceptance requires all four distinct cases and no cleanup failure", () => {
+test("browser-restart acceptance requires all eight distinct cases and no cleanup failure", () => {
   const records = browserRestartCases.map(name => ({ name, passed: true }));
-  assert.equal(records.length, 4); assert.equal(allBrowserRestartCasesPassed(records), true);
-  assert.equal(allBrowserRestartCasesPassed(records.slice(0, 3)), false);
-  assert.equal(allBrowserRestartCasesPassed([...records.slice(0, 3), records[0]]), false);
-  assert.equal(allBrowserRestartCasesPassed(records.map((record, index) => index === 3 ? { ...record, passed: false } : record)), false);
+  assert.equal(records.length, 8); assert.equal(allBrowserRestartCasesPassed(records), true);
+  for (let index = 0; index < records.length; index++) {
+    assert.equal(allBrowserRestartCasesPassed(records.filter((_, i) => i !== index)), false);
+    assert.equal(allBrowserRestartCasesPassed(records.map((record, i) => i === index ? { ...record, passed: false } : record)), false);
+  }
+  assert.equal(allBrowserRestartCasesPassed([...records.slice(0, -1), records[0]]), false);
   assert.equal(allBrowserRestartCasesPassed([...records, { name: "cleanup", passed: false }]), false);
 });

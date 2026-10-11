@@ -12,8 +12,9 @@ import WebSocket, { WebSocketServer } from "ws";
 import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { NativeHostBridge, nativeAdapterSource } from "./native-host-bridge.mjs";
 import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startup.mjs";
-import { FocusLedger, assertQuietObserverSetup, currentWorkerVersion, focusArrays, focusObserverHTML, focusObserverSource, focusSnapshotExpression, installFocusObserver, readFocusEvidence } from "./focus-ledger.mjs";
+import { FocusLedger, assertQuietObserverSetup, currentWorkerVersion, focusArrays, focusSnapshotExpression, installFocusObserver, readFocusEvidence } from "./focus-ledger.mjs";
 import { allBrowserRestartCasesPassed, assertBrowserReplacement, assertHeldNativeInput, assertIndependentFocusSegments, assertNoNewFocusEvents, assertNoRestoredOwnership, assertRestoredFixtureDocument, assertRestoredTabPreserved, assertSamePopupDocument, assertUnconfirmedInputBlocked, browserRestartCases, popupUIReflectsStatus, restartFixtureHTML } from "./browser-restart-support.mjs";
+import { stageReloadObserver, reloadLifecycleRecorderSource, reloadLifecycleSnapshotExpression, assertExtensionReload } from "./extension-reload-support.mjs";
 
 // Opt-in runner. This file never participates in unit tests and never launches
 // a user's browser/profile. Only the caller running this command starts Chrome.
@@ -33,8 +34,9 @@ await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), jsSnapshot, { 
 const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(jsSnapshot, "index.js")));
 const temporaryRoot = await fs.realpath(os.tmpdir()), socketDir = await fs.mkdtemp(path.join(temporaryRoot, "obu-restart-"));
 const records = [], generations = [], gaps = [], clients = new Set(), witnesses = [], hostLog = [], browserLog = [];
-const report = { scope: "actual same-profile headed browser process restart with explicit --restore-last-session and staged native Port adapter; not native host installation, preference persistence or uninterrupted focus coverage", expectedCases: browserRestartCases,
-  profileConfiguration: { sessionRestoration: { source: "command-line", argument: "--restore-last-session", appliesToEveryGeneration: true, preferencesWrittenByRunner: false } },
+const report = { scope: "actual same-profile headed browser process restart and unpacked extension reload with explicit --restore-last-session and staged native Port adapter; not native host installation, native EOF recovery, signed extension update, preference persistence or focus coverage across browser exit", expectedCases: browserRestartCases,
+  profileConfiguration: { sessionRestoration: { source: "command-line", argument: "--restore-last-session", appliesToEveryGeneration: true, preferencesWrittenByRunner: false },
+    extensionInstallation: { source: "initial CDP unpacked bootstrap followed by normal chrome://extensions reload to a persistent installation", developerMode: "actual chrome://extensions toggle before coverage", subsequentGenerations: "load persisted installation, never reinstall" } },
   records, generations, restartGaps: gaps, serverWitnesses: witnesses };
 let bridge, current, fixtureURL, fatalBridgeError, shuttingDown = false;
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -165,7 +167,82 @@ async function stale(client, captured, detail, label) {
   });
 }
 
-let binary, binarySha256, startup;
+let binary, binarySha256, startup, companion;
+async function configureDeveloperMode(generation) {
+  // A normal unpacked install requires developer mode. Command-line loading
+  // bypasses that precondition until a real reload changes its install location.
+  // Use the actual private-profile settings UI; never patch protected prefs or
+  // change the user's profile, and finish setup before focus coverage begins.
+  const evidence = generation.record.developerMode = { requestedAt: Date.now(), setupOnly: true };
+  const { targetId } = await generation.control.call("Target.createTarget", { url: "chrome://extensions/", background: true });
+  evidence.targetId = targetId; let settings;
+  try {
+    const target = await until(async () => (await generation.targets()).find(value => value.id === targetId), "isolated extension settings");
+    settings = await cdp(target.webSocketDebuggerUrl);
+    const toggle = "document.querySelector('extensions-manager')?.shadowRoot?.querySelector('extensions-toolbar')?.shadowRoot?.querySelector('#devMode')";
+    evidence.before = await until(() => settings.evaluate(`(()=>{const toggle=${toggle};return toggle&&{checked:toggle.checked,disabled:toggle.disabled}})()`), "native developer-mode toggle");
+    assert.equal(evidence.before.disabled, false, "Private profile developer mode is policy-disabled");
+    if (!evidence.before.checked) {
+      evidence.clickedAt = Date.now(); await settings.evaluate(`(${toggle}).click()`);
+    }
+    evidence.after = await until(async () => {
+      const state = await settings.evaluate(`(async()=>({checked:(${toggle})?.checked,configuration:await chrome.developerPrivate.getProfileConfiguration()}))()`);
+      return state.checked === true && state.configuration.inDeveloperMode === true && state;
+    }, "actual browser developer mode enabled");
+    if (generation.record.generation === 1) {
+      evidence.installations = [];
+      for (const directory of [companion.directory, extension]) {
+        const entry = { directory, requestedAt: Date.now() }; evidence.installations.push(entry);
+        entry.bootstrap = await generation.control.call("Extensions.loadUnpacked", { path: directory });
+        let oldPort;
+        const workerURL = `chrome-extension://${entry.bootstrap.id}/background.js`;
+        if (directory === extension) {
+          await bridge.waitForConnection(); oldPort = bridge.socket;
+          const target = await until(async () => (await generation.targets()).find(value => value.type === "service_worker" && value.url === workerURL), "bootstrap worker");
+          const worker = await cdp(target.webSocketDebuggerUrl);
+          try {
+            entry.bootstrapLifecycle = await until(async () => {
+              const value = await worker.evaluate(reloadLifecycleSnapshotExpression);
+              return value.events.some(event => event.event === "onInstalled" && event.reason === "install") && value;
+            }, "initial install dispatch completed before normal reload");
+          } finally { worker.close(); }
+          const client = await connect("bootstrap-readiness");
+          try { entry.bootstrapInfo = await client.client.getInfo(); }
+          finally { client.close(); clients.delete(client); }
+          entry.oldWorkerTarget = target.id;
+        }
+        // The CDP bootstrap alone is ephemeral. The browser's normal extension
+        // manager reload uses a fresh ordinary UnpackedInstaller, without the
+        // CDP-only creation flag. Later generations must actually retain this
+        // installation and deliver native onStartup, with no load command.
+        entry.reloadRequestedAt = Date.now();
+        entry.reloadResult = await settings.evaluate(`chrome.developerPrivate.reload(${JSON.stringify(entry.bootstrap.id)},{failQuietly:true,populateErrorForUnpacked:true})`);
+        assert.ok(entry.reloadResult == null, "Extension manager reload reported a load error");
+        if (directory === extension) {
+          const target = await until(async () => {
+            const values = await generation.targets();
+            return !values.some(value => value.id === entry.oldWorkerTarget) && values.find(value => value.type === "service_worker" && value.url === workerURL);
+          }, "bootstrap old worker destroyed and normal reload replacement started");
+          await until(() => bridge.socket && bridge.socket !== oldPort, "bootstrap replacement Port"); await bridge.waitForConnection();
+          const worker = await cdp(target.webSocketDebuggerUrl);
+          try {
+            entry.reloadedLifecycle = await until(async () => {
+              const value = await worker.evaluate(reloadLifecycleSnapshotExpression);
+              return value.events.some(event => event.event === "onInstalled" && event.reason === "update") && value;
+            }, "normal setup reload update dispatch completed");
+          } finally { worker.close(); }
+          entry.newWorkerTarget = target.id;
+        }
+        entry.installed = await until(async () => {
+          const value = await generation.control.call("Extensions.getExtensions");
+          return value.extensions.find(item => item.path === directory && item.enabled);
+        }, "normal extension manager reload completed");
+        entry.completedAt = Date.now();
+      }
+    }
+  } finally { settings?.close(); await generation.control.call("Target.closeTarget", { targetId }); }
+  evidence.completedAt = Date.now();
+}
 async function launchBrowser() {
   const generation = { record: { generation: generations.length + 1, profile, startedAt: Date.now(), binary, binarySha256, args: [...startup.args], focus: { allowedActivations: [], allowedFocus: [], finalValidation: "not-started" } }, ledger: new FocusLedger(), plannedClose: false };
   current = generation; generations.push(generation.record);
@@ -192,10 +269,20 @@ async function launchBrowser() {
   generation.control = await cdp(browserVersion.webSocketDebuggerUrl);
   generation.record.processesAtStart = await generation.control.call("SystemInfo.getProcessInfo");
   assert.ok(generation.record.processesAtStart.processInfo.some(item => item.type === "browser" && item.id === child.pid), "Spawned PID is not the actual browser root process");
-  await bridge.waitForConnection();
-  generation.extensionId = bridge.extensionId;
   const targets = () => fetch(`http://127.0.0.1:${generation.debugPort}/json/list`).then(value => value.json());
   generation.targets = targets;
+  generation.record.installedBeforeSetup = await generation.control.call("Extensions.getExtensions");
+  if (generation.record.generation === 1) {
+    assert.deepEqual(generation.record.installedBeforeSetup.extensions, [], "Private profile already contains unpacked installations");
+  }
+  await configureDeveloperMode(generation);
+  generation.record.installedAfterSetup = await generation.control.call("Extensions.getExtensions");
+  assert.equal(generation.record.installedAfterSetup.extensions.length, 2);
+  for (const directory of [extension, companion.directory]) {
+    assert.ok(generation.record.installedAfterSetup.extensions.some(value => value.path === directory && value.enabled === true), "Persisted unpacked installation did not start enabled");
+  }
+  await bridge.waitForConnection();
+  generation.extensionId = bridge.extensionId;
   const target = await until(async () => (await targets()).find(value => value.type === "service_worker" && value.url === `chrome-extension://${generation.extensionId}/background.js`), "new extension worker");
   generation.worker = await cdp(target.webSocketDebuggerUrl); generation.record.workerTarget = target.id;
   const infoClient = await connect("browser-lifetime-inspection");
@@ -204,7 +291,9 @@ async function launchBrowser() {
   assert.equal(typeof generation.record.extensionInstanceId, "string");
   generation.record.beforeSetup = await inventory(generation);
   // Restored test observers are not reused or mistaken for continuous logs.
-  const observerURL = `chrome-extension://${generation.extensionId}/integration-observer.html`;
+  const observerURL = companion.url;
+  assert.notEqual(companion.extensionId, generation.extensionId, "Observer must survive OBU extension reload independently");
+  generation.record.observerExtensionId = companion.extensionId;
   for (const restored of (await targets()).filter(value => value.type === "page" && value.url === observerURL)) await generation.control.call("Target.closeTarget", { targetId: restored.id });
   generation.record.sentinel = await generation.worker.evaluate(`chrome.tabs.create({url:${JSON.stringify(fixtureURL + "sentinel?marker=generation-" + generation.record.generation)},active:true})`);
   await generation.worker.evaluate(`(${installFocusObserver.toString()})(chrome,globalThis,'setup-${generation.record.generation}');`);
@@ -216,6 +305,7 @@ async function launchBrowser() {
   generation.record.focus.setupWorker = await generation.worker.evaluate(focusSnapshotExpression);
   assertQuietObserverSetup(generation.record.focus.setupWorker, initial);
   generation.record.focus.coverageStartedAt = initial.at;
+  generation.record.lifecycleAtStart = await generation.worker.evaluate(reloadLifecycleSnapshotExpression);
   await writeJSON(`browser-${generation.record.generation}.json`, generation.record);
   return generation;
 }
@@ -273,6 +363,76 @@ async function restartBrowser(reason) {
   return { previousGeneration: previous.record.generation, nextGeneration: next.record.generation, gap };
 }
 
+async function inputRisks() {
+  const value = await current.worker.evaluate("chrome.storage.local.get('OPEN_BROWSER_USE_INPUT_RISKS').then(value=>value.OPEN_BROWSER_USE_INPUT_RISKS)");
+  assert.equal(value?.version, 1); assert.ok(Array.isArray(value.risks)); return value.risks;
+}
+async function reloadIdentity() {
+  const generation = current, workerURL = `chrome-extension://${generation.extensionId}/background.js`;
+  const live = (await generation.targets()).filter(target => target.type === "service_worker" && target.url === workerURL);
+  assert.equal(live.length, 1);
+  const contexts = await generation.worker.evaluate("chrome.runtime.getContexts({contextTypes:['BACKGROUND']})");
+  assert.equal(contexts.length, 1);
+  const lifecycle = await generation.worker.evaluate(reloadLifecycleSnapshotExpression);
+  const version = await (await fetch(`http://127.0.0.1:${generation.debugPort}/json/version`)).json();
+  return { pid: generation.child.pid, browserId: new URL(version.webSocketDebuggerUrl).pathname, extensionId: generation.extensionId,
+    extensionInstanceId: await generation.worker.evaluate("chrome.storage.local.get('extensionInstanceId').then(value=>value.extensionInstanceId)"),
+    incarnation: (await lifetimeMarker()).incarnation, workerTarget: live[0].id, backgroundContextId: contexts[0].contextId,
+    bootId: lifecycle.bootId, lifecycle, observerTarget: generation.observerId, observerExtensionId: await generation.observer.evaluate("chrome.runtime.id"), hostPid: bridge.host.pid, hostEndpoint: bridge.endpoint,
+    portIndex: bridge.current.record.connections.length - 1, liveWorkerTargets: live.map(target => target.id) };
+}
+async function reloadExtension(detail) {
+  const generation = current, oldWorker = generation.worker, oldSocket = bridge.socket;
+  await generation.control.call("Target.setDiscoverTargets", { discover: true });
+  detail.before = await reloadIdentity(); detail.focusBefore = await assertFocus(generation);
+  const eventIndex = generation.control.events.length;
+  detail.reloadRequestedAt = Date.now(); detail.reloadInvocations = 1;
+  try {
+  // The caller sends exactly one real reload. A disappearing context is a
+  // recorded outcome, never a reason to issue the irreversible trigger again.
+  try { detail.triggerReply = await oldWorker.evaluate("setTimeout(()=>chrome.runtime.reload(),0);'reload scheduled'"); }
+  catch (error) { detail.triggerReplyError = error.message; }
+  const workerURL = `chrome-extension://${generation.extensionId}/background.js`;
+  const target = await until(async () => {
+    const targets = await generation.targets();
+    detail.lastTargets = targets.map(({ id, type, url }) => ({ id, type, url }));
+    if (targets.some(value => value.id === detail.before.workerTarget)) return false;
+    return targets.find(value => value.type === "service_worker" && value.url === workerURL && value.id !== detail.before.workerTarget);
+  }, "old extension worker destroyed and real reload replacement started");
+  oldWorker.close(); generation.worker = await cdp(target.webSocketDebuggerUrl); generation.record.workerTarget = target.id;
+  await until(() => bridge.socket && bridge.socket !== oldSocket, "new native Port after actual extension reload");
+  await bridge.waitForConnection();
+  await until(async () => (await generation.worker.evaluate(reloadLifecycleSnapshotExpression))?.events.some(event => event.event === "onInstalled" && event.reason === "update"), "native unpacked reload update event");
+  detail.after = await reloadIdentity(); detail.focusAfter = await assertFocus(generation);
+  detail.targetEvents = generation.control.events.slice(eventIndex);
+  detail.portConnections = structuredClone(bridge.current.record.connections);
+  assert.equal(generation.child.exitCode, null);
+  assertExtensionReload(detail.before, detail.after, detail);
+  detail.scope = "Actual unpacked runtime.reload; native Port adapter retains the same host. Not signed-package update or real native launcher EOF recovery.";
+  } finally {
+    detail.targetEvents = generation.control.events.slice(eventIndex);
+    detail.portConnections = structuredClone(bridge.current?.record.connections ?? []);
+    try { detail.finalFocus = await assertFocus(generation); }
+    catch (error) { detail.finalFocusError = error.stack; }
+    await writeJSON(`reload-${detail.before.bootId}.json`, detail);
+  }
+}
+async function preservedReloadArtifacts(artifacts, detail) {
+  const value = await inventory(), task = value.tabs.find(tab => tab.id === artifacts.owned.id), output = value.tabs.find(tab => tab.id === artifacts.output.id);
+  assert.ok(task && output, "Reload removed the original controlled pages");
+  for (const tab of [task, output]) {
+    const before = artifacts.before.tabs.find(item => item.id === tab.id);
+    assertRestoredTabPreserved({ tab: before, group: artifacts.before.groups.find(item => item.id === before.groupId) }, { tab, group: value.groups.find(item => item.id === tab.groupId) });
+  }
+  detail.taskPageAfterReload = await pageState(task.id); detail.outputPageAfterReload = await pageState(output.id);
+  assert.deepEqual(detail.taskPageAfterReload, artifacts.taskPage, "Reload changed the original task document or data");
+  assert.deepEqual(detail.outputPageAfterReload, artifacts.outputPage, "Reload changed the original deliverable document or data");
+  // Supplementary observation only. Existing content-script DOM is not proof
+  // that the replacement extension still owns, or can command, this page.
+  detail.cursorAfterReload = await current.worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${task.id}},world:'MAIN',func:()=>{const root=document.getElementById('open-browser-use-cursor-root');return {present:!!root,display:root?getComputedStyle(root).display:null}}})`);
+  return { task, output, inventory: value };
+}
+
 let popupSequence = 0;
 async function openControlPopup() {
   const generation = current, before = await snapshot(generation);
@@ -326,7 +486,7 @@ async function closeControlPopup(session, { verifyFocus = false } = {}) {
   evidence.completedAt = Date.now(); session.closed = true;
 }
 
-async function popupStatus({ toggle, waitState, session: retained } = {}) {
+async function popupStatus({ toggle, waitState, expectedState, session: retained } = {}) {
   const session = retained ?? await openControlPopup();
   const { generation, popup } = session;
   try {
@@ -338,8 +498,8 @@ async function popupStatus({ toggle, waitState, session: retained } = {}) {
     let buttonBefore = null;
     if (toggle) {
       assert.ok(["pause", "retry", "resume"].includes(toggle));
-      const wanted = toggle === "resume" ? "running" : "paused";
-      assert.notEqual(value.status.state, wanted, "Popup toggle precondition does not match the requested user action");
+      const wanted = expectedState ?? (toggle === "resume" ? "running" : "paused");
+      if (!(toggle === "retry" && wanted === "error")) assert.notEqual(value.status.state, wanted, "Popup toggle precondition does not match the requested user action");
       await until(() => popup.evaluate("document.querySelector('#automation-toggle')?.disabled===false"), "popup control enabled");
       buttonBefore = await until(async () => {
         const button = await popup.evaluate("(()=>{const button=document.querySelector('#automation-toggle');return {text:button?.textContent.trim(),disabled:button?.disabled}})()");
@@ -347,12 +507,12 @@ async function popupStatus({ toggle, waitState, session: retained } = {}) {
       }, `actual popup ${toggle} button`);
       if (toggle === "retry") assertUnconfirmedInputBlocked(initialStatus);
       await popup.evaluate("document.querySelector('#automation-toggle').click()");
-      value = await until(async () => { const next = await read(); return next.ok && next.status.state === wanted && (wanted !== "paused" || next.status.cleanupComplete) && next; }, `trusted popup ${wanted}`);
+      value = await until(async () => { const next = await read(); return next.ok && next.status.revision > initialStatus.revision && next.status.state === wanted && (wanted !== "paused" || next.status.cleanupComplete) && next; }, `trusted popup ${wanted}`);
     }
     // The worker can acknowledge a state before the popup's polling/rendering
     // catches up. Capture the actual terminal UI, not just a fresh RPC status.
     const renderedUI = await until(async () => {
-      const ui = await popup.evaluate("(()=>{const button=document.querySelector('#automation-toggle');return {state:document.querySelector('#automation-status-pill')?.dataset.state,label:document.querySelector('#automation-status-label')?.textContent.trim(),buttonText:button?.textContent.trim(),buttonDisabled:button?.disabled,message:document.querySelector('#automation-message')?.textContent.trim(),error:document.querySelector('#automation-error')?.textContent.trim()}})()");
+      const ui = await popup.evaluate("(()=>{const button=document.querySelector('#automation-toggle');return {state:document.querySelector('#automation-status-pill')?.dataset.state,label:document.querySelector('#automation-status-label')?.textContent.trim(),buttonText:button?.textContent.trim(),buttonDisabled:button?.disabled,message:document.querySelector('#automation-message')?.textContent.trim(),hint:document.querySelector('#automation-hint')?.textContent.trim(),error:document.querySelector('#automation-error')?.textContent.trim()}})()");
       return popupUIReflectsStatus(value.status, ui) && { ...ui, observedAt: Date.now() };
     }, `rendered popup ${value.status.state} label and enabled button`);
     const png = await popup.call("Page.captureScreenshot", { format: "png" });
@@ -448,6 +608,96 @@ async function runCase(name, action) {
   finally { record.elapsedMs = Date.now() - record.startedAt; await writeJSON(`${name}.json`, record); await writeJSON("results.json", report); }
 }
 
+async function heldReloadRecovery(detail, { witnessed }) {
+  const tag = witnessed ? "witnessed" : "unwitnessed", generation = current;
+  const save = async stage => { detail.stage = stage; await writeJSON(`extension-reload-held-${tag}-evidence.json`, detail); };
+  const task = await connect(`reload-held-${tag}`), tab = await task.newTab({ url: pageURL(`reload-held-${tag}`) });
+  await tab.domSnapshot();
+  detail.markerBefore = await lifetimeMarker();
+  assert.equal(typeof detail.markerBefore.startupWitness === "string", witnessed, "Fixture did not establish the intended native startup-witness branch");
+  assert.deepEqual(await inputRisks(), []);
+  await generation.observer.evaluate(`globalThis.__reloadRemovedTabs=[];chrome.tabs.onRemoved.addListener((tabId,info)=>{if(tabId===${tab.id})__reloadRemovedTabs.push({at:Date.now(),tabId,...info})})`);
+  const point = (await nativeInputState(tab.id)).point;
+  await task.client.executeCdp(tab.id, "Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
+  await task.client.executeCdp(tab.id, "Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", buttons: 1, clickCount: 1 });
+  await task.client.executeCdp(tab.id, "Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
+  detail.oldScope = scope(task); detail.heldBefore = await nativeInputState(tab.id); assertHeldNativeInput(detail.heldBefore);
+  detail.risksBefore = await inputRisks(); assert.equal(detail.risksBefore.length, 1);
+  const originalRisk = detail.risksBefore[0];
+  assert.equal(originalRisk.tabId, tab.id); assert.equal(originalRisk.incarnation, detail.markerBefore.incarnation);
+  assert.equal(originalRisk.startupWitness, detail.markerBefore.startupWitness ?? null);
+  await save("trusted-held-input-persisted");
+  detail.reload = {}; await reloadExtension(detail.reload);
+  detail.heldAfter = await nativeInputState(tab.id); assertHeldNativeInput(detail.heldAfter, detail.heldBefore);
+  detail.risksAfterReload = await inputRisks(); assert.deepEqual(detail.risksAfterReload, detail.risksBefore);
+  await save("actual-reload-preserved-unknown-held-input");
+  const session = await openControlPopup(); detail.popup = session.evidence;
+  try {
+    detail.failed = await popupStatus({ waitState: "error", session }); assertUnconfirmedInputBlocked(detail.failed);
+    assert.deepEqual(detail.failed.inputRecovery, { action: "restart-browser", restartMayNeedRepeat: !witnessed });
+    assert.match(detail.failed.renderedUI.message, /fully quit this browser/);
+    const next = await connect(detail.oldScope.session_id); detail.blockedErrors = {};
+    for (const [name, action] of [
+      ["bootstrap", () => next.client.beginTurn()], ["create", () => next.client.createTab()], ["claim", () => next.client.claimUserTab(tab.id)],
+      ["fill", () => next.client.request("browserAction", { ...detail.oldScope, tabId: tab.id, action: "fill", locator: [{ kind: "label", value: "Name" }], args: { value: "must remain blocked" }, timeoutMs: 1000 })],
+      ["raw", () => next.client.request("executeCdp", { ...detail.oldScope, target: { tabId: tab.id }, method: "Input.dispatchMouseEvent", commandParams: { type: "mouseReleased", ...point, button: "left", buttons: 0 } })]
+    ]) await assert.rejects(action(), error => { detail.blockedErrors[name] = error.message; return /OBU_AUTOMATION_PAUSED|OBU_INPUT_RELEASE_UNCONFIRMED/.test(error.message); });
+    detail.heldAfterDenied = await nativeInputState(tab.id); assertHeldNativeInput(detail.heldAfterDenied, detail.heldBefore);
+    assert.equal(detail.heldAfterDenied.name, "");
+    detail.retryBeforeRemoval = await popupStatus({ toggle: "retry", expectedState: "error", session }); assertUnconfirmedInputBlocked(detail.retryBeforeRemoval);
+    detail.removeRequestedAt = Date.now(); await generation.worker.evaluate(`chrome.tabs.remove(${tab.id})`);
+    detail.removalEvents = await until(async () => { const events = await generation.observer.evaluate("__reloadRemovedTabs"); return events.length && events; }, "original held tab native removal after reload");
+    assert.equal(detail.removalEvents.length, 1); assert.equal(detail.removalEvents[0].tabId, tab.id);
+    assert.equal(detail.removalEvents[0].isWindowClosing, false); assert.ok(detail.removalEvents[0].at >= detail.removeRequestedAt);
+    detail.retryAfterRemoval = await popupStatus({ toggle: "retry", expectedState: "error", session }); assertUnconfirmedInputBlocked(detail.retryAfterRemoval);
+    detail.risksAfterRemoval = await inputRisks(); assert.deepEqual(detail.risksAfterRemoval, detail.risksBefore);
+    assert.deepEqual(detail.retryAfterRemoval.inputRecovery, detail.failed.inputRecovery);
+    await save("cross-incarnation-removal-cannot-retire-risk");
+  } finally { await closeControlPopup(session, { verifyFocus: true }); }
+
+  detail.startupRecovery = [];
+  const requiredRestarts = witnessed ? 1 : 2;
+  let recoveryPopup;
+  try {
+  for (let index = 0; index < requiredRestarts; index++) {
+    const evidence = { index: index + 1 }; detail.startupRecovery.push(evidence);
+    evidence.restart = await restartBrowser(`unknown input ${tag}: actual profile restart ${index + 1}`);
+    evidence.marker = await until(async () => { const marker = await lifetimeMarker(); return marker.startupConsumed && marker.startupWitness && marker; }, "real profile startup witness consumed");
+    evidence.lifecycle = await current.worker.evaluate(reloadLifecycleSnapshotExpression);
+    assert.ok(evidence.lifecycle.events.some(event => event.event === "onStartup"), "Startup recovery lacked an actual native onStartup event");
+    evidence.risks = await inputRisks();
+    if (index + 1 < requiredRestarts) {
+      assert.deepEqual(evidence.risks, [{ ...originalRisk, startupWitness: evidence.marker.startupWitness }], "First startup must stamp, not retire, an unwitnessed risk");
+      evidence.status = await popupStatus({ waitState: "error" }); assertUnconfirmedInputBlocked(evidence.status);
+      assert.deepEqual(evidence.status.inputRecovery, { action: "restart-browser", restartMayNeedRepeat: false });
+    } else {
+      assert.deepEqual(evidence.risks, [], "Different positive startup witness did not retire the original risk");
+      assert.notEqual(evidence.marker.startupWitness, witnessed ? originalRisk.startupWitness : detail.startupRecovery[0].marker.startupWitness);
+      recoveryPopup = await openControlPopup(); detail.recoveryPopup = recoveryPopup.evidence;
+      evidence.status = await popupStatus({ session: recoveryPopup });
+      assert.equal(evidence.status.inputBlocked, true); assert.equal(evidence.status.inputRecovery, undefined);
+      assert.ok(["error", "paused"].includes(evidence.status.state), "Startup resumed automation without the user");
+      if (evidence.status.state === "error") evidence.retry = await popupStatus({ toggle: "retry", session: recoveryPopup });
+      assert.equal((evidence.retry ?? evidence.status).cleanupComplete, true);
+      assert.equal((evidence.retry ?? evidence.status).state, "paused");
+    }
+    await save(`native-startup-${index + 1}-observed`);
+  }
+  detail.resumed = await popupStatus({ toggle: "resume", session: recoveryPopup }); assert.equal(detail.resumed.state, "running");
+  } finally { if (recoveryPopup) await closeControlPopup(recoveryPopup, { verifyFocus: true }); }
+  const fresh = await connect(detail.oldScope.session_id); await stale(fresh, detail.oldScope, detail, "staleEpochAfterRecovery");
+  await fresh.client.beginTurn(); detail.newScope = scope(fresh); assert.ok(detail.newScope.control_epoch > detail.oldScope.control_epoch);
+  const marker = `explicit-after-reload-held-${tag}`, nextTab = await fresh.newTab({ url: pageURL(marker) });
+  await nextTab.getByLabel("Name").fill(`recovered ${tag} input`);
+  await nextTab.getByRole("button", { name: "Explicit action", exact: true }).click();
+  detail.freshPage = await pageState(nextTab.id); assert.equal(detail.freshPage.name, `recovered ${tag} input`);
+  assert.deepEqual(detail.freshPage.clicks, [{ trusted: true }]); assert.equal(detail.freshPage.lateClicks, 0);
+  await until(() => witnesses.some(value => value.marker === marker), "fresh trusted action after startup recovery");
+  detail.serverWitnesses = witnesses.filter(value => value.marker === marker);
+  assert.deepEqual(detail.serverWitnesses.map(value => ({ method: value.method, kind: value.kind })), [{ method: "POST", kind: "explicit" }]);
+  await save("explicit-resume-and-new-turn-trusted-action-completed");
+}
+
 try {
   await new Promise(resolve => http.listen(0, "127.0.0.1", resolve)); fixtureURL = `http://127.0.0.1:${http.address().port}/`;
   if (!server.address()) await new Promise(resolve => server.once("listening", resolve));
@@ -455,19 +705,21 @@ try {
   await buildChromeExtension(extension);
   const production = await treeHashes(extension), backgroundPath = path.join(extension, "background.js"), background = await fs.readFile(backgroundPath, "utf8"), nativeCall = "chrome.runtime.connectNative(this.hostName)";
   assert.equal(background.split(nativeCall).length, 2);
-  await fs.writeFile(backgroundPath, nativeAdapterSource(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)"));
+  const rpcRecorder = `globalThis.__integrationReloadRPC={events:[],overflow:false};
+globalThis.__integrationNativeRPCObserver=(direction,message)=>{const log=globalThis.__integrationReloadRPC;if(log.events.length>=10000){log.overflow=true;return}log.events.push({at:Date.now(),direction,id:message.id??null,method:message.method??null})};\n`;
+  await fs.writeFile(backgroundPath, reloadLifecycleRecorderSource + rpcRecorder + nativeAdapterSource(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)"));
   const manifestPath = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
   manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replace("connect-src 'self'", `connect-src 'self' ${websocketURL}`);
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-  await fs.writeFile(path.join(extension, "integration-observer.html"), focusObserverHTML); await fs.writeFile(path.join(extension, "integration-observer.js"), focusObserverSource);
+  companion = await stageReloadObserver({ directory: path.join(runDir, "observer-extension") });
   await fs.mkdir(profile, { recursive: true });
   binary = path.resolve(process.env.OBU_TEST_CHROMIUM_BINARY || chromium.executablePath()); binarySha256 = hash(await fs.readFile(binary));
-  startup = browserStartupOptions([`--user-data-dir=${profile}`, "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`, "--restore-last-session", "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr"], policy);
+  startup = browserStartupOptions([`--user-data-dir=${profile}`, "--remote-debugging-port=0", "--enable-unsafe-extension-debugging", "--restore-last-session", "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr"], policy);
   report.sourceIdentity = { gitHead: (await promisify(execFile)("git", ["rev-parse", "HEAD"], { cwd: repo, windowsHide: true })).stdout.trim(),
     dirty: (await promisify(execFile)("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo, windowsHide: true })).stdout.trim().length > 0,
-    testHooks: ["staged native Port WebSocket adapter", "independent staged focus observer per browser process", "exact synthetic pending locator native command observation", "independent observer exact synthetic-tab onRemoved journal and fixed synthetic-page input-state reads"],
+    testHooks: ["staged native Port WebSocket adapter", "independent companion-extension focus observer per browser process", "passive staged native lifecycle and RPC metadata recorders", "exact synthetic pending locator native command observation", "independent observer exact synthetic-tab onRemoved journal and fixed synthetic-page input-state reads"],
     sha256: { host: hash(await fs.readFile(hostFile)), jsDist: await treeHashes(jsSnapshot), productionExtension: production, stagedExtension: await treeHashes(extension),
-      harness: hash(await fs.readFile(fileURLToPath(import.meta.url))), helper: hash(await fs.readFile(path.join(directory, "browser-restart-support.mjs"))), nativeBridge: hash(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))), browserStartup: hash(await fs.readFile(path.join(directory, "browser-startup.mjs"))), focusLedger: hash(await fs.readFile(path.join(directory, "focus-ledger.mjs"))) } };
+      harness: hash(await fs.readFile(fileURLToPath(import.meta.url))), helper: hash(await fs.readFile(path.join(directory, "browser-restart-support.mjs"))), nativeBridge: hash(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))), browserStartup: hash(await fs.readFile(path.join(directory, "browser-startup.mjs"))), focusLedger: hash(await fs.readFile(path.join(directory, "focus-ledger.mjs"))), reloadHelper: hash(await fs.readFile(path.join(directory, "extension-reload-support.mjs"))), companion: companion.sha256 } };
   bridge = new NativeHostBridge({ server, executable: hostFile, socketDir, log: text => hostLog.push(text), onFailure: error => { fatalBridgeError = error; } });
   console.log("HARNESS", JSON.stringify({ runDir, fixtureURL, profile }));
   await launchBrowser();
@@ -669,6 +921,56 @@ try {
       await writeJSON("worker-input-state-loss-evidence.json", detail);
     }
   });
+
+  if (current?.worker && !current.record.exitedAt) await runCase("extension-reload-unpaused", async detail => {
+    const artifacts = await createArtifacts("reload-running");
+    Object.assign(detail, { taskScope: artifacts.taskScope, idleScope: artifacts.idleScope, before: artifacts.before, taskPage: artifacts.taskPage, outputPage: artifacts.outputPage });
+    await current.worker.evaluate(`(()=>{const original=chrome.debugger.sendCommand;globalThis.__restartPendingNative={seen:false};chrome.debugger.sendCommand=function(target,method,params){if(target.tabId===${artifacts.owned.id}&&method==='Runtime.callFunctionOn'&&JSON.stringify(params).includes('Never replay this pending browser action'))globalThis.__restartPendingNative.seen=true;return original.call(chrome.debugger,target,method,params)}})()`);
+    detail.pendingSubmittedAt = Date.now(); detail.pendingDeadlineMs = 8000;
+    const pending = artifacts.owned.getByRole("button", { name: "Never replay this pending browser action", exact: true }).click({ timeoutMs: detail.pendingDeadlineMs })
+      .then(value => ({ value, settledAt: Date.now() }), error => ({ error: error.message, settledAt: Date.now() }));
+    await until(() => current.worker.evaluate("__restartPendingNative.seen"), "native pending locator before actual extension reload");
+    detail.pendingNativeQueryObservedAt = Date.now();
+    const rpcBefore = await current.worker.evaluate("__integrationReloadRPC"); assert.equal(rpcBefore.overflow, false);
+    detail.pendingNativeRPC = rpcBefore.events.findLast(event => event.direction === "request" && event.method === "browserAction"); assert.ok(detail.pendingNativeRPC?.id);
+    detail.reload = {}; await reloadExtension(detail.reload);
+    const restored = await preservedReloadArtifacts(artifacts, detail); detail.restored = restored;
+    await exposeLateAction(restored.task.id);
+    detail.lateTargetExposedAt = Date.now();
+    assert.ok(detail.lateTargetExposedAt < detail.pendingSubmittedAt + detail.pendingDeadlineMs, "Reload consumed the entire original deadline; no live pending-action replay opportunity was tested");
+    detail.pending = await bounded(pending, 12000, "original finite request deadline after native Port adapter reload");
+    assert.equal(typeof detail.pending.error, "string");
+    assert.equal((await pageState(restored.task.id)).lateClicks, 0);
+    await exerciseRecovery(artifacts, restored, detail);
+    detail.rpcAfterReload = await current.worker.evaluate("__integrationReloadRPC"); assert.equal(detail.rpcAfterReload.overflow, false);
+    assert.equal(detail.rpcAfterReload.events.some(event => event.id === detail.pendingNativeRPC.id), false, "Old native request or response crossed into the replacement Port");
+    detail.transportLimit = "The adapter retains the same host; the original request fails under its finite deadline. This is not evidence of native launcher EOF settlement.";
+  });
+
+  if (current?.worker && !current.record.exitedAt) await runCase("extension-reload-paused", async detail => {
+    const artifacts = await createArtifacts("reload-paused");
+    detail.taskScope = artifacts.taskScope; detail.idleScope = artifacts.idleScope; detail.before = artifacts.before;
+    detail.paused = await popupStatus({ toggle: "pause" });
+    assert.equal(detail.paused.cleanupComplete, true);
+    detail.reload = {}; await reloadExtension(detail.reload);
+    const restored = await preservedReloadArtifacts(artifacts, detail); detail.restored = restored;
+    const session = await openControlPopup(); detail.retainedPopup = session.evidence;
+    try {
+    detail.afterReload = await popupStatus({ waitState: "paused", session }); assert.equal(detail.afterReload.inputBlocked, true); assert.equal(detail.afterReload.cleanupComplete, true);
+    const next = await connect(artifacts.taskScope.session_id); detail.blockedErrors = {}; detail.witnessesBefore = [...witnesses];
+    for (const [name, action] of [["bootstrap", () => next.client.beginTurn()], ["create", () => next.client.createTab()], ["claim", () => next.client.claimUserTab(restored.task.id)], ["fill", () => next.tab(restored.task.id).getByLabel("Name").fill("must stay paused")],
+      ["raw", () => next.client.request("executeCdp", { ...artifacts.taskScope, target: { tabId: restored.task.id }, method: "Runtime.evaluate", commandParams: { expression: "document.querySelector('#name').value='must not run'" } })]]) {
+      await assert.rejects(action(), error => { detail.blockedErrors[name] = error.message; return /OBU_AUTOMATION_PAUSED/.test(error.message); });
+    }
+    assert.deepEqual(await pageState(restored.task.id), artifacts.taskPage); assert.deepEqual(await pageState(restored.output.id), artifacts.outputPage);
+    assert.deepEqual(witnesses, detail.witnessesBefore, "Paused reload allowed a server mutation");
+    detail.resumed = await popupStatus({ toggle: "resume", session });
+    } finally { await closeControlPopup(session, { verifyFocus: true }); }
+    await exerciseRecovery(artifacts, restored, detail);
+  });
+
+  if (current?.worker && !current.record.exitedAt) await runCase("extension-reload-held-unwitnessed", detail => heldReloadRecovery(detail, { witnessed: false }));
+  if (current?.worker && !current.record.exitedAt) await runCase("extension-reload-held-witnessed", detail => heldReloadRecovery(detail, { witnessed: true }));
 } catch (error) { records.push({ name: "fatal", passed: false, error: error.stack }); console.error(error); }
 finally {
   shuttingDown = true;

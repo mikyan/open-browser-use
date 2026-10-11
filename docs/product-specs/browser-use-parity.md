@@ -50,7 +50,7 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 上传/chooser、主 frame/OOPIF 文件字节与清空已有验收。HTTP(S) 新 GET 下载的五入口、cookie、精确 ID 路径/取消以及 PDF/MHTML 产物已验；剪贴板固定 Headless 8/8。最新 `run-XnREpF` 70/70 包含有限 image/video/audio HTTP(S)、data/同 frame 同 origin Blob、Canvas PNG 的五入口文件下载；36 实际文件、8 MiB 边界、分区隔离/DRM/污染/超限负例与四种真实 pending read 取消独立核验。HTTP 是新 GET，不复现页面原响应；嵌入字节上限 8 MiB。Content-return、任意大小媒体、headed OS 剪贴板、Page GUID→路径/取消及更多平台仍待补 |
 | P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | diagnostics 主页面/OOPIF、分页/丢弃/截断经 native 验证。新 CRPage 时间戳边界在原 root/OOPIF/worker handlers 创建 handles 前过滤历史 console/exception/Log；raw CDP 通知保留，实际重放、新 console/error 与换 owner 通过最终 70/70。历史 `run-WMOIim` 69/70 失败保留。边界依赖稳定系统钟，系统时钟跳变后的隔离仍待补。request/response ready→trigger→collect 五入口及冷 main/OOPIF、headers-before-body、redirect/503、精确匹配与有界终态已验；更广调试/流读取未完成 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属、光标/蓝框/点击圈及后台操作已实测。最新完整 `run-6SwxDM` 77 项连续 observer 中，五次 auxiliary 与一次 normal 测试窗口创建各有首 tab 激活；四条 focus 仅来自两次明确控制面板打开，均精确归因，原 sentinel 不变，没有额外前台事件。不是全程零事件；原生 popup 创建激活与多任务压力仍有缺口 |
-| P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络/导航 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放。主动下载的 end/epoch/detach/转交/Pause 及迟到 ID 取消经真实 HTTP 断流验证。新增普通 tab 移出/转组/跨窗口的同步撤权、可信输入释放及显式重新领取；真实 host 进程终止/重建经声明的 Port adapter 验证旧 epoch 拒绝、无重放和显式恢复。排队截图、迟到 attach/释放及关闭 tab 销亡证据有确定性回归。新增 session incarnation 绑定 task/active/origin/deliverable/auxiliary 归属，换代失效 active 与 idle epoch；原生 Input 持久风险和保守 startup witness 已实现并通过生产类回归。最终新源码主 headed `run-hlPRVD` 63/63；独立重启 `browser-restart-ShnPfH` 4/4：未暂停/已暂停整进程重启、同浏览器 session 丢失后显式 claim、worker 丢失 held input 后阻断并在原 tab 实际关闭后恢复。先前 0/4、0/4、1/4、2/4 失败保留；最后 orphan 修复后完整 CI 760 项、主 63 项及源码/制品 hash 审计通过。未决原生调用可能阻止清理完成；worker 重启会丢失下载 handle，不能保证底层传输已取消。未知输入跨 profile-start witness 恢复、原生 launcher 重启、真实 extension reload/update 顺序与更多压力场景仍待补 |
+| P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络/导航 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放。主动下载的 end/epoch/detach/转交/Pause 及迟到 ID 取消经真实 HTTP 断流验证。新增普通 tab 移出/转组/跨窗口的同步撤权、可信输入释放及显式重新领取；真实 host 进程终止/重建经声明的 Port adapter 验证旧 epoch 拒绝、无重放和显式恢复。排队截图、迟到 attach/释放及关闭 tab 销亡证据有确定性回归。新增 session incarnation 绑定 task/active/origin/deliverable/auxiliary 归属，换代失效 active 与 idle epoch；原生 Input 持久风险和保守 startup witness 已实现并通过生产类回归。最终新源码主 headed `run-hlPRVD` 63/63；独立重启 `browser-restart-ShnPfH` 4/4：未暂停/已暂停整进程重启、同浏览器 session 丢失后显式 claim、worker 丢失 held input 后阻断并在原 tab 实际关闭后恢复。先前 0/4、0/4、1/4、2/4 失败保留；最后 orphan 修复后完整 CI 760 项、主 63 项及源码/制品 hash 审计通过。未决原生调用可能阻止清理完成；worker 重启会丢失下载 handle，不能保证底层传输已取消。本轮 `browser-restart-w5chI9` 8/8 已增加运行/暂停真实reload、未知输入跨一或两次真实profile-start恢复，六代进程/连续独立observer与明确重启空档已审；主回归 `run-FPduQP` 77/77。原生 launcher/EOF、签名更新/禁启顺序和更多压力场景仍待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及更广浏览器/扩展恢复顺序仍待完成 |
 | P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 受控 testing-config 最终 `run-6SwxDM` headed 77/77，保留旧70并新增五入口七项完整表单；专项8/8，CI824（710+53+61）、JS98、Python67、Go全包通过。当前Codex Edge三布局最终收据3/3但部分方法需替代，严格frame指针一致性0/3；不同版本/profile不作速度结论。历史失败、媒体与重启证据保留。研究、多tab、文件/诊断同组任务及更广重复/平台比较仍未完成 |
 
@@ -118,3 +118,11 @@ adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试
 extension/engine；它不替代实际安装后的 native messaging 注册验收。
 独立 `native-message-checks.mjs` 使用真实 Edge native messaging，覆盖本片
 大消息与旧版本拒绝场景；同样不能代替所有平台及完整用户工作流验收。
+
+本轮扩展重载分片通过八项独立生命周期验收及完整77项主回归。用户恢复提示
+依据实时持久风险而非旧错误，风险退役后不再要求重启；不会自动Resume。
+无witness风险经两次真实profile-start恢复，有witness风险经一次恢复，
+均未用空tracker或相同数字tab推断释放。独立companion跨reload连续记录，
+六代浏览器间五个空档保留；零tab激活及22条主动popup焦点事件明确区分。
+安装前提、五次失败尝试及CDP临时安装边界详见runner README和browser lifetime。
+整体P13仍部分完成，原生launcher/EOF、签名更新、更多平台及P01–P15缺口继续。

@@ -157,3 +157,51 @@ test("extension reload without another native startup never clears a witnessed r
   assert.equal(reload.marker.startupWitness, null);
   assert.throws(() => reload.assertInputRecoveryClear(), /INPUT_RELEASE_UNCONFIRMED/);
 });
+
+test("recovery guidance distinguishes current pages from cross-reload risks without changing the journal", async () => {
+  const f = fixture(), first = f.create(); await first.ready;
+  assert.equal(first.inputRecoveryGuidance(), null);
+  await first.observeStartup(); await first.markInputRisk({ riskId: "private-risk", tabId: 7 });
+  assert.equal(first.inputRecoveryGuidance(), null, "live tracked input is not a recovered risk");
+  const worker = f.create(); await worker.ready;
+  const saved = structuredClone(f.local);
+  assert.deepEqual(worker.inputRecoveryGuidance(), { action: "close-controlled-pages" });
+  assert.deepEqual(f.local, saved);
+  delete f.session[BROWSER_LIFETIME_KEY];
+  const reload = f.create(); await reload.ready;
+  assert.deepEqual(reload.inputRecoveryGuidance(), { action: "restart-browser", restartMayNeedRepeat: false });
+  await reload.originalTabRemoved(7);
+  assert.deepEqual(f.local, saved, "guidance must not turn tab removal after reload into destruction proof");
+  assert.throws(() => reload.assertInputRecoveryClear(), error => {
+    assert.match(error.message, /OBU_INPUT_RELEASE_UNCONFIRMED/);
+    assert.doesNotMatch(error.message, /private-risk|original-target/);
+    return true;
+  });
+});
+
+test("unwitnessed recovery guidance changes after stamping and disappears only when risks actually retire", async () => {
+  const f = fixture(), first = f.create(); await first.ready;
+  await first.markInputRisk({ riskId: "held", tabId: 7 });
+  delete f.session[BROWSER_LIFETIME_KEY];
+  const reload = f.create(); await reload.ready;
+  assert.deepEqual(reload.inputRecoveryGuidance(), { action: "restart-browser", restartMayNeedRepeat: true });
+  await reload.observeStartup();
+  assert.deepEqual(reload.inputRecoveryGuidance(), { action: "restart-browser", restartMayNeedRepeat: false });
+  assert.throws(() => reload.assertInputRecoveryClear(), /INPUT_RELEASE_UNCONFIRMED/);
+  delete f.session[BROWSER_LIFETIME_KEY];
+  const next = f.create(); await next.ready;
+  await next.observeStartup();
+  assert.equal(next.inputRecoveryGuidance(), null);
+  next.assertInputRecoveryClear();
+});
+
+test("mixed and legacy risks require restart guidance instead of advice to close current pages", async () => {
+  const f = fixture(), life = f.create({ legacyPending: async () => ({ tabIds: [7] }) }); await life.ready;
+  await life.markInputRisk({ riskId: "current", tabId: 8 });
+  const worker = f.create(); await worker.ready;
+  const saved = structuredClone(f.local);
+  assert.deepEqual(worker.inputRecoveryGuidance(), { action: "restart-browser", restartMayNeedRepeat: true });
+  await worker.originalTabRemoved(8);
+  assert.deepEqual(worker.inputRecoveryGuidance(), { action: "restart-browser", restartMayNeedRepeat: true });
+  assert.deepEqual(f.local[INPUT_RISK_KEY].risks, saved[INPUT_RISK_KEY].risks.filter(record => record.tabId === 7));
+});

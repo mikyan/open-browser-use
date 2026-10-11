@@ -8,7 +8,7 @@ const MAX_RISKS = 10000;
 const id = value => typeof value === "string" && value.length > 0 && value.length <= 128;
 const tab = value => Number.isSafeInteger(value) && value >= 0;
 const invalid = () => new Error("OBU_BROWSER_LIFETIME_INVALID: persisted browser lifetime is invalid");
-const unknown = () => new Error("OBU_INPUT_RELEASE_UNCONFIRMED: previous native input cannot be attributed; automation remains blocked until original-target destruction is proven");
+const unknown = () => new Error("OBU_INPUT_RELEASE_UNCONFIRMED: previous browser input could not be confirmed as released; automation remains blocked and user recovery is required");
 
 export class BrowserLifetime {
   constructor({ storage, onStartup, legacyPending = async () => ({ tabIds: [] }), randomUUID = () => crypto.randomUUID() }) {
@@ -152,6 +152,14 @@ export class BrowserLifetime {
   }
 
   recoveredRisks() { return [...this.recovered].map(key => this.records.get(key)).filter(Boolean); }
+  inputRecoveryGuidance() {
+    const risks = this.recoveredRisks();
+    if (!risks.length) return null;
+    // Guidance describes current evidence, never a promise that cleanup has
+    // succeeded. It carries no page identity, input values or persisted IDs.
+    if (risks.every(record => this.isCurrent(record.incarnation))) return { action: "close-controlled-pages" };
+    return { action: "restart-browser", restartMayNeedRepeat: risks.some(record => !record.startupWitness) };
+  }
   assertInputRecoveryClear() { if (this.recoveredRisks().length) throw unknown(); }
   controlSnapshot() { return { tabIds: [], pending: [...this.pending] }; }
 }

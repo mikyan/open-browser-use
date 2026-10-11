@@ -73,12 +73,38 @@ test("lost running held input blocks replacement worker instead of empty-tracker
   assert.equal(worker.inputTracker.attachments.size, 0);
   assert.equal(worker.automationControl.inputBlocked, true);
   assert.match(worker.automationControl.error, /INPUT_RELEASE_UNCONFIRMED/);
+  assert.deepEqual(clone((await worker.getAutomationControlStatus()).inputRecovery), { action: "close-controlled-pages" });
   assert.deepEqual(mutations(f.calls.slice(before)), []);
   await assert.rejects(worker.pauseAutomation(), /INPUT_RELEASE_UNCONFIRMED/);
   await f.chrome.tabs.remove(7); await worker.browserLifetime.writes;
   await worker.pauseAutomation();
   assert.equal(worker.automationControl.cleanupComplete, true);
   assert.deepEqual(f.local[RISKS].risks, []);
+});
+
+test("reload recovery status remains blocked after old-tab removal, then drops restart advice after positive startup proof", async t => {
+  const f = await fixture(t); await f.backend.browserLifetime.observeStartup(); await holdInput(f);
+  const savedRisk = clone(f.local[RISKS].risks);
+  for (const e of f.events) e.clear(); delete f.session[LIFE];
+  const worker = new f.Backend(); await worker.controlReady;
+  let status = await worker.getAutomationControlStatus();
+  assert.equal(status.state, "error"); assert.equal(status.inputBlocked, true);
+  assert.deepEqual(clone(status.inputRecovery), { action: "restart-browser", restartMayNeedRepeat: false });
+  await f.chrome.tabs.remove(7); await worker.browserLifetime.writes;
+  await assert.rejects(worker.pauseAutomation(), /INPUT_RELEASE_UNCONFIRMED/);
+  assert.deepEqual(f.local[RISKS].risks, savedRisk);
+  assert.equal((await worker.getAutomationControlStatus()).inputRecovery.action, "restart-browser");
+  // A deterministic native-event fixture, not a claim of a real browser restart.
+  await worker.browserLifetime.observeStartup();
+  assert.deepEqual(f.local[RISKS].risks, []);
+  status = await worker.getAutomationControlStatus();
+  assert.equal(status.state, "error"); assert.equal(status.inputBlocked, true);
+  assert.match(status.error, /INPUT_RELEASE_UNCONFIRMED/);
+  assert.equal(Object.hasOwn(status, "inputRecovery"), false, "stale failure text must not keep prescribing restarts");
+  await worker.pauseAutomation();
+  status = await worker.getAutomationControlStatus();
+  assert.equal(status.state, "paused"); assert.equal(status.cleanupComplete, true);
+  assert.equal(status.inputBlocked, true, "successful recovery still requires explicit Resume");
 });
 
 test("tab-list absence after worker downtime cannot prove original target destruction", async t => {

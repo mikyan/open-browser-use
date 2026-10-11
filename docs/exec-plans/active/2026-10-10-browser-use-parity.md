@@ -939,3 +939,57 @@ hash 正确，CLI/MCP 各 28 次实际 browserAction；旧 36 媒体文件、四
 每成员与 unpacked/实测静态制品一致，无测试钩子；新增 SDK source/dist
 均追踪，内存重新编译的 14 个 JS 产物与当前文件一致。Host 明确沿用旧
 已验证二进制。pre-stage 未追踪检查失败保留，统一暂存后复核无问题。
+
+### P13：真实扩展重载和未知输入恢复（本片完成，P13 仍部分完成）
+
+本轮从 clean `04a3ecc` 继续；上一轮属于实现和验收进展。保持旧四项生命周期
+验收，增加运行中、已暂停和真实 held pointer/Shift 的有/无 startup witness
+两分支共四项 `runtime.reload()`。
+一次真实调用后核对旧 worker 销亡、新 worker/native Port、浏览器 PID/CDP
+身份不变、安装实例不变和 session incarnation 改变；不以清空 storage 或
+stop/start worker 替代。unpacked 的 onInstalled update 只证明开发扩展重载，
+不能宣称商店签名更新。被动事件记录不能伪造 onStartup 或修改产品状态。
+
+焦点观察页迁入独立测试扩展，在被测扩展重载前后保持同一 document/ledger。
+整个浏览器退出仍分段并明确覆盖空档。原 native Port adapter 在重载时保留
+host 进程，旧请求按真实 deadline 失败；这不是 Chrome 原生 launcher/EOF
+验收。后者单独推进，不因本片通过而从矩阵移除。
+
+held-input 跨 incarnation 后继续阻断，不能靠关闭同数字 tab 或 tracker 为空
+推断释放。验收需保留真实输入/持久 journal、Failed popup、拒绝动作及精确
+原页关闭后仍阻断的证据，再经一至两次实际同 profile 浏览器退出重启取得
+原生 startup witness；若仍 Failed 则显式 Retry，完成 Paused 后仍需显式
+Resume、新 turn 和可信动作。
+同时改善用户恢复指导，按实际 journal 区分原页关闭、完整退出重开或现在可
+Retry，保留全部安全门禁。源码冻结后独占浏览器验收、CI、制品核对与本地
+提交；目标仍 active，不提 PR、不推送。
+
+本片实现完成：可选 `inputRecovery` 只读枚举从当前风险生成恢复提示，原风险
+算法与 Resume 门禁不变。新增独立 companion observer、被动生命周期事件、
+真实reload身份/Port校验以及四项实际reload测试。最终
+`browser-restart-w5chI9` **8/8**，已独立审计：未witness输入需两次真实startup，
+已witness需一次；两者关原页后旧风险仍阻断，最终显式Resume/newturn才接受
+可信动作。六代真实退出，五段覆盖空档明确；零tab激活，22条focus全部归因
+11次主动popup，20张PNG校验并检查关键恢复提示。
+
+保留本轮失败 `9gmJt7` 4/8、`j31iqu` 5/8、`TIhZUP` 6/8、`bbnMFd`
+setup失败及`XJtixZ` 0/8。它们分别暴露developer mode前提、同popup保留、
+命令行重复安装无startup、CDP拖拽缺原生drop状态与bootstrap初始化时序。
+最终使用一次CDP引导后普通扩展管理器reload建立持久安装，并等待真实
+install/update dispatch与连接；后代不重新安装。两扩展最终location4、
+creation_flags38，无CDP-only位。详情与源码链接见runner README。
+
+完整 CI **839**（719 扩展 + 53 脚本 + 67 脚手架）、JS98、Python67、Go
+全包通过。最终主 headed `run-FPduQP` **77/77**，最终脚手架定向29/29。
+原生launcher/EOF、签名更新/禁启、更多压力顺序及跨平台能力继续保留在矩阵；
+这轮完成不代表整体目标完成，仍只做本地提交。
+
+最终交付独立审计 `.tmp/reload-delivery-audit.json` 通过，无待处理问题。
+ZIP **1,246,792 bytes / 45 files**，SHA-256
+`c6fc5dd9cd9a5711704b97ad607ce0feb62f650bd211124bef31351b2ea047d4`。
+45 个成员逐字节匹配 unpacked 与本轮生命周期验收的生产 hash；主验收的
+34 个 JS/JSON hash 及其余 staged 静态文件也一致。无测试钩子或机器私有路径，
+vendor MODIFICATIONS 保留。主验收六次允许的创建激活、四条主动 popup
+focus 精确归因，两代 host 真实退出，两个测试 profile 均无进程残留。
+Host 沿用 SHA-256 `d946f5b64301084094db3bfd85e36af1dbfb513123938fc53ba76eef004be3a5`
+的已验证二进制；不宣称本轮新构建。用户主浏览器的已安装扩展未被替换。

@@ -92,6 +92,38 @@ timeout or command error does not substitute for this proof. A native-host-only
 restart retains the browser incarnation and uses the separate exact-attachment
 cleanup described in [control lifecycle](control-lifecycle.md).
 
+## Recovery guidance after worker loss or extension reload
+
+The popup uses the optional `inputRecovery` status field described in
+[control lifecycle](control-lifecycle.md#user-pause-and-resume). Its instructions
+come from the current recovered-risk set, not from parsing an old failure
+message. Reading the guidance does not change the journal or permit input.
+
+When all recovered risks still belong to the current extension-loaded session,
+the popup asks the user to save work and close the pages that were being
+controlled, then choose Retry pause to check the result. Only a confirmed removal
+of an original risk page can retire that page's record; closing unrelated pages
+or merely retrying is not proof of release.
+
+After extension reload, update, or loss of the session marker, risks from the
+previous session require a different path. The popup asks the user to fully quit
+the browser, including background processes, and reopen the same profile with
+the extension enabled. Closing the old tab after reload does not establish its
+old identity in the new session, and another extension reload is not a browser
+startup. If a risk has no startup witness, the first qualifying startup stamps
+it without clearing it; another actual profile startup is needed before that
+record can retire. The popup indicates that an additional full restart may be
+necessary rather than promising that one restart always resolves recovery.
+
+Once positive startup evidence retires the recovered risks, the restart guidance
+disappears immediately. If control still shows Failed, the user can choose Retry
+pause. If initialization has already completed cleanup and shows Paused, no
+extra retry is required. Startup may complete Pause, but never switches the
+control to Running: explicit Resume and a new Agent turn remain necessary.
+Storage failures or unavailable startup events can still leave cleanup
+unconfirmed. No recovery instruction automatically closes pages, restarts the
+browser, clears storage, or replays an operation.
+
 ## Verification boundary
 
 Production-class regressions force reused tab/group/window IDs, delayed storage,
@@ -112,7 +144,41 @@ tab/group metadata, rejected unclaimed input and unchanged server mutation
 witnesses, not a claim of preserved loaded DOM. Earlier failures remain in the
 [runner's evidence record](../../scripts/browser-integration/README.md).
 
-Each browser process has its own focus observer. The process-restart gap is
-explicit; these segments are not an uninterrupted zero-focus trace. Passing a
-clean restart does not prove uncertain-input startup recovery or all extension
-reload/update orderings. Those require their own recorded cases.
+The runner's expanded acceptance structure has eight distinct cases:
+
+| Case | Evidence required |
+| --- | --- |
+| `browser-restart-unpaused` | Actual same-profile browser replacement; old ownership and epochs revoked; retained pages require explicit claim. |
+| `browser-restart-paused` | Actual browser replacement preserves the user's Pause; no automatic Resume or action replay. |
+| `same-browser-session-state-loss` | Same browser, explicit session-storage loss and worker replacement; this is not extension reload. |
+| `worker-input-state-loss` | Same-session worker loss retains unknown held input; confirmed original-tab removal permits cleanup, followed by explicit Resume and new work. |
+| `extension-reload-unpaused` | A real unpacked `runtime.reload()` replaces the worker and session marker without replacing the browser; an already-pending action must not execute later, and retained pages require explicit claim. |
+| `extension-reload-paused` | A real reload preserves Pause and rejects old control scope; page state and server witnesses remain unchanged until explicit new work. |
+| `extension-reload-held-unwitnessed` | Real held input survives reload as unknown; tab removal does not clear the old-session risk. The first qualifying actual profile startup stamps it, and a later startup can retire it without resuming automation. |
+| `extension-reload-held-witnessed` | Input already carrying a prior native startup witness remains blocked after reload; a subsequent actual profile startup can retire that old risk, still requiring explicit Resume. |
+
+This table defines the acceptance requirements, not a result for an unrecorded
+run. The reload cases record the old and new worker/context identities, changed
+session marker, unchanged browser identity, raw native lifecycle events, page
+and server witnesses, and the current recovery guidance. An unpacked reload
+reports `onInstalled` with reason `update`; that is not evidence of installing
+a signed package or a newer version. The declared native Port adapter can retain
+its host across reload, so these cases do not certify real native-port EOF,
+host registration, or launcher recovery.
+
+An independent test-only companion extension owns the continuous focus observer
+through OBU reload; it does not control the task pages. Whole-browser replacement
+still destroys that observer, so each browser process has a separate segment and
+the process-restart gaps remain explicit. The segments are not an uninterrupted
+zero-focus trace. The earlier four-case result above does not by itself prove
+the added reload/witness cases, all update orderings, or other browser versions.
+
+`browser-restart-w5chI9` subsequently passed **8/8**. Both held-input branches
+retained their exact risk after reload and original-tab removal; the unwitnessed
+branch needed two actual startup events, while the witnessed branch needed one.
+All six browser generations exited. The continuous companion observed zero tab
+activations and 22 focus events, precisely attributed to 11 intentional popup
+openings; five whole-process coverage gaps remain explicit. Twenty popup PNGs
+were checked, including the changing recovery instructions. The runner's setup
+and retained failed attempts are documented in its README; it uses a persistent
+private-profile installation and never synthesizes startup evidence.

@@ -622,7 +622,7 @@ hashes match the separate four-case restart run. The original focus accounting
 remains six exact sole-tab creation activations and four focus events from two
 intentional popup opens; there are no additional foreground events.
 
-## Same-profile browser restart acceptance
+## Same-profile browser restart and extension reload acceptance
 
 `browser-restart.mjs` is a separate, opt-in headed runner. After installing the
 dependencies above, build the current JS SDK and native host, then run it from
@@ -638,22 +638,42 @@ node scripts/browser-integration/browser-restart.mjs
 On Unix, use an executable without `.exe` and set `OBU_TEST_HOST_BINARY` with
 the shell's environment syntax. `OBU_TEST_CHROMIUM_BINARY` and
 `OBU_TEST_FIELD_TRIAL_CONFIG` have the same meanings as above. This runner is
-always headed, runs all four cases, and does not use `OBU_TEST_CASES` or the
-memory-clipboard switch. Final `browser-restart-ShnPfH` passed **4/4**, including
-final process cleanup and all three generations' focus validation. The cases
-below describe the assertions exercised by that run.
+always headed, runs all eight cases, and does not use `OBU_TEST_CASES` or the
+memory-clipboard switch. `browser-restart-w5chI9` passed **8/8**, including
+final process cleanup and all six generations' focus validation. The earlier
+`browser-restart-ShnPfH` **4/4** result applies only to the original four cases.
 
 The runner creates one private profile and passes `--restore-last-session` in
-all three generations. It does not seed or modify protected preferences.
+every generation. It does not seed or modify protected preferences.
 Chromium's pinned [startup implementation](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/chrome/browser/ui/startup/startup_browser_creator.cc#L808-L865)
 recognizes that switch and requests the last session for an existing profile;
-the first launch of a new profile has no session to restore. Three successive
-browser processes use that same profile, executable and argument list. The first two
-transitions call `Browser.close`, wait for actual process exit, and start a new
+the first launch of a new profile has no session to restore. Six successive
+browser processes use that same profile, executable and argument list. Every
+transition calls `Browser.close`, waits for actual process exit, and starts a new
 browser. Forced teardown is recorded as a failure. This tests explicit session
 restoration under that command-line policy; it does not promise that all browser/profile
 configurations restore tabs or groups. No user's profile or settings are read
 or changed.
+
+Before coverage starts, the first generation enables developer mode using the
+actual `chrome://extensions` toggle and verifies the browser's profile state.
+`Extensions.loadUnpacked` bootstraps the product and independent observer, then
+the extension manager's normal `developerPrivate.reload` loads each as an
+ordinary persistent unpacked installation. Product bootstrap waits for the
+original install dispatch and hello; normal reload waits for old-worker removal,
+replacement Port and native update dispatch. A registry entry marked enabled
+alone is insufficient. Later generations must find both installations already
+enabled; no installation or reload command is sent on their behalf.
+
+The private browser uses `--enable-unsafe-extension-debugging` for this declared
+setup and read-only installation inspection. It never uses `--load-extension`.
+Chromium deliberately [removes CDP-only installation records at profile startup](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/extensions/browser/extension_prefs.cc#L2383),
+so merely repeating CDP installation would not test persisted startup. The
+[normal reload path](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/chrome/browser/extensions/chrome_extension_registrar_delegate.cc)
+uses a new ordinary unpacked installer. The final retained profile records
+location 4 and creation flags 38 for both test extensions; subsequent real
+process launches deliver native `onStartup`, without reinstalling or emitting
+synthetic events. Setup is outside the recorded background-action interval.
 
 The initial `browser-restart-ucmbPs` run remains **0/4**. Its manually seeded
 `session.restore_on_startup` preference was absent from the retained profile,
@@ -718,8 +738,33 @@ after session-state loss and this retained-popup sequence.
    reply alone is insufficient. Only the initial popup open
    has a focus allowance; blocked actions, original-tab removal, Retry, Resume,
    popup close and the new task action must add no focus or activation event.
+5. `extension-reload-unpaused`: start a real pending native locator with a finite
+   deadline, invoke `runtime.reload()` exactly once and require native destruction
+   and creation events, a new worker/context/boot/Port/session marker, and the
+   same browser, installed instance and independent observer. Reveal the target
+   before the original deadline. The old request must fail, produce no late click
+   or server mutation, and never appear in the replacement Port's RPC metadata.
+   Original task and deliverable documents/data remain unchanged; explicit new
+   turns and claim are required for subsequent trusted input.
+6. `extension-reload-paused`: actual reload must preserve Pause. Begin-turn,
+   create, claim, fill and raw CDP remain blocked, with unchanged original DOM
+   and server witnesses. Retain one real post-reload popup through the status
+   check and explicit Resume; reopening a popup is not a reason to focus a window.
+7. `extension-reload-held-unwitnessed`: a trusted held pointer and Shift remain
+   on the same document across actual reload. The durable risk and Failed state
+   survive rejected actions and real Retry pause. Even native removal of the
+   original tab cannot retire its old-incarnation record. Two actual profile
+   restarts are required: the first stamps the previously unwitnessed risk and
+   remains blocked; the second's different native startup witness retires it.
+8. `extension-reload-held-witnessed`: admit held input after a witnessed startup,
+   reload and repeat the same blocked-input/removal checks. One subsequent real
+   profile startup retires this already-witnessed old risk. In both held cases,
+   recovery remains blocked in Failed or completed Paused until explicit Resume,
+   then requires a new turn and trusted action. If initialization already finished
+   Pause, a redundant Retry is unnecessary. The same final popup is retained
+   through its remaining recovery steps; no compensating input is injected.
 
-In the final run, both restored deliverables were initially `unloaded`; their
+In the earlier four-case run, both restored deliverables were initially `unloaded`; their
 preservation evidence is tab/group metadata and unchanged server mutation
 witnesses, not loaded-document content. The task documents were loaded and
 explicit claim enabled one trusted action each; the old epochs and unclaimed
@@ -730,7 +775,9 @@ exact native removal event before successful Retry; the subsequent new turn
 produced a trusted action.
 
 Each browser generation has its own independent focus observer and validated
-final snapshot. Worker replacements retain that generation's observer. Whole
+final snapshot. The observer now belongs to a separate test extension with only
+the `tabs` permission; worker replacement and OBU reload retain that same
+observer target, extension identity and append-only event history. Whole
 browser exits necessarily leave recorded gaps between observers: their logs
 are not stitched into an uninterrupted zero-focus claim. Only exact events
 around intentional action-popup openings receive the existing narrow allowance;
@@ -748,13 +795,31 @@ observer, fixture or adapter is copied into the production extension source or
 default distribution directory. Artifacts under
 `.tmp/browser-integration/browser-restart-*` include `results.json`, per-case
 details, `browser-N.json`, `focus-N.json`, popup PNGs, process/host identities,
-restart gaps and source hashes. All four distinct cases and final cleanup/focus
-checks must pass for a zero exit status. Unpacked-extension reload, update and
-disable/re-enable recovery remain untested by this runner. It also does not
-cover a browser crash, forced whole-browser termination or whole-browser
-restart while native input remains held: the held-input case replaces only
-the worker. Native host registration and installed-host launch remain outside
-this test's staged Port adapter boundary.
+restart gaps and source hashes. All eight distinct cases and final cleanup/focus
+checks must pass for a zero exit status. Reload failures also retain available
+Target/Port/focus evidence. The adapter retains its native-host process across
+extension reload, so the old pending request uses its actual finite deadline;
+this does not certify browser native-port EOF settlement. Signed-package update,
+disable/re-enable, crash/forced termination and direct browser exit with held
+input still present remain separate cases. In the two new held-input tests the
+original tab is closed before profile restart, but its unresolved journal must
+still survive until qualified startup evidence. Native host registration and
+installed-host launch remain outside this staged Port adapter boundary.
+
+The expanded suite retains its unsuccessful runs. `browser-restart-9gmJt7`
+was **4/8**: command-line install became ordinary unpacked on reload and was
+disabled because developer mode was off (native reason `1 << 24`).
+`browser-restart-j31iqu` was **5/8**: reload and paused admission checks worked,
+but reopening the post-reload popup was rejected for an inactive window.
+`browser-restart-TIhZUP` was **6/8**: repeated command-line installation generated
+install events, not the startup witnesses needed for recovery. The folder-drop
+setup probe `browser-restart-bbnMFd` failed before any case; CDP drag delivery
+did not establish the native UI drop state needed by the extension installer.
+`browser-restart-XJtixZ` was **0/8**: bootstrap reload raced initial installation
+dispatch; its first action timed out and later cases could not proceed. Final
+`browser-restart-w5chI9` **8/8** uses explicit bootstrap readiness and persistent
+profile loading. No failed run is rewritten, no synthetic startup clears the
+journal, and no foreground workaround or extra focus allowance makes a case pass.
 
 ## Native first-frame diagnosis
 

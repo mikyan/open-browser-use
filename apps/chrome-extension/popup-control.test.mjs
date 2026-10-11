@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAutomationControl } from "./popup-control.js";
+import { automationControlView, createAutomationControl } from "./popup-control.js";
 
 const state = (name, revision = 1, extra = {}) => ({ state: name, revision, inputBlocked: name !== "running", cleanupComplete: name === "paused" || name === "running", ...extra });
 function fixture() {
@@ -88,4 +88,49 @@ test("a rejected stale resume shows the current revision without automatic repla
   assert.equal(f.requests.length, 2); assert.match(f.view().error, /REVISION_CONFLICT/);
   const retry = f.control.activate(); assert.equal(f.requests[2].message.expectedRevision, 4);
   f.resolve(2, state("running", 5)); await retry;
+});
+
+test("current-page input recovery offers an explicit check, never a release guarantee or automatic resume", async () => {
+  const f = fixture();
+  const initial = f.control.refresh();
+  f.resolve(0, state("error", 3, { inputRecovery: { action: "close-controlled-pages" } })); await initial;
+  assert.match(f.view().message, /Save your work, close the pages that were being controlled/);
+  assert.match(f.view().message, /check whether control has been released/);
+  assert.equal(f.view().buttonText, "Retry pause");
+  const retry = f.control.activate();
+  assert.deepEqual(f.requests[1].message, { type: "PAUSE_AUTOMATION" });
+  f.resolve(1, state("error", 4, { inputRecovery: { action: "close-controlled-pages" } })); await retry;
+  assert.equal(f.view().action, "pause");
+  assert.equal(f.requests.length, 2);
+});
+
+for (const restartMayNeedRepeat of [false, true]) test(`cross-reload guidance explains full browser restart (additional restart: ${restartMayNeedRepeat})`, () => {
+  const view = automationControlView(state("error", 2, { inputRecovery: { action: "restart-browser", restartMayNeedRepeat } }));
+  assert.match(view.message, /fully quit this browser \(including background processes\)/);
+  assert.match(view.message, /same profile with this extension enabled and choose Retry pause/);
+  assert.match(view.hint, /Closing tabs or reloading the extension is not enough/);
+  assert.equal(view.hint.includes("additional full restart"), restartMayNeedRepeat);
+  assert.equal(view.action, "pause");
+  assert.doesNotMatch(view.message + view.hint, /incarnation|witness|epoch|riskId/);
+});
+
+test("fresh status without recovered risks removes restart advice even while the old failure remains", async () => {
+  const f = fixture(), error = "OBU_INPUT_RELEASE_UNCONFIRMED: user recovery is required";
+  const initial = f.control.refresh();
+  f.resolve(0, state("error", 4, { error, inputRecovery: { action: "restart-browser", restartMayNeedRepeat: true } })); await initial;
+  const refreshed = f.control.refresh(); f.resolve(1, state("error", 4, { error })); await refreshed;
+  assert.match(f.view().message, /Retry pause to finish/);
+  assert.doesNotMatch(f.view().message + f.view().hint, /quit|restart|Closing tabs/);
+  const retry = f.control.activate(); assert.equal(f.requests[2].message.type, "PAUSE_AUTOMATION");
+  f.resolve(2, state("paused", 5)); await retry;
+  assert.equal(f.view().action, "resume");
+  assert.equal(f.requests.length, 3, "cleanup success must not automatically resume");
+});
+
+test("unavailable or unknown recovery guidance cannot inject instructions or bypass status confirmation", () => {
+  const status = state("error", 2, { inputRecovery: { action: "unknown", message: "untrusted page" } });
+  assert.doesNotMatch(automationControlView(status).message, /untrusted page/);
+  const unavailable = automationControlView({ ...status, inputRecovery: { action: "restart-browser", restartMayNeedRepeat: true } }, { unavailable: true });
+  assert.equal(unavailable.action, "refresh");
+  assert.doesNotMatch(unavailable.message + unavailable.hint, /restart|fully quit/);
 });

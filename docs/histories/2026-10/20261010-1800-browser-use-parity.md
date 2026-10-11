@@ -700,6 +700,44 @@ Go 全包及其他 workspace 检查通过。完整矩阵继续，不提 PR、不
 每成员与 unpacked/实测静态产物一致、无测试钩子；SDK新增源码和dist均已
 追踪，内存重新编译结果一致。Host沿用原已验证二进制，不宣称新构建。
 
+### P13：真实扩展重载、启动见证恢复与用户指导
+
+从 `04a3ecc` 继续本地开发，无PR、无推送。生产新增只读 inputRecovery
+状态，区分同session原页关闭、跨session完整退出重开，以及未见证风险可能
+需额外一次重启；风险退役后立即撤下重启指导。保留风险退役算法、暂停和
+显式Resume门禁，未自动关页/重启/恢复旧动作。
+
+生命周期runner扩大为8项；独立companion拥有常驻focus observer，真实
+runtime.reload只调用一次，核对旧worker销亡、新context/Port/session及
+同browser/install身份。运行中旧pending动作在deadline内看到迟到目标但
+不执行；暂停与原task/output数据保留，必须显式新turn和claim。
+
+最终 `browser-restart-w5chI9` **8/8**、六代真实浏览器：无witness风险首次
+真实startup只stamp、第二次退役；有witness风险一次退役，原页关闭仍不能
+清跨代journal。均在显式Resume/newturn后才完成可信动作。独立审计确认
+0 tab激活、22条focus全部来自11次主动popup，五段进程重启空档不拼接；
+20张PNG校验且三张关键恢复图已查看，源码/SDK/host hash与退出证据一致。
+
+本轮失败 `9gmJt7` 4/8、`j31iqu` 5/8、`TIhZUP` 6/8、`bbnMFd` setup失败和
+`XJtixZ` 0/8均保留。最终测试安装采用初代CDP引导、普通扩展管理器reload
+转换持久安装，等待真实install/update dispatch及新连接；之后不重新安装。
+实际profile记录两扩展location4/creation_flags38，不含CDP-only位。原生
+launcher/EOF、签名更新、禁启/崩溃与更多平台仍未由Port adapter覆盖。
+
+CI通过839项（719+53+67）、JS98、Python67与Go全包；最终主headed
+`run-FPduQP` **77/77**，包括五入口完整表单、媒体与诊断等既有功能。
+完整能力矩阵与长期目标保持active。
+
+最终交付独立审计 `.tmp/reload-delivery-audit.json` 通过。ZIP
+**1,246,792 bytes / 45 files**，SHA-256
+`c6fc5dd9cd9a5711704b97ad607ce0feb62f650bd211124bef31351b2ea047d4`。
+全部成员匹配 unpacked、生命周期验收生产 hash，以及主验收的 34 个
+JS/JSON hash 和其余 staged 静态文件。无测试钩子或机器私有路径，保留
+vendor MODIFICATIONS；主验收六次创建激活、四条主动 popup focus 均精确
+归因，两个测试 profile 无进程残留。Host 沿用 SHA-256
+`d946f5b64301084094db3bfd85e36af1dbfb513123938fc53ba76eef004be3a5`
+的已验证版本；用户主浏览器的已安装扩展未替换。仅提交本地，不推送或提 PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

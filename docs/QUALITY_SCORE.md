@@ -13,10 +13,10 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收。最终受控 Chromium headed `run-6SwxDM` 77/77，新增有界组合定位、混合多选与五入口完整表单。Codex Edge同组表单最终3/3，方法失败与键盘替代独立记录；不能视作操作全等。旧媒体/诊断、重启4/4和原配置首帧失败证据保留。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、更多重启/reload/launcher 恢复、其他浏览器平台与更广同组任务比较；原生 popup 初始激活仍有缺口。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收。最新主 headed `run-FPduQP` 77/77，真实重启/reload `browser-restart-w5chI9` 8/8；有/无 startup witness 的未知输入恢复及准确用户提示已验。Codex 同组表单最终3/3但方法有差异；旧失败保留。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、原生 launcher、签名更新/更多恢复顺序、其他平台与更广同组任务；原生 popup 初始激活仍有缺口。 |
 | 架构文档 | B | 本地 IPC、动作协议、有界递归观察与 capture refs、持久 control 生命周期、全局暂停和文件来源边界已有独立 reference；新增标签撤权、host 断线恢复门禁、session incarnation 与 startup witness 恢复，以及真实目标销毁的清理边界。 | 继续记录不同恢复顺序和原生 launcher 恢复及更多受限入口的设计/证据。 |
-| 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查，草稿和冲突不被轮询覆盖。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 最终完整 `scripts/ci.sh` 通过：扩展710、脚本53、浏览器脚手架61（共824），JS98、Python67、Go全包及其余检查。最终 headed `run-6SwxDM` 77/77、表单专项 `run-j4jsMy` 8/8；同组Codex三变体服务端审计区分任务成功与操作差异。新增UTF-8分块/exit后尾部drain真实child回归；旧diagnostics和启动失败保留。 | 继续更多恢复顺序、原生 launcher、其他 OS/浏览器、实验配置兼容性和更广同组比较。 |
+| 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查。恢复指导区分关闭原受控页、完整退出重开及可能额外重启，风险退役后立即撤下建议；20张实际恢复PNG已校验，关键三图已查看。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
+| 测试 | B | 完整 `scripts/ci.sh`：扩展719、脚本53、脚手架67（共839），JS98、Python67、Go全包及其余检查通过。主 headed `run-FPduQP` 77/77，独立重启/reload `browser-restart-w5chI9` 8/8；六代浏览器与五个真实profile启动已记录，失败尝试不覆盖。 | 继续原生 launcher、签名更新/更多恢复顺序、其他 OS/浏览器、实验配置兼容性和更广同组比较。 |
 | 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
 
@@ -111,3 +111,11 @@ Codex Edge 相同三布局最终任务 **3/3**，但方法失败/替代及严格
 bytes / 45 files**，SHA-256
 `baa12d3e3627305565110172dcd4f0e432e05ad17102aa7311bacc5c99d27dfd`。
 制品与实测源码一致，无测试钩子；新SDK源码/dist已追踪，Host沿用旧binary。
+
+P13 本轮独立审计 `browser-restart-w5chI9` **8/8**：四次真实扩展reload
+保持原浏览器和独立observer，旧request不重放。未witness的风险在第一次
+真实startup只stamp、第二次退役，已witness风险一次退役；原页关闭本身
+不清跨代风险。六代全部退出，五段重启空档明确；零tab激活，22条focus
+严格归因11次主动popup。20张PNG、原始journal/Port/Target与源码hash均通过。
+当前主回归 `run-FPduQP` **77/77**；未知原生写、真实native launcher/EOF、
+签名更新和更多平台仍未覆盖，完整目标保持active。

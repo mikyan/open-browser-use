@@ -23,14 +23,24 @@ export function automationControlView(status, { pending = null, error = "", unav
     unknown: [status || error ? "Unavailable" : "Checking", "Confirm control status before resuming automation.", "Check status", "refresh"]
   }[state];
   let [label, message, buttonText, action] = details;
+  let hint = "After resuming, ask your agent to continue.";
   if (state === "paused" && !status.cleanupComplete) {
     message = "Agent actions are blocked. Cleanup still needs to finish.";
     buttonText = "Retry pause";
     action = "pause";
   }
+  if (state === "error" || (state === "paused" && !status.cleanupComplete)) {
+    if (status.inputRecovery?.action === "close-controlled-pages") {
+      message = "Agent actions remain blocked. Save your work, close the pages that were being controlled, then choose Retry pause to check whether control has been released.";
+    } else if (status.inputRecovery?.action === "restart-browser" && typeof status.inputRecovery.restartMayNeedRepeat === "boolean") {
+      message = "Agent actions remain blocked. Save your work, fully quit this browser (including background processes), then reopen the same profile with this extension enabled and choose Retry pause.";
+      hint = "Closing tabs or reloading the extension is not enough. " +
+        (status.inputRecovery.restartMayNeedRepeat ? "An additional full restart may be needed to confirm recovery. " : "") + hint;
+    }
+  }
   if (pending === "resume") buttonText = "Resuming…";
   return { state, revision: status?.revision ?? null, label, message, buttonText, action, disabled: Boolean(pending) || action === null,
-    error: error || status?.error || "", hint: "After resuming, ask your agent to continue." };
+    error: error || status?.error || "", hint };
 }
 
 // The popup only sends user-control messages. Epoch invalidation and cleanup

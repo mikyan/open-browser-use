@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 
 export const browserRestartCases = Object.freeze([
-  "browser-restart-unpaused", "browser-restart-paused", "same-browser-session-state-loss", "worker-input-state-loss"
+  "browser-restart-unpaused", "browser-restart-paused", "same-browser-session-state-loss", "worker-input-state-loss",
+  "extension-reload-unpaused", "extension-reload-paused", "extension-reload-held-unwitnessed", "extension-reload-held-witnessed"
 ]);
 
 export function allBrowserRestartCasesPassed(records) {

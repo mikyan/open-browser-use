@@ -82,9 +82,28 @@ epochs. Removing finalized tab state does not remove the control ledger.
 The action popup sends `GET_AUTOMATION_CONTROL_STATUS`, `PAUSE_AUTOMATION`, and
 `RESUME_AUTOMATION` extension messages. Resume includes `expectedRevision` from
 the displayed status; a stale revision fails instead of replaying a transition.
-The status is `{state, inputBlocked, revision, cleanupComplete, error?}`, where
+The status is `{state, inputBlocked, revision, cleanupComplete, error?, inputRecovery?}`, where
 `state` is `running`, `pausing`, `paused`, or `error`. The UI labels `error` as
 Failed and permits Retry pause, never Resume, until cleanup succeeds.
+
+`inputRecovery` is optional guidance derived from the currently recovered input
+risks. It is also included in `getInfo.metadata.automationControl`. It contains
+only one of these shapes, with no tab IDs, page details, input values or journal
+identifiers:
+
+| Shape | Popup guidance |
+| --- | --- |
+| `{action: "close-controlled-pages"}` | Save work, close the pages that were being controlled, then choose Retry pause to check whether control has been released. This applies only when every recovered risk belongs to the current extension-loaded session. |
+| `{action: "restart-browser", restartMayNeedRepeat: boolean}` | Save work, fully quit this browser, including background processes, then reopen the same profile with the extension enabled and check the control status. Closing tabs or reloading the extension alone is insufficient. A true `restartMayNeedRepeat` warns that an additional full restart may be needed because prior startup evidence is missing. |
+
+These are recovery instructions, not permissions or evidence of completed
+cleanup. The field is omitted as soon as no recovered input risk remains,
+even if Failed and its earlier error text persist. In that state the popup
+offers the ordinary Retry pause step, without continuing to prescribe browser
+restarts. Depending on startup event timing, initialization can finish cleanup
+and show Paused directly; a further Retry is then unnecessary. Neither path
+enters Running automatically. The user must choose Resume control, and the
+Agent must explicitly begin a new turn before submitting new work.
 
 Pause immediately blocks admission, cancels queued engine work and rendering
 leases, and hides pointer feedback. It persists the pause intent and outstanding
