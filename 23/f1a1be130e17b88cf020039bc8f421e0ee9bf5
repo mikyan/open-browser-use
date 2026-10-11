@@ -1,0 +1,99 @@
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_23b27e42847b01 60,272,289,423,1285-1300
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_1234d80eb1ad4a 171-175
+  s_08bbfd293d324f::t_db7e689c348ffa 169-170
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_6bc5fc107e3f28 1585-1606,1620
+  s_08bbfd293d324f::t_edff4d94a1d664 1616-1619
+  s_08bbfd293d324f::t_c1e215625494a3 1607-1615
+scripts/patch-pointer-transport.test.mjs
+  s_08bbfd293d324f::t_8357f2099bc9e6 1-128
+apps/chrome-extension/native-input-tracker.test.mjs
+  s_08bbfd293d324f::t_a58cfce90c2391 137-326
+docs/references/README.md
+  s_08bbfd293d324f::t_4f902453641ebc 21-22
+scripts/browser-integration/pointer-delivery-cases.test.mjs
+  s_08bbfd293d324f::t_11db33a29440c0 1-6,9-19,21-25,28-54,60-66,80-129,145,162-173,195-243
+  s_08bbfd293d324f::t_3ac80ed345e13e 174-194
+  s_08bbfd293d324f::t_27b9ad507f97d9 7,20,26-27,55-59,130-144,146-161
+  s_08bbfd293d324f::t_2fb3e70c331a19 8,67-79
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_af068e4ac5643a 32
+  s_08bbfd293d324f::t_c1e215625494a3 14-24
+  s_08bbfd293d324f::t_958152cc666d50 25
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_d8432d76bd9eca 2326-2353
+  s_08bbfd293d324f::t_edff4d94a1d664 2396-2401
+  s_08bbfd293d324f::t_958152cc666d50 2354-2376
+  s_08bbfd293d324f::t_c1e215625494a3 2377-2395
+scripts/browser-integration/pointer-delivery-cases.mjs
+  s_08bbfd293d324f::t_9811f687bf415f 9,13-14,18-19,25,36,199-213,224-225,233-237,242-243,245-246,249-250,263-274
+  s_08bbfd293d324f::t_c0a6ab11edb259 214-221,238,240-241,253-254
+  s_08bbfd293d324f::t_3ac80ed345e13e 277-280
+  s_08bbfd293d324f::t_2fb3e70c331a19 154-169,248
+  s_08bbfd293d324f::t_00af01f6586fc7 1-8,10-12,15-17,20-24,26-35,37-146,149-153,170-185,189-198,222-223,226-232,239,244,247,251-252,255-262,275-276,281-297
+  s_08bbfd293d324f::t_27b9ad507f97d9 147-148,186-188
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_9d8dce01706c44 247-255
+scripts/patch-pointer-delivery.test.mjs
+  s_08bbfd293d324f::t_ab057c3e371e75 1-24,28-33,36-43,46-53,56-73,76-78,80-81,84,86,88-97,100-111,114-124,126-137,139-140,142-145,147-165,167-168,173-185,187,303-352,355-358,406-421
+  s_08bbfd293d324f::t_dbeb30ec94f928 25,79,249-256,261-265,267-268,270-283
+  s_08bbfd293d324f::t_6bec672739549c 26,98,393
+  s_08bbfd293d324f::t_06446faa526d11 353-354,359-392,394-405
+  s_08bbfd293d324f::t_5e9e11ced78d67 27,44-45,54-55,75,82-83,85,87,99,138,146,166,169-172,186
+  s_08bbfd293d324f::t_f2e252dfba5c87 238-248,257-260,266,269,284-286
+  s_08bbfd293d324f::t_7038637d8a70e9 74,188-237,287-302
+  s_08bbfd293d324f::t_8ec6fad40195e9 34-35,112-113,125,141
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_8ced3ad13b67e6 10-11,25,118,131,141
+apps/chrome-extension/browser-lifetime-backend.test.mjs
+  s_08bbfd293d324f::t_a8228fd354e902 187-291
+docs/references/pointer-delivery.md
+  s_08bbfd293d324f::t_8ed9271884113b 76-78
+  s_08bbfd293d324f::t_c1e215625494a3 93-107
+  s_08bbfd293d324f::t_b2a05ab1c46d48 17-19,44-47,56-75,79-82
+  s_08bbfd293d324f::t_4f902453641ebc 1-16,20-43,48-55,83-92
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_ec088ecc0c8262 2221-2232,2249,2251
+apps/chrome-extension/browser-input-adapter.js
+  s_08bbfd293d324f::t_1234d80eb1ad4a 2-3
+  s_08bbfd293d324f::t_c28bd7d5c8e39f 66-67,73,84-85,97-102
+  s_08bbfd293d324f::t_11b146902587ca 7-9,68-72,74-83,86-96,103-106,117,120-125,168-171,178-179
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_ec088ecc0c8262 657-660
+scripts/patch-pointer-delivery.mjs
+  s_08bbfd293d324f::t_7038637d8a70e9 35-38
+  s_08bbfd293d324f::t_ab057c3e371e75 155
+  s_08bbfd293d324f::t_fa36b9c9501dc0 3-6,9-12,15-18,24-27,29-30,40-68,72-74,79-90,98-111,117-124,127-152,154,156-174,176,181-183,185-187,189-236
+  s_08bbfd293d324f::t_a5c7205f59fd22 7-8,28,31-34,39,69-71,75-78,91-97,112-116,125-126,153,188
+  s_08bbfd293d324f::t_11d1169af24fd5 1-2,175,177
+  s_08bbfd293d324f::t_f2e252dfba5c87 23
+  s_08bbfd293d324f::t_c90ab1e6c39677 13-14,19-22,178-180,184
+scripts/patch-pointer-transport.mjs
+  s_08bbfd293d324f::t_d8432d76bd9eca 1-23
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_af068e4ac5643a 60
+  s_08bbfd293d324f::t_c1e215625494a3 45-51
+  s_08bbfd293d324f::t_958152cc666d50 52
+apps/chrome-extension/browser-pointer-guard.js
+  s_08bbfd293d324f::t_d8432d76bd9eca 1-17
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_8357f2099bc9e6 9-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "23f1a1be130e17b88cf020039bc8f421e0ee9bf5",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
