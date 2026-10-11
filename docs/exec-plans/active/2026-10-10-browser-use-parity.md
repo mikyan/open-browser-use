@@ -2006,3 +2006,33 @@ renderer自动restore及raw CDP重新enable。按原session/代次在原生入�
 旧轮全绿标最终版本全绿；不再盲目重复全套。下一步给此Go路径保留有界
 原调用阶段和失败前证据，复用既有透明chooser诊断，确定超时来源后再修。
 目录完成、系统钟隔离和其他P01–P15缺口仍开放，本片是实际修复进展。
+
+### P10 Go chooser 失败阶段与原生诊断
+
+从`ff3f4d4`继续。公司电脑安装问答不计新的开发验收。当前树干净；保留
+`X2wiUq`完整失败，不盲目重跑或把相同报错限定为collect问题。源码复核
+发现click也会等待chooser拦截屏障，收到事件后的关闭拦截同样可能超时。
+
+先让Go caller在任何失败时保留variant、原arm/add-frame/click/collect/
+set-files/receipt/cancel阶段和独立错误。新增显式隔离的Go诊断模式，通过
+有界JSONL握手在Navigate后、arm前安装精确tab原生命令观察；原操作失败后、
+Cancel前一次读取trace、浏览器metadata和focus。若唯一失败为Cancel自身，
+则在该失败Cancel后、剩余清理前采集，以实际阶段为准。Go缺少原scope快照，
+本片不为诊断新增SDK接口，也不重新bootstrap或attach，明确不读取任务
+DOM。原10秒chooser/默认click及15秒transport不变，无额外点击或焦点
+豁免。诊断完整与业务成功分开，原失败证据持续保留；随后跑诊断专项及
+无hook原专项验证，依据新证据决定生产修复。
+
+实现和独立评审完成：脚手架339项及Go helper包通过。Go↔Node真实子进程
+以无浏览器的非法loopback参数验证失败partial/JSONL与实际exit1；受控
+测试覆盖阶段错误先于取消、取消/诊断错误不覆盖原错、超时/错序ACK、
+日志限额、晚安装清理和worker身份。诊断`nFsRPz`2/2、普通专项`JWc1eT`
+9/9、普通完整`npV0kp`105/105，均实际exit0，没有重复原点击或新增焦点
+豁免；旧Go动态iframe超时未再现，不能据此判已修复。
+
+评审发现caller结果对象被成功验证的server/frames注释共享修改，改用
+副本验证；总采集完整性同时要求实际失败variant覆盖和落盘/标准输出
+一致，缺失文件不再能标完整。最后校正文案：Cancel自身失败的观察在
+该次Cancel之后。以上只改报告/守卫，最终诊断`PbIrsJ`2/2、exit0通过；
+完整105项运行发生在这组报告修正前，生产、SDK、Go业务及collector未改。
+保留全部旧失败和两版报告；不以新全绿抹去低频超时，也不更新已发布ZIP。

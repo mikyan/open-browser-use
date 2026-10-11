@@ -49,12 +49,16 @@ import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase,
 import { chooserDiagnosticEnabled, chooserDiagnosticCases, createChooserDiagnostic } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
 import { downloadDiagnosticEnabled, downloadDiagnosticCases, createDownloadDiagnostic } from "./download-ready-diagnostic.mjs";
+import { goChooserDiagnosticEnabled, goChooserDiagnosticCases, summarizeGoChooserDiagnostic } from "./go-chooser-diagnostic-mode.mjs";
+import { createGoChooserDiagnostic } from "./go-chooser-diagnostic.mjs";
+import { runChooserProcess } from "./chooser-process.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const mcpBinding = mcpBindingEnabled(process.env);
 const chooserDiagnostic = chooserDiagnosticEnabled(process.env);
@@ -388,6 +392,10 @@ try {
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
   for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  for (const file of (await fs.readdir(path.join(directory, "go-chooser-waits-checks"))).filter(name => name.endsWith(".go")).sort()) {
+    const name = `go-chooser-waits-checks/${file}`;
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  }
   for (const name of ["download-waits-fixture.mjs", "download-waits-callers.mjs", "download-waits-checks.py", "go-download-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.browserStartup = createHash("sha256").update(await fs.readFile(path.join(directory, "browser-startup.mjs"))).digest("hex");
   sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
@@ -403,6 +411,8 @@ try {
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.snapshotGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "snapshot-geometry-fixture.mjs"))).digest("hex");
   if (chooserDiagnostic) sourceIdentity.sha256.chooserDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-ready-diagnostic.mjs"))).digest("hex");
+  if (goChooserDiagnostic) for (const name of ["go-chooser-diagnostic-mode.mjs", "go-chooser-diagnostic.mjs", "chooser-process.mjs", "chooser-ready-diagnostic.mjs", "download-ready-diagnostic.mjs"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   if (mcpBinding) sourceIdentity.sha256.mcpBindingFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "mcp-binding-fixture.mjs"))).digest("hex");
   if (downloadDiagnostic) {
     sourceIdentity.sha256.downloadDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "download-ready-diagnostic.mjs"))).digest("hex");
@@ -516,6 +526,7 @@ try {
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
     if (mcpBinding && !mcpBindingCases.includes(name)) return;
     if (chooserDiagnostic && !chooserDiagnosticCases.includes(name)) return;
@@ -637,20 +648,64 @@ try {
     let executablePath = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, fixtureURL, prefix, output, ...files.map(file => file.path)], detail;
     const proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") };
     if (kind === "go") {
+      const sourceDirectory = path.join(directory, "go-chooser-waits-checks"), frozenDirectory = path.join(runDir, "go-chooser-source");
+      await fs.mkdir(frozenDirectory);
+      proof.sourceFiles = {};
+      for (const file of (await fs.readdir(sourceDirectory)).filter(name => name.endsWith(".go")).sort()) {
+        const destination = path.join(frozenDirectory, file);
+        await fs.copyFile(path.join(sourceDirectory, file), destination, fsConstants.COPYFILE_EXCL);
+        proof.sourceFiles[file] = createHash("sha256").update(await fs.readFile(destination)).digest("hex");
+      }
       assert.ok(process.env.OBU_TEST_GO_CHOOSER_BINARY, "Set OBU_TEST_GO_CHOOSER_BINARY for typed Go chooser ready acceptance");
       executablePath = path.join(runDir, process.platform === "win32" ? "go-chooser-client.exe" : "go-chooser-client");
       await fs.copyFile(process.env.OBU_TEST_GO_CHOOSER_BINARY, executablePath, fsConstants.COPYFILE_EXCL);
       proof.binarySHA256 = createHash("sha256").update(await fs.readFile(executablePath)).digest("hex"); args = [endpoint, fixtureURL, prefix, output, ...files.map(file => file.path)];
     }
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: prefix, turnId: "chooser-ready", timeoutMs: 15000 });
+    const diagnostic = kind === "go" && goChooserDiagnostic ? createGoChooserDiagnostic({ worker, readFocus: readFocusLedger }) : null;
+    let childProcess, callerResult;
     try {
-      const stdout = await subprocess(executablePath, args, { timeoutMs: 120000, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
-      const result = JSON.parse(stdout); assert.deepEqual(result, JSON.parse(await fs.readFile(output, "utf8")));
-      detail = { ...checkChooserCallerResult(result, kind, prefix, files, chooserFixtures), proof };
+      const env = { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" };
+      if (diagnostic) {
+        sourceIdentity.testHooks.push("Go chooser diagnostic opt-in: bounded JSONL start/failure/finish acknowledgements around the original Go operations; exact-tab native Input/chooser-interception/Page/frame trace; original promises retained, timing may change; one total 3-second native metadata/focus read before remaining cleanup (operation failure before cancel; cancel-only failure after the attempted cancel); no task DOM read, new scope, input replay or attachment");
+        const items = new Map();
+        childProcess = await runChooserProcess(executablePath, args, { timeoutMs: 120000, env: { ...env, OBU_GO_CHOOSER_DIAGNOSTIC: "1" }, onHook: async hook => {
+          if (hook.kind === "start") items.set(hook.item.key, { ...hook.item });
+          const item = items.get(hook.item.key);
+          assert.ok(item, "Go chooser diagnostic hook has no original item");
+          await diagnostic[hook.kind]({ item });
+        } });
+        callerResult = childProcess.result;
+        assert.equal(childProcess.protocolComplete, true, JSON.stringify(childProcess.errors));
+        assert.equal(childProcess.process.exitCode, 0, childProcess.process.stderr || callerResult?.error || "Go chooser process failed");
+      } else {
+        const stdout = await subprocess(executablePath, args, { timeoutMs: 120000, env });
+        callerResult = JSON.parse(stdout);
+      }
+      assert.deepEqual(callerResult, JSON.parse(await fs.readFile(output, "utf8")));
+      // Receipt/frame annotations must never mutate the original child result.
+      detail = { ...checkChooserCallerResult(structuredClone(callerResult), kind, prefix, files, chooserFixtures), proof };
       for (const item of detail.variants) item.frames = await chooserFrameEvidence(worker, item.tabId, item.key, item.variant);
       return detail;
-    } catch (error) { detail = { error: error.stack, proof, server: chooserFixtures.allStats() }; throw error; }
-    finally { await fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(detail, null, 2)); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
+    } catch (error) {
+      let callerReadError;
+      try {
+        assert.ok((await fs.stat(output)).size <= 4 * 1024 * 1024, "Go/Python chooser partial artifact exceeds limit");
+        const saved = JSON.parse(await fs.readFile(output, "utf8"));
+        if (callerResult) assert.deepEqual(callerResult, saved, "Go stdout result differs from saved partial result");
+        callerResult = saved;
+      } catch (readError) { callerReadError = String(readError); }
+      detail = { error: error.stack, proof, callerResult, callerReadError, server: chooserFixtures.allStats() }; throw error;
+    } finally {
+      if (diagnostic) {
+        await diagnostic.cleanup();
+        detail ??= { proof, callerResult };
+        detail.childProcess = childProcess;
+        detail.diagnostic = { records: diagnostic.records, errors: diagnostic.errors };
+      }
+      await fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(detail, null, 2));
+      try { await owner.client.finalizeTabs([]); } finally { owner.close(); }
+    }
   });
   await test("js-file-chooser-public-concurrent", async () => {
     const transfers = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-transfers", timeoutMs: 15000 });
@@ -2145,6 +2200,14 @@ try {
       evidence: "chooser-js.json", readError: artifact.readError };
     await fs.writeFile(path.join(runDir, "chooser-diagnostic.json"), JSON.stringify(chooserDiagnosticResult, null, 2));
   }
+  let goChooserDiagnosticResult;
+  if (goChooserDiagnostic) {
+    let artifact;
+    try { artifact = JSON.parse(await fs.readFile(path.join(runDir, "chooser-go.json"), "utf8")); }
+    catch (error) { artifact = { readError: String(error) }; }
+    goChooserDiagnosticResult = summarizeGoChooserDiagnostic(records, artifact);
+    await fs.writeFile(path.join(runDir, "go-chooser-diagnostic.json"), JSON.stringify(goChooserDiagnosticResult, null, 2));
+  }
   let mcpBindingResult;
   if (mcpBinding) {
     mcpBindingResult = { mode: "mcp-connection-binding", acceptancePassed: false, evidence: "mcp-connection-binding.json", server: "mcp-binding-server.json" };
@@ -2163,7 +2226,7 @@ try {
       evidence: "download-ready-js.json", readError: artifact.readError };
     await fs.writeFile(path.join(runDir, "download-diagnostic.json"), JSON.stringify(downloadDiagnosticResult, null, 2));
   }
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), ...(mcpBindingResult ? { mcpBinding: mcpBindingResult } : {}), ...(downloadDiagnosticResult ? { downloadDiagnostic: downloadDiagnosticResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), ...(goChooserDiagnosticResult ? { goChooserDiagnostic: goChooserDiagnosticResult } : {}), ...(mcpBindingResult ? { mcpBinding: mcpBindingResult } : {}), ...(downloadDiagnosticResult ? { downloadDiagnostic: downloadDiagnosticResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);
@@ -2174,5 +2237,5 @@ try {
   assert.equal(actualSocketDirectory, socketDir);
   await fs.rm(actualSocketDirectory, { recursive: true, force: true });
   console.log("RESULT", path.join(runDir, "results.json"));
-  process.exitCode = records.some(record => !record.passed) || (chooserDiagnosticResult && !chooserDiagnosticResult.collectionComplete) || (downloadDiagnosticResult && !downloadDiagnosticResult.collectionComplete) ? 1 : 0;
+  process.exitCode = records.some(record => !record.passed) || (chooserDiagnosticResult && !chooserDiagnosticResult.collectionComplete) || (goChooserDiagnosticResult && !goChooserDiagnosticResult.collectionComplete) || (downloadDiagnosticResult && !downloadDiagnosticResult.collectionComplete) ? 1 : 0;
 }

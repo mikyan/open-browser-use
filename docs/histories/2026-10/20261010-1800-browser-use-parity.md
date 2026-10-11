@@ -1316,6 +1316,27 @@ Pause、turn结束、attachment替换或tab撤权不能得到成功回复。移�
 保留失败，未据此重放或延长期限，也未把错误推给本次set修复或外部操作。
 最终focus校验通过，原六激活/四popup焦点，没有新增豁免；整体目标active。
 
+### Go chooser失败证据与有界诊断
+
+修复Go caller仅全成功后才落盘导致失败阶段丢失的问题。每个variant/
+round及arm、add-frame、click、collect、set-files、receipt、cancel保留
+开始/完成/错误；原操作错误优先，取消、诊断和close错误另存。普通模式
+仍原JSON输出和请求顺序，原10秒chooser/默认click、15秒transport不变。
+
+新隔离诊断模式在Navigate后、arm前用有界JSONL ACK安装精确tab探针；
+原操作失败后、取消前一次总3秒读取trace、浏览器metadata和focus；若
+失败来自Cancel自身则在其失败后读取。不取得新scope、不attach、不重放
+点击、不读任务DOM。setup nonce及身份检查防晚安装/外来wrapper被清理，
+最终等待子进程真实close并保留输出限额及退出证据。采集完整不等于验收。
+
+339项脚手架和Go helper包通过，真实Go↔Node失败协议交叉检查通过。
+原生诊断`nFsRPz`2/2、普通专项`JWc1eT`9/9、普通完整`npV0kp`105/105，
+均实际exit0；完整焦点保留原六激活/四focus。评审后修复验证注释污染
+原caller结果、文件不一致仍可能标完整的报告问题，最终诊断`PbIrsJ`
+2/2、exit0。完整运行早于这组报告修正，浏览器动作与生产文件未改。
+旧`X2wiUq`原超时未复现、根因未定，没有据新全绿宣称修复。整体目标
+仍active，旧证据和已发布预览包不变，目录完成等能力缺口继续开放。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

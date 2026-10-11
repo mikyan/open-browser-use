@@ -42,6 +42,13 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+Go chooser调用器补齐失败partial和原阶段，诊断采集明确限于原生trace、
+浏览器metadata及focus，不重新取scope/attach或读取任务DOM。脚手架339项
+和Go helper包通过；无hook专项`JWc1eT`9/9、完整`npV0kp`105/105，实际
+exit0。完整焦点仍只有既有六激活/四focus；旧`X2wiUq`超时没有复现，
+根因仍开放。后续仅修报告原结果被注释污染、采集完整性漏守卫及措辞，
+最终诊断`PbIrsJ`2/2；诊断`acceptancePassed`始终false，不能代替能力验收。
+
 选择器提交新增单次消费及原控制完成检查，保留change后合法导航。
 旧源码新增回归23项失败、修复后通过；最后补稳定消费错误的一项也有
 旧失败/新成功对照。当前Node864+59+296通过，专项`frp1Zt`9/9；初版

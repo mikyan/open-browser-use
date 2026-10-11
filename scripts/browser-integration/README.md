@@ -4,6 +4,47 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
+## Go chooser failure evidence
+
+The Go chooser caller now saves partial results on failure, including each
+variant and round before its first operation. Arm, add-frame, click, collect,
+file submission, receipt and cancellation have separate start/return/error
+records. The original operation error survives cancellation, diagnostic and
+connection-close failures. Both ordinary and diagnostic runs write the JSON
+artifact before returning a nonzero exit code; the parent retains that artifact.
+The original 10-second chooser, default Go click and 15-second transport limits
+are unchanged. Build the entire `./scripts/browser-integration/go-chooser-waits-checks`
+package, including its diagnostic support file, rather than `main.go` alone.
+
+With the normal prerequisites and a freshly built `OBU_TEST_GO_CHOOSER_BINARY`,
+set `OBU_TEST_GO_CHOOSER_DIAGNOSTIC=1` and run `node scripts/browser-integration/run.mjs`.
+This exclusive mode selects the Go ready case and mandatory raw-navigation
+control. It rejects other selection modes and the private child switch
+`OBU_GO_CHOOSER_DIAGNOSTIC`. Unset the public flag for normal acceptance.
+
+The parent and Go child exchange bounded JSONL acknowledgements: install the
+exact-tab native recorder after Navigate and before arm; on the first business
+failure capture native trace, tab/window/frame metadata and focus within one
+3-second budget before remaining cleanup; restore after cancellation. An operation
+failure is observed before Cancel, while a cancel-only failure is observed after
+that failed cancellation. No new SDK scope,
+attachment, click, task DOM read or focus allowance is introduced. The recorder
+preserves native arguments, receiver and returned promises, but recording and
+the pre-arm handshake can affect timing. A unique setup nonce guards late
+installation and cleanup; missing identity, overflow, pending commands or
+cleanup failure or missing/mismatched caller artifact remain incomplete evidence.
+The parent waits for the child
+process `close`, retaining actual exit and bounded stdout/stderr.
+
+`chooser-go-caller.json` contains the original call phases and partial result.
+`chooser-go.json` adds the child protocol, native records and original server
+evidence. `go-chooser-diagnostic.json` and `results.json.goChooserDiagnostic`
+report task success separately from collection completeness, with
+`acceptancePassed: false`. Collection covers native commands and browser
+metadata only; it does not prove click-time DOM state or explain a historical
+failure merely because a later run passed. The default path installs no native
+command probe and uses the original ordinary JSON stdout format.
+
 ## Chooser single-submission acceptance
 
 The default `js-file-chooser-single-submission` case uses two independent JS
