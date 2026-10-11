@@ -181,7 +181,7 @@ test("contract validates frame locator chains and preserves semantic descriptors
   assert.deepEqual(validateBrowserAction(request("fill", { locator: chain, args: { value: "" } })).locator, chain);
   assert.throws(() => validateBrowserAction(request("click", { locator: [{ kind: "frame", selector: "iframe" }] })), /element locator/);
   assert.throws(() => validateBrowserAction(request("snapshot", { locator: [{ kind: "nth", index: 0 }] })), /earlier element/);
-  assert.throws(() => validateBrowserAction(request("selectOption", { locator, args: { values: { label: "A", index: 1 } } })), /exactly one/);
+  assert.deepEqual(validateBrowserAction(request("selectOption", { locator, args: { values: { label: "A", index: 1 } } })).args.values, [{ label: "A", index: 1 }]);
 });
 
 test("locator and frame screenshots reject page-only options before attachment", async () => {

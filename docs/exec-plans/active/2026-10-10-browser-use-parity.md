@@ -891,3 +891,51 @@ SHA-256 `f4d720f839a0198ae3c5ccfd97c70930368af0e78eb0d9a8b400f7e3fb634e66`。
 每个成员与最终 unpacked 及 `run-XnREpF` 验收静态产物一致，原生 Port
 adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试钩子或
 私有路径。Host 沿用已验证二进制，hash 与实际运行一致，不宣称重新构建。
+
+### P05/P06/P15：组合定位与共享表单任务（本片完成，矩阵继续）
+
+上一轮本地提交 `93b2400` 已完成有限媒体分片，作为本轮 clean 基线；
+上轮属有效进展而非等待。当前 Codex Edge 扩展接口可用，返回的正式文档
+包含 `filter(has/hasNot/visible)` 与 `and/or`，而本项目 filter 仅有文字条件。
+本轮补齐有界组合定位的正式 engine 与三个 SDK，并核对嵌套 selector 的
+网站策略、frame/ref/会话边界。已确认 selectOption 混合字符串/对象数组在
+现有校验后进入 pinned Playwright 错误 wire shape；修复必须保留字符串
+按 value 或 label 匹配的原语义，并验证实际选择结果。
+
+共享本地合成多步骤领用表单将包含重复名称作用域、动态表单、多选与勾选、
+中文/emoji、open shadow、同源及跨 origin frame、真实服务端提交与回执。
+本项目通过公开 SDK/CLI/MCP，Codex 通过当前 Edge 扩展公开工具完成同组
+任务；结果按实际 DOM 和服务端记录核验，不把不同版本/环境或调用开销
+变成不公平性能结论。可信输入只对实际 pointer/key 事件要求，不能把
+Playwright 原生 selectOption 的 DOM input/change 当成硬件可信事件。
+浏览器由 root 独占运行，源码冻结后验收；无 PR、无推送。
+
+组合定位与混合 select 已实现并冻结，原生 parser/queued mutation 与三 SDK
+单测通过；同 frame 前缀精确剥离，ref 与嵌套跨 frame 控制递归拒绝，整个
+动作树（含 drag 目标）共用 128 步限额。新增完整表单七项接入主 runner。
+发现测试 stdout 按 Buffer 分块解码会破坏中文后，改为 UTF-8 decoder 并等待
+close；四个真实 child 输出回归通过。表单专项 `run-j4jsMy` 8/8，完整 CI
+824（710 扩展 + 53 脚本 + 61 脚手架）、JS 98、Python 67、Go 全包通过。
+
+Codex Edge 扩展已实际完成相同三个布局的最终任务，独立 ledger 确认 3/3；
+共享收据 checker 同样 3/3，但需显式 label descriptor、简单 OOPIF locator
+及键盘确认等替代操作。额外严格指针一致性为 0/3，因为 cross frame 仅有
+可信 Enter 派生 click、没有 pointerdown。保留原方法失败与一次部分成功
+fill 返回错误，未无条件重试。早期 exact-label fixture driver 失败已保留，
+修改为 role 后才启动最终同 hash 对照。来源和环境范围详见 observation
+baseline；不同 profile/浏览器版本不支持速度或整体产品结论。
+
+最终完整 headed `run-6SwxDM` **77/77**，保留原 70 项并新增七项表单；
+五入口均无需替代动作，JavaScript 三布局均通过。整体 P01–P15 仍保留
+content-return、原生 popup 初始激活、launcher/reload 恢复、其他平台及
+研究/多 tab 等同组任务缺口。目标 active，仅本地提交，不提 PR、不推送。
+
+最终独立审计通过：七任务均为三次准确 POST，五张收据 PNG 的 CRC/尺寸/
+hash 正确，CLI/MCP 各 28 次实际 browserAction；旧 36 媒体文件、四读取
+取消与诊断证据保持通过。连续 observer 六次创建首 tab 激活、四条 focus
+仅归因两次测试主动打开 popup，sentinel 不变，host 两代退出。ZIP
+**1,246,279 bytes / 45 files**，SHA-256
+`baa12d3e3627305565110172dcd4f0e432e05ad17102aa7311bacc5c99d27dfd`，
+每成员与 unpacked/实测静态制品一致，无测试钩子；新增 SDK source/dist
+均追踪，内存重新编译的 14 个 JS 产物与当前文件一致。Host 明确沿用旧
+已验证二进制。pre-stage 未追踪检查失败保留，统一暂存后复核无问题。

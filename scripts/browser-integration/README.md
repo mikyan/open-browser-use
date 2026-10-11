@@ -169,9 +169,10 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 ## What it checks
 
-The suite currently contains 70 cases with the optional Go caller, including
-seven additional finite-media and read-cancellation cases. Final headed
-`run-XnREpF` passed **70/70** on the controlled testing-config baseline; the
+The suite currently contains 77 cases with all Go helper binaries, including
+seven new shared form workflows. Final headed `run-6SwxDM` passed **77/77** on
+the controlled testing-config baseline; form-focused `run-j4jsMy` passed **8/8**.
+The preceding finite-media headed `run-XnREpF` passed **70/70**; its
 independent file, native-diagnostic, continuous-focus and final ZIP audits passed.
 The preceding `run-WMOIim` remains **69/70** with a diagnostics isolation failure,
 fixed by the new native Page event timestamp boundary. The historical
@@ -793,3 +794,35 @@ The probe closes only its private browser. Root-process exit, actual native
 command settlement and trace-stream cleanup are reported separately;
 descendant processes are not inventoried. These diagnostics do not repair
 production rendering. See the [retained failures and source analysis](../../docs/references/headed-browser-startup.md).
+
+## Shared multi-step form workflows
+
+`form-workflow-fixture.mjs` serves three deterministic layout variants of the
+same synthetic request. All data stays on the loopback fixture. It includes
+duplicate names, hidden/retired decoys, `has`/`hasNot`/`visible`/`and`/`or`, native
+single and multi-select controls, idempotent checks, Chinese/emoji, open shadow
+DOM, same-origin and cross-origin frame saves, and one final submission.
+The server validates the exact payload and requires both frame saves before it
+issues a visible receipt. Evidence retains all three POSTs and page-observed
+input events; those observations are not server-authenticated hardware events.
+
+Build `./scripts/browser-integration/go-form-workflow-checks` and set
+`OBU_TEST_GO_FORM_BINARY` to that executable. Select `OBU_TEST_CASES='form-workflow'`
+with the normal host environment. Seven cases cover JS variants 1/2/3 and
+Python, Go, CLI and MCP variant 1. CLI/MCP actions and receipt screenshots go
+through their actual public `browserAction` transport, using descriptors from
+the JS public Locator builders; connection, tab setup, navigation wait and
+cleanup still use the SDK and are explicitly recorded. Each run stores receipt,
+server ledger, action trace, source hashes and five JS/CLI/MCP receipt PNGs.
+Python/Go failures retain stderr and server records even if no caller artifact
+was emitted. The standard native-navigation/focus observer checks still run.
+
+For an independent browser comparison, start
+`node scripts/browser-integration/form-workflow-server.mjs` in an interactive
+terminal. Use its printed URL with `/form-task/<fresh-key>?variant=1` (or 2/3),
+follow the visible task, read the receipt and follow its evidence link. Enter
+`stop` after closing the test tab. The server writes ready/source identity,
+server evidence and a shutdown record below `.tmp/browser-integration`.
+It never drives the comparison browser. Keep failed method attempts and any
+fallbacks separate from exact final task success; browser/profile versions and
+different API overhead do not support a speed or overall parity claim.

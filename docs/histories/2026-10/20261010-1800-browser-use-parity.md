@@ -666,6 +666,40 @@ SHA-256 `f4d720f839a0198ae3c5ccfd97c70930368af0e78eb0d9a8b400f7e3fb634e66`。
 adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试钩子或
 私有路径。Host 沿用已验证二进制，hash 与实际运行一致，不宣称重新构建。
 
+### 组合定位与同组表单任务
+
+补齐正式 engine 与 JS/Python/Go SDK 的 `filter(has/hasNot/visible)`、
+`and/or`；每链 32 步、整棵动作树 128 步、嵌套深度 8。组合输入在异步等待前
+深复制，要求同 client/tab 与匹配的 frame 前缀；递归 parser 继续约束 refs、
+隐藏 enter-frame、网站策略与媒体来源。混合 selectOption 逐项转换，保留
+字符串 value-or-label 与多字段 descriptor 的联合约束，避免首项决定整数组
+转换类型造成错误。公共协议不开放 runtime 私有字段。
+
+新增三个布局变体的共享本地表单，涵盖同名分组、隐藏/停用项、动态提交、
+中文/emoji、勾选幂等、Shadow DOM 与同源/跨源 frame。五入口通过真实服务端
+保存/提交和准确收据判断完成。测试进程改用 UTF-8 流式解码并等待 close，
+真实分块输出/尾部 drain 回归避免中文错误被误判为产品失败。
+
+当前 Codex Edge 扩展实际完成相同三个布局：最终任务 3/3、共享收据检查
+3/3，但标签字符串/混合多选和跨源组合需要替代调用，跨源确认由可信 Enter
+完成；额外严格指针检查为 0/3。姓名填入后一次 detached 返回经 DOM 核实已
+生效，未重放。早期 exact-label 测试脚本问题与零提交失败单独保留。独立
+ledger 审计不把最终成功说成每个操作相同，也不推断 Codex OS 焦点或速度。
+本项目表单专项 `run-j4jsMy` 8/8；全仓 CI 824（710+53+61）、JS 98、Python 67、
+Go 全包及其他 workspace 检查通过。完整矩阵继续，不提 PR、不推送。
+
+最终完整 headed `run-6SwxDM` **77/77**，保留旧 70 项与新增七项表单。
+原生 host 两代实际退出，连续焦点记录与已知 popup 例外由独立审计核对。
+这完成本轮组合定位/表单分片，未关闭 content-return、原生 popup、更多
+恢复/平台和研究/多 tab 同组任务缺口；长期目标保持 active。
+
+独立审计核对七任务各三次准确 POST、五张实际收据 PNG、CLI/MCP 各28次
+正式调用，以及旧媒体/取消/诊断证据。六次创建激活与四条主动 popup focus
+精确归因、sentinel 不变。最终 ZIP **1,246,279 bytes / 45 files**，SHA-256
+`baa12d3e3627305565110172dcd4f0e432e05ad17102aa7311bacc5c99d27dfd`。
+每成员与 unpacked/实测静态产物一致、无测试钩子；SDK新增源码和dist均已
+追踪，内存重新编译结果一致。Host沿用原已验证二进制，不宣称新构建。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

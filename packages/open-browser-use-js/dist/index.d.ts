@@ -63,6 +63,19 @@ export type OpenBrowserUseLocatorStep = {
     kind: "filter";
     hasText?: string;
     hasNotText?: string;
+    visible?: boolean;
+    has?: readonly OpenBrowserUseLocatorStep[];
+    hasNot?: readonly OpenBrowserUseLocatorStep[];
+} | {
+    kind: "and" | "or";
+    locator: readonly OpenBrowserUseLocatorStep[];
+};
+export type OpenBrowserUseFilterOptions = {
+    hasText?: string;
+    hasNotText?: string;
+    visible?: boolean;
+    has?: OpenBrowserUseLocator;
+    hasNot?: OpenBrowserUseLocator;
 };
 export type OpenBrowserUseAISnapshotLimits = {
     maxBytes: number;
@@ -299,10 +312,9 @@ export declare class OpenBrowserUseLocator {
     first(): OpenBrowserUseLocator;
     last(): OpenBrowserUseLocator;
     nth(index: number): OpenBrowserUseLocator;
-    filter(options: {
-        hasText?: string;
-        hasNotText?: string;
-    }): OpenBrowserUseLocator;
+    filter(options: OpenBrowserUseFilterOptions): OpenBrowserUseLocator;
+    and(other: OpenBrowserUseLocator): OpenBrowserUseLocator;
+    or(other: OpenBrowserUseLocator): OpenBrowserUseLocator;
     downloadMedia(options?: OpenBrowserUseMediaDownloadOptions): Promise<OpenBrowserUseDownload>;
     click(options?: OpenBrowserUseActionOptions): Promise<void>;
     dblclick(options?: OpenBrowserUseActionOptions): Promise<void>;

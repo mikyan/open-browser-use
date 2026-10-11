@@ -6,6 +6,7 @@ from typing import Any
 
 from ._ai_snapshot import validate_capture_ref
 from ._downloads import OpenBrowserUseDownload, download_file_params
+from ._locator_composition import copy_steps, relative_steps, combined_budget
 
 
 def action_options(options: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +52,7 @@ class BrowserKeyboard:
 class LocatorFactory:
     def __init__(self, tab: Any, steps: list[dict[str, Any]] | None = None) -> None:
         self._tab = tab
-        self._steps = steps or []
+        self._steps = copy_steps(steps if steps is not None else [])
         if any(step.get("kind") == "ref" for step in self._steps):
             if len(self._steps) != 1:
                 raise ValueError("Ref locators cannot be chained")
@@ -123,18 +124,37 @@ class OpenBrowserUseLocator(LocatorFactory):
     def nth(self, index: int) -> "OpenBrowserUseLocator":
         return self._append({"kind": "nth", "index": index})
 
-    def filter(self, *, has_text: str | None = None,
-               has_not_text: str | None = None) -> "OpenBrowserUseLocator":
+    def _operand(self, other: "OpenBrowserUseLocator", *, relative: bool) -> list[dict[str, Any]]:
+        if (not isinstance(other, OpenBrowserUseLocator) or self._tab.id != other._tab.id
+                or self._tab.browser.client is not other._tab.browser.client):
+            raise ValueError("Locator composition requires the same tab and client")
+        return relative_steps(self._steps, other._steps, relative=relative)
+
+    def filter(self, *, has_text: str | None = None, has_not_text: str | None = None,
+               has: "OpenBrowserUseLocator | None" = None, has_not: "OpenBrowserUseLocator | None" = None,
+               visible: bool | None = None) -> "OpenBrowserUseLocator":
         step: dict[str, Any] = {"kind": "filter"}
         if has_text is not None:
             step["hasText"] = has_text
         if has_not_text is not None:
             step["hasNotText"] = has_not_text
+        if visible is not None:
+            step["visible"] = visible
+        if has is not None:
+            step["has"] = self._operand(has, relative=True)
+        if has_not is not None:
+            step["hasNot"] = self._operand(has_not, relative=True)
         return self._append(step)
+
+    def and_(self, other: "OpenBrowserUseLocator") -> "OpenBrowserUseLocator":
+        return self._append({"kind": "and", "locator": self._operand(other, relative=False)})
+
+    def or_(self, other: "OpenBrowserUseLocator") -> "OpenBrowserUseLocator":
+        return self._append({"kind": "or", "locator": self._operand(other, relative=False)})
 
     def _action(self, action: str, args: dict[str, Any] | None = None,
                 timeout_ms: int | None = None) -> Any:
-        return self._tab.action(action, locator=self._steps, args=action_options(args or {}), timeout_ms=timeout_ms)
+        return self._tab.action(action, locator=copy_steps(self._steps), args=action_options(args or {}), timeout_ms=timeout_ms)
 
     def click(self, *, timeout_ms: int | None = None, **options: Any) -> None:
         self._action("click", options, timeout_ms)
@@ -156,7 +176,8 @@ class OpenBrowserUseLocator(LocatorFactory):
         if (not isinstance(target, OpenBrowserUseLocator) or self._tab.id != target._tab.id
                 or self._tab.browser.client is not target._tab.browser.client):
             raise ValueError("drag_to requires a target in the same tab and client")
-        self._action("dragTo", {**options, "target": target._steps}, timeout_ms)
+        combined_budget(self._steps, target._steps)
+        self._action("dragTo", {**options, "target": copy_steps(target._steps)}, timeout_ms)
 
     def focus(self, *, timeout_ms: int | None = None) -> None:
         self._action("focus", timeout_ms=timeout_ms)

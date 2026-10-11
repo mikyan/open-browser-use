@@ -14,6 +14,7 @@ export const BROWSER_ENGINE_INFO = Object.freeze({
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 120_000;
+export const LOCATOR_LIMITS = Object.freeze({ maxSteps: 32, maxTotalSteps: 128, maxDepth: 8 });
 // Hidden cross-process frame hit-test surfaces need a committed compositor frame
 // just like screenshots do. Hold the backend's rendering lease across the real
 // Playwright operation; do not retry or synthesize successful pointer input.
@@ -81,14 +82,14 @@ export function validateBrowserAction(params) {
   integer(params.tabId, "tabId");
   string(params.action, "action");
   if (!Object.hasOwn(actionArguments, params.action)) throw new Error(`Unsupported browser action: ${params.action}`);
-  const args = params.args ?? {};
+  const args = { ...record(params.args ?? {}, `${params.action} args`) };
   keys(args, actionArguments[params.action], `${params.action} args`);
   if (params.action === "snapshotAI") snapshotLimits(args);
   const timeout = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   finite(timeout, "timeoutMs", 1);
   if (timeout > MAX_TIMEOUT_MS) throw new Error(`timeoutMs must be <= ${MAX_TIMEOUT_MS}`);
-  const steps = params.locator ?? [];
-  validateLocator(steps);
+  const locatorBudget = { steps: 0 };
+  const steps = validateLocator(params.locator ?? [], locatorBudget);
   if (locatorActions.has(params.action) && (!steps.length || steps.at(-1)?.kind === "frame")) throw new Error(`${params.action} requires an element locator`);
   if (!locatorActions.has(params.action) && !["snapshot", "screenshot"].includes(params.action) && steps.length) throw new Error(`${params.action} does not accept a locator`);
   if (params.action === "screenshot" && steps.length && (Object.hasOwn(args, "fullPage") || Object.hasOwn(args, "clip"))) throw new Error("Locator screenshots do not support fullPage or clip; use a page screenshot instead");
@@ -106,7 +107,7 @@ export function validateBrowserAction(params) {
     keys(args[key], ["x", "y"], key); finite(args[key].x, `${key}.x`); finite(args[key].y, `${key}.y`);
   }
   if (params.action === "dragTo") {
-    validateLocator(args.target);
+    args.target = validateLocator(args.target, locatorBudget);
     if (!args.target.length || args.target.at(-1)?.kind === "frame") throw new Error("dragTo target requires an element locator");
   }
   if (params.action === "diagnostics") {
@@ -128,7 +129,7 @@ export function validateBrowserAction(params) {
   if (["keyboard.type", "keyboard.insertText", "pressSequentially"].includes(params.action)) string(args.text, "text", true);
   if (params.action === "getAttribute") string(args.name, "name");
   if (params.action === "setChecked") boolean(args.checked, "checked");
-  if (params.action === "selectOption") validateSelectValues(args.values);
+  if (params.action === "selectOption") args.values = validateSelectValues(args.values);
   if (params.action === "waitFor" && args.state !== undefined) oneOf(args.state, ["attached", "detached", "visible", "hidden"], "state");
   if (params.action === "waitForLoadState" && args.state !== undefined) oneOf(args.state, ["load", "domcontentloaded", "networkidle"], "state");
   if (["goto", "waitForURL"].includes(params.action)) string(args.url, "url");
@@ -140,22 +141,34 @@ export function validateBrowserAction(params) {
 
 function validateSelectValues(values) {
   const entries = Array.isArray(values) ? values : [values];
-  for (const value of entries) {
-    if (typeof value === "string") continue;
+  return Object.freeze(entries.map(value => {
+    // The pinned client chooses its conversion from the first array item.
+    // Normalize every entry to its native object shape so mixed inputs retain
+    // string's value-OR-label matching instead of becoming an invalid channel.
+    if (typeof value === "string") return Object.freeze({ valueOrLabel: value });
     keys(value, ["value", "label", "index"], "selectOption value");
-    if (Object.keys(value).length !== 1) throw new Error("selectOption value needs exactly one of value, label, index");
-    if (value.index !== undefined) integer(value.index, "index");
-    else string(value.value ?? value.label, "selectOption value", true);
-  }
+    if (!Object.keys(value).length) throw new Error("selectOption value needs at least one of value, label, index");
+    for (const key of ["value", "label"]) if (Object.hasOwn(value, key)) string(value[key], `selectOption ${key}`, true);
+    if (Object.hasOwn(value, "index")) {
+      if (!Number.isSafeInteger(value.index) || value.index < 0) throw new Error("selectOption index must be a nonnegative safe integer");
+    }
+    return Object.freeze({ ...value });
+  }));
 }
 
-export function validateLocator(steps) {
-  if (!Array.isArray(steps) || steps.length > 32) throw new Error("locator must be an array of at most 32 steps");
+export function validateLocator(steps, budget = { steps: 0 }, depth = 0) {
+  if (!Array.isArray(steps) || steps.length > LOCATOR_LIMITS.maxSteps) throw new Error("locator must be an array of at most 32 steps");
+  if (depth > LOCATOR_LIMITS.maxDepth) throw new Error("locator nesting exceeds 8 levels");
+  if (depth && !steps.length) throw new Error("nested locator must be a nonempty element-relative chain");
+  budget.steps += steps.length;
+  if (budget.steps > LOCATOR_LIMITS.maxTotalSteps) throw new Error("action locator trees exceed 128 total steps");
   let element = false;
-  for (const step of steps) {
-    record(step, "locator step");
+  const result = [];
+  for (const input of steps) {
+    const step = { ...record(input, "locator step") };
     const kind = step.kind;
     if (kind === "ref") {
+      if (depth) throw new Error("ref locators cannot be composed");
       keys(step, ["kind", "captureId", "ref"], "ref locator");
       string(step.captureId, "captureId");
       if (step.captureId.length > 128) throw new Error("captureId is too long");
@@ -163,6 +176,7 @@ export function validateLocator(steps) {
       if (steps.length !== 1) throw new Error("ref locator must be a singleton; chaining is unsupported");
       element = true;
     } else if (["css", "frame"].includes(kind)) {
+      if (depth && kind === "frame") throw new Error("nested locators must stay in the current frame");
       keys(step, ["kind", "selector"], "locator step"); string(step.selector, "selector"); element = kind === "css";
     } else if (kind === "role") {
       keys(step, ["kind", "role", "name", "exact"], "role locator"); string(step.role, "role");
@@ -174,12 +188,27 @@ export function validateLocator(steps) {
       string(step.value, "value", true);
       if (step.exact !== undefined) boolean(step.exact, "exact");
       element = true;
-    } else if (["nth", "first", "last", "filter"].includes(kind)) {
+    } else if (["nth", "first", "last", "filter", "and", "or"].includes(kind)) {
       if (!element) throw new Error(`${kind} requires an earlier element locator`);
-      keys(step, kind === "nth" ? ["kind", "index"] : kind === "filter" ? ["kind", "hasText", "hasNotText"] : ["kind"], `${kind} locator`);
+      keys(step, kind === "nth" ? ["kind", "index"] : kind === "filter" ? ["kind", "hasText", "hasNotText", "has", "hasNot", "visible"] : ["and", "or"].includes(kind) ? ["kind", "locator"] : ["kind"], `${kind} locator`);
       if (kind === "nth") integer(step.index, "index");
       for (const key of ["hasText", "hasNotText"]) if (step[key] !== undefined) string(step[key], key, true);
+      if (Object.hasOwn(step, "visible")) boolean(step.visible, "visible");
+      for (const key of ["has", "hasNot"]) if (Object.hasOwn(step, key)) step[key] = validateLocator(step[key], budget, depth + 1);
+      if (kind === "and" || kind === "or") step.locator = validateLocator(step.locator, budget, depth + 1);
     } else throw new Error(`Unsupported locator kind: ${String(kind)}`);
+    result.push(Object.freeze(step));
+  }
+  return Object.freeze(result);
+}
+
+// Call only on validated trees. Parser-backed guards must see every selector,
+// including nested filters/combinators and drag destinations. Relative nested
+// selectors additionally forbid native enter-frame controls hidden in CSS.
+export function visitLocatorSelectors(steps, visitor, frameRelative = false) {
+  for (const step of steps) {
+    if (step.kind === "css" || step.kind === "frame") visitor(step.selector, frameRelative);
+    for (const key of ["has", "hasNot", "locator"]) if (step[key]) visitLocatorSelectors(step[key], visitor, true);
   }
 }
 
@@ -204,7 +233,10 @@ export function resolveBrowserLocator(page, steps, resolveRef) {
       case "nth": target = target.nth(step.index); break;
       case "first": target = target.first(); break;
       case "last": target = target.last(); break;
-      case "filter": target = target.filter({ hasText: step.hasText, hasNotText: step.hasNotText }); break;
+      case "filter": target = target.filter({ hasText: step.hasText, hasNotText: step.hasNotText, visible: step.visible,
+        has: step.has && resolveBrowserLocator(page, step.has), hasNot: step.hasNot && resolveBrowserLocator(page, step.hasNot) }); break;
+      case "and": target = target.and(resolveBrowserLocator(page, step.locator)); break;
+      case "or": target = target.or(resolveBrowserLocator(page, step.locator)); break;
     }
   }
   return target;
@@ -425,7 +457,7 @@ export class BrowserActionEngine {
       locator: request.locator, timeoutMs: request.timeoutMs
     });
     if (!Number.isSafeInteger(validated.control_epoch) || validated.control_epoch < 1 || !Number.isFinite(deadlineAt) || typeof sourceCheck !== "function") throw new Error("Invalid media source admission");
-    const params = { ...validated, locator: validated.locator.map(step => Object.freeze({ ...step })) };
+    const params = validated;
     const generation = this.generations.get(params.tabId) ?? 0;
     const timeout = () => new Error("OBU_DOWNLOAD_TIMEOUT: media source deadline expired");
     const expired = () => new Error("OBU_MEDIA_SOURCE_CHANGED: media attachment or document changed");
@@ -446,7 +478,7 @@ export class BrowserActionEngine {
       const runtime = await this.runtime(); await check();
       // Media provenance always requires audited utility-world selector engines,
       // even when the user's ordinary browser actions are unrestricted.
-      for (const step of params.locator) if (step.kind === "css" || step.kind === "frame") runtime.assertOpenBrowserUseSelector(step.selector, true);
+      visitLocatorSelectors(params.locator, (selector, frameRelative) => runtime.assertOpenBrowserUseSelector(selector, true, frameRelative));
       // Admission already established this exact attachment. A stale source
       // must never reacquire a tab or enter ownership cleanup recursively.
       entry = await attachment; await check();
@@ -492,15 +524,17 @@ export class BrowserActionEngine {
     const current = previous.catch(() => {}).then(async () => {
       await check();
       if (params.action === "engineInfo") return { value: BROWSER_ENGINE_INFO, engine: BROWSER_ENGINE_INFO };
-      const rawSelectors = [...params.locator, ...(params.action === "dragTo" ? params.args.target : [])]
-        .filter(step => step.kind === "css" || step.kind === "frame");
+      const rawSelectors = [];
+      const collectSelector = (selector, frameRelative) => rawSelectors.push({ selector, frameRelative });
+      visitLocatorSelectors(params.locator, collectSelector);
+      if (params.action === "dragTo") visitLocatorSelectors(params.args.target, collectSelector);
       if (rawSelectors.length) {
         const runtime = await this.runtime();
         await check();
         // Use the actual selector parser so reserved native ref engines cannot
         // bypass capture checks, including nested selectors. CSS/text literals
         // that happen to contain "aria-ref=" keep their native semantics.
-        for (const step of rawSelectors) runtime.assertOpenBrowserUseSelector(step.selector, this.restrictedSelectors());
+        for (const step of rawSelectors) runtime.assertOpenBrowserUseSelector(step.selector, this.restrictedSelectors(), step.frameRelative);
       }
       phase = "attaching";
       const entry = await this.attach(params.tabId, generation);

@@ -20,6 +20,29 @@ open-browser-use info
 
 ## Usage
 
+Locators support bounded composition through the extension's native engine:
+
+```py
+chosen = tab.get_by_role("listitem").filter(
+    has=tab.get_by_text("Research", exact=True),
+    has_not=tab.get_by_text("Unavailable"), visible=True,
+).and_(tab.locator(".eligible"))
+chosen.get_by_role("button", name="Choose").click()
+either = tab.get_by_role("button", name="Save").or_(
+    tab.get_by_role("button", name="Continue"))
+either.filter(visible=True).click()
+tab.get_by_label("Materials").select_option(["Manual", {"value": "sticker"}])
+```
+
+Operands must use the same client and tab ID. `has`/`has_not` match inside each
+candidate: use a root builder or the exact same frame prefix as the outer
+locator (the SDK strips it). `and_`/`or_` require equal frame prefixes. Nested
+operands cannot enter frames or contain capture refs; ref locators cannot be
+composed. Trees are copied, with 32 steps per chain, depth 8, and 128 total
+steps per action including a drag target. `or_` retains native strictness if
+both alternatives match. `visible=False` is valid. Select strings match value
+or label; descriptors use only `value`, `label`, and nonnegative `index`.
+
 ```py
 import json
 import os

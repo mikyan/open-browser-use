@@ -9,6 +9,7 @@ export { OpenBrowserUseNavigationWait } from "./navigation-waits.js";
 import { createConnection } from "node:net";
 import { endianness } from "node:os";
 import { randomUUID } from "node:crypto";
+import { copyLocatorSteps, relativeLocatorSteps, assertCombinedLocatorBudget } from "./locator-composition.js";
 import { OpenBrowserUseNetworkWait, networkWaitAck, networkWaitMatch, networkWaitTimeout } from "./network-waits.js";
 export { OpenBrowserUseNetworkWait } from "./network-waits.js";
 const headerBytes = 4;
@@ -676,7 +677,7 @@ export class OpenBrowserUseLocator {
                 throw new Error("Ref locators cannot be chained");
             assertCaptureRef(steps[0].captureId, steps[0].ref);
         }
-        this.steps = Object.freeze(steps.map(step => Object.freeze({ ...step })));
+        this.steps = copyLocatorSteps(steps);
     }
     #append(step) {
         if (this.steps.some(existing => existing.kind === "ref"))
@@ -700,7 +701,19 @@ export class OpenBrowserUseLocator {
     first() { return this.#append({ kind: "first" }); }
     last() { return this.#append({ kind: "last" }); }
     nth(index) { return this.#append({ kind: "nth", index }); }
-    filter(options) { return this.#append({ kind: "filter", ...options }); }
+    #operand(other, relative) {
+        if (!(other instanceof _a) || other.tab.id !== this.tab.id || other.tab.browser.client !== this.tab.browser.client)
+            throw new Error("Locator composition requires the same tab and client");
+        return relativeLocatorSteps(this.steps, other.steps, relative);
+    }
+    filter(options) {
+        if (!options || typeof options !== "object" || Object.keys(options).some(key => !["hasText", "hasNotText", "visible", "has", "hasNot"].includes(key)))
+            throw new Error("Invalid filter options");
+        const { has, hasNot, ...values } = options;
+        return this.#append({ kind: "filter", ...values, ...(has !== undefined ? { has: this.#operand(has, true) } : {}), ...(hasNot !== undefined ? { hasNot: this.#operand(hasNot, true) } : {}) });
+    }
+    and(other) { return this.#append({ kind: "and", locator: this.#operand(other, false) }); }
+    or(other) { return this.#append({ kind: "or", locator: this.#operand(other, false) }); }
     async #perform(action, options = {}) {
         return (await this.tab.browser.client.browserAction(this.tab.id, action, {
             locator: this.steps, args: actionArgs(options), timeoutMs: options.timeoutMs
@@ -721,6 +734,7 @@ export class OpenBrowserUseLocator {
         if (!(target instanceof _a) || target.tab.id !== this.tab.id || target.tab.browser.client !== this.tab.browser.client) {
             throw new Error("dragTo requires a target locator from the same tab and client");
         }
+        assertCombinedLocatorBudget(this.steps, target.steps);
         await this.#perform("dragTo", { ...options, target: [...target.steps] });
     }
     async fill(value, options = {}) { await this.#perform("fill", { ...options, value }); }

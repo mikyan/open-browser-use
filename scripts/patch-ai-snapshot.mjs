@@ -3,7 +3,7 @@ import vm from "node:vm";
 const caps = { maxBytes: 262144, maxNodes: 5000, maxRefs: 2000, maxFrames: 32, maxDepth: 64 };
 
 const selectorGuard = `
-export function assertOpenBrowserUseSelector(selector, restricted = false) {
+export function assertOpenBrowserUseSelector(selector, restricted = false, frameRelative = false) {
   // This finite set is reviewed against the pinned native parser/engines. The
   // framework engines run in the main world and inspect arbitrary properties;
   // registered custom engines can contain code. Neither is a document locator
@@ -17,6 +17,8 @@ export function assertOpenBrowserUseSelector(selector, restricted = false) {
   ]);
   visitAllSelectorParts(parseSelector(selector), part => {
     if (part.name === "aria-ref") throw new Error("OBU_REF_SELECTOR_REQUIRES_CAPTURE: use the capture-scoped ref descriptor");
+    if (frameRelative && part.name === "internal:control" && part.body === "enter-frame")
+      throw new Error("OBU_LOCATOR_FRAME_MISMATCH: nested locators cannot enter another frame");
     if (restricted && (!allowed.has(part.name) || (part.name === "internal:control" && part.body !== "enter-frame")))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this selector engine is unavailable with website restrictions");
   });

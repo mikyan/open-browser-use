@@ -39,7 +39,8 @@ and limitations; it does not claim parity with current Playwright or Codex.
 | `frame` | `selector` | `frameLocator(selector)` |
 | `nth` | nonnegative integer `index` | `nth(index)` |
 | `first`, `last` | none | `first()`, `last()` |
-| `filter` | optional string `hasText`, `hasNotText` | `filter(...)` |
+| `filter` | optional strings `hasText`, `hasNotText`; boolean `visible`; relative locator arrays `has`, `hasNot` | `filter(...)` |
+| `and`, `or` | relative `locator` array | `and(...)`, `or(...)` |
 | `ref` | `captureId`, `ref`; singleton only | Native `aria-ref` locator after current capture validation |
 
 Ordinal/filter steps require an earlier element locator. Frame steps retain
@@ -50,6 +51,38 @@ snapshot defaults to `body`, or a selected frame's body. Screenshot without a
 locator captures the page. `fullPage` and `clip` are page-only options and are
 rejected for every element/frame locator screenshot, including explicit
 `fullPage: false`; unsupported options are never silently ignored.
+
+Composition also requires an earlier element locator. Each chain has at most
+32 steps, with at most 128 total steps across one action (including a drag
+target) and eight nested composition levels. Nested chains must be nonempty
+element locators; they cannot enter a frame or use capture refs. Native selector
+parsing checks nested CSS, including encoded internal selectors, against the
+same frame, ref and restricted-site rules as the outer locator. A selector
+string merely containing those words is not treated as an actual frame/ref.
+
+Wire `has`/`hasNot` and `and`/`or` branches are relative to the outer locator's
+frame. SDK builders accept only locators from the same client and tab. Predicates
+can use a tab-root relative builder or the exact same frame prefix as the outer
+locator; the matching prefix is removed before serialization. `and`/`or` require
+matching frame prefixes on both operands. Prefixes end at the last explicit
+frame step, including every step before it; URL or suffix similarity does not
+prove identity. Refs remain singleton locators and cannot be composed.
+
+For example, a card can be selected by a nested heading without matching a
+decoy with similar aggregate text:
+
+```json
+[
+  {"kind":"role","role":"article"},
+  {"kind":"filter","has":[{"kind":"role","role":"heading","name":"Delivery","exact":true}]},
+  {"kind":"label","value":"Name","exact":true}
+]
+```
+
+`or` preserves native strictness: two distinct matching elements still fail a
+single-element action. `and` matches the same element satisfying both queries,
+not a descendant. Old extensions reject unsupported composition fields instead
+of silently dropping a condition.
 
 Element/frame screenshots reveal each iframe owner from the outside in before
 the final Playwright screenshot. Offscreen child renderers can suspend animation
@@ -154,7 +187,7 @@ All arguments are in `args`; unknown keys are rejected before attachment.
 | `focus`, `scrollIntoViewIfNeeded` | none |
 | `dragTo` | required `target` locator descriptor array, optional `force`, `sourcePosition`, `targetPosition` |
 | `check`, `uncheck`, `setChecked` | optional `force`, `position`; `setChecked` requires boolean `checked` |
-| `selectOption` | `values`: string, `{value}`, `{label}`, `{index}`, or array; optional `force` |
+| `selectOption` | `values`: string, nonempty descriptor with `value` / `label` / `index`, or mixed array; optional `force` |
 | `waitFor` | optional `state`: attached/detached/visible/hidden |
 | `count`, `innerText`, `textContent`, `inputValue`, `isVisible`, `isEnabled`, `isChecked`, `boundingBox`, `allTextContents`, `allInnerTexts` | none |
 | `getAttribute` | string `name` |
@@ -171,6 +204,13 @@ All arguments are in `args`; unknown keys are rejected before attachment.
 | `keyboard.insertText` | `text` |
 
 Navigation actions return `{ "url": "<actual page URL>", "status": <number or null> }`.
+
+For `selectOption`, a string matches an option's value or label. A descriptor
+may combine `value`, `label` and a nonnegative safe-integer `index`; all supplied
+constraints must match the same option. Mixed strings and descriptors preserve
+these native semantics independently of array order. Empty descriptors, unknown
+keys and the runtime's private `valueOrLabel` field are rejected at the public
+protocol boundary.
 History navigation with no available entry returns the unchanged URL and `null`
 status. A navigation restored from browser history may also have no new response.
 

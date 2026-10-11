@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import fs from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
@@ -35,6 +35,7 @@ import { FocusLedger, assertQuietObserverSetup, currentWorkerVersion, focusArray
 import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startup.mjs";
 import { NativeHostBridge, nativeAdapterSource } from "./native-host-bridge.mjs";
 import { lifecycleRecoveryFixture, checkOwnedTabRevocation, checkNativeHostRestart } from "./lifecycle-recovery-fixture.mjs";
+import { createFormWorkflowFixture, checkFormWorkflow, checkFormReceipt } from "./form-workflow-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -111,10 +112,13 @@ function subprocess(command, args, { input, timeoutMs = 30000, ...options } = {}
     const process = spawn(command, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], ...options });
     let stdout = "", stderr = "";
     const timer = setTimeout(() => { process.kill(); reject(new Error(`${command} exceeded test deadline`)); }, timeoutMs);
-    process.stdout.on("data", data => stdout += data.toString());
-    process.stderr.on("data", data => stderr += data.toString());
+    process.stdout.setEncoding("utf8"); process.stderr.setEncoding("utf8");
+    process.stdout.on("data", data => stdout += data);
+    process.stderr.on("data", data => stderr += data);
     process.once("error", error => { clearTimeout(timer); reject(error); });
-    process.once("exit", code => { clearTimeout(timer); code === 0 ? resolve(stdout) : reject(new Error(`${command} exited ${code}: ${stderr}`)); });
+    // Exit can precede the final pipe data. Close confirms both output streams
+    // have drained, including a split UTF-8 sequence at the end of the response.
+    process.once("close", code => { clearTimeout(timer); code === 0 ? resolve(stdout) : reject(new Error(`${command} exited ${code}: ${stderr}`)); });
     process.stdin.end(input);
   });
 }
@@ -132,6 +136,7 @@ async function hashTree(root) {
 }
 async function withMCPClient(executable, endpoint, sessionId, use) {
   const child = spawn(path.resolve(executable), ["mcp", "--socket", endpoint, "--session-id", sessionId, "--timeout", "15s"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
   let id = 0, buffer = "", stderr = "";
   const pending = new Map();
   const fail = error => { for (const item of pending.values()) { clearTimeout(item.timer); item.reject(error); } pending.clear(); };
@@ -143,7 +148,7 @@ async function withMCPClient(executable, endpoint, sessionId, use) {
     send({ jsonrpc: "2.0", id: requestId, method, params });
   });
   child.stdout.on("data", chunk => {
-    buffer += chunk.toString();
+    buffer += chunk;
     let newline;
     while ((newline = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
@@ -155,9 +160,9 @@ async function withMCPClient(executable, endpoint, sessionId, use) {
       } catch (error) { fail(error); }
     }
   });
-  child.stderr.on("data", chunk => stderr += chunk.toString());
+  child.stderr.on("data", chunk => stderr += chunk);
   child.once("error", fail);
-  const closed = new Promise(resolve => child.once("exit", code => { fail(new Error(`MCP exited ${code}: ${stderr}`)); resolve(code); }));
+  const closed = new Promise(resolve => child.once("close", code => { fail(new Error(`MCP exited ${code}: ${stderr}`)); resolve(code); }));
   try {
     const initialized = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "obu-network-integration", version: "1.0.0" } });
     assert.equal(initialized.protocolVersion, "2025-06-18");
@@ -214,6 +219,7 @@ const navigationFixtures = createNavigationWaitFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
+const formWorkflows = createFormWorkflowFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
@@ -221,6 +227,7 @@ const http = createServer(async (request, response) => {
   if (directDownloads.handle(request, response)) return;
   if (mediaDownloads.handle(request, response, httpPort)) return;
   if (embeddedMedia.handle(request, response, httpPort)) return;
+  if (formWorkflows.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -359,6 +366,9 @@ try {
   sourceIdentity.sha256.mediaLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-lifecycle-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.mediaContentLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-content-lifecycle-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.mediaReferenceFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-reference-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.formWorkflowFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "form-workflow-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.formWorkflowPython = createHash("sha256").update(await fs.readFile(path.join(directory, "form-workflow-checks.py"))).digest("hex");
+  sourceIdentity.sha256.formWorkflowGo = createHash("sha256").update(await fs.readFile(path.join(directory, "go-form-workflow-checks/main.go"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   nativeBridge = new NativeHostBridge({ server: ws, executable, socketDir, stats: nativeFrameStats,
@@ -1269,6 +1279,113 @@ try {
       });
     } finally { directDownloads.release(cancelKey); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
   });
+  for (const [kind, variant] of [["js", 1], ["js", 2], ["js", 3], ["cli", 1], ["mcp", 1]]) {
+    await test(`${kind}-form-workflow-v${variant}`, async () => {
+      const key = `${kind}-form-${variant}-${randomUUID()}`, sessionId = key, calls = [];
+      const artifact = path.join(runDir, `form-workflow-${kind}-v${variant}.json`);
+      const route = kind === "js" ? "typed JS SDK" : `${kind.toUpperCase()} browserAction with descriptors produced by typed JS Locator builders`;
+      let owner, detail, failure, scope;
+      try {
+        owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 });
+        await owner.client.beginTurn();
+        scope = Object.freeze({ session_id: sessionId, turn_id: owner.client.turnId, control_epoch: owner.client.controlEpoch });
+        assert.ok(Number.isSafeInteger(scope.control_epoch) && scope.control_epoch > 0);
+        const runWorkflow = async call => {
+          if (call) owner.client.browserAction = async (tabId, action, options = {}) => {
+            assert.equal(owner.client.turnId, scope.turn_id);
+            assert.equal(owner.client.controlEpoch, scope.control_epoch);
+            const params = { ...scope, tabId, action, ...(options.locator ? { locator: options.locator } : {}),
+              ...(options.args ? { args: options.args } : {}), timeoutMs: options.timeoutMs ?? 10000 };
+            const witness = { index: calls.length, params: structuredClone(params), startedAt: performance.now() };
+            calls.push(witness);
+            try {
+              const response = await call("browserAction", params);
+              assert.ok(response && Object.hasOwn(response, "value"));
+              assert.equal(response.engine?.name, "playwright-crx");
+              witness.passed = true;
+              return response;
+            } catch (error) { witness.error = String(error); throw error; }
+            finally { witness.elapsedMs = performance.now() - witness.startedAt; }
+          };
+          return checkFormWorkflow({ browser: owner, fixtureURL: new URL(`/form-task/${key}`, fixtureURL).href,
+            server: formWorkflows, variant, key,
+            onReceipt: async (receiptTab, receiptDetail) => {
+              const screenshot = await receiptTab.screenshot({ type: "png", timeoutMs: 10000 });
+              assert.equal(screenshot.mimeType, "image/png");
+              const image = pngDimensions(screenshot.base64), filename = `form-workflow-${kind}-v${variant}-receipt.png`;
+              await fs.writeFile(path.join(runDir, filename), image.bytes, { flag: "wx" });
+              receiptDetail.screenshot = { filename, bytes: image.bytes.length, width: image.width, height: image.height,
+                sha256: createHash("sha256").update(image.bytes).digest("hex") };
+            } });
+        };
+        if (kind === "mcp") detail = await withMCPClient(executable, endpoint, sessionId, runWorkflow);
+        else if (kind === "cli") detail = await runWorkflow(async (method, params) => {
+          const envelope = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint,
+            "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+          assert.equal(envelope.error, undefined, JSON.stringify(envelope.error));
+          return envelope.result;
+        });
+        else detail = await runWorkflow();
+        if (kind !== "js") {
+          assert.ok(calls.some(call => call.params.action === "selectOption"));
+          assert.ok(calls.some(call => call.params.action === "click"));
+          assert.ok(calls.every(call => call.passed), "Every workflow browserAction used the selected public transport successfully");
+        }
+      } catch (error) { failure = error; }
+      finally {
+        if (owner) {
+          try { await owner.client.finalizeTabs([]); }
+          catch (error) { if (failure) failure.finalizeError = String(error); else failure = error; }
+          finally { owner.close(); }
+        }
+      }
+      const evidence = { ...(failure?.formWorkflow ?? detail ?? {}), key, variant, route, scope, calls,
+        setupAndCleanup: "JS SDK connection, explicit beginTurn, newTab/goto, navigation waiter and tab/session cleanup; all fixture Locator operations and receipt screenshots use the selected browserAction entry",
+        finalLedger: formWorkflows.stats(key), ...(failure ? { failed: true, error: String(failure), finalizeError: failure.finalizeError } : {}) };
+      await fs.writeFile(artifact, JSON.stringify(evidence, null, 2));
+      if (failure) { failure.formWorkflow = evidence; throw failure; }
+      return evidence;
+    });
+  }
+  for (const kind of ["python", "go"]) await test(`${kind}-form-workflow`, async () => {
+    const source = path.join(directory, kind === "python" ? "form-workflow-checks.py" : "go-form-workflow-checks/main.go");
+    const frozenSource = path.join(runDir, kind === "python" ? "form-workflow-checks.py" : "form-workflow-checks.go");
+    const callerOutput = path.join(runDir, `form-workflow-${kind}-caller.json`), artifact = path.join(runDir, `form-workflow-${kind}.json`);
+    const beforeKeys = new Set(formWorkflows.allStats().map(record => record.key));
+    const proof = {}, baseURL = new URL("/", fixtureURL).href;
+    let detail, failure, caller;
+    try {
+      await fs.copyFile(source, frozenSource, fsConstants.COPYFILE_EXCL);
+      proof.sourceSHA256 = createHash("sha256").update(await fs.readFile(frozenSource)).digest("hex");
+      let binary = process.env.OBU_TEST_PYTHON || "python", args = [frozenSource, endpoint, baseURL, callerOutput];
+      if (kind === "go") {
+        assert.ok(process.env.OBU_TEST_GO_FORM_BINARY, "Set OBU_TEST_GO_FORM_BINARY for the complete form Go caller");
+        binary = path.join(runDir, process.platform === "win32" ? "go-form-workflow-client.exe" : "go-form-workflow-client");
+        await fs.copyFile(process.env.OBU_TEST_GO_FORM_BINARY, binary, fsConstants.COPYFILE_EXCL);
+        proof.binarySHA256 = createHash("sha256").update(await fs.readFile(binary)).digest("hex");
+        sourceIdentity.sha256.goFormClient = proof.binarySHA256;
+        args = [endpoint, baseURL, callerOutput];
+      }
+      const stdout = await subprocess(binary, args, { timeoutMs: 180000, env: { ...process.env,
+        PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+      caller = JSON.parse(stdout);
+      assert.deepEqual(JSON.parse(await fs.readFile(callerOutput, "utf8")), caller, "Caller stdout must match its retained artifact");
+      assert.equal(caller.passed, true); assert.equal(caller.variant, 1); assert.match(caller.key, /^[A-Za-z0-9_-]{1,80}$/);
+      assert.equal(beforeKeys.has(caller.key), false, "Each caller must use a fresh task key");
+      const ledger = formWorkflows.stats(caller.key);
+      const receipt = checkFormReceipt(caller.receipt, ledger, 1);
+      assert.deepEqual(caller.evidence.receipt, ledger.receipt);
+      assert.deepEqual(caller.evidence.posts, ledger.posts);
+      assert.equal(formWorkflows.allStats().filter(record => !beforeKeys.has(record.key)).length, 1);
+      detail = { ...caller, ...receipt, ledger, proof, route: `typed ${kind} SDK; independent Node receipt and server ledger validation` };
+    } catch (error) { failure = error; }
+    const evidence = failure ? { failed: true, error: String(failure), proof, caller,
+      serverRecords: formWorkflows.allStats().filter(record => !beforeKeys.has(record.key)),
+      failureEvidence: "Caller stderr and complete server records are retained; checker trace is available only when the checker emits its output artifact" } : detail;
+    await fs.writeFile(artifact, JSON.stringify(evidence, null, 2));
+    if (failure) { failure.formWorkflow = evidence; throw failure; }
+    return detail;
+  });
   await test("js-bounded-console-error-network-diagnostics", async () => {
     sourceIdentity.testHooks.push("diagnostics: passive native console/exception/Log observer records real replay timestamps and fresh Page capture evidence; no native event is altered or fabricated");
     const diagnostics = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-diagnostics", timeoutMs: 15000 });
@@ -1598,6 +1715,7 @@ try {
   await fs.writeFile(path.join(runDir, "direct-download-server.json"), JSON.stringify(directDownloads.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "media-download-server.json"), JSON.stringify(mediaDownloads.stats(), null, 2));
   await fs.writeFile(path.join(runDir, "media-breadth-server.json"), JSON.stringify(embeddedMedia.stats(), null, 2));
+  await fs.writeFile(path.join(runDir, "form-workflow-server.json"), JSON.stringify(formWorkflows.allStats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;

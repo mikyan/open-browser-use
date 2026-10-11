@@ -90,6 +90,25 @@ test("restricted selector parsing preserves typed semantics and harmless engine-
   ]) assert.doesNotThrow(() => check(selector, true), selector);
 });
 
+test("frame-relative operands reject actual frame controls while preserving CSS and text literals", () => {
+  const check = nativeSelectorGuard();
+  for (const selector of [
+    "iframe >> internal:control=enter-frame >> button",
+    'body >> internal:has="iframe >> internal:control=enter-frame >> button"',
+    'body >> internal:and="iframe >> internal:control=enter-frame >> button"',
+    '*internal:control=enter-frame'
+  ]) {
+    assert.doesNotThrow(() => check(selector, true));
+    assert.throws(() => check(selector, false, true), /OBU_LOCATOR_FRAME_MISMATCH/);
+    assert.throws(() => check(selector, true, true), /OBU_LOCATOR_FRAME_MISMATCH/);
+  }
+  for (const selector of [
+    '[data-selector="internal:control=enter-frame"]', 'text="internal:control=enter-frame"',
+    ':text-is("internal:control=enter-frame")', 'body >> internal:has="text=\\\"internal:control=enter-frame\\\""',
+    'button >> visible=false'
+  ]) assert.doesNotThrow(() => check(selector, true, true), selector);
+});
+
 test("bounded private channel retains old string client behavior and adds typed metadata", () => {
   const source = patchCrxAISnapshot(upstream);
   assert.match(source, /return typeof result === "string" \? \{ snapshot: result \} : result/);

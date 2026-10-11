@@ -13,10 +13,10 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收。最终受控 Chromium headed `run-XnREpF` 70/70，新增有限音视频/data/Blob/Canvas 下载与读取取消，并修复稳定系统钟下历史 diagnostics 混入新任务。独立重启专项 `browser-restart-ShnPfH` 4/4 仍为此前专项证据。最后 CI 807 项与媒体/诊断/制品 hash 审计通过；原配置首帧失败仍保留。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、更多重启/reload/launcher 恢复、其他浏览器平台与同组 Codex 完整任务比较；原生 popup 初始激活仍有缺口。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收。最终受控 Chromium headed `run-6SwxDM` 77/77，新增有界组合定位、混合多选与五入口完整表单。Codex Edge同组表单最终3/3，方法失败与键盘替代独立记录；不能视作操作全等。旧媒体/诊断、重启4/4和原配置首帧失败证据保留。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、更多重启/reload/launcher 恢复、其他浏览器平台与更广同组任务比较；原生 popup 初始激活仍有缺口。 |
 | 架构文档 | B | 本地 IPC、动作协议、有界递归观察与 capture refs、持久 control 生命周期、全局暂停和文件来源边界已有独立 reference；新增标签撤权、host 断线恢复门禁、session incarnation 与 startup witness 恢复，以及真实目标销毁的清理边界。 | 继续记录不同恢复顺序和原生 launcher 恢复及更多受限入口的设计/证据。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查，草稿和冲突不被轮询覆盖。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 最终完整 `scripts/ci.sh` 通过：扩展 703、脚本 52、浏览器脚手架 52（共 807），JS 93、Python 63、Go 全包及其余检查。最终 headed `run-XnREpF` 70/70、独立实际媒体与原生诊断事件审计通过；前一轮 `run-WMOIim` 69/70 的 diagnostics 失败保留。源码/ZIP 一致且无测试钩子。先前独立重启 4/4 不冒充本轮新增媒体跨重启验收。 | 继续更多恢复顺序、原生 launcher、其他 OS/浏览器、实验配置兼容性和同组 Codex 比较。 |
+| 测试 | B | 最终完整 `scripts/ci.sh` 通过：扩展710、脚本53、浏览器脚手架61（共824），JS98、Python67、Go全包及其余检查。最终 headed `run-6SwxDM` 77/77、表单专项 `run-j4jsMy` 8/8；同组Codex三变体服务端审计区分任务成功与操作差异。新增UTF-8分块/exit后尾部drain真实child回归；旧diagnostics和启动失败保留。 | 继续更多恢复顺序、原生 launcher、其他 OS/浏览器、实验配置兼容性和更广同组比较。 |
 | 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
 
@@ -102,3 +102,12 @@ adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试
 read 取消、真实旧 console 重放与当前新日志/错误；六条创建激活、四条明确
 popup focus 均归因且 sentinel 不变。嵌入媒体 8 MiB、Canvas 像素/活跃容量
 有界，系统时钟跳变的诊断隔离、content-return 等完整矩阵仍未完成。
+
+本轮组合定位与共享表单最终 `run-6SwxDM` **77/77**、专项 **8/8**、完整
+CI **824**；独立核对七任务原始提交、五收据 PNG、旧媒体/诊断及连续焦点
+账本通过。六次创建激活、四条主动 popup focus 精确归因，sentinel 不变。
+Codex Edge 相同三布局最终任务 **3/3**，但方法失败/替代及严格跨 frame
+指针 **0/3** 分开报告；不推断速度或完整能力对齐。最终 ZIP **1,246,279
+bytes / 45 files**，SHA-256
+`baa12d3e3627305565110172dcd4f0e432e05ad17102aa7311bacc5c99d27dfd`。
+制品与实测源码一致，无测试钩子；新SDK源码/dist已追踪，Host沿用旧binary。

@@ -7,6 +7,32 @@ the extension's Playwright engine.
 
 ## Prerequisites
 
+Locator composition uses the same tab and client, including separately created
+handles for that tab ID:
+
+```js
+const cards = tab.getByRole("listitem");
+const selected = cards.filter({
+  has: tab.getByText("Research", { exact: true }),
+  hasNot: tab.getByText("Unavailable"), visible: true,
+}).and(tab.locator(".eligible"));
+await selected.getByRole("button", { name: "Choose" }).click();
+const either = tab.getByRole("button", { name: "Save" })
+  .or(tab.getByRole("button", { name: "Continue" }));
+await either.filter({ visible: true }).click();
+await tab.getByLabel("Materials").selectOption(["Manual", { value: "sticker" }]);
+```
+
+`has`/`hasNot` operands are relative to each candidate element. Supply a root
+builder or a builder with exactly the same frame prefix as the outer locator;
+the SDK removes that common prefix. `and`/`or` require matching frame prefixes.
+Nested operands cannot enter frames or use capture refs. Ref locators cannot be
+composed. A chain has at most 32 steps, a tree depth of 8, and an action at most
+128 total steps (including a drag target). Trees are copied and frozen.
+`or` preserves native strictness when both branches match; it does not pick a
+winner. `visible: false` is supported. Select strings match value or label;
+mixed descriptors accept only `value`, `label`, and nonnegative `index`.
+
 - The `open-browser-use` CLI and Chrome extension are installed and connected.
 - `open-browser-use ping` returns `"pong"`.
 - The matching native host and extension include the `browserAction` engine.

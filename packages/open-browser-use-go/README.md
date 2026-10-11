@@ -1,5 +1,33 @@
 # Open Browser Use Go SDK
 
+Locator composition uses the same client and tab ID and retains native strict
+matching:
+
+```go
+visible := true
+chosen := tab.GetByRole("listitem").Filter(obu.FilterOptions{
+    Has: tab.GetByText("Research", obu.TextOptions{Exact: true}),
+    HasNot: tab.GetByText("Unavailable"), Visible: &visible,
+}).And(tab.Locator(".eligible"))
+err := chosen.GetByRole("button", obu.RoleOptions{Name: "Choose"}).Click()
+either := tab.GetByRole("button", obu.RoleOptions{Name: "Save"}).Or(
+    tab.GetByRole("button", obu.RoleOptions{Name: "Continue"}))
+_ = either // If both match, an action still fails native strictness.
+values, err := tab.GetByLabel("Materials").SelectOption(
+    []any{"Manual", obu.Params{"value": "sticker"}})
+_, _ = values, err
+```
+
+`Has`/`HasNot` are relative to each candidate element; supply a root builder or
+the exact same frame prefix as the outer locator, which the SDK removes.
+`And`/`Or` require equal frame prefixes. Nested operands cannot enter frames or
+contain capture refs, and ref locators cannot be composed. `Visible` is a
+`*bool`, so false differs from omission. Trees are deeply copied and bounded to
+32 steps per chain, depth 8, and 128 total steps per action including a drag
+target. Invalid builders return their error on the next action. Select strings
+match value or label; descriptors accept only `value`, `label`, and nonnegative
+`index`.
+
 Go client for controlling a real Chrome profile through Open Browser Use. The
 package keeps the low-level JSON-RPC/CDP surface available and also provides
 higher-level browser/tab helpers for common agent workflows.

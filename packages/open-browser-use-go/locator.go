@@ -24,6 +24,9 @@ type RoleOptions struct {
 type FilterOptions struct {
 	HasText    string
 	HasNotText string
+	Has        *Locator
+	HasNot     *Locator
+	Visible    *bool
 }
 
 // Action exposes the finite engine protocol and unwraps its value. Use
@@ -86,8 +89,8 @@ func (l *Locator) chain(step Params) *Locator {
 			return &Locator{Tab: l.Tab, err: errors.New("ref locators cannot be chained")}
 		}
 	}
-	steps := append([]Params(nil), l.locatorSteps()...)
-	return &Locator{Tab: l.Tab, steps: append(steps, step)}
+	steps, err := copyLocatorSteps(append(append([]Params(nil), l.locatorSteps()...), step), false)
+	return &Locator{Tab: l.Tab, steps: steps, err: err}
 }
 func (l *Locator) locatorSteps() []Params {
 	if l.steps != nil {
@@ -146,6 +149,19 @@ func (l *Locator) Filter(options FilterOptions) *Locator {
 	if options.HasNotText != "" {
 		step["hasNotText"] = options.HasNotText
 	}
+	if options.Visible != nil {
+		step["visible"] = *options.Visible
+	}
+	for key, other := range map[string]*Locator{"has": options.Has, "hasNot": options.HasNot} {
+		if other == nil {
+			continue
+		}
+		steps, err := l.operand(other, true)
+		if err != nil {
+			return &Locator{Tab: l.Tab, err: err}
+		}
+		step[key] = steps
+	}
 	return l.chain(step)
 }
 
@@ -156,7 +172,11 @@ func (l *Locator) Action(action string, options BrowserActionOptions) (any, erro
 	if l.Tab == nil {
 		return nil, errors.New("locator requires a tab")
 	}
-	options.Locator = l.locatorSteps()
+	var err error
+	options.Locator, err = copyLocatorSteps(l.locatorSteps(), false)
+	if err != nil {
+		return nil, err
+	}
 	if len(options.Locator) == 0 {
 		return nil, errors.New("locator requires a selector or semantic chain")
 	}
@@ -200,6 +220,9 @@ func (l *Locator) DragTo(target *Locator, options ...BrowserActionOptions) error
 	}
 	if target.err != nil {
 		return target.err
+	}
+	if err := combinedLocatorBudget(l.locatorSteps(), target.locatorSteps()); err != nil {
+		return err
 	}
 	return l.perform("dragTo", Params{"target": target.locatorSteps()}, options)
 }

@@ -9,10 +9,10 @@ export function validateMediaDownload(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) throw new Error("downloadMedia requires an object");
   const { locator, ...base } = request;
   const params = validateDownloadSource(base);
-  validateLocator(locator);
+  const steps = validateLocator(locator);
   if (!locator.length || locator.at(-1)?.kind === "frame") throw new Error("downloadMedia requires an exact element locator");
   return Object.freeze({ ...params, timeoutMs: params.timeoutMs ?? 10000,
-    locator: Object.freeze(locator.map(step => Object.freeze({ ...step }))) });
+    locator: steps });
 }
 
 export const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
