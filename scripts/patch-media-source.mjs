@@ -48,14 +48,14 @@ function createOpenBrowserUseMediaOperations() {
     const own = remote => {
       const result = createHandle$3(context, remote);
       owned.add(result);
-      releases.set(result, async () => {
-        if (result._objectId) await cleanup.release(result._objectId);
+      releases.set(result, async checkCleanup => {
+        if (result._objectId) await cleanup.release(result._objectId, checkCleanup);
         owned.delete(result); closeIfReleased();
       });
-      cancellations.set(result, () => {
+      cancellations.set(result, checkCleanup => {
         if (result._disposed) return Promise.resolve();
         if (!result._objectId || typeof cleanup.cancel !== "function") throw new Error("OBU_MEDIA_UNSUPPORTED: private media cancellation is unavailable");
-        return cleanup.cancel(result._objectId);
+        return cleanup.cancel(result._objectId, checkCleanup);
       });
       observeHandle(result);
       return result;
@@ -114,16 +114,16 @@ function createOpenBrowserUseMediaOperations() {
     },
     evaluate: (handle, fn, arg) => evaluate(handle, fn, arg, true),
     evaluateHandle: (handle, fn, arg) => evaluate(handle, fn, arg, false),
-    cancel: async handle => {
+    cancel: async (handle, checkCleanup) => {
       const cancel = cancellations.get(handle);
       if (!cancel) throw new Error("OBU_MEDIA_CLEANUP_FAILED: binding is not owned by this source operation");
-      await cancel();
+      await cancel(checkCleanup);
     },
-    dispose: async handle => {
+    dispose: async (handle, checkCleanup) => {
       const release = releases.get(handle);
       if (!release) throw new Error("OBU_MEDIA_CLEANUP_FAILED: handle is not owned by this source operation");
       if (handle._disposed) return;
-      await release();
+      await release(checkCleanup);
       handle._disposed = true;
       if (globalThis.leakedJSHandles) globalThis.leakedJSHandles.delete(handle);
     }

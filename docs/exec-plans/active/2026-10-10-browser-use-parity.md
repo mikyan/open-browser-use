@@ -2599,3 +2599,32 @@ Go/SDK未重跑，49构建源/八复用bin与原manifest一致。原session的�
 跨renderer退化平面、更广perspective/DPR与hover/drag仍待推进；顺序读取
 不保证后续布局不再改变。下一候选为drag在hover/dragover改变目标后的
 提交门禁，先保留真实旧反例再实施；Codex同组文件/诊断及P01–P15继续。
+
+### P06/P13：拖放提交与原生清理（本片完成，整体仍 active）
+
+上一开发目标轮完成生产修复、真实旧反例及最终专项/完整实机验证，属于
+progress；本轮重新核验当前源码、原始记录与制品后同步计划/history并交付。
+普通dragTo输入前固定原source/target，source可信move与原几何仅在首次
+down前可重准备，提交后终止失败而不重选或重放。HTML目标在over后及
+原文档drop事件时核原node/几何，捕获指针仍可合法把move送到source。
+
+旧`WUVqsn`错误source按下/重复down、replacement业务drop；中间冻结
+`7ZpaaO`同AABB旋转/border原点的错误热点POST均保留。最终指纹覆盖已解析
+individual transform与padding/border平面输入。原attachment持有guard
+资源，实际HTML cancel ACK先于按钮释放；清理lease逐条native核固定预算，
+late ACK及异常对象仍归原资源，已确认cancel/release不重发。
+
+最终`rxSklf`2/2、完整`I0B25O`122/122均actualexit0，Node1788/1788零
+skip/cancel；旧121名称/顺序不变。十场/12原文档、110记录native调用各
+唯一ACK（77Input+11guard生命周期）、5正确POST/完整28633B与五拒绝零
+业务提交、精确任务清理独立核实。专项4328ms零focus，完整237777ms仅原
+12activation/4controlfocus，无新豁免；sentinel身份/选择保持，高1222→1165。
+初候选void协议错误及中间完整旧timeout断言失败保留，未把旧失败计为通过。
+
+51生产/53stage来源通过独立重建；最终普通ZIP仅MODIFICATIONS一句范围
+说明较实跑更新，其余50成员相同，旧preview三ZIP未变。Go/SDK未重跑，
+49构建源/8复用bin沿原manifest核验。详见[分片计划](../completed/2026-10-12-drag-commit.md)
+及[拖放契约](../../references/drag-delivery.md)。正常500ms资源预算不并入
+原action期限；force/trial/PW预持输入、非原子检查、捕获释放副作用及更广
+CSS/跨文档drag保留边界。持有guard时worker丢失恢复未实机验证，是后续
+候选；Codex同组文件/诊断、平台生命周期和完整P01–P15目标继续active。

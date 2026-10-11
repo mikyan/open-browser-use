@@ -391,7 +391,37 @@ export function createFrameGeometryRuntime() {
       return { framePoint: project(state.frameMaps.get(state.target).inverse, point), frameGeometry: state.fingerprint };
     });
   }
-  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, bounding, hit };
+  async function drag(handle, point, progress, position, install) {
+    return withSnapshot(handle, progress, async (state) => {
+      if (position !== undefined) {
+        const target = await positionGeometry(handle, position, state);
+        const rounded = { x: (target.point.x * 100 | 0) / 100, y: (target.point.y * 100 | 0) / 100 };
+        if (point.x !== rounded.x || point.y !== rounded.y) return { hitTargetDescription: "element position geometry changed" };
+        state.fingerprint.push(target.fingerprint);
+      }
+      const session = handle._page.delegate._sessionForHandle(handle);
+      const response = await state.read(() => session._client.send("DOM.getContentQuads", { objectId: handle._objectId }));
+      if (!response?.quads?.length || response.quads.some((raw) => !Array.isArray(raw) || raw.length !== 8 || !raw.every(Number.isFinite)))
+        throw invalid("Unavailable drag element quads");
+      // Include the leaf even for an implicit center. A transform about an
+      // unchanged center must not reuse geometry captured before drag handlers.
+      state.fingerprint.push({ dragElementIdentity: identityOf(handle), contentQuads: response.quads.map((raw) => [...raw]) });
+      for (let i = 0; i < state.rows.length; i++) {
+        const row = state.rows[i], element = state.rows[i + 1]?.element ?? handle;
+        const localPoint = project(state.frameMaps.get(row.frame).inverse, point);
+        const result = await state.read(() => row.context.evaluate(([injected, node, hitPoint]) => {
+          if (!node.isConnected || node.ownerDocument !== injected.document) return "error:notconnected";
+          return injected.expectHitTarget(hitPoint, node);
+        }, [row.injected, element, localPoint]));
+        if (result !== "done") return result;
+        // The caller owns every installed remote guard, including a native
+        // result arriving after cancellation. Snapshot only owns owner handles.
+        if (install) { state.check(); await install(element, localPoint); state.check(); }
+      }
+      return { framePoint: project(state.frameMaps.get(state.target).inverse, point), frameGeometry: state.fingerprint };
+    });
+  }
+  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, bounding, hit, drag };
 }
 
 function replaceOnce(source, before, after, label) {

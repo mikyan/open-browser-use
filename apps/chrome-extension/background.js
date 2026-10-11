@@ -4478,23 +4478,28 @@ class BrowserBackend {
     let closed = false;
     const exceptionalObjects = new Set();
     const validObjectId = objectId => typeof objectId === "string" && objectId && objectId.length <= 4096;
-    const command = (method, args) => {
+    const command = (method, args, checkCleanup) => {
       if (closed) throw new Error("OBU_MEDIA_CLEANUP_FAILED: native media cleanup is closed");
       if (lifetime.isGone()) return Promise.resolve();
       check();
+      checkCleanup?.();
       return chrome.debugger.sendCommand(original, method, args).catch(error => {
         if (!lifetime.isGone()) throw error;
       });
     };
-    const releaseExceptionalObjects = async () => {
+    const releaseExceptionalObjects = async checkCleanup => {
       for (const objectId of exceptionalObjects) {
-        await command("Runtime.releaseObject", { objectId });
+        await command("Runtime.releaseObject", { objectId }, checkCleanup);
+        // Keep the actual ACK even if the budget expired while it was pending.
+        // The next command checks again; this release must never be replayed.
         exceptionalObjects.delete(objectId);
       }
     };
-    const send = (objectId, method, args) => {
+    const send = (objectId, method, args, checkCleanup) => {
       if (closed || !validObjectId(objectId))
         throw new Error("OBU_MEDIA_CLEANUP_FAILED: invalid native media object");
+      if (checkCleanup !== undefined && typeof checkCleanup !== "function")
+        throw new TypeError("Native media cleanup checkpoint must be a function");
       // A native context-destruction event also destroys its remote objects.
       // Local Playwright cancellation or a replaced attachment is not evidence.
       if (lifetime.isGone()) { exceptionalObjects.clear(); return Promise.resolve(); }
@@ -4502,8 +4507,8 @@ class BrowserBackend {
       // Only the private, fixed runtime adapter obtains this closure. The exact
       // target and attachment remain captured when Pause closes normal commands.
       return (async () => {
-        if (exceptionalObjects.size) await releaseExceptionalObjects();
-        const result = await command(method, args);
+        if (exceptionalObjects.size) await releaseExceptionalObjects(checkCleanup);
+        const result = await command(method, args, checkCleanup);
         if (method !== "Runtime.callFunctionOn" || lifetime.isGone()) return;
         // Normal cancellation returns a boolean by value. Keep unexpected
         // native exception/result handles owned until their exact release is
@@ -4514,16 +4519,16 @@ class BrowserBackend {
           exceptionalObjects.add(remote.objectId);
         }
         const malformed = exceptionalObjects.size > 0;
-        if (exceptionalObjects.size) await releaseExceptionalObjects();
+        if (exceptionalObjects.size) await releaseExceptionalObjects(checkCleanup);
         if (malformed || result?.exceptionDetails || result?.result?.value !== true)
           throw new Error("OBU_MEDIA_CLEANUP_FAILED: native media cancellation failed");
       })();
     };
     return Object.freeze({
-      release: objectId => send(objectId, "Runtime.releaseObject", { objectId }),
-      cancel: objectId => send(objectId, "Runtime.callFunctionOn", {
+      release: (objectId, checkCleanup) => send(objectId, "Runtime.releaseObject", { objectId }, checkCleanup),
+      cancel: (objectId, checkCleanup) => send(objectId, "Runtime.callFunctionOn", {
         objectId, functionDeclaration: MEDIA_CANCEL_FUNCTION, returnByValue: true, awaitPromise: true, userGesture: false
-      }),
+      }, checkCleanup),
       close: () => {
         if (closed) return;
         if (exceptionalObjects.size && !lifetime.isGone()) throw new Error("OBU_MEDIA_CLEANUP_FAILED: native cancellation objects remain");

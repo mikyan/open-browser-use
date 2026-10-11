@@ -62,15 +62,21 @@ export async function checkExtendedActions(browser, url, assert) {
   await assert.rejects(tab.locator("#source").dragTo(tab.locator("#missing-target"), { timeoutMs: 1000 }), /timed out|Timeout/);
   assert.ok(!(await tab.evaluate("events")).some(event => event.type === "pointerdown"), "Drag pressed before resolving its target");
   await tab.evaluate("events=[];source.addEventListener('pointerdown',()=>{drop.style.display='none'},{once:true})");
-  await assert.rejects(tab.locator("#source").dragTo(tab.locator("#drop"), { timeoutMs: 1000 }), /timed out|Timeout/);
+  // The original destination disappears after the one committed press. This
+  // is terminal: the new drag contract neither waits to retarget nor replays.
+  await assert.rejects(tab.locator("#source").dragTo(tab.locator("#drop"), { timeoutMs: 1000 }), /OBU_POINTER_DELIVERY_UNCONFIRMED: original drag destination was lost/);
   const cancelled = await tab.evaluate("events");
-  assert.ok(cancelled.some(event => event.type === "pointerdown" && event.id === "source"), JSON.stringify(cancelled));
+  const committed = cancelled.filter(event => event.type === "pointerdown");
+  assert.equal(committed.length, 1, JSON.stringify(cancelled));
+  assert.equal(committed[0].id, "source");
+  assert.equal(committed[0].trusted, true);
+  assert.ok(!cancelled.some(event => event.type === "drop"), JSON.stringify(cancelled));
   // Browser input is not transactional: releasing an already delivered down
   // can produce a trusted click. Record it; never hide it or replay the drag.
   await tab.mouse.move(box.x + 10, box.y + 10);
   const lastMove = (await tab.evaluate("events.filter(e=>e.type==='pointermove')")).at(-1);
   assert.ok(lastMove?.trusted && lastMove.buttons === 0, JSON.stringify(lastMove));
-  checks.push("drag-timeout-releases-buttons-and-raw-cdp-recovers");
+  checks.push("drag-failure-releases-buttons-without-replay-and-raw-cdp-recovers");
 
   await tab.mouse.move(box.x + 10, box.y + 10);
   await tab.mouse.down();

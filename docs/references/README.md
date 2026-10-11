@@ -58,6 +58,8 @@
   原生 quad 投影、叶元素变化复查和跨 renderer 量化边界。
 - [Transformed iframe input](transformed-frame-input.md)：按实际 renderer 边界
   投影点击坐标、逐层遮挡检查、原几何指纹与提交后不重放的验收边界。
+- [Drag delivery](drag-delivery.md)：原拖动源和目标、按下后不重放、原生
+  dragover/drop 提交检查，以及未知清理完成与资源回收的验证边界。
 - [MCP connection lifetime](mcp-connection-lifetime.md)：长期stdio会话固定实际
   浏览器连接、后台通知消费、超时与断线恢复边界，以及不跨实例重放的验证。
 - [Popup ownership design](popup-ownership-design.md)：跨窗口移组造成渲染停滞的

@@ -1747,6 +1747,34 @@ focus仅原12activation/4controlfocus，未增豁免；sentinel身份/选择保�
 核原49源/八bin。跨renderer退化、广泛透视/DPR、非原子及best-effort handle
 释放限制保留；本片真实browser仅证明所列affine场景，完整目标继续。
 
+### 拖放提交与原生清理
+
+普通dragTo固定原source/target，复用可信准备move及原几何；仅down前允许
+重准备，提交后失败不重放。目标在原生over后与drop事件时复核，原文档
+guard覆盖individual transform、border/padding原点及祖先/viewport变化。
+捕获指针保留合法source投递。私有ticket贯穿mouse与DragManager，原
+attachment登记实际guard及迟到异常对象；HTML dragCancel确认后才清理
+按钮。固定lease逐条native核剩余预算，已确认cancel/release不重发。
+
+原生产`WUVqsn`确有错误source业务POST及replacement drop；七场中间版
+`7ZpaaO`新增非中心热点后暴露两项同AABB误投，原错误POST字节保留。
+首候选公开void契约错误、中间完整旧timeout断言失败也保留，最终要求
+按下后原目标丢失为明确terminal错误、唯一source down及零drop。
+
+最终专项`rxSklf`2/2、完整`I0B25O`122/122均actualexit0，旧121名称/顺序
+保留；Node1788/1788零skip/cancel。十场/12原文档、110记录native调用及
+唯一ACK（77Input、11guard生命周期）、5正确POST/完整28633B及五拒绝零
+业务提交独立核验，10任务tab/12 fixture URL回收。专项4328ms零focus；
+完整237777ms仅既有12activation/4controlfocus，无新豁免；sentinel身份/
+选择保持，高1222→1165。51生产/53stage同源；最终普通ZIP仅一处notice
+范围说明较实跑更新，其余50成员相同。旧preview未改，Go/SDK未重跑，
+49构建源/8复用bin按已有manifest核验。
+
+正常500ms清理预算区别于原action期限。force/trial/PW预持输入保留继承
+分支，其他tracked held/unconfirmed输入由admission拒绝；检查非原子，
+捕获释放可触发业务。持guard时worker丢失后的恢复尚未实机验证，保留
+guard可能影响人工drop；更广CSS/跨文档及P01–P15仍开放，不宣称全面持平。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1757,7 +1785,10 @@ focus仅原12activation/4controlfocus，未增豁免；sentinel身份/选择保�
 - `docs/exec-plans/active/2026-10-10-browser-use-parity.md`
 - `scripts/browser-integration/`
 - `scripts/patch-frame-geometry.mjs`, `scripts/patch-pointer-delivery.mjs`
+- `scripts/patch-drag-delivery.mjs`, `scripts/patch-media-source.mjs`
 - `scripts/build-chrome-extension.mjs`
 - `docs/references/shared-research-workflow.md`
 - `docs/references/element-position-geometry.md`
 - `docs/references/transformed-element-bounds.md`
+- `docs/references/drag-delivery.md`
+- `docs/exec-plans/completed/2026-10-12-drag-commit.md`

@@ -12,6 +12,7 @@ import { chromium } from "playwright";
 import WebSocket, { WebSocketServer } from "ws";
 import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
+import { createDragCommitFixtures, checkDragCommit } from "./drag-commit-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
@@ -278,6 +279,7 @@ const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
 const boundingGeometryFixtures = createBoundingGeometryFixtures();
+const dragCommitFixtures = createDragCommitFixtures();
 const directUploads = createDirectLocatorUploadFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
@@ -299,6 +301,7 @@ const http = createServer(async (request, response) => {
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (boundingGeometryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (dragCommitFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
@@ -434,10 +437,11 @@ try {
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.dragCommitFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "drag-commit-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
-  for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
+  for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
   for (const name of ["direct-locator-upload-fixture.mjs", "direct-locator-upload-callers.mjs", "direct-locator-upload-native.mjs", "direct-locator-upload-checks.py", "go-direct-locator-upload-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
@@ -1660,6 +1664,30 @@ try {
     const actions = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-actions-integration", timeoutMs: 15000 });
     try { return await checkExtendedActions(actions, fixtureURL, assert); }
     finally { await actions.client.finalizeTabs([]); actions.close(); }
+  });
+  await test("js-drag-commit", async () => {
+    sourceIdentity.testHooks.push("drag commit: transparent exact-tab native Input recorder and passive original-document event/POST witnesses; dynamic source/destination business handlers; no new focus allowance");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-drag-commit", turnId: "drag-delivery-commit", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkDragCommit({ browser: owner, worker, fixtureURL, server: dragCommitFixtures, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-drag-commit-tabs", run: () => owner.client.finalizeTabs([]) },
+      { name: "close-drag-commit-client", run: () => owner.close() },
+      { name: "verify-drag-commit-cleanup", run: async () => {
+        detail.finalNative = await worker.evaluate(`(async()=>({tabs:await chrome.tabs.query({}),targets:await chrome.debugger.getTargets()}))()`);
+        for (const item of detail.cases ?? []) {
+          assert.ok(!detail.finalNative.tabs.some(tab => tab.id === item.tabId), "Drag task tab remains after finalize");
+          const urls = Object.values(item.urls ?? {}).filter(value => typeof value === "string");
+          assert.ok(!detail.finalNative.targets.some(target => urls.includes(target.url)), "Drag task target remains after finalize");
+        }
+      } }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "drag-commit.json"), JSON.stringify(value, null, 2));
+      await fs.writeFile(path.join(runDir, "drag-commit-server.json"), JSON.stringify(dragCommitFixtures.allStats(), null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
   });
   await test("js-public-downloads-session-isolation", async () => {
     const clients = await Promise.all(["first", "second"].map(suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-download-${suffix}`, timeoutMs: 15000 })));

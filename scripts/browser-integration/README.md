@@ -2259,3 +2259,39 @@ always requests all seven. Original six-page variants remain byte-for-byte
 comparable to the old-production baseline. These cases do not establish general
 3D/pinch-zoom support or production native-launcher behavior; see
 [transformed iframe input](../../docs/references/transformed-frame-input.md).
+
+## Drag delivery and commitment
+
+The default suite includes `js-drag-commit` after the existing extended-input
+case. Select `OBU_TEST_CASES=drag-commit` with the same runner prerequisites for
+the ten-scene focused run. Each scene calls public SDK `dragTo` once, without
+caller preparation input, activated task tabs or new focus allowances.
+
+The controls exercise root HTML drag, transformed OOPIF HTML drag and pointer
+capture. Dynamic scenes move the source during its first trusted hover, replace
+the destination during source down, cover it during dragenter, or cover it during
+the second dragover emitted inside native drop. Three additional root scenes
+use explicit source/target positions and an independent 12×12 padding-local
+hotspot. Individual 180-degree rotation and changed left/top borders in the
+second dragover must not commit the old point, even if the target node and its
+border AABB stay the same. A browser-rendered zero-size marker and authored plane
+arithmetic independently establish the requested point; actual positive root
+drop and native requested coordinates must agree within .025 CSS px per axis.
+This tolerance is not a statement about OOPIF event quantization. The original
+seven scene HTML documents remain byte-identical. Source and destination are in
+the same document in these scenes; this is not a cross-document drag benchmark.
+
+`drag-commit.json` and `drag-commit-server.json` retain original frame/document
+identities, native invocation/ACK records, guard installation/cancel/release
+identities, trusted DOM event ledgers and exact POST bytes. The first passive
+window observer may see an event that a later production guard stops before the
+business handler. Preserve both observations: seeing a captured drop alone does
+not prove application submission. The frozen `64a45eb` implementation does not reach the
+second-dragover mutation; that missing premise is not an old misdelivery proof.
+
+Every scene is attempted even after an earlier failure. Pending native input
+prevents task DOM inspection, and finalization checks exact task tab and fixture
+target removal. Evidence covers the current process and these scenes; it does
+not establish worker-loss recovery or atomic layout/input. See
+[drag delivery](../../docs/references/drag-delivery.md) for the retained failures
+and the implementation's completion boundary.

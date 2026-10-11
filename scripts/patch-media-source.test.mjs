@@ -115,6 +115,25 @@ test("media calls retain original OOPIF routing and wait for actual release succ
   await f.operations.dispose(handle); assert.equal(f.released[0].target.sessionId, "oopif-session");
 });
 
+test("optional cleanup checkpoint reaches the original lease without delaying acknowledged release state", async () => {
+  const f = fixture(), seen = [], wait = deferred();
+  let expired = false;
+  const checkpoint = () => { if (expired) throw new Error("cleanup deadline exceeded"); };
+  f.hooks.prepareMediaCleanup = () => ({ close() {}, async cancel(objectId, check) {
+    seen.push(["cancel", objectId, check]); check();
+  }, async release(objectId, check) {
+    seen.push(["release", objectId, check]); check(); await wait.promise;
+  } });
+  const handle = await f.operations.evaluateHandle(f.injected, () => ({}));
+  await f.operations.cancel(handle, checkpoint);
+  const disposal = f.operations.dispose(handle, checkpoint); await flush();
+  assert.equal(handle._disposed, false);
+  expired = true; wait.resolve(); await disposal;
+  assert.equal(handle._disposed, true, "actual release ACK is retained before the outer caller checks its expired budget");
+  assert.deepEqual(seen.map(([name, id, check]) => [name, id, check === checkpoint]), [["cancel", "object-1", true], ["release", "object-1", true]]);
+  await f.operations.dispose(handle, checkpoint); assert.equal(seen.length, 2);
+});
+
 test("old exact native handles cannot release a replacement attachment or child session", async () => {
   for (const replace of [f => f.identities.set(7, {}), f => f.children.delete("oopif-session")]) {
     const f = fixture(); f.context.delegate._client._sessionId = "oopif-session";

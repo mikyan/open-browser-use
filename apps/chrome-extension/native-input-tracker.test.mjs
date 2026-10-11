@@ -124,6 +124,74 @@ test("dragCancel retains a pressed button until confirmed native mouseup", async
   assert.equal(f.tracker.hasHeld(f.tracker.attachments.get(42)), false);
 });
 
+test("intercepted HTML drag is explicitly cancelled before releasing its captured button", async () => {
+  for (const entered of [false, true]) {
+    const f = fixture(), target = { tabId: 42, sessionId: "original-child" };
+    await f.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 7, y: 9 }, target);
+    await f.send("Input.setInterceptDrags", { enabled: true }, target);
+    // Chromium's intercepted branch does not create a native DragController.
+    // CRX disables interception before dispatching its first dragEnter, leaving
+    // a real cancellation window even when no dragEnter was sent.
+    await f.send("Input.setInterceptDrags", { enabled: false }, target);
+    if (entered) await f.send("Input.dispatchDragEvent", { type: "dragEnter", x: 8, y: 10 }, target);
+    let intercepted = true, releaseWithLiveDrag = 0;
+    await f.release(async (...args) => {
+      f.calls.push(args);
+      const [, method, params] = args;
+      if (method === "Input.dispatchDragEvent" && params.type === "dragCancel") intercepted = false;
+      // Input.cancelDragging is a successful no-op in this Chromium branch.
+      if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased" && intercepted) releaseWithLiveDrag++;
+    });
+    assert.equal(releaseWithLiveDrag, 0, "cancelDragging alone cannot confirm an intercepted HTML drag ended");
+    assert.equal(intercepted, false);
+    assert.ok(f.calls.every(([actual]) => actual.tabId === target.tabId && actual.sessionId === target.sessionId));
+    assert.deepEqual(f.calls.map(([, method]) => method), ["Input.dispatchDragEvent", "Input.cancelDragging", "Input.dispatchMouseEvent"]);
+    assert.deepEqual(f.calls[0][2], { type: "dragCancel", x: entered ? 8 : 7, y: entered ? 10 : 9, data: { items: [], dragOperationsMask: 65535 } });
+    assert.equal(f.calls.at(-1)[2].clickCount, 0);
+    assert.equal(f.tracker.hasHeld(f.tracker.attachments.get(42)), false);
+  }
+});
+
+test("HTML cancel failure retains the original drag and button for explicit release retry", async () => {
+  const f = fixture();
+  await f.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 2, y: 4 });
+  await f.send("Input.dispatchDragEvent", { type: "dragEnter", x: 5, y: 6 });
+  await assert.rejects(f.release(async (...args) => { f.calls.push(args); throw new Error("HTML cancel ACK unavailable"); }), /ACK unavailable/);
+  assert.equal(f.calls[0][1], "Input.dispatchDragEvent");
+  assert.equal(f.calls.length, 1);
+  assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/);
+  assert.throws(() => f.tracker.register(42, {}), /UNCONFIRMED/);
+  await f.release();
+  assert.deepEqual(f.calls.slice(1).map(([, method]) => method), ["Input.dispatchDragEvent", "Input.cancelDragging", "Input.dispatchMouseEvent"]);
+});
+
+test("a late HTML cancel ACK prevents replay while its unreleased button remains blocked", async () => {
+  const f = fixture(), cancelled = deferred();
+  await f.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 2, y: 4 });
+  await f.send("Input.setInterceptDrags", { enabled: true });
+  await f.send("Input.setInterceptDrags", { enabled: false });
+  await assert.rejects(f.release((...args) => { f.calls.push(args); return cancelled.promise; }, 15), /cleanup timed out/);
+  assert.equal(f.calls[0][1], "Input.dispatchDragEvent");
+  assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/);
+  cancelled.resolve();
+  await Promise.allSettled(f.tracker.controlSnapshot().pending);
+  assert.equal(f.calls.length, 1, "the expired cleanup must not continue to mouseup");
+  await f.release();
+  assert.deepEqual(f.calls.slice(1).map(([, method]) => method), ["Input.cancelDragging", "Input.dispatchMouseEvent"]);
+});
+
+test("an old dragCancel ACK cannot erase a newer interception before its dragEnter", async () => {
+  const f = fixture(), old = deferred();
+  await f.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 2, y: 4 });
+  const cancelling = f.send("Input.dispatchDragEvent", { type: "dragCancel", x: 2, y: 4 }, { tabId: 42 }, () => old.promise);
+  await f.send("Input.setInterceptDrags", { enabled: true });
+  await f.send("Input.setInterceptDrags", { enabled: false });
+  old.resolve(); await cancelling;
+  await f.release();
+  assert.equal(f.calls[0][1], "Input.dispatchDragEvent");
+  assert.equal(f.calls[0][2].type, "dragCancel");
+});
+
 test("attachment release fences non-input CRX commands as well as input", async () => {
   const f = fixture();
   assert.equal(f.tracker.assertSend(42, f.token), f.tracker.attachments.get(42));
@@ -154,7 +222,7 @@ function pointerFixture(hooks) {
 test("pointer ticket admits one action and its original move/down/up without changing non-input traffic", async () => {
   const f = pointerFixture(), ticket = f.begin();
   assert.equal(Object.isFrozen(ticket), true);
-  assert.deepEqual(Object.keys(ticket), ["check", "close"]);
+  assert.deepEqual(Object.keys(ticket), ["check", "deferCleanup", "close"]);
   assert.throws(() => f.begin(), /POINTER_ACTION_BUSY/);
   await f.send(ticket);
   await f.tracker.send({ tabId: 42 }, f.token, "Runtime.evaluate", {}, async () => 7);
@@ -371,4 +439,195 @@ test("closing a ticket during its journal prevents its late native send", async 
   await rejected;
   assert.deepEqual(f.native, []);
   f.begin().close();
+});
+
+test("closing a pointer ticket retains registered guards until cleanup confirms true", async () => {
+  const f = pointerFixture(), ticket = f.begin();
+  let confirmed = false, calls = 0;
+  const cleanup = ticket.deferCleanup(() => { calls++; return confirmed; });
+  assert.throws(() => ticket.deferCleanup(null), /must be a function/);
+  ticket.close();
+  assert.throws(() => f.begin(), /POINTER_ACTION_BUSY/);
+  assert.throws(() => f.tracker.register(42, {}), /UNCONFIRMED/);
+  assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/);
+  assert.throws(() => ticket.deferCleanup(() => true), /INVALIDATED/);
+  await assert.rejects(cleanup(), /did not confirm/);
+  assert.equal(calls, 1);
+  assert.throws(() => f.begin(), /POINTER_ACTION_BUSY/);
+  confirmed = true;
+  await f.tracker.release(42, f.token);
+  assert.equal(calls, 2, "only explicit release retries a failed resource cleanup");
+  f.tracker.forget(42, f.token);
+  assert.equal(await cleanup(), true, "completed cleanup is idempotent");
+  assert.equal(calls, 2);
+});
+
+test("normal guard cleanup waits for actual up and its own ACK before durable clear", async () => {
+  const events = [], guard = deferred(), up = deferred(), cleared = deferred();
+  const f = pointerFixture({ released: () => { events.push("clear"); return cleared.promise; } }), ticket = f.begin();
+  const cleanup = ticket.deferCleanup(() => { events.push("guard"); return guard.promise; });
+  await f.send(ticket, { type: "mousePressed", button: "left", x: 1, y: 2 });
+  const releasing = f.send(ticket, { type: "mouseReleased", button: "left", x: 1, y: 2 }, () => up.promise);
+  const cleaning = cleanup();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, []);
+  up.resolve(); await releasing;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, ["guard"]);
+  assert.ok(f.tracker.controlSnapshot().pending.length);
+  guard.resolve(true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, ["guard", "clear"]);
+  ticket.close(); assert.throws(() => f.begin(), /POINTER_ACTION_BUSY/);
+  cleared.resolve(); assert.equal(await cleaning, true);
+  assert.equal(f.tracker.controlSnapshot().pending.length, 0);
+  f.begin().close();
+});
+
+test("normal guard cleanup cannot run while a button remains held", async () => {
+  const f = pointerFixture(), ticket = f.begin(), callbacks = [];
+  const cleanup = ticket.deferCleanup(() => { callbacks.push("guard"); return true; });
+  await f.send(ticket, { type: "mousePressed", button: "left", x: 1, y: 2 });
+  await assert.rejects(cleanup(), /release native input before/);
+  assert.deepEqual(callbacks, []);
+  ticket.close();
+  const native = [];
+  await f.tracker.release(42, f.token, async (_target, method) => { native.push(method); assert.deepEqual(callbacks, []); });
+  assert.deepEqual(native, ["Input.cancelDragging", "Input.dispatchMouseEvent"]);
+  assert.deepEqual(callbacks, ["guard"]);
+});
+
+test("attachment release drains HTML cancel and raw mouseup ACKs before removing guards", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token), up = deferred(), guard = deferred(), events = [];
+  ticket.deferCleanup(() => { events.push("guard"); return guard.promise; });
+  await f.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 7, y: 8 });
+  await f.send("Input.setInterceptDrags", { enabled: true });
+  await f.send("Input.dispatchDragEvent", { type: "dragEnter", x: 9, y: 10 });
+  ticket.close();
+  const release = f.release(async (_target, method) => {
+    events.push(method);
+    if (method === "Input.dispatchMouseEvent") await up.promise;
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, ["Input.dispatchDragEvent", "Input.cancelDragging", "Input.setInterceptDrags", "Input.dispatchMouseEvent"]);
+  up.resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(events.at(-1), "guard");
+  assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/);
+  guard.resolve(true); await release;
+  f.tracker.forget(42, f.token);
+});
+
+test("timed-out guard cleanup remains pending and is never replayed before native completion", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token), native = deferred();
+  let calls = 0;
+  ticket.deferCleanup(() => { calls++; return native.promise; });
+  ticket.close();
+  await assert.rejects(f.release(undefined, 15), /cleanup timed out/);
+  assert.equal(calls, 1);
+  assert.ok(f.tracker.controlSnapshot().pending.length);
+  assert.throws(() => f.tracker.register(42, {}), /UNCONFIRMED/);
+  await assert.rejects(f.release(undefined, 15), /cleanup timed out/);
+  assert.equal(calls, 1, "retry waits for the actual previous cleanup, not its timeout race");
+  native.resolve(true);
+  await Promise.allSettled(f.tracker.controlSnapshot().pending);
+  assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/, "late success does not erase the recorded timeout");
+  await f.release();
+  assert.equal(calls, 1);
+  f.tracker.forget(42, f.token);
+});
+
+test("cleanup registered before guard installation retains a late remote handle", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token), installed = deferred(), released = [];
+  let callbacks = 0;
+  ticket.deferCleanup(async () => { callbacks++; const handle = await installed.promise; released.push(handle); return true; });
+  ticket.close();
+  await assert.rejects(f.release(undefined, 15), /cleanup timed out/);
+  assert.deepEqual(released, []);
+  const originalHandle = { objectId: "original-late-handle" };
+  installed.resolve(originalHandle);
+  await Promise.allSettled(f.tracker.controlSnapshot().pending);
+  await f.release();
+  assert.deepEqual(released, [originalHandle]); assert.equal(callbacks, 1);
+  f.tracker.forget(42, f.token);
+});
+
+test("a thrown guard cleanup preserves the original callback for explicit release retry", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token);
+  let calls = 0, fail = true;
+  ticket.deferCleanup(() => { calls++; if (fail) throw new Error("original utility cleanup failed"); return true; });
+  ticket.close();
+  await assert.rejects(f.release(), /original utility cleanup failed/);
+  assert.equal(calls, 1); assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/);
+  fail = false;
+  await f.release(); assert.equal(calls, 2);
+  f.tracker.forget(42, f.token);
+});
+
+test("an old guard completion cannot remove a replacement attachment's resource", async () => {
+  const f = fixture(), oldTicket = f.tracker.beginPointerAction(42, f.token), native = deferred();
+  const oldCleanup = oldTicket.deferCleanup(() => native.promise);
+  const cleaning = oldCleanup();
+  await new Promise(resolve => setImmediate(resolve));
+  oldTicket.close(); f.tracker.forget(42, f.token, { destroyed: true });
+  const replacement = {};
+  f.tracker.register(42, replacement);
+  const next = f.tracker.beginPointerAction(42, replacement), nextCleanup = next.deferCleanup(() => true);
+  native.resolve(true); await cleaning;
+  next.close();
+  assert.throws(() => f.tracker.beginPointerAction(42, replacement), /POINTER_ACTION_BUSY/);
+  assert.throws(() => f.tracker.forget(42, replacement), /UNCONFIRMED/);
+  await nextCleanup();
+  f.tracker.beginPointerAction(42, replacement).close();
+});
+
+test("a late guard cancel ACK cannot start another native cleanup outside its release budget", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token), cancelled = deferred(), calls = [];
+  let cancelledOnce = false;
+  ticket.deferCleanup(async (checkCleanup = () => {}) => {
+    checkCleanup();
+    if (!cancelledOnce) { calls.push("cancel"); await cancelled.promise; cancelledOnce = true; }
+    checkCleanup();
+    calls.push("releaseObject");
+    return true;
+  });
+  ticket.close();
+  await assert.rejects(f.release(undefined, 15), /cleanup timed out/);
+  cancelled.resolve();
+  await Promise.allSettled(f.tracker.controlSnapshot().pending);
+  assert.deepEqual(calls, ["cancel"], "a timeout does not authorize the next native cleanup after a late ACK");
+  assert.throws(() => f.tracker.forget(42, f.token), /UNCONFIRMED/);
+  await f.release();
+  assert.deepEqual(calls, ["cancel", "releaseObject"], "explicit retry owns a new bounded cleanup attempt");
+  f.tracker.forget(42, f.token);
+});
+
+test("a late guard allocation waits for explicit cleanup retry before its first native cancellation", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token), installed = deferred(), calls = [];
+  ticket.deferCleanup(async (checkCleanup = () => {}) => {
+    const handle = await installed.promise;
+    checkCleanup(); calls.push(handle.objectId); return true;
+  });
+  ticket.close();
+  await assert.rejects(f.release(undefined, 15), /cleanup timed out/);
+  installed.resolve({ objectId: "original-late-guard" });
+  await Promise.allSettled(f.tracker.controlSnapshot().pending);
+  assert.deepEqual(calls, []);
+  await f.release(); assert.deepEqual(calls, ["original-late-guard"]);
+});
+
+test("cleanup checkpoints retain the original attachment across a late native ACK", async () => {
+  const f = fixture(), ticket = f.tracker.beginPointerAction(42, f.token), cancelled = deferred(), calls = [];
+  const cleanup = ticket.deferCleanup(async (checkCleanup = () => {}) => {
+    checkCleanup(); calls.push("cancel"); await cancelled.promise;
+    checkCleanup(); calls.push("releaseObject"); return true;
+  });
+  const cleaning = cleanup();
+  await new Promise(resolve => setImmediate(resolve));
+  ticket.close(); f.tracker.forget(42, f.token, { destroyed: true });
+  const successor = {}; f.tracker.register(42, successor);
+  cancelled.resolve();
+  await assert.rejects(cleaning, /ATTACHMENT_CHANGED/);
+  assert.deepEqual(calls, ["cancel"]);
+  f.tracker.beginPointerAction(42, successor).close();
 });

@@ -44,11 +44,12 @@ export class NativeInputTracker {
     const previous = this.attachments.get(tabId);
     if (previous?.token === token) return;
     if (previous && (previous.inflight.size || this.hasHeld(previous) || previous.error)) throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: previous native input must be released or its tab closed");
-    this.attachments.set(tabId, { token, states: new Map(), inflight: new Set(), blocked: false, release: null, error: null });
+    this.attachments.set(tabId, { token, states: new Map(), inflight: new Set(), cleanups: new Set(), cleanupInflight: new Set(), blocked: false, release: null, error: null });
   }
 
   hasHeld(record) {
-    return [...record.states.values()].some(state => state.buttons.size || state.keys.size || state.dragging || state.intercepting || state.touch || state.emulated);
+    return Boolean(record.cleanups?.size || record.cleanupInflight?.size) ||
+      [...record.states.values()].some(state => state.buttons.size || state.keys.size || state.dragging || state.intercepting || state.touch || state.emulated);
   }
 
   current(tabId, token) {
@@ -73,6 +74,16 @@ export class NativeInputTracker {
     const guard = { tracker: this, tabId, token, record, check, closed: false, error: null };
     const ticket = Object.freeze({
       check: () => { this.checkPointerAction(tabId, token, ticket); },
+      deferCleanup: callback => {
+        if (typeof callback !== "function") throw new TypeError("Pointer cleanup must be a function");
+        if (guard.closed || this.assertSend(tabId, token) !== record || record.pointerGuard !== guard)
+          throw new Error("OBU_POINTER_ACTION_INVALIDATED: cleanup lost its original attachment");
+        // Register before creating a remote guard: its native result may arrive
+        // after the action deadline. The fixed callback owns that pending work.
+        const entry = { callback, pending: null };
+        record.cleanups.add(entry);
+        return () => this.finishPointerCleanup(tabId, record, entry);
+      },
       close: () => {
         guard.closed = true;
         // An old action's finally must not remove a successor's admission.
@@ -84,6 +95,63 @@ export class NativeInputTracker {
     try { ticket.check(); }
     catch (error) { ticket.close(); throw error; }
     return ticket;
+  }
+
+  cleanupCheckpoint(tabId, record, deadline, ended) {
+    return () => {
+      if (this.attachments.get(tabId) !== record)
+        throw new Error("OBU_INPUT_ATTACHMENT_CHANGED: pointer cleanup attachment changed");
+      if (ended() || performance.now() >= deadline)
+        throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: pointer cleanup timed out");
+    };
+  }
+
+  runPointerCleanup(record, entry, checkCleanup) {
+    if (entry.pending) return entry.pending;
+    if (!record.cleanups.has(entry)) return Promise.resolve(true);
+    let actual;
+    // The fixed callback checks this same attempt's budget before every new
+    // native cleanup. A late ACK does not grant time for the next command.
+    try { checkCleanup(); actual = Promise.resolve(entry.callback(checkCleanup)); } catch (error) { actual = Promise.reject(error); }
+    const pending = actual.then(result => {
+      if (result !== true) throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: pointer cleanup did not confirm its original resources");
+      record.cleanups.delete(entry);
+      return true;
+    }).catch(error => { record.error = error; throw error; }).finally(() => {
+      record.cleanupInflight.delete(pending);
+      if (entry.pending === pending) entry.pending = null;
+    });
+    entry.pending = pending;
+    record.cleanupInflight.add(pending);
+    pending.catch(() => {});
+    return pending;
+  }
+
+  async finishPointerCleanup(tabId, record, entry) {
+    if (!record.cleanups.has(entry) && !entry.pending) return true;
+    const deadline = performance.now() + 500;
+    let ended = false;
+    const checkCleanup = this.cleanupCheckpoint(tabId, record, deadline, () => ended);
+    const check = () => {
+      if (this.assertSend(tabId, record.token) !== record) throw new Error("OBU_INPUT_ATTACHMENT_CHANGED: pointer cleanup attachment changed");
+      if (record.error) throw record.error;
+      if (performance.now() >= deadline) throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: pointer cleanup timed out");
+    };
+    let timer;
+    try {
+      return await Promise.race([(async () => {
+        check();
+        await Promise.allSettled([...record.inflight,
+          ...[...this.durability].filter(([, value]) => value.record === record).map(([pending]) => pending)]);
+        check();
+        if (this.hasHeld({ states: record.states }))
+          throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: release native input before removing its pointer guards");
+        await this.runPointerCleanup(record, entry, checkCleanup);
+        await this.confirmReleased(tabId, record.token, record);
+        return true;
+      })(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("OBU_INPUT_RELEASE_UNCONFIRMED: pointer cleanup timed out")), 500); })]);
+    } catch (error) { ended = true; record.error = error; throw error; }
+    finally { clearTimeout(timer); }
   }
 
   checkPointerAction(tabId, token, ticket) {
@@ -150,13 +218,13 @@ export class NativeInputTracker {
       }
     } else if (method === "Input.dispatchDragEvent") {
       if (["drop", "dragCancel"].includes(params.type)) {
-        const dragging = state.dragging, pressed = state.buttons.get("left");
+        const dragging = state.dragging, interception = state.dragInterceptionUsed, pressed = state.buttons.get("left");
         // A native dragCancel can retain pointer capture and the pressed mouse
         // button. Only drop ends that press; cancellation still needs mouseup.
-        complete = () => { if (state.dragging === dragging) state.dragging = null; if (params.type === "drop" && state.buttons.get("left") === pressed) state.buttons.delete("left"); };
+        complete = () => { if (state.dragging === dragging) state.dragging = null; if (state.dragInterceptionUsed === interception) state.dragInterceptionUsed = false; if (params.type === "drop" && state.buttons.get("left") === pressed) state.buttons.delete("left"); };
       } else state.dragging = {};
     } else if (method === "Input.setInterceptDrags") {
-      if (params.enabled) state.intercepting = {};
+      if (params.enabled) { state.intercepting = {}; state.dragInterceptionUsed = {}; }
       else complete = confirmClear("intercepting", state.intercepting);
     } else if (method === "Input.dispatchTouchEvent") {
       if (["touchEnd", "touchCancel"].includes(params.type)) complete = confirmClear("touch", state.touch);
@@ -193,6 +261,8 @@ export class NativeInputTracker {
     record.blocked = true;
     if (record.release) return record.release;
     const deadline = performance.now() + timeoutMs;
+    let ended = false;
+    const checkCleanup = this.cleanupCheckpoint(tabId, record, deadline, () => ended);
     const within = async operation => {
       const remaining = deadline - performance.now();
       if (remaining <= 0) throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: native input cleanup timed out");
@@ -203,11 +273,19 @@ export class NativeInputTracker {
     const pending = (async () => {
       // No new sends are admitted once blocked. A late down must settle before
       // its release, even when its caller already received an RPC timeout.
-      await within(() => Promise.allSettled([...record.inflight,
+      await within(() => Promise.allSettled([...record.inflight, ...record.cleanupInflight,
         ...[...this.durability].filter(([, value]) => value.record === record).map(([pending]) => pending)]));
       for (const state of record.states.values()) {
         const send = (method, params, success = () => {}) => within(() => this.native(record, () => sendCommand(state.target, method, params), success));
-        if (state.dragging || state.buttons.size) await send("Input.cancelDragging", {}, () => { state.dragging = null; });
+        const cancelNativeDrag = state.dragging || state.buttons.size;
+        // setInterceptDrags bypasses Chromium's native DragController, making
+        // cancelDragging alone a successful no-op for an intercepted HTML drag.
+        // Remember interception across its disable ACK -> dragEnter gap, and
+        // clear it only after an explicit HTML cancel ACK on this attachment.
+        if (state.dragging || state.dragInterceptionUsed && state.buttons.has("left"))
+          await send("Input.dispatchDragEvent", { type: "dragCancel", x: state.x, y: state.y,
+            data: { items: [], dragOperationsMask: 65535 } }, () => { state.dragging = null; state.dragInterceptionUsed = false; });
+        if (cancelNativeDrag) await send("Input.cancelDragging", {}, () => { state.dragging = null; });
         if (state.intercepting) await send("Input.setInterceptDrags", { enabled: false }, () => { state.intercepting = null; });
         if (state.touch) await send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] }, () => { state.touch = null; });
         if (state.emulated) await send("Input.emulateTouchFromMouseEvent", { type: "mouseReleased", x: state.x, y: state.y, button: state.emulated.button }, () => { state.emulated = null; });
@@ -218,9 +296,10 @@ export class NativeInputTracker {
         for (const [identity, key] of state.keys) await send("Input.dispatchKeyEvent", { ...key, type: "keyUp", modifiers: 0 }, () => { if (state.keys.get(identity) === key) state.keys.delete(identity); });
       }
       record.states.clear();
+      for (const entry of record.cleanups) await within(() => this.runPointerCleanup(record, entry, checkCleanup));
       record.error = null;
       await within(() => this.confirmReleased(tabId, token, record));
-    })().catch(error => { record.error = error; throw error; });
+    })().catch(error => { ended = true; record.error = error; throw error; });
     record.release = pending;
     pending.finally(() => { if (record.release === pending) record.release = null; }).catch(() => {});
     return pending;
@@ -240,7 +319,7 @@ export class NativeInputTracker {
 
   controlSnapshot() {
     return { tabIds: [...new Set([...this.attachments.keys(), ...[...this.durability.values()].map(value => value.tabId)])],
-      pending: [...new Set([...this.attachments.values()].flatMap(record => [...record.inflight, ...(record.release ? [record.release] : [])]).concat([...this.durability.keys()]))] };
+      pending: [...new Set([...this.attachments.values()].flatMap(record => [...record.inflight, ...record.cleanupInflight, ...(record.release ? [record.release] : [])]).concat([...this.durability.keys()]))] };
   }
 }
 

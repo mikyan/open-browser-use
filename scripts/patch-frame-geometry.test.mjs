@@ -179,6 +179,57 @@ test("actual bundle projects nested local→OOPIF→local quads exactly once", a
   assert.equal(result.frameGeometry[2].localRootId, "oopif");
 });
 
+test("drag geometry checks the pinned leaf and every ancestor and installs in their original local planes", async () => {
+  const f = fixture(), point = await f.clickable(), installed = [];
+  const value = await runtime.drag(f.handle, point, f.progress, undefined, async (handle, localPoint) => {
+    installed.push({ handle, point: { ...localPoint } });
+  });
+  near(value.framePoint, { x: 55, y: 50 });
+  assert.deepEqual(installed.map(item => item.handle._context.frame._id), ["root", "same", "oopif", "leaf"]);
+  assert.equal(installed.at(-1).handle, f.handle);
+  for (let i = 0; i < installed.length; i++) near(installed[i].point, f.hits[i].point);
+  assert.deepEqual(f.hits.map(hit => hit.frame), ["root", "same", "oopif", "leaf"]);
+  assert.equal(f.adopted.every(handle => handle._disposed), true);
+});
+
+test("drag geometry fingerprints a leaf transform even when its implicit center and frame route stay fixed", async () => {
+  const f = fixture(), point = await f.clickable();
+  const before = await runtime.drag(f.handle, point, f.progress);
+  f.setTargetRaw(rect(35, 55, 60, 30));
+  const after = await runtime.drag(f.handle, point, f.progress);
+  near(before.framePoint, after.framePoint);
+  assert.notDeepEqual(plain(before.frameGeometry), plain(after.frameGeometry));
+  const unchanged = await runtime.drag(f.handle, point, f.progress);
+  assert.deepEqual(plain(after.frameGeometry), plain(unchanged.frameGeometry));
+});
+
+test("drag geometry preserves original explicit padding position and rejects a detached or covered leaf", async () => {
+  const f = fixture({ nested: false });
+  f.handle.node.style = { ...boxStyle };
+  f.setTargetPadding(rect(10, 20, 400, 200));
+  const position = { x: 20.25, y: 30.5 }, point = rounded(await f.offset(position));
+  assert.ok((await runtime.drag(f.handle, point, f.progress, position)).frameGeometry.length);
+  f.setTargetPadding(rect(11, 20, 400, 200));
+  assert.match((await runtime.drag(f.handle, point, f.progress, position)).hitTargetDescription, /position geometry changed/);
+  f.handle.node.isConnected = false;
+  assert.equal(await runtime.drag(f.handle, point, f.progress), "error:notconnected");
+  f.handle.node.isConnected = true; f.frames[0].cover = { hitTargetDescription: "cover" };
+  assert.deepEqual(plain(await runtime.drag(f.handle, point, f.progress)), { hitTargetDescription: "cover" });
+});
+
+test("drag guard installation stops at original deadline, navigation or route invalidation", async () => {
+  for (const [mutate, disconnected] of [[f => f.expire(), false], [f => f.abort(), false], [f => { f.frames[1].pending = {}; }, true], [f => { f.frames[1].context.destroyed = true; }, true]]) {
+    const f = fixture(), installed = [], point = await f.clickable();
+    const operation = runtime.drag(f.handle, point, f.progress, undefined, async handle => {
+      installed.push(handle); mutate(f);
+    });
+    if (disconnected) assert.equal(await operation, "error:notconnected");
+    else await assert.rejects(operation, /deadline|aborted/i);
+    assert.equal(installed.length, 1);
+    assert.equal(f.adopted.every(handle => handle._disposed), true);
+  }
+});
+
 test("root point remains CSS coordinates and frame fingerprints do not include fresh remote handles", async () => {
   const f = fixture({ nested: false }); near(await f.clickable(), { x: 65, y: 70 });
   const first = await f.hit({ x: 65, y: 70 }), second = await f.hit({ x: 65, y: 70 });

@@ -384,3 +384,67 @@ test("unexpected cancellation remote objects are retained across a failed releas
   await assert.rejects(cleanup.cancel("binding"), /native media cancellation failed/);
   cleanup.close();
 });
+
+test("cleanup budget owns a late cancellation exception without starting native object releases", async t => {
+  const f = await fixture(t), response = f.gate();
+  await f.backend.attach(f.params);
+  const cleanup = f.backend.prepareMediaCleanup({ tabId: 7 }, 17);
+  let active = true;
+  const checkpoint = () => { if (!active) throw new Error("original cleanup budget expired"); };
+  f.hooks.command = async method => {
+    if (method !== "Runtime.callFunctionOn") return;
+    await response.promise;
+    return { result: { objectId: "late-result" }, exceptionDetails: { exception: { objectId: "late-exception" } } };
+  };
+  const pending = cleanup.cancel("original-guard", checkpoint);
+  await tick(); active = false; response.resolve();
+  await assert.rejects(pending, /original cleanup budget expired/);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Runtime.releaseObject"), []);
+  assert.throws(() => cleanup.close(), /cancellation objects remain/);
+  active = true;
+  await cleanup.release("original-guard", checkpoint);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Runtime.releaseObject").map(([, , args]) => args.objectId),
+    ["late-result", "late-exception", "original-guard"]);
+  cleanup.close();
+});
+
+test("late exceptional object release ACK is remembered before the next cleanup budget check", async t => {
+  const f = await fixture(t), firstRelease = f.gate();
+  await f.backend.attach(f.params);
+  const cleanup = f.backend.prepareMediaCleanup({ tabId: 7 }, 17);
+  let active = true;
+  const checkpoint = () => { if (!active) throw new Error("original cleanup budget expired"); };
+  f.hooks.command = async (method, args) => {
+    if (method === "Runtime.callFunctionOn") return { result: { objectId: "first-owned" }, exceptionDetails: { exception: { objectId: "second-owned" } } };
+    if (method === "Runtime.releaseObject" && args.objectId === "first-owned") await firstRelease.promise;
+  };
+  const pending = cleanup.cancel("original-guard", checkpoint);
+  while (!f.calls.some(([method]) => method === "Runtime.releaseObject")) await tick();
+  active = false; firstRelease.resolve();
+  await assert.rejects(pending, /original cleanup budget expired/);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Runtime.releaseObject").map(([, , args]) => args.objectId), ["first-owned"]);
+  active = true;
+  await cleanup.release("original-guard", checkpoint);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Runtime.releaseObject").map(([, , args]) => args.objectId),
+    ["first-owned", "second-owned", "original-guard"], "acknowledged exceptional release is never replayed");
+  cleanup.close();
+});
+
+test("late successful cleanup ACKs remain observable before the caller checks its budget", async t => {
+  const f = await fixture(t), response = f.gate();
+  await f.backend.attach(f.params);
+  const cleanup = f.backend.prepareMediaCleanup({ tabId: 7 }, 17);
+  let active = true;
+  const checkpoint = () => { if (!active) throw new Error("original cleanup budget expired"); };
+  f.hooks.command = async method => {
+    if (method !== "Runtime.callFunctionOn") return;
+    await response.promise; return { result: { value: true } };
+  };
+  const pending = cleanup.cancel("original-guard", checkpoint);
+  await tick(); active = false; response.resolve();
+  await pending;
+  assert.throws(checkpoint, /expired/);
+  await assert.rejects(cleanup.release("original-guard", checkpoint), /expired/);
+  assert.equal(f.calls.filter(([method]) => method === "Runtime.releaseObject").length, 0);
+  active = true; await cleanup.release("original-guard", checkpoint); cleanup.close();
+});

@@ -183,6 +183,18 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   padding 尺寸投影，叶元素几何也加入 click 指纹；普通无 position 点击不增加
   这些读取。非替换inline/SVG/fragment 的旧约定与 OOPIF 原生量化边界见
   `docs/references/element-position-geometry.md`。
+  普通dragTo在输入前绑定原source/destination，source准备复用可信move
+  receipt与原几何；首次down提交后不重新解析节点或重放手势。目标在原生
+  dragenter/dragover后复核；原utility文档的drop守卫检查节点/祖先命中、
+  CSS平面及scroll指纹，包含同AABB的individual transform和border原点变化。
+  同私有ticket贯穿RawMouse与DragManager；显式HTML dragCancel ACK先于
+  raw按钮释放。guard实际allocation/read及异常句柄均由原attachment清理
+  屏障持有，固定context lease在每条新native清理前检查本次释放预算，
+  已确认cancel/release不重发。正常drop/up ACK后的500ms资源预算与原输入
+  deadline区分；超时不能冒充原生命令取消。force/trial及预持Playwright
+  modifier/鼠标按钮沿旧路径，其他账本中预持或未确认输入由admission拒绝；
+  早注册页面监听器、capture释放副作用及worker丢失边界见
+  `docs/references/drag-delivery.md`。
   `snapshotAI` 递归读取 iframe 的原生 ARIA 树，限制总字节、节点、refs、frames
   和深度；renderer 提供真实元素 metadata，Frame 身份使用稳定 slot，避免
   iframe 重排使引用串页。每个 attachment 只保留一个 capture；新快照、frame

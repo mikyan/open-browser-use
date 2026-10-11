@@ -11,7 +11,23 @@
 
 ## 当前评分
 
-最新元素边界框/截图分片通过完整`iRrKtt` **121/121、actual exit0**，Node
+最新拖放分片通过完整`I0B25O` **122/122、actual exit0**，Node **1788/1788**，
+零skip/cancel；旧121项名称/相对顺序保持。普通dragTo输入前绑定原两节点，
+source在down前确认可信move与几何，提交后不重放；HTML目标在原生over后及
+drop事件时复查原节点/CSS平面，修复hover旧点、替换目标及同AABB内部热点
+误投。十场覆盖root/变换OOPIF、capture、显式位置和五拒绝场，旧错误POST与
+初候选协议/旧断言失败均保留。透明探针110记录调用/唯一ACK（77Input及
+11guard生命周期）、12原文档/HTML、5正确POST/28633B和精确回收独立核实。
+237777ms仅既有12activation/4controlfocus，无新增豁免；sentinel身份/选择
+保持，高1222→1165。专项`rxSklf`2/2、4328ms零focus。实际取消/释放预算逐
+命令检查，迟到ACK及异常句柄保留归属，已确认操作不重发；正常500ms资源
+释放与原输入deadline区分。51生产/53stage已核；最终包仅MODIFICATIONS
+一句预持输入说明较实跑收紧，其他50成员完全相同。旧preview未替换，
+Go/SDK未重跑，49源/八bin按已有manifest核验。worker丢失时guard恢复、
+更广CSS/跨文档drag、force/trial/预持输入及P01–P15仍未完成，详见
+[拖放提交与边界](references/drag-delivery.md)。
+
+此前元素边界框/截图分片通过完整`iRrKtt` **121/121、actual exit0**，Node
 **1723/1723**、零skip/cancel；原120项名称/顺序保留。正式boundingBox和
 元素截图按实际renderer local-root映射原生border四角再求AABB，保留
 负坐标、离屏、零尺寸及已知无布局null，原剩余期限贯穿私有dispatcher。
