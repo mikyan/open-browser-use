@@ -1,0 +1,64 @@
+docs/references/README.md
+  s_08bbfd293d324f::t_2b9651390f11e1 19-20
+docs/references/transformed-element-bounds.md
+  s_08bbfd293d324f::t_2b9651390f11e1 1-15,19-72,84-109
+  s_08bbfd293d324f::t_011ccb2f145cef 16-18
+  s_08bbfd293d324f::t_f20454f2986cbf 73-83
+scripts/patch-frame-geometry.test.mjs
+  s_08bbfd293d324f::t_2696007d4e9388 500,631
+  s_08bbfd293d324f::t_4b9cc03b16d244 580-596,617-620
+  s_08bbfd293d324f::t_3b05eec5bde1fa 411-499,501-579,597-616,621-630,632-633
+  s_08bbfd293d324f::t_0f357552dbd280 36-37,54,82,124,140-141,143
+scripts/patch-frame-geometry.mjs
+  s_08bbfd293d324f::t_b9487707d6d7d4 330-332,335-341,343-353,356-360,365-368,394,417,419-429
+  s_08bbfd293d324f::t_f11409fa20dd96 14,209-211,213-218,333-334,342,361-364
+  s_08bbfd293d324f::t_e1b52c9922b3de 233-234,354-355
+  s_08bbfd293d324f::t_891c9ccae7d803 148,189-190,195,212,221-227,232,235,253,255
+  s_08bbfd293d324f::t_0f357552dbd280 430
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_06df629a979792 2574-2601
+scripts/browser-integration/bounding-geometry-fixture.mjs
+  s_08bbfd293d324f::t_e049cff514e5bb 1-25,27-43,45-54,56-58,60-100,102-174,189-199,208-209,211-212,216,218-232,236-256,260,264-272,274,276-283,287-297
+  s_08bbfd293d324f::t_a96529f622d435 44,59,101,210,275
+  s_08bbfd293d324f::t_a0bfdfc764ca6d 175-188,202
+  s_08bbfd293d324f::t_15dd50672520fa 233-235,257-259,261-263
+  s_08bbfd293d324f::t_b9f14b5451b196 26,55,200-201,203-207,213-215,217,273,284-286
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_2b9651390f11e1 3-20
+scripts/browser-integration/bounding-geometry-fixture.test.mjs
+  s_08bbfd293d324f::t_a0bfdfc764ca6d 5,105-114
+  s_08bbfd293d324f::t_15dd50672520fa 85
+  s_08bbfd293d324f::t_b9156d3f3ea866 1-4,6-84,86-104,115-139
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_835fd2697f7de8 29,280,301,461,961-989
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_011ccb2f145cef 203-204,206
+  s_08bbfd293d324f::t_2b9651390f11e1 202,205,207-208
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_011ccb2f145cef 47-49,271,275,281
+  s_08bbfd293d324f::t_f20454f2986cbf 45-46,50-58
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_06df629a979792 1730-1749,1763
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_f20454f2986cbf 14-27
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_c8e698ee82c73d 146
+docs/exec-plans/completed/2026-10-12-bounding-geometry.md
+  s_08bbfd293d324f::t_4a8c23c6f7c278 1-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "64a45eb601a1abdb06092df9d383c5c31710b58c",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
