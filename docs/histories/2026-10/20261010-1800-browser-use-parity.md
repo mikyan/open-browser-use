@@ -1278,6 +1278,19 @@ terminal1、原104项103通过/1失败。唯一失败JS动态跨源iframe下载�
 诊断注入；原结果未改。研究流程整体与焦点审计仍失败，单代host退出
 通过不等于后续重启用例通过。本片未重跑全CI，仅报告上述定向验证。
 
+### 首个 Windows 可试用预览包
+
+按用户新增授权，复用其已有`mikyan/open-browser-use`fork，推送开发分支
+`codex/browser-use-parity`，未创建PR。发布卫生检查覆盖待上传45个提交及
+当前606个文件，未发现真实凭据、私钥或私有诊断日志。
+
+发布`preview-20261011-593a4ba`，固定源提交为`593a4ba`，保留预览标记。
+便携包包含Windows x64主机、扩展、双浏览器注册脚本、完整Skill与许可；
+主机来自干净提交，扩展仅新增现有beta public key以固定手动加载ID。
+新主机相关SDK/IPC测试23/23、独立包审计及四资产下载回SHA核验通过。
+未执行日常浏览器安装或完整新制品浏览器验收，已知限制写入发布说明。
+源码推送与预览包交付完成，不等同完整Browser Use能力目标完成。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

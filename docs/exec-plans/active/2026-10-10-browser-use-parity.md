@@ -1948,3 +1948,24 @@ focus最终失败。五入口下载及生命周期通过，后续21:30:52新的f
 冻结身份与单代host正常退出通过；研究流程整体和焦点审计仍失败，
 后续恢复用例未执行到重启动作，不能宣称host重启通过。本片仅脚手架
 与文档变更，未重跑全CI；本轮284项脚手架测试不替代上一检查点全CI。
+
+### Windows 预览版交付
+
+用户随后明确授权在自己的GitHub fork推送当前代码并打包先用；不提PR的
+约束继续。核实已有`mikyan/open-browser-use`是原项目fork，复用该仓库并
+推送`codex/browser-use-parity`，未改其main。发布卫生检查覆盖45个新增
+提交、606个当前文件和1308个去重blob，未发现新增真实凭据或私有日志。
+
+已发布[preview-20261011-593a4ba](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261011-593a4ba)，
+固定源提交`593a4ba92619efeecc4bc1a48a55387c5a56bcaa`，标记prerelease。
+Windows x64便携包包含干净源码重编译的Go1.26.9/CGO0主机、预解压扩展、
+Edge/Chrome用户级注册脚本、完整6文件Skill、中文说明及许可证。扩展
+48件与已验制品一致，只有manifest添加现有beta public key，固定ID为
+`pnbmoicbkopffjjgfgfglopechaiemkp`；没有新增生产功能或Pi专属适配。
+
+新二进制相关SDK/主机23项通过（含真实Windows IPC），无跳过；三ZIP、
+源码身份、成员字节、SHA256SUMS、许可证与注册ID独立审计通过。四个
+GitHub资产实际下载回核验一致。便携ZIP的SHA256为
+`57322cf9a80c53b49b9f2f6af9908bfff70cf371d12592b2e9c4a559dbe4f349`。
+没有实际修改日常profile或注册表，安装后连接仍由用户确认。本片是交付
+进展，不是全套浏览器回归或完整能力验收；整体目标继续active。
