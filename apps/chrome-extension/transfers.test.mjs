@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "./test-support/backend-vm.mjs";
+import nativeVM from "node:vm";
 import test from "node:test";
 import { BrowserActionEngine } from "./browser-action-engine.js";
 
@@ -70,8 +71,94 @@ async function twoSessions() {
   const env = environment(), backend = await backendFor(env);
   env.tabs.set(8, { id: 8, groupId: 20, windowId: 1 });
   const other = await backend.store.getSession("other");other.chromeGroupId=20;other.tabOrigins={8:"agent"};await backend.store.save();
-  const commands=[];env.chrome.debugger.sendCommand=async(target,method,commandParams)=>{commands.push({target,method,commandParams});return method === "DOM.resolveNode" ? { object: { objectId: "exact-node" } } : method === "Runtime.callFunctionOn" ? { result: { value: 0 } } : {}};
-  return {...env,backend,commands};
+  const commands = [], renderer = fileInputRenderer();
+  env.chrome.debugger.sendCommand = async (target, method, commandParams = {}) => {
+    commands.push({ target, method, commandParams });
+    return renderer.send(target, method, commandParams);
+  };
+  return { ...env, backend, commands, renderer };
+}
+
+// Execute the actual production controller and clear function in a renderer-like
+// realm. The fake boundary supplies CDP object/context identities and native
+// events; it does not reproduce the directory registry state machine.
+function fileInputRenderer() {
+  const contexts = new Map(), frames = new Map(), objects = new Map(), nodes = new Map();
+  let nextContext = 0, nextObject = 0;
+  const frameKey = (target, frameId) => JSON.stringify([target.tabId, target.sessionId ?? null, frameId]);
+  const nodeKey = (target, backendNodeId) => JSON.stringify([target.tabId, target.sessionId ?? null, backendNodeId]);
+  function context(target, frameId) {
+    const key = frameKey(target, frameId);
+    if (!frames.has(key)) {
+      const realm = nativeVM.createContext({ Date });
+      nativeVM.runInContext(`
+        globalThis.document = { defaultView: globalThis };
+        globalThis.Event = class { constructor(type) { this.type = type; this.isTrusted = false; } };
+        globalThis.HTMLInputElement = class {
+          constructor() { this.tagName = 'INPUT'; this.type = 'file'; this.isConnected = true;
+            this.ownerDocument = document; this.webkitdirectory = false; this.multiple = false;
+            this.files = []; this.listeners = new Map(); }
+          set value(value) { if (value === '') this.files = []; }
+          addEventListener(type, listener) { const list = this.listeners.get(type) ?? new Set(); list.add(listener); this.listeners.set(type, list); }
+          removeEventListener(type, listener) { this.listeners.get(type)?.delete(listener); }
+          dispatchEvent(event) { event.target ??= this; for (const listener of [...(this.listeners.get(event.type) ?? [])]) listener(event); return true; }
+        };`, realm);
+      const item = { id: ++nextContext, realm, target, frameId };
+      frames.set(key, item); contexts.set(item.id, item);
+    }
+    return frames.get(key);
+  }
+  function getNode(target, backendNodeId, frameId = target.sessionId ? 'child-frame' : 'root-frame') {
+    const key = nodeKey(target, backendNodeId);
+    if (!nodes.has(key)) {
+      const ctx = context(target, frameId);
+      const node = nativeVM.runInContext('new HTMLInputElement()', ctx.realm);
+      nodes.set(key, { node, ctx });
+    }
+    return nodes.get(key);
+  }
+  function object(value, ctx, preferred) {
+    const id = preferred ?? `remote-${++nextObject}`;
+    objects.set(id, { value, ctx }); return id;
+  }
+  return {
+    node: (target, backendNodeId, frameId) => getNode(target, backendNodeId, frameId).node,
+    emit(target, backendNodeId, kind = 'input', { trusted = true, count = 2, eventTarget } = {}) {
+      const { node } = getNode(target, backendNodeId);
+      if (kind === 'input') node.files = Array.from({ length: count }, (_, index) => ({ name: `file-${index}` }));
+      node.dispatchEvent({ type: kind, target: eventTarget ?? node, isTrusted: trusted });
+    },
+    async send(target, method, args) {
+      if (method === 'Page.createIsolatedWorld') return { executionContextId: context(target, args.frameId).id };
+      if (method === 'DOM.resolveNode') {
+        const ctx = contexts.get(args.executionContextId);
+        assert.ok(ctx, 'resolve must use the actual prepared isolated context');
+        const found = getNode(target, args.backendNodeId, ctx.frameId);
+        assert.equal(found.ctx, ctx, 'node must belong to the exact prepared frame');
+        return { object: { objectId: object(found.node, ctx, objects.has('exact-node') ? undefined : 'exact-node') } };
+      }
+      if (method === 'Runtime.callFunctionOn') {
+        const remote = objects.get(args.objectId); assert.ok(remote, 'call must use a real returned remote object');
+        let value;
+        try {
+          const fn = nativeVM.runInContext(`(${args.functionDeclaration})`, remote.ctx.realm);
+          value = fn.apply(remote.value, (args.arguments ?? []).map(argument => argument.value));
+          if (args.awaitPromise) value = await value;
+        } catch (error) {
+          // CDP returns the thrown Error as a remote result as well as exceptionDetails.
+          return { exceptionDetails: { text: 'Uncaught', exception: { description: String(error) } },
+            result: { type: 'object', subtype: 'error', description: String(error), objectId: object(error, remote.ctx) } };
+        }
+        return args.returnByValue ? { result: { value: clone(value) } } : { result: { objectId: object(value, remote.ctx) } };
+      }
+      if (method === 'Runtime.releaseObject') { objects.delete(args.objectId); return {}; }
+      if (method === 'DOM.setFileInputFiles') {
+        const found = getNode(target, args.backendNodeId);
+        if (!found.node.webkitdirectory) found.node.files = args.files.map(name => ({ name }));
+      }
+      return {};
+    }
+  };
 }
 const task=(tabId=7,extra={})=>params('files',{tabId,...extra});
 const other=(extra={})=>({session_id:'other',turn_id:'files',tabId:8,...extra});
@@ -686,11 +773,13 @@ function holdChooserCommand(env, method) {
   const entered = deferred(), gate = deferred(), original = env.chrome.debugger.sendCommand;
   env.chrome.debugger.sendCommand = async (target, name, commandParams) => {
     const result = await original(target, name, commandParams);
-    if (name === method) { entered.resolve(); await gate.promise; }
+    if (name === method && (name !== "Runtime.callFunctionOn" || commandParams.functionDeclaration.includes('this.value = ""'))) { entered.resolve(); await gate.promise; }
     return result;
   };
   return { entered, gate };
 }
+const fileMutation = call => call.method === "DOM.setFileInputFiles" ||
+  (call.method === "Runtime.callFunctionOn" && call.commandParams.functionDeclaration.includes('this.value = ""'));
 
 for (const firstFiles of [["first.bin"], []]) {
   for (const secondFiles of [["second.bin"], []]) {
@@ -708,7 +797,8 @@ for (const firstFiles of [["first.bin"], []]) {
       const [a] = await firstOutcome, [b] = await secondOutcome;
       assert.equal(a.status, "fulfilled");
       assert.equal(b.status, "rejected", "the same chooser cannot admit a second native submission");
-      assert.equal(env.commands.filter(call => ["DOM.setFileInputFiles", "DOM.resolveNode"].includes(call.method)).length, 1);
+      assert.equal(env.commands.filter(fileMutation).length, 1);
+      assert.equal(env.commands.filter(call => call.method === "DOM.resolveNode").length, 1);
       assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
     });
   }
@@ -747,7 +837,7 @@ for (const files of [["fixture.bin"], []]) {
       assert.equal(outcome.status, invalidation === "navigation" ? "fulfilled" : "rejected",
         "input/change navigation is allowed, but an ACK cannot restore revoked attachment or tab ownership");
       assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
-      assert.equal(env.commands.filter(call => call.method === (files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn")).length, 1);
+      assert.equal(env.commands.filter(fileMutation).length, 1);
       if (invalidation === "navigation")
         await assert.rejects(env.backend.setFileChooserFiles(env.setParams(files)), /Unknown|consumed|submitted/i);
     });
@@ -796,7 +886,9 @@ test("chooser contender delayed in live validation reports consumed after the wi
   assert.match(outcome.reason.message, /^OBU_FILE_CHOOSER_CONSUMED:/,
     "A same-scope contender must retain the consumed outcome even after the map record is retired");
   assert.equal(env.commands.filter(call => call.method === "DOM.setFileInputFiles").length, 1);
-  assert.equal(env.commands.some(call => ["DOM.resolveNode", "Runtime.callFunctionOn"].includes(call.method)), false);
+  assert.equal(env.commands.filter(call => call.method === "DOM.resolveNode").length, 1,
+    "only the winning setter resolves the node");
+  assert.equal(env.commands.filter(fileMutation).length, 1);
 });
 
 for (const method of ["DOM.resolveNode", "Runtime.callFunctionOn"]) {
@@ -808,6 +900,7 @@ for (const method of ["DOM.resolveNode", "Runtime.callFunctionOn"]) {
       try {
         await held.entered.promise;
         if (child) {
+          env.backend.handleCdpEvent({ tabId: 7, sessionId: "original-child" }, "Page.frameDetached", { frameId: "child-frame", reason: "remove" });
           env.backend.handleCdpEvent({ tabId: 7 }, "Target.detachedFromTarget", { sessionId: "original-child" });
           assert.equal(env.backend.childSessionsByTabId.get(7)?.has("original-child"), false);
         } else {
@@ -890,7 +983,7 @@ for (const files of [["fixture.bin"], []]) {
       held.gate.resolve();
       const [outcome] = await result;
       assert.equal(outcome.status, "rejected");
-      assert.match(outcome.reason.message, /CONTROL_REVOKED/);
+      assert.match(outcome.reason.message, /CONTROL_REVOKED|TRANSFER_CANCELLED/);
       assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
     } finally {
       held.gate.resolve(); detachGate.resolve();
@@ -898,3 +991,158 @@ for (const files of [["fixture.bin"], []]) {
     }
   });
 }
+
+async function until(check, message = 'native operation did not reach the expected stage') {
+  for (let count = 0; count < 100; count++) { if (check()) return; await tick(); }
+  assert.fail(message);
+}
+async function directoryEnvironment({ child = false } = {}) {
+  const env = await selectedChooserEnvironment({ child });
+  env.target = { tabId: 7, ...(child ? { sessionId: 'original-child' } : {}) };
+  env.node = env.renderer.node(env.target, 51);
+  env.node.webkitdirectory = true;
+  return env;
+}
+async function nextChooserParams(env, files, backendNodeId = 51) {
+  const ack = await env.backend.armFileChooserWait({ ...env.scope, timeoutMs: 1000 });
+  chooserEvent(env.backend, env.target?.sessionId, backendNodeId);
+  const chooser = await env.backend.collectFileChooserWait({ ...env.scope, waiterId: ack.waiterId });
+  return { ...env.scope, fileChooserId: chooser.fileChooserId, files };
+}
+
+for (const child of [false, true]) {
+  test(`directory ${child ? 'OOPIF' : 'root'} waits for trusted original-node input after native ACK`, { timeout: 2000 }, async () => {
+    const env = await directoryEnvironment({ child }); let settled = false;
+    const request = env.backend.setFileChooserFiles(env.setParams(['C:\\fixture\\directory']));
+    request.then(() => { settled = true; }, () => { settled = true; });
+    await until(() => env.commands.some(call => call.method === 'DOM.setFileInputFiles'));
+    await tick(); assert.equal(settled, false, 'a native ACK is not enumeration completion');
+    env.renderer.emit(env.target, 51, 'input', { trusted: false });
+    env.renderer.emit(env.target, 51, 'input', { eventTarget: {} });
+    await tick(); assert.equal(settled, false);
+    env.renderer.emit(env.target, 51, 'input', { count: 3 });
+    await request;
+    const sends = env.commands.filter(call => call.method === 'DOM.setFileInputFiles');
+    assert.equal(sends.length, 1);
+    assert.deepEqual(clone(sends[0].target), env.target);
+    assert.equal(sends[0].commandParams.backendNodeId, 51);
+    assert.ok(env.commands.filter(call => ['Page.createIsolatedWorld', 'DOM.resolveNode', 'Runtime.callFunctionOn'].includes(call.method)).every(call => call.target.sessionId === env.target.sessionId));
+    assert.equal(env.backend.directoryUploads.size, 0);
+    assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+  });
+}
+
+test('directory cancel rejects native invalid-path outcome and does not replay the chooser', async () => {
+  const env = await directoryEnvironment();
+  const request = assert.rejects(env.backend.setFileChooserFiles(env.setParams(['/fixture/not-a-directory'])), /DIRECTORY_UPLOAD_CANCELLED/);
+  await until(() => env.commands.some(call => call.method === 'DOM.setFileInputFiles'));
+  env.renderer.emit(env.target, 51, 'cancel', { count: 0 }); await request; await tick();
+  await assert.rejects(env.backend.setFileChooserFiles(env.setParams(['/fixture/not-a-directory'])), /Unknown|consumed/);
+  assert.equal(env.commands.filter(call => call.method === 'DOM.setFileInputFiles').length, 1);
+  assert.equal(env.backend.directoryUploads.size, 0);
+});
+
+test('directory accepts one absolute drive, UNC, or POSIX path without changing ordinary relative paths', async () => {
+  for (const path of ['C:\\fixture\\tree', '\\\\server\\share\\tree', '/fixture/tree']) {
+    const env = await directoryEnvironment();
+    const request = env.backend.setFileChooserFiles(env.setParams([path]));
+    await until(() => env.commands.some(call => call.method === 'DOM.setFileInputFiles'));
+    env.renderer.emit(env.target, 51); await request;
+    assert.deepEqual(clone(env.commands.find(call => call.method === 'DOM.setFileInputFiles').commandParams.files), [path]);
+  }
+  for (const files of [['relative/tree'], ['C:relative'], ['C:\\tree\0tail'], ['one', 'two']]) {
+    const env = await directoryEnvironment();
+    await assert.rejects(env.backend.setFileChooserFiles(env.setParams(files)), /absolute directory path|multiple files/);
+    await tick();
+    assert.equal(env.commands.some(fileMutation), false);
+    assert.equal(env.backend.directoryUploads.size, 0);
+  }
+  const env = await selectedChooserEnvironment();
+  await env.backend.setFileChooserFiles(env.setParams(['relative.bin']));
+  assert.deepEqual(clone(env.commands.find(call => call.method === 'DOM.setFileInputFiles').commandParams.files), ['relative.bin']);
+});
+
+test('directory timeout keeps the exact-node lock against fresh chooser set and clear until native completion', { timeout: 2000 }, async () => {
+  const env = await directoryEnvironment();
+  const request = assert.rejects(env.backend.setFileChooserFiles({ ...env.setParams(['/fixture/tree']), timeoutMs: 60 }), /DIRECTORY_UPLOAD_TIMEOUT/);
+  await until(() => env.commands.some(call => call.method === 'DOM.setFileInputFiles'));
+  await request;
+  for (const files of [[], ['/fixture/other']]) {
+    await assert.rejects(env.backend.setFileChooserFiles(await nextChooserParams(env, files)), /DIRECTORY_UPLOAD_BUSY/);
+  }
+  assert.equal(env.commands.filter(fileMutation).length, 1, 'timeout must not make the original node writable');
+  await env.backend.setFileChooserFiles(await nextChooserParams(env, ['other-node.bin'], 52));
+  env.renderer.emit(env.target, 51); await tick(); await tick();
+  await env.backend.setFileChooserFiles(await nextChooserParams(env, []));
+  assert.equal(env.node.files.length, 0);
+  assert.equal(env.backend.directoryUploads.size, 0);
+});
+
+test('directory renderer guard survives attachment replacement and blocks a fresh clear until actual input', { timeout: 2000 }, async () => {
+  const env = await directoryEnvironment();
+  const request = assert.rejects(env.backend.setFileChooserFiles(env.setParams(['/fixture/tree'])), /TRANSFER_CANCELLED/);
+  await until(() => env.commands.some(call => call.method === 'DOM.setFileInputFiles'));
+  await replaceChooserAttachment(env); await request;
+  await assert.rejects(env.backend.setFileChooserFiles(await nextChooserParams(env, [])), /DIRECTORY_UPLOAD_BUSY/);
+  await tick(); await tick();
+  assert.equal(env.backend.directoryUploads.size, 0, 'the failed preparation releases its local slot, including the returned Error remote object');
+  assert.equal(env.commands.filter(fileMutation).length, 1);
+  env.renderer.emit(env.target, 51); await tick();
+  await env.backend.setFileChooserFiles(await nextChooserParams(env, []));
+  assert.equal(env.node.files.length, 0);
+});
+
+for (const terminalFirst of [false, true]) {
+  test(`directory ${terminalFirst ? 'accepts' : 'rejects'} navigation ${terminalFirst ? 'after' : 'before'} trusted completion despite a late native ACK`, { timeout: 2000 }, async () => {
+    const env = await directoryEnvironment();
+    const held = holdChooserCommand(env, 'DOM.setFileInputFiles');
+    const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(['/fixture/tree']))]);
+    try {
+      await held.entered.promise;
+      if (terminalFirst) { env.renderer.emit(env.target, 51); await tick(); }
+      env.backend.handleCdpEvent(env.target, 'Page.frameNavigated', { frame: { id: 'root-frame', url: 'https://fixture.test/submitted' } });
+    } finally { held.gate.resolve(); }
+    const [outcome] = await result;
+    assert.equal(outcome.status, terminalFirst ? 'fulfilled' : 'rejected');
+    assert.equal(env.commands.filter(call => call.method === 'Runtime.releaseObject').length, 0, 'never send cleanup into a successor document');
+    if (!terminalFirst) env.renderer.emit(env.target, 51);
+  });
+}
+
+test('directory completion cannot restore Pause authority while its native ACK is held', { timeout: 2000 }, async () => {
+  const env = await directoryEnvironment();
+  const held = holdChooserCommand(env, 'DOM.setFileInputFiles');
+  const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(['/fixture/tree']))]);
+  try {
+    await held.entered.promise; env.renderer.emit(env.target, 51); await tick();
+    env.backend.automationControl.block();
+  } finally { held.gate.resolve(); }
+  const [outcome] = await result;
+  assert.equal(outcome.status, 'rejected'); assert.match(outcome.reason.message, /AUTOMATION_PAUSED/);
+  assert.equal(env.commands.filter(call => call.method === 'DOM.setFileInputFiles').length, 1);
+});
+
+test('setter timeout validates before browser access and includes delayed scope admission', { timeout: 2000 }, async () => {
+  const env = await selectedChooserEnvironment();
+  for (const timeoutMs of [0, -1, 120001, 1.5, NaN, '10', null])
+    await assert.rejects(env.backend.setFileChooserFiles({ ...env.setParams(['file.bin']), timeoutMs }), /timeoutMs/);
+  assert.deepEqual(env.commands, []);
+  const entered = deferred(), gate = deferred(), original = env.backend.requireSessionTab.bind(env.backend);
+  env.backend.requireSessionTab = async (...args) => { await original(...args); entered.resolve(); await gate.promise; };
+  const result = assert.rejects(env.backend.setFileChooserFiles({ ...env.setParams(['file.bin']), timeoutMs: 25 }), /DIRECTORY_UPLOAD_TIMEOUT/);
+  await entered.promise; await result; gate.resolve(); await tick();
+  assert.deepEqual(env.commands, [], 'late admission must never start native preparation or mutation');
+});
+
+test('another frame navigation cannot strand a completed root input guard', { timeout: 2000 }, async () => {
+  const env = await directoryEnvironment();
+  const held = holdChooserCommand(env, 'DOM.setFileInputFiles');
+  const result = env.backend.setFileChooserFiles(env.setParams(['/fixture/tree']));
+  try {
+    await held.entered.promise; env.renderer.emit(env.target, 51); await tick();
+    env.backend.handleCdpEvent({ tabId: 7 }, 'Page.frameNavigated', { frame: { id: 'other-frame', parentId: 'root-frame', url: 'https://fixture.test/child' } });
+  } finally { held.gate.resolve(); }
+  await result;
+  assert.equal(env.backend.directoryUploads.size, 0);
+  assert.equal(env.commands.filter(call => call.method === 'Runtime.releaseObject').length, 2);
+});

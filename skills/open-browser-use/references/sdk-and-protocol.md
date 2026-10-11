@@ -581,8 +581,8 @@ decide fresh work explicitly; never automatically re-arm or replay the trigger.
 
 The pending listener does not hold the tab's action queue, but collecting first
 can occupy a synchronous client or MCP channel and prevent its trigger. The
-ready-first API is specific to network waits; file chooser/download registration
-has the separate limitations below.
+ready-first APIs for file choosers and page downloads use their own capability
+versions and handles, described below.
 
 ## File Chooser Pattern
 
@@ -614,16 +614,62 @@ waiters are blocking: use a separate client with the same session for the trigge
 and keep their control epoch current. Ending or detaching invalidates old chooser
 handles and cancels outstanding waits.
 
-Starting a separate Python/Go thread or process is not proof that the waiter has
-reached the extension before the trigger. These synchronous clients currently
-lack a public registration-ready acknowledgement; prefer the same-client JS
-pattern above for reliable concurrent chooser/click workflows instead of adding
-an arbitrary sleep or assuming process startup establishes ordering.
+For sequential clients or triggers on another connection, check
+`getInfo.metadata.fileChooserWaitVersion === 1` and use the ready handle:
+
+```js
+const wait = await tab.expectFileChooser({ timeoutMs: 10000 });
+try {
+  await tab.getByLabel("Upload", { exact: true }).click();
+  const chooser = await wait.result();
+  await browser.client.setFileChooserFiles(chooser.fileChooserId, [absoluteFilePath]);
+} finally {
+  await wait.cancel();
+}
+```
+
+Python exposes `tab.expect_file_chooser(timeout_ms=10000)`, followed by
+`result()` and `cancel()`; Go exposes `tab.ExpectFileChooser`, `Result` and
+`Cancel`. CLI/MCP generic calls use `armFileChooserWait`,
+`collectFileChooserWait` and `cancelFileChooserWait` with the same tab, session,
+turn, control epoch and waiter ID. Arm acknowledges native interception before
+the click; collect uses the original deadline. A new thread, process or sleep is
+not a readiness signal. Each delivered chooser permits one submission; after an
+uncertain failure, inspect the page before explicitly deciding any new upload.
+
+### Directory uploads and background windows
+
+For a page's observed `webkitdirectory` input, check
+`getInfo.metadata.fileChooserDirectoryVersion === 1`. Pass exactly one absolute
+directory path. The setter waits for native selection completion on the original
+input; its success means the `FileList` is populated, so still verify the website's
+upload result. `[]` explicitly clears the input; choosing an empty directory is a
+different operation. An optional setter timeout is 1–120000 ms, default 10000.
+
+Chromium cancels directory enumeration for an inactive or hidden page. For a new
+directory-upload task, check `backgroundWindowVersion === 1` and create its page
+with `browser.newTab({backgroundWindow: true, url})` before navigating or filling
+the workflow. CLI uses `open-tab --background-window --url <url>`; MCP `open_tab`
+uses `background_window: true`; Python uses `new_tab(..., background_window=True)`.
+Go offers `NewTabWithOptions` and `CreateTabWithOptions` with `BackgroundWindow`.
+This creates a visible, unfocused window with its own selected tab. It keeps the
+system mouse and the user's current window unchanged. Use an existing page only
+when its original state is suitable; preserve it if recreating the workflow would
+lose unsaved state. Never move or activate an existing page automatically to
+work around a cancellation.
+
+Keep the task window unminimized. Finalize the same session: omitted agent pages
+close, while other tabs later added to that window survive. A cancellation or
+timeout does not authorize replay; directory enumeration can outlive the caller.
+
+### Page-triggered download waits
 
 Download waits similarly register before the trigger and return an opaque
 task-scoped GUID. Do not infer a local path or reuse another task's download ID.
 The extension reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` for Page GUID path lookup.
 This limitation does not prevent uploading known local files.
+With `downloadWaitVersion === 1`, `expectDownload` / `expect_download` /
+`ExpectDownload` offer the same arm, trigger, result and cancel sequence.
 
 ## Direct Downloads
 

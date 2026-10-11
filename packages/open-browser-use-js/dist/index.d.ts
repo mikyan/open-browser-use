@@ -225,7 +225,7 @@ export declare class OpenBrowserUseClient {
         args?: BrowserUseRequestParams;
         timeoutMs?: number;
     }): Promise<OpenBrowserUseActionResult>;
-    createTab(): Promise<JsonValue>;
+    createTab(options?: OpenBrowserUseCreateTabOptions): Promise<JsonValue>;
     getTabs(): Promise<JsonValue>;
     getUserTabs(): Promise<JsonValue>;
     getUserHistory(params?: BrowserUseRequestParams): Promise<JsonValue>;
@@ -237,7 +237,7 @@ export declare class OpenBrowserUseClient {
     executeCdp(tabId: number, method: string, commandParams?: BrowserUseRequestParams): Promise<JsonValue>;
     moveMouse(tabId: number, x: number, y: number, waitForArrival?: boolean): Promise<JsonValue>;
     waitForFileChooser(tabId: number, timeoutMs?: number): Promise<JsonValue>;
-    setFileChooserFiles(fileChooserId: string, files: string[]): Promise<JsonValue>;
+    setFileChooserFiles(fileChooserId: string, files: string[], timeoutMs?: number): Promise<JsonValue>;
     waitForDownload(tabId: number, timeoutMs?: number): Promise<JsonValue>;
     downloadPath(downloadId: string, timeoutMs?: number): Promise<JsonValue>;
     browserUserHistory(params?: BrowserUseRequestParams): Promise<JsonValue>;
@@ -254,7 +254,7 @@ export declare class OpenBrowserUseBrowser {
     constructor(options: OpenBrowserUseBrowserOptions);
     connect(): Promise<this>;
     close(): void;
-    newTab(options?: OpenBrowserUseGotoOptions & {
+    newTab(options?: OpenBrowserUseGotoOptions & OpenBrowserUseCreateTabOptions & {
         url?: string;
     }): Promise<OpenBrowserUseTab>;
     tab(tabId: number): OpenBrowserUseTab;
@@ -445,3 +445,6 @@ export declare class OpenBrowserUseCdp {
     ensureAttached(tabId: number): Promise<void>;
 }
 export declare function encodeFrame(value: JsonValue | Record<string, unknown>): Buffer;
+export type OpenBrowserUseCreateTabOptions = {
+    backgroundWindow?: boolean;
+};

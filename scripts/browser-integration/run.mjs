@@ -43,6 +43,10 @@ import { createBackgroundParallelFixture, checkBackgroundParallelWorkflow } from
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 import { checkChooserSubmission } from "./chooser-submission-fixture.mjs";
+import { observeChooserFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
+import { createDirectoryUploadFixtures, prepareDirectoryFiles, checkDirectoryUpload, checkInactiveDirectoryRejection, checkInactiveDirectoryCancellation } from "./directory-upload-fixture.mjs";
+import { createBackgroundWindowRecorder, checkBackgroundWindowCleanup, checkBackgroundWindowOwnership } from "./background-window-fixture.mjs";
+import { directoryWorldHTML, checkDirectoryWorld } from "./directory-world-fixture.mjs";
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
@@ -258,6 +262,7 @@ const formWorkflows = createFormWorkflowFixture();
 const researchWorkflows = createResearchWorkflowFixture();
 const backgroundParallelFixture = createBackgroundParallelFixture();
 const chooserFixtures = createChooserWaitFixtures();
+const directoryUploads = createDirectoryUploadFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
@@ -272,10 +277,12 @@ const http = createServer(async (request, response) => {
   if (researchWorkflows.handle(request, response, httpPort)) return;
   if (backgroundParallelFixture.handle(request, response, httpPort)) return;
   if (chooserFixtures.handle(request, response, httpPort)) return;
+  if (directoryUploads.handle(request, response, httpPort)) return;
   if (downloadWaitFixtures.handle(request, response, httpPort)) return;
   if (snapshotGeometryFixtures.handle(request, response, httpPort)) return;
   if (mcpBinding && mcpBindingFixture.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
+  if (route === "/directory-world") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(directoryWorldHTML); return; }
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
     const fixture = clipboardFixture();
@@ -374,7 +381,7 @@ try {
     if (file.endsWith(".py")) await fs.copyFile(path.join(repo, "packages/open-browser-use-python/open_browser_use", file), path.join(pythonSnapshot, file));
   }
   sourceIdentity = {
-    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", "research cases: bounded passive tabs.onCreated/onRemoved listeners in the independent observer; no task page or production changes", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
+    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", "research cases: bounded passive tabs.onCreated/onRemoved listeners in the independent observer; no task page or production changes", "chooser fixtures: failure-only current loopback document observation with exact native document IDs and one separate 3-second budget; no success-path calls/listeners, input replay, attachment or deadline extension", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
     gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(),
     dirty: (await subprocess("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo })).trim().length > 0,
     sha256: {
@@ -391,7 +398,7 @@ try {
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
-  for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-failure-observation.mjs", "directory-upload-fixture.mjs", "directory-world-fixture.mjs", "background-window-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   for (const file of (await fs.readdir(path.join(directory, "go-chooser-waits-checks"))).filter(name => name.endsWith(".go")).sort()) {
     const name = `go-chooser-waits-checks/${file}`;
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -524,6 +531,8 @@ try {
   }
   const createAuxiliaryPopup = url => createFixtureWindow(url, "popup");
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
+  const readBackgroundWindowState = () => worker.evaluate(`(async()=>{const requestedAt=Date.now();const [tabs,windows,targets]=await Promise.all([chrome.tabs.query({}),chrome.windows.getAll({populate:false}),chrome.debugger.getTargets()]);return{requestedAt,completedAt:Date.now(),tabs,windows,targets}})()`);
+  const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
@@ -597,24 +606,93 @@ try {
   });
   let chooserFiles;
   const getChooserFiles = async () => chooserFiles ??= await prepareChooserFiles(runDir);
+  let directoryFiles;
+  const getDirectoryFiles = async () => directoryFiles ??= await prepareDirectoryFiles(runDir);
+  await test("js-file-chooser-directory-world-reconnect", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-directory-world", turnId: "directory-world", timeoutMs: 15000 });
+    let detail;
+    try { detail = await checkDirectoryWorld({ browser: owner, fixtureURL, worker }); return detail; }
+    catch (error) { detail = { ...(error.directoryWorldDetail ?? {}), error: error.stack }; throw error; }
+    finally {
+      await fs.writeFile(path.join(runDir, "directory-world.json"), JSON.stringify(detail, null, 2));
+      try { await owner.client.finalizeTabs([]); } finally { owner.close(); }
+    }
+  });
+  await test("js-file-chooser-directory-inactive-rejection", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-directory-inactive", turnId: "directory-inactive", timeoutMs: 15000 });
+    let detail, failure;
+    try { detail = await checkInactiveDirectoryRejection({ browser: owner, fixtureURL, server: directoryUploads, files: await getDirectoryFiles(), worker, expectedWindowId: sentinel.windowId }); }
+    catch (error) { failure = error; detail = { ...(error.directoryDetail ?? {}), error: error.stack }; }
+    finally {
+      detail ??= {};
+      try { detail.finalize = await owner.client.finalizeTabs([]); }
+      catch (error) { detail.cleanupError = error.stack; failure ??= error; }
+      finally { owner.close(); }
+      if (detail.key) {
+        detail.afterFinalizeServer = directoryUploads.stats(detail.key);
+        if (!failure) try { checkInactiveDirectoryCancellation(detail.afterFinalizeServer, detail); assert.deepEqual(detail.afterFinalizeServer, detail.atReturn); } catch (error) { failure = error; detail.error = error.stack; }
+      }
+      await fs.writeFile(path.join(runDir, "directory-inactive.json"), JSON.stringify(detail, null, 2));
+      await fs.writeFile(path.join(runDir, "directory-upload-server.json"), JSON.stringify(directoryUploads.allStats(), null, 2));
+    }
+    if (failure) throw failure; return detail;
+  });
+  await test("js-file-chooser-directory-background-window", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-directory-upload", turnId: "directory-upload", timeoutMs: 15000 });
+    const recorder = backgroundWindowRecorder(owner);
+    let detail, failure;
+    try {
+      const info = await owner.client.getInfo(); assert.equal(info.metadata.backgroundWindowVersion, 1);
+      detail = await checkDirectoryUpload({ browser: owner, fixtureURL, server: directoryUploads, files: await getDirectoryFiles(), worker, until, createTab: () => recorder.createTab() });
+    } catch (error) { failure = error; detail = { ...(error.directoryDetail ?? {}), error: error.stack, server: directoryUploads.allStats() }; }
+    finally {
+      detail ??= {}; detail.backgroundWindows = recorder.records;
+      await finishChooserCase({ detail, originalError: failure, cleanup: [
+        { name: "finalize-and-verify", run: async () => {
+          detail.finalize = await owner.client.finalizeTabs([]);
+          await until(async () => { detail.cleanup = await readBackgroundWindowState(); checkBackgroundWindowCleanup(detail.cleanup, recorder.records); return true; }, "public background directory tabs/windows removed", 5000);
+        } },
+        { name: "owner-close", run: () => owner.close() }
+      ], save: async value => {
+        await fs.writeFile(path.join(runDir, "directory-upload.json"), JSON.stringify(value, null, 2));
+        await fs.writeFile(path.join(runDir, "directory-upload-server.json"), JSON.stringify(directoryUploads.allStats(), null, 2));
+      } });
+    }
+    if (failure) throw failure; return detail;
+  });
+  await test("js-background-window-mixed-finalize", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-background-window-mixed", turnId: "background-window-mixed", timeoutMs: 15000 });
+    let detail;
+    try {
+      detail = await checkBackgroundWindowOwnership({ browser: owner, fixtureURL, recorder: backgroundWindowRecorder(owner), readNative: readBackgroundWindowState,
+        readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents, until,
+        createExtra: options => worker.evaluate(`chrome.tabs.create(${JSON.stringify(options)})`),
+        removeExtra: ({ tabId, windowId }) => worker.evaluate(`(async()=>{const tab=await chrome.tabs.get(${tabId});if(tab.id!==${tabId}||tab.windowId!==${windowId})throw new Error('Fixture extra tab identity changed');await chrome.tabs.remove(${tabId})})()`)
+      });
+      return detail;
+    } catch (error) { detail = { ...(error.backgroundWindowDetail ?? {}), error: error.stack }; throw error; }
+    finally { owner.close(); await fs.writeFile(path.join(runDir, "background-window-mixed.json"), JSON.stringify(detail, null, 2)); }
+  });
   await test("js-file-chooser-single-submission", async () => {
     const options = { socketPath: endpoint, sessionId: "js-chooser-submission", turnId: "chooser-submission", timeoutMs: 15000 };
     const owner = await connectOpenBrowserUse(options), trigger = await connectOpenBrowserUse(options);
-    let detail;
+    let detail, failure;
     try {
       detail = await checkChooserSubmission({ owner, trigger, fixtureURL, server: chooserFixtures, files: await getChooserFiles(), worker, until });
       return detail;
-    } catch (error) { detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
+    } catch (error) { failure = error; detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
     finally {
-      await fs.writeFile(path.join(runDir, "chooser-submission.json"), JSON.stringify(detail, null, 2));
-      try { await owner.client.finalizeTabs([]); } finally { owner.close(); trigger.close(); }
+      await finishChooserCase({ detail: detail ??= {}, originalError: failure, cleanup: [
+        { name: "finalize", run: () => owner.client.finalizeTabs([]) },
+        { name: "owner-close", run: () => owner.close() }, { name: "trigger-close", run: () => trigger.close() }
+      ], save: value => fs.writeFile(path.join(runDir, "chooser-submission.json"), JSON.stringify(value, null, 2)) });
     }
   });
   for (const lifecycle of [false, true]) await test(lifecycle ? "js-file-chooser-ready-lifecycle" : "js-file-chooser-ready-two-connections", async () => {
     const sessionId = lifecycle ? "js-chooser-lifecycle" : "js-chooser-ready", options = { socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 };
     const owner = await connectOpenBrowserUse(options), trigger = await connectOpenBrowserUse(options);
     const foreign = lifecycle ? await connectOpenBrowserUse({ ...options, sessionId: "js-chooser-successor" }) : null;
-    const artifact = path.join(runDir, lifecycle ? "chooser-js-lifecycle.json" : "chooser-js.json"); let detail;
+    const artifact = path.join(runDir, lifecycle ? "chooser-js-lifecycle.json" : "chooser-js.json"); let detail, failure;
     try {
       if (lifecycle) sourceIdentity.testHooks.push("chooser lifecycle: bounded passive native Page.fileChooserOpened listener only, removed after the uncollected-cancel case; no native event or result changes");
       else sourceIdentity.testHooks.push("chooser ready JS: per-variant bounded passive chrome.debugger.onEvent frame/target/fileChooserOpened trace for the exact tab; original native payloads retained on success/failure, listener removed afterward; no backend hooks or event/result changes");
@@ -622,10 +700,14 @@ try {
       const parameters = { owner, trigger, foreign, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, prefix: "js-chooser",
         ...(chooserDiagnostic ? { diagnostic: createChooserDiagnostic({ worker, readFocus: readFocusLedger }) } : {}) };
       detail = await (lifecycle ? checkChooserLifecycle(parameters) : checkChooserReady(parameters)); return detail;
-    } catch (error) { detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
+    } catch (error) { failure = error; detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
     finally {
-      await fs.writeFile(artifact, JSON.stringify(detail, null, 2));
-      try { await owner.client.finalizeTabs([]); if (foreign) await foreign.client.finalizeTabs([]); } finally { owner.close(); trigger.close(); foreign?.close(); }
+      await finishChooserCase({ detail: detail ??= {}, originalError: failure, cleanup: [
+        { name: "finalize", run: () => owner.client.finalizeTabs([]) },
+        ...(foreign ? [{ name: "foreign-finalize", run: () => foreign.client.finalizeTabs([]) }] : []),
+        { name: "owner-close", run: () => owner.close() }, { name: "trigger-close", run: () => trigger.close() },
+        ...(foreign ? [{ name: "foreign-close", run: () => foreign.close() }] : [])
+      ], save: value => fs.writeFile(artifact, JSON.stringify(value, null, 2)) });
     }
   });
   for (const kind of ["cli", "mcp"]) await test(`${kind}-file-chooser-ready-two-connections`, async () => {
@@ -663,7 +745,7 @@ try {
     }
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: prefix, turnId: "chooser-ready", timeoutMs: 15000 });
     const diagnostic = kind === "go" && goChooserDiagnostic ? createGoChooserDiagnostic({ worker, readFocus: readFocusLedger }) : null;
-    let childProcess, callerResult;
+    let childProcess, callerResult, failure;
     try {
       const env = { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" };
       if (diagnostic) {
@@ -688,6 +770,7 @@ try {
       for (const item of detail.variants) item.frames = await chooserFrameEvidence(worker, item.tabId, item.key, item.variant);
       return detail;
     } catch (error) {
+      failure = error;
       let callerReadError;
       try {
         assert.ok((await fs.stat(output)).size <= 4 * 1024 * 1024, "Go/Python chooser partial artifact exceeds limit");
@@ -695,16 +778,24 @@ try {
         if (callerResult) assert.deepEqual(callerResult, saved, "Go stdout result differs from saved partial result");
         callerResult = saved;
       } catch (readError) { callerReadError = String(readError); }
-      detail = { error: error.stack, proof, callerResult, callerReadError, server: chooserFixtures.allStats() }; throw error;
-    } finally {
-      if (diagnostic) {
-        await diagnostic.cleanup();
-        detail ??= { proof, callerResult };
-        detail.childProcess = childProcess;
-        detail.diagnostic = { records: diagnostic.records, errors: diagnostic.errors };
+      detail = { error: error.stack, proof, callerResult, callerReadError, server: chooserFixtures.allStats() };
+      if (kind === "go" && !diagnostic) {
+        const failedItem = Array.isArray(callerResult?.variants) ? callerResult.variants.findLast(item => item && (item.error || item.originalError || item.failedAt)) : null;
+        if (failedItem && ["root", "oopif", "dynamic-oopif"].includes(failedItem.variant) && failedItem.key === `${prefix}-${failedItem.variant}`)
+          detail.failureObservation = await observeChooserFailure({ worker, item: structuredClone(failedItem), fixtureURL,
+          timing: "After original Go process failure and its waiter cancellation/connection close; before parent task finalization" });
+        else detail.failureObservation = { complete: false, errors: ["No failed Go variant identity in the retained partial result; no page read attempted"] };
       }
-      await fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(detail, null, 2));
-      try { await owner.client.finalizeTabs([]); } finally { owner.close(); }
+      throw error;
+    } finally {
+      detail ??= { proof, callerResult };
+      await finishChooserCase({ detail, originalError: failure, cleanup: [
+        ...(diagnostic ? [{ name: "diagnostic-cleanup", run: async () => {
+          try { await diagnostic.cleanup(); }
+          finally { detail.childProcess = childProcess; detail.diagnostic = { records: diagnostic.records, errors: diagnostic.errors }; }
+        } }] : []),
+        { name: "finalize", run: () => owner.client.finalizeTabs([]) }, { name: "owner-close", run: () => owner.close() }
+      ], save: value => fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(value, null, 2)) });
     }
   });
   await test("js-file-chooser-public-concurrent", async () => {

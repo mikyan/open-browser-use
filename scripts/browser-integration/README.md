@@ -4,7 +4,32 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
-## Go chooser failure evidence
+## Chooser failure evidence
+
+Default JS chooser-ready, single-submission and directory-upload failures retain a bounded
+`failureObservation` before waiter cancellation when the operation fails. Default
+Go failures add it after reading the original child partial result, after the
+child has attempted cancellation and closed its connections, but before parent
+finalization. Successful paths add no observation calls, listeners or wrappers;
+the existing chooser HTML, actions and 10-second/5-second deadlines are unchanged.
+The existing opt-in diagnostic collectors keep their own observation path.
+
+This post-failure read has one separate 3-second budget. Native tab/frame metadata
+must match the exact loopback fixture URL/key/variant before a fixed read-only
+`chrome.scripting.executeScript` targets those native document IDs. It records
+the page's existing click/change/frame-add evidence, document token, visibility,
+and current geometry. Directory fixtures use their own exact routes and existing
+`directoryEvidence`, including the input token and bounded native event summaries;
+the observer does not read file bytes. No input, navigation, focus change, new attachment or retry
+is sent. Errors and missing/replaced documents stay in the observation and cannot
+turn the case into a pass or replace its original error. Document IDs prove only
+continuity from the metadata read to the later DOM read; without an earlier token
+they do not establish the click-time document, layout, hit-test surface or dialog
+state. Evidence collection success is separate from browser operation success.
+These JS (including the background-directory case) and Go/Python parent blocks attempt each existing finalization/close
+once, then save the artifact with any `cleanupErrors`. Cleanup or persistence
+errors still fail an otherwise successful case and cannot replace an earlier
+business error; persistence failures are also retained in the run log.
 
 The Go chooser caller now saves partial results on failure, including each
 variant and round before its first operation. Arm, add-frame, click, collect,
@@ -1816,6 +1841,63 @@ server evidence and a shutdown record below `.tmp/browser-integration`.
 It never drives the comparison browser. Keep failed method attempts and any
 fallbacks separate from exact final task success; browser/profile versions and
 different API overhead do not support a speed or overall parity claim.
+
+## Directory upload completion
+
+The default suite includes directory completion and background-window ownership
+cases. After setting the usual host/browser prerequisites, select them with:
+
+```powershell
+$env:OBU_TEST_CASES = 'directory|background-window'
+node scripts/browser-integration/run.mjs
+```
+
+`js-file-chooser-directory-background-window` uses the public JS client through
+two connections with the same control scope, and creates each task page using
+`browser.newTab({backgroundWindow:true})`. Root, existing OOPIF and dynamically added OOPIF inputs select a
+real directory tree twice, then an empty directory twice. The tree includes
+Chinese names, two identical basenames in different subdirectories, binary data,
+a zero-byte file and an empty subdirectory. Root also checks clear and explicitly
+rejects a missing directory, a regular file passed as a directory, and multiple
+directory paths. Missing capability support fails the case rather than skipping it.
+
+`js-file-chooser-directory-inactive-rejection` retains the ordinary inactive-tab
+route as an explicit negative case on the fixed Chromium build. It requires a
+native trusted cancel, a rejected setter and no successful input/change or file
+POST, both on return and after finalization. This records the native limitation;
+it does not rewrite the earlier failing positive run as a successful upload.
+
+`js-file-chooser-directory-world-reconnect` checks the original isolated-world
+guard across a real detach/attach. Its test admission has not sent any file
+mutation; it proves guard persistence, not interrupted directory completion or
+worker-restart recovery.
+
+A page capture listener, registered before the agent's listener, synchronously
+POSTs short FileList metadata on `input`, `change` and `cancel`. Its server replies
+immediately without waiting for the SDK. The setter's first resolution
+continuation snapshots that server memory, before polling or another browser
+request: each successful directory round must already have one trusted input
+witness for the exact original node/document. Later asynchronous POSTs contain
+the actual File bytes; the checker validates hashes and all relative paths.
+Explicit clear has programmatic events, and cancel alone never proves selection.
+
+`directory-upload.json` and `directory-inactive.json` retain per-stage evidence;
+`directory-upload-server.json` retains original request bodies and receipts
+associated by exact fixture key. Public window creation is checked against
+before/after native inventories. Only that exact new window's sole-tab activation
+is recorded as a creation allowance; window focus has no new allowance and the
+original sentinel remains selected. Finalize must remove each agent tab and its
+now-empty window. No native completion events are simulated.
+
+`js-background-window-mixed-finalize` verifies that a grouped tab created before
+and another created after the background window retain their original group and
+session ownership. A later unclaimed test page in the background window survives
+finalization of all three agent pages. Its natural selection after the active
+agent page closes is recorded separately by exact tab/window IDs and the finalize
+interval; it is not a creation or window-focus exemption. The fixture then closes
+only its own extra tab and verifies final native inventory. Evidence is in
+`background-window-mixed.json`. These cases cover the tested Chromium build,
+not all browsers or filesystems, and do not establish Codex-wide parity.
 
 ## Shared multi-page research workflows
 

@@ -54,6 +54,8 @@
   正负对照，以及已实现并验收的独立窗口归属与回收；原生创建焦点仍有缺口。
 - [Ungrouped task tabs](ungrouped-task-tabs.md)：短命原生标签组的兼容接纳、
   新建页事务、显式普通页归属和交付/回收边界。
+- [Background task windows](background-windows.md)：显式不聚焦窗口、混合任务归属、
+  目录上传用途及仅关闭本任务页面的清理契约。
 - [Headed browser startup](headed-browser-startup.md)：Windows 隔离验收中首窗口
   原生首帧停滞的对照证据、固定版本源码和诊断限制。
 - [Background idle and concurrent rendering](background-parallel-workflow.md)：

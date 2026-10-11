@@ -29,6 +29,10 @@ func (b *Browser) NewTab(options ...GotoOptions) (*Tab, error) {
 	if len(options) > 0 {
 		option = options[0]
 	}
+	return b.NewTabWithOptions(NewTabOptions{URL: option.URL, WaitUntil: option.WaitUntil, Timeout: option.Timeout})
+}
+
+func (b *Browser) NewTabWithOptions(option NewTabOptions) (*Tab, error) {
 	timeout := option.Timeout
 	if timeout == 0 {
 		timeout = DefaultNavigationTimeout
@@ -40,7 +44,7 @@ func (b *Browser) NewTab(options ...GotoOptions) (*Tab, error) {
 	if option.URL != "" {
 		budget = timeout + time.Second
 	}
-	result, err := b.Client.requestInScope("createTab", nil, budget, func(metadata Params, deadline time.Time) (any, error) {
+	result, err := b.Client.requestInScope("createTab", createTabParams(option.BackgroundWindow), budget, func(metadata Params, deadline time.Time) (any, error) {
 		reserve := time.Duration(0)
 		if option.URL != "" {
 			reserve = time.Second

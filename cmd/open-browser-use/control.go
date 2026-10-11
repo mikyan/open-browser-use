@@ -101,6 +101,11 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, err
 		}
 	}
+	if method == "createTab" {
+		if err := obu.ValidateCreateTabParams(obu.Params(params)); err != nil {
+			return nil, err
+		}
+	}
 	params, err := copyCLIParams(params)
 	if err != nil {
 		return nil, err
@@ -189,6 +194,20 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 		captured = current
 		if captured.version == 1 {
 			params["control_epoch"] = captured.epoch
+		}
+	}
+	if method == "createTab" && params["backgroundWindow"] == true {
+		response, err := sendCLIRequest(conn, "cli-background-window-info", "getInfo", map[string]any{"session_id": params["session_id"], "turn_id": params["turn_id"]})
+		if err != nil {
+			return nil, err
+		}
+		info, err := cliResult(response)
+		if err != nil {
+			return nil, err
+		}
+		metadata, _ := info["metadata"].(map[string]any)
+		if metadata["backgroundWindowVersion"] != float64(1) {
+			return nil, errors.New("OBU_BACKGROUND_WINDOW_UNSUPPORTED: extension does not advertise backgroundWindowVersion 1")
 		}
 	}
 	if cliNetworkWaitMethod(method) {

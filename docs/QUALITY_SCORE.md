@@ -11,6 +11,62 @@
 
 ## 当前评分
 
+显式 `createTab({backgroundWindow:true})` / SDK `newTab` 已接入正式路径：
+创建独立、不聚焦的 normal 窗口，任务页只在自己的新窗口中选中；省略或
+false 保留原路径。能力协商、混合分组归属、持久撤权和只关闭自有 tab 的
+finalize 已实现。它会增加一个可见窗口，未解除默认 inactive 页的目录限制，
+也没有把点击、移动用户页或激活用户窗口作为隐式补救。
+
+最新完整 `XHmJdq` **108/109、exit1**：原105项名称/顺序全部保留且通过，
+新增四项通过三项。后台窗口目录用例在 dynamic OOPIF 首轮 collect 超时，
+尚无 chooser、setter、失败时 DOM 或原生输入记录，不能确认点击是否到达。
+root/static 共12轮核验9POST、20份文件载荷、272实际字节；8次可信目录选择、
+一次合成清空、三项拒绝。连续186630ms内仍为11次精确激活、四次既有控制
+popup focus、零未知事件；sentinel不变，精确任务清理与额外页保留通过。
+普通 chooser 本轮通过并不解释上一轮失败。生产、host及SDK与上一轮同源；
+新增普通 chooser 失败后观察未被本轮成功路径调用，Node1369/1369通过。
+
+目录失败观察补齐后Node1373/1373通过，专项 `JwX2Bc` **10/13、exit1**。
+四项新检查全过，但JS单次/JS双连接/Go双连接的dynamic首轮collect均超时。
+三份自然失败观察完整，分别耗时6/3/5ms：精确当前root/child文档中，root
+有一次可信frameAdd，child的clicks/changes为空，输入框连接且未禁用、无文件。
+JS在cancel前读，Go在原子进程cancel/close后读。它们不证明点击时文档身份、
+down/up序列或原生命中表根因；不能以观察完整宣称业务通过。下一步需分辨
+点击序列的实际投递，而非重放输入或改用可能绕过祖先遮挡的child直发。
+
+此前完整 `zyiYQg` **106/109、exit1**，原105项名称/顺序保留，四项新增
+检查全部通过。JS 单次提交、JS 双连接和 Go 双连接的动态 OOPIF 首轮均在
+collect 超时，尚未调用该轮 setter；缺少原生 Input/intercept 投递证据，
+根因及与本轮变更的关系未定。目录正式新窗口路径完成16轮、13个真实
+文件 POST、30份文件载荷共408字节；12次目录选择有可信 input，另一次
+显式清空沿用合成事件。同步 witness 在 setter 返回的第一条回调检查，
+没有用后续轮询冒充完成。三项非法提交拒绝，默认 inactive 负例可信
+cancel 且零上传；混合分组/后台窗口 finalize 保留了额外的非任务页。
+
+全套连续账本为11次精确激活（四次新窗口创建、一次自然继任、六次旧
+fixture动作）、四次既有控制 popup focus、零未知事件；新窗口用例没有
+window focus，原 sentinel 保持不变。首轮 `UPWXAL` 4/5 的 inactive
+fixture 冷 scope 错误已修，原失败保留。该轮 Node **1347/1347**、JS129、
+Python94通过；受影响 Go SDK87与CLI109个顶层测试通过，另有23项既有
+平台 skip，不能写成全平台无跳过。旧发布 ZIP 不含本 feature；P01–P15
+范围不变，动态 chooser 稳定性与整体目标继续开放。
+
+目录 setter 现已修正完成契约：原生 ACK 加原节点可信 `input` 才能成功，
+取消/超时不能冒充完成；同节点目录、普通文件和清空共享占用，未知枚举
+不因断线或超时开放给后继提交。新增独立 setter deadline 和三 SDK 可选
+超时参数。Node 1311项通过，包含真实 CDP Error object 形状的回归；这些
+检查不等于默认后台目录上传已可用。固定 Chromium 156 会取消隐藏或非
+窗口选中 tab 的目录枚举，默认 inactive 路径仍未解决。
+
+前一轮默认完整 `Ob0pFy` **103/107、exit1**：原105项名称/顺序保留，增加
+目录完成和隔离世界两项。目录首轮收到可信 cancel、0文件POST；JS/MCP/
+Go 动态 OOPIF chooser 等待另有三项超时，失败密度增加，尚不能排除本轮
+变更关联或回归。独立核源码/制品、成功分支24POST/380文件字节、原六激活/
+四focus及原任务页清理；这些通过不抵消四项失败。实验 `Nl0c74` 的独立
+不聚焦 popup 内 root/已有 OOPIF 目录上传成功，但动态 Add upload frame
+动作超时，整体仍失败；它有三个新窗口首 tab 激活、零窗口 focus，不能
+算默认 inactive 能力，也没有扩充主套件的焦点豁免。P10及整体目标仍开放。
+
 Go chooser现会保留失败阶段和partial；显式诊断用有界父子握手记录原生
 命令及失败后的浏览器metadata，默认不装探针、不增加动作或延长期限。
 脚手架339项与Go helper包通过。诊断`nFsRPz`2/2、无hook专项`JWc1eT`9/9、
@@ -56,10 +112,10 @@ Go全包通过；真实Brave `i40fyX` 默认任务/清理和零焦点通过。Vi
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及暂停已有验收。此前主 `run-5TPsWz` 104/104，含五入口×三布局研究流程；页面下载准备确认、原生GUID与文件字节另有9/9。Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3，真实重启/reload 历史8/8。Edge 同策略隔离后仍有未知 focus，不能称全浏览器无抢前台。 | 继续后台长期并行、Page GUID 路径/取消、headed OS 剪贴板、Edge 原生焦点、签名更新/更多恢复顺序及更广同组任务。 |
+| 产品面 | B | 三 SDK 与 CLI/MCP 已接显式后台窗口，正式目录上传及混合归属清理通过，默认 inactive 目录限制保留。最新完整 `XHmJdq` 108/109，原105项全过，新增目录dynamic首轮collect超时；旧普通chooser故障仍未定位。此前共享研究、页面下载、Chrome 原生 launcher 等证据保留；Edge 原生 focus 与 Vivaldi 输入缺口未解除。 | 定位动态 chooser 稳定性，继续 Page GUID 路径/取消、headed OS 剪贴板、其他浏览器/平台及更广同组任务。 |
 | 架构文档 | B | 本地 IPC、动作协议、观察/capture refs、control 生命周期、暂停、来源边界与 incarnation/startup witness 已有 reference；新增 native 重连 timer/alarm 调度、真实 launcher/EOF 验收边界及 chooser 准备确认/原 deadline/实际清理契约。 | 查明 Edge 隔离原生恢复的未知 focus，补更多恢复顺序、签名更新及受限入口。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查。恢复指导区分关闭原受控页、完整退出重开及可能额外重启，风险退役后立即撤下建议；20张实际恢复PNG已校验，关键三图已查看。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 完整 CI：扩展827、脚本53、脚手架199（1,079 Node），JS115、Python82、Go全包及其余检查通过，无跳过。主 `run-5TPsWz` 104/104；Chrome 原生生命周期 `native-lifecycle-dnAdTC` 3/3，历史整进程/reload8/8保留。长闲置最终 `run-ttHLU9` 2/2，310秒静默、182图/172POST及原生并行独立核验；首轮DPR裁剪校验失败保留。Edge清洁inventory但focus失败，未将其标通过。 | 补更长/更广并行压力、Edge 原生恢复焦点定位、packed alarm 实际唤醒、签名更新、其他 OS/浏览器及更广同组比较。 |
+| 测试 | B | 本片 Node1373、JS129、Python94通过；受影响 Go SDK87与CLI109个顶层测试通过，另有23项既有平台 skip。真实 `UPWXAL` 4/5 的 fixture 问题修复后，完整 `zyiYQg` 106/109、随后 `XHmJdq` 108/109；独立核原105项顺序、新case、已完成目录字节/返回时 witness、源码/host与精确focus。历史全绿和长闲置证据保留，不抵消当前失败。 | 补动态 chooser 故障所缺原生投递证据及完整回归，继续其他平台、恢复顺序、签名更新与更广同组比较。 |
 | 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
 

@@ -42,6 +42,61 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+显式后台窗口已进入正式接口：`createTab({backgroundWindow:true})` 与 SDK
+`newTab` 创建独立 `normal`、`focused:false` 窗口，不移动既有页；省略/false
+保持原行为。三 SDK 与 CLI/MCP 先协商 `backgroundWindowVersion:1`，旧扩展
+不能静默忽略选项。新页在自己的窗口中选中，用户原窗口和 tab 保持原样；
+这会增加可见窗口，不等于同窗口 inactive 页已支持目录枚举。归属记录与
+原 session 分组并存，用户搬移/分组/pin 后持久撤权，明确 reclaim 按用户页
+处理；finalize 只关自有 tab，保留窗口中的其他页，详见
+[显式后台窗口](../references/background-windows.md)。
+
+最新完整 `XHmJdq` **108/109、exit1**：原105项名称/顺序保留且全过，新增
+四项通过三项。正式后台窗口目录用例在 dynamic OOPIF 首轮 collect 超时，
+没有进入该轮 setter；目前缺少该文档的点击/原生投递证据，不能确定根因。
+root/static 共12轮中8次可信目录选择、一次合成清空、三项拒绝通过，核验
+9POST/20文件载荷/272实际字节。11次激活及四次既有控制popup focus均精确
+归因，零未知事件；额外页保留与任务清理通过。生产/host/SDK与前轮相同，
+普通chooser新失败观察在本轮未触发。Node1369/1369通过，不替代浏览器失败。
+
+补目录观察后的Node1373/1373通过；专项 `JwX2Bc` **10/13、exit1**，四项
+新检查通过，JS单次/JS双连接/Go双连接dynamic collect超时。三份自然故障
+在6/3/5ms内完成精确当前文档读取，root有可信frameAdd、child未记录click。
+这缩小了点击链路调查范围，但不证明点击时身份、完整鼠标序列或最终根因；
+Go观察在原子进程取消/关闭后，JS在cancel前，不能混同两种时序。
+
+此前正式完整 `zyiYQg` **106/109、exit1**：原105项名称/顺序不变，隔离世界、
+inactive 目录拒绝、正式后台窗口目录、混合 finalize 四项新检查全部通过。
+目录16轮核13个真实 POST、30份文件载荷共408字节；12次目录选择有可信
+input，另一次显式清空仍为合成事件。每次成功都在 setter 返回的第一条
+回调读取同步 witness，后续异步文件字节另核；无效路径/文件误用/多目录
+三项拒绝，重复消费不能新增成功事件。默认 inactive 页可信 cancel 且零
+上传，限制没有隐藏。原 JS 单次提交、JS 双连接及 Go 双连接的动态 OOPIF
+首轮 collect 超时，未调用本轮 setter；原生投递证据不足，回归关系未排除。
+
+本轮连续focus账本为四次新窗口创建激活、一次自然继任、原六次fixture
+激活及四次控制popup focus，零未知事件；新窗口用例本身零window focus，
+sentinel不变。`UPWXAL`首轮4/5的inactive fixture冷scope错误已修且保留。
+Node1347、JS129、Python94通过；受影响Go SDK87与CLI109个顶层测试通过，
+另有23项既有平台skip，并非全平台无跳过验收。旧发布ZIP不含此功能；P01–P15
+完整范围与未解决问题继续保留。
+
+最新目录分片已修正 `setFileChooserFiles` 的完成契约：对真实
+`webkitdirectory` 节点，唯一绝对路径须等原生 ACK 与原节点可信 `input`；
+原生 cancel、未知完成或超时明确失败，不重放。默认10秒、可选1–120000ms
+的 setter deadline 独立于 chooser wait；普通文件与清空也共享原节点占用。
+固定 Chromium 156 拒绝隐藏或非本窗口选中页的目录枚举，因此默认后台
+inactive 路径仍不能完成目录上传，能力版本不代表该限制已解除。
+
+前一轮默认 `Ob0pFy` **103/107、exit1**，原105项顺序完整，加两项目录检查。
+目录首轮可信 cancel；JS、MCP、Go 动态 OOPIF chooser 等待另有三项超时。
+JS/Go阶段证明在 collect、尚未进入该轮 setter；MCP缺少局部阶段记录，
+由已完成的 root/OOPIF POST 与调用位置推断动态首轮。原生 Input/intercept
+命令证据不足，不能据先前低频症状认定同因，也未排除本次变更的回归。
+原六次激活/四次focus均属既有豁免。实验 `Nl0c74` 在独立不聚焦 popup 的
+选中页完成 root/OOPIF 目录上传，但动态 Add upload frame 动作超时；不
+代表正式默认能力。完整约束见[文件传输](../references/file-transfers.md)。
+
 Go chooser调用器补齐失败partial和原阶段，诊断采集明确限于原生trace、
 浏览器metadata及focus，不重新取scope/attach或读取任务DOM。脚手架339项
 和Go helper包通过；无hook专项`JWc1eT`9/9、完整`npV0kp`105/105，实际
@@ -118,12 +173,12 @@ P04位置快照已完成三种原生DPR的五入口专项：`oVaN3m`、`wTM1CH`�
 | P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 同源/OOPIF/嵌套/open shadow 已实测；递归 refs 在 iframe 前插、保留文档重排、20 次重复快照和 8 次替换循环后命中正确节点，frame 生命周期使旧 capture 失效；更多复杂组合仍待补 |
 | P08 | 导航与页面生命周期 | goto/back/forward/reload、SPA、popup、关闭、wait URL/load；正确监听早到事件 | 原生 URL/load observer 的短注册与动作完成队列分离，冷 wait→click、五入口 ready→trigger→collect、快速/SPA/中间 URL/redirect、独立 DCL/load/networkidle 和当前状态立即完成均已实测。既有 goto/BFCache/刷新及 auxiliary 原窗口接管保留；Opera 新建单页组消失已用明确无组归属修复，并有真实多页导航、handoff/恢复及关闭验收。原生 popup 创建仍抢前台，用户自行移窗后的渲染恢复和 Vivaldi 更广启动时序/输入待补 |
 | P09 | 截图与后台渲染 | viewport/full-page/element/crop，尺寸格式正确；闲置后台 tab 重复截图与输入稳定 | viewport/crop/full-page 与离屏根/同源/OOPIF/嵌套截图、导航后新内容已有验收；frame-owner 预滚修复 stable 等待。启动 trace 将首窗口停滞定位到 root Surface 依赖和 Chromium testing 实验组；受控基线禁用 testing config 后，定向 3/3、完整 headed 61/61。这是测试环境修正，原配置失败保留，不能宣称插件已兼容所有实验设置；普通 tab 移组撤权与显式恢复已验。新增 `run-ttHLU9` 2/2：两页原生命令静默310.088秒，首次恢复截图及后续更新通过，182图逐像素/原生clip核验；document visibility仍visible，不称hidden节流。更长闲置与更广压力待补 |
-| P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 上传/chooser、主 frame/OOPIF 文件字节与清空已有验收。HTTP(S) 新 GET 下载的五入口、cookie、精确 ID 路径/取消以及 PDF/MHTML 产物已验；剪贴板固定 Headless 8/8。`run-XnREpF` 70/70 包含有限 image/video/audio HTTP(S)、data/同 frame 同 origin Blob、Canvas PNG 的五入口文件下载；36 实际文件、8 MiB 边界、分区隔离/DRM/污染/超限负例与四种真实 pending read 取消独立核验。HTTP 是新 GET，不复现页面原响应；嵌入字节上限 8 MiB。chooser 准备确认 `run-bE4e26` 9/9、完整 `run-3OY97j` 83/83，30 条上传/清空 POST 与另6条生命周期请求已验。最新页面下载准备确认 `run-lMFHcB` 9/9、`run-k3mDiy` 89/89 覆盖五入口两连接、root/既有及新建OOPIF、原生GUID/范围通知与24份原始响应及实际文件；取消观察后原传输仍能完成。超过嵌入限制的媒体、headed OS 剪贴板、Page GUID→路径/实际取消及更多平台仍待补；Content-return 的具体语义及当前 Codex 基准尚未确定，已有正文、PDF/MHTML 与剪贴板内容返回不算缺失 |
+| P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 上传/chooser、主 frame/OOPIF 文件字节与清空已有验收。目录完成契约已实现 ACK 加可信 input；显式 backgroundWindow 正式路径三布局16轮、13POST/408文件字节通过，默认 inactive 页仍原生 cancel。此前完整 `zyiYQg` 106/109；最新 `XHmJdq` 108/109，新增目录dynamic首轮collect超时，原105项本轮全过。两轮根因及回归关系未定。HTTP(S) 新 GET 下载的五入口、cookie、精确 ID 路径/取消以及 PDF/MHTML 产物已验；剪贴板固定 Headless 8/8。`run-XnREpF` 70/70 包含有限 image/video/audio HTTP(S)、data/同 frame 同 origin Blob、Canvas PNG 的五入口文件下载；36 实际文件、8 MiB 边界、分区隔离/DRM/污染/超限负例与四种真实 pending read 取消独立核验。HTTP 是新 GET，不复现页面原响应；嵌入字节上限 8 MiB。chooser 准备确认 `run-bE4e26` 9/9、完整 `run-3OY97j` 83/83，30 条上传/清空 POST 与另6条生命周期请求已验。最新页面下载准备确认 `run-lMFHcB` 9/9、`run-k3mDiy` 89/89 覆盖五入口两连接、root/既有及新建OOPIF、原生GUID/范围通知与24份原始响应及实际文件；取消观察后原传输仍能完成。超过嵌入限制的媒体、headed OS 剪贴板、Page GUID→路径/实际取消及更多平台仍待补；Content-return 的具体语义及当前 Codex 基准尚未确定，已有正文、PDF/MHTML 与剪贴板内容返回不算缺失 |
 | P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | diagnostics 主页面/OOPIF、分页/丢弃/截断经 native 验证。新 CRPage 时间戳边界在原 root/OOPIF/worker handlers 创建 handles 前过滤历史 console/exception/Log；raw CDP 通知保留，实际重放、新 console/error 与换 owner 通过最终 70/70。历史 `run-WMOIim` 69/70 失败保留。边界依赖稳定系统钟，系统时钟跳变后的隔离仍待补。request/response ready→trigger→collect 五入口及冷 main/OOPIF、headers-before-body、redirect/503、精确匹配与有界终态已验；更广调试/流读取未完成 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属、光标/蓝框/点击圈及后台操作已实测。此前完整 `run-5TPsWz` 104 项连续 observer 中，六次测试窗口创建各有首 tab 激活；四条 focus 仅来自两次明确控制面板打开，均精确归因，原 sentinel 不变，没有额外前台事件。新增研究专项16/16为零激活/零focus，75创建、60关闭、15个非活动报告保留且既有tabs元数据不变。新增后台专项3独立任务、31轮、172POST、490渲染区间/563跨owner重叠，A闲置310秒、C结束时B原scope继续，8创建/8关闭、零激活/零focus。不是全套零事件；原生 popup 创建激活与更长/更广压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、移组/跨窗口撤权、可信输入释放、网络/导航/下载 handle 失效与 session incarnation 已验。真实 browser restart/reload `browser-restart-w5chI9` 8/8 含未知输入经 startup witness 的保守恢复。最终 Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3 增加实际 host 退出和两次原生 EOF exit0；挂起请求及时失败，原 deadline+250ms 无迟到动作，暂停经同 popup 显式恢复。主回归 `run-aZyBs1` 77/77。Edge `native-lifecycle-R7MPzo` 清单隔离通过但出现未知窗口 focus，整项失败且 reload 未执行。未决原生调用可能阻止清理，worker 丢失下载 handle 不保证底层传输取消；签名更新/禁启、packed alarm、其他 OS 及更多压力顺序待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及更广浏览器/扩展恢复顺序仍待完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 此前 Windows Chromium 156 主 headed `run-5TPsWz` 104/104，新增五入口×三布局研究15项：当前资料、跨源/动态frame、准确比较和来源、单次报告、实际75创建/60关闭/15保留。专项16/16与全套均独立核验原始请求/收据，扩展新增无组任务页与失败创建撤权，Opera/Brave 原生多页另行验收通过。本轮CI Node1079（827+53+199）、JS115、Python82、Go全包通过；另有opt-in后台长闲置2/2，原有默认104项范围不变。Codex Edge共享研究最终3/3，无浏览器方法失败/替代；无独立OS焦点证据且测试server强制退出，限制另记。此前共享表单3/3、部分方法替代及严格frame指针0/3与87/89窗口失败均保留；不推断速度或完整持平。原生Chrome生命周期3/3不代替Edge失败；开放研究、文件/诊断同组任务及更多重复/平台比较仍待完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 此前 Windows Chromium 156 主 headed `run-5TPsWz` 104/104，新增五入口×三布局研究15项：当前资料、跨源/动态frame、准确比较和来源、单次报告、实际75创建/60关闭/15保留。专项16/16与全套均独立核验原始请求/收据，扩展新增无组任务页与失败创建撤权，Opera/Brave 原生多页另行验收通过。该历史分片CI Node1079（827+53+199）、JS115、Python82、Go全包通过，另有opt-in后台长闲置2/2。当前完整回归为原105项加四项新检查，`XHmJdq` 108/109，不能以此前全绿代替；本片Node1373、JS129、Python94通过；受影响Go SDK87与CLI109个顶层测试通过，另有23项既有平台skip。Codex Edge共享研究最终3/3，无浏览器方法失败/替代；无独立OS焦点证据且测试server强制退出，限制另记。此前共享表单3/3、部分方法替代及严格frame指针0/3与87/89窗口失败均保留；不推断速度或完整持平。原生Chrome生命周期3/3不代替Edge失败；开放研究、文件/诊断同组任务及更多重复/平台比较仍待完成 |
 
 ## Browser lifetime implementation and acceptance boundary
 

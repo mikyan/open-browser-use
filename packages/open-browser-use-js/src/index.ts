@@ -218,6 +218,7 @@ export class OpenBrowserUseClient {
   }
 
   async #request(method: string, params: BrowserUseRequestParams, options: { timeoutMs?: number; startBefore?: number }, capture?: (metadata: BrowserUseRequestParams) => void): Promise<JsonValue> {
+    if (method === "createTab" && Object.hasOwn(params, "backgroundWindow") && typeof params.backgroundWindow !== "boolean") throw new Error("backgroundWindow must be a boolean");
     if (fileChooserWaitMethods.has(method)) fileChooserWaitParams(method, params);
     if (downloadWaitMethods.has(method)) downloadWaitParams(method, params);
     assertTimeout(options.timeoutMs ?? this.timeoutMs);
@@ -244,6 +245,7 @@ export class OpenBrowserUseClient {
       if (binding.closing) throw new Error("OBU_CONTROL_ENDING: call beginTurn() explicitly after control has ended");
       if (binding.controlEpoch !== null) merged.control_epoch = binding.controlEpoch;
     }
+    if (method === "createTab" && merged.backgroundWindow === true) await this.#requireBackgroundWindow(merged, deadline);
     if (networkWaitMethods.has(method)) {
       if (this.#networkWaitVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#networkWaitVersion !== 1) throw new Error("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1");
@@ -377,10 +379,19 @@ export class OpenBrowserUseClient {
         const captured = JSON.parse(JSON.stringify(params)) as BrowserUseRequestParams;
         const fixed = await beforeDeadline(Promise.resolve(binding), deadline, method);
         if (revision !== this.#controlRevision || fixed.closing) throw new Error("OBU_STALE_CONTROL_EPOCH: control changed while the compound operation was pending");
+        if (method === "createTab" && captured.backgroundWindow === true) {
+          await this.#requireBackgroundWindow({ session_id: this.sessionId, turn_id: turnId }, deadline);
+          if (revision !== this.#controlRevision || fixed.closing) throw new Error("OBU_STALE_CONTROL_EPOCH: control changed while the compound operation was pending");
+        }
         return this.#sendRequest(method, { ...captured, session_id: this.sessionId, turn_id: turnId,
           ...(fixed.controlEpoch === null ? {} : { control_epoch: fixed.controlEpoch }) }, deadline, reservedResponseMs);
       }
     };
+  }
+
+  async #requireBackgroundWindow(scope: BrowserUseRequestParams, deadline: number): Promise<void> {
+    const info = await this.#sendRequest("getInfo", { session_id: scope.session_id, turn_id: scope.turn_id }, deadline);
+    if (!isObject(info) || !isObject(info.metadata) || info.metadata.backgroundWindowVersion !== 1) throw new Error("OBU_BACKGROUND_WINDOW_UNSUPPORTED: extension does not advertise backgroundWindowVersion 1");
   }
 
   async #initializeControl(turnId: string, deadline: number): Promise<ControlBinding> {
@@ -494,8 +505,9 @@ export class OpenBrowserUseClient {
     return { value: result.value, engine: result.engine as OpenBrowserUseEngineInfo };
   }
 
-  createTab(): Promise<JsonValue> {
-    return this.request("createTab");
+  async createTab(options: OpenBrowserUseCreateTabOptions = {}): Promise<JsonValue> {
+    if (!isObject(options) || Object.keys(options).some(key => key !== "backgroundWindow")) throw new Error("Invalid createTab options");
+    return this.request("createTab", createTabOptions(options));
   }
 
   getTabs(): Promise<JsonValue> {
@@ -546,8 +558,10 @@ export class OpenBrowserUseClient {
     return this.#waitForTabEvent("waitForFileChooser", tabId, timeoutMs);
   }
 
-  setFileChooserFiles(fileChooserId: string, files: string[]): Promise<JsonValue> {
-    return this.request("setFileChooserFiles", { fileChooserId, files });
+  setFileChooserFiles(fileChooserId: string, files: string[], timeoutMs?: number): Promise<JsonValue> {
+    if (timeoutMs === undefined) return this.request("setFileChooserFiles", { fileChooserId, files });
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) return Promise.reject(new Error("timeoutMs must be an integer between 1 and 120000"));
+    return this.request("setFileChooserFiles", { fileChooserId, files, timeoutMs }, { timeoutMs: timeoutMs + 1000 });
   }
 
   waitForDownload(tabId: number, timeoutMs?: number): Promise<JsonValue> {
@@ -693,12 +707,13 @@ export class OpenBrowserUseBrowser {
     this.client.close();
   }
 
-  async newTab(options: OpenBrowserUseGotoOptions & { url?: string } = {}): Promise<OpenBrowserUseTab> {
+  async newTab(options: OpenBrowserUseGotoOptions & OpenBrowserUseCreateTabOptions & { url?: string } = {}): Promise<OpenBrowserUseTab> {
+    const createOptions = createTabOptions(options);
     const { url, waitUntil = "load" } = options;
     const timeoutMs = options.timeoutMs ?? (url ? defaultNavigationTimeoutMs : this.client.timeoutMs);
     if (url) assertSupportedLoadState(waitUntil);
     const scope = this.client[controlScopeSymbol](timeoutMs + (url ? 1000 : 0));
-    const created = await scope.request("createTab", {}, url ? 1000 : 0);
+    const created = await scope.request("createTab", createOptions, url ? 1000 : 0);
     const tabId = tabIdFromValue(created, "createTab response");
     const tab = this.tab(tabId);
     if (url) {
@@ -1329,4 +1344,11 @@ function cdpEventForTab(
 
 function stringValue(value: JsonValue | undefined): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+export type OpenBrowserUseCreateTabOptions = { backgroundWindow?: boolean };
+
+function createTabOptions(options: OpenBrowserUseCreateTabOptions): BrowserUseRequestParams {
+  if (!isObject(options) || (options.backgroundWindow !== undefined && typeof options.backgroundWindow !== "boolean")) throw new Error("backgroundWindow must be a boolean");
+  return options.backgroundWindow === true ? { backgroundWindow: true } : {};
 }

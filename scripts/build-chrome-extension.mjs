@@ -15,6 +15,7 @@ const upstreamChunkSha256 = "ae0b36fa86fab5f0594530f29860721e5d05ea0cf06950df484
 const productionFiles = [
   "browser-lifetime.js",
   "browser-file-chooser-waits.js",
+  "browser-directory-upload.js",
   "browser-download-waits.js",
   "browser-media-source.js",
   "browser-media-lifetime.js",

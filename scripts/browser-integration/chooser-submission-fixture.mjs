@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { observeChooserFailure } from "./chooser-failure-observation.mjs";
 import {
   chooserVariants, chooserPageURL, chooserScope, chooserFrameEvidence, checkChooserReceipts
 } from "./chooser-waits-fixture.mjs";
@@ -133,7 +134,10 @@ export async function checkChooserSubmission({ owner, trigger, fixtureURL, serve
             round.serverAfterRepeats = server.stats(key);
             assert.deepEqual(round.serverAfterRepeats, round.serverAfterSubmission, "Rejected repeats changed the original HTTP witness");
             assert.deepEqual(chooserScope(owner), item.scope); assert.deepEqual(chooserScope(trigger), item.scope);
-          } catch (error) { roundFailure = error; round.error = errorRecord(error); throw error; }
+          } catch (error) {
+            roundFailure = error; round.error = errorRecord(error);
+            await observeChooserFailure({ worker, item, fixtureURL }); throw error;
+          }
           finally {
             if (wait) {
               round.cancelSubmittedAt = Date.now();
@@ -149,7 +153,11 @@ export async function checkChooserSubmission({ owner, trigger, fixtureURL, serve
         assert.deepEqual(observedTarget(item.frames, tab.id, expectedURL, variant), item.target);
         if (variant === "dynamic-oopif") { item.frameAdds = await tab.evaluate("chooserEvidence.frameAdds"); assert.deepEqual(item.frameAdds, [{ trusted: true }]); }
         item.passed = true;
-      } catch (error) { failure = error; item.error = errorRecord(error); throw error; }
+      } catch (error) {
+        failure = error; item.error = errorRecord(error);
+        await observeChooserFailure({ worker, item, fixtureURL, timing: "After original variant failure; waiter cancellation may already have been attempted, before task finalization" });
+        throw error;
+      }
       finally {
         try { item.serverAtEnd = server.stats(key); if (!failure) checkChooserReceipts(item.serverAtEnd, files, variant); }
         catch (error) { item.serverReadError = errorRecord(error); if (!failure) throw error; }

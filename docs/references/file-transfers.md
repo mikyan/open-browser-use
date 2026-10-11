@@ -47,12 +47,66 @@ while awaiting the response prevents a success reply, but does not undo a write
 already sent. Remote-object cleanup for clearing targets only the original
 surviving attachment and child session.
 
-Directory upload completion is not yet guaranteed by this operation. Chromium
-can acknowledge `DOM.setFileInputFiles` before directory enumeration finishes;
-the current API has no directory-specific completion or relative-path contract.
-The native [file-input implementation](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/html/forms/file_input_type.cc)
-starts directory enumeration separately; the pinned CRX's corresponding
-Playwright path waits for an input event as well as the protocol response.
+### Directory selection
+
+`getInfo.metadata.fileChooserDirectoryVersion === 1` advertises completion-aware
+directory setting. For a `webkitdirectory` input, pass exactly one absolute
+directory path. Multiple paths are rejected even when the input has `multiple`:
+Chromium otherwise enumerates only the first path. `files: []` still means the
+explicit clear described above; it is different from selecting an empty directory.
+
+The native [Chromium 156 file-input implementation](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/third_party/blink/renderer/core/html/forms/file_input_type.cc)
+starts directory enumeration separately from the
+[CDP acknowledgement](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/third_party/blink/renderer/core/inspector/inspector_dom_agent.cc).
+The backend therefore requires both that acknowledgement and a trusted `input`
+completion on the original file input, observed in a named isolated world.
+Synthetic events, `cancel`, unavailable execution contexts and timeouts cannot
+satisfy completion. A success means the browser has populated that input's
+`FileList`; it does not mean the website has finished uploading the files to its
+server. Relative paths are Chromium's `webkitRelativePath`, including the chosen
+directory basename. Empty subdirectories do not create files, and the browser's
+own filesystem filtering still applies.
+
+The setter has its own optional `timeoutMs`, integer 1–120000, default 10000.
+It starts when the setter is admitted and includes preparation, native setting
+and completion; it never renews the earlier chooser wait. CLI/MCP can include it
+in `setFileChooserFiles` parameters. An SDK transport must allow that deadline
+plus reply time. Timing out does not abort an enumeration already sent.
+
+JS accepts `client.setFileChooserFiles(id, paths, timeoutMs)`, Python accepts
+`client.set_file_chooser_files(id, paths, timeout_ms=...)`, and Go adds
+`client.SetFileChooserFilesWithTimeout(id, paths, timeoutMs)` (zero selects 10000).
+Calls that omit this new SDK option retain their prior wire and transport budget;
+explicit options allow another 1000 ms for the response without renewing the
+backend deadline. Go's original two-argument method remains unchanged.
+
+Each exact input has a reservation shared by directory setting, ordinary file
+setting and clear. A renderer-side WeakMap guard survives loss of the extension
+worker or debugger attachment while the original document survives. Unknown
+directory work keeps its guard until a trusted terminal event, preventing a late
+selection from being mistaken for the next submission. A busy input is explicitly
+rejected; no upload is automatically replayed. Navigation replaces the original
+document rather than transferring its node or completion to a new page.
+
+The completion event has no CDP operation ID. Concurrent manual selection on
+that same input is not distinguishable from the agent's selection. A page that
+prevents the original completion listener from running can produce an explicit
+timeout even if its FileList changed. These boundaries do not authorize an ACK-only
+success or a fabricated selection event.
+
+**Current browser limitation:** fixed Chromium 156
+[rejects directory enumeration](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/content/browser/web_contents/web_contents_impl.cc)
+when the WebContents is hidden or is not its window's selected tab. The new
+completion handling reports the resulting cancel honestly; it does not make
+directory selection work in the normal inactive task tab, activate that tab,
+or move it into another window. For a task that needs directory selection,
+explicitly create its page with `browser.newTab({backgroundWindow: true})`
+before navigating. This [background-window route](background-windows.md)
+creates a separate normal window with its own selected tab, without focusing it.
+Minimizing that window or selecting another tab can still cause cancellation.
+Ordinary files do not use this browser enumeration path. The directory capability
+version advertises the completion contract; `backgroundWindowVersion` separately
+advertises the creation route. Neither removes Chromium's visibility restriction.
 
 ### Explicit readiness across connections
 

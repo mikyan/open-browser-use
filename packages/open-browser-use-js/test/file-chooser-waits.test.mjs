@@ -11,7 +11,7 @@ import { fileChooserWaitAck, fileChooserWaitResult, fileChooserWaitParams } from
 const info = { metadata: { turnLifecycleVersion: 1, fileChooserWaitVersion: 1 } };
 const state = epoch => ({ controlEpoch: epoch, nextTurnId: `turn-${epoch}`, lifecycleVersion: 1, closing: false });
 const chooser = { fileChooserId: "chooser-1", isMultiple: false };
-async function fixture(t, handler) {
+async function fixture(t, handler, options = {}) {
   const endpoint = process.platform === "win32" ? `\\\\.\\pipe\\obu-chooser-${randomUUID()}` : join(tmpdir(), `obu-chooser-${randomUUID()}.sock`);
   const calls = [], sockets = new Set();
   const server = createServer(socket => {
@@ -27,10 +27,44 @@ async function fixture(t, handler) {
     });
   });
   await new Promise(resolve => server.listen(endpoint, resolve));
-  const client = new OpenBrowserUseClient({ socketPath: endpoint, turnId: "initial" });
+  const client = new OpenBrowserUseClient({ socketPath: endpoint, turnId: "initial", ...options });
   t.after(async () => { client.close(); for (const s of sockets) s.destroy(); await new Promise(resolve => server.close(resolve)); });
   return { client, calls, tab: new OpenBrowserUseBrowser({ client }).tab(9) };
 }
+
+test("file setter preserves the default wire and permits an explicit reply grace without replay", async t => {
+  const f = await fixture(t, (req, reply, fail) => {
+    if (req.method === "getInfo") return reply(info);
+    if (req.method === "getControlState") return reply(state(7));
+    assert.equal(req.method, "setFileChooserFiles");
+    assert.equal(req.params.control_epoch, 7);
+    assert.equal(req.params.turn_id, "initial");
+    if (req.params.fileChooserId === "rejected") return fail("OBU_FILE_CHOOSER_CONSUMED");
+    if (req.params.timeoutMs === 50) return setTimeout(() => reply({}), 150);
+    reply({});
+  }, { timeoutMs: 100 });
+  const budgets = [], request = f.client.request.bind(f.client);
+  f.client.request = (method, params, options) => { budgets.push(options); return request(method, params, options); };
+  await f.client.setFileChooserFiles("default", []);
+  await f.client.setFileChooserFiles("slow", ["directory"], 50);
+  await f.client.setFileChooserFiles("maximum", [], 120000);
+  await assert.rejects(f.client.setFileChooserFiles("rejected", [], 1), /OBU_FILE_CHOOSER_CONSUMED/);
+  assert.deepEqual(budgets, [undefined, { timeoutMs: 1050 }, { timeoutMs: 121000 }, { timeoutMs: 1001 }]);
+  assert.deepEqual(f.calls.filter(v => v.method === "setFileChooserFiles").map(v => ({ id: v.params.fileChooserId, files: v.params.files, timeoutMs: v.params.timeoutMs })), [
+    { id: "default", files: [], timeoutMs: undefined },
+    { id: "slow", files: ["directory"], timeoutMs: 50 },
+    { id: "maximum", files: [], timeoutMs: 120000 },
+    { id: "rejected", files: [], timeoutMs: 1 }
+  ]);
+});
+
+test("invalid file setter timeouts reject before discovery or a request", async t => {
+  const f = await fixture(t, () => assert.fail("invalid timeout reached the wire"));
+  for (const timeout of [null, true, "1", 0, -1, 1.5, NaN, Infinity, 120001]) {
+    await assert.rejects(f.client.setFileChooserFiles("chooser", [], timeout), /timeoutMs must be an integer/);
+  }
+  assert.equal(f.calls.length, 0);
+});
 
 test("chooser ready ACK precedes action, collect and cancellation retain exact scope", async t => {
   let clicked = false;

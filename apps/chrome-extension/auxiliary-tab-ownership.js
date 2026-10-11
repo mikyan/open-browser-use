@@ -25,11 +25,13 @@ function storedRecord(value, version) {
   try { scope(value); } catch { throw invalid(); }
   const allowed = version === 1 ? fields.filter(key => !["kind", "excludedGroupId"].includes(key)) : fields;
   if (Object.keys(value).some(key => !allowed.includes(key)) || !identifier(value.claimId) ||
-      !integer(value.windowId) || !["pending", "committed", "quarantined", ...(version === 2 ? ["excluded"] : [])].includes(value.phase)) throw invalid();
+      !integer(value.windowId) || !["pending", "committed", "quarantined", ...(version >= 2 ? ["excluded"] : [])].includes(value.phase)) throw invalid();
   if (version === 1) { if (value.origin !== "user") throw invalid(); return { ...value, kind: "popup" }; }
-  if (!["popup", "ordinary"].includes(value.kind) || !["agent", "user"].includes(value.origin) ||
+  if (!["popup", "ordinary", ...(version >= 3 ? ["background-window"] : [])].includes(value.kind) || !["agent", "user"].includes(value.origin) ||
       (value.kind === "popup" && value.origin !== "user")) throw invalid();
-  if (value.phase === "excluded" ? value.kind !== "ordinary" || value.origin !== "user" || !integer(value.excludedGroupId) : Object.hasOwn(value, "excludedGroupId")) throw invalid();
+  if (value.kind === "background-window") {
+    if (value.origin !== (value.phase === "excluded" ? "user" : "agent") || Object.hasOwn(value, "excludedGroupId")) throw invalid();
+  } else if (value.phase === "excluded" ? value.kind !== "ordinary" || value.origin !== "user" || !integer(value.excludedGroupId) : Object.hasOwn(value, "excludedGroupId")) throw invalid();
   return { ...value };
 }
 
@@ -56,7 +58,7 @@ export class AuxiliaryTabOwnership {
     const stored = await this.storage.get(AUXILIARY_TABS_KEY);
     const value = stored?.[AUXILIARY_TABS_KEY];
     if (value === undefined) return;
-    if (!value || ![1, 2].includes(value.version) || !Array.isArray(value.records) || value.records.length > this.maxRecords ||
+    if (!value || ![1, 2, 3].includes(value.version) || !Array.isArray(value.records) || value.records.length > this.maxRecords ||
         Object.keys(value).some(key => !["version", "records"].includes(key))) throw invalid();
     const recovered = value.records.map(record => storedRecord(record, value.version));
     if (new Set(recovered.map(record => record.tabId)).size !== recovered.length ||
@@ -86,7 +88,7 @@ export class AuxiliaryTabOwnership {
         this.records.delete(tabId);
       }
     }
-    if (value.version === 1 || value.records.some(record => record.phase === "pending")) await this.save();
+    if (value.version < 3 || value.records.some(record => record.phase === "pending")) await this.save();
   }
 
   reserve(value) {
@@ -113,12 +115,13 @@ export class AuxiliaryTabOwnership {
     return record;
   }
 
-  reserveCreation(value) {
+  reserveCreation(value, { kind = "ordinary" } = {}) {
+    if (!["ordinary", "background-window"].includes(kind)) throw invalid();
     const { tabId: _ignored, ...params } = scope({ ...value, tabId: 0 });
     if (this.loadError) throw this.loadError;
     if (!this.loaded) throw new Error("Auxiliary creation requires completed ownership recovery");
     if (this.records.size + this.creations.size >= this.maxRecords) throw capacity();
-    const record = { claimId: this.createId(), ...params, tabId: null, windowId: null, kind: "ordinary", origin: "agent", phase: "reserved" };
+    const record = { claimId: this.createId(), ...params, tabId: null, windowId: null, kind, origin: "agent", phase: "reserved" };
     if (!identifier(record.claimId) || [...this.records.values(), ...this.creations].some(other => other.claimId === record.claimId)) throw invalid();
     this.states.set(record, { persisted: false, durable: false, completion: deferred() });
     this.creations.add(record);
@@ -167,7 +170,7 @@ export class AuxiliaryTabOwnership {
   save() {
     const records = [...this.records.values()].filter(record => this.state(record).persisted && !this.state(record).removing)
       .map(record => Object.fromEntries(fields.filter(key => record[key] !== undefined).map(key => [key, record[key]])));
-    const value = { version: 2, records };
+    const value = { version: 3, records };
     const write = this.writes.catch(() => {}).then(() => this.storage.set({ [AUXILIARY_TABS_KEY]: value }));
     this.writes = write;
     this.operations.add(write);
@@ -177,7 +180,8 @@ export class AuxiliaryTabOwnership {
 
   commit(reservation, { windowId, kind = reservation?.kind, control_epoch, controlRevision, check, validate } = {}) {
     if (!integer(windowId) || (control_epoch !== undefined && !integer(control_epoch, 1)) ||
-        (controlRevision !== undefined && !integer(controlRevision)) || !["popup", "ordinary"].includes(kind) || typeof check !== "function" || typeof validate !== "function")
+        (controlRevision !== undefined && !integer(controlRevision)) || !["popup", "ordinary", "background-window"].includes(kind) ||
+        (kind === "background-window" && reservation?.origin !== "agent") || typeof check !== "function" || typeof validate !== "function")
       return Promise.reject(new Error("Auxiliary commit requires window identity, control check, and live validation"));
     return this.serial(reservation?.tabId, async () => {
       let record = reservation;
@@ -298,6 +302,26 @@ export class AuxiliaryTabOwnership {
       record.phase = "excluded";
       record.origin = "user";
       record.excludedGroupId = groupId;
+      state.persisted = true;
+      state.durable = false;
+      state.removing = false;
+      try { await this.save(); state.error = undefined; }
+      catch (error) { state.error = error; throw error; }
+      finally { state.completion.resolve(); }
+      return record;
+    });
+  }
+
+  excludeBackground(record) {
+    if (record?.kind !== "background-window" || !integer(record.windowId)) return Promise.reject(invalid());
+    return this.serial(record.tabId, async () => {
+      await this.ready;
+      if (this.records.get(record.tabId) !== record || record.kind !== "background-window") throw expired();
+      const state = this.state(record);
+      // A move consists of multiple native events. Retain this exact tab's
+      // denial across intermediate ungrouped positions and later regrouping.
+      record.phase = "excluded";
+      record.origin = "user";
       state.persisted = true;
       state.durable = false;
       state.removing = false;

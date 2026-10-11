@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { observeChooserFailure } from "./chooser-failure-observation.mjs";
 
 export const chooserVariants = ["root", "oopif", "dynamic-oopif"];
 export const chooserExpired = /OBU_FILE_CHOOSER_WAIT_EXPIRED|OBU_TRANSFER_CANCELLED|OBU_AUTOMATION_PAUSED|OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|not part of browser session/i;
@@ -148,13 +149,13 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
       } catch (error) {
         event.error = error.stack; event.failedAt = Date.now();
         if (diagnostic) await diagnostic.failure({ owner, item });
+        else await observeChooserFailure({ worker, item, fixtureURL });
         throw error;
       }
       finally {
         event.cancelSubmittedAt = Date.now();
         try { await wait.cancel(); event.cancelCompletedAt = Date.now(); }
         catch (error) {
-          if (!diagnostic) throw error;
           event.cancelError = error.stack; event.cancelFailedAt = Date.now();
           if (!event.error) throw error;
         }
@@ -166,11 +167,16 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
     assert.notEqual(item.waits[0].result.fileChooserId, item.waits[1].result.fileChooserId, "Old chooser event satisfied the next waiter");
     const historical = await tab.expectFileChooser({ timeoutMs: 250 });
     try { await assert.rejects(historical.result(), /OBU_FILE_CHOOSER_WAIT_TIMEOUT|deadline|timeout|timed out/i); }
-    finally { await historical.cancel(); }
+    catch (error) { item.historicalError = error.stack; throw error; }
+    finally {
+      try { await historical.cancel(); }
+      catch (error) { item.historicalCancelError = error.stack; if (!item.historicalError) throw error; }
+    }
     assert.equal(server.stats(key).posts.length, 2, "A historical chooser replayed an upload"); item.historicalEventRejected = true;
     } catch (error) {
       item.error = error.stack; item.failedAt = Date.now();
       if (diagnostic) await diagnostic.failure({ owner, item });
+      else await observeChooserFailure({ worker, item, fixtureURL, timing: "After original variant failure; waiter cancellation may already have been attempted, before task finalization" });
       throw error;
     }
     finally {
@@ -179,7 +185,6 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
       item.nativeTrace = await worker.evaluate("(()=>{const trace=globalThis.__chooserReadyTrace;if(!trace)throw new Error('Chooser trace missing');chrome.debugger.onEvent.removeListener(trace.listener);delete globalThis.__chooserReadyTrace;return{tabId:trace.tabId,startedAt:trace.startedAt,completedAt:Date.now(),events:trace.events,overflow:trace.overflow}})()");
       item.serverAtEnd = server.stats(key); assert.equal(item.nativeTrace.overflow, false, "Chooser native trace overflow");
       } catch (error) {
-        if (!diagnostic) throw error;
         item.nativeTraceError = error.stack; item.serverAtEnd = server.stats(key);
         if (item.diagnostic) item.diagnostic.collectionComplete = false;
         if (!item.error) throw error;

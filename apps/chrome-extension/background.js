@@ -4,6 +4,7 @@ import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserFileChooserWaits } from "./browser-file-chooser-waits.js";
+import { DirectoryUploadRegistry } from "./browser-directory-upload.js";
 import { BrowserDownloadWaits } from "./browser-download-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
 import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "./browser-media-source.js";
@@ -761,6 +762,18 @@ class BrowserBackend {
     this.downloadChangeListeners = new Set();
     this.cursorArrivalWaitersByKey = new Map();
     this.fileChoosersById = new Map();
+    this.fileInputDocumentsByTabId = new Map();
+    this.directoryUploads = new DirectoryUploadRegistry({
+      send: (target, method, commandParams) => chrome.debugger.sendCommand(target, method, commandParams),
+      checkCurrent: scope => {
+        this.assertControlOpen();
+        this.assertAttachmentAdmission(scope.tabId, scope.attachment);
+        this.assertTransferScope(scope);
+      },
+      canCleanup: identity => this.attachedTabs.has(identity.tabId) && this.attachmentEpochs.get(identity.tabId) === identity.attachment &&
+        this.fileInputDocumentsByTabId.get(identity.tabId)?.get(identity.frameId) === identity.documentToken &&
+        (identity.sessionId === undefined || this.childSessionsByTabId.get(identity.tabId)?.has(identity.sessionId))
+    });
     this.fileChooserWaits = new BrowserFileChooserWaits({
       send: (scope, sessionId, enabled) => chrome.debugger.sendCommand({ tabId: scope.tabId, ...(sessionId ? { sessionId } : {}) }, "Page.setInterceptFileChooserDialog", { enabled }),
       assertScope: scope => this.assertTransferScope(scope),
@@ -825,7 +838,7 @@ class BrowserBackend {
       }
       if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
       if (Object.hasOwn(change, "groupId")) this.navigationWaits.invalidateTab(tabId);
-      if (Object.hasOwn(change, "groupId")) {
+      if (Object.hasOwn(change, "groupId") && !(change.groupId === -1 && this.auxiliaryTabs.owner(tabId)?.kind === "background-window")) {
         this.revokeMovedTab(tabId, change.groupId);
         this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab ownership changed"));
         void this.directDownloads.invalidateTab(tabId);
@@ -833,17 +846,28 @@ class BrowserBackend {
         void this.clipboard.invalidateTab(tabId).catch(() => {});
         this.invalidateAuxiliaryTab(tabId);
       }
-      if (change.pinned === true && this.auxiliaryTabs.owner(tabId)?.kind === "ordinary") this.invalidateAuxiliaryTab(tabId);
+      if (change.pinned === true && ["ordinary", "background-window"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
     chrome.tabs?.onActivated?.addListener(info => this.observeCreationChange(info.tabId, "activated", info));
     chrome.tabs?.onMoved?.addListener(tabId => {
       this.observeCreationChange(tabId, "moved");
       const record = this.auxiliaryTabs.owner(tabId);
-      if (record?.kind === "ordinary") this.invalidateAuxiliaryTab(tabId);
+      if (["ordinary", "background-window"].includes(record?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
     chrome.tabs?.onDetached?.addListener(tabId => this.observeCreationChange(tabId, "detached"));
     chrome.tabs?.onReplaced?.addListener((_added, removed) => this.observeCreationChange(removed, "replaced"));
     chrome.tabs?.onRemoved?.addListener(tabId => this.observeCreationChange(tabId, "removed"));
+    chrome.windows?.onFocusChanged?.addListener(windowId => {
+      if (!Number.isSafeInteger(windowId) || windowId < 0) return;
+      for (const transaction of this.creationTransactions.values()) {
+        if (transaction.record.kind !== "background-window" || (transaction.finished && !transaction.cleanupFailed)) continue;
+        if (transaction.createdWindowId === undefined) {
+          transaction.focusedWindows ??= new Set();
+          if (transaction.focusedWindows.size < 128) transaction.focusedWindows.add(windowId);
+          else transaction.invalid = true;
+        } else if (transaction.createdWindowId === windowId) transaction.invalid = true;
+      }
+    });
     chrome.tabs?.onDetached?.addListener(tabId => { this.revokeMovedTab(tabId); this.networkWaits.invalidateTab(tabId); this.navigationWaits.invalidateTab(tabId); this.cancelTabTransfers(tabId, new Error("OBU_TRANSFER_CANCELLED: tab moved")); void this.directDownloads.invalidateTab(tabId); void this.pageExports.invalidateTab(tabId).catch(() => {}); void this.clipboard.invalidateTab(tabId).catch(() => {}); this.invalidateAuxiliaryTab(tabId); });
     chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.revokeMovedTab(removed); this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.cancelTabTransfers(removed, new Error("OBU_TRANSFER_CANCELLED: tab replaced")); void this.directDownloads.invalidateTab(removed); void this.pageExports.invalidateTab(removed).catch(() => {}); void this.clipboard.invalidateTab(removed).catch(() => {}); this.invalidateAuxiliaryTab(removed); });
     for (const [event, phase] of [["onBeforeNavigate", "pending"], ["onCommitted", "committed"], ["onErrorOccurred", "error"], ["onHistoryStateUpdated", "committed"], ["onReferenceFragmentUpdated", "committed"]]) {
@@ -890,6 +914,15 @@ class BrowserBackend {
           const deadline = downloadDeadline(params);
           return withTimeout(Math.max(1, deadline - Date.now()), () => this.runControlledRequest(() => handler(params, deadline)),
             () => new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired"));
+        };
+      } else if (method === "setFileChooserFiles") {
+        this[method] = async params => {
+          const timeoutMs = params?.timeoutMs === undefined ? 10000 : params.timeoutMs;
+          if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000)
+            throw new Error("setFileChooserFiles timeoutMs must be an integer between 1 and 120000");
+          const deadlineAt = Date.now() + timeoutMs;
+          return withTimeout(timeoutMs, () => this.runControlledRequest(() => handler(params, deadlineAt)),
+            () => new Error("OBU_DIRECTORY_UPLOAD_TIMEOUT: original file submission deadline expired; native selection may still complete"));
         };
       } else if (method === "armNavigationWait") {
         this[method] = params => this.startNavigationWait(params);
@@ -1211,6 +1244,7 @@ class BrowserBackend {
     const lifetime = this.browserLifetime.controlSnapshot();
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of downloadWaits.tabIds) tabIds.add(tabId);
+    for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
     return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
@@ -1219,6 +1253,7 @@ class BrowserBackend {
     const snapshot = this.globalControlSnapshot();
     this.networkWaits.invalidateAll();
     this.navigationWaits.invalidateAll();
+    this.directoryUploads.cancelWhere(() => true, error);
     this.auxiliaryTabs.cancelPending();
     for (const setup of this.fileChooserSetupsByTabId.values()) setup.reject(error);
     for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
@@ -1388,6 +1423,8 @@ class BrowserBackend {
         networkWaitVersion: 1,
         navigationWaitVersion: 1,
         fileChooserWaitVersion: 1,
+        fileChooserDirectoryVersion: 1,
+        backgroundWindowVersion: 1,
         downloadWaitVersion: 1,
         auxiliaryTabsVersion: 1,
         directDownloadsVersion: 1,
@@ -1401,6 +1438,8 @@ class BrowserBackend {
   }
 
   async createTab(params) {
+    if (params?.backgroundWindow !== undefined && typeof params.backgroundWindow !== "boolean")
+      throw new Error("createTab backgroundWindow must be a boolean");
     return this.admitSessionMembership(params?.session_id, () => this.createTabTransaction(params));
   }
 
@@ -1410,9 +1449,11 @@ class BrowserBackend {
       const result = await this.runSessionMutation(params, async () => {
         await this.auxiliaryTabs.ready;
         await this.requireSession(params);
-        const record = this.auxiliaryTabs.reserveCreation({ ...params, controlRevision: this.automationControl.revision });
+        const record = this.auxiliaryTabs.reserveCreation({ ...params, controlRevision: this.automationControl.revision },
+          { kind: params.backgroundWindow === true ? "background-window" : "ordinary" });
         let resolve;
-        transaction = { record, events: [], invalid: false, destroyed: false, finished: false, done: new Promise(done => { resolve = done; }), resolve };
+        transaction = { record, events: [], invalid: false, destroyed: false, finished: false,
+          ...(record.kind === "background-window" ? { groupId: -1 } : {}), done: new Promise(done => { resolve = done; }), resolve };
         this.creationTransactions.set(record, transaction);
         return this.createTabInTurn(params, transaction);
       }, async () => {
@@ -1446,6 +1487,7 @@ class BrowserBackend {
 
   observeCreationChange(tabId, kind, change = {}) {
     const marker = this.freshBlankTabs.get(tabId);
+    if (marker?.transaction.finished && this.consumeCreatedWindowActivation(marker.transaction, kind, change)) return;
     if (marker?.transaction.finished && (kind !== "updated" || change.pinned === true ||
         (change.url && change.url !== "about:blank") ||
         (Object.hasOwn(change, "groupId") && change.groupId !== marker.groupId))) this.retireFreshBlankTab(marker);
@@ -1459,6 +1501,7 @@ class BrowserBackend {
   }
 
   applyCreationChange(transaction, kind, change) {
+    if (this.consumeCreatedWindowActivation(transaction, kind, change)) return;
     if (kind === "removed") { transaction.destroyed = true; transaction.invalid = true; return; }
     if (["detached", "replaced"].includes(kind) || kind === "activated" ||
         (kind === "moved" && !transaction.nativeGroupPending) ||
@@ -1476,14 +1519,30 @@ class BrowserBackend {
     }
   }
 
+  consumeCreatedWindowActivation(transaction, kind, change) {
+    if (transaction.record.kind !== "background-window" || transaction.initialActivationSeen || kind !== "activated" ||
+        transaction.createdWindowId !== change.windowId || transaction.initialTab?.active !== true ||
+        transaction.record.tabId !== change.tabId || transaction.cleanupFailed) return false;
+    transaction.initialActivationSeen = true;
+    return true;
+  }
+
   async validateCreatedTab(transaction) {
     const tab = await chrome.tabs.get(transaction.record.tabId);
     const ownWindow = transaction.createdWindowId === tab.windowId;
     if (transaction.invalid || tab.windowId !== transaction.record.windowId || tab.pinned || (!ownWindow && tab.active) ||
         (tab.url && tab.url !== "about:blank") || (tab.pendingUrl && tab.pendingUrl !== "about:blank"))
       throw new Error(`OBU_TAB_CREATION_REVOKED: new tab ${transaction.record.tabId} changed before admission`);
-    if (ownWindow && (await chrome.windows.get(tab.windowId)).focused)
-      throw new Error(`OBU_TAB_CREATION_REVOKED: new window ${tab.windowId} became focused before admission`);
+    if (ownWindow) {
+      const window = await chrome.windows.get(tab.windowId);
+      if (window.focused || (transaction.record.kind === "background-window" && window.focused !== false))
+        throw new Error(`OBU_TAB_CREATION_REVOKED: new window ${tab.windowId} became focused before admission`);
+      if (transaction.record.kind === "background-window") {
+        const members = await chrome.tabs.query({ windowId: tab.windowId });
+        if (window.type !== "normal" || tab.active !== true || tab.groupId !== -1 || members.length !== 1 || members[0].id !== tab.id || transaction.invalid)
+          throw new Error(`OBU_TAB_CREATION_REVOKED: new background window ${tab.windowId} changed before admission`);
+      }
+    }
     return tab;
   }
 
@@ -1492,7 +1551,14 @@ class BrowserBackend {
     const record = transaction.record;
     if (record.tabId === null) return;
     transaction.excludedGroupId = undefined;
+    transaction.excludeBackground = false;
     const preserve = async () => {
+      if (record.kind === "background-window") {
+        // Creation can lose authority before publishing its reply. Preserve
+        // the same denial as an admitted page that the user subsequently moves.
+        transaction.excludeBackground = true;
+        return false;
+      }
       const state = this.store.state.sessions[record.session_id];
       // A failed page inside a pre-existing task group needs an individual
       // denial; removing its temporary lock would silently admit it by group.
@@ -1527,6 +1593,8 @@ class BrowserBackend {
       else await cleanup();
       if (Number.isSafeInteger(transaction.excludedGroupId) && this.auxiliaryTabs.entry(record.tabId) === record)
         await this.auxiliaryTabs.exclude(record, transaction.excludedGroupId);
+      if (transaction.excludeBackground && this.auxiliaryTabs.entry(record.tabId) === record)
+        await this.auxiliaryTabs.excludeBackground(record);
     } finally {
       // Admissions are still serialized here. Forget only this transaction's
       // newly created visual group, including a group whose tab was preserved
@@ -1567,6 +1635,23 @@ class BrowserBackend {
     check();
   }
 
+  async commitBackgroundWindowTab(record, session, check) {
+    const validate = async () => {
+      const tab = await chrome.tabs.get(record.tabId);
+      check();
+      assertControllableTab(tab);
+      const window = await chrome.windows.get(record.windowId);
+      check();
+      if (tab.windowId !== record.windowId || window.type !== "normal" || tab.groupId !== -1 || tab.pinned)
+        throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: background window tab moved before admission");
+    };
+    await this.auxiliaryTabs.commit(record, { windowId: record.windowId, kind: "background-window", check, validate });
+    check();
+    session.tabOrigins[String(record.tabId)] = "agent";
+    await this.store.save();
+    check();
+  }
+
   async singletonGroupDisappeared(groupId, tabId, windowId) {
     if (!Number.isSafeInteger(groupId)) return false;
     const tab = await chrome.tabs.get(tabId);
@@ -1587,7 +1672,10 @@ class BrowserBackend {
       if (transaction.invalid) throw new Error("OBU_TAB_CREATION_REVOKED: new page changed before admission");
     };
     check();
-    const chromeTab = await createBackgroundTab(check, windowId => { transaction.createdWindowId = windowId; });
+    const chromeTab = await createBackgroundTab(check, windowId => {
+      transaction.createdWindowId = windowId;
+      if (transaction.focusedWindows?.has(windowId)) transaction.invalid = true;
+    }, record.kind === "background-window");
     transaction.initialTab = chromeTab;
     const binding = this.auxiliaryTabs.bindCreated(record, chromeTab);
     // Publish before ownership becomes enumerable, but admit only after the
@@ -1601,14 +1689,19 @@ class BrowserBackend {
     // Native creation events may precede its Promise result. Match only the
     // returned ID; never infer a created tab from URL or event arrival order.
     for (const event of transaction.events) if (event.tabId === chromeTab.id) {
-      if (event.kind === "activated" && transaction.createdWindowId === chromeTab.windowId && chromeTab.active) continue;
+      if (record.kind !== "background-window" && event.kind === "activated" && transaction.createdWindowId === chromeTab.windowId && chromeTab.active) continue;
       this.applyCreationChange(transaction, event.kind, event.change);
     }
     transaction.events = [];
     try { await binding; } catch (error) { check(); throw error; }
     check();
     await this.validateCreatedTab(transaction);
-    if (state.ungrouped === true || this.auxiliaryTabs.list(session.sessionId).some(value => value.kind === "ordinary"))
+    if (record.kind === "background-window") {
+      transaction.groupId = -1;
+      await this.commitBackgroundWindowTab(record, state, check);
+      await this.validateCreatedTab(transaction);
+      check();
+    } else if (state.ungrouped === true || this.auxiliaryTabs.list(session.sessionId).some(value => value.kind === "ordinary"))
       await this.commitUngroupedTab(record, state, chromeTab.windowId, check);
     else {
       let groupingError;
@@ -1647,8 +1740,8 @@ class BrowserBackend {
     }
     await this.setSessionActiveTab(session.sessionId, chromeTab.id, check);
     check();
-    transaction.freshBlank.groupId = state.ungrouped === true ? -1 : transaction.groupId;
-    if (state.ungrouped !== true) await this.auxiliaryTabs.remove(record);
+    transaction.freshBlank.groupId = record.kind === "background-window" || state.ungrouped === true ? -1 : transaction.groupId;
+    if (record.kind !== "background-window" && state.ungrouped !== true) await this.auxiliaryTabs.remove(record);
     return { ...toBrowserTab(chromeTab), active: true };
   }
 
@@ -1749,6 +1842,10 @@ class BrowserBackend {
         throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: browser control changed");
     };
     check();
+    if (reservation.kind === "background-window" && reservation.phase === "excluded") {
+      await this.auxiliaryReleases.get(reservation);
+      check();
+    }
     await this.auxiliaryTabs.settled(tabId);
     check();
     await this.controlReleases.get(tabId);
@@ -1785,13 +1882,20 @@ class BrowserBackend {
           throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved or became uncontrollable");
       };
       reservation = await this.auxiliaryTabs.commit(reservation, {
-        windowId: tab.windowId, control_epoch: epoch, controlRevision: revision, check, validate
+        windowId: tab.windowId, kind: "popup", control_epoch: epoch, controlRevision: revision, check, validate
       });
       check();
       await this.setSessionActiveTab(session.sessionId, tab.id, check);
       check();
     } else {
       const existing = this.auxiliaryTabs.owner(tabId);
+      if (existing?.kind === "background-window") {
+        const state = await this.store.getSession(session.sessionId);
+        await this.commitBackgroundWindowTab(existing, state, check);
+        await this.setSessionActiveTab(session.sessionId, tab.id, check);
+        check();
+        return { ...toBrowserTab(tab), active: true };
+      }
       if (existing && existing.kind !== "ordinary") {
         await this.releaseAuxiliaryClaim(reservation);
         throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved; explicitly claim it again");
@@ -1929,19 +2033,21 @@ class BrowserBackend {
       const handoffTabs = [];
       const auxiliaryToRelease = [];
       const ordinaryToRelease = [];
+      const backgroundRecords = new Map();
       for (const tab of tabs) {
         if (!hasTabId(tab)) {
           continue;
         }
         const keptStatus = keep.get(tab.id);
         const explicit = this.auxiliaryTabs.owner(tab.id);
+        if (explicit?.kind === "background-window") backgroundRecords.set(tab.id, explicit);
         if (keptStatus === "handoff") {
           handoffTabs.push(tab.id);
           continue;
         }
         if (keptStatus === "deliverable") {
           deliverableTabs.push(tab.id);
-          if (explicit?.kind === "ordinary") ordinaryToRelease.push(explicit);
+          if (["ordinary", "background-window"].includes(explicit?.kind)) ordinaryToRelease.push(explicit);
           continue;
         }
         const auxiliary = this.auxiliaryTabs.owner(tab.id);
@@ -1967,10 +2073,30 @@ class BrowserBackend {
         ...handoffTabs,
         ...auxiliaryToRelease.map(record => record.tabId)
       ]);
+      // Detach may await real native input cleanup. A user move during that
+      // wait withdraws this exact page from every planned disposition.
+      const backgroundStillOwned = async (tabId, record) => {
+        const live = await this.liveAuxiliaryTab(record, { strict: true });
+        return !!live && this.auxiliaryTabs.owner(tabId) === record;
+      };
+      for (const [tabId, record] of backgroundRecords) if (!await backgroundStillOwned(tabId, record)) {
+        for (const list of [agentTabsToClose, userTabsToRelease, deliverableTabs, handoffTabs]) {
+          const index = list.indexOf(tabId); if (index !== -1) list.splice(index, 1);
+        }
+        const index = ordinaryToRelease.indexOf(record); if (index !== -1) ordinaryToRelease.splice(index, 1);
+      }
       for (const record of auxiliaryToRelease) await this.releaseAuxiliaryClaim(record);
       this.assertControlOpen();
       if (agentTabsToClose.length > 0) {
-        await chrome.tabs.remove(agentTabsToClose.length === 1 ? agentTabsToClose[0] : agentTabsToClose);
+        const grouped = agentTabsToClose.filter(tabId => !backgroundRecords.has(tabId));
+        if (grouped.length) await chrome.tabs.remove(grouped.length === 1 ? grouped[0] : grouped);
+        for (const tabId of agentTabsToClose) {
+          const record = backgroundRecords.get(tabId);
+          if (record && await backgroundStillOwned(tabId, record)) {
+            this.assertControlOpen();
+            await chrome.tabs.remove(tabId);
+          }
+        }
       }
       this.assertControlOpen();
       if (userTabsToRelease.length > 0 && chrome.tabs.ungroup) {
@@ -1988,7 +2114,11 @@ class BrowserBackend {
           this.store.state.deliverableTabs[String(record.tabId)] = { windowId: record.windowId };
         if (explicitIds.size) await this.store.save();
       }
-      for (const record of ordinaryToRelease) await this.releaseAuxiliaryClaim(record);
+      for (const record of ordinaryToRelease) {
+        if (record.kind === "background-window" && this.auxiliaryTabs.entry(record.tabId) === record &&
+            this.auxiliaryTabs.owner(record.tabId) !== record) continue;
+        await this.releaseAuxiliaryClaim(record, { disposition: true });
+      }
       for (const tabId of [...agentTabsToClose, ...userTabsToRelease, ...deliverableTabs]) {
         delete sessionState.tabOrigins[String(tabId)];
         this.cursorByTabId.delete(tabId);
@@ -2463,6 +2593,8 @@ class BrowserBackend {
     // explicit cancellation and ownership events also retire unbound setups.
     this.networkWaits.invalidateAttachedTab(tabId);
     this.navigationWaits.invalidateAttachedTab(tabId);
+    this.directoryUploads.invalidate({ tabId, attachment: this.attachmentEpochs.get(tabId) }, new Error("OBU_TRANSFER_CANCELLED: browser attachment changed"));
+    this.fileInputDocumentsByTabId.delete(tabId);
     void this.directDownloads.invalidateAttachedTab(tabId);
     void this.pageExports.invalidateAttachedTab(tabId).catch(() => {});
     void this.clipboard.invalidateAttachedTab(tabId).catch(() => {});
@@ -3029,6 +3161,7 @@ class BrowserBackend {
   }
 
   cancelTabTransfers(tabId, error, { attachedOnly = false } = {}) {
+    this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, error);
     if (attachedOnly) void this.fileChooserWaits.invalidateAttachedTab(tabId, error).catch(() => {});
     else void this.fileChooserWaits.invalidateTab(tabId, error).catch(() => {});
     if (attachedOnly) void this.downloadWaits.invalidateAttachedTab(tabId, error).catch(() => {});
@@ -3092,7 +3225,7 @@ class BrowserBackend {
     if (record && ["reserved", "arming", "pending"].includes(record.state)) await this.downloadWaits.barrier(record);
   }
 
-  async setFileChooserFiles(params) {
+  async setFileChooserFiles(params, deadlineAt = Date.now() + 10000) {
     await this.requireSession(params);
     if (typeof params.fileChooserId !== "string" || !params.fileChooserId) throw new Error("setFileChooserFiles requires fileChooserId");
     const chooser = this.fileChoosersById.get(params.fileChooserId);
@@ -3107,6 +3240,7 @@ class BrowserBackend {
       this.assertTransferScope(chooser.scope);
     };
     const check = () => {
+      if (Date.now() >= deadlineAt) throw new Error("OBU_DIRECTORY_UPLOAD_TIMEOUT: original file submission deadline expired");
       checkAuthority();
       if (this.fileChoosersById.get(params.fileChooserId) !== chooser) throw new Error("File chooser became stale");
     };
@@ -3116,34 +3250,49 @@ class BrowserBackend {
     // Claim before the first native await. A rejected or lost acknowledgement
     // cannot prove the file selection had no side effects, so never reopen it.
     chooser.submitted = true;
+    let submission;
     try {
-      if (params.files.length === 0) {
-        const node = await chrome.debugger.sendCommand(chooser.target, "DOM.resolveNode", { backendNodeId: chooser.backendNodeId });
-        const objectId = node.object?.objectId;
-        if (!objectId) throw new Error("File chooser node is no longer available");
-        try {
-          check();
-          const result = await chrome.debugger.sendCommand(chooser.target, "Runtime.callFunctionOn", {
-            objectId,
-            functionDeclaration: 'function() { if (this.tagName !== "INPUT" || this.type !== "file") throw new Error("File chooser node is not a file input"); this.value = ""; this.dispatchEvent(new Event("input", {bubbles: true})); this.dispatchEvent(new Event("change", {bubbles: true})); return this.files.length; }',
-            returnByValue: true
-          });
-          if (result.exceptionDetails || result.result?.value !== 0) throw new Error("Unable to clear file chooser input");
-        } finally {
-          // Cleanup may outlive control, but it may never target a replacement
-          // attachment (or an already detached child) with recycled native IDs.
-          if (this.attachedTabs.has(chooser.scope.tabId) && this.attachmentEpochs.get(chooser.scope.tabId) === chooser.scope.attachment &&
-              (!chooser.target.sessionId || this.childSessionsByTabId.get(chooser.scope.tabId)?.has(chooser.target.sessionId)))
-            await chrome.debugger.sendCommand(chooser.target, "Runtime.releaseObject", { objectId }).catch(() => {});
-        }
+      const documents = this.fileInputDocumentsByTabId.get(chooser.scope.tabId) ?? new Map();
+      if (!documents.has(chooser.frameId)) documents.set(chooser.frameId, {});
+      this.fileInputDocumentsByTabId.set(chooser.scope.tabId, documents);
+      submission = this.directoryUploads.reserve({
+        identity: { tabId: chooser.scope.tabId, attachment: chooser.scope.attachment, ...chooser.target,
+          frameId: chooser.frameId, backendNodeId: chooser.backendNodeId, documentToken: documents.get(chooser.frameId) },
+        scope: chooser.scope, deadlineAt, check,
+        validate: async () => { checkAuthority(); await this.validateTransferScope(chooser.scope); checkAuthority(); }
+      });
+      const input = await this.directoryUploads.prepare(submission);
+      check();
+      if (params.files.length > 0 && input.directory) {
+        const directory = params.files[0];
+        if (params.files.length !== 1 || directory.includes("\0") ||
+            !(/^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/.test(directory)))
+          throw new Error("Directory upload requires exactly one absolute directory path");
+        await this.directoryUploads.submit(submission, params.files);
       } else {
-        await chrome.debugger.sendCommand(chooser.target, "DOM.setFileInputFiles", { backendNodeId: chooser.backendNodeId, files: params.files });
+        if (params.files.length > 1 && !input.multiple) throw new Error("File chooser does not accept multiple files");
+        await this.directoryUploads.write(submission, async () => {
+          check();
+          if (params.files.length === 0) {
+            const result = await chrome.debugger.sendCommand(chooser.target, "Runtime.callFunctionOn", {
+              objectId: submission.nodeObjectId,
+              functionDeclaration: 'function() { if (this.tagName !== "INPUT" || this.type !== "file") throw new Error("File chooser node is not a file input"); this.value = ""; this.dispatchEvent(new Event("input", {bubbles: true})); this.dispatchEvent(new Event("change", {bubbles: true})); return this.files.length; }',
+              returnByValue: true
+            });
+            if (result.exceptionDetails || result.result?.value !== 0) throw new Error("Unable to clear file chooser input");
+          } else {
+            await chrome.debugger.sendCommand(chooser.target, "DOM.setFileInputFiles", { backendNodeId: chooser.backendNodeId, files: params.files });
+          }
+        });
       }
       // A successful file change can submit a form and navigate. The old node
       // need not survive an acknowledged write, but its authority must.
       checkAuthority();
       await this.validateTransferScope(chooser.scope);
       checkAuthority();
+    } catch (error) {
+      if (submission) this.directoryUploads.cancelWhere(record => record === submission, error);
+      throw error;
     } finally {
       if (this.fileChoosersById.get(params.fileChooserId) === chooser) this.fileChoosersById.delete(params.fileChooserId);
     }
@@ -3263,7 +3412,7 @@ class BrowserBackend {
     if (!tab || this.auxiliaryTabs.entry(params.tabId) !== claim) throw unowned();
     if (claim && claim.windowId !== null) {
       if (claim.session_id !== params.session_id || this.auxiliaryTabs.owner(params.tabId) !== claim) throw unowned();
-      if (tab.windowId !== claim.windowId || tab.groupId !== -1 || (claim.kind === "ordinary" && tab.pinned)) {
+      if (tab.windowId !== claim.windowId || tab.groupId !== -1 || (["ordinary", "background-window"].includes(claim.kind) && tab.pinned)) {
         // Never await cleanup from inside an export scope check: detach must
         // drain this same native flow. Quarantine synchronously and reject so
         // that flow can unwind, then let its exact cleanup finish independently.
@@ -3466,6 +3615,7 @@ class BrowserBackend {
       if (downloadWait) void this.downloadWaits.enable(downloadWait, params.sessionId).catch(() => {});
     }
     if (method === "Target.detachedFromTarget") {
+      if (typeof params.sessionId === "string") this.directoryUploads.invalidate({ tabId, sessionId: params.sessionId }, new Error("OBU_TRANSFER_CANCELLED: file input child attachment detached"));
       this.childSessionsByTabId.get(tabId)?.delete(params.sessionId);
       if (this.fileChooserWaitersByTabId.get(tabId)?.targets.has(params.sessionId))
         void this.fileChooserWaits.invalidateAttachedTab(tabId).catch(() => {});
@@ -3475,10 +3625,27 @@ class BrowserBackend {
     const initialSwap = swappingFrame && params.reason === "swap" && !swappingFrame.swapped && swappingFrame.parentSessionId === source.sessionId;
     if (initialSwap) swappingFrame.swapped = true;
     if (["Page.documentOpened", "Page.frameDetached"].includes(method) && !initialSwap) {
+      const frameId = params.frameId ?? params.frame?.id;
+      const destroyed = method === "Page.documentOpened" || params.reason === "remove";
+      if (destroyed) {
+        if (typeof frameId === "string") this.fileInputDocumentsByTabId.get(tabId)?.delete(frameId);
+        else if (!source.sessionId) this.fileInputDocumentsByTabId.delete(tabId);
+      }
+      this.directoryUploads.invalidate({ tabId,
+        ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+        ...(typeof frameId === "string" ? { frameId } : {})
+      }, new Error("OBU_TRANSFER_CANCELLED: file input document changed"), { document: destroyed });
       if (chooserWait?.scope) void this.fileChooserWaits.invalidateAttachedTab(tabId).catch(() => {});
       for (const [id, chooser] of this.fileChoosersById) if (chooser.scope.tabId === tabId) this.fileChoosersById.delete(id);
     }
     if (method === "Page.frameNavigated") {
+      const wholeTab = !source.sessionId && !params.frame?.parentId;
+      if (wholeTab) this.fileInputDocumentsByTabId.delete(tabId);
+      else if (typeof params.frame?.id === "string") this.fileInputDocumentsByTabId.get(tabId)?.delete(params.frame.id);
+      this.directoryUploads.invalidate({ tabId,
+        ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+        ...(!wholeTab && typeof params.frame?.id === "string" ? { frameId: params.frame.id } : {})
+      }, new Error("OBU_TRANSFER_CANCELLED: file input document navigated"), { document: true });
       // A new OOPIF may commit its first child document before the parent emits
       // its first swap. Consume these independently, retaining exact identities.
       const frame = joining && chooserWait.newFrames.get(params.frame?.id);
@@ -3715,7 +3882,7 @@ class BrowserBackend {
       return null;
     }
     if (this.auxiliaryTabs.owner(record.tabId) !== record) return null;
-    if (tab.windowId !== record.windowId || tab.groupId !== -1 || (record.kind === "ordinary" && tab.pinned)) {
+    if (tab.windowId !== record.windowId || tab.groupId !== -1 || (["ordinary", "background-window"].includes(record.kind) && tab.pinned)) {
       await this.releaseAuxiliaryClaim(record);
       return null;
     }
@@ -3732,7 +3899,7 @@ class BrowserBackend {
       void this.releaseAuxiliaryClaim(record).catch(() => {});
   }
 
-  releaseAuxiliaryClaim(record, { destroyed = false } = {}) {
+  releaseAuxiliaryClaim(record, { destroyed = false, disposition = false } = {}) {
     if (this.auxiliaryTabs.entry(record.tabId) !== record) return Promise.resolve();
     const creation = this.creationTransactions.get(record);
     if (creation?.finished && creation.cleanupFailed) {
@@ -3749,6 +3916,26 @@ class BrowserBackend {
       return creation.done;
     }
     if (this.auxiliaryReleases.has(record)) return this.auxiliaryReleases.get(record);
+    if (record.kind === "background-window" && !disposition) {
+      // Deny synchronously, before detaching or reading Chrome. A detached tab
+      // may reappear in a task group while these promises are pending.
+      this.auxiliaryTabs.quarantine(record);
+      const release = (async () => {
+        const owner = this.attachmentOwners.get(record.tabId);
+        if (!destroyed && (!owner || owner.session_id === record.session_id)) await this.detachTab(record.tabId);
+        let tab;
+        if (!destroyed) try { tab = await chrome.tabs.get(record.tabId); }
+        catch (error) { if (!/No tab with (given )?id|Invalid tab id/i.test(String(error?.message))) throw error; }
+        if (tab) {
+          await this.auxiliaryTabs.excludeBackground(record);
+          const state = this.store.state.sessions[record.session_id];
+          if (state?.tabOrigins[String(record.tabId)] === "agent") { delete state.tabOrigins[String(record.tabId)]; await this.store.save(); }
+        } else await this.auxiliaryTabs.remove(record, { releaseExcluded: true });
+      })();
+      this.auxiliaryReleases.set(record, release);
+      release.finally(() => { if (this.auxiliaryReleases.get(record) === release) this.auxiliaryReleases.delete(record); }).catch(() => {});
+      return release;
+    }
     if (record.phase === "excluded" || (record.kind === "ordinary" && record.origin === "agent" && record.phase === "quarantined")) {
       // Recovery cannot reconstruct safe deletion eligibility for an unfinished
       // create. Keep an exact denial while its original task group still owns
@@ -3844,6 +4031,7 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId) {
+    this.directoryUploads.cancelWhere(record => record.scope.session_id === sessionId, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
     for (const marker of this.freshBlankTabs.values()) if (marker.session_id === sessionId) this.retireFreshBlankTab(marker);
     const choosersReleased = this.fileChooserWaits.invalidateSession(sessionId);
     const downloadWaitsReleased = this.downloadWaits.invalidateSession(sessionId);
@@ -3885,6 +4073,7 @@ class BrowserBackend {
     this.endingSessions.set(params.session_id, ending);
     try {
       this.controlLedger.assertCurrent(params);
+      this.directoryUploads.cancelWhere(record => record.scope.session_id === params.session_id, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
       void this.fileChooserWaits.invalidateSession(params.session_id).catch(() => {});
       void this.downloadWaits.invalidateSession(params.session_id).catch(() => {});
       void this.directDownloads.invalidateSession(params.session_id);
@@ -4086,6 +4275,7 @@ class BrowserBackend {
   }
 
   detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
+    this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
     this.browserEngine?.invalidate?.(tabId);
@@ -4468,8 +4658,8 @@ function optionalPositiveInteger(value, fallback, field) {
   return value;
 }
 
-async function createBackgroundTab(assertAdmission = () => {}, createdWindow = () => {}) {
-  const windowId = await chooseWindowId();
+async function createBackgroundTab(assertAdmission = () => {}, createdWindow = () => {}, separateWindow = false) {
+  const windowId = separateWindow ? null : await chooseWindowId();
   assertAdmission();
   if (typeof windowId === "number") {
     const tab = await chrome.tabs.create({ active: false, url: "about:blank", windowId });

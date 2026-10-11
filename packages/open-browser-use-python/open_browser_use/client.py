@@ -90,6 +90,8 @@ class OpenBrowserUseClient:
             file_chooser_params(method, params or {})
         if method in DOWNLOAD_WAIT_METHODS:
             download_wait_params(method, params or {})
+        if method == "createTab" and params is not None and "backgroundWindow" in params and type(params["backgroundWindow"]) is not bool:
+            raise ValueError("backgroundWindow must be a boolean")
         request_timeout = self.timeout if timeout is None else timeout
         if not math.isfinite(request_timeout) or request_timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
@@ -119,6 +121,12 @@ class OpenBrowserUseClient:
                     epoch, _ = self._validate_control_state(state)
                     self._control_epoch = epoch
                 merged_params["control_epoch"] = epoch
+        if method == "createTab" and merged_params.get("backgroundWindow") is True:
+            info = self._wire_request("getInfo", {"session_id": merged_params["session_id"], "turn_id": merged_params["turn_id"]}, deadline)
+            metadata = info.get("metadata") if isinstance(info, dict) else None
+            version = metadata.get("backgroundWindowVersion") if isinstance(metadata, dict) else None
+            if type(version) is not int or version != 1:
+                raise RuntimeError("OBU_BACKGROUND_WINDOW_UNSUPPORTED: extension does not advertise backgroundWindowVersion 1")
         if method in NETWORK_WAIT_METHODS:
             if self._network_wait_version is None:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
@@ -413,8 +421,8 @@ class OpenBrowserUseClient:
     def get_info(self) -> Any:
         return self.request("getInfo")
 
-    def create_tab(self) -> Any:
-        return self.request("createTab")
+    def create_tab(self, background_window: bool | None = None) -> Any:
+        return self.request("createTab", _create_tab_params(background_window))
 
     def get_tabs(self) -> Any:
         return self.request("getTabs")
@@ -471,14 +479,13 @@ class OpenBrowserUseClient:
         return self.request(method, {"tabId": tab_id, "timeoutMs": effective_timeout},
                             timeout=effective_timeout / 1000 + 1)
 
-    def set_file_chooser_files(self, file_chooser_id: str, files: list[str]) -> Any:
-        return self.request(
-            "setFileChooserFiles",
-            {
-                "fileChooserId": file_chooser_id,
-                "files": files,
-            },
-        )
+    def set_file_chooser_files(self, file_chooser_id: str, files: list[str], timeout_ms: int | None = None) -> Any:
+        params = {"fileChooserId": file_chooser_id, "files": files}
+        if timeout_ms is None:
+            return self.request("setFileChooserFiles", params)
+        if type(timeout_ms) is not int or not 1 <= timeout_ms <= 120000:
+            raise ValueError("timeout_ms must be an integer between 1 and 120000")
+        return self.request("setFileChooserFiles", {**params, "timeoutMs": timeout_ms}, timeout=timeout_ms / 1000 + 1)
 
     def wait_for_download(self, tab_id: int, timeout_ms: int | None = None) -> Any:
         return self._wait_for_tab_event("waitForDownload", tab_id, timeout_ms)
@@ -546,7 +553,9 @@ class OpenBrowserUseBrowser:
         url: str | None = None,
         wait_until: LoadState = "load",
         timeout: float = DEFAULT_NAVIGATION_TIMEOUT,
+        background_window: bool | None = None,
     ) -> "OpenBrowserUseTab":
+        create_params = _create_tab_params(background_window)
         if url and (not math.isfinite(timeout) or not 0.001 <= timeout <= 120):
             raise ValueError("navigation timeout must be between 0.001 and 120 seconds")
 
@@ -555,7 +564,7 @@ class OpenBrowserUseBrowser:
             if url:
                 tab_id = _tab_id_from_value(created, "create_tab response")
                 response = self.client._wire_request("browserAction", {
-                    **metadata, "tabId": tab_id, "action": "goto",
+                    **{key: value for key, value in metadata.items() if key != "backgroundWindow"}, "tabId": tab_id, "action": "goto",
                     "args": {"url": url, "waitUntil": wait_until}, "timeoutMs": int(timeout * 1000),
                 }, deadline)
                 if not isinstance(response, dict) or "value" not in response or not isinstance(response.get("engine"), dict):
@@ -563,7 +572,7 @@ class OpenBrowserUseBrowser:
                 self.client.browser_engine = response["engine"]
             return created
 
-        result = self.client._request("createTab", timeout=timeout + 1 if url else None,
+        result = self.client._request("createTab", create_params, timeout=timeout + 1 if url else None,
                                       execute=create_and_navigate)
         tab = self.tab(_tab_id_from_value(result, "create_tab response"))
         return tab
@@ -945,3 +954,9 @@ def _assert_supported_load_state(state: str) -> None:
 def _document_state_matches(document_state: JsonObject | None, state: LoadState) -> bool:
     ready_state = document_state.get("readyState") if isinstance(document_state, dict) else None
     return ready_state == "complete" or (state == "domcontentloaded" and ready_state == "interactive")
+
+
+def _create_tab_params(background_window: bool | None) -> JsonObject:
+    if background_window is not None and type(background_window) is not bool:
+        raise ValueError("background_window must be a boolean or None")
+    return {"backgroundWindow": True} if background_window is True else {}

@@ -118,6 +118,8 @@ export class OpenBrowserUseClient {
         return this.#request(method, params, options);
     }
     async #request(method, params, options, capture) {
+        if (method === "createTab" && Object.hasOwn(params, "backgroundWindow") && typeof params.backgroundWindow !== "boolean")
+            throw new Error("backgroundWindow must be a boolean");
         if (fileChooserWaitMethods.has(method))
             fileChooserWaitParams(method, params);
         if (downloadWaitMethods.has(method))
@@ -154,6 +156,8 @@ export class OpenBrowserUseClient {
             if (binding.controlEpoch !== null)
                 merged.control_epoch = binding.controlEpoch;
         }
+        if (method === "createTab" && merged.backgroundWindow === true)
+            await this.#requireBackgroundWindow(merged, deadline);
         if (networkWaitMethods.has(method)) {
             if (this.#networkWaitVersion === undefined)
                 await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
@@ -303,10 +307,20 @@ export class OpenBrowserUseClient {
                 const fixed = await beforeDeadline(Promise.resolve(binding), deadline, method);
                 if (revision !== this.#controlRevision || fixed.closing)
                     throw new Error("OBU_STALE_CONTROL_EPOCH: control changed while the compound operation was pending");
+                if (method === "createTab" && captured.backgroundWindow === true) {
+                    await this.#requireBackgroundWindow({ session_id: this.sessionId, turn_id: turnId }, deadline);
+                    if (revision !== this.#controlRevision || fixed.closing)
+                        throw new Error("OBU_STALE_CONTROL_EPOCH: control changed while the compound operation was pending");
+                }
                 return this.#sendRequest(method, { ...captured, session_id: this.sessionId, turn_id: turnId,
                     ...(fixed.controlEpoch === null ? {} : { control_epoch: fixed.controlEpoch }) }, deadline, reservedResponseMs);
             }
         };
+    }
+    async #requireBackgroundWindow(scope, deadline) {
+        const info = await this.#sendRequest("getInfo", { session_id: scope.session_id, turn_id: scope.turn_id }, deadline);
+        if (!isObject(info) || !isObject(info.metadata) || info.metadata.backgroundWindowVersion !== 1)
+            throw new Error("OBU_BACKGROUND_WINDOW_UNSUPPORTED: extension does not advertise backgroundWindowVersion 1");
     }
     async #initializeControl(turnId, deadline) {
         if (this.#controlInitialization)
@@ -442,8 +456,10 @@ export class OpenBrowserUseClient {
         }
         return { value: result.value, engine: result.engine };
     }
-    createTab() {
-        return this.request("createTab");
+    async createTab(options = {}) {
+        if (!isObject(options) || Object.keys(options).some(key => key !== "backgroundWindow"))
+            throw new Error("Invalid createTab options");
+        return this.request("createTab", createTabOptions(options));
     }
     getTabs() {
         return this.request("getTabs");
@@ -482,8 +498,12 @@ export class OpenBrowserUseClient {
     waitForFileChooser(tabId, timeoutMs) {
         return this.#waitForTabEvent("waitForFileChooser", tabId, timeoutMs);
     }
-    setFileChooserFiles(fileChooserId, files) {
-        return this.request("setFileChooserFiles", { fileChooserId, files });
+    setFileChooserFiles(fileChooserId, files, timeoutMs) {
+        if (timeoutMs === undefined)
+            return this.request("setFileChooserFiles", { fileChooserId, files });
+        if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000)
+            return Promise.reject(new Error("timeoutMs must be an integer between 1 and 120000"));
+        return this.request("setFileChooserFiles", { fileChooserId, files, timeoutMs }, { timeoutMs: timeoutMs + 1000 });
     }
     waitForDownload(tabId, timeoutMs) {
         return this.#waitForTabEvent("waitForDownload", tabId, timeoutMs);
@@ -617,12 +637,13 @@ export class OpenBrowserUseBrowser {
         this.client.close();
     }
     async newTab(options = {}) {
+        const createOptions = createTabOptions(options);
         const { url, waitUntil = "load" } = options;
         const timeoutMs = options.timeoutMs ?? (url ? defaultNavigationTimeoutMs : this.client.timeoutMs);
         if (url)
             assertSupportedLoadState(waitUntil);
         const scope = this.client[controlScopeSymbol](timeoutMs + (url ? 1000 : 0));
-        const created = await scope.request("createTab", {}, url ? 1000 : 0);
+        const created = await scope.request("createTab", createOptions, url ? 1000 : 0);
         const tabId = tabIdFromValue(created, "createTab response");
         const tab = this.tab(tabId);
         if (url) {
@@ -1224,4 +1245,9 @@ function cdpEventForTab(notification, tabId) {
 }
 function stringValue(value) {
     return typeof value === "string" ? value : undefined;
+}
+function createTabOptions(options) {
+    if (!isObject(options) || (options.backgroundWindow !== undefined && typeof options.backgroundWindow !== "boolean"))
+        throw new Error("backgroundWindow must be a boolean");
+    return options.backgroundWindow === true ? { backgroundWindow: true } : {};
 }

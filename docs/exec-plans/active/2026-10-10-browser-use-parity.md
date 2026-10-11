@@ -2036,3 +2036,97 @@ DOM。原10秒chooser/默认click及15秒transport不变，无额外点击或焦
 该次Cancel之后。以上只改报告/守卫，最终诊断`PbIrsJ`2/2、exit0通过；
 完整105项运行发生在这组报告修正前，生产、SDK、Go业务及collector未改。
 保留全部旧失败和两版报告；不以新全绿抹去低频超时，也不更新已发布ZIP。
+
+### P10 目录上传完成与原节点隔离（进行中）
+
+当前基线为`1f56467`。Chromium 的目录枚举异步于`DOM.setFileInputFiles`
+ACK，且`webkitdirectory`仅使用路径列表首项。先保留旧生产基线并新增
+真实目录fixture，随后要求恰好一个目录路径，并同时等原生ACK与原节点
+可信input事件。cancel、上下文丢失和截止时间不能冒充完成；不把空目录
+旧FileList上的cancel当作成功。普通文件仍按原ACK语义，清空仍显式触发事件。
+
+同步单次消费与节点reservation先于原生await；固定isolated world上的
+WeakMap guard跨worker/debugger重连保留未定目录，防止迟到结果完成后继
+提交。所有setter含普通文件与clear均服从原节点pending；调用撤权只结束
+本caller，不以detach推断renderer枚举停止。本次setter单独10秒默认总预算，
+不复用chooser等待剩余时间，不重发输入。测试需覆盖可信事件/ACK次序、
+超时后迟到结果、同节点并发、跨attachment、原scope撤权和合法完成后导航。
+
+真实JS验收涵盖root、已有与动态OOPIF；同步HTTP witness在方法返回第一
+continuation即存在，之后校验实际File字节与webkitRelativePath。覆盖中文、
+重复basename、二进制、零字节、空目录、重复选择及无效/多目录拒绝。
+已有105项和焦点豁免不删改；单独新case加入默认回归。旧Go chooser低频
+故障、其他P01–P15缺口与已发布ZIP继续保留。
+
+前一片完成了真实guard、ACK/input完成契约与SDK期限，但默认inactive页
+仍被Chromium156原生取消。完整`Ob0pFy`为103/107，保留该取消及JS/MCP/Go
+动态chooser超时，后三项与新改动关系未排除。1311项Node通过不能替代
+浏览器验收。后台popup实验`Nl0c74`在dynamic Add frame超时；随后显式
+诊断`R1naUp`16轮/13POST/408原文件字节完成、三次新窗口首tab激活、零
+window focus，普通chooser诊断`v9GDXO`也通过；诊断未复现不等于修复。
+
+### P02/P10 显式后台窗口（进行中）
+
+已将独立窗口路线接入正式`createTab({backgroundWindow:true})`，
+省略/false保留原路径。新建normal窗口、focused:false、唯一about:blank页，
+不移动既有任务或用户页，也不自动重试目录提交。SDK先检查
+`backgroundWindowVersion:1`，防旧扩展忽略选项；三SDK与现有CLI open-tab /
+MCP open_tab均接入，不要求用户另行运行测试脚本。
+
+复用创建事务与fresh-blank初始文档检查，独立record kind与agent origin
+保留同session的既有分组和页面。存储兼容旧版本，控制范围失效/暂停/迟到
+ACK不能授予控制；用户移动、分组或pin后撤权。finalize只关闭自己的tab，
+Chrome自行关闭空窗口；窗口内后来出现的其他页面不能被整窗删除。
+
+v3存储兼容v1/v2；用户移组/移窗/pin后的阻断先同步生效，再保留持久撤权，
+不能因回到原组而自动重授。明确reclaim改为user origin。窗口中额外的
+非任务页不进入session清理范围，正式接口不会整窗删除它们。
+
+正式验收`UPWXAL`4/5、exit1，inactive fixture冷scope比较错误已修，原
+失败保留。最终完整`zyiYQg`106/109、exit1，原105项名称/顺序不变，新增
+隔离世界、inactive目录拒绝、后台窗口目录、混合finalize四项全过。目录
+16轮、13POST、30份文件载荷共408字节独立核验；12次目录选择可信input，
+另一次显式清空沿用合成事件，三项非法提交明确拒绝。成功方法返回的
+首条回调即检查同步witness；异步字节随后核对，不以poll补足过早返回。
+inactive仍可信cancel且零上传，这条默认限制未改变。
+
+全套账本11次激活由四次新窗口创建、一次额外页自然继任及原六次fixture
+动作组成；四次focus仍是既有控制popup，零未知事件，新窗口用例零window
+focus，原sentinel不变。精确新任务tab/window/attachment清理及额外页保留
+已核验，不扩称全部fixture页/进程清空。Node1347、JS129、Python94通过；
+受影响Go SDK87与CLI109个顶层测试通过，另有23项既有平台skip，不称
+全平台无跳过。旧发布ZIP不含本feature。
+
+未完成项：JS单次提交、JS双连接及Go双连接在动态OOPIF首轮collect超时，
+均未调用本轮setter；原生输入/interception投递证据不足，本轮变更关联
+未排除。保持P01–P15完整目标，不以四项新增通过结束本计划。随后一次
+精确JS opt-in诊断`Tu6rks`2/2、exit0未复现；接下来只在原失败后读取既有
+chooserEvidence，成功前不新增API/监听，以捕获trusted click是否到达。
+原生输入表面尚未就绪只是待证假设，不据此改生产或宣称已修复。
+
+固定 Chromium 156.0.8078.4 源码进一步缩小了候选：其浏览器测试用内部
+[`WaitForHitTestData`](https://github.com/chromium/chromium/blob/156.0.8078.4/content/public/test/hit_test_region_observer.cc)
+检查精确 FrameSinkId 的聚合命中表；当前未找到公开只读 CDP 等价入口。
+[`InputHandler`](https://github.com/chromium/chromium/blob/156.0.8078.4/content/browser/devtools/protocol/input_handler.cc)
+的鼠标成功 ACK 不保证 DOM 收到事件，screencast ACK 也只确认流量。
+因此不把固定等待、第二张截图或串行 mouse ACK 冒充确定的就绪屏障。
+child-session 输入路由可以从 child 开始查找，但仍涉及根命中表，且可能
+跳过祖先遮挡；只有保留原定位器的父层命中、坐标和权限检查才值得实验，
+不能直接替换通用点击。以上是源码边界，尚未证实本轮故障原因。
+
+默认失败后观察及错误保留已实现，Node1369通过。随后完整`XHmJdq`
+108/109、exit1：原105项本轮全过，新增目录dynamic首轮collect失败；无该轮
+chooser/setter，尚无点击/原生命令证据。root/static12轮完成9POST/272字节，
+11激活/四既有popup focus全归因，精确清理及额外页保留通过。生产/host/SDK
+与前轮一致，不能因普通chooser本轮通过就判旧问题已修复。
+
+目录现接入同类post-failure观察，六种HTML、成功动作/期限不变；保留
+原document IDs、directoryEvidence与input token，单独3秒预算，不重试。
+最终Node1373通过。专项`JwX2Bc`10/13、exit1，四项新检查通过；JSsingle、
+JSready及Goready的dynamic首collect失败。三份自然故障观察均完整，6/3/5ms
+内精确当前文档读取证明root有可信frameAdd，child没有记录click/change。
+JS在cancel前、Go在child取消/关闭后读取；仍缺点击时身份及down/up完整序列。
+下一步在显式诊断fixture中记录有界原鼠标事件以区分未投递/部分序列，默认
+HTML及原动作/期限不改。没有精确child就绪证明的帧等待、synthetic tap或
+child直发鼠标不作修复：后者会绕过祖先新遮挡，tap源码也有命中表同步TODO。
+完整P01–P15目标及既有平台缺口不变。

@@ -299,6 +299,11 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   贯穿结果与失败清理；用户接管后保留页面。普通页按 agent/user 来源关闭
   或释放，handoff 保留归属，无组 deliverable 保留实际页面并撤权，详见
   [ungrouped task tabs](references/ungrouped-task-tabs.md)。
+  `createTab({backgroundWindow:true})` 显式新建不聚焦normal窗口，使用v3中的
+  `background-window`/agent记录，与原任务组并存。只对该精确tab授予控制；
+  finalize关闭它而非整窗，保留后来加入的其他页面。三SDK与CLI/MCP按
+  `backgroundWindowVersion:1`检查支持，详见
+  [background task windows](references/background-windows.md)。
   新 session 的默认任务组名是 `Task - OBU`，上层 runtime 应通过
   `nameSession`/`name-session` 按 `<short task> - OBU` 设置更具体的任务名；
   grouped `deliverable` tabs 移动到共享 `✅ Open Browser Use` tab group，`handoff`

@@ -43,6 +43,10 @@ it. Failed persistence retains the denial and remains retryable.
 The existing browser-lifetime storage wrapper prevents stale numeric tab IDs
 from granting authority in a new incarnation.
 
+Version 3 additionally stores agent-owned `background-window` records for
+[explicit background windows](background-windows.md). Those records can coexist
+with a native task group and do not select this ordinary compatibility mode.
+
 Listing, raw target admission, page export and clipboard source checks use the
 same explicit membership. Foreign sessions cannot claim an owned ungrouped
 page. Ordinary navigation preserves accepted membership; moves to another

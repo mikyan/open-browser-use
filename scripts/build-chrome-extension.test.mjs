@@ -536,6 +536,8 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
     await fs.readFile(path.join("apps/chrome-extension", "browser-navigation-waits.js"), "utf8"));
   assert.equal(await fs.readFile(path.join(output, "browser-file-chooser-waits.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "browser-file-chooser-waits.js"), "utf8"));
+  assert.equal(await fs.readFile(path.join(output, "browser-directory-upload.js"), "utf8"),
+    await fs.readFile(path.join("apps/chrome-extension", "browser-directory-upload.js"), "utf8"));
   assert.equal(await fs.readFile(path.join(output, "browser-download-waits.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "browser-download-waits.js"), "utf8"));
   await fs.access(path.join(output, "browser-frame-adapter.js"));

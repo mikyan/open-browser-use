@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import test_lifecycle as lifecycle
 from open_browser_use import OpenBrowserUseBrowser, OpenBrowserUseClient
@@ -15,6 +16,45 @@ NOOP = lambda p: None
 class FileChooserWaitTest(unittest.TestCase):
     serve = lifecycle.ControlLifecycleTest.serve
     state = lifecycle.ControlLifecycleTest.state
+
+    def test_file_setter_preserves_default_wire_and_explicit_reply_grace(self):
+        def check(file_id, timeout_ms=None, delay=0):
+            def inspect(params):
+                self.assertEqual(params["fileChooserId"], file_id)
+                self.assertEqual(params["files"], [])
+                self.assertEqual((params["turn_id"], params["control_epoch"]), ("initial", 7))
+                if timeout_ms is None:
+                    self.assertNotIn("timeoutMs", params)
+                else:
+                    self.assertEqual(params["timeoutMs"], timeout_ms)
+                time.sleep(delay)
+            return inspect
+
+        def exercise(client):
+            with patch.object(client, "request", wraps=client.request) as request:
+                self.assertEqual(client.set_file_chooser_files("default", []), {})
+                client.timeout = 0.1
+                self.assertEqual(client.set_file_chooser_files("slow", [], 50), {})
+                self.assertEqual(client.set_file_chooser_files("maximum", [], 120000), {})
+                with self.assertRaisesRegex(RuntimeError, "OBU_FILE_CHOOSER_CONSUMED"):
+                    client.set_file_chooser_files("rejected", [], 1)
+                self.assertEqual([call.kwargs for call in request.call_args_list], [{}, {"timeout": 1.05}, {"timeout": 121.0}, {"timeout": 1.001}])
+
+        self.serve([
+            ("getInfo", NOOP, INFO), ("getControlState", NOOP, self.state(7)),
+            ("setFileChooserFiles", check("default"), {"result": {}}),
+            ("setFileChooserFiles", check("slow", 50, 0.15), {"result": {}}),
+            ("setFileChooserFiles", check("maximum", 120000), {"result": {}}),
+            ("setFileChooserFiles", check("rejected", 1), {"error": {"message": "OBU_FILE_CHOOSER_CONSUMED"}}),
+        ], exercise)
+
+    def test_file_setter_invalid_timeout_never_requests(self):
+        client = OpenBrowserUseClient("unused")
+        with patch.object(client, "request", side_effect=AssertionError("invalid timeout reached request")) as request:
+            for value in (True, "1", 0, -1, 1.5, float("nan"), float("inf"), 120001):
+                with self.subTest(timeout=value), self.assertRaisesRegex(ValueError, "timeout_ms must be an integer"):
+                    client.set_file_chooser_files("chooser", [], value)
+            request.assert_not_called()
 
     def test_ready_trigger_collect_cancel_and_ended_scope(self):
         def old(p):

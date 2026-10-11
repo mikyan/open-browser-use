@@ -234,9 +234,9 @@ test("cancel during initial storage read cannot revive the cancelled reservation
   assert.equal(store.owner(7)?.claimId, "claim-7", "pre-existing membership survives; the old claim operation does not");
 });
 
-test("version two records preserve exact popup migration and ordinary agent/user identity", async () => {
+test("version three storage preserves legacy popup and version two ordinary agent/user identity", async () => {
   const legacy = environment({ initial: { version: 1, records: [persisted()] } }); await legacy.store.ready;
-  assert.equal(legacy.store.owner(7).kind, "popup"); assert.equal(legacy.disk[KEY].version, 2);
+  assert.equal(legacy.store.owner(7).kind, "popup"); assert.equal(legacy.disk[KEY].version, 3);
   for (const origin of ["agent", "user"]) {
     const f = environment({ initial: { version: 2, records: [persisted(7, { kind: "ordinary", origin })] } }); await f.store.ready;
     assert.equal(f.store.owner(7).origin, origin);
@@ -247,6 +247,37 @@ test("version two records preserve exact popup migration and ordinary agent/user
   }
   const disguisedLegacy = environment({ initial: { version: 1, records: [persisted(7, { kind: "ordinary" })] } });
   await assert.rejects(disguisedLegacy.store.ready, /STATE_INVALID/);
+});
+
+test("background-window identity is versioned, durable, and recovery never admits an unfinished creation", async () => {
+  for (const phase of ["committed", "pending", "quarantined", "excluded"]) {
+    const record = persisted(7, { kind: "background-window", origin: phase === "excluded" ? "user" : "agent", phase });
+    const f = environment({ initial: { version: 3, records: [record] } }); await f.store.ready;
+    assert.equal(f.store.owner(7)?.kind, phase === "committed" ? "background-window" : undefined);
+    assert.equal(f.store.entry(7).phase, phase === "pending" ? "quarantined" : phase);
+    assert.equal(f.disk[KEY].version, 3);
+  }
+  for (const [version, changes] of [[2, {}], [3, { origin: "user" }], [3, { phase: "excluded" }],
+    [3, { phase: "excluded", origin: "user", excludedGroupId: 10 }]]) {
+    const f = environment({ initial: { version, records: [persisted(7, { kind: "background-window", origin: "agent", ...changes })] } });
+    await assert.rejects(f.store.ready, /STATE_INVALID/);
+  }
+});
+
+test("background-window revocation retains an exact cross-window denial until explicit user admission", async () => {
+  const f = environment(); await f.store.ready;
+  const record = f.store.reserveCreation(params(), { kind: "background-window" });
+  await f.store.bindCreated(record, { id: 7, windowId: 10 });
+  await commit(f.store, record); assert.equal(f.store.owner(7), record);
+  f.store.quarantine(record); await f.store.excludeBackground(record);
+  assert.equal(f.store.owner(7), undefined); assert.equal(record.origin, "user");
+  assert.equal(await f.store.remove(record), false);
+  const recovered = environment({ initial: f.disk[KEY] }); await recovered.store.ready;
+  const reservation = recovered.store.reserve(params());
+  assert.equal(reservation.phase, "excluded"); assert.equal(reservation.origin, "user");
+  assert.throws(() => recovered.store.reserve(params(7, "foreign")), /CLAIM_CONFLICT/);
+  await commit(recovered.store, reservation, { kind: "ordinary", windowId: 20 });
+  assert.equal(recovered.store.owner(7).origin, "user"); assert.equal(recovered.store.owner(7).windowId, 20);
 });
 
 test("creation reserves capacity before native work and binds only its returned tab identity", async () => {

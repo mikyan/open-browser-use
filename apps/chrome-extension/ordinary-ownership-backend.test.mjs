@@ -125,6 +125,193 @@ async function ordinary(t, { dissolve = true } = {}) {
   return { ...f, create, scope: tabId => ({ ...f.params, tabId }) };
 }
 
+async function backgroundWindow(t) {
+  const f = await fixture(t); let nextId = 100, nextWindow = 1000;
+  f.chrome.tabs.create = async options => {
+    f.calls.push(["create", clone(options)]);
+    const tab = { id: nextId++, groupId: -1, windowId: options.windowId, url: "about:blank", status: "complete", active: false, pinned: false };
+    f.tabs.set(tab.id, tab); return clone(tab);
+  };
+  f.chrome.windows.create = async options => {
+    f.calls.push(["window-create", clone(options)]);
+    await f.hooks.beforeWindowCreate?.();
+    const window = { id: nextWindow++, type: "normal", focused: false };
+    const tab = { id: nextId++, groupId: -1, windowId: window.id, url: "about:blank", status: "complete", active: true, pinned: false };
+    f.windows.set(window.id, window); f.tabs.set(tab.id, tab);
+    if (!f.hooks.deferActivation) f.chrome.tabs.onActivated.emit({ tabId: tab.id, windowId: window.id });
+    await f.hooks.windowCreated?.(tab, window);
+    return { ...clone(window), tabs: [clone(tab)] };
+  };
+  return { ...f, create: () => f.backend.createTab({ ...f.params, backgroundWindow: true }), scope: tabId => ({ ...f.params, tabId }) };
+}
+
+test("explicit background windows preserve mixed group ownership and subsequent default creation", async t => {
+  const f = await backgroundWindow(t), tab = await f.create(), state = f.backend.store.state.sessions.task;
+  assert.deepEqual(f.calls.find(([name]) => name === "window-create")[1], { focused: false, type: "normal", url: "about:blank" });
+  assert.equal(f.backend.auxiliaryTabs.owner(tab.id).kind, "background-window");
+  assert.equal(state.chromeGroupId, 10); assert.notEqual(state.ungrouped, true);
+  assert.deepEqual(Array.from(await f.backend.getTabs(f.params), value => value.id).sort(), [100, 7]);
+  await f.backend.requireSessionTab(f.scope(tab.id), "detach");
+  const ordinary = await f.backend.createTab({ ...f.params, backgroundWindow: false });
+  assert.equal(f.tabs.get(ordinary.id).groupId, 10); assert.equal(f.tabs.get(ordinary.id).windowId, 1);
+  assert.equal(f.calls.filter(([name]) => name === "window-create").length, 1);
+  assert.equal(f.backend.freshBlankTabs.get(tab.id).groupId, -1);
+  await f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id));
+  assert.equal((await f.backend.getInfo()).metadata.backgroundWindowVersion, 1);
+});
+
+test("invalid backgroundWindow options fail before any native creation", async t => {
+  const f = await backgroundWindow(t);
+  for (const value of [null, 0, 1, "true", {}, []]) await assert.rejects(f.backend.createTab({ ...f.params, backgroundWindow: value }), /must be a boolean/);
+  assert.equal(f.calls.some(([name]) => name === "window-create" || name === "create"), false);
+});
+
+test("the sole new-window activation can arrive after its native ACK without retiring its blank marker", async t => {
+  const f = await backgroundWindow(t); f.hooks.deferActivation = true;
+  const tab = await f.create();
+  f.chrome.tabs.onActivated.emit({ tabId: tab.id, windowId: f.tabs.get(tab.id).windowId });
+  assert.equal(f.backend.freshBlankTabs.has(tab.id), true);
+  await f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id));
+});
+
+for (const takeover of ["focus-back", "additional-tab", "same-group", "foreign-group"]) test(`failed background-window creation preserves user takeover: ${takeover}`, async t => {
+  const f = await backgroundWindow(t);
+  f.hooks.windowCreated = (tab, window) => {
+    if (takeover === "focus-back") { window.focused = true; f.chrome.windows.onFocusChanged.emit(window.id); window.focused = false; }
+    else if (takeover === "additional-tab") f.tabs.set(500, { id: 500, groupId: -1, windowId: window.id, active: false, url: "https://fixture.test/user" });
+    else {
+      tab.windowId = 1; tab.groupId = takeover === "same-group" ? 10 : 20;
+      f.chrome.tabs.onDetached.emit(tab.id, { oldWindowId: window.id });
+      f.chrome.tabs.onUpdated.emit(tab.id, { groupId: tab.groupId });
+    }
+  };
+  await assert.rejects(f.create(), /CREATION_REVOKED/);
+  const record = f.backend.auxiliaryTabs.entry(100);
+  assert.equal(record.phase, "excluded"); assert.equal(record.kind, "background-window"); assert.equal(record.origin, "user");
+  assert.equal(f.tabs.has(100), true); assert.equal(f.backend.freshBlankTabs.has(100), false);
+  await assert.rejects(f.backend.requireSessionTab(f.scope(100), "detach"), unavailable);
+  assert.equal((await f.backend.getTabs(f.params)).some(tab => tab.id === 100), false);
+  assert.equal((await f.backend.getTabs(f.foreign)).some(tab => tab.id === 100), false);
+});
+
+for (const takeover of ["pin", "move", "window", "same-group", "foreign-group"]) test(`background-window ${takeover} revocation is sticky across moves and worker recovery`, async t => {
+  const f = await backgroundWindow(t), created = await f.create(), tab = f.tabs.get(created.id), originalWindow = tab.windowId;
+  if (takeover === "pin") { tab.pinned = true; f.chrome.tabs.onUpdated.emit(tab.id, { pinned: true }); }
+  else if (takeover === "move") f.chrome.tabs.onMoved.emit(tab.id, { windowId: tab.windowId, fromIndex: 0, toIndex: 1 });
+  else {
+    tab.windowId = 1; f.chrome.tabs.onDetached.emit(tab.id, { oldWindowId: originalWindow });
+    tab.groupId = takeover === "same-group" ? 10 : takeover === "foreign-group" ? 20 : -1;
+    f.chrome.tabs.onUpdated.emit(tab.id, { groupId: tab.groupId });
+  }
+  // Even between the immediate event and asynchronous cleanup, neither group
+  // inventory may infer authority from the new native position.
+  assert.equal(f.backend.auxiliaryTabs.owner(tab.id), undefined);
+  await Promise.all([...f.backend.auxiliaryReleases.values()]);
+  assert.equal(f.backend.auxiliaryTabs.entry(tab.id).phase, "excluded");
+  Object.assign(tab, { windowId: originalWindow, groupId: -1, pinned: false });
+  f.chrome.tabs.onUpdated.emit(tab.id, { groupId: -1 });
+  await Promise.all([...f.backend.auxiliaryReleases.values()]);
+  assert.equal((await f.backend.getTabs(f.params)).some(value => value.id === tab.id), false);
+  for (const event of f.events) event.clear();
+  const restarted = new f.Backend(); await restarted.controlReady;
+  const scope = f.fresh(f.scope(tab.id), await restarted.getControlState({ session_id: "task" }));
+  await assert.rejects(restarted.requireSessionTab(scope, "detach"), unavailable);
+  await restarted.claimUserTab(scope);
+  assert.equal(restarted.store.state.sessions.task.tabOrigins[tab.id], "user");
+  await restarted.finalizeTabs({ ...scope, keep: [] });
+  assert.equal(f.tabs.has(tab.id), true); assert.equal(f.tabs.has(7), false);
+});
+
+test("background-window finalize closes only its own tab and leaves an added user tab intact", async t => {
+  const f = await backgroundWindow(t), created = await f.create(), tab = f.tabs.get(created.id);
+  f.tabs.set(500, { id: 500, windowId: tab.windowId, groupId: -1, url: "https://fixture.test/user", active: false });
+  await f.backend.finalizeTabs({ ...f.params, keep: [] });
+  assert.equal(f.tabs.has(created.id), false); assert.equal(f.tabs.has(7), false); assert.equal(f.tabs.has(500), true);
+  assert.equal(f.calls.some(([name]) => name === "window-remove"), false);
+  assert.equal(f.backend.auxiliaryTabs.entry(created.id), undefined);
+});
+
+test("finalize does not close a background tab moved into its old task group during native detach", async t => {
+  const f = await backgroundWindow(t), created = await f.create(), tab = f.tabs.get(created.id), held = f.gate();
+  await f.backend.attach(f.scope(created.id));
+  let detaching = false;
+  f.hooks.detach = async id => { if (id === created.id) { detaching = true; await held.promise; } };
+  const ending = f.backend.finalizeTabs({ ...f.params, keep: [{ tabId: 7, status: "handoff" }] });
+  await until(() => detaching, "background native detach");
+  const oldWindowId = tab.windowId;
+  tab.windowId = 1; tab.groupId = 10;
+  f.chrome.tabs.onDetached.emit(tab.id, { oldWindowId }); f.chrome.tabs.onUpdated.emit(tab.id, { groupId: 10 });
+  held.resolve(); const ended = await ending;
+  assert.equal(f.tabs.has(tab.id), true); assert.equal(f.backend.auxiliaryTabs.entry(tab.id).phase, "excluded");
+  const scope = f.fresh(f.scope(tab.id), ended);
+  await assert.rejects(f.backend.requireSessionTab(scope, "detach"), unavailable);
+});
+
+test("healthy background-window ownership survives worker restart while an old scope stays invalid", async t => {
+  const f = await backgroundWindow(t), created = await f.create();
+  for (const event of f.events) event.clear();
+  const restarted = new f.Backend(); await restarted.controlReady;
+  await assert.rejects(restarted.requireSessionTab(f.scope(created.id), "detach"), /STALE_CONTROL_EPOCH|BOOTSTRAP_REQUIRED/);
+  const scope = f.fresh(f.scope(created.id), await restarted.getControlState({ session_id: "task" }));
+  assert.deepEqual(Array.from(await restarted.getTabs(scope), tab => tab.id).sort(), [100, 7]);
+  assert.equal(restarted.auxiliaryTabs.owner(created.id).origin, "agent");
+  await restarted.finalizeTabs({ ...scope, keep: [] }); assert.equal(f.tabs.has(created.id), false);
+});
+
+test("explicit user reclaim of a revoked background page tolerates its own native grouping events", async t => {
+  const f = await backgroundWindow(t), created = await f.create(), tab = f.tabs.get(created.id);
+  tab.pinned = true; f.chrome.tabs.onUpdated.emit(tab.id, { pinned: true });
+  await Promise.all([...f.backend.auxiliaryReleases.values()]); tab.pinned = false;
+  const group = f.chrome.tabs.group;
+  f.chrome.tabs.group = async options => {
+    const groupId = await group(options);
+    for (const tabId of options.tabIds) f.chrome.tabs.onUpdated.emit(tabId, { groupId });
+    return groupId;
+  };
+  await f.backend.claimUserTab(f.scope(tab.id));
+  assert.equal(f.backend.store.state.sessions.task.tabOrigins[tab.id], "user");
+  await f.backend.finalizeTabs({ ...f.params, keep: [] }); assert.equal(f.tabs.has(tab.id), true);
+});
+
+test("background-window handoff retains origin, deliverable releases authority without grouping or moving", async t => {
+  const f = await backgroundWindow(t), created = await f.create(), originalWindow = f.tabs.get(created.id).windowId;
+  const end = await f.backend.finalizeTabs({ ...f.params, keep: [{ tabId: created.id, status: "handoff" }] });
+  const scope = f.fresh(f.scope(created.id), end);
+  await f.backend.claimUserTab(scope);
+  assert.equal(f.backend.auxiliaryTabs.owner(created.id).origin, "agent");
+  await f.backend.finalizeTabs({ ...scope, keep: [{ tabId: created.id, status: "deliverable" }] });
+  assert.equal(f.tabs.get(created.id).windowId, originalWindow); assert.equal(f.tabs.get(created.id).groupId, -1);
+  assert.equal(f.backend.auxiliaryTabs.entry(created.id), undefined);
+  const next = f.fresh(scope, await f.backend.getControlState({ session_id: "task" }));
+  await assert.rejects(f.backend.requireSessionTab(next, "detach"), unavailable);
+});
+
+for (const revoke of ["pause", "end"]) test(`late background-window creation after ${revoke} closes its exact undisclosed page`, async t => {
+  const f = await backgroundWindow(t), held = f.gate(); let entered = false;
+  f.hooks.beforeWindowCreate = async () => { entered = true; await held.promise; };
+  const creating = f.create(), rejected = assert.rejects(creating, unavailable);
+  await until(() => entered, "window creation");
+  const ending = revoke === "pause" ? f.backend.pauseAutomation() : f.backend.finalizeTabs({ ...f.params, keep: [] });
+  await tick(); held.resolve(); await rejected; await ending;
+  assert.equal(f.tabs.has(100), false); assert.equal(f.backend.auxiliaryTabs.entry(100), undefined); assert.equal(f.backend.freshBlankTabs.has(100), false);
+});
+
+test("outer create epoch rejection preserves a taken-over new background page without group readmission", async t => {
+  const f = await backgroundWindow(t), original = f.backend.createTabInTurn.bind(f.backend);
+  f.backend.createTabInTurn = async (...args) => {
+    const result = await original(...args), tab = f.tabs.get(result.id);
+    tab.windowId = 1; tab.groupId = 10;
+    f.chrome.tabs.onDetached.emit(tab.id, { oldWindowId: 1000 });
+    f.chrome.tabs.onUpdated.emit(tab.id, { groupId: 10 });
+    f.backend.controlLedger.records.get("task").epoch++;
+    return result;
+  };
+  await assert.rejects(f.create(), /STALE_CONTROL_EPOCH/);
+  const scope = f.fresh(f.params, await f.backend.getControlState({ session_id: "task" }));
+  assert.equal(f.backend.auxiliaryTabs.entry(100).phase, "excluded");
+  assert.equal((await f.backend.getTabs(scope)).some(tab => tab.id === 100), false); assert.equal(f.tabs.has(100), true);
+});
+
 function blankAdmission(f, tabId, timeoutMs = 1000) {
   const deadline = performance.now() + timeoutMs;
   const timeoutError = () => new Error("fixture original deadline expired");

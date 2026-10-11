@@ -144,6 +144,11 @@ func (c *Client) requestWithPreparation(method string, params Params, timeout ti
 // Multi-stage helpers hold one request gate, captured turn and original deadline.
 // Every stage sends that binding; no subsequent stage adopts a newer turn.
 func (c *Client) requestInScope(method string, params Params, timeout time.Duration, execute func(Params, time.Time) (any, error)) (any, error) {
+	if method == "createTab" {
+		if err := ValidateCreateTabParams(params); err != nil {
+			return nil, err
+		}
+	}
 	if timeout <= 0 {
 		return nil, errors.New("request timeout must be positive")
 	}
@@ -230,6 +235,11 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 				c.controlMu.Unlock()
 			}
 			merged["control_epoch"] = control.epoch
+		}
+	}
+	if method == "createTab" && merged["backgroundWindow"] == true {
+		if err := c.requireBackgroundWindow(merged, deadline); err != nil {
+			return nil, err
 		}
 	}
 	if isNetworkWaitMethod(method) {
@@ -637,6 +647,21 @@ func (c *Client) SetFileChooserFiles(fileChooserID string, files []string) (any,
 		files = []string{}
 	}
 	return c.Request("setFileChooserFiles", Params{"fileChooserId": fileChooserID, "files": files})
+}
+
+// SetFileChooserFilesWithTimeout waits for submission with a bounded timeout.
+// Zero selects 10 seconds; the transport allows another second for the reply.
+func (c *Client) SetFileChooserFilesWithTimeout(fileChooserID string, files []string, timeoutMs int) (any, error) {
+	if timeoutMs == 0 {
+		timeoutMs = 10000
+	}
+	if timeoutMs < 1 || timeoutMs > 120000 {
+		return nil, errors.New("file chooser timeout must be between 1 and 120000 milliseconds")
+	}
+	if files == nil {
+		files = []string{}
+	}
+	return c.requestWithTimeout("setFileChooserFiles", Params{"fileChooserId": fileChooserID, "files": files, "timeoutMs": timeoutMs}, time.Duration(timeoutMs)*time.Millisecond+time.Second)
 }
 
 func (c *Client) WaitForDownload(tabID int, timeoutMs int) (any, error) {

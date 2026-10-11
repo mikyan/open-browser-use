@@ -281,7 +281,8 @@ func mcpTools() []mcpTool {
 			Title:       "Open Browser Tab",
 			Description: "Open a new managed browser tab and optionally navigate it to a URL.",
 			InputSchema: objectSchema(map[string]any{
-				"url": stringSchema("Optional URL to navigate after creating the tab."),
+				"url":               stringSchema("Optional URL to navigate after creating the tab."),
+				"background_window": map[string]any{"type": "boolean", "description": "Explicitly create this tab in a new unfocused window; requires backgroundWindowVersion 1."},
 			}, nil),
 		},
 		{
@@ -619,6 +620,15 @@ func (server *mcpServer) runHistoryTool(arguments map[string]any) (any, error) {
 
 func (server *mcpServer) runOpenTabTool(arguments map[string]any) (any, error) {
 	args := []string{}
+	if value, exists := arguments["background_window"]; exists {
+		backgroundWindow, ok := value.(bool)
+		if !ok {
+			return nil, errors.New("background_window must be a boolean")
+		}
+		if backgroundWindow {
+			args = append(args, "--background-window=true")
+		}
+	}
 	if url := optionalStringArg(arguments, "url"); url != "" {
 		args = append(args, url)
 	}

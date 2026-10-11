@@ -1491,16 +1491,20 @@ func newSetFileChooserFilesCommand() *cobra.Command {
 func newOpenTabCommand() *cobra.Command {
 	var options socketOptions
 	var url string
+	var backgroundWindow bool
 	cmd := &cobra.Command{
 		Use:   "open-tab",
 		Short: "Open a new browser session tab",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			tabResponse, err := invokeWithOptions(options, "createTab", map[string]any{})
+			tabResponse, err := invokeWithOptions(options, "createTab", backgroundWindowParams(backgroundWindow))
 			if err != nil {
 				return err
 			}
-			result, _ := tabResponse["result"].(map[string]any)
+			result, err := cliResult(tabResponse)
+			if err != nil {
+				return err
+			}
 			tabID, ok := numberAsInt(result["id"])
 			if !ok {
 				return errors.New("createTab response did not include numeric tab id")
@@ -1523,6 +1527,7 @@ func newOpenTabCommand() *cobra.Command {
 	}
 	addSocketFlags(cmd, &options)
 	cmd.Flags().StringVar(&url, "url", "", "optional URL to navigate after tab creation")
+	cmd.Flags().BoolVar(&backgroundWindow, "background-window", false, "create this tab in a new unfocused window (requires backgroundWindowVersion 1)")
 	return cmd
 }
 
@@ -1925,12 +1930,19 @@ func (runner *actionRunner) runAction(action string, args []string) (map[string]
 }
 
 func (runner *actionRunner) runOpenTabAction(args []string) (map[string]any, int, error) {
-	url := firstStringArg(args, "--url")
-	response, _, err := runner.invoke("createTab", map[string]any{})
+	backgroundWindow, args, err := backgroundWindowArg(args)
 	if err != nil {
 		return nil, 0, err
 	}
-	result, _ := response["result"].(map[string]any)
+	url := firstStringArg(args, "--url")
+	response, _, err := runner.invoke("createTab", backgroundWindowParams(backgroundWindow))
+	if err != nil {
+		return nil, 0, err
+	}
+	result, err := cliResult(response)
+	if err != nil {
+		return nil, 0, err
+	}
 	tabID, ok := numberAsInt(result["id"])
 	if !ok {
 		return nil, 0, errors.New("createTab response did not include numeric tab id")
