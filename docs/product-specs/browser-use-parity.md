@@ -42,6 +42,14 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+当前按下前投递门禁经修正后完整`FjHwEx` **111/111、exit0**，专项
+`Zth7Xv`14/14、Node1544/1544。原节点可信mouse pointermove和两点局部
+命中取代错误的±1坐标等价判断；原root路由、祖先检查、期限、按钮不重放
+保持。受控丢move、七份表单及完整原111项通过；212,380ms焦点账本没有
+新增豁免。初版`hb2m29`100/111与诊断`9FyKTv`2/5的失败证据保留。
+该门禁不能认证CDP事件来源或保证之后的路由，不能关闭自然Viz根因和
+整体P01–P15验收；旧发布包未变。
+
 统一诊断`OBaCi6`**12/13、exit1**首次记录Python dynamic误投的页面事件：
 原click已返回，但当前root ledger的完整move/down/up/click目标为父IFRAME，
 child完整空ledger、无click/change或上传。cancel与实际进程close后7ms观察
@@ -49,7 +57,7 @@ child完整空ledger、无click/change或上传。cancel与实际进程close后7
 默认受影响13项`XXyxbu`通过；Node1482/1482、独立143/143。原13上下文
 中仅7项明确有pointer采集，另6项未覆盖，诊断证据不能缩小整体验收范围。
 
-最新完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
+此前完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
 本片补齐CLI/MCP/Python失败partial及点击ACK阶段，原异常不被cancel/close
 覆盖；普通外部调用器只有实际child close与严格原身份校验后才进行既有
 失败DOM读取。Node1467/1467、独立定向106/106通过；生产代码未改。

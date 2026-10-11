@@ -57,6 +57,7 @@ import { goChooserDiagnosticEnabled, goChooserDiagnosticCases, summarizeGoChoose
 import { createGoChooserDiagnostic } from "./go-chooser-diagnostic.mjs";
 import { runChooserProcess } from "./chooser-process.mjs";
 import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
+import { createPointerDeliveryFixtures, checkPointerDelivery } from "./pointer-delivery-cases.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -268,6 +269,7 @@ async function workerConnection(url) {
 
 const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
+const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
@@ -284,6 +286,7 @@ const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
+  if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
@@ -417,6 +420,7 @@ try {
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
@@ -1277,6 +1281,22 @@ try {
       saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
       saveDetail: detail => fs.writeFile(path.join(runDir, "screencast-concurrency.json"), JSON.stringify(detail, null, 2))
     });
+  });
+  await test("js-pointer-delivery", async () => {
+    sourceIdentity.testHooks.push("pointer delivery controlled negative: exact-tab root mouseMoved calls receive explicitly synthetic ACKs without native dispatch (first or all moves); other native calls preserve receiver/parameters/Promise; real child event ledgers, once-only buttons, server POST and ordinary navigation checked; no natural Viz reproduction or CDP-to-DOM authentication claim");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-pointer-delivery", turnId: "pre-press-delivery", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkPointerDelivery({ browser: owner, worker, fixtureURL, server: pointerDeliveryFixtures, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-pointer-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-pointer-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "pointer-delivery.json"), JSON.stringify(value, null, 2));
+      await fs.writeFile(path.join(runDir, "pointer-delivery-server.json"), JSON.stringify(pointerDeliveryFixtures.allStats(), null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
   });
   await test("js-navigation", async () => {
     await tab.goto(fixtureURL + "?navigated=1");

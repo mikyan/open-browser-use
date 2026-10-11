@@ -654,7 +654,10 @@ export class BrowserActionEngine {
         return { value: value ?? null, engine: BROWSER_ENGINE_INFO };
       } catch (error) {
         // Also release if Playwright's own deadline wins just before ours.
-        if (!release && (error?.name === "TimeoutError" || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
+        // Guarded clicks can fail after a native press whose completion is
+        // unknown. Release through the attachment tracker before admitting a
+        // later action, even if Playwright serialized it as a plain Error.
+        if (!release && (error?.name === "TimeoutError" || /OBU_POINTER_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
         if (release) await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
         throw error;
       } finally {

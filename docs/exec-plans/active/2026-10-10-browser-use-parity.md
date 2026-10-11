@@ -2323,3 +2323,79 @@ receipt门禁。目的仍是可靠完成点击，不能止于把静默误投换�
 同一deadline内的pre-press可验证移动等待/重试，必须与盲目flush及重放
 未知完成的按下/提交严格区分，保留祖先遮挡、scope/attachment/Pause检查。
 现有证据未提供公开只读Viz就绪条件，不能把截图帧或原生ACK当作替代。
+
+### 按下前确认目标投递（实施中）
+
+上一目标轮的统一pointer诊断为progress；随后安装说明问答没有修改能力。
+本轮核对当前HEAD仍为`e9f02e3`、工作树干净，以自然失败`OBaCi6`为依据
+实现普通单击的按下前门禁，不以通过现有回归替代原P01–P15目标。
+
+计划在固定CRX的ElementHandle/utility interceptor中独立保存本attempt的
+mousemove receipt；保持root输入路由、原节点/context、原ProgressController
+及actionability/祖先命中检查。原移动native ACK和receipt均确认后才提交
+唯一down/up。receipt缺失仅允许尚未调用down且move真实结算的准备阶段按
+原cadence重新检查及move；这会产生hover副作用，不能称无副作用读取。
+按下已提交或完成未知后的任何新增错误必须终止，不能被locator自动重放。
+
+共享NativeInputTracker增加attachment级私有ticket，并随CRX原生命令显式
+传递；外来raw Input使ticket失效，既有held/inflight输入不得被认作当前
+点击准备。Pause、换attachment、原deadline及context检查在原生发送前最后
+一次执行，包括等待持久化/transfer之后。DOM可信事件不含CDP请求ID，故
+receipt只能证明此观察窗内原目标收到匹配事件，不能认证同位置真人输入。
+变换iframe沿用原root路由和interceptor；原ancestor检查对transform的限制
+不能被说成已消除。force/trial/多击/修饰键及raw mouse路径先保留原语义，
+不以这片覆盖尚未验证的输入类型。
+
+验证先覆盖实际固定bundle与tracker的确定性边界，再在隔离测试浏览器
+丢弃首个move且明确合成ACK，证明重新准备后真实child接收、仅一次点击及
+业务POST；该controlled negative不冒充自然Viz根因复现。随后运行原13项
+和必要完整回归，保留原focus账本与所有失败。根进程唯一启动浏览器。
+旧preview包不可变，实施完成后更新协议、history及质量记录。
+
+### 回执坐标兼容性修正（实施中）
+
+上一开发轮为progress：新增门禁与受控证据，但完整回归`hb2m29`实际
+100/111、exit1；11项frame/form点击超时，不能发布候选版本。Node1534/1534、
+受控`MGOCLU`2/2和原13项`5MjMV7`13/13不能抵消完整回归失败。禁用当前
+门禁的反事实`LORGaK`1/2保留：它在首move被合成ACK后直接提交按钮且有
+一次实际POST，失败的是投递确认顺序，不能描述成没有业务副作用。
+安装问答已完成；本次继续目标先核实无活测试，再沿既有失败收集新证据。
+
+只在隔离暂存bundle包装原receipt observe/read的`9FyKTv`实际2/5、exit1。
+三项失败都收到原BUTTON的trusted mousemove，首次read即invalid；跨源frame
+expected(306.28,20.33)而actual(306,19)，同源表单expected(50.663328,147.240813)
+而actual(49,146)。原±1坐标谓词足以拒绝这些实际送达的移动，未进入最终
+geometry读取。Runtime重新启用产生历史console重播，审计必须按原生时间戳/
+source/context/payload去重，不能把重播算成新attempt。诊断不改变输入或状态，
+但额外DOM读取与日志会影响时间，不能当普通生产回归。
+
+下一步改为以原node在当前观察窗收到的mouse pointermove及其精确局部命中
+证明目标投递；不把上游近似framePoint当作浏览器实际坐标，也不增大固定
+容差。保留原root发送点、祖先命中、初末framePoint一致、context/ticket/ACK
+以及按钮提交后不重放。该证据仍不认证CDP来源，仍不能预留后续按下的路由。
+修正后必须重跑受控丢move、受影响frames/forms、Node及完整111项。
+
+修正已实现：原node只接受trusted/primary/mouse/buttons0的pointermove，
+以实际小数坐标作本地命中，并在最终读取同时复核实际点与非null预计点。
+注册使用固定bundle实际全局interceptor；原mousemove兼容事件不能覆写
+receipt。planned-only overlay的完整click测试改为真正进入原retry后才
+结束期限，内存负对照移除final status判定则实际提交按钮，避免用超时
+掩盖遗漏检查的假阳性。作者24项、独立原105项与最终Node1544/1544通过。
+
+普通`Zth7Xv`14/14、exit0，未启用receipt诊断。独立核三受控分支：丢首
+move后一次真实mouse pointermove及move ACK→down ACK→up；各一次POST，
+导航真实换doc并唯一GET。丢全部13个move在5017ms失败且零按钮/POST。
+七份表单21原POST/25,760 UTF-8字节、14次frame保存和7次唯一最终提交相符；
+33秒连续账本零激活/焦点/豁免，任务页清理与host正常退出。真实fixture
+断言已要求pointermove字段及down实际ACK先于up调用。
+
+默认完整`FjHwEx`111/111、actual exit0，原111项未删改，Node最新1544/1544。
+完整212,380ms焦点账本保留原11激活/4控制popup focus允许项，无新增豁免；
+host原测试重启后新一代exit0。当前无活测试。P01–P15范围不变：此片证明
+新的按下前契约及本轮兼容性，不证明精确CDP来源、自然Viz根因或全面可靠性。
+
+完整独立审计核原111名称/顺序、50个生产文件内存重建、实际SDK/host字节
+及声明的暂存差异。11/4原焦点允许项逐sequence/ID/时窗匹配；sentinel的
+身份、URL和选择保持，宽1251不变，高1222→1196，未声称几何不变。四个
+外部chooser调用器共24轮及实际child close通过，成功无failureObservation；
+受控gate恢复、原POST与任务清理通过，原pending socket关闭且没有迟到click。

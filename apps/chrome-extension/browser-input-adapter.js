@@ -1,9 +1,12 @@
 // Production raw CDP and CRX share attachment-scoped input intent and native
-// completion tracking. This is teardown state, not an input implementation or a
-// global chrome.debugger proxy. The older CRX-only helpers below remain for
+// completion tracking, plus explicit pointer-action admission. This is not an
+// input implementation or global chrome.debugger proxy. The older helpers remain for
 // standalone engines without the backend's shared inputHooks.
 const states = new WeakMap();
 const buttonBits = { left: 1, right: 2, middle: 4, back: 8, forward: 16 };
+// Tickets are private, in-process capabilities. A caller cannot copy a ticket's
+// methods onto another object, or use one from a different tracker/attachment.
+const pointerTickets = new WeakMap();
 
 // One tracker is shared by the backend's raw CDP route and CRX. Tokens name a
 // native attachment, not a tab's current session, so late completions cannot
@@ -60,6 +63,47 @@ export class NativeInputTracker {
     return record;
   }
 
+  beginPointerAction(tabId, token, check = () => {}) {
+    if (typeof check !== "function") throw new TypeError("Pointer authority check must be a function");
+    const record = this.assertSend(tabId, token);
+    if (record.pointerGuard || record.inflight.size || record.error || this.hasHeld(record) ||
+        [...this.durability.values()].some(value => value.record === record)) {
+      throw new Error("OBU_POINTER_ACTION_BUSY: pointer action requires idle, confirmed input");
+    }
+    const guard = { tracker: this, tabId, token, record, check, closed: false, error: null };
+    const ticket = Object.freeze({
+      check: () => { this.checkPointerAction(tabId, token, ticket); },
+      close: () => {
+        guard.closed = true;
+        // An old action's finally must not remove a successor's admission.
+        if (record.pointerGuard === guard) record.pointerGuard = null;
+      }
+    });
+    pointerTickets.set(ticket, guard);
+    record.pointerGuard = guard;
+    try { ticket.check(); }
+    catch (error) { ticket.close(); throw error; }
+    return ticket;
+  }
+
+  checkPointerAction(tabId, token, ticket) {
+    const guard = pointerTickets.get(ticket);
+    if (!guard || guard.tracker !== this || guard.tabId !== tabId || guard.token !== token || guard.closed) {
+      throw new Error("OBU_POINTER_ACTION_INVALIDATED: pointer ticket is not live for this attachment");
+    }
+    const record = this.assertSend(tabId, token);
+    if (record !== guard.record || record.pointerGuard !== guard || guard.error || record.error) {
+      throw new Error("OBU_POINTER_ACTION_INVALIDATED: pointer action lost exclusive input admission");
+    }
+    // This is synchronous so deadline/authority cannot yield between the last
+    // check and the native operation. Preserve its exact error for the caller.
+    guard.check();
+    if (guard.closed || guard.error || record.pointerGuard !== guard || this.attachments.get(tabId) !== record || record.blocked || record.error) {
+      throw new Error("OBU_POINTER_ACTION_INVALIDATED: pointer authority changed during its check");
+    }
+    return guard;
+  }
+
   native(record, operation, success = () => {}) {
     // This promise follows the native API itself, never an RPC timeout race.
     let sent;
@@ -70,9 +114,15 @@ export class NativeInputTracker {
     return settled;
   }
 
-  send(target, token, method, params = {}, operation) {
+  send(target, token, method, params = {}, operation, pointerGuard) {
     if (!method.startsWith("Input.")) return operation();
     const record = this.assertSend(target.tabId, token);
+    if (pointerGuard !== undefined) this.checkPointerAction(target.tabId, token, pointerGuard);
+    else if (record.pointerGuard) {
+      // Raw input retains its original behavior. Its presence invalidates the
+      // guarded action synchronously, before either input can claim new intent.
+      record.pointerGuard.error = new Error("Foreign native input interrupted the pointer action");
+    }
     const session = target.sessionId ?? "";
     let state = record.states.get(session);
     if (!state) {
@@ -115,14 +165,18 @@ export class NativeInputTracker {
       if (params.type === "mousePressed") state.emulated = { button: params.button ?? "left" };
       else if (params.type === "mouseReleased") complete = confirmClear("emulated", state.emulated);
     }
+    const sendNative = () => {
+      if (pointerGuard !== undefined) this.checkPointerAction(target.tabId, token, pointerGuard);
+      return operation();
+    };
     const nativeOperation = this.beforeInput ? async () => {
       await this.durable(target.tabId, record, () => this.beforeInput(target.tabId, token));
       // Pause, tab movement or destruction may win while storage is pending.
       // The durability barrier cannot authorize a late native send.
       this.assertSend(target.tabId, token);
       this.assertInput?.(target.tabId, token);
-      return operation();
-    } : operation;
+      return sendNative();
+    } : sendNative;
     const result = this.native(record, nativeOperation, () => {
       if (this.attachments.get(target.tabId) !== record) return;
       complete();

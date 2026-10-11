@@ -244,7 +244,15 @@ Ending tab control invalidates queued operations and detaches the Playwright Pag
 so pending auto-waits are cancelled. An ordinary action deadline detaches before reporting expiry,
 including mouse/keyboard methods that lack native timeout options. Transport
 timeouts must leave enough time for the requested deadline and cancellation.
-An input already delivered to the browser cannot be undone and is never replayed.
+An input already delivered to the browser cannot be undone. Submitted or
+outcome-unknown buttons, clicks and submissions are never automatically replayed.
+Ordinary single locator clicks without force, trial or modifiers now confirm
+target move delivery before submitting buttons. Missing delivery can repeat a
+settled preparation move at the existing actionability cadence within the same
+deadline; these moves can trigger hover effects. Attachment-scoped tickets reject
+intervening raw input and recheck the original authority immediately before native
+send. The receipt does not authenticate CDP events or reserve later routing; see
+[pointer delivery](pointer-delivery.md) for the exact scope and limitations.
 
 For a blank tab created by the current worker, the first cold attachment used by
 an action, observer setup or transfer waits for that exact tab's initial

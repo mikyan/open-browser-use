@@ -1582,6 +1582,42 @@ submission18次CDP读均无新ledger。原POST字节、身份/清理通过；29,
 账本仅原5激活、零window focus。取得故障即停止该诊断组，默认`XXyxbu`
 13/13、exit0仅为受影响上下文回归。生产输入尚未修复，旧发布包保持不变。
 
+### 按下前目标投递与坐标兼容性
+
+以自然故障`OBaCi6`为依据，普通无修饰单击新增目标投递门禁：原root move
+实际结算、原节点收到本观察窗内的可信移动后才提交唯一down/up。共享输入
+tracker签发attachment私有ticket，原scope/context/deadline在原生发送前
+再次核对；外来Input使ticket失效。只有按钮未提交、前次move已结算时才能
+按原actionability节奏重新准备，hover副作用明确保留，按钮提交后不重放。
+
+首候选Node1534/1534、受控`MGOCLU`2/2、普通13项`5MjMV7`通过；完整
+`hb2m29`却为100/111、exit1，11项旧frame/form超时，因此候选未发布。
+受控禁用门禁的`LORGaK`1/2中首move被合成ACK后仍有按钮与一次POST，
+证明的是缺少投递确认顺序，不是复现自然Viz失效。所有原失败保留。
+
+暂存诊断`9FyKTv`2/5仅包装原observe/read，并精确声明被动读取及console
+记录对时间的影响。去重原生Runtime历史重播后，三个失败各有21次可信移动
+已到原BUTTON，首read全部invalid；坐标偏差超过旧±1条件，未到最终复核。
+这不证明具体路由根因，只证明旧近似坐标模型不能作为本地投递判据。
+
+修正采用可信primary mouse pointermove的分数局部坐标及原节点命中证据，
+不通过增大固定容差掩盖误差。保留原root点、祖先命中及初末framePoint
+一致性；最终同时复核实际收到点与非null预计点击点，防止hover局部遮挡。
+DOM事件没有CDP请求ID，仍不能排除同窗用户事件或保证后续按下路由；
+force/trial/多击/修饰键和既有transform边界未扩大。
+
+修正后Node1544/1544、专项`Zth7Xv`14/14、完整`FjHwEx`111/111均actual
+exit0；所有原失败保留。独立专项核三受控分支的真实pointermove、move ACK
+及down ACK→up顺序、唯一POST和导航；drop-all5017ms/13次丢move且零按钮。
+七表单21原POST/25,760 UTF-8字节与14次frame保存、7次唯一最终提交一致。
+专项零焦点事件；完整212,380ms账本保留原11激活/4控制popup focus允许项，
+无新增豁免。负面测试补原planned-point overlay在实际retry中的零按钮，
+内存mutant删final status门禁会发按钮，避免提前expire造成假阳性。
+完整独立核111名称/顺序、50个生产成员、SDK/host及暂存差异；sentinel
+身份/URL/选择保持，高1222→1196，几何变化保留。外部chooser24轮及真实
+child close、host预期重启与新进程exit0均确认。此结果不关闭自然Viz根因、
+跨平台与完整对齐目标，旧preview资产未修改。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

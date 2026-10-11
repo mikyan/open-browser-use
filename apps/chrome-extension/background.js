@@ -2218,7 +2218,18 @@ class BrowserBackend {
       isInternalEvent: (source, method, params) => this.isInternalCdpEvent(source, method, params),
       inputHooks: {
         prepareMediaCleanup: (target, contextId) => this.prepareMediaCleanup(target, contextId),
-        send: (target, method, params, operation) => {
+        beginPointerAction: (target, check) => {
+          this.assertControlOpen();
+          const token = this.attachmentEpochs.get(target.tabId);
+          const assertCurrent = () => {
+            this.assertControlOpen();
+            this.assertAttachmentAdmission(target.tabId, token);
+            check();
+          };
+          assertCurrent();
+          return this.inputTracker.beginPointerAction(target.tabId, token, assertCurrent);
+        },
+        send: (target, method, params, operation, pointerGuard) => {
           this.assertControlOpen();
           const token = this.attachmentEpochs.get(target.tabId);
           this.assertAttachmentAdmission(target.tabId, token);
@@ -2235,9 +2246,9 @@ class BrowserBackend {
               return this.inputTracker.send(target, token, method, params, () => {
                 this.assertSiteProof(proof);
                 return operation();
-              });
+              }, pointerGuard);
             });
-            return this.inputTracker.send(target, token, method, params, operation);
+            return this.inputTracker.send(target, token, method, params, operation, pointerGuard);
           };
           if (method.startsWith("Input.") && (this.fileChooserWaitersByTabId.has(target.tabId) || this.downloadWaits.byTab.has(target.tabId)))
             return this.waitForTransferTargets(target.tabId).then(send);

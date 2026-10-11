@@ -18,6 +18,8 @@
 
 - [Browser action protocol](browser-action-protocol.md)：公开 Playwright engine
   动作与定位器协议、固定依赖版本、构建方式和已知限制。
+- [Pointer delivery](pointer-delivery.md)：普通单击按下前的目标投递确认、
+  有界准备移动、并发原生输入隔离与禁止重放已提交点击的边界。
 - [Local IPC transport](local-ipc-transport.md)：Windows named pipe、Unix socket、
   endpoint discovery 与跨语言帧协议。
 - [Native message transport](native-message-transport.md)：浏览器 1 MiB 出口

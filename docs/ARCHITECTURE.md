@@ -166,6 +166,13 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   MV3 worker 静态加载 `browser-runtime.js`；构建复制固定版本 ESM 和版权文件
   到 `dist/chrome-extension-unpacked/`，不把第三方生成 bundle 提交到源码。
   协议、构建和版本限制见 `docs/references/browser-action-protocol.md`。
+  普通无修饰键单击在原utility interceptor内独立记录目标mouse pointermove
+  receipt，以实际局部坐标命中原节点，不与近似framePoint作数值等价比较；
+  原生ACK及当前receipt确认后才按下；只在按钮尚未提交时按原cadence重新
+  准备移动。CRX参数的私有WeakMap ticket与raw CDP共享attachment输入账本，
+  外来Input使ticket失效，持久化等待后仍检查原deadline/context。已提交
+  按钮不会因新增错误重放；hover副作用、事件来源及变换frame限制见
+  `docs/references/pointer-delivery.md`。
   `snapshotAI` 递归读取 iframe 的原生 ARIA 树，限制总字节、节点、refs、frames
   和深度；renderer 提供真实元素 metadata，Frame 身份使用稳定 slot，避免
   iframe 重排使引用串页。每个 attachment 只保留一个 capture；新快照、frame

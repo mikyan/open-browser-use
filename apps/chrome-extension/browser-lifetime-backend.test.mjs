@@ -184,6 +184,111 @@ test("restricted frame proof is rechecked after durable input intent before nati
   assert.equal(sends, 0);
 });
 
+async function pointerHookFixture(t) {
+  const f = await fixture(t);
+  await f.backend.attach(f.params);
+  await f.backend.getBrowserEngine();
+  const target = { tabId: 7 }, params = { type: "mouseMoved", button: "none", buttons: 0, x: 10, y: 20 };
+  return { ...f, pointerHooks: f.engineOptions.inputHooks, target, move: params,
+    sendMove: ticket => f.engineOptions.inputHooks.send(target, "Input.dispatchMouseEvent", params,
+      () => f.chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", params), ticket) };
+}
+
+test("pointer progress expiring behind the transfer gate prevents native input before any journal intent", async t => {
+  const f = await pointerHookFixture(t), gate = f.gate();
+  const originalError = Object.freeze(new Error("original pointer deadline expired"));
+  let expired = false, entered = false;
+  const ticket = f.pointerHooks.beginPointerAction(f.target, () => { if (expired) throw originalError; });
+  f.backend.fileChooserWaitersByTabId.set(7, {});
+  const originalWait = f.backend.waitForTransferTargets;
+  f.backend.waitForTransferTargets = async tabId => { assert.equal(tabId, 7); entered = true; await gate.promise; };
+  try {
+    const sending = f.sendMove(ticket), rejected = assert.rejects(sending, error => error === originalError);
+    await until(() => entered, "pointer transfer gate");
+    expired = true;
+    gate.resolve();
+    await rejected;
+    assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+    assert.equal(f.backend.inputTracker.attachments.get(7).states.size, 0, "the expired ticket fails before input intent");
+  } finally {
+    ticket.close();
+    f.backend.fileChooserWaitersByTabId.delete(7);
+    f.backend.waitForTransferTargets = originalWait;
+  }
+});
+
+test("pointer progress expiring during real durable input persistence prevents the original native send", async t => {
+  const f = await pointerHookFixture(t), gate = f.gate();
+  const originalError = Object.freeze(new Error("original pointer progress aborted"));
+  let expired = false, storing = false;
+  const ticket = f.pointerHooks.beginPointerAction(f.target, () => { if (expired) throw originalError; });
+  f.hooks.write = async (area, values) => {
+    if (area === "local" && values[RISKS]?.risks.length) { storing = true; await gate.promise; }
+  };
+  try {
+    const sending = f.sendMove(ticket), rejected = assert.rejects(sending, error => error === originalError);
+    await until(() => storing, "guarded durable input intent");
+    assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+    expired = true;
+    gate.resolve();
+    await rejected;
+    assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+  } finally { ticket.close(); }
+});
+
+test("backend forwards a live pointer ticket and a foreign executeCdp input invalidates it without replay", async t => {
+  const f = await pointerHookFixture(t);
+  const ticket = f.pointerHooks.beginPointerAction(f.target, () => {});
+  try {
+    await f.sendMove(ticket);
+    ticket.check(); // Fails if background.send accidentally drops the private ticket.
+    await f.backend.executeCdp({ ...f.params, target: f.target, method: "Input.insertText", commandParams: { text: "foreign raw input" } });
+    assert.throws(() => ticket.check(), /POINTER_ACTION_INVALIDATED/);
+    const down = { ...f.move, type: "mousePressed", button: "left", buttons: 1 };
+    assert.throws(() => f.pointerHooks.send(f.target, "Input.dispatchMouseEvent", down,
+      () => f.chrome.debugger.sendCommand(f.target, "Input.dispatchMouseEvent", down), ticket), /POINTER_ACTION_INVALIDATED/);
+    assert.deepEqual(f.calls.filter(([method]) => method.startsWith("Input.")).map(([method, , params]) => [method, params.type ?? params.text]), [
+      ["Input.dispatchMouseEvent", "mouseMoved"], ["Input.insertText", "foreign raw input"]
+    ]);
+    assert.equal(f.backend.inputTracker.hasHeld(f.backend.inputTracker.attachments.get(7)), false);
+  } finally { ticket.close(); }
+});
+
+test("restricted pointer ticket survives its own input but rejects a stale site proof after the journal", async t => {
+  const f = await pointerHookFixture(t);
+  f.backend.siteAccess = { restricted: true, assertReady() {} };
+  let navigation = 0;
+  const denied = Object.freeze(new Error("OBU_SITE_ACCESS_DENIED: original document changed"));
+  f.backend.assertSiteTab = async () => ({ navigation });
+  f.backend.assertSiteProof = proof => { if (proof.navigation !== navigation) throw denied; };
+  const ticket = f.pointerHooks.beginPointerAction(f.target, () => {});
+  try {
+    await f.sendMove(ticket);
+    ticket.check(); // Covers forwarding through the restricted proof branch too.
+    const before = f.calls.length, gate = f.gate();
+    let storing = false;
+    f.hooks.write = async (area, values) => {
+      if (area === "local" && values[RISKS]?.risks.length) { storing = true; await gate.promise; }
+    };
+    const sending = f.sendMove(ticket), rejected = assert.rejects(sending, error => error === denied);
+    await until(() => storing, "guarded restricted proof journal");
+    navigation++;
+    gate.resolve();
+    await rejected;
+    assert.equal(f.calls.slice(before).some(([method]) => method.startsWith("Input.")), false);
+  } finally { ticket.close(); }
+});
+
+test("backend pointer ticket observes Pause synchronously before later native input", async t => {
+  const f = await pointerHookFixture(t), ticket = f.pointerHooks.beginPointerAction(f.target, () => {});
+  try {
+    f.backend.automationControl.block();
+    assert.throws(() => ticket.check(), /AUTOMATION_PAUSED/);
+    assert.throws(() => f.sendMove(ticket), /AUTOMATION_PAUSED/);
+    assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+  } finally { ticket.close(); }
+});
+
 test("detach waiting on actual resource cleanup rejects an input whose durable intent settles later", async t => {
   const f = await fixture(t); await f.backend.attach(f.params);
   const storage = f.gate(), resource = f.gate(); let storing = false;

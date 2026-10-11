@@ -11,13 +11,25 @@
 
 ## 当前评分
 
+最新完整`FjHwEx` **111/111、exit0**，修正后受影响专项`Zth7Xv`14/14，
+Node1544/1544、零skip/cancel。普通单击采用原节点可信mouse pointermove
+及实际/预计两点局部命中门禁，保留原root路由、原期限和按钮不重放。
+受控丢首move后恢复唯一提交，丢全部move在原5秒期限失败且零按钮/POST；
+七份表单21个原始POST的值与一次提交通过独立核验。完整212,380ms焦点
+账本仍为原11次精确激活/4次控制popup focus，无新增豁免。旧预览包不变。
+
+首候选`hb2m29`100/111的11项旧frame/form超时及暂存诊断`9FyKTv`2/5
+仍保留：原±1坐标谓词把已到原按钮的可信移动误拒绝。修正没有扩大固定
+容差，也不将不同来源的布局坐标当作native事件认证。本片不证明自然Viz
+故障已根治、后续按下路由已预留、跨平台或P01–P15全部完成。
+
 统一被动pointer诊断已首次保留自然误投现场：`OBaCi6`12/13、exit1，Python
 dynamic首轮click已返回，完整root ledger记录父IFRAME上的move/down/up/click，
 当前child无pointer/click/change；原业务仍失败。7ms观察发生在cancel及实际
 子进程close后，不是click时文档或native command关联证明。Node1482/1482、
 独立143/143；默认受影响上下文`XXyxbu`13/13通过，尚未修复生产输入。
 
-最新完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
+此前完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
 本片仅补CLI/MCP/Python失败partial与阶段、原错误保留，以及所有普通外部
 调用器失败读取前的实际child close和精确身份门禁。Node1467/1467、独立
 定向106/106通过；生产代码与前轮相同。专项18轮click ACK/collect等阶段、

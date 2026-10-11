@@ -6,6 +6,17 @@ import { BrowserActionEngine, validateBrowserAction, BROWSER_ENGINE_INFO } from 
 const request = (action, extra = {}) => ({ session_id: "test-session", turn_id: "test-turn", tabId: 42, action, ...extra });
 const locator = [{ kind: "role", role: "button", name: "Submit", exact: true }];
 
+test("uncertain guarded click failure releases its attachment once without retrying the action", async () => {
+  let clicks = 0;
+  const failure = new Error("OBU_POINTER_DELIVERY_UNCONFIRMED: native press failed after dispatch");
+  const f = fixture({ click: async () => { clicks++; throw failure; } });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.dispatch(request("click", { locator })), error => error === failure);
+  assert.equal(clicks, 1);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+  assert.equal(engine.pages.size, 0);
+});
+
 const refLocator = capture => [{ kind: "ref", captureId: capture.captureId, ref: "e1" }];
 function aiFixture(methods) {
   const f = fixture(methods);
