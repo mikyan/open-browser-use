@@ -1508,3 +1508,53 @@ loading变为committed complete，再各一次连接/求值；总229/155ms，原
 区分Input.insertText与键盘路由，不以ACK或emulated hasFocus证明成功，
 不对同一次失败任务重放替代输入。初始文档问题也仍开放；任何生产改动
 都要有新的单变量证据和默认回归。本地提交，无推送或PR，目标保持active。
+
+### Vivaldi 原生文本命令与页面事件
+
+从干净 `8b2337c` 继续，上一片是实质进展：新增readiness诊断、真实任务
+再现空输入、默认Brave回归与独立核验完成。本片保留同一原始单次fill/
+click，新增独立 `OBU_TEST_VIVALDI_INPUT=1`；与其他显式诊断/ownership
+模式互斥。内部固定采用已验证readiness设置和原透明native API observer，
+不修改生产、预算、动作或焦点规则；diagnostic passed恒false。
+
+沿用原receiver、参数、Promise的native记录区分命令未发、错target、
+已结算和未知。fixture增加有界被动焦点、选区、beforeinput/input/change/
+composition账本，保留同文档nonce、原note节点身份、实际值与取消状态。
+capture时defaultPrevented不能证明最终未取消，异步观察仍未知时显式标出。
+原before/after读取附带账本；动作结束后只再读一次最终账本，失败不重试。
+保留实际响应HTML、原GET/POST与独立focus/cleanup，新增观察会影响调度，
+不能称为零扰动复现。root唯一启动浏览器，其他Agent实现/独立审查和核验。
+
+固定上游源码提供候选机制：DOM焦点模拟与WidgetBase底层HasFocus不同；
+IME处理可以无输入而返回ACK。现有标准只读CDP未提供实际focused widget
+选择结果，故不能仅凭“ACK+无事件”断言输入去了浏览器UI。先收直接证据，
+再判断需要生产修复、独立输入路径实验或原生层进一步调查。
+
+首轮 `PI0rSV` 未到输入：两setup gate成功，但新任务blank页在create后
+22ms attach时尚未提交；九条renderer初始化命令持续pending，goto原约
+10秒期限届满，无Page.navigate/Input/GET/POST/DOM。diagnosticCompleted
+为false，独立审计核373源码/216历史/原制品及完整清理，零焦点事件。
+保留该失败；接续独立 `OBU_TEST_VIVALDI_TASK_READY=1`，只在原newTab
+ACK后、goto前，用既有observer/worker权限读同一tab和debugger target，
+最多5秒等待原about:blank committed complete，无pending、非活动且未
+attach。原group步骤与goto预算不改，错误不重试；旧模式行为不变。
+
+TASK_READY 经独立复审，定向77/77、全部脚手架180/180通过；最后证据
+写入也共享5秒预算，超时不会继续goto或在helper里再次等待挂起写入。
+v18冻结后 `QAMMuD` 两采样106ms观察原blank提交，再原goto68ms完成。
+同task的utility返回needsinput，唯一原生Input.insertText目标和文本正确，
+1ms ACK；同document/原note节点仅出现焦点、选区与点击后的blur/focus，
+无输入事件、实际值和唯一POST仍为空。诊断完整exit0，任务失败保留。
+这次直接命令/DOM/HTTP证据支持分离初始化与文本交付，尚不确定底层widget
+实际选择或IME门禁；不把元数据或模拟焦点当作该机制的证明。
+
+独立核375源码/217历史、原ZIP47文件和真实staging/host通过；native
+目标/frame/context/objectId链一致。515ms连续focus零事件/豁免，真实
+native/browser退出和注册清理完整。大utility载荷截断及三条微任务最终
+取消状态未知均明确保留；没有把原收据失败后的截图/finalize计为执行。
+
+默认Brave `QC0zdV` 标准任务、独立审计和实际截图通过，四焦点检查点
+零事件/豁免，完整清理；v18生产/SDK/host/原ZIP未变。接续优先以独立
+新任务验证原生逐键路径，不能在失败fill之后自动改键盘或DOM重放；生产
+初始化修复若采用提交检查，必须限定新建页、共享原动作期限并保留撤权。
+仅本地开发、提交；无推送或PR，完整parity目标保持active。

@@ -1079,6 +1079,20 @@ tab/target快照；迟到create/connect不能继续发操作，诊断恒不算ac
 未重打包、推送或提PR。单轮设置成功不证明Vivaldi已修复，后续继续核
 文本提交实际路由；完整目标保持active。
 
+本片新增独立 Vivaldi 原生命令/页面事件诊断及任务首文档检查，生产文件
+和制品保持不变。被动事件账本有界，保存原note节点和document身份、
+真实HTML与单次POST；日志失败不伪报完整。任务检查只在原newTab/goto
+之间只读同一非活动tab/target，最多5秒，不激活、重建或重发动作。
+末次保存受同一预算约束，超时后不继续goto。新增23项后脚手架180/180、
+独立定向77/77，文档/卫生检查通过。
+
+`PI0rSV` 在任务初始化超时、未到输入；独立核373源码/216历史及严格
+清理，失败保留。`QAMMuD` 在blank提交检查106ms后goto成功，原生输入
+目标/完整文本正确且ACK，但原节点值与唯一POST仍为空，无输入事件。
+诊断完成与任务失败分开记录，不宣称根因或生产修复。默认Brave
+`QC0zdV` 标准任务、零前台事件、实际PNG及独立审计通过；生产原ZIP未
+改，也没有推送或PR。完整目标继续active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

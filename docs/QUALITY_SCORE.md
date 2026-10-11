@@ -37,6 +37,14 @@ HKCU 叶的导出验收不能代替生产固定名称安装、全品牌恢复或
 通过及独立审计，生产/ZIP不变。新证据核371源码/214旧结果，清理完整；
 已有初始化和输入缺口未解除，详见[首文档记录](references/vivaldi-initial-document.md)。
 
+后续原生输入诊断与任务首提交检查增加23项，脚手架 **180/180**、独立
+定向77/77。`PI0rSV` 在初始化超时、未到输入，失败保留；`QAMMuD` 等待
+原blank文档提交106ms后goto完成，真实Input.insertText参数/目标正确且
+ACK，但同文档原输入节点与唯一POST仍为空，没有输入事件。诊断完整
+不能算任务通过或已确认底层原因。默认Brave `QC0zdV` 回归、实际PNG与
+独立审计通过，四焦点检查点零事件；生产/ZIP保持不变，详见
+[输入诊断](references/vivaldi-input-diagnostic.md)。
+
 最终 Opera 发现修复后的主回归 `run-ewJVHf` **104/104**，终端exit0。
 364源码、203旧结果与host/六调用器身份独立核对；15研究任务90来源GET/
 15POST、75建60关15留正确，六激活/四focus仍全为既有明确fixture动作。

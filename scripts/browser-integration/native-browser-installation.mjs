@@ -18,6 +18,8 @@ import { decodeParallelPNG } from "./background-parallel-workflow.mjs";
 import { nativeDiagnosticsEnabled, nativeDiagnosticPrelude, nativeDiagnosticResult, nativeDiagnosticTraceComplete } from "./native-api-diagnostics.mjs";
 import { nativeOwnershipEnabled, runNativeOwnershipWorkflow } from "./native-ownership-workflow.mjs";
 import { vivaldiReadinessEnabled, openVivaldiReadinessPage, vivaldiReadinessResult } from "./vivaldi-readiness-diagnostic.mjs";
+import { vivaldiInputEnabled, inputFixtureSource, captureInputLedgerOnce, inputDOMTraceComplete, inputNativeTraceComplete, inputCommandEvidence, vivaldiInputResult } from "./vivaldi-input-diagnostic.mjs";
+import { vivaldiTaskReadinessEnabled, waitForVivaldiTaskCommit, taskReadinessDiagnosticResult } from "./vivaldi-task-readiness-diagnostic.mjs";
 
 const brands = Object.freeze({
   brave: { label: "Brave", about: "brave://version/", manager: "brave://extensions/", base: "LOCALAPPDATA", relative: "BraveSoftware/Brave-Browser/User Data", product: /brave/i, publisher: /Brave Software/i },
@@ -313,7 +315,7 @@ export function nativeBrowserInstallationCleaned(report) {
     report.cleanup?.registration?.removed === true && report.cleanup?.forced !== true && !report.cleanup?.errors?.length;
 }
 export function nativeBrowserInstallationPassed(report) {
-  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
+  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic", "vivaldi-input-diagnostic", "vivaldi-task-readiness-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
     (report.ownershipRequested !== true || report.ownership?.passed === true) && report.focus?.passed === true && report.finalInventory?.passed === true && nativeBrowserInstallationCleaned(report);
 }
 
@@ -332,11 +334,15 @@ $records=@(); foreach($view in @([Microsoft.Win32.RegistryView]::Registry32,[Mic
 async function main() {
   assert.equal(process.platform, "win32", "Native browser installation acceptance currently supports Windows only");
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  const diagnosticsEnabled = nativeDiagnosticsEnabled(process.env.OBU_TEST_NATIVE_DIAGNOSTICS);
+  const nativeDiagnosticsRequested = nativeDiagnosticsEnabled(process.env.OBU_TEST_NATIVE_DIAGNOSTICS);
   const ownershipEnabled = nativeOwnershipEnabled(process.env.OBU_TEST_NATIVE_OWNERSHIP);
   const name = process.env.OBU_TEST_NATIVE_BROWSER;
   assert.ok(Object.hasOwn(brands, name), "Set OBU_TEST_NATIVE_BROWSER to brave, opera or vivaldi");
-  const readinessEnabled = vivaldiReadinessEnabled(process.env.OBU_TEST_VIVALDI_READINESS, { name, nativeDiagnostics: diagnosticsEnabled });
+  const readinessRequested = vivaldiReadinessEnabled(process.env.OBU_TEST_VIVALDI_READINESS, { name, nativeDiagnostics: nativeDiagnosticsRequested });
+  const inputRequested = vivaldiInputEnabled(process.env.OBU_TEST_VIVALDI_INPUT, { name, nativeDiagnostics: nativeDiagnosticsRequested, readiness: readinessRequested, ownership: ownershipEnabled });
+  const taskReadinessEnabled = vivaldiTaskReadinessEnabled(process.env.OBU_TEST_VIVALDI_TASK_READY, { name, input: inputRequested, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
+  const inputEnabled = inputRequested || taskReadinessEnabled;
+  const diagnosticsEnabled = nativeDiagnosticsRequested || inputEnabled, readinessEnabled = readinessRequested || inputEnabled;
   const recordTaskRequests = diagnosticsEnabled || ownershipEnabled || readinessEnabled;
   assert.ok(process.env.OBU_TEST_CHROMIUM_BINARY && process.env.OBU_TEST_HOST_BINARY, "Set OBU_TEST_CHROMIUM_BINARY and OBU_TEST_HOST_BINARY");
   const binary = path.resolve(process.env.OBU_TEST_CHROMIUM_BINARY), sourceHost = path.resolve(process.env.OBU_TEST_HOST_BINARY);
@@ -346,19 +352,28 @@ async function main() {
   const env = { ...process.env, TEMP: path.join(runDir, "temp"), TMP: path.join(runDir, "temp"), LOCALAPPDATA: path.join(runDir, "local"), APPDATA: path.join(runDir, "roaming"), USERPROFILE: path.join(runDir, "home"), HOME: path.join(runDir, "home") };
   const plan = nativeBrowserPlan(name, env), profile = plan.profileRoot;
   for (const directory of [env.TEMP, env.LOCALAPPDATA, env.APPDATA, env.USERPROFILE, profile]) await fs.mkdir(directory, { recursive: true });
-  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
+  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: taskReadinessEnabled ? "vivaldi-task-readiness-diagnostic" : inputEnabled ? "vivaldi-input-diagnostic" : readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
     scope: "Actual signed Windows brand; native manifest export plus unique Google HKCU fixture registration; real connectNative launcher, catalogue/profile selectors and one JS SDK background task. Production fixed-leaf installer, other OS, browser restart/update and complete brand parity are not claimed.",
     helperPolicy: "Windows PowerShell 5.1 helpers use their own PSHOME/Modules only, with UTF-8 stdout/stderr; environment change is local to each helper child",
     focus: { allowedActivations: [], allowedFocus: [] }, cli: [], inventories: [], cleanup: { errors: [] } };
   if (diagnosticsEnabled) report.diagnostics = { enabled: true, snapshots: [], errors: [], boundary: "Opt-in staged-worker native API and selected passive-event observations only. Original task/focus/receipt failures remain failures; diagnostic completion never implies acceptance. Pending command outcomes and truncated payload values remain unknown; no retry, activation, input replacement, or private production-map reads." };
-  if (readinessEnabled) report.readinessDiagnostic = { enabled: true, timeoutMs: 25000, boundary: "Harness-only pre-first-target-connection native tabs.get and original target readiness gate for vendor-created manager/observer. One absolute budget per open covers creation, identity, metadata, connection and evaluation. No staged API prelude, activation, input substitute or production task change. Diagnostic completion requires both gates, task reached and strict cleanup; task/focus failures remain recorded and passed is always false." };
+  if (readinessEnabled) report.readinessDiagnostic = { enabled: true, timeoutMs: 25000, boundary: "Harness-only pre-first-target-connection native tabs.get and original target readiness gate for vendor-created manager/observer. One absolute budget per open covers creation, identity, metadata, connection and evaluation. No activation or input substitute. " + (inputEnabled ? "Explicit input mode also stages the existing native API prelude and passive fixture events; original fill/click retained." : "No staged API prelude or production task change. Diagnostic completion requires both gates, task reached and strict cleanup; task/focus failures remain recorded and passed is always false.") };
+  if (inputEnabled) report.inputDiagnostic = { enabled: true, snapshots: [], errors: [], fixtureResponses: [], fixtureOverflow: false, fixtureDropped: 0, boundary: "Explicit input diagnostic combines the unchanged readiness gate and native API observer with passive fixture event capture. Original single fill/click and trusted POST assertions remain. The final public ledger read is attempted once after receipt or during failure teardown; no input replay. DOM focus is not actual widget focus, and native ACK alone does not prove delivery or a root cause. This mode always has passed:false." };
+  if (taskReadinessEnabled) report.taskReadinessDiagnostic = { enabled: true, ready: false, timeoutMs: 5000, maximumSamples: 80, scopeBoundary: "Extra task initial-commit diagnostic stage; not inherited from newTab and not an extension of the unchanged original goto deadline" };
   if (ownershipEnabled) { report.ownershipRequested = true; report.ownership = { enabled: true, passed: false }; }
   const save = (file, value) => fs.writeFile(path.join(runDir, file), JSON.stringify(value, null, 2));
-  const checkpoint = async () => { await Promise.all([save("results.json", report), ...(recordTaskRequests ? [save("task-requests.json", taskRequests)] : []), ...(ownershipEnabled ? [save("ownership.json", report.ownership)] : [])]); };
+  const checkpoint = async () => {
+    if (inputEnabled) try { await Promise.all([save("input-diagnostic.json", report.inputDiagnostic), ...inputFixtureResponses.map(value => fs.writeFile(path.join(runDir, value.file), value.body))]); }
+    catch (error) { report.inputDiagnostic.persistenceFailures = (report.inputDiagnostic.persistenceFailures ?? 0) + 1; report.inputDiagnostic.lastPersistenceError = error.stack ?? String(error); report.inputDiagnostic.domTraceComplete = false; if (report.diagnosticCompleted === true) report.diagnosticCompleted = false; }
+    if (taskReadinessEnabled) try { await save("task-readiness.json", report.taskReadinessDiagnostic); }
+    catch (error) { report.taskReadinessDiagnostic.persistenceFailures = (report.taskReadinessDiagnostic.persistenceFailures ?? 0) + 1; report.taskReadinessDiagnostic.lastPersistenceError = error.stack ?? String(error); if (report.diagnosticCompleted === true) report.diagnosticCompleted = false; }
+    await Promise.all([save("results.json", report), ...(recordTaskRequests ? [save("task-requests.json", taskRequests)] : []), ...(ownershipEnabled ? [save("ownership.json", report.ownership)] : [])]);
+  };
   console.log("HARNESS", JSON.stringify({ runDir, name, profileRoot: profile, mode: report.mode }));
-  const helpers = new Set(), connections = new Set(), browserLogs = [], posts = [];
+  const helpers = new Set(), connections = new Set(), browserLogs = [], posts = [], inputFixtureResponses = [];
   const taskRequests = { maximumRecords: 128, overflow: false, dropped: 0, requests: [] };
   let diagnosticInitial, diagnosticFinal;
+  let inputTaskTab;
   let child, childExit, control, manager, observer, worker, companion, extensionId, endpoint, nativeExecutable, browserPid, debugPort, owner, fixedBefore, registryAttempted = false;
   const host = path.join(runDir, "native-host.exe"), extension = path.join(runDir, "extension"), sdk = path.join(runDir, "js-sdk");
   const endpointDirectory = path.join(env.TEMP, "open-browser-use"), endpointFile = path.join(endpointDirectory, "active.json"), registryScript = path.join(runDir, "registry.ps1");
@@ -377,7 +392,12 @@ async function main() {
       if (label === "native-connected") diagnosticInitial = snapshot;
       if (label === "before-browser-close") diagnosticFinal = snapshot;
     } catch (error) { record.error = error.stack ?? String(error); report.diagnostics.errors.push({ label, error: record.error }); }
-    await checkpoint();
+    try { await checkpoint(); }
+    catch (error) { record.persistenceError = error.stack ?? String(error); report.diagnostics.errors.push({ label: `${label}-persistence`, error: record.persistenceError }); }
+  }
+  async function captureFinalInput() {
+    if (!inputEnabled || !inputTaskTab || !report.task?.steps.some(step => step.operation === "fill")) return;
+    await captureInputLedgerOnce(report.inputDiagnostic, { read: () => inputTaskTab.evaluate("globalThis.__obuInputEventDiagnostic?.snapshot()"), persist: checkpoint });
   }
   async function until(read, label, timeout = 25000) {
     const end = Date.now() + timeout; let last;
@@ -504,20 +524,28 @@ async function main() {
       else { taskRequests.overflow = true; taskRequests.dropped++; }
     }
     const rgb = [...Buffer.from(nonce.slice(0, 6), "hex")];
-    response.end(`<!doctype html><meta charset="utf-8"><title>Native browser task ${nonce}</title><style>body{font:20px system-ui;margin:70px 30px}#marker{position:fixed;left:8px;top:8px;width:40px;height:40px;background:rgb(${rgb.join(",")})}input,button{font:inherit;padding:12px}</style><div id="marker"></div><h1>Native browser task</h1><p id="nonce">${nonce}</p><label>Delivery note<input id="note"></label><button id="submit">Submit note</button><pre id="receipt"></pre><script>globalThis.submissions=[];const inputEvents=[];globalThis.__nativeTaskInputEvents=inputEvents;let inputOverflow=false;for(const type of ['input','change'])document.querySelector('#note').addEventListener(type,event=>{if(inputEvents.length>=64){inputOverflow=true;return}inputEvents.push({type,trusted:event.isTrusted,value:event.target.value})});document.querySelector('#submit').onclick=async event=>{const value={nonce:${JSON.stringify(nonce)},note:document.querySelector('#note').value,trusted:event.isTrusted,inputEvents:inputEvents.map(value=>({...value})),inputOverflow};submissions.push(value);const result=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).then(r=>r.json());document.querySelector('#receipt').textContent=JSON.stringify(result)};</script>`);
+    const html = `<!doctype html><meta charset="utf-8"><title>Native browser task ${nonce}</title><style>body{font:20px system-ui;margin:70px 30px}#marker{position:fixed;left:8px;top:8px;width:40px;height:40px;background:rgb(${rgb.join(",")})}input,button{font:inherit;padding:12px}</style><div id="marker"></div><h1>Native browser task</h1><p id="nonce">${nonce}</p><label>Delivery note<input id="note"></label><button id="submit">Submit note</button><pre id="receipt"></pre><script>${inputEnabled ? inputFixtureSource(nonce) : ""}globalThis.submissions=[];const inputEvents=[];globalThis.__nativeTaskInputEvents=inputEvents;let inputOverflow=false;for(const type of ['input','change'])document.querySelector('#note').addEventListener(type,event=>{if(inputEvents.length>=64){inputOverflow=true;return}inputEvents.push({type,trusted:event.isTrusted,value:event.target.value})});document.querySelector('#submit').onclick=async event=>{const value={nonce:${JSON.stringify(nonce)},note:document.querySelector('#note').value,trusted:event.isTrusted,inputEvents:inputEvents.map(value=>({...value})),inputOverflow};submissions.push(value);const result=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).then(r=>r.json());document.querySelector('#receipt').textContent=JSON.stringify(result)};</script>`;
+    if (inputEnabled) {
+      if (inputFixtureResponses.length < 4) {
+        const file = `input-fixture-response-${inputFixtureResponses.length + 1}.html`;
+        inputFixtureResponses.push({ file, body: html });
+        report.inputDiagnostic.fixtureResponses.push({ file, at: Date.now(), nonce, url: request.url, bytes: Buffer.byteLength(html), sha256: digest(html) });
+      } else { report.inputDiagnostic.fixtureOverflow = true; report.inputDiagnostic.fixtureDropped++; }
+    }
+    response.end(html);
   });
   try {
     fixedBefore = await fixedRegistration(); report.fixedRegistrationBefore = fixedBefore;
     await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), sdk, { recursive: true });
     report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).stdout.trim(), host: digest(await fs.readFile(host)), harness: digest(await fs.readFile(fileURLToPath(import.meta.url))), jsSDK: await hashes(sdk), dependencies: {} };
-    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
+    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "vivaldi-input-diagnostic.mjs", "vivaldi-task-readiness-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
     report.identity = { suppliedExecutable: await executableIdentity(binary) }; await checkpoint();
     await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
     const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), nativeConstant = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
     assert.equal(background.split(nativeConstant).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
     const prelude = diagnosticsEnabled ? nativeDiagnosticPrelude() : "";
     await fs.writeFile(backgroundFile, prelude + background.replace(nativeConstant, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
-    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: "Explicit OBU_TEST_NATIVE_DIAGNOSTICS=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged" };
+    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: `Explicit ${taskReadinessEnabled ? "OBU_TEST_VIVALDI_TASK_READY" : inputEnabled ? "OBU_TEST_VIVALDI_INPUT" : "OBU_TEST_NATIVE_DIAGNOSTICS"}=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged` };
     const manifestFile = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
     manifest.key ??= (await fs.readFile(path.join(repo, "cmd/open-browser-use/main.go"), "utf8")).match(/const betaExtensionPublicKey = "([^"]+)"/)?.[1]; assert.ok(manifest.key);
     extensionId = digest(Buffer.from(manifest.key, "base64")).slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16))); await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2));
@@ -617,12 +645,22 @@ async function main() {
     report.task = { nonce: randomBytes(12).toString("hex"), steps: [] }; const task = report.task;
     async function step(operation, run) { const record = { operation, requestedAt: Date.now() }; task.steps.push(record); try { const value = await run(); record.completedAt = Date.now(); await checkpoint(); return value; } catch (error) { record.error = error.message; await checkpoint(); throw error; } }
     await step("beginTurn", () => owner.client.beginTurn()); task.scope = { session_id: owner.client.sessionId, turn_id: owner.client.turnId, control_epoch: owner.client.controlEpoch };
-    const tab = await step("newTab", () => owner.newTab()); task.tabId = tab.id; await step("goto", () => tab.goto(`${fixtureURL}/task?nonce=${task.nonce}`));
+    const tab = await step("newTab", () => owner.newTab()); task.tabId = tab.id; if (inputEnabled) inputTaskTab = tab;
+    if (taskReadinessEnabled) {
+      Object.assign(report.taskReadinessDiagnostic, { scope: { ...task.scope }, newTabStep: { ...task.steps.find(step => step.operation === "newTab") }, newTabResult: { tabId: tab.id }, observerTarget: report.observerTarget, workerTarget: report.workerTarget, originalGoto: { url: `${fixtureURL}/task?nonce=${task.nonce}`, options: "Unchanged tab.goto(url) call; no timeout override" } });
+      await waitForVivaldiTaskCommit({ tabId: tab.id, windowId: report.sentinel.windowId, record: report.taskReadinessDiagnostic,
+        readTab: budget => observer.evaluate(`chrome.tabs.get(${tab.id}).then(({id,windowId,active,url,pendingUrl,status,width,height,groupId,pinned,discarded,frozen})=>({id,windowId,active,url,pendingUrl,status,width,height,groupId,pinned,discarded,frozen}))`, { budget }),
+        readTargets: budget => worker.evaluate("chrome.debugger.getTargets()", { budget }),
+        persist: async () => { await checkpoint(); assert.ok(!report.taskReadinessDiagnostic.persistenceFailures, "Task readiness evidence could not be saved"); },
+      });
+    }
+    await step("goto", () => tab.goto(`${fixtureURL}/task?nonce=${task.nonce}`));
     const note = `native-${name}-${task.nonce}`;
     task.inputObservations = [];
     async function observeInput(phase) {
       const record = { phase, requestedAt: Date.now() }; task.inputObservations.push(record);
-      record.document = await step(`read input ${phase}`, () => tab.evaluate("({url:location.href,readyState:document.readyState,value:document.querySelector('#note')?.value,selectionStart:document.querySelector('#note')?.selectionStart,selectionEnd:document.querySelector('#note')?.selectionEnd,activeElement:{tag:document.activeElement?.localName,id:document.activeElement?.id},hasFocus:document.hasFocus(),visibility:document.visibilityState,inputEvents:globalThis.__nativeTaskInputEvents})"));
+      record.document = await step(`read input ${phase}`, () => tab.evaluate("({url:location.href,readyState:document.readyState,value:document.querySelector('#note')?.value,selectionStart:document.querySelector('#note')?.selectionStart,selectionEnd:document.querySelector('#note')?.selectionEnd,activeElement:{tag:document.activeElement?.localName,id:document.activeElement?.id},hasFocus:document.hasFocus(),visibility:document.visibilityState,inputEvents:globalThis.__nativeTaskInputEvents" + (inputEnabled ? ",inputDiagnostic:globalThis.__obuInputEventDiagnostic?.snapshot()" : "") + "})"));
+      if (inputEnabled) report.inputDiagnostic.snapshots.push({ phase, requestedAt: record.requestedAt, completedAt: Date.now(), snapshot: record.document.inputDiagnostic });
       record.completedAt = Date.now(); await checkpoint();
     }
     await observeInput("before-fill");
@@ -631,6 +669,7 @@ async function main() {
     await step("click", () => tab.getByRole("button", { name: "Submit note", exact: true }).click());
     await step("receipt visible", () => tab.locator("#receipt").filter({ hasText: task.nonce }).waitFor({ state: "visible" }));
     task.receipt = JSON.parse(await step("read receipt", () => tab.locator("#receipt").innerText()));
+    if (inputEnabled) await captureFinalInput();
     task.fixtureEvidence = "Unique POST contains actual trusted click and bounded DOM input/change events; no synthetic trusted flag or production hook";
     checkTrustedNativeTaskReceipt(task.receipt, { nonce: task.nonce, note });
     assert.equal(posts.length, 1); assert.deepEqual(JSON.parse(posts[0].body), task.receipt); task.server = structuredClone(posts);
@@ -653,6 +692,7 @@ async function main() {
     });
   } catch (error) { report.error = error.stack; console.error(error); if (manager) try { await settingsDiagnostic("failure"); } catch (failure) { report.settingsDiagnosticError = failure.message; } }
   finally {
+    if (inputEnabled) await captureFinalInput();
     if (diagnosticsEnabled) await captureNativeDiagnostics("task-terminal");
     if (manager && report.installed?.length === 2) try { report.finalInventory = await inventory("before-browser-exit"); } catch (error) { report.cleanup.errors.push({ stage: "inventory", error: error.message }); }
     if (observer) try { await focus("before-browser-exit"); report.focus.passed = true; } catch (error) { report.focus.passed = false; report.focus.error = error.stack; }
@@ -720,11 +760,27 @@ async function main() {
       report.diagnostics.traceComplete = !report.diagnostics.errors.length && !taskRequests.overflow && nativeDiagnosticTraceComplete(diagnosticInitial, diagnosticFinal);
       report.diagnostics.cleanupComplete = nativeBrowserInstallationCleaned(report);
     }
-    const result = readinessEnabled ? vivaldiReadinessResult({ pages: report.diagnosticPages?.filter(page => page.mode === "vivaldi-readiness-diagnostic"), taskReached: !!report.task?.steps?.length, cleanupComplete: nativeBrowserInstallationCleaned(report), taskRequestsOverflow: taskRequests.overflow }) : nativeDiagnosticResult({ enabled: diagnosticsEnabled, acceptancePassed: nativeBrowserInstallationPassed(report), taskReached: !!report.task?.steps?.length, traceComplete: report.diagnostics?.traceComplete, cleanupComplete: report.diagnostics?.cleanupComplete });
+    let result = readinessEnabled ? vivaldiReadinessResult({ pages: report.diagnosticPages?.filter(page => page.mode === "vivaldi-readiness-diagnostic"), taskReached: !!report.task?.steps?.length, cleanupComplete: nativeBrowserInstallationCleaned(report), taskRequestsOverflow: taskRequests.overflow }) : nativeDiagnosticResult({ enabled: diagnosticsEnabled, acceptancePassed: nativeBrowserInstallationPassed(report), taskReached: !!report.task?.steps?.length, traceComplete: report.diagnostics?.traceComplete, cleanupComplete: report.diagnostics?.cleanupComplete });
     if (readinessEnabled) Object.assign(report.readinessDiagnostic, { observationsComplete: result.observationsComplete, cleanupComplete: nativeBrowserInstallationCleaned(report), taskRequestsOverflow: taskRequests.overflow, taskOutcome: { taskPassed: report.task?.passed === true, focusPassed: report.focus?.passed === true, error: report.error ?? null, focusError: report.focus.error ?? null } });
+    if (inputEnabled) {
+      const detail = report.inputDiagnostic, nonce = report.task?.nonce;
+      detail.nativeTraceComplete = !report.diagnostics.errors.length && inputNativeTraceComplete(diagnosticInitial, diagnosticFinal, report.task?.tabId);
+      detail.commands = inputCommandEvidence(diagnosticFinal, { tabId: report.task?.tabId, note: `native-${name}-${nonce}`, steps: report.task?.steps });
+      detail.commandEvidenceBoundary = "Indices bind to the original native trace. Task tab/text comparisons are observations, not collection-completeness conditions. Timestamp windows alone are not exact IPC scope proof; raw task scope, tab creation/attachment and context events remain necessary. Long Runtime function bodies can be truncated in the raw trace; omitted values are unknown.";
+      detail.domTraceComplete = !detail.errors.length && !detail.persistenceFailures && inputDOMTraceComplete(detail.snapshots, nonce);
+      detail.httpComplete = !taskRequests.overflow && taskRequests.requests.length === 1 && taskRequests.requests[0].method === "GET" && taskRequests.requests[0].nonce === nonce && !detail.fixtureOverflow && detail.fixtureResponses.length === 1 && detail.fixtureResponses[0].nonce === nonce && posts.length === 1 && (() => { try { return JSON.parse(posts[0].body).nonce === nonce && digest(posts[0].body) === posts[0].sha256; } catch { return false; } })();
+      detail.readinessComplete = report.readinessDiagnostic.observationsComplete;
+      detail.cleanupComplete = nativeBrowserInstallationCleaned(report);
+      detail.taskOutcome = report.readinessDiagnostic.taskOutcome;
+      result = vivaldiInputResult({ ...detail, steps: report.task?.steps });
+    }
+    if (taskReadinessEnabled) {
+      result = taskReadinessDiagnosticResult({ gate: report.taskReadinessDiagnostic, inputResult: result });
+      report.taskReadinessDiagnostic.gateComplete = result.gateComplete;
+    }
     report.completedAt = Date.now(); report.passed = result.passed;
     if (diagnosticsEnabled || readinessEnabled) report.diagnosticCompleted = result.diagnosticCompleted;
-    await checkpoint(); console.log("RESULT", JSON.stringify({ file: path.join(runDir, "results.json"), mode: report.mode, passed: report.passed, diagnosticCompleted: report.diagnosticCompleted })); process.exitCode = result.exitCode;
+    await checkpoint(); console.log("RESULT", JSON.stringify({ file: path.join(runDir, "results.json"), mode: report.mode, passed: report.passed, diagnosticCompleted: report.diagnosticCompleted })); process.exitCode = (inputEnabled && report.inputDiagnostic.persistenceFailures) || (taskReadinessEnabled && report.taskReadinessDiagnostic.persistenceFailures) ? 1 : result.exitCode;
   }
 }
 

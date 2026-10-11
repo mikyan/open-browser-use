@@ -273,6 +273,62 @@ has at most 2.5 seconds; it cannot alter the original error or success budget.
 no HTTP ledger overflow and strict cleanup. Task/focus failures remain visible;
 this result is not browser acceptance or proof of a Vivaldi root cause.
 
+For the separate single-input experiment, set `OBU_TEST_VIVALDI_INPUT=1` with
+the actual Vivaldi binary. Unset, empty or `0` disables it. Other values, other
+brands, or enabling `OBU_TEST_NATIVE_DIAGNOSTICS`, `OBU_TEST_VIVALDI_READINESS`
+or `OBU_TEST_NATIVE_OWNERSHIP` at the same time are rejected. This mode internally
+uses the existing readiness gate and the unmodified native API observer. The
+original SDK fill and click each run once; no activation, prefill, replacement
+input or replay is added. `Runtime.callFunctionOn` results and `Input.insertText`
+arguments/settlement remain in the original native trace, including exact debuggee
+identity. Long unrelated Runtime bodies may be truncated; critical Input
+parameters must be retained completely for complete collection.
+
+The fixture adds passive focus, blur, selection, beforeinput, input, change and
+composition listeners. `input-diagnostic.json` contains snapshots before and
+after fill through the existing reads, then one final public read after the
+receipt, before its assertions. If execution fails earlier, teardown attempts
+that final read only if it has not already been attempted and fill was reached.
+It never retries a failed read. Records bind nonce, document and original input
+node identities, event target, DOM focus, value/selection and event metadata.
+Each event reserves capacity for its later microtask record; 256 records is the
+limit. Capture-phase `defaultPrevented` is not final. The later observation only
+claims final cancellation when dispatch has ended; otherwise it remains unknown.
+Observation can affect scheduling, and DOM focus does not identify the actual
+focused render widget.
+
+The actual first HTML response is saved with its hash without an extra GET or
+new response-blocking disk write. The original POST schema and trusted event
+assertions remain unchanged. `mode: "vivaldi-input-diagnostic"` always has
+`passed: false`; complete collection requires both setup gates, continuous native
+and same-document DOM evidence, the single original GET/POST, original action
+counts and strict cleanup. Wrong text/target or unsuccessful input remains
+diagnostic evidence, not a collection failure when fully recorded. Missing,
+truncated critical data, overflow or persistence errors make collection incomplete.
+
+`OBU_TEST_VIVALDI_TASK_READY=1` selects the separate task initial-commit experiment.
+It is exclusive with all four switches above and only accepts an actual Vivaldi
+binary. It internally retains the INPUT experiment, adding one stage after the
+original public `newTab` ACK and before the original `goto`. Its separate absolute
+5-second budget is additional diagnostic time, not time inherited from `newTab`
+or an extension of `goto`. No navigation timeout option is changed.
+
+`task-readiness.json` binds the original task scope/tab/window and saves at most
+80 samples. The existing independent observer reads `chrome.tabs.get`; the
+already connected worker reads `chrome.debugger.getTargets`, without adding
+observer permissions or attaching to the task. Readiness requires the same
+inactive tab, committed `about:blank`, complete status, no pending URL, and one
+unattached page target with that exact numeric tab ID. The opaque target ID is
+fixed when first seen; later replacement or disappearance terminates the gate.
+Only successful incomplete state may repeat. API failures are not retried;
+dimensions, discarded and frozen fields are observations, not extra conditions.
+The original `goto` is sent once only after the gate completes within budget,
+including its final evidence save. No activation, creation or navigation is
+replayed. `mode: "vivaldi-task-readiness-diagnostic"` always has `passed: false`;
+diagnostic completion also requires the existing input evidence and strict
+cleanup. A ready gate or a later successful task alone does not establish the
+cause of Vivaldi's earlier initialization failures.
+
 Set `OBU_TEST_NATIVE_OWNERSHIP=1` to add the public multi-page ownership workflow
 after the unchanged standard task. This option independently records real task
 GETs; it does not require native API diagnostics. It opens A and B, submits both,

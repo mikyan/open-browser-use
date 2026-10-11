@@ -102,3 +102,6 @@ keyboard.insertText 发送原生 Input.insertText；ACK 后没有 DOM 值读回�
 成功回调没有校验页面值。键盘分发也涉及 focused widget，不能据此盲换
 键盘事件作为修复。下一诊断只记录原单次输入的真实 tab/session/参数与
 结算，以及被动焦点、选区、beforeinput/input 事件，不先改变复现操作。
+
+后续原生命令与页面事件采集的具体约束见
+[Vivaldi 文本输入诊断](vivaldi-input-diagnostic.md)。
