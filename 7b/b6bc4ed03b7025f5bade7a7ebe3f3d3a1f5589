@@ -1,0 +1,70 @@
+docs/references/README.md
+  s_08bbfd293d324f::t_2f92ab3f1290ec 63-64
+scripts/browser-integration/vivaldi-task-readiness-diagnostic.test.mjs
+  s_08bbfd293d324f::t_847653eeafc05d 89-97
+  s_08bbfd293d324f::t_a556a72b9e6fcc 1-88,98-115
+scripts/browser-integration/vivaldi-task-readiness-diagnostic.mjs
+  s_08bbfd293d324f::t_ca1ed42b8a39bc 77
+  s_08bbfd293d324f::t_3cb1315523ad2c 1-64,68-69,72-76,78-80
+  s_08bbfd293d324f::t_847653eeafc05d 65-67,70-71
+scripts/browser-integration/vivaldi-input-diagnostic.mjs
+  s_08bbfd293d324f::t_33787872781984 75-84
+  s_08bbfd293d324f::t_589ea206acf4fd 1-21,23-43,47-59,62-71,73-74,85-90,92-127,137-143
+  s_08bbfd293d324f::t_e2057d6719a48e 134
+  s_08bbfd293d324f::t_18acd63a459ef8 60-61
+  s_08bbfd293d324f::t_6b8c54cea9b2f0 22,44-46,72
+  s_08bbfd293d324f::t_c840730d85d296 91,128-133,135-136
+scripts/browser-integration/vivaldi-input-diagnostic.test.mjs
+  s_08bbfd293d324f::t_2477e71b11c81f 1-3,5-79,84-94,104-127,129-149
+  s_08bbfd293d324f::t_33787872781984 4,95-103
+  s_08bbfd293d324f::t_dc04a52dc769f7 80-83
+  s_08bbfd293d324f::t_e2057d6719a48e 128
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_3f6aa81e7679a8 40-47
+scripts/browser-integration/native-browser-installation.mjs
+  s_08bbfd293d324f::t_18acd63a459ef8 365-366,370-371
+  s_08bbfd293d324f::t_c840730d85d296 768-769
+  s_08bbfd293d324f::t_dc04a52dc769f7 770
+  s_08bbfd293d324f::t_ca1ed42b8a39bc 22,318,342-344,355,362,368-369,541,548,648-657,776-779,783
+  s_08bbfd293d324f::t_e2057d6719a48e 395-396
+  s_08bbfd293d324f::t_33787872781984 21,367,376,399-400
+  s_08bbfd293d324f::t_2bfe1e3716a2b5 337,341,345,360-361,373,398,527-535,662-663,672,695,763,765-767,771-775,780
+  s_08bbfd293d324f::t_52c9de03941a10 397
+docs/references/vivaldi-input-diagnostic.md
+  s_08bbfd293d324f::t_ced0b6535e5194 97-101,103-105
+  s_08bbfd293d324f::t_455f67cc0a5ce8 53-72
+  s_08bbfd293d324f::t_b443436de825f3 73-81
+  s_08bbfd293d324f::t_3f6aa81e7679a8 82-96,102,106-109
+  s_08bbfd293d324f::t_2f92ab3f1290ec 1-52
+docs/references/vivaldi-initial-document.md
+  s_08bbfd293d324f::t_2f92ab3f1290ec 105-107
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_e3c96ffa7e3efe 1511-1531
+  s_08bbfd293d324f::t_32d0bd69358ee0 1535
+  s_08bbfd293d324f::t_455f67cc0a5ce8 1532-1534,1536-1540
+  s_08bbfd293d324f::t_3f6aa81e7679a8 1541-1550,1556-1560
+  s_08bbfd293d324f::t_ced0b6535e5194 1551-1555
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_a556a72b9e6fcc 309-331
+  s_08bbfd293d324f::t_dc04a52dc769f7 276-308
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_9157e8ac85da98 1082-1095
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_6420a3838c6484 49,52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "7bb6bc4ed03b7025f5bade7a7ebe3f3d3a1f5589",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
