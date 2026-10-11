@@ -3,7 +3,7 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { readFileSync } from "node:fs";
-import { chooserDiagnosticCases, chooserDiagnosticEnabled, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
+import { chooserDiagnosticCases, chooserDiagnosticEnabled, chooserDiagnosticMode, chooserPointerDiagnosticSummary, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerContextSummary, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
 import { checkChooserReady, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
 
 function setup(sendCommand = function () { return Promise.resolve({}); }, options) {
@@ -13,6 +13,87 @@ function setup(sendCommand = function () { return Promise.resolve({}); }, option
   return { api, target, installed, listeners, probe: target.__obuChooserDiagnostic, event: (...args) => [...listeners].forEach(fn => fn(...args)) };
 }
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+test("pointer-only selection is explicit and preserves mode conflicts before any browser launch", () => {
+  assert.equal(chooserDiagnosticMode({}), null);
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "1" }), "native");
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-only" }), "pointer-only");
+  assert.equal(chooserDiagnosticEnabled({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-only" }), true);
+  for (const key of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD"])
+    assert.throws(() => chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-only", [key]: "1" }), /cannot be combined/);
+  assert.throws(() => chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer" }), /must be/);
+});
+
+test("pointer-only summary distinguishes unread success, complete failure evidence and missing data", () => {
+  const variants = ["root", "oopif", "dynamic-oopif"].map(variant => ({ variant }));
+  const success = chooserPointerDiagnosticSummary({ variants }, true);
+  assert.equal(success.collectionComplete, null); assert.equal(success.pointerObservationRequested, false);
+  assert.equal(success.acceptancePassed, false); assert.equal(success.nativeCommandProbeInstalled, false);
+  const failed = structuredClone(variants);
+  failed[2].error = "original timeout";
+  failed[2].failureObservation = { complete: true, pointerEvidenceExpected: true, pointerObservationRequested: true, pointerObservationComplete: true };
+  const observation = chooserPointerDiagnosticSummary({ variants: failed }, false);
+  assert.equal(observation.collectionComplete, true); assert.equal(observation.originalTaskPassed, false); assert.equal(observation.acceptancePassed, false);
+  for (const artifact of [
+    undefined, { readError: "missing artifact" }, { variants: [] }, { variants: variants.slice(0, 1) },
+    { variants: [...variants].reverse() }, { variants: variants.map(item => ({ ...item, diagnostic: {} })) }
+  ]) assert.equal(chooserPointerDiagnosticSummary(artifact, true).collectionComplete, false);
+  assert.equal(chooserPointerDiagnosticSummary({ variants }, false).collectionComplete, false);
+  for (const key of ["complete", "pointerEvidenceExpected", "pointerObservationRequested", "pointerObservationComplete"]) {
+    const bad = structuredClone(failed); bad[2].failureObservation[key] = false;
+    assert.equal(chooserPointerDiagnosticSummary({ variants: bad }, false).collectionComplete, false);
+  }
+  const unbound = structuredClone(failed); delete unbound[2].error;
+  assert.equal(chooserPointerDiagnosticSummary({ variants: unbound }, false).collectionComplete, false);
+  const metadataFailure = structuredClone(failed);
+  metadataFailure[2].failureObservation = { complete: false, pointerEvidenceExpected: true, pointerObservationRequested: false, pointerObservationComplete: false };
+  const noDOM = chooserPointerDiagnosticSummary({ variants: metadataFailure }, false);
+  assert.equal(noDOM.collectionComplete, false); assert.equal(noDOM.pointerObservationRequested, false);
+  assert.equal(noDOM.pointerObservationComplete, null);
+});
+
+test("pointer-context fixes the original 13-case order and only the three JS ready fixture keys", () => {
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-context" }), "pointer-context");
+  assert.equal(chooserDiagnosticEnabled({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-context" }), true);
+  for (const key of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD"])
+    assert.throws(() => chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-context", [key]: "1" }), /cannot be combined/);
+  assert.deepEqual(chooserPointerContextCases, [
+    "js-file-chooser-directory-world-reconnect", "js-file-chooser-directory-inactive-rejection",
+    "js-file-chooser-directory-background-window", "js-background-window-mixed-finalize",
+    "js-file-chooser-single-submission", "js-file-chooser-ready-two-connections", "js-file-chooser-ready-lifecycle",
+    "cli-file-chooser-ready-two-connections", "mcp-file-chooser-ready-two-connections", "python-file-chooser-ready-two-connections",
+    "go-file-chooser-ready-two-connections", "js-file-chooser-public-concurrent", "js-raw-navigation-before-engine"
+  ]);
+  assert.deepEqual(chooserPointerContextKeys, ["js-chooser-root", "js-chooser-oopif", "js-chooser-dynamic-oopif"]);
+  assert.equal(Object.isFrozen(chooserPointerContextCases), true); assert.equal(Object.isFrozen(chooserPointerContextKeys), true);
+  assert.deepEqual(chooserDiagnosticCases, ["js-file-chooser-ready-two-connections", "js-raw-navigation-before-engine"]);
+});
+
+test("context summary fails missing/extra/reordered case selections while keeping evidence distinct from every original case result", () => {
+  const records = chooserPointerContextCases.map(name => ({ name, passed: true }));
+  const artifact = { variants: ["root", "oopif", "dynamic-oopif"].map(variant => ({ variant })) };
+  const success = chooserPointerContextSummary(artifact, records);
+  assert.equal(success.mode, "chooser-pointer-context-diagnostic"); assert.equal(success.acceptancePassed, false);
+  assert.equal(success.caseSelectionComplete, true); assert.equal(success.allOriginalTasksPassed, true);
+  assert.equal(success.originalTaskPassed, true); assert.equal(success.collectionComplete, null); assert.equal(success.pointerObservationComplete, null);
+  for (const cases of [undefined, [], records.slice(1), [...records, { name: "extra", passed: true }],
+    [...records].reverse(), [...records.slice(0, 12), records[0]], records.map((record, index) => index === 0 ? { ...record, passed: undefined } : record)]) {
+    const summary = chooserPointerContextSummary(artifact, cases);
+    assert.equal(summary.caseSelectionComplete, false); assert.equal(summary.collectionComplete, false); assert.equal(summary.allOriginalTasksPassed, false);
+  }
+  const otherFailure = structuredClone(records); otherFailure[0].passed = false;
+  const other = chooserPointerContextSummary(artifact, otherFailure);
+  assert.equal(other.caseSelectionComplete, true); assert.equal(other.originalTaskPassed, true);
+  assert.equal(other.allOriginalTasksPassed, false); assert.equal(other.collectionComplete, null);
+  const failure = structuredClone(artifact), failedRecords = structuredClone(records); failedRecords[5].passed = false;
+  failure.variants[2].error = "original collect timeout";
+  failure.variants[2].failureObservation = { complete: true, pointerEvidenceExpected: true, pointerObservationRequested: true, pointerObservationComplete: true };
+  const observed = chooserPointerContextSummary(failure, failedRecords);
+  assert.equal(observed.collectionComplete, true); assert.equal(observed.originalTaskPassed, false); assert.equal(observed.allOriginalTasksPassed, false);
+  failure.variants[2].failureObservation.complete = false;
+  assert.equal(chooserPointerContextSummary(failure, failedRecords).collectionComplete, false);
+  assert.equal(chooserPointerContextSummary(undefined, records).collectionComplete, false);
+});
 
 test("chooser opt-in is exclusive and selects the original case plus mandatory raw control", () => {
   assert.equal(chooserDiagnosticEnabled({}), false);
@@ -165,9 +246,13 @@ test("lost worker and revoked scope remain explicit, are not replayed, and do no
 
 test("runner keeps default case filtering and explicitly labels this diagnostic as non-acceptance", () => {
   const runner = readFileSync(new URL("./run.mjs", import.meta.url), "utf8");
-  assert.match(runner, /if \(chooserDiagnostic && !chooserDiagnosticCases\.includes\(name\)\) return/);
+  assert.match(runner, /if \(chooserDiagnostic && !\(chooserMode === "pointer-context" \? chooserPointerContextCases : chooserDiagnosticCases\)\.includes\(name\)\) return/);
   assert.match(runner, /mode: "chooser-ready-diagnostic", acceptancePassed: false/);
   assert.match(runner, /originalTaskPassed:/);
+  assert.match(runner, /chooserMode === "pointer-context" \? \{ pointerEvidenceKeys: chooserPointerContextKeys \}/);
+  assert.match(runner, /!lifecycle && \["pointer-only", "pointer-context"\]\.includes\(chooserMode\) \? \{ pointerEvidence: true \}/);
+  assert.match(runner, /chooserMode === "pointer-context" \? chooserPointerContextSummary\(artifact, records\)/);
+  assert.match(runner, /process.exitCode = records.some\(record => !record.passed\) \|\| chooserDiagnosticResult\?\.collectionComplete === false/);
   const fixture = readFileSync(new URL("./chooser-waits-fixture.mjs", import.meta.url), "utf8");
   assert.ok(fixture.indexOf("await diagnostic.failure({ owner, item })") < fixture.indexOf("await wait.cancel()"));
   assert.match(fixture, /expectFileChooser\(\{ timeoutMs: 10000 \}\)/);

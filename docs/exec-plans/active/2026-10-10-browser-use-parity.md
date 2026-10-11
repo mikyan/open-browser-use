@@ -2142,3 +2142,37 @@ child直发鼠标不作修复：后者会绕过祖先新遮挡，tap源码也有
 来替代故障调查。下一片考虑只保留fixture被动事件记录、复用默认失败后
 documentId读取，移除诊断前置握手/原生命令wrapper的额外时序影响；须显式
 标明模式、保留原动作/期限/默认HTML，并让未读或不完整证据保持未验证。
+
+上述轻量 `pointer-only` 已实现：单一pointer校验函数，失败读取保留精确
+documentId、固定字段/容量及原3秒预算；成功方法顺序不变，未读完整性null，
+完整失败证据true不改变业务失败。默认及原native诊断共12份HTML对
+`0f90a18`逐字节一致，Node1388/1388、独立54项通过。`S5wSpZ`实际2/2、exit0，
+6POST/5份文件共97字节核验；90项源码身份一致，零激活/焦点/豁免，三任务页
+已移除。仍无失败读取/实际pointer数据，不证明输入修复。
+
+后续实验保留 `JwX2Bc` 的13项名称与顺序，显式 `pointer-context` 模式只对
+JS双连接的三个fixture key启用被动pointer记录；其余页面保持默认HTML。
+不新增前置API、原生命令wrapper、成功读取或输入重试，原业务/focus gate
+及名单完整性均保留。Node1391/1391、独立57项通过，默认及旧opt-in六种
+HTML分别逐字节一致。固定13项的遗漏/增项/乱序强制失败；目标JS结果与
+全体业务结果分开记录，不以证据完整性覆盖业务错误。
+
+同一冻结源码的有限三轮为 `yLC7OT` 13/13、exit0，`NuEbdZ` 12/13、exit1，
+`HakXg4` 13/13、exit0，均保留原13项顺序。中间轮Go的dynamic OOPIF首轮
+collect再次超时：原Upload click已返回、没有chooser结果或setter，Go子进程
+原cancel/close之后的6ms当前文档观察完整；root有一次可信frameAdd，child
+clicks/changes为空。JS目标三轮通过且未读pointer，collectionComplete=null；
+中间轮allOriginalTasksPassed=false且进程确实exit1。没有捕获完整鼠标序列，
+不将38/39诊断记录冒充普通验收通过或生产修复。
+
+独立审计每轮114项当前源哈希相符且三轮一致，正式host均exit0；每轮五次
+激活均为原后台窗口用例的精确允许项、零window focus，chooser/目录任务页
+清理完成。五入口chooser加目录原始POST分别43/41/43（另行核的submission/
+lifecycle不计入该数）；每轮目录13POST/30文件/408字节，中间轮Go仅已有
+root/static的4POST/3文件/62字节。通过者不覆盖dynamic的零POST失败。
+
+下一步应把现有有界被动记录和失败读取精确覆盖到实际再次失败的Go路径，
+保留其原子进程操作与取消顺序，避免继续仅重复成功的JS目标。源码研究的
+original move receipt只能证明观察到相符事件，不能绑定CDP request或证明
+后续命中；未取得真实投递证据前不增加输入、不引入猜测的渲染屏障。完整
+P01–P15、生产稳定性和旧发布包边界继续保留。

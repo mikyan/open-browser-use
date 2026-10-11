@@ -1482,6 +1482,34 @@ Node1380/1380、作者及独立定向22/22通过。一次真实`Cq7i08` **2/2、
 `JwX2Bc`独立核13POST/408文件字节与47551ms连续焦点零window-focus；三项
 collect失败及其6/3/5ms当前文档观察保持，完整目标继续active。
 
+轻量 `pointer-only` 继续去掉额外原生命令wrapper和预先握手，保留原有被动
+native事件trace。失败后复用精确documentId读取的同一3秒预算，固定字段与
+容量；单一pointer校验函数由两种诊断共享。未读保持null、缺失/不完整false，
+完整失败证据true也不改变原业务失败。Node1388/1388、独立54项通过，默认
+及原native诊断12份HTML与`0f90a18`逐字节一致。
+
+真实 `S5wSpZ` 2/2、exit0未复现，三布局6次POST、5份实际文件共97字节核验；
+90项来源身份一致，零激活/焦点/豁免，三任务页清理完成。所有pointer观察
+均未请求，完整性为null；没有原生命令wrapper，也不能宣称获得Input ACK
+证据。随后回到原13项测试上下文，仅目标JS双连接页面启用被动记录，
+保留业务错误与验收边界，尚无生产输入修复。
+
+随后新增显式 `pointer-context`，固定原13项顺序并检查缺失/额外/乱序；只在
+JS双连接三key安装原被动记录，其余页面保持默认字节。key集合有界且构造
+时快照，生命周期不增加probe；单目标结果与全13项业务结果分开。Node
+1391/1391、独立57项通过，默认和原native诊断各六份HTML逐字节一致。
+
+同一源码有限三轮 `yLC7OT` 13/13、exit0，`NuEbdZ` 12/13、exit1，`HakXg4`
+13/13、exit0。中间轮Go dynamic首轮collect再次超时，原click返回而无
+chooser/setter；原取消/连接关闭后的6ms精确文档观察中，root有可信frameAdd、
+child无click/change。JS目标三轮未读pointer，完整性null，不能证明生产
+输入已修。实际失败路径应成为下一片记录目标，不继续只测成功的JS路径。
+
+独立审计每轮114项当前源码哈希相符、三轮一致；host正常exit0、任务页
+清理完成。每轮五次激活都匹配原后台窗口用例允许项、零window focus。
+每轮目录13POST/30文件/408字节，中间轮Go仅root/static的4POST/3文件/
+62字节通过；dynamic零POST保留为失败，诊断没有获得完整原鼠标序列。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

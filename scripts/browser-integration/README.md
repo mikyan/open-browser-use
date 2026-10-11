@@ -206,6 +206,59 @@ $env:OBU_TEST_CHOOSER_DIAGNOSTIC = '1'
 node scripts/browser-integration/run.mjs
 ```
 
+For fixture-only event recording, set the same variable to `pointer-only`.
+It selects the same two cases and the same opt-in pointer HTML, but does not
+install the extra native-command wrapper or run its pre-arm handshake. The
+ordinary case's existing passive native event trace remains. On failure it uses
+the default exact-document-ID observation, within its one separate 3-second
+budget, to read the bounded pointer ledger; it adds no success-path reads or
+input retries. This still changes fixture HTML and may affect timing.
+Its result mode is `chooser-pointer-only-diagnostic`, with
+`nativeCommandProbeInstalled: false` and `acceptancePassed: false`.
+A successful task that needed no failure read has `collectionComplete: null`,
+meaning unverified pointer evidence. Missing or incomplete evidence after a
+failed task is `false`; complete failure evidence is `true` while the original
+task remains failed. Neither mode changes the normal suite's HTML.
+
+Set `OBU_TEST_CHOOSER_DIAGNOSTIC=pointer-context` to retain the original
+`run-JwX2Bc` context, in this fixed order:
+
+```text
+js-file-chooser-directory-world-reconnect
+js-file-chooser-directory-inactive-rejection
+js-file-chooser-directory-background-window
+js-background-window-mixed-finalize
+js-file-chooser-single-submission
+js-file-chooser-ready-two-connections
+js-file-chooser-ready-lifecycle
+cli-file-chooser-ready-two-connections
+mcp-file-chooser-ready-two-connections
+python-file-chooser-ready-two-connections
+go-file-chooser-ready-two-connections
+js-file-chooser-public-concurrent
+js-raw-navigation-before-engine
+```
+
+This selection needs the usual Python and built Go chooser caller prerequisites,
+including `OBU_TEST_GO_CHOOSER_BINARY`. Do not set `OBU_TEST_CASES`.
+Only `js-chooser-root`, `js-chooser-oopif` and `js-chooser-dynamic-oopif` fixture
+keys receive pointer HTML; all other fixture pages retain their default bytes.
+Only JS ready reads that ledger after failure. Lifecycle and the other callers
+receive no additional probe, handshake or pre-arm read. Original actions,
+timeouts, cleanup and focus checks remain in force. The recorder still changes
+the three target pages and may affect timing, so this is diagnostic evidence,
+not ordinary acceptance or an explanation of the earlier failure.
+
+The summary mode is `chooser-pointer-context-diagnostic`, always with
+`acceptancePassed: false`. `caseSelectionComplete` requires all 13 exact names
+in order; missing, extra or reordered records force exit failure.
+`originalTaskPassed` describes JS ready, while `allOriginalTasksPassed` covers
+the whole selection. Any case failure still exits 1 even when pointer evidence
+is complete. The existing `null`/`false`/`true` collection meanings apply: a
+successful target has no pointer read, missing or incomplete failure evidence
+is false, and complete failure evidence never turns its task into a success.
+The old `1` and `pointer-only` modes continue to select only their two cases.
+
 The two-connection actions, 10-second waiter deadline, upload bytes and
 historical-event rejection remain unchanged. The default root/static-OOPIF/
 dynamic-OOPIF HTML remains byte-identical and does not install this probe.
@@ -224,7 +277,7 @@ and 65,536 serialized characters, with individual strings capped at 128
 characters. Truncation is explicitly incomplete. Each diagnostic retains
 `pointerEvidenceExpected`, `pointerObservationRequested` and
 `pointerObservationComplete`; the last remains `null` on success without a read.
-Only the selected tab's original `Input.*`, chooser interception, `Page.enable`,
+In native-command mode (`1`), only the selected tab's original `Input.*`, chooser interception, `Page.enable`,
 `Page.disable` and `Runtime.runIfWaitingForDebugger` calls are observed, along
 with the seven existing frame/target/chooser event methods. Commands and events
 share a worker sequence and worker identity; the 1,024-record/1-Mi-character
@@ -233,7 +286,7 @@ as incomplete. The wrapper preserves the receiver, arguments, returned Promise
 and thrown/rejected values. Serialization and Promise side chains can affect
 scheduling and rejection reporting, so this is not a timing-neutral control.
 
-On the first original failure in a variant, before its original cancellation
+In native-command mode (`1`), on the first original failure in a variant, before its original cancellation
 and finalization, a single diagnostic pass records the native windows, current
 window, exact tab, frames and the continuous focus ledger. It then attempts
 one read-only `Runtime.evaluate` per root and uniquely observed child session,
@@ -264,6 +317,28 @@ observation remained unrequested and unverified. It did not reproduce or explain
 the preceding ordinary `run-JwX2Bc` failures, whose three post-failure document
 reads found no child click. The recorder and late-execution deadline guards
 passed the 1,380-test Node suite; this is no production input fix.
+
+The reduced `pointer-only` run `run-S5wSpZ` passed **2/2, exit 0**, with six
+real POSTs and 97 file-content bytes checked. It made no failure read, so pointer
+evidence remained unrequested and unverified. That slice passed 1,388 Node tests.
+The subsequent `pointer-context` slice passed 1,391 Node tests and 57 independent
+focused checks, preserving all 12 default/previous-opt-in HTML byte comparisons.
+Three bounded runs on the same frozen source were `run-yLC7OT` **13/13, exit 0**,
+`run-NuEbdZ` **12/13, exit 1**, and `run-HakXg4` **13/13, exit 0**. In the middle
+run, Go's first dynamic-OOPIF collect timed out after the click returned, without
+a chooser result or setter. Its existing six-millisecond post-failure observation
+found a trusted root frame-add but no child click/change; Go's fixture did not
+contain the pointer recorder. JS ready passed all three runs without a pointer
+read. The middle run correctly retained `allOriginalTasksPassed: false` and
+terminal exit 1, while target pointer collection stayed `null`. These diagnostics
+neither explain the input loss nor replace the ordinary regression failures.
+Independent review matched 114 current source hashes in each run and across
+the three runs. Each retained only the five existing background-window fixture
+activation allowances, zero window-focus events and exact task-tab cleanup.
+Each directory case verified 13 POSTs, 30 file payloads and 408 actual bytes.
+The failed Go case had only its earlier root/static-OOPIF four POSTs and 62 file
+bytes; its dynamic variant produced no POST. Host exit 0 is recorded separately
+from the middle parent runner's genuine exit 1.
 
 Recorded diagnostic `run-Yh4Yz7` completed with terminal exit 0 and both original
 cases passing. Independent review checked 69 acknowledged native commands,

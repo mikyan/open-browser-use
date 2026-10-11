@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
-import { chooserFailureDocument, observeChooserFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
-import { checkChooserReady } from "./chooser-waits-fixture.mjs";
+import { chooserFailureDocument, observeChooserFailure, finishChooserCase, chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
+import { checkChooserReady, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
 
 function fixture(variant = "dynamic-oopif", fixtureKind = "chooser") {
   const fixtureURL = "http://127.0.0.1:8123/", item = { tabId: 42, key: "unit-chooser", variant };
@@ -250,4 +250,84 @@ test("directory serialized reader records only existing bounded event metadata, 
   assert.equal(fileReads, 0);
   context.directoryEvidence.events = Array.from({ length: 129 }, () => context.directoryEvidence.events[0]);
   const limited = read(); assert.equal(limited.truncated, true); assert.equal(limited.directoryEvidence.events.length, 128); assert.equal(fileReads, 0);
+});
+
+function pointerFixture() {
+  const evidence = { documentToken: "pointer-document", clicks: [], changes: [], frameAdds: [] }, listeners = new Map();
+  const input = { nodeType: 1, tagName: "INPUT", id: "upload", isConnected: true, disabled: false, files: [],
+    getAttribute: name => name === "id" ? "upload" : "file", getBoundingClientRect: () => ({ x: 7, y: 8, width: 9, height: 10 }) };
+  const url = "http://localhost:8123/chooser-waits/frame?key=unit&variant=oopif";
+  const document = { readyState: "complete", visibilityState: "hidden", hasFocus: () => false, activeElement: null,
+    querySelector: () => input, querySelectorAll: () => [], addEventListener: (type, callback) => listeners.set(type, callback) };
+  installChooserPointerEvidence(document, evidence, input, null);
+  const context = vm.createContext({ location: { href: url }, document, chooserEvidence: evidence,
+    innerWidth: 600, innerHeight: 260, scrollX: 0, scrollY: 0, devicePixelRatio: 1.5 });
+  const read = (enabled = true) => vm.runInContext(`(${chooserFailureDocument.toString()})(${JSON.stringify([url])},${Date.now() + 10000},"chooser",${enabled})`, context);
+  const emit = () => listeners.get("mousedown")({ type: "mousedown", timeStamp: 4, isTrusted: true, target: input,
+    clientX: 8, clientY: 9, button: 0, buttons: 1 });
+  return { evidence, input, context, read, emit };
+}
+
+test("pointer-only fixed reader projects known bounded fields and leaves optional evidence completely untouched when off", () => {
+  const f = pointerFixture(); f.emit();
+  Object.defineProperty(f.evidence.pointerEvidence, "privatePayload", { get() { throw new Error("arbitrary ledger property read"); } });
+  Object.defineProperty(f.evidence.pointerEvidence.records[0], "privatePayload", { get() { throw new Error("arbitrary event property read"); } });
+  const value = f.read();
+  assert.equal(value.truncated, false); assert.equal(chooserPointerEvidenceComplete(value.chooserEvidence), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(value.chooserEvidence.pointerEvidence)), f.evidence.pointerEvidence);
+  assert.equal(value.chooserEvidence.pointerEvidence.records[0].targetIsOriginalUpload, true);
+  Object.defineProperty(f.evidence, "pointerEvidence", { get() { throw new Error("pointer field read while disabled"); } });
+  const off = f.read(false); assert.equal(off.truncated, false); assert.equal(Object.hasOwn(off.chooserEvidence, "pointerEvidence"), false);
+  const failed = f.read(); assert.equal(failed.chooserEvidence.pointerEvidence, null); assert.match(failed.chooserEvidence.pointerReadError, /could not be read/);
+});
+
+test("pointer-only projection enforces record/string/character limits and does not normalize missing nullable fields into valid evidence", () => {
+  for (const mutate of [
+    value => { value.evidence.pointerEvidence.records[0].target.id = "x".repeat(129); },
+    value => { value.evidence.pointerEvidence.records = Array.from({ length: 257 }, () => value.evidence.pointerEvidence.records[0]); },
+    value => { const record = value.evidence.pointerEvidence.records[0]; record.target = { tag: "x".repeat(128), id: "x".repeat(128), type: "x".repeat(128) }; value.evidence.pointerEvidence.records = Array.from({ length: 256 }, () => record); }
+  ]) {
+    const f = pointerFixture(); f.emit(); mutate(f); const value = f.read();
+    assert.equal(value.truncated, true); assert.ok(value.chooserEvidence.pointerEvidence.records.length <= 256);
+    assert.ok(value.chooserEvidence.pointerEvidence.records.reduce((sum, row) => sum + JSON.stringify(row).length, 0) <= 65536);
+    assert.equal(chooserPointerEvidenceComplete(value.chooserEvidence), false);
+  }
+  for (const key of ["pointerId", "pointerType", "target", "trusted"]) {
+    const f = pointerFixture(); f.emit(); delete f.evidence.pointerEvidence.records[0][key];
+    assert.equal(chooserPointerEvidenceComplete(f.read().chooserEvidence), false, key);
+  }
+});
+
+test("pointer-only observation accepts empty root/child logs and fails missing or damaged logs under the same document identity checks", async () => {
+  for (const defect of [null, "missing", "overflow", "errors", "wrong-document", "prior-document"]) {
+    const f = fixture();
+    for (const result of f.results) installChooserPointerEvidence({ addEventListener() {} }, result.result.chooserEvidence, null, null);
+    const child = f.results[1].result.chooserEvidence;
+    if (defect === "missing") delete child.pointerEvidence;
+    if (defect === "overflow") child.pointerEvidence.overflow = true;
+    if (defect === "errors") child.pointerEvidence.recordingErrors = 1;
+    if (defect === "wrong-document") f.results[1].documentId = "replacement";
+    if (defect === "prior-document") f.item.documentToken = "old-document";
+    const report = await observeChooserFailure({ ...f, pointerEvidence: true });
+    assert.equal(report.pointerObservationRequested, true); assert.equal(report.pointerObservationComplete, defect === null);
+    assert.equal(report.complete, defect === null); assert.equal(report.passed, undefined);
+    assert.equal(await observeChooserFailure({ ...f, pointerEvidence: true }), report); assert.equal(f.calls.length, 2);
+  }
+  const off = fixture();
+  Object.defineProperty(off.results[0].result.chooserEvidence, "pointerEvidence", { get() { throw new Error("must not read pointer"); } });
+  const report = await observeChooserFailure(off);
+  assert.equal(report.complete, true); assert.equal(report.pointerObservationRequested, false); assert.equal(report.pointerObservationComplete, null);
+});
+
+test("pointer-only passes its option only to the exact documentId scripting read after the original failure", async () => {
+  const f = fixture("root"); installChooserPointerEvidence({ addEventListener() {} }, f.results[0].result.chooserEvidence, null, null);
+  const requests = [], context = vm.createContext({ chrome: {
+    tabs: { get: async () => f.metadata.tab }, webNavigation: { getAllFrames: async () => f.metadata.frames },
+    scripting: { executeScript: async request => { requests.push(request); return f.results; } }
+  } });
+  const worker = { evaluate: expression => vm.runInContext(expression, context) };
+  const report = await observeChooserFailure({ item: f.item, fixtureURL: f.fixtureURL, worker, pointerEvidence: true });
+  assert.equal(report.complete, true); assert.equal(requests.length, 1);
+  assert.deepEqual(Array.from(requests[0].target.documentIds), ["root-doc"]); assert.equal(requests[0].target.tabId, 42);
+  assert.equal(requests[0].args[1], report.deadline); assert.equal(requests[0].args[3], true); assert.equal(report.budgetMs, 3000);
 });

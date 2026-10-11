@@ -88,8 +88,14 @@ export function chooserPageHTML(url, port, { pointerEvidence = false } = {}) {
     </script>`;
 }
 
-export function createChooserWaitFixtures({ pointerEvidence = false } = {}) {
+export function createChooserWaitFixtures({ pointerEvidence = false, pointerEvidenceKeys } = {}) {
   assert.equal(typeof pointerEvidence, "boolean");
+  if (pointerEvidenceKeys !== undefined) {
+    assert.ok(pointerEvidence && Array.isArray(pointerEvidenceKeys) && pointerEvidenceKeys.length <= 32, "Pointer evidence keys require enabled evidence and a bounded array");
+    assert.ok(Array.from(pointerEvidenceKeys).every(key => typeof key === "string" && /^[a-z0-9-]{1,100}$/.test(key)), "Invalid pointer evidence key");
+    assert.equal(new Set(pointerEvidenceKeys).size, pointerEvidenceKeys.length, "Duplicate pointer evidence key");
+  }
+  const pointerKeys = pointerEvidenceKeys === undefined ? null : new Set(pointerEvidenceKeys);
   const records = new Map();
   const entry = key => { if (!records.has(key)) records.set(key, { key, posts: [] }); return records.get(key); };
   return {
@@ -101,7 +107,7 @@ export function createChooserWaitFixtures({ pointerEvidence = false } = {}) {
       const key = url.searchParams.get("key"), variant = url.searchParams.get("variant");
       if (!/^[a-z0-9-]{1,100}$/.test(key ?? "") || !chooserVariants.includes(variant)) { response.writeHead(400); response.end("invalid fixture key/variant"); return true; }
       if (["/chooser-waits/page", "/chooser-waits/frame"].includes(url.pathname)) {
-        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(chooserPageHTML(url, port, { pointerEvidence })); return true;
+        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(chooserPageHTML(url, port, { pointerEvidence: pointerEvidence && (pointerKeys === null || pointerKeys.has(key)) })); return true;
       }
       if (url.pathname !== "/chooser-waits/upload" || request.method !== "POST") { response.writeHead(404); response.end(); return true; }
       const record = entry(key), hit = { at: Date.now(), method: request.method, variant }; record.posts.push(hit);
@@ -161,7 +167,8 @@ export async function chooserFrameEvidence(worker, tabId, key, variant) {
   return { frames: value.frames, targets: related, attachedTargets: value.attachedTargets };
 }
 
-export async function checkChooserReady({ owner, trigger, fixtureURL, server, files, worker, until, prefix, diagnostic }) {
+export async function checkChooserReady({ owner, trigger, fixtureURL, server, files, worker, until, prefix, diagnostic, pointerEvidence = false }) {
+  assert.equal(typeof pointerEvidence, "boolean");
   assert.equal((await owner.client.getInfo()).metadata.fileChooserWaitVersion, 1);
   const detail = { caller: "js", independentConnections: true, variants: [] };
   try {
@@ -189,7 +196,7 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
       } catch (error) {
         event.error = error.stack; event.failedAt = Date.now();
         if (diagnostic) await diagnostic.failure({ owner, item });
-        else await observeChooserFailure({ worker, item, fixtureURL });
+        else await observeChooserFailure({ worker, item, fixtureURL, pointerEvidence });
         throw error;
       }
       finally {
@@ -216,7 +223,7 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
     } catch (error) {
       item.error = error.stack; item.failedAt = Date.now();
       if (diagnostic) await diagnostic.failure({ owner, item });
-      else await observeChooserFailure({ worker, item, fixtureURL, timing: "After original variant failure; waiter cancellation may already have been attempted, before task finalization" });
+      else await observeChooserFailure({ worker, item, fixtureURL, pointerEvidence, timing: "After original variant failure; waiter cancellation may already have been attempted, before task finalization" });
       throw error;
     }
     finally {
@@ -232,7 +239,7 @@ export async function checkChooserReady({ owner, trigger, fixtureURL, server, fi
     }
   }
   return detail;
-  } catch (error) { error.chooserDetail = detail; throw error; }
+  } catch (error) { try { error.chooserDetail = detail; } catch { /* Preserve frozen original errors. */ } throw error; }
 }
 
 export async function checkChooserLifecycle({ owner, trigger, foreign, fixtureURL, files, server, worker, until }) {

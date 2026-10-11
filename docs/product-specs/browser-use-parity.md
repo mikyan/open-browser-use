@@ -69,6 +69,18 @@ Go观察在原子进程取消/关闭后，JS在cancel前，不能混同两种时
 Node1380/1380通过。`Cq7i08`2/2、exit0未复现，pointer数据只在失败读取，
 本轮未读，因而不宣称已核原鼠标序列或修复生产输入。
 
+后续轻量 `pointer-only` 去掉额外原生命令包装/预先握手，失败才按精确
+documentId读取，默认HTML与原动作不变。Node1388/1388通过；`S5wSpZ`
+2/2、exit0，6POST/97实际文件字节核验、零焦点事件。仍未触发失败读取，
+pointer完整性为null，输入稳定性未完成。随后回到此前13项顺序的上下文，
+仅给目标JS双连接fixture加被动记录；诊断不能替代普通验收。
+
+该上下文模式Node1391/1391、独立57项通过；冻结源码三轮为 `yLC7OT`
+13/13、exit0，`NuEbdZ` 12/13、exit1，`HakXg4` 13/13、exit0。中间轮Go
+dynamic首轮collect超时，click已返回但没有chooser/setter；6ms当前文档
+观察仍见child无click/change。JS目标三轮未失败，pointer均未读且完整性
+为null，全体业务结果明确保留中间轮失败。输入稳定性及完整目标未完成。
+
 此前正式完整 `zyiYQg` **106/109、exit1**：原105项名称/顺序不变，隔离世界、
 inactive 目录拒绝、正式后台窗口目录、混合 finalize 四项新检查全部通过。
 目录16轮核13个真实 POST、30份文件载荷共408字节；12次目录选择有可信

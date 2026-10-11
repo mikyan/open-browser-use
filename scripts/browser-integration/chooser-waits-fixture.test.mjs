@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import test from "node:test";
 import { Script, runInNewContext } from "node:vm";
-import { chooserPageHTML, chooserVariants, createChooserWaitFixtures, checkChooserReceipts, installChooserTrace, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
+import { chooserPageHTML, chooserVariants, createChooserWaitFixtures, checkChooserReceipts, installChooserTrace, installChooserPointerEvidence, checkChooserReady } from "./chooser-waits-fixture.mjs";
 import { chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
 
 const bytes = Buffer.from("actual file 中文\0bytes");
@@ -72,6 +72,34 @@ test("opt-in fixture serializes passive root/child listeners; default and false 
   assert.match(body, /installChooserPointerEvidence/);
 });
 
+test("pointer key filtering snapshots a bounded exact key list and leaves every other fixture HTML byte unchanged", () => {
+  const keys = ["js-chooser-root", "js-chooser-oopif", "js-chooser-dynamic-oopif"];
+  const filtered = createChooserWaitFixtures({ pointerEvidence: true, pointerEvidenceKeys: keys });
+  keys[0] = "mutated-key"; keys.push("cli-chooser-root");
+  const render = (fixture, url) => {
+    let body;
+    assert.equal(fixture.handle({ url: url.pathname + url.search }, { setHeader() {}, end(value) { body = value; } }, 1234), true);
+    return body;
+  };
+  const ordinary = createChooserWaitFixtures(), oldOptIn = createChooserWaitFixtures({ pointerEvidence: true });
+  for (const variant of chooserVariants) for (const route of ["page", "frame"]) {
+    for (const key of [`js-chooser-${variant}`, `js-chooser-submission-${variant}`, "js-chooser-lifecycle", `cli-chooser-${variant}`,
+      `mcp-chooser-${variant}`, `python-chooser-${variant}`, `go-chooser-${variant}`, `js-chooser-${variant}-extra`, "mutated-key"]) {
+      const url = new URL(`http://127.0.0.1/chooser-waits/${route}?key=${key}&variant=${variant}`);
+      const target = key === `js-chooser-${variant}`;
+      assert.equal(render(filtered, url), chooserPageHTML(url, 1234, { pointerEvidence: target }));
+      if (!target) assert.equal(render(filtered, url), render(ordinary, url));
+      else assert.equal(render(filtered, url), render(oldOptIn, url));
+    }
+  }
+  for (const pointerEvidenceKeys of [null, "key", [""], ["UPPER"], ["a/b"], ["x".repeat(101)], [1], new Array(1), ["same", "same"], Array.from({ length: 33 }, (_, i) => `key-${i}`)])
+    assert.throws(() => createChooserWaitFixtures({ pointerEvidence: true, pointerEvidenceKeys }));
+  assert.throws(() => createChooserWaitFixtures({ pointerEvidenceKeys: ["key"] }));
+  const empty = createChooserWaitFixtures({ pointerEvidence: true, pointerEvidenceKeys: [] });
+  const url = new URL("http://127.0.0.1/chooser-waits/page?key=js-chooser-root&variant=root");
+  assert.equal(render(empty, url), render(ordinary, url));
+});
+
 test("serialized pointer capture records exact node identity, trust and order without touching original event behavior", () => {
   const state = pointerDocument();
   assert.equal(chooserPointerEvidenceComplete(state.evidence), true, "zero delivered events remain complete");
@@ -128,4 +156,77 @@ test("HTTP chooser witness computes actual decoded bytes and rejects mismatched 
       value => { value.posts[1].files = files; }
     ]) { const invalid = structuredClone(record); mutate(invalid); assert.throws(() => checkChooserReceipts(invalid, files, "root")); }
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+test("pointer-only ready failures use the original failure observer before cancel and preserve frozen business errors", async () => {
+  for (const frozen of [false, true]) {
+    const original = new Error("original collect timeout"); if (frozen) Object.freeze(original);
+    const calls = [];
+    const wait = { waiterId: "wait", remainingMs: 10000, result: async () => { calls.push("collect"); throw original; },
+      cancel: async () => { calls.push("cancel"); throw new Error("cancel failed"); } };
+    const owner = { client: { getInfo: async () => ({ metadata: { fileChooserWaitVersion: 1 } }) },
+      newTab: async () => ({ id: 42, expectFileChooser: async ({ timeoutMs }) => { assert.equal(timeoutMs, 10000); return wait; } }), cdp: { navigate: async () => {} } };
+    const trigger = { tab: () => ({ getByLabel: () => ({ click: async options => { calls.push("click"); assert.equal(options.timeoutMs, 5000); } }) }) };
+    const worker = { evaluate: async expression => {
+      assert.doesNotMatch(expression, /installChooserDiagnostic|__obuChooserDiagnostic/);
+      if (expression.includes("chrome.tabs.get")) { calls.push("failure-observation"); throw new Error("read failed"); }
+      if (expression.includes("removeListener")) { calls.push("trace-cleanup"); throw new Error("cleanup failed"); }
+      calls.push("existing-trace-start");
+    } };
+    await assert.rejects(checkChooserReady({ owner, trigger, worker, pointerEvidence: true, fixtureURL: "http://127.0.0.1/", prefix: "unit",
+      server: { stats: () => ({ posts: [] }) } }), error => {
+      assert.equal(error, original);
+      if (!frozen) {
+        const observation = error.chooserDetail.variants[0].failureObservation;
+        assert.equal(observation.pointerEvidenceExpected, true); assert.equal(observation.pointerObservationRequested, false);
+        assert.equal(observation.pointerObservationComplete, false); assert.equal(observation.complete, false);
+      }
+      return true;
+    });
+    assert.deepEqual(calls, ["existing-trace-start", "click", "collect", "failure-observation", "cancel", "trace-cleanup"]);
+  }
+});
+
+test("pointer-only successful ready executes the identical three-variant public operations with no failure scripting or diagnostic hooks", async () => {
+  async function run(pointerEvidence) {
+    const calls = [], records = new Map(); let current;
+    const client = { sessionId: "session", turnId: "turn", controlEpoch: 1,
+      getInfo: async () => ({ metadata: { fileChooserWaitVersion: 1 } }),
+      setFileChooserFiles: async (_id, selected) => {
+        calls.push(["set", selected]); const record = records.get(current.key), sequence = record.posts.length + 1;
+        const value = payload(sequence, current.variant); value.key = current.key;
+        const body = Buffer.from(JSON.stringify(value));
+        record.posts.push({ method: "POST", variant: current.variant, sequence, documentToken: value.documentToken, href: value.href,
+          clicks: value.clicks, changes: value.changes, files: sequence === 1 ? files : [], receipt: {},
+          bodyBase64: body.toString("base64"), bodyBytes: body.length, bodySHA256: createHash("sha256").update(body).digest("hex") });
+      } };
+    let serial = 0;
+    const tab = { id: 42, expectFileChooser: async ({ timeoutMs }) => {
+      calls.push(["arm", timeoutMs]); const id = ++serial;
+      return { waiterId: `wait-${id}`, remainingMs: timeoutMs, result: async () => {
+        calls.push(["collect", id]); if (timeoutMs === 250) throw new Error("OBU_FILE_CHOOSER_WAIT_TIMEOUT");
+        return { fileChooserId: `chooser-${id}`, isMultiple: current.variant !== "root" };
+      }, cancel: async () => { calls.push(["cancel", id]); } };
+    }, evaluate: async expression => { calls.push(["evaluate", expression]); return [{ trusted: true }]; } };
+    const owner = { client, newTab: async () => { calls.push("newTab"); return tab; }, cdp: { navigate: async (_id, href) => {
+      const url = new URL(href); current = { key: url.searchParams.get("key"), variant: url.searchParams.get("variant") };
+      records.set(current.key, { posts: [] }); calls.push(["navigate", href]);
+    } } };
+    const target = { getByLabel: () => ({ click: async options => { calls.push(["click-input", options]); } }),
+      getByRole: () => ({ click: async () => { calls.push("click-add"); } }) }; target.frameLocator = () => target;
+    const worker = { evaluate: async expression => {
+      assert.doesNotMatch(expression, /scripting\.executeScript|installChooserDiagnostic|__obuChooserDiagnostic|chrome\.tabs\.get/);
+      if (expression.includes("__integrationFrames")) {
+        calls.push("frame-evidence"); return { frames: [{ parentFrameId: 0, url: `http://localhost/chooser-waits/frame?key=${current.key}&` }],
+          targets: [], attachedTargets: [{ tabId: 42, type: "iframe", sessionId: "child" }] };
+      }
+      calls.push(expression.includes("removeListener") ? "trace-cleanup" : "existing-trace-start"); return { events: [], overflow: false };
+    } };
+    const result = await checkChooserReady({ owner, trigger: { client, tab: () => target }, worker, pointerEvidence,
+      fixtureURL: "http://127.0.0.1/", prefix: "unit", server: { stats: key => records.get(key) }, files: [{ ...files[0], path: "fixture.txt" }],
+      until: async predicate => { assert.ok(predicate()); } });
+    assert.equal(result.variants.length, 3); for (const item of result.variants) assert.equal(item.failureObservation, undefined);
+    return calls;
+  }
+  assert.deepEqual(await run(true), await run(false));
 });

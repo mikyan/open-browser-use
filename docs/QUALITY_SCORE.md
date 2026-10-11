@@ -38,6 +38,18 @@ down/up序列或原生命中表根因；不能以观察完整宣称业务通过�
 六种HTML逐字节不变，Node1380/1380、独立定向22/22通过。一次`Cq7i08`
 2/2、exit0未复现，三布局pointer观察均未请求/未验证；不能称点击问题修复。
 
+轻量 `pointer-only` 复用默认失败后的精确 documentId 读取，去掉额外原生命令
+包装与预先握手，成功不新增 DOM 读取。Node1388/1388通过；`S5wSpZ` 2/2、
+exit0，6POST/97实际文件字节核验通过，零激活/焦点/豁免。未触发失败读取，
+pointer完整性仍为null，不能替代此前13项上下文中的失败。随后保留原
+13项名称及顺序，仅在目标JS双连接页面启用被动记录，观察上下文中的投递。
+
+该 `pointer-context` 已通过Node1391/1391和独立57项。三轮固定顺序诊断为
+`yLC7OT` 13/13、`NuEbdZ` 12/13、`HakXg4` 13/13，实际退出分别0/1/0。
+中间轮Go dynamic首轮collect再次超时，无chooser结果/setter；6ms失败后
+精确文档观察仍见root可信frameAdd、child无click/change。JS均通过且pointer
+未读，不能当作投递证据或生产修复。下一步覆盖实际失败的Go路径。
+
 此前完整 `zyiYQg` **106/109、exit1**，原105项名称/顺序保留，四项新增
 检查全部通过。JS 单次提交、JS 双连接和 Go 双连接的动态 OOPIF 首轮均在
 collect 超时，尚未调用该轮 setter；缺少原生 Input/intercept 投递证据，

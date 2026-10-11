@@ -1,13 +1,73 @@
 import assert from "node:assert/strict";
+import { chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
+export { chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
 
 export const chooserDiagnosticCases = ["js-file-chooser-ready-two-connections", "js-raw-navigation-before-engine"];
-export function chooserDiagnosticEnabled(env) {
+// Exact original record order from run-JwX2Bc, retained as a reproducible
+// context selection rather than a broad regex that could silently add cases.
+export const chooserPointerContextCases = Object.freeze([
+  "js-file-chooser-directory-world-reconnect",
+  "js-file-chooser-directory-inactive-rejection",
+  "js-file-chooser-directory-background-window",
+  "js-background-window-mixed-finalize",
+  "js-file-chooser-single-submission",
+  "js-file-chooser-ready-two-connections",
+  "js-file-chooser-ready-lifecycle",
+  "cli-file-chooser-ready-two-connections",
+  "mcp-file-chooser-ready-two-connections",
+  "python-file-chooser-ready-two-connections",
+  "go-file-chooser-ready-two-connections",
+  "js-file-chooser-public-concurrent",
+  "js-raw-navigation-before-engine"
+]);
+export const chooserPointerContextKeys = Object.freeze(["js-chooser-root", "js-chooser-oopif", "js-chooser-dynamic-oopif"]);
+export function chooserDiagnosticMode(env) {
   const value = env.OBU_TEST_CHOOSER_DIAGNOSTIC;
-  assert.ok(value === undefined || value === "1", "OBU_TEST_CHOOSER_DIAGNOSTIC must be 1 or unset");
-  if (value !== "1") return false;
+  assert.ok(value === undefined || value === "1" || value === "pointer-only" || value === "pointer-context", "OBU_TEST_CHOOSER_DIAGNOSTIC must be 1, pointer-only, pointer-context or unset");
+  if (value === undefined) return null;
   for (const name of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD"])
     assert.equal(env[name], undefined, `Chooser diagnostic cannot be combined with ${name}`);
-  return true;
+  return value === "1" ? "native" : value;
+}
+
+export const chooserDiagnosticEnabled = env => chooserDiagnosticMode(env) !== null;
+
+// This mode has no native command wrapper. A successful task has no failure
+// document read, so its pointer collection is unverified, not complete.
+export function chooserPointerDiagnosticSummary(artifact, originalTaskPassed) {
+  const variants = Array.isArray(artifact?.variants) ? artifact.variants : [];
+  const order = ["root", "oopif", "dynamic-oopif"];
+  const validVariants = variants.length > 0 && variants.length <= order.length &&
+    variants.every((item, index) => item?.variant === order[index] && !item.diagnostic);
+  const failed = variants.filter(item => item?.error);
+  const observed = variants.filter(item => item?.failureObservation);
+  let collectionComplete = false;
+  if (validVariants && !artifact?.readError) {
+    if (originalTaskPassed && variants.length === order.length && failed.length === 0 && observed.length === 0)
+      collectionComplete = null;
+    else if (!originalTaskPassed && failed.length > 0 && observed.length === failed.length &&
+        observed.every(item => item.error && item.failureObservation.complete === true &&
+          item.failureObservation.pointerEvidenceExpected === true && item.failureObservation.pointerObservationRequested === true &&
+          item.failureObservation.pointerObservationComplete === true))
+      collectionComplete = true;
+  }
+  const pointerObservationRequested = observed.some(item => item.failureObservation.pointerObservationRequested === true);
+  return { mode: "chooser-pointer-only-diagnostic", acceptancePassed: false, originalTaskPassed,
+    nativeCommandProbeInstalled: false, pointerEvidenceExpected: true, pointerObservationRequested,
+    pointerObservationComplete: pointerObservationRequested ? collectionComplete === true : null, collectionComplete,
+    evidence: "chooser-js.json", readError: artifact?.readError };
+}
+
+export function chooserPointerContextSummary(artifact, records) {
+  const cases = Array.isArray(records) ? records : [];
+  const caseSelectionComplete = cases.length === chooserPointerContextCases.length &&
+    cases.every((record, index) => record?.name === chooserPointerContextCases[index] && typeof record.passed === "boolean");
+  const target = cases.filter(record => record?.name === "js-file-chooser-ready-two-connections");
+  const pointer = chooserPointerDiagnosticSummary(artifact, target.length === 1 && target[0].passed === true);
+  return { ...pointer, mode: "chooser-pointer-context-diagnostic", caseSelectionComplete,
+    expectedCases: [...chooserPointerContextCases], actualCases: cases.map(record => record?.name ?? null),
+    allOriginalTasksPassed: caseSelectionComplete && cases.every(record => record.passed === true),
+    collectionComplete: caseSelectionComplete ? pointer.collectionComplete : false };
 }
 
 // Serialized into the isolated worker on explicit opt-in. Never invokes an API
@@ -172,28 +232,6 @@ export async function chooserNativeObservation(chrome, tabId, deadline) {
     capture(() => chrome.windows.getCurrent({ populate: false })), capture(() => chrome.webNavigation.getAllFrames({ tabId }))
   ]);
   check(); return { requestedAt, completedAt: Date.now(), tab, windows, currentWindow, frames };
-}
-
-export function chooserPointerEvidenceComplete(evidence) {
-  const value = evidence?.pointerEvidence;
-  const types = ["pointermove", "pointerdown", "pointerup", "pointercancel", "mousemove", "mousedown", "mouseup", "click"];
-  if (!value || value.version !== 1 || typeof evidence.documentToken !== "string" || !evidence.documentToken ||
-      value.documentToken !== evidence.documentToken || value.installed !== true ||
-      value.maximumRecords !== 256 || value.maximumCharacters !== 65536 || value.overflow !== false ||
-      ["dropped", "truncations", "recordingErrors", "installationErrors"].some(key => value[key] !== 0) ||
-      JSON.stringify(value.eventTypes) !== JSON.stringify(types) || !Array.isArray(value.records) ||
-      value.records.length > 256 || value.nextSequence !== value.records.length) return false;
-  let characters = 0;
-  for (const [index, record] of value.records.entries()) {
-    if (!record || record.sequence !== index || record.documentToken !== value.documentToken || !types.includes(record.type) ||
-        typeof record.trusted !== "boolean" || typeof record.targetIsOriginalUpload !== "boolean" || typeof record.targetIsOriginalAdd !== "boolean" ||
-        !["at", "timeStamp", "clientX", "clientY", "button", "buttons"].every(key => Number.isFinite(record[key])) ||
-        !(record.pointerId === null || Number.isFinite(record.pointerId)) ||
-        !(record.pointerType === null || typeof record.pointerType === "string" && record.pointerType.length <= 128) ||
-        !(record.target === null || record.target && ["tag", "id", "type"].every(key => typeof record.target[key] === "string" && record.target[key].length <= 128))) return false;
-    characters += JSON.stringify(record).length;
-  }
-  return value.retainedCharacters === characters && characters <= 65536;
 }
 
 export function createChooserDiagnostic({ worker, readFocus, pointerEvidence = false }) {

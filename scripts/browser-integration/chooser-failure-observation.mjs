@@ -1,8 +1,30 @@
 import assert from "node:assert/strict";
 
+export function chooserPointerEvidenceComplete(evidence) {
+  const value = evidence?.pointerEvidence;
+  const types = ["pointermove", "pointerdown", "pointerup", "pointercancel", "mousemove", "mousedown", "mouseup", "click"];
+  if (!value || value.version !== 1 || typeof evidence.documentToken !== "string" || !evidence.documentToken ||
+      value.documentToken !== evidence.documentToken || value.installed !== true ||
+      value.maximumRecords !== 256 || value.maximumCharacters !== 65536 || value.overflow !== false ||
+      ["dropped", "truncations", "recordingErrors", "installationErrors"].some(key => value[key] !== 0) ||
+      JSON.stringify(value.eventTypes) !== JSON.stringify(types) || !Array.isArray(value.records) ||
+      value.records.length > 256 || value.nextSequence !== value.records.length) return false;
+  let characters = 0;
+  for (const [index, record] of value.records.entries()) {
+    if (!record || record.sequence !== index || record.documentToken !== value.documentToken || !types.includes(record.type) ||
+        typeof record.trusted !== "boolean" || typeof record.targetIsOriginalUpload !== "boolean" || typeof record.targetIsOriginalAdd !== "boolean" ||
+        !["at", "timeStamp", "clientX", "clientY", "button", "buttons"].every(key => Number.isFinite(record[key])) ||
+        !(record.pointerId === null || Number.isFinite(record.pointerId)) ||
+        !(record.pointerType === null || typeof record.pointerType === "string" && record.pointerType.length <= 128) ||
+        !(record.target === null || record.target && ["tag", "id", "type"].every(key => typeof record.target[key] === "string" && record.target[key].length <= 128))) return false;
+    characters += JSON.stringify(record).length;
+  }
+  return value.retainedCharacters === characters && characters <= 65536;
+}
+
 // Serialized only after a failed fixture operation. No listeners, writes,
 // focus changes, file operations, or CDP attachment are installed here.
-export function chooserFailureDocument(expectedURLs, deadline, fixtureKind = "chooser") {
+export function chooserFailureDocument(expectedURLs, deadline, fixtureKind = "chooser", pointerEvidence = false) {
   if (!Number.isFinite(deadline) || Date.now() >= deadline) return { observed: false, reason: "observation deadline expired" };
   if (!["chooser", "directory"].includes(fixtureKind)) return { observed: false, reason: "unknown fixture kind" };
   const href = location.href;
@@ -40,6 +62,45 @@ export function chooserFailureDocument(expectedURLs, deadline, fixtureKind = "ch
         input: item?.input ? { id: text(item.input.id), type: text(item.input.type), webkitdirectory: bool(item.input.webkitdirectory),
           multiple: bool(item.input.multiple), connected: bool(item.input.connected), originalNode: bool(item.input.originalNode) } : null }))
     } : { changes: events(evidence.changes, true) }) } : null;
+  // Fixed projection only: never serialize arbitrary page-owned properties.
+  // The false branch does not even read the optional pointer ledger.
+  if (pointerEvidence && evidenceValue) {
+    evidenceValue.pointerEvidence = null;
+    try {
+      const raw = evidence.pointerEvidence;
+      if (raw && typeof raw === "object") {
+        const short = value => {
+          if (typeof value !== "string") return null;
+          if (value.length > 128) { truncated = true; return value.slice(0, 128); }
+          return value;
+        };
+        const number = value => Number.isFinite(value) ? value : null;
+        const projected = { version: number(raw.version), documentToken: short(raw.documentToken),
+          eventTypes: Array.isArray(raw.eventTypes) ? raw.eventTypes.slice(0, 8).map(short) : null,
+          installed: bool(raw.installed), maximumRecords: number(raw.maximumRecords), maximumCharacters: number(raw.maximumCharacters),
+          nextSequence: number(raw.nextSequence), retainedCharacters: number(raw.retainedCharacters), dropped: number(raw.dropped),
+          overflow: bool(raw.overflow), truncations: number(raw.truncations), recordingErrors: number(raw.recordingErrors),
+          installationErrors: number(raw.installationErrors), records: Array.isArray(raw.records) ? [] : null };
+        if (Array.isArray(raw.eventTypes) && raw.eventTypes.length > 8 || Array.isArray(raw.records) && raw.records.length > 256) truncated = true;
+        let characters = 0;
+        for (const item of Array.isArray(raw.records) ? raw.records.slice(0, 256) : []) {
+          if (Date.now() >= deadline) return { observed: false, reason: "observation deadline expired" };
+          const record = { sequence: number(item?.sequence), documentToken: short(item?.documentToken), at: number(item?.at), timeStamp: number(item?.timeStamp),
+            type: short(item?.type), trusted: bool(item?.trusted),
+            target: item?.target === null ? null : { tag: short(item?.target?.tag), id: short(item?.target?.id), type: short(item?.target?.type) },
+            targetIsOriginalUpload: bool(item?.targetIsOriginalUpload), targetIsOriginalAdd: bool(item?.targetIsOriginalAdd),
+            clientX: number(item?.clientX), clientY: number(item?.clientY), button: number(item?.button), buttons: number(item?.buttons),
+            pointerId: item?.pointerId === null || Number.isFinite(item?.pointerId) ? item.pointerId : "invalid",
+            pointerType: item?.pointerType === null ? null : typeof item?.pointerType === "string" ? short(item.pointerType) : false };
+          const size = JSON.stringify(record).length;
+          if (characters + size > 65536) { truncated = true; break; }
+          projected.records.push(record); characters += size;
+        }
+        evidenceValue.pointerEvidence = projected;
+      }
+    } catch { evidenceValue.pointerReadError = "Pointer evidence could not be read"; }
+    if (Date.now() >= deadline) return { observed: false, reason: "observation deadline expired" };
+  }
   const input = document.querySelector("#upload"), frames = [...document.querySelectorAll("iframe")];
   if (frames.length > 16) truncated = true;
   const value = { observed: true, at: Date.now(), href, readyState: document.readyState, visibility: document.visibilityState,
@@ -95,10 +156,10 @@ function selectDocuments(metadata, item, expected) {
 // starts after failure; expiry cannot start another read or replace that error.
 export async function observeChooserFailure({ worker, item, fixtureURL, budgetMs = 3000, now = () => Date.now(),
   setTimer = setTimeout, clearTimer = clearTimeout, readMetadata, readDocuments,
-  fixtureKind = "chooser", timing = "After original failure, before waiter cancellation/finalization" }) {
+  fixtureKind = "chooser", pointerEvidence = false, timing = "After original failure, before waiter cancellation/finalization" }) {
   if (item.failureObservation) return item.failureObservation;
   const requestedAt = now(), report = item.failureObservation = { version: 1, tabId: item.tabId, key: item.key, variant: item.variant,
-    fixtureKind,
+    fixtureKind, pointerEvidenceExpected: pointerEvidence, pointerObservationRequested: false, pointerObservationComplete: pointerEvidence ? false : null,
     requestedAt, deadline: requestedAt + budgetMs, budgetMs, timing, complete: false, reads: [], errors: [],
     boundary: "Test-only read of the current fixture documents after failure. Native documentIds bind metadata to this later DOM read, not to the click-time document. No production authority is inferred from URL; no input, attachment, listener, navigation, retry, or original deadline extension." };
   async function within(stage, operation) {
@@ -116,14 +177,19 @@ export async function observeChooserFailure({ worker, item, fixtureURL, budgetMs
   }
   try {
     assert.ok(Number.isInteger(budgetMs) && budgetMs > 0 && budgetMs <= 3000, "Invalid failure observation budget");
+    assert.equal(typeof pointerEvidence, "boolean", "Invalid pointer evidence option");
+    assert.ok(!pointerEvidence || fixtureKind === "chooser", "Pointer evidence requires chooser fixture");
     report.expected = expectedPages(fixtureURL, item, fixtureKind);
     readMetadata ??= () => worker.evaluate(`(async()=>{const read=async operation=>{if(Date.now()>=${report.deadline})throw new Error('Failure observation deadline expired before native read');return operation()};const [tab,frames]=await Promise.all([read(()=>chrome.tabs.get(${item.tabId})),read(()=>chrome.webNavigation.getAllFrames({tabId:${item.tabId}}))]);return{tab:{id:tab.id,windowId:tab.windowId,url:tab.url,pendingUrl:tab.pendingUrl,active:tab.active,status:tab.status},frameCount:frames?.length,frames:frames?.slice(0,32)}})()`);
     report.metadata = await within("native-metadata", readMetadata);
     report.documents = selectDocuments(report.metadata, item, report.expected);
     report.childStatus = item.variant === "root" ? "not-required" : report.documents.length === 2 ? "unique-current-child" : "missing-current-child";
     const documentIds = report.documents.map(frame => frame.documentId), expectedURLs = report.documents.map(frame => frame.expectedURL);
-    readDocuments ??= () => worker.evaluate(`(()=>{if(Date.now()>=${report.deadline})throw new Error('Failure observation deadline expired before native read');return chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(documentIds)}},world:"MAIN",func:${chooserFailureDocument.toString()},args:[${JSON.stringify(expectedURLs)},${report.deadline},${JSON.stringify(fixtureKind)}]})})()`);
-    report.results = await within("document-observation", () => readDocuments({ tabId: item.tabId, documentIds, expectedURLs }));
+    readDocuments ??= () => worker.evaluate(`(()=>{if(Date.now()>=${report.deadline})throw new Error('Failure observation deadline expired before native read');return chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(documentIds)}},world:"MAIN",func:${chooserFailureDocument.toString()},args:[${JSON.stringify(expectedURLs)},${report.deadline},${JSON.stringify(fixtureKind)}${pointerEvidence ? ",true" : ""}]})})()`);
+    report.results = await within("document-observation", () => {
+      report.pointerObservationRequested = pointerEvidence;
+      return readDocuments({ tabId: item.tabId, documentIds, expectedURLs });
+    });
     assert.ok(Array.isArray(report.results) && report.results.length === report.documents.length, "Document observation result count differs");
     const seen = new Set();
     for (const result of report.results) {
@@ -133,6 +199,10 @@ export async function observeChooserFailure({ worker, item, fixtureURL, budgetMs
       assert.equal(result.result.href, frame.expectedURL, "Observed fixture URL differs");
       assert.equal(result.result.truncated, false, "Fixture observation truncated");
       const evidence = result.result[fixtureKind === "directory" ? "directoryEvidence" : "chooserEvidence"];
+      if (pointerEvidence) {
+        result.pointerEvidenceComplete = !evidence?.pointerReadError && chooserPointerEvidenceComplete(evidence);
+        assert.equal(result.pointerEvidenceComplete, true, "Pointer fixture evidence missing, truncated, or incomplete");
+      }
       assert.ok(evidence && typeof evidence.documentToken === "string" && evidence.documentToken.length > 0, "Fixture document token missing");
       for (const name of ["clicks", "frameAdds", ...(fixtureKind === "directory" ? ["events", "errors"] : ["changes"])])
         assert.ok(Array.isArray(evidence[name]), "Fixture event evidence missing");
@@ -149,6 +219,7 @@ export async function observeChooserFailure({ worker, item, fixtureURL, budgetMs
       }
     }
     report.complete = report.childStatus !== "missing-current-child" && report.priorDocumentTokenMatches !== false && report.priorInputTokenMatches !== false;
+    if (pointerEvidence) report.pointerObservationComplete = report.complete && report.results.every(result => result.pointerEvidenceComplete === true);
   } catch (error) { report.errors.push(String(error)); }
   report.completedAt = now(); return report;
 }
