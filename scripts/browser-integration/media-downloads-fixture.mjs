@@ -30,8 +30,8 @@ export function createMediaDownloadFixtures() {
       const child = url.pathname.endsWith("/frame");
       response.end(`<!doctype html><meta charset="utf-8"><title>Media downloads fixture</title>${image}
         <div id="not-media"><img src="/media-downloads/selected.png" alt="descendant"></div>
-        <img id="empty"><img id="inline" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">
-        <canvas id="canvas"></canvas><video id="video" src="/media-downloads/selected.png"></video>
+        <img id="empty"><img id="inline" src="data:text/plain,not-an-image">
+        <canvas id="canvas" width="0" height="0"></canvas><video id="video"></video>
         <span id="shadow"></span>
         ${child ? scope === "same" ? '<iframe id="nested" src="/media-downloads/frame?scope=nested"></iframe>' : "" : `<iframe id="same" src="/media-downloads/frame?scope=same"></iframe><iframe id="cross" src="http://localhost:${port}/media-downloads/frame?scope=cross"></iframe>`}
         <script>

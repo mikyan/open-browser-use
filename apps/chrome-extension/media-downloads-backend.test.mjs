@@ -5,6 +5,7 @@ import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
 import { BrowserActionEngine } from "./browser-action-engine.js";
 import { SITE_ACCESS_POLICY_KEY } from "./site-access-policy.js";
+import { MEDIA_CANCEL_FUNCTION } from "./browser-media-source.js";
 
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))
   .replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "")
@@ -49,8 +50,8 @@ async function fixture(t, restricted = false, { actualMedia = false } = {}) {
     const readSource = async (params, options) => {
         calls.push(["source", structuredClone(params)]);
         assert.ok(options.deadlineAt < performance.now()+120001 && options.deadlineAt > performance.now());
-        await options.check(); await hooks.source?.(); await options.check();
-        return {url:"https://allowed.test/image.png"};
+        await options.check(); const resolved = await hooks.source?.(options); await options.check();
+        return resolved ?? {url:"https://allowed.test/image.png"};
     };
     const engine = { pages, generations, queues,
       authorize: engineHooks.authorize,
@@ -285,5 +286,101 @@ test("a foreign context event cannot clear media cleanup failure; matching destr
   f.chrome.debugger.onEvent.emit(target, "Runtime.executionContextsCleared", {});
   await tick(); assert.equal(settled, false, "native send settlement must still be joined");
   gate.resolve(); await releasing;
+  cleanup.close();
+});
+
+test("embedded source uses the original download handle and detach aborts actual source work before native teardown", async t => {
+  const f = await fixture(t);
+  f.hooks.source = async () => ({ bytesBase64: "AAEC/w==", mimeType: "audio/wav", byteLength: 4 });
+  const ack = await f.backend.downloadMedia({ ...f.params, filename: "audio.wav" });
+  assert.deepEqual(f.calls.find(([name]) => name === "download")[1], {
+    url: "data:audio/wav;base64,AAEC/w==", filename: "audio.wav", saveAs: false, conflictAction: "uniquify"
+  });
+  await f.backend.cancelDownload({ ...f.params, ...ack });
+  const source = f.gate(), abort = f.gate(); let aborts = 0;
+  f.hooks.source = async ({ onCancel }) => {
+    const unsubscribe = onCancel(() => { aborts++; source.resolve(); return abort.promise; });
+    try { await source.promise; return { bytesBase64: "AA==", mimeType: "image/png", byteLength: 1 }; }
+    finally { unsubscribe(); }
+  };
+  const running = assert.rejects(f.backend.downloadMedia(f.params), /EXPIRED|DOCUMENT_CHANGED/);
+  while (f.calls.filter(([name]) => name === "source").length < 2) await tick();
+  await tick();
+  let detached = false; const cleanup = f.backend.detachTab(7).then(() => { detached = true; });
+  await running; await tick();
+  assert.equal(aborts, 1); assert.equal(detached, false);
+  assert.equal(f.backend.directDownloads.pendingSourceBytes, 8 * 1024 * 1024);
+  assert.ok(!f.calls.some(([name]) => name === "detach"));
+  abort.resolve(); await cleanup;
+  assert.equal(f.calls.filter(([name]) => name === "download").length, 1);
+  assert.equal(f.backend.directDownloads.pendingSourceBytes, 0);
+});
+
+test("private media abort uses a fixed function and exact child target while paused, without opening public Runtime", async t => {
+  const f = await fixture(t);
+  await f.backend.attach(f.params);
+  f.backend.childSessionsByTabId.set(7, new Set(["child-owned"]));
+  const target = { tabId: 7, sessionId: "child-owned" };
+  const cleanup = f.backend.prepareMediaCleanup(target, 17);
+  target.tabId = 8; target.sessionId = "other";
+  const sent = [];
+  f.hooks.command = async (method, args, nativeTarget) => {
+    if (method !== "Runtime.callFunctionOn") return;
+    sent.push({ target: structuredClone(nativeTarget), args: structuredClone(args) });
+    return { result: { type: "boolean", value: true } };
+  };
+  f.backend.automationControl.block();
+  await assert.rejects(f.backend.executeCdp({ ...f.params, method: "Runtime.callFunctionOn", commandParams: { objectId: "forged" } }), /OBU_AUTOMATION_PAUSED/);
+  await cleanup.cancel("binding-object");
+  assert.deepEqual(sent, [{ target: { tabId: 7, sessionId: "child-owned" }, args: {
+    objectId: "binding-object", functionDeclaration: MEDIA_CANCEL_FUNCTION, returnByValue: true, awaitPromise: true, userGesture: false
+  } }]);
+  for (const objectId of [undefined, null, "", 1, "x".repeat(4097)]) assert.throws(() => cleanup.cancel(objectId), /OBU_MEDIA_CLEANUP_FAILED/);
+  const original = f.backend.attachmentEpochs.get(7);
+  f.backend.attachmentEpochs.set(7, {});
+  try { assert.throws(() => cleanup.cancel("binding-object"), /OBU_MEDIA_CLEANUP_FAILED/); }
+  finally { f.backend.attachmentEpochs.set(7, original); }
+  assert.equal(sent.length, 1); cleanup.close();
+});
+
+test("private media abort joins native settlement and accepts only positive exact-context destruction", async t => {
+  const f = await fixture(t), gate = f.gate();
+  await f.backend.attach(f.params);
+  const cleanup = f.backend.prepareMediaCleanup({ tabId: 7 }, 17);
+  f.hooks.command = async method => {
+    if (method !== "Runtime.callFunctionOn") return;
+    await gate.promise; throw new Error("native abort failed");
+  };
+  let settled = false;
+  const abort = cleanup.cancel("binding").then(() => { settled = true; });
+  f.chrome.debugger.onEvent.emit({ tabId: 7 }, "Runtime.executionContextDestroyed", { executionContextId: 17 });
+  await tick(); assert.equal(settled, false);
+  gate.resolve(); await abort;
+  const before = f.calls.length;
+  await cleanup.cancel("binding"); assert.equal(f.calls.length, before);
+  cleanup.close();
+});
+
+test("unexpected cancellation remote objects are retained across a failed release and never silently lost", async t => {
+  const f = await fixture(t);
+  await f.backend.attach(f.params);
+  const cleanup = f.backend.prepareMediaCleanup({ tabId: 7 }, 17);
+  let releaseAllowed = false, responseCount = 0;
+  f.hooks.command = async (method, args) => {
+    if (method === "Runtime.callFunctionOn") {
+      if (++responseCount > 1) return { result: { type: "boolean", value: true } };
+      return { result: { objectId: "exception-owned" }, exceptionDetails: { exception: { objectId: "exception-owned" } } };
+    }
+    if (method === "Runtime.releaseObject" && args.objectId === "exception-owned" && !releaseAllowed) throw new Error("exception release failed");
+  };
+  await assert.rejects(cleanup.cancel("binding"), /exception release failed/);
+  assert.throws(() => cleanup.close(), /cancellation objects remain/);
+  releaseAllowed = true;
+  await cleanup.cancel("binding");
+  const releases = f.calls.filter(([method, , args]) => method === "Runtime.releaseObject" && args.objectId === "exception-owned");
+  assert.equal(releases.length, 2, "one failed release, then one exact retry; duplicate IDs are not released twice");
+  assert.equal(responseCount, 2);
+  f.hooks.command = async method => method === "Runtime.callFunctionOn" ? { result: { value: false } } : undefined;
+  await assert.rejects(cleanup.cancel("binding"), /native media cancellation failed/);
   cleanup.close();
 });

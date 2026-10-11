@@ -620,6 +620,52 @@ Go 全包及其余检查通过。四场景行为也已独立复核，三段零 a
 `01f6e2cafdf4efa032fea6b8222a2883adfdcb3e89b647cd9150715bb32718a1`。本片完成，完整 P13
 及 P01–P15 仍有既定缺口，整体 parity 目标 active，无 PR、无推送。
 
+### P10 有限媒体文件与 P11 历史诊断隔离
+
+`downloadMedia` 沿用 version 1 和五种公开入口，增加精确 video/audio 的
+HTTP(S) currentSrc 新 GET，以及 data、原 frame 同 origin Blob、Canvas
+PNG 的有界字节下载。嵌入内容最多 8 MiB，Canvas 最多 16,777,216 像素，
+未完成来源工作预留总计 64 MiB；不新增任意 HTTP utility fetch。
+原生 data URL sink 复用精确下载 ID，不增加隐藏下载锚点或 offscreen 文档。
+MSE/live/srcObject/DRM、失效或跨 origin Blob、污染 Canvas 与超限明确失败。
+
+取消保留真实 renderer fetch/reader/Canvas 结算与原 attachment/context 的
+句柄释放；reader 先 cancel 再 abort，并等待真实 Promise，避免把正常
+AbortError 误报为清理失败。双重 cancel/dispose 失败后，显式重试先重做
+精确 source cleanup，再确认下载取消，容量不因历史错误永久泄漏。
+新增实际媒体文件、五入口、跨 frame/shadow、8 MiB 边界、分区隔离和
+四种真实读取待决取消验收。原生 Port 的只读 observer 在 end ACK 前取证，
+避免用事后快照宣称清理早已完成；所有观察钩子只存在于测试 staging。
+
+首轮完整 CI **795** 项通过（扩展 697、脚本 46、脚手架 52），JS 93、
+Python 63、Go 全包通过；媒体专项 `run-L7XsRk` **16/16**。随后完整
+`run-WMOIim` **69/70**，新增媒体均通过，旧 diagnostics 用例失败：
+Runtime.enable 重放的历史 console 有时晚于新 collector 注册到达。
+该失败保留；旧生产代码定向小样本两次 2/2 并不能否定或确定性复现竞态。
+新验收保留真实原生 timestamp/重放、新 root/OOPIF console/pageerror 与
+新 owner 消息，同时用固定原 CRX handler 测试控制晚到旧事件的顺序。
+最终修复为每个新 CRPage 在 Runtime.enable 前建立 epoch-ms 时间边界，
+覆盖 root/OOPIF/worker 的 console、exception 与 Log，原始 CDP 通知不改。
+旧事件的对象通过原 session 清理，异步权限等待后再核 attachment 身份；
+失败保留原 CRSession 日志，不宣称释放成功。该方案依赖系统钟稳定，
+时钟跳变仍是 P11 已知边界，不把时间戳当作原生 replay 标记。
+
+新生产定向 `run-iJIwsa` **2/2**；最终完整 headed `run-XnREpF` **70/70**。
+最后全仓 CI **807**（703 扩展、52 脚本、52 脚手架），JS 93、Python 63、
+Go 全包及其他 workspace 检查通过。独立审计检查 36 媒体文件的实际字节、
+PNG 像素/WAV/VP8、两个 8 MiB 边界、12 负例、四种取消/end ACK 顺序。
+新 Page 原生重放 526 条旧 console、新 owner 重放 prior-owner 的原始
+时间戳均与旧递送匹配；新 capture 保留当前 root/OOPIF 的四条 console/error，
+后继 owner 只保留自身两条。六条创建首 tab 激活、两次明确 popup 打开的
+四条 focus 均精确归因，sentinel 不变；真实 host 两代均退出。
+只本地开发，无 PR、无推送；完整能力对齐目标保持 active。
+
+最终有限媒体制品已独立核验：ZIP **1,245,340 bytes**、**45 files / 50 entries**，
+SHA-256 `f4d720f839a0198ae3c5ccfd97c70930368af0e78eb0d9a8b400f7e3fb634e66`。
+每个成员与最终 unpacked 及 `run-XnREpF` 验收静态产物一致，原生 Port
+adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试钩子或
+私有路径。Host 沿用已验证二进制，hash 与实际运行一致，不宣称重新构建。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

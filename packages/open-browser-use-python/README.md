@@ -248,11 +248,14 @@ capacity. End, Pause, detach, ownership loss and worker restart invalidate handl
 
 ### Active URL downloads
 
-`locator.download_media(filename="image.png", timeout_ms=10000)` resolves an
-exact HTML image's selected HTTP(S) source and returns the same `Download`.
+`locator.download_media(filename="image.png", timeout_ms=10000)` downloads an
+exact image, video, audio element or Canvas and returns the same `Download`.
 It requires `mediaDownloadsVersion: 1`, preserves the original scope and uses
-one deadline for source resolution and native start. This is a new GET; blob/data,
-other media types and restricted website mode remain unsupported. See the
+one deadline for source resolution and native start. HTTP(S) `currentSrc` starts
+a new GET; data and same-origin Blob content is read in the original frame, and
+Canvas produces PNG. Embedded content is limited to 8 MiB and Canvas to
+16,777,216 pixels. MSE, live streams, `srcObject`, DRM, tainted Canvas and
+restricted website mode remain unsupported. See the
 [media contract](../../docs/references/media-downloads.md).
 
 `tab.download_url` explicitly starts an HTTP(S) GET and requires the extension's

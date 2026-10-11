@@ -308,11 +308,13 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   16 MiB，至多四项未完成工作且每 tab 一项；挂起 admission 仍占容量。
   MHTML 在受限网站模式拒绝，PDF 复核完整 frame 树。SDK 返回统一字节对象，
   CLI/MCP 在验证后原子创建新文件，详见 [page exports](references/page-exports.md)。
-- `mediaDownloadsVersion=1` 为有限 locator 提供 `downloadMedia`，首片取精确
-  HTML 图片已选定的 HTTP(S) `currentSrc`，发起新的原生 GET 并复用下载
-  handle/path/cancel。固定 CRX adapter 在真实 frame 的 utility world 读取
-  原生 getter，保留节点/文档并复核，实际原生句柄释放完成后才返回来源。
-  解析前预留下载容量，原始 deadline 包含排队、来源和 GET，取消不重放。
+- `mediaDownloadsVersion=1` 为有限 locator 提供 `downloadMedia`，精确 HTML
+  图片与音视频的 HTTP(S) `currentSrc` 发起新的原生 GET；data、原 frame
+  同 origin 的 Blob 和 Canvas PNG 则读取有界字节，复用下载 handle/path/cancel。
+  固定 CRX adapter 在真实 frame 的 utility world 读取原生 getter，保留
+  节点/文档并复核，实际原生读取与句柄释放完成后才返回来源。嵌入内容
+  上限 8 MiB，Canvas 最多 16,777,216 像素；解析前预留最多 64 MiB 的
+  来源工作容量，原始 deadline 包含排队、来源和原生开始，取消不重放。
   详见 [media downloads](references/media-downloads.md)。
 - `clipboardVersion=1` 保留四个剪贴板 RPC，支持有限的文本、HTML 和 PNG。
   `BrowserClipboard` 管全局单项 admission、scope、deadline 与真实结算；
@@ -327,6 +329,16 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   pageerror 和 network 摘要；第一条有归属的 engine action 前开始记录，最多
   500 条/1 MiB，返回 capture/cursor/dropped。Detach 或归属改变丢弃历史，
   旧 cursor 不能读取后续 attachment；第一版不记录 headers/body 或历史流量。
+  新 CRPage 在启用 Runtime 前记录 epoch-millisecond 时间边界；根页面、
+  OOPIF 与 worker 的 console/exception/Log 回调在创建 JSHandle 前拒绝
+  边界之前或时间戳不可用的历史事件。原生 raw CDP 通知不改写，也不清空
+  用户控制台。丢弃事件的对象只通过原 session 尝试释放，并在异步权限
+  检查后再次确认 attachment 身份；失败沿原 CRSession 记录，不冒充已释放。
+  该边界假定系统时钟稳定：原生事件使用 wall clock，worker 的高精度边界
+  使用 timeOrigin/monotonic offset。系统时钟跳变后的历史区分尚未保证。
+  pinned Chromium 的 [Runtime 时钟](https://chromium.googlesource.com/chromium/src/+/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.cc#682)
+  与 [Performance 偏移](https://chromium.googlesource.com/chromium/src/+/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/timing/performance.cc#303)
+  分别是这一限制的来源；时间戳不是原生 replay 标记。
 - `armNetworkWait` / `collectNetworkWait` / `cancelNetworkWait` 通过真实 Page
   request/response 事件提供先监听、后触发的有限等待。短注册阶段共享 tab
   队列，ready 后监听与读取不占动作队列；不查询 diagnostics 历史。记录在

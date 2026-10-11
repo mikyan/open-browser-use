@@ -846,3 +846,48 @@ CI-final 已 exit 0：扩展 **669**、脚本 **43**、浏览器脚手架 **48**
 `01f6e2cafdf4efa032fea6b8222a2883adfdcb3e89b647cd9150715bb32718a1`。本片完成，未知输入跨
 profile-start witness、extension reload/update 与原生 launcher 等 P13
 余项及完整矩阵继续，目标保持 active，无 PR、无推送。
+
+### P10：有限媒体文件下载（本片完成，P10 仍部分完成）
+
+下一片扩展既有 `downloadMedia`，保持 `mediaDownloadsVersion=1`、现有
+五入口及 scoped `Download.path/cancel` 契约。HTTP(S) 图片与音视频采用原生
+`currentSrc` 的新 GET；data、原 Frame 同 origin 的 Blob 与 Canvas PNG
+采用实际有界字节。仅精确元素，不回退猜测后代、源属性或操作播放状态。
+嵌入字节上限 8 MiB、Canvas 16,777,216 像素，并限制活跃字节总预算。
+MSE、live/srcObject、DRM、tainted Canvas、失效 Blob 与超限明确失败。
+
+新增读取必须保留真实 native settlement、原 attachment/context/Document、
+元素与源身份。取消先触发精确 binding 的固定 abort，再等待实际读/编码/
+句柄释放，不能把调用方 timeout 当 cleanup。utility world 有 universal
+access，故不扩大成任意 HTTP 内容 fetch，也不允许跨 origin Blob 读取；
+content-return API、HTTP 原始响应复现及其他 P10 范围仍另待完成。
+
+字节 sink 优先核定并实测 Chrome downloads 的 data URL，避免新增 offscreen
+文档与现有剪贴板宿主页争用。仍由返回的精确 native ID 建立所有权，迟到 ID
+取消；公共 `downloadURL` 继续只接受 HTTP(S)。验证覆盖五入口实际文件、
+确定性字节/Canvas 像素、frame/shadow/ref、原型篡改、取消/导航/超限负例，
+并核对连续焦点账本。源码冻结后运行 CI、headed 回归、制品审计并同步本文、
+media reference、质量矩阵与已有 history。仅本地，不提 PR、不推送。
+
+实现与验收已完成。媒体专项 `run-L7XsRk` **16/16**；初轮完整
+`run-WMOIim` **69/70** 的媒体全过，但发现旧 console 重放进入新 capture。
+随后为每个新 CRPage 添加高精度 epoch-ms 边界，在原 root/OOPIF/worker
+回调生成 handles 前过滤历史 console/exception/Log；原始 CDP 通知保留。
+清理绑定原 session/targetInfo，在异步 admission 后再次核对身份。
+该时间戳方案依赖稳定系统钟，跨时钟跳变的严格隔离仍未完成。
+
+新生产定向 `run-iJIwsa` **2/2**，最终完整 headed `run-XnREpF` **70/70**。
+新 fence 的 12 项确定性回归与全仓 CI **807**（703+52+52）通过；JS 93、
+Python 63、Go 全包及其余检查通过。独立审计验证 36 实际媒体文件、两个
+8 MiB 边界、12 负例、四个真实 pending read 取消及 end ACK 顺序；真实
+console replay 保留原时间戳，但新 capture 只有当前 root/OOPIF/owner 消息。
+连续 observer 六条创建首 tab 激活与四条明确 popup focus 均精确归因，
+sentinel 不变，无额外前台事件。旧失败保留，不能用通过的定向样本否定竞态。
+内容返回、任意大小资源、headed OS 剪贴板与更广 P10/P11/平台验收仍在矩阵；
+完整 P01–P15 与长期目标保持 active，无 PR、无推送。
+
+最终有限媒体制品已独立核验：ZIP **1,245,340 bytes**、**45 files / 50 entries**，
+SHA-256 `f4d720f839a0198ae3c5ccfd97c70930368af0e78eb0d9a8b400f7e3fb634e66`。
+每个成员与最终 unpacked 及 `run-XnREpF` 验收静态产物一致，原生 Port
+adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试钩子或
+私有路径。Host 沿用已验证二进制，hash 与实际运行一致，不宣称重新构建。

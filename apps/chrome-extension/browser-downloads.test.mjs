@@ -382,3 +382,228 @@ test("an earlier external cancellation keeps precedence over a late source failu
   assert.equal(record.error, undefined);
   assert.equal(env.registry.records.size, 0); assert.deepEqual(env.calls, []);
 });
+
+const sourceBytes = (bytes = Buffer.from([0, 1, 2, 255]), mimeType = "image/png") => ({ bytesBase64: bytes.toString("base64"), mimeType, byteLength: bytes.length });
+const sourceReservationBytes = 8 * 1024 * 1024;
+
+test("private embedded bytes use an exact data download ID without expanding public downloadURL", async () => {
+  const env = fixture();
+  const payload = sourceBytes();
+  assert.throws(() => validateDownloadURL(request({ url: `data:image/png;base64,${payload.bytesBase64}` })));
+  const a = env.registry.reserveSource(sourceRequest({ filename: "image.png" }));
+  const b = env.registry.reserveSource(sourceRequest({ session_id: "two", tabId: 8 }));
+  const one = await env.registry.startFromSource(a, scope(a), async () => payload);
+  const two = await env.registry.startFromSource(b, scope(b), async () => payload);
+  assert.notEqual(one.downloadId, two.downloadId);
+  assert.deepEqual(env.calls.filter(([name]) => name === "download"), [
+    ["download", { url: "data:image/png;base64,AAEC/w==", filename: "image.png", saveAs: false, conflictAction: "uniquify" }],
+    ["download", { url: "data:image/png;base64,AAEC/w==", saveAs: false, conflictAction: "uniquify" }]
+  ]);
+  assert.equal(a.sourceURL, undefined);
+  assert.equal(a.sourcePromise, null);
+  assert.equal(env.registry.pendingSourceBytes, 0);
+  assert.deepEqual(await env.registry.path({ ...a.params, ...one }), { path: "/downloads/file-1" });
+  assert.deepEqual(await env.registry.path({ ...b.params, ...two }), { path: "/downloads/file-2" });
+  await assert.rejects(env.registry.path({ ...b.params, ...one }), /OBU_DOWNLOAD_EXPIRED/);
+  await env.registry.invalidateAll();
+  assert.deepEqual(env.calls.filter(([name]) => name === "cancel"), [["cancel", 1], ["cancel", 2]]);
+});
+
+test("embedded source validation rejects malformed or ambiguous payloads before native dispatch", async () => {
+  let getterCalled = false;
+  const accessor = { ...sourceBytes() }; Object.defineProperty(accessor, "bytesBase64", { enumerable: true, get() { getterCalled = true; return "AA=="; } });
+  const nonenumerable = { ...sourceBytes() }; Object.defineProperty(nonenumerable, "extra", { value: 1 });
+  const failures = [
+    { ...sourceBytes(), url: request().url }, { ...sourceBytes(), extra: true }, accessor, nonenumerable,
+    { ...sourceBytes(), [Symbol("extra")]: true },
+    ...[undefined, null, 0, -1, 1.5, "4", Number.MAX_SAFE_INTEGER + 1].map(byteLength => ({ ...sourceBytes(), byteLength })),
+    ...["", "AAEC/w", "AAEC_w==", "AAEC/w==\n", "AAEC/===", "AAEC/x==", "aA==", "AAEC/w===", "data:image/png;base64,AAEC/w=="].map(bytesBase64 => ({ ...sourceBytes(), bytesBase64 })),
+    ...["", "text/html", "Image/PNG", "image/png;name=x", "image/png\n", "image/png,xx", "image/", "image/" + "a".repeat(128)].map(mimeType => ({ ...sourceBytes(), mimeType }))
+  ];
+  for (const payload of failures) {
+    const env = fixture(), record = env.registry.reserveSource(sourceRequest());
+    await assert.rejects(env.registry.startFromSource(record, scope(record), async () => payload), /OBU_MEDIA_SOURCE_INVALID|OBU_MEDIA_LIMIT/);
+    await env.registry.invalidateAll(); await tick();
+    assert.deepEqual(env.calls, []);
+    assert.equal(env.registry.pendingSourceBytes, 0);
+  }
+  assert.equal(getterCalled, false);
+});
+
+test("embedded bytes enforce the exact 8 MiB hard bound and preserve canonical base64", async () => {
+  const env = fixture();
+  const bytes = Buffer.alloc(sourceReservationBytes, 0xa5);
+  const payload = sourceBytes(bytes, "audio/wav");
+  const record = env.registry.reserveSource(sourceRequest());
+  await env.registry.startFromSource(record, scope(record), async () => payload);
+  assert.equal(env.calls[0][1].url, `data:audio/wav;base64,${payload.bytesBase64}`);
+  await env.registry.invalidateAll();
+  for (const oversized of [sourceBytes(Buffer.alloc(sourceReservationBytes + 1)), { ...sourceBytes(), byteLength: sourceReservationBytes + 1 }]) {
+    const next = env.registry.reserveSource(sourceRequest());
+    const count = env.calls.length;
+    await assert.rejects(env.registry.startFromSource(next, scope(next), async () => oversized), /OBU_MEDIA_LIMIT/);
+    await env.registry.invalidateAll();
+    assert.equal(env.calls.length, count);
+  }
+});
+
+test("the global byte budget is reserved before source resolution, independently of metadata capacity", async () => {
+  const env = fixture();
+  const records = Array.from({ length: 8 }, (_, index) => env.registry.reserveSource(sourceRequest({ tabId: index })));
+  assert.equal(env.registry.pendingSourceBytes, 64 * 1024 * 1024);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_MEDIA_LIMIT/);
+  const ordinary = env.registry.reserve(request());
+  assert.equal(env.registry.records.size, 9);
+  await env.registry.retire(records[0]);
+  assert.equal(env.registry.pendingSourceBytes, 56 * 1024 * 1024);
+  env.registry.reserveSource(sourceRequest());
+  await env.registry.retire(ordinary);
+  await env.registry.invalidateAll();
+  assert.equal(env.registry.pendingSourceBytes, 0);
+});
+
+test("HTTP source settlement releases the byte reservation before an unresolved native GET start", async () => {
+  const env = fixture({ maxPendingSourceBytes: sourceReservationBytes });
+  const native = deferred(), entered = deferred();
+  env.downloads.download = () => { entered.resolve(); return native.promise; };
+  const record = env.registry.reserveSource(sourceRequest());
+  const running = env.registry.startFromSource(record, scope(record), async () => ({ url: request().url }));
+  await entered.promise;
+  assert.equal(env.registry.pendingSourceBytes, 0);
+  const next = env.registry.reserveSource(sourceRequest());
+  await env.registry.retire(next);
+  native.resolve(77); await running; await env.registry.invalidateAll();
+});
+
+test("embedded timeout retains byte capacity until the exact late native start settles", async () => {
+  const env = fixture({ maxPendingSourceBytes: sourceReservationBytes });
+  const native = deferred(), entered = deferred();
+  env.downloads.download = options => { env.calls.push(["download", options]); entered.resolve(); return native.promise; };
+  const record = env.registry.reserveSource(sourceRequest({ timeoutMs: 20 }));
+  const pending = assert.rejects(env.registry.startFromSource(record, scope(record), async () => sourceBytes()), /OBU_DOWNLOAD_TIMEOUT/);
+  await entered.promise; await pending;
+  assert.equal(env.registry.pendingSourceBytes, sourceReservationBytes);
+  assert.throws(() => env.registry.reserveSource(sourceRequest()), /OBU_MEDIA_LIMIT/);
+  const cleanup = env.registry.invalidateAll();
+  native.resolve(902); await cleanup; await tick();
+  assert.equal(env.registry.pendingSourceBytes, 0);
+  assert.deepEqual(env.calls.at(-1), ["cancel", 902]);
+  assert.equal(env.registry.records.size, 0);
+});
+
+test("source cancellation invokes abort before joining real cleanup, not just a caller timeout race", async () => {
+  const env = fixture({ maxPendingSourceBytes: sourceReservationBytes });
+  const entered = deferred(), nativeRead = deferred(), nativeAbort = deferred();
+  let aborts = 0, cleaned = false;
+  const record = env.registry.reserveSource(sourceRequest());
+  const pending = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ onCancel }) => {
+    const unsubscribe = onCancel(() => { aborts++; return nativeAbort.promise; });
+    entered.resolve();
+    try { await nativeRead.promise; return sourceBytes(); }
+    finally { cleaned = true; unsubscribe(); }
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  let ended = false; const end = env.registry.invalidateSession("one").then(() => { ended = true; });
+  assert.equal(aborts, 1); await pending;
+  nativeRead.resolve(); await tick();
+  assert.equal(cleaned, true); assert.equal(ended, false);
+  assert.equal(env.registry.pendingSourceBytes, sourceReservationBytes);
+  assert.ok(env.registry.controlSnapshot().pending.length);
+  nativeAbort.resolve(); await end; await tick();
+  assert.equal(ended, true); assert.equal(env.registry.pendingSourceBytes, 0);
+  assert.deepEqual(env.calls, []);
+});
+
+test("a binding arriving after cancellation immediately receives abort and cannot start a download", async () => {
+  const env = fixture(), entered = deferred(), binding = deferred(), abort = deferred();
+  const record = env.registry.reserveSource(sourceRequest()); let calls = 0;
+  const pending = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ onCancel }) => {
+    entered.resolve(); await binding.promise;
+    const unsubscribe = onCancel(() => { calls++; return abort.promise; });
+    assert.equal(calls, 1);
+    await abort.promise; unsubscribe(); return sourceBytes();
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  const end = env.registry.invalidateAll(); await pending;
+  binding.resolve(); await tick();
+  assert.equal(calls, 1); assert.equal(env.registry.pendingSourceBytes, sourceReservationBytes);
+  abort.resolve(); await end; await tick();
+  assert.deepEqual(env.calls, []); assert.equal(env.registry.pendingSourceBytes, 0);
+});
+
+test("a failed abort remains retryable and an explicit retry can unblock the already pending cleanup", async () => {
+  const env = fixture(), entered = deferred(), source = deferred(); let attempts = 0;
+  const record = env.registry.reserveSource(sourceRequest());
+  const pending = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ onCancel }) => {
+    const unsubscribe = onCancel(async () => {
+      attempts++; if (attempts === 1) throw new Error("exact binding abort failed");
+      source.resolve();
+    });
+    entered.resolve(); await source.promise; unsubscribe(); return sourceBytes();
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  let ended = false; const end = env.registry.invalidateSession("one").then(() => { ended = true; });
+  await pending; await tick(); assert.equal(ended, false); assert.equal(attempts, 1);
+  await env.registry.invalidateAll(); await end; await tick();
+  assert.equal(attempts, 2); assert.equal(env.registry.pendingSourceBytes, 0);
+  assert.deepEqual(env.calls, []);
+});
+
+test("abort rejection after a naturally settled source still prevents empty cleanup success", async () => {
+  const env = fixture(), entered = deferred(), source = deferred(); let allow = false, attempts = 0;
+  const record = env.registry.reserveSource(sourceRequest());
+  const pending = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ onCancel }) => {
+    const unsubscribe = onCancel(() => { attempts++; if (!allow) throw new Error("exact abort failed"); });
+    entered.resolve(); await source.promise; unsubscribe(); return sourceBytes();
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  const failed = assert.rejects(env.registry.invalidateAll(), /OBU_DOWNLOAD_CLEANUP_FAILED: exact abort failed/);
+  await pending; source.resolve(); await failed; await tick();
+  assert.equal(env.registry.pendingSourceBytes, sourceReservationBytes);
+  assert.equal(attempts, 1); allow = true;
+  await env.registry.invalidateAll(); await tick();
+  assert.equal(attempts, 2); assert.equal(env.registry.pendingSourceBytes, 0);
+});
+
+test("dual abort and disposal failure retries exact source disposal before confirming cancellation", async () => {
+  const env = fixture({ maxPendingSourceBytes: sourceReservationBytes });
+  const entered = deferred(), source = deferred(), disposed = deferred(), finalAbort = deferred();
+  let cleaned = false, cleanupAllowed = false, retryCalls = 0, abortCalls = 0;
+  const events = [];
+  const failure = Object.assign(new Error("OBU_MEDIA_CLEANUP_FAILED: first exact disposal failed"), {
+    mediaCleanupFailed: true,
+    async retryMediaCleanup() {
+      retryCalls++; events.push("dispose-retry");
+      if (!cleanupAllowed) throw new Error("exact disposal still failed");
+      await disposed.promise; cleaned = true; events.push("disposed");
+    }
+  });
+  const record = env.registry.reserveSource(sourceRequest());
+  const running = assert.rejects(env.registry.startFromSource(record, scope(record), async ({ onCancel }) => {
+    onCancel(async () => {
+      abortCalls++; events.push(cleaned ? "abort-confirm" : "abort-failed");
+      if (!cleaned) throw new Error("native abort failed");
+      await finalAbort.promise;
+    });
+    entered.resolve(); await source.promise; throw failure;
+  }), /OBU_DOWNLOAD_EXPIRED/);
+  await entered.promise;
+  // Ordinary RPC retirement neither retries cancellation nor failed disposal.
+  const first = assert.rejects(env.registry.retire(record), /first exact disposal failed/);
+  source.resolve(); await running; await first; await tick();
+  assert.equal(retryCalls, 0); assert.equal(abortCalls, 1);
+  await assert.rejects(env.registry.invalidateAll(), /OBU_DOWNLOAD_CLEANUP_FAILED: exact disposal still failed/);
+  assert.equal(retryCalls, 1); assert.equal(abortCalls, 1);
+  assert.equal(env.registry.pendingSourceBytes, sourceReservationBytes);
+  cleanupAllowed = true;
+  let ended = false; const ending = env.registry.invalidateAll().then(() => { ended = true; });
+  await tick(); assert.equal(retryCalls, 2); assert.equal(abortCalls, 1); assert.equal(ended, false);
+  disposed.resolve(); await tick();
+  assert.equal(abortCalls, 2); assert.equal(ended, false);
+  assert.ok(events.indexOf("disposed") < events.indexOf("abort-confirm"));
+  assert.ok(env.registry.controlSnapshot().pending.length);
+  assert.equal(env.registry.pendingSourceBytes, sourceReservationBytes);
+  finalAbort.resolve(); await ending; await tick();
+  assert.equal(env.registry.records.size, 0); assert.equal(env.registry.pendingSourceBytes, 0);
+  assert.deepEqual(env.calls, []);
+});

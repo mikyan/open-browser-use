@@ -21,11 +21,11 @@ export function nativeAdapterSource(url) {
     let closed = false;
     const socket = new WebSocket(${JSON.stringify(url)} + '?extensionId=' + chrome.runtime.id);
     socket.onopen = () => { if (!closed) for (const message of queued.splice(0)) socket.send(message); };
-    socket.onmessage = event => { if (!closed) { const message = JSON.parse(event.data); for (const fn of messages) fn(message); } };
+    socket.onmessage = event => { if (!closed) { const message = JSON.parse(event.data); globalThis.__integrationNativeRPCObserver?.("request", message); for (const fn of messages) fn(message); } };
     socket.onclose = () => { if (closed) return; closed = true; queued.length = 0; for (const fn of disconnects) fn(); };
     return { name, onMessage: { addListener: fn => messages.add(fn), removeListener: fn => messages.delete(fn) },
       onDisconnect: { addListener: fn => disconnects.add(fn), removeListener: fn => disconnects.delete(fn) },
-      postMessage: message => { if (closed || socket.readyState > 1) throw new Error('Native port is disconnected'); const text = JSON.stringify(message); if (socket.readyState === 1) socket.send(text); else queued.push(text); },
+      postMessage: message => { if (closed || socket.readyState > 1) throw new Error('Native port is disconnected'); globalThis.__integrationNativeRPCObserver?.("response", message); const text = JSON.stringify(message); if (socket.readyState === 1) socket.send(text); else queued.push(text); },
       disconnect: () => socket.close() };
   }\n`;
 }

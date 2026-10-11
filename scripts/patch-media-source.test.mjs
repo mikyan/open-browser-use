@@ -4,6 +4,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { createRequire } from "node:module";
 import { test } from "node:test";
+import { MEDIA_CANCEL_FUNCTION } from "../apps/chrome-extension/browser-media-source.js";
 import { MediaContextLifetimes } from "../apps/chrome-extension/browser-media-lifetime.js";
 import { mediaTaskBridge, patchCrxMediaSource } from "./patch-media-source.mjs";
 
@@ -26,7 +27,7 @@ function fixture() {
   const event = () => { const listeners = new Set(); return { listeners, addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn), emit: (...args) => { for (const fn of [...listeners]) fn(...args); } }; };
   const nativeEvents = { onEvent: event(), onDetach: event(), onTabRemoved: event() };
   const lifetimes = new MediaContextLifetimes(nativeEvents);
-  const timers = new Map(), active = new Set(), sent = [], released = [], identities = new Map([[7, {}]]), children = new Map([["oopif-session", 7]]);
+  const timers = new Map(), active = new Set(), sent = [], released = [], cancelled = [], identities = new Map([[7, {}]]), children = new Map([["oopif-session", 7]]);
   let timerId = 0;
   class ManualPromise extends Promise {
     constructor() { let resolve, reject; super((a, b) => { resolve = a; reject = b; }); this.resolve = resolve; this.reject = reject; }
@@ -40,7 +41,12 @@ function fixture() {
     async _send(target, method, params) { sent.push({ target, method, params }); return { result: { objectId: "object-1", type: "object" } }; } };
   const hooks = { prepareMediaCleanup(target, contextId) {
     const identity = identities.get(target.tabId), lease = lifetimes.capture(target, contextId);
-    return { close: lease.close, release: async objectId => {
+    return { close: lease.close, cancel: async objectId => {
+      if (lease.isGone()) return;
+      assert.equal(identities.get(target.tabId), identity);
+      if (target.sessionId) assert.equal(children.get(target.sessionId), target.tabId);
+      cancelled.push({ target, objectId });
+    }, release: async objectId => {
       if (lease.isGone()) return;
       assert.equal(identities.get(target.tabId), identity);
       if (target.sessionId) assert.equal(children.get(target.sessionId), target.tabId);
@@ -64,7 +70,7 @@ function fixture() {
   const injected = new JSHandle(context, "injected");
   const operations = runtime.createOpenBrowserUseMediaOperations(), owned = [];
   operations.setHandleObserver(handle => owned.push(handle));
-  return { ...runtime, lifetimes, nativeEvents, frame, locator: new Locator(frame), context, injected, operations, owned, timers, active, transport, hooks, sent, released, identities, children };
+  return { ...runtime, lifetimes, nativeEvents, frame, locator: new Locator(frame), context, injected, operations, owned, timers, active, transport, hooks, sent, released, cancelled, identities, children };
 }
 
 test("media patch fails closed on changed native controller, selector and frame-owner shapes", () => {
@@ -205,4 +211,42 @@ test("production media calls require the private cleanup lease instead of fallin
   const f = fixture(); delete f.hooks.prepareMediaCleanup;
   await assert.rejects(f.operations.evaluateHandle(f.injected, () => ({})), /OBU_MEDIA_UNSUPPORTED: native media cleanup hook/);
   assert.equal(f.sent.length, 0); assert.equal(f.lifetimes.size, 0);
+});
+
+
+test("private cancellation remains bound to the original OOPIF object and joins actual native abort", async () => {
+  const f = fixture(); f.context.delegate._client._sessionId = "oopif-session";
+  const actual = deferred(); let calls = 0, closed = false;
+  f.hooks.prepareMediaCleanup = (target, contextId) => {
+    assert.equal(target.sessionId, "oopif-session"); assert.equal(contextId, 41);
+    return { close: () => { closed = true; }, release: async () => {}, cancel: async objectId => {
+      assert.equal(objectId, "object-1"); calls++; await actual.promise;
+    } };
+  };
+  const handle = await f.operations.evaluateHandle(f.injected, () => ({}));
+  let settled = false; const cancellation = f.operations.cancel(handle).then(() => { settled = true; });
+  await flush(); assert.equal(settled, false); assert.equal(calls, 1); assert.equal(closed, false);
+  actual.resolve(); await cancellation; await f.operations.dispose(handle); assert.equal(closed, true);
+  await f.operations.cancel(handle); assert.equal(calls, 1, "disposed native object no longer needs abort");
+  await assert.rejects(f.operations.cancel(f.injected), /not owned/);
+});
+
+test("cancellation failures can retry only the same object; actual context destruction makes old cancellation safe", async () => {
+  for (const destroyed of [false, true]) {
+    const f = fixture(); f.context.delegate._client._sessionId = "oopif-session";
+    const handle = await f.operations.evaluateHandle(f.injected, () => ({}));
+    if (destroyed) f.nativeEvents.onEvent.emit({ tabId: 7, sessionId: "oopif-session" }, "Runtime.executionContextDestroyed", { executionContextId: 41 });
+    f.identities.set(7, {}); f.children.delete("oopif-session");
+    if (destroyed) { await f.operations.cancel(handle); await f.operations.dispose(handle); assert.equal(f.lifetimes.size, 0); }
+    else { await assert.rejects(f.operations.cancel(handle)); await assert.rejects(f.operations.dispose(handle)); assert.equal(handle._disposed, false); }
+    assert.equal(f.cancelled.length, 0); assert.equal(f.released.length, 0);
+  }
+});
+
+test("fixed cancellation body returns only an explicit boolean even for renderer errors", async () => {
+  const fn = vm.runInNewContext(`(${MEDIA_CANCEL_FUNCTION})`);
+  let calls = 0;
+  assert.equal(await fn.call({ cancel: async () => { calls++; } }), true);
+  assert.equal(await fn.call({ cancel: async () => { calls++; throw new Error("private page details"); } }), false);
+  assert.equal(calls, 2);
 });

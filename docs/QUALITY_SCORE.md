@@ -13,11 +13,11 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收；最新受控 Chromium testing-config 基线完整 headed `run-hlPRVD` 63/63，包含媒体五入口、普通标签撤权和真实 host 进程退出后的显式恢复；browser lifetime 归属隔离与持久输入风险已实现，最新独立重启专项 `browser-restart-ShnPfH` 4/4。最后 orphan 修复后的完整 CI 760 项、主 63 项及制品 hash 复核通过。剪贴板固定 Headless 8 项通过。原配置 headed 29/53、首帧 0/3 和媒体专项 8/9 失败仍保留；实验组下的首帧兼容性未由插件修复。 | 继续补更广重启/reload 顺序、原生 launcher 恢复、Page GUID 路径/取消、headed OS 剪贴板、其他媒体类型、实验配置和更多平台完整任务比较；原生 popup 初始激活仍有缺口。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收。最终受控 Chromium headed `run-XnREpF` 70/70，新增有限音视频/data/Blob/Canvas 下载与读取取消，并修复稳定系统钟下历史 diagnostics 混入新任务。独立重启专项 `browser-restart-ShnPfH` 4/4 仍为此前专项证据。最后 CI 807 项与媒体/诊断/制品 hash 审计通过；原配置首帧失败仍保留。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、更多重启/reload/launcher 恢复、其他浏览器平台与同组 Codex 完整任务比较；原生 popup 初始激活仍有缺口。 |
 | 架构文档 | B | 本地 IPC、动作协议、有界递归观察与 capture refs、持久 control 生命周期、全局暂停和文件来源边界已有独立 reference；新增标签撤权、host 断线恢复门禁、session incarnation 与 startup witness 恢复，以及真实目标销毁的清理边界。 | 继续记录不同恢复顺序和原生 launcher 恢复及更多受限入口的设计/证据。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查，草稿和冲突不被轮询覆盖。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 最后源码完整 `scripts/ci.sh` 通过：扩展 669、脚本 43、浏览器脚手架 48（共 760），JS 93、Python 63、Go 全包及其余检查；最终主 headed `run-hlPRVD` 63/63、独立重启 `browser-restart-ShnPfH` 4/4，源码/制品 hash 审计通过。此前 `run-fLR1kz` 63/63 与 745 项 CI 保留为过程证据。启动前原始 trace、实际启动参数和二进制 hash 可核验；单 feature override 会跳过整个 Chromium testing study 的混杂已记录，失败历史不改绿。 | 继续更多恢复顺序、原生 launcher 恢复、更多 OS/浏览器、实验配置兼容性和同组 Codex 比较。 |
-| 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network 摘要、cursor 和丢弃信息；独立 network wait 有 ready 确认、原始 deadline 和控制归属，不依赖历史轮询。 | 补可脱敏 debug trace 与更多真实站点场景。 |
+| 测试 | B | 最终完整 `scripts/ci.sh` 通过：扩展 703、脚本 52、浏览器脚手架 52（共 807），JS 93、Python 63、Go 全包及其余检查。最终 headed `run-XnREpF` 70/70、独立实际媒体与原生诊断事件审计通过；前一轮 `run-WMOIim` 69/70 的 diagnostics 失败保留。源码/ZIP 一致且无测试钩子。先前独立重启 4/4 不冒充本轮新增媒体跨重启验收。 | 继续更多恢复顺序、原生 launcher、其他 OS/浏览器、实验配置兼容性和同组 Codex 比较。 |
+| 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
 
 最新验收脚手架修正增加 15 项 Node-only 回归，全部通过。固定 Headless
@@ -32,7 +32,7 @@
 初始激活和两次测试主动打开控制面板的四条焦点事件均精确归因，不宣称
 零事件或覆盖全部用户浏览器配置。详见 [启动诊断](references/headed-browser-startup.md)。
 
-图片下载最终 `run-FDmPto` 固定 Headless 9/9、`run-XLWzut` headed 8/9；
+历史 HTTP-image-only 图片下载 `run-FDmPto` 固定 Headless 9/9、`run-XLWzut` headed 8/9；
 八项媒体均通过，原有 raw-navigation 超时不因此修复。来源只支持精确
 `<img>` 的 HTTP(S) currentSrc，
 其他媒体类型与资源字节导出仍见 [能力矩阵](product-specs/browser-use-parity.md)。
@@ -89,3 +89,16 @@ popup。startup witness 的未知输入跨进程清理、真实 extension reload
 49 entries**，SHA-256 `01f6e2cafdf4efa032fea6b8222a2883adfdcb3e89b647cd9150715bb32718a1`。主套件连续
 observer 再次为六条唯一窗口首 tab 激活、四条明确控制面板 focus，无额外
 前台事件。本片完成，完整 P13 和 P01–P15 仍有上述缺口，目标 active。
+
+最终有限媒体制品已独立核验：ZIP **1,245,340 bytes**、**45 files / 50 entries**，
+SHA-256 `f4d720f839a0198ae3c5ccfd97c70930368af0e78eb0d9a8b400f7e3fb634e66`。
+每个成员与最终 unpacked 及 `run-XnREpF` 验收静态产物一致，原生 Port
+adapter 改写的 background/manifest 单独按生产 hash 核对；没有测试钩子或
+私有路径。Host 沿用已验证二进制，hash 与实际运行一致，不宣称重新构建。
+
+本片有限媒体的新验收扩展了上述仅 HTTP 图片的能力范围，未改写旧运行：
+`run-L7XsRk` 16/16、随后 `run-WMOIim` 69/70 暴露 diagnostics 竞态；修复后
+最终 `run-XnREpF` 70/70，全仓 807 项通过。独立核对 36 文件、四种 pending
+read 取消、真实旧 console 重放与当前新日志/错误；六条创建激活、四条明确
+popup focus 均归因且 sentinel 不变。嵌入媒体 8 MiB、Canvas 像素/活跃容量
+有界，系统时钟跳变的诊断隔离、content-return 等完整矩阵仍未完成。

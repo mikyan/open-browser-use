@@ -17,7 +17,10 @@ import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
+import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
+import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
 import { checkMediaLifecycle, checkMediaNavigationCleanup } from "./media-lifecycle-fixture.mjs";
+import { checkMediaReadCancellation } from "./media-content-lifecycle-fixture.mjs";
 import { checkMediaReferences } from "./media-reference-fixture.mjs";
 import { clipboardFixture, clipboardPNG, checkClipboard, checkClipboardLifecycle, holdClipboardPreparation } from "./clipboard-fixture.mjs";
 import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
@@ -210,12 +213,14 @@ const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
+const embeddedMedia = createEmbeddedMediaFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
   if (mediaDownloads.handle(request, response, httpPort)) return;
+  if (embeddedMedia.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -348,7 +353,11 @@ try {
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.directDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "direct-downloads-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.mediaDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-downloads-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.mediaEmbeddedFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-embedded-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.mediaFixtureAssets = createHash("sha256").update(await fs.readFile(path.join(directory, "media-fixture-assets.mjs"))).digest("hex");
+  sourceIdentity.mediaAssets = mediaAssetIdentity;
   sourceIdentity.sha256.mediaLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-lifecycle-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.mediaContentLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-content-lifecycle-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.mediaReferenceFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "media-reference-fixture.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
@@ -1097,6 +1106,19 @@ try {
       return detail;
     });
   }
+  await test("js-media-read-cancellation", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "media-read-lifecycle", timeoutMs: 15000 });
+    sourceIdentity.testHooks.push("media read cancellation: exact utility fetch AbortSignal gate keeps actual renderer read pending; native Port observer records cleanup state synchronously before turnEnded acknowledgement; native download observer is passive");
+    let detail, failure;
+    try { detail = await checkMediaReadCancellation({ browser: owner, fixtureURL, server: mediaDownloads, worker, until }); }
+    catch (error) { failure = error; }
+    finally { owner.close(); }
+    await fs.writeFile(path.join(runDir, "media-read-cancellation.json"), JSON.stringify(failure ? {
+      failed: true, error: failure.message, detail: failure.mediaContentEvidence ?? detail
+    } : detail, null, 2));
+    if (failure) throw failure;
+    return detail;
+  });
   for (const kind of ["cli","mcp"]) await test(`${kind}-media-downloads`, async () => {
     const sessionId = `media-${kind}`, owner = await connectOpenBrowserUse({socketPath:endpoint,sessionId,timeoutMs:15000});
     try {
@@ -1141,6 +1163,86 @@ try {
     await fs.writeFile(path.join(runDir,`media-${kind}-proof.json`),JSON.stringify(proof,null,2));
     return {...result,proof};
   });
+  for (const [name, check] of [["js-media-breadth", checkEmbeddedMedia], ["js-media-breadth-negative", checkEmbeddedMediaNegative]]) {
+    await test(name, async () => {
+      const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: name, timeoutMs: 20000 });
+      const foreign = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `${name}-foreign`, timeoutMs: 15000 });
+      try {
+        return await check({ browser: owner, foreignBrowser: foreign, fixtureURL, server: embeddedMedia,
+          worker, downloadRoot: path.join(runDir, "downloads"),
+          saveDetail: detail => fs.writeFile(path.join(runDir, `${name}.json`), JSON.stringify(detail, null, 2)) });
+      } finally {
+        const cleanup = await Promise.allSettled([owner.client.finalizeTabs([]), foreign.client.finalizeTabs([])]);
+        owner.close(); foreign.close();
+        const errors = cleanup.filter(item => item.status === "rejected");
+        if (errors.length) throw new AggregateError(errors.map(item => item.reason), `${name} finalization failed`);
+      }
+    });
+  }
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-media-breadth`, async () => {
+    const sessionId = `media-breadth-${kind}`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 20000 });
+    const detail = { caller: kind };
+    try {
+      const { tab, readiness } = await prepareEmbeddedMediaTab(owner, fixtureURL);
+      Object.assign(detail, { tabId: tab.id, readiness });
+      const scope = { session_id: sessionId, turn_id: owner.client.turnId, control_epoch: owner.client.controlEpoch };
+      detail.scope = scope;
+      const check = async call => {
+        const before = embeddedMedia.stats().length;
+        const mediaKind = kind === "cli" ? "webm" : "canvas", selector = kind === "cli" ? "#data-webm" : "#canvas";
+        const ack = await call("downloadMedia", { ...scope, tabId: tab.id, locator: [{ kind: "css", selector }], filename: `breadth-${kind}.${mediaKind === "canvas" ? "png" : "webm"}`, timeoutMs: 5000 });
+        detail.downloadId = ack.downloadId;
+        try {
+          const result = await call("downloadPath", { ...scope, downloadId: ack.downloadId, timeoutMs: 5000 });
+          detail.file = await verifyEmbeddedMediaFile(result.path, path.join(runDir, "downloads"), mediaKind, readiness.canvasBase64);
+        } finally {
+          detail.cancel = await call("cancelDownload", { ...scope, downloadId: ack.downloadId, timeoutMs: 5000 });
+          assert.deepEqual(detail.cancel, { cancelled: true });
+        }
+        detail.requests = embeddedMedia.stats().slice(before); assert.deepEqual(detail.requests, []);
+        detail.frames = await readMediaFrameEvidence(worker, tab.id);
+        return detail;
+      };
+      return kind === "mcp" ? await withMCPClient(executable, endpoint, sessionId, check) : await check(async (method, params) => {
+        const response = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+        assert.equal(response.error, undefined, JSON.stringify(response)); return response.result;
+      });
+    } finally {
+      await fs.writeFile(path.join(runDir, `media-breadth-${kind}.json`), JSON.stringify(detail, null, 2));
+      try { await owner.client.finalizeTabs([]); } finally { owner.close(); }
+    }
+  });
+  for (const kind of ["python", "go"]) await test(`${kind}-media-breadth`, async () => {
+    const script = path.join(directory, kind === "python" ? "media-checks.py" : "go-media-checks/main.go");
+    const frozenSource = path.join(runDir, kind === "python" ? "media-breadth-checks.py" : "media-breadth-checks.go");
+    await fs.copyFile(script, frozenSource, fsConstants.COPYFILE_EXCL);
+    const artifact = path.join(runDir, `media-breadth-${kind}.json`);
+    let executablePath = process.env.OBU_TEST_PYTHON || "python", args = [frozenSource, endpoint, fixtureURL, artifact];
+    const proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozenSource)).digest("hex") };
+    if (kind === "go") {
+      assert.ok(process.env.OBU_TEST_GO_MEDIA_BINARY, "Set OBU_TEST_GO_MEDIA_BINARY for the media Go caller");
+      executablePath = path.join(runDir, "go-media-breadth-client.exe");
+      await fs.copyFile(process.env.OBU_TEST_GO_MEDIA_BINARY, executablePath, fsConstants.COPYFILE_EXCL);
+      args = [endpoint, fixtureURL, artifact]; proof.binarySHA256 = createHash("sha256").update(await fs.readFile(executablePath)).digest("hex");
+    }
+    await fs.writeFile(path.join(runDir, `media-breadth-${kind}-proof.json`), JSON.stringify(proof, null, 2));
+    const before = embeddedMedia.stats().length;
+    const result = JSON.parse(await subprocess(executablePath, args, { timeoutMs: 60000, env: { ...process.env,
+      PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1",
+      OBU_TEST_MEDIA_VARIANT: "breadth", OBU_TEST_DOWNLOAD_ROOT: path.join(runDir, "downloads") } }));
+    assert.equal(result.passed, true);
+    assert.equal(result.kind, kind === "python" ? "wav" : "canvas");
+    const file = await verifyEmbeddedMediaFile(result.path, path.join(runDir, "downloads"), result.kind, result.readiness.canvasBase64);
+    assert.equal(result.sha256, file.sha256); assert.equal(result.bytes, file.bytes);
+    assert.deepEqual(Buffer.from(result.base64, "base64"), await fs.readFile(file.path));
+    assert.deepEqual(result.page, { events: [], traps: [] });
+    const requests = embeddedMedia.stats().slice(before);
+    assert.equal(requests.some(request => request.path === "/media-breadth/poison"), false);
+    const counts = Object.fromEntries(["page", "selected.wav", "selected.webm"].map(name => [name, requests.filter(request => request.path === `/media-breadth/${name}`).length]));
+    assert.deepEqual(counts, { page: 4, "selected.wav": 4, "selected.webm": 4 }, "Expected only the four documents and their native preload requests");
+    assert.equal(requests.length, 12); assert.ok(requests.every(request => request.method === "GET"));
+    return { ...result, proof, requests };
+  });
   for (const kind of ["cli", "mcp"]) await test(`${kind}-direct-downloads`, async () => {
     const sessionId = `${kind}-direct-downloads`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "download-acceptance", timeoutMs: 15000 });
     const key = `${kind}-direct`, cancelKey = `${kind}-direct-cancel`;
@@ -1168,8 +1270,11 @@ try {
     } finally { directDownloads.release(cancelKey); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
   });
   await test("js-bounded-console-error-network-diagnostics", async () => {
+    sourceIdentity.testHooks.push("diagnostics: passive native console/exception/Log observer records real replay timestamps and fresh Page capture evidence; no native event is altered or fabricated");
     const diagnostics = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-diagnostics", timeoutMs: 15000 });
     try { return await checkDiagnostics(diagnostics, fixtureURL, assert, until, {
+      worker,
+      saveDetail: detail => fs.writeFile(path.join(runDir, "diagnostics-evidence.json"), JSON.stringify(detail, null, 2)),
       ungroup: tabId => worker.evaluate(`chrome.tabs.ungroup(${tabId})`),
       connectSuccessor: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-diagnostics-successor", timeoutMs: 15000 })
     }); }
@@ -1492,6 +1597,7 @@ try {
   // Capture the HTTP witness before teardown can close an unfinished response.
   await fs.writeFile(path.join(runDir, "direct-download-server.json"), JSON.stringify(directDownloads.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "media-download-server.json"), JSON.stringify(mediaDownloads.stats(), null, 2));
+  await fs.writeFile(path.join(runDir, "media-breadth-server.json"), JSON.stringify(embeddedMedia.stats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;

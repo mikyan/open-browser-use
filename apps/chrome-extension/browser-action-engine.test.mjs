@@ -358,6 +358,15 @@ test("media source requires pre-admitted exact attachment and cannot reattach or
   assert.ok(checks > 1); assert.equal(guards, 1); assert.equal(f.calls.some(call => call[0] === "detach"), false);
 });
 
+test("media source forwards its private cancellation registration and bounded byte result unchanged", async () => {
+  const f = aiFixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime }); await engine.attach(42);
+  const onCancel = () => {};
+  const result = { bytesBase64: "AQID", mimeType: "image/png", byteLength: 3 };
+  f.runtime.readMediaSource = async (_locator, options) => { assert.equal(options.onCancel, onCancel); await options.check(); return result; };
+  assert.equal(await engine.resolveMediaSource(mediaParams, { ...mediaOptions(), onCancel }), result);
+  assert.equal(f.calls.some(call => call[0] === "detach"), false);
+});
+
 test("media source queue and drain retain actual source cleanup after its caller has expired", async () => {
   const f = aiFixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime }); await engine.attach(42);
   let entered, release, valid = true, settled = false, nextRan = false;

@@ -44,14 +44,26 @@ func collect(endpoint, baseURL string) (result map[string]any, err error) {
 		_, finalErr := browser.Client.FinalizeTabs(nil)
 		err = errors.Join(err, finalErr, browser.Close())
 	}()
-	tab, err := browser.NewTab(obu.GotoOptions{URL: strings.TrimRight(baseURL, "/") + "/media-downloads/page"})
+	breadth := os.Getenv("OBU_TEST_MEDIA_VARIANT") == "breadth"
+	fixturePath, selector, filenameOption := "/media-downloads/page", "img#selected", "go-media.png"
+	if breadth {
+		fixturePath, selector, filenameOption = "/media-breadth/page", "#canvas", "go-media-breadth.png"
+	}
+	tab, err := browser.NewTab(obu.GotoOptions{URL: strings.TrimRight(baseURL, "/") + fixturePath})
 	if err != nil {
 		return nil, err
 	}
 	if err = tab.WaitForLoadState(obu.WaitForLoadStateOptions{State: obu.LoadStateLoad, Timeout: 5 * time.Second}); err != nil {
 		return nil, err
 	}
-	download, err = tab.Locator("img#selected").DownloadMedia(obu.MediaDownloadOptions{Filename: "go-media.png", Timeout: 5 * time.Second})
+	var readiness any
+	if breadth {
+		readiness, err = tab.Evaluate("mediaReady", true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	download, err = tab.Locator(selector).DownloadMedia(obu.MediaDownloadOptions{Filename: filenameOption, Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +94,19 @@ func collect(endpoint, baseURL string) (result map[string]any, err error) {
 	if image.Bounds().Dx() != 2 || image.Bounds().Dy() != 1 || color.NRGBAModel.Convert(image.At(0, 0)) != (color.NRGBA{255, 0, 0, 255}) || color.NRGBAModel.Convert(image.At(1, 0)) != (color.NRGBA{0, 255, 0, 255}) {
 		return nil, errors.New("expected synthetic red/green 2x1 PNG")
 	}
-	return map[string]any{"passed": true, "path": filename, "bytes": len(data), "sha256": fmt.Sprintf("%x", sha256.Sum256(data)), "base64": base64.StdEncoding.EncodeToString(data)}, nil
+	result = map[string]any{"passed": true, "path": filename, "bytes": len(data), "sha256": fmt.Sprintf("%x", sha256.Sum256(data)), "base64": base64.StdEncoding.EncodeToString(data)}
+	if breadth {
+		page, readErr := tab.Evaluate("({events:mediaEvents,traps:getterTraps})")
+		if readErr != nil {
+			return nil, readErr
+		}
+		encoded, encodeErr := json.Marshal(page)
+		if encodeErr != nil || string(encoded) != `{"events":[],"traps":[]}` {
+			return nil, errors.New("media download invoked page getter or input")
+		}
+		result["kind"], result["readiness"], result["page"] = "canvas", readiness, page
+	}
+	return result, nil
 }
 
 func main() {

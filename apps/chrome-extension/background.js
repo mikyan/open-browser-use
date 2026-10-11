@@ -4,7 +4,7 @@ import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
-import { validateMediaDownload } from "./browser-media-source.js";
+import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "./browser-media-source.js";
 import { MediaContextLifetimes } from "./browser-media-lifetime.js";
 import { BrowserPageExports } from "./browser-page-exports.js";
 import { BrowserClipboard } from "./browser-clipboard.js";
@@ -2697,6 +2697,7 @@ class BrowserBackend {
     check();
     return this.directDownloads.startFromSource(record, scope, options => engine.resolveMediaSource(params, {
       deadlineAt: performance.now() + Math.max(0, options.deadlineAt - Date.now()),
+      onCancel: options.onCancel,
       check: async () => { options.check(); await this.directDownloads.validate(record); options.check(); }
     }));
   }
@@ -3604,23 +3605,62 @@ class BrowserBackend {
     });
     const lifetime = this.mediaContextLifetimes.capture(original, contextId);
     let closed = false;
-    return Object.freeze({ release: objectId => {
-      if (closed || typeof objectId !== "string" || !objectId || objectId.length > 4096)
+    const exceptionalObjects = new Set();
+    const validObjectId = objectId => typeof objectId === "string" && objectId && objectId.length <= 4096;
+    const command = (method, args) => {
+      if (closed) throw new Error("OBU_MEDIA_CLEANUP_FAILED: native media cleanup is closed");
+      if (lifetime.isGone()) return Promise.resolve();
+      check();
+      return chrome.debugger.sendCommand(original, method, args).catch(error => {
+        if (!lifetime.isGone()) throw error;
+      });
+    };
+    const releaseExceptionalObjects = async () => {
+      for (const objectId of exceptionalObjects) {
+        await command("Runtime.releaseObject", { objectId });
+        exceptionalObjects.delete(objectId);
+      }
+    };
+    const send = (objectId, method, args) => {
+      if (closed || !validObjectId(objectId))
         throw new Error("OBU_MEDIA_CLEANUP_FAILED: invalid native media object");
       // A native context-destruction event also destroys its remote objects.
       // Local Playwright cancellation or a replaced attachment is not evidence.
-      if (lifetime.isGone()) return Promise.resolve();
+      if (lifetime.isGone()) { exceptionalObjects.clear(); return Promise.resolve(); }
       check();
       // Only the private, fixed runtime adapter obtains this closure. The exact
       // target and attachment remain captured when Pause closes normal commands.
-      return chrome.debugger.sendCommand(original, "Runtime.releaseObject", { objectId }).catch(error => {
-        if (!lifetime.isGone()) throw error;
-      });
-    }, close: () => {
-      if (closed) return;
-      closed = true;
-      lifetime.close();
-    } });
+      return (async () => {
+        if (exceptionalObjects.size) await releaseExceptionalObjects();
+        const result = await command(method, args);
+        if (method !== "Runtime.callFunctionOn" || lifetime.isGone()) return;
+        // Normal cancellation returns a boolean by value. Keep unexpected
+        // native exception/result handles owned until their exact release is
+        // confirmed; a rejected cancellation must not leak remote objects.
+        for (const remote of [result?.result, result?.exceptionDetails?.exception]) {
+          if (remote?.objectId === undefined) continue;
+          if (!validObjectId(remote.objectId)) throw new Error("OBU_MEDIA_CLEANUP_FAILED: invalid native cancellation object");
+          exceptionalObjects.add(remote.objectId);
+        }
+        const malformed = exceptionalObjects.size > 0;
+        if (exceptionalObjects.size) await releaseExceptionalObjects();
+        if (malformed || result?.exceptionDetails || result?.result?.value !== true)
+          throw new Error("OBU_MEDIA_CLEANUP_FAILED: native media cancellation failed");
+      })();
+    };
+    return Object.freeze({
+      release: objectId => send(objectId, "Runtime.releaseObject", { objectId }),
+      cancel: objectId => send(objectId, "Runtime.callFunctionOn", {
+        objectId, functionDeclaration: MEDIA_CANCEL_FUNCTION, returnByValue: true, awaitPromise: true, userGesture: false
+      }),
+      close: () => {
+        if (closed) return;
+        if (exceptionalObjects.size && !lifetime.isGone()) throw new Error("OBU_MEDIA_CLEANUP_FAILED: native cancellation objects remain");
+        exceptionalObjects.clear();
+        closed = true;
+        lifetime.close();
+      }
+    });
   }
 
   async ensureCursorContentScript(sessionId, tabId) {

@@ -169,7 +169,12 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 ## What it checks
 
-The suite currently contains 53 cases with the optional Go caller. The latest
+The suite currently contains 70 cases with the optional Go caller, including
+seven additional finite-media and read-cancellation cases. Final headed
+`run-XnREpF` passed **70/70** on the controlled testing-config baseline; the
+independent file, native-diagnostic, continuous-focus and final ZIP audits passed.
+The preceding `run-WMOIim` remains **69/70** with a diagnostics isolation failure,
+fixed by the new native Page event timestamp boundary. The historical
 complete headed run, `run-obwspc`, passed 29/53; background first-frame waits
 failed. The continuous-observer revision's three affected headed cases in
 `run-8j69VK` still failed, with the final raw event ledger retained and checked.
@@ -178,6 +183,16 @@ three real worker restarts in the same observer lifetime, with two exact
 auxiliary-window initial tab activations and no focus events. That focused
 result is not a headed, system-clipboard or complete-suite pass. The 15 pure
 ledger/deadline tests pass without launching a browser.
+
+Diagnostics acceptance retains `diagnostics-evidence.json`, including a passive
+native console/exception/Log observer. After real detach/reattach and ownership
+transfer it waits for actual native historical replay, verifies the original
+timestamps, then checks fresh root/OOPIF console and page errors and successor
+events in the new public capture. It never changes or fabricates native events;
+the fixed CRX handler tests separately exercise deterministic late replay.
+The production timestamp boundary assumes a stable system clock. Clock jumps
+between native wall time and the worker's timeOrigin/monotonic offset remain
+outside this acceptance, as do broader P11 debugging capabilities.
 
 The earlier isolated Windows Chromium 156 run
 `.tmp/browser-integration/run-xMoFkk/results.json` passed all 48 cases, including
@@ -520,8 +535,49 @@ reattachment after turn end. No failed record was rewritten as passing.
 Complete local CI passed with 663 extension/script tests, 93 JS tests, 63 Python
 tests, Go packages and the other workspace checks. These results do not repair
 the headed startup compositor or establish complete Browser Use parity.
-See the [media contract](../../docs/references/media-downloads.md) for unsupported
-video/audio, blob/data and Canvas sources.
+Those runs covered the historical HTTP-image slice. The broader current
+[media contract](../../docs/references/media-downloads.md) also supports finite
+audio/video, data/Blob content and Canvas PNG.
+
+### Embedded media and cancellation
+
+`OBU_TEST_CASES='media-(downloads|breadth|read-cancellation)'` includes the old
+eight image cases, six additional breadth cases, one cancellation case and the
+mandatory raw-navigation prerequisite. The new fixtures generate a PCM WAV,
+retain a tiny deterministic VP8 WebM, and encode red/green Canvas pixels. Native
+`decode` / `loadedmetadata` / `loadeddata` readiness is checked before downloads;
+files are checked byte-for-byte, including two complete 8 MiB PNG files with
+explicit zero padding. Actual OOPIF, nested frame, shadow, getter/fetch/Canvas
+overrides and normal-fetch versus media-fetch Blob partition access are covered.
+Python uses a Blob WAV, CLI a data WebM, and Go/MCP Canvas PNG, alongside their
+unchanged historical HTTP PNG cases. Rebuild the Go media helper for its
+`OBU_TEST_MEDIA_VARIANT=breadth` branch.
+
+Negative cases retain errors and verify no new file or download GET: empty
+elements, zero/oversized/tainted Canvas, revoked or oversized Blob/data, MSE,
+`srcObject` and real attached ClearKey `MediaKeys` when available. Availability
+and browser partition policy are recorded; a policy-permitted Blob access is
+not described as proof of a blocked boundary.
+
+`media-content-lifecycle-fixture.mjs` replaces only the selected fixture's
+utility-world Blob fetch with a controlled AbortSignal gate. Two cases leave
+the renderer's fetch Promise pending; two return a native `ReadableStream`
+whose reader stays pending. Each is cancelled by turn end or the original
+deadline. These are explicit renderer fault injections, not a production hook
+or a claim of a naturally stalled network. The actual native call remains
+pending until cancellation; the fixture checks abort, stream lock release,
+native settlement and exact source object release. A synchronous observer in
+the staged native Port adapter records cleanup state before the end response
+is emitted. End acknowledgement must follow exact cleanup, with no native
+download, input event or getter trap. The four cases restore the utility hook
+before detachment and do not reattach merely to read the result.
+
+`run-L7XsRk` passed all **16/16** headed cases. Independent validation decoded
+or parsed 36 actual media files, checked both 8 MiB boundaries, 12 negative
+cases including available native ClearKey, all four cancellation paths and the
+same-origin/cross-partition rejection. Its continuous observer recorded no
+activation or focus event. Complete-suite evidence is recorded separately in
+the [media reference](../../docs/references/media-downloads.md).
 
 ## Ownership and host recovery
 

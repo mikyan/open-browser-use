@@ -2,7 +2,7 @@
 // promise. It exposes no new public Playwright/channel method or page function.
 export const mediaTaskBridge = `
 function createOpenBrowserUseMediaOperations() {
-  const releases = new WeakMap();
+  const releases = new WeakMap(), cancellations = new WeakMap();
   let observeHandle;
   const route = context => {
     const client = context?.delegate?._client;
@@ -28,7 +28,8 @@ function createOpenBrowserUseMediaOperations() {
     if (openBrowserUseInputHooks && typeof openBrowserUseInputHooks.prepareMediaCleanup !== "function")
       throw new Error("OBU_MEDIA_UNSUPPORTED: native media cleanup hook is unavailable");
     const cleanup = openBrowserUseInputHooks ? openBrowserUseInputHooks.prepareMediaCleanup(target, context.delegate._contextId) : {
-      release: objectId => { check(); return transport._send(target, "Runtime.releaseObject", { objectId }); }, close: () => {}
+      release: objectId => { check(); return transport._send(target, "Runtime.releaseObject", { objectId }); },
+      cancel: () => { throw new Error("OBU_MEDIA_UNSUPPORTED: private media cancellation hook is required"); }, close: () => {}
     };
     if (typeof cleanup?.release !== "function" || typeof cleanup?.close !== "function")
       throw new Error("OBU_MEDIA_UNSUPPORTED: invalid native media cleanup lease");
@@ -50,6 +51,11 @@ function createOpenBrowserUseMediaOperations() {
       releases.set(result, async () => {
         if (result._objectId) await cleanup.release(result._objectId);
         owned.delete(result); closeIfReleased();
+      });
+      cancellations.set(result, () => {
+        if (result._disposed) return Promise.resolve();
+        if (!result._objectId || typeof cleanup.cancel !== "function") throw new Error("OBU_MEDIA_UNSUPPORTED: private media cancellation is unavailable");
+        return cleanup.cancel(result._objectId);
       });
       observeHandle(result);
       return result;
@@ -85,6 +91,11 @@ function createOpenBrowserUseMediaOperations() {
     },
     evaluate: (handle, fn, arg) => evaluate(handle, fn, arg, true),
     evaluateHandle: (handle, fn, arg) => evaluate(handle, fn, arg, false),
+    cancel: async handle => {
+      const cancel = cancellations.get(handle);
+      if (!cancel) throw new Error("OBU_MEDIA_CLEANUP_FAILED: binding is not owned by this source operation");
+      await cancel();
+    },
     dispose: async handle => {
       const release = releases.get(handle);
       if (!release) throw new Error("OBU_MEDIA_CLEANUP_FAILED: handle is not owned by this source operation");

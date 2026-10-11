@@ -1,10 +1,37 @@
-// Explicit GET downloads only. A handle is derived exclusively from the ID
+// HTTP GET or privately resolved media bytes. A handle is derived exclusively from the ID
 // returned by downloads.download; global events/URLs never establish ownership.
 const encoder = new TextEncoder();
 const expired = () => new Error("OBU_DOWNLOAD_EXPIRED: unknown, unowned or retired direct download");
 const timeout = () => new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired");
 const scopeKeys = ["session_id", "turn_id", "control_epoch"];
 const size = value => encoder.encode(value).length;
+const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
+const sourceInvalid = () => new Error("OBU_MEDIA_SOURCE_INVALID: invalid resolved media source");
+const sourceLimit = () => new Error("OBU_MEDIA_LIMIT: media source byte capacity exceeded");
+
+function sourceData(source) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) throw sourceInvalid();
+  const keys = Reflect.ownKeys(source);
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(source, key);
+    if (!descriptor.enumerable || !("value" in descriptor)) throw sourceInvalid();
+  }
+  if (keys.length === 1 && keys[0] === "url") return { url: validateURL(source.url), embedded: false };
+  if (keys.length !== 3 || !["bytesBase64", "mimeType", "byteLength"].every(key => keys.includes(key))) throw sourceInvalid();
+  const { bytesBase64, mimeType, byteLength } = source;
+  if (!Number.isSafeInteger(byteLength) || byteLength < 1) throw sourceInvalid();
+  if (byteLength > MAX_SOURCE_BYTES) throw sourceLimit();
+  // The source adapter supplies a media MIME essence, never data-URL syntax,
+  // parameters or caller-controlled URL prefixes. Real decoding belongs there.
+  if (typeof mimeType !== "string" || mimeType.length > 127 || !/^(?:image|audio|video)\/[a-z0-9][a-z0-9!#$&^_.+-]*$/.test(mimeType)) throw sourceInvalid();
+  if (typeof bytesBase64 !== "string") throw sourceInvalid();
+  if (bytesBase64.length > 4 * Math.ceil(MAX_SOURCE_BYTES / 3)) throw sourceLimit();
+  if (bytesBase64.length !== 4 * Math.ceil(byteLength / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(bytesBase64)) throw sourceInvalid();
+  let decoded;
+  try { decoded = atob(bytesBase64); } catch { throw sourceInvalid(); }
+  if (decoded.length !== byteLength || btoa(decoded) !== bytesBase64) throw sourceInvalid();
+  return { url: `data:${mimeType};base64,${bytesBase64}`, embedded: true };
+}
 
 export function downloadDeadline(params, now = Date.now()) {
   const value = params?.timeoutMs === undefined ? 10000 : params.timeoutMs;
@@ -37,10 +64,11 @@ export function validateDownloadURL(params) { return validateRequest(params, fal
 export function validateDownloadSource(params) { return validateRequest(params, true); }
 
 export class BrowserDownloads {
-  constructor({ downloads, extensionId, validateScope, assertScope = () => {}, now = () => Date.now(), pollMs = 100, maxRecords = 128 } = {}) {
-    Object.assign(this, { downloads, extensionId, validateScope, assertScope, now, pollMs, maxRecords });
+  constructor({ downloads, extensionId, validateScope, assertScope = () => {}, now = () => Date.now(), pollMs = 100, maxRecords = 128, maxPendingSourceBytes = 64 * 1024 * 1024 } = {}) {
+    Object.assign(this, { downloads, extensionId, validateScope, assertScope, now, pollMs, maxRecords, maxPendingSourceBytes });
     this.records = new Map();
     this.operations = new Set();
+    this.pendingSourceBytes = 0;
   }
 
   reserve(request) {
@@ -55,7 +83,9 @@ export class BrowserDownloads {
 
   reserveRecord(params, unresolvedSource) {
     if (this.records.size >= this.maxRecords) throw new Error("OBU_DOWNLOAD_LIMIT: direct download capacity reached");
-    const record = { params, downloadId: crypto.randomUUID(), deadlineAt: downloadDeadline(params, this.now()), invalid: false, cancellationListeners: new Set(), unresolvedSource, pendingCount: 0, cleanupComplete: false, started: false };
+    if (unresolvedSource && this.pendingSourceBytes + MAX_SOURCE_BYTES > this.maxPendingSourceBytes) throw sourceLimit();
+    const record = { params, downloadId: crypto.randomUUID(), deadlineAt: downloadDeadline(params, this.now()), invalid: false, cancellationListeners: new Set(), sourceCancellationListeners: new Set(), sourceCancellationWork: new Set(), unresolvedSource, pendingCount: 0, cleanupComplete: false, started: false, sourceBytesReserved: unresolvedSource };
+    if (unresolvedSource) this.pendingSourceBytes += MAX_SOURCE_BYTES;
     this.records.set(record.downloadId, record);
     return record;
   }
@@ -94,8 +124,43 @@ export class BrowserDownloads {
   }
 
   retireSettled(record) {
-    if (record.invalid && record.cleanupComplete && record.pendingCount === 0 && this.records.get(record.downloadId) === record)
+    if (record.invalid && record.cleanupComplete && record.pendingCount === 0 && this.records.get(record.downloadId) === record) {
+      this.releaseSourceBytes(record);
       this.records.delete(record.downloadId);
+    }
+  }
+
+  releaseSourceBytes(record) {
+    if (!record.sourceBytesReserved) return;
+    record.sourceBytesReserved = false;
+    this.pendingSourceBytes -= MAX_SOURCE_BYTES;
+    // Do not retain a settled Promise whose result contains the entire payload.
+    record.sourcePromise = null;
+  }
+
+  onSourceCancel(record, callback) {
+    if (typeof callback !== "function") throw new Error("media cancellation callback must be a function");
+    const listener = { callback, called: false, pending: false, error: null };
+    record.sourceCancellationListeners.add(listener);
+    if (record.invalid) this.cancelSourceListener(record, listener);
+    return () => { listener.unsubscribed = true; if (!listener.called) record.sourceCancellationListeners.delete(listener); };
+  }
+
+  cancelSourceListener(record, listener, retry = false) {
+    if (listener.pending || (listener.called && !(retry && listener.error))) return;
+    listener.called = true;
+    listener.pending = true;
+    let actual;
+    try { actual = Promise.resolve(listener.callback(record.error ?? expired())); }
+    catch (error) { actual = Promise.reject(error); }
+    actual = actual.then(value => { listener.pending = false; listener.error = null; return value; }, error => {
+      listener.pending = false; listener.error = error; throw error;
+    });
+    record.sourceCancellationWork.add(actual);
+    this.track(record, actual);
+    // Keep failed abort commands for explicit cleanup retry, even if the source
+    // later settles. This callback can retry only its original exact binding.
+    actual.catch(() => {});
   }
 
   checkStart(record) {
@@ -146,20 +211,22 @@ export class BrowserDownloads {
         // handle disposal, never its caller-facing timeout/cancellation race.
         record.sourcePromise = this.track(record, Promise.resolve().then(() => {
           this.checkStart(record);
-          return resolveSource({ check: () => this.checkStart(record), deadlineAt: record.deadlineAt });
+          return resolveSource({ check: () => this.checkStart(record), deadlineAt: record.deadlineAt, onCancel: callback => this.onSourceCancel(record, callback) });
         }).catch(error => {
           // The trusted resolver distinguishes a source failure with successful
           // disposal from an unresolved exact handle cleanup failure.
           if (error?.mediaCleanupFailed === true) record.sourceCleanupError = error;
           throw error;
         }));
-        const source = await record.sourcePromise;
+        let source = await record.sourcePromise;
         this.checkStart(record);
-        if (!source || typeof source !== "object" || Array.isArray(source) || Object.keys(source).length !== 1 || !Object.hasOwn(source, "url")) throw new Error("OBU_DOWNLOAD_SOURCE_INVALID: resolver must return one URL snapshot");
-        record.sourceURL = validateURL(source.url);
+        const resolved = sourceData(source);
+        source = null;
+        if (!resolved.embedded) { record.sourceURL = resolved.url; this.releaseSourceBytes(record); }
+        else record.embeddedSource = true;
         // The immutable URL is an authorized source snapshot. It is not an
         // atomic transaction with subsequent DOM changes or the Chrome GET.
-        return this.startNative(record, record.sourceURL);
+        return this.startNative(record, resolved.url);
       });
     } catch (error) {
       void this.retire(record, { error }).catch(() => {});
@@ -177,6 +244,7 @@ export class BrowserDownloads {
       record.nativeId = id;
       return id;
     }));
+    if (record.embeddedSource) record.startPromise.then(() => this.releaseSourceBytes(record), () => this.releaseSourceBytes(record));
     await record.startPromise;
     await this.validate(record);
     this.checkStart(record);
@@ -243,12 +311,21 @@ export class BrowserDownloads {
     if (!record.invalid && error !== undefined) record.error = error;
     record.invalid = true;
     for (const cancel of record.cancellationListeners) cancel();
+    // A still-running read may need abort retry to settle. Once its exact
+    // disposal has failed, retry that disposal first: a callback can then
+    // confirm there is no remaining source work without another native abort.
+    for (const listener of record.sourceCancellationListeners)
+      this.cancelSourceListener(record, listener, retrySourceCleanup && !record.sourceCleanupError);
     if (record.cleanup) return record.cleanup;
     const cleanup = this.track(record, (async () => {
       // Source resolution is bound work and includes exact native handle
       // disposal. Unbound admission is retained for capacity/controlSnapshot,
       // but not awaited here: it may itself be waiting for this detach barrier.
       await record.sourcePromise?.catch(() => {});
+      // The source may have subscribed after cancellation while a prior native
+      // call was pending. Snapshot only after actual source cleanup has settled.
+      await Promise.allSettled([...record.sourceCancellationWork]);
+      let sourceCleanupRetried = false;
       if (record.sourceCleanupError) {
         const failure = record.sourceCleanupError;
         // Ordinary RPC rejection must not silently retry a failed native
@@ -257,7 +334,16 @@ export class BrowserDownloads {
         if (!retrySourceCleanup || typeof failure.retryMediaCleanup !== "function") throw failure;
         await this.track(record, Promise.resolve().then(() => failure.retryMediaCleanup()));
         if (record.sourceCleanupError === failure) record.sourceCleanupError = null;
+        sourceCleanupRetried = true;
       }
+      if (sourceCleanupRetried) {
+        for (const listener of record.sourceCancellationListeners) this.cancelSourceListener(record, listener, true);
+        await Promise.allSettled([...record.sourceCancellationWork]);
+      }
+      const cancelFailure = [...record.sourceCancellationListeners].find(listener => listener.error);
+      if (cancelFailure) throw cancelFailure.error;
+      record.sourceCancellationWork.clear();
+      record.sourceCancellationListeners.clear();
       // Rejected start created no ID. A still-pending start stays in the drain.
       await record.startPromise?.catch(() => {});
       await this.cancelNative(record);

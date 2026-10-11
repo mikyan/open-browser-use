@@ -418,7 +418,7 @@ export class BrowserActionEngine {
   // budget/cancellation race and capacity; this promise retains the queue until
   // all native reads and source-handle cleanup really settle. Never detach here:
   // backend detach may itself be waiting for this source reservation to drain.
-  resolveMediaSource(request, { deadlineAt, check: sourceCheck }) {
+  resolveMediaSource(request, { deadlineAt, check: sourceCheck, onCancel }) {
     const validated = validateBrowserAction({
       session_id: request.session_id, turn_id: request.turn_id, control_epoch: request.control_epoch,
       tabId: request.tabId, action: "getAttribute", args: { name: "currentSrc" },
@@ -462,7 +462,7 @@ export class BrowserActionEngine {
         if (params.locator[0]?.kind === "ref") observation.get(params.locator[0]);
       };
       await checkedSource();
-      const result = await runtime.readMediaSource(locator, { deadlineAt, check: checkedSource, runNativeTask: runtime.runOpenBrowserUseMediaTask });
+      const result = await runtime.readMediaSource(locator, { deadlineAt, check: checkedSource, runNativeTask: runtime.runOpenBrowserUseMediaTask, onCancel });
       await checkedSource();
       return result;
     });

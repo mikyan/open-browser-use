@@ -5,7 +5,7 @@ import { BrowserNetworkWaits } from "../browser-network-waits.js";
 import { BrowserLifetime } from "../browser-lifetime.js";
 import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
-import { validateMediaDownload } from "../browser-media-source.js";
+import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "../browser-media-source.js";
 import { MediaContextLifetimes } from "../browser-media-lifetime.js";
 import { BrowserPageExports } from "../browser-page-exports.js";
 import { BrowserClipboard } from "../browser-clipboard.js";
@@ -61,14 +61,14 @@ const source = code => code
   .replace('import { BrowserNetworkWaits } from "./browser-network-waits.js";', "")
   .replace('import { BrowserNavigationWaits } from "./browser-navigation-waits.js";', "")
   .replace('import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";', "")
-  .replace('import { validateMediaDownload } from "./browser-media-source.js";', "")
+  .replace('import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "./browser-media-source.js";', "")
   .replace('import { MediaContextLifetimes } from "./browser-media-lifetime.js";', "")
   .replace('import { BrowserPageExports } from "./browser-page-exports.js";', "")
   .replace('import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";', "")
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { crypto: globalThis.crypto, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, validateMediaDownload, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { crypto: globalThis.crypto, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {
