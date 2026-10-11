@@ -42,6 +42,7 @@ import { checkResearchTabDisposition } from "./research-workflow-evidence.mjs";
 import { createBackgroundParallelFixture, checkBackgroundParallelWorkflow } from "./background-parallel-workflow.mjs";
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
+import { checkChooserSubmission } from "./chooser-submission-fixture.mjs";
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
@@ -386,7 +387,7 @@ try {
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
-  for (const name of ["chooser-waits-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   for (const name of ["download-waits-fixture.mjs", "download-waits-callers.mjs", "download-waits-checks.py", "go-download-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.browserStartup = createHash("sha256").update(await fs.readFile(path.join(directory, "browser-startup.mjs"))).digest("hex");
   sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
@@ -585,6 +586,19 @@ try {
   });
   let chooserFiles;
   const getChooserFiles = async () => chooserFiles ??= await prepareChooserFiles(runDir);
+  await test("js-file-chooser-single-submission", async () => {
+    const options = { socketPath: endpoint, sessionId: "js-chooser-submission", turnId: "chooser-submission", timeoutMs: 15000 };
+    const owner = await connectOpenBrowserUse(options), trigger = await connectOpenBrowserUse(options);
+    let detail;
+    try {
+      detail = await checkChooserSubmission({ owner, trigger, fixtureURL, server: chooserFixtures, files: await getChooserFiles(), worker, until });
+      return detail;
+    } catch (error) { detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
+    finally {
+      await fs.writeFile(path.join(runDir, "chooser-submission.json"), JSON.stringify(detail, null, 2));
+      try { await owner.client.finalizeTabs([]); } finally { owner.close(); trigger.close(); }
+    }
+  });
   for (const lifecycle of [false, true]) await test(lifecycle ? "js-file-chooser-ready-lifecycle" : "js-file-chooser-ready-two-connections", async () => {
     const sessionId = lifecycle ? "js-chooser-lifecycle" : "js-chooser-ready", options = { socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 };
     const owner = await connectOpenBrowserUse(options), trigger = await connectOpenBrowserUse(options);

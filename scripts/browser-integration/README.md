@@ -4,13 +4,35 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
+## Chooser single-submission acceptance
+
+The default `js-file-chooser-single-submission` case uses two independent JS
+connections with the same control scope. On root, existing OOPIF and dynamically
+created OOPIF inputs, both connections submit the same delivered chooser before
+awaiting either response. Exactly one succeeds and the other must report a
+consumed/unknown chooser. Both subsequently repeat the ID and must be rejected.
+This runs for file selection and explicit clearing, retaining the original
+10-second chooser and 5-second click limits. Original HTTP bodies, file bytes,
+document tokens, trusted clicks, native change and programmatic clear counts
+must show exactly one upload and one clear per layout. Read-only native target
+and document observations are made through the original scope; no command probe
+or scheduling gate is installed. Evidence is `chooser-submission.json`. It does
+not test directory completion or replace the controlled late-ACK unit cases.
+
+To run the new case alongside the existing five-entry chooser cases, set
+`OBU_TEST_CASES='file-chooser|file-transfer'` using the normal prerequisites.
+The mandatory raw-navigation control remains included. The additional case
+changes the default count from 104 to 105; historical results below retain their
+actual case counts and outcomes.
+
 ## Opt-in page download diagnostic
 
 `OBU_TEST_DOWNLOAD_DIAGNOSTIC=1` selects only the original JS page-download
 ready case and the mandatory raw-navigation control. It rejects all other
 case-selection and diagnostic modes, including MCP binding and geometry DPR.
 Build the normal host and SDK, then run the usual runner with this flag set;
-unset it to return to the original 104 cases.
+unset it to return to the current 105 cases (the original 104 plus the chooser
+single-submission case above).
 
 The original HTML, single clicks and 10-second download/5-second click limits
 remain unchanged. This mode records the original arm, add-frame, click, collect,
@@ -66,7 +88,7 @@ node scripts/browser-integration/run.mjs
 
 This mode rejects `OBU_TEST_CASES` and the chooser diagnostic, snapshot geometry
 (including its DPR setting), background-parallel and memory-clipboard settings.
-Unset the flag to restore the unchanged default 104-case selection. It adds no
+Unset the flag to restore the default 105-case selection. It adds no
 focus exemption or production worker probe.
 
 The first persistent MCP child discovers the isolated native host through
@@ -120,7 +142,7 @@ node scripts/browser-integration/run.mjs
 
 The original root/static-OOPIF/dynamic-OOPIF HTML, two-connection actions,
 10-second waiter deadline, upload bytes and historical-event rejection remain
-unchanged. The default 104 cases do not install this additional probe.
+unchanged. The default 105 cases do not install this additional probe.
 Only the selected tab's original `Input.*`, chooser interception, `Page.enable`,
 `Page.disable` and `Runtime.runIfWaitingForDebugger` calls are observed, along
 with the seven existing frame/target/chooser event methods. Commands and events
@@ -172,7 +194,7 @@ its cause. Startup and teardown remain outside the focus observation interval.
 
 ## Opt-in snapshot geometry acceptance
 
-The default suite remains 104 cases. `OBU_TEST_SNAPSHOT_GEOMETRY=1` selects a
+The default suite contains 105 cases. `OBU_TEST_SNAPSHOT_GEOMETRY=1` selects a
 separate ten-case run: five geometry callers (JS, Python, Go, CLI and MCP),
 geometry limits/expiry/deadline, the three existing AI snapshot lifecycle,
 native-reference and cancellation cases, and the mandatory raw-navigation case.
@@ -871,7 +893,7 @@ Optional variables:
   Select `OBU_TEST_CASES=background-parallel` to run it with the mandatory raw
   navigation prerequisite. It keeps two pages untouched for at least 310 seconds
   while other owners submit data and capture screenshots concurrently. This
-  opt-in case is excluded from the default 104-case suite; no shorter wait counts
+  opt-in case is excluded from the default 105-case suite; no shorter wait counts
   as acceptance. The recorded `run-ttHLU9` passed **2/2** with a 310.088-second
   command-free interval, 172 original POSTs and 182 decoded PNGs. Native stream
   overlap, actual cleanup and zero focus/activation events were independently
@@ -885,7 +907,7 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 ## What it checks
 
-The suite currently contains 104 cases with all Go helper binaries, including
+The suite currently contains 105 cases with all Go helper binaries, including
 fifteen shared research workflows across five public entrypoints and three
 layouts. Latest headed `run-NDr4vF` passed **104/104** on the controlled testing-config
 baseline with the opt-in long case disabled. Previous `run-WWWaGP` also passed

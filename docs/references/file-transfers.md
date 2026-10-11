@@ -30,6 +30,30 @@ notifications. Those notifications are programmatic, not trusted user input.
 Chrome's native empty file list alone behaves like cancelling selection and can
 retain previously selected files, so it is not used to claim a successful clear.
 
+A delivered chooser permits one submission. The backend claims it before any
+native preparation or write can yield; a concurrent call fails with
+`OBU_FILE_CHOOSER_CONSUMED`, or an unknown-chooser error if it has already retired.
+Invalid arguments rejected before that claim may be corrected. Once claimed,
+failure does not restore the chooser: a lost or rejected native response cannot
+prove that selection had no side effects. The caller must inspect the page and
+explicitly open a new chooser when appropriate; the backend never retries it.
+
+Before writing, document invalidation prevents use of the old node. After a
+successful native write, an input/change handler may legitimately navigate or
+remove its iframe. That alone does not turn the completed submission into a
+failure. Success still requires the original live control scope, attachment,
+unrevoked admission and actual tab ownership. Pause, turn end or ownership loss
+while awaiting the response prevents a success reply, but does not undo a write
+already sent. Remote-object cleanup for clearing targets only the original
+surviving attachment and child session.
+
+Directory upload completion is not yet guaranteed by this operation. Chromium
+can acknowledge `DOM.setFileInputFiles` before directory enumeration finishes;
+the current API has no directory-specific completion or relative-path contract.
+The native [file-input implementation](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/html/forms/file_input_type.cc)
+starts directory enumeration separately; the pinned CRX's corresponding
+Playwright path waits for an input event as well as the protocol response.
+
 ### Explicit readiness across connections
 
 `getInfo.metadata.fileChooserWaitVersion === 1` advertises these three methods:

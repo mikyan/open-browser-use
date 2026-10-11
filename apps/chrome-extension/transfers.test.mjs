@@ -664,3 +664,237 @@ test("cold download observer migration preserves only its own original reservati
   const ack = await backend.armDownloadWait(next); begin(backend, 7, "new-owner-guid");
   assert.equal((await backend.collectDownloadWait({ ...next, waiterId: ack.waiterId })).downloadId, "new-owner-guid");
 });
+
+async function selectedChooserEnvironment({ child = false } = {}) {
+  const env = await chooserReadyEnvironment();
+  const ack = await env.backend.armFileChooserWait({ ...env.scope, timeoutMs: 1000 });
+  if (child) {
+    env.backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", {
+      sessionId: "original-child", targetInfo: { type: "iframe" }
+    });
+    await env.backend.waitForChooserTargets(7);
+  }
+  chooserEvent(env.backend, child ? "original-child" : undefined);
+  const chooser = await env.backend.collectFileChooserWait({ ...env.scope, waiterId: ack.waiterId });
+  env.commands.length = 0;
+  return { ...env, chooser, setParams: files => ({ ...env.scope, fileChooserId: chooser.fileChooserId, files }) };
+}
+
+// Hold the real backend's native boundary, not a second implementation of the
+// chooser state machine. Every delayed call is settled before the test exits.
+function holdChooserCommand(env, method) {
+  const entered = deferred(), gate = deferred(), original = env.chrome.debugger.sendCommand;
+  env.chrome.debugger.sendCommand = async (target, name, commandParams) => {
+    const result = await original(target, name, commandParams);
+    if (name === method) { entered.resolve(); await gate.promise; }
+    return result;
+  };
+  return { entered, gate };
+}
+
+for (const firstFiles of [["first.bin"], []]) {
+  for (const secondFiles of [["second.bin"], []]) {
+    test(`chooser submission is exclusive: ${firstFiles.length ? "set" : "clear"} versus ${secondFiles.length ? "set" : "clear"}`, { timeout: 2000 }, async () => {
+      const env = await selectedChooserEnvironment();
+      const held = holdChooserCommand(env, firstFiles.length ? "DOM.setFileInputFiles" : "DOM.resolveNode");
+      const first = env.backend.setFileChooserFiles(env.setParams(firstFiles));
+      const firstOutcome = Promise.allSettled([first]);
+      let secondOutcome;
+      try {
+        await held.entered.promise;
+        secondOutcome = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(secondFiles))]);
+        await tick();
+      } finally { held.gate.resolve(); }
+      const [a] = await firstOutcome, [b] = await secondOutcome;
+      assert.equal(a.status, "fulfilled");
+      assert.equal(b.status, "rejected", "the same chooser cannot admit a second native submission");
+      assert.equal(env.commands.filter(call => ["DOM.setFileInputFiles", "DOM.resolveNode"].includes(call.method)).length, 1);
+      assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+    });
+  }
+}
+
+async function replaceChooserAttachment(env) {
+  const previous = env.backend.attachmentEpochs.get(7);
+  env.backend.browserEngine.forget(7);
+  env.backend.releaseEngineAttachment(7);
+  await env.backend.attach(env.scope);
+  assert.notEqual(env.backend.attachmentEpochs.get(7), previous);
+  assert.equal(env.backend.attachedTabs.has(7), true);
+}
+
+for (const files of [["fixture.bin"], []]) {
+  for (const invalidation of ["navigation", "turn end", "live ownership transfer", "attachment replacement"]) {
+    test(`chooser ${files.length ? "set" : "clear"} ${invalidation === "navigation" ? "accepts its ACK after navigation caused by input events" : `rejects a late native ACK after ${invalidation}`}`, { timeout: 2000 }, async () => {
+      const env = await selectedChooserEnvironment();
+      const held = holdChooserCommand(env, files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn");
+      const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(files))]);
+      try {
+        await held.entered.promise;
+        if (invalidation === "navigation") {
+          env.backend.handleCdpEvent({ tabId: 7 }, "Page.frameNavigated", { frame: { id: "root-frame", url: "https://fixture.test/next" } });
+        } else if (invalidation === "turn end") {
+          await env.backend.turnEnded(env.scope);
+        } else if (invalidation === "live ownership transfer") {
+          // A fresh inventory must catch an ownership change even when its
+          // Chrome event has not yet arrived at the service worker.
+          env.tabs.get(7).groupId = 20;
+        } else {
+          await replaceChooserAttachment(env);
+        }
+      } finally { held.gate.resolve(); }
+      const [outcome] = await result;
+      assert.equal(outcome.status, invalidation === "navigation" ? "fulfilled" : "rejected",
+        "input/change navigation is allowed, but an ACK cannot restore revoked attachment or tab ownership");
+      assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+      assert.equal(env.commands.filter(call => call.method === (files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn")).length, 1);
+      if (invalidation === "navigation")
+        await assert.rejects(env.backend.setFileChooserFiles(env.setParams(files)), /Unknown|consumed|submitted/i);
+    });
+  }
+}
+
+for (const [method, event] of [
+  ["Page.frameNavigated", { frame: { id: "root-frame", url: "https://fixture.test/next" } }],
+  ["Page.documentOpened", { frame: { id: "root-frame", url: "https://fixture.test/next" } }],
+  ["Page.frameDetached", { frameId: "root-frame", reason: "remove" }]
+]) {
+  test(`chooser clear rejects ${method} while resolving the node before mutation`, { timeout: 2000 }, async () => {
+    const env = await selectedChooserEnvironment();
+    const held = holdChooserCommand(env, "DOM.resolveNode");
+    const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams([]))]);
+    try {
+      await held.entered.promise;
+      env.backend.handleCdpEvent({ tabId: 7 }, method, event);
+    } finally { held.gate.resolve(); }
+    const [outcome] = await result;
+    assert.equal(outcome.status, "rejected");
+    assert.equal(env.commands.some(call => call.method === "Runtime.callFunctionOn"), false);
+  });
+}
+
+test("chooser contender delayed in live validation reports consumed after the winner retires its record", { timeout: 2000 }, async () => {
+  const env = await selectedChooserEnvironment(), gate = deferred(), entered = deferred();
+  const validate = env.backend.requireSessionTab.bind(env.backend);
+  let holdFirstSubmission = true;
+  env.backend.requireSessionTab = async (params, command) => {
+    await validate(params, command);
+    if (command === "setFileChooserFiles" && holdFirstSubmission) {
+      holdFirstSubmission = false; entered.resolve(); await gate.promise;
+    }
+  };
+  // The clear contender has already captured the same chooser, but is still
+  // validating its original live authority while the second connection wins.
+  const contender = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams([]))]);
+  try {
+    await entered.promise;
+    await env.backend.setFileChooserFiles(env.setParams(["winner.bin"]));
+    assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+  } finally { gate.resolve(); }
+  const [outcome] = await contender;
+  assert.equal(outcome.status, "rejected");
+  assert.match(outcome.reason.message, /^OBU_FILE_CHOOSER_CONSUMED:/,
+    "A same-scope contender must retain the consumed outcome even after the map record is retired");
+  assert.equal(env.commands.filter(call => call.method === "DOM.setFileInputFiles").length, 1);
+  assert.equal(env.commands.some(call => ["DOM.resolveNode", "Runtime.callFunctionOn"].includes(call.method)), false);
+});
+
+for (const method of ["DOM.resolveNode", "Runtime.callFunctionOn"]) {
+  for (const child of [false, true]) {
+    test(`chooser clear ${method} cannot release a remote object after ${child ? "child detach" : "attachment replacement"}`, { timeout: 2000 }, async () => {
+      const env = await selectedChooserEnvironment({ child });
+      const held = holdChooserCommand(env, method);
+      const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams([]))]);
+      try {
+        await held.entered.promise;
+        if (child) {
+          env.backend.handleCdpEvent({ tabId: 7 }, "Target.detachedFromTarget", { sessionId: "original-child" });
+          assert.equal(env.backend.childSessionsByTabId.get(7)?.has("original-child"), false);
+        } else {
+          await replaceChooserAttachment(env);
+        }
+      } finally { held.gate.resolve(); }
+      const [outcome] = await result;
+      assert.equal(env.commands.filter(call => call.method === "Runtime.releaseObject").length, 0,
+        "an object ID from the old native context must never be routed to its successor");
+      // A successful change handler may remove its own iframe. Only the root
+      // attachment/scope must survive an already-dispatched successful write.
+      assert.equal(outcome.status, child && method === "Runtime.callFunctionOn" ? "fulfilled" : "rejected");
+      if (method === "DOM.resolveNode") assert.equal(env.commands.some(call => call.method === "Runtime.callFunctionOn"), false);
+    });
+  }
+}
+
+for (const method of ["DOM.setFileInputFiles", "DOM.resolveNode", "Runtime.callFunctionOn"]) {
+  test(`chooser is permanently consumed after a submitted ${method} failure`, async () => {
+    const env = await selectedChooserEnvironment();
+    const original = env.chrome.debugger.sendCommand, nativeError = new Error("native outcome unknown");
+    env.chrome.debugger.sendCommand = async (target, name, commandParams) => {
+      const result = await original(target, name, commandParams);
+      if (name === method) throw nativeError;
+      return result;
+    };
+    const files = method === "DOM.setFileInputFiles" ? ["fixture.bin"] : [];
+    await assert.rejects(env.backend.setFileChooserFiles(env.setParams(files)), error => error === nativeError);
+    env.chrome.debugger.sendCommand = original;
+    const checkpoint = env.commands.length;
+    await assert.rejects(env.backend.setFileChooserFiles(env.setParams(files)), /Unknown|consumed|submitted/i);
+    assert.equal(env.commands.length, checkpoint, "an ambiguous failure must not make the original chooser replayable");
+    assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+  });
+}
+
+test("chooser validation failures before native submission can be corrected", async () => {
+  const env = await selectedChooserEnvironment();
+  await assert.rejects(env.backend.setFileChooserFiles(env.setParams([""])), /non-empty file paths/);
+  await assert.rejects(env.backend.setFileChooserFiles(env.setParams(["one.bin", "two.bin"])), /multiple files/);
+  assert.deepEqual(env.commands, []);
+  await env.backend.setFileChooserFiles(env.setParams(["valid.bin"]));
+  assert.equal(env.commands.filter(call => call.method === "DOM.setFileInputFiles").length, 1);
+});
+
+for (const files of [["fixture.bin"], []]) {
+  test(`chooser ${files.length ? "set" : "clear"} rejects its ACK after immediate Pause admission`, { timeout: 2000 }, async () => {
+    const env = await selectedChooserEnvironment();
+    const held = holdChooserCommand(env, files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn");
+    const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(files))]);
+    try {
+      await held.entered.promise;
+      env.backend.automationControl.block();
+      assert.equal(env.backend.attachedTabs.has(7), true, "Pause has blocked input before native detach");
+    } finally { held.gate.resolve(); }
+    const [outcome] = await result;
+    assert.equal(outcome.status, "rejected");
+    assert.match(outcome.reason.message, /AUTOMATION_PAUSED/);
+    assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+  });
+
+  test(`chooser ${files.length ? "set" : "clear"} remains revoked after move out and back while native detach is pending`, { timeout: 2000 }, async () => {
+    const env = await selectedChooserEnvironment();
+    const held = holdChooserCommand(env, files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn");
+    const detachGate = deferred(), detachEntered = deferred(), detach = env.chrome.debugger.detach;
+    env.chrome.debugger.detach = async target => { detachEntered.resolve(); await detachGate.promise; return detach(target); };
+    const token = env.backend.attachmentEpochs.get(7);
+    const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(files))]);
+    let release;
+    try {
+      await held.entered.promise;
+      env.tabs.get(7).groupId = 20;
+      env.backend.revokeMovedTab(7, 20);
+      release = env.backend.controlReleases.get(7);
+      env.tabs.get(7).groupId = 10;
+      await detachEntered.promise;
+      assert.equal(env.backend.attachedTabs.has(7), true);
+      assert.equal(env.backend.attachmentEpochs.get(7), token);
+      assert.equal(env.backend.revokedAttachmentTokens.has(token), true);
+      held.gate.resolve();
+      const [outcome] = await result;
+      assert.equal(outcome.status, "rejected");
+      assert.match(outcome.reason.message, /CONTROL_REVOKED/);
+      assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);
+    } finally {
+      held.gate.resolve(); detachGate.resolve();
+      await result; await release;
+    }
+  });
+}

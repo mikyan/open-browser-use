@@ -42,6 +42,16 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+选择器提交新增单次消费及原控制完成检查，保留change后合法导航。
+旧源码新增回归23项失败、修复后通过；最后补稳定消费错误的一项也有
+旧失败/新成功对照。当前Node864+59+296通过，专项`frp1Zt`9/9；初版
+完整`WUe0YQ`105/105。最终源码`X2wiUq`实际exit1、104/105：Go动态OOPIF
+首轮chooser等待超时，root/已有OOPIF均已真实上传及清空，动态页无POST。
+原调用器失败时没有阶段文件，不能区分arm/collect或证明click ACK；未
+定位根因、不延长等待、不重放。新单次提交case通过不抵消该失败。
+最终源码全套焦点校验通过，仍只有原六次fixture激活和四次popup focus，
+不是全套零焦点事件。目录枚举完成、系统钟诊断及完整矩阵继续开放。
+
 MCP现固定stdio服务首次选中的实际连接，断线后明确要求重启服务，不会
 将旧tab/epoch带到重新发现的实例。Windows真实IPC边界测试及浏览器
 专项`run-ykbo3D` 2/2通过；首次匹配歧义、各SDK重连和跨平台范围仍按原

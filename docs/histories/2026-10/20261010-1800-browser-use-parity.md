@@ -1291,6 +1291,31 @@ terminal1、原104项103通过/1失败。唯一失败JS动态跨源iframe下载�
 未执行日常浏览器安装或完整新制品浏览器验收，已知限制写入发布说明。
 源码推送与预览包交付完成，不等同完整Browser Use能力目标完成。
 
+### 文件选择器的单次提交
+
+修复`setFileChooserFiles`在原生命令返回前可被另一连接重复提交的问题。
+同chooser在首个原生await前占用，已开始的提交不因失败重新开放；纯参数
+校验失败仍可纠正。清空时只释放原attachment/child的remote object。
+提交前文档销毁拒绝旧节点，成功ACK后允许change导致的合法导航，但
+Pause、turn结束、attachment替换或tab撤权不能得到成功回复。移出再移回
+且detach仍未完成时，原撤权token继续阻断，不能只靠当前tab列表判定。
+
+新增确定性回归在旧HEAD上复现23项失败；首版扩展863、构建脚本59、
+浏览器脚手架296项通过。新增实际双连接验收保留原root/静态及动态OOPIF
+页面，上传和清空均一成一拒，消费后重复调用拒绝，不安装命令探针。
+专项`frp1Zt` terminal0、9/9，独立核验6个原POST/97实际文件字节、同scope/
+文档及真实childsession；16770ms连续零激活/焦点/豁免，三新页实际清理。
+这是新case加原上传五入口及raw对照，不代表全能力矩阵完成；目录异步
+枚举完成与更广平台仍待验证，已发布预览资产不变。
+
+消费错误分类再补一条延迟live验证的回归：初版73/74、最终74/74，最终
+扩展864/864；构建59与脚手架296亦通过，无跳过。初版完整`WUe0YQ`
+105/105；最终源码`X2wiUq`实际exit1、104/105，新增case通过，Go动态OOPIF
+首轮等待chooser超时。已有root/静态OOPIF各两个POST，动态页无POST；
+调用器只有成功时输出阶段文件，故无法区分arm/collect或确认click ACK。
+保留失败，未据此重放或延长期限，也未把错误推给本次set修复或外部操作。
+最终focus校验通过，原六激活/四popup焦点，没有新增豁免；整体目标active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

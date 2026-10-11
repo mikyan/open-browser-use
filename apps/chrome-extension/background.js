@@ -3101,28 +3101,52 @@ class BrowserBackend {
     await this.requireSessionTab({ ...params, tabId: chooser.scope.tabId }, "setFileChooserFiles");
     if (!Array.isArray(params.files) || params.files.some(file => typeof file !== "string" || !file)) throw new Error("setFileChooserFiles requires an array of non-empty file paths");
     if (!chooser.isMultiple && params.files.length > 1) throw new Error("File chooser does not accept multiple files");
-    this.assertTransferScope(chooser.scope);
-    if (this.fileChoosersById.get(params.fileChooserId) !== chooser) throw new Error("File chooser became stale");
-    if (params.files.length === 0) {
-      const node = await chrome.debugger.sendCommand(chooser.target, "DOM.resolveNode", { backendNodeId: chooser.backendNodeId });
-      const objectId = node.object?.objectId;
-      if (!objectId) throw new Error("File chooser node is no longer available");
-      try {
-        this.assertTransferScope(chooser.scope);
-        if (this.fileChoosersById.get(params.fileChooserId) !== chooser) throw new Error("File chooser became stale");
-        const result = await chrome.debugger.sendCommand(chooser.target, "Runtime.callFunctionOn", {
-          objectId,
-          functionDeclaration: 'function() { if (this.tagName !== "INPUT" || this.type !== "file") throw new Error("File chooser node is not a file input"); this.value = ""; this.dispatchEvent(new Event("input", {bubbles: true})); this.dispatchEvent(new Event("change", {bubbles: true})); return this.files.length; }',
-          returnByValue: true
-        });
-        if (result.exceptionDetails || result.result?.value !== 0) throw new Error("Unable to clear file chooser input");
-      } finally {
-        await chrome.debugger.sendCommand(chooser.target, "Runtime.releaseObject", { objectId }).catch(() => {});
+    const checkAuthority = () => {
+      this.assertControlOpen();
+      this.assertAttachmentAdmission(chooser.scope.tabId, chooser.scope.attachment);
+      this.assertTransferScope(chooser.scope);
+    };
+    const check = () => {
+      checkAuthority();
+      if (this.fileChoosersById.get(params.fileChooserId) !== chooser) throw new Error("File chooser became stale");
+    };
+    checkAuthority();
+    if (chooser.submitted) throw new Error("OBU_FILE_CHOOSER_CONSUMED: file chooser already submitted");
+    check();
+    // Claim before the first native await. A rejected or lost acknowledgement
+    // cannot prove the file selection had no side effects, so never reopen it.
+    chooser.submitted = true;
+    try {
+      if (params.files.length === 0) {
+        const node = await chrome.debugger.sendCommand(chooser.target, "DOM.resolveNode", { backendNodeId: chooser.backendNodeId });
+        const objectId = node.object?.objectId;
+        if (!objectId) throw new Error("File chooser node is no longer available");
+        try {
+          check();
+          const result = await chrome.debugger.sendCommand(chooser.target, "Runtime.callFunctionOn", {
+            objectId,
+            functionDeclaration: 'function() { if (this.tagName !== "INPUT" || this.type !== "file") throw new Error("File chooser node is not a file input"); this.value = ""; this.dispatchEvent(new Event("input", {bubbles: true})); this.dispatchEvent(new Event("change", {bubbles: true})); return this.files.length; }',
+            returnByValue: true
+          });
+          if (result.exceptionDetails || result.result?.value !== 0) throw new Error("Unable to clear file chooser input");
+        } finally {
+          // Cleanup may outlive control, but it may never target a replacement
+          // attachment (or an already detached child) with recycled native IDs.
+          if (this.attachedTabs.has(chooser.scope.tabId) && this.attachmentEpochs.get(chooser.scope.tabId) === chooser.scope.attachment &&
+              (!chooser.target.sessionId || this.childSessionsByTabId.get(chooser.scope.tabId)?.has(chooser.target.sessionId)))
+            await chrome.debugger.sendCommand(chooser.target, "Runtime.releaseObject", { objectId }).catch(() => {});
+        }
+      } else {
+        await chrome.debugger.sendCommand(chooser.target, "DOM.setFileInputFiles", { backendNodeId: chooser.backendNodeId, files: params.files });
       }
-    } else {
-      await chrome.debugger.sendCommand(chooser.target, "DOM.setFileInputFiles", { backendNodeId: chooser.backendNodeId, files: params.files });
+      // A successful file change can submit a form and navigate. The old node
+      // need not survive an acknowledged write, but its authority must.
+      checkAuthority();
+      await this.validateTransferScope(chooser.scope);
+      checkAuthority();
+    } finally {
+      if (this.fileChoosersById.get(params.fileChooserId) === chooser) this.fileChoosersById.delete(params.fileChooserId);
     }
-    this.fileChoosersById.delete(params.fileChooserId);
   }
 
   waitForDownload(params) { return this.startDownloadWait(params, { legacy: true }); }
@@ -3450,8 +3474,10 @@ class BrowserBackend {
     const swappingFrame = joining && method === "Page.frameDetached" && chooserWait.newFrames.get(params.frameId);
     const initialSwap = swappingFrame && params.reason === "swap" && !swappingFrame.swapped && swappingFrame.parentSessionId === source.sessionId;
     if (initialSwap) swappingFrame.swapped = true;
-    if (chooserWait?.scope && ["Page.documentOpened", "Page.frameDetached"].includes(method) && !initialSwap)
-      void this.fileChooserWaits.invalidateAttachedTab(tabId).catch(() => {});
+    if (["Page.documentOpened", "Page.frameDetached"].includes(method) && !initialSwap) {
+      if (chooserWait?.scope) void this.fileChooserWaits.invalidateAttachedTab(tabId).catch(() => {});
+      for (const [id, chooser] of this.fileChoosersById) if (chooser.scope.tabId === tabId) this.fileChoosersById.delete(id);
+    }
     if (method === "Page.frameNavigated") {
       // A new OOPIF may commit its first child document before the parent emits
       // its first swap. Consume these independently, retaining exact identities.

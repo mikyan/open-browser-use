@@ -317,6 +317,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   等待落点。file chooser 通过 CDP `Page.setInterceptFileChooserDialog` 和
   `Page.fileChooserOpened` 事件截获，再使用 `DOM.setFileInputFiles` 写入
   本地文件路径，并保留 OOPIF child session、frame 与 attachment/epoch 信息。
+  已交付chooser在原生命令前单次占用，失败不恢复重试；成功ACK后允许
+  change导致的正常导航，但仍核对原scope、未撤销的attachment及实时tab
+  归属。清空remote object只向原attachment/child释放，详见下述文件传输。
   `downloadURL` 通过原生 downloads API 主动发起有限 HTTP(S) GET，以返回的
   numeric ID 绑定独立有界 handle；`downloadPath` 等待完成并返回该 ID 的
   浏览器记录路径，`cancelDownload` 取消该 ID。它们绑定原控制 scope，不把
