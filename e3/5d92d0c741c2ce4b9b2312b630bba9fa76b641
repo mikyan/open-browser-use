@@ -1,0 +1,126 @@
+apps/chrome-extension/browser-snapshot-geometry.test.mjs
+  s_08bbfd293d324f::t_bd191ca6f7b8b1 1-55,59-143
+  s_08bbfd293d324f::t_09f6f3efdcbd3e 56-58
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_c707df0f969eb6 122-142,339-380,556-557
+  s_08bbfd293d324f::t_18cf3317803944 168-263
+packages/open-browser-use-python/test_ai_snapshot_geometry.py
+  s_08bbfd293d324f::t_97bfa66ee4b4eb 97
+  s_08bbfd293d324f::t_904054bd23ebea 1-96,98-131
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_3399f29b3dfbdb 657-659,662-664,735,737
+packages/open-browser-use-go/ai_snapshot_geometry_test.go
+  s_08bbfd293d324f::t_3e7156dff4001e 1-162
+  s_08bbfd293d324f::t_e6cfd31bb0e6f7 163-208
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_7cdfbe160477ca 113-118,188
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_ead7fca2476fdc 1024
+  s_08bbfd293d324f::t_53270a4b530b4f 818-819,1066
+  s_08bbfd293d324f::t_20e1ac9d8222a6 1053,1067,1069
+  s_08bbfd293d324f::t_27051209bfd55a 85,92-101,106,1017-1020,1029,1031-1032,1042,1046-1052,1054-1065,1068,1070-1073
+packages/open-browser-use-js/test/ai-snapshot-geometry.test.mjs
+  s_08bbfd293d324f::t_69185a356b1a2d 1-110
+  s_08bbfd293d324f::t_97bfa66ee4b4eb 111-126
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_86aa0af2ca0f5a 10,12,31,87-90,603,605
+scripts/browser-integration/go-snapshot-geometry-checks/main.go
+  s_08bbfd293d324f::t_3c1b3d5118608a 1-4,10,12-14,119
+  s_08bbfd293d324f::t_12d47cc8cec0e0 5-9,11,15-118
+  s_08bbfd293d324f::t_20072c99a366eb 120-121
+apps/chrome-extension/browser-observation.js
+  s_08bbfd293d324f::t_86aa0af2ca0f5a 3,53,66-67,72
+apps/chrome-extension/browser-snapshot-geometry.js
+  s_08bbfd293d324f::t_09f6f3efdcbd3e 7
+  s_08bbfd293d324f::t_86aa0af2ca0f5a 1-6,8-36
+packages/open-browser-use-python/open_browser_use/_ai_snapshot.py
+  s_08bbfd293d324f::t_97bfa66ee4b4eb 5,123-128
+  s_08bbfd293d324f::t_6af2628cec51da 17-51,59-62,91,93-94,113-114,116-122,129-134,136-156,158,161-162,165
+  s_08bbfd293d324f::t_20e1ac9d8222a6 135,157,159-160,163-164
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_53270a4b530b4f 238-266
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_53270a4b530b4f 223-243
+packages/open-browser-use-python/open_browser_use/__init__.py
+  s_08bbfd293d324f::t_3399f29b3dfbdb 15,37
+docs/references/snapshot-geometry.md
+  s_08bbfd293d324f::t_7cdfbe160477ca 1-66
+  s_08bbfd293d324f::t_5ab17d269ec864 67-83
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_7cdfbe160477ca 1796-1816
+  s_08bbfd293d324f::t_61c0e2fd3d6206 1817-1830
+  s_08bbfd293d324f::t_3b111cf48962d2 1831-1848
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_f9ad866be26b02 15-18,28-32,37-41,60-61
+  s_08bbfd293d324f::t_aa33711513bdcc 7-14,19-27,33-36,42-59,62-68
+apps/chrome-extension/browser-ai-snapshot.js
+  s_08bbfd293d324f::t_86aa0af2ca0f5a 3,15,17,32-48
+docs/references/README.md
+  s_08bbfd293d324f::t_242e7a0e7655ce 49-50
+packages/open-browser-use-go/ai_snapshot_geometry.go
+  s_08bbfd293d324f::t_d13d51cb865f4a 1-26,29-148
+  s_08bbfd293d324f::t_ff3a6b8b129730 27-28
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_242e7a0e7655ce 174-177
+scripts/browser-integration/snapshot-geometry-fixture.mjs
+  s_08bbfd293d324f::t_d2d82a25aa56ef 76
+  s_08bbfd293d324f::t_5f82d166aaa588 105,151
+  s_08bbfd293d324f::t_f0e8e0fe99b04b 200-201
+  s_08bbfd293d324f::t_3c7397a8004cc4 11-15,42,141-143,155-157,163-164,181
+  s_08bbfd293d324f::t_847287643ef2b7 172,182-184
+  s_08bbfd293d324f::t_5d0bd03e7184f6 1-9,16-26,28-41,43-70,72-75,77-78,81-104,106-134,136-140,144-147,152-154,158-162,165-171,173-178,180,185-199,202-216
+  s_08bbfd293d324f::t_694b56699224b1 10,27,71,79-80,135,148-150,179
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_d6f25be9a69317 92-121
+  s_08bbfd293d324f::t_bd191ca6f7b8b1 27
+packages/open-browser-use-go/ai_snapshot.go
+  s_08bbfd293d324f::t_20e1ac9d8222a6 17,28-33,43-45,76,95,97,105-109,123-124,146-152,154
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_665b060fe0ad3c 22,130
+scripts/browser-integration/snapshot-geometry-checks.py
+  s_08bbfd293d324f::t_3c1b3d5118608a 1-9,14,16-40,43-67
+  s_08bbfd293d324f::t_d74766af90b3db 10-13,15,41-42
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_5f82d166aaa588 59-60,62-63,251,264,504,743-748,750-754,756-759,761-767,769-770,772-795,2064
+  s_08bbfd293d324f::t_a4237077bf6bc0 395-396
+  s_08bbfd293d324f::t_3a698fd8e31d89 47,61,426,432,749,755,760,768,771
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_60e4d4b10d704f 61-67,75
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_3b111cf48962d2 1180-1199
+  s_08bbfd293d324f::t_2befe9ea9ecf25 1173-1179
+  s_08bbfd293d324f::t_cadb019df88acc 1200
+scripts/browser-integration/go-snapshot-geometry-checks/main_test.go
+  s_08bbfd293d324f::t_fdbdafa28bf230 1-15
+  s_08bbfd293d324f::t_3bc46f0b67a9bf 16-19
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_53270a4b530b4f 217-239
+scripts/patch-ai-snapshot.mjs
+  s_08bbfd293d324f::t_20daae19da2dba 69-80,93-102,120-121,137,147,155-159,165,181,201,207-216,236,238
+scripts/browser-integration/snapshot-geometry-fixture.test.mjs
+  s_08bbfd293d324f::t_8c670956f2d27b 6,26-27,29-31,33,51-52,117,119-135
+  s_08bbfd293d324f::t_e48873de41a078 1-5,7-25,28,32,34-50,53-116,118,136
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_a14267718c562e 276
+  s_08bbfd293d324f::t_3b111cf48962d2 264-275
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_ea8fe327644eb5 98,121-148,161
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_bd7bf4b73ed0fa 721-722,926-930,936,942,944-945,957-958,961-993
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e35d92d0c741c2ce4b9b2312b630bba9fa76b641",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
