@@ -11,6 +11,7 @@ export function createFrameGeometryRuntime() {
   };
   const disconnected = () => Object.assign(new Error("Frame geometry changed document or route"), { obuGeometryDisconnected: true });
   const invalid = (message) => Object.assign(new Error(message), { obuGeometryInvalid: true });
+  const hasNoLayout = (error) => /Could not compute box model|Node does not have a layout object/.test(error?.message || "");
   const finitePoint = (p) => p && Number.isFinite(p.x) && Number.isFinite(p.y);
   const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
   function quad(raw) {
@@ -144,7 +145,7 @@ export function createFrameGeometryRuntime() {
   function viewportValid(value) {
     return value && Object.values(value).every(Number.isFinite) && value.width > 0 && value.height > 0 && value.visualScale > 0;
   }
-  async function snapshot(handle, progress) {
+  async function snapshot(handle, progress, layoutOnly = false) {
     const page = handle._page, delegate = page.delegate, target = handle._frame, originalContext = handle._context;
     const frames = [], handles = [], rows = [];
     const pinned = new Map(), frameMaps = new Map(), sessionMaps = new Map();
@@ -185,13 +186,13 @@ export function createFrameGeometryRuntime() {
         const row = { frame, parent, session, client: session._client, context };
         rows.push(row); pinned.set(frame, row); check();
         row.injected = await read(() => context.injectedScript());
-        row.viewport = await read(() => context.evaluate(readViewport));
-        if (!viewportValid(row.viewport)) throw invalid("Invalid frame viewport");
+        row.viewport = layoutOnly ? undefined : await read(() => context.evaluate(readViewport));
+        if (!layoutOnly && !viewportValid(row.viewport)) throw invalid("Invalid frame viewport");
         row.identity = { frameId: frame._id, parentId: parent?._id ?? null, sessionId: session._client._sessionId,
           localRootId: session._targetId, contextId: context.delegate._contextId,
           frameIdentity: identityOf(frame), sessionIdentity: identityOf(session), contextIdentity: identityOf(context), viewport: row.viewport };
         if (!parent) {
-          frameMaps.set(frame, { forward: identity, inverse: identity, polygon: rectangle(row.viewport.width, row.viewport.height) });
+          frameMaps.set(frame, { forward: identity, inverse: identity, polygon: layoutOnly ? [] : rectangle(row.viewport.width, row.viewport.height) });
           sessionMaps.set(session, identity);
           continue;
         }
@@ -205,14 +206,33 @@ export function createFrameGeometryRuntime() {
         if (!element) throw disconnected();
         handles.push(element); row.element = element; check();
         if (element._context !== parentRow.context || delegate._sessionForHandle(element) !== parentRow.session) throw disconnected();
-        const model = await read(() => parentRow.client.send("DOM.getBoxModel", { objectId: element._objectId }));
+        const model = await read(async () => {
+          try { return await parentRow.client.send("DOM.getBoxModel", { objectId: element._objectId }); }
+          catch (error) {
+            if (layoutOnly && hasNoLayout(error)) return null;
+            throw error;
+          }
+        });
+        // Let read() recheck the original deadline and route before treating a
+        // hidden ancestor as absent layout. Only the layout query uses this.
+        if (model === null) throw Object.assign(new Error("Frame owner has no layout box"), { obuGeometryNoLayout: true });
         const size = await read(() => parentRow.context.evaluate(readOwnerPlane, [parentRow.injected, element]));
         if (size === "error:notconnected") throw disconnected();
+        const raw = model?.model?.content;
+        if (layoutOnly && (!Array.isArray(raw) || raw.length !== 8 || !raw.every(Number.isFinite)))
+          throw invalid("Invalid native content quad");
+        // A same-renderer target's native border already includes these
+        // ancestors, including singular transforms and zero-sized frames.
+        // Layout queries need their route/no-layout checks, not an inverse.
+        if (layoutOnly && session === parentRow.session) continue;
         if (!size || !Object.values(size).filter((value) => typeof value !== "string").every(Number.isFinite) ||
             !["border-box", "content-box"].includes(size.boxSizing)) throw invalid("Unknown iframe content plane");
         const sessionMap = sessionMaps.get(parentRow.session);
         if (!sessionMap) throw disconnected();
-        const rootQuad = quad(model?.model?.content).map((p) => project(sessionMap, p));
+        const ownerPoints = layoutOnly ? Array.from({ length: 4 }, (_, n) => ({ x: raw[2 * n], y: raw[2 * n + 1] })) : quad(raw);
+        if (layoutOnly && ownerPoints.some((p) => !(sessionMap[6] * p.x + sessionMap[7] * p.y + sessionMap[8] > 0)))
+          throw invalid("Frame owner crosses or lies behind a projective horizon");
+        const rootQuad = ownerPoints.map((p) => project(sessionMap, p));
         const map = plane(rootQuad.flatMap((p) => [p.x, p.y]), size.width, size.height);
         frameMaps.set(frame, map);
         if (session !== parentRow.session) {
@@ -230,9 +250,9 @@ export function createFrameGeometryRuntime() {
       throw error;
     }
   }
-  async function withSnapshot(handle, progress, operation) {
+  async function withSnapshot(handle, progress, operation, layoutOnly = false) {
     let state, primaryError;
-    try { state = await snapshot(handle, progress); return await operation(state); }
+    try { state = await snapshot(handle, progress, layoutOnly); return await operation(state); }
     catch (error) {
       primaryError = error;
       if (error?.obuGeometryDisconnected) return "error:notconnected";
@@ -307,6 +327,45 @@ export function createFrameGeometryRuntime() {
     const result = await withSnapshot(handle, progress, async (state) => (await positionGeometry(handle, value, state)).point);
     return result?.hitTargetDescription ? "error:notvisible" : result;
   }
+  async function bounding(handle, progress) {
+    if (!progress || typeof progress.throwIfAborted !== "function" || typeof progress.timeUntilDeadline !== "function")
+      throw new Error("Bounding geometry requires the original action progress");
+    let result;
+    try { result = await withSnapshot(handle, progress, async (state) => {
+      const session = handle._page.delegate._sessionForHandle(handle), map = state.sessionMaps.get(session);
+      if (!map) throw disconnected();
+      const response = await state.read(async () => {
+        try { return await session._client.send("DOM.getBoxModel", { objectId: handle._objectId }); }
+        catch (error) {
+          // A hidden/detached node has no layout box. Do not turn an unknown
+          // native error, broken ancestor projection or lost route into null.
+          if (hasNoLayout(error)) return null;
+          throw error;
+        }
+      });
+      if (response === null) return null;
+      const raw = response?.model?.border;
+      if (!Array.isArray(raw) || raw.length !== 8 || !raw.every(Number.isFinite)) throw invalid("Invalid native border quad");
+      const points = Array.from({ length: 4 }, (_, i) => ({ x: raw[2 * i], y: raw[2 * i + 1] }));
+      // Unlike clickable areas, layout boxes may have zero width or height and
+      // may extend outside every viewport. Project the actual corners before
+      // taking their enclosing box; a local AABB loses rotated-frame geometry.
+      const denominators = points.map((p) => map[6] * p.x + map[7] * p.y + map[8]);
+      if (denominators.some((v) => !Number.isFinite(v) || v <= 0))
+        throw invalid("Border quad crosses or lies behind a projective horizon");
+      const projected = points.map((p) => project(map, p));
+      const x = Math.min(...projected.map((p) => p.x)), y = Math.min(...projected.map((p) => p.y));
+      const width = Math.max(...projected.map((p) => p.x)) - x, height = Math.max(...projected.map((p) => p.y)) - y;
+      if (![x, y, width, height].every(Number.isFinite)) throw invalid("Non-finite projected bounding box");
+      return { x, y, width, height };
+    }, true); } catch (error) {
+      if (error?.obuGeometryNoLayout) return null;
+      throw error;
+    }
+    if (result === "error:notconnected") throw disconnected();
+    if (result?.hitTargetDescription) throw invalid(result.hitTargetDescription);
+    return result;
+  }
   async function hit(handle, point, progress, position) {
     return withSnapshot(handle, progress, async (state) => {
       if (position !== undefined) {
@@ -332,7 +391,7 @@ export function createFrameGeometryRuntime() {
       return { framePoint: project(state.frameMaps.get(state.target).inverse, point), frameGeometry: state.fingerprint };
     });
   }
-  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, hit };
+  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, bounding, hit };
 }
 
 function replaceOnce(source, before, after, label) {
@@ -355,6 +414,18 @@ export function patchCrxFrameGeometry(source) {
   source = source.slice(0, hitStart) + `  async _checkFrameIsHitTarget(point, progress, position) { return obuFrameGeometry.hit(this, point, progress, position); }` + source.slice(hitEnd);
   source = replaceOnce(source, "const maybePoint = position ? await this._offsetPoint(position) : await this._clickablePoint();",
     "const maybePoint = position ? await this._offsetPoint(position, progress2) : await this._clickablePoint(progress2);", "point progress");
-  return replaceOnce(source, "const frameCheckResult = await this._checkFrameIsHitTarget(point);",
+  source = replaceOnce(source, "const frameCheckResult = await this._checkFrameIsHitTarget(point);",
     "const frameCheckResult = await this._checkFrameIsHitTarget(point, progress2, position);", "frame hit progress");
+  source = replaceOnce(source, "  async boundingBox() {\n    return this._page.delegate.getBoundingBox(this);\n  }",
+    "  async boundingBox(progress) {\n    return progress ? obuFrameGeometry.bounding(this, progress) : this._page.delegate.getBoundingBox(this);\n  }", "server bounding box");
+  source = replaceOnce(source, "      const boundingBox = await handle.boundingBox();",
+    "      const boundingBox = await handle.boundingBox(progress2);", "element screenshot progress");
+  source = replaceOnce(source, "scheme.ElementHandleBoundingBoxParams = tOptional(tObject({}));",
+    "scheme.ElementHandleBoundingBoxParams = tOptional(tObject({ timeout: tOptional(tNumber) }));", "bounding box private timeout schema");
+  source = replaceOnce(source, "  async boundingBox(params, metadata) {\n    const value = await this._elementHandle.boundingBox();\n    return { value: value || void 0 };\n  }",
+    "  async boundingBox(params, metadata) {\n    const controller = new ProgressController(metadata, this._elementHandle);\n    const value = await controller.run(progress => this._elementHandle.boundingBox(progress), params?.timeout);\n    return { value: value || void 0 };\n  }", "bounding box dispatcher progress");
+  source = replaceOnce(source, "  async boundingBox() {\n    const value = (await this._elementChannel.boundingBox()).value;\n    return value === void 0 ? null : value;\n  }",
+    "  async boundingBox(options2 = {}) {\n    const value = (await this._elementChannel.boundingBox({ timeout: this._frame._timeout(options2) })).value;\n    return value === void 0 ? null : value;\n  }", "client bounding box timeout");
+  return replaceOnce(source, '  async boundingBox(options2) {\n    return await this._withElement((h) => h.boundingBox(), { title: "Bounding box", timeout: options2 == null ? void 0 : options2.timeout });\n  }',
+    '  async boundingBox(options2) {\n    const timeout = this._frame._timeout(options2);\n    return await this._withElement((h, remaining) => {\n      if (timeout && remaining <= 0) throw new TimeoutError2(`Timeout ${timeout}ms exceeded.`);\n      return h.boundingBox({ timeout: remaining });\n    }, { title: "Bounding box", timeout });\n  }', "locator bounding box remaining timeout");
 }

@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Transformed element bounds](transformed-element-bounds.md)：正式元素边界框与
+  截图的跨renderer四角投影、剩余期限、无布局语义和独立像素验收。
 - [Browser action protocol](browser-action-protocol.md)：公开 Playwright engine
   动作与定位器协议、固定依赖版本、构建方式和已知限制。
 - [Pointer delivery](pointer-delivery.md)：普通单击按下前的目标投递确认、

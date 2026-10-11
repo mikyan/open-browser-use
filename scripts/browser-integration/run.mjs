@@ -26,6 +26,7 @@ import { clipboardFixture, clipboardPNG, checkClipboard, checkClipboardLifecycle
 import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
 import { checkPythonClipboard, checkGoClipboard, checkCLIClipboard, checkMCPClipboard } from "./clipboard-callers.mjs";
 import { elementScreenshotFixture, checkElementScreenshots } from "./element-screenshot-fixture.mjs";
+import { createBoundingGeometryFixtures, checkBoundingGeometry } from "./bounding-geometry-fixture.mjs";
 import { popupFixture, checkChildTabAuthorization, checkAuxiliaryPopupRendering, checkAuxiliaryPopupLifecycle } from "./popup-fixture.mjs";
 import { aiSnapshotFixture, fixtureRef, checkAISnapshotRefs, checkAISnapshotLifecycle, checkAISnapshotLimits } from "./ai-snapshot-fixture.mjs";
 import { createNetworkWaitFixtures, networkPageURL, networkAPIURL, networkButton, checkNetworkReady, checkNetworkMatching, checkNetworkLifecycle } from "./network-waits-fixture.mjs";
@@ -276,6 +277,7 @@ const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
+const boundingGeometryFixtures = createBoundingGeometryFixtures();
 const directUploads = createDirectLocatorUploadFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
@@ -296,6 +298,7 @@ const http = createServer(async (request, response) => {
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (boundingGeometryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
@@ -455,6 +458,7 @@ try {
   sourceIdentity.sha256.memoryClipboardGuard = createHash("sha256").update(await fs.readFile(path.join(directory, "memory-clipboard.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardCallers = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-callers.mjs"))).digest("hex");
   sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.boundingGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "bounding-geometry-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.snapshotGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "snapshot-geometry-fixture.mjs"))).digest("hex");
@@ -954,6 +958,35 @@ try {
     saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, `${name}.png`), bytes),
     oopifTargets: () => worker.evaluate("globalThis.__integrationFrames")
   }));
+  await test("js-bounding-geometry", async () => {
+    sourceIdentity.testHooks.push("bounding geometry: transparent exact-tab native geometry/screenshot recorder; independent CSS border-corner witnesses and actual PNG dimensions/pixels verify public locator boundingBox and screenshot; original native document identities and exact task cleanup; no new focus allowance");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-bounding-geometry", turnId: "transformed-element-bounds", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkBoundingGeometry({ browser: owner, worker, fixtureURL, server: boundingGeometryFixtures, until, detail,
+      saveScreenshot: async (name, bytes) => { const filename = `${name}.png`; await fs.writeFile(path.join(runDir, filename), bytes); return filename; }
+    }); } catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-bounding-geometry-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-bounding-geometry-client", run: () => owner.close() },
+      { name: "verify-bounding-geometry-cleanup", run: async () => {
+        detail.finalNative = await worker.evaluate(`(async()=>({tabs:await chrome.tabs.query({}),targets:await chrome.debugger.getTargets()}))()`);
+        for (const item of detail.cases ?? []) {
+          assert.ok(!detail.finalNative.tabs.some(tab => tab.id === item.tabId), "Bounding geometry task tab remains after finalize");
+          const urls = [...new Set([
+            ...Object.values(item.urls ?? {}), ...Object.values(item.navigationURLs ?? {}),
+            ...(item.phases ?? []).flatMap(phase => [...Object.values(phase.urls ?? {}), phase.hiddenParentFrame?.url,
+              ...(phase.native?.frames ?? []).map(frame => frame.url)])
+          ].filter(value => typeof value === "string" && value.includes(item.key)))];
+          assert.ok(!detail.finalNative.targets.some(target => urls.includes(target.url)), "Bounding geometry task target remains after finalize");
+        }
+      } }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "bounding-geometry.json"), JSON.stringify(value, null, 2));
+      await fs.writeFile(path.join(runDir, "bounding-geometry-server.json"), JSON.stringify(boundingGeometryFixtures.allStats(), null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
+  });
   await test("js-child-tab-attachment-authorization", async () => checkChildTabAuthorization({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, assert, until,

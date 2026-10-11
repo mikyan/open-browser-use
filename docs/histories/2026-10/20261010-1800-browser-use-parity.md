@@ -1727,6 +1727,26 @@ POST/83571B、11原文档/HTML及八页/targets回收独立核验。227112ms账�
 逐字节核验；旧preview ZIP未替换。Go/SDK未重跑，既有Go源及八个复用
 bin匹配build manifest。更广几何、文件/诊断和平台验收继续开放。
 
+### 变换元素边界框与截图
+
+正式locator boundingBox和元素截图按实际renderer local-root投影native
+border四角再求root AABB，修复旧local AABB加iframe原点丢失旋转/缩放的
+问题。保留离屏、负坐标、零尺寸和已知无布局null；路由/期限/不支持平面
+错误不吞掉。私有locator至dispatcher沿原剩余期限运行真实progress，
+有限剩余0/-1不转成无限；截图沿用原progress。公开wire和系统鼠标不变。
+
+旧`6khFx1`五个OOPIF phase错误边界与crop保留，独立边框见证发现仅看
+内部像素会漏掉四次。首候选`9QZ5oF`因fixture误判getTargets.type失败，
+改为原native target ID/URL/session关联；不改几何/像素阈值或重写失败。
+最终专项`yXtuCJ`2/2；完整`iRrKtt`121/121、actual exit0，原120名称/顺序
+保持。七场八phase、223原native调用及唯一ACK、零Input、15原文档/HTML、
+八PNG/118442B原字节/CRC/十像素见证和精确任务清理均独立通过。237085ms
+focus仅原12activation/4controlfocus，未增豁免；sentinel身份/选择保持，
+高1222→1190。Node1723/1723无skip/cancel，51生产/53stage与源码重建相同，
+普通ZIP逐成员核验通过，旧preview保持。Go/SDK未重跑，沿用build manifest
+核原49源/八bin。跨renderer退化、广泛透视/DPR、非原子及best-effort handle
+释放限制保留；本片真实browser仅证明所列affine场景，完整目标继续。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1740,3 +1760,4 @@ bin匹配build manifest。更广几何、文件/诊断和平台验收继续开�
 - `scripts/build-chrome-extension.mjs`
 - `docs/references/shared-research-workflow.md`
 - `docs/references/element-position-geometry.md`
+- `docs/references/transformed-element-bounds.md`

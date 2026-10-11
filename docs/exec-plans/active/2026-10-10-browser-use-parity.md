@@ -2571,3 +2571,31 @@ SVG/非替换inline/fragment仍保留旧position约定；hover/drag未新增clic
 后续源码审计另发现正式boundingBox/元素截图仍经旧_framePosition平移；
 尚无本轮真实反例，下一步先验证变换OOPIF的返回box和实际PNG，再处理。
 Codex同组文件/诊断、其他平台和P01–P15剩余项继续开放。
+
+### P05/P09：变换元素边界与截图（本片完成，整体仍 active）
+
+旧生产`6khFx1`实际证明五个变换OOPIF截图phase边界/裁切错误，最大逐轴
+bbox误差95.886446 CSS；内部像素不足以识别其中四次，独立边框见证补足
+证据。新adapter将原生border四角按实际renderer local-root映射再求AABB，
+不裁viewport，保留负坐标/离屏/零尺寸以及原生known no-layout的null语义。
+私有locator/client/schema/dispatcher传递真实剩余期限，finite0/-1不能变成
+无限；截图使用原progress，不改变公开wire。读取仍非原子，native已发
+请求并非物理取消，临时handle仍best-effort dispose。
+
+首候选`9QZ5oF`因fixture把getTargets的other类型错当身份失败而exit1；
+修正为精确id/URL关联原attachedToTarget iframe session，不放松几何/像素
+标准，原失败保留。最终专项`yXtuCJ`2/2、3704ms零focus；完整`iRrKtt`
+**121/121、actual exit0**，旧120名称/顺序保持。七场八phase、15原文档/HTML、
+223原生调用各有唯一ACK、零Input、八PNG/118442B的原字节、CRC、十像素
+见证与精确回收独立通过，最大bbox误差0.004898049 CSS。237085ms账本
+仅原12activation/4controlfocus，新增零豁免；sentinel身份/选择保持，
+高1222→1190。原host测试SIGTERM，替代host exit0。
+
+Node1723/1723无skip/cancel；51生产/53暂存成员匹配当前源码重建，专项与
+完整相同。普通ZIP逐成员一致，旧preview三ZIP匹配既有checksum且不替换。
+Go/SDK未重跑，49构建源/八复用bin与原manifest一致。原session的终态及
+独立审计证据已取得，属于实际进展。详见[边界与证据](../../references/transformed-element-bounds.md)。
+
+跨renderer退化平面、更广perspective/DPR与hover/drag仍待推进；顺序读取
+不保证后续布局不再改变。下一候选为drag在hover/dragover改变目标后的
+提交门禁，先保留真实旧反例再实施；Codex同组文件/诊断及P01–P15继续。

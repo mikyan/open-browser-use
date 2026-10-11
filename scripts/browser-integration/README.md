@@ -1,5 +1,23 @@
 # Browser integration acceptance
 
+## Transformed element bounds and screenshots
+
+`OBU_TEST_CASES=bounding-geometry` selects the mandatory raw-navigation control
+and `js-bounding-geometry`. Seven scenes cover root/same-renderer transforms,
+scaled and rotated OOPIFs, nested local roots, child-document navigation, and
+negative/offscreen/zero/hidden bounds. Eight screenshots are saved alongside
+`bounding-geometry.json` and `bounding-geometry-server.json`.
+
+Independent CSS corner and pixel witnesses establish expected root bounds;
+production mapping functions are not the oracle. Checks bind the original
+document/node to native target/session records, compare actual screenshot clips
+and PNG bytes, decode pixels and verify exact task-tab/target cleanup. Native
+`getTargets.type` need not equal the `attachedToTarget` type; exact target IDs,
+URLs and iframe session records are joined instead. All scenes retain evidence
+after a failure. No Input or activation/focus allowance is added, and the prior
+120 cases keep their relative order. See
+[bounds contract and failures](../../docs/references/transformed-element-bounds.md).
+
 ## Transformed element positions
 
 `OBU_TEST_CASES=element-position` selects the mandatory raw-navigation control

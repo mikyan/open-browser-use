@@ -199,6 +199,13 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   挂起；每步仍使用同一剩余 deadline 和控制权检查。显式 claim 独立 popup
   时通过 auxiliary ownership 保留其原窗口，避免移组造成首次点击超时。
   原生 popup 创建抢前台和用户自行跨窗口移动后的渲染恢复仍有缺口。
+  正式 locator boundingBox 与元素截图将原生 border quad 四角按实际 renderer
+  local-root 投影后求 root 视口 AABB，不先求局部 AABB。边界查询保留离屏和
+  零尺寸；截图仍拒绝无布局或零宽高。
+  私有 locator/channel/dispatcher 传递原剩余期限，截图沿用原 progress；
+  边界查询已知无布局返回 null，丢路由或不支持的跨 renderer 平面明确报错。
+  Snapshot boxes 仍为 frame-local 契约，详见
+  `docs/references/transformed-element-bounds.md`。
 - Homebrew formula 从 GitHub Release 下载平台匹配的预编译 CLI tarball，
   安装后提供 `open-browser-use` 和 `obu`，并在 caveats 中提示用户运行显式
   `open-browser-use setup`；安装阶段不依赖 Go，也不在用户机器上编译。

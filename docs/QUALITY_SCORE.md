@@ -11,7 +11,20 @@
 
 ## 当前评分
 
-显式元素position本片通过完整`DF0lUQ` **120/120、actual exit0**，
+最新元素边界框/截图分片通过完整`iRrKtt` **121/121、actual exit0**，Node
+**1723/1723**、零skip/cancel；原120项名称/顺序保留。正式boundingBox和
+元素截图按实际renderer local-root映射原生border四角再求AABB，保留
+负坐标、离屏、零尺寸及已知无布局null，原剩余期限贯穿私有dispatcher。
+七场/八图核实际PNG字节、CRC、内部及边框像素，旧五个OOPIF错误裁切
+反例保留。专项`yXtuCJ`2/2、3704ms零focus；完整新增223条原生调用及唯一
+ACK、零Input、15原文档/HTML、118442B PNG和精确回收均独立核实。
+237085ms仅原12activation/4controlfocus，无新增豁免；sentinel身份/选择
+保持，高1222→1190。51生产/53暂存成员和普通ZIP一致，旧preview未改。
+Go/SDK未重跑，49构建源/八bin沿用manifest核验。跨renderer退化平面、
+更广perspective/DPR、非原子读取等边界仍在，完整parity未完成。详见
+[变换元素边界](references/transformed-element-bounds.md)。
+
+此前显式元素position本片通过完整`DF0lUQ` **120/120、actual exit0**，
 Node **1699/1699**、零skip/cancel。旧119项名称与顺序保留；新八场覆盖
 元素scale/rotate/zoom/perspective、同进程/OOPIF及hover/首击后几何变化。
 单一HTML padding plane按原生quad投影，叶几何加入click指纹；旧生产八场
