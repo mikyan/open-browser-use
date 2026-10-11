@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { BrowserNetworkWaits } from "../browser-network-waits.js";
 import { BrowserLifetime } from "../browser-lifetime.js";
 import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
+import { BrowserFileChooserWaits } from "../browser-file-chooser-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
 import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "../browser-media-source.js";
 import { MediaContextLifetimes } from "../browser-media-lifetime.js";
@@ -60,6 +61,7 @@ const source = code => code
   .replace('import { NativeMessageReceiver } from "./native-message-receiver.js";', "")
   .replace('import { BrowserNetworkWaits } from "./browser-network-waits.js";', "")
   .replace('import { BrowserNavigationWaits } from "./browser-navigation-waits.js";', "")
+  .replace('import { BrowserFileChooserWaits } from "./browser-file-chooser-waits.js";', "")
   .replace('import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";', "")
   .replace('import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "./browser-media-source.js";', "")
   .replace('import { MediaContextLifetimes } from "./browser-media-lifetime.js";', "")
@@ -68,7 +70,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { crypto: globalThis.crypto, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { crypto: globalThis.crypto, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserFileChooserWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

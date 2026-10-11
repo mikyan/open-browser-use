@@ -802,6 +802,50 @@ Edge `native-lifecycle-XlNQ9o` 采集 10,002ms / 11 样本，唯一 focus 与气
 和语义确认；已有正文、PDF/MHTML 与剪贴板返回不重复开发，不用历史命令
 字符串推导新 API。完整矩阵继续 active，仅本地提交，无 PR/推送。
 
+
+### P10：跨连接文件选择器准备确认
+
+新增协商版本 1 的 arm/collect/cancel 三个 RPC，JS/Python/Go 提供 wait handle，
+CLI/MCP 沿用通用 call。确认 root 和已知 child interception 实际就绪后才返回，
+另一连接可随后立即点击；新 OOPIF 也加入准备屏障。旧公开并发等待复用同一
+registry。每 tab 一个、全局128个；原 scope、attachment、文档和 deadline
+固定，并发 collect 冲突、成功只交付一次。超时不重放点击或文件设置，取消
+可以按原 scope 在期限后重试真实清理；清理失败继续占容量并阻止假成功暂停。
+
+首轮 `run-cAgqZx` **1/9** 暴露浏览器原生 timer 的 receiver 要求，增加真实
+realm 约束回归并改用 global 包装。`run-16fvkO` **4/9** 和诊断 `run-Yzz3ni`
+**1/2** 保留了新 OOPIF 首次提交先于父端 swap 的实际事件。现分别记录精确
+frame/parent/child session 的首次提交与首次 swap；重复导航、移除、错误来源
+及匹配后的变化继续使等待失效。没有用 about:blank 假设或更宽豁免绕过问题。
+
+最终专项 `run-bE4e26` **9/9**，完整 headed `run-3OY97j` **83/83**。五入口各自
+以两条独立连接验证冷 root、既有 OOPIF、arm 后新建 OOPIF，实际上传再清空；
+独立审计重新核对30条原始 POST body/base64/SHA及文件UTF-8/二进制内容，另有
+生命周期6条。并发collect明确一成功一冲突；取消后在原文档观察至旧deadline
+后267ms，只有预期3click/2change。原始可信点击与上传change均保留，清空事件
+本身是既有合成change，不冒充硬件可信。Pause及worker替换拒绝旧handle。
+
+完整 CI **882** 项 Node（751扩展、53脚本、78脚手架）、JS **105**、Python **73**
+与Go全包通过，无跳过。源码、SDK dist、实际host与两次成功运行的hash一致。
+全套单一observer覆盖119643ms，六次测试窗口首tab激活与四条明确action popup
+focus全部精确归因，sentinel不变。代1host由既有恢复场景明确SIGTERM，代2
+exit0；不将故障注入称为正常退出。失败运行及原始trace均保留。
+
+本轮仍用明确声明的loopback Port adapter，不代替实际native launcher验收。
+scope证据是保留的caller scope与冻结代码，非完整RPC transcript；部分负例
+只保留断言类型。焦点连续区间从observer就绪到末快照，不覆盖启动/退出；
+host清理审计依赖退出证据，未新增OS进程枚举。此前Edge原生focus失败保留，
+未做当前Codex上传对照，完整P10与长期目标继续active。仅本地提交，无PR/推送。
+
+最终 ZIP **1,251,944 bytes / 46 files**，SHA-256
+`8990be12bf0702945e919b6f852246bea01feb56dfba7558939b91a3f85f5f9d`。
+两次独立制品审计逐成员核对 ZIP/unpacked、35个生产hash和其余静态文件，
+均与专项及完整实测一致；图标恢复为原验收字节后重新打包。无测试插桩或
+私有路径，host SHA-256
+`1f946d2b407de5fb3829513798ae89223ef785e57cb4038f920f597962e71c37`
+保持一致。ZIP外的构建manifest包含本地绝对路径，不作为公开附件；用户
+主浏览器的安装未改变。新JS生成模块与声明随源码一并纳入版本控制。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

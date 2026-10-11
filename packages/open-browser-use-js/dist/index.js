@@ -1,5 +1,7 @@
 var _a;
 import { clipboardMethods, clipboardParams, validateClipboardResult, OpenBrowserUseClipboard } from "./clipboard.js";
+import { OpenBrowserUseFileChooserWait, fileChooserWaitMethods, fileChooserWaitParams, fileChooserWaitTimeout, fileChooserWaitAck, fileChooserWaitResult, fileChooserWaitCancelled, assertFileChooserWaitDeadline } from "./file-chooser-waits.js";
+export { OpenBrowserUseFileChooserWait } from "./file-chooser-waits.js";
 export { OpenBrowserUseClipboard } from "./clipboard.js";
 import { OpenBrowserUseDownload, downloadID, downloadTimeout, downloadURLParams, downloadFileParams } from "./downloads.js";
 import { pageExportParams, validatePageExport } from "./page-exports.js";
@@ -16,12 +18,13 @@ const headerBytes = 4;
 const maxFrameBytes = 64 * 1024 * 1024;
 const defaultNavigationTimeoutMs = 10_000;
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
 const navigationWaitSymbol = Symbol("navigationWait");
 const networkWaitSymbol = Symbol("networkWait");
+const fileChooserWaitSymbol = Symbol("fileChooserWait");
 const controlScopeSymbol = Symbol("controlScope");
 export class OpenBrowserUseClient {
     socketPath;
@@ -37,6 +40,7 @@ export class OpenBrowserUseClient {
     #clipboardVersion = undefined;
     #navigationWaitVersion = undefined;
     #networkWaitVersion = undefined;
+    #fileChooserWaitVersion = undefined;
     #socket = null;
     #connecting = null;
     #pendingData = Buffer.alloc(0);
@@ -110,6 +114,8 @@ export class OpenBrowserUseClient {
         return this.#request(method, params, options);
     }
     async #request(method, params, options, capture) {
+        if (fileChooserWaitMethods.has(method))
+            fileChooserWaitParams(method, params);
         assertTimeout(options.timeoutMs ?? this.timeoutMs);
         const submittedAt = Date.now();
         let deadline = submittedAt + (options.timeoutMs ?? this.timeoutMs);
@@ -146,6 +152,14 @@ export class OpenBrowserUseClient {
             if (this.#networkWaitVersion !== 1)
                 throw new Error("OBU_NETWORK_WAIT_UNSUPPORTED: extension does not advertise networkWaitVersion 1");
         }
+        if (fileChooserWaitMethods.has(method)) {
+            if (this.#fileChooserWaitVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+            if (this.#fileChooserWaitVersion !== 1)
+                throw new Error("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1");
+            if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
+                throw new Error("File chooser waits require an explicit control epoch");
+        }
         if (navigationWaitMethods.has(method)) {
             if (this.#navigationWaitVersion === undefined)
                 await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
@@ -177,7 +191,7 @@ export class OpenBrowserUseClient {
                 throw new Error("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1");
         }
         capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
-        const result = await this.#sendRequest(method, merged, deadline);
+        const result = await this.#sendRequest(method, merged, deadline, 0, options.startBefore);
         if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
             const next = binding.controlEpoch === null ? { controlEpoch: null, closing: false, nextTurnId: `turn-${randomUUID()}` } : parseEndedControl(result);
             if (binding.controlEpoch !== null && (next.controlEpoch <= binding.controlEpoch || !isObject(result) || result.endedTurnId !== turnId))
@@ -226,6 +240,16 @@ export class OpenBrowserUseClient {
         const ack = navigationWaitAck(value, timeoutMs);
         const captured = { ...binding, tabId, waiterId: ack.waiterId };
         return new OpenBrowserUseNavigationWait(ack, (method, timeout) => this.request(method, captured, { timeoutMs: timeout }));
+    }
+    async [fileChooserWaitSymbol](tabId, options = {}) {
+        const timeoutMs = fileChooserWaitTimeout(options), deadline = Date.now() + timeoutMs;
+        let binding;
+        const value = await this.#request("armFileChooserWait", { tabId, timeoutMs }, { timeoutMs: timeoutMs + 1000, startBefore: deadline }, metadata => { binding = metadata; });
+        const ack = fileChooserWaitAck(value, timeoutMs);
+        const expires = Math.min(deadline, Date.now() + ack.remainingMs);
+        assertFileChooserWaitDeadline(expires);
+        const captured = { ...binding, tabId, waiterId: ack.waiterId };
+        return new OpenBrowserUseFileChooserWait(ack, expires, (method, budget, startBefore) => this.#request(method, captured, { timeoutMs: budget, startBefore }));
     }
     getControlState() { return this.request("getControlState"); }
     async beginTurn(turnId) {
@@ -286,7 +310,7 @@ export class OpenBrowserUseClient {
             throw new Error(`Unsupported turn lifecycle version: ${version}`);
         return parseControlState(await this.#sendRequest("getControlState", params, deadline));
     }
-    async #sendRequest(method, params, deadline, reservedResponseMs = 0) {
+    async #sendRequest(method, params, deadline, reservedResponseMs = 0, startBefore) {
         await beforeDeadline(this.connect(), deadline, method);
         const socket = this.#socket;
         if (!socket) {
@@ -298,7 +322,7 @@ export class OpenBrowserUseClient {
         if (remaining <= reservedResponseMs)
             throw new Error(`Open Browser Use request timed out before ${method} could start`);
         if (method === "browserAction" || eventWaitMethods.has(method)) {
-            const requested = ["armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
+            const requested = ["armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
             if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested)))
                 throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
             const available = Math.floor(remaining - 1000);
@@ -314,6 +338,9 @@ export class OpenBrowserUseClient {
             params
         };
         const payload = encodeFrame(message);
+        // The extra response-read allowance cannot authorize a late collect send.
+        if (startBefore !== undefined)
+            assertFileChooserWaitDeadline(startBefore);
         const promise = new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.#pending.delete(id);
@@ -340,6 +367,14 @@ export class OpenBrowserUseClient {
             this.#navigationWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.navigationWaitVersion ?? null : null;
         if (method === "getInfo")
             this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
+        if (method === "getInfo")
+            this.#fileChooserWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.fileChooserWaitVersion ?? null : null;
+        if (method === "armFileChooserWait")
+            return fileChooserWaitAck(result, params.timeoutMs);
+        if (method === "collectFileChooserWait")
+            return fileChooserWaitResult(result);
+        if (method === "cancelFileChooserWait")
+            fileChooserWaitCancelled(result);
         return result;
     }
     getInfo() {
@@ -595,6 +630,9 @@ export class OpenBrowserUseTab {
     waitForDownload(options = {}) {
         return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });
     }
+    expectFileChooser(options = {}) {
+        return this.browser.client[fileChooserWaitSymbol](this.id, options);
+    }
     expectRequest(match, options = {}) {
         return this.browser.client[networkWaitSymbol](this.id, "request", match, options);
     }
@@ -769,6 +807,7 @@ export class OpenBrowserUseLocator {
 _a = OpenBrowserUseLocator;
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match, options = {}) { return this.tab.expectRequest(match, options); }
+    expectFileChooser(options = {}) { return this.tab.expectFileChooser(options); }
     expectResponse(match, options = {}) { return this.tab.expectResponse(match, options); }
     snapshotAI(options = {}) { return this.tab.snapshotAI(options); }
     goBack(options = {}) { return this.tab.goBack(options); }

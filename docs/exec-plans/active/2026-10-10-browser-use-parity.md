@@ -1061,14 +1061,14 @@ Node-only脚手架75/75；生产与交付包未变。继续保留原Edge恢复�
 因此下一片先实现已有真实使用缺口的跨连接 chooser 准备确认，完整目标
 不缩减，其他文件/平台和当前 Codex 同组基准继续保留。
 
-### P10：文件选择器的准备确认与跨连接上传（计划，尚未实现）
+### P10：文件选择器的准备确认与跨连接上传（本片已验收，P10 仍部分完成）
 
 目标是让三 SDK、CLI 和 MCP 顺序完成“确认监听就绪 → 点击 → 取得 chooser
 → 上传”，解决 `file-transfers.md` 已记录的跨连接排序缺口。当前 JS 同连接
 并发模式保留；本片先完成 chooser，下载的准备确认与 GUID 路径/取消继续
 保留为后续工作。不得通过 sleep、后台线程启动顺序或重放点击证明就绪。
 
-拟定三个 RPC，公共 scope 均为 `session_id`、`turn_id`、`control_epoch`、
+实现三个 RPC，公共 scope 均为 `session_id`、`turn_id`、`control_epoch`、
 `tabId`；拒绝未知选项，协商 `getInfo.metadata.fileChooserWaitVersion === 1`：
 
 | RPC | 额外参数 | 响应 |
@@ -1102,6 +1102,8 @@ lookup、invalidate、controlSnapshot 结构，不改造成任意事件框架。
   collect 的未知/外来/过期 handle 统一拒绝；cancel 对未知或外来 handle
   无效果且不透露状态，不能取消其他 owner。取消已匹配但未交付的结果时
   同时撤销该 waiter 创建的 chooser，已交付 chooser 沿用既有生命周期。
+  正常 scope admission 仍适用：无权 tab 或无效 epoch 可统一拒绝，不据此
+  区分 waiter 是否存在。
 - 新 OOPIF 加入活动 wait 的 interception；新 child 准备未完成时，相关
   动作也必须等待实际确认。child detach、文档导航、移组/转交、end、Pause
   和 worker/host 生命周期使旧记录失效，不能凭同 tab 数字 ID 恢复。
@@ -1109,6 +1111,10 @@ lookup、invalidate、controlSnapshot 结构，不改造成任意事件框架。
   时保留操作账本和容量。清理仅面向原 attachment/child，旧 disable 不能
   关闭后继 wait；失败保留可重试的确切清理，不能吞掉失败报告已释放。
   超时不触发点击、不重复文件写入，也不关闭用户原生对话框来伪造取消。
+- cancel 可在原等待期限后按原 scope 重试确切清理，使用独立最多 10 秒的
+  清理响应预算、不发送 `timeoutMs`、不更新等待 deadline。已知记录仅在
+  真实清理完成后回复 `{}`；失败明确拒绝并保留容量。result 在队列、连接后
+  再检查原本地 deadline，额外一秒回复余量不能授权过期 collect。
 
 三 SDK 提供 `tab.expectFileChooser(...)` / `expect_file_chooser(...)` /
 `ExpectFileChooser(...)`，返回带 `result()`/`cancel()` 对应语言方法的
@@ -1127,3 +1133,22 @@ OOPIF。页面读取文件并 POST 到合成本地服务器，核对 UTF-8/二�
 tab 激活与窗口焦点，确认没有原生文件选择器抢前台；源码/hash、实际入口、
 原始服务器记录和失败运行一起保存。通过后再更新 reference、history 和矩阵，
 仅称完成本片，不把尚未做过的 Codex 上传对照或完整 P10 宣称为完成。
+
+
+本片最终结果：专项 `run-bE4e26` **9/9**，完整 `run-3OY97j` **83/83**；
+完整CI **882** 项Node（751+53+78）、JS105、Python73及Go全包通过，无跳过。
+五入口30条上传/清空原始POST及生命周期另6条独立核验，真实OOPIF的原生
+frame/session与独立renderer进程均保留。取消后原文档观察超过旧deadline
+267ms，无迟到写入；全套连续observer六条创建激活、四条主动popup focus
+全部精确归因，sentinel不变。scope证据非完整RPC transcript、焦点不含启动
+与退出、Port adapter不代替原生注册，这些边界保留在reference和runner文档。
+
+首轮1/9的浏览器timer receiver，以及4/9和诊断1/2中新OOPIF先commit后swap
+缺陷均已修复并添加回归；失败证据不改写。新frame的首次nav与父端swap
+分别受精确身份约束，重复/错误来源/匹配后变化仍失效。完整P10未完成，
+未执行Codex上传对照，仅完成本片；继续保留Edge原生focus失败和其余矩阵缺口。
+
+最终包独立审计通过：46文件、1,251,944bytes，SHA-256
+`8990be12bf0702945e919b6f852246bea01feb56dfba7558939b91a3f85f5f9d`。
+成员与unpacked及两轮实际验收一致，无测试插桩/私有路径。保持本地开发
+与提交，不推送、不提PR，不替换用户主浏览器现有安装。

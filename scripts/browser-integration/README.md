@@ -431,6 +431,31 @@ the remaining gates, so cleanup cannot look like successful lifecycle progress.
   manual pointer drag, and release of held buttons on timeout or turn end.
 - Public concurrent file-chooser wait plus locator click from a cold engine,
   actual uploaded file bytes in the main document and OOPIF, and clearing files.
+- Ready-first file chooser waits through JS, synchronous Python/Go, CLI `call`
+  and MCP `tools/call`: connection A receives the arm acknowledgement, then an
+  independent connection B immediately clicks using the same session/turn/epoch.
+  Each entry point covers cold root and OOPIF pages plus an OOPIF created by a
+  trusted click after arm. Upload and clear require separate chooser IDs, native
+  frame attachment evidence and two exact HTTP POSTs. Clicks and nonempty upload
+  changes are trusted; the existing programmatic clear remains untrusted.
+  The Node server retains raw POST bytes, decodes real File bytes and checks size/SHA-256 independently
+  of the caller's rendered receipt. JS negatives cover original deadline,
+  cancellation, foreign scope/cancel, duplicate arm, concurrent collect, an
+  uncollected native chooser event, navigation and moved ownership. The existing real
+  Pause/Resume scenario also retains a pending chooser collect and checks its
+  invalidation without adding any focus allowance. These are test requirements;
+  a new run's actual results determine acceptance.
+  Build the typed Go checker with
+  `go build -o .tmp/go-chooser-waits-client.exe ./scripts/browser-integration/go-chooser-waits-checks`
+  and set `OBU_TEST_GO_CHOOSER_BINARY` to that executable. A focused selection
+  is `OBU_TEST_CASES='file-chooser|user-global-pause-popup'`; keep the normal fresh
+  host/SDK builds and browser settings. No new focus allowance is introduced.
+  `chooser-{js,cli,mcp,python,go}.json`
+  retain the ready/click/collect timeline and server receipts;
+  `chooser-js-lifecycle.json` and `pause-control.json` retain negative outcomes.
+  Each JS ready variant also retains a bounded, tab-filtered native frame/target/
+  chooser event trace with its original payloads and ready/click/collect timing,
+  including failed variants. This passive listener changes no event or result.
 - Two independent sessions receive only their own scoped CDP notifications.
 - Concurrent same-URL downloads have distinct GUIDs and scoped notifications,
   produce the fixture bytes, reject foreign IDs, report unsupported local path
@@ -590,6 +615,42 @@ run. Executables and SDKs are copied into the run directory before execution,
 so a concurrent rebuild cannot change the tested artifacts. The short temporary IPC
 directory is validated and removed at exit. Browser windows and the host created
 by this run are closed. A nonzero exit means at least one acceptance check failed.
+
+## Ready-first file chooser acceptance
+
+Focused run `run-bE4e26` passed **9/9**; full regression `run-3OY97j` passed
+**83/83**. Both independent audits passed with no findings, retained under
+`.tmp/chooser-ready/run-{bE4e26,3OY97j}-audit.json`. The original concurrent
+chooser case remains in both selections.
+
+JS, synchronous Python/Go, CLI and MCP each used independent connections with
+the same session/turn/epoch for root, existing OOPIF and post-arm dynamic OOPIF
+pages. Their upload/clear pairs produced **30 raw POSTs**, plus **6 lifecycle
+POSTs**. Audits recomputed file sizes and hashes from retained bodies, checked
+document identity and native OOPIF process/session evidence, and distinguished
+trusted clicks/nonempty changes from the existing untrusted programmatic clear.
+Negative evidence covers duplicate arm, concurrent collect conflict, foreign
+scope/cancel, original deadlines, navigation, moved ownership, uncollected-event
+cancellation and real Pause. The cancelled chooser's unchanged document was
+observed beyond its original deadline; only explicitly armed new waits uploaded.
+
+Earlier failures remain recorded: `run-cAgqZx` **1/9** exposed the browser timer
+receiver binding; `run-16fvkO` **4/9** and diagnostic `run-Yzz3ni` **1/2** exposed
+a dynamic child's initial commit arriving before its parent's frame swap and
+being treated as document replacement. Both defects were fixed with regression
+tests. The final successes do not overwrite those runs.
+
+No chooser-specific focus allowance was added. The focused observer recorded
+one activation/two focus events, and the full observer six/four; all matched
+existing exact fixture-window and explicit-popup attributions. Coverage runs
+from observer readiness through its final snapshot, excluding browser startup
+and teardown. These runs use the documented loopback `connectNative` adapter,
+so they do not establish OS native-registration behavior. Scope evidence is the
+retained per-caller binding and frozen caller source, not a complete raw JSON-RPC
+transcript; some rejection checks retain their assertion kind rather than the
+full rejected response. Cleanup auditing checks retained host exits, not a fresh
+OS process inventory. This accepts the tested chooser-ready workflow, not full
+P10 or Codex capability parity.
 
 ## Isolated clipboard acceptance
 

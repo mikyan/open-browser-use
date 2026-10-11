@@ -38,6 +38,7 @@ type cliControlSnapshot struct {
 	deadline                 time.Time // populated only on queued MCP submissions
 	networkWaitSupported     bool
 	navigationWaitSupported  bool
+	fileChooserWaitSupported bool
 	directDownloadsSupported bool
 	mediaDownloadsSupported  bool
 	pageExportSupported      bool
@@ -222,6 +223,25 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_NAVIGATION_WAIT_UNSUPPORTED: extension requires navigationWaitVersion 1")
 		}
 	}
+	if cliFileChooserWaitMethod(method) {
+		if manual {
+			// A raw CLI handle supplies its original session/turn/epoch across
+			// processes, but still negotiates this extension's fileChooser contract.
+			infoResponse, err := sendCLIRequest(conn, "cli-file-chooser-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.fileChooserWaitSupported = metadata["fileChooserWaitVersion"] == float64(1)
+		}
+		if !captured.fileChooserWaitSupported {
+			return nil, errors.New("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension requires fileChooserWaitVersion 1")
+		}
+	}
 	if method == "downloadURL" || method == "cancelDownload" {
 		if manual {
 			infoResponse, err := sendCLIRequest(conn, "cli-download-info", "getInfo", map[string]any{})
@@ -297,6 +317,12 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	if err != nil {
 		return nil, err
 	}
+	if cliFileChooserWaitMethod(method) && response["error"] == nil {
+		budget, _ := params["timeoutMs"].(float64)
+		if err := obu.ValidateFileChooserWaitResult(method, response["result"], budget); err != nil {
+			return nil, err
+		}
+	}
 	if cliClipboardMethod(method) && response["error"] == nil {
 		value, err := obu.ValidateClipboardResult(method, response["result"], int(params["maxBytes"].(float64)))
 		if err != nil {
@@ -334,8 +360,12 @@ func cliNavigationWaitMethod(method string) bool {
 	return method == "armNavigationWait" || method == "collectNavigationWait" || method == "cancelNavigationWait"
 }
 
+func cliFileChooserWaitMethod(method string) bool {
+	return method == "armFileChooserWait" || method == "collectFileChooserWait" || method == "cancelFileChooserWait"
+}
+
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -393,6 +423,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	metadata, _ := info["metadata"].(map[string]any)
 	captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
+	captured.fileChooserWaitSupported = metadata["fileChooserWaitVersion"] == float64(1)
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	captured.mediaDownloadsSupported = metadata["mediaDownloadsVersion"] == float64(1)
 	captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)

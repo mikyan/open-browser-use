@@ -72,6 +72,48 @@ finally:
 Use `OpenBrowserUseClient` directly when you need raw Browser Use JSON-RPC or
 CDP methods.
 
+## Ready file chooser waits
+
+The synchronous API arms the listener before returning. Trigger the upload
+button before calling `result()`; no extra thread or connection is required.
+The helper is available on `tab` and `tab.playwright`:
+
+```py
+pending = tab.expect_file_chooser(timeout_ms=5000)
+try:
+    tab.get_by_role("button", name="Upload", exact=True).click()
+    chooser = pending.result()
+    browser.client.set_file_chooser_files(chooser["fileChooserId"], ["/path/to/report.pdf"])
+except BaseException:
+    try:
+        pending.cancel()
+    except Exception:
+        pass  # Preserve the action/result error.
+    raise
+```
+
+`OpenBrowserUseFileChooserWait` and `FileChooserWaitResult` are exported. The
+handle exposes `waiter_id` and the acknowledged `remaining_ms`. `result()`
+returns a plain dictionary containing `fileChooserId` and `isMultiple`, with
+single-consumption semantics. Concurrent `result()` calls fail immediately.
+File setting still uses `client.set_file_chooser_files`; an empty list clears
+the files.
+
+The timeout defaults to 10,000 ms and accepts integers from 1 to 120,000.
+Connection, bootstrap and preparation consume the same original deadline.
+`result()` has no timeout override and never sends after expiry; one extra
+second is reserved only for reading an already-requested reply. `cancel()`
+remains available after expiry with a separate maximum 10-second transport
+budget, without renewing the wait. Both use the original session, turn,
+control epoch, tab and waiter ID. They never bootstrap a new turn, re-arm or
+replay input. Pause, ownership changes and restart errors propagate.
+
+The three RPCs `armFileChooserWait`, `collectFileChooserWait` and
+`cancelFileChooserWait` require integer `getInfo.metadata.fileChooserWaitVersion`
+equal to 1, and validate acknowledgements and results strictly. Older
+extensions fail explicitly. `client.wait_for_file_chooser` remains available
+for existing callers, without the new ready handshake.
+
 ## Network request and response waits
 
 The synchronous API uses arm → action → collect, without threads. Receiving the

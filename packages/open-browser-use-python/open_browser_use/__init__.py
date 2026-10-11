@@ -1,5 +1,6 @@
 from ._clipboard import ClipboardEntry, ClipboardItem, OpenBrowserUseClipboard
 from ._downloads import OpenBrowserUseDownload
+from ._file_chooser_waits import FileChooserWaitResult, OpenBrowserUseFileChooserWait
 from ._page_exports import ExportFormat, PDFOptions, PageExport
 from .client import (
     OpenBrowserUseBrowser,
@@ -16,6 +17,7 @@ from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResul
 from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait
 
 __all__ = [
+    "FileChooserWaitResult", "OpenBrowserUseFileChooserWait",
     "ClipboardEntry", "ClipboardItem", "OpenBrowserUseClipboard",
     "ExportFormat",
     "PDFOptions",

@@ -36,6 +36,8 @@ import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startu
 import { NativeHostBridge, nativeAdapterSource } from "./native-host-bridge.mjs";
 import { lifecycleRecoveryFixture, checkOwnedTabRevocation, checkNativeHostRestart } from "./lifecycle-recovery-fixture.mjs";
 import { createFormWorkflowFixture, checkFormWorkflow, checkFormReceipt } from "./form-workflow-fixture.mjs";
+import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
+import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -220,6 +222,7 @@ const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
 const formWorkflows = createFormWorkflowFixture();
+const chooserFixtures = createChooserWaitFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
@@ -228,6 +231,7 @@ const http = createServer(async (request, response) => {
   if (mediaDownloads.handle(request, response, httpPort)) return;
   if (embeddedMedia.handle(request, response, httpPort)) return;
   if (formWorkflows.handle(request, response, httpPort)) return;
+  if (chooserFixtures.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -344,6 +348,7 @@ try {
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
+  for (const name of ["chooser-waits-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.browserStartup = createHash("sha256").update(await fs.readFile(path.join(directory, "browser-startup.mjs"))).digest("hex");
   sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
@@ -467,6 +472,59 @@ try {
     }
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
+  let chooserFiles;
+  const getChooserFiles = async () => chooserFiles ??= await prepareChooserFiles(runDir);
+  for (const lifecycle of [false, true]) await test(lifecycle ? "js-file-chooser-ready-lifecycle" : "js-file-chooser-ready-two-connections", async () => {
+    const sessionId = lifecycle ? "js-chooser-lifecycle" : "js-chooser-ready", options = { socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 };
+    const owner = await connectOpenBrowserUse(options), trigger = await connectOpenBrowserUse(options);
+    const foreign = lifecycle ? await connectOpenBrowserUse({ ...options, sessionId: "js-chooser-successor" }) : null;
+    const artifact = path.join(runDir, lifecycle ? "chooser-js-lifecycle.json" : "chooser-js.json"); let detail;
+    try {
+      if (lifecycle) sourceIdentity.testHooks.push("chooser lifecycle: bounded passive native Page.fileChooserOpened listener only, removed after the uncollected-cancel case; no native event or result changes");
+      else sourceIdentity.testHooks.push("chooser ready JS: per-variant bounded passive chrome.debugger.onEvent frame/target/fileChooserOpened trace for the exact tab; original native payloads retained on success/failure, listener removed afterward; no backend hooks or event/result changes");
+      const parameters = { owner, trigger, foreign, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, prefix: "js-chooser" };
+      detail = await (lifecycle ? checkChooserLifecycle(parameters) : checkChooserReady(parameters)); return detail;
+    } catch (error) { detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
+    finally {
+      await fs.writeFile(artifact, JSON.stringify(detail, null, 2));
+      try { await owner.client.finalizeTabs([]); if (foreign) await foreign.client.finalizeTabs([]); } finally { owner.close(); trigger.close(); foreign?.close(); }
+    }
+  });
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-file-chooser-ready-two-connections`, async () => {
+    const sessionId = `${kind}-chooser-ready`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 }); let detail;
+    const cliCall = async (method, params) => {
+      const response = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+      assert.equal(response.error, undefined, JSON.stringify(response)); return response.result;
+    };
+    try {
+      const parameters = { kind, owner, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until };
+      detail = kind === "mcp" ? await withMCPClient(executable, endpoint, sessionId, callA => withMCPClient(executable, endpoint, sessionId, callB => checkChooserWireCaller({ ...parameters, callA, callB }))) : await checkChooserWireCaller({ ...parameters, callA: cliCall, callB: cliCall });
+      return detail;
+    } catch (error) { detail = { error: error.stack, server: chooserFixtures.allStats() }; throw error; }
+    finally { await fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(detail, null, 2)); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
+  });
+  for (const kind of ["python", "go"]) await test(`${kind}-file-chooser-ready-two-connections`, async () => {
+    const prefix = `${kind}-chooser`, files = await getChooserFiles(), output = path.join(runDir, `chooser-${kind}-caller.json`);
+    const source = path.join(directory, kind === "python" ? "chooser-waits-checks.py" : "go-chooser-waits-checks/main.go"), frozen = path.join(runDir, kind === "python" ? "chooser-waits-checks.py" : "chooser-waits-checks.go");
+    await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+    let executablePath = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, fixtureURL, prefix, output, ...files.map(file => file.path)], detail;
+    const proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") };
+    if (kind === "go") {
+      assert.ok(process.env.OBU_TEST_GO_CHOOSER_BINARY, "Set OBU_TEST_GO_CHOOSER_BINARY for typed Go chooser ready acceptance");
+      executablePath = path.join(runDir, process.platform === "win32" ? "go-chooser-client.exe" : "go-chooser-client");
+      await fs.copyFile(process.env.OBU_TEST_GO_CHOOSER_BINARY, executablePath, fsConstants.COPYFILE_EXCL);
+      proof.binarySHA256 = createHash("sha256").update(await fs.readFile(executablePath)).digest("hex"); args = [endpoint, fixtureURL, prefix, output, ...files.map(file => file.path)];
+    }
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: prefix, turnId: "chooser-ready", timeoutMs: 15000 });
+    try {
+      const stdout = await subprocess(executablePath, args, { timeoutMs: 120000, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+      const result = JSON.parse(stdout); assert.deepEqual(result, JSON.parse(await fs.readFile(output, "utf8")));
+      detail = { ...checkChooserCallerResult(result, kind, prefix, files, chooserFixtures), proof };
+      for (const item of detail.variants) item.frames = await chooserFrameEvidence(worker, item.tabId, item.key, item.variant);
+      return detail;
+    } catch (error) { detail = { error: error.stack, proof, server: chooserFixtures.allStats() }; throw error; }
+    finally { await fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(detail, null, 2)); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
+  });
   await test("js-file-chooser-public-concurrent", async () => {
     const transfers = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-transfers", timeoutMs: 15000 });
     try {
@@ -1552,7 +1610,7 @@ try {
   }
   await test("js-user-global-pause-popup", async () => {
     const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
-    let pauseNetworkOutcome, pauseNavigationOutcome, pauseDownloadOutcome, pausedWait, pausedNavigationWait, pausedDownload, pausedTab, pauseAuxiliary;
+    let pauseNetworkOutcome, pauseNavigationOutcome, pauseDownloadOutcome, pauseChooserOutcome, pausedWait, pausedNavigationWait, pausedChooserWait, pausedDownload, pausedTab, pauseAuxiliary;
     const traceFocus = createPopupFocusTrace("pause", "intentional harness chrome.action.openPopup for the user's Pause/Resume control");
     try {
       await traceFocus("pause-case:start");
@@ -1565,6 +1623,8 @@ try {
       const pendingNetwork = pausedWait.result({ timeoutMs: 120000 }).then(value => pauseNetworkOutcome = { value }, error => pauseNetworkOutcome = { error: String(error) });
       pausedNavigationWait = await pausedTab.expectURL("**/never-paused-navigation", { timeoutMs: 120000 });
       const pendingNavigation = pausedNavigationWait.result({ timeoutMs: 120000 }).then(() => pauseNavigationOutcome = { succeeded: true }, error => pauseNavigationOutcome = { error: String(error) });
+      pausedChooserWait = await pausedTab.expectFileChooser({ timeoutMs: 120000 });
+      const pendingChooser = pausedChooserWait.result().then(value => pauseChooserOutcome = { value }, error => pauseChooserOutcome = { error: String(error) });
       const downloadTab = await prepareDirectDownloadTab(network, fixtureURL);
       pausedDownload = await downloadTab.downloadURL(directDownloadURL(fixtureURL, "js-paused-direct-download", "slow"));
       await until(() => directDownloads.stats("js-paused-direct-download").requests.length === 1, "owned native download before Pause");
@@ -1572,7 +1632,7 @@ try {
       const detail = await checkGlobalPause({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until, traceFocus,
-    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, directDownload: pauseDownloadOutcome }, null, 2)),
+    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, directDownload: pauseDownloadOutcome }, null, 2)),
     connectPage: async url => {
       const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
       return workerConnection(target.webSocketDebuggerUrl);
@@ -1587,6 +1647,8 @@ try {
       assert.match(pauseNetworkOutcome.error, /OBU_NETWORK_WAIT_EXPIRED|paused|ended|cancel|stale/i);
       await until(() => pauseNavigationOutcome, "Pause cancelled the pending navigation collect", 5000);
       assert.match(pauseNavigationOutcome.error, /OBU_NAVIGATION_WAIT_EXPIRED|paused|ended|cancel|stale/i);
+      await until(() => pauseChooserOutcome, "Pause cancelled the pending file chooser collect", 5000);
+      assert.match(pauseChooserOutcome.error, chooserExpired);
       await until(() => pauseDownloadOutcome, "Pause canceled pending download path", 5000);
       assert.match(pauseDownloadOutcome.error, directDownloadErrors.paused);
       await until(() => directDownloads.stats("js-paused-direct-download").requests[0].closed, "Pause canceled exact native download response", 5000);
@@ -1599,9 +1661,11 @@ try {
       });
       await pendingNetwork;
       await pendingNavigation;
+      await pendingChooser;
       await pendingDownload;
       await assert.rejects(pausedWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NETWORK_WAIT_EXPIRED/);
       await assert.rejects(pausedNavigationWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NAVIGATION_WAIT_EXPIRED/);
+      await assert.rejects(pausedChooserWait.result(), chooserExpired);
       await assert.rejects(pausedDownload.path({ timeoutMs: 500 }), directDownloadErrors.epoch);
       await network.client.beginTurn();
       await assert.rejects(network.client.request("downloadPath", { downloadId: pausedDownload.downloadId, timeoutMs: 500 }), directDownloadErrors.expired);
@@ -1613,7 +1677,7 @@ try {
       assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       await network.client.finalizeTabs([]);
       assert.equal(directDownloads.stats("js-paused-direct-download").requests.length, 1, "Resume replayed the native download");
-      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, directDownload: pauseDownloadOutcome, networkNotReplayed: true };
+      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, directDownload: pauseDownloadOutcome, networkNotReplayed: true };
     } finally {
       directDownloads.release("js-paused-direct-download");
       network.close();

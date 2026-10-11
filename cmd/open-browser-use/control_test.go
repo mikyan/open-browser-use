@@ -36,6 +36,7 @@ type controlFixture struct {
 	delayInfo              time.Duration
 	withoutNetworkWait     bool
 	withoutNavigationWait  bool
+	withoutFileChooserWait bool
 	withoutDirectDownloads bool
 	withoutMediaDownloads  bool
 }
@@ -97,6 +98,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 						if !fixture.withoutNetworkWait {
 							result.(map[string]any)["metadata"].(map[string]any)["networkWaitVersion"] = 1
 						}
+						if !fixture.withoutFileChooserWait {
+							result.(map[string]any)["metadata"].(map[string]any)["fileChooserWaitVersion"] = 1
+						}
 						if !fixture.withoutNavigationWait {
 							result.(map[string]any)["metadata"].(map[string]any)["navigationWaitVersion"] = 1
 						}
@@ -115,6 +119,16 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 							fixture.epoch++
 							result = state()
 							result.(map[string]any)["endedTurnId"] = params["turn_id"]
+						}
+					}
+					if failure == nil {
+						switch method {
+						case "armFileChooserWait":
+							result = map[string]any{"waiterId": "ready-wait", "remainingMs": params["timeoutMs"]}
+						case "collectFileChooserWait":
+							result = map[string]any{"fileChooserId": "chooser", "isMultiple": false}
+						case "cancelFileChooserWait":
+							result = map[string]any{}
 						}
 					}
 					lose := fixture.loseEnd && method == "turnEnded"
@@ -206,7 +220,7 @@ func TestCLIControlLostEndRequiresExplicitRecovery(t *testing.T) {
 }
 
 func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			for _, timeout := range []time.Duration{1500 * time.Millisecond, 1050 * time.Millisecond} {
 				t.Run(timeout.String(), func(t *testing.T) {
@@ -223,7 +237,11 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					budget := response["result"].(map[string]any)["timeoutMs"].(float64)
+					budgetKey := "timeoutMs"
+					if method == "armFileChooserWait" {
+						budgetKey = "remainingMs"
+					}
+					budget := response["result"].(map[string]any)[budgetKey].(float64)
 					if budget <= 0 || budget > 430 {
 						t.Fatalf("unbounded budget %v", budget)
 					}
@@ -234,7 +252,7 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 }
 
 func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
-	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		for _, invalid := range []any{nil, float64(0), float64(-1), 1.5, float64(120001), "1000"} {
 			if err := boundCLIActionDeadline(method, map[string]any{"timeoutMs": invalid}, time.Now().Add(20*time.Second)); err == nil {
 				t.Fatalf("accepted %s timeout %v", method, invalid)
@@ -248,7 +266,7 @@ func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
 }
 
 func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			f := &controlFixture{epoch: 34, delayInfo: 250 * time.Millisecond}
 			options := f.start(t)
@@ -264,7 +282,7 @@ func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
 }
 
 func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
-	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		f := &controlFixture{epoch: 34}
 		options := f.start(t)
 		options.timeout = 10 * time.Second
@@ -498,6 +516,58 @@ func TestCLINavigationWaitCapabilityAndFixedRawBinding(t *testing.T) {
 		}
 		if _, exists := result["timeoutMs"]; exists {
 			t.Fatal("collect/cancel reset the network deadline")
+		}
+	}
+}
+
+func TestCLIFileChooserWaitCapabilityAndFixedRawBinding(t *testing.T) {
+	for _, method := range []string{"armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait"} {
+		for _, manual := range []bool{false, true} {
+			f := &controlFixture{epoch: 36, withoutFileChooserWait: true}
+			options := f.start(t)
+			options.timeout = 5 * time.Second
+			params := map[string]any{"tabId": 1}
+			if manual {
+				params["control_epoch"], params["session_id"], params["turn_id"] = 36, "fixture", "original-turn"
+			}
+			if _, err := invokeWithOptions(options, method, params); err == nil || !strings.Contains(err.Error(), "OBU_FILE_CHOOSER_WAIT_UNSUPPORTED") {
+				t.Fatalf("unsupported chooser wait: %v", err)
+			}
+			for _, sent := range f.methods() {
+				if cliFileChooserWaitMethod(sent) {
+					t.Fatal("unsupported RPC reached extension")
+				}
+			}
+		}
+	}
+	f := &controlFixture{epoch: 37}
+	options := f.start(t)
+	options.timeout = 5 * time.Second
+	scope := map[string]any{"tabId": 1, "control_epoch": 37, "session_id": "fixture", "turn_id": "original-turn"}
+	if _, err := invokeWithOptions(options, "armFileChooserWait", scope); err != nil {
+		t.Fatal(err)
+	}
+	scope["waiterId"] = "ready-wait"
+	for _, method := range []string{"collectFileChooserWait", "cancelFileChooserWait"} {
+		if _, err := invokeWithOptions(options, method, scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		method := call["method"].(string)
+		if !cliFileChooserWaitMethod(method) {
+			continue
+		}
+		p := call["params"].(map[string]any)
+		if p["turn_id"] != "original-turn" || p["control_epoch"] != float64(37) || p["session_id"] != "fixture" {
+			t.Fatal(p)
+		}
+		if method != "armFileChooserWait" {
+			if _, ok := p["timeoutMs"]; ok {
+				t.Fatal("collect/cancel renewed deadline")
+			}
 		}
 	}
 }

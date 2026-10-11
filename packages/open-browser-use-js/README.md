@@ -387,7 +387,7 @@ unsubscribe();
 - Engine input: locator `focus`, `pressSequentially`, `scrollIntoViewIfNeeded`,
   `dragTo`; `tab.mouse.down` and `up` support manual drag sequences. Drag targets
   must belong to the same tab and client.
-- File chooser: `waitForFileChooser`, `setFileChooserFiles`
+- File chooser: `tab.expectFileChooser`, `waitForFileChooser`, `setFileChooserFiles`
 - Downloads: `waitForDownload`, `downloadPath`
 - Diagnostics: `tab.diagnostics`
 - Clipboard: `readClipboardText`, `writeClipboardText`, `readClipboard`,
@@ -402,6 +402,44 @@ prove a local filesystem path, so `downloadPath` fails explicitly with
 Drag input is not transactional: cancelling after a delivered mouse-down can
 produce normal pointer-up/click handlers while releasing the held button. The
 SDK neither rolls those effects back nor repeats the operation.
+
+## Ready file chooser waits
+
+Arm the listener and await its ready acknowledgement before triggering the
+upload button. The helper is available on `tab` and `tab.playwright`:
+
+```ts
+const pending = await tab.expectFileChooser({ timeoutMs: 5000 });
+try {
+  await tab.getByRole("button", { name: "Upload", exact: true }).click();
+  const chooser = await pending.result();
+  await browser.client.setFileChooserFiles(chooser.fileChooserId, ["/path/to/report.pdf"]);
+} catch (error) {
+  await pending.cancel().catch(() => {}); // Preserve the action/result error.
+  throw error;
+}
+```
+
+`OpenBrowserUseFileChooserWait`, `OpenBrowserUseFileChooserWaitOptions` and
+`OpenBrowserUseFileChooserWaitResult` are exported. The handle exposes
+`waiterId` and the acknowledged `remainingMs`; `result()` returns only
+`{ fileChooserId, isMultiple }`. It consumes the result once; a second
+concurrent `result()` fails immediately. The chooser ID is passed to the
+existing `setFileChooserFiles` API, including an empty array to clear files.
+
+The default timeout is 10,000 ms, with integer values from 1 to 120,000.
+Connection, bootstrap and preparation consume the original budget. `result()`
+has no new timeout option: it refuses to send after that deadline and allows
+at most one extra second to read a reply already requested. `cancel()` can
+still clean up an expired wait, using a separate maximum 10-second transport
+budget without extending the wait. Both methods retain the original session,
+turn, control epoch, tab and waiter ID. They never begin a new turn, re-arm or
+replay the click. Pause, ownership changes and restart errors propagate.
+
+All three RPCs (`armFileChooserWait`, `collectFileChooserWait`,
+`cancelFileChooserWait`) require `getInfo.metadata.fileChooserWaitVersion === 1`.
+Unsupported extensions fail explicitly. `client.waitForFileChooser` remains
+available for existing callers; it does not provide the ready handshake.
 
 ## Turn lifecycle
 

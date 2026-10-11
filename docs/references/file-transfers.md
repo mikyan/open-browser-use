@@ -30,6 +30,53 @@ notifications. Those notifications are programmatic, not trusted user input.
 Chrome's native empty file list alone behaves like cancelling selection and can
 retain previously selected files, so it is not used to claim a successful clear.
 
+### Explicit readiness across connections
+
+`getInfo.metadata.fileChooserWaitVersion === 1` advertises these three methods:
+
+| Method | Extra parameters alongside the original control scope and `tabId` | Result |
+| --- | --- | --- |
+| `armFileChooserWait` | Optional `timeoutMs`, integer 1–120000, default 10000 | `{waiterId, remainingMs}` |
+| `collectFileChooserWait` | `waiterId` | `{fileChooserId, isMultiple}` |
+| `cancelFileChooserWait` | `waiterId` | `{}` |
+
+All calls retain `session_id`, `turn_id`, positive `control_epoch` and `tabId`.
+Unknown options are rejected. Arm acknowledges only after root and all known
+OOPIF interception has succeeded, the listener is installed and the original
+scope is rechecked. Another connection can then click immediately under that
+same scope. Newly attached OOPIFs join interception, and actions wait for their
+actual readiness too. Existing `waitForFileChooser` shares the same registry
+and remains available for the same-connection concurrent JS pattern.
+
+JS `tab.expectFileChooser({timeoutMs})`, Python
+`tab.expect_file_chooser(timeout_ms=...)` and Go
+`tab.ExpectFileChooser(FileChooserWaitOptions{Timeout: ...})` return a handle
+with `result`/`Result` and `cancel`/`Cancel`. Each also exists under `playwright`.
+CLI and MCP use their generic `call` entry point with these RPCs. Keep the full
+scope and waiter ID from the arm operation when using independent processes;
+do not begin a new turn between arm and collect. File setting remains the
+existing `setFileChooserFiles` operation with its own live ownership checks.
+
+The initial deadline includes client discovery/queueing, attachment, readiness,
+the triggering action, event validation and collection. Collect takes no new
+`timeoutMs`; an SDK checks the fixed local deadline again after its queue and
+connection. The extra one-second transport response margin cannot authorize
+an expired collect. `remainingMs` is informational, not a renewable budget.
+Only one collect may consume the first matched native event. Cancel revokes an
+uncollected chooser; an already delivered chooser keeps its normal lifecycle.
+
+Unknown or foreign cancel handles have no effect and reveal no state. Normal
+control admission still applies: an invalid epoch or unowned tab is rejected
+regardless of whether the supplied handle exists. Cancelling
+a known handle after its wait expires can retry cleanup, using the original
+scope and a separate transport budget of at most 10 seconds. This does not renew
+the wait. Actual pending or failed native interception cleanup retains the record
+and its capacity. There is one outstanding or uncleaned waiter per tab, with a
+global limit of 128 shared by both APIs. A successor cannot be disabled by old
+cleanup. Navigation, attachment/child loss, transfer, end, Pause and worker/host
+replacement invalidate original handles. Neither timeout nor cancellation
+replays a click, uploads files or closes the user's native dialog.
+
 ## Page-triggered downloads
 
 `waitForDownload({tabId})` observes native `Page.downloadWillBegin` from the owned
@@ -151,11 +198,24 @@ an unowned native download remains in progress after rejected path/cancel calls.
 Late native IDs, path-timeout retry, end/detach/transfer, and real Pause are covered.
 The fixture sends a 4096-byte prefix and gates one suffix byte, preserving native
 MIME sniffing while proving that a cancelled response was still incomplete.
-Separate Python/Go clients or separate transport connections do not yet have a
-ready/arm handshake: starting a waiting thread or goroutine does not prove its
-request reaches the extension before another connection clicks. Cross-connection
-ordering remains unverified and needs an explicit readiness protocol or direct
-locator upload before that pattern can be considered reliable.
+The explicit readiness protocol passed the focused `run-bE4e26` **9/9** and full
+headed `run-3OY97j` **83/83**. JS/Python/Go/CLI/MCP each use two independent
+connections with the same scope across cold root, existing OOPIF and OOPIF
+created after arm. Their 30 original upload/clear POST bodies retain actual
+UTF-8/binary bytes, sizes and SHA-256. Lifecycle cases cover original expiry,
+duplicate arm, conflicting collects, foreign scope, navigation, ownership loss,
+cancel before collection and real Pause/worker replacement. The original
+concurrent JS pattern remains in the suite. Native events and separate renderer
+process IDs establish OOPIF coverage; success is not inferred from RPC replies.
+
+Failed `run-cAgqZx` exposed browser timer receiver binding; `run-16fvkO` and the
+smaller `run-Yzz3ni` exposed a new OOPIF committing before its parent-side swap.
+Both defects have regression tests and the failed evidence remains unchanged.
+The successful run still uses the documented loopback native Port adapter,
+not OS native registration. Scope evidence combines retained caller scope and
+frozen caller code, not a complete wire transcript; some negative cases retain
+the assertion kind. Focus coverage runs from observer readiness to the final
+snapshot. This slice does not establish Codex upload parity or complete P10.
 
 Text and rich clipboard helpers now have a separate [contract and isolated
 acceptance](clipboard.md). A fresh browser profile does not isolate the operating

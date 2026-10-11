@@ -13,10 +13,10 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及暂停已有验收。最新主 `run-aZyBs1` 77/77；Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3，真实重启/reload 历史8/8。Edge 同策略隔离后仍有未知 focus，不能称全浏览器无抢前台。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、Edge 原生焦点、签名更新/更多恢复顺序及更广同组任务。 |
-| 架构文档 | B | 本地 IPC、动作协议、观察/capture refs、control 生命周期、暂停、来源边界与 incarnation/startup witness 已有 reference；新增 native 重连 timer/alarm 调度和真实 launcher/EOF 验收边界。 | 查明 Edge 隔离原生恢复的未知 focus，补更多恢复顺序、签名更新及受限入口。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及暂停已有验收。最新主 `run-3OY97j` 83/83，新增五入口 chooser 准备确认、root/既有及新 OOPIF 原始文件字节与生命周期；Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3，真实重启/reload 历史8/8。Edge 同策略隔离后仍有未知 focus，不能称全浏览器无抢前台。 | 明确 content-return 基准，继续 Page GUID 路径/取消、headed OS 剪贴板、Edge 原生焦点、签名更新/更多恢复顺序及更广同组任务。 |
+| 架构文档 | B | 本地 IPC、动作协议、观察/capture refs、control 生命周期、暂停、来源边界与 incarnation/startup witness 已有 reference；新增 native 重连 timer/alarm 调度、真实 launcher/EOF 验收边界及 chooser 准备确认/原 deadline/实际清理契约。 | 查明 Edge 隔离原生恢复的未知 focus，补更多恢复顺序、签名更新及受限入口。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查。恢复指导区分关闭原受控页、完整退出重开及可能额外重启，风险退役后立即撤下建议；20张实际恢复PNG已校验，关键三图已查看。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 完整 CI：扩展726、脚本53、脚手架70（849 Node），JS98、Python67、Go全包及其余检查通过；后续最终脚手架75/75。主 `run-aZyBs1` 77/77，最新 Chrome 原生生命周期 `0B1hfL` 3/3；历史整进程/reload8/8保留。Edge清洁inventory但focus失败，未将其标通过。 | 补 Edge 原生恢复焦点定位、packed alarm 实际唤醒、签名更新、其他 OS/浏览器及更广同组比较。 |
+| 测试 | B | 完整 CI：扩展751、脚本53、脚手架78（882 Node），JS105、Python73、Go全包及其余检查通过，无跳过。主 `run-3OY97j` 83/83，chooser 专项9/9，最新 Chrome 原生生命周期 `0B1hfL` 3/3；历史整进程/reload8/8保留。Edge清洁inventory但focus失败，未将其标通过。 | 补 Edge 原生恢复焦点定位、packed alarm 实际唤醒、签名更新、其他 OS/浏览器及更广同组比较。 |
 | 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
 
@@ -131,3 +131,16 @@ Edge 空闲诊断在无 SDK 动作/host 故障/reload 时仍有一次焦点变�
 开发者提示日志相差1ms；Chrome 同策略空闲对照无事件。诊断 complete
 不等于 acceptance passed，原 Edge 恢复失败继续保留。新模式的默认 Chrome
 回归 `native-lifecycle-0B1hfL` 3/3、脚手架75/75；生产及交付包未变。
+
+
+最新chooser准备确认已通过专项 **9/9** 与完整 **83/83**。五入口30条原始
+上传/清空POST及另6条生命周期请求均独立核验实际文件字节；全套连续focus
+账本119643ms内六激活/四焦点均精确归因，sentinel不变。真实浏览器暴露的
+timer receiver与新OOPIF commit-before-swap缺陷已修复并有回归，旧失败保留。
+本片采用Port adapter，scope审计不含完整RPC transcript，焦点区间不含
+启动和退出；没有新增Codex上传对照，也未解除Edge原生focus失败或完整P10缺口。
+
+本片交付ZIP **1,251,944 bytes / 46 files**，SHA-256
+`8990be12bf0702945e919b6f852246bea01feb56dfba7558939b91a3f85f5f9d`。
+逐成员与unpacked及两轮实测hash/静态字节一致，无测试插桩或私有路径；
+ZIP外的本地构建元数据不属于该审计的公开交付内容。

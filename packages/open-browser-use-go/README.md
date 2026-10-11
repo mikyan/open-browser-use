@@ -260,9 +260,48 @@ Raw navigation matches its loader ID before accepting document readiness.
 `WaitForFileChooser` and `WaitForDownload` take integer milliseconds from 1 to
 120000; zero chooses 10000 ms. Their transport budget includes one second for
 the response. A blocking waiter and its trigger need separate clients with the
-same session. Download IDs are task-scoped opaque GUIDs; `DownloadPath` reports
+same session, but goroutine scheduling does not establish readiness. For uploads,
+use `ExpectFileChooser` below before triggering the action. Download IDs are
+task-scoped opaque GUIDs; `DownloadPath` reports
 `OBU_DOWNLOAD_PATH_UNAVAILABLE` because the extension API cannot reliably map
 those GUIDs to local paths. Upload file paths remain supported.
+
+## Ready file chooser waits
+
+`Tab.ExpectFileChooser` (also `Tab.Playwright.ExpectFileChooser`) returns only
+when native interception is ready. Trigger the page action after that return,
+then call `Result()` once to obtain `FileChooserResult{FileChooserID, IsMultiple}`.
+The trigger may use this client or another connection with the same original
+session, turn and epoch.
+
+```go
+func upload(tab *obu.Tab, files []string) error {
+    pending, err := tab.ExpectFileChooser(obu.FileChooserWaitOptions{Timeout: 10 * time.Second})
+    if err != nil { return err }
+    defer func() { _ = pending.Cancel() }()
+    if err := tab.GetByRole("button", obu.RoleOptions{Name: "Choose file", Exact: true}).Click(); err != nil {
+        return err
+    }
+    chooser, err := pending.Result()
+    if err != nil { return err }
+    _, err = tab.Browser.Client.SetFileChooserFiles(chooser.FileChooserID, files)
+    return err
+}
+```
+
+Requires `metadata.fileChooserWaitVersion == 1`; unsupported extensions fail
+explicitly. `Timeout` defaults to 10 seconds and accepts whole milliseconds
+from 1 through 120000. Discovery, queue, attachment, triggering and collection
+share the original deadline. `Result` accepts no timeout override, rejects
+concurrent or repeated successful collection, and checks expiry before sending.
+`WaiterID` and `RemainingMS` are informational; changing them cannot retarget or
+extend the handle. End, Pause, navigation, ownership loss and detach invalidate it.
+
+`Cancel()` retains the original scope even after `BeginTurn` and may be called
+after expiry to retry cleanup. It has a separate 10-second transport budget,
+without renewing the wait. It does not close a user dialog or undo an upload.
+One pending or not-yet-cleaned wait per tab and 128 globally are allowed; failed
+native cleanup retains capacity until actual cleanup succeeds.
 
 ## Ready navigation waits
 

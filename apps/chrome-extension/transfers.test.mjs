@@ -124,9 +124,13 @@ test('old chooser cleanup cannot disable a successor attachment interception',as
  const {backend,commands,chrome}=await twoSessions(),gate=deferred();
  chrome.debugger.sendCommand=async(target,method,commandParams)=>{commands.push({target,method,commandParams});if(method==='Page.setInterceptFileChooserDialog'&&commandParams.enabled)await gate.promise;return {}};
  const first=assert.rejects(backend.waitForFileChooser(task()),/OBU_TRANSFER_CANCELLED/);await tick();
- await backend.detach(task());await first;
+ // A native enable must settle before capacity can be reused. An externally
+ // destroyed attachment does not license an old disable on its successor.
+ backend.browserEngine.forget(7);backend.releaseEngineAttachment(7);await first;
+ await assert.rejects(backend.waitForFileChooser(task()),/OBU_FILE_CHOOSER_WAIT_LIMIT/);
+ gate.resolve();await tick();
  chrome.debugger.sendCommand=async(target,method,commandParams)=>{commands.push({target,method,commandParams});return method === "DOM.resolveNode" ? { object: { objectId: "exact-node" } } : method === "Runtime.callFunctionOn" ? { result: { value: 0 } } : {}};
- const second=backend.waitForFileChooser(task());await tick();const checkpoint=commands.length;gate.resolve();await tick();
+ const second=backend.waitForFileChooser(task());await tick();const checkpoint=commands.length;await tick();
  assert.equal(commands.slice(checkpoint).some(call=>call.method==='Page.setInterceptFileChooserDialog'&&!call.commandParams.enabled),false);
  backend.handleCdpEvent({tabId:7},'Page.fileChooserOpened',{backendNodeId:456,mode:'selectSingle'});await second;
 });
@@ -350,7 +354,7 @@ for (const method of ['waitForFileChooser', 'waitForDownload']) {
       gate.resolve();
       await release.catch(() => {});
       for (let attempt = 0; attempt < 20; attempt++) {
-        if (method === 'waitForFileChooser' ? backend.fileChooserWaitersByTabId.has(7) : backend.downloadWaiters.size) break;
+        if (method === 'waitForFileChooser' ? backend.fileChooserWaitersByTabId.get(7)?.state === 'pending' : backend.downloadWaiters.size) break;
         await tick();
       }
       if (method === 'waitForFileChooser') backend.handleCdpEvent({ tabId: 7 }, 'Page.fileChooserOpened', { backendNodeId: 123, mode: 'selectSingle' });
@@ -363,3 +367,177 @@ for (const method of ['waitForFileChooser', 'waitForDownload']) {
     } finally { gate.resolve(); globalThis.chrome = previousChrome; }
   });
 }
+
+async function chooserReadyEnvironment() {
+  const env = await twoSessions();
+  const control = await env.backend.getControlState(task());
+  return { ...env, scope: { ...task(), control_epoch: control.controlEpoch } };
+}
+const chooserEvent = (backend, sessionId, backendNodeId = 51) => backend.handleCdpEvent({ tabId: 7, ...(sessionId ? { sessionId } : {}) },
+  "Page.fileChooserOpened", { frameId: sessionId ? "child-frame" : "root-frame", backendNodeId, mode: "selectSingle" });
+
+test("new public chooser readiness completes before the trigger and legacy waits share its capacity", async () => {
+  const { backend, scope, commands } = await chooserReadyEnvironment();
+  const ack = await backend.armFileChooserWait({ ...scope, timeoutMs: 1000 });
+  assert.equal(typeof ack.waiterId, "string"); assert.ok(ack.remainingMs > 0 && ack.remainingMs <= 1000);
+  assert.ok(commands.some(call => call.method === "Page.setInterceptFileChooserDialog" && call.commandParams.enabled));
+  await assert.rejects(backend.waitForFileChooser(scope), /WAIT_LIMIT/);
+  chooserEvent(backend); const chooser = await backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId });
+  assert.equal(chooser.isMultiple, false);
+  await backend.setFileChooserFiles({ ...scope, fileChooserId: chooser.fileChooserId, files: ["fixture.bin"] });
+  assert.equal(commands.find(call => call.method === "DOM.setFileInputFiles").commandParams.backendNodeId, 51);
+  await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED/);
+});
+
+test("new chooser schema rejects malformed arm/collect/cancel before touching Chrome", async () => {
+  const { backend, scope, commands } = await chooserReadyEnvironment(); commands.length = 0;
+  await assert.rejects(backend.armFileChooserWait({ ...scope, extra: true }), /does not support/);
+  await assert.rejects(backend.armFileChooserWait({ ...scope, control_epoch: undefined }), /control_epoch/);
+  await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: "unknown", timeoutMs: 1 }), /does not support/);
+  await assert.rejects(backend.cancelFileChooserWait({ ...scope, waiterId: "unknown", timeoutMs: 1 }), /does not support/);
+  assert.deepEqual(commands, []);
+});
+
+test("new chooser arm keeps its admission deadline while control bootstrap is blocked", async () => {
+  const { backend, scope, commands } = await chooserReadyEnvironment(), gate = deferred();
+  backend.controlReady = gate.promise;
+  await assert.rejects(backend.armFileChooserWait({ ...scope, timeoutMs: 20 }), /WAIT_TIMEOUT/);
+  gate.resolve(); await tick(); assert.equal(commands.some(call => call.method === "Page.setInterceptFileChooserDialog"), false);
+  assert.equal(backend.fileChooserWaits.records.size, 0);
+});
+
+for (const order of ["swap-before-commit", "commit-before-swap"]) test(`dynamic OOPIF ${order} joins readiness before browser input`, async () => {
+  const { backend, scope, chrome, commands } = await chooserReadyEnvironment(), gate = deferred();
+  const ack = await backend.armFileChooserWait({ ...scope, timeoutMs: 1000 });
+  backend.handleCdpEvent({ tabId: 7 }, "Page.frameAttached", { frameId: "child-frame", parentFrameId: "root-frame" });
+  const swap = () => backend.handleCdpEvent({ tabId: 7 }, "Page.frameDetached", { frameId: "child-frame", reason: "swap" });
+  if (order === "swap-before-commit") swap();
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, args) => {
+    if (target.sessionId === "dynamic" && method === "Page.setInterceptFileChooserDialog" && args.enabled) await gate.promise;
+    return original(target, method, args);
+  };
+  backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", { sessionId: "dynamic", targetInfo: { type: "iframe", targetId: "child-frame", parentFrameId: "root-frame" } });
+  backend.handleCdpEvent({ tabId: 7, sessionId: "dynamic" }, "Page.frameNavigated", { frame: { id: "child-frame", parentId: "root-frame", loaderId: "initial-loader", url: "https://child.fixture" } });
+  if (order === "commit-before-swap") swap();
+  let dispatched = false;
+  backend.browserEngine.dispatch = async () => { dispatched = true; chooserEvent(backend, "dynamic"); return { value: null }; };
+  const action = backend.browserAction({ ...scope, action: "click", locator: [{ kind: "css", selector: "input" }], timeoutMs: 1000 });
+  await tick(); assert.equal(dispatched, false);
+  gate.resolve(); await action;
+  const chooser = await backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId });
+  await backend.setFileChooserFiles({ ...scope, fileChooserId: chooser.fileChooserId, files: ["child.bin"] });
+  assert.equal(commands.find(call => call.method === "DOM.setFileInputFiles").target.sessionId, "dynamic");
+});
+
+test("dynamic OOPIF initialization cannot exempt a second navigation, swap, or real removal", async () => {
+  for (const invalidation of ["navigation", "swap", "remove", "wrong-parent-source", "reattach"]) {
+    const { backend, scope } = await chooserReadyEnvironment();
+    const ack = await backend.armFileChooserWait({ ...scope, timeoutMs: 1000 });
+    const root = { tabId: 7 }, child = { tabId: 7, sessionId: "dynamic" };
+    const attach = () => backend.handleCdpEvent(root, "Page.frameAttached", { frameId: "child-frame", parentFrameId: "root-frame" });
+    const navigate = loaderId => backend.handleCdpEvent(child, "Page.frameNavigated", { frame: { id: "child-frame", parentId: "root-frame", loaderId, url: "https://child.fixture" } });
+    attach();
+    backend.handleCdpEvent(root, "Target.attachedToTarget", { sessionId: "dynamic", targetInfo: { type: "iframe", targetId: "child-frame", parentFrameId: "root-frame" } });
+    navigate("initial-loader");
+    if (invalidation !== "wrong-parent-source") backend.handleCdpEvent(root, "Page.frameDetached", { frameId: "child-frame", reason: "swap" });
+    assert.equal(backend.fileChooserWaits.records.get(ack.waiterId).invalid, undefined);
+    if (invalidation === "reattach") attach();
+    if (["navigation", "reattach"].includes(invalidation)) navigate("replacement-loader");
+    else backend.handleCdpEvent(invalidation === "wrong-parent-source" ? child : root, "Page.frameDetached", { frameId: "child-frame", reason: invalidation === "remove" ? "remove" : "swap" });
+    await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED/, invalidation);
+    await backend.cancelFileChooserWait({ ...scope, waiterId: ack.waiterId });
+  }
+});
+
+test("a new child session grants no initialization exemption without matching frame and parent identities", async () => {
+  for (const mismatch of ["no-frame-attach", "target-frame", "target-parent", "target-source", "navigation-source", "navigation-parent"]) {
+    const { backend, scope } = await chooserReadyEnvironment();
+    const ack = await backend.armFileChooserWait({ ...scope, timeoutMs: 1000 });
+    if (mismatch !== "no-frame-attach") backend.handleCdpEvent({ tabId: 7 }, "Page.frameAttached", { frameId: "child-frame", parentFrameId: "root-frame" });
+    backend.handleCdpEvent({ tabId: 7, ...(mismatch === "target-source" ? { sessionId: "wrong" } : {}) }, "Target.attachedToTarget",
+      { sessionId: "dynamic", targetInfo: { type: "iframe", targetId: mismatch === "target-frame" ? "other-frame" : "child-frame", parentFrameId: mismatch === "target-parent" ? "other-parent" : "root-frame" } });
+    backend.handleCdpEvent({ tabId: 7, sessionId: mismatch === "navigation-source" ? "wrong" : "dynamic" }, "Page.frameNavigated",
+      { frame: { id: "child-frame", parentId: mismatch === "navigation-parent" ? "other-parent" : "root-frame", loaderId: "initial-loader", url: "https://child.fixture" } });
+    await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED/, mismatch);
+    await backend.cancelFileChooserWait({ ...scope, waiterId: ack.waiterId });
+  }
+});
+
+test("a delayed initial parent swap cannot exempt a chooser that has already matched", async () => {
+  const { backend, scope } = await chooserReadyEnvironment();
+  const ack = await backend.armFileChooserWait({ ...scope, timeoutMs: 1000 });
+  backend.handleCdpEvent({ tabId: 7 }, "Page.frameAttached", { frameId: "child-frame", parentFrameId: "root-frame" });
+  backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", { sessionId: "dynamic", targetInfo: { type: "iframe", targetId: "child-frame", parentFrameId: "root-frame" } });
+  backend.handleCdpEvent({ tabId: 7, sessionId: "dynamic" }, "Page.frameNavigated", { frame: { id: "child-frame", parentId: "root-frame", loaderId: "initial-loader", url: "https://child.fixture" } });
+  await tick(); chooserEvent(backend, "dynamic"); await tick();
+  assert.equal(backend.fileChooserWaits.records.get(ack.waiterId).state, "matched");
+  backend.handleCdpEvent({ tabId: 7 }, "Page.frameDetached", { frameId: "child-frame", reason: "swap" });
+  await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED/);
+  assert.equal(backend.fileChoosersById.size, 0);
+  await backend.cancelFileChooserWait({ ...scope, waiterId: ack.waiterId });
+});
+
+test("matched chooser cannot escape document invalidation through new-frame initialization exemption", async () => {
+  const { backend, scope, chrome } = await chooserReadyEnvironment(), gate = deferred();
+  const ack = await backend.armFileChooserWait({ ...scope, timeoutMs: 1000 });
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, args) => {
+    if (method === "Page.setInterceptFileChooserDialog" && !args.enabled) await gate.promise;
+    return original(target, method, args);
+  };
+  chooserEvent(backend); await tick();
+  assert.ok(backend.fileChooserWaits.records.get(ack.waiterId).result);
+  backend.handleCdpEvent({ tabId: 7 }, "Page.frameAttached", { frameId: "new-frame", parentFrameId: "root-frame" });
+  backend.handleCdpEvent({ tabId: 7 }, "Page.frameNavigated", { frame: { id: "new-frame", parentId: "root-frame" } });
+  await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED/);
+  gate.resolve(); await tick(); assert.equal(backend.fileChoosersById.size, 0); assert.equal(backend.fileChooserWaits.records.size, 0);
+});
+
+test("existing frame navigation and true detach invalidate an armed chooser", async () => {
+  const { backend, scope } = await chooserReadyEnvironment();
+  for (const [method, event] of [["Page.frameNavigated", { frame: { id: "root-frame" } }], ["Page.frameDetached", { frameId: "known-frame", reason: "remove" }], ["Page.documentOpened", {}]]) {
+    const ack = await backend.armFileChooserWait(scope);
+    backend.handleCdpEvent({ tabId: 7 }, method, event);
+    await assert.rejects(backend.collectFileChooserWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED/);
+    await backend.cancelFileChooserWait({ ...scope, waiterId: ack.waiterId });
+  }
+});
+
+test("cancel acknowledgement waits for actual disable and permits the next arm without a sleep", async () => {
+  const { backend, scope, chrome } = await chooserReadyEnvironment(), gate = deferred();
+  const ack = await backend.armFileChooserWait(scope);
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, args) => {
+    if (method === "Page.setInterceptFileChooserDialog" && !args.enabled) await gate.promise;
+    return original(target, method, args);
+  };
+  let completed = false; const cancelling = backend.cancelFileChooserWait({ ...scope, waiterId: ack.waiterId }).then(() => { completed = true; });
+  await tick(); assert.equal(completed, false); await assert.rejects(backend.armFileChooserWait(scope), /LIMIT/);
+  gate.resolve(); await cancelling;
+  const next = await backend.armFileChooserWait(scope); await backend.cancelFileChooserWait({ ...scope, waiterId: next.waiterId });
+});
+
+test("Pause retains unconfirmed chooser cleanup and only succeeds after exact retry", async () => {
+  const { backend, scope, chrome } = await chooserReadyEnvironment();
+  const ack = await backend.armFileChooserWait(scope);
+  const original = chrome.debugger.sendCommand; let failing = true;
+  chrome.debugger.sendCommand = async (target, method, args) => {
+    if (method === "Page.setInterceptFileChooserDialog" && !args.enabled && failing) throw new Error("fixture native disable failure");
+    return original(target, method, args);
+  };
+  await assert.rejects(backend.pauseAutomation(), /CLEANUP_FAILED|AUTOMATION_PAUSE_FAILED/);
+  assert.equal(backend.fileChooserWaits.records.size, 1); assert.equal(backend.fileChooserWaits.records.get(ack.waiterId).invalid, true);
+  failing = false; assert.equal((await backend.pauseAutomation()).cleanupComplete, true); assert.equal(backend.fileChooserWaits.records.size, 0);
+});
+
+test("cold chooser migration preserves only its own unbound setup", async () => {
+  const { backend, scope, tabs } = await chooserReadyEnvironment();
+  await backend.attach(scope); tabs.get(7).groupId = 20;
+  const control = await backend.getControlState(other());
+  const nextScope = { ...other(), tabId: 7, control_epoch: control.controlEpoch };
+  const ack = await backend.armFileChooserWait(nextScope);
+  chooserEvent(backend); const result = await backend.collectFileChooserWait({ ...nextScope, waiterId: ack.waiterId });
+  assert.equal(backend.fileChoosersById.get(result.fileChooserId).scope.session_id, "other");
+  await backend.setFileChooserFiles({ ...nextScope, fileChooserId: result.fileChooserId, files: [] });
+});

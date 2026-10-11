@@ -1,4 +1,6 @@
 import { OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
+import { OpenBrowserUseFileChooserWait, type OpenBrowserUseFileChooserWaitOptions } from "./file-chooser-waits.js";
+export { OpenBrowserUseFileChooserWait, type OpenBrowserUseFileChooserWaitOptions, type OpenBrowserUseFileChooserWaitResult } from "./file-chooser-waits.js";
 export { OpenBrowserUseClipboard } from "./clipboard.js";
 export type { OpenBrowserUseClipboardOptions, OpenBrowserUseClipboardItem, OpenBrowserUseClipboardEntry } from "./clipboard.js";
 import { OpenBrowserUseDownload, type OpenBrowserUseMediaDownloadOptions, type OpenBrowserUseDownloadOptions, type OpenBrowserUseDownloadURLOptions } from "./downloads.js";
@@ -155,6 +157,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 declare const downloadSymbol: unique symbol;
 declare const navigationWaitSymbol: unique symbol;
 declare const networkWaitSymbol: unique symbol;
+declare const fileChooserWaitSymbol: unique symbol;
 declare const controlScopeSymbol: unique symbol;
 type ControlScope = {
     request(method: string, params?: BrowserUseRequestParams, reservedResponseMs?: number): Promise<JsonValue>;
@@ -177,6 +180,7 @@ export declare class OpenBrowserUseClient {
     [downloadSymbol](tabId: number, method: "downloadURL" | "downloadMedia" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload>;
     [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     [navigationWaitSymbol](tabId: number, params: BrowserUseRequestParams): Promise<OpenBrowserUseNavigationWait>;
+    [fileChooserWaitSymbol](tabId: number, options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
     getControlState(): Promise<JsonValue>;
     beginTurn(turnId?: string): Promise<OpenBrowserUseControlState | null>;
     refreshControlState(): Promise<OpenBrowserUseControlState | null>;
@@ -239,6 +243,7 @@ export declare class OpenBrowserUseTab {
     exportPDF(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     exportMHTML(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     waitForDownload(options?: OpenBrowserUseDownloadOptions): Promise<OpenBrowserUseDownload>;
+    expectFileChooser(options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectURL(url: string, options?: OpenBrowserUseURLWaitOptions): Promise<OpenBrowserUseNavigationWait>;
@@ -351,6 +356,7 @@ export declare class OpenBrowserUseLocator {
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    expectFileChooser(options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
     expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     snapshotAI(options?: OpenBrowserUseAISnapshotOptions): Promise<OpenBrowserUseAISnapshot>;
     goBack(options?: OpenBrowserUseGotoOptions): Promise<JsonValue>;

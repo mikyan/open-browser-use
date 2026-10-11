@@ -357,6 +357,14 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   observer 超时只取消自身；warm setup 保留既有 Page，cold setup 按创建身份清理。
   三个 SDK 和 CLI/MCP 通过 `navigationWaitVersion=1` 协商，handle 固定原 scope；
   Pause 追踪真正原生清理完成。详见 [navigation waits](references/navigation-waits.md)。
+- `BrowserFileChooserWaits` 提供 `armFileChooserWait` / `collectFileChooserWait` /
+  `cancelFileChooserWait`，通过 `fileChooserWaitVersion=1` 协商。准备确认覆盖
+  原 attachment 的 root、已知及新加入的 OOPIF interception，后续连接可在
+  确认后触发点击。旧 `waitForFileChooser` 复用同一注册表；每 tab 一个、全局
+  128 个未交付或未清理记录。首个原生事件同步占位，结果单次交付，原 deadline
+  不随 collect 更新；实际 enable/disable 未结算或失败时继续保留容量和控制
+  清理账本。取消可在观察期限后按原 scope 重试清理，成功回复要求真实清理完成。
+  详见 [file transfers](references/file-transfers.md)。
 - JS、Python 和 Go SDK：连接 Windows named pipe 或 Unix socket 发送 Browser Use JSON-RPC。
   JS SDK 支持订阅 native socket 上的 JSON-RPC notification；Python SDK 会在
   同步 request loop 中分发并跳过 notification，避免 CDP event 插队破坏响应读取；
