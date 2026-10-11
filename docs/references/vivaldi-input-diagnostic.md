@@ -107,3 +107,79 @@ Brave `QC0zdV` 任务通过，四检查点零前台事件，原生进程和注�
 独立审计通过；1877×1926实际PNG已查看，光标与点击目标可见，长JSON
 收据仍有原先的水平溢出。脚手架180/180、独立定向77/77通过。
 生产源码、host与47文件v15 ZIP字节未变，尚未加入生产兼容绕行。
+
+## 独立逐键对照
+
+`OBU_TEST_VIVALDI_KEY_INPUT=1` 仅供真实Vivaldi，与其他五个显式诊断开关
+互斥。它固定复用首文档检查与原生观察，在全新任务里保留原39字符ASCII
+文本、Delivery note定位器和单次提交，只预先选择公开pressSequentially，
+不先fill、额外聚焦或按结果回退。原生实包对此文本走39对down/up，非US
+布局字符会转回insertText，故这一实验不能证明Unicode输入能力。
+
+仅新模式增加被动keydown/keypress/keyup及1024记录上限；旧INPUT事件集
+和256上限不变。共用observer函数新增分支会改变旧诊断HTML源码字节，
+不能宣称其与v18逐字相同；默认非诊断HTML内容不变。所有事件仍保存同一
+原note节点、文档身份和完整前缀，溢出或丢失仍使采集不完整。
+
+分别报告原生采集是否完整、是否观察到dispatch且无insertText，以及
+具体键数、顺序、目标和文本是否正确。真实DOM键事件、可信输入、实际值
+与唯一POST决定任务结果，不从命令ACK推断成功。逐键方法本身的聚焦/选区
+语义与fill不同，额外观察也有调度成本；即使通过，也不能直接将它用作
+通用fill的隐式替代。
+
+v19 的真实 `HrDsGN` 已完成逐键对照：首文档检查2采样/93ms，原goto
+63ms，pressSequentially 92ms。独立重算39对down/up，原root tab、key/
+code/text逐字符正确，每个ACK先于下一发，完全没有insertText；同文档
+原note仍未收到任何keydown/keypress/keyup/beforeinput/input/change。
+唯一POST的note为空、点击可信。故逐键没有解决实际后台输入问题，
+不能建议将它作为已验证的Vivaldi替代路径。
+
+独立核377源码/219历史、原host/47文件ZIP和实际staging一致；原生快照
+连续0→321→325、134calls，末尾无pending。大utility载荷截断被明确
+记录，关键按键参数与ACK完整。DOM为0→4→8记录，只有focus、选区和
+Submit后的blur/focus，三条最终取消状态仍未知。508ms连续观察零前台
+事件/豁免，native/browser实际exit0与精确进程/注册清理通过；receipt
+失败发生在截图和finalize之前。诊断完成，任务和验收失败，内部实际
+focused widget仍未观察到。
+
+下一独立对照在全新任务里预先点击原输入框，再执行一次原fill及一次
+Submit，并观察可信pointer/mouse是否进入原节点。固定上游的鼠标路径
+按坐标命中widget，而键盘/IME依赖focused-widget选择，故这次对照有
+判别力；鼠标Focus仍经delegate且有页面点击副作用，不能假定会修复，
+也不能悄悄将click加入生产fill。
+
+对应开关为 `OBU_TEST_VIVALDI_POINTER_FOCUS=1`，与旧六种显式模式互斥，
+复用TASK_READY+INPUT而不经过KEY_INPUT。只有此模式新增pointerdown/
+pointerup/mousedown/mouseup/click被动观察，仍为256记录上限，保存按钮、
+坐标、原node与可信标记；其他模式事件集不变。五份快照依次为点击前、
+点击后、fill前、fill后、final，维持同文档/节点与完整事件前缀。原生
+mouse move/press/release按两个公开点击的时间窗分别列出真实序列和计数，
+不从“一次locator.click”假定底层只有一组命令。事件到达、前提值为空、
+实际编辑与采集完整性分别报告，未知时间窗或取消状态按未知保留。
+
+## 点击输入框后的实测
+
+v20 的 `ttYgKb` 首文档检查2采样/101ms后，原输入框click实际发送同一
+root target的mouseMoved、左键mousePressed与mouseReleased；原note收到
+五种可信pointer/mouse/click事件。PointerEvent坐标与原生命令仅有浮点
+精度差，MouseEvent按整数返回。点击后及fill前值仍为空，随后唯一原生
+Input.insertText写入完整39字符，原节点收到可信beforeinput/input及
+提交时change。唯一POST包含正确note和可信输入、点击证据。
+
+五份快照保持同文档、原node和完整事件前缀，最终18事件/36记录，无
+丢弃或溢出；18条微任务的最终取消状态仍为未知，不将其写成未取消。
+原生254记录/98calls、最终无pending；大utility载荷有声明过的截断，
+关键mouse/Input目标、参数和结算完整。独立核379源码/220历史结果、
+原host/47文件ZIP与实际staging一致，只有声明过的两项测试插桩差异。
+
+本轮taskPassed=true，原截图、finalize及实际关页均通过；diagnosticCompleted
+为true，诊断模式的acceptance仍固定false。2186×1872、57,552字节PNG已
+实际查看，AI光标和正确收据可见，长JSON收据仍有原先水平溢出。1068ms
+连续焦点账本零事件/豁免，原生host/browser实际exit0及精确进程、注册
+清理通过。所有诊断关闭的默认Brave `TKisEN` 标准任务、独立审计和实际
+PNG也通过。生产、SDK、host及ZIP未修改。
+
+结果证明本次明确的click→fill→Submit流程有效，不能将效果单独归因于
+mousedown，也不证明浏览器内部focused widget的准确机制、跨版本稳定性
+或通用fill修复。旧无点击fill和逐键失败保留；下一生产候选需要无隐式
+点击副作用、原动作期限和撤权边界的证据，不能在失败后自动重放输入。

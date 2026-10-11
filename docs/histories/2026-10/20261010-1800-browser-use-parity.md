@@ -1093,6 +1093,23 @@ tab/target快照；迟到create/connect不能继续发操作，诊断恒不算ac
 `QC0zdV` 标准任务、零前台事件、实际PNG及独立审计通过；生产原ZIP未
 改，也没有推送或PR。完整目标继续active。
 
+本片新增独立逐键与指针聚焦诊断，保持原native wrapper、生产及默认
+fixture字节不变。逐键只预选pressSequentially；指针对照只预选一次
+输入框click再原fill/Submit。分别保存真实命令、可信DOM事件、原node/
+document身份、唯一POST和有界记录，不将ACK或采集完整当输入成功。
+
+`HrDsGN` 正确78条逐键命令全部ACK，但原文档没有键盘/输入事件、POST
+仍空；`ttYgKb` 原输入框收到可信pointer/mouse后，唯一原fill确实写入
+39字符并正确提交，截图/finalize/关页全通过。两轮分别508/1068ms零
+前台事件，精确进程与注册清理、源码/历史/制品独立审计通过。默认Brave
+`TKisEN` 标准任务和独立审计通过，实际PNG已查看。诊断模式仍不算正式
+acceptance，显式先click流程成功不等于可无副作用地修改通用fill。
+
+最终脚手架198/198、定向独立94/94，文档/卫生检查通过。全套初轮唯一
+失败为form单测随机端口命中Node fetch禁用列表；保留日志，将该单测
+传输改为真实node:http，并覆盖UTF-8、状态码、解析错误、reset、截断
+和超时。未改系统端口范围、浏览器fixture或生产；只做本地提交，无PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

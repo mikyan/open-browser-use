@@ -20,6 +20,8 @@ import { nativeOwnershipEnabled, runNativeOwnershipWorkflow } from "./native-own
 import { vivaldiReadinessEnabled, openVivaldiReadinessPage, vivaldiReadinessResult } from "./vivaldi-readiness-diagnostic.mjs";
 import { vivaldiInputEnabled, inputFixtureSource, captureInputLedgerOnce, inputDOMTraceComplete, inputNativeTraceComplete, inputCommandEvidence, vivaldiInputResult } from "./vivaldi-input-diagnostic.mjs";
 import { vivaldiTaskReadinessEnabled, waitForVivaldiTaskCommit, taskReadinessDiagnosticResult } from "./vivaldi-task-readiness-diagnostic.mjs";
+import { vivaldiKeyInputEnabled, keyCommandEvidence, keyInputDiagnosticResult } from "./vivaldi-key-input-diagnostic.mjs";
+import { vivaldiPointerFocusEnabled, pointerCommandEvidence, pointerFocusDiagnosticResult } from "./vivaldi-pointer-focus-diagnostic.mjs";
 
 const brands = Object.freeze({
   brave: { label: "Brave", about: "brave://version/", manager: "brave://extensions/", base: "LOCALAPPDATA", relative: "BraveSoftware/Brave-Browser/User Data", product: /brave/i, publisher: /Brave Software/i },
@@ -315,7 +317,7 @@ export function nativeBrowserInstallationCleaned(report) {
     report.cleanup?.registration?.removed === true && report.cleanup?.forced !== true && !report.cleanup?.errors?.length;
 }
 export function nativeBrowserInstallationPassed(report) {
-  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic", "vivaldi-input-diagnostic", "vivaldi-task-readiness-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
+  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic", "vivaldi-input-diagnostic", "vivaldi-task-readiness-diagnostic", "vivaldi-key-input-diagnostic", "vivaldi-pointer-focus-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
     (report.ownershipRequested !== true || report.ownership?.passed === true) && report.focus?.passed === true && report.finalInventory?.passed === true && nativeBrowserInstallationCleaned(report);
 }
 
@@ -340,8 +342,12 @@ async function main() {
   assert.ok(Object.hasOwn(brands, name), "Set OBU_TEST_NATIVE_BROWSER to brave, opera or vivaldi");
   const readinessRequested = vivaldiReadinessEnabled(process.env.OBU_TEST_VIVALDI_READINESS, { name, nativeDiagnostics: nativeDiagnosticsRequested });
   const inputRequested = vivaldiInputEnabled(process.env.OBU_TEST_VIVALDI_INPUT, { name, nativeDiagnostics: nativeDiagnosticsRequested, readiness: readinessRequested, ownership: ownershipEnabled });
-  const taskReadinessEnabled = vivaldiTaskReadinessEnabled(process.env.OBU_TEST_VIVALDI_TASK_READY, { name, input: inputRequested, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
+  const taskReadinessRequested = vivaldiTaskReadinessEnabled(process.env.OBU_TEST_VIVALDI_TASK_READY, { name, input: inputRequested, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
+  const keyInputEnabled = vivaldiKeyInputEnabled(process.env.OBU_TEST_VIVALDI_KEY_INPUT, { name, input: inputRequested, taskReadiness: taskReadinessRequested, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
+  const pointerFocusEnabled = vivaldiPointerFocusEnabled(process.env.OBU_TEST_VIVALDI_POINTER_FOCUS, { name, input: inputRequested, taskReadiness: taskReadinessRequested, keyInput: keyInputEnabled, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
+  const taskReadinessEnabled = taskReadinessRequested || keyInputEnabled || pointerFocusEnabled;
   const inputEnabled = inputRequested || taskReadinessEnabled;
+  const inputOperation = keyInputEnabled ? "pressSequentially" : "fill";
   const diagnosticsEnabled = nativeDiagnosticsRequested || inputEnabled, readinessEnabled = readinessRequested || inputEnabled;
   const recordTaskRequests = diagnosticsEnabled || ownershipEnabled || readinessEnabled;
   assert.ok(process.env.OBU_TEST_CHROMIUM_BINARY && process.env.OBU_TEST_HOST_BINARY, "Set OBU_TEST_CHROMIUM_BINARY and OBU_TEST_HOST_BINARY");
@@ -352,13 +358,15 @@ async function main() {
   const env = { ...process.env, TEMP: path.join(runDir, "temp"), TMP: path.join(runDir, "temp"), LOCALAPPDATA: path.join(runDir, "local"), APPDATA: path.join(runDir, "roaming"), USERPROFILE: path.join(runDir, "home"), HOME: path.join(runDir, "home") };
   const plan = nativeBrowserPlan(name, env), profile = plan.profileRoot;
   for (const directory of [env.TEMP, env.LOCALAPPDATA, env.APPDATA, env.USERPROFILE, profile]) await fs.mkdir(directory, { recursive: true });
-  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: taskReadinessEnabled ? "vivaldi-task-readiness-diagnostic" : inputEnabled ? "vivaldi-input-diagnostic" : readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
+  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: pointerFocusEnabled ? "vivaldi-pointer-focus-diagnostic" : keyInputEnabled ? "vivaldi-key-input-diagnostic" : taskReadinessEnabled ? "vivaldi-task-readiness-diagnostic" : inputEnabled ? "vivaldi-input-diagnostic" : readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
     scope: "Actual signed Windows brand; native manifest export plus unique Google HKCU fixture registration; real connectNative launcher, catalogue/profile selectors and one JS SDK background task. Production fixed-leaf installer, other OS, browser restart/update and complete brand parity are not claimed.",
     helperPolicy: "Windows PowerShell 5.1 helpers use their own PSHOME/Modules only, with UTF-8 stdout/stderr; environment change is local to each helper child",
     focus: { allowedActivations: [], allowedFocus: [] }, cli: [], inventories: [], cleanup: { errors: [] } };
   if (diagnosticsEnabled) report.diagnostics = { enabled: true, snapshots: [], errors: [], boundary: "Opt-in staged-worker native API and selected passive-event observations only. Original task/focus/receipt failures remain failures; diagnostic completion never implies acceptance. Pending command outcomes and truncated payload values remain unknown; no retry, activation, input replacement, or private production-map reads." };
-  if (readinessEnabled) report.readinessDiagnostic = { enabled: true, timeoutMs: 25000, boundary: "Harness-only pre-first-target-connection native tabs.get and original target readiness gate for vendor-created manager/observer. One absolute budget per open covers creation, identity, metadata, connection and evaluation. No activation or input substitute. " + (inputEnabled ? "Explicit input mode also stages the existing native API prelude and passive fixture events; original fill/click retained." : "No staged API prelude or production task change. Diagnostic completion requires both gates, task reached and strict cleanup; task/focus failures remain recorded and passed is always false.") };
-  if (inputEnabled) report.inputDiagnostic = { enabled: true, snapshots: [], errors: [], fixtureResponses: [], fixtureOverflow: false, fixtureDropped: 0, boundary: "Explicit input diagnostic combines the unchanged readiness gate and native API observer with passive fixture event capture. Original single fill/click and trusted POST assertions remain. The final public ledger read is attempted once after receipt or during failure teardown; no input replay. DOM focus is not actual widget focus, and native ACK alone does not prove delivery or a root cause. This mode always has passed:false." };
+  if (readinessEnabled) report.readinessDiagnostic = { enabled: true, timeoutMs: 25000, boundary: "Harness-only pre-first-target-connection native tabs.get and original target readiness gate for vendor-created manager/observer. One absolute budget per open covers creation, identity, metadata, connection and evaluation. No activation or action replay. " + (inputEnabled ? `Explicit input mode also stages the existing native API prelude and passive fixture events; single ${inputOperation}/click selected before execution.` : "No staged API prelude or production task change. Diagnostic completion requires both gates, task reached and strict cleanup; task/focus failures remain recorded and passed is always false.") };
+  if (inputEnabled) report.inputDiagnostic = { enabled: true, snapshots: [], errors: [], fixtureResponses: [], fixtureOverflow: false, fixtureDropped: 0, boundary: `Explicit input diagnostic combines the unchanged readiness gate and native API observer with passive fixture event capture. Single preselected ${inputOperation}/click and original trusted POST assertions remain. The final public ledger read is attempted once after receipt or during failure teardown; no input replay. DOM focus is not actual widget focus, and native ACK alone does not prove delivery or a root cause. This mode always has passed:false.` };
+  if (keyInputEnabled) { report.keyInputDiagnostic = { enabled: true, operation: inputOperation, locator: "getByLabel('Delivery note')", maximumDOMRecords: 1024, fixtureDifference: "Only KEY_INPUT adds passive keydown/keypress/keyup and an explicit 1024-record cap. Shared serialized observer source changed; older INPUT fixture HTML is not byte-identical to the prior baseline, although its original event set and 256 cap remain. Non-diagnostic fixture bytes are unchanged." }; report.inputDiagnostic.keyInput = report.keyInputDiagnostic; }
+  if (pointerFocusEnabled) { report.pointerFocusDiagnostic = { enabled: true, operation: "pointerFocusClick", locator: "getByLabel('Delivery note')", maximumDOMRecords: 256, selectedActionDifference: "Exactly one public input locator.click before the unchanged single fill and Submit click. No activation, explicit focus, input replacement or fallback. Actual native mouse sequences are recorded independently of the public click count.", fixtureDifference: "Only POINTER_FOCUS adds passive pointerdown/pointerup/mousedown/mouseup/click metadata. Shared serialized diagnostic observer source changed, so previous diagnostic HTML bytes differ; old event sets/caps and non-diagnostic fixture bytes remain unchanged." }; report.inputDiagnostic.pointerFocus = report.pointerFocusDiagnostic; }
   if (taskReadinessEnabled) report.taskReadinessDiagnostic = { enabled: true, ready: false, timeoutMs: 5000, maximumSamples: 80, scopeBoundary: "Extra task initial-commit diagnostic stage; not inherited from newTab and not an extension of the unchanged original goto deadline" };
   if (ownershipEnabled) { report.ownershipRequested = true; report.ownership = { enabled: true, passed: false }; }
   const save = (file, value) => fs.writeFile(path.join(runDir, file), JSON.stringify(value, null, 2));
@@ -396,7 +404,7 @@ async function main() {
     catch (error) { record.persistenceError = error.stack ?? String(error); report.diagnostics.errors.push({ label: `${label}-persistence`, error: record.persistenceError }); }
   }
   async function captureFinalInput() {
-    if (!inputEnabled || !inputTaskTab || !report.task?.steps.some(step => step.operation === "fill")) return;
+    if (!inputEnabled || !inputTaskTab || !report.task?.steps.some(step => step.operation === inputOperation)) return;
     await captureInputLedgerOnce(report.inputDiagnostic, { read: () => inputTaskTab.evaluate("globalThis.__obuInputEventDiagnostic?.snapshot()"), persist: checkpoint });
   }
   async function until(read, label, timeout = 25000) {
@@ -524,7 +532,7 @@ async function main() {
       else { taskRequests.overflow = true; taskRequests.dropped++; }
     }
     const rgb = [...Buffer.from(nonce.slice(0, 6), "hex")];
-    const html = `<!doctype html><meta charset="utf-8"><title>Native browser task ${nonce}</title><style>body{font:20px system-ui;margin:70px 30px}#marker{position:fixed;left:8px;top:8px;width:40px;height:40px;background:rgb(${rgb.join(",")})}input,button{font:inherit;padding:12px}</style><div id="marker"></div><h1>Native browser task</h1><p id="nonce">${nonce}</p><label>Delivery note<input id="note"></label><button id="submit">Submit note</button><pre id="receipt"></pre><script>${inputEnabled ? inputFixtureSource(nonce) : ""}globalThis.submissions=[];const inputEvents=[];globalThis.__nativeTaskInputEvents=inputEvents;let inputOverflow=false;for(const type of ['input','change'])document.querySelector('#note').addEventListener(type,event=>{if(inputEvents.length>=64){inputOverflow=true;return}inputEvents.push({type,trusted:event.isTrusted,value:event.target.value})});document.querySelector('#submit').onclick=async event=>{const value={nonce:${JSON.stringify(nonce)},note:document.querySelector('#note').value,trusted:event.isTrusted,inputEvents:inputEvents.map(value=>({...value})),inputOverflow};submissions.push(value);const result=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).then(r=>r.json());document.querySelector('#receipt').textContent=JSON.stringify(result)};</script>`;
+    const html = `<!doctype html><meta charset="utf-8"><title>Native browser task ${nonce}</title><style>body{font:20px system-ui;margin:70px 30px}#marker{position:fixed;left:8px;top:8px;width:40px;height:40px;background:rgb(${rgb.join(",")})}input,button{font:inherit;padding:12px}</style><div id="marker"></div><h1>Native browser task</h1><p id="nonce">${nonce}</p><label>Delivery note<input id="note"></label><button id="submit">Submit note</button><pre id="receipt"></pre><script>${inputEnabled ? inputFixtureSource(nonce, { keyInput: keyInputEnabled, pointerFocus: pointerFocusEnabled }) : ""}globalThis.submissions=[];const inputEvents=[];globalThis.__nativeTaskInputEvents=inputEvents;let inputOverflow=false;for(const type of ['input','change'])document.querySelector('#note').addEventListener(type,event=>{if(inputEvents.length>=64){inputOverflow=true;return}inputEvents.push({type,trusted:event.isTrusted,value:event.target.value})});document.querySelector('#submit').onclick=async event=>{const value={nonce:${JSON.stringify(nonce)},note:document.querySelector('#note').value,trusted:event.isTrusted,inputEvents:inputEvents.map(value=>({...value})),inputOverflow};submissions.push(value);const result=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).then(r=>r.json());document.querySelector('#receipt').textContent=JSON.stringify(result)};</script>`;
     if (inputEnabled) {
       if (inputFixtureResponses.length < 4) {
         const file = `input-fixture-response-${inputFixtureResponses.length + 1}.html`;
@@ -538,14 +546,14 @@ async function main() {
     fixedBefore = await fixedRegistration(); report.fixedRegistrationBefore = fixedBefore;
     await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), sdk, { recursive: true });
     report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).stdout.trim(), host: digest(await fs.readFile(host)), harness: digest(await fs.readFile(fileURLToPath(import.meta.url))), jsSDK: await hashes(sdk), dependencies: {} };
-    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "vivaldi-input-diagnostic.mjs", "vivaldi-task-readiness-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
+    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "vivaldi-input-diagnostic.mjs", "vivaldi-task-readiness-diagnostic.mjs", "vivaldi-key-input-diagnostic.mjs", "vivaldi-pointer-focus-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
     report.identity = { suppliedExecutable: await executableIdentity(binary) }; await checkpoint();
     await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
     const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), nativeConstant = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
     assert.equal(background.split(nativeConstant).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
     const prelude = diagnosticsEnabled ? nativeDiagnosticPrelude() : "";
     await fs.writeFile(backgroundFile, prelude + background.replace(nativeConstant, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
-    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: `Explicit ${taskReadinessEnabled ? "OBU_TEST_VIVALDI_TASK_READY" : inputEnabled ? "OBU_TEST_VIVALDI_INPUT" : "OBU_TEST_NATIVE_DIAGNOSTICS"}=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged` };
+    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: `Explicit ${pointerFocusEnabled ? "OBU_TEST_VIVALDI_POINTER_FOCUS" : keyInputEnabled ? "OBU_TEST_VIVALDI_KEY_INPUT" : taskReadinessEnabled ? "OBU_TEST_VIVALDI_TASK_READY" : inputEnabled ? "OBU_TEST_VIVALDI_INPUT" : "OBU_TEST_NATIVE_DIAGNOSTICS"}=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged` };
     const manifestFile = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
     manifest.key ??= (await fs.readFile(path.join(repo, "cmd/open-browser-use/main.go"), "utf8")).match(/const betaExtensionPublicKey = "([^"]+)"/)?.[1]; assert.ok(manifest.key);
     extensionId = digest(Buffer.from(manifest.key, "base64")).slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16))); await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2));
@@ -663,9 +671,17 @@ async function main() {
       if (inputEnabled) report.inputDiagnostic.snapshots.push({ phase, requestedAt: record.requestedAt, completedAt: Date.now(), snapshot: record.document.inputDiagnostic });
       record.completedAt = Date.now(); await checkpoint();
     }
-    await observeInput("before-fill");
-    await step("fill", () => tab.getByLabel("Delivery note").fill(note));
-    await observeInput("after-fill");
+    if (keyInputEnabled) { assert.match(note, /^[\x20-\x7e]{39}$/); report.keyInputDiagnostic.expectedNote = note; }
+    if (pointerFocusEnabled) {
+      report.pointerFocusDiagnostic.expectedNote = note;
+      await observeInput("before-pointer-click");
+      await step("pointerFocusClick", () => tab.getByLabel("Delivery note").click());
+      await observeInput("after-pointer-click");
+    }
+    await observeInput(keyInputEnabled ? "before-key-input" : "before-fill");
+    if (keyInputEnabled) await step("pressSequentially", () => tab.getByLabel("Delivery note").pressSequentially(note));
+    else await step("fill", () => tab.getByLabel("Delivery note").fill(note));
+    await observeInput(keyInputEnabled ? "after-key-input" : "after-fill");
     await step("click", () => tab.getByRole("button", { name: "Submit note", exact: true }).click());
     await step("receipt visible", () => tab.locator("#receipt").filter({ hasText: task.nonce }).waitFor({ state: "visible" }));
     task.receipt = JSON.parse(await step("read receipt", () => tab.locator("#receipt").innerText()));
@@ -767,16 +783,29 @@ async function main() {
       detail.nativeTraceComplete = !report.diagnostics.errors.length && inputNativeTraceComplete(diagnosticInitial, diagnosticFinal, report.task?.tabId);
       detail.commands = inputCommandEvidence(diagnosticFinal, { tabId: report.task?.tabId, note: `native-${name}-${nonce}`, steps: report.task?.steps });
       detail.commandEvidenceBoundary = "Indices bind to the original native trace. Task tab/text comparisons are observations, not collection-completeness conditions. Timestamp windows alone are not exact IPC scope proof; raw task scope, tab creation/attachment and context events remain necessary. Long Runtime function bodies can be truncated in the raw trace; omitted values are unknown.";
-      detail.domTraceComplete = !detail.errors.length && !detail.persistenceFailures && inputDOMTraceComplete(detail.snapshots, nonce);
+      detail.domTraceComplete = !detail.errors.length && !detail.persistenceFailures && inputDOMTraceComplete(detail.snapshots, nonce, { keyInput: keyInputEnabled, pointerFocus: pointerFocusEnabled });
       detail.httpComplete = !taskRequests.overflow && taskRequests.requests.length === 1 && taskRequests.requests[0].method === "GET" && taskRequests.requests[0].nonce === nonce && !detail.fixtureOverflow && detail.fixtureResponses.length === 1 && detail.fixtureResponses[0].nonce === nonce && posts.length === 1 && (() => { try { return JSON.parse(posts[0].body).nonce === nonce && digest(posts[0].body) === posts[0].sha256; } catch { return false; } })();
       detail.readinessComplete = report.readinessDiagnostic.observationsComplete;
       detail.cleanupComplete = nativeBrowserInstallationCleaned(report);
       detail.taskOutcome = report.readinessDiagnostic.taskOutcome;
-      result = vivaldiInputResult({ ...detail, steps: report.task?.steps });
+      result = vivaldiInputResult({ ...detail, steps: report.task?.steps, inputOperation });
     }
     if (taskReadinessEnabled) {
-      result = taskReadinessDiagnosticResult({ gate: report.taskReadinessDiagnostic, inputResult: result });
+      const inputResult = result;
+      result = taskReadinessDiagnosticResult({ gate: report.taskReadinessDiagnostic, inputResult });
       report.taskReadinessDiagnostic.gateComplete = result.gateComplete;
+      if (keyInputEnabled) {
+        Object.assign(report.keyInputDiagnostic, keyCommandEvidence(diagnosticFinal, { tabId: report.task?.tabId, note: report.keyInputDiagnostic.expectedNote, steps: report.task?.steps }));
+        result = keyInputDiagnosticResult({ inputResult, gateResult: result, evidence: report.keyInputDiagnostic });
+        report.keyInputDiagnostic.collectionComplete = result.collectionComplete;
+        report.keyInputDiagnostic.experimentObserved = result.experimentObserved;
+      }
+      if (pointerFocusEnabled) {
+        Object.assign(report.pointerFocusDiagnostic, pointerCommandEvidence(diagnosticFinal, { tabId: report.task?.tabId, steps: report.task?.steps, snapshots: report.inputDiagnostic.snapshots }));
+        result = pointerFocusDiagnosticResult({ inputResult, gateResult: result, evidence: report.pointerFocusDiagnostic });
+        report.pointerFocusDiagnostic.collectionComplete = result.collectionComplete;
+        report.pointerFocusDiagnostic.experimentObserved = result.experimentObserved;
+      }
     }
     report.completedAt = Date.now(); report.passed = result.passed;
     if (diagnosticsEnabled || readinessEnabled) report.diagnosticCompleted = result.diagnosticCompleted;

@@ -1558,3 +1558,61 @@ native/browser退出和注册清理完整。大utility载荷截断及三条微�
 新任务验证原生逐键路径，不能在失败fill之后自动改键盘或DOM重放；生产
 初始化修复若采用提交检查，必须限定新建页、共享原动作期限并保留撤权。
 仅本地开发、提交；无推送或PR，完整parity目标保持active。
+
+### Vivaldi 逐键输入对照
+
+从干净 `7bb6bc4` 继续。上一轮是实质进展：完成被动原生/DOM采集、
+任务首文档时序实验、真实空值证据与默认Brave回归，生产未修改。
+本轮新增独立 `OBU_TEST_VIVALDI_KEY_INPUT=1`，内部固定复用TASK_READY与
+INPUT，其余显式诊断开关互斥。在全新session/turn/tab/nonce里，保留原
+ASCII文本、Delivery note定位器与唯一Submit，只预先选择公开
+pressSequentially；不先fill、不增加点击/聚焦、不按失败结果回退输入。
+
+新模式被动记录keydown/keypress/keyup及已有输入事件，容量显式1024；
+旧输入模式保持原事件集/256，默认非诊断fixture不变。实包对这39个US
+布局字符应发78个down/up，原生target/参数/顺序/ACK与DOM真实值、可信
+事件和唯一POST分别核验。采集是否完整、是否确实走预期键路径、任务
+是否成功分开，不把错误参数或空值伪装为采集缺失，也不只凭ACK算通过。
+
+如果逐键成功，只能证明该公开ASCII路径可用；fill的替换已有值、Unicode
+和contenteditable语义必须继续验证。若原节点收到键但不编辑，检查实际
+取消/选区；若正确键ACK且整个文档没有键事件，转向有证据的vendor输入
+目标路由或窗口架构，不重复加delay。root唯一启动浏览器，生产改动须有
+对应证据和默认回归；完整能力目标与已有其他缺口保持原范围。
+
+KEY_INPUT 实现通过188/188脚手架、独立85/85及最终摘要8/8。v19真实
+`HrDsGN` 2采样93ms首提交检查后goto63ms，92ms逐键的78命令全部同原
+root，key/code/text/顺序/ACK均独立核正确，0insertText；同文档原note
+没有任何键盘或输入事件，唯一POST仍为空。377源码/219历史/原host/ZIP
+身份核验通过，508ms零前台事件/豁免，真实进程及注册清理完整。旧失败
+保留，未将逐键声明成可用替代；准确内部focused widget仍不能由此确定。
+
+接续独立POINTER_FOCUS：仍为全新任务、原TASK_READY+INPUT，goto后读
+before-pointer-click→一次原Delivery note.click→after-pointer-click，
+再原before-fill/fill/after-fill、一次Submit和final，共五快照。仅新模式
+增加有界pointerdown/up、mousedown/up、click事件，保留真实命令序列、
+原node和值/选区；额外点击预先声明，不重试失败fill，不激活标签，
+默认及旧诊断行为保留。基于鼠标按坐标命中和键盘/IME焦点选择路径差异
+进行判别，不预先推断成功；这不是通用fill实现变更。
+
+POINTER经独立94/94复审，v20 `ttYgKb` 的原input收到完整可信pointer/
+mouse/click，点击后及fill前仍空；原唯一Input.insertText随后写入完整
+39字符，真实beforeinput/input/change和唯一POST一致。原截图、finalize
+与任务页移除通过，五快照同document/node且无事件丢失。379源码/220旧
+结果、原host/ZIP和实际staging独立核验，1068ms零前台事件，真实退出和
+清理完整。taskPassed=true但诊断acceptance恒false；生产尚未修改。
+
+同v20默认Brave `TKisEN` 所有诊断关闭，标准任务与独立审计通过，截图
+实际查看。完整脚手架初轮196/197，一项form fixture首次fetch被Node
+禁用端口规则拦截：本机动态端口范围与禁用列表重叠，listen(0)无过滤。
+该失败原样保留，单独修测试HTTP传输；不改变系统端口配置或浏览器动作。
+
+修复仅在form fixture单测内改用node:http，保留真实请求和所有原断言，
+新增UTF-8/状态/JSON错误/连接重置/截断/超时回归；无共享helper扩张。
+修后完整脚手架198/198、零skip/cancel。最终浏览器运行源码保持v20，
+其后仅测试传输与结果文档改动；未重复无关生产构建或全语言CI。
+
+下一片以这次明确click→fill流程成功为依据，检查是否存在无额外页面
+点击副作用的输入焦点修复。不能把单轮结果扩大为全品牌/版本通过，也
+不能把原失败fill自动改键盘或点击重放。生产修复需要对应受控表单、
+Unicode、已有值和撤权/期限验证；其他parity缺口保持开放。仅本地提交。

@@ -329,6 +329,76 @@ diagnostic completion also requires the existing input evidence and strict
 cleanup. A ready gate or a later successful task alone does not establish the
 cause of Vivaldi's earlier initialization failures.
 
+`OBU_TEST_VIVALDI_KEY_INPUT=1` selects a separate keyboard experiment for the
+actual Vivaldi browser and is exclusive with all five explicit modes above.
+It keeps TASK_READY/INPUT setup, session/turn/newTab, the original nonce/text and
+`getByLabel("Delivery note")` locator. Before execution, its single input action
+is selected as `pressSequentially(note)`. It never calls fill first, performs an
+extra focus/click, retries, or falls back. The original single submit click and
+POST/receipt checks remain. Snapshot phases are `before-key-input`,
+`after-key-input`, and `final`.
+
+Only this variant adds passive keydown/keypress/keyup and explicitly raises the
+DOM record cap to 1,024; old INPUT retains its original events and 256 limit.
+The shared serialized observer source has changed, so old INPUT fixture HTML
+is not byte-identical to the prior baseline. Default non-diagnostic fixture
+HTML remains unchanged. Overflow and unknown cancellation keep their original
+meaning. The raw native wrapper is unchanged and records actual
+`Input.dispatchKeyEvent` parameters, targets and settlement; no expected command
+is filled in when one is missing.
+
+`results.json` has `keyInputDiagnostic`, also saved as `keyInput` inside
+`input-diagnostic.json`. Actual command count/order, sent-text/key comparisons,
+task target matches and any `Input.insertText` call are separate observations.
+`mode: "vivaldi-key-input-diagnostic"` always has `passed: false`. Complete
+collection does not require correct text or successful editing; the selected
+experiment additionally needs observed key dispatch and no insertText. Original
+`task.passed` still requires the receipt, focus and finalization checks. A native
+dispatch ACK alone does not prove a DOM event arrived or edited the input.
+
+`OBU_TEST_VIVALDI_POINTER_FOCUS=1` selects one separate experiment on actual
+Vivaldi and is exclusive with the six explicit flags above. It reuses
+TASK_READY/INPUT setup and the same session, turn, tab, nonce and text. Its sole
+action difference is one preselected `getByLabel("Delivery note").click()`
+before the original single `fill(note)` and single Submit click. There is no
+tab activation, explicit focus call, replacement input, retry or fallback.
+The task logs this additional call as `pointerFocusClick`, separately from the
+original Submit `click`. One public click does not imply one native mouse
+sequence; the actual move/press/release calls and their outcomes remain recorded.
+
+The five snapshots are `before-pointer-click`, `after-pointer-click`,
+`before-fill`, `after-fill` and `final`. This variant adds only passive
+pointerdown/pointerup/mousedown/mouseup/click listeners, with the original
+256-record bound. They record actual target identity, trusted status, buttons,
+coordinates, original input value/selection, and the same bounded later
+cancellation observation. The previous INPUT and KEY_INPUT event sets/caps are
+unchanged. Shared serialized diagnostic source changes are declared; default
+non-diagnostic HTML remains byte-identical.
+
+`results.json` has `pointerFocusDiagnostic`, also saved as `pointerFocus` in
+`input-diagnostic.json`. It separates raw native pointer/Submit time windows,
+mouse counts/order/targets, pointer delivery to the original node, empty-value
+preconditions and the original fill result. Time-window matches and command
+ACKs do not prove immediate DOM delivery. Consecutive mouse commands can start
+before the preceding ACK; their actual ordering is evidence, not a serial-ACK
+requirement. `mode: "vivaldi-pointer-focus-diagnostic"` always has `passed:
+false`; complete collection and the observed experiment do not imply successful
+editing. The unchanged `task.passed` still requires the receipt, focus and
+finalization checks. Any effect belongs to the whole input click, including
+movement; this experiment does not isolate mousedown or prove widget routing.
+
+The recorded `HrDsGN` key experiment sent 78 correct native commands with ACKs,
+but received no DOM key/input event and submitted an empty note. The later
+independent `ttYgKb` pointer experiment delivered trusted events to the original
+input, then the unchanged fill produced trusted input/change and the correct
+single POST. Its screenshot, finalization and actual tab removal passed; the
+1,068 ms focus ledger recorded no activation or window-focus event. This is a
+successful explicit click-then-fill task, not a production fill fix or a causal
+proof about mousedown alone. Default Brave `TKisEN`, with all diagnostic flags
+unset, passed the original task and independent audit. Production code and the
+host/ZIP artifacts were unchanged. See the [input diagnostic record](../../docs/references/vivaldi-input-diagnostic.md)
+for the preserved failures and scope limits.
+
 Set `OBU_TEST_NATIVE_OWNERSHIP=1` to add the public multi-page ownership workflow
 after the unchanged standard task. This option independently records real task
 GETs; it does not require native API diagnostics. It opens A and B, submits both,

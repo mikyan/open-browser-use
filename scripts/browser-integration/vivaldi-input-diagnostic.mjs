@@ -14,8 +14,11 @@ export function vivaldiInputEnabled(value, { name, nativeDiagnostics = false, re
 export function installInputEventDiagnostic(document, target, nonce, options = {}) {
   const key = "__obuInputEventDiagnostic";
   if (Object.hasOwn(target, key)) throw new Error("Input fixture observer already installed");
+  const keyEvents = options.keyEvents === true;
+  const pointerEvents = options.pointerEvents === true;
+  if (keyEvents && pointerEvents) throw new Error("Input diagnostic variants are exclusive");
   const maximumRecords = options.maximumRecords ?? 256;
-  if (!Number.isInteger(maximumRecords) || maximumRecords < 2 || maximumRecords > 256) throw new Error("Invalid input diagnostic capacity");
+  if (!Number.isInteger(maximumRecords) || maximumRecords < 2 || maximumRecords > (keyEvents ? 1024 : 256)) throw new Error("Invalid input diagnostic capacity");
   const clock = options.clock ?? Date.now, monotonic = options.monotonic ?? (() => performance.now());
   const microtask = options.microtask ?? queueMicrotask;
   const originalNote = document.querySelector("#note"), identities = new WeakMap(), records = [], pending = new Set(), listeners = [];
@@ -38,13 +41,16 @@ export function installInputEventDiagnostic(document, target, nonce, options = {
   const append = value => { const index = sequence++; if (records.length >= maximumRecords) { dropped++; return; } records.push({ sequence: index, at: clock(), monotonicAt: monotonic(), ...value }); };
   const safe = run => { try { return run(); } catch { errors++; } };
   const types = ["focus", "blur", "select", "selectionchange", "beforeinput", "input", "change", "compositionstart", "compositionupdate", "compositionend"];
+  const pointerTypes = ["pointerdown", "pointerup", "mousedown", "mouseup", "click"];
+  if (keyEvents) types.push("keydown", "keypress", "keyup");
+  if (pointerEvents) types.push(...pointerTypes);
   for (const type of types) {
     const listener = event => safe(() => {
       const eventId = ++eventSerial;
       // Reserve the paired microtask record before retaining the event. Once
       // full, do not retain an Event reference or schedule another observer.
       if (records.length + pending.size + 2 > maximumRecords) { dropped += 2; sequence += 2; return; }
-      append({ kind: "event", eventId, type: event.type, eventTimeStamp: event.timeStamp, eventPhase: event.eventPhase, target: node(event.target), isTrusted: event.isTrusted, defaultPreventedAtCapture: event.defaultPrevented, cancelable: event.cancelable, data: limited(event.data), inputType: limited(event.inputType), isComposing: event.isComposing ?? null, key: limited(event.key), code: limited(event.code), state: state() });
+      append({ kind: "event", eventId, type: event.type, eventTimeStamp: event.timeStamp, eventPhase: event.eventPhase, target: node(event.target), isTrusted: event.isTrusted, defaultPreventedAtCapture: event.defaultPrevented, cancelable: event.cancelable, data: limited(event.data), inputType: limited(event.inputType), isComposing: event.isComposing ?? null, key: limited(event.key), code: limited(event.code), ...(pointerEvents && pointerTypes.includes(event.type) ? { button: event.button, buttons: event.buttons, clientX: event.clientX, clientY: event.clientY, pageX: event.pageX, pageY: event.pageY, screenX: event.screenX, screenY: event.screenY, pointerId: event.pointerId ?? null, pointerType: limited(event.pointerType), isPrimary: event.isPrimary ?? null } : {}), state: state() });
       pending.add(eventId);
       microtask(() => safe(() => {
         const dispatchComplete = event.eventPhase === 0;
@@ -67,9 +73,10 @@ export function installInputEventDiagnostic(document, target, nonce, options = {
   Object.defineProperty(target, key, { value: controller, configurable: true }); return controller;
 }
 
-export function inputFixtureSource(nonce) {
+export function inputFixtureSource(nonce, { keyInput = false, pointerFocus = false } = {}) {
   assert.match(nonce, /^[a-f0-9]{24}$/);
-  return `;try { (${installInputEventDiagnostic.toString()})(document,globalThis,${JSON.stringify(nonce)}); } catch { /* Missing observer makes diagnostics incomplete, never blocks the task script. */ }`;
+  assert.equal(keyInput && pointerFocus, false, "Input diagnostic variants are exclusive");
+  return `;try { (${installInputEventDiagnostic.toString()})(document,globalThis,${JSON.stringify(nonce)}${keyInput ? ',{keyEvents:true,maximumRecords:1024}' : pointerFocus ? ',{pointerEvents:true}' : ''}); } catch { /* Missing observer makes diagnostics incomplete, never blocks the task script. */ }`;
 }
 
 export async function captureInputLedgerOnce(detail, { read, persist, now = Date.now }) {
@@ -82,14 +89,18 @@ export async function captureInputLedgerOnce(detail, { read, persist, now = Date
   catch (error) { record.persistenceError = error.stack ?? String(error); detail.errors.push({ phase: "final-persistence", error: record.persistenceError }); }
 }
 
-export function inputDOMTraceComplete(snapshots, nonce) {
-  if (!Array.isArray(snapshots) || snapshots.length !== 3 || snapshots.map(value => value.phase).join(",") !== "before-fill,after-fill,final") return false;
+export function inputDOMTraceComplete(snapshots, nonce, { keyInput = false, pointerFocus = false } = {}) {
+  if (keyInput && pointerFocus) return false;
+  const phases = pointerFocus ? "before-pointer-click,after-pointer-click,before-fill,after-fill,final" : keyInput ? "before-key-input,after-key-input,final" : "before-fill,after-fill,final";
+  if (!Array.isArray(snapshots) || snapshots.length !== (pointerFocus ? 5 : 3) || snapshots.map(value => value.phase).join(",") !== phases) return false;
   let previous;
   const expectedEvents = ["focus", "blur", "select", "selectionchange", "beforeinput", "input", "change", "compositionstart", "compositionupdate", "compositionend"];
+  if (keyInput) expectedEvents.push("keydown", "keypress", "keyup");
+  if (pointerFocus) expectedEvents.push("pointerdown", "pointerup", "mousedown", "mouseup", "click");
   for (const { snapshot: value } of snapshots) {
     if (!value || value.version !== 1 || value.nonce !== nonce || typeof value.documentId !== "string" || !value.documentId || value.overflow !== false || value.dropped !== 0 || value.errors !== 0 || value.truncations !== 0 || !Array.isArray(value.pending) || value.pending.length) return false;
     try { if (new URL(value.state?.url).searchParams.get("nonce") !== nonce) return false; } catch { return false; }
-    if (JSON.stringify(value.events) !== JSON.stringify(expectedEvents) || !Array.isArray(value.records) || value.records.length !== value.nextSequence || value.maximumRecords !== 256 || value.records.length > value.maximumRecords) return false;
+    if (JSON.stringify(value.events) !== JSON.stringify(expectedEvents) || !Array.isArray(value.records) || value.records.length !== value.nextSequence || value.maximumRecords !== (keyInput ? 1024 : 256) || value.records.length > value.maximumRecords) return false;
     if (value.originalNote?.originalNote !== true || value.originalNote?.tag !== "input" || value.originalNote?.id !== "note" || value.state?.currentNote?.nodeId !== value.originalNote.nodeId || value.state?.originalNote?.nodeId !== value.originalNote.nodeId) return false;
     let events = 0, unknown = 0; const open = new Map();
     for (let index = 0; index < value.records.length; index++) {
@@ -97,6 +108,7 @@ export function inputDOMTraceComplete(snapshots, nonce) {
       if (record.sequence !== index || !Number.isFinite(record.at) || !Number.isFinite(record.monotonicAt)) return false;
       if (record.kind === "event") {
         if (record.eventId !== ++events || !expectedEvents.includes(record.type) || record.state?.originalNote?.nodeId !== value.originalNote.nodeId) return false;
+        if (pointerFocus && ["pointerdown", "pointerup", "mousedown", "mouseup", "click"].includes(record.type) && !["button", "buttons", "clientX", "clientY", "pageX", "pageY", "screenX", "screenY"].every(field => Number.isFinite(record[field]))) return false;
         open.set(record.eventId, record);
       } else if (record.kind === "after-microtask") {
         const start = open.get(record.eventId);
@@ -136,8 +148,8 @@ export function inputCommandEvidence(final, { tabId, note, steps = [] }) {
   });
 }
 
-export function vivaldiInputResult({ readinessComplete, nativeTraceComplete, domTraceComplete, httpComplete, cleanupComplete, steps = [] }) {
-  const originalActions = ["fill", "click"].every(operation => steps.filter(step => step.operation === operation).length === 1);
+export function vivaldiInputResult({ readinessComplete, nativeTraceComplete, domTraceComplete, httpComplete, cleanupComplete, steps = [], inputOperation = "fill" }) {
+  const originalActions = ["fill", "pressSequentially"].includes(inputOperation) && [inputOperation, "click"].every(operation => steps.filter(step => step.operation === operation).length === 1) && !steps.some(step => ["fill", "pressSequentially"].includes(step.operation) && step.operation !== inputOperation);
   const diagnosticCompleted = originalActions && [readinessComplete, nativeTraceComplete, domTraceComplete, httpComplete, cleanupComplete].every(value => value === true);
   return { passed: false, diagnosticCompleted, exitCode: diagnosticCompleted ? 0 : 1 };
 }

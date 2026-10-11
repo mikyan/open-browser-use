@@ -4,20 +4,71 @@ import http from "node:http";
 import vm from "node:vm";
 import { createFormWorkflowFixture, expectedFormWorkflow, formWorkflowTask, formWorkflowSteps, checkFormReceipt } from "./form-workflow-fixture.mjs";
 
+// These Node-only transport tests may receive an OS-assigned port forbidden by
+// Fetch. Use actual HTTP directly; browser fixtures and port policy are unchanged.
+function localHTTP(url, { method = "GET", headers, body, timeoutMs = 5000 } = {}) {
+  return new Promise((resolve, reject) => {
+    let timer;
+    const fail = error => { clearTimeout(timer); request.destroy(); reject(error); };
+    const request = http.request(url, { method, headers, agent: false }, response => {
+      const chunks = [];
+      response.on("data", chunk => chunks.push(chunk));
+      response.once("error", fail);
+      response.once("aborted", () => fail(new Error("Local HTTP response aborted")));
+      response.once("end", () => {
+        clearTimeout(timer);
+        if (!response.complete) { fail(new Error("Local HTTP response incomplete")); return; }
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve({ status: response.statusCode, text: async () => text, json: async () => JSON.parse(text) });
+      });
+    });
+    request.once("error", fail);
+    timer = setTimeout(() => request.destroy(new Error("Local HTTP request timed out")), timeoutMs);
+    try { request.end(body); } catch (error) { fail(error); }
+  });
+}
+
 async function withServer(operation) {
   const fixture = createFormWorkflowFixture(), server = http.createServer((req, res) => {
     if (!fixture.handle(req, res, server.address().port)) { res.writeHead(404); res.end(); }
   });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   const base = `http://127.0.0.1:${server.address().port}`;
   try { return await operation({ fixture, base }); }
   finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 }
 
 const post = async (url, value) => {
-  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: typeof value === "string" ? value : JSON.stringify(value) });
+  const response = await localHTTP(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: typeof value === "string" ? value : JSON.stringify(value) });
   return { status: response.status, data: await response.json() };
 };
+
+test("local HTTP preserves status and UTF-8 bytes, and rejects malformed, interrupted or stalled responses", async () => {
+  const server = http.createServer(async (request, response) => {
+    if (request.url === "/reset") { request.socket.destroy(); return; }
+    if (request.url === "/stall") return;
+    if (request.url === "/partial") { response.writeHead(200, { "Content-Length": "100" }); response.end("short"); return; }
+    if (request.url === "/invalid-json") { response.end("{broken"); return; }
+    const chunks = []; for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks).toString("utf8");
+    response.writeHead(422, { "Content-Type": "application/json" });
+    const bytes = Buffer.from(JSON.stringify({ method: request.method, body, contentType: request.headers["content-type"], note: "跨字节🧪" }));
+    for (const byte of bytes) response.write(Buffer.from([byte]));
+    response.end();
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const value = { name: "林晓🧪" }, response = await localHTTP(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
+    assert.equal(response.status, 422);
+    assert.deepEqual(await response.json(), { method: "POST", body: JSON.stringify(value), contentType: "application/json", note: "跨字节🧪" });
+    assert.equal(await response.text(), JSON.stringify(await response.json()));
+    await assert.rejects((await localHTTP(`${base}/invalid-json`)).json(), SyntaxError);
+    await assert.rejects(localHTTP(`${base}/reset`), { code: "ECONNRESET" });
+    await assert.rejects(localHTTP(`${base}/partial`), /aborted|incomplete/);
+    await assert.rejects(localHTTP(`${base}/stall`, { timeoutMs: 50 }), /timed out/);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
 
 // These are deliberately synthetic transport witnesses for unit tests. Native trust is
 // checked only by checkFormWorkflow against events from the real browser acceptance run.
@@ -43,11 +94,11 @@ async function saveFrames(base, key, record) {
 test("all three variants and both independent frame scripts are syntactically valid, with visible receipt evidence", () => withServer(async ({ fixture, base }) => {
   const bodies = [];
   for (const variant of [1, 2, 3]) {
-    const key = `script-${variant}`, body = await (await fetch(`${base}/form-task/${key}?variant=${variant}`)).text(); bodies.push(body);
+    const key = `script-${variant}`, body = await (await localHTTP(`${base}/form-task/${key}?variant=${variant}`)).text(); bodies.push(body);
     assert.ok(body.includes(formWorkflowTask(variant))); assert.ok(body.includes('aria-label="物资套装"'));
     assert.ok(body.includes(`http://localhost:${new URL(base).port}/form-task/${key}/frame/cross`));
     assert.ok(body.includes("attachShadow({mode:'open'})"));
-    for (const source of [body, ...await Promise.all(["same", "cross"].map(scope => fetch(`${base}/form-task/${key}/frame/${scope}`).then(res => res.text())))]) {
+    for (const source of [body, ...await Promise.all(["same", "cross"].map(scope => localHTTP(`${base}/form-task/${key}/frame/${scope}`).then(res => res.text())))]) {
       const scripts = [...source.matchAll(/<script>([\s\S]*?)<\/script>/g)]; assert.equal(scripts.length, 1); new vm.Script(scripts[0][1]);
     }
     assert.equal(fixture.stats(key).requests.length, 3);
@@ -57,14 +108,14 @@ test("all three variants and both independent frame scripts are syntactically va
 
 test("actual HTTP server validates all fields, frames, independent runs and exactly one submit for every variant", () => withServer(async ({ fixture, base }) => {
   for (const variant of [1, 2, 3]) {
-    const key = `complete-${variant}`; await fetch(`${base}/form-task/${key}?variant=${variant}`); const record = fixture.stats(key);
-    assert.deepEqual(await (await fetch(`${base}/form-task/${key}/ready`)).json(), { ready: false });
+    const key = `complete-${variant}`; await localHTTP(`${base}/form-task/${key}?variant=${variant}`); const record = fixture.stats(key);
+    assert.deepEqual(await (await localHTTP(`${base}/form-task/${key}/ready`)).json(), { ready: false });
     await saveFrames(base, key, record);
-    assert.deepEqual(await (await fetch(`${base}/form-task/${key}/ready`)).json(), { ready: true });
+    assert.deepEqual(await (await localHTTP(`${base}/form-task/${key}/ready`)).json(), { ready: true });
     const submitted = await post(`${base}/form-task/${key}/submit`, rootPayload(record)); assert.equal(submitted.status, 201);
     const ledger = fixture.stats(key); checkFormReceipt(ledger.receipt, ledger, variant);
-    const receiptHTML = await (await fetch(base + submitted.data.receiptURL)).text(); assert.ok(receiptHTML.includes('id="receipt-json"')); assert.ok(receiptHTML.includes(`SIM-${key}`));
-    const evidenceHTML = await (await fetch(`${base}/form-task/${key}/evidence`)).text(); assert.ok(evidenceHTML.includes('id="evidence-json"')); assert.ok(evidenceHTML.includes('&quot;acceptedSubmissions&quot;: 1'));
+    const receiptHTML = await (await localHTTP(base + submitted.data.receiptURL)).text(); assert.ok(receiptHTML.includes('id="receipt-json"')); assert.ok(receiptHTML.includes(`SIM-${key}`));
+    const evidenceHTML = await (await localHTTP(`${base}/form-task/${key}/evidence`)).text(); assert.ok(evidenceHTML.includes('id="evidence-json"')); assert.ok(evidenceHTML.includes('&quot;acceptedSubmissions&quot;: 1'));
     assert.equal((await post(`${base}/form-task/${key}/submit`, rootPayload(record))).status, 409);
     assert.equal(fixture.stats(key).acceptedSubmissions, 1); assert.equal(fixture.stats(key).duplicateSubmissions, 1);
   }
@@ -72,7 +123,7 @@ test("actual HTTP server validates all fields, frames, independent runs and exac
 }));
 
 test("wrong fields, missing frame save, foreign nonce and malformed evidence never become a receipt", () => withServer(async ({ fixture, base }) => {
-  const key = "invalid"; await fetch(`${base}/form-task/${key}`); const record = fixture.stats(key), endpoint = `${base}/form-task/${key}/submit`;
+  const key = "invalid"; await localHTTP(`${base}/form-task/${key}`); const record = fixture.stats(key), endpoint = `${base}/form-task/${key}/submit`;
   assert.equal((await post(endpoint, rootPayload(record))).status, 422);
   await saveFrames(base, key, record);
   for (const [name, value] of [["billingName", "changed"], ["materials", ["manual"]], ["recipientName", "林晓"], ["subscribe", true], ["terms", false], ["recipientConfirmed", false]]) {
@@ -87,7 +138,7 @@ test("wrong fields, missing frame save, foreign nonce and malformed evidence nev
 }));
 
 test("evidence checker rejects untrusted clicks, missing keyboard, unrelated writes and duplicate idempotent events", () => withServer(async ({ fixture, base }) => {
-  const key = "evidence"; await fetch(`${base}/form-task/${key}`); const record = fixture.stats(key); await saveFrames(base, key, record);
+  const key = "evidence"; await localHTTP(`${base}/form-task/${key}`); const record = fixture.stats(key); await saveFrames(base, key, record);
   await post(`${base}/form-task/${key}/submit`, rootPayload(record)); const ledger = fixture.stats(key);
   checkFormReceipt(ledger.receipt, ledger);
   const mutate = change => { const copy = structuredClone(ledger), item = copy.posts.find(entry => entry.route === "submit"), payload = JSON.parse(item.raw); change(payload.events); item.raw = JSON.stringify(payload); return copy; };
