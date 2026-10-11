@@ -425,6 +425,29 @@ with no assumed clock equality or added tolerance.
 `mode: "vivaldi-dom-focus-diagnostic"` always has `passed: false`;
 complete collection and an observed experiment do not mean the task passed.
 
+`OBU_TEST_VIVALDI_HOVER_FOCUS=1` selects an exclusive actual-Vivaldi experiment.
+After the original goto, it calls the original input locator's public `hover()`
+once, then keeps the original single fill, Submit and their existing deadlines.
+It enables INPUT diagnostics and setup readiness, but no TASK_READY, DOM.focus,
+force override, extra click/key, activation or fallback. A single public hover
+may send more than one native command through engine actionability handling;
+all actual calls are retained, and an unexpected sequence is not counted as the
+selected single-move experiment.
+
+The fixture HTML and INPUT passive event set stay unchanged. A separate
+`hoverFocusDiagnostic.before` records `before-hover`; `after` refers to the
+original `before-fill` observation. Only this mode additionally reads the input's
+`:hover` state and bounding rectangle. Those values describe observed behavior,
+not collection or experiment success conditions. Original document/node continuity,
+native target/parameters/ACKs and same-worker sequence establish the experiment;
+trusted input events and the actual POST establish the task result. The observer
+does not capture hover DOM events or prove the browser's internal widget routing.
+
+`hoverFocusDiagnostic` is also stored under `input-diagnostic.json`'s `hoverFocus`.
+`mode: "vivaldi-hover-focus-diagnostic"` always has `passed: false`. Even a
+successful explicit hover→fill workflow does not authorize silently adding hover
+to production fill: hover can scroll and trigger CSS or page event handlers.
+
 Set `OBU_TEST_NATIVE_OWNERSHIP=1` to add the public multi-page ownership workflow
 after the unchanged standard task. This option independently records real task
 GETs; it does not require native API diagnostics. It opens A and B, submits both,

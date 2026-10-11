@@ -23,6 +23,7 @@ import { vivaldiTaskReadinessEnabled, waitForVivaldiTaskCommit, taskReadinessDia
 import { vivaldiKeyInputEnabled, keyCommandEvidence, keyInputDiagnosticResult } from "./vivaldi-key-input-diagnostic.mjs";
 import { vivaldiPointerFocusEnabled, pointerCommandEvidence, pointerFocusDiagnosticResult } from "./vivaldi-pointer-focus-diagnostic.mjs";
 import { vivaldiDOMFocusEnabled, runDOMFocusDiagnostic, domFocusCommandEvidence, domFocusDiagnosticResult } from "./vivaldi-dom-focus-diagnostic.mjs";
+import { vivaldiHoverFocusEnabled, hoverFocusCommandEvidence, hoverFocusDiagnosticResult } from "./vivaldi-hover-focus-diagnostic.mjs";
 
 const brands = Object.freeze({
   brave: { label: "Brave", about: "brave://version/", manager: "brave://extensions/", base: "LOCALAPPDATA", relative: "BraveSoftware/Brave-Browser/User Data", product: /brave/i, publisher: /Brave Software/i },
@@ -318,7 +319,7 @@ export function nativeBrowserInstallationCleaned(report) {
     report.cleanup?.registration?.removed === true && report.cleanup?.forced !== true && !report.cleanup?.errors?.length;
 }
 export function nativeBrowserInstallationPassed(report) {
-  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic", "vivaldi-input-diagnostic", "vivaldi-task-readiness-diagnostic", "vivaldi-key-input-diagnostic", "vivaldi-pointer-focus-diagnostic", "vivaldi-dom-focus-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
+  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic", "vivaldi-input-diagnostic", "vivaldi-task-readiness-diagnostic", "vivaldi-key-input-diagnostic", "vivaldi-pointer-focus-diagnostic", "vivaldi-dom-focus-diagnostic", "vivaldi-hover-focus-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
     (report.ownershipRequested !== true || report.ownership?.passed === true) && report.focus?.passed === true && report.finalInventory?.passed === true && nativeBrowserInstallationCleaned(report);
 }
 
@@ -347,8 +348,9 @@ async function main() {
   const keyInputEnabled = vivaldiKeyInputEnabled(process.env.OBU_TEST_VIVALDI_KEY_INPUT, { name, input: inputRequested, taskReadiness: taskReadinessRequested, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
   const pointerFocusEnabled = vivaldiPointerFocusEnabled(process.env.OBU_TEST_VIVALDI_POINTER_FOCUS, { name, input: inputRequested, taskReadiness: taskReadinessRequested, keyInput: keyInputEnabled, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
   const domFocusEnabled = vivaldiDOMFocusEnabled(process.env.OBU_TEST_VIVALDI_DOM_FOCUS, { name, input: inputRequested, taskReadiness: taskReadinessRequested, keyInput: keyInputEnabled, pointerFocus: pointerFocusEnabled, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
+  const hoverFocusEnabled = vivaldiHoverFocusEnabled(process.env.OBU_TEST_VIVALDI_HOVER_FOCUS, { name, input: inputRequested, taskReadiness: taskReadinessRequested, keyInput: keyInputEnabled, pointerFocus: pointerFocusEnabled, domFocus: domFocusEnabled, readiness: readinessRequested, nativeDiagnostics: nativeDiagnosticsRequested, ownership: ownershipEnabled });
   const taskReadinessEnabled = taskReadinessRequested || keyInputEnabled || pointerFocusEnabled;
-  const inputEnabled = inputRequested || taskReadinessEnabled || domFocusEnabled;
+  const inputEnabled = inputRequested || taskReadinessEnabled || domFocusEnabled || hoverFocusEnabled;
   const inputOperation = keyInputEnabled ? "pressSequentially" : "fill";
   const diagnosticsEnabled = nativeDiagnosticsRequested || inputEnabled, readinessEnabled = readinessRequested || inputEnabled;
   const recordTaskRequests = diagnosticsEnabled || ownershipEnabled || readinessEnabled;
@@ -360,7 +362,7 @@ async function main() {
   const env = { ...process.env, TEMP: path.join(runDir, "temp"), TMP: path.join(runDir, "temp"), LOCALAPPDATA: path.join(runDir, "local"), APPDATA: path.join(runDir, "roaming"), USERPROFILE: path.join(runDir, "home"), HOME: path.join(runDir, "home") };
   const plan = nativeBrowserPlan(name, env), profile = plan.profileRoot;
   for (const directory of [env.TEMP, env.LOCALAPPDATA, env.APPDATA, env.USERPROFILE, profile]) await fs.mkdir(directory, { recursive: true });
-  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: domFocusEnabled ? "vivaldi-dom-focus-diagnostic" : pointerFocusEnabled ? "vivaldi-pointer-focus-diagnostic" : keyInputEnabled ? "vivaldi-key-input-diagnostic" : taskReadinessEnabled ? "vivaldi-task-readiness-diagnostic" : inputEnabled ? "vivaldi-input-diagnostic" : readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
+  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: hoverFocusEnabled ? "vivaldi-hover-focus-diagnostic" : domFocusEnabled ? "vivaldi-dom-focus-diagnostic" : pointerFocusEnabled ? "vivaldi-pointer-focus-diagnostic" : keyInputEnabled ? "vivaldi-key-input-diagnostic" : taskReadinessEnabled ? "vivaldi-task-readiness-diagnostic" : inputEnabled ? "vivaldi-input-diagnostic" : readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
     scope: "Actual signed Windows brand; native manifest export plus unique Google HKCU fixture registration; real connectNative launcher, catalogue/profile selectors and one JS SDK background task. Production fixed-leaf installer, other OS, browser restart/update and complete brand parity are not claimed.",
     helperPolicy: "Windows PowerShell 5.1 helpers use their own PSHOME/Modules only, with UTF-8 stdout/stderr; environment change is local to each helper child",
     focus: { allowedActivations: [], allowedFocus: [] }, cli: [], inventories: [], cleanup: { errors: [] } };
@@ -370,6 +372,7 @@ async function main() {
   if (keyInputEnabled) { report.keyInputDiagnostic = { enabled: true, operation: inputOperation, locator: "getByLabel('Delivery note')", maximumDOMRecords: 1024, fixtureDifference: "Only KEY_INPUT adds passive keydown/keypress/keyup and an explicit 1024-record cap. Shared serialized observer source changed; older INPUT fixture HTML is not byte-identical to the prior baseline, although its original event set and 256 cap remain. Non-diagnostic fixture bytes are unchanged." }; report.inputDiagnostic.keyInput = report.keyInputDiagnostic; }
   if (pointerFocusEnabled) { report.pointerFocusDiagnostic = { enabled: true, operation: "pointerFocusClick", locator: "getByLabel('Delivery note')", maximumDOMRecords: 256, selectedActionDifference: "Exactly one public input locator.click before the unchanged single fill and Submit click. No activation, explicit focus, input replacement or fallback. Actual native mouse sequences are recorded independently of the public click count.", fixtureDifference: "Only POINTER_FOCUS adds passive pointerdown/pointerup/mousedown/mouseup/click metadata. Shared serialized diagnostic observer source changed, so previous diagnostic HTML bytes differ; old event sets/caps and non-diagnostic fixture bytes remain unchanged." }; report.inputDiagnostic.pointerFocus = report.pointerFocusDiagnostic; }
   if (domFocusEnabled) { report.domFocusDiagnostic = { enabled: true, operation: "domFocus", before: {}, selectedActionDifference: "One public CDP DOM.getDocument/querySelector/describeNode/focus chain on original #note after goto, before the unchanged single fill and Submit. One 5s total diagnostic budget; no fallback, activation, extra mouse/key action or task-readiness harness gate. DOM.focus can cause normal focus/scroll; native ACK is not input delivery.", fixtureDifference: "Uses unchanged INPUT fixture HTML/event set. The extra pre-focus observation is separate from the original three input snapshots." }; report.inputDiagnostic.domFocus = report.domFocusDiagnostic; }
+  if (hoverFocusEnabled) { report.hoverFocusDiagnostic = { enabled: true, operation: "hoverFocus", before: {}, after: {}, selectedActionDifference: "One explicit public input locator.hover() after goto, before the unchanged single fill and Submit. Each original action keeps its own existing deadline. No TASK_READY, DOM.focus, extra click/key, force override or fallback. Public hover may cause scrolling, CSS hover and page handlers; actual native command count is evidence, not inferred from one public call.", fixtureDifference: "Unchanged INPUT fixture HTML and passive event set. Extra before-hover observation and the original before-fill observation read :hover and input geometry; no hover DOM-event listener is added." }; report.inputDiagnostic.hoverFocus = report.hoverFocusDiagnostic; }
   if (taskReadinessEnabled) report.taskReadinessDiagnostic = { enabled: true, ready: false, timeoutMs: 5000, maximumSamples: 80, scopeBoundary: "Extra task initial-commit diagnostic stage; not inherited from newTab and not an extension of the unchanged original goto deadline" };
   if (ownershipEnabled) { report.ownershipRequested = true; report.ownership = { enabled: true, passed: false }; }
   const save = (file, value) => fs.writeFile(path.join(runDir, file), JSON.stringify(value, null, 2));
@@ -549,14 +552,14 @@ async function main() {
     fixedBefore = await fixedRegistration(); report.fixedRegistrationBefore = fixedBefore;
     await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), sdk, { recursive: true });
     report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).stdout.trim(), host: digest(await fs.readFile(host)), harness: digest(await fs.readFile(fileURLToPath(import.meta.url))), jsSDK: await hashes(sdk), dependencies: {} };
-    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "vivaldi-input-diagnostic.mjs", "vivaldi-task-readiness-diagnostic.mjs", "vivaldi-key-input-diagnostic.mjs", "vivaldi-pointer-focus-diagnostic.mjs", "vivaldi-dom-focus-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
+    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "vivaldi-input-diagnostic.mjs", "vivaldi-task-readiness-diagnostic.mjs", "vivaldi-key-input-diagnostic.mjs", "vivaldi-pointer-focus-diagnostic.mjs", "vivaldi-dom-focus-diagnostic.mjs", "vivaldi-hover-focus-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
     report.identity = { suppliedExecutable: await executableIdentity(binary) }; await checkpoint();
     await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
     const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), nativeConstant = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
     assert.equal(background.split(nativeConstant).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
     const prelude = diagnosticsEnabled ? nativeDiagnosticPrelude({ metadataReads: inputEnabled }) : "";
     await fs.writeFile(backgroundFile, prelude + background.replace(nativeConstant, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
-    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: `Explicit ${domFocusEnabled ? "OBU_TEST_VIVALDI_DOM_FOCUS" : pointerFocusEnabled ? "OBU_TEST_VIVALDI_POINTER_FOCUS" : keyInputEnabled ? "OBU_TEST_VIVALDI_KEY_INPUT" : taskReadinessEnabled ? "OBU_TEST_VIVALDI_TASK_READY" : inputEnabled ? "OBU_TEST_VIVALDI_INPUT" : "OBU_TEST_NATIVE_DIAGNOSTICS"}=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged` };
+    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: `Explicit ${hoverFocusEnabled ? "OBU_TEST_VIVALDI_HOVER_FOCUS" : domFocusEnabled ? "OBU_TEST_VIVALDI_DOM_FOCUS" : pointerFocusEnabled ? "OBU_TEST_VIVALDI_POINTER_FOCUS" : keyInputEnabled ? "OBU_TEST_VIVALDI_KEY_INPUT" : taskReadinessEnabled ? "OBU_TEST_VIVALDI_TASK_READY" : inputEnabled ? "OBU_TEST_VIVALDI_INPUT" : "OBU_TEST_NATIVE_DIAGNOSTICS"}=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged` };
     const manifestFile = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
     manifest.key ??= (await fs.readFile(path.join(repo, "cmd/open-browser-use/main.go"), "utf8")).match(/const betaExtensionPublicKey = "([^"]+)"/)?.[1]; assert.ok(manifest.key);
     extensionId = digest(Buffer.from(manifest.key, "base64")).slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16))); await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2));
@@ -670,7 +673,7 @@ async function main() {
     task.inputObservations = [];
     async function observeInput(phase, { diagnosticSnapshot = true, record = {} } = {}) {
       Object.assign(record, { phase, requestedAt: Date.now() }); task.inputObservations.push(record);
-      record.document = await step(`read input ${phase}`, () => tab.evaluate("({url:location.href,readyState:document.readyState,value:document.querySelector('#note')?.value,selectionStart:document.querySelector('#note')?.selectionStart,selectionEnd:document.querySelector('#note')?.selectionEnd,activeElement:{tag:document.activeElement?.localName,id:document.activeElement?.id},hasFocus:document.hasFocus(),visibility:document.visibilityState,inputEvents:globalThis.__nativeTaskInputEvents" + (inputEnabled ? ",inputDiagnostic:globalThis.__obuInputEventDiagnostic?.snapshot()" : "") + "})"));
+      record.document = await step(`read input ${phase}`, () => tab.evaluate("({url:location.href,readyState:document.readyState,value:document.querySelector('#note')?.value,selectionStart:document.querySelector('#note')?.selectionStart,selectionEnd:document.querySelector('#note')?.selectionEnd,activeElement:{tag:document.activeElement?.localName,id:document.activeElement?.id},hasFocus:document.hasFocus(),visibility:document.visibilityState,inputEvents:globalThis.__nativeTaskInputEvents" + (inputEnabled ? ",inputDiagnostic:globalThis.__obuInputEventDiagnostic?.snapshot()" : "") + (hoverFocusEnabled ? ",noteHovered:document.querySelector('#note')?.matches(':hover'),noteRect:(()=>{const r=document.querySelector('#note')?.getBoundingClientRect();return r?{x:r.x,y:r.y,width:r.width,height:r.height}:null})()" : "") + "})"));
       if (inputEnabled && diagnosticSnapshot) report.inputDiagnostic.snapshots.push({ phase, requestedAt: record.requestedAt, completedAt: Date.now(), snapshot: record.document.inputDiagnostic });
       record.completedAt = Date.now(); await checkpoint();
     }
@@ -688,7 +691,12 @@ async function main() {
       await step("pointerFocusClick", () => tab.getByLabel("Delivery note").click());
       await observeInput("after-pointer-click");
     }
-    await observeInput(keyInputEnabled ? "before-key-input" : "before-fill");
+    if (hoverFocusEnabled) {
+      report.hoverFocusDiagnostic.expectedNote = note;
+      await observeInput("before-hover", { diagnosticSnapshot: false, record: report.hoverFocusDiagnostic.before });
+      await step("hoverFocus", () => tab.getByLabel("Delivery note").hover());
+    }
+    await observeInput(keyInputEnabled ? "before-key-input" : "before-fill", hoverFocusEnabled ? { record: report.hoverFocusDiagnostic.after } : {});
     if (keyInputEnabled) await step("pressSequentially", () => tab.getByLabel("Delivery note").pressSequentially(note));
     else await step("fill", () => tab.getByLabel("Delivery note").fill(note));
     await observeInput(keyInputEnabled ? "after-key-input" : "after-fill");
@@ -822,6 +830,12 @@ async function main() {
       result = domFocusDiagnosticResult({ inputResult: result, evidence: report.domFocusDiagnostic });
       report.domFocusDiagnostic.collectionComplete = result.collectionComplete;
       report.domFocusDiagnostic.experimentObserved = result.experimentObserved;
+    }
+    if (hoverFocusEnabled) {
+      Object.assign(report.hoverFocusDiagnostic, hoverFocusCommandEvidence(diagnosticFinal, { tabId: report.task?.tabId, note: report.hoverFocusDiagnostic.expectedNote, steps: report.task?.steps, detail: report.hoverFocusDiagnostic, inputSnapshots: report.inputDiagnostic.snapshots }));
+      result = hoverFocusDiagnosticResult({ inputResult: result, evidence: report.hoverFocusDiagnostic });
+      report.hoverFocusDiagnostic.collectionComplete = result.collectionComplete;
+      report.hoverFocusDiagnostic.experimentObserved = result.experimentObserved;
     }
     report.completedAt = Date.now(); report.passed = result.passed;
     if (diagnosticsEnabled || readinessEnabled) report.diagnosticCompleted = result.diagnosticCompleted;

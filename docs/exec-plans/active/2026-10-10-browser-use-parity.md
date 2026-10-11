@@ -1752,3 +1752,44 @@ terminal exit0，但task/acceptance仍false：goto73ms、DOM链22ms，原节点
 排除DOM.focus候选并修好可重复诊断。下一片继续Vivaldi无额外点击输入及
 其余矩阵缺口；不重复无新假设的同一路线，不放宽前台或真实输入要求。
 完整目标仍active，所有代码与证据只保留本地，无推送或PR。
+
+### 仅移动指针的输入对照
+
+从干净 `35d0a95` 继续，上一轮属于progress：同版本主104通过、原失败
+边界查明、DOM.focus候选经两轮原生证据排除，诊断判据修复已本地提交。
+整体目标和全部矩阵缺口保持不变，不以某品牌单一fixture等同整体对齐。
+
+本轮预选一个独立HOVER_FOCUS诊断：原goto后一次公开input.hover，再
+原单次fill/Submit。已有click→fill成功、DOM.focus→fill失败，hover可
+进一步判断仅坐标定向移动路径是否足够；不在动作失败后补发或重试。
+固定Chromium公开源显示非wheel mouseMoved也在路由到目标widget后调用
+Focus；供应商私有delegate未公开，不能据此预定成功或认定底层根因。
+
+复用原INPUT HTML/被动观察器，保留三快照；额外before-hover与原before-fill
+记录原节点、值/选区以及只读`:hover`状态和矩形。真实hover事件未额外监听，
+hovered状态或坐标仅作行为观察，不要求为true来让采集或实验成立。
+全trace独立核1移动→1insertText→Submit三鼠标、实际ACK和同worker序号；
+若引擎因actionability产生额外命令，如实保留并判实验不匹配，不改引擎。
+无TASK_READY/DOM.focus/force/按键/额外点击，原owner/turn/tab与动作期限不变。
+hover可能触发滚动、CSS和页面handler，即使成功也不静默加入通用fill。
+
+HOVER_FOCUS实测 `Fm2cYE` 原goto96ms、hover188ms、fill12ms、Submit83ms。
+同worker原生链为一次mouseMoved143→144、唯一insertText167→168，以及
+Submit三命令200–202→203–205；目标、参数与ACK完整。原节点`:hover`
+false→true且坐标在前后相同矩形内，但hover后activeElement仍为body。
+原fill仅产生focus/selectionchange，无beforeinput/input/change；唯一
+可信POST的note和inputEvents均空。diagnosticCompleted=true/terminal0
+只表示实验完整，task/acceptance=false，无截图或finalize。552ms连续
+零激活/零focus/零豁免，精确host/browser exit0与注册、进程清理通过。
+
+默认Brave `zwqwku` 清空所有诊断标志后，原12步/唯一POST/实际PNG与
+清理通过；根代理查看1877×1926截图，输入、收据和Submit处AI光标可见。
+697ms连续零前台事件。两轮独立审计核frozen-v25的383源码/230旧结果/
+47制品成员一致，原INPUT及默认HTML未改。最终脚手架231/231、独立定向
+63/63通过，生产/SDK/host/ZIP保持原版本，没有重跑无变更的完整CI。
+
+本轮排除“仅指针移动足以修复输入”，不把click成功归因于单个mousedown
+机制。固定Chromium源码的ImeSetComposition与InsertText仍使用同一
+focused-widget选择，未发现不同公开路由，因此不继续没有新依据的输入
+实验。下一片转P04快照观察元数据；Vivaldi通用fill、Edge焦点及其余矩阵
+缺口保持开放。整体目标active，本片progress，只做本地提交，无推送/PR。

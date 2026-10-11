@@ -1153,6 +1153,23 @@ DOM首轮 `YMxiBJ` 原任务空POST失败，同时暴露诊断比较器的对象
 源码/228旧结果/47制品成员及精确host/browser退出、注册/进程清理通过。
 此候选没有进入生产，Vivaldi输入与其余整体能力缺口继续保持未完成。
 
+新增独占HOVER_FOCUS诊断：原goto后一次公开input.hover，再原单次fill/
+Submit，不开TASK_READY/DOM.focus/按键/force或重试。复用原INPUT HTML
+与三快照，另读原节点身份、`:hover`和矩形；同worker核完整原生命令链，
+采集完整、实验成立和任务成功分开，诊断passed恒false。脚手架231/231、
+独立定向63/63通过，原默认/INPUT/DOM HTML与旧观察表达式保持不变。
+
+Vivaldi `Fm2cYE` 的原输入框确实进入悬停状态，唯一移动、原insertText和
+Submit三命令均ACK，但原fill无输入事件，唯一可信POST仍为空。诊断
+exit0不算task/acceptance成功；552ms零前台事件，精确进程退出与清理
+通过。默认Brave `zwqwku` 原12步、真实POST、实际PNG及清理通过，697ms
+零前台事件；根代理已查看截图。两轮独立核383源码/230历史/47制品成员
+与随机/固定注册边界通过，生产、SDK、host及ZIP未改，旧证据均保留。
+
+固定Chromium源码排除IME入口可提供不同focused-widget路由的假设；未
+新建IME实验。下一片转P04观察元数据，保留Vivaldi通用fill兼容缺口，不
+把显式click成功转为通用fill隐式副作用。整体目标仍active，无推送或PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

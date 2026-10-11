@@ -280,3 +280,52 @@ host/browser精确exit0、私有进程/两视图随机注册清理及固定注�
 228历史/47制品成员一致，两轮生产、SDK、host与ZIP未改。最终脚手架
 217/217，新增18项独立复核通过；旧失败与首次判据错误都保留。本片排除
 DOM.focus足以修复此输入的假设，未把额外点击加入生产或宣称通用修复。
+
+## 显式 hover 对照
+
+下一对照仅预选一次公开input.hover，再执行原单次fill与Submit。
+Chromium固定源码中非wheel mouseMoved也先按坐标找目标widget，再进入
+含Focus的鼠标注入路径；按键/insertText则从已聚焦widget查找。它能检验
+“移动路径是否已足够”，不能预定Vivaldi私有delegate的行为或将成功
+归因于唯一内部机制。公开API没有按widget ID指定焦点的方法；前台激活
+不是本实验。参考 [Input handler](https://raw.githubusercontent.com/chromium/chromium/9007248033443cbe529d18cf911d6954f5ce4f49/content/browser/devtools/protocol/input_handler.cc)。
+
+新独占`OBU_TEST_VIVALDI_HOVER_FOCUS=1`复用原INPUT HTML/10种事件/256
+记录上限，无TASK_READY、DOM.focus或输入回放。额外before-hover和原
+before-fill记录共享同一被动节点身份链，并只读`:hover`状态与矩形；
+不新增hover事件监听。悬停状态、位置和实际输入分别观察，不要求悬停
+为true来判采集完整。原生trace单独核1移动ACK→1insertTextACK→Submit
+三鼠标及各自ACK，所有实际计数保留；更多命令不是单次移动的成功证据。
+本地动作期限、原scope与同worker序号分别核，不比较跨进程时钟。
+
+hover可能引发CSS、网页handler、滚动和引擎actionability处理；一次公共
+hover不保证只发一条native命令。即使原任务通过，也仅证明显式工作流
+在该配置有效，不能把hover静默加入生产fill或声称没有页面副作用。
+
+### 真实结果与候选边界
+
+冻结v25后，`native-installation-vivaldi-Fm2cYE` 原goto96ms、hover188ms、
+fill12ms、Submit83ms。同worker完整链为mouseMoved143→144、唯一
+insertText167→168和Submit三命令200–202→203–205；目标与参数正确，
+均获ACK。原输入框`:hover`由false变true，坐标在前后未变的矩形内，
+但activeElement仍为body。随后原fill产生focus/selectionchange，却无
+beforeinput/input/change；原节点值和唯一可信POST的note均空。
+
+该轮terminal exit0、diagnosticCompleted=true，task和acceptance仍false；
+未达到截图/finalize。552ms连续焦点观察无激活/focus/豁免，host/browser
+精确exit0、私有进程和双视图随机注册清理、固定注册不变均通过。独立
+`native-installation-vivaldi-Fm2cYE-hover-focus-audit-v1.json`通过，核对
+383源码/230旧结果/47制品成员与原INPUT HTML，旧结果未重写。`:hover`
+仅是状态观察；没有额外监听鼠标事件，不能报告未知的hover事件数量。
+
+同一冻结版本默认Brave `native-installation-brave-zwqwku` 原12步、正确
+唯一POST、实际PNG1877×1926及清理通过。四检查点697ms零前台事件，
+独立默认审计通过，截图已经实际查看。最终脚手架231/231、独立定向
+63/63通过；生产、SDK、host及原ZIP未变，没有重新运行或虚报完整CI。
+
+当前证据排除“hover足以修复此输入”，也不能把此前click成功单独归因
+于mousedown。另查固定Chromium的[公开输入实现](https://chromium.googlesource.com/chromium/src/+/9007248033443cbe529d18cf911d6954f5ce4f49/content/browser/devtools/protocol/input_handler.cc#1281)：
+InsertText的1289–1294行与ImeSetComposition的1326–1331行均经delegate
+选择focused widget，随后调用Focus；它们分别提交文本和设置组合文本，
+在当前根页面未提供不同widget路由。因此未新增IME实验，也未改变生产
+fill。下一片转P04观察元数据，Vivaldi输入缺口保留等待新的有效假设。
