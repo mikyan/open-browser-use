@@ -1,0 +1,82 @@
+scripts/browser-integration/go-research-workflow-checks/main.go
+  s_08bbfd293d324f::t_d0542bc4662707 1-30,32-56,60-66,70-107,112,114-180,182,189-192,201-222,226-239,241-248,259-265,268-282,284-287,289-298,306,308-314,321-323,328,330-339,341-377,379-387,389-392,396-397,401-402,406-442,444-499
+  s_08bbfd293d324f::t_692669ad4ae1b2 181,183-188,193-200,223-225,266,299-305,307,316-320,324-327,329,378,388,393-395,398-400,403-405,443
+  s_08bbfd293d324f::t_85f5649b20408f 240,249-258,267,283,288,315,340
+  s_08bbfd293d324f::t_ebc3aebf87ff38 31,57-59,67-69,108-111,113
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_37f1a9bb3992ba 322-324,337-342,1204-1219,1221-1258,1264-1273
+  s_08bbfd293d324f::t_460edf3dd3dd51 1220
+  s_08bbfd293d324f::t_4b9837054e981c 1259,1262-1263
+  s_08bbfd293d324f::t_5c40edf5b4222e 1260-1261
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_f7cd4b50d55eb6 1579
+  s_08bbfd293d324f::t_96edc73ab61896 1563,1565
+  s_08bbfd293d324f::t_a4e7dd565dc8e7 1587,1591-1598
+  s_08bbfd293d324f::t_de01465d00efa6 349
+  s_08bbfd293d324f::t_e5599a9fad4e9a 1588-1590
+  s_08bbfd293d324f::t_245ee23bab969c 39-41,236,247,393-395,1518-1562,1564,1566-1578,1580-1586,1599-1608,1953
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_58ad17af311cd3 909-916,918-941,950-951
+  s_08bbfd293d324f::t_6ca801ce488872 917
+scripts/browser-integration/research-workflow-evidence.mjs
+  s_08bbfd293d324f::t_c9557ce96c6f01 1-4,6-10,12-19,21-22,27-28
+  s_08bbfd293d324f::t_f7cd4b50d55eb6 5,11,20,23-26
+scripts/browser-integration/research-workflow-fixture.test.mjs
+  s_08bbfd293d324f::t_9d37a0096c4a09 1-112
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_58ad17af311cd3 163-176
+docs/references/shared-research-workflow.md
+  s_08bbfd293d324f::t_afa38976883638 35-36,39-41,58-62,64-76
+  s_08bbfd293d324f::t_6ca801ce488872 63
+  s_08bbfd293d324f::t_f5a579c874a427 1-34,37-38,42-57
+  s_08bbfd293d324f::t_b81d8fd7ca0878 120-126,132-134
+  s_08bbfd293d324f::t_b2f08041dd507d 77-119,127-131,135-143
+scripts/browser-integration/research-workflow-evidence.test.mjs
+  s_08bbfd293d324f::t_f7cd4b50d55eb6 6,8,18-22
+  s_08bbfd293d324f::t_c9557ce96c6f01 1-5,7,9-17,23-29
+scripts/browser-integration/research-workflow-checks.test.mjs
+  s_08bbfd293d324f::t_44cfdbd6a009c5 1-36,38-102,104-167,176
+  s_08bbfd293d324f::t_f953248cd88511 37,103,168-175
+scripts/browser-integration/research-workflow-fixture.mjs
+  s_08bbfd293d324f::t_efbe37268432cb 42-43,103
+  s_08bbfd293d324f::t_e9a9633f505d96 1-41,44-102,104-119,121-224
+  s_08bbfd293d324f::t_9d37a0096c4a09 120
+scripts/browser-integration/research-workflow-server.mjs
+  s_08bbfd293d324f::t_9d37a0096c4a09 1-42
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_58ad17af311cd3 37-42,58,61
+docs/references/codex-observation-baseline.md
+  s_08bbfd293d324f::t_b2f08041dd507d 136-154
+docs/references/README.md
+  s_08bbfd293d324f::t_37f1a9bb3992ba 43-45
+scripts/browser-integration/research-workflow-checks.py
+  s_08bbfd293d324f::t_692669ad4ae1b2 90,115,141-144,149-154,175,178,198,210,212-215
+  s_08bbfd293d324f::t_22294c730b76a9 1-13,15-28,30-41,44-47,50-68,71-89,91-114,116-118,120-122,124-128,131-134,137-140,145-147,155-157,159-174,176-177,179-197,199-209,211,216-246
+  s_08bbfd293d324f::t_85f5649b20408f 14,119,123,129-130,135-136,148,158
+  s_08bbfd293d324f::t_ebc3aebf87ff38 29,42-43,48-49,69-70
+scripts/browser-integration/research-workflow-checks.mjs
+  s_08bbfd293d324f::t_69c389ea77bba4 42,183-184,189,191,197,199
+  s_08bbfd293d324f::t_f953248cd88511 217-218
+  s_08bbfd293d324f::t_97dbb0e1740e9b 1-41,43-182,185-188,190,192-196,198,200-216,219-257
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_1eba027aef5ef2 1227-1245
+  s_08bbfd293d324f::t_b2f08041dd507d 1246-1259
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_48a8d1e6bf7b34 98-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "6af3f9568cee7057512cba717ebe19cb81320985",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
