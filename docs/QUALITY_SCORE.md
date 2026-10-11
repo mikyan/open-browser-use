@@ -11,7 +11,17 @@
 
 ## 当前评分
 
-最新完整 `0prwDM` **110/110、exit0**，原109项名称与相对顺序保留，新增
+最新完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
+本片仅补CLI/MCP/Python失败partial与阶段、原错误保留，以及所有普通外部
+调用器失败读取前的实际child close和精确身份门禁。Node1467/1467、独立
+定向106/106通过；生产代码与前轮相同。专项18轮click ACK/collect等阶段、
+36个child实际close及原POST字节已独立核验，成功无failureObservation。
+两轮未复现动态点击故障，新增失败读取尚无本轮自然故障实测，问题保持开放。
+完整193,286ms连续focus仅原11激活/4控制popup focus，零新增豁免；sentinel
+身份/选择不变，初始高1222、末active查询1165而populate快照1204，几何及
+采样差异保留。原host预期重启后新进程exit0，精确任务清理通过。
+
+此前完整 `0prwDM` **110/110、exit0**，原109项名称与相对顺序保留，新增
 录屏并发用例通过。root raw start/stop与内部渲染共享真实原生命令队尾，
 frame ACK独立通行；旧实机负对照`rjMBXn`1/2、新专项`hmPQNY`2/2，确认
 修复截图清理误停新录屏的竞态。Node1416/1416、独立定向107/107通过。

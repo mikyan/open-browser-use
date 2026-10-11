@@ -43,7 +43,7 @@ import { createBackgroundParallelFixture, checkBackgroundParallelWorkflow } from
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 import { checkChooserSubmission } from "./chooser-submission-fixture.mjs";
-import { observeChooserFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
+import { observeChooserCallerFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
 import { createDirectoryUploadFixtures, prepareDirectoryFiles, checkDirectoryUpload, checkInactiveDirectoryRejection, checkInactiveDirectoryCancellation } from "./directory-upload-fixture.mjs";
 import { createBackgroundWindowRecorder, checkBackgroundWindowCleanup, checkBackgroundWindowOwnership } from "./background-window-fixture.mjs";
 import { directoryWorldHTML, checkDirectoryWorld } from "./directory-world-fixture.mjs";
@@ -148,18 +148,23 @@ function pngDimensions(base64) {
   assert.ok(width > 0 && height > 0);
   return { bytes, width, height };
 }
-function subprocess(command, args, { input, timeoutMs = 30000, ...options } = {}) {
+function subprocess(command, args, { input, timeoutMs = 30000, processEvidence, ...options } = {}) {
   return new Promise((resolve, reject) => {
+    if (processEvidence) Object.assign(processEvidence, { startedAt: Date.now(), closeObserved: false });
     const process = spawn(command, args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], ...options });
+    if (processEvidence) processEvidence.pid = process.pid ?? null;
     let stdout = "", stderr = "";
-    const timer = setTimeout(() => { process.kill(); reject(new Error(`${command} exceeded test deadline`)); }, timeoutMs);
+    const timer = setTimeout(() => { if (processEvidence) processEvidence.terminationRequestedAt = Date.now(); process.kill(); reject(new Error(`${command} exceeded test deadline`)); }, timeoutMs);
     process.stdout.setEncoding("utf8"); process.stderr.setEncoding("utf8");
     process.stdout.on("data", data => stdout += data);
     process.stderr.on("data", data => stderr += data);
-    process.once("error", error => { clearTimeout(timer); reject(error); });
+    process.once("error", error => { if (processEvidence) processEvidence.spawnError = String(error); clearTimeout(timer); reject(error); });
     // Exit can precede the final pipe data. Close confirms both output streams
     // have drained, including a split UTF-8 sequence at the end of the response.
-    process.once("close", code => { clearTimeout(timer); code === 0 ? resolve(stdout) : reject(new Error(`${command} exited ${code}: ${stderr}`)); });
+    process.once("close", (code, signal) => {
+      if (processEvidence) Object.assign(processEvidence, { closeObserved: true, closedAt: Date.now(), exitCode: code, signal: signal ?? null });
+      clearTimeout(timer); code === 0 ? resolve(stdout) : reject(new Error(`${command} exited ${code}: ${stderr}`));
+    });
     process.stdin.end(input);
   });
 }
@@ -175,8 +180,10 @@ async function hashTree(root) {
   await visit();
   return files;
 }
-async function withMCPClient(executable, endpoint, sessionId, use) {
+async function withMCPClient(executable, endpoint, sessionId, use, processEvidence) {
+  if (processEvidence) Object.assign(processEvidence, { startedAt: Date.now(), closeObserved: false });
   const child = spawn(path.resolve(executable), ["mcp", "--socket", endpoint, "--session-id", sessionId, "--timeout", "15s"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  if (processEvidence) processEvidence.pid = child.pid ?? null;
   child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
   let id = 0, buffer = "", stderr = "";
   const pending = new Map();
@@ -202,8 +209,11 @@ async function withMCPClient(executable, endpoint, sessionId, use) {
     }
   });
   child.stderr.on("data", chunk => stderr += chunk);
-  child.once("error", fail);
-  const closed = new Promise(resolve => child.once("close", code => { fail(new Error(`MCP exited ${code}: ${stderr}`)); resolve(code); }));
+  child.once("error", error => { if (processEvidence) processEvidence.spawnError = String(error); fail(error); });
+  const closed = new Promise(resolve => child.once("close", (code, signal) => {
+    if (processEvidence) Object.assign(processEvidence, { closeObserved: true, closedAt: Date.now(), exitCode: code, signal: signal ?? null });
+    fail(new Error(`MCP exited ${code}: ${stderr}`)); resolve(code);
+  }));
   try {
     const initialized = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "obu-network-integration", version: "1.0.0" } });
     assert.equal(initialized.protocolVersion, "2025-06-18");
@@ -217,7 +227,7 @@ async function withMCPClient(executable, endpoint, sessionId, use) {
   } finally {
     child.stdin.end();
     const code = await Promise.race([closed, delay(2000).then(() => "timeout")]);
-    if (code === "timeout") child.kill();
+    if (code === "timeout") { if (processEvidence) processEvidence.terminationRequestedAt = Date.now(); child.kill(); }
     fail(new Error("MCP fixture closed"));
   }
 }
@@ -390,7 +400,7 @@ try {
     if (file.endsWith(".py")) await fs.copyFile(path.join(repo, "packages/open-browser-use-python/open_browser_use", file), path.join(pythonSnapshot, file));
   }
   sourceIdentity = {
-    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", "research cases: bounded passive tabs.onCreated/onRemoved listeners in the independent observer; no task page or production changes", "chooser fixtures: failure-only current loopback document observation with exact native document IDs and one separate 3-second budget; no success-path calls/listeners, input replay, attachment or deadline extension", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
+    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", "research cases: bounded passive tabs.onCreated/onRemoved listeners in the independent observer; no task page or production changes", "chooser fixtures: failure-only current loopback document observation with exact native document IDs and one separate 3-second budget; no success-path calls/listeners, input replay, attachment or deadline extension", "chooser CLI/MCP/Python callers: local partial stage and click-ACK records preserve original errors and separate cleanup errors; parent CLI/MCP/Python/Go failure reads require confirmed child process close plus exact ordered caller/tab/key identity before any browser read; no new success-path browser requests", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
     gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(),
     dirty: (await subprocess("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo })).trim().length > 0,
     sha256: {
@@ -725,17 +735,38 @@ try {
     }
   });
   for (const kind of ["cli", "mcp"]) await test(`${kind}-file-chooser-ready-two-connections`, async () => {
-    const sessionId = `${kind}-chooser-ready`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 }); let detail;
+    const sessionId = `${kind}-chooser-ready`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 });
+    const callerResult = { caller: kind, independentConnections: true, variants: [] }, callerProcesses = [];
+    let detail, failure, callerFailure;
     const cliCall = async (method, params) => {
-      const response = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+      const processEvidence = { method }; callerProcesses.push(processEvidence);
+      const response = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"], { processEvidence }));
       assert.equal(response.error, undefined, JSON.stringify(response)); return response.result;
     };
     try {
-      const parameters = { kind, owner, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until };
-      detail = kind === "mcp" ? await withMCPClient(executable, endpoint, sessionId, callA => withMCPClient(executable, endpoint, sessionId, callB => checkChooserWireCaller({ ...parameters, callA, callB }))) : await checkChooserWireCaller({ ...parameters, callA: cliCall, callB: cliCall });
+      const parameters = { kind, owner, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, detail: callerResult };
+      const runCaller = (callA, callB) => checkChooserWireCaller({ ...parameters, callA, callB }).catch(error => { callerFailure = error; throw error; });
+      if (kind === "mcp") {
+        const first = { role: "owner" }, second = { role: "trigger" }; callerProcesses.push(first, second);
+        detail = await withMCPClient(executable, endpoint, sessionId,
+          callA => withMCPClient(executable, endpoint, sessionId, callB => runCaller(callA, callB), second), first);
+      } else detail = await runCaller(cliCall, cliCall);
       return detail;
-    } catch (error) { detail = { error: error.stack, server: chooserFixtures.allStats() }; throw error; }
-    finally { await fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(detail, null, 2)); try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
+    } catch (error) {
+      failure = callerFailure ?? error;
+      detail = { error: failure?.stack ?? String(failure), callerResult, callerProcesses, server: chooserFixtures.allStats(),
+        ...(error !== failure ? { connectionCleanupError: error?.stack ?? String(error) } : {}) };
+      await observeChooserCallerFailure({ detail, callerResult, kind, prefix: `${kind}-chooser`, sessionId,
+        callerClosed: callerProcesses.length > 0 && callerProcesses.every(process => process.closeObserved === true),
+        worker, fixtureURL, timing: `After the original ${kind.toUpperCase()} callers' confirmed process close and waiter cancellation attempts; before parent task finalization` });
+      throw failure;
+    } finally {
+      detail ??= { callerResult };
+      detail.callerProcesses = callerProcesses;
+      await finishChooserCase({ detail, originalError: failure, cleanup: [
+        { name: "finalize", run: () => owner.client.finalizeTabs([]) }, { name: "owner-close", run: () => owner.close() }
+      ], save: value => fs.writeFile(path.join(runDir, `chooser-${kind}.json`), JSON.stringify(value, null, 2)) });
+    }
   });
   for (const kind of ["python", "go"]) await test(`${kind}-file-chooser-ready-two-connections`, async () => {
     const prefix = `${kind}-chooser`, files = await getChooserFiles(), output = path.join(runDir, `chooser-${kind}-caller.json`);
@@ -760,6 +791,7 @@ try {
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: prefix, turnId: "chooser-ready", timeoutMs: 15000 });
     const diagnostic = kind === "go" && goChooserDiagnostic ? createGoChooserDiagnostic({ worker, readFocus: readFocusLedger }) : null;
     if (kind === "go" && chooserMode === "pointer-go-context") sourceIdentity.testHooks.push("chooser pointer-go-context diagnostic: original 13-case order; passive pointer/mouse HTML only for go-chooser-root/oopif/dynamic-oopif keys, all JS and other fixture HTML unchanged; original Go process arguments/actions/cancel/close retained without native diagnostic hooks; parent failure-only exact documentId observation after Go cancellation/close and before parent finalize, same 3-second budget; no success read or input replay; recorder may affect scheduling");
+    const callerProcess = {};
     let childProcess, callerResult, failure;
     try {
       const env = { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" };
@@ -776,7 +808,7 @@ try {
         assert.equal(childProcess.protocolComplete, true, JSON.stringify(childProcess.errors));
         assert.equal(childProcess.process.exitCode, 0, childProcess.process.stderr || callerResult?.error || "Go chooser process failed");
       } else {
-        const stdout = await subprocess(executablePath, args, { timeoutMs: 120000, env });
+        const stdout = await subprocess(executablePath, args, { timeoutMs: 120000, env, processEvidence: callerProcess });
         callerResult = JSON.parse(stdout);
       }
       assert.deepEqual(callerResult, JSON.parse(await fs.readFile(output, "utf8")));
@@ -790,21 +822,20 @@ try {
       try {
         assert.ok((await fs.stat(output)).size <= 4 * 1024 * 1024, "Go/Python chooser partial artifact exceeds limit");
         const saved = JSON.parse(await fs.readFile(output, "utf8"));
-        if (callerResult) assert.deepEqual(callerResult, saved, "Go stdout result differs from saved partial result");
+        if (callerResult) assert.deepEqual(callerResult, saved, "Go/Python stdout result differs from saved partial result");
         callerResult = saved;
       } catch (readError) { callerReadError = String(readError); }
-      detail = { error: error.stack, proof, callerResult, callerReadError, server: chooserFixtures.allStats() };
-      if (kind === "go" && !diagnostic) {
-        const failedItem = Array.isArray(callerResult?.variants) ? callerResult.variants.findLast(item => item && (item.error || item.originalError || item.failedAt)) : null;
-        if (failedItem && ["root", "oopif", "dynamic-oopif"].includes(failedItem.variant) && failedItem.key === `${prefix}-${failedItem.variant}`)
-          detail.failureObservation = await observeChooserFailure({ worker, item: structuredClone(failedItem), fixtureURL,
-          ...(chooserMode === "pointer-go-context" ? { pointerEvidence: true } : {}),
-          timing: "After original Go process failure and its waiter cancellation/connection close; before parent task finalization" });
-        else detail.failureObservation = { complete: false, errors: ["No failed Go variant identity in the retained partial result; no page read attempted"] };
+      detail = { error: error?.stack ?? String(error), proof, callerResult, callerReadError, callerProcess, server: chooserFixtures.allStats() };
+      if (!diagnostic) {
+        await observeChooserCallerFailure({ detail, callerResult, kind, prefix, sessionId: prefix, callerReadError,
+          callerClosed: callerProcess.closeObserved === true, worker, fixtureURL,
+          ...(kind === "go" && chooserMode === "pointer-go-context" ? { pointerEvidence: true } : {}),
+          timing: `After original ${kind} process failure and confirmed close, including its waiter cancellation/connection close attempts; before parent task finalization` });
       }
       throw error;
     } finally {
       detail ??= { proof, callerResult };
+      if (!diagnostic) detail.callerProcess = callerProcess;
       await finishChooserCase({ detail, originalError: failure, cleanup: [
         ...(diagnostic ? [{ name: "diagnostic-cleanup", run: async () => {
           try { await diagnostic.cleanup(); }

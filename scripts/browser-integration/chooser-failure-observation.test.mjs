@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
-import { chooserFailureDocument, observeChooserFailure, finishChooserCase, chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
+import { chooserFailureDocument, observeChooserFailure, finishChooserCase, chooserPointerEvidenceComplete, chooserFailedCallerItem, observeChooserCallerFailure } from "./chooser-failure-observation.mjs";
 import { checkChooserReady, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
 
-function fixture(variant = "dynamic-oopif", fixtureKind = "chooser") {
-  const fixtureURL = "http://127.0.0.1:8123/", item = { tabId: 42, key: "unit-chooser", variant };
+function fixture(variant = "dynamic-oopif", fixtureKind = "chooser", key = "unit-chooser") {
+  const fixtureURL = "http://127.0.0.1:8123/", item = { tabId: 42, key, variant };
   const route = fixtureKind === "directory" ? "directory-upload" : "chooser-waits";
-  const root = `${fixtureURL}${route}/page?key=unit-chooser&variant=${variant}`;
-  const child = `http://localhost:8123/${route}/frame?key=unit-chooser&variant=${variant}`;
+  const root = `${fixtureURL}${route}/page?key=${key}&variant=${variant}`;
+  const child = `http://localhost:8123/${route}/frame?key=${key}&variant=${variant}`;
   const frames = [{ frameId: 0, parentFrameId: -1, documentId: "root-doc", documentLifecycle: "active", errorOccurred: false, processId: 1, url: root },
     ...(variant === "root" ? [] : [{ frameId: 8, parentFrameId: 0, documentId: "child-doc", documentLifecycle: "active", errorOccurred: false, processId: 2, url: child }])];
   const metadata = { tab: { id: 42, windowId: 9, active: false, url: root }, frames, frameCount: frames.length };
@@ -21,6 +21,101 @@ function fixture(variant = "dynamic-oopif", fixtureKind = "chooser") {
     readMetadata: async () => { calls.push("metadata"); return metadata; },
     readDocuments: async targets => { calls.push(targets); return results; } };
 }
+
+function callerFixture(kind = "mcp", count = 3) {
+  const prefix = `${kind}-chooser`, sessionId = ["cli", "mcp"].includes(kind) ? `${kind}-chooser-ready` : prefix;
+  const variants = ["root", "oopif", "dynamic-oopif"].slice(0, count);
+  const f = fixture(variants.at(-1), "chooser", `${prefix}-${variants.at(-1)}`);
+  const callerResult = { caller: kind, independentConnections: true, error: "original collect timeout",
+    variants: variants.map((variant, index) => ({ variant, key: `${prefix}-${variant}`, tabId: 43 - count + index,
+      passed: index < count - 1, ...(index < count - 1
+        ? { scope: { session_id: sessionId, turn_id: "chooser-ready", control_epoch: 1 } }
+        : { error: "original collect timeout", failedStage: "collect", waits: [{ sequence: 0, triggerCompletedAt: 10 }] }) })) };
+  return { ...f, kind, prefix, sessionId, callerResult, detail: { error: "original collect timeout" }, callerClosed: true };
+}
+
+function freezeTree(value) {
+  if (value && typeof value === "object") { for (const child of Object.values(value)) freezeTree(child); Object.freeze(value); }
+  return value;
+}
+
+test("closed caller partials select the original failed variant without mutating retained evidence", async () => {
+  for (const kind of ["cli", "mcp", "python", "go"]) for (const count of [1, 2, 3]) {
+    const f = callerFixture(kind, count), before = structuredClone(f.callerResult);
+    freezeTree(f.callerResult);
+    const selected = chooserFailedCallerItem(f.callerResult, f);
+    assert.deepEqual(selected, f.callerResult.variants.at(-1));
+    assert.notEqual(selected, f.callerResult.variants.at(-1));
+    const report = await observeChooserCallerFailure(f);
+    assert.equal(report.complete, true, `${kind}/${count}: ${report.errors}`);
+    assert.equal(report.callerClosed, true); assert.equal(report.passed, undefined);
+    assert.equal(report.tabId, 42); assert.equal(f.calls.length, 2);
+    assert.deepEqual(f.callerResult, before);
+    assert.equal(await observeChooserCallerFailure(f), report); assert.equal(f.calls.length, 2);
+  }
+});
+
+for (const [name, mutate] of [
+  ["unknown caller", f => { f.kind = "unknown"; }],
+  ["foreign caller", f => { f.callerResult.caller = "go"; }],
+  ["foreign prefix", f => { f.prefix = "go-chooser"; }],
+  ["foreign session", f => { f.sessionId = "foreign"; }],
+  ["missing original error", f => { delete f.callerResult.error; }],
+  ["unconfirmed connections", f => { f.callerResult.independentConnections = false; }],
+  ["unrelated diagnostic", f => { f.callerResult.diagnostic = {}; }],
+  ["unrelated child process", f => { f.callerResult.childProcess = {}; }],
+  ["previous top observation", f => { f.callerResult.failureObservation = {}; }],
+  ["missing variants", f => { delete f.callerResult.variants; }],
+  ["empty variants", f => { f.callerResult.variants = []; }],
+  ["extra variant", f => { f.callerResult.variants.push({ ...f.callerResult.variants.at(-1) }); }],
+  ["missing earlier variant", f => { f.callerResult.variants.shift(); }],
+  ["out of order", f => { f.callerResult.variants.reverse(); }],
+  ["foreign key", f => { f.callerResult.variants.at(-1).key = "other-chooser-dynamic-oopif"; }],
+  ["duplicate tab", f => { f.callerResult.variants.at(-1).tabId = f.callerResult.variants[0].tabId; }],
+  ["newTab failed without identity", f => { delete f.callerResult.variants.at(-1).tabId; }],
+  ["negative tab", f => { f.callerResult.variants.at(-1).tabId = -1; }],
+  ["unsafe tab", f => { f.callerResult.variants.at(-1).tabId = Number.MAX_SAFE_INTEGER + 1; }],
+  ["previous item observation", f => { f.callerResult.variants[0].failureObservation = {}; }],
+  ["foreign scope session", f => { f.callerResult.variants[0].scope.session_id = "foreign"; }],
+  ["foreign scope turn", f => { f.callerResult.variants[0].scope.turn_id = "foreign"; }],
+  ["invalid scope epoch", f => { f.callerResult.variants[0].scope.control_epoch = 0; }],
+  ["earlier unsuccessful item", f => { f.callerResult.variants[0].passed = false; }],
+  ["earlier failed timestamp", f => { f.callerResult.variants[0].failedAt = 1; }],
+  ["earlier original error", f => { f.callerResult.variants[0].originalError = "earlier failure"; }],
+  ["close-only failure after all passed", f => { const item = f.callerResult.variants.at(-1); item.passed = true; delete item.error; delete item.failedStage; }],
+  ["failed item lacks error", f => { delete f.callerResult.variants.at(-1).error; }],
+  ["kill requested without close", f => { f.callerClosed = false; }],
+  ["missing close", f => { delete f.callerClosed; }],
+  ["truthy non-boolean close", f => { f.callerClosed = 1; }],
+  ["stdout/file mismatch", f => { f.callerReadError = "stdout differs from file"; }]
+]) test(`caller rejection performs zero browser reads: ${name}`, async () => {
+  const f = callerFixture(); mutate(f);
+  const report = await observeChooserCallerFailure(f);
+  assert.equal(report.complete, false); assert.equal(report.errors.length, 1);
+  assert.deepEqual(f.calls, []); assert.equal(report.passed, undefined);
+  assert.equal(await observeChooserCallerFailure(f), report); assert.deepEqual(f.calls, []);
+});
+
+test("caller observer registers before awaiting and does not duplicate reads on concurrent failure handling", async () => {
+  const f = callerFixture(); let release;
+  f.readMetadata = () => { f.calls.push("metadata"); return new Promise(resolve => { release = resolve; }); };
+  const pending = observeChooserCallerFailure(f), inFlight = await observeChooserCallerFailure(f);
+  assert.equal(inFlight.complete, false); assert.deepEqual(f.calls, ["metadata"]);
+  release(f.metadata);
+  assert.equal(await pending, inFlight); assert.equal(inFlight.complete, true); assert.equal(f.calls.length, 2);
+});
+
+test("valid caller identity still rejects recycled tabs and replacement documents without hiding the frozen business error", async () => {
+  for (const stage of ["metadata", "document"]) {
+    const f = callerFixture("python"), original = Object.freeze(new Error("original timeout"));
+    if (stage === "metadata") f.metadata.tab.id++;
+    else f.results[1].documentId = "replacement";
+    await assert.rejects((async () => { try { throw original; } catch (error) { await observeChooserCallerFailure(f); throw error; } })(), error => error === original);
+    assert.equal(f.detail.failureObservation.complete, false);
+    assert.equal(f.calls.length, stage === "metadata" ? 1 : 2);
+    assert.equal(f.callerResult.variants.at(-1).error, "original collect timeout");
+  }
+});
 
 test("one bounded failure observation binds exact root/child native document IDs without granting case success", async () => {
   const f = fixture(), r = await observeChooserFailure(f);

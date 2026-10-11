@@ -223,6 +223,26 @@ original deadline without a file request or download event. Other download
 callers and all MCP research tasks passed. Preserve that failure; the targeted
 binding result does not make the default regression successful.
 
+## Ordinary chooser failure records
+
+CLI/MCP and Python callers retain partial variants and rounds even when a
+request fails. Local stage timestamps distinguish arming, adding the iframe,
+click submission and acknowledgement, collecting, setting files and cancellation.
+Cleanup errors remain separate from the first business error. Python writes the
+same partial JSON to stdout and its exclusive result file before exiting 1.
+These annotations retain the original successful browser requests, parameters,
+order and deadlines; no readiness request or input retry is added.
+
+The parent records child process `close`, separately from `exit` and a requested
+kill. Its CLI/MCP/Python/ordinary Go failure observation runs only after confirmed
+close and before task finalization. Before any browser read, it checks the exact
+caller/session, ordered root/static/dynamic prefix, unique original tab IDs and
+one terminal failed variant. Missing or mismatched artifacts, unknown close and
+connection-close-only failures after successful variants are incomplete evidence
+and cause no read. It then uses the existing exact current document-ID checks and
+one 3-second budget. This is post-failure state, not proof of the click-time
+document or native pointer delivery; successful cases do not read failure DOM.
+
 ## Opt-in chooser ready diagnostic
 
 `OBU_TEST_CHOOSER_DIAGNOSTIC=1` runs only the existing

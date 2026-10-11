@@ -42,7 +42,15 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
-最新完整 `0prwDM` **110/110、exit0**，原109项相对顺序保留并加入双连接
+最新完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
+本片补齐CLI/MCP/Python失败partial及点击ACK阶段，原异常不被cancel/close
+覆盖；普通外部调用器只有实际child close与严格原身份校验后才进行既有
+失败DOM读取。Node1467/1467、独立定向106/106通过；生产代码未改。
+真实成功路径没有触发失败读取，不把诊断补齐或本轮成功当作动态输入修复。
+全套名单/顺序与`0prwDM`相同，193,286ms账本仍仅原11激活/4控制popup
+focus，身份/选择保持但视口及末次采样有差异；host重启与任务清理通过。
+
+此前完整 `0prwDM` **110/110、exit0**，原109项相对顺序保留并加入双连接
 录屏并发验收。新专项`hmPQNY`2/2、旧生产负对照`rjMBXn`1/2，真实顺序与
 更新后的PNG像素验证截图cleanup不会误停后来启动的外部流；Node1416/1416。
 完整focus沿用原11激活/4控制popup focus允许项，零新增豁免；sentinel保持

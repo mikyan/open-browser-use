@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { once } from "node:events";
+import { once, EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Transform } from "node:stream";
+import { Transform, PassThrough } from "node:stream";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -85,11 +85,39 @@ test("actual MCP line reader preserves split multibyte response payloads", { tim
     process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:request.id,result})+'\\n');
   });`;
   let child;
-  const useMCP = actualFunction("async function withMCPClient(executable, endpoint, sessionId, use)", "\nasync function workerConnection(url)", {
+  const useMCP = actualFunction("async function withMCPClient(executable, endpoint, sessionId, use,", "\nasync function workerConnection(url)", {
     assert, path, delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
     spawn: (_command, _args, options) => { child = splitOutput(spawn(process.execPath, ["-e", program], options)); return child; }
   });
-  const result = await useMCP(process.execPath, "unused", "synthetic", call => call("browserAction", {}));
+  const processEvidence = {};
+  const result = await useMCP(process.execPath, "unused", "synthetic", call => call("browserAction", {}), processEvidence);
   assert.equal(result.text, text);
   assert.equal(child.exitCode, 0);
+  assert.equal(processEvidence.closeObserved, true);
+  assert.equal(processEvidence.exitCode, 0);
+});
+
+test("subprocess evidence distinguishes timeout/kill/exit from actual close without changing original rejection", async () => {
+  const child = new EventEmitter(), evidence = {}; let kills = 0;
+  Object.assign(child, { pid: 42, stdout: new PassThrough(), stderr: new PassThrough(), stdin: { end() {} }, kill() { kills++; return true; } });
+  const run = subprocess((_command, _args, options) => { assert.equal(options.processEvidence, undefined); return child; });
+  await assert.rejects(run("test-child", [], { timeoutMs: 10, processEvidence: evidence }), /exceeded test deadline/);
+  assert.equal(kills, 1); assert.equal(evidence.closeObserved, false); assert.ok(evidence.terminationRequestedAt);
+  child.emit("exit", null, "SIGTERM"); assert.equal(evidence.closeObserved, false);
+  child.emit("close", null, "SIGTERM"); assert.equal(evidence.closeObserved, true); assert.equal(evidence.signal, "SIGTERM");
+  const error = Object.freeze(new Error("spawn failed")), failed = {};
+  await assert.rejects(subprocess(() => { throw error; })("test-child", [], { processEvidence: failed }), value => value === error);
+  assert.equal(failed.closeObserved, false);
+});
+
+test("MCP shutdown signal is not promoted to confirmed close and preserves a frozen callback error", async () => {
+  const child = new EventEmitter(), evidence = {}, original = Object.freeze(new Error("original callback failed")); let kills = 0;
+  Object.assign(child, { pid: 42, stdout: new PassThrough(), stderr: new PassThrough(), stdin: {
+    write(line) { const request = JSON.parse(line); if (request.id !== undefined) queueMicrotask(() => child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2025-06-18" } }) + "\n")); }, end() {}
+  }, kill() { kills++; return true; } });
+  const useMCP = actualFunction("async function withMCPClient(executable, endpoint, sessionId, use,", "\nasync function workerConnection(url)", { assert, path, delay: () => Promise.resolve(), spawn: () => child });
+  await assert.rejects(useMCP("test-child", "unused", "synthetic", () => { throw original; }, evidence), value => value === original);
+  assert.equal(kills, 1); assert.equal(evidence.closeObserved, false); assert.ok(evidence.terminationRequestedAt);
+  child.emit("exit", null, "SIGTERM"); assert.equal(evidence.closeObserved, false);
+  child.emit("close", null, "SIGTERM"); assert.equal(evidence.closeObserved, true);
 });

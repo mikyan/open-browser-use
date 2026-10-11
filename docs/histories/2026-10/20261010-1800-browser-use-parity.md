@@ -1545,6 +1545,28 @@ host正常退出。第一次旧对照`QlbMqw`因PowerShell 5错误流提升未�
 身份和选择保持，视口高度1222→1192。预期host重启后新进程exit0，当前
 没有活测试进程。完整通过不替代此前动态OOPIF失败的根因调查。
 
+### 调用器失败证据完整性
+
+补齐CLI/MCP/Python chooser的partial与原操作阶段：创建tab和arm之前先
+登记，保留原点击ACK、collect及取消结果；原业务错误与清理错误分开。
+Python即使失败也写相同stdout/独占JSON文件并exit1，成功API、顺序、
+参数和期限不变。父级保存真实child close，不能把kill请求或exit当作结束。
+
+所有普通外部调用器失败观察都先校验caller/session、原有序variant前缀、
+唯一tab及唯一末尾失败项，再按现有3秒预算读取精确当前documentId。
+缺失/错配artifact、未确认close及成功后的close-only错误均零页面读取；
+finalize与各连接close仍各自尝试，清理失败不能盖住原异常。生产代码未变。
+Node1467/1467、独立定向106/106、普通专项`ulluP9`13/13通过，均无跳过。
+最终默认完整`1OmROv`110/110、actual exit0；专项也为actual exit0，独立
+核18轮原阶段、36个child close/exit0、原POST字节和精确任务清理。
+专项20,048ms连续账本保留原5次精确激活、零window focus。两轮未复现
+故障，新增失败读取仅有确定性测试，不能声称动态输入修复；旧包保持不变。
+
+完整独立核110项原名称/顺序和同源制品。193,286ms连续账本仍为11次
+原激活及4次控制popup focus，无新增豁免；sentinel身份/选择保持，初始
+高度1222、末active查询1165、同份populate快照1204，不能称几何不变。
+host按测试重启后新进程exit0，任务清理通过；当前无活测试进程。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

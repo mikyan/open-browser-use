@@ -2247,3 +2247,41 @@ focus账本11次激活/4次focus，沿用原精确允许项，无新增豁免；
 case按预期终止第一代host，第二代正常exit0。这是一次完整通过，不关闭
 先前动态OOPIF偶发失败或其他P01–P15缺口；下一步仍补MCP/Python原失败
 阶段与partial，以完整证据调查实际输入投递。旧preview包保持不变。
+
+### 调用器失败记录与读取前身份校验
+
+安装说明回应没有推进能力实现；本轮按当前工作树恢复未完成的调用器改动，
+核对生产background与host仍为前一轮冻结字节，未重启任何已有活测试。
+CLI/MCP保留父级partial，Python失败也向stdout及独占结果文件输出相同JSON；
+variant在newTab前、round在arm前登记，记录原点击ACK与collect等阶段，
+cancel/close错误不覆盖第一业务异常。成功请求、参数、顺序、期限保持。
+
+父级仅以实际child close作为结束证据，kill请求或exit不能代替close。
+CLI/MCP/Python/普通Go的失败读取先检查原caller/session、root→oopif→dynamic
+的完整有序前缀、唯一tab和唯一末尾失败项，再复用现有3秒精确documentId
+观察；缺partial、stdout/file不符、关闭未知或仅连接清理失败均不读取。
+默认HTML、生产动作和输入重试策略保持；观察不证明点击时的文档或投递。
+
+Node1467/1467及独立定向106/106通过，零skip/cancel。新增测试覆盖冻结
+原异常、并发catch、真实Python失败输出、成功调用序列以及32类拒绝零读取。
+普通专项`ulluP9`13/13、默认完整`1OmROv`110/110，actual exit均0。两次
+检查目的分别是受影响调用器和全套上下文，不通过重复成功运行推断偶发
+输入已修复。专项独立核174项源码/运行哈希与3caller proof、18轮原阶段
+及36个child exit0/close；84份原POST的63份File载荷共1071字节与磁盘一致。
+20,048ms连续账本仅原5次精确激活、零window focus，任务清理通过。
+两轮成功均未实际触发新增失败读取，P01–P15完整范围继续开放。
+
+完整`1OmROv`独立核110项名称/顺序精确同`0prwDM`，生产/host/SDK同源，
+36个caller实际close、18轮阶段和原文件字节相符。193,286ms连续focus仍为
+11次原精确激活及4次控制popup focus，未增加豁免；sentinel身份/URL/选中
+保持，initial高1222，final active查询高1165、同份populate快照高1204，
+保留非原子采样差异，不能宣称几何不变。首代host按测试SIGTERM，次代
+exit0；chooser/目录页清理，15研究报告保留且60研究页消失。无活测试进程。
+
+后续方案是在同一固定13项上下文统一复用已有被动pointer记录，而非逐个
+新增caller模式追逐故障。精确覆盖submission/JS ready/CLI/MCP/Python/Go
+各三key及本次目录key，默认HTML字节不变；成功不新读，不改输入或期限。
+需要逐case显式报告覆盖与采集边界，现lifecycle和`/transfers`并发页面没有
+同等失败接口，不能默认为全13项pointer完整。缺失/错身份/未知close应保留
+incomplete；零事件也不单独证明native未发送。该方案尚未实现或验收，
+动态输入、跨平台等完整目标仍开放；旧预览资产保持不变。

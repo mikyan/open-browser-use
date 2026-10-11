@@ -335,9 +335,10 @@ test("runner keeps default case filtering and explicitly labels this diagnostic 
   assert.match(runner, /chooserMode === "pointer-go-context" \? \{ pointerEvidenceKeys: chooserPointerGoContextKeys \}/);
   assert.match(runner, /chooserMode === "pointer-go-context" \? chooserPointerGoContextSummary\(artifact, records\)/);
   assert.match(runner, /chooserMode === "pointer-go-context" \? "chooser-go.json" : "chooser-js.json"/);
-  assert.match(runner, /item: structuredClone\(failedItem\), fixtureURL,\s*\.\.\.\(chooserMode === "pointer-go-context" \? \{ pointerEvidence: true \} : \{\}\)/);
+  assert.match(runner, /await observeChooserCallerFailure\(\{ detail, callerResult, kind, prefix, sessionId: prefix, callerReadError,/);
+  assert.match(runner, /kind === "go" && chooserMode === "pointer-go-context" \? \{ pointerEvidence: true \} : \{\}/);
   assert.match(runner, /const diagnostic = kind === "go" && goChooserDiagnostic \? createGoChooserDiagnostic/);
-  assert.match(runner, /const stdout = await subprocess\(executablePath, args, \{ timeoutMs: 120000, env \}\)/);
+  assert.match(runner, /const stdout = await subprocess\(executablePath, args, \{ timeoutMs: 120000, env, processEvidence: callerProcess \}\)/);
   assert.match(runner, /process.exitCode = records.some\(record => !record.passed\) \|\| chooserDiagnosticResult\?\.collectionComplete === false/);
   const fixture = readFileSync(new URL("./chooser-waits-fixture.mjs", import.meta.url), "utf8");
   assert.ok(fixture.indexOf("await diagnostic.failure({ owner, item })") < fixture.indexOf("await wait.cancel()"));

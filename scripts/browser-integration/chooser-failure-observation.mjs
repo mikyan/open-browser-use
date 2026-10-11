@@ -1,5 +1,53 @@
 import assert from "node:assert/strict";
 
+// Validate a retained caller artifact before any browser read. A later summary
+// rejecting foreign evidence is too late if the observer already used its tab.
+export function chooserFailedCallerItem(result, { kind, prefix, sessionId }) {
+  const variants = ["root", "oopif", "dynamic-oopif"], ids = new Set();
+  const hasError = value => typeof value === "string" && value.length > 0;
+  assert.ok(["cli", "mcp", "python", "go"].includes(kind), "Unknown chooser caller");
+  assert.equal(prefix, `${kind}-chooser`, "Caller fixture prefix differs");
+  assert.equal(sessionId, ["cli", "mcp"].includes(kind) ? `${kind}-chooser-ready` : prefix, "Caller session differs");
+  assert.equal(result?.caller, kind, "Partial caller identity differs");
+  assert.equal(result.independentConnections, true, "Partial caller connections missing");
+  assert.ok(hasError(result.error), "Partial caller has no original failure");
+  assert.ok(!result.failureObservation && !result.diagnostic && !result.childProcess, "Partial contains unrelated observation evidence");
+  assert.ok(Array.isArray(result.variants) && result.variants.length > 0 && result.variants.length <= 3, "Partial variant sequence missing");
+  for (const [index, item] of result.variants.entries()) {
+    assert.equal(item?.variant, variants[index], "Partial variants are not the original ordered prefix");
+    assert.equal(item.key, `${prefix}-${item.variant}`, "Partial fixture key differs");
+    assert.ok(Number.isSafeInteger(item.tabId) && item.tabId >= 0 && !ids.has(item.tabId), "Missing or duplicate original tab ID");
+    ids.add(item.tabId);
+    assert.ok(!item.failureObservation && !item.diagnostic, "Partial variant contains unrelated evidence");
+    if (item.scope !== undefined) {
+      assert.equal(item.scope?.session_id, sessionId, "Partial scope session differs");
+      assert.equal(item.scope.turn_id, "chooser-ready", "Partial scope turn differs");
+      assert.ok(Number.isSafeInteger(item.scope.control_epoch) && item.scope.control_epoch > 0, "Partial scope epoch missing");
+    }
+    if (index === result.variants.length - 1) {
+      assert.equal(item.passed, false, "Last variant is not the failed original operation");
+      assert.ok(hasError(item.error) || hasError(item.originalError), "Failed variant has no original error");
+    } else {
+      assert.equal(item.passed, true, "Earlier variant did not complete successfully");
+      assert.ok(!item.error && !item.originalError && !item.failedAt, "Earlier variant contains a failure");
+    }
+  }
+  return structuredClone(result.variants.at(-1));
+}
+
+export async function observeChooserCallerFailure({ detail, callerResult, kind, prefix, sessionId, callerReadError, callerClosed, ...options }) {
+  if (detail.failureObservation) return detail.failureObservation;
+  const report = detail.failureObservation = { complete: false, errors: [], callerClosed: callerClosed === true,
+    boundary: "No read without the original caller's confirmed process close and unique failed variant identity." };
+  try {
+    assert.equal(callerClosed, true, "Original caller process close is unconfirmed; no page read attempted");
+    assert.equal(callerReadError, undefined, "Partial caller artifact unreadable or mismatched; no page read attempted");
+    const item = chooserFailedCallerItem(callerResult, { kind, prefix, sessionId });
+    Object.assign(report, await observeChooserFailure({ ...options, item }));
+  } catch (error) { report.errors.push(String(error)); }
+  return report;
+}
+
 export function chooserPointerEvidenceComplete(evidence) {
   const value = evidence?.pointerEvidence;
   const types = ["pointermove", "pointerdown", "pointerup", "pointercancel", "mousemove", "mousedown", "mouseup", "click"];
