@@ -1,0 +1,63 @@
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_67079b7e3d0be8 1096-1107
+  s_08bbfd293d324f::t_55b29e55910329 1108-1112
+scripts/browser-integration/vivaldi-key-input-diagnostic.test.mjs
+  s_08bbfd293d324f::t_21dc9762b51389 91-92,101,103-104
+  s_08bbfd293d324f::t_d072d195b44f2d 1-90,93-100,102,105-117
+scripts/browser-integration/vivaldi-pointer-focus-diagnostic.test.mjs
+  s_08bbfd293d324f::t_a657670ce5b422 103,112,125
+  s_08bbfd293d324f::t_473e7218d65251 1-59,61-102,104-111,113-116,127-137
+  s_08bbfd293d324f::t_8fd4379e07f26b 60,117-124,126
+scripts/browser-integration/vivaldi-input-diagnostic.mjs
+  s_08bbfd293d324f::t_11a7a7255d71aa 18-19,44,46,53,76,78-79,92-95,99,111
+  s_08bbfd293d324f::t_ba769d11de3706 17,21,45,98,103,151-152
+scripts/browser-integration/vivaldi-key-input-diagnostic.mjs
+  s_08bbfd293d324f::t_5fff78669ab140 19,21-23
+  s_08bbfd293d324f::t_21dc9762b51389 15,24
+  s_08bbfd293d324f::t_ba769d11de3706 1-14,16-18,20,25-33
+docs/references/vivaldi-input-diagnostic.md
+  s_08bbfd293d324f::t_67079b7e3d0be8 159-185
+  s_08bbfd293d324f::t_a10d17063d1f63 150-158
+  s_08bbfd293d324f::t_e6fb0f2e068e93 129-149
+  s_08bbfd293d324f::t_571552b804730e 110-128
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_66a39935cc5221 390-401
+  s_08bbfd293d324f::t_d072d195b44f2d 332-358
+  s_08bbfd293d324f::t_8fd4379e07f26b 359-389
+scripts/browser-integration/form-workflow-fixture.test.mjs
+  s_08bbfd293d324f::t_4afa5faeb0838c 7-26,28-30,35,42,97,101,111-112,114,117-118,126,141
+  s_08bbfd293d324f::t_2e33c40391d0c1 27,46-71
+  s_08bbfd293d324f::t_bbdb5016a8dd57 72
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_67079b7e3d0be8 48-54
+  s_08bbfd293d324f::t_55b29e55910329 55-58
+scripts/browser-integration/native-browser-installation.mjs
+  s_08bbfd293d324f::t_6cdd273efe0230 23,345-346,350,366-368,407
+  s_08bbfd293d324f::t_a6deb917c4f413 24,320,347-348,361,369,535,549,556,674-684,786,791,794-795,797-808
+scripts/browser-integration/vivaldi-pointer-focus-diagnostic.mjs
+  s_08bbfd293d324f::t_11a7a7255d71aa 1-19,21-35
+  s_08bbfd293d324f::t_a657670ce5b422 20
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_decabca1e33d10 1597-1609,1615-1618
+  s_08bbfd293d324f::t_5e3cdb41786948 1561-1581
+  s_08bbfd293d324f::t_e6fb0f2e068e93 1582-1596
+  s_08bbfd293d324f::t_55b29e55910329 1610-1614
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_219a1216ad1129 49,52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "38fb2c011ac9f64a77b6ae2445bd02a5cd8b9eae",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
