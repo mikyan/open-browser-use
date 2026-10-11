@@ -1,0 +1,39 @@
+scripts/browser-integration/native-lifecycle-support.mjs
+  s_08bbfd293d324f::t_874cd4060de1a4 5-9,14-29
+  s_08bbfd293d324f::t_fc740995a88704 30
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_65913f6613cc2d 1036,1038-1048
+  s_08bbfd293d324f::t_0f6ff437e8cc14 1063-1129
+  s_08bbfd293d324f::t_5aa602644e9625 1037,1049-1062
+scripts/browser-integration/native-lifecycle.mjs
+  s_08bbfd293d324f::t_c4cc0452fb8104 19,21,39,140-171,413-416,418-419,478,482-489,517-519
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_efcf3fe9a43b19 782-804
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_fe0064d878fd0c 18,22-49
+  s_08bbfd293d324f::t_efcf3fe9a43b19 134-149,152-158
+  s_08bbfd293d324f::t_5aa602644e9625 150-151
+  s_08bbfd293d324f::t_f40fd9cca3fc3a 50
+scripts/browser-integration/native-lifecycle-support.test.mjs
+  s_08bbfd293d324f::t_fe0064d878fd0c 3,29-52
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_aab023751a27f7 19,128-133
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d02df3046cc4d3 50,137-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "4a7ea2ce687c6172ebd9c4b3679d27721faf8d6d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
