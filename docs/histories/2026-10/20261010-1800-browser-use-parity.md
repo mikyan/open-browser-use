@@ -1170,6 +1170,34 @@ exit0不算task/acceptance成功；552ms零前台事件，精确进程退出与�
 新建IME实验。下一片转P04观察元数据，保留Vivaldi通用fill兼容缺口，不
 把显式click成功转为通用fill隐式副作用。整体目标仍active，无推送或PR。
 
+本片开始补P04位置观察：`snapshotAI({boxes:true})`增加原生ref对应的
+frame内CSS位置、结构化frame/ownerRef/viewport信息。默认响应保持原样，
+框与视口由同次renderer读取；真实Frame身份在发布前核验、内部GUID不
+对外泄露。原限额、期限和capture失效路径保持；不滚动、不激活、不用
+逐ref调用拼接。JS/Python/Go及CLI/MCP共用公开协议，没有新增Pi适配。
+
+原生patch和runtime已交叉审查，补正空子frame标识末尾换行的严格校验。
+坐标不假设父iframe仅平移，也不当作可点击性保证。完整CI通过：扩展836、
+scripts59、harness236、JS120、Python86及Go全包，零跳过。首轮几何
+`tIVleQ`实际5/10：动态Emulation的截图比例与DOM DPR不一致，原生原因
+未锁定；Go调用器另有截图JSON字段大小写错误。改成三个独立browser的
+固定原生启动比例，并修caller编码；最终harness238/238、Go新增1/1通过。
+
+v27冻结394源码/233历史，48文件ZIP与实际扩展/静态文件/依赖补丁及
+host、七个Go调用器和运行时hash逐项核对。DPR1 `oVaN3m`、1.5 `wTM1CH`、
+2 `x5s4pZ`各10/10和独立审计通过。45张PNG的nonce/阶段像素与原生
+marker ref位置匹配；315目标框和180 iframe框与DOM误差0。12个当前
+capture ref真实读取成功，各观察区间16557/14793/15427ms零前台事件，
+无新增豁免。根代理查看初始和变换后实际截图。最初auditor对原始base64
+与处理后PNG元数据格式的误判记录保留，修正后的审计不改实际运行数据。
+
+新完整回归`7YcNf9`实际exit1，原104项99通过/5失败另有focus最终失败。
+动态OOPIF的JS chooser在原10秒内未收到原生打开事件，root和静态OOPIF
+先前上传/清空成功；点击ACK不等于picker打开。末段窗口minimized并出现
+未归因focus，两个popup无法打开，后续两项受账本失败影响。原因未锁定，
+不改超时、不重放点击、不宣称全套通过。下一步补被动原生命令/失败DOM
+证据，继续定位。生产位置功能专项通过不等于整体目标完成，仍仅本地提交。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

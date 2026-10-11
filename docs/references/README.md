@@ -46,6 +46,8 @@
 - [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与
   capture ref 契约，记录历史错路由证据、可信 metadata、失效与资源边界；
   附本片 Windows 真实浏览器验收范围，完整 Codex 任务对照仍待完成。
+- [Snapshot geometry](snapshot-geometry.md)：opt-in 元素位置、frame/ownerRef
+  关系、视口 CSS 坐标与截图/点击坐标的边界，以及原限额和capture失效规则。
 - [Popup ownership design](popup-ownership-design.md)：跨窗口移组造成渲染停滞的
   正负对照，以及已实现并验收的独立窗口归属与回收；原生创建焦点仍有缺口。
 - [Ungrouped task tabs](ungrouped-task-tabs.md)：短命原生标签组的兼容接纳、

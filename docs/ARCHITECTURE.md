@@ -171,6 +171,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   iframe 重排使引用串页。每个 attachment 只保留一个 capture；新快照、frame
   生命周期或控制结束使旧引用失效。JS/Python/Go 与 CLI/MCP 共享这个有限
   契约；普通 selector 使用原生解析器阻止未绑定 capture 的 `aria-ref`。
+  opt-in `boxes` 在同次 renderer 观察中读取实际元素位置和 frame 视口；
+  runtime 对照真实 Frame 身份后发布有界 `geometry`。坐标明确属于各自
+  frame 的 CSS 视口，不假设 iframe 平移足以组合父级变换，详见
+  `docs/references/snapshot-geometry.md`。
   截图通过引用记录的真实 Frame 预滚 owner，capture ID 不承担身份认证。
   生产 CRX 禁用基于 `tabs.onCreated` 的 popup 隐式 Page attachment；新 tab
   必须先经过 backend 归属与 admission，OOPIF 子 session 发现仍保留。

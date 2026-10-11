@@ -1,5 +1,6 @@
 // Per-attachment observation identity. Native Playwright owns ARIA and Elements;
 // this layer owns the finite public contract and expiry across page lifecycles.
+import { validateSnapshotGeometry } from "./browser-snapshot-geometry.js";
 export const AI_SNAPSHOT_LIMITS = Object.freeze({
   maxBytes: 262144, maxNodes: 5000, maxRefs: 2000, maxFrames: 32, maxDepth: 64
 });
@@ -49,7 +50,7 @@ export class BrowserObservation {
     return this.invalidate();
   }
 
-  publish(result, revision, limits) {
+  publish(result, revision, limits, { boxes = false } = {}) {
     if (this.disposed || revision !== this.revision) throw expired();
     const fail = () => { throw new Error("OBU_SNAPSHOT_INCOMPLETE: invalid bounded runtime observation"); };
     if (!result || result.complete !== true || typeof result.snapshot !== "string" ||
@@ -62,11 +63,13 @@ export class BrowserObservation {
         stats.refs !== result.refs.length || stats.frames < 1 || stats.frames > limits.maxFrames) fail();
     const refs = new Set(result.refs);
     if (refs.size !== result.refs.length || result.refs.some(ref => !isAIRef(ref) || !result.refFrames.get(ref))) fail();
+    if (boxes) validateSnapshotGeometry(result.geometry, { refs: result.refs, frameCount: stats.frames });
+    else if (result.geometry !== undefined) fail();
     const captureId = crypto.randomUUID();
     this.capture = { captureId, refs, refFrames: new Map(result.refFrames) };
     return { captureId, snapshot: result.snapshot, refs: [...refs], stats: {
       bytes: stats.bytes, nodes: stats.nodes, refs: stats.refs, frames: stats.frames
-    }, complete: true };
+    }, complete: true, ...(boxes ? { geometry: structuredClone(result.geometry) } : {}) };
   }
 
   get({ captureId, ref }) {

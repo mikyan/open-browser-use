@@ -44,6 +44,7 @@ import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, chec
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
+import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -55,6 +56,11 @@ if (process.env.OBU_TEST_BACKGROUND_PARALLEL !== undefined && process.env.OBU_TE
   throw new Error("OBU_TEST_BACKGROUND_PARALLEL must be 1 or unset");
 const backgroundParallel = process.env.OBU_TEST_BACKGROUND_PARALLEL === "1";
 if (backgroundParallel && memoryClipboard) throw new Error("Background parallel acceptance requires the headed browser");
+if (process.env.OBU_TEST_SNAPSHOT_GEOMETRY !== undefined && process.env.OBU_TEST_SNAPSHOT_GEOMETRY !== "1") throw new Error("OBU_TEST_SNAPSHOT_GEOMETRY must be 1 or unset");
+const snapshotGeometry = process.env.OBU_TEST_SNAPSHOT_GEOMETRY === "1";
+const geometryDPR = resolveGeometryDPR(process.env.OBU_TEST_GEOMETRY_DPR, snapshotGeometry);
+if (snapshotGeometry && (backgroundParallel || memoryClipboard)) throw new Error("Snapshot geometry is a separate headed acceptance mode");
+if (snapshotGeometry && !process.env.OBU_TEST_GO_GEOMETRY_BINARY) throw new Error("Set OBU_TEST_GO_GEOMETRY_BINARY for the five-entry geometry acceptance");
 let memoryClipboardGuard;
 const repo = path.resolve(directory, "../..");
 const sourceExecutable = process.env.OBU_TEST_HOST_BINARY;
@@ -242,6 +248,7 @@ const researchWorkflows = createResearchWorkflowFixture();
 const backgroundParallelFixture = createBackgroundParallelFixture();
 const chooserFixtures = createChooserWaitFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
+const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
@@ -254,6 +261,7 @@ const http = createServer(async (request, response) => {
   if (backgroundParallelFixture.handle(request, response, httpPort)) return;
   if (chooserFixtures.handle(request, response, httpPort)) return;
   if (downloadWaitFixtures.handle(request, response, httpPort)) return;
+  if (snapshotGeometryFixtures.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -384,6 +392,8 @@ try {
   sourceIdentity.sha256.elementScreenshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-screenshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.popupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "popup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.snapshotGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "snapshot-geometry-fixture.mjs"))).digest("hex");
+  if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.directDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "direct-downloads-fixture.mjs"))).digest("hex");
@@ -413,11 +423,13 @@ try {
   await fs.writeFile(path.join(profile, "Default", "Preferences"), JSON.stringify({ download: { default_directory: path.join(runDir, "downloads"), prompt_for_download: false } }));
   const startup = browserStartupOptions([
     ...(memoryClipboard ? ["--headless=new", "--enable-automation", "--disable-background-networking", "--disable-component-update"] : []),
+    ...(snapshotGeometry ? [`--force-device-scale-factor=${geometryDPR}`] : []),
     `--user-data-dir=${profile}`, "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
     "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "about:blank"
   ], fieldTrialConfig);
   await fs.writeFile(path.join(runDir, "browser-startup.json"), JSON.stringify({
     ...startup,
+    ...(snapshotGeometry ? { expectedGeometryDPR: geometryDPR } : {}),
     binary: path.resolve(chromiumBinary),
     binarySha256: createHash("sha256").update(await fs.readFile(chromiumBinary)).digest("hex")
   }, null, 2));
@@ -489,6 +501,7 @@ try {
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (snapshotGeometry && name !== "js-raw-navigation-before-engine" && !name.includes("snapshot-geometry") && !name.startsWith("js-ai-snapshot-")) return;
     if (process.env.OBU_TEST_CASES && name !== "js-raw-navigation-before-engine" && !new RegExp(process.env.OBU_TEST_CASES).test(name)) return;
     const start = Date.now();
     let detail, failure;
@@ -725,6 +738,59 @@ try {
         await fs.writeFile(path.join(runDir, `network-waits-${suffix}.json`), JSON.stringify(detail, null, 2));
         return detail;
       } finally { try { await network.client.finalizeTabs([]); } finally { network.close(); } }
+    });
+  }
+  if (snapshotGeometry) {
+    for (const kind of ["js", "cli", "mcp", "python", "go"]) await test(`${kind}-snapshot-geometry`, async () => {
+      const key = `geometry-${kind}-${randomUUID().slice(0, 8)}`, output = path.join(runDir, `snapshot-geometry-${kind}-caller.json`);
+      let detail, failure;
+      try {
+        if (["js", "cli", "mcp"].includes(kind)) {
+          try { detail = await checkGeometryCaller({ kind, key, endpoint, fixtureURL, expectedDPR: geometryDPR, connectOpenBrowserUse, executable, subprocess, withMCPClient }); }
+          catch (error) { detail = error.geometryEvidence; throw error; }
+        } else {
+          const source = path.join(directory, kind === "python" ? "snapshot-geometry-checks.py" : "go-snapshot-geometry-checks/main.go");
+          const copy = path.join(runDir, kind === "python" ? "snapshot-geometry-checks.py" : "snapshot-geometry-checks.go");
+          await fs.copyFile(source, copy, fsConstants.COPYFILE_EXCL);
+          let binary = process.env.OBU_TEST_PYTHON || "python", args = [copy, endpoint, fixtureURL, output, String(geometryDPR)];
+          if (kind === "go") {
+            binary = path.join(runDir, process.platform === "win32" ? "go-snapshot-geometry-client.exe" : "go-snapshot-geometry-client");
+            await fs.copyFile(process.env.OBU_TEST_GO_GEOMETRY_BINARY, binary, fsConstants.COPYFILE_EXCL);
+            sourceIdentity.sha256.goGeometryClient = createHash("sha256").update(await fs.readFile(binary)).digest("hex");
+            args = [endpoint, fixtureURL, output, String(geometryDPR)];
+          }
+          try { await subprocess(binary, args, { timeoutMs: 120000, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } }); }
+          finally { try { detail = JSON.parse(await fs.readFile(output, "utf8")); } catch {} }
+        }
+      } catch (error) { failure = error; }
+      if (["js", "cli", "mcp"].includes(kind)) await fs.writeFile(output, JSON.stringify(detail ?? { error: String(failure) }, null, 2), { flag: "wx" });
+      try {
+        assert.ok(detail); assert.equal(detail.kind, kind); assert.equal(detail.expectedDPR, geometryDPR); assert.equal(detail.error, undefined, detail.error); assert.equal(detail.phases.length, 3);
+        const images = [];
+        for (const item of detail.phases) {
+          assert.equal(item.dpr, geometryDPR);
+          const filename = `snapshot-geometry-${kind}-${item.phase}.png`, bytes = Buffer.from(item.screenshot.base64, "base64");
+          await fs.writeFile(path.join(runDir, filename), bytes, { flag: "wx" });
+          const checked = checkGeometryPhase(item); images.push(checked);
+          item.screenshot = { filename, ...checked.png };
+        }
+        detail.checked = images;
+        const server = snapshotGeometryFixtures.allStats().find(record => record.key === detail.key); assert.ok(server); assert.equal(server.overflow, false);
+        assert.equal(server.nonce, detail.phases[0].before.nonce); assert.deepEqual(server.requests.map(record => record.role).sort(), ["cross", "inner", "nested", "root", "same"]);
+        detail.server = server;
+        detail.oopifTargets = (await worker.evaluate("globalThis.__integrationFrames")).filter(target => target.tabId === detail.tabId);
+        assert.ok(detail.oopifTargets.some(target => target.type === "iframe"), "No real OOPIF observed for geometry");
+        assert.equal(detail.finalizeResult.endedTurnId, detail.scope.turn_id); assert.ok(detail.finalizeResult.controlEpoch > detail.scope.control_epoch);
+        detail.removal = await until(async () => { const state = await worker.evaluate(`(async()=>({at:Date.now(),tabs:await chrome.tabs.query({}),targets:await chrome.debugger.getTargets()}))()`); return !state.tabs.some(tab => tab.id === detail.tabId) && !state.targets.some(target => target.tabId === detail.tabId) && state; }, "geometry task tab removed");
+      } catch (error) { failure ??= error; }
+      await fs.writeFile(path.join(runDir, `snapshot-geometry-${kind}.json`), JSON.stringify({ ...detail, error: failure?.stack ?? detail?.error }, null, 2));
+      if (failure) throw failure;
+      return { kind, tabId: detail.tabId, phases: detail.checked, finalized: true };
+    });
+    await test("js-snapshot-geometry-limits", async () => {
+      const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "snapshot-geometry-limits", timeoutMs: 15000 });
+      try { const result = await checkGeometryLimits({ browser: owner, fixtureURL }); await fs.writeFile(path.join(runDir, "snapshot-geometry-limits.json"), JSON.stringify(result, null, 2)); return result; }
+      finally { try { await owner.client.finalizeTabs([]); } finally { owner.close(); } }
     });
   }
   for (const [suffix, check] of [["direct-and-ready", checkNavigationDirectAndReady], ["load-states", checkNavigationLoadStates], ["lifecycle", checkNavigationLifecycle]]) {
@@ -1995,6 +2061,7 @@ try {
   await fs.writeFile(path.join(runDir, "form-workflow-server.json"), JSON.stringify(formWorkflows.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "research-workflow-server.json"), JSON.stringify(researchWorkflows.allStats(), null, 2));
   if (backgroundParallel) await fs.writeFile(path.join(runDir, "background-parallel-server.json"), JSON.stringify(backgroundParallelFixture.allStats(), null, 2));
+  if (snapshotGeometry) await fs.writeFile(path.join(runDir, "snapshot-geometry-server.json"), JSON.stringify(snapshotGeometryFixtures.allStats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;

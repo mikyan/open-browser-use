@@ -220,6 +220,27 @@ child-capture failures are explicit, without a partial successful snapshot.
 Engine metadata advertises `capabilities: {snapshotAI: 1, captureRefs: 1}` and
 `snapshotLimits`; an unsupported extension fails without falling back.
 
+`tab.snapshot_ai(boxes=True)` (also on `tab.playwright`) adds `capture["geometry"]`
+with `coordinateSpace: "frame-viewport-css"`, `frames` and `boxes`. Each frame has
+`id`, `parentId`, `ownerRef`, and `viewport` containing `width`, `height`, `scrollX`,
+`scrollY`, `devicePixelRatio`. The root has null parent/owner; child frames identify
+their parent's iframe ref. Sparse `f1`–`f32` slots preserve native frame identity.
+Each ref has exactly one `{ref, frameId, box: {x, y, width, height}}` entry.
+`AISnapshotGeometry`, `AISnapshotFrame`, `AISnapshotViewport`, `AISnapshotRefBox`
+and `AISnapshotBox` are exported TypedDicts.
+
+Bounds are unclipped, axis-aligned CSS viewport coordinates local to each frame,
+including transforms inside that document. They are not mapped through ancestor
+iframe transforms to top-page coordinates, divided by DPR or clipped to visible
+content. Negative positions and zero dimensions are valid. Layout may change
+without changing the original ref; these values do not guarantee clickability.
+The YAML includes `[box=x,y,width,height]`, and `max_bytes` counts the full annotated
+UTF-8 YAML. Ref identity comes only from structured native metadata. Collection
+shares the action deadline and is not an atomic multi-document layout snapshot.
+The default `boxes=False` keeps the old shape; malformed, missing or unsolicited
+geometry is rejected. `capabilities.snapshotBoxes == 1` advertises support;
+unsupported requests fail without retrying or dropping the option.
+
 `get_by_ref` is also available through `tab.playwright`. Its singleton locator
 supports normal actions, reads, screenshots and same-tab drag targets, but cannot
 be chained with selectors, `get_by_*`, frame/ordinal builders or filters. It

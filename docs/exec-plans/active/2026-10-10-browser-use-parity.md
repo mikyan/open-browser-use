@@ -1793,3 +1793,56 @@ false→true且坐标在前后相同矩形内，但hover后activeElement仍为bo
 focused-widget选择，未发现不同公开路由，因此不继续没有新依据的输入
 实验。下一片转P04快照观察元数据；Vivaldi通用fill、Edge焦点及其余矩阵
 缺口保持开放。整体目标active，本片progress，只做本地提交，无推送/PR。
+
+### P04 快照位置与 frame 观察
+
+从干净 `e12a378` 继续。上一轮为progress：HOVER候选经实际原生任务排除，
+默认Brave和231脚手架通过；本轮不重复没有新路由依据的Vivaldi实验。
+
+本片在原snapshotAI上增加opt-in `boxes: true`，保留默认协议形状。原生
+renderer同步采集真实ref对应元素的rect和frame viewport，输出带box的
+YAML及结构化geometry。固定字段、原refs/frames限额和原请求期限约束
+整个过程；不滚动、不激活、不通过N个单独locator查询拼接。真实Frame
+GUID、父关系和ref归属在runtime核验后移除内部字段，再发布capture。
+
+已查到既有引擎child boundingBox只是quad加iframe偏移，不足以正确组合
+父级缩放/旋转。因此本片明确使用frame-viewport CSS坐标及ownerRef关系，
+不伪称top/global坐标或可点击性。详细契约见[位置元数据](../../references/snapshot-geometry.md)。
+
+验证安排：独立实现vendor patch、三SDK和五入口真实fixture；根代理负责
+engine/runtime身份边界并统一启动浏览器。保留原104主case，新增opt-in
+专项覆盖root/同源/OOPIF/嵌套、各frame滚动、父级变换和DPR，独立DOM
+oracle与实际PNG像素核对；所有焦点规则不变。生产变更需完整CI、制品
+检查和主回归，旧失败与旧结果保留。验收尚未完成，整体目标保持active。
+
+首个几何专项 `run-tIVleQ` 实际exit1，10项中5通过。保留其v26冻结和全部
+原始caller结果：root在任何snapshotAI前读回DPR1.5，而动态Emulation要求
+1或2；PNG尺寸却跟随请求比例。同源child短暂读到请求值后回到1.5，不能
+把该不稳定环境的before/after差异直接归因于快照。生产rendering lease未
+发送metric override，snapshotAI也不走lease，尚无证据锁定原生原因。
+Go失败另有明确测试错误：既有Screenshot结构被直接JSON编码为Base64/
+MimeType，检查器要求小写字段。改caller显式映射，不改SDK截图API。
+
+下一次验证使用三个独立浏览器实例的原生启动比例1/1.5/2，每个比例保留
+五入口×三布局，共45张PNG；不再动态模拟DPR。每次仍要求测得的DPR匹配
+启动参数、DOM/原生box误差不超过1e-6、观察前后深比较相等。滚动改为在
+三种DPR下都对应整数设备像素的36/160和12/72，避免scrollTo量化误差，
+不放宽几何断言。默认104主用例及生产包保持不变；新脚本需新冻结。
+
+最终脚手架238/238与Go新增截图编码回归1/1通过。v27冻结394源码和233
+旧结果，48文件生产包与七个Go调用器/host/运行时hash固定。DPR1/1.5/2
+三个实际run `oVaN3m`/`wTM1CH`/`x5s4pZ`各10/10、终端exit0及独立审计
+通过：45张PNG、315目标框、180 iframe框、12个capture ref读取均核验，
+实测坐标偏差0，观察区间零前台事件；旧动态DPR失败仍不算通过。
+
+新主回归`7YcNf9`终端exit1，原104项99通过/5失败，另focus-ledger-final
+失败。JS chooser的dynamic OOPIF首轮ready剩9998ms，新增frame123ms、
+点击114ms并ACK，collect约240ms内发出，但原10秒内没有原生chooser
+事件和POST；root/静态OOPIF先前成功。现有trace只有attach/nav/swap，
+不能区分点击未触发picker与interception路径问题，不能靠加deadline或
+重放修补。末段两popup遇inactive窗口，最终root窗口minimized，额外两项
+被未知focus账本拒绝。此轮是否有人操作另行询问，未收到回答前不归因。
+
+下一步增加独立opt-in的有界被动native send/ACK与失败后只读DOM证据，
+不改原动作/HTML、deadline或重试策略，先定位chooser；焦点失败另核。
+本片为progress，P04专项完成而全套未通过，整体目标继续active。

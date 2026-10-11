@@ -82,18 +82,28 @@ export type OpenBrowserUseFilterOptions = { hasText?: string; hasNotText?: strin
 export type OpenBrowserUseAISnapshotLimits = { maxBytes: number; maxNodes: number; maxRefs: number; maxFrames: number; maxDepth: number };
 export type OpenBrowserUseEngineInfo = {
   name: "playwright-crx"; version: string; playwrightVersion: string;
-  capabilities?: { snapshotAI: 1; captureRefs: 1 };
+  capabilities?: { snapshotAI: 1; captureRefs: 1; snapshotBoxes?: 1 };
   snapshotLimits?: OpenBrowserUseAISnapshotLimits;
 };
 export type OpenBrowserUseActionResult = { value: JsonValue; engine: OpenBrowserUseEngineInfo };
 export type OpenBrowserUseActionOptions = { timeoutMs?: number; [key: string]: JsonValue | undefined };
 export type OpenBrowserUseScreenshot = { base64: string; mimeType: string };
 export type OpenBrowserUseAISnapshotOptions = {
-  timeoutMs?: number; maxBytes?: number; maxNodes?: number; maxRefs?: number; maxFrames?: number; maxDepth?: number;
+  timeoutMs?: number; maxBytes?: number; maxNodes?: number; maxRefs?: number; maxFrames?: number; maxDepth?: number; boxes?: boolean;
+};
+export type OpenBrowserUseAISnapshotBox = { x: number; y: number; width: number; height: number };
+export type OpenBrowserUseAISnapshotFrame = {
+  id: string; parentId: string | null; ownerRef: string | null;
+  viewport: { width: number; height: number; scrollX: number; scrollY: number; devicePixelRatio: number };
+};
+export type OpenBrowserUseAISnapshotGeometry = {
+  coordinateSpace: "frame-viewport-css"; frames: OpenBrowserUseAISnapshotFrame[];
+  boxes: { ref: string; frameId: string; box: OpenBrowserUseAISnapshotBox }[];
 };
 export type OpenBrowserUseAISnapshot = {
   captureId: string; snapshot: string; refs: string[];
   stats: { bytes: number; nodes: number; refs: number; frames: number }; complete: true;
+  geometry?: OpenBrowserUseAISnapshotGeometry;
 };
 export type OpenBrowserUseControlState = { controlEpoch: number; closing: boolean; nextTurnId: string; lifecycleVersion: 1 };
 export type OpenBrowserUseDiagnosticsCursor = { captureId: string; sequence: number };
@@ -805,7 +815,8 @@ export class OpenBrowserUseTab {
 
   async snapshotAI(options: OpenBrowserUseAISnapshotOptions = {}): Promise<OpenBrowserUseAISnapshot> {
     const limits = aiSnapshotLimits(options);
-    return expectAISnapshot(await this.action("snapshotAI", actionArgs(options), options), limits);
+    const boxes = options.boxes === true;
+    return expectAISnapshot(await this.action("snapshotAI", actionArgs(options), options), limits, boxes);
   }
 
   async screenshot(options: OpenBrowserUseActionOptions = {}): Promise<OpenBrowserUseScreenshot> {
@@ -1003,17 +1014,22 @@ function aiSnapshotLimits(options: OpenBrowserUseAISnapshotOptions): typeof aiLi
   const limits = { ...aiLimits };
   for (const [key, value] of Object.entries(options)) {
     if (key === "timeoutMs") continue;
+    if (key === "boxes") {
+      if (value !== undefined && typeof value !== "boolean") throw new Error("boxes must be a boolean");
+      continue;
+    }
     if (!Object.hasOwn(aiLimits, key)) throw new Error(`snapshotAI does not support ${key}`);
     if (value === undefined) continue;
     const name = key as keyof typeof aiLimits;
-    if (!Number.isSafeInteger(value) || value < 1 || value > aiLimits[name]) throw new Error(`${key} must be a positive integer <= ${aiLimits[name]}`);
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > aiLimits[name]) throw new Error(`${key} must be a positive integer <= ${aiLimits[name]}`);
     limits[name] = value;
   }
   return limits;
 }
-function expectAISnapshot(value: JsonValue, limits: typeof aiLimits): OpenBrowserUseAISnapshot {
+function expectAISnapshot(value: JsonValue, limits: typeof aiLimits, boxes: boolean): OpenBrowserUseAISnapshot {
   const invalid = () => new Error("Invalid snapshotAI result");
-  if (!isObject(value) || Object.keys(value).some(key => !["captureId", "snapshot", "refs", "stats", "complete"].includes(key)) ||
+  const fields = ["captureId", "snapshot", "refs", "stats", "complete", ...(boxes ? ["geometry"] : [])];
+  if (!isObject(value) || Object.keys(value).length !== fields.length || Object.keys(value).some(key => !fields.includes(key)) ||
       value.complete !== true || typeof value.captureId !== "string" || !value.captureId.length || value.captureId.length > 128 ||
       typeof value.snapshot !== "string" || !Array.isArray(value.refs) || value.refs.length > limits.maxRefs || value.refs.some(ref => !validRef(ref)) ||
       new Set(value.refs).size !== value.refs.length || !isObject(value.stats)) throw invalid();
@@ -1023,7 +1039,36 @@ function expectAISnapshot(value: JsonValue, limits: typeof aiLimits): OpenBrowse
       stats.bytes !== Buffer.byteLength(value.snapshot, "utf8") || (stats.bytes as number) > limits.maxBytes ||
       (stats.nodes as number) > limits.maxNodes || stats.refs !== value.refs.length ||
       (stats.frames as number) < 1 || (stats.frames as number) > limits.maxFrames) throw invalid();
+  if (boxes && !validAIGeometry(value.geometry, value.refs as string[], stats.frames as number)) throw invalid();
   return value as OpenBrowserUseAISnapshot;
+}
+
+function validAIGeometry(value: JsonValue | undefined, refs: string[], frameCount: number): boolean {
+  const exact = (value: unknown, keys: string[]): value is Record<string, JsonValue> =>
+    isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+  const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+  const refFrame = (ref: string): string => /^(f[1-9][0-9]*)e/.exec(ref)?.[1] ?? "root";
+  if (!exact(value, ["coordinateSpace", "frames", "boxes"]) || value.coordinateSpace !== "frame-viewport-css" ||
+      !Array.isArray(value.frames) || value.frames.length !== frameCount || !Array.isArray(value.boxes) || value.boxes.length !== refs.length) return false;
+  const refSet = new Set(refs), boxesByRef = new Map<string, string>(), frames = new Set<string>(), owners = new Set<string>();
+  for (const entry of value.boxes) {
+    if (!exact(entry, ["ref", "frameId", "box"]) || typeof entry.ref !== "string" || !refSet.has(entry.ref) || boxesByRef.has(entry.ref) ||
+        typeof entry.frameId !== "string" || entry.frameId !== refFrame(entry.ref) || !exact(entry.box, ["x", "y", "width", "height"]) ||
+        !Object.values(entry.box).every(finite) || (entry.box.width as number) < 0 || (entry.box.height as number) < 0) return false;
+    boxesByRef.set(entry.ref, entry.frameId);
+  }
+  for (const [index, frame] of value.frames.entries()) {
+    if (!exact(frame, ["id", "parentId", "ownerRef", "viewport"]) || typeof frame.id !== "string" || frames.has(frame.id) ||
+        !exact(frame.viewport, ["width", "height", "scrollX", "scrollY", "devicePixelRatio"]) || !Object.values(frame.viewport).every(finite) ||
+        (frame.viewport.width as number) < 0 || (frame.viewport.height as number) < 0 || (frame.viewport.devicePixelRatio as number) <= 0) return false;
+    if (index === 0) {
+      if (frame.id !== "root" || frame.parentId !== null || frame.ownerRef !== null) return false;
+    } else if (/^f([1-9]|[12][0-9]|3[0-2])$/.exec(frame.id)?.[0] !== frame.id || typeof frame.parentId !== "string" || !frames.has(frame.parentId) ||
+        typeof frame.ownerRef !== "string" || owners.has(frame.ownerRef) || boxesByRef.get(frame.ownerRef) !== frame.parentId) return false;
+    frames.add(frame.id);
+    if (typeof frame.ownerRef === "string") owners.add(frame.ownerRef);
+  }
+  return [...boxesByRef.values()].every(frameId => frames.has(frameId));
 }
 
 export class OpenBrowserUseCdp {

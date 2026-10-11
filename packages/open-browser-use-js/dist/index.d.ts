@@ -95,6 +95,7 @@ export type OpenBrowserUseEngineInfo = {
     capabilities?: {
         snapshotAI: 1;
         captureRefs: 1;
+        snapshotBoxes?: 1;
     };
     snapshotLimits?: OpenBrowserUseAISnapshotLimits;
 };
@@ -117,6 +118,34 @@ export type OpenBrowserUseAISnapshotOptions = {
     maxRefs?: number;
     maxFrames?: number;
     maxDepth?: number;
+    boxes?: boolean;
+};
+export type OpenBrowserUseAISnapshotBox = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+export type OpenBrowserUseAISnapshotFrame = {
+    id: string;
+    parentId: string | null;
+    ownerRef: string | null;
+    viewport: {
+        width: number;
+        height: number;
+        scrollX: number;
+        scrollY: number;
+        devicePixelRatio: number;
+    };
+};
+export type OpenBrowserUseAISnapshotGeometry = {
+    coordinateSpace: "frame-viewport-css";
+    frames: OpenBrowserUseAISnapshotFrame[];
+    boxes: {
+        ref: string;
+        frameId: string;
+        box: OpenBrowserUseAISnapshotBox;
+    }[];
 };
 export type OpenBrowserUseAISnapshot = {
     captureId: string;
@@ -129,6 +158,7 @@ export type OpenBrowserUseAISnapshot = {
         frames: number;
     };
     complete: true;
+    geometry?: OpenBrowserUseAISnapshotGeometry;
 };
 export type OpenBrowserUseControlState = {
     controlEpoch: number;

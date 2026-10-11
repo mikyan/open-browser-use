@@ -14,6 +14,7 @@ import (
 type AISnapshotOptions struct {
 	MaxBytes, MaxNodes, MaxRefs, MaxFrames, MaxDepth int
 	Timeout                                          time.Duration
+	Boxes                                            bool
 }
 
 type AISnapshotStats struct {
@@ -24,11 +25,12 @@ type AISnapshotStats struct {
 }
 
 type AISnapshot struct {
-	CaptureID string          `json:"captureId"`
-	Snapshot  string          `json:"snapshot"`
-	Refs      []string        `json:"refs"`
-	Stats     AISnapshotStats `json:"stats"`
-	Complete  bool            `json:"complete"`
+	CaptureID string              `json:"captureId"`
+	Snapshot  string              `json:"snapshot"`
+	Refs      []string            `json:"refs"`
+	Stats     AISnapshotStats     `json:"stats"`
+	Complete  bool                `json:"complete"`
+	Geometry  *AISnapshotGeometry `json:"geometry,omitempty"`
 }
 
 var aiRefPattern = regexp.MustCompile(`^(?:f[1-9][0-9]*)?e[1-9][0-9]*$`)
@@ -38,6 +40,9 @@ func validAIRef(ref string) bool { return len(ref) <= 64 && aiRefPattern.MatchSt
 func aiCaptureLimits(option AISnapshotOptions) (Params, map[string]int, error) {
 	limits := map[string]int{"maxBytes": 262144, "maxNodes": 5000, "maxRefs": 2000, "maxFrames": 32, "maxDepth": 64}
 	args := Params{}
+	if option.Boxes {
+		args["boxes"] = true
+	}
 	for name, value := range map[string]int{"maxBytes": option.MaxBytes, "maxNodes": option.MaxNodes, "maxRefs": option.MaxRefs, "maxFrames": option.MaxFrames, "maxDepth": option.MaxDepth} {
 		if value == 0 {
 			continue
@@ -68,7 +73,7 @@ func (t *Tab) SnapshotAI(options ...AISnapshotOptions) (AISnapshot, error) {
 	if err != nil {
 		return AISnapshot{}, err
 	}
-	return decodeAISnapshot(value, limits)
+	return decodeAISnapshot(value, limits, option.Boxes)
 }
 
 func (p *TabPlaywright) SnapshotAI(options ...AISnapshotOptions) (AISnapshot, error) {
@@ -87,8 +92,9 @@ func exactAIFields(value map[string]json.RawMessage, names ...string) bool {
 	return true
 }
 
-func decodeAISnapshot(value any, limits map[string]int) (AISnapshot, error) {
+func decodeAISnapshot(value any, limits map[string]int, withBoxes ...bool) (AISnapshot, error) {
 	invalid := errors.New("invalid snapshotAI result")
+	boxes := len(withBoxes) == 1 && withBoxes[0]
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return AISnapshot{}, invalid
@@ -96,7 +102,11 @@ func decodeAISnapshot(value any, limits map[string]int) (AISnapshot, error) {
 	// encoding/json normally accepts case-insensitive struct field names. The
 	// public wire schema is exact, including required zero-valued counters.
 	var fields, counters map[string]json.RawMessage
-	if json.Unmarshal(encoded, &fields) != nil || !exactAIFields(fields, "captureId", "snapshot", "refs", "stats", "complete") ||
+	names := []string{"captureId", "snapshot", "refs", "stats", "complete"}
+	if boxes {
+		names = append(names, "geometry")
+	}
+	if json.Unmarshal(encoded, &fields) != nil || !exactAIFields(fields, names...) ||
 		json.Unmarshal(fields["stats"], &counters) != nil || !exactAIFields(counters, "bytes", "nodes", "refs", "frames") {
 		return AISnapshot{}, invalid
 	}
@@ -110,7 +120,8 @@ func decodeAISnapshot(value any, limits map[string]int) (AISnapshot, error) {
 			Refs   *int `json:"refs"`
 			Frames *int `json:"frames"`
 		} `json:"stats"`
-		Complete *bool `json:"complete"`
+		Complete *bool           `json:"complete"`
+		Geometry json.RawMessage `json:"geometry"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
@@ -132,8 +143,15 @@ func decodeAISnapshot(value any, limits map[string]int) (AISnapshot, error) {
 		}
 		seen[ref] = true
 	}
+	var geometry *AISnapshotGeometry
+	if boxes {
+		geometry, err = decodeAIGeometry(result.Geometry, result.Refs, *stats.Frames)
+		if err != nil {
+			return AISnapshot{}, invalid
+		}
+	}
 	return AISnapshot{CaptureID: *result.CaptureID, Snapshot: *result.Snapshot, Refs: result.Refs,
-		Stats: AISnapshotStats{Bytes: *stats.Bytes, Nodes: *stats.Nodes, Refs: *stats.Refs, Frames: *stats.Frames}, Complete: true}, nil
+		Stats: AISnapshotStats{Bytes: *stats.Bytes, Nodes: *stats.Nodes, Refs: *stats.Refs, Frames: *stats.Frames}, Complete: true, Geometry: geometry}, nil
 }
 
 // GetByRef addresses the original Element in the given capture. It never

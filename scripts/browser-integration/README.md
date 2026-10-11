@@ -4,6 +4,68 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
+## Opt-in snapshot geometry acceptance
+
+The default suite remains 104 cases. `OBU_TEST_SNAPSHOT_GEOMETRY=1` selects a
+separate ten-case run: five geometry callers (JS, Python, Go, CLI and MCP),
+geometry limits/expiry/deadline, the three existing AI snapshot lifecycle,
+native-reference and cancellation cases, and the mandatory raw-navigation case.
+Do not set `OBU_TEST_CASES` for this complete selection. This mode cannot be
+combined with background-parallel or memory-clipboard modes.
+`OBU_TEST_GEOMETRY_DPR` is mandatory in this mode and accepts exactly `1`, `1.5`
+or `2`; outside this mode it is rejected. Each value starts a separate browser
+with `--force-device-scale-factor`. Run the three instances sequentially for
+complete scale coverage; no dynamic device-metrics override is used.
+
+After building the host and satisfying the normal runner prerequisites below,
+build the additional public Go SDK caller with the pinned toolchain:
+
+```powershell
+go build -o .tmp/go-snapshot-geometry-checks.exe ./scripts/browser-integration/go-snapshot-geometry-checks
+$env:OBU_TEST_GO_GEOMETRY_BINARY = (Resolve-Path .tmp/go-snapshot-geometry-checks.exe).Path
+$env:OBU_TEST_SNAPSHOT_GEOMETRY = '1'
+Remove-Item Env:OBU_TEST_CASES -ErrorAction SilentlyContinue
+foreach ($geometryScale in @('1', '1.5', '2')) {
+    $env:OBU_TEST_GEOMETRY_DPR = $geometryScale
+    node scripts/browser-integration/run.mjs
+    if ($LASTEXITCODE -ne 0) { throw "Geometry acceptance failed at DPR $geometryScale" }
+}
+```
+
+Every caller creates and finalizes its own task through its selected entrypoint.
+The five-document fixture contains root and open-shadow controls, same-origin
+and real cross-origin frames, and a nested cross-origin boundary. Each browser's
+three phases cover initial layout, root/child scrolling, then scaled and rotated
+iframe owners, all at the fixed startup DPR. Root scrolling is 36/160 CSS pixels
+and child scrolling is 12/72, avoiding device-pixel rounding at these scales.
+No particular viewport dimensions are assumed. Snapshot capture preserves the before/after
+document identities, scroll values and DOM rectangles. An independent DOM oracle
+reads each document's `getBoundingClientRect()` and viewport through bounded,
+nonce-bound parent/child messages. It does not use locator `boundingBox()` or
+convert child coordinates to root coordinates.
+
+`boxes:true` observations must retain every native reference, one structured box
+per reference, matching inline coordinates, and a parent-first frame tree. The
+oracle uses a separate 1e-6 CSS-unit tolerance and saves the actual maximum
+deviation. The root's labeled, fixed color marker is also a native snapshot ref:
+its returned box determines all sixteen exact PNG pixel samples. Each phase
+saves the original PNG, nonce and phase code. Pixel rounding follows the observed
+DPR; child boxes are checked in their own frame viewport and do not claim a
+global screenshot projection under parent transforms. Default and explicit
+`boxes:false` retain the old five-field result. The JS caller additionally reads
+root/same/cross/nested-child elements using refs from a geometry capture.
+
+Artifacts include `snapshot-geometry-<entry>-caller.json` (original public calls
+and responses), `snapshot-geometry-<entry>.json` (independent comparisons and
+tab-removal evidence), fifteen PNGs per run (45 across the three scales),
+`snapshot-geometry-server.json` (actual GET
+identities), and the limits record. The runner requires observed OOPIF targets,
+finalized task-tab removal, and the unchanged continuous focus ledger without
+new activation allowances. This finite fixture verifies frame-local geometry
+under static layouts, not cross-frame atomicity, arbitrary dynamic layouts,
+or parent-transform projection. See the
+[snapshot geometry contract](../../docs/references/snapshot-geometry.md).
+
 ## Real Windows native launcher lifecycle
 
 `native-lifecycle.mjs` tests the browser's actual `connectNative` launcher with

@@ -58,6 +58,13 @@ About求值超时。默认Brave `i40fyX` 通过且零焦点事件。同版本主
 实际PNG、697ms零前台事件及独立审计通过。脚手架231/231，独立定向63/63；
 两轮冻结383源码/230旧结果/47制品成员均一致，没有生产改动。已排除
 hover足以修复该输入的假设；下一片补P04，仍不宣称整体能力对齐。
+
+P04位置快照已完成三种原生DPR的五入口专项：`oVaN3m`、`wTM1CH`、
+`x5s4pZ`各10/10及独立审计通过，45张PNG与frame内坐标匹配，观察期间
+零焦点事件。完整CI通过，最终测试脚手架238/238。新主回归`7YcNf9`
+原104项99通过/5失败，另有最终focus账本失败：动态OOPIF chooser未见
+原生打开事件并超时，后段窗口变为minimized且popup无法打开。原因仍待
+定位，不能以专项成功代替全套通过；旧DPR emulation失败也保留。
 详细边界见[生产首次连接检查](../references/vivaldi-input-diagnostic.md#生产首次连接检查)。
 
 | ID | 能力 | 必须验证的行为 | 2026-10-11 当前证据与剩余缺口 |
@@ -65,7 +72,7 @@ hover足以修复该输入的假设；下一片补P04，仍不宣称整体能力
 | P01 | 正式入口 | CLI、MCP、公开 SDK 可做完整任务，不依赖 Codex 私有 native pipe 或临时内联脚本 | JS/Python/CLI/MCP 已通过正式 browserAction 链路；Go facade 已接通，完整任务范围继续扩展 |
 | P02 | 本地通信与安装 | Windows/macOS/Linux host、CLI、各 SDK 可连接；多 profile 选择明确；掉线可恢复 | Windows named pipe、Linux Unix socket 的真实 host/SDK CI 通过；Windows Edge native registration、大消息分片及旧版本拒绝已验。最终 Windows Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3：真实 host 崩溃恢复、运行/暂停扩展 reload 与 EOF 清理，无 Port adapter。packed 重连 alarm 的 heartbeat 饥饿已修复且有确定性回归；实际 packed 唤醒时序、macOS 通信及其他平台安装待验。Edge 隔离配置的生命周期焦点验收仍失败 |
 | P03 | 浏览器兼容 | Chrome、Edge、Brave、Opera、Vivaldi 的安装与发现正确，按品牌确认 profile 布局及独立或共享的 native namespace | Edge Stable 已有 Windows 注册验收，原生生命周期焦点仍失败。Windows Brave/Opera/Vivaldi selector 和默认 profile 发现已验；手动 ZIP 入口已实现，隔离导出/加载/原生启动已验，生产固定名称安装未实测，共享 Google namespace 保留原 origin；复制 UUID 歧义明确拒绝。Opera 无组路径 `7IDBb7` 与 Brave 原分组路径 `vC2mkf` 真实后台多页验收通过，零焦点事件。Vivaldi 旧初始化失败及无点击fill/逐键空值保留；新 `ttYgKb` 在首文档检查及一次明确输入框click后，原fill、提交、截图和关页通过、零前台事件，其后生产首次连接检查在 `yeWkzC` 无TASK_READY完成goto，但输入仍空，见[输入诊断](../references/vivaldi-input-diagnostic.md)。Linux 仅有官方源码确认的 Brave；其他系统和更广生命周期未验，见 [浏览器安装](../references/chromium-browser-installation.md) |
-| P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 原生 ARIA 与 scoped 快照已实测；新增有界 `snapshotAI` 递归 frame 快照和 capture refs，真实元数据、五种限额、过期与取消通过。iframe 备用文本保持合法 YAML；已有 locator boundingBox，快照内 boxes 等更广观察仍待补 |
+| P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 原生 ARIA 与 scoped 快照已实测；有界 `snapshotAI` 递归 frame 快照和 capture refs 的真实元数据、五种限额、过期与取消通过。新增 opt-in boxes/结构化frame视口数据，明确各frame内CSS坐标；五入口×三布局×三原生DPR共45张PNG独立核验通过，见[坐标契约](../references/snapshot-geometry.md)。跨frame原子性、父变换的全局投影与更广动态观察仍未保证；新全套回归存在另行记录的失败 |
 | P05 | 定位器 | CSS、role/name、text、label、placeholder、testId、链式筛选/nth；多匹配严格报错；动态元素等待 | 既有原生 locator、strictness、遮挡等待与 capture ref 生命周期已验。新增有界 `has/hasNot/visible/and/or`、同 client/tab/frame 边界和递归 selector 守卫；最终 77/77 中三个布局、重复/隐藏卡片、同源/OOPIF 组合通过五入口。更多动态网站组合仍待扩展 |
 | P06 | 输入与动作 | click/dblclick/hover/fill/type/key/scroll/drag/select/check；等待稳定和遮挡，不误点；原生及受控表单 | 中文、React/contenteditable、可信逐键输入、HTML 拖放与捕获指针拖动已验。七个完整表单流程覆盖label、多字段descriptor与混合多选、幂等check/uncheck、真实frame保存及准确提交；select change本身不要求硬件可信。取消释放可能触发click，不能回滚。Vivaldi `QAMMuD` 的insertText及 `HrDsGN` 的78条key均ACK但无输入；`ttYgKb` 明确click后原fill收到可信输入并正确提交。后者仅证明单次显式流程，不是通用fill生产修复；品牌兼容、更多受控表单与Unicode仍待补 |
 | P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 同源/OOPIF/嵌套/open shadow 已实测；递归 refs 在 iframe 前插、保留文档重排、20 次重复快照和 8 次替换循环后命中正确节点，frame 生命周期使旧 capture 失效；更多复杂组合仍待补 |

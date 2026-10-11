@@ -1,5 +1,6 @@
 // One explicitly adapted private Playwright channel. Public capture identity,
 // ownership and invalidation remain the engine's responsibility.
+import { validateSnapshotGeometry, snapshotRefFrameId } from "./browser-snapshot-geometry.js";
 const limits = Object.freeze({ maxBytes: 262144, maxNodes: 5000, maxRefs: 2000, maxFrames: 32, maxDepth: 64 });
 const fail = message => new Error(`OBU_SNAPSHOT_INCOMPLETE: ${message}`);
 
@@ -11,8 +12,9 @@ export async function captureAISnapshot(page, options = {}) {
     bounded[name] = value;
   }
   const timeout = options.timeoutMs;
+  if (options.boxes !== undefined && typeof options.boxes !== "boolean") throw new Error("OBU_SNAPSHOT_LIMIT: invalid boxes");
   if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 120000) throw new Error("OBU_SNAPSHOT_LIMIT: invalid timeoutMs");
-  const result = await page._channel.snapshotForAI({ ...bounded, timeout, bounded: true });
+  const result = await page._channel.snapshotForAI({ ...bounded, timeout, bounded: true, ...(options.boxes === true ? { boxes: true } : {}) });
   if (result?.complete !== true || typeof result.snapshot !== "string" || !Array.isArray(result.refs)) throw fail("invalid native result");
   const frames = new Map(page.frames().map(frame => [frame._guid, frame]));
   const refFrames = new Map();
@@ -27,7 +29,23 @@ export async function captureAISnapshot(page, options = {}) {
   for (const [name, cap] of [["bytes", bounded.maxBytes], ["nodes", bounded.maxNodes], ["refs", bounded.maxRefs], ["frames", bounded.maxFrames]]) {
     if (!Number.isSafeInteger(stats[name]) || stats[name] < (name === "nodes" || name === "frames" ? 1 : 0) || stats[name] > cap) throw fail(`invalid ${name} count`);
   }
-  return { snapshot: result.snapshot, refs, stats, complete: true, refFrames };
+  let geometry;
+  if (options.boxes === true) {
+    if (!Array.isArray(result.geometry?.frames)) throw fail("missing native geometry");
+    const nativeFrames = new Map();
+    const publicFrames = result.geometry.frames.map(item => {
+      if (!item || typeof item.frameGuid !== "string" || nativeFrames.has(item.id)) throw fail("invalid geometry frame identity");
+      const frame = frames.get(item.frameGuid);
+      if (!frame || frame.isDetached() || [...nativeFrames.values()].includes(frame)) throw fail("stale geometry frame");
+      if (item.id === "root" ? frame !== page.mainFrame() : frame.parentFrame() !== nativeFrames.get(item.parentId)) throw fail("geometry frame ancestry changed");
+      nativeFrames.set(item.id, frame);
+      const { frameGuid, ...publicItem } = item;
+      return publicItem;
+    });
+    geometry = validateSnapshotGeometry({ ...result.geometry, frames: publicFrames }, { refs, frameCount: stats.frames });
+    for (const ref of refs) if (refFrames.get(ref) !== nativeFrames.get(snapshotRefFrameId(ref))) throw fail("geometry reference frame mismatch");
+  } else if (result.geometry !== undefined) throw fail("unexpected native geometry");
+  return { snapshot: result.snapshot, refs, stats, complete: true, refFrames, ...(geometry ? { geometry } : {}) };
 }
 
 export async function scrollAIRefIntoView(page, ref, metadata, { timeoutMs, check = async () => {} }) {

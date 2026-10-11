@@ -7,9 +7,9 @@ export const BROWSER_ENGINE_INFO = Object.freeze({
   version: "0.15.0",
   playwrightVersion: "1.53.0",
   protocolVersion: 1,
-  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1 }),
+  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1, snapshotBoxes: 1 }),
   snapshotLimits: AI_SNAPSHOT_LIMITS,
-  limitations: ["AI snapshots use OBU capture-scoped refs, not Playwright 1.59+ snapshot options or boxes", "Closed shadow roots are unsupported", "Incognito engine attachment is not yet supported"]
+  limitations: ["AI snapshots use OBU capture-scoped refs and frame-local CSS boxes, not the later Playwright snapshot API or top-frame hit-test coordinates", "Closed shadow roots are unsupported", "Incognito engine attachment is not yet supported"]
 });
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -28,7 +28,7 @@ const locatorActions = new Set([
   "boundingBox", "allTextContents", "allInnerTexts", "dragTo", "scrollIntoViewIfNeeded", "focus", "pressSequentially"
 ]);
 const actionArguments = {
-  engineInfo: [], snapshot: [], snapshotAI: Object.keys(AI_SNAPSHOT_LIMITS), diagnostics: ["after", "limit"],
+  engineInfo: [], snapshot: [], snapshotAI: [...Object.keys(AI_SNAPSHOT_LIMITS), "boxes"], diagnostics: ["after", "limit"],
   click: ["button", "clickCount", "delay", "modifiers", "position", "force"],
   dblclick: ["button", "delay", "modifiers", "position", "force"],
   hover: ["modifiers", "position", "force"],
@@ -84,7 +84,10 @@ export function validateBrowserAction(params) {
   if (!Object.hasOwn(actionArguments, params.action)) throw new Error(`Unsupported browser action: ${params.action}`);
   const args = { ...record(params.args ?? {}, `${params.action} args`) };
   keys(args, actionArguments[params.action], `${params.action} args`);
-  if (params.action === "snapshotAI") snapshotLimits(args);
+  if (params.action === "snapshotAI") {
+    snapshotLimits(args);
+    if (args.boxes !== undefined) boolean(args.boxes, "boxes");
+  }
   const timeout = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   finite(timeout, "timeoutMs", 1);
   if (timeout > MAX_TIMEOUT_MS) throw new Error(`timeoutMs must be <= ${MAX_TIMEOUT_MS}`);
@@ -597,9 +600,9 @@ export class BrowserActionEngine {
             const limits = snapshotLimits(params.args);
             const runtime = await this.runtime();
             await check();
-            const result = await runtime.captureAISnapshot(page, { ...limits, timeoutMs: Math.max(1, deadlineAt - performance.now()) });
+            const result = await runtime.captureAISnapshot(page, { ...limits, ...(params.args.boxes === true ? { boxes: true } : {}), timeoutMs: Math.max(1, deadlineAt - performance.now()) });
             await check();
-            return observation.publish(result, revision, limits);
+            return observation.publish(result, revision, limits, { boxes: params.args.boxes === true });
           }
           // Resolve before an ordinary scoped snapshot invalidates the map. A
           // snapshot through a ref can run once; that capture then expires.

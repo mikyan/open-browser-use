@@ -110,6 +110,12 @@ It is an OBU contract, not the later Playwright snapshot API. Discover it throug
 `engineInfo.capabilities.snapshotAI === 1` and `captureRefs === 1`; protocol v1
 and the embedded engine versions are unchanged.
 
+`capabilities.snapshotBoxes === 1` additionally advertises opt-in `boxes: true`.
+It adds frame-local CSS boxes to the YAML and a structured `geometry` field with
+per-frame viewport metadata and owner refs. Default/false responses keep their
+original shape. These are observation coordinates, not global click positions;
+see [snapshot geometry](snapshot-geometry.md) for the exact schema and limits.
+
 ```json
 {"tabId":123,"action":"snapshotAI","args":{"maxBytes":262144,"maxNodes":5000,"maxRefs":2000,"maxFrames":32,"maxDepth":64},"timeoutMs":10000}
 ```
@@ -179,7 +185,7 @@ All arguments are in `args`; unknown keys are rejected before attachment.
 | Actions | Arguments |
 | --- | --- |
 | `engineInfo`, `snapshot` | none |
-| `snapshotAI` | optional positive integer `maxBytes`, `maxNodes`, `maxRefs`, `maxFrames`, `maxDepth`; no locator |
+| `snapshotAI` | optional positive integer `maxBytes`, `maxNodes`, `maxRefs`, `maxFrames`, `maxDepth`; optional boolean `boxes`; no locator |
 | `diagnostics` | optional `after`: `{captureId, sequence}`, `limit`: integer 1–200 (default 100); no locator |
 | `click`, `dblclick`, `hover` | Appropriate Playwright `button`, `delay`, `modifiers`, `position`, `force`; `click` also supports `clickCount` |
 | `fill` | string `value`, optional `force` |

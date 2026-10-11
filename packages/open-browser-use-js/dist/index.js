@@ -718,7 +718,8 @@ export class OpenBrowserUseTab {
     }
     async snapshotAI(options = {}) {
         const limits = aiSnapshotLimits(options);
-        return expectAISnapshot(await this.action("snapshotAI", actionArgs(options), options), limits);
+        const boxes = options.boxes === true;
+        return expectAISnapshot(await this.action("snapshotAI", actionArgs(options), options), limits, boxes);
     }
     async screenshot(options = {}) {
         return expectScreenshot(await this.action("screenshot", actionArgs(options), options));
@@ -922,20 +923,26 @@ function aiSnapshotLimits(options) {
     for (const [key, value] of Object.entries(options)) {
         if (key === "timeoutMs")
             continue;
+        if (key === "boxes") {
+            if (value !== undefined && typeof value !== "boolean")
+                throw new Error("boxes must be a boolean");
+            continue;
+        }
         if (!Object.hasOwn(aiLimits, key))
             throw new Error(`snapshotAI does not support ${key}`);
         if (value === undefined)
             continue;
         const name = key;
-        if (!Number.isSafeInteger(value) || value < 1 || value > aiLimits[name])
+        if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > aiLimits[name])
             throw new Error(`${key} must be a positive integer <= ${aiLimits[name]}`);
         limits[name] = value;
     }
     return limits;
 }
-function expectAISnapshot(value, limits) {
+function expectAISnapshot(value, limits, boxes) {
     const invalid = () => new Error("Invalid snapshotAI result");
-    if (!isObject(value) || Object.keys(value).some(key => !["captureId", "snapshot", "refs", "stats", "complete"].includes(key)) ||
+    const fields = ["captureId", "snapshot", "refs", "stats", "complete", ...(boxes ? ["geometry"] : [])];
+    if (!isObject(value) || Object.keys(value).length !== fields.length || Object.keys(value).some(key => !fields.includes(key)) ||
         value.complete !== true || typeof value.captureId !== "string" || !value.captureId.length || value.captureId.length > 128 ||
         typeof value.snapshot !== "string" || !Array.isArray(value.refs) || value.refs.length > limits.maxRefs || value.refs.some(ref => !validRef(ref)) ||
         new Set(value.refs).size !== value.refs.length || !isObject(value.stats))
@@ -947,7 +954,42 @@ function expectAISnapshot(value, limits) {
         stats.nodes > limits.maxNodes || stats.refs !== value.refs.length ||
         stats.frames < 1 || stats.frames > limits.maxFrames)
         throw invalid();
+    if (boxes && !validAIGeometry(value.geometry, value.refs, stats.frames))
+        throw invalid();
     return value;
+}
+function validAIGeometry(value, refs, frameCount) {
+    const exact = (value, keys) => isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+    const finite = (value) => typeof value === "number" && Number.isFinite(value);
+    const refFrame = (ref) => /^(f[1-9][0-9]*)e/.exec(ref)?.[1] ?? "root";
+    if (!exact(value, ["coordinateSpace", "frames", "boxes"]) || value.coordinateSpace !== "frame-viewport-css" ||
+        !Array.isArray(value.frames) || value.frames.length !== frameCount || !Array.isArray(value.boxes) || value.boxes.length !== refs.length)
+        return false;
+    const refSet = new Set(refs), boxesByRef = new Map(), frames = new Set(), owners = new Set();
+    for (const entry of value.boxes) {
+        if (!exact(entry, ["ref", "frameId", "box"]) || typeof entry.ref !== "string" || !refSet.has(entry.ref) || boxesByRef.has(entry.ref) ||
+            typeof entry.frameId !== "string" || entry.frameId !== refFrame(entry.ref) || !exact(entry.box, ["x", "y", "width", "height"]) ||
+            !Object.values(entry.box).every(finite) || entry.box.width < 0 || entry.box.height < 0)
+            return false;
+        boxesByRef.set(entry.ref, entry.frameId);
+    }
+    for (const [index, frame] of value.frames.entries()) {
+        if (!exact(frame, ["id", "parentId", "ownerRef", "viewport"]) || typeof frame.id !== "string" || frames.has(frame.id) ||
+            !exact(frame.viewport, ["width", "height", "scrollX", "scrollY", "devicePixelRatio"]) || !Object.values(frame.viewport).every(finite) ||
+            frame.viewport.width < 0 || frame.viewport.height < 0 || frame.viewport.devicePixelRatio <= 0)
+            return false;
+        if (index === 0) {
+            if (frame.id !== "root" || frame.parentId !== null || frame.ownerRef !== null)
+                return false;
+        }
+        else if (/^f([1-9]|[12][0-9]|3[0-2])$/.exec(frame.id)?.[0] !== frame.id || typeof frame.parentId !== "string" || !frames.has(frame.parentId) ||
+            typeof frame.ownerRef !== "string" || owners.has(frame.ownerRef) || boxesByRef.get(frame.ownerRef) !== frame.parentId)
+            return false;
+        frames.add(frame.id);
+        if (typeof frame.ownerRef === "string")
+            owners.add(frame.ownerRef);
+    }
+    return [...boxesByRef.values()].every(frameId => frames.has(frameId));
 }
 export class OpenBrowserUseCdp {
     client;

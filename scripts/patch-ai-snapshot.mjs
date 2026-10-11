@@ -66,7 +66,18 @@ export function patchInjectedAISnapshot(source) {
         key += \` [ref=\${ref}]\${cursor}\`;
         if (options?.obuRefs) {
           if (options.obuRefs.length >= options.obuLimits.maxRefs) throw new Error("OBU_SNAPSHOT_LIMIT: maxRefs");
-          options.obuRefs.push({ ref, line: lines.length, indent, depth: ariaNode2.obuDepth, iframe: ariaNode2.element?.nodeName === "IFRAME" });
+          const item = { ref, line: lines.length, indent, depth: ariaNode2.obuDepth, iframe: ariaNode2.element?.nodeName === "IFRAME" };
+          if (options.boxes) {
+            const element = ariaNode2.element;
+            if (!element?.isConnected) throw new Error("OBU_SNAPSHOT_INCOMPLETE: disconnected reference element");
+            const rect = element.getBoundingClientRect();
+            const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+            if (!element.isConnected || !Object.values(box).every(Number.isFinite) || box.width < 0 || box.height < 0)
+              throw new Error("OBU_SNAPSHOT_INCOMPLETE: invalid reference bounds");
+            item.box = box;
+            key += \` [box=\${box.x},\${box.y},\${box.width},\${box.height}]\`;
+          }
+          options.obuRefs.push(item);
         }
       }`);
   // A frame document is appended as nested YAML. Use the native collection
@@ -79,7 +90,16 @@ export function patchInjectedAISnapshot(source) {
   source = replaceOnce(source, "    return renderAriaTree(this._lastAriaSnapshot, options);", `    if (options?.obuLimits) {
       const refs = [];
       const snapshot = renderAriaTree(this._lastAriaSnapshot, { ...options, obuRefs: refs });
-      return { snapshot, refs, nodes: this._lastAriaSnapshot.obuNodeCount };
+      const result = { snapshot, refs, nodes: this._lastAriaSnapshot.obuNodeCount };
+      if (options.boxes) {
+        const view = node.ownerDocument.defaultView;
+        if (!node.isConnected || !view) throw new Error("OBU_SNAPSHOT_INCOMPLETE: unavailable frame viewport");
+        const viewport = { width: view.innerWidth, height: view.innerHeight, scrollX: view.scrollX, scrollY: view.scrollY, devicePixelRatio: view.devicePixelRatio };
+        if (!Object.values(viewport).every(Number.isFinite) || viewport.width < 0 || viewport.height < 0 || viewport.devicePixelRatio <= 0)
+          throw new Error("OBU_SNAPSHOT_INCOMPLETE: invalid frame viewport");
+        result.viewport = viewport;
+      }
+      return result;
     }
     return renderAriaTree(this._lastAriaSnapshot, options);`);
   return source;
@@ -97,7 +117,8 @@ function obuSnapshotOptions(options) {
     result[key] = value;
   }
   if (!Number.isFinite(options.timeout) || options.timeout <= 0 || options.timeout > 120000) throw new Error("OBU_SNAPSHOT_LIMIT: invalid timeout");
-  return { ...result, timeout: options.timeout };
+  if (options.boxes !== undefined && typeof options.boxes !== "boolean") throw new Error("OBU_SNAPSHOT_INCOMPLETE: invalid boxes option");
+  return { ...result, timeout: options.timeout, boxes: options.boxes === true };
 }
 function obuFrameOrdinal(frameIds, frame) {
   let index = frameIds.indexOf(frame._id);
@@ -113,7 +134,7 @@ function obuSnapshotTime(budget) {
   if (remaining <= 0) throw new TimeoutError$1("OBU_SNAPSHOT_TIMEOUT: capture deadline exceeded");
   return remaining;
 }
-async function obuSnapshotFrame(metadata, frame, ordinal, frameIds, budget, prefix = "", depth = 0) {
+async function obuSnapshotFrame(metadata, frame, ordinal, frameIds, budget, prefix = "", depth = 0, parentId = null, ownerRef = null) {
   if (++budget.frames > budget.limits.maxFrames) throw new Error("OBU_SNAPSHOT_LIMIT: maxFrames");
   const controller = new ProgressController(metadata, frame);
   const captured = await controller.run(progress => frame.retryWithProgressAndTimeouts(progress, [100, 250, 500], async continuePolling => {
@@ -123,7 +144,7 @@ async function obuSnapshotFrame(metadata, frame, ordinal, frameIds, budget, pref
       const body = script.document.body;
       if (!body) return null;
       return script.ariaSnapshot(body, options);
-    }, { forAI: true, refPrefix: ordinal ? "f" + ordinal : "", obuLimits: {
+    }, { forAI: true, refPrefix: ordinal ? "f" + ordinal : "", ...(budget.limits.boxes ? { boxes: true } : {}), obuLimits: {
       maxNodes: budget.limits.maxNodes - budget.nodes,
       maxRefs: budget.limits.maxRefs - budget.refs.length,
       maxBytes: budget.limits.maxBytes - budget.bytes,
@@ -131,11 +152,17 @@ async function obuSnapshotFrame(metadata, frame, ordinal, frameIds, budget, pref
     } }).then(value => value === null ? continuePolling : value);
   }), obuSnapshotTime(budget));
   budget.nodes += captured.nodes;
+  const frameId = ordinal ? "f" + ordinal : "root";
+  if (budget.limits.boxes) {
+    obuSnapshotTime(budget);
+    budget.geometry.frames.push({ id: frameId, frameGuid: frame.guid, parentId, ownerRef, viewport: captured.viewport });
+  }
   const framesByLine = new Map();
   for (const item of captured.refs) {
     if (budget.seenRefs.has(item.ref)) throw new Error("OBU_SNAPSHOT_INCOMPLETE: duplicate native reference");
     budget.seenRefs.add(item.ref);
     budget.refs.push({ ref: item.ref, frameGuid: frame.guid });
+    if (budget.limits.boxes) budget.geometry.boxes.push({ ref: item.ref, frameId, box: item.box });
     if (item.iframe) framesByLine.set(item.line, item);
   }
   const lines = captured.snapshot ? captured.snapshot.split("\\n") : [];
@@ -151,7 +178,7 @@ async function obuSnapshotFrame(metadata, frame, ordinal, frameIds, budget, pref
     const child = await frame.selectors.resolveFrameForSelector(selector, { strict: true });
     if (!child) throw new Error("OBU_SNAPSHOT_INCOMPLETE: iframe disappeared during capture");
     const childOrdinal = obuFrameOrdinal(frameIds, child.frame);
-    await obuSnapshotFrame(metadata, child.frame, childOrdinal, frameIds, budget, prefix + marker.indent + "  ", depth + marker.depth);
+    await obuSnapshotFrame(metadata, child.frame, childOrdinal, frameIds, budget, prefix + marker.indent + "  ", depth + marker.depth, frameId, marker.ref);
   }
 }
 `;
@@ -171,12 +198,22 @@ export function patchCrxAISnapshot(source) {
   const injected = patchInjectedAISnapshot(decoded);
   source = source.slice(0, injectedStart) + `const source$4 = ${JSON.stringify(injected)};` + source.slice(injectedEnd);
   source = replaceOnce(source, "scheme.PageSnapshotForAIParams = tOptional(tObject({}));\nscheme.PageSnapshotForAIResult = tObject({\n  snapshot: tString\n});", `scheme.PageSnapshotForAIParams = tOptional(tObject({
-  bounded: tOptional(tBoolean), timeout: tOptional(tNumber),
+  bounded: tOptional(tBoolean), timeout: tOptional(tNumber), boxes: tOptional(tBoolean),
   maxBytes: tOptional(tNumber), maxNodes: tOptional(tNumber), maxRefs: tOptional(tNumber), maxFrames: tOptional(tNumber), maxDepth: tOptional(tNumber)
 }));
 scheme.PageSnapshotForAIResult = tObject({
   snapshot: tString,
   refs: tOptional(tArray(tObject({ ref: tString, frameGuid: tString }))),
+  geometry: tOptional(tObject({
+    coordinateSpace: tEnum(["frame-viewport-css"]),
+    frames: tArray(tObject({
+      id: tString, frameGuid: tString,
+      parentId: (value, path, context) => value === null ? null : tString(value, path, context),
+      ownerRef: (value, path, context) => value === null ? null : tString(value, path, context),
+      viewport: tObject({ width: tNumber, height: tNumber, scrollX: tNumber, scrollY: tNumber, devicePixelRatio: tNumber })
+    })),
+    boxes: tArray(tObject({ ref: tString, frameId: tString, box: tObject({ x: tNumber, y: tNumber, width: tNumber, height: tNumber }) }))
+  })),
   stats: tOptional(tObject({ bytes: tNumber, nodes: tNumber, refs: tNumber, frames: tNumber })),
   complete: tOptional(tBoolean)
 });`);
@@ -196,8 +233,9 @@ scheme.PageSnapshotForAIResult = tObject({
     const limits = obuSnapshotOptions(options);
     if (liveFrames.length > limits.maxFrames || this.lastSnapshotFrameIds.length > limits.maxFrames) throw new Error("OBU_SNAPSHOT_LIMIT: maxFrames");
     const budget = { limits, deadline: performance.now() + limits.timeout, refs: [], seenRefs: new Set(), lines: [], bytes: 0, nodes: 0, frames: 0 };
+    if (limits.boxes) budget.geometry = { coordinateSpace: "frame-viewport-css", frames: [], boxes: [] };
     await obuSnapshotFrame(metadata, this.mainFrame(), 0, this.lastSnapshotFrameIds, budget);
-    return { snapshot: budget.lines.join("\\n"), refs: budget.refs, stats: { bytes: budget.bytes, nodes: budget.nodes, refs: budget.refs.length, frames: budget.frames }, complete: true };
+    return { snapshot: budget.lines.join("\\n"), refs: budget.refs, stats: { bytes: budget.bytes, nodes: budget.nodes, refs: budget.refs.length, frames: budget.frames }, complete: true, ...(limits.boxes ? { geometry: budget.geometry } : {}) };
   }`);
   source = replaceOnce(source, "    const frameOrdinal2 = frameIds.length + 1;\n    frameIds.push(child.frame._id);", "    const frameOrdinal2 = obuFrameOrdinal(frameIds, child.frame);");
   source = replaceOnce(source, `  async snapshotForAI(params, metadata) {

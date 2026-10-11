@@ -654,10 +654,14 @@ class OpenBrowserUseTab(LocatorFactory):
 
     def snapshot_ai(self, *, max_bytes: int | None = None, max_nodes: int | None = None,
                     max_refs: int | None = None, max_frames: int | None = None,
-                    max_depth: int | None = None, timeout_ms: int | None = None) -> AISnapshot:
+                    max_depth: int | None = None, timeout_ms: int | None = None, boxes: bool = False) -> AISnapshot:
+        if type(boxes) is not bool:
+            raise ValueError("boxes must be a boolean")
         args, limits = snapshot_limits({"maxBytes": max_bytes, "maxNodes": max_nodes,
                                        "maxRefs": max_refs, "maxFrames": max_frames, "maxDepth": max_depth})
-        return validate_snapshot(self.action("snapshotAI", args=args, timeout_ms=timeout_ms), limits)
+        if boxes:
+            args["boxes"] = True
+        return validate_snapshot(self.action("snapshotAI", args=args, timeout_ms=timeout_ms), limits, boxes)
 
     def expect_url(self, url: str, *, wait_until: NavigationWaitUntil = "load", timeout_ms: int | None = None) -> OpenBrowserUseNavigationWait:
         return self.browser.client._expect_navigation(self.id, navigation_params("url", url, wait_until, timeout_ms))
@@ -728,9 +732,9 @@ class OpenBrowserUseTabPlaywright(LocatorFactory):
 
     def snapshot_ai(self, *, max_bytes: int | None = None, max_nodes: int | None = None,
                     max_refs: int | None = None, max_frames: int | None = None,
-                    max_depth: int | None = None, timeout_ms: int | None = None) -> AISnapshot:
+                    max_depth: int | None = None, timeout_ms: int | None = None, boxes: bool = False) -> AISnapshot:
         return self.tab.snapshot_ai(max_bytes=max_bytes, max_nodes=max_nodes, max_refs=max_refs,
-                                    max_frames=max_frames, max_depth=max_depth, timeout_ms=timeout_ms)
+                                    max_frames=max_frames, max_depth=max_depth, timeout_ms=timeout_ms, boxes=boxes)
 
     def screenshot(self, *, timeout_ms: int | None = None, **options: Any) -> JsonObject:
         return self.tab.screenshot(timeout_ms=timeout_ms, **options)

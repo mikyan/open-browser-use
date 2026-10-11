@@ -214,6 +214,29 @@ omit an option. Limit or child-capture failures return errors, not partial
 success. Engine metadata advertises `capabilities: {snapshotAI: 1, captureRefs: 1}`
 and `snapshotLimits`; unsupported engines do not fall back to ordinary snapshots.
 
+`tab.SnapshotAI(obu.AISnapshotOptions{Boxes: true})` adds a non-nil
+`capture.Geometry` (`*AISnapshotGeometry`). It contains `CoordinateSpace` equal
+to `"frame-viewport-css"`, `Frames` and `Boxes`. Each `AISnapshotFrame` contains
+`ID`, `ParentID`, `OwnerRef` and `Viewport` (`Width`, `Height`, `ScrollX`, `ScrollY`,
+`DevicePixelRatio`). Root parent/owner pointers are nil; child frames name their
+parent's iframe ref. Sparse `f1`–`f32` slots preserve native frame identity.
+Each ref has one `AISnapshotRefBox{Ref, FrameID, Box}`; `AISnapshotBox` contains
+`X`, `Y`, `Width`, `Height`.
+
+Bounds are unclipped axis-aligned CSS viewport coordinates in the identified
+frame, including transforms within that document. They are not projected through
+ancestor iframe transforms into top-page coordinates, divided by DPR or clipped
+to visible content. Negative positions and zero dimensions are valid. Layout
+can change while a ref still identifies the original Element; these observations
+do not guarantee clickability or its current position. YAML annotations use
+`[box=x,y,width,height]`, and `MaxBytes` counts the full annotated UTF-8 YAML.
+Only structured native metadata supplies refs and geometry. All frame reads
+share the original action deadline; this is not an atomic multi-document layout
+snapshot. `Boxes: false` omits the option and preserves the old shape/ nil geometry.
+The SDK rejects malformed, missing or unsolicited geometry. Engine capability
+`snapshotBoxes: 1` advertises support; unsupported requests fail without retrying
+or falling back.
+
 `GetByRef` is available on `Tab` and `TabPlaywright`. It returns a singleton
 locator for the original connected Element and supports ordinary actions, reads,
 screenshots and same-tab drag targets. Deriving CSS, semantic, frame, ordinal or

@@ -261,3 +261,16 @@ Codex Edge同fixture三布局最终报告 **3/3**，无浏览器方法失败/替
 该端无独立OS焦点/原生生命周期账本，合成脚本任务也不证明模型的开放
 网页研究水平；完整P15和其他既有缺口仍开放，详见
 [shared research workflow](references/shared-research-workflow.md)。
+
+位置快照新增opt-in `boxes:true`：三原生DPR专项`oVaN3m`/`wTM1CH`/
+`x5s4pZ`各10/10，45张PNG、315目标框、180 iframe owner框和原生ref读取
+经独立审计通过，坐标偏差0，三个观察区间均零focus/activation。完整CI
+扩展836、构建脚本59、集成脚手架236、JS120、Python86及Go通过且零跳过；
+随后只修测试DPR配置/Go截图编码，最终脚手架238及Go新增1项通过。
+新48文件ZIP SHA-256为`48b3ebce87df69537f46ce55df8886412419e8a97c387a83c03aca2b3fc5309b`。
+
+最新完整回归`7YcNf9`实际exit1：原104项99通过/5失败，另有focus最终
+校验失败。动态OOPIF chooser在点击ACK后未观察到打开事件，原10秒等待
+超时；后段出现未归因focus事件，窗口最终minimized，两个popup失败。
+这两种问题尚未定因，不能用本轮专项通过更新全套为通过。首轮动态DPR
+失败`tIVleQ`及其审计、旧外部操作干扰轮都保留，目标继续active。

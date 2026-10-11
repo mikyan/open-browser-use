@@ -235,6 +235,35 @@ default and maximum. Exceeding a limit fails instead of truncating the capture.
 and `snapshotLimits`; the bundled Playwright version alone is not a capability
 test. An outdated extension fails explicitly; there is no fallback.
 
+Set `boxes: true` to include capture-time geometry:
+
+```js
+const capture = await tab.snapshotAI({ boxes: true });
+console.log(capture.geometry.frames, capture.geometry.boxes);
+```
+
+The additional `geometry` has `coordinateSpace: "frame-viewport-css"`, `frames`
+and `boxes`. Each frame records `id`, `parentId`, `ownerRef` and its `viewport`
+(`width`, `height`, `scrollX`, `scrollY`, `devicePixelRatio`). The root has null
+parent/owner; other frames point to their parent's iframe ref. Each ref has one
+`{ref, frameId, box: {x, y, width, height}}` entry. Sparse `f1`–`f32` slots retain
+native frame identity. These are unclipped axis-aligned bounds in that frame's
+own CSS viewport, including transforms within its document. They are not
+projected through ancestor iframe transforms into top-page coordinates, divided
+by DPR, or clipped to visibility. Offscreen coordinates may be negative and
+zero-sized boxes are valid. Bounds are observations, not a clickability or
+current-position guarantee; layout can change without changing the ref.
+
+The YAML also includes `[box=x,y,width,height]` annotations; `maxBytes` counts
+the complete annotated UTF-8 YAML. Structured metadata alone supplies refs and
+geometry. Capturing all frames shares the original action deadline and is not
+an atomic multi-document layout snapshot. `boxes` omitted/false keeps the old
+response shape. The SDK rejects missing, unsolicited or malformed geometry;
+an engine advertising `capabilities.snapshotBoxes === 1` supports this option.
+Unsupported requests fail explicitly without retry or fallback. Geometry types
+are exported as `OpenBrowserUseAISnapshotGeometry`, `OpenBrowserUseAISnapshotFrame`
+and `OpenBrowserUseAISnapshotBox`.
+
 `getByRef(captureId, ref)` creates a singleton locator for the original connected
 Element. It supports ordinary actions, reads and element screenshots, including
 use as a same-tab drag target, but rejects `locator`, `frameLocator`, `getBy*`,

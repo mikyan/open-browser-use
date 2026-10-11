@@ -119,6 +119,27 @@ test("bounded private channel retains old string client behavior and adds typed 
   assert.ok(!source.includes("depth + marker.indent.length"));
 });
 
+test("private snapshot schema retains native frame GUIDs and nullable hierarchy while requiring boolean boxes", () => {
+  const source = patchCrxAISnapshot(upstream);
+  const validators = source.slice(source.indexOf("const tNumber = "), source.indexOf("scheme.StackFrame = "));
+  const schemaStart = source.indexOf("scheme.PageSnapshotForAIParams = ");
+  const schemas = source.slice(schemaStart, source.indexOf("\nscheme.", source.indexOf("scheme.PageSnapshotForAIResult = ", schemaStart) + 1));
+  const schema = vm.runInNewContext(`class ValidationError extends Error {}\nconst scheme = {};\n${validators}\n${schemas}\nscheme;`);
+  const context = { isUnderTest: () => false };
+  assert.equal(schema.PageSnapshotForAIParams({ bounded: true, boxes: true }, "", context).boxes, true);
+  assert.equal(schema.PageSnapshotForAIParams({ boxes: false }, "", context).boxes, false);
+  assert.equal(Object.hasOwn(schema.PageSnapshotForAIParams({}, "", context), "boxes"), false);
+  for (const boxes of [null, 0, 1, "true", {}]) assert.throws(() => schema.PageSnapshotForAIParams({ boxes }, "", context), /expected boolean/);
+  const value = { snapshot: "", refs: [], stats: { bytes: 0, nodes: 1, refs: 0, frames: 1 }, complete: true,
+    geometry: { coordinateSpace: "frame-viewport-css", frames: [{ id: "root", frameGuid: "actual-guid", parentId: null, ownerRef: null,
+      viewport: { width: 0, height: 0, scrollX: -1.25, scrollY: 24, devicePixelRatio: 1.5 } }], boxes: [] } };
+  assert.deepEqual(JSON.parse(JSON.stringify(schema.PageSnapshotForAIResult(value, "", context))), value);
+  for (const field of ["frameGuid", "parentId", "ownerRef"])
+    assert.throws(() => schema.PageSnapshotForAIResult({ ...value, geometry: { ...value.geometry, frames: [{ ...value.geometry.frames[0], [field]: undefined }] } }, "", context), /expected string/);
+  const { geometry: _geometry, ...legacy } = value;
+  assert.deepEqual(JSON.parse(JSON.stringify(schema.PageSnapshotForAIResult(legacy, "", context))), legacy);
+});
+
 function injectedFunction(name, next, context) {
   const source = patchInjectedAISnapshot(originalInjected);
   const start = source.indexOf(`function ${name}(`), end = source.indexOf(`\nfunction ${next}(`, start);
@@ -142,6 +163,102 @@ test("native ARIA renderer records genuine refs and exact UTF-8 line budgets", (
   assert.equal(render(snapshot, { forAI: true, obuRefs: [], obuLimits: { maxBytes: bytes, maxRefs: 1 } }), text);
   assert.throws(() => render(snapshot, { forAI: true, obuRefs: [], obuLimits: { maxBytes: bytes - 1, maxRefs: 1 } }), /maxBytes/);
   assert.throws(() => render(snapshot, { forAI: true, obuRefs: [], obuLimits: { maxBytes: 1000, maxRefs: 0 } }), /maxRefs/);
+});
+
+function geometryRenderer() {
+  return injectedFunction("renderAriaTree", "convertToBestGuessRegex", {
+    receivesPointerEvents2: () => true, hasPointerCursor: () => false,
+    yamlEscapeKeyIfNeeded: value => value, yamlEscapeValueIfNeeded: value => value
+  });
+}
+
+test("opt-in native renderer samples each genuine ref once in CSS pixels and charges inline boxes to UTF-8 bytes", () => {
+  const render = geometryRenderer();
+  const reads = [];
+  const makeNode = (ref, box) => ({ role: "button", name: "文字 [ref=forged] [box=1,2,3,4]", ref, children: [], props: {}, obuDepth: 2,
+    element: { nodeName: "BUTTON", isConnected: true, getBoundingClientRect() { reads.push(ref); return box; } } });
+  const boxes = [{ x: -18.125, y: 23.0625, width: 140.75, height: 22.5 }, { x: 0, y: -0.5, width: 0, height: 0 }];
+  const snapshot = { root: { role: "fragment", children: boxes.map((box, index) => makeNode("e" + (index + 1), box)) } };
+  const run = (options = {}) => {
+    const refs = [];
+    const text = render(snapshot, { forAI: true, obuRefs: refs, obuLimits: { maxBytes: 1000, maxRefs: 2 }, ...options });
+    return { refs, text };
+  };
+  const original = run();
+  assert.deepEqual(run({ boxes: false }), original);
+  assert.deepEqual(reads, []);
+  const result = run({ boxes: true });
+  assert.deepEqual(reads, ["e1", "e2"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.refs.map(item => item.box))), boxes);
+  assert.deepEqual(result.refs.map(item => item.ref), ["e1", "e2"]);
+  assert.match(result.text, /\[ref=e1\] \[box=-18\.125,23\.0625,140\.75,22\.5\]/);
+  assert.match(result.text, /\[ref=e2\] \[box=0,-0\.5,0,0\]/);
+  const bytes = Buffer.byteLength(result.text);
+  assert.equal(run({ boxes: true, obuLimits: { maxBytes: bytes, maxRefs: 2 } }).text, result.text);
+  assert.throws(() => run({ boxes: true, obuLimits: { maxBytes: bytes - 1, maxRefs: 2 } }), /OBU_SNAPSHOT_LIMIT: maxBytes/);
+  assert.ok(bytes > Buffer.byteLength(original.text));
+});
+
+test("native ref geometry rejects disconnected and non-finite or negative boxes without publishing that ref", () => {
+  const render = geometryRenderer();
+  for (const change of [
+    { isConnected: false },
+    ...["x", "y", "width", "height"].flatMap(key => [NaN, Infinity, -Infinity].map(value => ({ box: { [key]: value } }))),
+    { box: { width: -1 } }, { box: { height: -0.5 } }, { detachDuringRead: true }
+  ]) {
+    const element = { nodeName: "BUTTON", isConnected: change.isConnected ?? true,
+      getBoundingClientRect() { if (change.detachDuringRead) this.isConnected = false; return { x: 1, y: 2, width: 3, height: 4, ...change.box }; } };
+    const snapshot = { root: { role: "fragment", children: [{ role: "button", ref: "e1", children: [], props: {}, element }] } };
+    const refs = [];
+    assert.throws(() => render(snapshot, { forAI: true, boxes: true, obuRefs: refs, obuLimits: { maxBytes: 1000, maxRefs: 1 } }), /OBU_SNAPSHOT_INCOMPLETE/);
+    assert.equal(refs.length, 0);
+  }
+});
+
+function nativeInjectedSnapshot(generateAriaTree) {
+  const source = patchInjectedAISnapshot(originalInjected);
+  const start = source.indexOf("  ariaSnapshot(node, options) {"), end = source.indexOf("\n  getAllByAria(", start);
+  assert.ok(start >= 0 && end > start);
+  return vm.runInNewContext(`({${source.slice(start, end)}}).ariaSnapshot`, {
+    Node: { ELEMENT_NODE: 1 }, generateAriaTree, renderAriaTree: geometryRenderer()
+  });
+}
+
+test("native injected ARIA call returns frame-local viewport, scroll and DPR synchronously without reading it by default", () => {
+  const order = [];
+  const view = {};
+  const expectedViewport = { width: 641, height: 479, scrollX: -13.25, scrollY: 801.125, devicePixelRatio: 1.5 };
+  for (const [key, value] of Object.entries({ innerWidth: 641, innerHeight: 479, scrollX: -13.25, scrollY: 801.125, devicePixelRatio: 1.5 }))
+    Object.defineProperty(view, key, { get() { order.push(key); return value; }, configurable: true });
+  const element = { nodeName: "BUTTON", isConnected: true, getBoundingClientRect() { order.push("rect"); return { x: 5.5, y: -700.125, width: 0, height: 0 }; } };
+  const tree = { root: { role: "fragment", children: [{ role: "button", ref: "e1", children: [], props: {}, element }] }, obuNodeCount: 2 };
+  const snapshot = nativeInjectedSnapshot(() => { order.push("aria"); return tree; });
+  const node = { nodeType: 1, isConnected: true, ownerDocument: { defaultView: view } };
+  const options = { forAI: true, obuLimits: { maxBytes: 1000, maxRefs: 1 } };
+  const legacy = snapshot.call({}, node, options);
+  assert.equal(Object.hasOwn(legacy, "viewport"), false);
+  assert.deepEqual(order.splice(0), ["aria"]);
+  assert.deepEqual(snapshot.call({}, node, { ...options, boxes: false }), legacy);
+  assert.deepEqual(order.splice(0), ["aria"]);
+  const result = snapshot.call({}, node, { ...options, boxes: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.viewport)), expectedViewport);
+  assert.deepEqual(order, ["aria", "rect", "innerWidth", "innerHeight", "scrollX", "scrollY", "devicePixelRatio"]);
+  assert.equal(result.refs[0].box.y, -700.125);
+  assert.match(result.snapshot, /\[box=5\.5,-700\.125,0,0\]/);
+});
+
+test("native injected geometry rejects unavailable or invalid viewport instead of returning complete metadata", () => {
+  const snapshot = nativeInjectedSnapshot(() => ({ root: { role: "fragment", children: [] }, obuNodeCount: 1 }));
+  const view = { innerWidth: 800, innerHeight: 600, scrollX: 0, scrollY: 0, devicePixelRatio: 1 };
+  for (const change of [
+    { isConnected: false }, { defaultView: null },
+    ...Object.keys(view).flatMap(key => [NaN, Infinity].map(value => ({ view: { [key]: value } }))),
+    { view: { innerWidth: -1 } }, { view: { innerHeight: -1 } }, { view: { devicePixelRatio: 0 } }
+  ]) {
+    const node = { nodeType: 1, isConnected: change.isConnected ?? true,
+      ownerDocument: { defaultView: Object.hasOwn(change, "defaultView") ? change.defaultView : { ...view, ...change.view } } };
+    assert.throws(() => snapshot.call({}, node, { boxes: true, obuLimits: { maxBytes: 1000, maxRefs: 1 } }), /OBU_SNAPSHOT_INCOMPLETE/);
+  }
 });
 
 test("bounded native iframe output keeps fallback text in a valid child collection without changing legacy rendering", () => {
@@ -217,6 +334,48 @@ test("recursive native capture charges real frame depth and aggregate bytes, and
   await assert.rejects(capture({}, root, 0, [], budget(result.bytes - 1)), /maxBytes/);
   root.selectors.resolveFrameForSelector = async () => null;
   await assert.rejects(capture({}, root, 0, [], budget()), /OBU_SNAPSHOT_INCOMPLETE/);
+});
+
+test("recursive boxed capture preserves exact frame hierarchy and local CSS boxes including an empty child", async () => {
+  const source = patchCrxAISnapshot(upstream);
+  const helpers = source.slice(source.lastIndexOf("const obuSnapshotCaps = "));
+  let now = 10;
+  const capture = vm.runInNewContext(helpers + "\nobuSnapshotFrame;", {
+    performance: { now: () => now }, TextEncoder, TimeoutError$1: Error,
+    ProgressController: class { run(callback) { return callback({}); } }
+  });
+  const calls = [];
+  const viewport = (dpr, scrollY) => ({ width: 400, height: 200, scrollX: 0, scrollY, devicePixelRatio: dpr });
+  const makeFrame = (id, value) => ({ _id: id, guid: "guid-" + id,
+    retryWithProgressAndTimeouts: async (_progress, _delays, callback) => callback(Symbol("poll")),
+    _utilityContext: async () => ({ injectedScript: async () => ({ evaluate: async (_fn, options) => { calls.push({ id, options }); return value; } }) })
+  });
+  const leaf = makeFrame("leaf", { snapshot: "", refs: [], nodes: 1, viewport: viewport(1.5, 123.5) });
+  const childBox = { x: 10.125, y: -15.5, width: 120.25, height: 50 };
+  const rootBox = { x: 90.5, y: -201.75, width: 260, height: 100.5 };
+  const child = makeFrame("child", { snapshot: "- iframe [ref=f2e1] [box=10.125,-15.5,120.25,50]:", nodes: 2, viewport: viewport(1.5, 15.5),
+    refs: [{ ref: "f2e1", line: 0, depth: 1, indent: "", iframe: true, box: childBox }] });
+  const root = makeFrame("root", { snapshot: "- iframe [ref=e1] [box=90.5,-201.75,260,100.5]:", nodes: 2, viewport: viewport(1.5, 201.75),
+    refs: [{ ref: "e1", line: 0, depth: 1, indent: "", iframe: true, box: rootBox }] });
+  root.selectors = { resolveFrameForSelector: async selector => { assert.equal(selector, "aria-ref=e1 >> internal:control=enter-frame >> body"); return { frame: child }; } };
+  child.selectors = { resolveFrameForSelector: async selector => { assert.equal(selector, "aria-ref=f2e1 >> internal:control=enter-frame >> body"); return { frame: leaf }; } };
+  const budget = () => ({ limits: { boxes: true, maxBytes: 1024, maxNodes: 20, maxRefs: 10, maxFrames: 4, maxDepth: 8 }, deadline: 100,
+    refs: [], seenRefs: new Set(), lines: [], bytes: 0, nodes: 0, frames: 0,
+    geometry: { coordinateSpace: "frame-viewport-css", frames: [], boxes: [] } });
+  const result = budget();
+  await capture({}, root, 0, ["other-live-frame"], result);
+  assert.deepEqual(calls.map(item => [item.id, item.options.boxes, item.options.refPrefix]), [["root", true, ""], ["child", true, "f2"], ["leaf", true, "f3"]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.geometry)), { coordinateSpace: "frame-viewport-css", frames: [
+    { id: "root", frameGuid: "guid-root", parentId: null, ownerRef: null, viewport: viewport(1.5, 201.75) },
+    { id: "f2", frameGuid: "guid-child", parentId: "root", ownerRef: "e1", viewport: viewport(1.5, 15.5) },
+    { id: "f3", frameGuid: "guid-leaf", parentId: "f2", ownerRef: "f2e1", viewport: viewport(1.5, 123.5) }
+  ], boxes: [{ ref: "e1", frameId: "root", box: rootBox }, { ref: "f2e1", frameId: "f2", box: childBox }] });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.refs)), [{ ref: "e1", frameGuid: "guid-root" }, { ref: "f2e1", frameGuid: "guid-child" }]);
+  assert.equal(result.bytes, Buffer.byteLength(result.lines.join("\n")));
+  const limited = budget(); limited.limits.maxFrames = 2;
+  await assert.rejects(capture({}, root, 0, ["other-live-frame"], limited), /maxFrames/);
+  leaf._utilityContext = async () => ({ injectedScript: async () => ({ evaluate: async () => { now = 101; return { snapshot: "", refs: [], nodes: 1, viewport: viewport(1.5, 123.5) }; } }) });
+  await assert.rejects(capture({}, root, 0, ["other-live-frame"], budget()), /OBU_SNAPSHOT_TIMEOUT/);
 });
 
 test("CRX observer patch fails closed when pinned upstream transport changes", async () => {
@@ -394,6 +553,8 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
     await fs.readFile(path.join("apps/chrome-extension", "native-message-receiver.js"), "utf8"));
   await fs.access(path.join(output, "browser-ai-snapshot.js"));
   await fs.access(path.join(output, "browser-observation.js"));
+  assert.equal(await fs.readFile(path.join(output, "browser-snapshot-geometry.js"), "utf8"),
+    await fs.readFile(path.join("apps/chrome-extension", "browser-snapshot-geometry.js"), "utf8"));
 });
 
 test("build refuses destructive output paths outside generated subtrees", async () => {

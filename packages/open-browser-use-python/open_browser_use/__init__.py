@@ -12,7 +12,7 @@ from .client import (
     OpenBrowserUseTabPlaywright,
     connect_open_browser_use,
 )
-from ._ai_snapshot import AISnapshot, AISnapshotStats
+from ._ai_snapshot import AISnapshot, AISnapshotStats, AISnapshotBox, AISnapshotViewport, AISnapshotFrame, AISnapshotRefBox, AISnapshotGeometry
 from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResult, OpenBrowserUseNetworkWait
 
 from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait
@@ -34,6 +34,7 @@ __all__ = [
     "OpenBrowserUseNetworkWait",
     "AISnapshot",
     "AISnapshotStats",
+    "AISnapshotBox", "AISnapshotViewport", "AISnapshotFrame", "AISnapshotRefBox", "AISnapshotGeometry",
     "OpenBrowserUseBrowser",
     "OpenBrowserUseCdp",
     "OpenBrowserUseClient",

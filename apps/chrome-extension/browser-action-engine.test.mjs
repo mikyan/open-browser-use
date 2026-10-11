@@ -24,7 +24,7 @@ function aiFixture(methods) {
 test("AI options and singleton reference selectors are finite before runtime attachment", async () => {
   let loads = 0;
   const engine = new BrowserActionEngine({ loadRuntime: async () => { loads++; } });
-  for (const args of [{ maxBytes: 0 }, { maxNodes: 5001 }, { maxRefs: 1.1 }, { maxDepth: null }, { maxFrames: 33 }, { unknown: 1 }])
+  for (const args of [{ maxBytes: 0 }, { maxNodes: 5001 }, { maxRefs: 1.1 }, { maxDepth: null }, { maxFrames: 33 }, { unknown: 1 }, { boxes: null }, { boxes: "true" }, { boxes: 1 }])
     await assert.rejects(engine.dispatch(request("snapshotAI", { args })));
   await assert.rejects(engine.dispatch(request("snapshotAI", { locator })));
   for (const descriptor of [
@@ -87,6 +87,36 @@ test("standalone engine selector guard defaults to unrestricted without adding w
   assert.equal((await engine.dispatch(request("count", { locator: [{ kind: "css", selector: "button" }] }))).value, 1);
   assert.deepEqual(checked, [["button", false]]);
   assert.throws(() => validateBrowserAction(request("count", { locator, restrictedSelectors: false })), /does not support restrictedSelectors/);
+});
+
+test("boxes opt-in reaches the bounded runtime without a rendering lease or a renewed deadline", async () => {
+  const f = aiFixture();
+  const capturedOptions = [], original = f.runtime.captureAISnapshot;
+  let renderingLeases = 0;
+  f.runtime.captureAISnapshot = async (page, options) => {
+    capturedOptions.push(options);
+    const result = await original(page, options);
+    if (options.boxes) result.geometry = { coordinateSpace: "frame-viewport-css",
+      frames: [{ id: "root", parentId: null, ownerRef: null, viewport: { width: 640, height: 480, scrollX: 0, scrollY: 0, devicePixelRatio: 1.5 } }],
+      boxes: [{ ref: "e1", frameId: "root", box: { x: 10, y: 20, width: 80, height: 30 } }] };
+    return result;
+  };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, aroundAction: async ({ run }) => { renderingLeases++; return run(); } });
+  for (const boxes of [undefined, false, true]) {
+    const value = (await engine.dispatch(request("snapshotAI", { args: boxes === undefined ? {} : { boxes }, timeoutMs: 500 }))).value;
+    assert.equal(Object.hasOwn(value, "geometry"), boxes === true);
+    assert.equal(capturedOptions.at(-1).boxes === true, boxes === true);
+    assert.ok(capturedOptions.at(-1).timeoutMs > 0 && capturedOptions.at(-1).timeoutMs <= 500);
+  }
+  assert.equal(renderingLeases, 0);
+  assert.equal(BROWSER_ENGINE_INFO.capabilities.snapshotBoxes, 1);
+  const originalCapture = f.runtime.captureAISnapshot;
+  f.runtime.captureAISnapshot = async (...args) => {
+    const result = await originalCapture(...args);
+    f.page.emit("framenavigated", {});
+    return result;
+  };
+  await assert.rejects(engine.dispatch(request("snapshotAI", { args: { boxes: true } })), /OBU_CAPTURE_EXPIRED/);
 });
 
 test("capture refs route only emitted elements and ordinary snapshots invalidate the capture", async () => {
