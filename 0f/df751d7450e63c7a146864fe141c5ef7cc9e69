@@ -1,0 +1,23 @@
+docs/exec-plans/active/2026-10-12-original-page-downloads.md
+  s_08bbfd293d324f::t_0ca572146138c6 1-73
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_817c54d32dc1aa 2660-2661
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_d727d6ec17d645 1822-1830
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "0fdf751d7450e63c7a146864fe141c5ef7cc9e69",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
