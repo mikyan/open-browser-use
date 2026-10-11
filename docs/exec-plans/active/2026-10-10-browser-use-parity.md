@@ -1616,3 +1616,71 @@ mouse/click，点击后及fill前仍空；原唯一Input.insertText随后写入�
 点击副作用的输入焦点修复。不能把单轮结果扩大为全品牌/版本通过，也
 不能把原失败fill自动改键盘或点击重放。生产修复需要对应受控表单、
 Unicode、已有值和撤权/期限验证；其他parity缺口保持开放。仅本地提交。
+
+### 首文档检查进入生产动作预算
+
+从干净 `38fb2c0` 继续；上一轮属于实质进展，增加两种独立输入证据，
+明确click后原fill可用而无click的逐键仍失败，完整198项测试与本地提交
+完成。本片先处理独立的初始化缺口：`PI0rSV` 在首文档未提交时attach
+后renderer初始化悬挂；`QAMMuD` 和 `ttYgKb` 在提交检查后goto成功，
+后者的额外click发生在goto完成之后，不能解释初始化成功。
+
+生产候选只对本worker明确创建且尚未首次连接的空白页生效，用精确
+creation marker绑定tab/window/session/turn/epoch，不从URL或agent来源
+标签推断。保持原createTab分组和发布语义，标记必须在页面可被其他
+同scope连接操作之前可见。仅真实cold attachment creator执行提交检查，
+已存在或共享Page、claim的用户页及普通导航不增加加载等待。
+
+engine dispatch、withPage和transfer setup向内部attachment传递已有
+check/remaining deadline。原生tab读取和短采样间隔共享原动作
+期限，每个await后及真正attach前重新检查；不增加独立5秒、不在错误后
+重试、不用激活/导航/重新创建换取就绪。撤权、身份变化、迟到读取不能
+继续attach。首次文档之外的输入焦点问题保持原失败语义。
+
+先独立审查和定向测试，再完整CI/build，冻结后真实Vivaldi INPUT模式
+不启用TASK_READY，以原任务证明实际生产路径处理初始化；原fill即使
+仍为空也须保留，不悄悄增加点击。默认品牌和主回归确认无新前台事件。
+root唯一启动浏览器，其他Agent实现、复核和独立证据审计，无推送或PR。
+
+独立审计发现旧native prelude不记录tabs.get/getTargets，不能据此声称
+看见生产检查的末次查询。已有INPUT诊断因此显式开启metadataReads，
+在同一透明wrapper记录真实读取；不新增查询、动作、等待或重试。原
+receiver/参数/Promise保留，容量和截断边界不变，默认native诊断仍不
+包装这两个API，旧trace profile继续可核验。新原生26项定向回归通过。
+
+实现收口为两个生产文件：精确marker在bindCreated后、普通归属发布前
+同步登记，最终创建事务通过后才admitted；冷creator在原预算内等事务
+及首个blank提交，窗口例外保留。raw attach本身不新增期限，共享已有
+pending时也不能撤销其creator的marker。最终native attach前再核scope，
+runtime/tab/app/prepare阶段取消只清理实际已经准备的状态。
+
+新增21项生产回归，作者154/154、独立108/108；完整CI为扩展827、脚本53、
+脚手架199，共1079项Node，加JS115、Python82与Go全包通过。CI重新生成
+的四个icon恢复原字节后重新打包。v21冻结379源码/222旧结果；47文件ZIP
+只有background与engine两成员改变，vendor、依赖及其余45成员不变。
+独立包审计通过，原生实测host沿用已有6c4版本，本片没有Go改动。
+
+首次Vivaldi `wv2kHQ` 在安装扩展前的chrome://version身份页首次求值
+20,011ms超时；生产gate与任务未执行，focus observer也未建立。精确
+浏览器exit0、私有进程/随机注册清理通过，但无native连接/EOF证据，
+runner实际exit1。保留此失败，同一冻结源码和包在新profile只复测一次。
+默认Brave `i40fyX` 标准任务、唯一真实POST、实际PNG与独立审计通过，
+四焦点检查点零事件/豁免，browser/native实际exit0与精确清理通过。
+
+本轮主回归 `run-chNw0r` 实际exit1：原104用例41通过/63失败，另有最终
+focus-ledger失败。首个未豁免窗口焦点发生在mcp-page-exports最终检查，
+其后有两个标签激活；最终原窗口minimized、sentinel仍在但非活动。
+因连续账本保留同一事件，后续失败不等于63个独立功能缺陷。原因待核，
+不放宽豁免、不把旧104/104结果写成新生产版本通过。
+
+独立第二次Vivaldi `yeWkzC` INPUT-only最终取得生产证据：原goto开始后
+真实tabs.get从loading到精确blank complete，接着唯一attach与navigate，
+goto82ms；没有TASK_READY或额外点击。原唯一insertText仍ACK但无输入
+事件、值与唯一POST均空，故task/acceptance失败、diagnosticCompleted
+true，runner实际exit0。403ms零前台事件，host/browser实际exit0与精确
+清理通过；关键原始记录、379源码/222历史和新ZIP独立核验通过。
+
+下一片优先处理主回归新出现的未知焦点/最小化及既有Vivaldi输入缺口，
+避免在尚未解释的完整回归失败上继续叠加功能。新gate只覆盖首连接，
+raw attach、早期About设置、输入焦点及其他parity缺口均保持开放。
+完整目标仍active；只保留本地改动和提交，不推送或提PR。

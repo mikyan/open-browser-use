@@ -732,6 +732,40 @@ test("late attachment cancellation rejects its action but confirmed cleanup drai
   assert.ok(!f.calls.some(call => call[0] === "click"));
 });
 
+for (const boundary of ["runtime", "tab", "app", "prepared"]) test(`cancellation while awaiting ${boundary} before native attach drains only state actually prepared`, async () => {
+  const f = fixture(); let finish, started, prepared = 0, cleaned = 0, attaches = 0;
+  const entered = new Promise(resolve => { started = resolve; });
+  const hold = async () => { started(); await new Promise(resolve => { finish = resolve; }); };
+  const originalAttach = f.app.attach;
+  f.app.attach = async (...args) => { attaches++; return originalAttach(...args); };
+  if (boundary === "tab") globalThis.chrome.tabs.get = async () => { await hold(); return { incognito: false }; };
+  if (boundary === "app") f.runtime.crx.start = async () => { await hold(); return f.app; };
+  const engine = new BrowserActionEngine({
+    loadRuntime: async () => { if (boundary === "runtime") await hold(); return f.runtime; },
+    onBeforeAttach: async () => { prepared++; if (boundary === "prepared") await hold(); },
+    onDetached: () => { cleaned++; }
+  });
+  const rejected = assert.rejects(engine.dispatch(request("click", { locator, timeoutMs: 1000 })), /cancelled/);
+  await entered;
+  const released = engine.detach(42); finish();
+  await rejected; await released;
+  assert.equal(attaches, 0); assert.equal(prepared, boundary === "prepared" ? 1 : 0);
+  assert.equal(cleaned, prepared); assert.equal(engine.pages.size, 0); assert.equal(engine.releases.size, 0);
+});
+
+test("a late admission result before app.attach rechecks the original deadline even before its timer fires", async t => {
+  const f = fixture(); let now = 0, prepares = 0, cleanup = 0, attaches = 0;
+  t.mock.method(performance, "now", () => now);
+  f.app.attach = async () => { attaches++; return f.page; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime,
+    onBeforeAttach: () => { prepares++; }, onDetached: () => { cleanup++; },
+    authorize: async () => { if (prepares) now = 101; }
+  });
+  await assert.rejects(engine.dispatch(request("click", { locator, timeoutMs: 100 })), /timed out/);
+  await Promise.allSettled(engine.controlSnapshot().pending);
+  assert.equal(prepares, 1); assert.equal(cleanup, 1); assert.equal(attaches, 0);
+});
+
 test("failed native input cleanup does not announce detachment or retry the cancelled Page", async () => {
   const f = fixture({ click: async () => {} });
   let cleaned = 0;

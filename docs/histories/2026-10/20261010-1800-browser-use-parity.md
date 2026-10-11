@@ -1110,6 +1110,25 @@ acceptance，显式先click流程成功不等于可无副作用地修改通用fi
 传输改为真实node:http，并覆盖UTF-8、状态码、解析错误、reset、截断
 和超时。未改系统端口范围、浏览器fixture或生产；只做本地提交，无PR。
 
+本片将首文档提交检查接入生产冷连接，共用动作、observer和transfer
+原期限；创建marker先登记后admit，raw/shared连接、晚到结果、撤权与
+分阶段清理均有回归。新增21项生产测试，作者154/154、独立108/108；
+完整CI为827+53+199项Node、JS115、Python82及Go全包通过。INPUT诊断
+透明记录已有tab/target读取，不新增任务gate。47文件新包仅两生产JS
+变化，1,262,151字节，SHA256
+`8e5d9a2777efe36fd01135c9117cf8257668c72951e5d1347766544a7c2ae9f7`。
+
+Vivaldi首轮 `wv2kHQ` 在扩展安装前About求值超时，失败保留。同冻结版本
+独立 `yeWkzC` 无TASK_READY即读到blank提交后唯一attach，原goto82ms；
+原单次fill仍ACK但无输入事件、POST为空，未宣称通用输入修复。默认
+Brave `i40fyX` 完整任务/实际PNG/零焦点及独立审计通过。Vivaldi有效轮
+与Brave均真实native/browser exit0，精确进程和注册清理通过。
+
+主回归 `run-chNw0r` 实际exit1，原104项41通过/63失败，另最终focus
+检查失败；连续账本出现未知窗口focus及两次tab激活，终态minimized。
+保留失败和旧104/104，不增加豁免或归咎未证实的外部操作。下一片优先
+调查该完整回归边界；整体目标仍active，无推送或PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

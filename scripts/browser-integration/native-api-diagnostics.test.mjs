@@ -7,7 +7,7 @@ import { nativeBrowserInstallationCleaned, nativeBrowserInstallationPassed } fro
 function fixture(options = {}) {
   const calls = [], events = {}, originals = {};
   const api = { tabs: {}, tabGroups: {}, debugger: {} };
-  for (const [namespace, methods] of [["tabs", ["create", "group"]], ["tabGroups", ["get", "update"]], ["debugger", ["attach", "detach", "sendCommand"]]]) for (const method of methods) {
+  for (const [namespace, methods] of [["tabs", ["create", "group", "get"]], ["tabGroups", ["get", "update"]], ["debugger", ["attach", "detach", "sendCommand", "getTargets"]]]) for (const method of methods) {
     const name = `${namespace}.${method}`;
     api[namespace][method] = originals[name] = function (...args) { calls.push({ name, receiver: this, args }); return Promise.resolve({ ok: true }); };
   }
@@ -19,6 +19,39 @@ function fixture(options = {}) {
   return { api, target, calls, events, originals, install: () => installNativeAPIDiagnostics(api, target, options) };
 }
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
+
+test("opt-in metadata reads preserve actual native calls and are absent from the default trace", async () => {
+  const plain = fixture(), old = plain.install(), before = old.snapshot();
+  await plain.api.tabs.get(17); await plain.api.debugger.getTargets();
+  assert.equal(old.snapshot().records.length, 0);
+  const legacy = structuredClone(before); delete legacy.metadataReads;
+  assert.equal(nativeDiagnosticTraceComplete(legacy, legacy), true);
+  assert.equal(plain.api.tabs.get, plain.originals["tabs.get"]);
+
+  const f = fixture({ metadataReads: true }), tab = deferred(), targets = deferred(), receiver = {}, calls = [];
+  f.api.tabs.get = function (...args) { calls.push({ api: "tabs.get", receiver: this, args }); return tab.promise; };
+  f.api.debugger.getTargets = function (...args) { calls.push({ api: "debugger.getTargets", receiver: this, args }); return targets.promise; };
+  const trace = f.install(), initial = trace.snapshot();
+  assert.equal(calls.length, 0, "Observer installation must not issue reads");
+  const a = f.api.tabs.get.call(receiver, 17), b = f.api.debugger.getTargets.call(receiver);
+  assert.equal(a, tab.promise); assert.equal(b, targets.promise);
+  assert.deepEqual(calls, [{ api: "tabs.get", receiver, args: [17] }, { api: "debugger.getTargets", receiver, args: [] }]);
+  const liveTab = { id: 17, url: "about:blank", status: "complete", active: false };
+  const liveTargets = [{ id: "original-target", tabId: 17, type: "page", url: "about:blank", attached: false }];
+  tab.resolve(liveTab); targets.resolve(liveTargets);
+  assert.equal(await a, liveTab); assert.equal(await b, liveTargets);
+  const final = trace.snapshot();
+  assert.deepEqual(final.records.map(record => record.kind), ["start", "start", "settled", "settled"]);
+  assert.equal(final.records[0].tabId, 17); assert.equal(final.records[1].target, undefined);
+  assert.deepEqual(final.records[2].result, liveTab); assert.deepEqual(final.records[3].result, liveTargets);
+  assert.equal(nativeDiagnosticTraceComplete(initial, final), true);
+  assert.equal(nativeDiagnosticTraceComplete(before, final), false);
+  const corrupt = structuredClone(final); corrupt.metadataReads = "true";
+  assert.equal(nativeDiagnosticTraceComplete(initial, corrupt), false);
+  assert.ok(nativeDiagnosticPrelude({ metadataReads: true }).includes("(chrome,globalThis,{metadataReads:true})"));
+  assert.throws(() => nativeDiagnosticPrelude({ metadataReads: "true" }));
+  trace.restore(); assert.equal(calls.length, 2);
+});
 
 test("native wrapper preserves receiver, exact arguments and original Promise while recording each call once", async () => {
   const f = fixture(), d = deferred(), receiver = {}, target = { tabId: 41, sessionId: "child-9" }, params = { text: "unique-note" }, calls = [];

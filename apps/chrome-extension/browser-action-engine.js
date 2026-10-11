@@ -330,7 +330,7 @@ export class BrowserActionEngine {
     return this.runtimePromise;
   }
 
-  async attach(tabId, expectedGeneration = this.generations.get(tabId) ?? 0, beforeCreate) {
+  async attach(tabId, expectedGeneration = this.generations.get(tabId) ?? 0, beforeCreate, admission) {
     // Do not allow stale attachment cleanup to detach a newer owner of the tab.
     await this.releases.get(tabId)?.catch(() => {});
     if ((this.generations.get(tabId) ?? 0) !== expectedGeneration) throw new Error("Browser action was cancelled before tab attachment");
@@ -340,16 +340,45 @@ export class BrowserActionEngine {
     beforeCreate?.();
     const generation = this.generations.get(tabId) ?? 0;
     const pending = (async () => {
-      const runtime = await this.runtime();
-      const { incognito } = await chrome.tabs.get(tabId);
-      // CRX's incognito startup can select an unrelated existing private tab.
-      // Do not enable that path until it has explicit session ownership routing.
-      if (incognito) throw new Error("Browser action engine does not yet support incognito tabs");
-      const key = incognito === true;
-      if (!this.apps.has(key)) this.apps.set(key, runtime.crx.start(key ? { incognito: true } : {}).catch(error => { this.apps.delete(key); throw error; }));
-      const app = await this.apps.get(key);
-      await this.onBeforeAttach(tabId);
-      if ((this.generations.get(tabId) ?? 0) !== generation) throw new Error("Browser action was cancelled before native attachment");
+      const check = async () => {
+        admission?.remainingMs();
+        if ((this.generations.get(tabId) ?? 0) !== generation) throw new Error("Browser action was cancelled before native attachment");
+        await admission?.check();
+        admission?.remainingMs();
+        if ((this.generations.get(tabId) ?? 0) !== generation) throw new Error("Browser action was cancelled before native attachment");
+      };
+      let app;
+      try {
+        const runtime = await this.runtime();
+        await check();
+        const { incognito } = await chrome.tabs.get(tabId);
+        await check();
+        // CRX's incognito startup can select an unrelated existing private tab.
+        // Do not enable that path until it has explicit session ownership routing.
+        if (incognito) throw new Error("Browser action engine does not yet support incognito tabs");
+        const key = incognito === true;
+        if (!this.apps.has(key)) this.apps.set(key, runtime.crx.start(key ? { incognito: true } : {}).catch(error => { this.apps.delete(key); throw error; }));
+        app = await this.apps.get(key);
+        await check();
+      } catch (error) {
+        // Neither backend preparation nor this Page's native attach started.
+        // A concurrent release can drain without announcing backend/raw release.
+        if (!error || typeof error !== "object") error = new Error(String(error));
+        error.attachmentReleased = true;
+        error.attachmentCleanupComplete = true;
+        throw error;
+      }
+      await this.onBeforeAttach(tabId, admission);
+      try {
+        await check();
+      } catch (error) {
+        // Preparation succeeded but no native attach was sent. Retire only its
+        // prepared backend state; do not manufacture an unconfirmed CDP release.
+        await this.onDetached(tabId);
+        error.attachmentReleased = true;
+        error.attachmentCleanupComplete = true;
+        throw error;
+      }
       const page = await app.attach(tabId);
       if ((this.generations.get(tabId) ?? 0) !== generation) {
         await app.detach(tabId);
@@ -414,7 +443,7 @@ export class BrowserActionEngine {
       const entry = await this.attach(params.tabId, generation, () => {
         remainingMs();
         createdAttachment = true;
-      });
+      }, { params, deadlineAt, check, remainingMs, timeoutError });
       await check();
       phase = "registering";
       const result = await callback({ page: entry.page, entry, check, remainingMs });
@@ -537,7 +566,9 @@ export class BrowserActionEngine {
         for (const step of rawSelectors) runtime.assertOpenBrowserUseSelector(step.selector, this.restrictedSelectors(), step.frameRelative);
       }
       phase = "attaching";
-      const entry = await this.attach(params.tabId, generation);
+      const entry = await this.attach(params.tabId, generation, checkTime, {
+        params, deadlineAt, check, remainingMs: () => { checkTime(); return deadlineAt - performance.now(); }, timeoutError
+      });
       const { page } = entry;
       await check();
       const diagnosticsOwner = JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id]);
@@ -677,7 +708,7 @@ export class BrowserActionEngine {
           // This exact cancellation path already completed native cleanup.
           // Other attach errors may include an unconfirmed native release.
           if (error?.attachmentReleased !== true) throw error;
-          await this.onDetached(tabId);
+          if (error.attachmentCleanupComplete !== true) await this.onDetached(tabId);
           return;
         }
         if (entry) {

@@ -709,6 +709,7 @@ class BrowserBackend {
     } });
     this.auxiliaryReleases = new Map();
     this.creationTransactions = new Map();
+    this.freshBlankTabs = new Map();
     this.membershipAdmissions = new Map();
     this.sessionMutations = new Map();
     this.endingSessions = new Map();
@@ -1214,6 +1215,7 @@ class BrowserBackend {
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
+    for (const marker of this.freshBlankTabs.values()) this.retireFreshBlankTab(marker);
     const snapshot = this.globalControlSnapshot();
     this.networkWaits.invalidateAll();
     this.navigationWaits.invalidateAll();
@@ -1405,7 +1407,7 @@ class BrowserBackend {
   async createTabTransaction(params) {
     let transaction;
     try {
-      return await this.runSessionMutation(params, async () => {
+      const result = await this.runSessionMutation(params, async () => {
         await this.auxiliaryTabs.ready;
         await this.requireSession(params);
         const record = this.auxiliaryTabs.reserveCreation({ ...params, controlRevision: this.automationControl.revision });
@@ -1422,6 +1424,8 @@ class BrowserBackend {
           throw error;
         }
       });
+      transaction.admitted = true;
+      return result;
     } finally {
       if (transaction) {
         transaction.finished = true;
@@ -1441,6 +1445,10 @@ class BrowserBackend {
   }
 
   observeCreationChange(tabId, kind, change = {}) {
+    const marker = this.freshBlankTabs.get(tabId);
+    if (marker?.transaction.finished && (kind !== "updated" || change.pinned === true ||
+        (change.url && change.url !== "about:blank") ||
+        (Object.hasOwn(change, "groupId") && change.groupId !== marker.groupId))) this.retireFreshBlankTab(marker);
     for (const transaction of this.creationTransactions.values()) {
       if (transaction.finished && !transaction.cleanupFailed) continue;
       if (transaction.record.tabId === null) {
@@ -1480,6 +1488,7 @@ class BrowserBackend {
   }
 
   async cleanupCreatedTab(transaction) {
+    this.retireFreshBlankTab(transaction.freshBlank);
     const record = transaction.record;
     if (record.tabId === null) return;
     transaction.excludedGroupId = undefined;
@@ -1569,6 +1578,7 @@ class BrowserBackend {
   async createTabInTurn(params, transaction) {
     const session = await this.requireSession(params);
     const state = await this.store.getSession(session.sessionId), record = transaction.record;
+    const creationEpoch = this.controlLedger.assertCurrent(params).epoch;
     const check = () => {
       this.assertControlOpen();
       this.controlLedger.assertCurrent(params);
@@ -1580,6 +1590,14 @@ class BrowserBackend {
     const chromeTab = await createBackgroundTab(check, windowId => { transaction.createdWindowId = windowId; });
     transaction.initialTab = chromeTab;
     const binding = this.auxiliaryTabs.bindCreated(record, chromeTab);
+    // Publish before ownership becomes enumerable, but admit only after the
+    // outer mutation has also passed its final control-epoch check.
+    let retire;
+    transaction.freshBlank = { tabId: chromeTab.id, windowId: chromeTab.windowId,
+      session_id: params.session_id, turn_id: params.turn_id, control_epoch: creationEpoch,
+      revision: record.controlRevision, ownWindow: transaction.createdWindowId === chromeTab.windowId,
+      transaction, retired: new Promise(resolve => { retire = resolve; }), retire };
+    this.freshBlankTabs.set(chromeTab.id, transaction.freshBlank);
     // Native creation events may precede its Promise result. Match only the
     // returned ID; never infer a created tab from URL or event arrival order.
     for (const event of transaction.events) if (event.tabId === chromeTab.id) {
@@ -1629,6 +1647,7 @@ class BrowserBackend {
     }
     await this.setSessionActiveTab(session.sessionId, chromeTab.id, check);
     check();
+    transaction.freshBlank.groupId = state.ungrouped === true ? -1 : transaction.groupId;
     if (state.ungrouped !== true) await this.auxiliaryTabs.remove(record);
     return { ...toBrowserTab(chromeTab), active: true };
   }
@@ -1753,6 +1772,7 @@ class BrowserBackend {
     }
     const window = await chrome.windows.get(tab.windowId);
     check();
+    this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     await this.resetClaimedColdAttachment(tab, check);
     check();
     if (window.type === "popup") {
@@ -2022,6 +2042,10 @@ class BrowserBackend {
       this.rememberAttachmentOwner(params, tabId);
       return;
     }
+    // The legacy raw attach RPC has no action deadline. With an engine, only
+    // its actual creator may retire fresh state in onBeforeAttach; joining an
+    // existing gated Page must not cancel that creator's readiness wait.
+    this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     if (!this.attachedTabs.has(tabId)) {
       let attachedHere = false;
       try {
@@ -2056,7 +2080,7 @@ class BrowserBackend {
         await this.requireSessionTab(params, "browserAction");
         this.rememberAttachmentOwner(params, params.tabId);
       },
-      onBeforeAttach: (tabId) => this.prepareEngineAttachment(tabId),
+      onBeforeAttach: (tabId, admission) => this.prepareEngineAttachment(tabId, admission),
       onAttached: (tabId) => this.registerEngineAttachment(tabId),
       onDetached: (tabId) => this.releaseEngineAttachment(tabId),
       aroundAction: ({ params, timeoutMs, run }) => this.withRenderingLease({ tabId: params.tabId }, timeoutMs, run, params.action),
@@ -2306,11 +2330,84 @@ class BrowserBackend {
     return false;
   }
 
-  async prepareEngineAttachment(tabId) {
+  retireFreshBlankTab(marker) {
+    if (marker && this.freshBlankTabs.get(marker.tabId) === marker) {
+      this.freshBlankTabs.delete(marker.tabId);
+      marker.retire();
+    }
+  }
+
+  async waitForFreshBlankTab(tabId, admission) {
+    const marker = this.freshBlankTabs.get(tabId);
+    if (!marker) return;
+    if (!admission) { this.retireFreshBlankTab(marker); return; }
+    const cancelled = () => new Error("OBU_TAB_CREATION_REVOKED: fresh page changed before its first attachment");
+    let stopped = false;
+    const current = () => {
+      admission.remainingMs();
+      this.assertControlOpen();
+      const params = admission.params;
+      if (stopped || this.freshBlankTabs.get(tabId) !== marker || marker.transaction.invalid ||
+          marker.tabId !== params.tabId || marker.session_id !== params.session_id || marker.turn_id !== params.turn_id ||
+          marker.control_epoch !== this.controlLedger.assertCurrent(params).epoch || marker.revision !== this.automationControl.revision)
+        throw cancelled();
+    };
+    const check = async () => { current(); await admission.check(); current(); };
+    const observe = async () => {
+      await check();
+      await marker.transaction.done;
+      await check();
+      if (!marker.transaction.admitted) throw cancelled();
+      let observed = false;
+      for (;;) {
+        const tab = await chrome.tabs.get(tabId);
+        await check();
+        if (tab.id !== tabId || tab.windowId !== marker.windowId || tab.groupId !== marker.groupId || tab.pinned ||
+            (!marker.ownWindow && tab.active)) throw cancelled();
+        if (marker.ownWindow) {
+          const window = await chrome.windows.get(marker.windowId);
+          await check();
+          if (window.id !== marker.windowId || window.focused) throw cancelled();
+        }
+        // A page already navigated before this first attempt is no longer a
+        // fresh blank. A navigation arriving during our wait cancels it.
+        if (!observed && tab.url && tab.url !== "about:blank" && tab.status === "complete" && !tab.pendingUrl) return;
+        if ((tab.url && tab.url !== "about:blank") || (tab.pendingUrl && tab.pendingUrl !== "about:blank")) throw cancelled();
+        observed = true;
+        if (tab.url === "about:blank" && tab.status === "complete" && !tab.pendingUrl) return;
+        await new Promise(resolve => setTimeout(resolve, Math.min(25, admission.remainingMs())));
+        await check();
+      }
+    };
+    try {
+      // Bound the read itself as well as each continuation. A timed-out native
+      // tabs.get may settle later, but cannot send a subsequent read or attach.
+      current();
+      await withTimeout(admission.remainingMs(), () => Promise.race([
+        observe(), marker.retired.then(() => { throw cancelled(); })
+      ]), admission.timeoutError);
+      current();
+      this.retireFreshBlankTab(marker);
+    } finally { stopped = true; }
+  }
+
+  async prepareEngineAttachment(tabId, admission) {
     const epoch = this.controlEpochs.get(tabId) ?? 0;
     this.assertControlOpen();
     this.assertAttachmentAdmission(tabId);
+    try { await this.waitForFreshBlankTab(tabId, admission); }
+    catch (error) {
+      // This gate precedes raw migration and token allocation. Only a proven
+      // unprepared Page may drain engine cleanup without a native detach.
+      if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.attachmentEpochs.has(tabId)) {
+        error.attachmentReleased = true;
+        error.attachmentCleanupComplete = true;
+      }
+      throw error;
+    }
+    admission?.remainingMs();
     this.assertSiteProof(await this.assertSiteTab(tabId, { recover: true, allowBlank: true }));
+    admission?.remainingMs();
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
@@ -2320,9 +2417,12 @@ class BrowserBackend {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       await this.releaseTrackedInput(tabId);
+      admission?.remainingMs();
       await chrome.debugger.detach({ tabId });
       this.releaseEngineAttachment(tabId);
     }
+    await admission?.check();
+    admission?.remainingMs();
     this.assertControlOpen();
     this.assertNativeControl();
     if ((this.controlEpochs.get(tabId) ?? 0) !== epoch) throw new Error("Browser attachment was cancelled because tab control ended");
@@ -2882,7 +2982,9 @@ class BrowserBackend {
 
   async prepareTransferAttachment(params, deadline, options = {}) {
     let engine, generation, attaching = false, ownsPending = false;
-    const check = options.check ?? (() => {});
+    const timeoutError = () => new Error("OBU_TRANSFER_TIMEOUT: transfer deadline expired");
+    const remainingMs = () => { const remaining = deadline - Date.now(); if (remaining <= 0) throw timeoutError(); return remaining; };
+    const check = () => { remainingMs(); options.check?.(); };
     const cancelPending = () => {
       if (attaching && ownsPending && (engine.generations?.get(params.tabId) ?? 0) === generation)
         return engine.detach(params.tabId);
@@ -2900,9 +3002,11 @@ class BrowserBackend {
         check();
         if (Date.now() >= deadline) throw new Error("OBU_TRANSFER_TIMEOUT: transfer deadline expired");
         generation = engine.generations?.get(params.tabId) ?? 0;
-        ownsPending = !engine.pages?.has(params.tabId);
         attaching = true;
-        const actualAttach = engine.attach(params.tabId);
+        const actualAttach = engine.attach(params.tabId, generation, () => { check(); ownsPending = true; }, {
+          params, remainingMs, timeoutError,
+          check: async () => { check(); await this.requireSessionTab(params, "transfer attachment"); check(); }
+        });
         options.onAttachStarted?.(() => {
           const release = cancelPending();
           release?.catch(() => {});
@@ -3714,6 +3818,7 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId) {
+    for (const marker of this.freshBlankTabs.values()) if (marker.session_id === sessionId) this.retireFreshBlankTab(marker);
     const choosersReleased = this.fileChooserWaits.invalidateSession(sessionId);
     const downloadWaitsReleased = this.downloadWaits.invalidateSession(sessionId);
     const downloadsReleased = this.directDownloads.invalidateSession(sessionId);
@@ -3955,6 +4060,7 @@ class BrowserBackend {
   }
 
   detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
+    this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
     this.browserEngine?.invalidate?.(tabId);
     if (preserveNetworkArming) this.networkWaits.invalidateAttachedTab(tabId);

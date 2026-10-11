@@ -551,7 +551,7 @@ async function main() {
     await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
     const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), nativeConstant = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
     assert.equal(background.split(nativeConstant).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
-    const prelude = diagnosticsEnabled ? nativeDiagnosticPrelude() : "";
+    const prelude = diagnosticsEnabled ? nativeDiagnosticPrelude({ metadataReads: inputEnabled }) : "";
     await fs.writeFile(backgroundFile, prelude + background.replace(nativeConstant, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
     if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: `Explicit ${pointerFocusEnabled ? "OBU_TEST_VIVALDI_POINTER_FOCUS" : keyInputEnabled ? "OBU_TEST_VIVALDI_KEY_INPUT" : taskReadinessEnabled ? "OBU_TEST_VIVALDI_TASK_READY" : inputEnabled ? "OBU_TEST_VIVALDI_INPUT" : "OBU_TEST_NATIVE_DIAGNOSTICS"}=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged` };
     const manifestFile = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));

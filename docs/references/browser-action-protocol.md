@@ -239,6 +239,23 @@ so pending auto-waits are cancelled. An ordinary action deadline detaches before
 including mouse/keyboard methods that lack native timeout options. Transport
 timeouts must leave enough time for the requested deadline and cancellation.
 An input already delivered to the browser cannot be undone and is never replayed.
+
+For a blank tab created by the current worker, the first cold attachment used by
+an action, observer setup or transfer waits for that exact tab's initial
+`about:blank` document to commit (`status: complete`, no `pendingUrl`). This uses
+the caller's existing deadline and scope checks; `createTab` itself keeps its
+existing acknowledgement semantics. The creation transaction must have passed
+its final admission check. Tab/window/group identity, control revision and epoch
+remain bound throughout the wait. A sole active tab in a newly created unfocused
+window is allowed; an existing window's foreground tab is not selected.
+
+Warm/shared Pages, claimed user tabs and pages already navigated before the check
+do not acquire a new load wait. Native read errors are terminal; expiry or revoked
+ownership cannot be followed by a late attachment. This check neither activates
+the tab nor retries an action. The legacy raw `attach` RPC has no action deadline
+and retains its existing behavior; it is outside this initial-document guarantee.
+The check does not repair browser-specific input focus behavior.
+
 Teardown cancels Playwright first and then makes a bounded attempt to drain
 native sends and release pressed buttons, keys, touches, and native dragging
 before detaching the debugger. Raw CDP and Playwright share one tracker keyed by

@@ -11,6 +11,8 @@ export function installNativeAPIDiagnostics(api, target, options = {}) {
   const key = "__obuNativeAPIDiagnostics";
   if (Object.hasOwn(target, key)) { target[key].duplicateInstallation(); return target[key]; }
   const maximumRecords = options.maximumRecords ?? 4096;
+  if (options.metadataReads !== undefined && typeof options.metadataReads !== "boolean") throw new Error("Invalid metadata read diagnostic option");
+  const metadataReads = options.metadataReads === true;
   if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 1 || maximumRecords > 16384) throw new Error("Invalid native diagnostic capacity");
   const maximumTraceCharacters = options.maximumTraceCharacters ?? 4 * 1024 * 1024, maximumRecordCharacters = 16384;
   if (!Number.isSafeInteger(maximumTraceCharacters) || maximumTraceCharacters < 1 || maximumTraceCharacters > 16 * 1024 * 1024) throw new Error("Invalid native diagnostic character budget");
@@ -66,12 +68,15 @@ export function installNativeAPIDiagnostics(api, target, options = {}) {
   function safe(run) { try { return run(); } catch { recordFailure(); return undefined; } }
   const identity = (name, args) => {
     const value = { api: name };
-    if (name.startsWith("debugger.")) { value.target = copy(args[0]); if (name === "debugger.sendCommand") value.method = copy(args[1]); }
+    if (name.startsWith("debugger.") && name !== "debugger.getTargets") { value.target = copy(args[0]); if (name === "debugger.sendCommand") value.method = copy(args[1]); }
+    else if (name === "tabs.get") value.tabId = copy(args[0]);
     else if (name.startsWith("tabGroups.")) value.groupId = copy(args[0]);
     else if (name === "tabs.group") value.grouping = copy(args[0]);
     return value;
   };
-  for (const [namespace, method] of [["tabs", "create"], ["tabs", "group"], ["tabGroups", "get"], ["tabGroups", "update"], ["debugger", "attach"], ["debugger", "detach"], ["debugger", "sendCommand"]]) {
+  const methods = [["tabs", "create"], ["tabs", "group"], ["tabGroups", "get"], ["tabGroups", "update"], ["debugger", "attach"], ["debugger", "detach"], ["debugger", "sendCommand"]];
+  if (metadataReads) methods.push(["tabs", "get"], ["debugger", "getTargets"]);
+  for (const [namespace, method] of methods) {
     const name = `${namespace}.${method}`;
     try {
       const receiver = api[namespace], original = receiver?.[method];
@@ -120,7 +125,7 @@ export function installNativeAPIDiagnostics(api, target, options = {}) {
   const controller = Object.freeze({
     duplicateInstallation() { duplicateInstallations++; },
     snapshot() {
-      return JSON.parse(JSON.stringify({ version: 1, bootId, startedAt, capturedAt: time(), maximumRecords, maximumRecordCharacters, maximumTraceCharacters, retainedCharacters, nextSequence: sequence, callCount: callSerial, overflow: dropped > 0, dropped, recordingErrors, recordingErrorSamples, unknownSettlements, duplicateInstallations, payloadTruncations, installErrors, apis: installed.map(value => value.name), events: listeners.map(value => value.name), pending: [...pending.values()], records,
+      return JSON.parse(JSON.stringify({ version: 1, bootId, startedAt, capturedAt: time(), metadataReads, maximumRecords, maximumRecordCharacters, maximumTraceCharacters, retainedCharacters, nextSequence: sequence, callCount: callSerial, overflow: dropped > 0, dropped, recordingErrors, recordingErrorSamples, unknownSettlements, duplicateInstallations, payloadTruncations, installErrors, apis: installed.map(value => value.name), events: listeners.map(value => value.name), pending: [...pending.values()], records,
         boundary: "This worker incarnation after observer installation only, up to capturedAt. Bounded payload excerpts are marked and do not establish omitted values. Pending commands have unknown outcomes at capture. Serialization and Promise side-chain observers add diagnostic work and may affect scheduling or unhandled-rejection reporting; this is not a timing-neutral reproduction. Original receiver, arguments, return Promise and thrown/rejected values are preserved; no retry, activation, wait, input substitute, or production private-map access." }));
     },
     restore() {
@@ -132,16 +137,20 @@ export function installNativeAPIDiagnostics(api, target, options = {}) {
   Object.defineProperty(target, key, { value: controller, configurable: true }); return controller;
 }
 
-export function nativeDiagnosticPrelude() {
-  return `// Explicit isolated native diagnostics: API observation only, never acceptance.\n;try { (${installNativeAPIDiagnostics.toString()})(chrome,globalThis); } catch { /* Missing snapshot fails diagnostic completeness; do not block production startup. */ }\n`;
+export function nativeDiagnosticPrelude({ metadataReads = false } = {}) {
+  assert.equal(typeof metadataReads, "boolean");
+  return `// Explicit isolated native diagnostics: API observation only, never acceptance.\n;try { (${installNativeAPIDiagnostics.toString()})(chrome,globalThis${metadataReads ? ',{metadataReads:true}' : ''}); } catch { /* Missing snapshot fails diagnostic completeness; do not block production startup. */ }\n`;
 }
 
 export function nativeDiagnosticTraceComplete(initial, final) {
   if (!initial || !final || initial.version !== 1 || final.version !== 1 || typeof initial.bootId !== "string" || initial.bootId !== final.bootId) return false;
+  if ((initial.metadataReads === true) !== (final.metadataReads === true)) return false;
   for (const value of [initial, final]) {
+    if (value.metadataReads !== undefined && typeof value.metadataReads !== "boolean") return false;
     if (value.overflow !== false || value.dropped !== 0 || value.recordingErrors !== 0 || value.unknownSettlements !== 0 || value.duplicateInstallations !== 0 || value.installErrors?.length !== 0) return false;
     if (!Array.isArray(value.records) || !Array.isArray(value.pending) || value.records.length !== value.nextSequence || value.records.some((record, index) => record.sequence !== index || !Number.isFinite(record.at))) return false;
     const expectedAPIs = ["tabs.create", "tabs.group", "tabGroups.get", "tabGroups.update", "debugger.attach", "debugger.detach", "debugger.sendCommand"];
+    if (value.metadataReads === true) expectedAPIs.push("tabs.get", "debugger.getTargets");
     const expectedEvents = ["tabs.onCreated", "tabs.onUpdated", "tabs.onRemoved", "tabs.onAttached", "tabs.onDetached", "tabs.onMoved", "tabs.onReplaced", "tabs.onActivated", "tabGroups.onCreated", "tabGroups.onUpdated", "tabGroups.onRemoved", "tabGroups.onMoved", "debugger.onEvent", "debugger.onDetach"];
     if (JSON.stringify(value.apis) !== JSON.stringify(expectedAPIs) || JSON.stringify(value.events) !== JSON.stringify(expectedEvents)) return false;
     const lengths = value.records.map(record => JSON.stringify(record).length);
@@ -151,12 +160,12 @@ export function nativeDiagnosticTraceComplete(initial, final) {
       if (record.kind === "start") { if (record.callId !== ++callCount) return false; open.set(record.callId, record); }
       else if (record.kind === "settled" || record.kind === "error") {
         const start = open.get(record.callId);
-        if (!start || start.api !== record.api || start.method !== record.method || JSON.stringify(start.target) !== JSON.stringify(record.target)) return false;
+        if (!start || start.api !== record.api || start.method !== record.method || start.tabId !== record.tabId || JSON.stringify(start.target) !== JSON.stringify(record.target)) return false;
         open.delete(record.callId);
       } else if (record.kind !== "event") return false;
     }
     if (value.callCount !== callCount || value.pending.length !== open.size) return false;
-    for (const pending of value.pending) { const start = open.get(pending.callId); if (!start || pending.startSequence !== start.sequence || pending.api !== start.api || pending.method !== start.method || JSON.stringify(pending.target) !== JSON.stringify(start.target)) return false; open.delete(pending.callId); }
+    for (const pending of value.pending) { const start = open.get(pending.callId); if (!start || pending.startSequence !== start.sequence || pending.api !== start.api || pending.method !== start.method || pending.tabId !== start.tabId || JSON.stringify(pending.target) !== JSON.stringify(start.target)) return false; open.delete(pending.callId); }
   }
   return final.nextSequence >= initial.nextSequence && JSON.stringify(final.records.slice(0, initial.records.length)) === JSON.stringify(initial.records);
 }

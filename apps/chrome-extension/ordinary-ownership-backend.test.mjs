@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
+import { BrowserActionEngine } from "./browser-action-engine.js";
 
 const input = (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "");
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))
@@ -95,7 +96,7 @@ async function ordinary(t, { dissolve = true } = {}) {
   f.chrome.tabs.create = async options => {
     f.calls.push(["create", clone(options)]);
     await f.hooks.create?.(options);
-    const tab = { id: nextId++, groupId: -1, windowId: options.windowId, url: "about:blank", active: false, pinned: false };
+    const tab = { id: nextId++, groupId: -1, windowId: options.windowId, url: "about:blank", status: "complete", active: false, pinned: false };
     f.tabs.set(tab.id, tab);
     await f.hooks.created?.(tab);
     return clone(tab);
@@ -123,6 +124,199 @@ async function ordinary(t, { dissolve = true } = {}) {
   const create = () => f.backend.createTab(f.params);
   return { ...f, create, scope: tabId => ({ ...f.params, tabId }) };
 }
+
+function blankAdmission(f, tabId, timeoutMs = 1000) {
+  const deadline = performance.now() + timeoutMs;
+  const timeoutError = () => new Error("fixture original deadline expired");
+  return { params: f.scope(tabId), timeoutError,
+    remainingMs() { const remaining = deadline - performance.now(); if (remaining <= 0) throw timeoutError(); return remaining; },
+    check: () => f.backend.controlLedger.assertCurrent(f.scope(tabId)) };
+}
+
+function actionEngine(f, t) {
+  const previous = globalThis.chrome; globalThis.chrome = f.chrome;
+  t.after(() => { globalThis.chrome = previous; });
+  const page = { on() {}, off() {}, locator: () => ({ count: async () => { f.calls.push(["page-count"]); return 1; } }) };
+  const app = {
+    async attach(id) { await f.chrome.debugger.attach({ tabId: id }); return page; },
+    async detach(id) { await f.chrome.debugger.detach({ tabId: id }); }
+  };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => ({ crx: { start: async () => app },
+    setOpenBrowserUseCommandObserver() {}, setOpenBrowserUseEventFilter() {}, assertOpenBrowserUseSelector() {} }),
+    authorize: async params => { await f.backend.requireSessionTab(params, "browserAction"); f.backend.rememberAttachmentOwner(params, params.tabId); },
+    onBeforeAttach: (id, admission) => f.backend.prepareEngineAttachment(id, admission),
+    onAttached: id => f.backend.registerEngineAttachment(id), onDetached: id => f.backend.releaseEngineAttachment(id) });
+  f.backend.browserEngine = engine;
+  return engine;
+}
+
+for (const dissolve of [true, false]) test(`fresh ${dissolve ? "ordinary" : "grouped"} creation waits for committed blank and consumes only its exact marker`, async t => {
+  const f = await ordinary(t, { dissolve }), tab = await f.create(), live = f.tabs.get(tab.id);
+  const marker = f.backend.freshBlankTabs.get(tab.id);
+  assert.equal(marker.transaction.admitted, true); assert.equal(marker.transaction.finished, true);
+  let reads = 0;
+  live.url = ""; live.pendingUrl = "about:blank"; live.status = "loading";
+  f.hooks.getTab = id => { assert.equal(id, tab.id); if (++reads === 2) Object.assign(live, { url: "about:blank", pendingUrl: undefined, status: "complete" }); };
+  await f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id));
+  assert.equal(reads, 2); assert.equal(f.backend.freshBlankTabs.has(tab.id), false);
+  assert.equal(f.calls.some(([name]) => name === "attach"), false);
+});
+
+test("fresh marker exists before ordinary publication and waits for the outer mutation's final admission", async t => {
+  const f = await ordinary(t), held = f.gate(); let publishing = false;
+  const setActive = f.backend.setSessionActiveTab.bind(f.backend);
+  f.backend.setSessionActiveTab = async (...args) => { publishing = true; await held.promise; return setActive(...args); };
+  const creating = f.create();
+  await until(() => publishing, "ordinary publication");
+  const marker = f.backend.freshBlankTabs.get(100);
+  assert.ok(marker); assert.notEqual(marker.transaction.admitted, true);
+  let reads = 0; f.hooks.getTab = () => { reads++; };
+  const waiting = f.backend.waitForFreshBlankTab(100, blankAdmission(f, 100));
+  await tick(); assert.equal(reads, 0);
+  held.resolve(); await creating; await waiting;
+  assert.equal(marker.transaction.admitted, true); assert.equal(f.backend.freshBlankTabs.has(100), false);
+});
+
+test("failed inner creation admission withdraws its early marker", async t => {
+  const f = await ordinary(t);
+  f.backend.setSessionActiveTab = async () => { throw new Error("fixture final admission failed"); };
+  await assert.rejects(f.create(), /final admission failed/);
+  assert.equal(f.backend.freshBlankTabs.size, 0); assert.equal(f.tabs.has(100), false);
+});
+
+test("outer final epoch rejection withdraws the marker after createTabInTurn has returned successfully", async t => {
+  const f = await ordinary(t), create = f.backend.createTabInTurn.bind(f.backend); let marker;
+  f.backend.createTabInTurn = async (...args) => {
+    const result = await create(...args);
+    marker = f.backend.freshBlankTabs.get(result.id);
+    assert.ok(marker); assert.notEqual(marker.transaction.admitted, true);
+    f.backend.controlLedger.invalidate(f.backend.controlLedger.records.get("task"), "fixture epoch changed");
+    return result;
+  };
+  await assert.rejects(f.create(), /STALE_CONTROL_EPOCH/);
+  assert.equal(marker.transaction.finished, true); assert.notEqual(marker.transaction.admitted, true);
+  assert.equal(f.backend.freshBlankTabs.size, 0); assert.equal(f.tabs.has(100), false);
+});
+
+test("a wrong fresh scope or native location cannot be skipped as an existing page", async t => {
+  const f = await ordinary(t), tab = await f.create(), marker = f.backend.freshBlankTabs.get(tab.id);
+  const wrong = blankAdmission(f, tab.id); wrong.params = { ...wrong.params, turn_id: "different" };
+  await assert.rejects(f.backend.waitForFreshBlankTab(tab.id, wrong), /CREATION_REVOKED/);
+  f.tabs.get(tab.id).windowId = 99;
+  await assert.rejects(f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id)), /CREATION_REVOKED/);
+  assert.equal(f.backend.freshBlankTabs.get(tab.id), marker);
+});
+
+test("same-group late ACK preserves fresh state while activation and completed prior navigation retire it", async t => {
+  const f = await ordinary(t, { dissolve: false }), tab = await f.create(), marker = f.backend.freshBlankTabs.get(tab.id);
+  f.chrome.tabs.onUpdated.emit(tab.id, { groupId: 30 }); assert.equal(f.backend.freshBlankTabs.get(tab.id), marker);
+  f.chrome.tabs.onActivated.emit({ tabId: tab.id, windowId: 1 }); assert.equal(f.backend.freshBlankTabs.has(tab.id), false);
+  const other = await f.create(); f.tabs.get(other.id).url = "https://fixture.test/already-navigated";
+  await f.backend.waitForFreshBlankTab(other.id, blankAdmission(f, other.id));
+  assert.equal(f.backend.freshBlankTabs.has(other.id), false);
+});
+
+test("a held native readiness read times out without consuming fresh state or attaching late", async t => {
+  const f = await ordinary(t), tab = await f.create(), marker = f.backend.freshBlankTabs.get(tab.id), held = f.gate();
+  let reads = 0;
+  f.hooks.getTab = async () => { reads++; await held.promise; };
+  await assert.rejects(f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id, 20)), /original deadline/);
+  assert.equal(f.backend.freshBlankTabs.get(tab.id), marker);
+  delete f.hooks.getTab;
+  await f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id));
+  held.resolve(); await tick();
+  assert.equal(reads, 1); assert.equal(f.backend.freshBlankTabs.size, 0);
+  assert.equal(f.calls.some(([name]) => name === "attach"), false);
+});
+
+test("retiring a fresh marker cancels a held read immediately without new native work", async t => {
+  const f = await ordinary(t), tab = await f.create(), held = f.gate(); let reading = false;
+  f.hooks.getTab = async () => { reading = true; await held.promise; };
+  const pending = assert.rejects(f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id)), /CREATION_REVOKED/);
+  await until(() => reading, "fresh read");
+  f.chrome.tabs.onDetached.emit(tab.id); await pending;
+  held.resolve(); await tick(); assert.equal(f.backend.freshBlankTabs.size, 0);
+});
+
+test("an active singleton in a newly created unfocused window retains the existing creation contract", async t => {
+  const f = await ordinary(t); f.windows.delete(1);
+  f.chrome.windows.getAll = async () => [...f.windows.values()].filter(window => window.type === "normal").map(clone);
+  f.chrome.windows.create = async options => {
+    assert.equal(options.focused, false);
+    const tab = { id: 100, windowId: 4, groupId: -1, active: true, url: "about:blank", status: "complete" };
+    f.tabs.set(100, tab); f.windows.set(4, { id: 4, type: "normal", focused: false });
+    return { ...f.windows.get(4), tabs: [clone(tab)] };
+  };
+  const tab = await f.create();
+  assert.equal(f.backend.freshBlankTabs.get(tab.id).ownWindow, true);
+  await f.backend.waitForFreshBlankTab(tab.id, blankAdmission(f, tab.id));
+  assert.equal(f.tabs.get(tab.id).active, true); assert.equal(f.windows.get(4).focused, false);
+});
+
+for (const path of ["dispatch", "withPage", "transfer"]) test(`${path} cold creator waits for fresh readiness using its existing budget`, async t => {
+  const f = await ordinary(t), tab = await f.create(), engine = actionEngine(f, t), held = f.gate();
+  const wait = f.backend.waitForFreshBlankTab.bind(f.backend); let entering = false;
+  f.backend.waitForFreshBlankTab = async (...args) => { entering = true; return wait(...args); };
+  f.hooks.getTab = async () => { if (entering) await held.promise; };
+  const params = { ...f.scope(tab.id), action: "count", locator: [{ kind: "css", selector: "body" }], timeoutMs: 1000 };
+  const run = path === "dispatch" ? f.backend.browserAction(params) : path === "withPage"
+    ? engine.withPage(params, { deadlineAt: performance.now() + 1000 }, () => "registered")
+    : f.backend.prepareTransferAttachment(params, Date.now() + 1000);
+  await until(() => entering, "cold gate"); await tick(); assert.equal(f.calls.some(([name]) => name === "attach-start"), false);
+  held.resolve(); await run;
+  assert.equal(f.calls.filter(([name]) => name === "attach").length, 1);
+  assert.equal(f.backend.freshBlankTabs.size, 0);
+  let warmReads = 0; f.backend.waitForFreshBlankTab = async () => { warmReads++; };
+  await engine.withPage(params, { deadlineAt: performance.now() + 1000 }, () => {});
+  assert.equal(warmReads, 0);
+});
+
+test("Pause during a cold readiness read drains without a false native cleanup failure", async t => {
+  const f = await ordinary(t), tab = await f.create(), engine = actionEngine(f, t), held = f.gate();
+  const wait = f.backend.waitForFreshBlankTab.bind(f.backend); let reading = false;
+  f.backend.waitForFreshBlankTab = async (...args) => { reading = true; return wait(...args); };
+  f.hooks.getTab = async () => { if (reading) await held.promise; };
+  const rejected = assert.rejects(engine.dispatch({ ...f.scope(tab.id), action: "count", locator: [{ kind: "css", selector: "body" }], timeoutMs: 1000 }), /PAUSED|CREATION_REVOKED|cancelled/);
+  await until(() => reading, "fresh gate");
+  const paused = f.backend.pauseAutomation(); held.resolve(); await paused; await rejected;
+  assert.equal(f.calls.some(([name]) => name === "attach-start"), false);
+  assert.equal(f.backend.pendingAttachmentTabs.size, 0); assert.equal(engine.pages.size, 0);
+});
+
+test("transfer sharing another creator behind a release barrier cannot detach it on its own deadline", async t => {
+  const f = await ordinary(t), tab = await f.create(), engine = actionEngine(f, t);
+  const releasing = f.gate(), native = f.gate(); let attaching = false;
+  engine.releases.set(tab.id, releasing.promise);
+  f.hooks.attach = async () => { attaching = true; await native.promise; };
+  const original = engine.attach(tab.id);
+  const transfer = assert.rejects(f.backend.prepareTransferAttachment(f.scope(tab.id), Date.now() + 40), /TRANSFER_TIMEOUT/);
+  releasing.resolve(); await until(() => attaching, "other creator attach");
+  await transfer;
+  assert.equal(f.calls.some(([name]) => name === "detach"), false);
+  assert.equal(engine.generations.get(tab.id) ?? 0, 0);
+  native.resolve(); await original;
+  assert.equal(f.calls.filter(([name]) => name === "attach").length, 1);
+});
+
+test("a raw attach joining a gated engine creator shares readiness without retiring its marker", async t => {
+  const f = await ordinary(t), tab = await f.create(), engine = actionEngine(f, t), held = f.gate();
+  const wait = f.backend.waitForFreshBlankTab.bind(f.backend); let entering = false;
+  f.backend.waitForFreshBlankTab = async (...args) => { entering = true; return wait(...args); };
+  f.hooks.getTab = async () => { if (entering) await held.promise; };
+  const action = engine.dispatch({ ...f.scope(tab.id), action: "count", locator: [{ kind: "css", selector: "body" }], timeoutMs: 1000 });
+  await until(() => entering, "engine creator gate"); await tick();
+  const marker = f.backend.freshBlankTabs.get(tab.id), original = engine.pages.get(tab.id);
+  // Only the original gate read stays held; the joining RPC can authorize and
+  // reach the exact shared engine promise without releasing that read.
+  delete f.hooks.getTab;
+  const raw = f.backend.attach(f.scope(tab.id));
+  await tick(); await tick();
+  assert.equal(f.backend.freshBlankTabs.get(tab.id), marker);
+  assert.equal(engine.pages.get(tab.id), original);
+  assert.equal(f.calls.some(([name]) => name === "attach-start"), false);
+  held.resolve(); await action; await raw;
+  assert.equal(f.calls.filter(([name]) => name === "attach").length, 1);
+});
 
 test("the observed singleton dissolution admits one and multiple background pages with exact ungrouped ownership", async t => {
   const f = await ordinary(t), one = await f.create(), two = await f.create();

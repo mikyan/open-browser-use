@@ -142,6 +142,15 @@ Submit后的blur/focus，三条最终取消状态仍未知。508ms连续观察�
 失败发生在截图和finalize之前。诊断完成，任务和验收失败，内部实际
 focused widget仍未观察到。
 
+后续生产首连接验证为INPUT诊断开启透明`metadataReads`记录，额外观察
+已有路径实际执行的tabs.get和debugger.getTargets。它不主动调用读取、
+改变参数或Promise，也不增加任务gate；默认native诊断不包装这两个
+API。旧trace继续按旧profile验证，不能从新增字段倒推旧运行的查询。
+记录容量和载荷截断限制保持原值，关键就绪字段缺失或截断时须报告
+证据不足；增加观察工作可能影响调度，不称为零扰动实验。
+生产提交检查使用精确tab/window/group元数据；getTargets仅是已有原生
+读取的旁证，不是新生产检查条件。
+
 下一独立对照在全新任务里预先点击原输入框，再执行一次原fill及一次
 Submit，并观察可信pointer/mouse是否进入原节点。固定上游的鼠标路径
 按坐标命中widget，而键盘/IME依赖focused-widget选择，故这次对照有
@@ -183,3 +192,36 @@ PNG也通过。生产、SDK、host及ZIP未修改。
 mousedown，也不证明浏览器内部focused widget的准确机制、跨版本稳定性
 或通用fill修复。旧无点击fill和逐键失败保留；下一生产候选需要无隐式
 点击副作用、原动作期限和撤权边界的证据，不能在失败后自动重放输入。
+
+## 生产首次连接检查
+
+随后把首文档检查接入真实冷连接，契约见
+[动作协议](browser-action-protocol.md)。本次新建页的精确marker在归属
+发布前登记，等创建事务最终通过后才允许检查；动作、observer setup及
+transfer共用原期限。已连接页不重复等待，raw attach保留原行为。
+它不增加输入框点击，也不修改fill或重放失败动作。
+
+v21首次运行 `wv2kHQ` 在扩展加载前的chrome://version身份页首次求值
+20,011ms超时，尚未运行生产代码、任务或focus observer。浏览器精确
+exit0、私有进程和临时注册清理通过；没有native连接/EOF证据。该次
+runner exit1，不能作为生产gate或零焦点的验收结果。
+
+保留失败后，同源码/包的新profile独立运行 `yeWkzC` 仅开启INPUT，未开
+TASK_READY、KEY_INPUT或POINTER_FOCUS。创建ACK的URL仍空；原goto内部
+的tabs.get先见loading，再读到原tab/window/group、inactive、about:blank
+complete且无pending，随后唯一attach、唯一Page.navigate。原goto共82ms，
+没有额外诊断task gate。这直接证明本轮生产路径完成初始化，不能扩大
+为启动时序问题已全部消失。
+
+原唯一Input.insertText仍只有ACK，原document/node没有beforeinput/input/
+change，实际值和唯一POST的note均空。诊断完整但task/acceptance失败，
+收据断言先失败，因此无截图或finalize。403ms连续焦点观察零事件/豁免，
+native/browser实际exit0和进程、注册清理通过；微任务取消终态仍未知。
+独立核379源码/222旧结果、原host与47文件ZIP一致，大utility截断有声明，
+关键tab/Input字段完整，旧失败证据未变。
+
+同包默认Brave `i40fyX` 标准任务、实际PNG、独立审计及清理通过，零焦点
+事件。主回归 `run-chNw0r` 则为41/104，另最终focus-ledger失败：出现未知
+窗口焦点、两次标签切换且终态窗口minimized。原因未定，不放宽验收或
+把它标为通过。完整CI为1079项Node、JS115、Python82及Go全包通过；
+此轮生产改动仍不能证明总体能力持平。
