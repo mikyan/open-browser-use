@@ -1,0 +1,126 @@
+packages/open-browser-use-js/test/locator-composition.test.mjs
+  s_08bbfd293d324f::t_66229b019c3dcd 67-68
+  s_08bbfd293d324f::t_a14b2d78cc3035 1-66,69-78
+scripts/browser-integration/form-workflow-checks.py
+  s_08bbfd293d324f::t_c31c5dae2b2a67 32
+  s_08bbfd293d324f::t_66229b019c3dcd 83
+  s_08bbfd293d324f::t_13b51bbaf05797 1-28,33-40,43-82,84-90
+  s_08bbfd293d324f::t_15c18be2ff85f8 41-42
+  s_08bbfd293d324f::t_8b056a0069e031 29-31
+scripts/browser-integration/form-workflow-fixture.test.mjs
+  s_08bbfd293d324f::t_8334ddce93af1e 1-103,106-111
+  s_08bbfd293d324f::t_977022faf1b66b 104-105
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_9d53de09762a42 93-111
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_a138bede496ff4 85
+  s_08bbfd293d324f::t_6bd20c7cb1965b 17,91-92,110,132,144-148,150-156,159-164,166-168,171,179,191,193,196-198,200-211,236-239,460,481,527-530,537
+scripts/patch-ai-snapshot.mjs
+  s_08bbfd293d324f::t_6bd20c7cb1965b 6,20-21
+scripts/browser-integration/go-form-workflow-checks/main.go
+  s_08bbfd293d324f::t_15c18be2ff85f8 100-102
+  s_08bbfd293d324f::t_c31c5dae2b2a67 19-21,24-27,30-32,40-43,45-54,56,58,60-63,65-83,86-99,103-112,114-169,172-196
+  s_08bbfd293d324f::t_8b056a0069e031 1-18,22-23,28-29,33-39,44,55,57,59,64,84-85,113,170-171,197
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_4039a107c75cb6 23-45
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_a138bede496ff4 128
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_15fbecc136751b 3,38,222,230,369-371
+  s_08bbfd293d324f::t_73990067fd5180 115-117,119-121,139,151,163,165
+  s_08bbfd293d324f::t_6a68922e6081d5 1282-1388,1718
+packages/open-browser-use-python/open_browser_use/_locator_composition.py
+  s_08bbfd293d324f::t_92886824e39071 1-59
+scripts/browser-integration/run-output.test.mjs
+  s_08bbfd293d324f::t_adc0ed4a9e9432 48-49,51-52,54,56,61,65-66,68
+  s_08bbfd293d324f::t_73990067fd5180 1-47,50,53,55,57-60,62-64,67,69-95
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_4039a107c75cb6 10-35
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d73d9337dd12a0 52
+  s_08bbfd293d324f::t_6e95a08a841a8b 31-36,45-46,55
+packages/open-browser-use-go/locator.go
+  s_08bbfd293d324f::t_58b93cc0c6ffab 27-29,92-93,152-164
+  s_08bbfd293d324f::t_b575401d79160a 175-179,224-226
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_b4c60be39e8ced 184
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_4039a107c75cb6 3-30
+docs/references/codex-observation-baseline.md
+  s_08bbfd293d324f::t_be4e88dba60576 123-135
+  s_08bbfd293d324f::t_ca411fe1785fa1 3,70-122
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_60c1f6edfc6d5d 895,927-931
+  s_08bbfd293d324f::t_c59e0f22eea09a 894,896-911
+  s_08bbfd293d324f::t_ffbe385bd7c4ac 912-926
+  s_08bbfd293d324f::t_be4e88dba60576 932-941
+scripts/browser-integration/form-workflow-fixture.mjs
+  s_08bbfd293d324f::t_977022faf1b66b 45-47
+  s_08bbfd293d324f::t_51ba98191bc8f2 18
+  s_08bbfd293d324f::t_724eac35026f81 1-17,19-29,32-35,37-44,48-139,141-257,259,261-274,276-291
+  s_08bbfd293d324f::t_f984bf657061f5 258,275
+  s_08bbfd293d324f::t_8334ddce93af1e 30-31,36,140,260
+packages/open-browser-use-python/open_browser_use/_browser_actions.py
+  s_08bbfd293d324f::t_92886824e39071 9,55,127-135,141-146,149-154,157,179-180
+packages/open-browser-use-js/src/locator-composition.ts
+  s_08bbfd293d324f::t_eec70a14a42ded 1-9,11-13,16-48
+  s_08bbfd293d324f::t_d48ce141cfb340 10,14-15
+packages/open-browser-use-go/locator_composition.go
+  s_08bbfd293d324f::t_58b93cc0c6ffab 1-98,100
+  s_08bbfd293d324f::t_12cddb44a738a3 99,101-142
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_60c1f6edfc6d5d 172-175
+  s_08bbfd293d324f::t_e71c51bbed7745 797-828
+scripts/browser-integration/form-workflow-server.mjs
+  s_08bbfd293d324f::t_9efa69c9a0b2df 1-51
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_fa4ba1c372c4c5 190,207-213
+  s_08bbfd293d324f::t_15767f79f9d079 42-43,55-85
+  s_08bbfd293d324f::t_ddb8c70acd9032 86
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_60c1f6edfc6d5d 691-695
+  s_08bbfd293d324f::t_be4e88dba60576 696-702
+  s_08bbfd293d324f::t_ec29ac381eac00 669-690
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_eec70a14a42ded 13,73-76,787,811-821,844
+apps/chrome-extension/browser-locator-composition.test.mjs
+  s_08bbfd293d324f::t_9d53de09762a42 34,125,142
+  s_08bbfd293d324f::t_b4c60be39e8ced 1-33,35,38-72,94-124,126-141,143-175
+  s_08bbfd293d324f::t_a72200bce69e12 36-37,73-93
+apps/chrome-extension/browser-media-source.js
+  s_08bbfd293d324f::t_6bd20c7cb1965b 12,15
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_be4e88dba60576 105-113
+  s_08bbfd293d324f::t_6e95a08a841a8b 16,19
+packages/open-browser-use-python/test_locator_composition.py
+  s_08bbfd293d324f::t_a14b2d78cc3035 1-55,58-63
+  s_08bbfd293d324f::t_66229b019c3dcd 56-57
+packages/open-browser-use-go/locator_composition_test.go
+  s_08bbfd293d324f::t_66229b019c3dcd 16-18,20-32,39,41-43,46-48,50-53,55-58,62-64,66-68,70-75,77-92,101-105,108,110-113
+  s_08bbfd293d324f::t_a8203a7a5aa0bc 1-15,19,33-38,40,44-45,49,54,59-61,65,69,76,93-100,106-107,109,114
+  s_08bbfd293d324f::t_f593c4fbf2f5a8 115-116
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_7c82e3a0e5d84a 66-78,315-317
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_3923a50dc1b82d 12,680,704-716,737
+packages/open-browser-use-js/dist/locator-composition.d.ts
+  s_08bbfd293d324f::t_058571326348ff 1-4
+packages/open-browser-use-js/dist/locator-composition.js
+  s_08bbfd293d324f::t_7338fc3bcd7c61 1-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "04a3ecc16cdce445a160bc61caa169a50de76f37",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
