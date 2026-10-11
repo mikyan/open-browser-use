@@ -1,0 +1,40 @@
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_037aace552bf7d 428-450
+scripts/browser-integration/vivaldi-hover-focus-diagnostic.test.mjs
+  s_08bbfd293d324f::t_35b57aaa18f590 1-74,76-131,152
+  s_08bbfd293d324f::t_35c0e8712b0d26 75,132-151
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_efc558b96ce924 1156-1172
+scripts/browser-integration/native-browser-installation.mjs
+  s_08bbfd293d324f::t_d30470efc32ab1 26,322,351,353,365,375,555,562,676,694-699,834-839
+scripts/browser-integration/vivaldi-hover-focus-diagnostic.mjs
+  s_08bbfd293d324f::t_45da84eaa74b7e 1-34,39-50,53-56,59,61-72
+  s_08bbfd293d324f::t_35c0e8712b0d26 35-38,51-52,57-58,60
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_efc558b96ce924 56-60
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_493e8ff1b54b61 1769
+  s_08bbfd293d324f::t_037aace552bf7d 1755-1768,1770-1774
+  s_08bbfd293d324f::t_efc558b96ce924 1775-1795
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_efc558b96ce924 31-38
+docs/references/vivaldi-input-diagnostic.md
+  s_08bbfd293d324f::t_493e8ff1b54b61 283-303
+  s_08bbfd293d324f::t_efc558b96ce924 304-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e12a378757a685ae98c955a18aebcd174aa02b7f",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
