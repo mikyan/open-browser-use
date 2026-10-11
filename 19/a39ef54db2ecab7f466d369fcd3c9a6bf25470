@@ -1,0 +1,101 @@
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_43e60189b110f8 26-29,57,104-109
+  s_08bbfd293d324f::t_4d470a6eaa0415 218-220,478-480,534-536,775-777
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_7fed8b1061e769 69-75,300-305,307-308
+  s_08bbfd293d324f::t_5cccf0c394b891 47,65,79-89,106,237,257,265,320-324
+packages/open-browser-use-python/test_connection_identity.py
+  s_08bbfd293d324f::t_5780842925ac3a 187
+  s_08bbfd293d324f::t_aa81ae006b3929 1-15,17-19,21-186,188-216,232,354-364
+  s_08bbfd293d324f::t_5b4f1cb489eb3d 217-231,241-244,246-248,250
+  s_08bbfd293d324f::t_267e6f0c90739e 233-240,245,249,251-285,353
+  s_08bbfd293d324f::t_7fed8b1061e769 16,20,286-352
+scripts/browser-integration/sdk-connection-fixture.test.mjs
+  s_08bbfd293d324f::t_f179e4a502c2b5 17-22,25-26,51,53-57
+  s_08bbfd293d324f::t_791c2b4a10a291 1-16,23-24,27-50,52,58-89
+scripts/browser-integration/sdk-connection-fixture.mjs
+  s_08bbfd293d324f::t_f179e4a502c2b5 85-86,106-107,109-114,165-173,185,189-193,223-224
+  s_08bbfd293d324f::t_744f2518e4a964 1-84,87-105,108,115-164,174-184,186-188,194-222,225-256
+scripts/browser-integration/sdk-connection-python.py
+  s_08bbfd293d324f::t_267e6f0c90739e 1-76
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_2907568681107c 14-22,27
+  s_08bbfd293d324f::t_12faaf4433ac5b 28
+  s_08bbfd293d324f::t_2b53b82678a02f 23-26
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_2b53b82678a02f 1787,1798,1815-1821,1839-1840
+  s_08bbfd293d324f::t_cadce4f984f904 1789-1797,1799-1814
+  s_08bbfd293d324f::t_7efe3e1c1daf7c 1788
+packages/open-browser-use-go/browser_action_test.go
+  s_08bbfd293d324f::t_4d470a6eaa0415 4,12,21-22,34-39,41
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_69025a7b5ba23e 2298-2333
+docs/references/sdk-connection-identity.md
+  s_08bbfd293d324f::t_b5f30a877776e0 37-40
+  s_08bbfd293d324f::t_2acc96833c3f2f 1-36,41,43-55,57-69,76-77
+  s_08bbfd293d324f::t_2b53b82678a02f 42,78-87
+  s_08bbfd293d324f::t_f1e4aa1113cd23 56
+  s_08bbfd293d324f::t_12faaf4433ac5b 70-75
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_2acc96833c3f2f 253-262,276-277,369-370
+packages/open-browser-use-python/test_host_integration.py
+  s_08bbfd293d324f::t_5cccf0c394b891 34,84-88
+packages/open-browser-use-go/connection_identity_test.go
+  s_08bbfd293d324f::t_02ce4485314245 107,231-234,381-435
+  s_08bbfd293d324f::t_2ea43f3846b544 1-106,108-230,235-380,436-437
+packages/open-browser-use-python/test_transport_support.py
+  s_08bbfd293d324f::t_aa81ae006b3929 9,11,13
+docs/references/control-lifecycle.md
+  s_08bbfd293d324f::t_c00e004c399d8c 28-30,262-264
+scripts/browser-integration/go-sdk-connection-checks/main.go
+  s_08bbfd293d324f::t_02ce4485314245 1-134
+docs/references/local-ipc-transport.md
+  s_08bbfd293d324f::t_c00e004c399d8c 86-90
+  s_08bbfd293d324f::t_cadce4f984f904 58
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_a491b964f6b088 16,284,307,444-445,1697-1718
+  s_08bbfd293d324f::t_286380bb6d971b 1719
+packages/open-browser-use-js/test/transport.test.mjs
+  s_08bbfd293d324f::t_e57014804bdf56 72,83-84,108,124-125,140,153-154
+scripts/browser-integration/sdk-connection-js.mjs
+  s_08bbfd293d324f::t_99f2303e8ba1cb 1-68
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_2acc96833c3f2f 262-271,283-284
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_2acc96833c3f2f 458-463
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_2acc96833c3f2f 282-290,490-491,519-522
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_922539083c575e 147-148,166,169,197-207,214,222,226-229,242,393,397,408,437,456,717-719,721
+packages/open-browser-use-js/test/connection-binding.test.mjs
+  s_08bbfd293d324f::t_764fde0bfcf957 1-96,98-194
+  s_08bbfd293d324f::t_4b7c4e8dc892af 97
+docs/references/README.md
+  s_08bbfd293d324f::t_2acc96833c3f2f 27-28
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_887593d2c8bda3 2632-2662
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_e67297be8ef75e 12-13
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_9b88f5c5d4218d 233,282,293,295
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_a9a66df23da701 51-52,67,70,98-108,115,124,128-131,142,321,326,337,368,393,654-656,659-660
+docs/exec-plans/completed/2026-10-12-sdk-connection-identity.md
+  s_08bbfd293d324f::t_ef70e8e92f7923 43-45,47-49,63-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "19a39ef54db2ecab7f466d369fcd3c9a6bf25470",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
