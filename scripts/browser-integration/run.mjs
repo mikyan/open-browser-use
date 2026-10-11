@@ -50,7 +50,7 @@ import { directoryWorldHTML, checkDirectoryWorld } from "./directory-world-fixtu
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
-import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
+import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
 import { downloadDiagnosticEnabled, downloadDiagnosticCases, createDownloadDiagnostic } from "./download-ready-diagnostic.mjs";
 import { goChooserDiagnosticEnabled, goChooserDiagnosticCases, summarizeGoChooserDiagnostic } from "./go-chooser-diagnostic-mode.mjs";
@@ -68,6 +68,7 @@ const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const mcpBinding = mcpBindingEnabled(process.env);
 const chooserMode = chooserDiagnosticMode(process.env);
 const chooserDiagnostic = chooserMode !== null;
+const chooserAllPointers = chooserMode === "pointer-all-context";
 const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
 if (process.env.OBU_TEST_BACKGROUND_PARALLEL !== undefined && process.env.OBU_TEST_BACKGROUND_PARALLEL !== "1")
   throw new Error("OBU_TEST_BACKGROUND_PARALLEL must be 1 or unset");
@@ -274,9 +275,10 @@ const formWorkflows = createFormWorkflowFixture();
 const researchWorkflows = createResearchWorkflowFixture();
 const backgroundParallelFixture = createBackgroundParallelFixture();
 const chooserFixtures = createChooserWaitFixtures({ pointerEvidence: chooserDiagnostic,
-  ...(chooserMode === "pointer-context" ? { pointerEvidenceKeys: chooserPointerContextKeys } :
+  ...(chooserAllPointers ? { pointerEvidenceKeys: chooserPointerAllContextKeys, pointerEvidenceNonEnumerable: true } :
+    chooserMode === "pointer-context" ? { pointerEvidenceKeys: chooserPointerContextKeys } :
     chooserMode === "pointer-go-context" ? { pointerEvidenceKeys: chooserPointerGoContextKeys } : {}) });
-const directoryUploads = createDirectoryUploadFixtures();
+const directoryUploads = createDirectoryUploadFixtures({ pointerEvidence: chooserAllPointers });
 const downloadWaitFixtures = createDownloadWaitFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
@@ -413,6 +415,7 @@ try {
       harness: createHash("sha256").update(await fs.readFile(fileURLToPath(import.meta.url))).digest("hex")
     }
   };
+  if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
@@ -559,7 +562,7 @@ try {
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
     if (mcpBinding && !mcpBindingCases.includes(name)) return;
-    if (chooserDiagnostic && !(["pointer-context", "pointer-go-context"].includes(chooserMode) ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;
+    if (chooserDiagnostic && !(["pointer-context", "pointer-go-context", "pointer-all-context"].includes(chooserMode) ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;
     if (snapshotGeometry && name !== "js-raw-navigation-before-engine" && !name.includes("snapshot-geometry") && !name.startsWith("js-ai-snapshot-")) return;
     if (process.env.OBU_TEST_CASES && name !== "js-raw-navigation-before-engine" && !new RegExp(process.env.OBU_TEST_CASES).test(name)) return;
     const start = Date.now();
@@ -664,7 +667,7 @@ try {
     let detail, failure;
     try {
       const info = await owner.client.getInfo(); assert.equal(info.metadata.backgroundWindowVersion, 1);
-      detail = await checkDirectoryUpload({ browser: owner, fixtureURL, server: directoryUploads, files: await getDirectoryFiles(), worker, until, createTab: () => recorder.createTab() });
+      detail = await checkDirectoryUpload({ browser: owner, fixtureURL, server: directoryUploads, files: await getDirectoryFiles(), worker, until, createTab: () => recorder.createTab(), pointerEvidence: chooserAllPointers });
     } catch (error) { failure = error; detail = { ...(error.directoryDetail ?? {}), error: error.stack, server: directoryUploads.allStats() }; }
     finally {
       detail ??= {}; detail.backgroundWindows = recorder.records;
@@ -699,7 +702,7 @@ try {
     const owner = await connectOpenBrowserUse(options), trigger = await connectOpenBrowserUse(options);
     let detail, failure;
     try {
-      detail = await checkChooserSubmission({ owner, trigger, fixtureURL, server: chooserFixtures, files: await getChooserFiles(), worker, until });
+      detail = await checkChooserSubmission({ owner, trigger, fixtureURL, server: chooserFixtures, files: await getChooserFiles(), worker, until, pointerEvidence: chooserAllPointers });
       return detail;
     } catch (error) { failure = error; detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
     finally {
@@ -722,7 +725,7 @@ try {
       if (!lifecycle && chooserMode === "pointer-context") sourceIdentity.testHooks.push("chooser pointer-context diagnostic: exact 13-case JwX2Bc order; passive pointer/mouse HTML only for js-chooser-root/oopif/dynamic-oopif keys, all other fixture HTML unchanged; JS ready only failure-time documentId read with the original 3-second observation budget; no native command wrapper, additional pre-arm handshake, input replay or success-path DOM read; recorder may affect scheduling");
       const parameters = { owner, trigger, foreign, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, prefix: "js-chooser",
         ...(!lifecycle && chooserMode === "native" ? { diagnostic: createChooserDiagnostic({ worker, readFocus: readFocusLedger, pointerEvidence: true }) } :
-          !lifecycle && ["pointer-only", "pointer-context"].includes(chooserMode) ? { pointerEvidence: true } : {}) };
+          !lifecycle && ["pointer-only", "pointer-context", "pointer-all-context"].includes(chooserMode) ? { pointerEvidence: true } : {}) };
       detail = await (lifecycle ? checkChooserLifecycle(parameters) : checkChooserReady(parameters)); return detail;
     } catch (error) { failure = error; detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
     finally {
@@ -758,6 +761,7 @@ try {
         ...(error !== failure ? { connectionCleanupError: error?.stack ?? String(error) } : {}) };
       await observeChooserCallerFailure({ detail, callerResult, kind, prefix: `${kind}-chooser`, sessionId,
         callerClosed: callerProcesses.length > 0 && callerProcesses.every(process => process.closeObserved === true),
+        pointerEvidence: chooserAllPointers,
         worker, fixtureURL, timing: `After the original ${kind.toUpperCase()} callers' confirmed process close and waiter cancellation attempts; before parent task finalization` });
       throw failure;
     } finally {
@@ -830,6 +834,7 @@ try {
         await observeChooserCallerFailure({ detail, callerResult, kind, prefix, sessionId: prefix, callerReadError,
           callerClosed: callerProcess.closeObserved === true, worker, fixtureURL,
           ...(kind === "go" && chooserMode === "pointer-go-context" ? { pointerEvidence: true } : {}),
+          ...(chooserAllPointers ? { pointerEvidence: true } : {}),
           timing: `After original ${kind} process failure and confirmed close, including its waiter cancellation/connection close attempts; before parent task finalization` });
       }
       throw error;
@@ -2337,7 +2342,17 @@ try {
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
   let chooserDiagnosticResult;
-  if (chooserDiagnostic) {
+  if (chooserAllPointers) {
+    const artifacts = {};
+    for (const name of chooserPointerAllContextArtifacts) {
+      try {
+        assert.ok((await fs.stat(path.join(runDir, name))).size <= 4 * 1024 * 1024, "Chooser pointer artifact exceeds limit");
+        artifacts[name] = JSON.parse(await fs.readFile(path.join(runDir, name), "utf8"));
+      } catch (error) { artifacts[name] = { readError: String(error) }; }
+    }
+    chooserDiagnosticResult = chooserPointerAllContextSummary(artifacts, records);
+    await fs.writeFile(path.join(runDir, "chooser-diagnostic.json"), JSON.stringify(chooserDiagnosticResult, null, 2));
+  } else if (chooserDiagnostic) {
     let artifact;
     try { artifact = JSON.parse(await fs.readFile(path.join(runDir, chooserMode === "pointer-go-context" ? "chooser-go.json" : "chooser-js.json"), "utf8")); }
     catch (error) { artifact = { readError: String(error) }; }

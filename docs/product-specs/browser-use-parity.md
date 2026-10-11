@@ -42,6 +42,13 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+统一诊断`OBaCi6`**12/13、exit1**首次记录Python dynamic误投的页面事件：
+原click已返回，但当前root ledger的完整move/down/up/click目标为父IFRAME，
+child完整空ledger、无click/change或上传。cancel与实际进程close后7ms观察
+完整，不证明click时documentId或native请求对应，生产输入仍未修复。
+默认受影响13项`XXyxbu`通过；Node1482/1482、独立143/143。原13上下文
+中仅7项明确有pointer采集，另6项未覆盖，诊断证据不能缩小整体验收范围。
+
 最新完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
 本片补齐CLI/MCP/Python失败partial及点击ACK阶段，原异常不被cancel/close
 覆盖；普通外部调用器只有实际child close与严格原身份校验后才进行既有

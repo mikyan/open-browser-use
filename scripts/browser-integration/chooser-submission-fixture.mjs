@@ -80,7 +80,8 @@ export function checkChooserSubmissionDocument(value, { expectedURL, sequence, s
   return value;
 }
 
-export async function checkChooserSubmission({ owner, trigger, fixtureURL, server, files, worker, until }) {
+export async function checkChooserSubmission({ owner, trigger, fixtureURL, server, files, worker, until, pointerEvidence = false }) {
+  assert.equal(typeof pointerEvidence, "boolean");
   const detail = { caller: "js", independentConnections: true, variants: [] };
   try {
     assert.notEqual(owner.client, trigger.client, "Two independent SDK connections are required");
@@ -136,7 +137,7 @@ export async function checkChooserSubmission({ owner, trigger, fixtureURL, serve
             assert.deepEqual(chooserScope(owner), item.scope); assert.deepEqual(chooserScope(trigger), item.scope);
           } catch (error) {
             roundFailure = error; round.error = errorRecord(error);
-            await observeChooserFailure({ worker, item, fixtureURL }); throw error;
+            await observeChooserFailure({ worker, item, fixtureURL, pointerEvidence }); throw error;
           }
           finally {
             if (wait) {
@@ -155,7 +156,7 @@ export async function checkChooserSubmission({ owner, trigger, fixtureURL, serve
         item.passed = true;
       } catch (error) {
         failure = error; item.error = errorRecord(error);
-        await observeChooserFailure({ worker, item, fixtureURL, timing: "After original variant failure; waiter cancellation may already have been attempted, before task finalization" });
+        await observeChooserFailure({ worker, item, fixtureURL, pointerEvidence, timing: "After original variant failure; waiter cancellation may already have been attempted, before task finalization" });
         throw error;
       }
       finally {

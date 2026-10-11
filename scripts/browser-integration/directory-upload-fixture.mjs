@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { chooserVariants, chooserScope } from "./chooser-waits-fixture.mjs";
+import { chooserVariants, chooserScope, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
 import { observeChooserFailure } from "./chooser-failure-observation.mjs";
 
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -12,7 +12,8 @@ const metadata = files => sorted(files.map(({ name, size, relativePath }) => ({ 
 const route = "/directory-upload/";
 const keyPattern = /^[a-z0-9-]{1,100}$/;
 
-export function directoryPageHTML(url, port) {
+export function directoryPageHTML(url, port, { pointerEvidence = false } = {}) {
+  assert.equal(typeof pointerEvidence, "boolean");
   const key = url.searchParams.get("key"), variant = url.searchParams.get("variant");
   assert.match(key, keyPattern); assert.ok(chooserVariants.includes(variant));
   const root = url.pathname.endsWith("/page"), upload = !root || variant === "root";
@@ -43,14 +44,24 @@ export function directoryPageHTML(url, port) {
             const receipt=await response.json();if(!response.ok)throw new Error(JSON.stringify(receipt));document.querySelector('#receipt').textContent=JSON.stringify(receipt);
           })().catch(error=>directoryEvidence.errors.push(String(error)));
         },{capture:true});
-      }
+      }${pointerEvidence ? `\n      (${installChooserPointerEvidence.toString()})(document,directoryEvidence,input,add);` : ""}
     </script>`;
 }
 
-export function createDirectoryUploadFixtures() {
+export function createDirectoryUploadFixtures({ pointerEvidence = false } = {}) {
+  assert.equal(typeof pointerEvidence, "boolean");
+  const pointerKeys = new Set();
   const records = new Map();
   const entry = key => { if (!records.has(key)) records.set(key, { key, witnesses: [], posts: [] }); return records.get(key); };
   return {
+    // Registration is synchronous fixture state only. A request cannot opt its
+    // own key into recording; only the running checker registers generated keys.
+    registerPointerEvidenceKey(key) {
+      assert.equal(pointerEvidence, true, "Directory pointer evidence is disabled");
+      assert.ok(typeof key === "string" && /^directory-(?:root|oopif|dynamic-oopif)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(key), "Invalid directory pointer key");
+      assert.ok(pointerKeys.has(key) || pointerKeys.size < 32, "Directory pointer key limit reached");
+      pointerKeys.add(key);
+    },
     stats: key => structuredClone(entry(key)), allStats: () => [...records.values()].map(value => structuredClone(value)),
     handle(request, response, portOrURL) {
       const url = portOrURL instanceof URL ? portOrURL : new URL(request.url, `http://${request.headers.host ?? "127.0.0.1"}`);
@@ -61,7 +72,7 @@ export function createDirectoryUploadFixtures() {
       if ([route + "page", route + "frame"].includes(url.pathname) && request.method === "GET") {
         const port = typeof portOrURL === "number" ? portOrURL : Number(url.port || new URL(`http://${request.headers.host}`).port);
         assert.ok(Number.isInteger(port) && port > 0 && port <= 65535);
-        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(directoryPageHTML(url, port)); return true;
+        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(directoryPageHTML(url, port, { pointerEvidence: pointerKeys.has(key) && key.startsWith(`directory-${variant}-`) })); return true;
       }
       if (![route + "witness", route + "upload"].includes(url.pathname) || request.method !== "POST") { response.writeHead(404); response.end(); return true; }
       const record = entry(key), witness = url.pathname.endsWith("/witness");
@@ -180,7 +191,8 @@ async function frameEvidence(worker, tabId, expectedURL, variant) {
   return evidence;
 }
 
-export async function checkDirectoryUpload({ browser, fixtureURL, server, files, worker, until, createTab = () => browser.newTab() }) {
+export async function checkDirectoryUpload({ browser, fixtureURL, server, files, worker, until, createTab = () => browser.newTab(), pointerEvidence = false }) {
+  assert.equal(typeof pointerEvidence, "boolean");
   const detail = { caller: "js", independentConnections: true, variants: [] };
   let trigger, failure;
   try {
@@ -192,6 +204,7 @@ export async function checkDirectoryUpload({ browser, fixtureURL, server, files,
     for (const variant of chooserVariants) {
       const key = `directory-${variant}-${randomUUID()}`, item = { key, variant, rounds: [] }; detail.variants.push(item);
       try {
+        if (pointerEvidence) server.registerPointerEvidenceKey(key);
         const tab = await createTab(); item.tabId = tab.id;
         const url = new URL(route + "page", fixtureURL); url.search = new URLSearchParams({ key, variant }).toString();
         await browser.cdp.navigate(tab.id, url.href);
@@ -245,7 +258,7 @@ export async function checkDirectoryUpload({ browser, fixtureURL, server, files,
             round.passed = true;
           } catch (error) {
             roundFailure = error; round.error = errorRecord(error);
-            await observeChooserFailure({ worker, item, fixtureURL, fixtureKind: "directory" });
+            await observeChooserFailure({ worker, item, fixtureURL, fixtureKind: "directory", pointerEvidence });
             throw error;
           }
           finally {

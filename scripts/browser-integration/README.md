@@ -245,6 +245,41 @@ document or native pointer delivery; successful cases do not read failure DOM.
 
 ## Opt-in chooser ready diagnostic
 
+`OBU_TEST_CHOOSER_DIAGNOSTIC=pointer-all-context` keeps the same fixed 13-case
+context listed below. It records passive pointer/mouse events for submission,
+JS ready, CLI, MCP, Python and Go on exactly their 18 chooser keys, plus the three
+fresh keys registered by the positive background-window directory checker.
+Default HTML and earlier diagnostic HTML remain unchanged. The new chooser
+ledger is non-enumerable so the existing submission success reads do not return
+it; the fixed failure reader accesses it explicitly. No successful browser call,
+input retry, command wrapper or timeout extension is added.
+
+The aggregate reads seven case artifacts and reports coverage per case.
+Directory-world, inactive-directory, mixed-finalize, lifecycle, public-concurrent
+and raw-navigation retain their original behavior and are explicitly
+`uninstrumented`; their failure cannot count as complete pointer evidence.
+Successful covered cases have `collectionComplete: null` because no failure
+read occurred. A failed case requires exact original tab/key/variant and complete
+current document evidence; external callers additionally require actual process
+close. A complete observation never turns the original failure into a pass.
+The aggregate always has `acceptancePassed: false`, and missing/invalid artifacts,
+selection changes or incomplete failed-case evidence keep the process failing.
+Fixture listeners can affect scheduling; these are post-failure observations,
+not proof of native input dispatch or click-time document identity.
+
+Recorded run `OBaCi6` retained 12/13 original tasks and exited 1. Python's first
+dynamic-OOPIF upload click returned after 97 ms, then collect timed out after
+9,772 ms. After cancellation and confirmed child-process close, the 7 ms bounded
+observation found a complete 14-event root ledger: the Add button's sequence,
+followed by move/down/up/click targeting the parent `IFRAME#upload-frame`.
+The current child document had a complete empty pointer ledger and no click,
+change or uploaded files. Native document IDs bind this later read, not the
+click-time document; no native-command correlation or router cause is inferred.
+Collection is complete while business and acceptance remain false. All 18
+existing successful submission CDP reads omitted the non-enumerable ledger.
+The following ordinary `XXyxbu` run passed 13/13 with diagnostic mode disabled;
+it does not cancel this failure or establish a production input fix.
+
 `OBU_TEST_CHOOSER_DIAGNOSTIC=1` runs only the existing
 `js-file-chooser-ready-two-connections` and mandatory
 `js-raw-navigation-before-engine` cases. It is exclusive with `OBU_TEST_CASES`,

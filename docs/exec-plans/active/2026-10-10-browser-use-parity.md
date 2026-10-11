@@ -2285,3 +2285,41 @@ exit0；chooser/目录页清理，15研究报告保留且60研究页消失。无
 同等失败接口，不能默认为全13项pointer完整。缺失/错身份/未知close应保留
 incomplete；零事件也不单独证明native未发送。该方案尚未实现或验收，
 动态输入、跨平台等完整目标仍开放；旧预览资产保持不变。
+
+### 统一指针上下文：首次取得自然误投证据
+
+上一目标轮为progress：`64dc05b`补齐外部调用器partial并推送，真实普通
+13/13和完整110/110保持。本轮复核clean工作树与无活测试进程后，实施
+`pointer-all-context`：固定原13项，7项覆盖/6项明确uninstrumented，精确
+18chooser key及本次目录3key。复用已有被动记录与失败读取，无新增native
+wrapper、成功browser API、输入或deadline。新chooser ledger设为不可枚举，
+保留submission原成功Runtime.evaluate参数与结果；失败显式读取仍可见。
+
+独立实际求值对旧HEAD的默认/false24组及旧chooser opt-in6组HTML逐字节
+相同。Node首轮1481/1482因旧runner源码断言尚未同步，修后1482/1482，
+独立定向143/143，零skip/cancel。汇总校验原caller、唯一失败variant、
+实际child close、原native documentId及bounded ledger，采集不能覆盖业务。
+
+第一轮`OBaCi6`即出现Python dynamic首轮collect超时，actual **12/13、exit1**。
+click ACK97ms，collect9772ms，cancel1ms；两个SDK关闭后子进程exit1，
+实际close4ms后parent作7ms失败读取，尚未进入setter/receipt、该key零POST。
+当前root/child原生documentId与后续脚本结果相符，process42/41不同；root
+14条有界记录中0–6是Add按钮，7–13为父文档IFRAME#upload-frame上的完整
+move/down/up/click。child完整空ledger、click/change空，input连接未禁用，
+File0。它缩小投递调查范围，但不证明click时documentId、native请求对应
+或具体Viz路由根因。collectionComplete=true而业务/acceptance=false。
+
+独立核成功submission18次原CDP读均无pointerEvidence；82份原POST的61份
+File载荷共1036字节匹配，原13序列/生产/host/SDK身份相符。29,089ms连续
+focus仅原5次精确允许activation、零window focus；host正常exit0，相关
+任务页清理。得到首份自然完整故障后停止该诊断组，不再循环追频率。
+随后默认`XXyxbu`13/13、actual exit0，诊断关闭；不能用其通过消除本次失败。
+默认回归独立核原13顺序与同源生产/host/SDK；20,215ms账本保留5次精确
+允许activation、0window focus。sentinel身份/选择保持但高度1222→1165；
+host实际exit0。这轮没有重跑完整110项，最近完整证据仍是`1OmROv`。
+
+下一片优先研究原click首次move之后、按下/抬起尚未发送前的真实child
+receipt门禁。目的仍是可靠完成点击，不能止于把静默误投换成报错；若评估
+同一deadline内的pre-press可验证移动等待/重试，必须与盲目flush及重放
+未知完成的按下/提交严格区分，保留祖先遮挡、scope/attachment/Pause检查。
+现有证据未提供公开只读Viz就绪条件，不能把截图帧或原生ACK当作替代。

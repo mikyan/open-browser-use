@@ -1567,6 +1567,21 @@ Node1467/1467、独立定向106/106、普通专项`ulluP9`13/13通过，均无�
 高度1222、末active查询1165、同份populate快照1204，不能称几何不变。
 host按测试重启后新进程exit0，任务清理通过；当前无活测试进程。
 
+### 统一指针诊断与自然故障落点
+
+新增`pointer-all-context`复用原13项上下文：7项可采集、6项显式未覆盖，
+18个chooser key及本次目录key精确启用，默认/旧诊断HTML30组字节相同。
+成功原API/参数/输入/期限不变；chooser ledger不可枚举，避免被原submission
+成功整对象读取带出，失败仍显式读取。Node1482/1482、独立143/143通过。
+
+首次真实`OBaCi6`12/13、exit1，Python dynamic首轮click97ms返回，collect
+9772ms超时；cancel和进程实际close后7ms观察完整。父文档14条pointer记录
+包含Add序列及IFRAME#upload-frame上的完整move/down/up/click，当前child
+为空且无上传；没有据此断言native请求关联或已证明具体路由原因。成功
+submission18次CDP读均无新ledger。原POST字节、身份/清理通过；29,089ms
+账本仅原5激活、零window focus。取得故障即停止该诊断组，默认`XXyxbu`
+13/13、exit0仅为受影响上下文回归。生产输入尚未修复，旧发布包保持不变。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

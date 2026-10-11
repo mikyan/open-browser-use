@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
+import { chooserFailedCallerItem, chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
 export { chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
 
 export const chooserDiagnosticCases = ["js-file-chooser-ready-two-connections", "js-raw-navigation-before-engine"];
@@ -22,11 +22,24 @@ export const chooserPointerContextCases = Object.freeze([
 ]);
 export const chooserPointerContextKeys = Object.freeze(["js-chooser-root", "js-chooser-oopif", "js-chooser-dynamic-oopif"]);
 export const chooserPointerGoContextKeys = Object.freeze(["go-chooser-root", "go-chooser-oopif", "go-chooser-dynamic-oopif"]);
+export const chooserPointerAllContextKeys = Object.freeze(
+  ["js-chooser-submission", "js-chooser", "cli-chooser", "mcp-chooser", "python-chooser", "go-chooser"]
+    .flatMap(prefix => ["root", "oopif", "dynamic-oopif"].map(variant => `${prefix}-${variant}`)));
+const allContextCoverage = Object.freeze([
+  { name: "js-file-chooser-directory-background-window", evidence: "directory-upload.json", caller: "js", fixtureKind: "directory" },
+  { name: "js-file-chooser-single-submission", evidence: "chooser-submission.json", caller: "js", prefix: "js-chooser-submission" },
+  { name: "js-file-chooser-ready-two-connections", evidence: "chooser-js.json", caller: "js", prefix: "js-chooser", legacyJS: true },
+  ...["cli", "mcp", "python", "go"].map(caller => ({ name: `${caller}-file-chooser-ready-two-connections`,
+    evidence: `chooser-${caller}.json`, caller, prefix: `${caller}-chooser`, external: true }))
+]);
+export const chooserPointerAllContextArtifacts = Object.freeze(allContextCoverage.map(value => value.evidence));
 export function chooserDiagnosticMode(env) {
   const value = env.OBU_TEST_CHOOSER_DIAGNOSTIC;
-  assert.ok(value === undefined || ["1", "pointer-only", "pointer-context", "pointer-go-context"].includes(value), "OBU_TEST_CHOOSER_DIAGNOSTIC must be 1, pointer-only, pointer-context, pointer-go-context or unset");
+  assert.ok(value === undefined || ["1", "pointer-only", "pointer-context", "pointer-go-context", "pointer-all-context"].includes(value), "OBU_TEST_CHOOSER_DIAGNOSTIC must be 1, pointer-only, pointer-context, pointer-go-context, pointer-all-context or unset");
   if (value === undefined) return null;
   for (const name of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD"])
+    assert.equal(env[name], undefined, `Chooser diagnostic cannot be combined with ${name}`);
+  if (value === "pointer-all-context") for (const name of ["OBU_TEST_GEOMETRY_DPR", "OBU_TEST_MCP_BINDING", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_GO_CHOOSER_DIAGNOSTIC"])
     assert.equal(env[name], undefined, `Chooser diagnostic cannot be combined with ${name}`);
   return value === "1" ? "native" : value;
 }
@@ -113,6 +126,132 @@ function goPointerView(artifact, originalTaskPassed) {
 
 export const chooserPointerGoContextSummary = (artifact, records) =>
   contextSummary(artifact, records, "go", "chooser-pointer-go-context-diagnostic", "chooser-go.json");
+
+const recordedError = value => typeof value === "string" ? value.length > 0 :
+  value !== null && typeof value === "object" && typeof value.message === "string" && value.message.length > 0;
+const itemFailed = item => item?.passed === false || recordedError(item?.error) || recordedError(item?.originalError);
+
+// Recheck the saved later-document identity and bounded ledger, not merely the
+// producer's complete flag. None of this proves the document at click time.
+function allContextObservation(observation, item, fixtureKind, external) {
+  assert.equal(observation?.version, 1, "Failure observation missing");
+  for (const key of ["tabId", "key", "variant"]) assert.equal(observation[key], item[key], `Observation ${key} differs`);
+  assert.equal(observation.fixtureKind, fixtureKind);
+  if (external) assert.equal(observation.callerClosed, true, "Caller close is unconfirmed");
+  assert.deepEqual(observation.errors, []);
+  for (const key of ["complete", "pointerEvidenceExpected", "pointerObservationRequested", "pointerObservationComplete"])
+    assert.equal(observation[key], true, `Observation ${key} is incomplete`);
+  assert.notEqual(observation.priorDocumentTokenMatches, false);
+  assert.notEqual(observation.priorInputTokenMatches, false);
+  const route = fixtureKind === "directory" ? "/directory-upload/" : "/chooser-waits/";
+  const root = new URL(observation.expected?.root);
+  assert.equal(root.protocol, "http:"); assert.equal(root.hostname, "127.0.0.1");
+  assert.equal(root.username + root.password + root.hash, ""); assert.equal(root.pathname, `${route}page`);
+  assert.equal(root.search, `?${new URLSearchParams({ key: item.key, variant: item.variant })}`);
+  const child = new URL(root); child.hostname = "localhost"; child.pathname = `${route}frame`;
+  assert.equal(observation.expected.child, child.href);
+  assert.equal(observation.metadata?.tab?.id, item.tabId);
+  assert.equal(observation.metadata.tab.url, root.href);
+  assert.ok(!observation.metadata.tab.pendingUrl || observation.metadata.tab.pendingUrl === root.href);
+  assert.ok(Array.isArray(observation.metadata.frames) && observation.metadata.frames.length <= 32 &&
+    observation.metadata.frameCount === observation.metadata.frames.length, "Native frame metadata missing or truncated");
+  const documents = observation.documents, results = observation.results;
+  const count = item.variant === "root" ? 1 : 2;
+  assert.ok(Array.isArray(documents) && documents.length === count && Array.isArray(results) && results.length === count,
+    "Missing root/child document evidence");
+  assert.equal(observation.childStatus, count === 1 ? "not-required" : "unique-current-child");
+  const documentIds = new Set(), frameIds = new Set();
+  for (const [index, frame] of documents.entries()) {
+    assert.ok(Number.isSafeInteger(frame.frameId) && (index === 0 ? frame.frameId === 0 : frame.frameId > 0));
+    assert.equal(frame.parentFrameId, index === 0 ? -1 : 0);
+    assert.ok(typeof frame.documentId === "string" && frame.documentId.length > 0 && frame.documentId.length <= 128);
+    assert.ok(!documentIds.has(frame.documentId) && !frameIds.has(frame.frameId));
+    documentIds.add(frame.documentId); frameIds.add(frame.frameId);
+    assert.equal(frame.documentLifecycle, "active"); assert.equal(frame.errorOccurred, false);
+    assert.equal(frame.url, index === 0 ? root.href : child.href); assert.equal(frame.expectedURL, frame.url);
+    const native = observation.metadata.frames.filter(value => value.frameId === frame.frameId && value.documentId === frame.documentId);
+    assert.equal(native.length, 1, "Selected document is not unique in native metadata");
+    for (const key of ["parentFrameId", "url", "documentLifecycle", "errorOccurred"]) assert.equal(native[0][key], frame[key]);
+    const matches = results.filter(value => value?.documentId === frame.documentId && value?.frameId === frame.frameId);
+    assert.equal(matches.length, 1, "Later script result does not match original native document ID");
+    const value = matches[0].result, evidence = value?.[`${fixtureKind}Evidence`];
+    assert.equal(value?.observed, true); assert.equal(value.href, frame.url); assert.equal(value.truncated, false);
+    assert.equal(matches[0].pointerEvidenceComplete, true);
+    assert.ok(!evidence?.pointerReadError && chooserPointerEvidenceComplete(evidence), "Pointer ledger incomplete");
+    if (item.documentToken && (index > 0 || count === 1)) assert.equal(evidence.documentToken, item.documentToken);
+    if (fixtureKind === "directory") {
+      assert.ok(typeof evidence.inputToken === "string" && evidence.inputToken.length > 0);
+      if (item.inputToken && (index > 0 || count === 1)) assert.equal(evidence.inputToken, item.inputToken);
+    }
+  }
+}
+
+function allContextArtifact(artifact, spec, originalTaskPassed) {
+  const summary = { observed: false, collectionComplete: false, errors: [] };
+  try {
+    assert.ok(artifact && typeof artifact === "object", "Artifact missing");
+    assert.ok(!artifact.readError && !artifact.callerReadError && !artifact.diagnostic && !artifact.childProcess, "Artifact unreadable or contains a native probe");
+    const caller = spec.external && !originalTaskPassed ? artifact.callerResult : artifact;
+    assert.equal(caller?.caller, spec.caller); assert.equal(caller.independentConnections, true);
+    const variants = caller.variants, order = ["root", "oopif", "dynamic-oopif"], ids = new Set();
+    assert.ok(Array.isArray(variants) && variants.length > 0 && variants.length <= 3, "Variant sequence missing");
+    const failed = variants.filter(itemFailed);
+    for (const [index, item] of variants.entries()) {
+      assert.equal(item?.variant, order[index], "Variant order differs");
+      if (spec.fixtureKind === "directory") assert.match(item.key, new RegExp(`^directory-${item.variant}-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`));
+      else assert.equal(item.key, `${spec.prefix}-${item.variant}`, "Fixture key differs");
+      assert.ok(Number.isSafeInteger(item.tabId) && item.tabId >= 0 && !ids.has(item.tabId), "Missing or duplicate tab identity"); ids.add(item.tabId);
+      assert.ok(!item.diagnostic, "Native probe is not part of this mode");
+      if (!itemFailed(item)) {
+        assert.ok(!item.failureObservation && !item.failedAt, "Successful item contains failure evidence");
+        if (spec.legacyJS) assert.equal(item.historicalEventRejected, true, "JS variant did not finish");
+        else assert.equal(item.passed, true, "Earlier variant did not finish");
+      }
+    }
+    summary.variants = variants.map(item => ({ key: item.key, variant: item.variant, tabId: item.tabId }));
+    if (originalTaskPassed) {
+      assert.equal(variants.length, 3); assert.equal(failed.length, 0);
+      assert.ok(!artifact.error && !artifact.originalError && artifact.passed !== false && !artifact.failureObservation && !artifact.callerResult,
+        "Success artifact contains a task failure");
+      summary.collectionComplete = null;
+    } else {
+      assert.ok(recordedError(artifact.error), "Original case error missing");
+      assert.equal(failed.length, 1, "Expected a unique failed variant");
+      assert.equal(failed[0], variants.at(-1), "Failure is not the last attempted variant");
+      assert.ok(recordedError(failed[0].error) || recordedError(failed[0].originalError), "Original variant error missing");
+      if (spec.external) chooserFailedCallerItem(caller, { kind: spec.caller, prefix: spec.prefix,
+        sessionId: ["cli", "mcp"].includes(spec.caller) ? `${spec.prefix}-ready` : spec.prefix });
+      const observation = spec.external ? artifact.failureObservation : failed[0].failureObservation;
+      summary.observed = observation?.pointerObservationRequested === true;
+      allContextObservation(observation, failed[0], spec.fixtureKind ?? "chooser", spec.external);
+      summary.collectionComplete = true;
+    }
+  } catch (error) { summary.errors.push(error.message ?? String(error)); }
+  return summary;
+}
+
+export function chooserPointerAllContextSummary(artifacts, records) {
+  const actual = Array.isArray(records) ? records : [];
+  const caseSelectionComplete = actual.length === chooserPointerContextCases.length &&
+    actual.every((record, index) => record?.name === chooserPointerContextCases[index] && typeof record.passed === "boolean");
+  const cases = chooserPointerContextCases.map(name => {
+    const matches = actual.filter(record => record?.name === name), record = matches.length === 1 ? matches[0] : null;
+    const originalTaskPassed = typeof record?.passed === "boolean" ? record.passed : null;
+    const spec = allContextCoverage.find(value => value.name === name);
+    if (!spec) return { name, coverage: "uninstrumented", evidence: null, originalTaskPassed, observed: false,
+      collectionComplete: originalTaskPassed === true ? null : false,
+      reason: originalTaskPassed === false ? "Original task failed without pointer instrumentation" : "No pointer instrumentation for this context case" };
+    return { name, coverage: spec.fixtureKind === "directory" ? "directory-pointer" : "chooser-pointer", evidence: spec.evidence,
+      originalTaskPassed, ...allContextArtifact(artifacts?.[spec.evidence], spec, originalTaskPassed) };
+  });
+  const failures = cases.filter(value => value.originalTaskPassed === false);
+  const collectionComplete = !caseSelectionComplete || cases.some(value => value.collectionComplete === false) ? false :
+    failures.length ? true : null;
+  return { mode: "chooser-pointer-all-context-diagnostic", acceptancePassed: false, nativeCommandProbeInstalled: false,
+    caseSelectionComplete, expectedCases: [...chooserPointerContextCases], actualCases: actual.map(record => record?.name ?? null),
+    allOriginalTasksPassed: caseSelectionComplete && actual.every(record => record.passed === true),
+    observed: cases.some(value => value.observed), collectionComplete, cases };
+}
 
 // Serialized into the isolated worker on explicit opt-in. Never invokes an API
 // action itself; the original receiver, arguments, Promise and errors survive.

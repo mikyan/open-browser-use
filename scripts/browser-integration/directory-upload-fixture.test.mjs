@@ -7,6 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 import { checkDirectoryImmediate, checkDirectoryRound, checkDirectoryUpload, checkInactiveDirectoryRejection, checkInactiveDirectoryCancellation, createDirectoryUploadFixtures, directoryPageHTML, prepareDirectoryFiles } from "./directory-upload-fixture.mjs";
+import { installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
+import { chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
 
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 function hit(value) {
@@ -90,8 +92,8 @@ function request(url, body) {
     req.once("error", error => { clearTimeout(timer); reject(error); }); req.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
-async function httpFixture(run) {
-  const fixture = createDirectoryUploadFixtures();
+async function httpFixture(run, options = {}) {
+  const fixture = createDirectoryUploadFixtures(options);
   const server = http.createServer((req, res) => { if (!fixture.handle(req, res, new URL(req.url, `http://${req.headers.host}`))) { res.writeHead(404); res.end(); } });
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   const base = `http://127.0.0.1:${server.address().port}/`;
@@ -202,7 +204,7 @@ async function harness(run, options = {}) {
       } return result;
     } };
     await run({ browser: new Browser(), fixtureURL: base, server: fixture, files, worker, until: async callback => { untilCalls++; assert.ok(await callback()); } }, { log, fixture, get untilCalls() { return untilCalls; } });
-  }); } finally { await fs.rm(temp, { recursive: true, force: true }); }
+  }, { pointerEvidence: options.pointerEvidence ?? false }); } finally { await fs.rm(temp, { recursive: true, force: true }); }
 }
 
 test("public two-connection workflow covers 12 directory rounds, clear, three invalid new choosers and consumed repeats", () => harness(async (args, evidence) => {
@@ -300,4 +302,94 @@ test("inactive cancellation rejects any later input/change/upload evidence", () 
   checkInactiveDirectoryCancellation(record, { key: "unit", url: value.href });
   for (const bad of [{ ...record, witnesses: [] }, { ...record, witnesses: [hit(value), hit(witness())] }, { ...record, posts: [hit(witness("change"))] }])
     assert.throws(() => checkInactiveDirectoryCancellation(bad, { key: "unit", url: value.href }));
+});
+
+test("directory pointer HTML only adds the shared passive recorder and retains all six default pages", () => {
+  const insertion = `\n      (${installChooserPointerEvidence.toString()})(document,directoryEvidence,input,add);`;
+  for (const variant of ["root", "oopif", "dynamic-oopif"]) for (const documentKind of ["page", "frame"]) {
+    const url = new URL(`http://127.0.0.1:1234/directory-upload/${documentKind}?key=unit&variant=${variant}`);
+    const baseline = directoryPageHTML(url, 1234), enabled = directoryPageHTML(url, 1234, { pointerEvidence: true });
+    assert.equal(directoryPageHTML(url, 1234, { pointerEvidence: false }), baseline);
+    assert.equal(enabled.split(insertion).length, 2); assert.equal(enabled.replace(insertion, ""), baseline);
+    const listeners = new Map(), input = { addEventListener() {} }, add = {};
+    const context = vm.createContext({ crypto: { randomUUID: () => "original-document" },
+      document: { querySelector: selector => selector === "#upload" ? input : add,
+        addEventListener: (type, listener, options) => { assert.deepEqual({ ...options }, { passive: true, capture: true }); listeners.set(type, listener); } } });
+    vm.runInContext(enabled.match(/<script>([\s\S]*)<\/script>/)[1], context);
+    assert.equal(listeners.size, 8); assert.equal(chooserPointerEvidenceComplete(context.directoryEvidence), true);
+    listeners.get("pointerdown")({ type: "pointerdown", target: input, timeStamp: 1, isTrusted: true, clientX: 5, clientY: 7, button: 0, buttons: 1, pointerId: 2, pointerType: "mouse" });
+    assert.equal(context.directoryEvidence.pointerEvidence.records[0].targetIsOriginalUpload, true);
+    assert.equal(chooserPointerEvidenceComplete(context.directoryEvidence), true);
+    assert.deepEqual(Array.from(context.directoryEvidence.events), [], "Pointer capture must not submit directory witnesses");
+  }
+});
+
+test("directory pointer registration is opt-in, bounded and exact-key/variant, with no request-side opt-in", async () => {
+  const key = "directory-root-00000000-0000-4000-8000-000000000000";
+  assert.throws(() => createDirectoryUploadFixtures().registerPointerEvidenceKey(key), /disabled/);
+  assert.throws(() => createDirectoryUploadFixtures({ pointerEvidence: "true" }));
+  await httpFixture(async ({ fixture, base }) => {
+    const url = new URL(`directory-upload/page?key=${key}&variant=root`, base);
+    const before = await request(url); assert.equal(before.text, directoryPageHTML(url, Number(url.port)));
+    for (const invalid of [null, {}, "unit", "directory-inactive-00000000-0000-4000-8000-000000000000", `${key}!`])
+      assert.throws(() => fixture.registerPointerEvidenceKey(invalid), /Invalid/);
+    fixture.registerPointerEvidenceKey(key); fixture.registerPointerEvidenceKey(key);
+    assert.equal((await request(url)).text, directoryPageHTML(url, Number(url.port), { pointerEvidence: true }));
+    for (const alternate of [new URL(`directory-upload/page?key=${key}&variant=oopif`, base), new URL(`directory-upload/frame?key=${key}1&variant=root`, base)])
+      assert.equal((await request(alternate)).text, directoryPageHTML(alternate, Number(alternate.port)));
+    const child = new URL(`directory-upload/frame?key=${key}&variant=root`, base);
+    assert.equal((await request(child)).text, directoryPageHTML(child, Number(child.port), { pointerEvidence: true }));
+    for (let index = 1; index < 32; index++) fixture.registerPointerEvidenceKey(`directory-root-00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+    fixture.registerPointerEvidenceKey(key);
+    assert.throws(() => fixture.registerPointerEvidenceKey("directory-root-00000000-0000-4000-8000-000000000032"), /limit/);
+    assert.deepEqual(fixture.allStats(), [], "Registering/reading pointer pages must not manufacture HTTP witnesses");
+  }, { pointerEvidence: true });
+});
+
+test("directory pointer opt-in registers only its three generated keys and preserves successful browser actions/reads", async () => {
+  const runs = [];
+  for (const enabled of [false, true]) await harness(async (args, evidence) => {
+    const keys = [], register = args.server.registerPointerEvidenceKey;
+    args.server.registerPointerEvidenceKey = key => { keys.push(key); register(key); };
+    const navigate = args.browser.cdp.navigate;
+    args.browser.cdp.navigate = async (id, url) => {
+      const key = new URL(url).searchParams.get("key"); assert.equal(keys.includes(key), enabled);
+      return navigate(id, url);
+    };
+    const detail = await checkDirectoryUpload({ ...args, pointerEvidence: enabled });
+    assert.deepEqual(keys, enabled ? detail.variants.map(item => item.key) : []);
+    assert.ok(detail.variants.every(item => item.passed && !item.failureObservation));
+    assert.equal(evidence.log.some(item => item.kind.startsWith("failure-")), false);
+    runs.push(evidence.log.map(({ paths, ...entry }) => ({ ...entry, ...(paths ? { pathCount: paths.length } : {}) })));
+  }, { pointerEvidence: enabled });
+  assert.deepEqual(runs[1], runs[0]);
+});
+
+test("directory pointer failure uses the original failed-only read before cancellation and preserves error/POST evidence", async () => {
+  for (const missing of [false, true]) {
+    const original = new Error("Original dynamic collect timeout"), cleanup = new Error("Original cancel failed");
+    await harness(async (args, evidence) => {
+      const evaluate = args.worker.evaluate;
+      args.worker.evaluate = async expression => {
+        const value = await evaluate(expression);
+        if (expression.includes("chrome.scripting.executeScript")) {
+          assert.match(expression, /,"directory",true\]\}/);
+          for (const row of value) if (!missing || row.frameId === 0)
+            installChooserPointerEvidence({ addEventListener() {} }, row.result.directoryEvidence, null, null);
+        }
+        return value;
+      };
+      await assert.rejects(checkDirectoryUpload({ ...args, pointerEvidence: true }), error => {
+        assert.equal(error, original);
+        const item = error.directoryDetail.variants.at(-1), observation = item.failureObservation;
+        assert.equal(observation.pointerEvidenceExpected, true); assert.equal(observation.pointerObservationRequested, true);
+        assert.equal(observation.pointerObservationComplete, !missing); assert.equal(observation.complete, !missing);
+        assert.equal(observation.budgetMs, 3000); assert.equal(observation.fixtureKind, "directory");
+        assert.equal(item.rounds[0].cancelError.message, cleanup.message); assert.deepEqual(item.serverAtEnd.posts, []);
+        return true;
+      });
+      const start = evidence.log.findIndex(value => value.kind === "collect-failed");
+      assert.deepEqual(evidence.log.slice(start).map(value => value.kind), ["collect-failed", "failure-metadata", "failure-document", "cancel", "close"]);
+    }, { pointerEvidence: true, collectError: original, cancelError: cleanup, cancelErrorVariant: "dynamic-oopif" });
+  }
 });

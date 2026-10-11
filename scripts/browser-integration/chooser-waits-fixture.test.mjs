@@ -100,6 +100,33 @@ test("pointer key filtering snapshots a bounded exact key list and leaves every 
   assert.equal(render(empty, url), render(ordinary, url));
 });
 
+test("all-context pointer logs remain explicitly readable without entering existing whole-evidence serialization", () => {
+  for (const variant of chooserVariants) for (const route of ["page", "frame"]) {
+    const url = new URL(`http://127.0.0.1/chooser-waits/${route}?key=js-chooser-submission-${variant}&variant=${variant}`);
+    const listeners = new Map(), input = { nodeType: 1, tagName: "INPUT", getAttribute: name => name === "id" ? "upload" : "file" }, add = {};
+    const context = { crypto: { randomUUID: () => "test-document" }, document: { querySelector: selector => selector === "#upload" ? input : add,
+      addEventListener: (type, callback) => listeners.set(type, callback) } };
+    const html = chooserPageHTML(url, 1234, { pointerEvidence: true, pointerEvidenceNonEnumerable: true });
+    runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
+    const evidence = context.chooserEvidence;
+    assert.equal(Object.getOwnPropertyDescriptor(evidence, "pointerEvidence").enumerable, false);
+    assert.equal(chooserPointerEvidenceComplete(evidence), true);
+    listeners.get("mousedown")({ type: "mousedown", target: input, isTrusted: true, timeStamp: 1, clientX: 2, clientY: 3, button: 0, buttons: 1 });
+    assert.equal(evidence.pointerEvidence.records.length, 1); assert.equal(chooserPointerEvidenceComplete(evidence), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(evidence)), { documentToken: "test-document", clicks: [], changes: [], frameAdds: [] });
+  }
+  for (const options of [{ pointerEvidenceNonEnumerable: true }, { pointerEvidence: true, pointerEvidenceNonEnumerable: "true" }]) {
+    assert.throws(() => createChooserWaitFixtures(options));
+    assert.throws(() => chooserPageHTML(new URL("http://localhost/chooser-waits/page?key=x&variant=root"), 1234, options));
+  }
+  const only = createChooserWaitFixtures({ pointerEvidence: true, pointerEvidenceNonEnumerable: true, pointerEvidenceKeys: ["selected"] });
+  for (const key of ["selected", "other"]) {
+    let html; const url = new URL(`http://localhost/chooser-waits/page?key=${key}&variant=root`);
+    only.handle({ url: url.pathname + url.search }, { setHeader() {}, end(value) { html = value; } }, 1234);
+    assert.equal(html, chooserPageHTML(url, 1234, { pointerEvidence: key === "selected", pointerEvidenceNonEnumerable: key === "selected" }));
+  }
+});
+
 test("serialized pointer capture records exact node identity, trust and order without touching original event behavior", () => {
   const state = pointerDocument();
   assert.equal(chooserPointerEvidenceComplete(state.evidence), true, "zero delivered events remain complete");

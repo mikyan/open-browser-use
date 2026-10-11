@@ -3,7 +3,7 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { readFileSync } from "node:fs";
-import { chooserDiagnosticCases, chooserDiagnosticEnabled, chooserDiagnosticMode, chooserPointerDiagnosticSummary, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerContextSummary, chooserPointerGoContextSummary, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
+import { chooserDiagnosticCases, chooserDiagnosticEnabled, chooserDiagnosticMode, chooserPointerDiagnosticSummary, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, chooserPointerContextSummary, chooserPointerGoContextSummary, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
 import { checkChooserReady, installChooserPointerEvidence, createChooserWaitFixtures, chooserPageHTML } from "./chooser-waits-fixture.mjs";
 
 function setup(sendCommand = function () { return Promise.resolve({}); }, options) {
@@ -175,6 +175,152 @@ test("Go failure rejects missing, foreign, duplicate, unread or incomplete evide
   assert.equal(chooserPointerGoContextSummary(artifact, records).collectionComplete, false);
 });
 
+const allPointerSpecs = [
+  ["directory-upload.json", "js-file-chooser-directory-background-window", "js", "directory"],
+  ["chooser-submission.json", "js-file-chooser-single-submission", "js", "js-chooser-submission"],
+  ["chooser-js.json", "js-file-chooser-ready-two-connections", "js", "js-chooser"],
+  ...["cli", "mcp", "python", "go"].map(caller => [`chooser-${caller}.json`, `${caller}-file-chooser-ready-two-connections`, caller, `${caller}-chooser`])
+];
+function allPointerArtifacts() {
+  let tabId = 40;
+  const artifacts = Object.fromEntries(allPointerSpecs.map(([file, , caller, prefix]) => [file, {
+    caller, independentConnections: true,
+    variants: ["root", "oopif", "dynamic-oopif"].map(variant => ({ variant, tabId: tabId++,
+      key: prefix === "directory" ? `directory-${variant}-00000000-0000-4000-8000-000000000000` : `${prefix}-${variant}`,
+      ...(file === "chooser-js.json" ? { historicalEventRejected: true } : { passed: true }) }))
+  }]));
+  return { artifacts, records: chooserPointerContextCases.map(name => ({ name, passed: true })) };
+}
+function allPointerFailure(state, file, variantIndex = 2) {
+  const [, name, caller, prefix] = allPointerSpecs.find(value => value[0] === file);
+  const external = caller !== "js", fixtureKind = prefix === "directory" ? "directory" : "chooser";
+  const artifact = state.artifacts[file]; artifact.variants.splice(variantIndex + 1);
+  const item = artifact.variants.at(-1); item.passed = false; item.error = fixtureKind === "directory" ? { name: "Error", message: "original timeout" } : "original timeout";
+  artifact.error = "original timeout";
+  const root = `http://127.0.0.1:1234/${fixtureKind === "directory" ? "directory-upload" : "chooser-waits"}/page?key=${item.key}&variant=${item.variant}`;
+  const child = root.replace("127.0.0.1", "localhost").replace("/page?", "/frame?");
+  const documents = [root, ...(item.variant === "root" ? [] : [child])].map((url, index) => ({ frameId: index, parentFrameId: index === 0 ? -1 : 0,
+    documentId: `doc-${item.tabId}-${index}`, documentLifecycle: "active", errorOccurred: false, url, expectedURL: url }));
+  const observation = { version: 1, tabId: item.tabId, key: item.key, variant: item.variant, fixtureKind, errors: [],
+    ...(external ? { callerClosed: true } : {}), complete: true, pointerEvidenceExpected: true, pointerObservationRequested: true, pointerObservationComplete: true,
+    expected: { root, child }, metadata: { tab: { id: item.tabId, url: root }, frames: documents.map(({ expectedURL, ...frame }) => frame), frameCount: documents.length },
+    childStatus: item.variant === "root" ? "not-required" : "unique-current-child", documents,
+    results: documents.map(frame => {
+      const evidence = emptyPointerEvidence(); if (fixtureKind === "directory") evidence.inputToken = "input-token";
+      return { documentId: frame.documentId, frameId: frame.frameId, pointerEvidenceComplete: true,
+        result: { observed: true, href: frame.url, truncated: false, [`${fixtureKind}Evidence`]: evidence } };
+    }) };
+  if (external) state.artifacts[file] = { error: "original caller exited", callerResult: artifact, failureObservation: observation };
+  else item.failureObservation = observation;
+  state.records.find(record => record.name === name).passed = false;
+  return { item, observation, artifact: state.artifacts[file], caller: artifact };
+}
+
+test("all-context selects exactly 18 ordinary chooser keys and excludes uninstrumented fixture HTML", () => {
+  assert.equal(chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-all-context" }), "pointer-all-context");
+  assert.equal(chooserDiagnosticEnabled({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-all-context" }), true);
+  for (const key of ["OBU_TEST_CASES", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_MEMORY_CLIPBOARD",
+    "OBU_TEST_GEOMETRY_DPR", "OBU_TEST_MCP_BINDING", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_GO_CHOOSER_DIAGNOSTIC"])
+    assert.throws(() => chooserDiagnosticMode({ OBU_TEST_CHOOSER_DIAGNOSTIC: "pointer-all-context", [key]: "1" }), /cannot be combined/);
+  const prefixes = ["js-chooser-submission", "js-chooser", "cli-chooser", "mcp-chooser", "python-chooser", "go-chooser"];
+  assert.deepEqual(chooserPointerAllContextKeys, prefixes.flatMap(prefix => ["root", "oopif", "dynamic-oopif"].map(variant => `${prefix}-${variant}`)));
+  assert.equal(new Set(chooserPointerAllContextKeys).size, 18);
+  assert.deepEqual(chooserPointerAllContextArtifacts, allPointerSpecs.map(value => value[0]));
+  const fixture = createChooserWaitFixtures({ pointerEvidence: true, pointerEvidenceKeys: chooserPointerAllContextKeys });
+  for (const variant of ["root", "oopif", "dynamic-oopif"]) for (const route of ["page", "frame"])
+    for (const prefix of [...prefixes, "js-chooser-lifecycle", "go-chooser-extra", "foreign-chooser"]) {
+      const url = new URL(`http://127.0.0.1/chooser-waits/${route}?key=${prefix}-${variant}&variant=${variant}`); let html;
+      fixture.handle({ url: url.pathname + url.search }, { setHeader() {}, end(value) { html = value; } }, 1234);
+      assert.equal(html, chooserPageHTML(url, 1234, { pointerEvidence: prefixes.includes(prefix) }));
+    }
+});
+
+test("all-context success has seven valid artifact identities but no observed or complete pointer collection", () => {
+  const state = allPointerArtifacts(), before = JSON.stringify(state);
+  const summary = chooserPointerAllContextSummary(state.artifacts, state.records);
+  assert.equal(summary.caseSelectionComplete, true); assert.equal(summary.allOriginalTasksPassed, true);
+  assert.equal(summary.acceptancePassed, false); assert.equal(summary.nativeCommandProbeInstalled, false);
+  assert.equal(summary.observed, false); assert.equal(summary.collectionComplete, null);
+  assert.deepEqual(summary.cases.map(value => value.name), chooserPointerContextCases);
+  assert.equal(summary.cases.filter(value => value.coverage === "uninstrumented").length, 6);
+  assert.equal(summary.cases.filter(value => value.coverage === "chooser-pointer").length, 6);
+  assert.equal(summary.cases.filter(value => value.coverage === "directory-pointer").length, 1);
+  assert.ok(summary.cases.every(value => value.originalTaskPassed === true && value.observed === false && value.collectionComplete === null));
+  assert.equal(JSON.stringify(state), before);
+});
+
+test("all-context complete failed observations remain original task failures for every covered caller/layout", () => {
+  for (const [file] of allPointerSpecs) for (const index of [0, 1, 2]) {
+    const state = allPointerArtifacts(); allPointerFailure(state, file, index);
+    const freeze = value => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } };
+    const before = JSON.stringify(state); freeze(state);
+    const summary = chooserPointerAllContextSummary(state.artifacts, state.records);
+    assert.equal(summary.collectionComplete, true, `${file}/${index}: ${JSON.stringify(summary.cases)}`);
+    assert.equal(summary.observed, true); assert.equal(summary.allOriginalTasksPassed, false); assert.equal(summary.acceptancePassed, false);
+    const failed = summary.cases.filter(value => value.originalTaskPassed === false);
+    assert.equal(failed.length, 1); assert.equal(failed[0].evidence, file); assert.equal(failed[0].observed, true);
+    assert.equal(failed[0].collectionComplete, true); assert.equal(JSON.stringify(state), before);
+  }
+});
+
+test("all-context aggregate requires every original failure to have covered complete evidence", () => {
+  const state = allPointerArtifacts(); allPointerFailure(state, "chooser-mcp.json"); allPointerFailure(state, "directory-upload.json");
+  assert.equal(chooserPointerAllContextSummary(state.artifacts, state.records).collectionComplete, true);
+  state.artifacts["directory-upload.json"].variants.at(-1).failureObservation.pointerObservationComplete = false;
+  assert.equal(chooserPointerAllContextSummary(state.artifacts, state.records).collectionComplete, false);
+  for (const name of chooserPointerContextCases.filter(name => !allPointerSpecs.some(value => value[1] === name))) {
+    const only = allPointerArtifacts(); only.records.find(value => value.name === name).passed = false;
+    const summary = chooserPointerAllContextSummary(only.artifacts, only.records), failed = summary.cases.find(value => value.name === name);
+    assert.equal(summary.collectionComplete, false); assert.equal(failed.coverage, "uninstrumented");
+    assert.equal(failed.observed, false); assert.equal(failed.collectionComplete, false); assert.match(failed.reason, /failed without pointer/);
+  }
+});
+
+test("all-context rejects missing/reordered cases and malformed successful artifact identities", () => {
+  for (const change of [
+    state => { state.records.pop(); }, state => { state.records.reverse(); }, state => { state.records.push(state.records[0]); },
+    state => { state.records[0].passed = "true"; }, state => { delete state.artifacts["chooser-cli.json"]; },
+    state => { state.artifacts["chooser-cli.json"].caller = "mcp"; },
+    state => { state.artifacts["chooser-js.json"].variants[0].key = "js-chooser-submission-root"; },
+    state => { state.artifacts["chooser-js.json"].variants[0].historicalEventRejected = false; },
+    state => { state.artifacts["chooser-submission.json"].variants[2].tabId = state.artifacts["chooser-submission.json"].variants[0].tabId; },
+    state => { state.artifacts["chooser-python.json"].readError = "missing artifact"; },
+    state => { state.artifacts["chooser-go.json"].childProcess = {}; },
+    state => { state.artifacts["directory-upload.json"].variants[2].key += "\n"; },
+    state => { state.artifacts["directory-upload.json"].variants.reverse(); },
+    state => { state.artifacts["chooser-js.json"].variants[0].failureObservation = {}; }
+  ]) { const state = allPointerArtifacts(); change(state); assert.equal(chooserPointerAllContextSummary(state.artifacts, state.records).collectionComplete, false); }
+});
+
+test("all-context cannot certify foreign/unfinished/closed-unknown callers or trust flags over raw document ledgers", () => {
+  for (const change of [
+    value => { value.artifact.callerReadError = "stdout differs from file"; },
+    value => { value.observation.callerClosed = false; },
+    value => { delete value.artifact.failureObservation; },
+    value => { value.item.tabId = -1; }, value => { value.item.key = "go-chooser-root"; },
+    value => { value.caller.variants[1].passed = false; value.caller.variants[1].error = "earlier"; },
+    value => { value.item.failureObservation = value.observation; },
+    value => { value.observation.tabId++; }, value => { value.observation.fixtureKind = "directory"; },
+    value => { value.observation.errors.push("read failed"); }, value => { value.observation.complete = false; },
+    value => { value.observation.pointerEvidenceExpected = false; }, value => { value.observation.pointerObservationRequested = false; },
+    value => { value.observation.expected.root = value.observation.expected.root.replace("127.0.0.1", "foreign.test"); },
+    value => { value.observation.metadata.tab.url += "&foreign=1"; },
+    value => { value.observation.metadata.frames[1].documentId = "another-native-document"; },
+    value => { value.observation.results.pop(); }, value => { value.observation.results[1].documentId = "other-document"; },
+    value => { value.observation.results[1].result.chooserEvidence.pointerEvidence.overflow = true; },
+    value => { value.observation.results[1].result.chooserEvidence.pointerEvidence.nextSequence = 1; },
+    value => { delete value.observation.results[1].result.chooserEvidence.pointerEvidence; },
+    value => { value.observation.results[1].result.truncated = true; },
+    value => { value.observation.priorDocumentTokenMatches = false; }, value => { value.item.documentToken = "foreign"; }
+  ]) {
+    const state = allPointerArtifacts(), value = allPointerFailure(state, "chooser-mcp.json"); change(value);
+    assert.equal(chooserPointerAllContextSummary(state.artifacts, state.records).collectionComplete, false);
+  }
+  const state = allPointerArtifacts(), value = allPointerFailure(state, "directory-upload.json");
+  value.item.inputToken = "different-prior-input";
+  assert.equal(chooserPointerAllContextSummary(state.artifacts, state.records).collectionComplete, false);
+});
+
 test("chooser opt-in is exclusive and selects the original case plus mandatory raw control", () => {
   assert.equal(chooserDiagnosticEnabled({}), false);
   assert.equal(chooserDiagnosticEnabled({ OBU_TEST_CHOOSER_DIAGNOSTIC: "1" }), true);
@@ -326,11 +472,11 @@ test("lost worker and revoked scope remain explicit, are not replayed, and do no
 
 test("runner keeps default case filtering and explicitly labels this diagnostic as non-acceptance", () => {
   const runner = readFileSync(new URL("./run.mjs", import.meta.url), "utf8");
-  assert.ok(runner.includes('if (chooserDiagnostic && !(["pointer-context", "pointer-go-context"].includes(chooserMode) ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;'));
+  assert.ok(runner.includes('if (chooserDiagnostic && !(["pointer-context", "pointer-go-context", "pointer-all-context"].includes(chooserMode) ? chooserPointerContextCases : chooserDiagnosticCases).includes(name)) return;'));
   assert.match(runner, /mode: "chooser-ready-diagnostic", acceptancePassed: false/);
   assert.match(runner, /originalTaskPassed:/);
   assert.match(runner, /chooserMode === "pointer-context" \? \{ pointerEvidenceKeys: chooserPointerContextKeys \}/);
-  assert.match(runner, /!lifecycle && \["pointer-only", "pointer-context"\]\.includes\(chooserMode\) \? \{ pointerEvidence: true \}/);
+  assert.match(runner, /!lifecycle && \["pointer-only", "pointer-context", "pointer-all-context"\]\.includes\(chooserMode\) \? \{ pointerEvidence: true \}/);
   assert.match(runner, /chooserMode === "pointer-context" \? chooserPointerContextSummary\(artifact, records\)/);
   assert.match(runner, /chooserMode === "pointer-go-context" \? \{ pointerEvidenceKeys: chooserPointerGoContextKeys \}/);
   assert.match(runner, /chooserMode === "pointer-go-context" \? chooserPointerGoContextSummary\(artifact, records\)/);
@@ -340,6 +486,9 @@ test("runner keeps default case filtering and explicitly labels this diagnostic 
   assert.match(runner, /const diagnostic = kind === "go" && goChooserDiagnostic \? createGoChooserDiagnostic/);
   assert.match(runner, /const stdout = await subprocess\(executablePath, args, \{ timeoutMs: 120000, env, processEvidence: callerProcess \}\)/);
   assert.match(runner, /process.exitCode = records.some\(record => !record.passed\) \|\| chooserDiagnosticResult\?\.collectionComplete === false/);
+  assert.match(runner, /chooserAllPointers \? \{ pointerEvidenceKeys: chooserPointerAllContextKeys, pointerEvidenceNonEnumerable: true \}/);
+  assert.match(runner, /for \(const name of chooserPointerAllContextArtifacts\)/);
+  assert.match(runner, /chooserPointerAllContextSummary\(artifacts, records\)/);
   const fixture = readFileSync(new URL("./chooser-waits-fixture.mjs", import.meta.url), "utf8");
   assert.ok(fixture.indexOf("await diagnostic.failure({ owner, item })") < fixture.indexOf("await wait.cancel()"));
   assert.match(fixture, /expectFileChooser\(\{ timeoutMs: 10000 \}\)/);

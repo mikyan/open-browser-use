@@ -226,7 +226,6 @@ export async function observeChooserFailure({ worker, item, fixtureURL, budgetMs
   try {
     assert.ok(Number.isInteger(budgetMs) && budgetMs > 0 && budgetMs <= 3000, "Invalid failure observation budget");
     assert.equal(typeof pointerEvidence, "boolean", "Invalid pointer evidence option");
-    assert.ok(!pointerEvidence || fixtureKind === "chooser", "Pointer evidence requires chooser fixture");
     report.expected = expectedPages(fixtureURL, item, fixtureKind);
     readMetadata ??= () => worker.evaluate(`(async()=>{const read=async operation=>{if(Date.now()>=${report.deadline})throw new Error('Failure observation deadline expired before native read');return operation()};const [tab,frames]=await Promise.all([read(()=>chrome.tabs.get(${item.tabId})),read(()=>chrome.webNavigation.getAllFrames({tabId:${item.tabId}}))]);return{tab:{id:tab.id,windowId:tab.windowId,url:tab.url,pendingUrl:tab.pendingUrl,active:tab.active,status:tab.status},frameCount:frames?.length,frames:frames?.slice(0,32)}})()`);
     report.metadata = await within("native-metadata", readMetadata);

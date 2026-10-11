@@ -62,8 +62,10 @@ export function installChooserPointerEvidence(document, evidence, input, add) {
   ledger.installed = ledger.installationErrors === 0;
 }
 
-export function chooserPageHTML(url, port, { pointerEvidence = false } = {}) {
+export function chooserPageHTML(url, port, { pointerEvidence = false, pointerEvidenceNonEnumerable = false } = {}) {
   assert.equal(typeof pointerEvidence, "boolean");
+  assert.equal(typeof pointerEvidenceNonEnumerable, "boolean");
+  assert.ok(!pointerEvidenceNonEnumerable || pointerEvidence, "Hidden pointer evidence requires enabled evidence");
   const key = url.searchParams.get("key"), variant = url.searchParams.get("variant");
   assert.match(key, /^[a-z0-9-]{1,100}$/); assert.ok(chooserVariants.includes(variant));
   const root = url.pathname.endsWith("/page"), childURL = `http://localhost:${port}/chooser-waits/frame?` + new URLSearchParams({ key, variant });
@@ -84,12 +86,14 @@ export function chooserPageHTML(url, port, { pointerEvidence = false } = {}) {
         const files=await Promise.all([...input.files].map(async file=>{const bytes=new Uint8Array(await file.arrayBuffer());let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return{name:file.name,size:file.size,type:file.type,base64:btoa(raw)}}));
         const response=await fetch('/chooser-waits/upload?'+new URLSearchParams({key,variant}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,variant,sequence,files,documentToken:chooserEvidence.documentToken,clicks:[...chooserEvidence.clicks],changes:[...chooserEvidence.changes],href:location.href})});
         const receipt=await response.json();if(!response.ok)throw new Error(JSON.stringify(receipt));document.querySelector('#receipt').textContent=JSON.stringify(receipt);
-      }}${pointerEvidence ? `\n      (${installChooserPointerEvidence.toString()})(document,chooserEvidence,input,add);` : ""}
+      }}${pointerEvidence ? `\n      (${installChooserPointerEvidence.toString()})(document,chooserEvidence,input,add);` : ""}${pointerEvidenceNonEnumerable ? '\n      Object.defineProperty(chooserEvidence,"pointerEvidence",{enumerable:false});' : ""}
     </script>`;
 }
 
-export function createChooserWaitFixtures({ pointerEvidence = false, pointerEvidenceKeys } = {}) {
+export function createChooserWaitFixtures({ pointerEvidence = false, pointerEvidenceKeys, pointerEvidenceNonEnumerable = false } = {}) {
   assert.equal(typeof pointerEvidence, "boolean");
+  assert.equal(typeof pointerEvidenceNonEnumerable, "boolean");
+  assert.ok(!pointerEvidenceNonEnumerable || pointerEvidence, "Hidden pointer evidence requires enabled evidence");
   if (pointerEvidenceKeys !== undefined) {
     assert.ok(pointerEvidence && Array.isArray(pointerEvidenceKeys) && pointerEvidenceKeys.length <= 32, "Pointer evidence keys require enabled evidence and a bounded array");
     assert.ok(Array.from(pointerEvidenceKeys).every(key => typeof key === "string" && /^[a-z0-9-]{1,100}$/.test(key)), "Invalid pointer evidence key");
@@ -107,7 +111,8 @@ export function createChooserWaitFixtures({ pointerEvidence = false, pointerEvid
       const key = url.searchParams.get("key"), variant = url.searchParams.get("variant");
       if (!/^[a-z0-9-]{1,100}$/.test(key ?? "") || !chooserVariants.includes(variant)) { response.writeHead(400); response.end("invalid fixture key/variant"); return true; }
       if (["/chooser-waits/page", "/chooser-waits/frame"].includes(url.pathname)) {
-        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(chooserPageHTML(url, port, { pointerEvidence: pointerEvidence && (pointerKeys === null || pointerKeys.has(key)) })); return true;
+        const enabled = pointerEvidence && (pointerKeys === null || pointerKeys.has(key));
+        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(chooserPageHTML(url, port, { pointerEvidence: enabled, pointerEvidenceNonEnumerable: enabled && pointerEvidenceNonEnumerable })); return true;
       }
       if (url.pathname !== "/chooser-waits/upload" || request.method !== "POST") { response.writeHead(404); response.end(); return true; }
       const record = entry(key), hit = { at: Date.now(), method: request.method, variant }; record.posts.push(hit);

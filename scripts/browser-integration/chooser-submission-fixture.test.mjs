@@ -213,3 +213,29 @@ test("original operation error survives waiter cancellation failure with both er
     assert.equal(log.filter(item => item.kind === "submit").length, 0);
   }, { clickError: original, cancelError: cleanup });
 });
+
+test("pointer opt-in preserves the complete successful submission call sequence and collects no failure DOM", async () => {
+  const runs = [];
+  for (const pointerEvidence of [false, true]) await harness(async (args, { log }) => {
+    const result = await checkChooserSubmission({ ...args, pointerEvidence });
+    assert.ok(result.variants.every(item => item.passed && !item.failureObservation));
+    runs.push(structuredClone(log));
+  });
+  assert.deepEqual(runs[1], runs[0]);
+});
+
+test("pointer opt-in reaches only the existing once-only failure observation before cancellation", () => {
+  const original = new Error("original click timeout"), order = [];
+  return harness(async (args, { log }) => {
+    args.worker = { evaluate: async expression => { order.push(expression); throw new Error("metadata unavailable"); } };
+    await assert.rejects(checkChooserSubmission({ ...args, pointerEvidence: true }), error => {
+      assert.equal(error, original);
+      const observation = error.chooserDetail.variants[0].failureObservation;
+      assert.equal(observation.pointerEvidenceExpected, true); assert.equal(observation.complete, false);
+      assert.equal(observation.pointerObservationRequested, false); return true;
+    });
+    assert.equal(order.length, 1); assert.match(order[0], /chrome.tabs.get/);
+    assert.equal(log.filter(item => item.kind === "click").length, 1);
+    assert.equal(log.filter(item => item.kind === "cancel").length, 1);
+  }, { clickError: original });
+});

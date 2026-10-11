@@ -11,6 +11,12 @@
 
 ## 当前评分
 
+统一被动pointer诊断已首次保留自然误投现场：`OBaCi6`12/13、exit1，Python
+dynamic首轮click已返回，完整root ledger记录父IFRAME上的move/down/up/click，
+当前child无pointer/click/change；原业务仍失败。7ms观察发生在cancel及实际
+子进程close后，不是click时文档或native command关联证明。Node1482/1482、
+独立143/143；默认受影响上下文`XXyxbu`13/13通过，尚未修复生产输入。
+
 最新完整 `1OmROv` **110/110、exit0**，普通专项`ulluP9`13/13、exit0。
 本片仅补CLI/MCP/Python失败partial与阶段、原错误保留，以及所有普通外部
 调用器失败读取前的实际child close和精确身份门禁。Node1467/1467、独立

@@ -347,17 +347,18 @@ test("directory serialized reader records only existing bounded event metadata, 
   const limited = read(); assert.equal(limited.truncated, true); assert.equal(limited.directoryEvidence.events.length, 128); assert.equal(fileReads, 0);
 });
 
-function pointerFixture() {
-  const evidence = { documentToken: "pointer-document", clicks: [], changes: [], frameAdds: [] }, listeners = new Map();
+function pointerFixture(fixtureKind = "chooser") {
+  const evidence = { documentToken: "pointer-document", clicks: [], changes: [], frameAdds: [],
+    ...(fixtureKind === "directory" ? { inputToken: "original-input", events: [], errors: [] } : {}) }, listeners = new Map();
   const input = { nodeType: 1, tagName: "INPUT", id: "upload", isConnected: true, disabled: false, files: [],
     getAttribute: name => name === "id" ? "upload" : "file", getBoundingClientRect: () => ({ x: 7, y: 8, width: 9, height: 10 }) };
-  const url = "http://localhost:8123/chooser-waits/frame?key=unit&variant=oopif";
+  const url = `http://localhost:8123/${fixtureKind === "directory" ? "directory-upload" : "chooser-waits"}/frame?key=unit&variant=oopif`;
   const document = { readyState: "complete", visibilityState: "hidden", hasFocus: () => false, activeElement: null,
     querySelector: () => input, querySelectorAll: () => [], addEventListener: (type, callback) => listeners.set(type, callback) };
   installChooserPointerEvidence(document, evidence, input, null);
-  const context = vm.createContext({ location: { href: url }, document, chooserEvidence: evidence,
+  const context = vm.createContext({ location: { href: url }, document, [fixtureKind === "directory" ? "directoryEvidence" : "chooserEvidence"]: evidence,
     innerWidth: 600, innerHeight: 260, scrollX: 0, scrollY: 0, devicePixelRatio: 1.5 });
-  const read = (enabled = true) => vm.runInContext(`(${chooserFailureDocument.toString()})(${JSON.stringify([url])},${Date.now() + 10000},"chooser",${enabled})`, context);
+  const read = (enabled = true) => vm.runInContext(`(${chooserFailureDocument.toString()})(${JSON.stringify([url])},${Date.now() + 10000},${JSON.stringify(fixtureKind)},${enabled})`, context);
   const emit = () => listeners.get("mousedown")({ type: "mousedown", timeStamp: 4, isTrusted: true, target: input,
     clientX: 8, clientY: 9, button: 0, buttons: 1 });
   return { evidence, input, context, read, emit };
@@ -425,4 +426,37 @@ test("pointer-only passes its option only to the exact documentId scripting read
   assert.equal(report.complete, true); assert.equal(requests.length, 1);
   assert.deepEqual(Array.from(requests[0].target.documentIds), ["root-doc"]); assert.equal(requests[0].target.tabId, 42);
   assert.equal(requests[0].args[1], report.deadline); assert.equal(requests[0].args[3], true); assert.equal(report.budgetMs, 3000);
+});
+
+test("directory pointer projection shares the fixed checker and never reads optional pointer fields when disabled", () => {
+  const f = pointerFixture("directory"); f.emit();
+  Object.defineProperty(f.evidence.pointerEvidence, "privatePayload", { get() { throw new Error("arbitrary ledger property read"); } });
+  Object.defineProperty(f.evidence.pointerEvidence.records[0], "privatePayload", { get() { throw new Error("arbitrary event property read"); } });
+  const value = f.read();
+  assert.equal(value.chooserEvidence, undefined); assert.equal(value.truncated, false);
+  assert.equal(value.directoryEvidence.inputToken, "original-input");
+  assert.equal(chooserPointerEvidenceComplete(value.directoryEvidence), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(value.directoryEvidence.pointerEvidence)), f.evidence.pointerEvidence);
+  Object.defineProperty(f.evidence, "pointerEvidence", { get() { throw new Error("disabled pointer access"); } });
+  const off = f.read(false); assert.equal(off.truncated, false); assert.equal(Object.hasOwn(off.directoryEvidence, "pointerEvidence"), false);
+  assert.match(f.read().directoryEvidence.pointerReadError, /could not be read/);
+});
+
+test("directory pointer observations preserve exact identities and empty logs while rejecting missing, damaged or truncated ledgers", async () => {
+  for (const defect of [null, "missing", "overflow", "errors", "truncated", "wrong-document", "wrong-input", "wrong-url"]) {
+    const f = fixture("dynamic-oopif", "directory", "directory-dynamic-oopif-00000000-0000-4000-8000-000000000000");
+    for (const result of f.results) installChooserPointerEvidence({ addEventListener() {} }, result.result.directoryEvidence, null, null);
+    const child = f.results[1].result.directoryEvidence;
+    if (defect === "missing") delete child.pointerEvidence;
+    if (defect === "overflow") child.pointerEvidence.overflow = true;
+    if (defect === "errors") child.pointerEvidence.recordingErrors = 1;
+    if (defect === "truncated") child.pointerEvidence.truncations = 1;
+    if (defect === "wrong-document") f.results[1].documentId = "replacement";
+    if (defect === "wrong-input") f.item.inputToken = "original-other-input";
+    if (defect === "wrong-url") f.results[1].result.href = f.results[1].result.href.replace("directory-upload", "chooser-waits");
+    const report = await observeChooserFailure({ ...f, pointerEvidence: true });
+    assert.equal(report.pointerObservationRequested, true); assert.equal(report.pointerObservationComplete, defect === null, defect);
+    assert.equal(report.complete, defect === null); assert.equal(report.passed, undefined); assert.equal(report.budgetMs, 3000);
+    assert.equal(await observeChooserFailure({ ...f, pointerEvidence: true }), report); assert.equal(f.calls.length, 2);
+  }
 });
