@@ -1,0 +1,74 @@
+scripts/browser-integration/browser-restart-support.test.mjs
+  s_08bbfd293d324f::t_507e4dacd9dcfc 122,124-129
+scripts/browser-integration/browser-restart.mjs
+  s_08bbfd293d324f::t_a96fddf3b00b60 939-940
+  s_08bbfd293d324f::t_c82987c89d0600 171-191,243-245,390,398,412-418
+  s_08bbfd293d324f::t_b6168a9cb0e04e 381,924-938,941-956,960-966,969-973
+  s_08bbfd293d324f::t_17b955ac49e8a3 15,17,37,170,294-296,308
+  s_08bbfd293d324f::t_2c7a0da80fb89d 192-195,236-238,240-242,278
+  s_08bbfd293d324f::t_6ae126e4ce768f 38,274-277,279-285,717
+  s_08bbfd293d324f::t_ba808d19af1d24 39,196,214-220,239,515
+  s_08bbfd293d324f::t_245e21f0ad51d5 366-380,382-389,391-397,399-411,419-435
+  s_08bbfd293d324f::t_f7c2fc67e23799 197-213,221-235
+  s_08bbfd293d324f::t_38d388ec1172c9 611-659,662-675,678-679,681-685,688-700
+  s_08bbfd293d324f::t_17cf642657fb14 660-661,676-677,680,686-687,957-959,967-968
+  s_08bbfd293d324f::t_68a438d5c7eda5 489,501-502,510,708-710,714,720,722
+scripts/browser-integration/extension-reload-support.mjs
+  s_08bbfd293d324f::t_60e506dd4e6a57 74-75,82
+  s_08bbfd293d324f::t_1293d8e6c8e058 1-73,76-81,83-109
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_4ff343cd843cd2 1079-1081
+apps/chrome-extension/browser-lifetime.test.mjs
+  s_08bbfd293d324f::t_51f3d51972c3d7 160-207
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_9b618632fb2d33 625,641-644,647,650-652,658-676
+  s_08bbfd293d324f::t_a57e95ea347f7b 741-767,778-780,798-822
+  s_08bbfd293d324f::t_491c4337067217 677
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_c78ef1ac249973 966-980
+  s_08bbfd293d324f::t_fbe18970b0c010 986-995
+  s_08bbfd293d324f::t_507e4dacd9dcfc 946-947
+  s_08bbfd293d324f::t_6c9c0c63b1f331 943,961-962,981-985
+  s_08bbfd293d324f::t_e034654128ee86 942,944-945,948-960,963-965
+scripts/browser-integration/extension-reload-support.test.mjs
+  s_08bbfd293d324f::t_60e506dd4e6a57 74,87,98-99
+  s_08bbfd293d324f::t_5fd4a8c7b6cd6e 1-73,75-86,88-97,100-136
+apps/chrome-extension/browser-lifetime.js
+  s_08bbfd293d324f::t_4ff343cd843cd2 11,155-162
+docs/references/control-lifecycle.md
+  s_08bbfd293d324f::t_0cbc96955a5f04 85,89-106
+  s_08bbfd293d324f::t_b320e9dcb6eb3f 107
+docs/references/browser-lifetime.md
+  s_08bbfd293d324f::t_c78ef1ac249973 175-184
+  s_08bbfd293d324f::t_0cbc96955a5f04 95-126,147-174
+apps/chrome-extension/browser-lifetime-backend.test.mjs
+  s_08bbfd293d324f::t_51f3d51972c3d7 76,85-109
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_fbe18970b0c010 703-740
+apps/chrome-extension/popup-control.test.mjs
+  s_08bbfd293d324f::t_51f3d51972c3d7 3,92-136
+apps/chrome-extension/popup-control.js
+  s_08bbfd293d324f::t_4ff343cd843cd2 26,32-40,43
+scripts/browser-integration/browser-restart-support.mjs
+  s_08bbfd293d324f::t_b6168a9cb0e04e 4-5
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_a599933cc51978 16,18-19,114-121
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_5e7cea08df731b 53,121-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "75cb7d35d934e9b5cb1e471606e9468d17e947fa",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
