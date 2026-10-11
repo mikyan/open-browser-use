@@ -1,0 +1,59 @@
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_c913909063765a 45,390,589-601
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_ec9b9fc1645c6e 320-322
+scripts/browser-integration/chooser-submission-fixture.mjs
+  s_08bbfd293d324f::t_ad480a858f31ab 1-160
+scripts/browser-integration/chooser-submission-fixture.test.mjs
+  s_08bbfd293d324f::t_75d0e499771a22 1-215
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_8f53b17012307d 14-21
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_93a068914373cd 3104-3106,3108-3110,3144,3146
+  s_08bbfd293d324f::t_baac07a3eda2aa 3477-3480
+  s_08bbfd293d324f::t_ec9b9fc1645c6e 3113,3115
+  s_08bbfd293d324f::t_5abf72a23cc209 3120-3140,3142-3143,3145
+  s_08bbfd293d324f::t_2817687faae17e 3107,3111-3112,3114,3116-3119,3147-3148
+apps/chrome-extension/transfers.test.mjs
+  s_08bbfd293d324f::t_7665b9ecaaf7b1 728,747-748,751-752,756
+  s_08bbfd293d324f::t_fa06ced5b4868e 776-801
+  s_08bbfd293d324f::t_f434e7c5aab53d 757-774,820-822
+  s_08bbfd293d324f::t_093d633fc0cb37 855-900
+  s_08bbfd293d324f::t_8fdb423dbd7832 667-679,681-727,729-746,749-750,753-755,775,802-819,823-854
+  s_08bbfd293d324f::t_d88202b6cf9605 680
+docs/references/file-transfers.md
+  s_08bbfd293d324f::t_c913909063765a 33-52,56
+  s_08bbfd293d324f::t_35a4352f0a6cbb 53-55
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_63500b031c73d7 9-26
+  s_08bbfd293d324f::t_dcdc4e1ee2dd35 7,27
+  s_08bbfd293d324f::t_5fd43f4d6167b9 34,91,145,197,896,910
+  s_08bbfd293d324f::t_35a4352f0a6cbb 35
+  s_08bbfd293d324f::t_bbd00d083e60dd 8
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_5abf72a23cc209 1978,1982-1984
+  s_08bbfd293d324f::t_156b8d24821680 1989-1994
+  s_08bbfd293d324f::t_8f53b17012307d 1995-2008
+  s_08bbfd293d324f::t_f227055b7f2475 1972-1977,1979-1981,1985-1988
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_486464c136c702 1294-1310
+  s_08bbfd293d324f::t_8f53b17012307d 1311-1318
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_8f53b17012307d 45-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "ff3f4d4bda313d6825c29a372f13ac4033c6b7ff",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
