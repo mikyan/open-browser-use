@@ -1,0 +1,56 @@
+scripts/browser-integration/vivaldi-dom-focus-diagnostic.test.mjs
+  s_08bbfd293d324f::t_7f36b06395706c 1-75,77,80-116,136-145
+  s_08bbfd293d324f::t_2085f0ec34a312 76,117-135
+  s_08bbfd293d324f::t_97004c1980d0ba 174
+  s_08bbfd293d324f::t_dae6364c6dfdf7 78-79
+  s_08bbfd293d324f::t_6502be87fd97ec 146-173,175-192
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_ee29d97463642e 1687-1703
+  s_08bbfd293d324f::t_c99a3d704a4a53 1736-1741
+  s_08bbfd293d324f::t_77a04498227167 1716-1717
+  s_08bbfd293d324f::t_1ba1e48e067ef9 1742-1754
+  s_08bbfd293d324f::t_33883f70c32b36 1722,1731-1735
+  s_08bbfd293d324f::t_6d03f6946efc5a 1704-1715
+  s_08bbfd293d324f::t_631456310e54bd 1718-1721,1723-1730
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_1ba1e48e067ef9 1145-1155
+  s_08bbfd293d324f::t_e89af0475beed3 1132-1144
+docs/references/vivaldi-input-diagnostic.md
+  s_08bbfd293d324f::t_1ba1e48e067ef9 270-282
+  s_08bbfd293d324f::t_6d03f6946efc5a 228-255
+  s_08bbfd293d324f::t_33883f70c32b36 256-269
+scripts/browser-integration/vivaldi-dom-focus-diagnostic.mjs
+  s_08bbfd293d324f::t_e66aa9e877a231 1-2,4-32,35-72,74,77-85,87,99-104,106,112-114,120-122,129-130,135,139,142-148
+  s_08bbfd293d324f::t_ecfad757faa29e 3,86,107-110,115-119,126-128,137-138,140-141
+  s_08bbfd293d324f::t_14b9d51cc59c6f 73,75-76,88-98,105,123-124
+  s_08bbfd293d324f::t_97004c1980d0ba 111
+  s_08bbfd293d324f::t_2085f0ec34a312 33-34,125,131-134,136
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_1ba1e48e067ef9 52-55
+  s_08bbfd293d324f::t_9cb2406ad8f513 47-50
+scripts/browser-integration/native-browser-installation.mjs
+  s_08bbfd293d324f::t_560e62d3b059ed 25,321,349,351,363,372,552,559,671-672,674,678-684,820-825
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_9cb2406ad8f513 14-22
+  s_08bbfd293d324f::t_1ba1e48e067ef9 24-29
+  s_08bbfd293d324f::t_f70501ca927d55 23
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_9cb2406ad8f513 402-420,426-427
+  s_08bbfd293d324f::t_eedfcbc8f4144d 421-425
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "35d0a95adc0407f555bf99fdf838651058d69ca1",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
