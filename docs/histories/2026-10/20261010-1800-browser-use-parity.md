@@ -738,6 +738,47 @@ vendor MODIFICATIONS；主验收六次创建激活、四条主动 popup focus �
 `d946f5b64301084094db3bfd85e36af1dbfb513123938fc53ba76eef004be3a5`
 的已验证版本；用户主浏览器的已安装扩展未替换。仅提交本地，不推送或提 PR。
 
+### P02/P13：原生 launcher 与重连调度
+
+修复 NativeTransport 断线后每次 heartbeat 重建同名 alarm 的饥饿问题。
+仅保留一个 pending retry；存活 worker 使用 best-effort 5 秒 timer，浏览器
+保留 30 秒周期 alarm 作为唤醒后备。串行写入 alarm，避免旧连接的迟到 clear
+删除新断线的后备。原 Port 身份隔离、同步恢复门禁与禁止请求重放保持有效。
+新增七项确定性调度/竞态回归，包含 packed 最小间隔及 timer 丢失；这不等于
+真实 packed 扩展唤醒时序验收。
+
+新增 Windows native-lifecycle runner，由浏览器真实 connectNative 启动 Go
+host，无 Port adapter。唯一临时注册、独立 profile 和子进程环境隔离；终止
+前验证 host 路径、创建时间与浏览器祖先并保留精确进程句柄。实际 reload
+要求旧 host EOF exit 0、旧 pipe 不可达和 descriptor 清理，暂停经真实 popup
+保持及显式恢复。迟到目标在原 deadline 内出现，持续观察至 deadline 后
+250ms，检查原文档、可信事件与 HTTP witness。独立 companion 跨 reload
+连续记录焦点，异常不增加豁免；收尾仅删除身份一致的本轮随机注册叶子。
+
+完整 CI 通过 849 项 Node（726 扩展、53 脚本、70 脚手架）、JS98、Python67
+及 Go 全包；补充真实子进程 UTF-8/退出和隔离清单测试后，脚手架 73/73。完整主 headed
+`run-aZyBs1` 77/77，独立原始证据、源码与焦点审计通过。初次 CI 的 Windows
+shell 配置失败、主验收缺三份 Go caller 的 73/76 均保留；配置补齐后才通过。
+本次实际 host 为新构建，SHA-256
+`ed88871254f833a502b57107167419f04659526e60dd19fa25ba1c3d5a479332`。
+
+最终 Chrome 156 `native-lifecycle-dnAdTC` **3/3**，与最终隔离脚本一致；
+此前 `wG1S3Q` 和强化 deadline 的 `ZC9V9W` 各 3/3 作为历史证据保留。
+Edge 153 三次 setup 失败促成真实可见开关及 UI/native 双重核验；之后
+`nBszxt` 的 host 恢复通过，但在 reload 前出现焦点异常，且发现临时 profile
+同步了无关扩展。两浏览器统一禁 sync/background-networking 并用后台设置页
+持续核对 API 暴露的完整扩展清单，只留测试扩展与明确 COMPONENT。
+最终 Edge `R7MPzo` 清单隔离通过，但 host 恢复过程仍有未解释的本窗口
+focus，整个场景失败、两项 reload 未执行。收尾进程及注册清理通过。
+不把前次同步干扰当成本次原因，不放宽焦点规则；Edge 验收仍是明确缺口。
+全部过程与范围见 browser-integration README。签名更新、packed alarm 实测、
+其他 OS、更多恢复顺序和整体同组任务继续待补，长期目标保持 active。
+
+交付 ZIP 独立审计通过：1,247,131 bytes / 45 files，SHA-256
+`ba929b2d2df9183e7c792555eba967e12bf51fa52925d568c98eef8189ff3662`。
+逐文件匹配 unpacked、主回归与原生验收生产 hash；未含测试钩子、公钥替换、
+随机 host 名或私有路径。用户主浏览器安装未改变，仅本地开发及提交，无 PR/推送。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

@@ -118,6 +118,8 @@ class NativeTransport {
     this.messageCallback = null;
     this.onDisconnect = onDisconnect;
     this.reconnectAttempt = 0;
+    this.reconnect = null;
+    this.reconnectAlarmUpdate = Promise.resolve();
     this.status = {
       hostName: this.hostName,
       lastChecked: Date.now(),
@@ -148,6 +150,10 @@ class NativeTransport {
     if (this.port) {
       return;
     }
+    // The alarm may wake a replacement worker whose short timer was lost.
+    // A real attempt consumes the pending retry; notifications never do.
+    if (this.reconnect) clearTimeout(this.reconnect.timer);
+    this.reconnect = null;
     let port, receiver;
     try {
       port = chrome.runtime.connectNative(this.hostName);
@@ -181,6 +187,9 @@ class NativeTransport {
       port.postMessage({ jsonrpc: "2.0", method: "obu.native.hello", params: { version: 1 } });
       this.reconnectAttempt = 0;
       this.setStatus({ state: "connected" });
+      this.updateReconnectAlarm(() => {
+        if (this.port === port && !this.reconnect) return chrome.alarms.clear(RECONNECT_ALARM_NAME);
+      });
     } catch (error) {
       if (this.port === port) { this.port = null; this.receiver = null; }
       receiver?.close();
@@ -190,6 +199,9 @@ class NativeTransport {
   }
 
   scheduleReconnect(error) {
+    if (this.port || this.reconnect) return;
+    const retry = { timer: null };
+    this.reconnect = retry;
     this.reconnectAttempt += 1;
     this.setStatus({
       state: "reconnecting",
@@ -197,7 +209,21 @@ class NativeTransport {
       nextRetryMs: 5000,
       reconnectAttempt: this.reconnectAttempt
     });
-    chrome.alarms.create(RECONNECT_ALARM_NAME, { periodInMinutes: 0.1 }).catch(() => {});
+    retry.timer = setTimeout(() => {
+      if (this.reconnect === retry && !this.port) this.connect();
+    }, 5000);
+    this.updateReconnectAlarm(() => {
+      // Packed extensions clamp alarms to 30 seconds. Keep this fallback
+      // while the worker lives, and do not postpone it on each heartbeat.
+      if (this.reconnect === retry && !this.port)
+        return chrome.alarms.create(RECONNECT_ALARM_NAME, { periodInMinutes: 0.5 });
+    });
+  }
+
+  updateReconnectAlarm(operation) {
+    // Serialize native alarm writes: a slow clear for an earlier successful
+    // port must finish before a later disconnect creates its replacement.
+    this.reconnectAlarmUpdate = this.reconnectAlarmUpdate.then(operation).catch(() => {});
   }
 
   setStatus(status) {

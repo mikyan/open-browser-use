@@ -106,6 +106,7 @@ function pendingClick(tab) {
     () => ({ succeeded: true, elapsedMs: Date.now() - started }),
     error => ({ error: error.message, elapsedMs: Date.now() - started })
   ).then(outcome => { pending.outcome = outcome; return outcome; });
+  pending.submittedAt = started; pending.deadlineMs = 15000;
   return pending;
 }
 
@@ -114,7 +115,7 @@ async function assertPending(worker, pending) {
   assert.equal(pending.outcome, undefined, "action settled before the revocation stimulus");
   assert.equal(native.seenSelector, true);
   assert.equal(native.events.some(event => event.kind === "selector-settled" && !event.ok), false, "locator native call failed before revocation");
-  return { actionPending: true, native };
+  return { actionPending: true, native, submittedAt: pending.submittedAt, deadlineMs: pending.deadlineMs, deadline: pending.submittedAt + pending.deadlineMs };
 }
 
 function assertCancelled(outcome) {

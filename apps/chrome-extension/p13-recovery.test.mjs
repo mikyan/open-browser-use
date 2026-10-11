@@ -274,7 +274,7 @@ test("native recovery drains a real late attach before acknowledging bootstrap a
 
 test("current native port disconnect signals once; stale callbacks do not revoke the replacement port", async t => {
   const f = await fixture(t), ports = [], alarms = [];
-  f.chrome.alarms = { onAlarm: { addListener: listener => alarms.push(listener) }, create: async () => {} };
+  f.chrome.alarms = { onAlarm: { addListener: listener => alarms.push(listener) }, create: async () => {}, clear: async () => true };
   f.chrome.runtime.connectNative = () => {
     const port = { onMessage: event(), onDisconnect: event(), postMessage() {} };
     ports.push(port); return port;
@@ -291,6 +291,7 @@ test("current native port disconnect signals once; stale callbacks do not revoke
   assert.equal(transport.port, ports[1]);
   ports[1].onDisconnect.emit();
   assert.equal(signals, 2);
+  transport.connect(); // Consume the final real retry timer; leave no delayed test work.
 });
 
 test("disconnect during window discovery prevents late tab creation rather than replaying it", async t => {

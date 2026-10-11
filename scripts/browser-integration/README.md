@@ -1,5 +1,108 @@
 # Browser integration acceptance
 
+## Real Windows native launcher lifecycle
+
+`native-lifecycle.mjs` tests the browser's actual `connectNative` launcher with
+an isolated profile and a unique temporary native-host registration. It covers
+host termination with held input and a pending action, native Port EOF during
+an actual extension reload, and reload while globally paused. The normal
+adapter suite below remains a separate regression requirement.
+
+Build the current host and set explicit browser paths before invoking it:
+
+```powershell
+go build -o .tmp/native-lifecycle-host.exe ./cmd/open-browser-use
+$env:OBU_TEST_HOST_BINARY = (Resolve-Path .tmp/native-lifecycle-host.exe).Path
+$env:OBU_TEST_NATIVE_BROWSER = 'chrome'
+$env:OBU_TEST_CHROMIUM_BINARY = 'C:/path/to/chrome.exe'
+node scripts/browser-integration/native-lifecycle.mjs
+```
+
+The browser must expose `Extensions.loadUnpacked` and the extension-manager
+developer-mode UI. Setup uses that UI and one CDP bootstrap followed by ordinary
+manager reload, before the measured action interval. It never edits protected
+profile preferences. `edge` selects Edge registration and the Edge settings
+URL. Edge setup uses the observed visible developer-mode switch and checks both
+its UI state and the native configuration; the Chromium UI has its own path.
+For the controlled testing build, the default field-trial policy remains
+`disabled`; this is recorded and is not a production browser setting change.
+
+Both browsers use `--disable-sync` and `--disable-background-networking` in the
+private test process. The initial background settings page remains open for
+read-only `developerPrivate.getExtensionsInfo` inventory before/after setup,
+each case and before teardown. Disabled and terminated entries are included;
+only fixture IDs and explicitly reported `COMPONENT` entries are allowed. The
+API normally hides components, themes and non-unpacked hosted apps, so this is
+an inventory of everything exposed by that API, not all installed browser data.
+It records only ID/location/state/type, never account details or other extension
+contents. Any unexpected entry fails the run. Artifact construction also records
+focus, windows and the sentinel around each step without granting new allowances.
+
+Only the staged worker's unique native-host constant, public unpacked key and
+passive lifecycle listener differ from production. `connectNative` itself is
+unchanged. The independent companion observer survives extension reload and
+retains every activation/focus event; only explicit real Pause/Resume popup
+openings may receive exact focus allowances. Setup and final teardown are
+outside the measured interval.
+
+Before terminating a native host, the runner verifies its executable, creation
+time and live ancestry under the private browser, then retains the exact process
+handle. For reload it watches the old process handle, requires exit code zero,
+checks the old pipe is unavailable and that the relay removed its descriptors.
+Forced termination may leave stale descriptors and is recorded separately.
+New PID, endpoint, native worker identities, original document contents, trusted
+input release and server-side action witnesses are retained in the report.
+The late action target must appear with at least one second of its original
+deadline remaining. Observation continues through that original deadline plus
+250 ms, checking the same document and server-side witnesses for late effects.
+Host-only recovery requires an
+explicit new turn; reload also requires explicitly claiming the old task tab.
+
+Results and screenshots remain in `.tmp/browser-integration/native-lifecycle-*`.
+Cleanup verifies observed browser processes and test host processes exited,
+then removes only the random registration leaf if its ownership and value
+inventory are unchanged. It never removes the parent registration directory
+or changes a user's installed extension. Failed cases and cleanup failures
+remain failed; a subsequent run creates a separate evidence directory.
+
+This suite does not certify signed extension updates, whole-browser restart,
+packed-extension alarm wakeup timing, other operating systems, or all browser
+brands. Deterministic scheduling tests separately reproduce the packed alarm's
+30-second minimum and heartbeat replacement race.
+
+### Recorded acceptance and remaining Edge focus issue
+
+Final Chrome 156 run `native-lifecycle-dnAdTC` passed **3/3** with the final
+isolation/inventory policy. Earlier `native-lifecycle-wG1S3Q` and the strengthened
+deadline run `native-lifecycle-ZC9V9W` also passed 3/3 and retain their own source
+hashes. Main adapter regression `run-aZyBs1` passed **77/77** separately. A complete
+CI passed 849 Node tests (726 extension, 53 scripts, 70 harness), JS98, Python67
+and all Go packages; the final harness suite, including three subsequent tests,
+passed **73/73**. These counts are not a single repeated full CI run.
+
+Edge 153 remains unaccepted for this lifecycle suite. Setup failures
+`native-lifecycle-d2Ruot` / `olzCVL` identified a different developer-mode UI;
+`FkC1n3` showed native configuration alone did not update the displayed switch.
+Using the actual switch fixed setup. `nBszxt` passed host recovery but failed on
+an unexplained focus loss before reload; its private profile also unexpectedly
+synced unrelated store extensions. The final isolation policy eliminated those
+extra inventory entries in `native-lifecycle-R7MPzo`, but that run still failed
+host recovery's focus check: its own browser window received an unexplained
+focus event. The host recovery action completed, but the whole case stays failed;
+neither reload case ran. Its browser/native processes and random registration
+were cleaned. The cause remains unresolved; no event has been waived, and the
+earlier sync confound does not explain the clean-profile failure.
+
+The clean-profile browser log records its developer-mode bubble being shown at
+the exact millisecond of that focus event, 457 ms after the original host exited
+and about 4.6 seconds before the replacement started. This is timing correlation,
+not observed UI causation. Next diagnosis should retain the identical policy,
+observer and inventory but observe an idle post-install interval without SDK
+actions, host termination or reload. Such a control is diagnostic only; it must
+not erase this failure or count as lifecycle acceptance.
+
+## Adapter regression suite
+
 This optional acceptance suite runs **public SDKs → real Go native host →
 production extension → real Chromium pages**. It creates an isolated browser
 profile and local test pages; it does not install an extension in a user's

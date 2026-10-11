@@ -91,6 +91,30 @@ expired partial transfer. Once a complete request was dispatched, ordinary
 browser cancellation semantics apply. Closing a client socket is not an undo
 operation, and callers must not blindly retry side effects after a timeout.
 
+## Reconnecting the native host
+
+Port loss immediately fences existing browser work and discards incomplete
+native-message assembly. Reconnecting establishes a new transport only; it does
+not resend requests or restore an old control epoch. A surviving worker releases
+its original input attachments, and a caller explicitly begins a new turn before
+continuing. Extension reload also changes the browser session incarnation, so
+previous tab ownership must be explicitly claimed again.
+
+The transport keeps one pending retry instead of scheduling another whenever a
+disconnected heartbeat tries to send. A live worker attempts a connection after
+a best-effort five-second timer; a repeating 30-second browser alarm supplies a
+wakeup if that worker or timer disappears. These are scheduling intervals, not
+guaranteed connection deadlines. Alarm writes are ordered so a delayed clear for
+an old successful connection cannot erase a newer disconnect's fallback.
+
+This matters for distributed extensions: Chrome clamps packed-extension alarms
+to at least 30 seconds, while unpacked extensions are exempt. Creating the same
+alarm again replaces its schedule, so the previous six-second alarm could be
+postponed repeatedly by the 30-second heartbeat. See the official
+[Chrome alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms#create).
+The native launcher and Port lifetime are described in
+[Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging).
+
 ## Verification
 
 The regular browser harness enforces the actual 1 MiB host frame ceiling and
@@ -116,3 +140,16 @@ The full Windows Chromium 156 run `run-xMoFkk` passed 48/48 cases. Its two large
 requests each contained 2,520,000 decoded bytes, used 22 chunks in total, and the
 largest observed physical frame was 699,142 bytes. These are scoped evidence,
 not proof of full browser/platform or Codex feature parity.
+
+`scripts/browser-integration/native-lifecycle.mjs` adds actual Windows browser
+launcher recovery. It terminates an identity-checked native host, then separately
+reloads the extension in running and paused states. Reload requires the original
+host process to exit with code zero, its pipe to become unreachable, and its
+endpoint descriptors to disappear. A new endpoint never authorizes replay:
+the original request fails, a late target remains untouched through the original
+deadline plus 250 ms, and only an explicit new turn (plus claim after reload)
+can perform new work. Pause remains in force until the retained real popup
+resumes it. The runner records process identities, independent focus events,
+page/server witnesses and source hashes; see its
+[scope and invocation](../../scripts/browser-integration/README.md#real-windows-native-launcher-lifecycle).
+These unpacked runs do not certify signed updates or packed-alarm wakeup timing.

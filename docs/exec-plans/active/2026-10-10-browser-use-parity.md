@@ -993,3 +993,43 @@ vendor MODIFICATIONS 保留。主验收六次允许的创建激活、四条主�
 focus 精确归因，两代 host 真实退出，两个测试 profile 均无进程残留。
 Host 沿用 SHA-256 `d946f5b64301084094db3bfd85e36af1dbfb513123938fc53ba76eef004be3a5`
 的已验证二进制；不宣称本轮新构建。用户主浏览器的已安装扩展未被替换。
+
+### P02/P13：真实 native launcher 生命周期（Chrome 本片完成，Edge 焦点待查）
+
+从 clean `75cb7d3` 继续；上一轮有代码、真实验收和提交，属于有效进展。
+本轮补足浏览器原生 `connectNative` 启动、host 崩溃和扩展 reload 的 EOF
+链路。新 runner 使用独立 profile、唯一临时 host 注册及相同生产 host，
+不替换 connectNative；只允许测试 host 名、公钥和被动事件记录的 staging
+差异。常驻 companion 观察页跨 reload 保留原始焦点记录。
+
+必须核对实际 host PID/可执行文件/父进程身份、旧 IPC 失联和新 endpoint，
+挂起动作及时失败且无迟到副作用，原页面与用户前台保留。host 单独崩溃
+保留同 incarnation 的任务成员，仅要求显式新 turn；真实扩展 reload 更换
+incarnation，必须显式新 turn 和 claim。暂停状态在 reload 后保持。
+原生终止前再次验证进程身份，收尾删除的只能是本轮创建且值未变化的注册。
+保留失败证据，不把开发版 unpacked 重载等同商店签名更新或其他 OS。
+
+静态审计发现 packed 扩展的重连 alarm 可能被 30 秒 heartbeat 反复覆盖，
+使实际重连饥饿；Chrome 对 packed alarms 的最小 30 秒间隔与同名覆盖语义
+见官方 alarms 文档。修复需保证重连只调度一次、后续消息不延后期限，
+保留持久唤醒与短延迟重连，同时不重放任何浏览器动作。补确定性时序回归
+及真实 native launcher 验收后再记录完成范围；目标保持 active，无 PR/推送。
+
+已实现单一 pending retry、best-effort 5 秒 timer 和 30 秒持久 alarm，串行
+create/clear 防止旧清理覆盖新后备；七项新增竞态回归通过。完整 CI 的
+849 项 Node、JS98、Python67、Go 全包通过，最终脚手架增加三项后 73/73。
+主 `run-aZyBs1` 77/77；最终 Chrome 原生 `native-lifecycle-dnAdTC` 3/3，
+真实 host 崩溃、运行/暂停 reload、两次 EOF exit0 及原 deadline+250ms
+无重放均验收。源码、产物和焦点证据独立核验；包 hash 见本轮 history。
+
+Edge setup 经三次失败后用实际可见开关修正；首次 host 恢复通过的后续
+reload 准备阶段出现焦点异常，且发现同步外来扩展。最终统一禁同步策略与
+全状态管理 API 清单核验后，`native-lifecycle-R7MPzo` 仍因本窗口一次未知
+focus 失败，后两场景未运行；进程及临时注册清理通过。严格焦点条件保持，
+后续从此独立失败查明操作/原生进程/OS 窗口时间关系，不靠重复运行取通过。
+签名更新、packed alarm 实际唤醒、其他 OS 和剩余 P01–P15 继续保留。
+
+Edge 失败日志在 focus 同一毫秒记载开发者模式提示气泡出现（旧 host 退出
+457ms 后、新 host 启动前约 4.6 秒），目前仅时间相关。下一片做相同设置下
+无 SDK 动作、无 host 终止、无 reload 的 idle 对照，保留完整 observer 与
+清单，不引入新 flag 或豁免，先判断是否不经恢复操作也出现该事件。

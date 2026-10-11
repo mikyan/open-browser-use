@@ -13,10 +13,10 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及全局暂停已有真实验收。最新主 headed `run-FPduQP` 77/77，真实重启/reload `browser-restart-w5chI9` 8/8；有/无 startup witness 的未知输入恢复及准确用户提示已验。Codex 同组表单最终3/3但方法有差异；旧失败保留。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、原生 launcher、签名更新/更多恢复顺序、其他平台与更广同组任务；原生 popup 初始激活仍有缺口。 |
-| 架构文档 | B | 本地 IPC、动作协议、有界递归观察与 capture refs、持久 control 生命周期、全局暂停和文件来源边界已有独立 reference；新增标签撤权、host 断线恢复门禁、session incarnation 与 startup witness 恢复，以及真实目标销毁的清理边界。 | 继续记录不同恢复顺序和原生 launcher 恢复及更多受限入口的设计/证据。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及暂停已有验收。最新主 `run-aZyBs1` 77/77；Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3，真实重启/reload 历史8/8。Edge 同策略隔离后仍有未知 focus，不能称全浏览器无抢前台。 | 继续 content-return、Page GUID 路径/取消、headed OS 剪贴板、Edge 原生焦点、签名更新/更多恢复顺序及更广同组任务。 |
+| 架构文档 | B | 本地 IPC、动作协议、观察/capture refs、control 生命周期、暂停、来源边界与 incarnation/startup witness 已有 reference；新增 native 重连 timer/alarm 调度和真实 launcher/EOF 验收边界。 | 查明 Edge 隔离原生恢复的未知 focus，补更多恢复顺序、签名更新及受限入口。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查。恢复指导区分关闭原受控页、完整退出重开及可能额外重启，风险退役后立即撤下建议；20张实际恢复PNG已校验，关键三图已查看。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 完整 `scripts/ci.sh`：扩展719、脚本53、脚手架67（共839），JS98、Python67、Go全包及其余检查通过。主 headed `run-FPduQP` 77/77，独立重启/reload `browser-restart-w5chI9` 8/8；六代浏览器与五个真实profile启动已记录，失败尝试不覆盖。 | 继续原生 launcher、签名更新/更多恢复顺序、其他 OS/浏览器、实验配置兼容性和更广同组比较。 |
+| 测试 | B | 完整 CI：扩展726、脚本53、脚手架70（849 Node），JS98、Python67、Go全包及其余检查通过；后加三项测试的最终脚手架73/73。主 `run-aZyBs1` 77/77，最终 Chrome 原生生命周期3/3；历史整进程/reload8/8保留。Edge清洁inventory但focus失败，未将其标通过。 | 补 Edge 原生恢复焦点定位、packed alarm 实际唤醒、签名更新、其他 OS/浏览器及更广同组比较。 |
 | 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
 
@@ -119,3 +119,9 @@ P13 本轮独立审计 `browser-restart-w5chI9` **8/8**：四次真实扩展relo
 严格归因11次主动popup。20张PNG、原始journal/Port/Target与源码hash均通过。
 当前主回归 `run-FPduQP` **77/77**；未知原生写、真实native launcher/EOF、
 签名更新和更多平台仍未覆盖，完整目标保持active。
+
+
+最新原生生命周期范围见 [验收记录](../scripts/browser-integration/README.md#recorded-acceptance-and-remaining-edge-focus-issue)。
+Chrome 最终三项成功与 Edge 严格焦点失败分别保存，前者不抵消后者。
+单一 pending retry 消除 heartbeat 推迟重连，alarm 写入串行化；packed30秒
+限制的回归是确定性模拟，实际 unpacked 验收不冒充 packed 唤醒证明。
