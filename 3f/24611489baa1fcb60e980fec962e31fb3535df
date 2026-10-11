@@ -1,0 +1,27 @@
+docs/references/local-ipc-transport.md
+  s_08bbfd293d324f::t_0e203fba0fc13f 13
+  s_08bbfd293d324f::t_f59e89c0992d5d 12,14-17
+internal/transport/transport_windows_close_test.go
+  s_08bbfd293d324f::t_cd21f165ed73d8 71-78,83
+  s_08bbfd293d324f::t_f59e89c0992d5d 1-70,79-82,84-171
+go.mod
+  s_08bbfd293d324f::t_9180d68a9e51e0 3,6,8
+go.sum
+  s_08bbfd293d324f::t_240ccd70a63549 1-2,11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "3f24611489baa1fcb60e980fec962e31fb3535df",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
