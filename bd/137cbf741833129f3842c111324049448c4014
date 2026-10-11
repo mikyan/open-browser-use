@@ -1,0 +1,75 @@
+scripts/patch-frame-geometry.test.mjs
+  s_08bbfd293d324f::t_210ec1c174a26a 30,42,78,95,117,131,264,266,268-276,285-299
+  s_08bbfd293d324f::t_a7ca71e9dbd0a8 1-29,31-41,43-54,56-77,79-94,96-116,118-130,132-263,265,267,300
+  s_08bbfd293d324f::t_bbc43b1ac3b5bf 55
+  s_08bbfd293d324f::t_b29d5b40b047ec 277-284
+scripts/browser-integration/transformed-pointer-fixture.mjs
+  s_08bbfd293d324f::t_6bbf3e9d40a6d4 190-192,195-196,260-262
+  s_08bbfd293d324f::t_861c4856550431 1-14,17-100,102,104-189,193-194,197-209,217-259,263-305,307-337
+  s_08bbfd293d324f::t_6a8515f955b0ea 15-16,101,103,210-216,306
+docs/exec-plans/completed/2026-10-12-transformed-frame-input.md
+  s_08bbfd293d324f::t_14e1964058901d 1-81
+docs/references/pointer-delivery.md
+  s_08bbfd293d324f::t_ab00f543c20c5f 84-86,97-100
+  s_08bbfd293d324f::t_f69faaaaedc7db 42-44,72-73
+scripts/patch-pointer-delivery.test.mjs
+  s_08bbfd293d324f::t_6ce18b5e146905 585-607
+  s_08bbfd293d324f::t_3dd220a18e45d8 133,263,402,621,646,675
+  s_08bbfd293d324f::t_5e7d354fe91ad6 569-584
+docs/references/README.md
+  s_08bbfd293d324f::t_f69faaaaedc7db 55-56
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_7806131cfc6bbf 61,276,295,1312-1324,1326-1335
+  s_08bbfd293d324f::t_2b00a0c2486f55 432-433
+  s_08bbfd293d324f::t_a183b11dd94f15 1325
+scripts/browser-integration/transformed-pointer-fixture.test.mjs
+  s_08bbfd293d324f::t_6bbf3e9d40a6d4 1-25,27-42,44-74,77-89,91-97,106-200
+  s_08bbfd293d324f::t_6a8515f955b0ea 26,43,75-76,90,98-105
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_14e1964058901d 2523-2543
+docs/references/transformed-frame-input.md
+  s_08bbfd293d324f::t_14e1964058901d 82,85,87
+  s_08bbfd293d324f::t_f69faaaaedc7db 1-19,22-60,62-65,67-68,70-75,90-99
+  s_08bbfd293d324f::t_a83165b06b05bd 20-21,61,66,69,76,78,80-81,83-84,86,88
+  s_08bbfd293d324f::t_95a972e42fab4c 77,79,89
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_95a972e42fab4c 14-24
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_f1971df375040b 2201-2223
+docs/histories/2026-10/20261012-0520-transformed-frame-input.md
+  s_08bbfd293d324f::t_95a972e42fab4c 44-47,52
+  s_08bbfd293d324f::t_5fa4590f238dbb 1-43,53-63
+  s_08bbfd293d324f::t_958fd66c849d6f 48-51
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_a6f5df02c02b7a 12,120
+  s_08bbfd293d324f::t_25bd4b94fd19a9 144-145
+scripts/patch-pointer-delivery.mjs
+  s_08bbfd293d324f::t_f57955aa5f7950 90,166,169,204,206,268-269
+  s_08bbfd293d324f::t_7a7d4c06288fc9 91,101-105
+scripts/patch-frame-geometry.mjs
+  s_08bbfd293d324f::t_e668fff4f3f5ef 1-5,12-128,131-133,135-138,148-160,162-164,167-178,180-182,184-195,197-216,218-226,230,243-245,249-261,265-269,271-283,285-316
+  s_08bbfd293d324f::t_ea92843a3ba27d 129-130,236
+  s_08bbfd293d324f::t_4c0e9d0e47b50a 6-11,134,139-147,165-166,179,196,217,227-229,231-235,237-242
+  s_08bbfd293d324f::t_49d841670b52b9 246-248
+  s_08bbfd293d324f::t_dd4541197d23b4 161,183,262-264,270,284
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_f69faaaaedc7db 177-180
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_15c79d0c3ebc90 246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "bd137cbf741833129f3842c111324049448c4014",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
