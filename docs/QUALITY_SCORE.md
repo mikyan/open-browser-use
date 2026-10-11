@@ -11,7 +11,20 @@
 
 ## 当前评分
 
-最新完整`WLM6bV` **112/112、exit0**，最终专项`uLGdWq`3/3，Node1581/1581，
+正式locator文件上传已完成本片验收：最终`tQEVZJ` **118/118、exit0**，
+Node1642/1642、无skip/cancel；JS SDK134、Python99通过，Go全包通过且保留
+26项既有平台skip。五入口×三布局hidden input及JS root目录共16次原node
+上传/清空、16唯一POST/17909B与50文件实例/563B独立核实，零Input/chooser。
+目录复用原native ACK+可信input，清空为合成事件；未知ACK与失败remote
+release保留原锁/清理闭包。legacy省略epoch兼容修复有旧候选失败及四回归。
+223212ms焦点账本仅原11激活/4控制popup focus与一项精确新增目录窗口首tab
+激活；sentinel身份/选择不变，高1222→1165。16任务页/targets及新目录窗口
+回收、两代host与51生产成员/53暂存成员独立核验。Go源树现明确包含.go。
+此前`QL84QJ`6/7目录准备错误、旧源专项`Plei2M`7/7及完整`DSSqzQ`118/118
+保留。它们不代替最终legacy修复后的完整验收；完整P01–P15仍未完成。
+详见[直接上传边界](references/locator-file-upload.md)。
+
+此前完整`WLM6bV` **112/112、exit0**，最终专项`uLGdWq`3/3，Node1581/1581，
 零skip/cancel。门禁扩展到普通多击、双击和显式modifiers；首down后不重放，
 后续down在原root点复核祖先命中及原receipt，每attempt在finally恢复键盘
 baseline。旧候选的祖先遮挡、framePoint变化、断开三反例均确实失败，新

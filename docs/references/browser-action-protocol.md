@@ -195,6 +195,7 @@ All arguments are in `args`; unknown keys are rejected before attachment.
 | `dragTo` | required `target` locator descriptor array, optional `force`, `sourcePosition`, `targetPosition` |
 | `check`, `uncheck`, `setChecked` | optional `force`, `position`; `setChecked` requires boolean `checked` |
 | `selectOption` | `values`: string, nonempty descriptor with `value` / `label` / `index`, or mixed array; optional `force` |
+| `setInputFiles` | `files`: absolute path array; `[]` clears the exact file input; requires `locatorFileUpload: 1` |
 | `waitFor` | optional `state`: attached/detached/visible/hidden |
 | `count`, `innerText`, `textContent`, `inputValue`, `isVisible`, `isEnabled`, `isChecked`, `boundingBox`, `allTextContents`, `allInnerTexts` | none |
 | `getAttribute` | string `name` |
@@ -295,6 +296,12 @@ release can trigger trusted `mouseup`, `click`, or drag handlers, and their page
 effects cannot be reversed. A mid-drag failure may therefore leave observable
 page changes. Callers using low-level `mouse.down`/`mouse.up` must not interpret a
 timeout or end-turn acknowledgement as proof that no interaction occurred.
+
+Direct locator uploads accept hidden file inputs and share the existing chooser
+submission registry. They use neither a pointer action nor a chooser dialog;
+directory completion retains its native visibility requirements. Path limits,
+SDK negotiation and mutation lifetime are specified in
+[locator file uploads](locator-file-upload.md).
 
 ## Diagnostic snapshots
 

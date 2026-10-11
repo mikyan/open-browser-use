@@ -55,6 +55,11 @@ actions use strict matching and Playwright actionability checks. Resolve a
 multiple-match error using observed page structure instead of selecting the
 first element by habit.
 
+For file inputs, including hidden inputs, use the locator's `setInputFiles`
+helper rather than a pointer action. Read
+[Direct File Inputs](sdk-and-protocol.md#direct-file-inputs) for capability,
+absolute-path, directory and completion rules.
+
 ## Bounded page capture and references
 
 Check `tab.engineInfo()` for `capabilities.snapshotAI === 1` and

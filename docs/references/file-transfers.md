@@ -8,6 +8,12 @@ timed-out upload or download trigger.
 
 ## File chooser
 
+When current page evidence identifies the actual file input, use the formal
+[locator `setInputFiles` action](locator-file-upload.md), including for hidden
+inputs. It shares the same exact-node submission registry and directory/clear
+semantics below, without opening a chooser. Keep the chooser flow for page
+workflows where an authorized click exposes the input through a chooser event.
+
 `waitForFileChooser({tabId})` establishes the same Playwright CRX attachment used
 by browser actions, then enables native chooser interception. A following
 same-session action waits for that setup acknowledgement before input. This makes

@@ -1,3 +1,4 @@
+import { locatorUploadParams, requireLocatorUpload } from "./locator-upload.js";
 import { OpenBrowserUseDownloadWait, downloadWaitMethods, downloadWaitParams, downloadWaitTimeout, downloadWaitAck, downloadWaitCancelled, assertDownloadWaitDeadline, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
 export { OpenBrowserUseDownloadWait, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
 import { clipboardMethods, clipboardParams, validateClipboardResult, OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
@@ -82,7 +83,7 @@ export type OpenBrowserUseFilterOptions = { hasText?: string; hasNotText?: strin
 export type OpenBrowserUseAISnapshotLimits = { maxBytes: number; maxNodes: number; maxRefs: number; maxFrames: number; maxDepth: number };
 export type OpenBrowserUseEngineInfo = {
   name: "playwright-crx"; version: string; playwrightVersion: string;
-  capabilities?: { snapshotAI: 1; captureRefs: 1; snapshotBoxes?: 1 };
+  capabilities?: { snapshotAI: 1; captureRefs: 1; snapshotBoxes?: 1; locatorFileUpload?: 1 };
   snapshotLimits?: OpenBrowserUseAISnapshotLimits;
 };
 export type OpenBrowserUseActionResult = { value: JsonValue; engine: OpenBrowserUseEngineInfo };
@@ -218,20 +219,25 @@ export class OpenBrowserUseClient {
   }
 
   async #request(method: string, params: BrowserUseRequestParams, options: { timeoutMs?: number; startBefore?: number }, capture?: (metadata: BrowserUseRequestParams) => void): Promise<JsonValue> {
+    const locatorUpload = method === "browserAction" && params.action === "setInputFiles";
+    if (locatorUpload) locatorUploadParams(params);
     if (method === "createTab" && Object.hasOwn(params, "backgroundWindow") && typeof params.backgroundWindow !== "boolean") throw new Error("backgroundWindow must be a boolean");
     if (fileChooserWaitMethods.has(method)) fileChooserWaitParams(method, params);
     if (downloadWaitMethods.has(method)) downloadWaitParams(method, params);
     assertTimeout(options.timeoutMs ?? this.timeoutMs);
     const submittedAt = Date.now();
+    const submittedMonotonic = performance.now();
     let deadline = submittedAt + (options.timeoutMs ?? this.timeoutMs);
     // Capture before the first await. A concurrent end must never rebind work
     // already submitted by the caller to its newly issued turn or epoch.
     const turnId = this.#turnId;
     const captured = JSON.parse(JSON.stringify(params)) as BrowserUseRequestParams;
+    if (locatorUpload) locatorUploadParams(captured);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
       const requested = captured.timeoutMs ?? 10_000;
       if (typeof requested === "number" && Number.isFinite(requested) && requested >= 1 && requested <= 120_000) deadline = Math.min(deadline, submittedAt + requested + 1000);
     }
+    const monotonicDeadline = locatorUpload ? submittedMonotonic + (deadline - submittedAt) : undefined;
     const merged: BrowserUseRequestParams = { session_id: this.sessionId, turn_id: turnId, ...captured };
     if (downloadWaitMethods.has(method)) downloadWaitParams(method, merged);
     if (controlExemptMethods.has(method)) return this.#sendRequest(method, merged, deadline);
@@ -241,7 +247,7 @@ export class OpenBrowserUseClient {
       if (!Number.isSafeInteger(captured.control_epoch) || (captured.control_epoch as number) < 0) throw new Error("control_epoch must be a non-negative safe integer");
     } else {
       if (merged.session_id !== this.sessionId || merged.turn_id !== turnId) throw new Error("Use a separate client or an explicit control_epoch when overriding session_id or turn_id");
-      binding = this.#control ?? await beforeDeadline(this.#initializeControl(turnId, deadline), deadline, method);
+      binding = this.#control ?? await beforeDeadline(this.#initializeControl(turnId, deadline, monotonicDeadline), deadline, method, monotonicDeadline);
       if (binding.closing) throw new Error("OBU_CONTROL_ENDING: call beginTurn() explicitly after control has ended");
       if (binding.controlEpoch !== null) merged.control_epoch = binding.controlEpoch;
     }
@@ -280,8 +286,14 @@ export class OpenBrowserUseClient {
       if (this.#clipboardVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#clipboardVersion !== 1) throw new Error("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1");
     }
+    if (locatorUpload) {
+      const info = await this.#sendRequest("browserAction", { session_id: merged.session_id, turn_id: merged.turn_id,
+        ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }),
+        tabId: merged.tabId!, action: "engineInfo", timeoutMs: merged.timeoutMs ?? 10000 }, deadline, 0, undefined, monotonicDeadline);
+      requireLocatorUpload(info);
+    }
     capture?.({ session_id: merged.session_id, turn_id: merged.turn_id, ...(merged.control_epoch === undefined ? {} : { control_epoch: merged.control_epoch }) });
-    const result = await this.#sendRequest(method, merged, deadline, 0, options.startBefore);
+    const result = await this.#sendRequest(method, merged, deadline, 0, options.startBefore, monotonicDeadline);
     if (!explicitEpoch && binding && (method === "turnEnded" || method === "finalizeTabs")) {
       const next = binding.controlEpoch === null ? { controlEpoch: null, closing: false, nextTurnId: `turn-${randomUUID()}` } : parseEndedControl(result);
       if (binding.controlEpoch !== null && (next.controlEpoch! <= binding.controlEpoch || !isObject(result) || result.endedTurnId !== turnId)) throw new Error("Invalid control-end acknowledgement; call beginTurn() explicitly to recover");
@@ -394,10 +406,10 @@ export class OpenBrowserUseClient {
     if (!isObject(info) || !isObject(info.metadata) || info.metadata.backgroundWindowVersion !== 1) throw new Error("OBU_BACKGROUND_WINDOW_UNSUPPORTED: extension does not advertise backgroundWindowVersion 1");
   }
 
-  async #initializeControl(turnId: string, deadline: number): Promise<ControlBinding> {
+  async #initializeControl(turnId: string, deadline: number, monotonicDeadline?: number): Promise<ControlBinding> {
     if (this.#controlInitialization) return this.#controlInitialization;
     const revision = this.#controlRevision;
-    const initialization = this.#negotiateControl(turnId, deadline).then(binding => {
+    const initialization = this.#negotiateControl(turnId, deadline, monotonicDeadline).then(binding => {
       if (revision === this.#controlRevision) this.#control = binding;
       return binding;
     });
@@ -406,22 +418,22 @@ export class OpenBrowserUseClient {
     finally { if (this.#controlInitialization === initialization) this.#controlInitialization = null; }
   }
 
-  async #negotiateControl(turnId: string, deadline: number): Promise<ControlBinding> {
+  async #negotiateControl(turnId: string, deadline: number, monotonicDeadline?: number): Promise<ControlBinding> {
     const params = { session_id: this.sessionId, turn_id: turnId };
-    const info = await this.#sendRequest("getInfo", params, deadline);
+    const info = await this.#sendRequest("getInfo", params, deadline, 0, undefined, monotonicDeadline);
     const version = isObject(info) && isObject(info.metadata) ? info.metadata.turnLifecycleVersion : undefined;
     if (version === undefined) return { controlEpoch: null, closing: false };
     if (version !== 1) throw new Error(`Unsupported turn lifecycle version: ${version}`);
-    return parseControlState(await this.#sendRequest("getControlState", params, deadline));
+    return parseControlState(await this.#sendRequest("getControlState", params, deadline, 0, undefined, monotonicDeadline));
   }
 
-  async #sendRequest(method: string, params: BrowserUseRequestParams, deadline: number, reservedResponseMs = 0, startBefore?: number): Promise<JsonValue> {
-    await beforeDeadline(this.connect(), deadline, method);
+  async #sendRequest(method: string, params: BrowserUseRequestParams, deadline: number, reservedResponseMs = 0, startBefore?: number, monotonicDeadline?: number): Promise<JsonValue> {
+    await beforeDeadline(this.connect(), deadline, method, monotonicDeadline);
     const socket = this.#socket;
     if (!socket) {
       throw new Error("Open Browser Use socket is not connected");
     }
-    const remaining = deadline - Date.now();
+    const remaining = requestRemaining(deadline, monotonicDeadline);
     if (remaining < 1) throw new Error(`Open Browser Use request timed out: ${method}`);
     if (remaining <= reservedResponseMs) throw new Error(`Open Browser Use request timed out before ${method} could start`);
     if (method === "browserAction" || eventWaitMethods.has(method)) {
@@ -439,6 +451,9 @@ export class OpenBrowserUseClient {
       params
     };
     const payload = encodeFrame(message);
+    if (monotonicDeadline !== undefined && requestRemaining(deadline, monotonicDeadline) <= (method === "browserAction" ? 1000 : 0)) {
+      throw new Error(`Open Browser Use request timed out before ${method} could start`);
+    }
     // The extra response-read allowance cannot authorize a late collect send.
     if (startBefore !== undefined) {
       if (downloadWaitMethods.has(method)) assertDownloadWaitDeadline(startBefore);
@@ -448,7 +463,7 @@ export class OpenBrowserUseClient {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Open Browser Use request timed out: ${method}`));
-      }, Math.max(1, deadline - Date.now()));
+      }, Math.max(1, requestRemaining(deadline, monotonicDeadline)));
       this.#pending.set(id, { resolve, reject, timeout, strictUTF8: clipboardMethods.has(method) });
     });
     try {
@@ -483,6 +498,7 @@ export class OpenBrowserUseClient {
     args?: BrowserUseRequestParams;
     timeoutMs?: number;
   } = {}): Promise<OpenBrowserUseActionResult> {
+    if (action === "setInputFiles" && options.timeoutMs !== undefined && !Number.isInteger(options.timeoutMs)) throw new Error("setInputFiles timeoutMs must be an integer from 1 to 120000");
     const timeoutMs = options.timeoutMs ?? 10_000;
     if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) {
       throw new Error("browserAction timeoutMs must be between 1 and 120000");
@@ -936,6 +952,10 @@ export class OpenBrowserUseLocator {
     assertCombinedLocatorBudget(this.steps, target.steps);
     await this.#perform("dragTo", { ...options, target: [...target.steps] as JsonValue[] });
   }
+  async setInputFiles(files: string[], options: { timeoutMs?: number } = {}): Promise<void> {
+    if (!isObject(options) || Object.keys(options).some(key => key !== "timeoutMs")) throw new Error("Invalid setInputFiles options");
+    await this.#perform("setInputFiles", { ...options, files });
+  }
   async fill(value: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("fill", { ...options, value }); }
   async press(key: string, options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("press", { ...options, key }); }
   async check(options: OpenBrowserUseActionOptions = {}): Promise<void> { await this.#perform("check", options); }
@@ -1277,11 +1297,15 @@ function parseEndedControl(value: JsonValue): ControlBinding {
   return parseControlState({ ...value, closing: false });
 }
 
-async function beforeDeadline<T>(work: Promise<T>, deadline: number, method: string): Promise<T> {
+function requestRemaining(deadline: number, monotonicDeadline?: number): number {
+  return Math.min(deadline - Date.now(), monotonicDeadline === undefined ? Infinity : monotonicDeadline - performance.now());
+}
+
+async function beforeDeadline<T>(work: Promise<T>, deadline: number, method: string, monotonicDeadline?: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([work, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Open Browser Use request timed out: ${method}`)), Math.max(0, deadline - Date.now()));
+      timer = setTimeout(() => reject(new Error(`Open Browser Use request timed out: ${method}`)), Math.max(0, requestRemaining(deadline, monotonicDeadline)));
     })]);
   } finally { if (timer) clearTimeout(timer); }
 }

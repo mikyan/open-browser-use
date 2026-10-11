@@ -80,6 +80,29 @@ function createOpenBrowserUseMediaOperations() {
   };
   return {
     setHandleObserver: callback => { if (observeHandle || typeof callback !== "function") throw new Error("Invalid media handle observer"); observeHandle = callback; },
+    fileInputIdentity: handle => {
+      if (!(handle instanceof JSHandle$1) || !releases.has(handle) || handle._disposed || !handle._objectId || !handle.asElement())
+        throw new Error("OBU_FILE_INPUT_CHANGED: original input handle is unavailable");
+      const context = handle._context, frame = context.frame;
+      if (context.world !== "utility") throw new Error("OBU_FILE_INPUT_CHANGED: utility context required");
+      const routeIdentity = route(context);
+      const check = () => {
+        routeIdentity.check();
+        if (handle._disposed || frame.isDetached() || context._contextDestroyedScope.isClosed() || frame._contextData.get(context.world)?.context !== context)
+          throw new Error("OBU_FILE_INPUT_CHANGED: original input context changed");
+      };
+      check();
+      return { target: Object.freeze({ ...routeIdentity.target }), frameId: frame._id, check,
+        describe: async () => {
+          check();
+          const result = await routeIdentity.transport._send(routeIdentity.target, "DOM.describeNode", { objectId: handle._objectId, depth: 0 });
+          check();
+          if (!Number.isSafeInteger(result.node?.backendNodeId) || result.node.backendNodeId < 1 || String(result.node.localName ?? result.node.nodeName).toLowerCase() !== "input")
+            throw new Error("OBU_FILE_INPUT_CHANGED: native input identity is invalid");
+          return result.node.backendNodeId;
+        }
+      };
+    },
     getContentFrame: async handle => {
       const { target, transport, check } = route(handle._context);
       const session = handle._context.frame._page.delegate._sessionForHandle(handle);

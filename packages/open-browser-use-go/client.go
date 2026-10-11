@@ -144,6 +144,11 @@ func (c *Client) requestWithPreparation(method string, params Params, timeout ti
 // Multi-stage helpers hold one request gate, captured turn and original deadline.
 // Every stage sends that binding; no subsequent stage adopts a newer turn.
 func (c *Client) requestInScope(method string, params Params, timeout time.Duration, execute func(Params, time.Time) (any, error)) (any, error) {
+	if method == "browserAction" && params["action"] == "setInputFiles" {
+		if err := validateLocatorUploadInput(params); err != nil {
+			return nil, err
+		}
+	}
 	if method == "createTab" {
 		if err := ValidateCreateTabParams(params); err != nil {
 			return nil, err
@@ -166,6 +171,12 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 	var frozenParams Params
 	if err := json.Unmarshal(encodedParams, &frozenParams); err != nil {
 		return nil, err
+	}
+	locatorUpload := method == "browserAction" && frozenParams["action"] == "setInputFiles"
+	if locatorUpload {
+		if err := validateLocatorUploadParams(frozenParams); err != nil {
+			return nil, err
+		}
 	}
 	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "armDownloadWait") || isDownloadOperation(method) || method == "exportPage" || isClipboardMethod(method) {
 		requested := float64(10000)
@@ -400,6 +411,11 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 		c.controlMu.Unlock()
 		if !supported {
 			return nil, errors.New("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1")
+		}
+	}
+	if locatorUpload {
+		if err := c.requireLocatorUpload(merged, deadline); err != nil {
+			return nil, err
 		}
 	}
 	result, err := execute(merged, deadline)

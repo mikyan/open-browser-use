@@ -584,6 +584,34 @@ can occupy a synchronous client or MCP channel and prevent its trigger. The
 ready-first APIs for file choosers and page downloads use their own capability
 versions and handles, described below.
 
+## Direct File Inputs
+
+For an authorized upload, locate the actual `input[type=file]` from current page
+evidence. With `engineInfo.capabilities.locatorFileUpload === 1`, assign absolute
+paths on the browser machine without clicking the input or opening a chooser:
+
+```js
+await tab.playwright.locator('input[type=file][name=attachments]')
+  .setInputFiles([absoluteFilePath], { timeoutMs: 10000 });
+```
+
+Python exposes `locator.set_input_files(paths, timeout_ms=10000)` and Go exposes
+`locator.SetInputFiles(paths, ...BrowserActionOptions)`. The helpers negotiate
+support within the original scope and timeout. CLI/MCP use `browserAction` with
+`action: "setInputFiles"`, the observed locator and `args: {files: [...]}`;
+an older extension rejects the action instead of changing the workflow.
+
+Hidden file inputs are supported. Matching multiple nodes or a non-file element
+fails. Pass `[]` to clear; multiple paths require `multiple`. For `webkitdirectory`,
+pass one directory path and follow the directory/background-window guidance
+below. The helper does not activate an existing tab to satisfy directory rules.
+
+Paths must be absolute, nonempty and valid Unicode without NUL. Limits are 1024
+paths, 131072 UTF-8 bytes per path and 8 MiB of path bytes in total. A successful
+reply confirms the file assignment, not the website's upload: verify the site's
+receipt or resulting state. After timeout or cancellation inspect the page before
+deciding on another upload; submitted file changes are not automatically replayed.
+
 ## File Chooser Pattern
 
 1. Start waiting with `wait-file-chooser --tab-id <id>` or SDK `waitForFileChooser` / `wait_for_file_chooser` / `WaitForFileChooser`.

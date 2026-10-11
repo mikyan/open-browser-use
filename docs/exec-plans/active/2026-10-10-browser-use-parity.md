@@ -2468,3 +2468,55 @@ directory completion及scope/deadline，不能把上游方法直接放行来绕�
 验收需五入口同组root/同源/动态OOPIF隐藏输入表单的FileList、Unicode
 文件名、真实POST字节/唯一提交与清空，并证明无chooser/click/新增前台
 事件；目录沿用显式backgroundWindow，旧版协商拒绝及未知ACK/撤权另测。
+
+### P10：正式 locator 文件上传（本片验收完成，P10仍部分完成）
+
+上一目标轮为progress：`69e4ef6`已推送，连续点击实际112/112及Node1581项
+通过。本轮重新核对工作树干净、无活浏览器测试，继续完整P01–P15目标。
+直接上传将使用browserAction `setInputFiles`与`args.files`，三SDK公开
+locator方法，CLI/MCP通过既有browserAction入口；能力为
+`engine.capabilities.locatorFileUpload=1`，旧版本明确拒绝而不改走点击。
+
+路径数组支持文件、多文件、单目录和显式空数组清空；最多1024条，每条
+非空、无NUL、绝对路径且UTF-8不超过131072B，总路径UTF-8不超过8MiB。
+客户端不打开文件或以自身cwd解析路径，文件所在机器仍为浏览器机器。
+严格唯一真实file input允许隐藏；定位结束后固定原node/frame/context，
+使用与chooser一致的directory registry，排队、定位与提交共享原deadline。
+未知ACK不重放；目录原生取消仍报告失败，已提交上传触发的合法导航沿用
+现有完成边界。新API不改变旧chooser协议。先实现与确定性边界验证，
+再以五入口同组隐藏表单验证实际文件/POST、清空及无点击/chooser/前台变化。
+仅root启动浏览器；独立审查与实机完整回归后再提交，不提PR、不改旧ZIP。
+
+最终实现私有utility node→原frame/context/target/backendNode，选node前可按
+固定runtime等待，选后不重解、不重放。原documentToken早于describe捕获，
+site/control/child/deadline在提交前复核。共享注册表覆盖chooser与locator；
+原handle释放失败保留engine entry/lease与重试清理闭包，阻挡新attach。
+独立审查补出legacy省略epoch误拒：入口同步assertCurrent冻结已准入epoch，
+四回归证明root/OOPIF上传/clear与旧turn结束后successor接管仍零旧mutation；
+旧候选三反例确实失败。不存在晚采新scope的隐式恢复。
+
+首专项`QL84QJ`6/7、exit1保留：普通五入口通过，目录调用器未先beginTurn，
+recorder把null→真实epoch的正常初始化判为scope变化；新窗own activation
+因此未登记。只修调用器准备，不放松focus/控制断言。随后`Plei2M`7/7及
+旧源完整`DSSqzQ`118/118通过；二者不能代替最终legacy修复后的验收。
+旧run的GoSDK哈希表因过滤器不含.go而为空，独立构建manifest补验，最终
+runner显式收录37个.go；调整helper签名触发4项source-anchor测试失败，
+更新精确提取边界后原subprocess行为断言保留。所有失败日志保留。
+
+最终`tQEVZJ` **118/118、actual exit0**，旧`WLM6bV`112名称/相对顺序逐项
+保留。15普通hidden布局+1 JS root目录，16唯一文件POST共17909B，50文件
+实例563B与磁盘逐字节一致；16原生写+16同backendNode清空、865原生调用
+完整结算，零Input/chooser。目录47ms返回前可信input witness已有，clear
+17ms返回前第二原node合成witness已有；额外两witness共881B不计文件提交。
+40外部进程actualclose exit0；16任务tab/targets及目录window精确消失。
+223212ms连续focus为原11激活/4控制popup focus加1精确own-window首tab
+激活；sentinel身份/选择不变，高1222→1165，不声称几何完全相同。
+旧host按测试SIGTERM，新PID/endpoint host exit0。51生产/53暂存成员、SDK
+冻结源与8构建bin/实际拷贝通过两份独立审计，不以checker自身充当唯一证据。
+
+最终Node **1642/1642**无skip/cancel，SDK JS134/Python99通过；Go全包通过，
+保留26项既有平台skip。workspace typecheck、protocol/rewrite 3项、六平台
+CLI构建/版本、extension与Skill打包、docs/hygiene/action pinning及diff检查
+通过。无活浏览器测试进程。本片有实现、反例及完整实机证据进展。
+整体目标保持active：当前Codex文件/诊断同组任务、其他目录frame组合、
+Page GUID路径/实际取消、原生profile恢复和P01–P15其余缺口仍需推进。

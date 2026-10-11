@@ -335,6 +335,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   已交付chooser在原生命令前单次占用，失败不恢复重试；成功ACK后允许
   change导致的正常导航，但仍核对原scope、未撤销的attachment及实时tab
   归属。清空remote object只向原attachment/child释放，详见下述文件传输。
+  正式locator `setInputFiles`通过私有utility handle解析隐藏file input，
+  选定后固定原node/frame/context及attachment/documentToken，复用chooser的
+  同节点提交注册表。三SDK在原scope/deadline内协商`locatorFileUpload=1`；
+  不触发点击、chooser或渲染租约，详见[直接上传](references/locator-file-upload.md)。
   `downloadURL` 通过原生 downloads API 主动发起有限 HTTP(S) GET，以返回的
   numeric ID 绑定独立有界 handle；`downloadPath` 等待完成并返回该 ID 的
   浏览器记录路径，`cancelDownload` 取消该 ID。它们绑定原控制 scope，不把

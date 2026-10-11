@@ -19,7 +19,7 @@ function actualFunction(startMarker, endMarker, context) {
   assert.ok(declaration.endsWith("\n}"), "Only the intended helper may occur between anchors");
   return new vm.Script(`(${declaration})`, { filename: `run.mjs#${startMarker}` }).runInNewContext({ setTimeout, clearTimeout, ...context });
 }
-const subprocess = spawnImpl => actualFunction("function subprocess(command, args,", "\nasync function hashTree(root)", { spawn: spawnImpl });
+const subprocess = spawnImpl => actualFunction("function subprocess(command, args,", "\nasync function hashTree(root,", { spawn: spawnImpl });
 
 // Keep the real child's bytes and lifecycle, but feed its output through
 // one-byte chunks. This deterministically splits every multibyte sequence.

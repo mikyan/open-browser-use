@@ -523,6 +523,9 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   const entry = await fs.readFile(path.join(vendor, "index.mjs"), "utf8");
   assert.match(entry, /assertOpenBrowserUseSelector/);
   assert.match(entry, /createOpenBrowserUseNavigationWait/);
+  assert.match(await fs.readFile(path.join(output, "browser-file-input.js"), "utf8"), /export async function setLocatorInputFiles/);
+  assert.match(await fs.readFile(path.join(output, "browser-runtime.js"), "utf8"), /setLocatorInputFiles/);
+  assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /Locator file upload reuses/);
   for (const match of entry.matchAll(/from "(.+?)"/g)) await fs.access(path.join(vendor, match[1]));
   assert.ok(!(await fs.readdir(output)).some(file => file.endsWith(".test.mjs")));
   assert.equal(await fs.readFile(path.join(output, "auxiliary-tab-ownership.js"), "utf8"),

@@ -250,3 +250,39 @@ test("fixed cancellation body returns only an explicit boolean even for renderer
   assert.equal(await fn.call({ cancel: async () => { calls++; throw new Error("private page details"); } }), false);
   assert.equal(calls, 2);
 });
+
+
+for (const child of [false, true]) test(`private file binding describes the actual ${child ? "OOPIF" : "root/same-origin"} utility node and freezes route/context`, async () => {
+  const f = fixture(); let destroyed = false;
+  f.frame._id = "file-frame"; f.frame.isDetached = () => false;
+  f.frame._contextData = new Map([["utility", { context: f.context }]]);
+  f.context._contextDestroyedScope = { isClosed: () => destroyed };
+  if (child) f.context.delegate._client._sessionId = "oopif-session";
+  f.transport._send = async (target, method, params) => {
+    f.sent.push({ target, method, params });
+    return method === "DOM.describeNode" ? { node: { nodeName: "INPUT", backendNodeId: 77 } } : { result: { objectId: "file-node", subtype: "node" } };
+  };
+  const node = await f.operations.evaluateHandle(f.injected, () => null);
+  const identity = f.operations.fileInputIdentity(node);
+  assert.deepEqual(JSON.parse(JSON.stringify(identity.target)), { tabId: 7, ...(child ? { sessionId: "oopif-session" } : {}) });
+  assert.equal(identity.frameId, "file-frame"); assert.equal(await identity.describe(), 77);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.sent.at(-1).params)), { objectId: "file-node", depth: 0 });
+  destroyed = true; assert.throws(identity.check, /FILE_INPUT_CHANGED/);
+  await f.operations.dispose(node);
+});
+
+test("file binding rejects unowned handles, replacement context and late original describe responses", async () => {
+  const f = fixture(), gate = deferred(), entered = deferred();
+  f.frame._id = "root"; f.frame.isDetached = () => false;
+  f.frame._contextData = new Map([["utility", { context: f.context }]]);
+  f.context._contextDestroyedScope = { isClosed: () => false };
+  assert.throws(() => f.operations.fileInputIdentity(f.injected), /FILE_INPUT_CHANGED/);
+  f.transport._send = async (_target, method) => {
+    if (method === "DOM.describeNode") { entered.resolve(); await gate.promise; return { node: { nodeName: "INPUT", backendNodeId: 99 } }; }
+    return { result: { objectId: "node", subtype: "node" } };
+  };
+  const node = await f.operations.evaluateHandle(f.injected, () => null), identity = f.operations.fileInputIdentity(node);
+  const result = assert.rejects(identity.describe(), /FILE_INPUT_CHANGED/);
+  await entered.promise; f.frame._contextData.set("utility", { context: {} }); gate.resolve(); await result;
+  await f.operations.dispose(node);
+});

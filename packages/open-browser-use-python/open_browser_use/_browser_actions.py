@@ -191,6 +191,10 @@ class OpenBrowserUseLocator(LocatorFactory):
     def fill(self, value: str, *, timeout_ms: int | None = None) -> None:
         self._action("fill", {"value": value}, timeout_ms)
 
+    def set_input_files(self, files: list[str], *, timeout_ms: int | None = None) -> None:
+        """Set native absolute file paths (or one directory); [] clears the input."""
+        self._action("setInputFiles", {"files": files}, timeout_ms)
+
     def press(self, key: str, *, timeout_ms: int | None = None) -> None:
         self._action("press", {"key": key}, timeout_ms)
 

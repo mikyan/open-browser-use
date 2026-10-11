@@ -58,6 +58,8 @@ import { createGoChooserDiagnostic } from "./go-chooser-diagnostic.mjs";
 import { runChooserProcess } from "./chooser-process.mjs";
 import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
 import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
+import { createDirectLocatorUploadFixtures, prepareDirectLocatorUploadFiles } from "./direct-locator-upload-fixture.mjs";
+import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-locator-upload-callers.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -170,13 +172,13 @@ function subprocess(command, args, { input, timeoutMs = 30000, processEvidence, 
     process.stdin.end(input);
   });
 }
-async function hashTree(root) {
+async function hashTree(root, include = /\.(m?js|py|json)$/) {
   const files = {};
   async function visit(relative = "") {
     for (const item of await fs.readdir(path.join(root, relative), { withFileTypes: true })) {
       const name = path.join(relative, item.name);
       if (item.isDirectory() && item.name !== "__pycache__") await visit(name);
-      else if (item.isFile() && /\.(m?js|py|json)$/.test(name)) files[name.replaceAll(path.sep, "/")] = createHash("sha256").update(await fs.readFile(path.join(root, name))).digest("hex");
+      else if (item.isFile() && include.test(name)) files[name.replaceAll(path.sep, "/")] = createHash("sha256").update(await fs.readFile(path.join(root, name))).digest("hex");
     }
   }
   await visit();
@@ -270,6 +272,7 @@ async function workerConnection(url) {
 const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
+const directUploads = createDirectLocatorUploadFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
@@ -287,6 +290,7 @@ const mcpBindingFixture = createMCPBindingFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
@@ -414,6 +418,7 @@ try {
       stagedExtension: await hashTree(extension),
       jsDist: await hashTree(jsSnapshot),
       pythonSDK: await hashTree(pythonSnapshot),
+      goSDK: await hashTree(path.join(repo, "packages/open-browser-use-go"), /\.go$/),
       pythonChecks: createHash("sha256").update(await fs.readFile(pythonChecks)).digest("hex"),
       harness: createHash("sha256").update(await fs.readFile(fileURLToPath(import.meta.url))).digest("hex")
     }
@@ -421,6 +426,7 @@ try {
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
+  for (const name of ["direct-locator-upload-fixture.mjs", "direct-locator-upload-callers.mjs", "direct-locator-upload-native.mjs", "direct-locator-upload-checks.py", "go-direct-locator-upload-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
@@ -1310,6 +1316,61 @@ try {
     ], save: async value => {
       await fs.writeFile(path.join(runDir, "pointer-counted-delivery.json"), JSON.stringify(value, null, 2));
       await fs.writeFile(path.join(runDir, "pointer-counted-delivery-server.json"), JSON.stringify(pointerDeliveryFixtures.allStats(), null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
+  });
+  let directUploadFiles;
+  for (const kind of ["js", "cli", "mcp", "python", "go"]) await test(`${kind}-direct-locator-upload`, async () => {
+    sourceIdentity.testHooks.push(`direct locator ${kind}: exact-tab bounded native command/settlement and frame observer starts after public tab creation, before goto; typed callers use bounded start/finish JSONL preparation acknowledgements, separate from each original 10-second action deadline; original receiver/Promise/arguments retained, scheduling may change; parent only observes and checks original file/POST bytes, never performs business actions; no chooser, input synthesis or cold timing claim`);
+    const detail = {}; let failure;
+    try {
+      directUploadFiles ??= await prepareDirectLocatorUploadFiles(runDir);
+      let goBinary, pythonSource;
+      if (["python", "go"].includes(kind)) {
+        const source = path.join(directory, kind === "python" ? "direct-locator-upload-checks.py" : "go-direct-locator-upload-checks/main.go");
+        const frozen = path.join(runDir, kind === "python" ? "direct-locator-upload-checks.py" : "direct-locator-upload-checks.go");
+        await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+        detail.proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") };
+        if (kind === "python") pythonSource = frozen;
+        else {
+          assert.ok(process.env.OBU_TEST_GO_LOCATOR_UPLOAD_BINARY, "Set OBU_TEST_GO_LOCATOR_UPLOAD_BINARY for typed Go direct uploads");
+          goBinary = path.join(runDir, process.platform === "win32" ? "go-direct-locator-upload.exe" : "go-direct-locator-upload");
+          await fs.copyFile(process.env.OBU_TEST_GO_LOCATOR_UPLOAD_BINARY, goBinary, fsConstants.COPYFILE_EXCL);
+          detail.proof.binarySHA256 = createHash("sha256").update(await fs.readFile(goBinary)).digest("hex");
+          sourceIdentity.sha256.goLocatorUploadClient = detail.proof.binarySHA256;
+        }
+      }
+      await checkDirectLocatorUpload({ kind, worker, files: directUploadFiles, server: directUploads,
+        fixtureURL, endpoint, connectOpenBrowserUse, executable, subprocess, withMCPClient, runDir, detail,
+        pythonExecutable: process.env.OBU_TEST_PYTHON || "python", pythonSource, goExecutable: goBinary,
+        env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+    } catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [], save: async value => {
+      await fs.writeFile(path.join(runDir, `direct-locator-${kind}.json`), JSON.stringify(value, null, 2), { flag: "wx" });
+      await fs.writeFile(path.join(runDir, `direct-locator-${kind}-server.json`), JSON.stringify(directUploads.allStats(), null, 2), { flag: "wx" });
+    } });
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-direct-locator-directory", async () => {
+    sourceIdentity.testHooks.push("direct locator directory: same bounded original native observer and byte/receipt checks; public backgroundWindow creation gets only the existing exact own-first-tab activation allowance, no window focus allowance; final native inventory verifies that task window/tab/debugger targets are removed");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-direct-locator-directory", turnId: "direct-directory", timeoutMs: 15000 });
+    const recorder = backgroundWindowRecorder(owner), detail = {}; let failure;
+    try {
+      detail.initialControl = await owner.client.beginTurn();
+      await checkDirectLocatorDirectory({ browser: owner, worker, fixtureURL, server: directUploads,
+        files: await getDirectoryFiles(), detail, createTab: () => recorder.createTab() });
+    } catch (error) { failure = error; }
+    detail.backgroundWindows = recorder.records;
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "verify-direct-directory-cleanup", run: () => until(async () => {
+        detail.cleanup = await readBackgroundWindowState(); checkBackgroundWindowCleanup(detail.cleanup, recorder.records); return true;
+      }, "direct directory tabs/windows removed", 5000) },
+      { name: "close-direct-directory-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "direct-locator-directory.json"), JSON.stringify(value, null, 2), { flag: "wx" });
+      await fs.writeFile(path.join(runDir, "direct-locator-directory-server.json"), JSON.stringify(directUploads.allStats(), null, 2), { flag: "wx" });
     } });
     if (failure) throw failure;
     return detail;

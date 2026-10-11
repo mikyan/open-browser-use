@@ -1146,3 +1146,140 @@ test('another frame navigation cannot strand a completed root input guard', { ti
   assert.equal(env.backend.directoryUploads.size, 0);
   assert.equal(env.commands.filter(call => call.method === 'Runtime.releaseObject').length, 2);
 });
+
+
+function locatorFileAdmission(env, { check = () => {}, timeoutMs = 1000 } = {}) {
+  const identity = { target: env.target ?? { tabId: 7 }, frameId: env.target?.sessionId ? "child-frame" : "root-frame", check };
+  return env.backend.prepareLocatorFileInput({ params: env.scope, identity,
+    deadlineAt: performance.now() + timeoutMs, check: () => {} });
+}
+
+for (const child of [false, true]) test(`legacy locator ${child ? "OOPIF" : "root"} upload binds the admitted epoch without requiring it on the wire`, async () => {
+  const env = await selectedChooserEnvironment({ child });
+  const legacy = { ...env.scope }; delete legacy.control_epoch;
+  await env.backend.requireSessionTab(legacy, "browserAction");
+  env.backend.rememberAttachmentOwner(legacy, 7);
+  const owner = env.backend.attachmentOwners.get(7);
+  assert.equal(owner.control_epoch, env.scope.control_epoch);
+  const target = child ? { tabId: 7, sessionId: "original-child" } : { tabId: 7 };
+  const original = { ...env, scope: legacy, target };
+  await locatorFileAdmission(original).submit(51, ["/fixture/legacy.bin"]);
+  assert.deepEqual(clone(env.renderer.node(target, 51).files), [{ name: "/fixture/legacy.bin" }]);
+  await locatorFileAdmission(original).submit(51, []);
+  assert.equal(env.renderer.node(target, 51).files.length, 0);
+  const writes = env.commands.filter(fileMutation);
+  assert.equal(writes.length, 2, "one upload and one clear, without replay");
+  assert.ok(writes.every(call => JSON.stringify(clone(call.target)) === JSON.stringify(target)));
+  assert.equal(env.backend.attachmentOwners.get(7), owner);
+  assert.equal(Object.hasOwn(legacy, "control_epoch"), false, "admission must not rewrite the caller's wire params");
+});
+
+test("legacy locator admission cannot borrow a new epoch after its original turn ends during permission inspection", async () => {
+  const env = await selectedChooserEnvironment(), entered = deferred(), gate = deferred();
+  const legacy = { ...env.scope }; delete legacy.control_epoch;
+  await env.backend.requireSessionTab(legacy, "browserAction");
+  env.backend.rememberAttachmentOwner(legacy, 7);
+  const admission = locatorFileAdmission({ ...env, scope: legacy });
+  const inspectSite = env.backend.assertSiteTab;
+  env.backend.assertSiteTab = async () => { entered.resolve(); await gate.promise; return undefined; };
+  const rejected = assert.rejects(admission.submit(51, ["/fixture/retired.bin"]), /OBU_STALE_CONTROL_EPOCH/);
+  let next;
+  try {
+    await entered.promise;
+    env.backend.assertSiteTab = inspectSite;
+    const ended = await env.backend.turnEnded(legacy);
+    next = { ...env.scope, turn_id: ended.nextTurnId, control_epoch: ended.controlEpoch };
+    await env.backend.attach(next);
+    assert.equal(env.backend.attachmentOwners.get(7).control_epoch, next.control_epoch);
+    assert.notEqual(next.control_epoch, env.scope.control_epoch);
+  } finally { env.backend.assertSiteTab = inspectSite; gate.resolve(); }
+  await rejected;
+  assert.equal(env.commands.some(fileMutation), false);
+  assert.throws(() => locatorFileAdmission({ ...env, scope: legacy }), /OBU_TURN_ENDED/);
+  await locatorFileAdmission({ ...env, scope: next }).submit(51, ["/fixture/current.bin"]);
+  assert.equal(env.commands.filter(fileMutation).length, 1);
+});
+
+test("locator admission rejects explicit stale or invalid epochs before inspecting a node", async () => {
+  const env = await selectedChooserEnvironment(); let inspected = 0;
+  for (const epoch of [env.scope.control_epoch + 1, 0, -1, null, String(env.scope.control_epoch)]) {
+    assert.throws(() => locatorFileAdmission({ ...env, scope: { ...env.scope, control_epoch: epoch } }, {
+      check() { inspected++; }
+    }), epoch === env.scope.control_epoch + 1 ? /OBU_STALE_CONTROL_EPOCH/ : /positive safe integer/);
+  }
+  assert.equal(inspected, 0); assert.equal(env.commands.length, 0);
+});
+
+for (const child of [false, true]) test(`locator ${child ? "OOPIF" : "root"} upload shares trusted directory barrier and exact target with chooser`, async () => {
+  const env = await directoryEnvironment({ child });
+  const admission = locatorFileAdmission(env); let settled = false;
+  const request = admission.submit(51, ["/fixture/tree"]); request.finally(() => { settled = true; }).catch(() => {});
+  await until(() => env.commands.some(fileMutation));
+  await tick(); assert.equal(settled, false);
+  await assert.rejects(env.backend.setFileChooserFiles(env.setParams([])), /DIRECTORY_UPLOAD_BUSY/);
+  env.renderer.emit(env.target, 51, "input", { trusted: false }); await tick(); assert.equal(settled, false);
+  env.renderer.emit(env.target, 51, "input", { count: 2 }); await request;
+  assert.deepEqual(clone(env.commands.find(fileMutation).target), env.target);
+  assert.equal(env.commands.filter(fileMutation).length, 1);
+  await assert.rejects(admission.submit(51, []), /FILE_INPUT_CONSUMED/);
+  await locatorFileAdmission(env).submit(51, []);
+  assert.equal(env.node.files.length, 0); assert.equal(env.backend.directoryUploads.size, 0);
+});
+
+test("pending chooser directory blocks locator clear and lost ACK keeps both entries locked", async () => {
+  const env = await directoryEnvironment();
+  const request = assert.rejects(env.backend.setFileChooserFiles({ ...env.setParams(["/tree"]), timeoutMs: 40 }), /DIRECTORY_UPLOAD_TIMEOUT/);
+  await until(() => env.commands.some(fileMutation));
+  await assert.rejects(locatorFileAdmission(env).submit(51, []), /DIRECTORY_UPLOAD_BUSY/);
+  await request;
+  await assert.rejects(locatorFileAdmission(env).submit(51, ["/next"]), /DIRECTORY_UPLOAD_BUSY/);
+  env.renderer.emit(env.target, 51); await tick(); await tick();
+  await locatorFileAdmission(env).submit(51, []);
+  assert.equal(env.commands.filter(fileMutation).length, 2);
+});
+
+for (const change of ["document", "context", "child", "site", "Pause"]) test(`locator rejects ${change} change during asynchronous permission validation before native preparation`, async () => {
+  const env = await directoryEnvironment({ child: true }), entered = deferred(), gate = deferred();
+  let contextAlive = true;
+  const admission = locatorFileAdmission(env, { check() { if (!contextAlive) throw new Error("context changed"); } });
+  env.backend.assertSiteTab = async () => { entered.resolve(); await gate.promise; return undefined; };
+  const request = assert.rejects(admission.submit(51, ["/tree"]));
+  await entered.promise;
+  if (change === "document") env.backend.fileInputDocumentsByTabId.get(7).set("child-frame", {});
+  if (change === "context") contextAlive = false;
+  if (change === "child") env.backend.childSessionsByTabId.get(7).delete("original-child");
+  if (change === "site") env.backend.assertSiteProof = () => { throw new Error("SITE_ACCESS_UNVERIFIED"); };
+  if (change === "Pause") env.backend.automationControl.block();
+  gate.resolve(); await request;
+  assert.equal(env.commands.length, 0);
+});
+
+test("locator original node validation survives prepare awaits and ordinary ACK may navigate", async () => {
+  const env = await selectedChooserEnvironment(), entered = deferred(), gate = deferred();
+  const original = env.chrome.debugger.sendCommand; let alive = true;
+  env.chrome.debugger.sendCommand = async (target, method, params) => {
+    const result = await original(target, method, params);
+    if (method === "DOM.resolveNode") { entered.resolve(); await gate.promise; }
+    return result;
+  };
+  const request = assert.rejects(locatorFileAdmission(env, { check() { if (!alive) throw new Error("context replaced"); } }).submit(51, ["/file"]), /context replaced/);
+  await entered.promise; alive = false; gate.resolve(); await request; await tick();
+  assert.equal(env.commands.some(fileMutation), false);
+  const next = await selectedChooserEnvironment(), held = holdChooserCommand(next, "DOM.setFileInputFiles");
+  const done = locatorFileAdmission(next).submit(51, ["/file"]);
+  await held.entered.promise;
+  next.backend.handleCdpEvent({ tabId: 7 }, "Page.frameNavigated", { frame: { id: "root-frame", url: "https://fixture.test/done" } });
+  held.gate.resolve(); await done;
+  assert.equal(next.commands.filter(fileMutation).length, 1);
+});
+
+
+test("locator multiple uses the actual input property while the old chooser mode remains unchanged", async () => {
+  const env = await selectedChooserEnvironment(), node = env.renderer.node({ tabId: 7 }, 51);
+  node.multiple = true;
+  await assert.rejects(env.backend.setFileChooserFiles(env.setParams(["one", "two"])), /multiple files/);
+  await locatorFileAdmission(env).submit(51, ["/one", "/two"]);
+  assert.deepEqual(clone(env.commands.find(fileMutation).commandParams.files), ["/one", "/two"]);
+  assert.equal(env.commands.filter(fileMutation).length, 1);
+  assert.equal(env.commands.some(call => call.method.startsWith("Input.") || call.method === "Page.setInterceptFileChooserDialog"), false);
+});

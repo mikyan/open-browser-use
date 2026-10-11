@@ -20,7 +20,7 @@ Open Browser Use connects an MV3 Chrome extension, a local native messaging host
 7. Use `open-browser-use run` / `obu run` for CLI-level multi-step orchestration when a small line-oriented action plan is enough and writing SDK code would be unnecessary.
 8. If the surrounding agent runtime supports local MCP servers, configure `obu mcp` and call the exposed browser tools directly. Use the `run_action_plan` MCP tool for the same line-oriented orchestration from MCP. Read [references/sdk-and-protocol.md](references/sdk-and-protocol.md).
 9. Use the JavaScript, Python, or Go SDK for larger multi-step workflows, event subscriptions, richer control flow, or when the surrounding agent runtime already runs code. Read [references/sdk-and-protocol.md](references/sdk-and-protocol.md).
-   For file or directory uploads, read its File Chooser Pattern before creating the task page; directory selection may require an explicit background window.
+   For file or directory uploads, read its Direct File Inputs and File Chooser Pattern sections before creating the task page; directory selection may require an explicit background window.
 10. Before ending browser work, release or keep session tabs with `open-browser-use finalize-tabs --session-id "$OBU_SESSION_ID" --keep '<json-array>'`, the MCP `finalize_tabs` tool, or the SDK `finalizeTabs` / `finalize_tabs` / `FinalizeTabs` method.
 11. If communication fails after setup, read [references/troubleshooting.md](references/troubleshooting.md).
 
@@ -175,7 +175,7 @@ each individual browser operation.
 
 ## File Choosers, Downloads, And Clipboard
 
-- File uploads use the intercepted file chooser flow: start waiting, trigger the chooser in the page, then set absolute local paths with `set-file-chooser-files` or the SDK equivalent.
+- For an observed file input, use direct locator upload, including hidden inputs; see [Direct File Inputs](references/sdk-and-protocol.md#direct-file-inputs). When the workflow requires a chooser, arm its waiter before the page trigger and set paths on the returned handle.
 - For an authorized HTTP(S) GET download with a local path, use `tab.downloadURL` and its handle's `path`/`cancel` methods after checking `directDownloadsVersion`. For a download triggered by a page action, register `waitForDownload` first; its GUID does not currently provide a local path. See the [SDK reference](references/sdk-and-protocol.md#direct-downloads) for scope and timeout rules.
 - Clipboard helpers operate through the current controlled tab and should be treated as sensitive user actions.
 

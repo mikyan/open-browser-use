@@ -2207,6 +2207,7 @@ class BrowserBackend {
     if (this.browserEngine) return this.browserEngine;
     this.browserEngine = createBrowserActionEngine({
       restrictedSelectors: () => this.siteAccess.restricted,
+      prepareFileInput: options => this.prepareLocatorFileInput(options),
       authorize: async (params) => {
         await this.requireSessionTab(params, "browserAction");
         this.rememberAttachmentOwner(params, params.tabId);
@@ -2265,6 +2266,7 @@ class BrowserBackend {
   }
 
   async browserAction(params) {
+    if (params.action === "setInputFiles") params = validateBrowserAction(params);
     const startedAt = Date.now();
     const timeoutMs = params.timeoutMs ?? DEFAULT_CDP_TIMEOUT_MS;
     if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw new Error("timeoutMs must be between 1 and 120000");
@@ -2299,7 +2301,7 @@ class BrowserBackend {
     }
     await this.withinTransferDeadline(startedAt + timeoutMs, () => this.waitForTransferTargets(tabId));
     let result;
-    try { result = await engine.dispatch({ ...params, timeoutMs: remaining() }); }
+    try { result = await engine.dispatch({ ...params, timeoutMs: params.action === "setInputFiles" ? Math.floor(remaining()) : remaining() }); }
     catch (error) {
       if (this.siteAccess.restricted && this.siteRevokedTabs.has(tabId)) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked during the browser action");
       throw error;
@@ -3279,38 +3281,87 @@ class BrowserBackend {
     // Claim before the first native await. A rejected or lost acknowledgement
     // cannot prove the file selection had no side effects, so never reopen it.
     chooser.submitted = true;
-    let submission;
     try {
       const documents = this.fileInputDocumentsByTabId.get(chooser.scope.tabId) ?? new Map();
       if (!documents.has(chooser.frameId)) documents.set(chooser.frameId, {});
       this.fileInputDocumentsByTabId.set(chooser.scope.tabId, documents);
+      return await this.submitFileInput({ chooser, files: params.files, deadlineAt, check, checkAuthority, documentToken: documents.get(chooser.frameId) });
+    } finally {
+      if (this.fileChoosersById.get(params.fileChooserId) === chooser) this.fileChoosersById.delete(params.fileChooserId);
+    }
+  }
+
+  prepareLocatorFileInput({ params, identity, deadlineAt, check: actionCheck }) {
+    // Legacy requests omit the wire epoch; freeze the already-admitted ledger
+    // epoch synchronously, before any node or permission inspection can await.
+    const epoch = this.controlLedger.assertCurrent(params).epoch;
+    const scope = this.attachmentOwners.get(params.tabId);
+    if (!scope || scope.session_id !== params.session_id || scope.turn_id !== params.turn_id || scope.control_epoch !== epoch ||
+        identity.target.tabId !== params.tabId || typeof identity.check !== "function") throw new Error("OBU_FILE_INPUT_CHANGED: original attachment is unavailable");
+    identity.check();
+    const documents = this.fileInputDocumentsByTabId.get(params.tabId) ?? new Map();
+    if (!documents.has(identity.frameId)) documents.set(identity.frameId, {});
+    this.fileInputDocumentsByTabId.set(params.tabId, documents);
+    // Capture before describeNode or permission inspection can await. An old
+    // frame id must never be paired with a replacement document's token.
+    const documentToken = documents.get(identity.frameId);
+    let proof, proofReady = false, submitted = false;
+    const checkAuthority = () => {
+      this.assertControlOpen();
+      this.assertAttachmentAdmission(params.tabId, scope.attachment);
+      this.assertTransferScope(scope);
+    };
+    const check = () => {
+      actionCheck(); checkAuthority(); identity.check();
+      if (this.fileInputDocumentsByTabId.get(params.tabId)?.get(identity.frameId) !== documentToken ||
+          (identity.target.sessionId && !this.childSessionsByTabId.get(params.tabId)?.has(identity.target.sessionId)))
+        throw new Error("OBU_FILE_INPUT_CHANGED: original document or child attachment changed");
+      if (proofReady) this.assertSiteProof(proof);
+    };
+    check();
+    const wallDeadline = Date.now() + Math.max(0, deadlineAt - performance.now());
+    return { check, submit: async (backendNodeId, files) => {
+      if (submitted) throw new Error("OBU_FILE_INPUT_CONSUMED: locator input was already submitted");
+      submitted = true;
+      check();
+      proof = await this.assertSiteTab(params.tabId);
+      proofReady = true;
+      check();
+      return this.submitFileInput({ chooser: { scope, target: identity.target, frameId: identity.frameId, backendNodeId },
+        files, deadlineAt: wallDeadline, check, checkAuthority, documentToken });
+    } };
+  }
+
+  async submitFileInput({ chooser, files, deadlineAt, check, checkAuthority, documentToken }) {
+    let submission;
+    try {
       submission = this.directoryUploads.reserve({
         identity: { tabId: chooser.scope.tabId, attachment: chooser.scope.attachment, ...chooser.target,
-          frameId: chooser.frameId, backendNodeId: chooser.backendNodeId, documentToken: documents.get(chooser.frameId) },
+          frameId: chooser.frameId, backendNodeId: chooser.backendNodeId, documentToken },
         scope: chooser.scope, deadlineAt, check,
         validate: async () => { checkAuthority(); await this.validateTransferScope(chooser.scope); checkAuthority(); }
       });
       const input = await this.directoryUploads.prepare(submission);
       check();
-      if (params.files.length > 0 && input.directory) {
-        const directory = params.files[0];
-        if (params.files.length !== 1 || directory.includes("\0") ||
+      if (files.length > 0 && input.directory) {
+        const directory = files[0];
+        if (files.length !== 1 || directory.includes("\0") ||
             !(/^(?:\/|[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)/.test(directory)))
           throw new Error("Directory upload requires exactly one absolute directory path");
-        await this.directoryUploads.submit(submission, params.files);
+        await this.directoryUploads.submit(submission, files);
       } else {
-        if (params.files.length > 1 && !input.multiple) throw new Error("File chooser does not accept multiple files");
+        if (files.length > 1 && !input.multiple) throw new Error("File chooser does not accept multiple files");
         await this.directoryUploads.write(submission, async () => {
           check();
-          if (params.files.length === 0) {
+          if (files.length === 0) {
             const result = await chrome.debugger.sendCommand(chooser.target, "Runtime.callFunctionOn", {
               objectId: submission.nodeObjectId,
-              functionDeclaration: 'function() { if (this.tagName !== "INPUT" || this.type !== "file") throw new Error("File chooser node is not a file input"); this.value = ""; this.dispatchEvent(new Event("input", {bubbles: true})); this.dispatchEvent(new Event("change", {bubbles: true})); return this.files.length; }',
+              functionDeclaration: 'function() { if (this.tagName.toLowerCase() !== "input" || this.type !== "file") throw new Error("File chooser node is not a file input"); this.value = ""; this.dispatchEvent(new Event("input", {bubbles: true})); this.dispatchEvent(new Event("change", {bubbles: true})); return this.files.length; }',
               returnByValue: true
             });
             if (result.exceptionDetails || result.result?.value !== 0) throw new Error("Unable to clear file chooser input");
           } else {
-            await chrome.debugger.sendCommand(chooser.target, "DOM.setFileInputFiles", { backendNodeId: chooser.backendNodeId, files: params.files });
+            await chrome.debugger.sendCommand(chooser.target, "DOM.setFileInputFiles", { backendNodeId: chooser.backendNodeId, files });
           }
         });
       }
@@ -3322,8 +3373,6 @@ class BrowserBackend {
     } catch (error) {
       if (submission) this.directoryUploads.cancelWhere(record => record === submission, error);
       throw error;
-    } finally {
-      if (this.fileChoosersById.get(params.fileChooserId) === chooser) this.fileChoosersById.delete(params.fileChooserId);
     }
   }
 

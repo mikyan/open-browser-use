@@ -480,3 +480,24 @@ original session/turn/epoch; discovery and queueing consume its total deadline,
 with one extra second for the reply. Writes are never automatically retried.
 A timeout or Pause cannot guarantee reversal of a write already submitted to the
 native clipboard. No clipboard contents are saved to disk by these helpers.
+
+## Upload through a locator
+
+```py
+tab.get_by_label("Files").set_input_files(["/absolute/path/report.pdf"], timeout_ms=10000)
+tab.get_by_label("Files").set_input_files([])  # clear
+```
+
+The locator identifies the file input directly, including frame and capture-ref
+locators. Supply files, one directory for a directory input, or an empty list to
+clear. Paths must be absolute (POSIX, Windows drive, or UNC); the SDK neither
+resolves relative paths nor reads the filesystem. Lists are copied and limited
+to 1024 paths, 131072 UTF-8 bytes per path, and 8 MiB total. Empty paths, NUL,
+and malformed Unicode are rejected before IPC.
+
+Every upload checks `engine.capabilities.locatorFileUpload === 1` in the same
+captured tab/control scope and original action deadline. Unsupported extensions
+fail explicitly; there is no chooser fallback, replay, or new turn. The timeout
+covers capability negotiation and the upload together, with the existing one
+second transport response allowance. Native directory-selection restrictions
+still apply; this API does not activate an existing tab or window.

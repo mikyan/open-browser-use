@@ -7,6 +7,7 @@ import struct
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
+from ._locator_upload import locator_upload_params, require_locator_upload
 
 from ._clipboard import CLIPBOARD_METHODS, OpenBrowserUseClipboard, clipboard_params, clipboard_timeout, validate_clipboard_result
 from ._download_waits import DOWNLOAD_WAIT_METHODS, OpenBrowserUseDownloadWait, download_wait_params, download_wait_timeout, download_wait_ack, download_wait_cancelled, download_wait_remaining
@@ -86,6 +87,9 @@ class OpenBrowserUseClient:
     def _request(self, method: str, params: JsonObject | None = None, *, timeout: float | None = None,
                  prepare: Callable[[JsonObject, float], None] | None = None,
                  execute: Callable[[JsonObject, float], Any] | None = None) -> Any:
+        locator_upload = method == "browserAction" and params is not None and params.get("action") == "setInputFiles"
+        if locator_upload:
+            locator_upload_params(params)
         if method in FILE_CHOOSER_WAIT_METHODS:
             file_chooser_params(method, params or {})
         if method in DOWNLOAD_WAIT_METHODS:
@@ -101,6 +105,8 @@ class OpenBrowserUseClient:
         # discovery request so an end response cannot rebind older work.
         session_id, turn_id, epoch = self.session_id, self.turn_id, self._control_epoch
         merged_params: JsonObject = {"session_id": session_id, "turn_id": turn_id, **copy.deepcopy(params or {})}
+        if locator_upload:
+            locator_upload_params(merged_params)
         if method in DOWNLOAD_WAIT_METHODS:
             download_wait_params(method, merged_params)
         if method in BOUNDED_WAIT_METHODS:
@@ -171,6 +177,10 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._clipboard_version) is not int or self._clipboard_version != 1:
                 raise RuntimeError("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1")
+        if locator_upload:
+            engine_params = {key: merged_params[key] for key in ("session_id", "turn_id", "control_epoch", "tabId") if key in merged_params}
+            engine_params.update(action="engineInfo", timeoutMs=merged_params.get("timeoutMs", 10000))
+            require_locator_upload(self._wire_request("browserAction", engine_params, deadline))
         if prepare is not None:
             prepare(merged_params, deadline)
         result = (self._wire_request(method, merged_params, deadline) if execute is None

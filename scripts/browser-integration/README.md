@@ -1,5 +1,28 @@
 # Browser integration acceptance
 
+## Direct locator uploads
+
+Build `./scripts/browser-integration/go-direct-locator-upload-checks` with the
+current Go SDK and set `OBU_TEST_GO_LOCATOR_UPLOAD_BINARY` to its executable.
+`OBU_TEST_CASES=direct-locator` selects five ordinary entry-point cases and one
+JS directory case, plus the mandatory raw-navigation control. The ordinary
+cases each create fresh root, same-origin and dynamically inserted cross-process
+fixtures, assign files to a hidden input, verify original file bytes and a unique
+HTTP receipt, then clear that same input. Root cases reject ambiguous/non-file
+locators and malformed paths without file mutation. The directory case uses the
+public `backgroundWindow` API and the existing exact own-window activation ledger.
+
+The bounded native observer preserves command arguments, receivers and original
+promises. Typed Python/Go callers acknowledge observer setup after creating each
+tab and before navigation; this preparation may affect scheduling and does not
+extend any upload's original 10-second deadline. The parent performs observation
+and independent assertions only. Clear must follow native write acknowledgement
+and target the same original backend node. Synthetic clear events are distinguished
+from trusted nonempty-upload events; no chooser or pointer input is expected.
+Each caller's result, native evidence and server bytes are retained in
+`direct-locator-*.json`, with original errors separate from cleanup failures.
+The existing 112 cases retain their relative order.
+
 ## Screencast concurrency
 
 The ordinary `js-screencast-concurrency` case uses two independent public SDK

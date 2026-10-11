@@ -1668,6 +1668,42 @@ host预期重启后新进程exit0；无最终debugger target清单，范围不�
 缺少相应hash字段，完整binary仍与原配置/前轮一致。完整和新增场景两份
 独立审计互补，不拿新通过抹去旧失败。旧preview不改，完整目标继续active。
 
+### 正式 locator 文件上传
+
+新增三SDK locator `setInputFiles` / `set_input_files` / `SetInputFiles`，
+CLI/MCP沿用browserAction。严格唯一真实file input允许隐藏；utility定位后
+固定原node/context/frame/child target，原documentToken早于异步describe
+捕获。提交复用chooser的DirectoryUploadRegistry，同节点未知ACK不重放；
+普通文件、目录双完成屏障及显式清空共用一条提交核心。没有点击、chooser、
+scroll或渲染租约。remote handle释放失败保留原entry清理闭包，阻挡新attach，
+Pause/显式清理可再次释放，不能把未确认的释放当成功。
+
+三SDK在原scope、排队与总期限内协商`locatorFileUpload=1`；新路径数组有界、
+绝对、有效Unicode，客户端不读文件或解析cwd。旧扩展明确拒绝；旧chooser
+路径校验保持兼容。独立审查发现省略wire epoch的legacy请求误拒，修正为
+同步从已准入ledger冻结epoch；原turn结束/换代仍拒绝，四回归包含root/OOPIF
+上传与clear、等待中turnEnded及successor重attach。旧候选确实在三项失败。
+
+新增五入口×三布局真实隐藏input业务夹具，另有独立backgroundWindow目录
+路径。原POST bytes、唯一提交、可信上传/合成clear、精确backend node和
+原生target、零Input/chooser、外部进程actualclose及任务回收分别核实。
+CLI/MCP/Python/Go执行自己的业务；父进程仅观察与核验。目录额外metadata
+witness证明完成早于API返回，不把这些witness计为文件业务上传。
+
+最终`tQEVZJ`118/118、actual exit0；原112名称/顺序保留。16唯一POST/17909B、
+50文件实例/563B、16原生写/同节点clear与40外部进程actualclose独立核实。
+223212ms focus账本仅原11激活/4控制popup focus与1精确目录own-window
+首tab激活；sentinel身份/选择保持，高1222→1165。16任务页/targets与目录
+窗口回收，旧host预期SIGTERM、新host exit0；51生产/53暂存成员、SDK与
+Go源/构建制品身份通过独立审计。Node1642、JS134、Python99通过，Go全包
+通过且保留26项平台skip；CLI六平台构建及开发包/Skill打包通过。
+
+首专项`QL84QJ`6/7的目录scope准备错误、旧源专项`Plei2M`7/7与完整
+`DSSqzQ`118/118均保留。最终runner修正Go .go源哈希空表，旧运行仅通过
+独立构建manifest补验；source-anchor签名同步后四subprocess旧断言恢复。
+旧preview保持原字节，未提PR；更多文件frame组合、Codex同组文件/诊断
+比较、Page GUID路径及原生恢复等继续开放，不把本片验收当完整持平。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

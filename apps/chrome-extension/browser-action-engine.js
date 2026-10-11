@@ -2,12 +2,13 @@
 // No page JavaScript or arbitrary method names are accepted by this dispatcher.
 import { BrowserDiagnostics } from "./browser-diagnostics.js";
 import { AI_SNAPSHOT_LIMITS, BrowserObservation, isAIRef, snapshotLimits } from "./browser-observation.js";
+import { validateFileInputPaths } from "./browser-file-input.js";
 export const BROWSER_ENGINE_INFO = Object.freeze({
   name: "playwright-crx",
   version: "0.15.0",
   playwrightVersion: "1.53.0",
   protocolVersion: 1,
-  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1, snapshotBoxes: 1 }),
+  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1, snapshotBoxes: 1, locatorFileUpload: 1 }),
   snapshotLimits: AI_SNAPSHOT_LIMITS,
   limitations: ["AI snapshots use OBU capture-scoped refs and frame-local CSS boxes, not the later Playwright snapshot API or top-frame hit-test coordinates", "Closed shadow roots are unsupported", "Incognito engine attachment is not yet supported"]
 });
@@ -23,7 +24,7 @@ const renderedActions = new Set([
   "dragTo", "scrollIntoViewIfNeeded", "mouse.move", "mouse.click", "mouse.wheel", "mouse.down", "mouse.up"
 ]);
 const locatorActions = new Set([
-  "click", "dblclick", "hover", "fill", "press", "check", "uncheck", "setChecked", "selectOption", "waitFor",
+  "click", "dblclick", "hover", "fill", "setInputFiles", "press", "check", "uncheck", "setChecked", "selectOption", "waitFor",
   "count", "innerText", "textContent", "inputValue", "getAttribute", "isVisible", "isEnabled", "isChecked",
   "boundingBox", "allTextContents", "allInnerTexts", "dragTo", "scrollIntoViewIfNeeded", "focus", "pressSequentially"
 ]);
@@ -32,7 +33,7 @@ const actionArguments = {
   click: ["button", "clickCount", "delay", "modifiers", "position", "force"],
   dblclick: ["button", "delay", "modifiers", "position", "force"],
   hover: ["modifiers", "position", "force"],
-  fill: ["value", "force"], press: ["key", "delay"],
+  fill: ["value", "force"], setInputFiles: ["files"], press: ["key", "delay"],
   dragTo: ["target", "force", "sourcePosition", "targetPosition"],
   scrollIntoViewIfNeeded: [], focus: [], pressSequentially: ["text", "delay"],
   check: ["force", "position"], uncheck: ["force", "position"], setChecked: ["checked", "force", "position"],
@@ -91,6 +92,10 @@ export function validateBrowserAction(params) {
   const timeout = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   finite(timeout, "timeoutMs", 1);
   if (timeout > MAX_TIMEOUT_MS) throw new Error(`timeoutMs must be <= ${MAX_TIMEOUT_MS}`);
+  if (params.action === "setInputFiles") {
+    if (!Number.isInteger(timeout)) throw new Error("setInputFiles timeoutMs must be an integer");
+    args.files = validateFileInputPaths(args.files);
+  }
   const locatorBudget = { steps: 0 };
   const steps = validateLocator(params.locator ?? [], locatorBudget);
   if (locatorActions.has(params.action) && (!steps.length || steps.at(-1)?.kind === "frame")) throw new Error(`${params.action} requires an element locator`);
@@ -299,7 +304,7 @@ async function execute(page, params, resolveRef, selectedTarget) {
 }
 
 export class BrowserActionEngine {
-  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, restrictedSelectors = () => false, inputHooks } = {}) {
+  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, restrictedSelectors = () => false, prepareFileInput, inputHooks } = {}) {
     this.loadRuntime = loadRuntime;
     this.onBeforeAttach = onBeforeAttach;
     this.onAttached = onAttached;
@@ -310,12 +315,14 @@ export class BrowserActionEngine {
     this.authorize = authorize;
     this.restrictedSelectors = restrictedSelectors;
     this.inputHooks = inputHooks;
+    this.prepareFileInput = prepareFileInput;
     this.pages = new Map();
     this.queues = new Map();
     this.generations = new Map();
     this.active = new Map();
     this.apps = new Map();
     this.releases = new Map();
+    this.fileInputCleanups = new Map();
   }
 
   async runtime() {
@@ -336,6 +343,7 @@ export class BrowserActionEngine {
   async attach(tabId, expectedGeneration = this.generations.get(tabId) ?? 0, beforeCreate, admission) {
     // Do not allow stale attachment cleanup to detach a newer owner of the tab.
     await this.releases.get(tabId)?.catch(() => {});
+    if (this.fileInputCleanups.has(tabId)) throw new Error("OBU_MEDIA_CLEANUP_FAILED: original file input cleanup must finish before attachment");
     if ((this.generations.get(tabId) ?? 0) !== expectedGeneration) throw new Error("Browser action was cancelled before tab attachment");
     if (this.pages.has(tabId)) return this.pages.get(tabId);
     // Internal setup fence runs only for the actual creator, after release and
@@ -607,6 +615,24 @@ export class BrowserActionEngine {
           // Resolve before an ordinary scoped snapshot invalidates the map. A
           // snapshot through a ref can run once; that capture then expires.
           const selectedTarget = resolveBrowserLocator(page, params.locator, resolveRef);
+          if (params.action === "setInputFiles") {
+            const runtime = await this.runtime();
+            await check();
+            if (typeof runtime.setLocatorInputFiles !== "function" || typeof runtime.runOpenBrowserUseMediaTask !== "function" || typeof this.prepareFileInput !== "function") throw new Error("Locator file upload runtime is unavailable");
+            const checkRef = () => { if (params.locator[0]?.kind === "ref") observation.get(params.locator[0]); };
+            const checkAdmission = () => {
+              checkTime(); checkRef();
+              if ((this.generations.get(params.tabId) ?? 0) !== generation) throw new Error("Browser action was cancelled because tab control ended");
+            };
+            return runtime.setLocatorInputFiles(selectedTarget, {
+              files: params.args.files, deadlineAt, runNativeTask: runtime.runOpenBrowserUseMediaTask,
+              check: async () => { await check(); checkRef(); },
+              prepare: identity => {
+                checkAdmission();
+                return this.prepareFileInput({ params, identity, deadlineAt, check: checkAdmission });
+              }
+            });
+          }
           if (params.action === "snapshot") observation.invalidate();
           if (params.action === "dragTo") {
             // Playwright presses the source before waiting for its destination.
@@ -653,11 +679,13 @@ export class BrowserActionEngine {
         await check();
         return { value: value ?? null, engine: BROWSER_ENGINE_INFO };
       } catch (error) {
+        if (params.action === "setInputFiles" && error?.mediaCleanupFailed && typeof error.retryMediaCleanup === "function")
+          this.fileInputCleanups.set(params.tabId, { entry, retry: error.retryMediaCleanup });
         // Also release if Playwright's own deadline wins just before ours.
         // Guarded clicks can fail after a native press whose completion is
         // unknown. Release through the attachment tracker before admitting a
         // later action, even if Playwright serialized it as a plain Error.
-        if (!release && (error?.name === "TimeoutError" || /OBU_POINTER_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
+        if (!release && (error?.name === "TimeoutError" || error?.mediaCleanupFailed || /OBU_POINTER_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
         if (release) await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
         throw error;
       } finally {
@@ -708,6 +736,14 @@ export class BrowserActionEngine {
     const pending = this.pages.get(tabId);
     const release = (async () => {
       try {
+        const cleanup = this.fileInputCleanups.get(tabId);
+        if (cleanup) {
+          // Cleanup owns the original native handle leases; a replacement Page
+          // is never an excuse to release objects through its attachment.
+          if (pending && await pending !== cleanup.entry) throw new Error("OBU_MEDIA_CLEANUP_FAILED: file input attachment was replaced");
+          await cleanup.retry();
+          if (this.fileInputCleanups.get(tabId) === cleanup) this.fileInputCleanups.delete(tabId);
+        }
         let entry;
         try { entry = await pending; }
         catch (error) {
@@ -725,7 +761,7 @@ export class BrowserActionEngine {
         }
       }
       finally {
-        if (this.pages.get(tabId) === pending) this.pages.delete(tabId);
+        if (!this.fileInputCleanups.has(tabId) && this.pages.get(tabId) === pending) this.pages.delete(tabId);
       }
     })();
     this.releases.set(tabId, release);
@@ -738,7 +774,7 @@ export class BrowserActionEngine {
   // Do not hide pending rejections: the caller decides which cleanup failed.
   controlSnapshot() {
     return {
-      tabIds: [...new Set([...this.pages.keys(), ...this.releases.keys(), ...this.queues.keys()])],
+      tabIds: [...new Set([...this.pages.keys(), ...this.releases.keys(), ...this.queues.keys(), ...this.fileInputCleanups.keys()])],
       pending: [...new Set([...this.pages.values(), ...this.releases.values(), ...this.queues.values()])]
     };
   }

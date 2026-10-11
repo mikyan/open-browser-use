@@ -96,6 +96,7 @@ export type OpenBrowserUseEngineInfo = {
         snapshotAI: 1;
         captureRefs: 1;
         snapshotBoxes?: 1;
+        locatorFileUpload?: 1;
     };
     snapshotLimits?: OpenBrowserUseAISnapshotLimits;
 };
@@ -363,6 +364,9 @@ export declare class OpenBrowserUseLocator {
     scrollIntoViewIfNeeded(options?: OpenBrowserUseActionOptions): Promise<void>;
     pressSequentially(text: string, options?: OpenBrowserUseActionOptions): Promise<void>;
     dragTo(target: OpenBrowserUseLocator, options?: OpenBrowserUseActionOptions): Promise<void>;
+    setInputFiles(files: string[], options?: {
+        timeoutMs?: number;
+    }): Promise<void>;
     fill(value: string, options?: OpenBrowserUseActionOptions): Promise<void>;
     press(key: string, options?: OpenBrowserUseActionOptions): Promise<void>;
     check(options?: OpenBrowserUseActionOptions): Promise<void>;

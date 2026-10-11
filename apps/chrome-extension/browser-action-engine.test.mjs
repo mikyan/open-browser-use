@@ -963,3 +963,90 @@ test("a pointer action expiring in the rendering lease cannot click later", asyn
   assert.ok(!f.calls.some(call => call[0] === "click"));
   assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
 });
+
+
+test("locator file upload validates immutable paths and integer action budget before loading", async () => {
+  let loads = 0;
+  const engine = new BrowserActionEngine({ loadRuntime: async () => { loads++; } });
+  for (const extra of [{ args: {} }, { args: { files: ["relative"] } }, { args: { files: [], force: true } }, { args: { files: [] }, timeoutMs: 1.5 }, { args: { files: [] }, locator: [] }])
+    await assert.rejects(engine.dispatch(request("setInputFiles", { locator, ...extra })));
+  assert.equal(loads, 0);
+  const files = ["/file"], params = validateBrowserAction(request("setInputFiles", { locator, args: { files } }));
+  files[0] = "/changed"; assert.deepEqual(params.args.files, ["/file"]); assert.equal(params.timeoutMs, 10000);
+  assert.equal((await engine.dispatch(request("engineInfo"))).value.capabilities.locatorFileUpload, 1);
+});
+
+test("locator file upload stays in the action queue, with the original budget and no rendering/upstream setter", async () => {
+  const f = fixture({ setInputFiles: () => assert.fail("upstream setter bypasses directory completion") });
+  const entered = deferredForFile(), gate = deferredForFile(); let preparations = 0, leases = 0, reads = 0;
+  f.runtime.runOpenBrowserUseMediaTask = () => {};
+  f.runtime.setLocatorInputFiles = async (_locator, options) => {
+    assert.ok(options.deadlineAt > performance.now() && options.deadlineAt <= performance.now() + 1000);
+    assert.deepEqual(options.files, ["/file"]); await options.check();
+    options.prepare({ target: { tabId: 42 } }); entered.resolve(); await gate.promise;
+  };
+  f.runtime.captureAISnapshot = async () => { reads++; return {}; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, prepareFileInput: ({ params, check }) => { check(); preparations++; assert.equal(params.action, "setInputFiles"); }, aroundAction: ({ run }) => { leases++; return run(); } });
+  const upload = engine.dispatch(request("setInputFiles", { locator, args: { files: ["/file"] }, timeoutMs: 1000 }));
+  await entered.promise;
+  const next = engine.dispatch(request("engineInfo")); let nextDone = false; next.then(() => { nextDone = true; });
+  await Promise.resolve(); assert.equal(nextDone, false);
+  gate.resolve(); assert.equal((await upload).value, null); await next;
+  assert.equal(preparations, 1); assert.equal(leases, 0); assert.equal(reads, 0);
+  assert.equal(f.calls.some(call => ["click", "focus", "setInputFiles"].includes(call[0])), false);
+});
+function deferredForFile() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
+
+test("capture refs expire while resolving a file input, before the backend can reserve or write", async () => {
+  const f = aiFixture(); let preparations = 0;
+  f.runtime.runOpenBrowserUseMediaTask = () => {};
+  f.runtime.setLocatorInputFiles = async (_locator, options) => {
+    await options.check(); f.page.emit("framenavigated", {});
+    options.prepare({ target: { tabId: 42 } });
+  };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, prepareFileInput: () => { preparations++; } });
+  const capture = (await engine.dispatch(request("snapshotAI"))).value;
+  await assert.rejects(engine.dispatch(request("setInputFiles", { locator: refLocator(capture), args: { files: [] } })), /CAPTURE_EXPIRED/);
+  assert.equal(preparations, 0);
+});
+
+test("file input cleanup failure releases the engine attachment without replay", async () => {
+  const f = fixture(), failure = Object.assign(new Error("file cleanup failed"), { mediaCleanupFailed: true }); let calls = 0;
+  f.runtime.runOpenBrowserUseMediaTask = () => {};
+  f.runtime.setLocatorInputFiles = async () => { calls++; throw failure; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, prepareFileInput() {} });
+  await assert.rejects(engine.dispatch(request("setInputFiles", { locator, args: { files: [] } })), error => error === failure);
+  assert.equal(calls, 1); assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+});
+
+
+test("file input cleanup failure retains original entry and retry closure until explicit detach succeeds", async () => {
+  const f = fixture(); let cleanupAttempts = 0, allowCleanup = false;
+  const failure = Object.assign(new Error("file cleanup failed"), { mediaCleanupFailed: true,
+    async retryMediaCleanup() { cleanupAttempts++; if (!allowCleanup) throw new Error("original release still failed"); } });
+  f.runtime.runOpenBrowserUseMediaTask = () => {};
+  f.runtime.setLocatorInputFiles = async () => { throw failure; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, prepareFileInput() {} });
+  await assert.rejects(engine.dispatch(request("setInputFiles", { locator, args: { files: [] } })), error => error === failure);
+  assert.equal(cleanupAttempts, 1); assert.equal(engine.fileInputCleanups.size, 1); assert.equal(engine.pages.size, 1);
+  assert.deepEqual(engine.controlSnapshot().tabIds, [42]);
+  await assert.rejects(engine.attach(42), /cleanup must finish/);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 0);
+  allowCleanup = true; await engine.detach(42);
+  assert.equal(cleanupAttempts, 2); assert.equal(engine.fileInputCleanups.size, 0); assert.equal(engine.pages.size, 0);
+  assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+});
+
+
+test("file submission synchronous admission rejects an invalidated action generation", async () => {
+  const f = fixture();
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime, prepareFileInput: ({ check }) => ({ check }) });
+  f.runtime.runOpenBrowserUseMediaTask = () => {};
+  f.runtime.setLocatorInputFiles = async (_locator, options) => {
+    const admission = options.prepare({ target: { tabId: 42 } });
+    engine.invalidate(42);
+    admission.check();
+    assert.fail("invalidated action must never reach native submission");
+  };
+  await assert.rejects(engine.dispatch(request("setInputFiles", { locator, args: { files: [] } })), /cancelled/);
+});
