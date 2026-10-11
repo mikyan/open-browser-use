@@ -779,6 +779,29 @@ focus，整个场景失败、两项 reload 未执行。收尾进程及注册清�
 逐文件匹配 unpacked、主回归与原生验收生产 hash；未含测试钩子、公钥替换、
 随机 host 名或私有路径。用户主浏览器安装未改变，仅本地开发及提交，无 PR/推送。
 
+### Edge 原生启动：无操作空闲对照
+
+新增显式 `OBU_TEST_NATIVE_MODE=idle-diagnostic`，默认仍是三场景 acceptance。
+复用完全相同的安装、隔离清单和独立 observer，固定观察至少十秒；不发 SDK
+动作、不终止 host、不 reload。焦点违规不截断采集，结构损坏或读取失败仍
+导致诊断不完整。末尾验证原 host 的 PID、创建时间、pipe、路径、祖先和
+连接；清理仍检查所有测试进程及唯一注册。`diagnostic.complete` 与验收
+`passed` 分开，诊断模式始终 passed:false；退出 0 只表示完整采集与清理。
+
+Edge `native-lifecycle-XlNQ9o` 采集 10,002ms / 11 样本，唯一 focus 与气泡
+日志相差 1ms；Chrome `native-lifecycle-K2qRSM` 采集 10,015ms / 11 样本，
+没有激活或焦点事件。两者观测期间原 host 不变、case/witness 为空、清单
+始终隔离且收尾成功。它们证明焦点现象无需恢复动作也会发生；未直接检查
+气泡 UI，仍不能宣称因果或修好 Edge。没有延长验收启动等待、禁用通知或
+放宽焦点规则；上轮 Edge 失败继续保留。
+
+最终脚手架 Node-only 75/75，新结果语义的默认 Chrome 三场景回归
+`native-lifecycle-0B1hfL` 3/3。生产代码和交付 ZIP 未改变；完整 CI 与主77项
+采用上一片对应证据，不声称本轮重复执行。下一片选择明确的跨连接文件
+选择器 ready→trigger→collect 缺口。模糊的 Content-return 尚需当前基准
+和语义确认；已有正文、PDF/MHTML 与剪贴板返回不重复开发，不用历史命令
+字符串推导新 API。完整矩阵继续 active，仅本地提交，无 PR/推送。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

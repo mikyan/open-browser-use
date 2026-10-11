@@ -16,8 +16,9 @@ import { FocusLedger, focusArrays, focusSnapshotExpression, readFocusEvidence } 
 import { stageReloadObserver, reloadLifecycleRecorderSource, reloadLifecycleSnapshotExpression } from "./extension-reload-support.mjs";
 import { assertNoNewFocusEvents, assertSamePopupDocument, popupUIReflectsStatus, restartFixtureHTML } from "./browser-restart-support.mjs";
 import { checkNativeHostRestart, lifecycleRecoveryFixture } from "./lifecycle-recovery-fixture.mjs";
-import { allNativeLifecycleCasesPassed, assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeLifecycleCases, nativeRegistrationSource, nativeTerminateSource, nativeWatchSource } from "./native-lifecycle-support.mjs";
+import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, nativeRegistrationSource, nativeTerminateSource, nativeWatchSource, resolveNativeLifecycleMode } from "./native-lifecycle-support.mjs";
 
+const mode = resolveNativeLifecycleMode(process.env.OBU_TEST_NATIVE_MODE);
 assert.equal(process.platform, "win32", "Real native lifecycle registration currently supports Windows only");
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const browserName = process.env.OBU_TEST_NATIVE_BROWSER ?? "chrome";
@@ -35,7 +36,7 @@ await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-
 const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(jsSnapshot, "index.js")));
 const nativeName = `com.openbrowseruse.lifecycle.n${randomBytes(12).toString("hex")}`;
 const records = [], hostGenerations = [], clients = new Set(), witnesses = [], browserLogs = [], diagnostics = [];
-const report = { scope: "Windows real browser native launcher, host termination and same-version unpacked runtime.reload; no native Port adapter; not signed update, full browser restart, other platforms or user profile", runDir, browserName, profile, nativeName, expectedCases: nativeLifecycleCases, records, hostGenerations, witnesses, diagnostics, startedAt: Date.now(), focus: { allowedActivations: [], allowedFocus: [] } };
+const report = { scope: "Windows real browser native launcher, host termination and same-version unpacked runtime.reload; no native Port adapter; not signed update, full browser restart, other platforms or user profile", mode, runDir, browserName, profile, nativeName, expectedCases: mode === "acceptance" ? nativeLifecycleCases : [], records, hostGenerations, witnesses, diagnostics, startedAt: Date.now(), focus: { allowedActivations: [], allowedFocus: [] }, ...(mode === "idle-diagnostic" && { diagnostic: { complete: false, durationMs: nativeIdleDurationMs, samples: [], scope: "read-only idle post-install control; no SDK calls, browser actions, host termination or runtime.reload during observation; not lifecycle acceptance" } }) };
 const hash = data => createHash("sha256").update(data).digest("hex"), delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const subprocessChildren = new Set();
 const save = (name, value) => fs.writeFile(path.join(runDir, name), JSON.stringify(value, null, 2));
@@ -135,6 +136,38 @@ async function focus() { return readFocusEvidence(ledger, report.focus, () => ob
 async function assertFocus() {
   const current = await focus(); ledger.assertAllowed(current, report.focus.allowedActivations, report.focus.allowedFocus);
   const tabs = await observer.evaluate(`chrome.tabs.query({active:true,windowId:${report.sentinel.windowId}})`); assert.equal(tabs[0]?.id, report.sentinel.id); return current;
+}
+async function observeIdle() {
+  const detail = report.diagnostic, original = endpoint;
+  detail.originalHost = { pid: original.pid, socketPath: original.socketPath, startedAt: original.startedAt, identity: original.identity };
+  detail.startedAt = Date.now(); const deadline = detail.startedAt + detail.durationMs;
+  do {
+    const sample = { requestedAt: Date.now() }; detail.samples.push(sample);
+    // Reading and validating ledger continuity must succeed. An unwanted event
+    // is a recorded observation, never a reason to truncate the idle interval.
+    sample.focus = await focus();
+    sample.windows = await observer.evaluate("chrome.windows.getAll().then(values=>values.map(({id,focused,state,type})=>({id,focused,state,type})))");
+    sample.sentinel = await observer.evaluate(`chrome.tabs.get(${report.sentinel.id}).then(({id,windowId,active})=>({id,windowId,active}))`);
+    sample.nativeStatus = await nativeStatus();
+    sample.inventory = await extensionInventory(`idle-sample-${detail.samples.length}`);
+    try {
+      ledger.assertAllowed(sample.focus, report.focus.allowedActivations, report.focus.allowedFocus);
+      assert.equal(sample.sentinel.active, true); assert.equal(sample.sentinel.windowId, report.sentinel.windowId);
+      sample.focusValidation = "passed";
+    } catch (error) { sample.focusValidation = "failed"; sample.focusError = error.stack; }
+    sample.completedAt = Date.now(); await save("idle-diagnostic.json", detail);
+    if (sample.focus.at >= deadline) break;
+    await delay(Math.min(1000, Math.max(0, deadline - Date.now())));
+  } while (true);
+  detail.observedThrough = detail.samples.at(-1).focus.at;
+  const current = JSON.parse(await fs.readFile(endpointFile, "utf8"));
+  detail.hostAfter = { ...current, identity: await processIdentity(current), status: await nativeStatus(), observedAt: Date.now() };
+  for (const key of ["pid", "socketPath", "startedAt"]) assert.equal(current[key], original[key], `Idle control native host changed: ${key}`);
+  assert.equal(detail.hostAfter.identity.process.CreationDate, original.identity.process.CreationDate, "Idle control native PID was reused");
+  assert.equal(detail.hostAfter.status?.state, "connected"); assert.equal(detail.hostAfter.status.hostName, nativeName);
+  detail.originalHostUnchanged = true; detail.observationComplete = true;
+  detail.focusValidation = detail.samples.every(sample => sample.focusValidation === "passed") ? "passed" : "failed";
+  await save("idle-diagnostic.json", detail);
 }
 async function extensionInventory(label, expectedIds = [extensionId, companion.extensionId]) {
   const record = { label, requestedAt: Date.now(), settingsTarget: settingsManagerTarget };
@@ -377,9 +410,13 @@ try {
   observerTarget = (await control.call("Target.createTarget", { url: companion.url, background: true })).targetId;
   observer = await cdp((await until(async () => (await targets()).find(value => value.id === observerTarget), "independent observer target")).webSocketDebuggerUrl);
   await until(() => observer.evaluate("globalThis.__integrationFocusLedger?.snapshot().ready"), "independent observer initialized");
-  const firstFocus = await assertFocus(); assert.deepEqual(firstFocus.events, []); report.focus.coverageStartedAt = firstFocus.at;
-  console.log("HARNESS", JSON.stringify({ runDir, browserName, browserPid: child.pid, hostPid: endpoint.pid }));
+  const firstFocus = mode === "acceptance" ? await assertFocus() : await focus();
+  if (mode === "acceptance") assert.deepEqual(firstFocus.events, []);
+  report.focus.coverageStartedAt = firstFocus.at;
+  console.log("HARNESS", JSON.stringify({ runDir, mode, browserName, browserPid: child.pid, hostPid: endpoint.pid }));
 
+  if (mode === "idle-diagnostic") await observeIdle();
+  else {
   if (!await runCase("native-host-exit", async detail => {
     detail.before = await runtimeIdentity();
     detail.recovery = await checkNativeHostRestart({ connect, fixtureURL, worker, until, saveDetail: value => { detail.recovery = value; return save("native-host-recovery-detail.json", value); }, restartHost: async () => {
@@ -438,10 +475,18 @@ try {
     } finally { await closePopup(retained); }
     await explicitRecovery(value, detail);
   });
+  }
 } catch (error) { report.error = error.stack; console.error(error); }
 finally {
   if (settingsManager && report.installation?.fullInventory) { try { report.finalExtensionInventory = await extensionInventory("before-browser-teardown"); } catch (error) { report.finalExtensionInventoryError = error.message; } }
-  if (observer) { try { const value = await assertFocus(); Object.assign(report.focus, focusArrays(value), { finalValidation: "passed", coverageEndedAt: value.at }); } catch (error) { report.focus.finalValidation = "failed"; report.focus.error = error.stack; } }
+  if (observer) {
+    try {
+      const value = await focus(), sentinel = await observer.evaluate(`chrome.tabs.get(${report.sentinel.id}).then(({id,windowId,active})=>({id,windowId,active}))`);
+      Object.assign(report.focus, focusArrays(value), { observationComplete: true, coverageEndedAt: value.at, finalSentinel: sentinel });
+      ledger.assertAllowed(value, report.focus.allowedActivations, report.focus.allowedFocus);
+      assert.equal(sentinel.active, true); assert.equal(sentinel.windowId, report.sentinel.windowId); report.focus.finalValidation = "passed";
+    } catch (error) { report.focus.finalValidation = "failed"; report.focus.error = error.stack; }
+  }
   for (const client of clients) client.close();
   if (control) {
     try { report.browserProcessesBeforeClose = await control.call("SystemInfo.getProcessInfo"); } catch (error) { report.browserProcessInventoryError = error.message; }
@@ -469,6 +514,7 @@ finally {
   server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));
   await fs.writeFile(path.join(runDir, "browser.log"), browserLogs.join(""));
   for (const name of ["chrome_debug.log", "debug.log"]) { try { await fs.copyFile(path.join(profile, name), path.join(runDir, name)); } catch (error) { if (error.code !== "ENOENT") diagnostics.push({ phase: "log copy", error: error.message }); } }
-  report.passed = !report.error && allNativeLifecycleCasesPassed(records) && report.focus.finalValidation === "passed" && report.registrationCleanup?.removed === true && !!report.nativeCleanup && !report.browserCleanupError && !report.browserProcessInventoryError && !!report.browserProcessesGone && !report.helperCleanupError && report.finalExtensionInventory?.passed === true && report.extensionInventories.every(value => value.passed === true);
-  report.completedAt = Date.now(); await save("results.json", report); console.log("RESULT", path.join(runDir, "results.json")); process.exitCode = report.passed ? 0 : 1;
+  const outcome = nativeLifecycleOutcome(report); report.passed = outcome.passed; report.exitCode = outcome.exitCode;
+  if (report.diagnostic) { report.diagnostic.complete = outcome.diagnosticComplete; await save("idle-diagnostic.json", report.diagnostic); console.log("DIAGNOSTIC", JSON.stringify({ complete: report.diagnostic.complete, focusValidation: report.focus.finalValidation, acceptancePassed: false })); }
+  report.completedAt = Date.now(); await save("results.json", report); console.log("RESULT", path.join(runDir, "results.json")); process.exitCode = outcome.exitCode;
 }

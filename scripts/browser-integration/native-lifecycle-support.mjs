@@ -2,8 +2,30 @@ import assert from "node:assert/strict";
 import path from "node:path";
 
 export const nativeLifecycleCases = Object.freeze(["native-host-exit", "native-extension-reload", "native-paused-reload"]);
+export const nativeIdleDurationMs = 10000;
+export function resolveNativeLifecycleMode(value = "acceptance") {
+  assert.ok(["acceptance", "idle-diagnostic"].includes(value), `Unknown OBU_TEST_NATIVE_MODE: ${value}`);
+  return value;
+}
 export function allNativeLifecycleCasesPassed(records) {
   return records.length === nativeLifecycleCases.length && nativeLifecycleCases.every(name => records.filter(value => value.name === name && value.passed === true).length === 1);
+}
+
+// A diagnostic may collect an unwanted focus event successfully. Keep that
+// observation separate from acceptance and require the same teardown evidence.
+export function nativeLifecycleOutcome(report) {
+  const mode = resolveNativeLifecycleMode(report.mode);
+  const complete = !report.error && report.registrationCleanup?.removed === true && !!report.nativeCleanup &&
+    !report.nativeCleanupError && !report.browserCleanupError && !report.browserProcessInventoryError &&
+    !report.browserProcessCleanupError && !!report.browserProcessesGone && !report.helperCleanupError &&
+    report.finalExtensionInventory?.passed === true && report.extensionInventories?.every(value => value.passed === true);
+  const passed = mode === "acceptance" && !!complete && allNativeLifecycleCasesPassed(report.records) && report.focus.finalValidation === "passed";
+  if (mode === "acceptance") return { passed, exitCode: passed ? 0 : 1 };
+  const diagnostic = report.diagnostic;
+  const diagnosticComplete = !!complete && report.records.length === 0 && report.focus.observationComplete === true &&
+    diagnostic?.observationComplete === true && diagnostic.originalHostUnchanged === true &&
+    diagnostic.durationMs === nativeIdleDurationMs && diagnostic.observedThrough - diagnostic.startedAt >= nativeIdleDurationMs;
+  return { passed: false, diagnosticComplete, exitCode: diagnosticComplete ? 0 : 1 };
 }
 
 // The manager API includes disabled and terminated entries. Upstream normally

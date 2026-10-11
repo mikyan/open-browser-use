@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allNativeLifecycleCasesPassed, assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeLifecycleCases } from "./native-lifecycle-support.mjs";
+import { allNativeLifecycleCasesPassed, assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, resolveNativeLifecycleMode } from "./native-lifecycle-support.mjs";
 
 const executable = "C:\\fixture\\native-host.exe", browserPid = 100;
 const processes = [
@@ -25,6 +25,30 @@ test("native lifecycle acceptance requires exactly all three unique passing case
     assert.equal(allNativeLifecycleCasesPassed(records.map(value => value === record ? { ...value, passed: false } : value)), false);
   }
   assert.equal(allNativeLifecycleCasesPassed([...records, records[0]]), false);
+});
+test("native mode defaults to acceptance and rejects unknown or empty values", () => {
+  assert.equal(resolveNativeLifecycleMode(), "acceptance");
+  assert.equal(resolveNativeLifecycleMode("idle-diagnostic"), "idle-diagnostic");
+  for (const value of ["", "idle", "all", null]) assert.throws(() => resolveNativeLifecycleMode(value), /Unknown OBU_TEST_NATIVE_MODE/);
+});
+test("idle diagnostic completion retains failed focus without claiming lifecycle acceptance", () => {
+  const report = {
+    mode: "idle-diagnostic", records: [], focus: { observationComplete: true, finalValidation: "failed" },
+    diagnostic: { observationComplete: true, originalHostUnchanged: true, durationMs: nativeIdleDurationMs, startedAt: 100, observedThrough: 10100 },
+    registrationCleanup: { removed: true }, nativeCleanup: {}, browserProcessesGone: {},
+    finalExtensionInventory: { passed: true }, extensionInventories: [{ passed: true }]
+  };
+  assert.deepEqual(nativeLifecycleOutcome(report), { passed: false, diagnosticComplete: true, exitCode: 0 });
+  for (const patch of [
+    { error: "setup failed" }, { browserCleanupError: "still live" }, { nativeCleanupError: "host live" },
+    { registrationCleanup: { removed: false } }, { extensionInventories: [{ passed: false }] },
+    { focus: { observationComplete: false } }, { records: [{ name: "native-host-exit", passed: true }] },
+    ...[{ observationComplete: false }, { originalHostUnchanged: false }, { observedThrough: 10099 }].map(value => ({ diagnostic: { ...report.diagnostic, ...value } }))
+  ]) assert.deepEqual(nativeLifecycleOutcome({ ...report, ...patch }), { passed: false, diagnosticComplete: false, exitCode: 1 });
+  const acceptance = { ...report, mode: "acceptance", records: nativeLifecycleCases.map(name => ({ name, passed: true })), focus: { finalValidation: "passed" } };
+  assert.deepEqual(nativeLifecycleOutcome(acceptance), { passed: true, exitCode: 0 });
+  assert.deepEqual(nativeLifecycleOutcome({ ...acceptance, focus: { finalValidation: "failed" } }), { passed: false, exitCode: 1 });
+  assert.deepEqual(nativeLifecycleOutcome({ ...acceptance, records: [] }), { passed: false, exitCode: 1 });
 });
 test("profile isolation inventories all states and only explicitly marked components are exempt", () => {
   const fixtures = [{ id: "fixture", location: "UNPACKED", state: "ENABLED" }, { id: "observer", location: "UNPACKED", state: "ENABLED" }];

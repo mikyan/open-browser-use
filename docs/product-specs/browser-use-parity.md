@@ -47,7 +47,7 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 同源/OOPIF/嵌套/open shadow 已实测；递归 refs 在 iframe 前插、保留文档重排、20 次重复快照和 8 次替换循环后命中正确节点，frame 生命周期使旧 capture 失效；更多复杂组合仍待补 |
 | P08 | 导航与页面生命周期 | goto/back/forward/reload、SPA、popup、关闭、wait URL/load；正确监听早到事件 | 原生 URL/load observer 的短注册与动作完成队列分离，冷 wait→click、五入口 ready→trigger→collect、快速/SPA/中间 URL/redirect、独立 DCL/load/networkidle 和当前状态立即完成均已实测。既有 goto/BFCache/刷新及 auxiliary 原窗口接管保留；原生 popup 创建仍抢前台，用户自行移窗后的渲染恢复待补 |
 | P09 | 截图与后台渲染 | viewport/full-page/element/crop，尺寸格式正确；闲置后台 tab 重复截图与输入稳定 | viewport/crop/full-page 与离屏根/同源/OOPIF/嵌套截图、导航后新内容已有验收；frame-owner 预滚修复 stable 等待。启动 trace 将首窗口停滞定位到 root Surface 依赖和 Chromium testing 实验组；受控基线禁用 testing config 后，定向 3/3、完整 headed 61/61。这是测试环境修正，原配置失败保留，不能宣称插件已兼容所有实验设置；普通 tab 移组撤权与显式恢复已验，长期闲置与压力范围仍待补 |
-| P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 上传/chooser、主 frame/OOPIF 文件字节与清空已有验收。HTTP(S) 新 GET 下载的五入口、cookie、精确 ID 路径/取消以及 PDF/MHTML 产物已验；剪贴板固定 Headless 8/8。最新 `run-XnREpF` 70/70 包含有限 image/video/audio HTTP(S)、data/同 frame 同 origin Blob、Canvas PNG 的五入口文件下载；36 实际文件、8 MiB 边界、分区隔离/DRM/污染/超限负例与四种真实 pending read 取消独立核验。HTTP 是新 GET，不复现页面原响应；嵌入字节上限 8 MiB。Content-return、任意大小媒体、headed OS 剪贴板、Page GUID→路径/取消及更多平台仍待补 |
+| P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | 上传/chooser、主 frame/OOPIF 文件字节与清空已有验收。HTTP(S) 新 GET 下载的五入口、cookie、精确 ID 路径/取消以及 PDF/MHTML 产物已验；剪贴板固定 Headless 8/8。最新 `run-XnREpF` 70/70 包含有限 image/video/audio HTTP(S)、data/同 frame 同 origin Blob、Canvas PNG 的五入口文件下载；36 实际文件、8 MiB 边界、分区隔离/DRM/污染/超限负例与四种真实 pending read 取消独立核验。HTTP 是新 GET，不复现页面原响应；嵌入字节上限 8 MiB。跨连接 chooser 准备确认、超过嵌入限制的媒体、headed OS 剪贴板、Page GUID→路径/取消及更多平台仍待补；Content-return 的具体语义及当前 Codex 基准尚未确定，已有正文、PDF/MHTML 与剪贴板内容返回不算缺失 |
 | P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | diagnostics 主页面/OOPIF、分页/丢弃/截断经 native 验证。新 CRPage 时间戳边界在原 root/OOPIF/worker handlers 创建 handles 前过滤历史 console/exception/Log；raw CDP 通知保留，实际重放、新 console/error 与换 owner 通过最终 70/70。历史 `run-WMOIim` 69/70 失败保留。边界依赖稳定系统钟，系统时钟跳变后的隔离仍待补。request/response ready→trigger→collect 五入口及冷 main/OOPIF、headers-before-body、redirect/503、精确匹配与有界终态已验；更广调试/流读取未完成 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属、光标/蓝框/点击圈及后台操作已实测。最新完整 `run-6SwxDM` 77 项连续 observer 中，五次 auxiliary 与一次 normal 测试窗口创建各有首 tab 激活；四条 focus 仅来自两次明确控制面板打开，均精确归因，原 sentinel 不变，没有额外前台事件。不是全程零事件；原生 popup 创建激活与多任务压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、移组/跨窗口撤权、可信输入释放、网络/导航/下载 handle 失效与 session incarnation 已验。真实 browser restart/reload `browser-restart-w5chI9` 8/8 含未知输入经 startup witness 的保守恢复。最终 Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3 增加实际 host 退出和两次原生 EOF exit0；挂起请求及时失败，原 deadline+250ms 无迟到动作，暂停经同 popup 显式恢复。主回归 `run-aZyBs1` 77/77。Edge `native-lifecycle-R7MPzo` 清单隔离通过但出现未知窗口 focus，整项失败且 reload 未执行。未决原生调用可能阻止清理，worker 丢失下载 handle 不保证底层传输取消；签名更新/禁启、packed alarm、其他 OS 及更多压力顺序待补 |
@@ -134,3 +134,11 @@ Chrome `native-lifecycle-dnAdTC` 3/3；Edge `native-lifecycle-R7MPzo` 因未解�
 两次 EOF 与 deadline 后的原文档/server 证据，以及所有历史失败和清理范围
 见 [验收记录](../../scripts/browser-integration/README.md#recorded-acceptance-and-remaining-edge-focus-issue)。
 真实 packed 扩展唤醒、签名更新及跨平台能力仍不能由 unpacked 结果推断。
+
+
+Edge 原生空闲对照 `native-lifecycle-XlNQ9o` 在无 SDK 动作、host 终止或
+reload 的 10,002ms 观测中仍出现一次 focus，与开发者模式气泡日志相差1ms；
+Chrome `native-lifecycle-K2qRSM` 的10,015ms无事件。两者诊断完整但 passed:false，
+不充当生命周期验收。新脚本默认 Chrome 三场景 `native-lifecycle-0B1hfL` 3/3；
+Edge 的真实恢复验收仍未通过，气泡因果未直接证实。内容返回的模糊基准项
+不会被替换成凭空设计的媒体 API；下一片补已确认的跨连接 chooser 准备握手。

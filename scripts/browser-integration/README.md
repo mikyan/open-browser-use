@@ -15,8 +15,38 @@ go build -o .tmp/native-lifecycle-host.exe ./cmd/open-browser-use
 $env:OBU_TEST_HOST_BINARY = (Resolve-Path .tmp/native-lifecycle-host.exe).Path
 $env:OBU_TEST_NATIVE_BROWSER = 'chrome'
 $env:OBU_TEST_CHROMIUM_BINARY = 'C:/path/to/chrome.exe'
+$env:OBU_TEST_NATIVE_MODE = 'acceptance' # default when unset
 node scripts/browser-integration/native-lifecycle.mjs
 ```
+
+For a separate idle startup control, keep those same binary paths and browser
+policy and select the diagnostic mode:
+
+```powershell
+$env:OBU_TEST_NATIVE_MODE = 'idle-diagnostic'
+node scripts/browser-integration/native-lifecycle.mjs
+```
+
+After the same installation and observer setup, this mode observes at least
+10 seconds without SDK calls, browser actions, host termination or reload.
+It samples the continuous focus ledger, window/sentinel metadata, read-only
+worker connection status and full extension-manager inventory about once a
+second. Unexpected focus events remain recorded and fail the unchanged focus
+check, but do not shorten the diagnostic interval. The original native host's
+live executable, process creation identity and browser ancestry are checked at
+the end. Setup still includes the existing read-only SDK `getInfo` readiness
+check; observation adds no SDK calls.
+
+`idle-diagnostic.json` and `results.json` report collection separately from
+acceptance: `mode` is explicit, `records`/`expectedCases` are empty and
+`passed` is always false. `diagnostic.complete: true` and exit code 0 mean the
+full interval and final read-only evidence were collected, the original host
+remained connected, inventory stayed isolated and normal cleanup succeeded.
+They do not mean the focus check passed: inspect `focus.finalValidation` and
+the raw events. Incomplete collection, setup, inventory, identity or cleanup
+failure produces `diagnostic.complete: false` and exit code 1. Unknown mode
+values are rejected before any setup. Return to `acceptance` to run all three
+lifecycle cases; idle evidence cannot replace them.
 
 The browser must expose `Extensions.loadUnpacked` and the extension-manager
 developer-mode UI. Setup uses that UI and one CDP bootstrap followed by ordinary
@@ -100,6 +130,31 @@ not observed UI causation. Next diagnosis should retain the identical policy,
 observer and inventory but observe an idle post-install interval without SDK
 actions, host termination or reload. Such a control is diagnostic only; it must
 not erase this failure or count as lifecycle acceptance.
+
+The explicit idle control is now implemented. With the same frozen source and
+startup policy, Edge `native-lifecycle-XlNQ9o` collected **10,002 ms / 11 samples**;
+Chrome `native-lifecycle-K2qRSM` collected **10,015 ms / 11 samples**. Both have zero
+acceptance cases and server witnesses, an unchanged host throughout observation,
+isolated inventory and completed process/registration cleanup. Setup itself
+still has two host generations because of the ordinary manager reload. Both
+diagnostics completed with exit 0 and `passed:false`, as required.
+
+Edge recorded one focus event at 10:51:47.148 local time; its developer-mode
+bubble log followed at 10:51:47.149. Its focus validation remains **failed**.
+Chrome recorded no activation or focus events. Thus the Edge phenomenon can
+occur without SDK work, host termination or reload in the observation interval;
+those recovery actions are not necessary to reproduce it. The bubble's actual
+UI was not inspected, and timing correlation still does not prove causation.
+There is no new startup delay, suppression flag or focus exemption in acceptance.
+The [official Edge notice](https://support.microsoft.com/en-us/edge/developer-mode-extension-notification)
+states that Stable cannot disable this notification; it does not document a
+readiness API.
+
+The final harness unit suite passed **75/75**. The unchanged default acceptance
+path was separately rerun on Chrome as `native-lifecycle-0B1hfL`, **3/3**, to check
+that adding diagnostic result semantics did not bypass or break the real cases.
+The earlier Edge lifecycle failure remains unresolved; the idle control does not
+replace its required recovery acceptance.
 
 ## Adapter regression suite
 

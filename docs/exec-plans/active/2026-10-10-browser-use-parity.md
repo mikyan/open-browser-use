@@ -1033,3 +1033,97 @@ Edge 失败日志在 focus 同一毫秒记载开发者模式提示气泡出现�
 457ms 后、新 host 启动前约 4.6 秒），目前仅时间相关。下一片做相同设置下
 无 SDK 动作、无 host 终止、无 reload 的 idle 对照，保留完整 observer 与
 清单，不引入新 flag 或豁免，先判断是否不经恢复操作也出现该事件。
+
+### P03/P13：Edge 原生焦点的空闲对照（对照完成，Edge 验收仍待补）
+
+从 clean `ba3d2ce` 继续；上一轮已提交重连修复、真实 Chrome 验收及 Edge
+失败证据，属于有效进展。本轮用显式 idle-diagnostic 模式复用同一套安装、
+隔离清单、observer 和收尾。安装后固定观察十秒，不执行 SDK 动作、host
+终止或 reload；出现焦点变化也采完整区间。诊断完成与三项生命周期通过
+使用不同结果字段，不允许空用例列表冒充验收成功。
+
+先比较独立空闲对照与原故障过程的气泡/焦点时间。若气泡也在无动作时出现，
+只证明现象可独立于恢复操作，不自动放行有动作场景。扩展 ready 与浏览器
+安装提示结束不等同；不得仅靠更长 sleep 或关闭提示的 flag 获得通过。
+同时梳理 P10 content-return 的具体公开契约，下一片继续补真实产品能力。
+
+最终 Edge `native-lifecycle-XlNQ9o` 与 Chrome `native-lifecycle-K2qRSM`
+分别采集 10,002ms / 10,015ms，各11样本、原 host 不变、零案例/服务器
+witness、全清单隔离与收尾通过。Edge唯一focus比气泡日志早1ms，Chrome
+无事件；两者均 diagnostic.complete:true、passed:false，严格区分诊断
+采集与验收。无操作也可复现，故恢复动作不是必要条件；未直接检查气泡 UI，
+不能宣称因果。默认 Chrome 验收 `native-lifecycle-0B1hfL` 3/3，最终
+Node-only脚手架75/75；生产与交付包未变。继续保留原Edge恢复失败，后续
+若追查使用只读私有 HWND/UIA 证据，不靠固定等待或新flag关闭提示。
+
+本轮梳理发现“Content-return”缺少具体基准；已有正文、PDF/MHTML 和
+剪贴板内容返回不能重复列为缺失，旧命令名不证明当前 Codex 媒体字节 API。
+因此下一片先实现已有真实使用缺口的跨连接 chooser 准备确认，完整目标
+不缩减，其他文件/平台和当前 Codex 同组基准继续保留。
+
+### P10：文件选择器的准备确认与跨连接上传（计划，尚未实现）
+
+目标是让三 SDK、CLI 和 MCP 顺序完成“确认监听就绪 → 点击 → 取得 chooser
+→ 上传”，解决 `file-transfers.md` 已记录的跨连接排序缺口。当前 JS 同连接
+并发模式保留；本片先完成 chooser，下载的准备确认与 GUID 路径/取消继续
+保留为后续工作。不得通过 sleep、后台线程启动顺序或重放点击证明就绪。
+
+拟定三个 RPC，公共 scope 均为 `session_id`、`turn_id`、`control_epoch`、
+`tabId`；拒绝未知选项，协商 `getInfo.metadata.fileChooserWaitVersion === 1`：
+
+| RPC | 额外参数 | 响应 |
+| --- | --- | --- |
+| `armFileChooserWait` | 可选 `timeoutMs`，默认 10000，整数 1–120000 | `{waiterId, remainingMs}` |
+| `collectFileChooserWait` | `waiterId` | `{fileChooserId, isMultiple}` |
+| `cancelFileChooserWait` | `waiterId` | `{}` |
+
+准备确认必须晚于原 attachment 的 root 和已知 OOPIF interception 成功、
+监听安装及最终 scope 校验，且释放动作队列后允许另一连接触发点击。原始
+deadline 从首次 admission 计算，覆盖冷 attachment、准备、事件校验和
+collect；collect 不接收新的等待预算。SDK/bootstrap 与 CLI/MCP 队列耗时
+只能扣减预算，不能重置。`setFileChooserFiles` 是既有的后续动作，继续
+校验 chooser 的原文档和所有权，等待成功不授予无限期文件写入权限。
+
+实现时复用 `prepareTransferAttachment`、`transferScope`、
+`fileChooserSetupsByTabId` 的动作准备屏障、`fileChooserWaitersByTabId` 的
+原生监听、`fileChoosersById` 的实际 node 身份，以及
+`enableFileChooserTarget` / `handleFileChooserOpened` 的主 frame/OOPIF
+路由。增加一个独立、有限的 chooser-wait registry 管理 opaque waiter、
+状态、deadline 和实际清理；参考 network/navigation wait 的 reserve、
+lookup、invalidate、controlSnapshot 结构，不改造成任意事件框架。
+旧 `waitForFileChooser` 通过同一实现执行 arm+collect，避免两套原生监听。
+
+边界在实现前固定：
+
+- 每 tab 最多一个尚未收集或清理完成的 waiter，全局最多 128；旧等待和新
+  RPC 共享容量。收到首个事件时先固定候选，再异步验证；不能由后来的
+  更快校验事件替换。成功 collect 只交付一次，并发 collect 明确冲突。
+- record 绑定完整 scope、原 attachment、文档版本和确切 child session。
+  collect 的未知/外来/过期 handle 统一拒绝；cancel 对未知或外来 handle
+  无效果且不透露状态，不能取消其他 owner。取消已匹配但未交付的结果时
+  同时撤销该 waiter 创建的 chooser，已交付 chooser 沿用既有生命周期。
+- 新 OOPIF 加入活动 wait 的 interception；新 child 准备未完成时，相关
+  动作也必须等待实际确认。child detach、文档导航、移组/转交、end、Pause
+  和 worker/host 生命周期使旧记录失效，不能凭同 tab 数字 ID 恢复。
+- timeout/cancel 及时结束公开等待；实际 native enable/disable 尚未结算
+  时保留操作账本和容量。清理仅面向原 attachment/child，旧 disable 不能
+  关闭后继 wait；失败保留可重试的确切清理，不能吞掉失败报告已释放。
+  超时不触发点击、不重复文件写入，也不关闭用户原生对话框来伪造取消。
+
+三 SDK 提供 `tab.expectFileChooser(...)` / `expect_file_chooser(...)` /
+`ExpectFileChooser(...)`，返回带 `result()`/`cancel()` 对应语言方法的
+wait handle；result 返回现有 chooser ID 与 multiple 标志，文件设置仍走
+`setFileChooserFiles`。CLI/MCP 使用正式通用 `call` 顺序执行相同三个 RPC
+和既有文件设置入口，无测试 RPC、私有 native pipe 或隐式线程约定。
+
+验收先写确定性竞态测试，再冻结生产代码进行真实浏览器五入口验收。
+每个入口用两个独立连接共享同一合法 scope：A 的 arm 返回后，B 立即点击，
+A collect 并设置合成文件；冷 root/OOPIF 都应成功，至少覆盖准备后新建的
+OOPIF。页面读取文件并 POST 到合成本地服务器，核对 UTF-8/二进制字节、
+长度和 SHA-256；另验 multiple 与空列表清除，不以 input.value 或 RPC
+成功代替上传内容。保留同连接旧 JS 用例。负例覆盖原 deadline、重复 arm、
+并发 collect、外来 scope、导航/移组/Pause、取消后迟到事件及新的成功等待；
+保留原文档至原 deadline 后观察无迟到写入。连续独立 observer 核对 sentinel、
+tab 激活与窗口焦点，确认没有原生文件选择器抢前台；源码/hash、实际入口、
+原始服务器记录和失败运行一起保存。通过后再更新 reference、history 和矩阵，
+仅称完成本片，不把尚未做过的 Codex 上传对照或完整 P10 宣称为完成。
