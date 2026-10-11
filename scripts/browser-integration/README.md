@@ -160,6 +160,78 @@ that adding diagnostic result semantics did not bypass or break the real cases.
 The earlier Edge lifecycle failure remains unresolved; the idle control does not
 replace its required recovery acceptance.
 
+## Real Windows browser installation and discovery
+
+`native-browser-installation.mjs` is a separate opt-in runner for real, signed
+Windows Brave, Opera and Vivaldi executables. It checks the actual browser
+identity, profile catalogue, native launcher and one JS SDK background task.
+An executable renamed to another brand is rejected. This runner has no case
+filter or idle-diagnostic mode and does not replace the adapter or lifecycle
+suites.
+
+With workspace and harness dependencies installed, build the current JS SDK
+and host, then select a matching browser executable:
+
+```powershell
+pnpm --dir packages/open-browser-use-js build
+go build -o .tmp/native-installation-host.exe ./cmd/open-browser-use
+$env:OBU_TEST_HOST_BINARY = (Resolve-Path .tmp/native-installation-host.exe).Path
+$env:OBU_TEST_NATIVE_BROWSER = 'brave'
+$env:OBU_TEST_CHROMIUM_BINARY = 'C:/path/to/brave.exe'
+$env:OBU_TEST_FIELD_TRIAL_CONFIG = 'browser-default'
+node scripts/browser-integration/native-browser-installation.mjs
+```
+
+For separate runs, set `OBU_TEST_NATIVE_BROWSER` to `opera` with the actual
+Opera executable, or `vivaldi` with the actual Vivaldi executable. Both the
+launcher and browser process identities are checked. The field-trial setting
+is recorded: `browser-default` leaves that testing configuration unchanged;
+`disabled` (the default when unset) adds `--disable-field-trial-config` to the
+private process. Neither value grants focus exemptions.
+
+Each run creates fresh profiles under private `HOME`, `USERPROFILE`,
+`LOCALAPPDATA`, `APPDATA` and temporary directories. It uses the brand's normal
+catalogue layout, verifies the profile path displayed by its About page, and
+does not copy user profiles or inject instance IDs. Setup records the actual
+extension-manager controls and checks rendered/native developer-mode agreement
+before `Extensions.loadUnpacked`. It does not edit protected preferences.
+
+Vivaldi diagnostic pages use the observed vendor UI's `chrome.tabs.create`
+path with `active:false`; direct CDP target creation failed during setup in
+recorded runs. The fixture records the vendor identity, native tab reply and
+unique new target association. Only the temporary observer HTML is exposed
+to that exact vendor extension ID before loading; production extension
+permissions and the observer's passive event collection stay unchanged.
+Opera's About identity is read from its observed Shadow DOM profile field,
+separately from the installation and cache paths.
+
+The CLI exports a manifest with `install-manifest --browser <brand> --output`.
+The fixture changes its host name and creates an ownership-fenced random leaf
+under `HKCU\Software\Google\Chrome\NativeMessagingHosts`, testing the real
+shared namespace. The production fixed leaf in both registry views is only
+read and compared before/after. Only the staged extension's native-host name
+and public unpacked key change; its `connectNative` remains untouched. This
+does not exercise installation into the fixed production leaf or a store
+installation. See [namespace and registration scope](../../docs/references/chromium-browser-installation.md).
+
+Evidence includes signed executable hashes, the real browser/native PIDs,
+installed and connected profile discovery, positive selectors and rejection
+of wrong browser/profile selectors. The SDK task fills and submits a unique
+note, checks original trusted input/click events and the server receipt,
+verifies screenshot pixels, and finalizes its tab. An independent continuous
+focus ledger permits no activation or focus events during the measured task;
+setup and teardown are outside that interval. The runner does not measure OS
+pointer position or simultaneous human mouse use.
+
+Artifacts remain in `.tmp/browser-integration/native-installation-<brand>-*`.
+Passing requires browser/native process exit evidence, removal of the task
+tab and debugger attachment, clean private endpoint descriptors, and removal
+of only the owned random registration leaf. Identified external descendants
+are recorded and left untouched; uncertain process ownership blocks cleanup.
+Failed runs remain failed, including setup and cleanup failures. A separate
+post-run cleanup record or later successful run does not revise their result.
+This section defines the procedure, not a claim that any brand has passed.
+
 ## Adapter regression suite
 
 This optional acceptance suite runs **public SDKs → real Go native host →

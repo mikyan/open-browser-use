@@ -77,6 +77,7 @@ HKLM 或浏览器策略。测试证明此路径可用，不代表手动安装流
 [Windows 外部分发文档](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/alternate-distribution-options)
 使用 HKLM 分发扩展；本切片没有将 Chrome 的 HKCU 安装逻辑换一个名称直接套用。
 
-Brave、Opera、Vivaldi 不在此默认目录表中；不能从 Chromium 家族名称推测各自
-的 Windows native host registry 路径。以后新增浏览器需分别验证 profile、注册、
-launcher 和真实协议链，不能仅新增一个浏览器名称。
+Brave、Opera、Vivaldi 的 Windows 默认目录表与共享 Google namespace 入口见
+[Chromium 浏览器安装与发现](chromium-browser-installation.md)。该 reference
+分别记录 profile、注册与真实 launcher 的验证范围；不因它们使用 Chromium
+内核而推断其他平台或安装渠道已经支持。

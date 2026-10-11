@@ -1304,3 +1304,97 @@ capture.clip、截图后box和根页scroll，严格复算整数裁剪与DPR，�
 全套六激活/四focus精确归因既有fixture与控制面板动作，无新增豁免。两轮
 源码/runtime/产物/历史身份一致；最终仅文档更新。P09/P12本片完成，更多
 平台、浏览器配置、长期压力和既有能力缺口仍开放，完整目标继续active。
+
+### P03：真实浏览器安装与发现
+
+从干净 `f678039` 继续；上一片真实验收和本地提交属于进展。当前catalogue
+实际仅实现Chrome/Chrome Beta/Edge，Brave/Opera/Vivaldi不只是缺少实测，
+而是安装selector和连接profile归属尚未实现。本片核对官方Native Messaging
+namespace和profile根，避免把profile目录直接当成host manifest目录，或把
+共享注册位置误称浏览器隔离；未证实路径不猜测。补全实际CLI/setup/discovery
+及相关测试，再用官方浏览器二进制、独立测试profile和真实native launcher
+验证注册、连接、身份、后台动作及清理。保留现有用户host注册和默认profile，
+测试注册须有独占归属和可核对恢复；主线程唯一启动真实浏览器。
+
+P04并行核查发现，旧三SDK快照schema严格，位置扩展应显式opt-in；pinned
+CRX对变换OOPIF的boundingBox只加祖先AABB偏移，不能直接宣称坐标正确。
+该方向先保留事实和待验证项，不用简单加boxes字段当作完成。本片优先修
+已明确缺失的跨浏览器入口，其他能力要求保持，不推送、不提PR。
+
+Windows三品牌catalogue及安装实现已落地；共享Google namespace会校验并合并
+合法origin，双registry视图冲突明确拒绝；新增OS文件锁和manifest原子替换。
+ZIP在覆盖原文件前读真实key预检；复制UUID保留歧义，不再按首匹配猜品牌。
+Linux仅新增官方源码确认的Brave，未猜macOS及Linux另外两品牌路径。
+完整CI **935** Node（771+53+111）、JS115、Python82、Go全包通过；新增
+OS helper已做Linux/macOS交叉编译。原生产扩展及47文件ZIP保持既有hash。
+
+新host默认回归 `run-Ov7GEM` **104/104**、终端exit0；独立审计精确case集
+与 `run-NDr4vF` 相同，15研究任务/90来源GET/15POST及75建页60关页15保留
+正确；六激活/四focus全由原有fixture动作归因，无新豁免。host、六调用器、
+四runtime和185历史结果核验通过；仅新native安装脚本的后续修正不同于首次
+冻结，该文件未被默认套件使用。两个host代际及浏览器已退出。未启用长闲置
+测试，也不将Port adapter默认套件当作原生launcher证明。
+
+真实品牌验收首轮Brave在签名阶段因PS5误加载继承的PS7 Security模块失败，
+没有注册或启动浏览器；修为PS5自身系统模块及UTF8后，三个官方程序签名
+只读验证通过。下一轮Brave真实启动，中文版版本页已显示准确profile，
+但旧英文label解析失败。自然退出后外部输入法daemon被脚手架误算成浏览器
+后代，导致保守保留临时注册。确认实际浏览器保留句柄exit0、专用程序目录
+及native目录均无进程后单独清理独占随机叶，未终止外部进程，原失败保留。
+
+后两次Brave失败分别暴露自定义LEO开关的outer click无效和tabs.create的
+pending URL尚为空；改用事前已观测inner控件中心的单次CDP输入，并以原
+请求URL核对完成加载的准确sentinel。最终 `native-installation-brave-f2CLp5`
+exit0，实际Brave155.1.97.56、原生host父子链、Default UUID归属及错误
+selector拒绝均独立核验。唯一POST含可信input/change/click、PNG色块准确，
+任务页和attachment经finalize移除。全测量区间零激活/零focus/无豁免，host
+和browser精确句柄exit0，随机注册、descriptor、endpoint和私有进程全清。
+独立审核保留失败原record，不把新通过回填旧记录。
+
+Vivaldi首轮 `1d9k5o` 的About别名经CDP变为无效chrome://about；按官方
+程序的UI映射改用engine chrome://version后，`pqexFC` 精确确认真实品牌
+和profile，但manager求值超时。新增有界target/connection/首次求值诊断；
+canonical chrome://extensions的 `AwOP9S` 同样失败，实际target URL变空，
+不能据此归因产品后台能力。三轮未到任务，均保留失败且正常退出/清理。
+Opera首轮 `ZS8f2w` 的About是main-view自定义组件，原body观察为空，尚未
+到原生连接。下一步仅按实际DOM补观察，并单独验证Vivaldi安装页初始化；
+不改变任务焦点规则，不将安装页前台初始化伪装成后台任务。
+
+随后按实际页面结构修正品牌诊断：Opera profile 在 main-view/about-opera
+的 open shadow 内；内置广告拦截只允许实际唯一禁用 tuple，未知或启用条目
+仍拒绝。Vivaldi 诊断页由实际 vendor UI 的原生 tabs.create 创建，独立观察
+页只向准确 vendor extension ID 暴露该 HTML。新脚手架20项测试通过，
+没有改动生产扩展、任务输入或连续焦点断言。Opera早期一次WS连接超时
+需强制退出，原失败和退出错误保留，不能列作正常退出。
+
+Vivaldi `V8o50Q` 已通过原生连接和公开发现，但 fill ACK 后实际POST为空、
+没有input事件；点击可信。加入只读输入前后观察的 `eNV0Su` 在首次goto
+期限内失败，尚未到fill。两次整项失败保留，真实后台输入/导航缺口进入
+后续诊断，不以setup成功替代任务验收。
+
+Opera `KVzWiz` 原生连接成功、200次profiles返回空；真实Secure Preferences
+使用extensions.opsettings。仅按catalogue确认的opera品牌读取该表，其他
+品牌仍读settings；新回归覆盖七品牌冲突表、缺路径/manifest和Default/根
+profile。Go全包及Linux/macOS交叉编译通过，旧证据与源身份在编辑前冻结。
+新host `b2zz2L` 已通过安装/连接发现和正反selector，但newTab报组不存在，
+完整任务仍失败；host/browser精确句柄exit0，零前台事件及随机注册清理
+保留。Brave同一新host/最终脚手架 `eF73Op` 再次完整通过，终端exit0。
+
+本片只收束已验证的安装/发现和Brave后台任务；Opera分组、Vivaldi输入/导航
+继续列为真实产品缺口，不能标P03全完成。保留默认104回归与全CI，后续先用
+原生命令诊断分叉定位，不激活任务页或静默重试副作用。仅本地提交，目标active。
+
+下一片诊断分叉已只读审查：Opera createTab在创建inactive页后调用group、
+保存session，再update组属性；现有证据未定位哪条API失败，且错误后遗留
+一个未交付SDK的页。先有界记录原生group事件和单次调用结果，不禁用分组
+或吞错。Vivaldi goto在Page.navigate前先等待CRX attach初始化，故十秒外层
+超时不证明导航本身超时；记录attach/初始化/Page.navigate/Input.insertText
+发送与完成，并记录实际GET和tab metadata。不要在goto前额外SDK evaluate
+提前attach改变时序。focused-widget路由只是输入假设，尚无根因证明。
+
+最终验证已完成：完整CI **947 Node（771+53+123）**、JS115、Python82及
+Go全包通过；默认 `run-ewJVHf` **104/104**、终端exit0，独立严格核对364
+源码/203旧结果/host与六调用器、15研究90来源GET/15POST/75建60关15留。
+六激活/四focus精确对应既有fixture，无新豁免。Brave `eF73Op` 与 Opera
+`b2zz2L` 的原生通过/失败报告独立复核，未把后者改写通过。原ZIP保持
+1,255,479字节/47文件及cef6706a… SHA；无推送、PR或日常安装变更。

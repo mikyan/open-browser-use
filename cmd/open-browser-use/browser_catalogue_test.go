@@ -18,9 +18,10 @@ func isolatedBrowserHome(t *testing.T) string {
 	home := t.TempDir()
 	for key, value := range map[string]string{
 		"HOME": home, "USERPROFILE": home,
-		"LOCALAPPDATA":   filepath.Join(home, "AppData", "Local"),
-		"APPDATA":        filepath.Join(home, "AppData", "Roaming"),
-		"XDG_CACHE_HOME": filepath.Join(home, ".cache"),
+		"LOCALAPPDATA":    filepath.Join(home, "AppData", "Local"),
+		"APPDATA":         filepath.Join(home, "AppData", "Roaming"),
+		"XDG_CACHE_HOME":  filepath.Join(home, ".cache"),
+		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
 	} {
 		t.Setenv(key, value)
 	}
@@ -30,12 +31,14 @@ func isolatedBrowserHome(t *testing.T) string {
 func noNativeRegistration(t *testing.T) *[][2]string {
 	t.Helper()
 	previous := registerNativeHostManifest
+	previousRead := readNativeHostRegistration
+	readNativeHostRegistration = func(string) (string, error) { return "", nil }
 	calls := [][2]string{}
 	registerNativeHostManifest = func(key, value string) error {
 		calls = append(calls, [2]string{key, value})
 		return nil
 	}
-	t.Cleanup(func() { registerNativeHostManifest = previous })
+	t.Cleanup(func() { registerNativeHostManifest = previous; readNativeHostRegistration = previousRead })
 	return &calls
 }
 

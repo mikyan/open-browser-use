@@ -117,6 +117,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `setup --zip ... --browser edge --no-open` 提供手动 unpacked 安装入口；未知 selector
   在写入前失败，`--output` 仅导出而不注册。浏览器目录及验证边界见
   `docs/references/edge-installation.md`。
+- Windows Brave、Opera Stable、Vivaldi 增加安装和默认 profile 发现入口。
+  它们与 Chrome 共用 Google native host namespace，合法已有 origin 合并保留，
+  冲突在替换 host 前拒绝；共享稳定 host 的安装使用进程间锁。`--output`
+  仍只导出并准备稳定 host，不检查或修改注册。自动分发与自动启动不支持，
+  本地 ZIP 需 `--no-open`；真实 launcher 与平台范围见
+  `docs/references/chromium-browser-installation.md`。
 - `open-browser-use setup`：显式安装流程，先调用 native host manifest
   注册，再写入 Chrome External Extensions JSON。只有检测到浏览器插件未安装或
   版本低于当前 CLI 期望版本时，CLI 才打开 Chrome Web Store 正式扩展页，引导
@@ -210,20 +216,25 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `wait-file-chooser`、`set-file-chooser-files`、`turn-ended`、`begin-turn`、
   `control-state`、`profiles`。
 - Multi-browser / multi-profile 支持：`open-browser-use profiles` 扫描 Chrome
-  Stable、Chrome Beta、Edge Stable 和 BitBrowser user-data roots，在每个 profile 目录中
+  Stable、Chrome Beta、Edge Stable、平台支持的 Brave/Opera/Vivaldi 和 BitBrowser
+  user-data roots，在每个 profile 目录中
   通过 CRX 与 unpacked 两条路径找到已经装好插件的 profile，附带 browser id、
   browser display name、profile directory 和展示名（来自
   `Local State.profile.info_cache`）。所有面向用户的命令支持
-  `--browser <chrome|chrome-beta|edge|bitbrowser|displayName|instance>` 和
+  `--browser <chrome|chrome-beta|edge|brave|opera|vivaldi|bitbrowser|displayName|instance>` 和
   `--profile <directory|displayName>`：CLI 枚举 `socket-dir` 下的 `.sock`
   文件，对每个连通的 socket 调用 `getInfo`，把
   `metadata.extensionInstanceId` 反查到 browser/profile（grep 每个支持 browser
-  root 的 `Local Extension Settings/<extension-id>/*.{log,ldb}`），按 selector
-  选出匹配 socket。`obu mcp --browser ... --profile ...` 在 MCP server 启动时锁定
-  selector，每次工具调用复用同一个解析结果。selector 不匹配时 CLI 列出当前已连通
+  root 的 `Local Extension Settings/<extension-id>/*.{log,ldb}`）。只有唯一匹配
+  profile 才能归属品牌；复制 UUID 的多个匹配明确保留歧义，按 selector
+  选出匹配 socket。`obu mcp --browser ... --profile ...` 保存 selector，但当前每次
+  RPC 都重新发现 endpoint，尚未将长期 runner 固定到最初的连接实例；多个匹配
+  target 或 active registry 改变时存在切换实例的缺口，不能把 epoch 当作跨实例
+  身份。需要固定连接时显式传入 `--socket`。selector 不匹配时 CLI 列出当前已连通
   target 列表，提示用户打开对应 browser/profile。Windows 当前覆盖 Chrome
   Stable 和 Chrome Beta 的 `%LOCALAPPDATA%\Google\...\User Data` roots，以及 Edge
-  的 `%LOCALAPPDATA%\Microsoft\Edge\User Data`；BitBrowser
+  的 `%LOCALAPPDATA%\Microsoft\Edge\User Data`，新增三品牌目录及 Opera 根 profile
+  布局见上述安装 reference；Linux 增加 Brave，macOS 未新增这三个品牌。BitBrowser
   root 仍只在 macOS 路径中自动发现。未显式选择时仍保留
   `active.json` 快速路径；`active.json` 缺失或失效时，CLI 会扫描 socket 目录并
   修复 registry，因此不需要重装扩展。

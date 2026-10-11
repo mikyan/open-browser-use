@@ -183,7 +183,7 @@ func newSetupCommand() *cobra.Command {
 	cmd.Flags().StringVar(&binaryPath, "path", "", "native host binary target for the stable host link")
 	cmd.Flags().StringVar(&externalExtensionOutput, "external-extension-output", "", "Chrome external extension JSON output path")
 	cmd.Flags().StringVar(&zipPath, "zip", "", "existing extension ZIP path; use it instead of the Chrome Web Store")
-	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, bitbrowser, or BitBrowser instance id)")
+	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, brave, opera, vivaldi, bitbrowser, or BitBrowser instance id; platform support varies)")
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "register Chrome integration without opening Chrome or the file manager")
 	cmd.AddCommand(newSetupBetaCommand())
 	return cmd
@@ -214,7 +214,7 @@ func newSetupBetaCommand() *cobra.Command {
 	cmd.Flags().StringVar(&extensionID, "extension-id", defaultChromeExtensionID, "Chrome extension id for allowed_origins")
 	cmd.Flags().StringVar(&binaryPath, "path", "", "native host binary target for the stable host link")
 	cmd.Flags().StringVar(&zipPath, "zip", "", "existing extension zip path; defaults to the latest GitHub Release zip")
-	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, bitbrowser, or BitBrowser instance id)")
+	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, brave, opera, vivaldi, bitbrowser, or BitBrowser instance id; platform support varies)")
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "download and unpack the extension without opening Chrome")
 	return cmd
 }
@@ -234,8 +234,8 @@ func runManualSetupCommand(cmd *cobra.Command, options manualSetupOptions) error
 	if err != nil {
 		return err
 	}
-	if browser.BrowserID == "edge" && !options.NoOpen {
-		return errors.New("automatic Edge launching is not implemented; use --browser edge --no-open, then load the unpacked extension at edge://extensions")
+	if manualOnlyBrowser(browser.BrowserID) && !options.NoOpen {
+		return fmt.Errorf("automatic %s launching is not implemented; use --browser %s --no-open, then load the unpacked extension at %s://extensions", browser.BrowserName, browser.BrowserID, browser.BrowserID)
 	}
 	resolvedZIPPath := options.ZIPPath
 	if resolvedZIPPath == "" {
@@ -254,22 +254,34 @@ func runManualSetupCommand(cmd *cobra.Command, options manualSetupOptions) error
 			return err
 		}
 	}
-	unpackedPath, unpackedExtensionID, err := installUnpackedExtension(resolvedZIPPath)
-	if err != nil {
-		return err
-	}
-	installZIPPath, err := writeBetaInstallZIP(unpackedPath, resolvedZIPPath)
+	zipExtensionID, err := keyedExtensionIDFromZIP(resolvedZIPPath)
 	if err != nil {
 		return err
 	}
 	effectiveExtensionID := options.ExtensionID
 	if !cmd.Flags().Changed("extension-id") {
-		effectiveExtensionID = unpackedExtensionID
+		effectiveExtensionID = zipExtensionID
+	}
+	if effectiveExtensionID != zipExtensionID {
+		return fmt.Errorf("--extension-id %s does not match keyed ZIP extension id %s", effectiveExtensionID, zipExtensionID)
+	}
+	installation, err := prepareNativeManifestInstallation(effectiveExtensionID, options.BinaryPath, "", options.Browser)
+	if err != nil {
+		return err
+	}
+	defer installation.unlock()
+	unpackedPath, unpackedExtensionID, err := installUnpackedExtension(resolvedZIPPath)
+	if err != nil {
+		return err
 	}
 	if effectiveExtensionID != unpackedExtensionID {
 		return fmt.Errorf("--extension-id %s does not match keyed ZIP extension id %s", effectiveExtensionID, unpackedExtensionID)
 	}
-	manifestPath, err := installNativeManifestForBrowser(effectiveExtensionID, options.BinaryPath, "", options.Browser)
+	installZIPPath, err := writeBetaInstallZIP(unpackedPath, resolvedZIPPath)
+	if err != nil {
+		return err
+	}
+	manifestPath, err := installation.install(effectiveExtensionID)
 	if err != nil {
 		return err
 	}
@@ -343,7 +355,7 @@ func newInstallManifestCommand() *cobra.Command {
 	cmd.Flags().StringVar(&extensionID, "extension-id", defaultChromeExtensionID, "Chrome extension id for allowed_origins")
 	cmd.Flags().StringVar(&binaryPath, "path", "", "native host binary target for the stable host link")
 	cmd.Flags().StringVar(&outputPath, "output", "", "native host manifest output path")
-	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, bitbrowser, or BitBrowser instance id)")
+	cmd.Flags().StringVar(&browser, "browser", "", "browser to register (chrome, chrome-beta, edge, brave, opera, vivaldi, bitbrowser, or BitBrowser instance id; platform support varies)")
 	return cmd
 }
 
@@ -356,42 +368,12 @@ func installNativeManifest(extensionID string, binaryPath string, outputPath str
 var registerNativeHostManifest = regAddDefaultString
 
 func installNativeManifestForBrowser(extensionID string, binaryPath string, outputPath string, browserSelector string) (string, error) {
-	plan, err := nativeManifestPlanForBrowser(browserSelector, outputPath)
+	installation, err := prepareNativeManifestInstallation(extensionID, binaryPath, outputPath, browserSelector)
 	if err != nil {
 		return "", err
 	}
-	targetPath, err := resolveNativeHostTarget(binaryPath)
-	if err != nil {
-		return "", err
-	}
-	hostPath, err := stableNativeHostPath()
-	if err != nil {
-		return "", err
-	}
-	if err := installStableNativeHostLink(targetPath, hostPath); err != nil {
-		return "", err
-	}
-	manifest, err := nativeManifest(extensionID, hostPath)
-	if err != nil {
-		return "", err
-	}
-	path := plan.ManifestPath
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	payload, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, append(payload, '\n'), 0o600); err != nil {
-		return "", err
-	}
-	if plan.RegistryKey != "" {
-		if err := registerNativeHostManifest(plan.RegistryKey, path); err != nil {
-			return "", fmt.Errorf("failed to register native messaging host %q: %w", plan.RegistryKey, err)
-		}
-	}
-	return path, nil
+	defer installation.unlock()
+	return installation.install(extensionID)
 }
 
 type setupResult struct {
@@ -439,8 +421,8 @@ func setupChrome(extensionID string, binaryPath string, externalExtensionOutput 
 	if err != nil {
 		return setupResult{}, err
 	}
-	if root.BrowserID == "edge" {
-		return setupResult{}, errors.New("automatic Edge extension installation is not implemented; use install-manifest --browser edge for an installed extension, or setup --zip <extension.zip> --browser edge --no-open")
+	if manualOnlyBrowser(root.BrowserID) {
+		return setupResult{}, fmt.Errorf("automatic %s extension installation is not implemented; use install-manifest --browser %s for an installed extension, or setup --zip <extension.zip> --browser %s --no-open", root.BrowserName, root.BrowserID, root.BrowserID)
 	}
 	if root.BrowserID == "bitbrowser" {
 		return setupResult{}, fmt.Errorf("BitBrowser does not support Chrome External Extensions setup; install the extension in BitBrowser, then run `open-browser-use install-manifest --browser %s`", bitBrowserInstallSelector(root))
@@ -543,8 +525,8 @@ func renderManualSetupResult(writer io.Writer, result manualSetupResult, status 
 		fmt.Fprintln(writer, "All set. Browser extension is installed, connected, and on the expected version.")
 		return nil
 	}
-	if result.BrowserID == "edge" {
-		fmt.Fprintf(writer, "Next: open edge://extensions, enable Developer mode, choose Load unpacked and select %s, then run `open-browser-use info --browser edge`.\n", result.UnpackedPath)
+	if manualOnlyBrowser(result.BrowserID) {
+		fmt.Fprintf(writer, "Next: open %s://extensions, enable Developer mode, choose Load unpacked and select %s, then run `open-browser-use info --browser %s`.\n", result.BrowserID, result.UnpackedPath, result.BrowserID)
 		return nil
 	}
 	if result.OpenedChrome && result.OpenedFileManager {
@@ -690,12 +672,12 @@ func detectInstalledChromeExtensionByID(extensionID string) (detectedExtension, 
 	}
 	var best detectedExtension
 	for _, root := range roots {
-		profiles, err := chromeProfileDirs(root.Root)
+		profiles, err := browserProfileDirs(root)
 		if err != nil {
 			continue
 		}
 		for _, profile := range profiles {
-			detected, ok := detectExtensionInProfile(profile, extensionID)
+			detected, ok := detectExtensionInProfile(root.BrowserID, profile, extensionID)
 			if !ok {
 				continue
 			}
@@ -707,14 +689,14 @@ func detectInstalledChromeExtensionByID(extensionID string) (detectedExtension, 
 	return best, best.Version != ""
 }
 
-func detectExtensionInProfile(profileDir string, extensionID string) (detectedExtension, bool) {
+func detectExtensionInProfile(browserID, profileDir, extensionID string) (detectedExtension, bool) {
 	var best detectedExtension
 	if detected, ok := detectCRXExtensionInProfile(profileDir, extensionID); ok {
 		if best.Version == "" || compareChromeVersions(detected.Version, best.Version) > 0 {
 			best = detected
 		}
 	}
-	if detected, ok := detectUnpackedExtensionInProfile(profileDir, extensionID); ok {
+	if detected, ok := detectUnpackedExtensionInProfile(browserID, profileDir, extensionID); ok {
 		if best.Version == "" || compareChromeVersions(detected.Version, best.Version) > 0 {
 			best = detected
 		}
@@ -741,24 +723,32 @@ func detectCRXExtensionInProfile(profileDir string, extensionID string) (detecte
 	return best, best.Version != ""
 }
 
-func detectUnpackedExtensionInProfile(profileDir string, extensionID string) (detectedExtension, bool) {
+func detectUnpackedExtensionInProfile(browserID, profileDir, extensionID string) (detectedExtension, bool) {
 	securePrefsPath := filepath.Join(profileDir, "Secure Preferences")
 	payload, err := os.ReadFile(securePrefsPath)
 	if err != nil {
 		return detectedExtension{}, false
 	}
+	type extensionPreference struct {
+		Path     string         `json:"path"`
+		Manifest map[string]any `json:"manifest"`
+	}
 	var prefs struct {
 		Extensions struct {
-			Settings map[string]struct {
-				Path     string         `json:"path"`
-				Manifest map[string]any `json:"manifest"`
-			} `json:"settings"`
+			Settings   map[string]extensionPreference `json:"settings"`
+			OpSettings map[string]extensionPreference `json:"opsettings"`
 		} `json:"extensions"`
 	}
 	if err := json.Unmarshal(payload, &prefs); err != nil {
 		return detectedExtension{}, false
 	}
-	entry, ok := prefs.Extensions.Settings[extensionID]
+	settings := prefs.Extensions.Settings
+	if browserID == "opera" {
+		// Opera stores unpacked extension records in its own preference table.
+		// The catalogue identity selects the table; do not infer a browser from it.
+		settings = prefs.Extensions.OpSettings
+	}
+	entry, ok := settings[extensionID]
 	if !ok || strings.TrimSpace(entry.Path) == "" {
 		return detectedExtension{}, false
 	}
@@ -813,7 +803,7 @@ func listInstalledChromeProfiles() ([]installedChromeProfile, error) {
 
 	var profiles []installedChromeProfile
 	for _, root := range roots {
-		profileDirs, err := chromeProfileDirs(root.Root)
+		profileDirs, err := browserProfileDirs(root)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -824,7 +814,7 @@ func listInstalledChromeProfiles() ([]installedChromeProfile, error) {
 		for _, profileDir := range profileDirs {
 			var best detectedExtension
 			for _, extensionID := range candidates {
-				detected, ok := detectExtensionInProfile(profileDir, extensionID)
+				detected, ok := detectExtensionInProfile(root.BrowserID, profileDir, extensionID)
 				if !ok {
 					continue
 				}
@@ -835,7 +825,7 @@ func listInstalledChromeProfiles() ([]installedChromeProfile, error) {
 			if best.Version == "" {
 				continue
 			}
-			dirName := filepath.Base(profileDir)
+			dirName := browserProfileDirectory(root, profileDir)
 			profiles = append(profiles, installedChromeProfile{
 				Browser:         root.BrowserID,
 				BrowserName:     root.BrowserName,
@@ -886,20 +876,28 @@ func chromeProfileSortKey(dir string) string {
 // `Local Extension Settings/<extensionID>/` LevelDB files for the given
 // instanceID UUID. LevelDB stores values as raw bytes, so a UUID string written
 // via `chrome.storage.local` appears verbatim in the .log / .ldb files of the
-// profile that generated it. This gives us a stable mapping from
-// instanceID -> profile directory without needing the host to know its profile
-// at startup or requiring extra extension permissions.
+// profile that generated it. Imported/copied profiles may contain the same ID;
+// only one distinct matching profile is sufficient evidence of browser identity.
 func resolveProfileForInstanceID(extensionID string, instanceID string) (browserID string, browserName string, browserInstance string, directory string, displayName string, ok bool) {
-	if extensionID == "" || instanceID == "" {
+	match, _ := uniqueProfileForInstanceID(extensionID, instanceID)
+	if match == nil {
 		return "", "", "", "", "", false
+	}
+	return match.Browser, match.BrowserName, match.BrowserInstance, match.Directory, match.DisplayName, true
+}
+
+func uniqueProfileForInstanceID(extensionID, instanceID string) (*connectedProfileInfo, string) {
+	if !validNativeExtensionID(extensionID) || instanceID == "" {
+		return nil, ""
 	}
 	roots, err := supportedBrowserProfileRoots()
 	if err != nil {
-		return "", "", "", "", "", false
+		return nil, ""
 	}
+	var matches []connectedProfileInfo
 	needle := []byte(instanceID)
 	for _, root := range roots {
-		profiles, err := chromeProfileDirs(root.Root)
+		profiles, err := browserProfileDirs(root)
 		if err != nil {
 			continue
 		}
@@ -929,12 +927,24 @@ func resolveProfileForInstanceID(extensionID string, instanceID string) (browser
 				if !bytes.Contains(payload, needle) {
 					continue
 				}
-				dir := filepath.Base(profileDir)
-				return root.BrowserID, root.BrowserName, root.BrowserInstance, dir, names[dir], true
+				dir := browserProfileDirectory(root, profileDir)
+				matches = append(matches, connectedProfileInfo{Browser: root.BrowserID, BrowserName: root.BrowserName, BrowserInstance: root.BrowserInstance, Directory: dir, DisplayName: names[dir], Target: browserProfileTarget(root.BrowserID, root.BrowserInstance, dir)})
+				break // Multiple LevelDB files in one profile are a single candidate.
 			}
 		}
 	}
-	return "", "", "", "", "", false
+	if len(matches) == 1 {
+		return &matches[0], ""
+	}
+	if len(matches) > 1 {
+		targets := make([]string, 0, len(matches))
+		for _, match := range matches {
+			targets = append(targets, match.Target)
+		}
+		sort.Strings(targets)
+		return nil, "ambiguous extension instance ID found in profiles: " + strings.Join(targets, ", ")
+	}
+	return nil, ""
 }
 
 func chromeProfileDisplayNames(root string) map[string]string {
@@ -1118,8 +1128,8 @@ func installChromeExternalExtensionForBrowser(extensionID string, outputPath str
 	if err != nil {
 		return "", err
 	}
-	if browser.BrowserID == "edge" {
-		return "", errors.New("automatic Edge extension installation is not implemented; use install-manifest --browser edge or setup --zip <extension.zip> --browser edge --no-open")
+	if manualOnlyBrowser(browser.BrowserID) {
+		return "", fmt.Errorf("automatic %s extension installation is not implemented; use install-manifest --browser %s or setup --zip <extension.zip> --browser %s --no-open", browser.BrowserName, browser.BrowserID, browser.BrowserID)
 	}
 	allowedExtensionID := strings.TrimSpace(extensionID)
 	if allowedExtensionID == "" {
@@ -1176,7 +1186,7 @@ func addSocketFlags(cmd *cobra.Command, options *socketOptions) {
 	cmd.Flags().StringVar(&options.socketDir, "socket-dir", host.DefaultSocketDir, "directory containing active socket registry")
 	cmd.Flags().DurationVar(&options.timeout, "timeout", 10*time.Second, "request timeout")
 	cmd.Flags().StringVar(&options.sessionID, "session-id", options.sessionID, "browser session id used for tab grouping and cleanup")
-	cmd.Flags().StringVar(&options.browser, "browser", "", "browser selector (chrome, chrome-beta, edge, bitbrowser, or display name)")
+	cmd.Flags().StringVar(&options.browser, "browser", "", "browser selector (chrome, chrome-beta, edge, brave, opera, vivaldi, bitbrowser, or display name; platform support varies)")
 	cmd.Flags().StringVar(&options.profile, "profile", "", "Chrome profile selector (directory name like \"Default\" / \"Profile 1\" or display name like \"Eva\")")
 }
 
@@ -1589,6 +1599,7 @@ type browserProfileRoot struct {
 	BrowserName     string
 	BrowserInstance string
 	Root            string
+	DirectProfile   bool // Opera also supports profiles stored at the root itself.
 }
 
 func supportedBrowserProfileRoots() ([]browserProfileRoot, error) {
@@ -1596,7 +1607,7 @@ func supportedBrowserProfileRoots() ([]browserProfileRoot, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots, err := browserCatalogue(runtime.GOOS, home, os.Getenv("LOCALAPPDATA"))
+	roots, err := browserCatalogueWithEnvironment(runtime.GOOS, home, os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"), os.Getenv("XDG_CONFIG_HOME"))
 	if err != nil {
 		return nil, err
 	}
@@ -2486,9 +2497,13 @@ type connectedProfileInfo struct {
 	Directory       string `json:"directory,omitempty"`
 	DisplayName     string `json:"displayName,omitempty"`
 	Target          string `json:"target,omitempty"`
+	ResolutionError string `json:"resolutionError,omitempty"`
 }
 
 func (info connectedProfileInfo) label() string {
+	if info.ResolutionError != "" {
+		return info.ResolutionError
+	}
 	prefix := info.BrowserName
 	if prefix == "" {
 		prefix = info.Browser
@@ -2543,7 +2558,10 @@ func connectedProfileFromInfo(socketPath string, payload map[string]any) connect
 	if instanceID, ok := metadata["extensionInstanceId"].(string); ok {
 		info.InstanceID = instanceID
 	}
-	if browserID, browserName, browserInstance, dir, name, ok := resolveProfileForInstanceID(info.ExtensionID, info.InstanceID); ok {
+	match, resolutionError := uniqueProfileForInstanceID(info.ExtensionID, info.InstanceID)
+	info.ResolutionError = resolutionError
+	if match != nil {
+		browserID, browserName, browserInstance, dir, name := match.Browser, match.BrowserName, match.BrowserInstance, match.Directory, match.DisplayName
 		info.Browser = browserID
 		info.BrowserName = browserName
 		info.BrowserInstance = browserInstance
@@ -2578,6 +2596,9 @@ func profileSelectorMatches(selector string, info connectedProfileInfo) bool {
 	target := strings.TrimSpace(selector)
 	if target == "" {
 		return true
+	}
+	if info.ResolutionError != "" {
+		return false
 	}
 	if info.Directory != "" && strings.EqualFold(target, info.Directory) {
 		return true
@@ -2801,6 +2822,9 @@ func nativeManifest(extensionID string, hostPath string) (map[string]any, error)
 	if allowedExtensionID == "" {
 		allowedExtensionID = defaultChromeExtensionID
 	}
+	if !validNativeExtensionID(allowedExtensionID) {
+		return nil, errors.New("native host extension id must contain exactly 32 lowercase letters a through p")
+	}
 	path := hostPath
 	if path == "" {
 		var err error
@@ -2926,7 +2950,10 @@ func samePath(left string, right string) bool {
 	if leftErr != nil || rightErr != nil {
 		return false
 	}
-	return strings.EqualFold(filepath.Clean(leftAbs), filepath.Clean(rightAbs))
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Clean(leftAbs), filepath.Clean(rightAbs))
+	}
+	return filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
 }
 
 func copyFile(sourcePath string, targetPath string, mode os.FileMode) error {

@@ -975,6 +975,55 @@ settle和native事件顺序；scope结束尝试在发送前登记，未知finali
 保留opt-in入口、可重跑fixture和证据检查，具体边界另记
 `docs/references/background-parallel-workflow.md`。本片完成，整体目标active。
 
+### Windows 品牌安装与实例发现
+
+新增 Windows Brave、Opera Stable、Vivaldi catalogue、安装 selector 和真实
+profile 布局，Opera 兼容根目录 profile 与 Default；Linux 仅加入有官方源码
+依据的 Brave。三个 Windows 品牌共用 Google Chrome Native Messaging
+namespace，安装前验证现有 manifest 和双视图注册，在进程锁内重新检查并
+合并合法 origin；拒绝冲突、损坏和不明字段。保留合法非默认 manifest 路径。
+单文件替换原子化，整体安装不宣称事务回滚。ZIP 在覆盖前验证真实 public
+key 及 Windows 路径别名；新品牌需手动安装，不隐式套用自动分发/启动流程。
+重复实例 UUID 保留歧义，不能把多 profile 的复制数据当成唯一 live 身份。
+
+Go 完整测试与 Windows/Linux/macOS 编译通过。新 host 的默认真实浏览器
+回归 `run-Ov7GEM` **104/104**，独立核对全部 case 名及15研究任务、90来源
+GET、15原始POST、75建页/60关闭/15保留；六激活/四focus均为既有明确
+fixture动作，没有新豁免。该主套件仍用已声明的 Native Port adapter。
+生产扩展及原 ZIP 保持不变。CLI/MCP每次RPC重新发现endpoint可能漂移的
+既有缺口已在架构与债务中纠正，不再误称启动时固定连接身份。
+
+新增单独 opt-in 原生品牌验收：官网下载签名程序仅解包，每次建立隔离
+profile，真实 connectNative、CLI 实例发现和后台 JS SDK 任务均保留证据。
+只注册事前不存在且有所有权标识的随机 HKCU 叶，生产固定注册只读比较。
+失败不改写；原生与浏览器精确句柄正常退出、endpoint 和自有注册清理是
+通过条件。PS5模块继承、中文版本页、Brave自定义开关、pending标签URL四次
+脚手架失败保留，针对实际证据修复；外部输入法后代进程记录并保持未触碰。
+Brave 最终 `native-installation-brave-f2CLp5` 通过，独立核实真实输入/点击、
+唯一原始POST、准确PNG及finalize，连续零激活/零focus，无新增豁免。
+这不等于固定注册安装、重启/签名更新、其他平台或完整品牌能力验收。
+
+真实 Opera 暴露安装发现漏读：实际 Secure Preferences 用 `opsettings`。
+仅按已知 Opera catalogue 读取该表，其他品牌仍读 `settings`；增加七品牌
+冲突表、缺失记录和 Default/根 profile 回归。修后 `b2zz2L` 的公开发现及
+选择器通过，newTab 却报组不存在，保留整项失败。Vivaldi 实际 native 与
+发现已通过，但 `V8o50Q` fill 返回成功后提交为空、无输入事件；新增只读
+观察的 `eNV0Su` 在 goto 超时，未到输入。两种产品缺口继续保留，未为通过
+测试激活页面、改 DOM 输入或重试副作用。品牌 setup 的版本页、vendor UI
+诊断页与内置禁用条目处理都基于实际记录，未改变生产扩展权限。
+
+最终新 host 与脚手架的 Brave `eF73Op` 再次通过，独立原始输入/POST/PNG、
+连续零前台事件、正常退出与清理核验通过。完整 CI **947 Node**
+（771扩展+53脚本+123脚手架）、JS115、Python82、Go全包通过，新增 Go
+修复也通过 Linux/macOS 交叉编译。原生产 ZIP 与四个图标保持已验证字节；
+CI新生成候选另存，没有覆盖旧运行证据。仅本地开发和提交，不推送、不提PR。
+
+最终默认回归 `run-ewJVHf` **104/104**、终端exit0；独立审计精确case集、
+15研究/90来源GET/15POST、75建60关15留及原六激活/四focus归因通过，
+无新增豁免。364源码、203旧结果、最终host与六调用器身份一致。该默认
+套件仍是声明的Port adapter，不替代真实native品牌测试；Opera/Vivaldi
+失败与既有更广缺口继续开放，完整目标保持active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

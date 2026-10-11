@@ -54,6 +54,8 @@
   长时间后台闲置、多任务同时操作与独立收尾的实测契约及证据边界。
 - [Edge 安装与发现](edge-installation.md)：Edge Stable selector、独立 native host
   manifest/registry、手动 ZIP 安装和实际 Windows 验证范围。
+- [Chromium 浏览器安装与发现](chromium-browser-installation.md)：官方浏览器
+  来源、共享 native host 注册位置与隔离真实 launcher 验证边界。
 - [Clipboard](clipboard.md)：可信隐藏文档、有限富内容契约、真实写入结算、
   SDK/CLI/MCP 接口与隔离内存剪贴板验收边界。
 - `chrome/0.1.7/skills/chrome/SKILL.md`：OpenAI bundled Chrome plugin

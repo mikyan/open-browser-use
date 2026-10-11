@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,14 +13,27 @@ import (
 // profiles or changing the filesystem. Custom and portable roots need explicit
 // discovery support; do not infer them from another Chromium browser's layout.
 func browserCatalogue(goos, home, localAppData string) ([]browserProfileRoot, error) {
+	return browserCatalogueWithEnvironment(goos, home, localAppData, "", "")
+}
+
+func browserCatalogueWithEnvironment(goos, home, localAppData, roamingAppData, configHome string) ([]browserProfileRoot, error) {
 	if strings.TrimSpace(localAppData) == "" {
 		localAppData = filepath.Join(home, "AppData", "Local")
+	}
+	if strings.TrimSpace(roamingAppData) == "" {
+		roamingAppData = filepath.Join(home, "AppData", "Roaming")
+	}
+	if !filepath.IsAbs(configHome) {
+		configHome = filepath.Join(home, ".config")
 	}
 	switch goos {
 	case "windows":
 		return []browserProfileRoot{
 			{BrowserID: "chrome", BrowserName: "Google Chrome", Root: filepath.Join(localAppData, "Google", "Chrome", "User Data")},
 			{BrowserID: "chrome-beta", BrowserName: "Google Chrome Beta", Root: filepath.Join(localAppData, "Google", "Chrome Beta", "User Data")},
+			{BrowserID: "brave", BrowserName: "Brave", Root: filepath.Join(localAppData, "BraveSoftware", "Brave-Browser", "User Data")},
+			{BrowserID: "vivaldi", BrowserName: "Vivaldi", Root: filepath.Join(localAppData, "Vivaldi", "User Data")},
+			{BrowserID: "opera", BrowserName: "Opera", Root: filepath.Join(roamingAppData, "Opera Software", "Opera Stable"), DirectProfile: true},
 			{BrowserID: "edge", BrowserName: "Microsoft Edge", Root: filepath.Join(localAppData, "Microsoft", "Edge", "User Data")},
 		}, nil
 	case "darwin":
@@ -30,8 +44,9 @@ func browserCatalogue(goos, home, localAppData string) ([]browserProfileRoot, er
 		}, nil
 	case "linux":
 		return []browserProfileRoot{
-			{BrowserID: "chrome", BrowserName: "Google Chrome", Root: filepath.Join(home, ".config", "google-chrome")},
-			{BrowserID: "edge", BrowserName: "Microsoft Edge", Root: filepath.Join(home, ".config", "microsoft-edge")},
+			{BrowserID: "chrome", BrowserName: "Google Chrome", Root: filepath.Join(configHome, "google-chrome")},
+			{BrowserID: "brave", BrowserName: "Brave", Root: filepath.Join(configHome, "BraveSoftware", "Brave-Browser")},
+			{BrowserID: "edge", BrowserName: "Microsoft Edge", Root: filepath.Join(configHome, "microsoft-edge")},
 		}, nil
 	default:
 		return nil, fmt.Errorf("browser profile detection is not implemented for %s", goos)
@@ -61,7 +76,7 @@ func planNativeManifestInstall(goos, home, localAppData string, browser browserP
 		directory := filepath.Join(localAppData, "OpenBrowserUse", "NativeMessagingHosts")
 		var registry string
 		switch browser.BrowserID {
-		case "chrome", "chrome-beta":
+		case "chrome", "chrome-beta", "brave", "opera", "vivaldi":
 			// Chrome channels share the documented native-host registry namespace.
 			// Preserve the existing manifest location for installed Chrome users.
 			registry = `HKCU\Software\Google\Chrome\NativeMessagingHosts\`
@@ -76,4 +91,35 @@ func planNativeManifestInstall(goos, home, localAppData string, browser browserP
 	default:
 		return nativeManifestInstallPlan{}, fmt.Errorf("default manifest install path is not implemented for %s; pass --output", goos)
 	}
+}
+
+func manualOnlyBrowser(id string) bool {
+	switch id {
+	case "edge", "brave", "opera", "vivaldi":
+		return true
+	}
+	return false
+}
+
+func browserProfileDirs(root browserProfileRoot) ([]string, error) {
+	profiles, err := chromeProfileDirs(root.Root)
+	if err != nil {
+		return nil, err
+	}
+	if root.DirectProfile {
+		for _, name := range []string{"Preferences", "Secure Preferences"} {
+			if info, err := os.Stat(filepath.Join(root.Root, name)); err == nil && info.Mode().IsRegular() {
+				profiles = append(profiles, root.Root)
+				break
+			}
+		}
+	}
+	return profiles, nil
+}
+
+func browserProfileDirectory(root browserProfileRoot, profile string) string {
+	if samePath(root.Root, profile) {
+		return "."
+	}
+	return filepath.Base(profile)
 }
