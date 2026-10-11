@@ -1,0 +1,25 @@
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_3a57f3bb6d973c 2631-2640
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_3a57f3bb6d973c 1778-1786,1804
+docs/exec-plans/active/2026-10-12-sdk-connection-identity.md
+  s_08bbfd293d324f::t_3a57f3bb6d973c 1-61
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_3a57f3bb6d973c 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "d3f60f0d7d2719d700bce932a76e977d6042b589",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
