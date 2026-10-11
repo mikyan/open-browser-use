@@ -1,0 +1,210 @@
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_1e9a933618d513 62-67,176,181
+  s_08bbfd293d324f::t_c951b104fd9636 45-61,68-99
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_231c56c4169480 539-540
+docs/references/background-windows.md
+  s_08bbfd293d324f::t_c951b104fd9636 75,94-107
+  s_08bbfd293d324f::t_e9bf92cacd2039 1-29,36-67
+  s_08bbfd293d324f::t_cce23476eb900a 68-74,76-93
+  s_08bbfd293d324f::t_be2cce99374c83 30-35
+apps/chrome-extension/ordinary-ownership-backend.test.mjs
+  s_08bbfd293d324f::t_e307852a84bf08 261-275
+  s_08bbfd293d324f::t_3778b4a8d0e080 128-233,276-314
+  s_08bbfd293d324f::t_56f3d323f3aaec 234-260
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_bec833f9a83e43 7,766-773,775-776,918-919,921-926,1247,1256,1426,1528-1529,1651-1654,2121,2596,3164,3228,3243,3253,3258-3259,3261-3271,3273-3286,3293-3295,4034,4076,4278
+  s_08bbfd293d324f::t_4f811bc58e5fea 849,855,860-870,1427,1441-1442,1452-1453,1490,1504,1522-1527,1536-1537,1540-1545,1638-1650,1675-1678,1692,1699-1704,1743-1744
+  s_08bbfd293d324f::t_b0a12ce7467ced 765,774,3255-3257,3260,3618,3628-3633,3636-3637,3642-3644,3647
+  s_08bbfd293d324f::t_82e663311d99be 2597
+  s_08bbfd293d324f::t_e9e127e710c226 3634-3635,3645-3646,3648
+  s_08bbfd293d324f::t_d1489a7533eb88 841,1554,1556-1561,1596-1597
+  s_08bbfd293d324f::t_9d32de21546015 920
+  s_08bbfd293d324f::t_039a0d7adf2f2b 1538-1539,2036,2043,2076-2087,2091-2099,2117-2120
+  s_08bbfd293d324f::t_5f8bd7ec1b6a47 1455-1456,1885,1892-1898,2050,3415,3885,3902,3919-3938,4661-4662
+  s_08bbfd293d324f::t_fa98a2df7b4475 1845-1848
+docs/references/README.md
+  s_08bbfd293d324f::t_e9bf92cacd2039 57-58
+scripts/browser-integration/background-window-fixture.mjs
+  s_08bbfd293d324f::t_27637e4e67aaf5 1-75,77-146
+  s_08bbfd293d324f::t_db02fb9f93705d 76
+packages/open-browser-use-go/background_window_test.go
+  s_08bbfd293d324f::t_3550a25c4c8280 16-19,26,29-31,41-55,59-60,65-67,71-95,98-100,104-133,136-138,142-153,159-163,168-173,175-179,183-200
+  s_08bbfd293d324f::t_9f0bec20a30e05 1-15,20-25,27-28,32-40,56-58,61-64,68-70,96-97,101-103,134-135,139-141,154-158,164-167,174,180-182,201
+scripts/browser-integration/directory-upload-fixture.test.mjs
+  s_08bbfd293d324f::t_e93f29d9926a98 18-19,21,27,31,76,80,120,143,227
+  s_08bbfd293d324f::t_1872ced3939f8c 1-8,10-17,20,22-26,28-30,32-67,71-75,77-79,81-117,119,121-129,134-141,144-150,152-156,161-167,171-175,197-214,216-226,228-239,303
+  s_08bbfd293d324f::t_db02fb9f93705d 9,142,176,196,267-275,287-302
+  s_08bbfd293d324f::t_5644f9df6f67ad 68-70
+  s_08bbfd293d324f::t_946aa1c3722f4d 118,130-133,157-160,276-286
+  s_08bbfd293d324f::t_5de63838bf5fda 151,168-170,177-195,215,240-266
+apps/chrome-extension/browser-directory-upload.js
+  s_08bbfd293d324f::t_e492844a0e7ca6 117,168-173,194,321
+  s_08bbfd293d324f::t_f9af9750643304 96-97,102-107,110,116,119-124,136,138-141,159-167,174-175,182,187-189,191-193,195-203,211,229-231,242,249,254,256-257,265-269,273,275-282,286,290,295-300,304,306-309,312-313,315-316,324,327-329,334-336,341,344-346,348-349
+  s_08bbfd293d324f::t_46a032a35506f9 15,17,60,63,77-79
+  s_08bbfd293d324f::t_e5442a8bc932ac 1-14,16,18-59,61-62,64-76,80-95,98-101,108-109,111-115,118,125-135,137,142-158,176-181,183-186,190,204-210,212-228,232-241,243-248,250-253,255,258-264,270-272,274,283-285,287-289,291-294,301-303,305,310-311,314,317-320,322-323,325-326,330-333,337-340,342-343,347,350-353
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_231c56c4169480 18
+apps/chrome-extension/transfers.test.mjs
+  s_08bbfd293d324f::t_55d106082c4a98 903,986
+  s_08bbfd293d324f::t_77024c6733c9cb 994-1086,1089-1148
+  s_08bbfd293d324f::t_cd5bc5bf2425b8 776,781-782,800-801,840,889-891
+  s_08bbfd293d324f::t_9a3ff38e4c8ea7 4,74-146,152-161
+  s_08bbfd293d324f::t_3ff78b5d339b49 147-151,1087-1088
+scripts/browser-integration/directory-world-fixture.test.mjs
+  s_08bbfd293d324f::t_392df1b12bcdf0 1-3,5-33,35-42,44-49,51-53,55-58,62-63,68-75,77-85,87-93,95-101,103-106
+  s_08bbfd293d324f::t_4256bf92174d15 67
+  s_08bbfd293d324f::t_487f18aa358416 34,43,59-61
+  s_08bbfd293d324f::t_1c11ce30801d48 4,50,54,64-66,76,86,94,102
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_1e9a933618d513 1457-1470
+  s_08bbfd293d324f::t_53cd70500e02e5 1400-1405,1407
+  s_08bbfd293d324f::t_d6c435a68a17a4 1386-1399,1406,1408-1434
+  s_08bbfd293d324f::t_18583a941b59ec 1435-1456
+  s_08bbfd293d324f::t_1abdb11d30dc3b 1340-1385
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_26b1bd878c1cc8 482-488
+  s_08bbfd293d324f::t_3b0df28f9dbf99 93-94,124-129,424-425,556,558,567,575,957-962
+apps/chrome-extension/auxiliary-tab-ownership.js
+  s_08bbfd293d324f::t_79ed5dd294ac5f 32-34,315-318,320-324
+  s_08bbfd293d324f::t_757dfd47f06cc1 319
+  s_08bbfd293d324f::t_70ceefbc85a734 28,30,61,91,118-119,124,173,183-184
+  s_08bbfd293d324f::t_e153cbbe7d99f6 325-334
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_8c6ae11390b8fa 1494,1500-1504,1530,1933-1936,1938-1942
+skills/open-browser-use/references/sdk-and-protocol.md
+  s_08bbfd293d324f::t_656f5d00f886ef 584-585,617-665,671-672
+scripts/browser-integration/chooser-submission-fixture.mjs
+  s_08bbfd293d324f::t_da914900287456 2,137-140,156-160
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_231c56c4169480 8,67,77
+packages/open-browser-use-python/test_file_chooser_waits.py
+  s_08bbfd293d324f::t_0dc9ef600e93c8 4,20-57
+  s_08bbfd293d324f::t_36b6795cd7b705 58
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_26b1bd878c1cc8 384,395-396,508-510,561-564,710-711,716,1348-1354
+  s_08bbfd293d324f::t_9f0848900111a3 221,248,382-383,385,392-394
+scripts/browser-integration/directory-upload-fixture.mjs
+  s_08bbfd293d324f::t_946aa1c3722f4d 308,313
+  s_08bbfd293d324f::t_9b59c6ef3c2d20 278-286
+  s_08bbfd293d324f::t_5727f498517a6a 183,195,287-307,309-312,314-340,342-348
+  s_08bbfd293d324f::t_db02fb9f93705d 341
+  s_08bbfd293d324f::t_5644f9df6f67ad 45
+  s_08bbfd293d324f::t_86efb024013856 203,206,261-264
+  s_08bbfd293d324f::t_113ab52a41337c 6,246-250
+  s_08bbfd293d324f::t_d7884f0059ce53 1-5,7-26,28-33,35-44,46-83,85-130,132-133,135-136,138,140-141,144-149,151,153-155,157-182,184-194,196-202,207-223,226-232,235,237-245,251-256,273-277,349
+  s_08bbfd293d324f::t_e93f29d9926a98 27,34,84,131,134,137,139,142-143,150,152,156,204-205,224-225,233-234,236,257-260,265-272
+docs/references/file-transfers.md
+  s_08bbfd293d324f::t_5219670eeaa485 50-75,83-95
+  s_08bbfd293d324f::t_a9c03f4a6b033d 76-82,96-101
+  s_08bbfd293d324f::t_07ed29c51b3744 102-109
+docs/references/ungrouped-task-tabs.md
+  s_08bbfd293d324f::t_e9bf92cacd2039 46-49
+packages/open-browser-use-js/test/file-chooser-waits.test.mjs
+  s_08bbfd293d324f::t_0dc9ef600e93c8 14,30,35-67
+  s_08bbfd293d324f::t_468bd3d9035188 68
+scripts/browser-integration/chooser-failure-observation.test.mjs
+  s_08bbfd293d324f::t_ccf0854f4c1e7f 197-209
+  s_08bbfd293d324f::t_17251233b9a3cb 4,157-194
+  s_08bbfd293d324f::t_c38810eaafaf28 5,50-56,104-124,126-156,213,225,229
+  s_08bbfd293d324f::t_16c9fa8a3060dd 1-3,6,8,12-16,19,21-49,74-103,125,195-196,210-212,214-224,226-228,230,253
+  s_08bbfd293d324f::t_9b59c6ef3c2d20 7,9-11,17-18,20,57-73,231-252
+skills/open-browser-use/SKILL.md
+  s_08bbfd293d324f::t_656f5d00f886ef 23
+packages/open-browser-use-go/file_chooser_set_test.go
+  s_08bbfd293d324f::t_0dc9ef600e93c8 1-26,33-63,65-104
+  s_08bbfd293d324f::t_55164d6be63c31 27-32,64
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_e9bf92cacd2039 302-306
+apps/chrome-extension/auxiliary-tab-ownership.test.mjs
+  s_08bbfd293d324f::t_e7588d2787c1bc 237,239,252-281
+  s_08bbfd293d324f::t_74357de323cb73 282
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_c81486c9fbb9ce 7-9,21-23,29
+  s_08bbfd293d324f::t_5573b87007f9ab 30-32
+  s_08bbfd293d324f::t_dd6ec8be5d1799 1845-1846,1849-1850,1852-1854,1858-1861,1863,1875-1882,1891,1901
+  s_08bbfd293d324f::t_16c9fa8a3060dd 10-20,24-28
+  s_08bbfd293d324f::t_406bac50a1da1b 1847-1848,1851,1855-1857,1862,1864-1874,1883-1890,1892-1900
+scripts/browser-integration/background-window-fixture.test.mjs
+  s_08bbfd293d324f::t_db02fb9f93705d 1-109
+cmd/open-browser-use/background_window_test.go
+  s_08bbfd293d324f::t_eddcf4086a3ffb 1-18,23-27,41-42,52,62,79-82,85-86,92-93,98-99,105,110,116,118,130,148-153,181-183,205-207,253-255,268-269,305
+  s_08bbfd293d324f::t_5ba1995b4c8ebb 19-22,28-40,43-51,53-61,63-78,83-84,87-91,94-97,100-104,106-109,111-115,117,119-129,131-147,154-180,184-204,208-252,256-267,270-304
+apps/chrome-extension/browser-directory-upload.test.mjs
+  s_08bbfd293d324f::t_9596ac0687882f 95,105,190-211
+  s_08bbfd293d324f::t_e492844a0e7ca6 39,119-128
+  s_08bbfd293d324f::t_a5236364052ce0 1-38,40-94,96-104,106-118,129-189,212-270
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_d420ac33be24ca 49,285,614
+  s_08bbfd293d324f::t_c07b0d8e1c6c14 384
+  s_08bbfd293d324f::t_93586eeb9b42cd 265,280,641,644,648,660,675,790
+  s_08bbfd293d324f::t_f426f6170c1516 650-659
+  s_08bbfd293d324f::t_89d3ef468c1185 46,679,683,685-688,695,703,705-710,748,773,791-798
+  s_08bbfd293d324f::t_da914900287456 401,781-782,786-787,789
+  s_08bbfd293d324f::t_314ac84b3ae5a4 611-613,615-620
+  s_08bbfd293d324f::t_1265e8e847287e 47-48,534-535,609-610,621-640,642-643,645-647,649,661-674
+  s_08bbfd293d324f::t_16c9fa8a3060dd 783-785
+scripts/browser-integration/directory-world-fixture.mjs
+  s_08bbfd293d324f::t_487f18aa358416 92-98
+  s_08bbfd293d324f::t_1c11ce30801d48 8,35,71
+  s_08bbfd293d324f::t_88760cac7d3d65 1-7,9-34,36-70,72-91,99-114
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_044856815cc908 14-19,38-48,52-53,61
+  s_08bbfd293d324f::t_c951b104fd9636 20-28,37,49-51
+  s_08bbfd293d324f::t_85b79e6aeb9e21 54-60,62-69
+  s_08bbfd293d324f::t_1e9a933618d513 29-36,115,118
+scripts/browser-integration/chooser-failure-observation.mjs
+  s_08bbfd293d324f::t_89d3ef468c1185 155-171,175-176
+  s_08bbfd293d324f::t_ccf0854f4c1e7f 172-174
+  s_08bbfd293d324f::t_113ab52a41337c 5,7,22-23,26-29,32-42,47,49-50,55-56,63-64,66,98,101,119,125,135,137-145,151
+  s_08bbfd293d324f::t_a2b92f131d2185 6,85,132,146,148-149
+  s_08bbfd293d324f::t_8957747a1fd929 1-4,8-21,24-25,30-31,43-46,48,51-54,57-62,65,67-84,86-97,99-100,102-118,121-124,126-131,133-134,136,147,150,152-154
+  s_08bbfd293d324f::t_c38810eaafaf28 120
+scripts/browser-integration/chooser-waits-fixture.mjs
+  s_08bbfd293d324f::t_da914900287456 5,152,179
+  s_08bbfd293d324f::t_a2b92f131d2185 170-174
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_18583a941b59ec 2116-2124
+  s_08bbfd293d324f::t_dec27abb092801 2060-2069,2071-2080
+  s_08bbfd293d324f::t_d6c435a68a17a4 2070,2081-2096,2099-2105
+  s_08bbfd293d324f::t_69cf82b1e1b4db 2097-2098,2106-2115
+  s_08bbfd293d324f::t_388d9efd951b6d 2039-2059
+  s_08bbfd293d324f::t_1e9a933618d513 2125-2132
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_26b1bd878c1cc8 149,652-666
+  s_08bbfd293d324f::t_2d9676af9ec516 147-148,150-151,240-244
+cmd/open-browser-use/background_window.go
+  s_08bbfd293d324f::t_aa228ee7fb7f8f 1-36
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_2344aefc221314 104-108,199-212
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_90ecb16e2e2282 284-285,623-631
+packages/open-browser-use-go/background_window.go
+  s_08bbfd293d324f::t_99037bbf8c5432 1-46
+packages/open-browser-use-go/browser.go
+  s_08bbfd293d324f::t_ad631a4f8c4a8d 32-35,47
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_b83720f1a18511 228,240,257,448-450
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_b9b7d72d23c2bf 121-122,159-160,310-314,320-324,459-462,501-506,640,646,1249-1253
+packages/open-browser-use-js/test/background-window.test.mjs
+  s_08bbfd293d324f::t_1a4e40f82857a8 1-100
+packages/open-browser-use-python/test_background_window.py
+  s_08bbfd293d324f::t_b91f8cd1446b32 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "96d49184341651565573f437921ed8de089b5c15",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
