@@ -133,3 +133,22 @@ focus events to two explicit control-panel popup opens; the original sentinel
 remained unchanged. This is not a whole-run zero-focus-event claim. That observer
 coverage belongs to OBU's controlled Chromium test environment and cannot be
 retroactively assigned to the Codex Edge runs.
+
+## Matched multi-tab research task
+
+The same day's [shared research workflow](shared-research-workflow.md) adds a
+separate task: read three suppliers' current quotations and terms, compare all
+constraints, save one cited report, and retain it while closing four research
+tabs. Three layouts include ordinary, cross-origin and dynamically added frames.
+Current Codex Edge completed 3/3 with no failed browser methods or fallback UI
+actions; OBU completed all fifteen combinations of five public entrypoints and
+three layouts in focused 16/16 and full 104/104 runs. Fresh source revisions and
+amounts differ per task; the rules, fixture and score contract are shared.
+
+The reference records actual results, source hashes and evidence limits. In
+particular, Codex has no independent OS-focus ledger here, and its standalone
+fixture server needed forced cleanup because stdin had closed. A post-task
+evidence-export syntax error is also retained. These do not alter the three
+observed receipts, but must not be reported as a fully failure-free run or a
+graceful-shutdown pass. This research result does not erase the earlier form
+method failures or prove open-ended research, performance or full P15 parity.

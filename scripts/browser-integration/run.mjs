@@ -36,6 +36,9 @@ import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startu
 import { NativeHostBridge, nativeAdapterSource } from "./native-host-bridge.mjs";
 import { lifecycleRecoveryFixture, checkOwnedTabRevocation, checkNativeHostRestart } from "./lifecycle-recovery-fixture.mjs";
 import { createFormWorkflowFixture, checkFormWorkflow, checkFormReceipt } from "./form-workflow-fixture.mjs";
+import { createResearchWorkflowFixture, checkResearchReceipt } from "./research-workflow-fixture.mjs";
+import { checkResearchWorkflow } from "./research-workflow-checks.mjs";
+import { checkResearchTabDisposition } from "./research-workflow-evidence.mjs";
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
@@ -230,6 +233,7 @@ const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
 const formWorkflows = createFormWorkflowFixture();
+const researchWorkflows = createResearchWorkflowFixture();
 const chooserFixtures = createChooserWaitFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
 let httpPort, actionVisits = 0;
@@ -240,6 +244,7 @@ const http = createServer(async (request, response) => {
   if (mediaDownloads.handle(request, response, httpPort)) return;
   if (embeddedMedia.handle(request, response, httpPort)) return;
   if (formWorkflows.handle(request, response, httpPort)) return;
+  if (researchWorkflows.handle(request, response, httpPort)) return;
   if (chooserFixtures.handle(request, response, httpPort)) return;
   if (downloadWaitFixtures.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
@@ -341,7 +346,7 @@ try {
     if (file.endsWith(".py")) await fs.copyFile(path.join(repo, "packages/open-browser-use-python/open_browser_use", file), path.join(pythonSnapshot, file));
   }
   sourceIdentity = {
-    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
+    testHooks: ["staged-only persistent activation/focus observer document", "staged-only observer of original release failures before Pause", "research cases: bounded passive tabs.onCreated/onRemoved listeners in the independent observer; no task page or production changes", ...(memoryClipboard ? ["staged-only backend reference for clipboard lifecycle fault injection"] : [])],
     gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(),
     dirty: (await subprocess("git", ["status", "--porcelain", "--untracked-files=normal"], { cwd: repo })).trim().length > 0,
     sha256: {
@@ -385,6 +390,9 @@ try {
   sourceIdentity.sha256.formWorkflowFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "form-workflow-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.formWorkflowPython = createHash("sha256").update(await fs.readFile(path.join(directory, "form-workflow-checks.py"))).digest("hex");
   sourceIdentity.sha256.formWorkflowGo = createHash("sha256").update(await fs.readFile(path.join(directory, "go-form-workflow-checks/main.go"))).digest("hex");
+  for (const name of ["research-workflow-fixture.mjs", "research-workflow-checks.mjs", "research-workflow-evidence.mjs", "research-workflow-checks.py", "go-research-workflow-checks/main.go"]) {
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  }
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   nativeBridge = new NativeHostBridge({ server: ws, executable, socketDir, stats: nativeFrameStats,
@@ -1507,6 +1515,97 @@ try {
     if (failure) { failure.formWorkflow = evidence; throw failure; }
     return detail;
   });
+  for (const kind of ["js", "cli", "mcp", "python", "go"]) for (const variant of [1, 2, 3]) {
+    await test(`${kind}-research-workflow-v${variant}`, async () => {
+      const artifact = path.join(runDir, `research-workflow-${kind}-v${variant}.json`);
+      const key = `${kind}-research-${variant}-${randomUUID()}`;
+      const beforeKeys = new Set(researchWorkflows.allStats().map(record => record.key));
+      const proof = {}, baseURL = new URL("/", fixtureURL).href;
+      let caller, failure, lifecycle, checkedReceipt;
+      // Passive, bounded independent observer; no task tab/page manipulation.
+      const before = await focusObserver.evaluate(`(async()=>{
+        if(globalThis.__researchLifecycle)throw new Error('Research observer already installed');
+        const state={events:[],overflow:false};
+        const record=event=>{if(state.events.length<256)state.events.push(event);else state.overflow=true};
+        state.created=tab=>record({type:'created',at:Date.now(),tab});
+        state.removed=(tabId,removeInfo)=>record({type:'removed',at:Date.now(),tabId,removeInfo});
+        chrome.tabs.onCreated.addListener(state.created);chrome.tabs.onRemoved.addListener(state.removed);
+        globalThis.__researchLifecycle=state;return chrome.tabs.query({});
+      })()`);
+      try {
+        if (["js", "cli", "mcp"].includes(kind)) {
+          caller = await checkResearchWorkflow({ kind, variant, key, fixtureURL: baseURL, endpoint, executable,
+            connectOpenBrowserUse, subprocess, withMCPClient });
+        } else {
+          const source = path.join(directory, kind === "python" ? "research-workflow-checks.py" : "go-research-workflow-checks/main.go");
+          const frozen = path.join(runDir, `research-workflow-${kind}-v${variant}.${kind === "python" ? "py" : "go"}`);
+          const output = path.join(runDir, `research-workflow-${kind}-v${variant}-caller.json`);
+          await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+          proof.sourceSHA256 = createHash("sha256").update(await fs.readFile(frozen)).digest("hex");
+          let binary = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, baseURL, output, String(variant)];
+          if (kind === "go") {
+            assert.ok(process.env.OBU_TEST_GO_RESEARCH_BINARY, "Set OBU_TEST_GO_RESEARCH_BINARY for complete research tasks");
+            binary = path.join(runDir, `go-research-workflow-v${variant}${process.platform === "win32" ? ".exe" : ""}`);
+            await fs.copyFile(process.env.OBU_TEST_GO_RESEARCH_BINARY, binary, fsConstants.COPYFILE_EXCL);
+            proof.binarySHA256 = createHash("sha256").update(await fs.readFile(binary)).digest("hex");
+            args = [endpoint, baseURL, output, String(variant)];
+          }
+          try {
+            const stdout = await subprocess(binary, args, { timeoutMs: 180000, env: { ...process.env,
+              PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+            caller = JSON.parse(stdout);
+            assert.deepEqual(JSON.parse(await fs.readFile(output, "utf8")), caller);
+          } catch (error) {
+            try { caller = JSON.parse(await fs.readFile(output, "utf8")); } catch {}
+            throw error;
+          }
+        }
+        assert.equal(caller.caller, kind);
+        assert.equal(caller.variant, variant);
+        assert.ok(caller.screenshot, "Retain the visible final report");
+        assert.equal(beforeKeys.has(caller.key), false);
+        assert.equal(researchWorkflows.allStats().filter(record => !beforeKeys.has(record.key)).length, 1);
+        checkedReceipt = checkResearchReceipt(caller.receipt, researchWorkflows.stats(caller.key));
+      } catch (error) { failure = error; caller ??= error.researchWorkflow; }
+      finally {
+        try {
+          const observation = await focusObserver.evaluate(`(async()=>{
+            const state=globalThis.__researchLifecycle;if(!state)throw new Error('Missing research observer');
+            try{return{after:await chrome.tabs.query({}),events:state.events,overflow:state.overflow}}
+            finally{chrome.tabs.onCreated.removeListener(state.created);chrome.tabs.onRemoved.removeListener(state.removed);delete globalThis.__researchLifecycle}
+          })()`);
+          lifecycle = { before, ...observation };
+          assert.equal(observation.overflow, false);
+          if (!failure) checkResearchTabDisposition(caller, before, observation.after, observation.events, baseURL);
+        } catch (error) { failure = failure ? new AggregateError([failure, error]) : error; }
+      }
+      if (caller?.screenshot) {
+        const screenshot = caller.screenshot;
+        const base64 = typeof screenshot === "string" ? screenshot : screenshot.base64;
+        const filename = `research-workflow-${kind}-v${variant}-report.png`;
+        try {
+          if (base64) {
+            const { bytes, width, height } = pngDimensions(base64);
+            await fs.writeFile(path.join(runDir, filename), bytes);
+            caller.screenshot = { filename, bytes: bytes.length, width, height, sha256: createHash("sha256").update(bytes).digest("hex") };
+          } else {
+            assert.equal(path.basename(screenshot.filename), screenshot.filename);
+            const bytes = await fs.readFile(path.join(runDir, screenshot.filename));
+            const dimensions = pngDimensions(bytes.toString("base64"));
+            assert.equal(screenshot.bytes, bytes.length);
+            assert.equal(screenshot.sha256, createHash("sha256").update(bytes).digest("hex"));
+            assert.equal(screenshot.width, dimensions.width); assert.equal(screenshot.height, dimensions.height);
+          }
+        } catch (error) { failure ??= error; }
+      }
+      const evidence = { caller, proof, lifecycle, checkedReceipt,
+        serverRecords: researchWorkflows.allStats().filter(record => !beforeKeys.has(record.key)),
+        ...(failure ? { failed: true, error: failure.stack ?? String(failure) } : {}) };
+      await fs.writeFile(artifact, JSON.stringify(evidence, null, 2));
+      if (failure) throw failure;
+      return evidence;
+    });
+  }
   await test("js-bounded-console-error-network-diagnostics", async () => {
     sourceIdentity.testHooks.push("diagnostics: passive native console/exception/Log observer records real replay timestamps and fresh Page capture evidence; no native event is altered or fabricated");
     const diagnostics = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-diagnostics", timeoutMs: 15000 });
@@ -1851,6 +1950,7 @@ try {
   await fs.writeFile(path.join(runDir, "media-download-server.json"), JSON.stringify(mediaDownloads.stats(), null, 2));
   await fs.writeFile(path.join(runDir, "media-breadth-server.json"), JSON.stringify(embeddedMedia.stats(), null, 2));
   await fs.writeFile(path.join(runDir, "form-workflow-server.json"), JSON.stringify(formWorkflows.allStats(), null, 2));
+  await fs.writeFile(path.join(runDir, "research-workflow-server.json"), JSON.stringify(researchWorkflows.allStats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;

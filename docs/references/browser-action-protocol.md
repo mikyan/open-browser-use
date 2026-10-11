@@ -95,11 +95,12 @@ Production CRX does not automatically attach a newly created popup from its
 `tabs.onCreated` listener. Every Page must first pass the backend's ownership and
 admission checks; flat OOPIF child-session discovery is retained. A child already
 in the task group can use the ordinary tab API; an unowned child requires an
-explicit claim. Claim uses the existing task-group model and can move a popup
-tab into the task window. Native `target=_blank` and `window.open` can still
-activate their new tab/window. Popup activation and the observed first-click
-timeout after moving a separate popup are unresolved; this change only removes
-the unauthorized automatic attachment, not those lifecycle limitations.
+explicit claim. Claim preserves a separate popup's original window through
+auxiliary ownership rather than moving it into the task window; see
+[popup ownership](popup-ownership-design.md). Native `target=_blank` and
+`window.open` can still activate their new tab/window before that claim.
+Preventing this initial activation and recovering rendering after a user moves
+an attached page between windows remain unresolved lifecycle limitations.
 
 ## Bounded recursive observations
 

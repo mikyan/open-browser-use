@@ -319,6 +319,9 @@ Optional variables:
   the endpoint and fixture URL as two arguments and returns a JSON result with
   `passed: true`. Its executable digest and result are recorded alongside the
   other callers.
+- `OBU_TEST_GO_RESEARCH_BINARY`: executable built from
+  `./scripts/browser-integration/go-research-workflow-checks`; required when the
+  selected cases include the Go research workflow. See the build commands below.
 - `OBU_TEST_CASES`: optional regular expression selecting test names for a focused
   debugging run. The initial raw navigation/engine attachment always runs. Omit
   this variable for the complete acceptance suite.
@@ -331,9 +334,12 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 ## What it checks
 
-The suite currently contains 77 cases with all Go helper binaries, including
-seven new shared form workflows. Final headed `run-6SwxDM` passed **77/77** on
-the controlled testing-config baseline; form-focused `run-j4jsMy` passed **8/8**.
+The suite currently contains 104 cases with all Go helper binaries, including
+fifteen shared research workflows across five public entrypoints and three
+layouts. Headed `run-WWWaGP` passed **104/104** on the controlled testing-config
+baseline; research-focused `run-AOpN3n` passed **16/16**, including the mandatory
+native-navigation prerequisite. The earlier shared-form run `run-6SwxDM`
+passed **77/77**; form-focused `run-j4jsMy` passed **8/8**.
 The preceding finite-media headed `run-XnREpF` passed **70/70**; its
 independent file, native-diagnostic, continuous-focus and final ZIP audits passed.
 The preceding `run-WMOIim` remains **69/70** with a diagnostics isolation failure,
@@ -1195,3 +1201,73 @@ server evidence and a shutdown record below `.tmp/browser-integration`.
 It never drives the comparison browser. Keep failed method attempts and any
 fallbacks separate from exact final task success; browser/profile versions and
 different API overhead do not support a speed or overall parity claim.
+
+## Shared multi-page research workflows
+
+`research-workflow-fixture.mjs` serves a procurement review task with three
+suppliers, fresh amounts and source revisions for each task, expired-summary
+decoys, and three document layouts. Current quotations appear in the root page
+or a same-origin frame; delivery and warranty terms appear in an existing or
+dynamically added cross-origin frame. The visible brief provides the constraints.
+Each caller reads the current sources, computes totals and every disqualifying
+condition, fills a comparison report with six exact source links, submits once,
+reads the receipt and retains the report while closing its other four tabs.
+
+All five entrypoints run all three layouts: JS, Python and Go use their typed
+SDKs, while CLI and MCP use their own public transport for control acquisition,
+tab creation, reading, input, screenshots and finalization. CLI/MCP do not borrow
+the JS SDK for setup or cleanup. The drivers share the visible task contract;
+they do not read the server's private oracle, fetch source pages directly, or
+submit outside the page's ordinary form controls.
+
+After the normal prerequisites, build the research Go caller with the pinned Go
+toolchain and select the focused cases:
+
+```powershell
+go build -o .tmp/go-research-workflow-checks.exe ./scripts/browser-integration/go-research-workflow-checks
+$env:OBU_TEST_GO_RESEARCH_BINARY = (Resolve-Path .tmp/go-research-workflow-checks.exe).Path
+$env:OBU_TEST_CASES = 'research-workflow'
+node scripts/browser-integration/run.mjs
+```
+
+Keep `OBU_TEST_HOST_BINARY` set as described above. This selection runs fifteen
+research cases plus the mandatory native-navigation prerequisite. For the full
+suite, configure the other Go helper binaries documented here and remove
+`OBU_TEST_CASES`. The recorded focused `run-AOpN3n` passed **16/16** and full
+`run-WWWaGP` passed **104/104** on Windows Chromium 156.
+
+Each run retains caller observations and calculations, original server GETs and
+POST bytes, receipts, fifteen report PNGs and source identities. The independent
+server oracle verifies the submitted facts, all exclusion reasons and the lowest
+compliant total. A passive native tab observer verifies 75 creations, 60 removals
+and 15 inactive retained reports; pre-existing URLs, windows, groups and pinned
+states must remain unchanged. The continuous focus ledger receives no new
+allowances for these tasks. The focused run recorded no activation or window-focus
+events during its measured interval. Full-suite allowances remain limited to the
+existing fixture-window and explicit control-popup events, not research actions.
+
+For an independent browser comparison, start the material server in an
+interactive terminal:
+
+```sh
+node scripts/browser-integration/research-workflow-server.mjs
+```
+
+Open its printed URL with `/research-task/<fresh-key>?variant=1` (or 2/3), follow
+the visible brief, and keep the completed report while closing the research
+pages. Enter `stop` in the server terminal when finished. The server closes its
+connections, flushes evidence and writes `closed.json` before exiting.
+In an automated exec session, start the server with writable stdin or a PTY and
+keep stdin open so that `stop` can be delivered; forced process termination is
+not a graceful server shutdown. Its `ready.json`, private `server-evidence.json`
+and shutdown record live under a new
+`.tmp/browser-integration/research-comparison-*` directory. Private scoring data
+is for post-run auditing only and is not a browser route or solver input. The
+server never controls the comparison browser.
+
+This is a scripted, finite task benchmark, not proof of arbitrary model research
+quality, speed, OS focus behavior in another browser, or complete Codex parity.
+The main suite still uses the declared Native Port adapter; it does not replace
+the separate real native-launcher tests. Preserve failures and fallback paths in
+an independent comparison. See [shared research workflow](../../docs/references/shared-research-workflow.md)
+for the task contract, evidence and comparison boundaries.

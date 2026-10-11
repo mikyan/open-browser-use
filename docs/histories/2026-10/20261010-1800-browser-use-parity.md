@@ -906,6 +906,39 @@ JS115、Python82及Go全包通过，无跳过。
 与两run和新构建基线相同；源码、生成JS模块与声明一起纳入版本控制。
 ZIP外本地构建manifest未作为公开附件，用户主浏览器安装未改变。
 
+### 共享研究任务与来源核验
+
+新增本地合成研究任务：采购要求、三家当前报价与交付条款、过期摘要、
+三种DOM/frame布局和每任务不同的来源修订。正确答案只在服务端评分；
+JS/Python/Go/CLI/MCP必须各自经公开入口建页、读取可见事实、计算比较、
+填写并提交一次报告、核对回执，保留报告且关闭任务及资料页。CLI/MCP
+不借SDK代做生命周期。另加独立server供当前Codex使用同一fixture比较。
+
+验收记录保留原始GET请求记录及POST字节、调用器读取与步骤、报告PNG、源码身份；
+独立observer被动记录实际tabs创建/移除及最终metadata，防止调用器自报
+清理冒充原生结果。专项 `run-AOpN3n` **16/16**，全套 `run-WWWaGP`
+**104/104**。每轮15任务、90来源、15单次POST、75创建/60关闭/15保留均
+独立核验；专项连续账本零激活/零focus，全套六激活/四focus精确归因原有
+fixture及控制面板动作，未增加豁免，既有tabs不变。三份报告视觉检查及
+45行事实重新计算通过。跨源frame可见不自动宣称新OOPIF进程证据。
+
+CI **920** 项Node（771+53+96）、JS115、Python82及Go全包通过，无跳过；
+最终Go调用器编译及新14项Node定向检查通过。预跑冻结364源码、7二进制、
+182旧结果/日志；两轮审核后只改文档。生产没有新增API或修复，已有
+1,255,479字节/47文件ZIP保持SHA-256
+`cef6706a1cf69717835f168c4e96bd1f20146f0dfc610e9b28b58434a2c5a0c8`。
+
+当前Codex Edge同fixture三布局最终报告 **3/3**，实际read-only DOM读取、
+动态展开、普通表单填写/选择、单次提交及保留报告/关闭四页成功，无浏览器
+方法失败或替代。任务后的证据导出一次语法错误保留；独立server启动未
+保留可写stdin，stop无法发送，核对进程身份后强制退出且保留exit1，不能
+宣称正常停机。该端只有工具ACK与最终tabs清单，没有独立OS焦点账本。
+
+这是有限资料核对任务，不能推断开放网页研究、模型规划或性能全面持平。
+既有popup前台、Edge恢复、下载GUID路径/实际取消、多平台等缺口不变；
+完整目标继续active，仅本地提交，不推送或提PR。细节集中记录在
+`docs/references/shared-research-workflow.md`，同步矩阵、计划及质量记录。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -914,3 +947,5 @@ ZIP外本地构建manifest未作为公开附件，用户主浏览器安装未改
 - `apps/chrome-extension/`
 - `docs/product-specs/browser-use-parity.md`
 - `docs/exec-plans/active/2026-10-10-browser-use-parity.md`
+- `scripts/browser-integration/`
+- `docs/references/shared-research-workflow.md`

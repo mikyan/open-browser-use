@@ -40,6 +40,9 @@
   原始预算与真实清理、三个 SDK 和 CLI/MCP 入口及新 GET 的语义边界。
 - [Codex observation baseline](codex-observation-baseline.md)：隔离合成页面上的
   IAB 只读快照基线及其有限范围，不等同于输入、性能或完整能力对齐验收。
+- [Shared research workflow](shared-research-workflow.md)：五个公开入口、三种
+  布局的多页资料比较与报告交付任务，独立服务端评分、原始请求和标签生命周期
+  证据，以及独立 Codex 对照和有限任务验收的边界。
 - [AI snapshot design](ai-snapshot-design.md)：已实现的有界递归 `snapshotAI` 与
   capture ref 契约，记录历史错路由证据、可信 metadata、失效与资源边界；
   附本片 Windows 真实浏览器验收范围，完整 Codex 任务对照仍待完成。
