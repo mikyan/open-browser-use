@@ -2628,3 +2628,13 @@ skip/cancel；旧121名称/顺序不变。十场/12原文档、110记录native�
 原action期限；force/trial/PW预持输入、非原子检查、捕获释放副作用及更广
 CSS/跨文档drag保留边界。持有guard时worker丢失恢复未实机验证，是后续
 候选；Codex同组文件/诊断、平台生命周期和完整P01–P15目标继续active。
+
+### 下一分片：SDK连接身份与恢复（active）
+
+拖放提交`27843a1`已推送并核远端一致。只读审计的6项JS实际named-pipe
+对照证明EOF/显式close后同路径替换会让新RPC携带旧session/turn/tab/epoch，
+并且B端同值control epoch可接受；它不是原请求重放，也不证明真实浏览器
+误点击，仍有实际owner/site/incarnation等必要条件。Go未指定SocketPath的
+active registry重发现与Python尚待原生验证。MCP实际连接绑定已有修复，
+不重复该工作。下一步按[连接身份计划](2026-10-12-sdk-connection-identity.md)
+确认三SDK恢复契约与跨实例负例；完整目标和其他能力缺口继续保留。

@@ -1775,6 +1775,15 @@ attachment登记实际guard及迟到异常对象；HTML dragCancel确认后才�
 捕获释放可触发业务。持guard时worker丢失后的恢复尚未实机验证，保留
 guard可能影响人工drop；更广CSS/跨文档及P01–P15仍开放，不宣称全面持平。
 
+### SDK连接身份审计与后续计划
+
+拖放实现`27843a1`已推送到fork，远端与本地一致。随后只读检查SDK实际
+重连路径，JS当前TS/dist逐字节一致；6项Windows原生named-pipe对照通过，
+EOF/显式close后替换端点收到带旧scope的新RPC。生产ControlLedger同session/
+epoch条件接受、未知session和不同epoch拒绝；真实tab归属和incarnation
+仍是必要门禁，未执行真实浏览器误操作验收。更新已过期的MCP技术债条目，
+新建三SDK连接身份计划；本次未更改SDK生产行为，整体目标继续。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1792,3 +1801,4 @@ guard可能影响人工drop；更广CSS/跨文档及P01–P15仍开放，不宣�
 - `docs/references/transformed-element-bounds.md`
 - `docs/references/drag-delivery.md`
 - `docs/exec-plans/completed/2026-10-12-drag-commit.md`
+- `docs/exec-plans/active/2026-10-12-sdk-connection-identity.md`
