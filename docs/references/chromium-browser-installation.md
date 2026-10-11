@@ -22,7 +22,7 @@ Load unpacked。普通自动分发 setup 和自动打开这些浏览器仍不支
 | Windows 浏览器 | 默认 profile 根目录 | Native Messaging namespace |
 | --- | --- | --- |
 | Brave | `%LOCALAPPDATA%\BraveSoftware\Brave-Browser\User Data` | `HKCU\Software\Google\Chrome\NativeMessagingHosts` |
-| Opera Stable | `%APPDATA%\Opera Software\Opera Stable` | 同上；实际 HKCU launcher 及发现已验证，后台任务未通过 |
+| Opera Stable | `%APPDATA%\Opera Software\Opera Stable` | 同上；实际 HKCU launcher、发现及本片无组后台多页任务已通过 |
 | Vivaldi | `%LOCALAPPDATA%\Vivaldi\User Data` | 同上；实际 HKCU launcher 连接已验证，后台任务未通过 |
 
 三者和 Chrome/Chrome Beta 共用原有 manifest 路径。再次注册时先验证现有
@@ -103,6 +103,69 @@ Opera `137.0.6036.39` 的 `native-installation-opera-KVzWiz` 已成功原生连�
 安装发现、连接归属及正反 selector 检查，但 newTab 报 `No group with id`，
 尚未到输入、点击和截图。整项仍失败，未把发现修复称作完整任务通过；原生
 host 与浏览器正常 exit0、零前台事件和随机注册清理均独立保留。
+
+## 后台失败的原生命令诊断
+
+显式 `OBU_TEST_NATIVE_DIAGNOSTICS=1` 只在隔离测试 worker 中加入有界 API
+观察，原 connectNative、任务输入和焦点规则保持不变。诊断始终
+`passed:false`；`diagnosticCompleted:true` 与 exit0 只表示原任务已到达、
+记录连续且原生清理完成，不表示任务通过。原生命令 pending、截断字段
+及未观察到的内部因果都不能推测为成功；用法见上述验收脚本说明。
+
+Opera 首轮 `BnR9eF` 的初始快照早于 worker module 执行，整体诊断不完整。
+将读取移到原有 native 握手后，`pmcGIj` 完整记录同一失败顺序：
+`tabs.group` 成功返回，随后标签变为 `groupId=-1` 且组收到 `onRemoved`，
+再调用 `tabGroups.update` 时才拒绝。可确认更新前组已经消失，事件本身
+不能证明是浏览器自动处理还是其他原因。两轮没有 goto/输入/提交；
+真实任务均失败。最终一轮连续零激活/零focus，原生 host/browser 正常
+exit0、独占随机注册及私有进程清理通过。
+
+Vivaldi stable `6TvJ0U` 的 debugger.attach 与 Target.getTargetInfo 成功，
+实际新页 URL 仍为空。随后九条 renderer 初始化命令直到最后快照仍未
+结算，尚未发送 Page.navigate 或 Input，实际 GET/POST 均为零。该轮
+完整诊断与清理通过，任务失败；不能据此断言导航命令超时或键盘目标错误。
+此前 `V8o50Q` 的 fill ACK 后实际空值证据仍独立保留。
+
+另解包官方签名的 Vivaldi snapshot `8.3.4185.3`，其 `l5U4my` 在安装前
+manager 页面首次求值超时，未到扩展、host 或任务。虽然浏览器正常退出、
+随机注册和私有进程已清理，因为没有 host EOF，完整诊断仍未通过。
+这不能评价新版分组或输入；该运行使用 stable catalogue 隔离目录覆盖，
+也不证明 snapshot 默认目录发现。没有用新运行改写旧失败。
+
+## 普通无组任务页的真实验收
+
+新生产实现复用显式辅助归属，允许本次 admission 创建的单页组消失后
+按真实 tab 单独管理，规则见 [普通无组任务页](ungrouped-task-tabs.md)。
+`OBU_TEST_NATIVE_OWNERSHIP=1` 在原单页任务后增加两 session 的多页任务，
+本片没有启用 API 诊断或修改生产 connectNative。
+
+同一冻结源码与新 ZIP 的 Opera `native-installation-opera-7IDBb7`、Brave
+`native-installation-brave-vC2mkf` 都已真实通过并独立审计。每轮原 12 步
+后台任务及后续 35 步 ownership 流程完成，四个原始 GET、五个可信 POST
+与页面收据逐项一致。A/B 的 foreign claim 被明确拒绝；handoff A 后 B
+实际关闭，显式新 turn 接管 A 仍保留 agent 来源；交付 C 时 A 实际关闭，
+C 保持非活动且无 debugger，更新控制范围后仍明确无权读取 C。
+
+Opera 的 A/B/C 原生快照都无分组，Brave 保留真实任务组并在交付时进入
+交付组，分别验证两条路径。每轮十个连续焦点检查点均零激活、零 focus、
+零豁免，测量窗口约 2.0/2.4 秒；这不代表长时间压力或物理鼠标的独立测量。
+真实 native host/browser 保留句柄均 exit0，精确进程、随机注册两视图清理
+完整，固定生产注册不变。截图实际查看通过；fixture 的长收据有水平溢出，
+完整原始 POST 独立核验，不借裁切截图推断全部值。
+
+新 ZIP 为 1,260,454 字节、47 文件，SHA-256
+`6ff5c281ad7769750abc66ffde203995a482cd60c5caf1fdfed3bd4e3a7ed5b3`。
+独立审计匹配全部制品成员、369 源文件与 210 条旧运行结果；新安装包不
+覆盖旧制品或失败证据。CI 为 1,001 项 Node（806 扩展、53 脚本、142
+脚手架）、JS115、Python82、Go全包通过。没有推送、PR或日常浏览器安装
+变更；其他生命周期和平台边界仍按前文保留。
+
+同一生产版本的 Vivaldi `native-installation-vivaldi-b9p876` 保留失败：About、
+管理页、扩展安装、真实 native 连接及 selector 发现都完成，但独立焦点
+观察页的首次 readiness 求值超时 20,003 ms。同一 target 从扩展 URL 变成
+空 URL/title；任务尚未开始，GET/POST 都为零，也没有建立连续焦点账本。
+浏览器和原生 host 正常 exit0，清理完整。该记录既不证明 Vivaldi 任务通过，
+也不能归因为新 ownership 路径回归；旧的实际输入与初始化失败仍开放。
 
 ## 官方资料与来源
 

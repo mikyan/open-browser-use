@@ -1,0 +1,445 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import test from "node:test";
+import vm from "./test-support/backend-vm.mjs";
+
+const input = (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "");
+const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))
+  .replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "")
+  .replace('import { NativeInputTracker } from "./browser-input-adapter.js";', input);
+const code = source.slice(0, source.indexOf("chrome.runtime.onInstalled.addListener"));
+const AUX_KEY = "OPEN_BROWSER_USE_AUXILIARY_TABS";
+const unavailable = /OBU_AUXILIARY_|not part of browser session|already part of browser session|closed|No tab|No window|cancel|ended|STALE_CONTROL_EPOCH|AUTOMATION_PAUSED/i;
+const clone = value => structuredClone(value);
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+const event = () => {
+  const listeners = new Set();
+  return { addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn), clear: () => listeners.clear(), emit: (...args) => { for (const listener of listeners) listener(...args); } };
+};
+async function until(check, label) {
+  for (let attempt = 0; attempt < 100; attempt++) { if (check()) return; await tick(); }
+  throw new Error(`Fixture did not reach ${label}`);
+}
+
+async function fixture(t) {
+  const local = {}, session = {}, calls = [], attached = new Set(), hooks = {}, gates = [];
+  const tabs = new Map([
+    [7, { id: 7, groupId: 10, windowId: 1, url: "https://fixture.test/main", active: false }],
+    [8, { id: 8, groupId: -1, windowId: 2, url: "https://fixture.test/popup", active: true }],
+    [9, { id: 9, groupId: 20, windowId: 1, url: "https://fixture.test/other", active: false }]
+  ]);
+  const windows = new Map([[1, { id: 1, type: "normal", focused: true }], [2, { id: 2, type: "popup", focused: false }], [3, { id: 3, type: "popup", focused: false }]]);
+  const groups = new Map([[10, { id: 10, windowId: 1 }], [20, { id: 20, windowId: 1 }]]);
+  const requireTab = id => { const tab = tabs.get(id); if (!tab) throw new Error(`No tab with id: ${id}`); return tab; };
+  const area = (name, state) => ({
+    async get(key) { await hooks.read?.(name, key); return clone(Object.hasOwn(state, key) ? { [key]: state[key] } : {}); },
+    async set(value) { const captured = clone(value); await hooks.write?.(name, captured); Object.assign(state, captured); calls.push([`${name}.set`, clone(captured)]); },
+    async setAccessLevel(value) { calls.push([`${name}.setAccessLevel`, value]); }
+  });
+  const chrome = {
+    storage: { local: area("local", local), session: area("session", session) },
+    runtime: { id: "fixture", getURL: path => `chrome-extension://fixture/${path}`, getManifest: () => ({ version: "test" }) },
+    debugger: { onDetach: event(), onEvent: event(),
+      async attach({ tabId }) { calls.push(["attach-start", tabId]); await hooks.attach?.(tabId); requireTab(tabId); attached.add(tabId); calls.push(["attach", tabId]); },
+      async detach({ tabId }) { await hooks.detach?.(tabId); attached.delete(tabId); calls.push(["detach", tabId]); },
+      async getTargets() { return [...tabs.values()].map(tab => ({ id: `target-${tab.id}`, tabId: tab.id, type: "page", url: tab.url, attached: attached.has(tab.id) })); },
+      async sendCommand(target, method, params) { calls.push([method, target.tabId, clone(params)]); await hooks.command?.(target, method, params); return { result: { value: "fixture" } }; }
+    },
+    tabs: { onActivated: event(), onRemoved: event(), onUpdated: event(), onDetached: event(), onAttached: event(), onMoved: event(), onReplaced: event(),
+      async get(id) { await hooks.getTab?.(id); return clone(requireTab(id)); },
+      async query(filter = {}) { await hooks.query?.(filter); return [...tabs.values()].filter(tab => (filter.groupId === undefined || tab.groupId === filter.groupId) && (filter.windowId === undefined || tab.windowId === filter.windowId)).map(clone); },
+      async group({ tabIds, groupId }) { calls.push(["group", [...tabIds], groupId]); groupId ??= 30; if (!groups.has(groupId)) groups.set(groupId, { id: groupId, windowId: requireTab(tabIds[0]).windowId }); for (const id of tabIds) { const tab = requireTab(id); tab.groupId = groupId; tab.windowId = groups.get(groupId).windowId; } return groupId; },
+      async ungroup(ids) { calls.push(["ungroup", [].concat(ids)]); for (const id of [].concat(ids)) { requireTab(id).groupId = -1; chrome.tabs.onUpdated.emit(id, { groupId: -1 }, clone(requireTab(id))); } },
+      async remove(ids) { calls.push(["remove", [].concat(ids)]); for (const id of [].concat(ids)) { const tab = requireTab(id); tabs.delete(id); attached.delete(id); chrome.tabs.onRemoved.emit(id, { windowId: tab.windowId, isWindowClosing: false }); } },
+      async sendMessage() { return { ok: true }; }
+    },
+    tabGroups: {
+      async get(id) { if (!groups.has(id)) throw new Error(`No group with id: ${id}`); return clone(groups.get(id)); },
+      async update(id, value) { calls.push(["group-update", id]); Object.assign(groups.get(id) ?? {}, value); },
+      async query() { return [...groups.values()].map(clone); }
+    },
+    windows: { onRemoved: event(), onFocusChanged: event(),
+      async get(id) { await hooks.getWindow?.(id); if (!windows.has(id)) throw new Error(`No window with id: ${id}`); return clone(windows.get(id)); },
+      async getAll() { return [...windows.values()].map(clone); }
+    }
+  };
+  const Backend = vm.runInNewContext(`${code}\nBrowserBackend`, { chrome, crypto, Date, URL, setTimeout, clearTimeout });
+  const backend = new Backend();
+  await backend.controlReady;
+  for (const [id, groupId, tabId] of [["task", 10, 7], ["other", 20, 9]]) {
+    const state = await backend.store.getSession(id); state.chromeGroupId = groupId; state.tabOrigins = { [tabId]: "agent" };
+  }
+  await backend.store.save();
+  const current = await backend.getControlState({ session_id: "task" }), other = await backend.getControlState({ session_id: "other" });
+  const params = { session_id: "task", turn_id: "turn", control_epoch: current.controlEpoch, tabId: 8 };
+  const foreign = { session_id: "other", turn_id: "other-turn", control_epoch: other.controlEpoch, tabId: 8 };
+  t.after(async () => {
+    for (const gate of gates) gate.resolve();
+    for (const key of Object.keys(hooks)) delete hooks[key];
+    backend.networkWaits.invalidateAll();
+    await Promise.allSettled([...backend.attachedTabs].map(id => backend.detachTab(id)));
+  });
+  return { Backend, backend, chrome, local, session, calls, attached, hooks, tabs, windows, groups, params, foreign,
+    gate() { const value = deferred(); gates.push(value); return value; },
+    fresh(previous, next) { return { ...previous, turn_id: next.nextTurnId, control_epoch: next.controlEpoch }; },
+    events: [chrome.debugger.onDetach, chrome.debugger.onEvent, ...Object.values(chrome.tabs).filter(item => item?.emit), ...Object.values(chrome.windows).filter(item => item?.emit)]
+  };
+}
+
+async function ordinary(t, { dissolve = true } = {}) {
+  const f = await fixture(t), state = f.backend.store.state.sessions.task;
+  state.chromeGroupId = null; state.tabOrigins = {}; f.tabs.delete(7); f.groups.delete(10);
+  let nextId = 100;
+  f.chrome.tabs.create = async options => {
+    f.calls.push(["create", clone(options)]);
+    await f.hooks.create?.(options);
+    const tab = { id: nextId++, groupId: -1, windowId: options.windowId, url: "about:blank", active: false, pinned: false };
+    f.tabs.set(tab.id, tab);
+    await f.hooks.created?.(tab);
+    return clone(tab);
+  };
+  f.chrome.tabs.group = async ({ tabIds, groupId = 30 }) => {
+    f.calls.push(["group", [...tabIds], groupId]);
+    f.groups.set(groupId, { id: groupId, windowId: 1 });
+    for (const id of tabIds) { const tab = f.tabs.get(id); tab.groupId = groupId; f.chrome.tabs.onUpdated.emit(id, { groupId }, clone(tab)); }
+    await f.hooks.grouped?.(groupId, tabIds);
+    if (dissolve) {
+      // Actual Opera order: the native group result settles first; its group
+      // disappears before the subsequent title update, not before the ACK.
+      queueMicrotask(() => queueMicrotask(() => {
+        for (const id of tabIds) { const tab = f.tabs.get(id); if (tab) { tab.groupId = -1; f.chrome.tabs.onUpdated.emit(id, { groupId: -1 }, clone(tab)); } }
+        f.groups.delete(groupId); f.calls.push(["singleton-removed", groupId]);
+      }));
+    }
+    return groupId;
+  };
+  f.chrome.tabGroups.update = async (id, value) => {
+    f.calls.push(["group-update", id]); await f.hooks.updateGroup?.(id);
+    if (!f.groups.has(id)) throw new Error(`No group with id: ${id}.`);
+    Object.assign(f.groups.get(id), value);
+  };
+  const create = () => f.backend.createTab(f.params);
+  return { ...f, create, scope: tabId => ({ ...f.params, tabId }) };
+}
+
+test("the observed singleton dissolution admits one and multiple background pages with exact ungrouped ownership", async t => {
+  const f = await ordinary(t), one = await f.create(), two = await f.create();
+  assert.deepEqual([one.id, two.id], [100, 101]);
+  assert.equal(f.calls.filter(([name]) => name === "group").length, 1);
+  assert.ok(f.calls.filter(([name]) => name === "create").every(([, options]) => options.active === false));
+  assert.equal(f.backend.store.state.sessions.task.chromeGroupId, null);
+  for (const id of [100, 101]) {
+    const record = f.backend.auxiliaryTabs.owner(id);
+    assert.equal(record.kind, "ordinary"); assert.equal(record.origin, "agent");
+    await f.backend.attach(f.scope(id));
+    await f.backend.executeCdp({ ...f.scope(id), target: { tabId: id }, method: "Page.navigate", commandParams: { url: "https://fixture.test/research" } });
+    f.tabs.get(id).url = "https://fixture.test/research";
+    f.chrome.tabs.onUpdated.emit(id, { url: "https://fixture.test/research" }, clone(f.tabs.get(id)));
+    await f.backend.requireSessionTab(f.scope(id), "attach");
+    await f.backend.ownedDocumentSource(f.scope(id), "EXPORT");
+    await assert.rejects(f.backend.claimUserTab({ ...f.foreign, tabId: id }), unavailable);
+  }
+  assert.deepEqual(Array.from(await f.backend.getTabs(f.params), tab => tab.id), [100, 101]);
+  await f.backend.finalizeTabs({ ...f.params, keep: [] });
+  assert.equal(f.tabs.has(100), false); assert.equal(f.tabs.has(101), false);
+  assert.equal(f.backend.auxiliaryTabs.entry(100), undefined);
+});
+
+test("a stale stored group cannot prevent fallback for this admission's actual newly created singleton", async t => {
+  const f = await ordinary(t);
+  f.backend.store.state.sessions.task.chromeGroupId = 999;
+  const tab = await f.create();
+  assert.equal(tab.id, 100); assert.equal(f.backend.auxiliaryTabs.owner(100).kind, "ordinary");
+  assert.deepEqual(f.calls.filter(([name]) => name === "group").map(([, , groupId]) => groupId), [30]);
+  assert.equal(f.backend.store.state.sessions.task.chromeGroupId, null);
+});
+
+test("ordinary handoff survives a new epoch; single and multiple deliverables remain real tabs without task authority", async t => {
+  const f = await ordinary(t), one = await f.create(), two = await f.create();
+  const ended = await f.backend.finalizeTabs({ ...f.params, keep: [{ tabId: one.id, status: "handoff" }, { tabId: two.id, status: "deliverable" }] });
+  await assert.rejects(f.backend.attach(f.scope(one.id)), /STALE_CONTROL_EPOCH/);
+  const scope = f.fresh(f.scope(one.id), ended);
+  assert.deepEqual(Array.from(await f.backend.getTabs(scope), tab => tab.id), [one.id]);
+  assert.equal(f.tabs.has(two.id), true); assert.equal(f.backend.auxiliaryTabs.entry(two.id), undefined);
+  assert.equal(f.backend.store.state.deliverableGroups[1], undefined);
+  await f.backend.attach(scope);
+  const third = await f.backend.createTab(scope);
+  await f.backend.finalizeTabs({ ...scope, keep: [{ tabId: one.id, status: "deliverable" }, { tabId: third.id, status: "deliverable" }] });
+  assert.ok([one.id, two.id, third.id].every(id => f.tabs.has(id) && !f.backend.auxiliaryTabs.entry(id)));
+  const current = f.fresh(scope, await f.backend.getControlState({ session_id: "task" }));
+  await assert.rejects(f.backend.attach(current), unavailable);
+});
+
+test("ordinary user claims preserve their origin and are released without closing", async t => {
+  const f = await ordinary(t); await f.create();
+  f.tabs.set(55, { id: 55, groupId: -1, windowId: 1, url: "https://fixture.test/user", active: false });
+  await f.backend.claimUserTab(f.scope(55));
+  await f.backend.claimUserTab(f.scope(100));
+  assert.equal(f.backend.auxiliaryTabs.owner(55).origin, "user");
+  assert.equal(f.backend.auxiliaryTabs.owner(100).origin, "agent");
+  await f.backend.finalizeTabs({ ...f.params, keep: [] });
+  assert.equal(f.tabs.has(55), true); assert.equal(f.tabs.has(100), false);
+  assert.equal(f.calls.some(([name, ids]) => name === "ungroup" && ids.includes(55)), false);
+});
+
+test("an explicit fresh ordinary user claim may select ungrouped mode only after its own singleton disappears", async t => {
+  const f = await ordinary(t);
+  f.tabs.set(55, { id: 55, groupId: -1, windowId: 1, url: "https://fixture.test/user", active: false });
+  await f.backend.claimUserTab(f.scope(55));
+  assert.equal(f.backend.auxiliaryTabs.owner(55).kind, "ordinary");
+  assert.equal(f.backend.auxiliaryTabs.owner(55).origin, "user");
+  await f.backend.attach(f.scope(55));
+  await f.backend.finalizeTabs({ ...f.params, keep: [] });
+  assert.equal(f.tabs.has(55), true);
+});
+
+test("explicit user claim can recover a stale group using its actual newly created singleton", async t => {
+  const f = await ordinary(t);
+  f.backend.store.state.sessions.task.chromeGroupId = 999;
+  f.tabs.set(55, { id: 55, groupId: -1, windowId: 1, url: "https://fixture.test/user", active: false });
+  await f.backend.claimUserTab(f.scope(55));
+  assert.equal(f.backend.auxiliaryTabs.owner(55).kind, "ordinary");
+  assert.equal(f.backend.auxiliaryTabs.owner(55).origin, "user");
+});
+
+test("normal grouped creation remains grouped and later withdrawal never becomes ungrouped authority", async t => {
+  const f = await ordinary(t, { dissolve: false }), tab = await f.create();
+  assert.equal(f.tabs.get(tab.id).groupId, 30); assert.equal(f.backend.auxiliaryTabs.entry(tab.id), undefined);
+  assert.notEqual(f.backend.store.state.sessions.task.ungrouped, true);
+  await f.backend.attach(f.scope(tab.id));
+  f.tabs.get(tab.id).groupId = -1; f.chrome.tabs.onUpdated.emit(tab.id, { groupId: -1 });
+  await assert.rejects(f.backend.attach(f.scope(tab.id)), unavailable);
+});
+
+test("re-claiming a live same-group task page preserves agent disposition after handoff", async t => {
+  const f = await ordinary(t, { dissolve: false }), tab = await f.create();
+  const ended = await f.backend.finalizeTabs({ ...f.params, keep: [{ tabId: tab.id, status: "handoff" }] });
+  const scope = f.fresh(f.scope(tab.id), ended);
+  await f.backend.claimUserTab(scope);
+  assert.equal(f.backend.store.state.sessions.task.tabOrigins[String(tab.id)], "agent");
+  await f.backend.finalizeTabs({ ...scope, keep: [] });
+  assert.equal(f.tabs.has(tab.id), false);
+});
+
+test("claiming a page that left its old group does not inherit stale agent origin", async t => {
+  const f = await ordinary(t, { dissolve: false }), tab = await f.create();
+  f.tabs.get(tab.id).groupId = -1;
+  f.chrome.tabs.onUpdated.emit(tab.id, { groupId: -1 });
+  assert.equal(f.backend.store.state.sessions.task.tabOrigins[String(tab.id)], "agent");
+  await f.backend.claimUserTab(f.scope(tab.id));
+  assert.equal(f.backend.store.state.sessions.task.tabOrigins[String(tab.id)], "user");
+  await f.backend.finalizeTabs({ ...f.params, keep: [] });
+  assert.equal(f.tabs.has(tab.id), true);
+  assert.equal(f.tabs.get(tab.id).groupId, -1);
+});
+
+for (const mutation of ["pin", "move", "window"]) test(`ungrouped ${mutation} withdrawal is sticky even after moving back`, async t => {
+  const f = await ordinary(t), tab = await f.create(); await f.backend.attach(f.scope(tab.id));
+  if (mutation === "pin") { f.tabs.get(tab.id).pinned = true; f.chrome.tabs.onUpdated.emit(tab.id, { pinned: true }); f.tabs.get(tab.id).pinned = false; }
+  else if (mutation === "move") f.chrome.tabs.onMoved.emit(tab.id, { windowId: 1, fromIndex: 1, toIndex: 2 });
+  else { f.tabs.get(tab.id).windowId = 3; f.chrome.tabs.onDetached.emit(tab.id, { oldWindowId: 1 }); f.tabs.get(tab.id).windowId = 1; }
+  await Promise.allSettled([...f.backend.auxiliaryReleases.values()]);
+  await assert.rejects(f.backend.attach(f.scope(tab.id)), unavailable);
+  assert.equal(f.tabs.has(tab.id), true);
+});
+
+for (const boundary of ["pause", "end"]) test(`a real late create drains and closes its undisclosed tab after ${boundary}`, async t => {
+  const f = await ordinary(t), gate = f.gate(); let entered = false;
+  f.hooks.create = async () => { entered = true; await gate.promise; };
+  const creating = f.create().then(value => ({ value }), error => ({ error }));
+  await until(() => entered, "native create");
+  let finished = false;
+  const ending = (boundary === "pause" ? f.backend.pauseAutomation() : f.backend.turnEnded(f.params)).then(value => { finished = true; return value; });
+  await tick(); assert.equal(finished, false);
+  gate.resolve(); const result = await creating; assert.ok(result.error); await ending;
+  assert.equal(f.tabs.has(100), false); assert.equal(f.calls.filter(([name]) => name === "create").length, 1);
+  assert.equal(f.backend.auxiliaryTabs.creations.size, 0);
+});
+
+test("a group ACK captured during end can still clean exactly the newly created grouped page", async t => {
+  const f = await ordinary(t, { dissolve: false }), gate = f.gate(); let grouped = false;
+  f.hooks.grouped = async () => { grouped = true; await gate.promise; };
+  const creating = f.create().then(value => ({ value }), error => ({ error }));
+  await until(() => grouped, "native group before ACK");
+  const ending = f.backend.turnEnded(f.params); gate.resolve();
+  assert.ok((await creating).error); await ending;
+  assert.equal(f.tabs.has(100), false); assert.equal(f.calls.filter(([name]) => name === "create").length, 1);
+});
+
+for (const mutation of ["activation", "foreign-group", "foreign-group-without-event"]) test(`failed creation preserves a page taken over by ${mutation}`, async t => {
+  const f = await ordinary(t, { dissolve: false });
+  if (mutation === "activation") f.hooks.created = async tab => { tab.active = true; f.chrome.tabs.onActivated.emit({ tabId: tab.id, windowId: tab.windowId }); };
+  else f.hooks.updateGroup = async () => {
+    f.tabs.get(100).groupId = 20;
+    if (mutation === "foreign-group") f.chrome.tabs.onUpdated.emit(100, { groupId: 20 });
+  };
+  await assert.rejects(f.create(), /CREATION_REVOKED/);
+  assert.equal(f.tabs.has(100), true); assert.equal(f.calls.some(([name, ids]) => name === "remove" && ids.includes(100)), false);
+});
+
+test("creation storage failure cleans only its native page and never grants membership", async t => {
+  const f = await ordinary(t); let failures = 0;
+  f.hooks.write = async (area, value) => {
+    if (area === "session" && value[AUX_KEY]?.records.some(record => record.origin === "agent" && record.phase === "pending") && !failures++) throw new Error("fixture persistence failed");
+  };
+  await assert.rejects(f.create(), /fixture persistence failed/);
+  assert.equal(f.tabs.has(100), false); assert.equal(f.backend.auxiliaryTabs.entry(100), undefined);
+});
+
+test("failed first group persistence clears only its own empty pointer before a queued same-session retry", async t => {
+  const f = await ordinary(t); let failed = false;
+  f.hooks.write = async (area, value) => {
+    if (!failed && area === "local" && value.OPEN_BROWSER_USE_SESSION_STATE?.sessions.task.chromeGroupId === 30) {
+      failed = true; throw new Error("fixture group persistence failed");
+    }
+  };
+  const first = f.create().then(value => ({ value }), error => ({ error }));
+  const second = f.create();
+  assert.match(String((await first).error), /fixture group persistence failed/);
+  const retried = await second;
+  assert.equal(retried.id, 101); assert.equal(f.tabs.has(100), false);
+  assert.equal(f.backend.auxiliaryTabs.owner(101).kind, "ordinary");
+  assert.equal(f.backend.store.state.sessions.task.chromeGroupId, null);
+});
+
+test("native close failure retains quarantine and capacity until exact explicit cleanup succeeds", async t => {
+  const f = await ordinary(t); const remove = f.chrome.tabs.remove;
+  f.hooks.updateGroup = async () => { throw new Error("fixture update failure"); };
+  // A surviving group cannot use the singleton fallback.
+  f.chrome.tabs.group = async ({ tabIds }) => { for (const id of tabIds) f.tabs.get(id).groupId = 30; f.groups.set(30, { id: 30 }); return 30; };
+  f.chrome.tabs.remove = async () => { throw new Error("fixture close failed"); };
+  await assert.rejects(f.create(), /CREATION_CLEANUP_FAILED/);
+  const record = f.backend.auxiliaryTabs.entry(100);
+  assert.equal(record.phase, "quarantined"); assert.equal(f.backend.auxiliaryTabs.owner(100), undefined);
+  f.chrome.tabs.remove = remove;
+  await f.backend.releaseAuxiliaryClaim(record);
+  assert.equal(f.backend.auxiliaryTabs.entry(100), undefined);
+  assert.equal(f.tabs.has(100), false);
+});
+
+for (const takeover of ["activate-back", "move", "navigate-back"]) test(`failed close continues observing ${takeover} before cleanup retry`, async t => {
+  const f = await ordinary(t, { dissolve: false }), remove = f.chrome.tabs.remove;
+  f.hooks.updateGroup = async () => { throw new Error("fixture update failure"); };
+  f.chrome.tabs.remove = async () => { throw new Error("fixture close failed"); };
+  await assert.rejects(f.create(), /CREATION_CLEANUP_FAILED/);
+  const record = f.backend.auxiliaryTabs.entry(100);
+  if (takeover === "activate-back") {
+    f.tabs.get(100).active = true; f.chrome.tabs.onActivated.emit({ tabId: 100, windowId: 1 }); f.tabs.get(100).active = false;
+  } else if (takeover === "move") f.chrome.tabs.onMoved.emit(100, { windowId: 1, fromIndex: 1, toIndex: 2 });
+  else { f.chrome.tabs.onUpdated.emit(100, { url: "https://fixture.test/taken" }); f.chrome.tabs.onUpdated.emit(100, { url: "about:blank" }); }
+  f.chrome.tabs.remove = remove;
+  await f.backend.releaseAuxiliaryClaim(record);
+  assert.equal(f.tabs.has(100), true); assert.equal(f.backend.auxiliaryTabs.entry(100), undefined);
+  assert.equal((await f.backend.getTabs(f.params)).some(tab => tab.id === 100), false);
+  delete f.hooks.updateGroup;
+  const next = await f.create();
+  assert.equal(next.id, 101); assert.equal(f.tabs.has(100), true);
+});
+
+test("ordinary ownership survives worker recovery while old epoch and replacement browser IDs remain fenced", async t => {
+  const f = await ordinary(t), tab = await f.create();
+  await f.backend.attach(f.scope(tab.id));
+  for (const event of f.events) event.clear();
+  // Simulate a worker dying between durable membership and local visual-mode
+  // persistence: exact membership still wins over that stale group metadata.
+  f.local.OPEN_BROWSER_USE_SESSION_STATE.sessions.task.ungrouped = false;
+  f.local.OPEN_BROWSER_USE_SESSION_STATE.sessions.task.chromeGroupId = 999;
+  const restarted = new f.Backend(); await restarted.controlReady;
+  await assert.rejects(restarted.attach(f.scope(tab.id)), /STALE_CONTROL_EPOCH|BOOTSTRAP_REQUIRED/);
+  const scope = f.fresh(f.scope(tab.id), await restarted.getControlState({ session_id: "task" }));
+  assert.ok((await restarted.getTabs(scope)).some(value => value.id === tab.id));
+  await restarted.attach(scope); await restarted.detach(scope);
+  for (const key of Object.keys(f.session)) delete f.session[key];
+  for (const event of f.events) event.clear();
+  const replacement = new f.Backend(); await replacement.controlReady;
+  const fresh = f.fresh(scope, await replacement.getControlState({ session_id: "task" }));
+  await assert.rejects(replacement.attach(fresh), unavailable);
+  assert.equal(f.tabs.has(tab.id), true);
+});
+
+async function excludedCreation(t, { failExclusionWrite = false } = {}) {
+  const f = await ordinary(t, { dissolve: false });
+  await f.create(); // An already accepted page keeps G; only the second is denied.
+  f.hooks.updateGroup = async () => {
+    f.chrome.tabs.onActivated.emit({ tabId: 101, windowId: 1 });
+    throw new Error("fixture failed admission after takeover");
+  };
+  if (failExclusionWrite) f.hooks.write = async (area, value) => {
+    if (area === "session" && value[AUX_KEY]?.records.some(record => record.phase === "excluded")) throw new Error("fixture exclusion write failed");
+  };
+  await assert.rejects(f.create(), failExclusionWrite ? /CREATION_CLEANUP_FAILED/ : /fixture failed admission|CREATION_REVOKED/);
+  delete f.hooks.updateGroup;
+  return f;
+}
+
+test("a failed creation taken over inside an existing group remains excluded through Pause and worker recovery", async t => {
+  const f = await excludedCreation(t), record = f.backend.auxiliaryTabs.entry(101);
+  assert.equal(record.phase, "excluded"); assert.equal(record.excludedGroupId, 30); assert.equal(record.origin, "user");
+  assert.equal(f.backend.store.state.sessions.task.chromeGroupId, 30);
+  assert.deepEqual(Array.from(await f.backend.getTabs(f.params), tab => tab.id), [100]);
+  await assert.rejects(f.backend.attach(f.scope(101)), unavailable);
+  const paused = await f.backend.pauseAutomation(); await f.backend.resumeAutomation(paused.revision);
+  assert.equal(f.backend.auxiliaryTabs.entry(101).phase, "excluded");
+  for (const event of f.events) event.clear();
+  const restarted = new f.Backend(); await restarted.controlReady;
+  const scope = f.fresh(f.scope(101), await restarted.getControlState({ session_id: "task" }));
+  assert.deepEqual(Array.from(await restarted.getTabs(scope), tab => tab.id), [100]);
+  await assert.rejects(restarted.attach(scope), unavailable);
+  await assert.rejects(restarted.claimUserTab({ ...f.foreign, tabId: 101 }), /CLAIM_CONFLICT/);
+  await restarted.claimUserTab(scope);
+  assert.equal(restarted.auxiliaryTabs.entry(101), undefined);
+  assert.equal(restarted.store.state.sessions.task.tabOrigins[101], "user");
+  await restarted.finalizeTabs({ ...scope, keep: [] });
+  assert.equal(f.tabs.has(100), false); assert.equal(f.tabs.has(101), true);
+  assert.equal(f.tabs.get(101).groupId, -1);
+});
+
+test("a failed exclusion write recovers its earlier agent quarantine without restoring implicit group authority", async t => {
+  const f = await excludedCreation(t, { failExclusionWrite: true });
+  await f.backend.auxiliaryTabs.writes.catch(() => {});
+  const persisted = f.session[AUX_KEY].records.find(record => record.tabId === 101);
+  assert.equal(persisted.origin, "agent"); assert.equal(persisted.phase, "quarantined");
+  delete f.hooks.write;
+  for (const event of f.events) event.clear();
+  const restarted = new f.Backend(); await restarted.controlReady;
+  const scope = f.fresh(f.scope(101), await restarted.getControlState({ session_id: "task" }));
+  assert.equal(restarted.auxiliaryTabs.entry(101).phase, "excluded");
+  assert.deepEqual(Array.from(await restarted.getTabs(scope), tab => tab.id), [100]);
+  const paused = await restarted.pauseAutomation(); await restarted.resumeAutomation(paused.revision);
+  assert.equal(restarted.auxiliaryTabs.entry(101).phase, "excluded");
+  assert.equal(f.tabs.has(101), true);
+  assert.equal(f.calls.some(([name, ids]) => name === "remove" && ids.includes(101)), false);
+});
+
+test("same-group notifications cannot erase exclusion; verified group departure can release it", async t => {
+  const f = await excludedCreation(t);
+  f.chrome.tabs.onUpdated.emit(101, { groupId: 30 });
+  await Promise.allSettled([...f.backend.auxiliaryReleases.values()]);
+  assert.equal(f.backend.auxiliaryTabs.entry(101).phase, "excluded");
+  f.tabs.get(101).groupId = -1;
+  f.chrome.tabs.onUpdated.emit(101, { groupId: -1 });
+  await Promise.allSettled([...f.backend.auxiliaryReleases.values()]);
+  assert.equal(f.backend.auxiliaryTabs.entry(101), undefined); assert.equal(f.tabs.has(101), true);
+  await f.backend.claimUserTab(f.scope(101));
+  assert.equal(f.backend.store.state.sessions.task.tabOrigins[101], "user");
+  await f.backend.finalizeTabs({ ...f.params, keep: [] });
+  assert.equal(f.tabs.has(101), true);
+});
+
+test("cleanup retry after takeover inside an existing group saves a denial instead of re-authorizing or closing", async t => {
+  const f = await ordinary(t, { dissolve: false }); await f.create();
+  const remove = f.chrome.tabs.remove;
+  f.hooks.updateGroup = async () => { throw new Error("fixture failed admission"); };
+  f.chrome.tabs.remove = async () => { throw new Error("fixture close failed"); };
+  await assert.rejects(f.create(), /CREATION_CLEANUP_FAILED/);
+  const record = f.backend.auxiliaryTabs.entry(101);
+  assert.equal(record.phase, "quarantined");
+  f.chrome.tabs.onActivated.emit({ tabId: 101, windowId: 1 });
+  f.chrome.tabs.remove = remove;
+  await f.backend.releaseAuxiliaryClaim(record);
+  assert.equal(record.phase, "excluded"); assert.equal(f.tabs.has(101), true);
+  assert.deepEqual(Array.from(await f.backend.getTabs(f.params), tab => tab.id), [100]);
+});
+

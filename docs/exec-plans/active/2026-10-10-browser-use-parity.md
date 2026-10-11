@@ -1398,3 +1398,76 @@ Go全包通过；默认 `run-ewJVHf` **104/104**、终端exit0，独立严格核
 六激活/四focus精确对应既有fixture，无新豁免。Brave `eF73Op` 与 Opera
 `b2zz2L` 的原生通过/失败报告独立复核，未把后者改写通过。原ZIP保持
 1,255,479字节/47文件及cef6706a… SHA；无推送、PR或日常安装变更。
+
+### 品牌后台动作兼容：原生命令诊断与修复
+
+上一片 `6c31505` 为实际进展；本片从干净工作树继续，优先修复已经真实失败
+的后台能力，不把连接/发现通过当作完整品牌支持。先增加显式opt-in诊断：
+只在独立测试制品中透明记录原生API开始/完成/错误及被动tab/group事件，
+保留调用receiver、参数和原Promise，不重放、激活或改变输入。记录有界，
+溢出/未知或不完整写出必须保留；诊断运行不得冒充原生产验收。
+
+Opera先确定group创建/消失/update顺序，再修正常单页任务支持与创建失败后
+未交付页面的所有权清理。Vivaldi分开验证attach初始化、navigate与输入目标，
+记录真实GET和输入前后状态；对路由假设要求原生命令和DOM共同证据。生产
+变更需确定性边界回归、实际对应品牌后台任务及既有默认套件，完整P01–P15
+范围不缩减。root唯一启动浏览器，其他Agent并行只读审查及局部代码实现。
+
+显式诊断首轮 Opera `BnR9eF` 在 worker module 执行前读取初始快照，整体
+诊断不完整；原失败保留。初始读取已移到原有 native getInfo 握手与身份
+校验之后，没有添加轮询或任务输入。新定向回归 **34/34** 通过。
+`pmcGIj` 完整诊断再次确认：tabs.group 成功，随后 groupId=-1/onRemoved，
+再调用 tabGroups.update 时失败。事件只证明顺序，不提供解组原因。
+真实任务仍失败；诊断 exit0 只表示记录和严格清理完整，passed 恒为 false。
+
+Vivaldi stable `6TvJ0U` 的真实 debugger.attach 和 Target.getTargetInfo 成功，
+随后九条 renderer 初始化命令直至最后快照仍未结算；无 Page.navigate、
+无 Input 命令，GET/POST 均为零。不能把这轮归因为导航或键盘路由。
+官方签名 snapshot 8.3.4185.3 的 `l5U4my` 在安装前 manager 求值超时，
+未到扩展/native/task，不能比较新版分组或输入。它使用 stable catalogue
+的隔离目录覆盖，不证明 snapshot 默认目录发现。私有浏览器与随机注册
+实际已清理，但从未启动 host，不满足完整 native EOF 诊断条件。
+
+下一步生产改动限定为普通无组任务页和新建事务：复用已有显式 auxiliary
+registry，保留现有 grouped 权限语义，仅在新页或明确 claim 的 admission
+确认本次短命组消失后选择无组模式。既有 grouped 页的后续解组仍撤权，不自动
+转换。agent/user 来源决定关闭或释放；handoff 和实际无组 deliverable 保留
+页面并结束旧控制，不能写失效组 ID。创建途中失败或控制结束必须收口
+原始调用与自己仍拥有的页；未知接管状态不自动关闭。SDK/RPC 不扩展。
+
+增加显式 `OBU_TEST_NATIVE_OWNERSHIP=1` 原生验收：在默认单页流程后，
+通过两个公开 SDK session 核多页互斥、handoff、显式新 turn 恢复、agent
+来源不降级、遗漏页实际关闭及 deliverable 在新 scope 中仍无权。要求四次
+真实 GET、五次原始 POST、连续零前台变化和精确清理；默认流程与诊断
+判定不变。定向脚手架测试 39/39。生产独立审查另补失败清理重试后的
+持续接管识别，及已存在任务组内保留失败页的精确撤权，随后再冻结实测。
+
+生产最终以同一 registry 的 v2 `excluded` 记录保存原组拒绝归属，Pause、
+end 与 worker 恢复保留；旧 agent quarantine 写失败恢复也不删除锁重授。
+明确同 session claim 按 user 接管，确认真实离组或销毁才退休。扩展
+**806/806**、独立定向 **76/76**；完整CI **1,001 Node（806+53+142）**、
+JS115、Python82、Go全包通过。恢复原四图标后新生产ZIP为1,260,454字节、
+47文件，SHA `6ff5c281ad7769750abc66ffde203995a482cd60c5caf1fdfed3bd4e3a7ed5b3`。
+
+冻结 v15 后真实 Opera `7IDBb7`、Brave `vC2mkf` 均完整通过新多页验收及
+独立审计：标准12步+ownership35步、每轮四GET/五POST、跨scope拒绝、
+handoff/恢复、遗漏agent页实际关闭、交付页新scope明确unowned。Opera
+三页实际无组，Brave实际原生分组；每轮十个连续检查点零激活/focus/豁免。
+原生/browser retained-handle exit0、精确进程和随机注册完整清理，真实
+PNG已查看。369源码/210旧结果与ZIP逐成员一致，没有改写旧失败。
+
+Vivaldi `b9p876` 完成安装/native/selector，却在独立焦点观察页首次求值
+20,003ms超时；task不存在、GET/POST零、没有焦点账本。实际host/browser
+exit0且清理完成，保留准备阶段失败，不称任务回归。默认主 `run-5TPsWz`
+**104/104**、terminal exit0。最终独立审计核 369 源码/210 旧结果、新 ZIP
+全部 47 成员与实际 staged 文件、host/六调用器身份一致；15 研究任务的
+90 来源 GET、15 POST、75建60关15留及原六激活/四focus精确归因均通过，
+没有新增豁免。ignored 审计前两轮因误用结果哈希字段而停止，原日志和脚本
+版本保留；修正为逐个实际静态文件及已有 HTML hash 后通过，未更改运行
+证据或生产源码。仅本地提交，不推送、不提 PR。
+
+下一片继续 Vivaldi 后台 renderer readiness/输入问题：先用单变量诊断
+区分 vendor 创建 tab 的初始文档尚未就绪与真正挂起，同一 deadline 内
+实读目标身份和状态，不增加激活、隐式重复输入或以等待掩盖失败。完整
+parity 目标保持 active；Edge 原生 focus、popup 初始激活、更多平台和
+同组任务比较等既有缺口仍按矩阵保留。

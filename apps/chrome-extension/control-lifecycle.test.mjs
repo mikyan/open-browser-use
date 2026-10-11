@@ -258,6 +258,7 @@ test("accepted tab creation is drained before finalization disposition", async (
   env.chrome.windows = { async getAll() { return [{ id: 1, type: "normal" }]; } };
   env.chrome.tabGroups.get = async id => ({ id });
   env.chrome.tabs.create = async () => { await gate.promise; const tab = { id: 8, groupId: -1, windowId: 1 }; env.tabs.set(8, tab); return tab; };
+  env.chrome.tabs.get = async id => { if (!env.tabs.has(id)) throw new Error(`No tab with id: ${id}`); return env.tabs.get(id); };
   env.chrome.tabs.group = async ({ tabIds, groupId }) => { for (const id of [tabIds].flat()) env.tabs.get(id).groupId = groupId; return groupId; };
   const creating = assert.rejects(backend.createTab(params("late-create")), /OBU_TURN_ENDED/);
   await tick();

@@ -233,3 +233,89 @@ test("cancel during initial storage read cannot revive the cancelled reservation
   await assert.rejects(commit(store, reservation), /CLAIM_EXPIRED/);
   assert.equal(store.owner(7)?.claimId, "claim-7", "pre-existing membership survives; the old claim operation does not");
 });
+
+test("version two records preserve exact popup migration and ordinary agent/user identity", async () => {
+  const legacy = environment({ initial: { version: 1, records: [persisted()] } }); await legacy.store.ready;
+  assert.equal(legacy.store.owner(7).kind, "popup"); assert.equal(legacy.disk[KEY].version, 2);
+  for (const origin of ["agent", "user"]) {
+    const f = environment({ initial: { version: 2, records: [persisted(7, { kind: "ordinary", origin })] } }); await f.store.ready;
+    assert.equal(f.store.owner(7).origin, origin);
+    assert.equal(f.store.reserve(params()).origin, origin, "An explicit repeat claim cannot change the original disposition");
+  }
+  for (const record of [persisted(7, { kind: "unexpected" }), persisted(7, { kind: "popup", origin: "agent" }), persisted(7, { kind: "ordinary", extraAuthority: true })]) {
+    const f = environment({ initial: { version: 2, records: [record] } }); await assert.rejects(f.store.ready, /STATE_INVALID/);
+  }
+  const disguisedLegacy = environment({ initial: { version: 1, records: [persisted(7, { kind: "ordinary" })] } });
+  await assert.rejects(disguisedLegacy.store.ready, /STATE_INVALID/);
+});
+
+test("creation reserves capacity before native work and binds only its returned tab identity", async () => {
+  const f = environment({ maxRecords: 1 });
+  assert.throws(() => f.store.reserveCreation(params()), /completed ownership recovery/);
+  await f.store.ready;
+  const record = f.store.reserveCreation(params());
+  assert.equal(record.tabId, null); assert.equal(f.store.owner(7), undefined);
+  assert.throws(() => f.store.reserve(params()), /CAPACITY/);
+  let drained = false; const drain = Promise.all(f.store.controlSnapshot().pending).then(() => { drained = true; });
+  await Promise.resolve(); assert.equal(drained, false);
+  await f.store.bindCreated(record, { id: 42, windowId: 10 });
+  assert.equal(f.store.entry(42), record); assert.equal(f.store.owner(42), undefined);
+  assert.equal(f.disk[KEY].records[0].phase, "pending"); assert.equal(f.disk[KEY].records[0].origin, "agent");
+  await commit(f.store, record); await drain;
+  assert.equal(f.store.owner(42), record); assert.equal(record.kind, "ordinary");
+  await f.store.remove(record);
+});
+
+test("cancelled native creation keeps its slot until actual binding and cleanup", async () => {
+  const f = environment({ maxRecords: 1 }); await f.store.ready;
+  const record = f.store.reserveCreation(params()); f.store.cancelPending("task");
+  assert.equal(await f.store.remove(record), false);
+  assert.throws(() => f.store.reserveCreation(params()), /CAPACITY/);
+  await assert.rejects(f.store.bindCreated(record, { id: 42, windowId: 10 }), /CLAIM_EXPIRED/);
+  assert.equal(f.store.entry(42).phase, "quarantined"); assert.equal(f.store.owner(42), undefined);
+  await assert.rejects(f.store.remove(record, { cleanup: async () => { throw new Error("native close failed"); } }), /native close failed/);
+  assert.throws(() => f.store.reserveCreation(params()), /CAPACITY/);
+  await f.store.remove(record); assert.equal(f.store.entries().length, 0);
+});
+
+test("interrupted agent pending is quarantined across recovery rather than lost or automatically owned", async () => {
+  const f = environment({ initial: { version: 2, records: [persisted(7, { kind: "ordinary", origin: "agent", phase: "pending" }), persisted(8, { kind: "popup", phase: "pending" })] } });
+  await f.store.ready;
+  assert.equal(f.store.entry(7).phase, "quarantined"); assert.equal(f.store.owner(7), undefined);
+  assert.equal(f.store.entry(8), undefined); assert.equal(f.disk[KEY].records.length, 1);
+  assert.throws(() => f.store.reserve(params(7, "other")), /CLAIM_CONFLICT/);
+  assert.throws(() => f.store.reserve(params()), /CLEANUP_REQUIRED/);
+});
+
+test("excluded ordinary pages remain non-owners through release and recovery with strict persisted identity", async () => {
+  const record = persisted(7, { kind: "ordinary", phase: "excluded", excludedGroupId: 30 });
+  const { store, disk } = environment({ initial: { version: 2, records: [record] } }); await store.ready;
+  const entry = store.entry(7);
+  assert.equal(store.owner(7), undefined); store.cancelPending();
+  assert.equal(await store.remove(entry), false);
+  assert.equal(entry.phase, "excluded"); assert.equal(disk[KEY].records[0].excludedGroupId, 30);
+  const claimed = store.reserve(params(7, "task", { turn_id: "later", control_epoch: 9 }));
+  assert.equal(claimed, entry); assert.equal(claimed.origin, "user"); assert.equal(claimed.control_epoch, 9);
+  assert.throws(() => store.reserve(params(7, "foreign")), /CLAIM_CONFLICT/);
+  await store.remove(entry, { releaseExcluded: true }); assert.equal(store.entry(7), undefined);
+  for (const invalidRecord of [
+    { ...record, origin: "agent" }, { ...record, kind: "popup" }, { ...record, excludedGroupId: -1 },
+    { ...record, excludedGroupId: undefined }, { ...record, phase: "quarantined" }
+  ]) await assert.rejects(environment({ initial: { version: 2, records: [invalidRecord] } }).store.ready, /STATE_INVALID/);
+  await assert.rejects(environment({ initial: { version: 1, records: [record] } }).store.ready, /STATE_INVALID/);
+});
+
+test("failed exclusion persistence keeps capacity and retries the same denial without granting membership", async () => {
+  let fail = true;
+  const { store, disk } = environment({ maxRecords: 1, write: async value => {
+    if (fail && value.records[0]?.phase === "excluded") throw new Error("fixture exclusion write failed");
+  } }); await store.ready;
+  const entry = store.reserveCreation(params()); await store.bindCreated(entry, { id: 7, windowId: 10 });
+  await assert.rejects(store.exclude(entry, 30), /fixture exclusion write failed/);
+  assert.equal(store.owner(7), undefined); assert.equal(entry.phase, "excluded");
+  assert.throws(() => store.reserve(params()), /CLEANUP_REQUIRED/);
+  assert.throws(() => store.reserve(params(8)), /CAPACITY/);
+  assert.equal(await store.remove(entry), false);
+  fail = false; await store.exclude(entry, 30);
+  assert.equal(store.reserve(params()), entry); assert.equal(disk[KEY].records[0].phase, "excluded");
+});

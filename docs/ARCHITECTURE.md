@@ -283,14 +283,20 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `getInfo.metadata.auxiliaryTabsVersion=1` 表示显式 popup claim 保留原窗口。
   `auxiliary-tab-ownership.js` 在 trusted-context `chrome.storage.session`
   保存有界归属与隔离锁，普通动作、target、通知和 transfer 共用成员检查。
-  结束/暂停释放控制但保留已提交归属；handoff 保留窗口，finalize 遗漏则释放
-  归属而不关闭页面；auxiliary deliverable 在修改前拒绝。用户移走 popup
+  结束/暂停释放控制但保留已提交归属；popup handoff 保留窗口，finalize 遗漏
+  popup 则释放归属而不关闭页面；popup deliverable 在修改前拒绝。用户移走 popup
   会隔离旧归属，清理成功前禁止新 owner。完整浏览器重启需重新显式 claim，
-  详见 [popup ownership](references/popup-ownership-design.md)。
+  详见 [popup ownership](references/popup-ownership-design.md)。同一 registry 的
+  v2 内部记录还支持普通无组任务页：只有新页或显式 claim 的 admission
+  确认本次新单页组已消失时选择，既有 grouped 页解组不会自动转换。
+  新页事务在原生创建前预留容量，以实际返回 ID 绑定归属，原 scope/revision
+  贯穿结果与失败清理；用户接管后保留页面。普通页按 agent/user 来源关闭
+  或释放，handoff 保留归属，无组 deliverable 保留实际页面并撤权，详见
+  [ungrouped task tabs](references/ungrouped-task-tabs.md)。
   新 session 的默认任务组名是 `Task - OBU`，上层 runtime 应通过
   `nameSession`/`name-session` 按 `<short task> - OBU` 设置更具体的任务名；
-  `deliverable` tabs 统一移动到共享 `✅ Open Browser Use` tab group，`handoff`
-  tabs 保留在当前任务组。`moveToDeliverables` 只复用当前 incarnation 为该
+  grouped `deliverable` tabs 移动到共享 `✅ Open Browser Use` tab group，`handoff`
+  tabs 保留当前归属。`moveToDeliverables` 只复用当前 incarnation 为该
   `windowId` 记录的交付分组；记录不存在或原组已消失时新建。浏览器恢复的旧组
   和用户创建的同名组不因标题匹配获得归属，也不会自动被合并或改名。
   `turnEnded` and `finalizeTabs` clear active session state when control ends

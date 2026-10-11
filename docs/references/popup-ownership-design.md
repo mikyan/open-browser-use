@@ -8,6 +8,11 @@ full browser/extension restart are still outside the verified boundary. The
 existing public `claimUserTab` API is retained;
 `getInfo.metadata.auxiliaryTabsVersion` advertises version 1.
 
+The registry is also used by the later [ordinary ungrouped task-page
+compatibility path](ungrouped-task-tabs.md). That path has distinct agent/user
+origins and creation cleanup. The popup-specific behavior and historical
+acceptance below are not evidence that the new ordinary-page path passed.
+
 ## What is established
 
 Production disables Playwright CRX's implicit popup attachment. An unclaimed
@@ -85,11 +90,14 @@ should not be promoted into production retries.
 
 ## Implemented ownership boundary
 
-Ordinary task tabs remain in their Chrome group. When explicit `claimUserTab`
+Ordinary task tabs use native groups by default, with the later explicit
+[ungrouped admission path](ungrouped-task-tabs.md) as a compatibility exception.
+When explicit `claimUserTab`
 targets a group-less tab in `window.type === 'popup'`, the backend records an
 auxiliary owner and preserves that window. It does not infer ownership from URL,
 opener, timing or `tabs.onCreated`. Normal-window claims retain the group-based
-path. This feature neither creates a popup nor changes native `window.open`.
+path by default, subject to the linked ungrouped admission exception. This popup
+feature neither creates a popup nor changes native `window.open`.
 
 `apps/chrome-extension/auxiliary-tab-ownership.js` owns the reverse tab index,
 per-tab serialization and durable state. A record contains opaque `claimId`,
@@ -154,8 +162,9 @@ Other operations on that tab wait for the corresponding queue/write. A failure
 quarantines the exact identity; only successful cleanup and durable removal free
 the reverse lock. Quarantine is itself persisted, including when removal has not
 started. Cleanup can release native input while that storage write is pending,
-but deletion cannot overtake it. Recovered pending records are dropped, recovered
-quarantine stays blocked, and malformed/unreadable storage fails closed.
+but deletion cannot overtake it. Recovered pending user claims are dropped;
+version 2 pending agent creations remain quarantined for explicit recovery.
+Recovered quarantine stays blocked, and malformed/unreadable storage fails closed.
 
 If Pause/end wins before that commit point, the claim is cancelled. If claim
 commits first, Pause/end includes it in cancellation and release even if its

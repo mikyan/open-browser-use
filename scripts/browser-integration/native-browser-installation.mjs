@@ -15,6 +15,8 @@ import { FocusLedger, focusSnapshotExpression, readFocusEvidence } from "./focus
 import { stageReloadObserver } from "./extension-reload-support.mjs";
 import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeRegistrationSource, nativeWatchSource } from "./native-lifecycle-support.mjs";
 import { decodeParallelPNG } from "./background-parallel-workflow.mjs";
+import { nativeDiagnosticsEnabled, nativeDiagnosticPrelude, nativeDiagnosticResult, nativeDiagnosticTraceComplete } from "./native-api-diagnostics.mjs";
+import { nativeOwnershipEnabled, runNativeOwnershipWorkflow } from "./native-ownership-workflow.mjs";
 
 const brands = Object.freeze({
   brave: { label: "Brave", about: "brave://version/", manager: "brave://extensions/", base: "LOCALAPPDATA", relative: "BraveSoftware/Brave-Browser/User Data", product: /brave/i, publisher: /Brave Software/i },
@@ -302,13 +304,16 @@ export function checkLoadedSentinel(created, loaded, requestedURL) {
   assert.equal(loaded.active, true); assert.equal(loaded.groupId, created.groupId); assert.equal(loaded.pinned, created.pinned);
   return loaded;
 }
-export function nativeBrowserInstallationPassed(report) {
-  return !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
-    report.focus?.passed === true && report.finalInventory?.passed === true && report.eof?.result?.exitCode === 0 &&
+export function nativeBrowserInstallationCleaned(report) {
+  return report.eof?.result?.exitCode === 0 &&
     report.eof?.result?.exactHandle === true && report.browserExit?.result?.exitCode === 0 && report.browserExit?.result?.exactHandle === true &&
     report.launcherExit?.code === 0 && !report.launcherExit.signal && !report.launcherError && report.cleanup?.browserProcessesGone === true && report.cleanup?.nativeProcessesGone === true &&
     report.cleanup?.endpointUnreachable === true && report.cleanup?.descriptorsClean === true && report.cleanup?.fixedRegistrationUnchanged === true &&
     report.cleanup?.registration?.removed === true && report.cleanup?.forced !== true && !report.cleanup?.errors?.length;
+}
+export function nativeBrowserInstallationPassed(report) {
+  return report.mode !== "native-api-diagnostic" && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
+    (report.ownershipRequested !== true || report.ownership?.passed === true) && report.focus?.passed === true && report.finalInventory?.passed === true && nativeBrowserInstallationCleaned(report);
 }
 
 // Fixed production leaves are read only, in both registry views. The returned
@@ -326,6 +331,9 @@ $records=@(); foreach($view in @([Microsoft.Win32.RegistryView]::Registry32,[Mic
 async function main() {
   assert.equal(process.platform, "win32", "Native browser installation acceptance currently supports Windows only");
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const diagnosticsEnabled = nativeDiagnosticsEnabled(process.env.OBU_TEST_NATIVE_DIAGNOSTICS);
+  const ownershipEnabled = nativeOwnershipEnabled(process.env.OBU_TEST_NATIVE_OWNERSHIP);
+  const recordTaskRequests = diagnosticsEnabled || ownershipEnabled;
   const name = process.env.OBU_TEST_NATIVE_BROWSER;
   assert.ok(Object.hasOwn(brands, name), "Set OBU_TEST_NATIVE_BROWSER to brave, opera or vivaldi");
   assert.ok(process.env.OBU_TEST_CHROMIUM_BINARY && process.env.OBU_TEST_HOST_BINARY, "Set OBU_TEST_CHROMIUM_BINARY and OBU_TEST_HOST_BINARY");
@@ -336,18 +344,38 @@ async function main() {
   const env = { ...process.env, TEMP: path.join(runDir, "temp"), TMP: path.join(runDir, "temp"), LOCALAPPDATA: path.join(runDir, "local"), APPDATA: path.join(runDir, "roaming"), USERPROFILE: path.join(runDir, "home"), HOME: path.join(runDir, "home") };
   const plan = nativeBrowserPlan(name, env), profile = plan.profileRoot;
   for (const directory of [env.TEMP, env.LOCALAPPDATA, env.APPDATA, env.USERPROFILE, profile]) await fs.mkdir(directory, { recursive: true });
-  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false,
+  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
     scope: "Actual signed Windows brand; native manifest export plus unique Google HKCU fixture registration; real connectNative launcher, catalogue/profile selectors and one JS SDK background task. Production fixed-leaf installer, other OS, browser restart/update and complete brand parity are not claimed.",
     helperPolicy: "Windows PowerShell 5.1 helpers use their own PSHOME/Modules only, with UTF-8 stdout/stderr; environment change is local to each helper child",
     focus: { allowedActivations: [], allowedFocus: [] }, cli: [], inventories: [], cleanup: { errors: [] } };
+  if (diagnosticsEnabled) report.diagnostics = { enabled: true, snapshots: [], errors: [], boundary: "Opt-in staged-worker native API and selected passive-event observations only. Original task/focus/receipt failures remain failures; diagnostic completion never implies acceptance. Pending command outcomes and truncated payload values remain unknown; no retry, activation, input replacement, or private production-map reads." };
+  if (ownershipEnabled) { report.ownershipRequested = true; report.ownership = { enabled: true, passed: false }; }
   const save = (file, value) => fs.writeFile(path.join(runDir, file), JSON.stringify(value, null, 2));
-  const checkpoint = async () => { await save("results.json", report); };
-  console.log("HARNESS", JSON.stringify({ runDir, name, profileRoot: profile }));
+  const checkpoint = async () => { await Promise.all([save("results.json", report), ...(recordTaskRequests ? [save("task-requests.json", taskRequests)] : []), ...(ownershipEnabled ? [save("ownership.json", report.ownership)] : [])]); };
+  console.log("HARNESS", JSON.stringify({ runDir, name, profileRoot: profile, mode: report.mode }));
   const helpers = new Set(), connections = new Set(), browserLogs = [], posts = [];
+  const taskRequests = { maximumRecords: 128, overflow: false, dropped: 0, requests: [] };
+  let diagnosticInitial, diagnosticFinal;
   let child, childExit, control, manager, observer, worker, companion, extensionId, endpoint, nativeExecutable, browserPid, debugPort, owner, fixedBefore, registryAttempted = false;
   const host = path.join(runDir, "native-host.exe"), extension = path.join(runDir, "extension"), sdk = path.join(runDir, "js-sdk");
   const endpointDirectory = path.join(env.TEMP, "open-browser-use"), endpointFile = path.join(endpointDirectory, "active.json"), registryScript = path.join(runDir, "registry.ps1");
   const nativeName = `com.openbrowseruse.lifecycle.n${randomBytes(12).toString("hex")}`, ledger = new FocusLedger();
+  async function captureNativeDiagnostics(label) {
+    if (!diagnosticsEnabled) return;
+    const record = { label, requestedAt: Date.now() }; report.diagnostics.snapshots.push(record);
+    try {
+      assert.ok(worker, "No same-worker CDP connection available for diagnostic snapshot");
+      // Read the observer in the worker, never via an SDK action on the task tab.
+      const snapshot = await worker.evaluate("globalThis.__obuNativeAPIDiagnostics?.snapshot()");
+      assert.equal(snapshot?.version, 1, "Native diagnostic controller missing or invalid");
+      const bytes = JSON.stringify(snapshot, null, 2), file = `native-api-diagnostics-${label}.json`;
+      await fs.writeFile(path.join(runDir, file), bytes);
+      Object.assign(record, { completedAt: Date.now(), file, bytes: Buffer.byteLength(bytes), sha256: digest(bytes), bootId: snapshot.bootId, nextSequence: snapshot.nextSequence, overflow: snapshot.overflow, dropped: snapshot.dropped, pending: snapshot.pending });
+      if (label === "native-connected") diagnosticInitial = snapshot;
+      if (label === "before-browser-close") diagnosticFinal = snapshot;
+    } catch (error) { record.error = error.stack ?? String(error); report.diagnostics.errors.push({ label, error: record.error }); }
+    await checkpoint();
+  }
   async function until(read, label, timeout = 25000) {
     const end = Date.now() + timeout; let last;
     do { try { const value = await read(); if (value) return value; } catch (error) { last = error; } await delay(75); } while (Date.now() < end);
@@ -461,6 +489,10 @@ async function main() {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
     if (url.pathname !== "/task") { response.end('<!doctype html><title>OBU foreground sentinel</title><h1>Foreground sentinel</h1>'); return; }
     const nonce = url.searchParams.get("nonce"); if (!/^[a-f0-9]{24}$/.test(nonce ?? "")) { response.writeHead(400); response.end(); return; }
+    if (recordTaskRequests) {
+      if (taskRequests.requests.length < taskRequests.maximumRecords) taskRequests.requests.push({ sequence: taskRequests.requests.length, at: Date.now(), method: request.method, url: request.url, nonce });
+      else { taskRequests.overflow = true; taskRequests.dropped++; }
+    }
     const rgb = [...Buffer.from(nonce.slice(0, 6), "hex")];
     response.end(`<!doctype html><meta charset="utf-8"><title>Native browser task ${nonce}</title><style>body{font:20px system-ui;margin:70px 30px}#marker{position:fixed;left:8px;top:8px;width:40px;height:40px;background:rgb(${rgb.join(",")})}input,button{font:inherit;padding:12px}</style><div id="marker"></div><h1>Native browser task</h1><p id="nonce">${nonce}</p><label>Delivery note<input id="note"></label><button id="submit">Submit note</button><pre id="receipt"></pre><script>globalThis.submissions=[];const inputEvents=[];globalThis.__nativeTaskInputEvents=inputEvents;let inputOverflow=false;for(const type of ['input','change'])document.querySelector('#note').addEventListener(type,event=>{if(inputEvents.length>=64){inputOverflow=true;return}inputEvents.push({type,trusted:event.isTrusted,value:event.target.value})});document.querySelector('#submit').onclick=async event=>{const value={nonce:${JSON.stringify(nonce)},note:document.querySelector('#note').value,trusted:event.isTrusted,inputEvents:inputEvents.map(value=>({...value})),inputOverflow};submissions.push(value);const result=await fetch('/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).then(r=>r.json());document.querySelector('#receipt').textContent=JSON.stringify(result)};</script>`);
   });
@@ -468,16 +500,19 @@ async function main() {
     fixedBefore = await fixedRegistration(); report.fixedRegistrationBefore = fixedBefore;
     await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), sdk, { recursive: true });
     report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).stdout.trim(), host: digest(await fs.readFile(host)), harness: digest(await fs.readFile(fileURLToPath(import.meta.url))), jsSDK: await hashes(sdk), dependencies: {} };
-    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
+    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
     report.identity = { suppliedExecutable: await executableIdentity(binary) }; await checkpoint();
     await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
     const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), nativeConstant = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
     assert.equal(background.split(nativeConstant).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
-    await fs.writeFile(backgroundFile, background.replace(nativeConstant, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
+    const prelude = diagnosticsEnabled ? nativeDiagnosticPrelude() : "";
+    await fs.writeFile(backgroundFile, prelude + background.replace(nativeConstant, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
+    if (diagnosticsEnabled) report.diagnostics.staging = { file: "background.js", preludeBytes: Buffer.byteLength(prelude), preludeSHA256: digest(prelude), originalSHA256: digest(background), helperSHA256: report.sourceIdentity.dependencies["native-api-diagnostics.mjs"], reason: "Explicit OBU_TEST_NATIVE_DIAGNOSTICS=1; transparent single-invocation API trace before the staged worker body; connectNative and action implementations unchanged" };
     const manifestFile = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
     manifest.key ??= (await fs.readFile(path.join(repo, "cmd/open-browser-use/main.go"), "utf8")).match(/const betaExtensionPublicKey = "([^"]+)"/)?.[1]; assert.ok(manifest.key);
     extensionId = digest(Buffer.from(manifest.key, "base64")).slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16))); await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2));
     report.extensionId = extensionId; report.stagedExtensionHashes = await hashes(extension); report.stagingExceptions = ["random native host-name constant only; real connectNative untouched", "public unpacked extension key"];
+    if (diagnosticsEnabled) report.stagingExceptions.push("explicit diagnostic prelude in staged background.js only; original API receiver/arguments/Promise preserved; never acceptance");
     assert.deepEqual(Object.keys(report.productionExtensionHashes).filter(file => report.productionExtensionHashes[file] !== report.stagedExtensionHashes[file]).sort(), ["background.js", "manifest.json"]);
     companion = await stageReloadObserver({ directory: path.join(runDir, "observer-extension") }); report.observer = companion;
     const manifestPath = path.join(runDir, "native-host.json");
@@ -539,7 +574,15 @@ async function main() {
     const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(sdk, "index.js")));
     endpoint = await until(async () => { const value = JSON.parse(await fs.readFile(endpointFile, "utf8")); const identity = assertNativeProcessIdentity(value, await processTable(), { executable: nativeExecutable, browserPid }); const status = await worker.evaluate("chrome.storage.local.get('OPEN_BROWSER_USE_NATIVE_HOST_STATUS').then(v=>v.OPEN_BROWSER_USE_NATIVE_HOST_STATUS)"); return status?.state === "connected" && status.hostName === nativeName && { ...value, identity, status }; }, "real browser-launched native host", 45000);
     report.endpoint = endpoint; owner = await connectOpenBrowserUse({ socketPath: endpoint.socketPath, sessionId: `native-installation-${name}-${randomBytes(8).toString("hex")}`, timeoutMs: 15000 });
-    report.info = await owner.client.getInfo(); assert.equal(report.info.metadata.extensionId, extensionId); assert.ok(report.info.metadata.extensionInstanceId); await inventory("after-install");
+    report.info = await owner.client.getInfo(); assert.equal(report.info.metadata.extensionId, extensionId); assert.ok(report.info.metadata.extensionInstanceId);
+    if (diagnosticsEnabled) {
+      // A service-worker target can be advertised before its module body runs.
+      // The existing native handshake proves that body has now run; take one
+      // snapshot without retrying, resetting the trace, or adding a readiness poll.
+      report.diagnostics.initialBarrier = { at: Date.now(), evidence: "Existing connected native-host status and successful public getInfo with exact extension identity", workerTarget: report.workerTarget, nativePid: endpoint.pid, extensionInstanceId: report.info.metadata.extensionInstanceId };
+      await captureNativeDiagnostics("native-connected");
+    }
+    await inventory("after-install");
     report.discovery = {};
     const expected = { name, directory: report.identity.about.directory, extensionId, endpoint: endpoint.socketPath, instanceId: report.info.metadata.extensionInstanceId };
     report.discovery.installed = await until(async () => { const result = await cli(["profiles", "--json"]); return checkDiscoveredProfile(JSON.parse(result.stdout), expected); }, "public installed profile discovery");
@@ -569,7 +612,7 @@ async function main() {
     task.inputObservations = [];
     async function observeInput(phase) {
       const record = { phase, requestedAt: Date.now() }; task.inputObservations.push(record);
-      record.document = await step(`read input ${phase}`, () => tab.evaluate("({url:location.href,readyState:document.readyState,value:document.querySelector('#note')?.value,activeElement:{tag:document.activeElement?.localName,id:document.activeElement?.id},hasFocus:document.hasFocus(),visibility:document.visibilityState,inputEvents:globalThis.__nativeTaskInputEvents})"));
+      record.document = await step(`read input ${phase}`, () => tab.evaluate("({url:location.href,readyState:document.readyState,value:document.querySelector('#note')?.value,selectionStart:document.querySelector('#note')?.selectionStart,selectionEnd:document.querySelector('#note')?.selectionEnd,activeElement:{tag:document.activeElement?.localName,id:document.activeElement?.id},hasFocus:document.hasFocus(),visibility:document.visibilityState,inputEvents:globalThis.__nativeTaskInputEvents})"));
       record.completedAt = Date.now(); await checkpoint();
     }
     await observeInput("before-fill");
@@ -590,8 +633,17 @@ async function main() {
     task.finalizeAttemptedAt = Date.now(); task.finalize = await step("finalizeTabs", () => owner.client.finalizeTabs([]));
     task.removal = await until(async () => { const tabs = await observer.evaluate("chrome.tabs.query({}).then(values=>values.map(({id,active,url,windowId,groupId})=>({id,active,url,windowId,groupId})))"); const targets = await worker.evaluate("chrome.debugger.getTargets()"); return !tabs.some(value => value.id === tab.id) && !targets.some(value => value.tabId === tab.id && value.attached) && { at: Date.now(), tabs, debuggerTargets: targets }; }, "finalized task tab and attachment removed");
     await focus("after-finalize"); task.passed = true; await checkpoint();
+    if (ownershipEnabled) await runNativeOwnershipWorkflow({
+      detail: report.ownership, fixtureURL, posts, requests: taskRequests, until, focus, checkpoint, checkReceipt: checkTrustedNativeTaskReceipt,
+      connect: label => connectOpenBrowserUse({ socketPath: endpoint.socketPath, sessionId: `native-ownership-${label}-${randomBytes(8).toString("hex")}`, timeoutMs: 15000 }),
+      readNative: async () => ({ at: Date.now(),
+        tabs: await observer.evaluate("chrome.tabs.query({}).then(values=>values.map(({id,active,url,windowId,groupId,pinned})=>({id,active,url,windowId,groupId,pinned})))"),
+        debuggerTargets: await worker.evaluate("chrome.debugger.getTargets()"),
+      }),
+    });
   } catch (error) { report.error = error.stack; console.error(error); if (manager) try { await settingsDiagnostic("failure"); } catch (failure) { report.settingsDiagnosticError = failure.message; } }
   finally {
+    if (diagnosticsEnabled) await captureNativeDiagnostics("task-terminal");
     if (manager && report.installed?.length === 2) try { report.finalInventory = await inventory("before-browser-exit"); } catch (error) { report.cleanup.errors.push({ stage: "inventory", error: error.message }); }
     if (observer) try { await focus("before-browser-exit"); report.focus.passed = true; } catch (error) { report.focus.passed = false; report.focus.error = error.stack; }
     owner?.close();
@@ -614,6 +666,7 @@ async function main() {
     } catch (error) { report.cleanup.errors.push({ stage: "EOF observer", error: error.message }); }
     if (control) {
       try { report.processesBeforeClose = await control.call("SystemInfo.getProcessInfo"); } catch (error) { report.cleanup.errors.push({ stage: "process inventory", error: error.message }); }
+      if (diagnosticsEnabled) await captureNativeDiagnostics("before-browser-close");
       try { report.browserCloseAt = Date.now(); await control.call("Browser.close"); } catch (error) { report.browserCloseReplyError = error.message; }
     }
     if (child) {
@@ -651,7 +704,16 @@ async function main() {
     if (fixedBefore) try { report.fixedRegistrationAfter = await fixedRegistration(); assert.deepEqual(report.fixedRegistrationAfter, fixedBefore); report.cleanup.fixedRegistrationUnchanged = true; } catch (error) { report.cleanup.errors.push({ stage: "fixed registration changed", error: error.message }); }
     server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));
     await fs.writeFile(path.join(runDir, "browser.log"), browserLogs.join("")); await save("server.json", posts);
-    report.completedAt = Date.now(); report.passed = nativeBrowserInstallationPassed(report); await checkpoint(); console.log("RESULT", JSON.stringify({ file: path.join(runDir, "results.json"), passed: report.passed })); process.exitCode = report.passed ? 0 : 1;
+    if (recordTaskRequests) await save("task-requests.json", taskRequests);
+    if (diagnosticsEnabled) {
+      report.diagnostics.taskOutcome = { taskPassed: report.task?.passed === true, focusPassed: report.focus?.passed === true, error: report.error ?? null, focusError: report.focus.error ?? null };
+      report.diagnostics.traceComplete = !report.diagnostics.errors.length && !taskRequests.overflow && nativeDiagnosticTraceComplete(diagnosticInitial, diagnosticFinal);
+      report.diagnostics.cleanupComplete = nativeBrowserInstallationCleaned(report);
+    }
+    const result = nativeDiagnosticResult({ enabled: diagnosticsEnabled, acceptancePassed: nativeBrowserInstallationPassed(report), taskReached: !!report.task?.steps?.length, traceComplete: report.diagnostics?.traceComplete, cleanupComplete: report.diagnostics?.cleanupComplete });
+    report.completedAt = Date.now(); report.passed = result.passed;
+    if (diagnosticsEnabled) report.diagnosticCompleted = result.diagnosticCompleted;
+    await checkpoint(); console.log("RESULT", JSON.stringify({ file: path.join(runDir, "results.json"), mode: report.mode, passed: report.passed, diagnosticCompleted: report.diagnosticCompleted })); process.exitCode = result.exitCode;
   }
 }
 

@@ -1,4 +1,4 @@
-// Explicit ownership of popup tabs without moving their native windows.
+// Explicit ownership of ungrouped ordinary and popup tabs.
 // This store does not infer ownership, query Chrome, attach a debugger, or
 // release native input. The backend supplies live validation and exact cleanup.
 export const AUXILIARY_TABS_KEY = "OPEN_BROWSER_USE_AUXILIARY_TABS";
@@ -10,7 +10,7 @@ const invalid = () => new Error("OBU_AUXILIARY_STATE_INVALID: invalid persisted 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const integer = (value, minimum = 0) => Number.isSafeInteger(value) && value >= minimum;
 const identifier = value => typeof value === "string" && value.length > 0 && value.length <= 256;
-const fields = ["claimId", "tabId", "windowId", "session_id", "turn_id", "control_epoch", "controlRevision", "origin", "phase"];
+const fields = ["claimId", "tabId", "windowId", "session_id", "turn_id", "control_epoch", "controlRevision", "kind", "origin", "phase", "excludedGroupId"];
 function scope(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !integer(value.tabId) ||
       !identifier(value.session_id) || !identifier(value.turn_id) ||
@@ -21,10 +21,15 @@ function scope(value) {
     ...(value.control_epoch !== undefined ? { control_epoch: value.control_epoch } : {}),
     ...(value.controlRevision !== undefined ? { controlRevision: value.controlRevision } : {}) };
 }
-function storedRecord(value) {
+function storedRecord(value, version) {
   try { scope(value); } catch { throw invalid(); }
-  if (Object.keys(value).some(key => !fields.includes(key)) || !identifier(value.claimId) ||
-      !integer(value.windowId) || value.origin !== "user" || !["pending", "committed", "quarantined"].includes(value.phase)) throw invalid();
+  const allowed = version === 1 ? fields.filter(key => !["kind", "excludedGroupId"].includes(key)) : fields;
+  if (Object.keys(value).some(key => !allowed.includes(key)) || !identifier(value.claimId) ||
+      !integer(value.windowId) || !["pending", "committed", "quarantined", ...(version === 2 ? ["excluded"] : [])].includes(value.phase)) throw invalid();
+  if (version === 1) { if (value.origin !== "user") throw invalid(); return { ...value, kind: "popup" }; }
+  if (!["popup", "ordinary"].includes(value.kind) || !["agent", "user"].includes(value.origin) ||
+      (value.kind === "popup" && value.origin !== "user")) throw invalid();
+  if (value.phase === "excluded" ? value.kind !== "ordinary" || value.origin !== "user" || !integer(value.excludedGroupId) : Object.hasOwn(value, "excludedGroupId")) throw invalid();
   return { ...value };
 }
 
@@ -35,6 +40,7 @@ export class AuxiliaryTabOwnership {
     if (!integer(maxRecords, 1) || maxRecords > 256) throw new Error("maxRecords must be between 1 and 256");
     Object.assign(this, { storage, maxRecords, createId });
     this.records = new Map(); // Includes reserved/quarantined reverse locks.
+    this.creations = new Set(); // Capacity reserved before Chrome returns a tab ID.
     this.states = new WeakMap();
     this.queues = new Map();
     this.operations = new Set();
@@ -50,13 +56,16 @@ export class AuxiliaryTabOwnership {
     const stored = await this.storage.get(AUXILIARY_TABS_KEY);
     const value = stored?.[AUXILIARY_TABS_KEY];
     if (value === undefined) return;
-    if (!value || value.version !== 1 || !Array.isArray(value.records) || value.records.length > this.maxRecords ||
+    if (!value || ![1, 2].includes(value.version) || !Array.isArray(value.records) || value.records.length > this.maxRecords ||
         Object.keys(value).some(key => !["version", "records"].includes(key))) throw invalid();
-    const recovered = value.records.map(storedRecord);
+    const recovered = value.records.map(record => storedRecord(record, value.version));
     if (new Set(recovered.map(record => record.tabId)).size !== recovered.length ||
         new Set(recovered.map(record => record.claimId)).size !== recovered.length) throw invalid();
     for (const record of recovered) {
-      if (record.phase === "pending") continue; // An interrupted claim never grants control.
+      if (record.phase === "pending" && record.origin === "user") continue;
+      // A new native tab may already exist. Keep its denial/cleanup identity;
+      // recovery must neither grant control nor replay its creation/disposition.
+      if (record.phase === "pending") record.phase = "quarantined";
       const reservation = this.records.get(record.tabId);
       if (reservation) {
         const state = this.state(reservation);
@@ -68,7 +77,8 @@ export class AuxiliaryTabOwnership {
       this.records.set(record.tabId, record);
     }
     // Early reservations cannot displace recovered ownership to satisfy capacity.
-    if (this.records.size > this.maxRecords) {
+    if (this.records.size + this.creations.size > this.maxRecords) {
+      for (const record of this.creations) { this.state(record).error = capacity(); this.state(record).completion.resolve(); }
       for (const [tabId, record] of this.records) {
         if (this.state(record).persisted) continue;
         this.state(record).error = capacity();
@@ -76,7 +86,7 @@ export class AuxiliaryTabOwnership {
         this.records.delete(tabId);
       }
     }
-    if (recovered.some(record => record.phase === "pending")) await this.save();
+    if (value.version === 1 || value.records.some(record => record.phase === "pending")) await this.save();
   }
 
   reserve(value) {
@@ -85,17 +95,48 @@ export class AuxiliaryTabOwnership {
     const previous = this.records.get(params.tabId);
     if (previous) {
       if (previous.session_id !== params.session_id) throw conflict();
+      if (previous.phase === "excluded") {
+        if (this.state(previous).error) throw blocked();
+        Object.assign(previous, params);
+        return previous; // Only explicit admission receives this non-owner record.
+      }
       if (previous.phase === "quarantined") throw blocked();
       if (previous.phase === "committed" && this.state(previous).durable) return previous;
       throw conflict();
     }
-    if (this.records.size >= this.maxRecords) throw capacity();
-    const record = { claimId: this.createId(), ...params, windowId: null, origin: "user", phase: "reserved" };
+    if (this.records.size + this.creations.size >= this.maxRecords) throw capacity();
+    const record = { claimId: this.createId(), ...params, windowId: null, kind: "popup", origin: "user", phase: "reserved" };
     if (!identifier(record.claimId)) throw new Error("Invalid auxiliary claim identity");
-    if ([...this.records.values()].some(previous => previous.claimId === record.claimId)) throw new Error("Duplicate auxiliary claim identity");
+    if ([...this.records.values(), ...this.creations].some(previous => previous.claimId === record.claimId)) throw new Error("Duplicate auxiliary claim identity");
     this.states.set(record, { persisted: false, durable: false, completion: deferred() });
     this.records.set(record.tabId, record);
     return record;
+  }
+
+  reserveCreation(value) {
+    const { tabId: _ignored, ...params } = scope({ ...value, tabId: 0 });
+    if (this.loadError) throw this.loadError;
+    if (!this.loaded) throw new Error("Auxiliary creation requires completed ownership recovery");
+    if (this.records.size + this.creations.size >= this.maxRecords) throw capacity();
+    const record = { claimId: this.createId(), ...params, tabId: null, windowId: null, kind: "ordinary", origin: "agent", phase: "reserved" };
+    if (!identifier(record.claimId) || [...this.records.values(), ...this.creations].some(other => other.claimId === record.claimId)) throw invalid();
+    this.states.set(record, { persisted: false, durable: false, completion: deferred() });
+    this.creations.add(record);
+    return record;
+  }
+
+  async bindCreated(record, tab) {
+    if (!this.creations.has(record) || !integer(tab?.id) || !integer(tab?.windowId)) throw invalid();
+    if (this.records.has(tab.id)) throw conflict();
+    this.creations.delete(record);
+    record.tabId = tab.id; record.windowId = tab.windowId;
+    const state = this.state(record);
+    record.phase = state.error ? "quarantined" : "pending";
+    state.persisted = true;
+    this.records.set(tab.id, record);
+    await this.ready;
+    await this.save();
+    return this.check(record);
   }
 
   check(record) {
@@ -104,7 +145,7 @@ export class AuxiliaryTabOwnership {
     if (!state) throw expired();
     if (state.error) throw state.error;
     if (state.replacement) return this.check(state.replacement);
-    if (this.records.get(record.tabId) !== record) throw expired();
+    if (record.tabId === null ? !this.creations.has(record) : this.records.get(record.tabId) !== record) throw expired();
     if (record.phase === "quarantined") throw blocked();
     return record;
   }
@@ -126,7 +167,7 @@ export class AuxiliaryTabOwnership {
   save() {
     const records = [...this.records.values()].filter(record => this.state(record).persisted && !this.state(record).removing)
       .map(record => Object.fromEntries(fields.filter(key => record[key] !== undefined).map(key => [key, record[key]])));
-    const value = { version: 1, records };
+    const value = { version: 2, records };
     const write = this.writes.catch(() => {}).then(() => this.storage.set({ [AUXILIARY_TABS_KEY]: value }));
     this.writes = write;
     this.operations.add(write);
@@ -134,9 +175,9 @@ export class AuxiliaryTabOwnership {
     return write;
   }
 
-  commit(reservation, { windowId, control_epoch, controlRevision, check, validate } = {}) {
+  commit(reservation, { windowId, kind = reservation?.kind, control_epoch, controlRevision, check, validate } = {}) {
     if (!integer(windowId) || (control_epoch !== undefined && !integer(control_epoch, 1)) ||
-        (controlRevision !== undefined && !integer(controlRevision)) || typeof check !== "function" || typeof validate !== "function")
+        (controlRevision !== undefined && !integer(controlRevision)) || !["popup", "ordinary"].includes(kind) || typeof check !== "function" || typeof validate !== "function")
       return Promise.reject(new Error("Auxiliary commit requires window identity, control check, and live validation"));
     return this.serial(reservation?.tabId, async () => {
       let record = reservation;
@@ -149,15 +190,24 @@ export class AuxiliaryTabOwnership {
           this.check(record);
         };
         current();
+        if (record.phase === "excluded") {
+          // Backend validation must prove that this explicit claim has really
+          // left its excluded native group before admitting ungrouped ownership.
+          await validate(record);
+          current();
+          delete record.excludedGroupId;
+          record.phase = "reserved";
+        }
         if (record.phase === "committed") {
           if (!state.durable) throw blocked();
-          if (record.windowId !== windowId) { this.quarantine(record); throw blocked(); }
+          if (record.windowId !== windowId || record.kind !== kind) { this.quarantine(record); throw blocked(); }
           await validate(record);
           current();
           return record;
         }
-        if (record.phase !== "reserved") throw conflict();
+        if (record.phase !== "reserved" && !(record.phase === "pending" && record.origin === "agent")) throw conflict();
         record.windowId = windowId;
+        record.kind = kind;
         if (control_epoch !== undefined) record.control_epoch = control_epoch;
         if (controlRevision !== undefined) record.controlRevision = controlRevision;
         record.phase = "pending";
@@ -189,7 +239,8 @@ export class AuxiliaryTabOwnership {
   }
 
   quarantine(record) {
-    if (this.records.get(record?.tabId) !== record) return false;
+    if (record?.tabId === null ? !this.creations.has(record) : this.records.get(record?.tabId) !== record) return false;
+    if (record.phase === "excluded") return true; // Release must not erase a persisted denial.
     const changed = record.phase !== "quarantined";
     record.phase = "quarantined";
     const state = this.state(record);
@@ -206,22 +257,24 @@ export class AuxiliaryTabOwnership {
   }
 
   cancelPending(sessionId) {
-    for (const record of this.records.values()) {
+    for (const record of [...this.records.values(), ...this.creations]) {
       if (sessionId !== undefined && record.session_id !== sessionId) continue;
       if (["reserved", "pending"].includes(record.phase)) this.quarantine(record);
     }
   }
 
-  remove(record, { cleanup = async () => {} } = {}) {
+  remove(record, { cleanup = async () => {}, releaseExcluded = false } = {}) {
     if (typeof cleanup !== "function") return Promise.reject(new Error("cleanup must be a function"));
     if (!this.quarantine(record)) return Promise.resolve(false);
+    if (record.tabId === null) return Promise.resolve(false); // Real create must settle before the slot can be retired.
     return this.serial(record.tabId, async () => {
       await this.ready;
       if (this.records.get(record.tabId) !== record) return false;
       const state = this.state(record);
       try {
-        await cleanup(record);
+        const removed = await cleanup(record);
         if (this.records.get(record.tabId) !== record) return false;
+        if (removed === false || (record.phase === "excluded" && !releaseExcluded)) return false;
         state.removing = true;
         if (state.persisted) await this.save();
         if (this.records.get(record.tabId) !== record) return false;
@@ -234,6 +287,31 @@ export class AuxiliaryTabOwnership {
         throw error;
       }
     });
+  }
+
+  exclude(record, groupId) {
+    if (!integer(groupId) || record?.kind !== "ordinary" || !integer(record.windowId)) return Promise.reject(invalid());
+    return this.serial(record.tabId, async () => {
+      await this.ready;
+      if (this.records.get(record.tabId) !== record) throw expired();
+      const state = this.state(record);
+      record.phase = "excluded";
+      record.origin = "user";
+      record.excludedGroupId = groupId;
+      state.persisted = true;
+      state.durable = false;
+      state.removing = false;
+      try { await this.save(); state.error = undefined; }
+      catch (error) { state.error = error; throw error; }
+      finally { state.completion.resolve(); }
+      return record;
+    });
+  }
+
+  retireCreation(record) {
+    if (record.tabId !== null || !this.creations.delete(record)) return false;
+    this.state(record).completion.resolve();
+    return true;
   }
 
   entry(tabId) { return this.records.get(tabId); }
@@ -253,7 +331,7 @@ export class AuxiliaryTabOwnership {
     }
   }
   controlSnapshot() {
-    return { tabIds: [...this.records.keys()], pending: [...new Set([this.ready, ...this.operations,
+    return { tabIds: [...this.records.keys()], pending: [...new Set([this.ready, ...this.operations, ...[...this.creations].map(record => this.state(record).completion.promise),
       ...[...this.records.values()].filter(record => ["reserved", "pending"].includes(record.phase)).map(record => this.state(record).completion.promise)])] };
   }
 }

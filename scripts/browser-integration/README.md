@@ -209,8 +209,9 @@ The CLI exports a manifest with `install-manifest --browser <brand> --output`.
 The fixture changes its host name and creates an ownership-fenced random leaf
 under `HKCU\Software\Google\Chrome\NativeMessagingHosts`, testing the real
 shared namespace. The production fixed leaf in both registry views is only
-read and compared before/after. Only the staged extension's native-host name
-and public unpacked key change; its `connectNative` remains untouched. This
+read and compared before/after. In default acceptance mode, only the staged
+extension's native-host name and public unpacked key change; its `connectNative`
+remains untouched. This
 does not exercise installation into the fixed production leaf or a store
 installation. See [namespace and registration scope](../../docs/references/chromium-browser-installation.md).
 
@@ -222,6 +223,52 @@ verifies screenshot pixels, and finalizes its tab. An independent continuous
 focus ledger permits no activation or focus events during the measured task;
 setup and teardown are outside that interval. The runner does not measure OS
 pointer position or simultaneous human mouse use.
+
+For an explicit native API diagnostic, additionally set
+`OBU_TEST_NATIVE_DIAGNOSTICS=1`. Unset, empty or `0` retains default acceptance;
+other values are rejected. The diagnostic prepends an observer only to the
+isolated staged worker. It records single invocations of `tabs.create`,
+`tabs.group`, `tabGroups.get/update` and `debugger.attach/detach/sendCommand`,
+plus selected passive tab, group and debugger events. Original arguments,
+receiver, return Promise and errors are preserved. It does not retry actions,
+activate tabs or substitute input. Serialization and Promise observation can
+affect scheduling and unhandled-rejection reporting, so this is not a
+timing-neutral run of the production artifact.
+
+Snapshots are taken after the existing verified native handshake, at task
+termination and before browser close. A visible service-worker target alone
+does not prove its module body has executed. The observer retains earlier
+startup records; delayed initial collection does not reset them. Raw `/task`
+requests are also retained in `task-requests.json`, separately from original
+POST receipts. Trace retention is bounded to 4,096 records, 16,384 characters
+per record and 4 Mi characters overall. Payload truncation is marked; omitted
+values remain unknown. Missing records, overflow, worker replacement or
+observer errors prevent complete collection. Pending commands have unknown
+outcomes even when the trace itself is complete.
+
+Diagnostic results have `mode: "native-api-diagnostic"` and **always** have
+`passed: false`. Exit zero and `diagnosticCompleted: true` mean the task was
+reached, trace collection was continuous and native/browser cleanup completed;
+they do not mean the task succeeded. Original task and focus failures remain
+in the report. A setup failure before the native host starts cannot meet that
+complete-native-run condition. Remove the variable for subsequent acceptance.
+
+Set `OBU_TEST_NATIVE_OWNERSHIP=1` to add the public multi-page ownership workflow
+after the unchanged standard task. This option independently records real task
+GETs; it does not require native API diagnostics. It opens A and B, submits both,
+rejects a foreign session's claims, hands off A while closing B, explicitly begins
+a new turn and reclaims A, then submits A again. Finally it creates C, delivers C
+and omits A. Native observations must prove that A and B closed and only inactive,
+detached C remains. A fresh post-delivery turn must list no owned tabs and reject
+a read of C as unowned; merely rejecting the old epoch is insufficient.
+
+Evidence preserves three new GETs and four new POST bodies in exact order,
+including both submissions of A, in addition to the standard task's original
+POST. Every mutation uses the public JS SDK. Native observers only inspect
+tabs, debugger targets and the continuous focus ledger, with no new allowance.
+Requested ownership acceptance must also pass for the run to pass. A failed or
+unknown finalization is never replayed during teardown; the fixture closes its
+own isolated browser. Unset, empty or `0` preserves the standard-only workflow.
 
 Artifacts remain in `.tmp/browser-integration/native-installation-<brand>-*`.
 Passing requires browser/native process exit evidence, removal of the task

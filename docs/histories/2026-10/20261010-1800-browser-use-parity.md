@@ -1024,6 +1024,47 @@ CI新生成候选另存，没有覆盖旧运行证据。仅本地开发和提交
 套件仍是声明的Port adapter，不替代真实native品牌测试；Opera/Vivaldi
 失败与既有更广缺口继续开放，完整目标保持active。
 
+增加显式原生命令诊断，记录有界 API 调用/返回、被动事件与实际 task GET；
+默认验收不启用，诊断 passed 恒为 false，完整采集与真实任务通过分开。
+初版 Opera `BnR9eF` 在 worker body 执行前读初始快照，保留整体失败；
+改到原有 native 握手后读取，没有增加轮询、激活或输入替代，定向测试
+34/34。最终 `pmcGIj` 确认 group 创建成功后先收到离组/移除事件，再发生
+update 拒绝；事件只证明顺序，不冒充内部原因。Vivaldi `6TvJ0U` 则在
+CRX attach 的九条 renderer 初始化命令处持续 pending，未发送导航/输入，
+实际 GET/POST 均零。两轮诊断完整、真实任务失败，原生退出/清理通过。
+
+官方 Vivaldi snapshot 8.3.4185.3 另行解包验证；`l5U4my` 在安装前管理页
+求值失败，尚未启动本扩展和 host，不能比较新版任务能力。独立审计保存
+冻结源码、历史结果、真实制品与各轮失败边界；授权后生产改动不混入旧
+运行身份。整个过程仅本地推进，不推送、不创建 PR。
+
+普通无组任务页复用 AuxiliaryTabOwnership v2；原生新页提前预留、只按实际
+返回 ID 绑定，以本次真正新建的 singleton ACK 判断兼容路径。既有 grouped
+页离组仍撤权；同组重复 claim 保留 agent 来源。创建失败后的清理持续观察
+用户接管，已存在组中的保留失败页以精确 `excludedGroupId` 持久撤权，
+Pause/worker 恢复不重新枚举授权，明确 claim 才按 user 接管。遗漏 agent 页
+关闭，user 页释放，无组 deliverable 保留实际非活动页面并撤权。公开 API
+不变。扩展 806/806 与独立定向 76/76 通过；完整CI为1,001 Node、JS115、
+Python82和Go全包通过。新ZIP1,260,454字节/47文件，原图标不变，旧制品
+及所有失败记录保留。
+
+新增 opt-in 原生多页验收，要求 A/B 隔离、handoff、显式新 turn 恢复、A
+再次提交、C 交付及遗漏 A 实际关闭。原始四 GET/五 POST、具体拒绝原因、
+新旧 scope、非活动保留页和零新增焦点豁免均纳入断言；默认单页流程不变。
+
+同一 v15 冻结版本的 Opera `7IDBb7` 和 Brave `vC2mkf` 均真实完成上述
+任务并独立审计通过，各12步标准任务+35步ownership、四GET/五POST、
+十个连续焦点检查点零事件/豁免，准确关页、交付撤权与native/browser
+exit0及随机注册清理。实际PNG已查看；Opera三任务页无组，Brave真实
+任务/交付分组正常。Vivaldi `b9p876` 则在独立观察页首次求值20,003ms
+超时，已经完成安装/native/发现但未开始task，完整清理且保留失败边界。
+
+默认 `run-5TPsWz` **104/104**、terminal exit0；独立审计核369源码/
+210旧结果、新ZIP全部47成员、host/六调用器和精确case集一致，15研究
+任务90来源GET/15POST、75建60关15留正确，六激活/四focus仍全属原fixture。
+审计自身的两处字段误用有原失败日志，修正读取实际静态成员和既有HTML
+hash后通过，运行证据和源码未动。完整目标仍active，未推送或提PR。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
