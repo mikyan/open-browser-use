@@ -9,8 +9,12 @@ JSON-RPC frames on both transports:
   Remote pipe clients are rejected. No TCP listener or authentication token is
   introduced.
 
-The Windows host uses `github.com/Microsoft/go-winio` pinned to `v0.6.2` (Go 1.21
-minimum), compatible with this repository's Go 1.25.10 toolchain. Node's
+The Windows host uses `github.com/Microsoft/go-winio` pinned to `v0.6.3` and
+requires the repository's pinned Go 1.26.9 toolchain. This release
+includes the [upstream listener-close race fix](https://github.com/microsoft/go-winio/commit/7e8af9b09c4b3e8da1a8ba080484c8a84b71354a):
+shutdown is broadcast and remains authoritative when a pending native connect
+finishes with another error. Concurrent `Close` calls and pending `Accept` calls
+must actually return; a timeout is a test failure, not successful cleanup. Node's
 `net.createConnection(path)` can connect directly to these pipe paths. Python
 clients need the SDK's Windows pipe transport; Windows Python's socket module
 does not provide `AF_UNIX`.

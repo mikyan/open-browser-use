@@ -1,11 +1,11 @@
 module github.com/ifuryst/open-browser-use
 
-go 1.25.10
+go 1.26.9
 
 require (
-	github.com/Microsoft/go-winio v0.6.2
+	github.com/Microsoft/go-winio v0.6.3
 	github.com/spf13/cobra v1.8.1
-	golang.org/x/sys v0.10.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
