@@ -539,6 +539,87 @@ Pause，导致后续用例全部被拒绝。增加仅 staged 构建的同步原�
 主动打开控制面板的四条 focus 事件；没有额外前台事件。完整浏览器重启
 与原生 launcher 崩溃恢复仍不在这些证据覆盖内。
 
+### P13：浏览器 incarnation 与持久输入风险
+
+本轮将 task group、active tab、tab origins、按窗口记录的 deliverable group
+及 auxiliary 归属绑定到 `storage.session` incarnation。旧 schema 或 marker
+换代先撤归属，保留任务名称与 epoch counter，active/idle 旧 epoch 都失效；
+不向同号新页面发送旧清理，不按同名组吸纳用户页面。worker 同 marker
+恢复和浏览器/扩展换代因此分开处理。
+
+共享 raw/CRX tracker 在 native Input 前持久登记 opaque risk，实际无 held
+input 且 native 工作结算后才能清除；写失败和未知恢复保持阻断。新增回归
+覆盖写入等待期间 Pause、turn end、移组、raw timeout、site proof 变化及
+attachment 正在释放，防止迟到存储成功后继续发旧输入。风险日志不存键值、
+坐标或页面内容，真实未决写入仍参与 teardown。
+
+否定了“session storage 缺失或 target/tab inventory 缺席就代表释放”的
+设计。晚首次 startup 也可能发生在同一浏览器的 extension reload 之后，
+因此旧风险第一次只获得 witness；符合条件的不同 incarnation 旧 witness
+才由后续真实 profile startup 清理。持久 intent→journal→consumed 顺序
+使同 witness 的 worker 重放不能误清，当前 incarnation 不被清除，用户
+Pause 不自动 Resume。方案依赖 pinned 原生事件语义，并有确定性回归；
+详细契约见 [browser lifetime](../../references/browser-lifetime.md)。
+
+本轮初版 focused **110/110**，当时完整 CI 通过扩展 **660**、脚本 **43**、浏览器
+脚手架 **42**（共 **745**）、JS **93**、Python **63** 和 Go 全包。主 headed
+`run-fLR1kz` **63/63** 与独立源码/制品 hash、连续焦点审计通过；六条首
+标签激活与两次控制面板打开的四条 focus 事件精确归因，sentinel 保持。
+
+完整 browser restart 专项的过程失败：`browser-restart-ucmbPs` **0/4** 在恢复偏好
+重启后消失处失败，`browser-restart-yH1Qzu` **0/4** 在 inactive restored 页未加载
+时提前 scripting 失败。第三轮 `browser-restart-kTnp4S` **1/4** 的未暂停
+重启通过；暂停场景任务页已加载、交付页持续 lazy/unloaded，严格两页
+DOM 等待超时，后二项受前置失败影响。第四轮 `browser-restart-kmDdeo`
+**2/4** 验证未暂停/已暂停的真实重启，保留任务页 DOM/no-replay 并对 lazy
+交付页检查 URL/window/group；同浏览器 session 状态丢失后 claim 的首次
+fill 被本扩展遗留 debugger attachment 拒绝，worker-input 恢复也未通过。
+失败保留，不通过激活或强制重载标签绕过。随后浏览器脚手架先 **45/45**、最新 **48/48** 通过，
+与此前完整 CI **745** 分别记录。当时主套件通过不证明四个新场景、原生
+launcher 或全部 reload/update 恢复已通过；最终结果见下文。整体目标继续 active，无 PR、无推送。
+
+第四轮确定生产缺口后，新增显式 claim 的 cold orphan 恢复。只读
+`Target.getTargetInfo` 成功证明是本扩展 native client，按返回的 opaque
+`targetId` detach；Chrome 的 client lookup 同时匹配 extension ID 和
+DevTools target，不能用全局 attached 标志夺取其他调试器。当前已跟踪的
+Page/attachment 跳过，未知 input journal 先阻断；真实 detach Promise
+纳入控制释放，原 scope 取消仍拒绝 claim。已成功的 detach 与随后取消
+分开结算，不误报 Pause 清理失败。
+
+独立审查补获已 committed auxiliary 重复 claim 超时后迟到 detach：每次
+调用现捕获原 deadline 和取消状态，保留既有 owner，但禁止迟到探测触发
+新的 detach/group。新增九项回归后 focused **119/119**。移除 lifetime
+中已无消费者的 onInstalled/ambiguity/changed/recovery callback 遗留，避免
+误导 startup 安全模型。最后这批生产修复重新执行了完整 CI、63 项主套件
+和四项重启验收，未沿用先前通过结果代替新源码验证。
+
+最终新源码重启专项 `browser-restart-ShnPfH` **4/4**、exit 0：同一合成
+profile 三个真实浏览器进程先后退出/启动，未暂停及已暂停两次重启都
+验证旧 active/idle epoch 拒绝、无隐式 tab 归属、任务 DOM 与未操作交付页
+metadata 保持，显式 claim 后可信输入成功且旧动作不重放。同浏览器内
+session storage 清空加真实 worker 替换也通过，原生 orphan 在显式领取时
+精确清理；这不是实际 extension reload 的证据。
+
+held pointer/Shift 期间替换 worker 后，原文档 input 仍保持，真实 popup
+显示 Failed，操作继续被拒绝。原 tab 的真实 onRemoved 才清除已丢失的
+输入风险；同一 popup document 完成 Retry pause、Resume，新 turn/new tab
+显式恢复，旧 epoch 继续拒绝。未把空 tracker、session 丢失或目标清单
+缺席当作释放证明。三个进程分别保存 observer，activation 皆空，focus
+分别 0/2/6 条，全部为测试主动打开 popup；重启空档明确不连续覆盖。
+
+前四轮 **0/4、0/4、1/4、2/4** 原结果保留。该通过不覆盖未知输入通过
+startup witness 的跨浏览器清理、真实 extension reload/update、原生 host
+launcher 或更多浏览器。最后源码完整 CI-final exit 0：扩展 **669**、
+脚本 **43**、浏览器脚手架 **48**（共 **760**），JS **93**、Python **63**、
+Go 全包及其余检查通过。四场景行为也已独立复核，三段零 activation、
+八条 focus 均对应四次明确 popup 打开，同一 popup 的 Failed/Paused/Running
+截图已查看。最终主 headed `run-hlPRVD` **63/63**、exit 0，连续 observer
+只有六条窗口首 tab 激活、两次明确打开控制面板的四条 focus；无额外前台
+事件。重启四场景与重包 ZIP 审计确认源码匹配，ZIP **1,237,392 bytes**、
+**44 files / 49 entries**，SHA-256
+`01f6e2cafdf4efa032fea6b8222a2883adfdcb3e89b647cd9150715bb32718a1`。本片完成，完整 P13
+及 P01–P15 仍有既定缺口，整体 parity 目标 active，无 PR、无推送。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

@@ -242,7 +242,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   native Port 断线同步关闭独立恢复 gate，持久失效 epoch，并等待原 attachment
   的输入和资源清理；重连必须显式开始新轮次，保留用户 Pause 设置。普通 task
   tab 移组/移窗会同步撤销旧 attachment 和 engine generation，清理后才允许
-  重新领取。完整 browser lifetime 的数字 ID 恢复仍未完成，详见 control reference。
+  重新领取。task/deliverable/auxiliary 的数字 ID 绑定 session incarnation；
+  换代时先丢弃归属并失效所有旧 epoch，恢复页面需显式 claim。原生 Input
+  先持久记录风险，worker 丢失后不能凭空 tracker 宣称释放；跨换代使用
+  profile-start witness 保守处理，详见 `docs/references/browser-lifetime.md`。
 - 全局用户暂停独立于 task/turn：工具栏 popup 可暂停所有 Agent，持久 gate
   拒绝包括 `getControlState` 在内的操作，只有 `ping`/`getInfo` 可读。暂停使
   所有旧 epoch 失效；恢复不执行旧任务，Agent 必须显式开始新轮次。
@@ -276,10 +279,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   新 session 的默认任务组名是 `Task - OBU`，上层 runtime 应通过
   `nameSession`/`name-session` 按 `<short task> - OBU` 设置更具体的任务名；
   `deliverable` tabs 统一移动到共享 `✅ Open Browser Use` tab group，`handoff`
-  tabs 保留在当前任务组。每个 Chrome 窗口至多存在一个 `✅ Open Browser Use`
-  分组：`moveToDeliverables` 按 `windowId` 调用 `chrome.tabGroups.query` 找出已有
-  同名分组，合并任何重复（如 session restore 带回的旧分组）后再加入新 tab，
-  仅在该窗口完全没有同名分组时才新建。
+  tabs 保留在当前任务组。`moveToDeliverables` 只复用当前 incarnation 为该
+  `windowId` 记录的交付分组；记录不存在或原组已消失时新建。浏览器恢复的旧组
+  和用户创建的同名组不因标题匹配获得归属，也不会自动被合并或改名。
   `turnEnded` and `finalizeTabs` clear active session state when control ends
   so download notifications only fire while a browser session is active.
 - MV3 extension event forwarding：仅将有当前 session/epoch/attachment 归属的

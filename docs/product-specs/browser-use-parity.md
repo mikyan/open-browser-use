@@ -44,9 +44,50 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 | P10 | 文件与数据 | 上传/chooser、下载等待/路径、文本及富剪贴板、媒体/页面导出；真实文件字节验证 | chooser→click、主 frame/OOPIF 上传字节和空列表清空已有验收；主动 HTTP(S) GET 下载以精确 ID 验证五入口路径/字节/取消、cookie 和同 URL 隔离。PDF/MHTML 五入口产物、跨域资源、字节上限、关闭与文件不覆盖已验。剪贴板五入口和 worker 恢复在固定 Headless 8/8。图片 HTTP(S) currentSrc/ref/生命周期/导航专项 Headless 9/9，原配置 headed 8/9（媒体八项通过、raw-navigation 失败）；最新受控 testing-config 基线完整 headed 63/63 包括全部八项媒体。Headed OS 剪贴板、Page GUID→路径/取消、video/audio/blob/Canvas 与更多平台仍待补 |
 | P11 | 调试与诊断 | console/errors、network、完整受控 CDP、事件流及必要等待；错误可定位 | diagnostics 的主页面/OOPIF、分页/丢弃/截断/换 owner 隔离经 native Edge 验证；新增 request/response ready→trigger→collect，五入口及冷 main/OOPIF、headers-before-body、redirect/503、精确匹配、历史拒绝和有界终态通过 Chromium 验收；更广调试与流读取仍待补 |
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属修复并实测；最终 63 项套件保留五次未聚焦 popup 和一次 normal 测试窗口的首 tab 激活；原 sentinel 不变，页面操作未切窗口焦点。仅测试主动打开两次控制面板的四条焦点事件单独归因，光标/蓝框/点击圈可见；原生 popup 创建激活与多任务压力仍有缺口 |
-| P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络/导航 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放。主动下载的 end/epoch/detach/转交/Pause 及迟到 ID 取消经真实 HTTP 断流验证。新增普通 tab 移出/转组/跨窗口的同步撤权、可信输入释放及显式重新领取；真实 host 进程终止/重建经声明的 Port adapter 验证旧 epoch 拒绝、无重放和显式恢复。排队截图、迟到 attach/释放及关闭 tab 销亡证据有确定性回归。最终 headed 63/63。未决原生调用可能阻止清理完成；worker 重启会丢失下载 handle，不能保证底层传输已取消。完整 browser lifetime 数字 ID 恢复、原生 launcher 重启与更多压力场景仍待补 |
-| P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及完整浏览器重启仍待完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 受控 testing-config 基线 `run-PeM3FT` 完整 headed 63/63，含 JS/Python/Go/CLI/MCP、PDF/MHTML、图片下载、普通 tab 撤权及 host 进程恢复；最近完整 CI 扩展/脚本 706（627+43+36）、JS 93、Python 63、Go 全包通过。五次 auxiliary popup 与一次 normal 测试窗口首 tab 激活、两次明确控制面板调用的四条焦点事件精确归因，sentinel 不变，旧配置失败保留。真实 Edge native 大请求证据仍有效；Codex IAB 仅只读观察，完整任务重复/更多平台及同组完整比较未完成 |
+| P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、显式 beginTurn、worker stop/start 和原生暂停已验；网络/导航 handle 在 end/Pause/detach/关闭/转交/worker 重启后失效，恢复不重放。主动下载的 end/epoch/detach/转交/Pause 及迟到 ID 取消经真实 HTTP 断流验证。新增普通 tab 移出/转组/跨窗口的同步撤权、可信输入释放及显式重新领取；真实 host 进程终止/重建经声明的 Port adapter 验证旧 epoch 拒绝、无重放和显式恢复。排队截图、迟到 attach/释放及关闭 tab 销亡证据有确定性回归。新增 session incarnation 绑定 task/active/origin/deliverable/auxiliary 归属，换代失效 active 与 idle epoch；原生 Input 持久风险和保守 startup witness 已实现并通过生产类回归。最终新源码主 headed `run-hlPRVD` 63/63；独立重启 `browser-restart-ShnPfH` 4/4：未暂停/已暂停整进程重启、同浏览器 session 丢失后显式 claim、worker 丢失 held input 后阻断并在原 tab 实际关闭后恢复。先前 0/4、0/4、1/4、2/4 失败保留；最后 orphan 修复后完整 CI 760 项、主 63 项及源码/制品 hash 审计通过。未决原生调用可能阻止清理完成；worker 重启会丢失下载 handle，不能保证底层传输已取消。未知输入跨 profile-start witness 恢复、原生 launcher 重启、真实 extension reload/update 顺序与更多压力场景仍待补 |
+| P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及更广浏览器/扩展恢复顺序仍待完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | Windows Chromium 156 受控 testing-config 基线 `run-hlPRVD` 完整 headed 63/63，含 JS/Python/Go/CLI/MCP、PDF/MHTML、图片下载、普通 tab 撤权及 host 进程恢复；最近完整 CI 扩展/脚本 760（669+43+48）、JS 93、Python 63、Go 全包通过；最终 orphan 修复后重启专项 4/4，主 headed 与制品 hash 审计通过；此前 `run-fLR1kz` 63/63 保留。五次 auxiliary popup 与一次 normal 测试窗口首 tab 激活、两次明确控制面板调用的四条焦点事件精确归因，sentinel 不变，旧配置失败保留。真实 Edge native 大请求证据仍有效；Codex IAB 仅只读观察，完整任务重复/更多平台及同组完整比较未完成 |
+
+## Browser lifetime implementation and acceptance boundary
+
+本轮已实现跨 incarnation 撤销所有 browser-bound 数字 ID，按原窗口只复用
+已记录的 deliverable group，不认同名或同 URL 归属。持久 input journal 在
+native send 前写入，持久化等待后重新检查原 scope、deadline、站点证明和
+释放状态；失败保持阻断。丢失 worker 不会把空 tracker 当作已释放。
+
+首次迟到 `runtime.onStartup` 不能证明旧扩展 incarnation 中的输入已经
+销毁：无 witness 的风险先标记，只有后续不同 profile-start witness 才能
+清理符合条件的旧风险；同 witness 重放和当前 incarnation 不清理。Pause
+保持且恢复不重放。这些路径的确定性测试不能替代实际 browser restart。
+
+初版主套件 `run-fLR1kz` 63/63 与当时完整 CI 已通过。独立重启专项 `browser-restart-ucmbPs`
+0/4 和 `browser-restart-yH1Qzu` 0/4 分别受重启后恢复偏好消失、inactive restored
+页尚未加载影响。第三轮 `browser-restart-kTnp4S` 1/4，未暂停重启通过；
+暂停场景因交付页持续 lazy/unloaded 未通过两页 DOM 等待。第四轮
+`browser-restart-kmDdeo` 2/4 已验证未暂停/已暂停进程重启、任务页 DOM
+与 lazy 交付页 metadata；同浏览器 session 状态丢失后 claim 的首次 fill
+被遗留 debugger attachment 拒绝，worker-input 恢复亦未通过。不激活或
+强制重载页面规避失败。最终新源码 `browser-restart-ShnPfH` **4/4** 通过，
+但 P13 保持部分完成。详见 [browser lifetime](../references/browser-lifetime.md)。
+
+针对第四轮的遗留 attachment，显式 claim 的 own-session 探测与精确
+native target reset 已修复，未知 input gate 保持阻断；重复 claim 超时
+不撤既有 auxiliary owner，也不允许迟到 detach。当前 focused 119/119，
+重启专项与新源码完整 CI **760** 已通过（669+43+48），JS 93、Python 63
+和 Go 全包通过；最终主 `run-hlPRVD` **63/63** 与打包/source hash 复核通过。
+
+四项真实证据分别是未暂停/已暂停的浏览器进程重启、同一浏览器内清空
+session storage 后真实 worker 替换，以及 held pointer/Shift 期间的真实
+worker 替换。最后一项证明确有 held input 留在原文档，恢复保持 Failed；
+原 tab 实际关闭后才 Retry pause、Resume 并显式开始新 turn。状态清空
+不是 extension reload，风险恢复不是空 tracker 释放。每个浏览器进程
+独立 observer，重启空档不算连续覆盖；三段 activation 为空，focus 0/2/6
+条都对应测试明确打开 popup。startup witness 对未知输入的跨进程清理、
+真实 extension reload/update 和原生 launcher 恢复仍未由这四项覆盖。
+
+最终 ZIP 1,237,392 bytes、44 files / 49 entries，SHA-256
+`01f6e2cafdf4efa032fea6b8222a2883adfdcb3e89b647cd9150715bb32718a1`，与验收源文件匹配。
+本片完成；完整 P13 与矩阵仍保留以上未覆盖项，目标 active，无 PR、无推送。
 
 ## Evidence rules
 

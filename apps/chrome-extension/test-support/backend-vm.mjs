@@ -2,6 +2,7 @@
 // APIs. Keep its ownership and network registries real and share its clock.
 import vm from "node:vm";
 import { BrowserNetworkWaits } from "../browser-network-waits.js";
+import { BrowserLifetime } from "../browser-lifetime.js";
 import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
 import { validateMediaDownload } from "../browser-media-source.js";
@@ -51,6 +52,7 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { BrowserLifetime } from "./browser-lifetime.js";', "")
   .replace('import { BrowserClipboard } from "./browser-clipboard.js";', "")
   .replace('import { BrowserClipboardBroker } from "./clipboard-broker.js";', "")
   .replace('import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-policy.js";', "")
@@ -66,7 +68,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, validateMediaDownload, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { crypto: globalThis.crypto, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserDownloads, validateMediaDownload, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

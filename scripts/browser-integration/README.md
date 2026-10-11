@@ -559,6 +559,146 @@ failure `run-4NEQV8` and original release-error witness are retained. Successful
 cleanup now requires the original attachment's native destruction evidence;
 error text alone is never treated as proof.
 
+After the browser-lifetime and explicit-claim orphan recovery changes below,
+the final unchanged 63-case suite also passed as `run-hlPRVD`. Its production
+hashes match the separate four-case restart run. The original focus accounting
+remains six exact sole-tab creation activations and four focus events from two
+intentional popup opens; there are no additional foreground events.
+
+## Same-profile browser restart acceptance
+
+`browser-restart.mjs` is a separate, opt-in headed runner. After installing the
+dependencies above, build the current JS SDK and native host, then run it from
+the repository root:
+
+```powershell
+pnpm --dir packages/open-browser-use-js build
+go build -o .tmp/open-browser-use.exe ./cmd/open-browser-use
+$env:OBU_TEST_HOST_BINARY = (Resolve-Path .tmp/open-browser-use.exe).Path
+node scripts/browser-integration/browser-restart.mjs
+```
+
+On Unix, use an executable without `.exe` and set `OBU_TEST_HOST_BINARY` with
+the shell's environment syntax. `OBU_TEST_CHROMIUM_BINARY` and
+`OBU_TEST_FIELD_TRIAL_CONFIG` have the same meanings as above. This runner is
+always headed, runs all four cases, and does not use `OBU_TEST_CASES` or the
+memory-clipboard switch. Final `browser-restart-ShnPfH` passed **4/4**, including
+final process cleanup and all three generations' focus validation. The cases
+below describe the assertions exercised by that run.
+
+The runner creates one private profile and passes `--restore-last-session` in
+all three generations. It does not seed or modify protected preferences.
+Chromium's pinned [startup implementation](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/chrome/browser/ui/startup/startup_browser_creator.cc#L808-L865)
+recognizes that switch and requests the last session for an existing profile;
+the first launch of a new profile has no session to restore. Three successive
+browser processes use that same profile, executable and argument list. The first two
+transitions call `Browser.close`, wait for actual process exit, and start a new
+browser. Forced teardown is recorded as a failure. This tests explicit session
+restoration under that command-line policy; it does not promise that all browser/profile
+configurations restore tabs or groups. No user's profile or settings are read
+or changed.
+
+The initial `browser-restart-ucmbPs` run remains **0/4**. Its manually seeded
+`session.restore_on_startup` preference was absent from the retained profile,
+and each replacement browser initially contained only a new tab, so the first
+two cases timed out waiting for real restored pages. Pause persisted, causing
+the remaining cases to fail before their actions began. The runner now requests
+restoration explicitly; it never recreates missing fixture pages to pass the
+restoration assertion. The failed run remains separate from the final result.
+
+The next `browser-restart-yH1Qzu` remains **0/4**: tabs/groups restored, but the
+test tried to read a deliverable whose status was still `unloaded`. The stricter
+readiness run `browser-restart-kTnp4S` remains **1/4**: the unpaused case passed;
+in the paused case the task document loaded, but its deliverable stayed
+`unloaded` through the 30-second wait. Later cases were blocked by that retained
+Pause. The runner now requires an actual loaded HTTP task document for DOM and
+no-replay assertions, while preserving an unloaded deliverable through exact
+tab/group identity and unchanged server mutation witnesses. It never activates
+or reloads the deliverable to manufacture a readable DOM, and metadata-only
+evidence does not claim that its document loaded or stayed byte-identical.
+
+`browser-restart-kmDdeo` remains **2/4**: both whole-browser cases passed. The
+session-state-loss case encountered an already-attached debugger during
+explicit recovery. The held-input case proved unchanged capture, blocked
+admission and the original tab's native removal, but Chrome rejected opening a
+second popup for an inactive window. Its continuous ledger contains no new
+activation/focus event during removal; all earlier focus events came from the
+recorded intentional popup openings. The runner now retains the first real
+Failed popup through Retry and Resume, without focusing a window or relaxing
+the event allowance. Final `browser-restart-ShnPfH` passed both explicit recovery
+after session-state loss and this retained-popup sequence.
+
+1. `browser-restart-unpaused`: retain named task and deliverable groups, submit
+   a waiting action, then replace the browser process. Old active and idle
+   epochs must fail. Restored pages must not become owned solely through stored
+   numeric tab/group IDs; only explicit claim permits a new trusted action.
+   A late-appearing target and server witness check that the old action was not
+   replayed in the loaded task document. Deliverable preservation compares its
+   tab ID, URL, window, group identity/title/color and server mutation witnesses,
+   allowing Chrome to keep it unloaded. Observed ID intersections are retained without claiming that a
+   particular run forces Chrome to reuse IDs.
+2. `browser-restart-paused`: pause through the real action popup, replace the
+   browser again, and require Pause to remain effective. Create, claim, input
+   and raw CDP must stay blocked until explicit Resume, begin-turn and claim.
+3. `same-browser-session-state-loss`: clear the private extension's actual
+   `storage.session` and stop/start its real worker. The browser PID and browser
+   CDP identity remain unchanged. Old ownership and epochs must not recover
+   implicitly. This is deliberate session-state loss, **not** extension reload
+   or a substitute for either whole-browser restart above.
+4. `worker-input-state-loss`: send public raw mouse-down and Shift key-down to
+   a synthetic page and require trusted events plus pointer capture. Replace
+   only the worker, retaining the same session marker. Fixed page reads must
+   show that the original document still holds capture while the new worker
+   reports Failed, blocked input and incomplete cleanup. Only closing that
+   original tab, with an independently recorded native `tabs.onRemoved` event,
+   permits the real popup's Retry pause to complete. Resume and explicit
+   begin-turn must then allow a new trusted action. An empty replacement
+   tracker is never accepted as evidence that native input was released.
+   Failed, retried Paused and resumed Running screenshots must come from the
+   same live popup context/document and CDP target. Before each capture, the
+   actual rendered label and enabled button must match Failed / Retry pause,
+   Paused / Resume control, or Running / Pause all agents; a backend status
+   reply alone is insufficient. Only the initial popup open
+   has a focus allowance; blocked actions, original-tab removal, Retry, Resume,
+   popup close and the new task action must add no focus or activation event.
+
+In the final run, both restored deliverables were initially `unloaded`; their
+preservation evidence is tab/group metadata and unchanged server mutation
+witnesses, not loaded-document content. The task documents were loaded and
+explicit claim enabled one trusted action each; the old epochs and unclaimed
+actions were rejected. The fourth case retained one popup context, document and
+CDP target across the real Failed / Retry pause, Paused / Resume control and
+Running / Pause all agents UI snapshots. Its original held-input tab had an
+exact native removal event before successful Retry; the subsequent new turn
+produced a trusted action.
+
+Each browser generation has its own independent focus observer and validated
+final snapshot. Worker replacements retain that generation's observer. Whole
+browser exits necessarily leave recorded gaps between observers: their logs
+are not stitched into an uninterrupted zero-focus claim. Only exact events
+around intentional action-popup openings receive the existing narrow allowance;
+ordinary task actions receive none. Initial sentinel setup and final teardown
+are outside the recorded action interval. Final `browser-restart-ShnPfH` records
+zero tab activations and eight focus events, all attributed to four intentional
+action-popup openings. It records no additional event after the fourth case's
+initial popup opening; it is not a zero-focus claim across browser restarts.
+
+The runner copies the host and JS SDK, builds into its own temporary extension
+directory, and records production hashes before staging the native Port adapter
+and independent observer. The host is real; native-host registration and the
+browser's installed host launcher remain outside this adapter test. No test
+observer, fixture or adapter is copied into the production extension source or
+default distribution directory. Artifacts under
+`.tmp/browser-integration/browser-restart-*` include `results.json`, per-case
+details, `browser-N.json`, `focus-N.json`, popup PNGs, process/host identities,
+restart gaps and source hashes. All four distinct cases and final cleanup/focus
+checks must pass for a zero exit status. Unpacked-extension reload, update and
+disable/re-enable recovery remain untested by this runner. It also does not
+cover a browser crash, forced whole-browser termination or whole-browser
+restart while native input remains held: the held-input case replaces only
+the worker. Native host registration and installed-host launch remain outside
+this test's staged Port adapter boundary.
+
 ## Native first-frame diagnosis
 
 `node scripts/browser-integration/rendering-probe.mjs` runs the minimal native

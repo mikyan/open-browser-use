@@ -24,6 +24,8 @@
   上限、私有分片协商、有界组装、原预算和旧版本兼容。
 - [Browser control lifecycle](control-lifecycle.md)：持久 control epoch、结束与恢复、
   客户端显式开启新轮次，以及取消不能撤销已投递输入的边界。
+- [Browser lifetime](browser-lifetime.md)：跨浏览器重启的归属隔离、输入风险持久化、
+  原标签销毁与保守的启动见证恢复，以及真实重启验收的边界。
 - [File transfers](file-transfers.md)：上传拦截准备、跨 frame 来源、清空文件、
   按任务等待下载和当前本地路径查找限制。
 - [Network waits](network-waits-design.md)：已实现的两阶段 request/response

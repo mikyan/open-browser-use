@@ -10,7 +10,31 @@ const buttonBits = { left: 1, right: 2, middle: 4, back: 8, forward: 16 };
 // alter a replacement attachment. Track intent before sending: a rejected or
 // timed-out native call is not proof that its input never reached the renderer.
 export class NativeInputTracker {
-  constructor() { this.attachments = new Map(); }
+  constructor({ beforeInput, assertInput, released, onDestroyed } = {}) {
+    this.attachments = new Map();
+    this.beforeInput = beforeInput;
+    this.assertInput = assertInput;
+    this.released = released;
+    this.onDestroyed = onDestroyed;
+    this.durability = new Map();
+  }
+
+  durable(tabId, record, operation) {
+    let result;
+    try { result = Promise.resolve(operation()); } catch (error) { result = Promise.reject(error); }
+    const pending = result.catch(error => { record.error = error; throw error; })
+      .finally(() => this.durability.delete(pending));
+    this.durability.set(pending, { tabId, record });
+    pending.catch(() => {});
+    return pending;
+  }
+
+  confirmReleased(tabId, token, record) {
+    if (!this.released || this.attachments.get(tabId) !== record || record.inflight.size || this.hasHeld(record) || record.error) return;
+    // Invoke the journal mutation synchronously after checking the same token.
+    // A later input must queue its own durable mark after this exact clear.
+    return this.durable(tabId, record, () => this.released(tabId, token));
+  }
 
   register(tabId, token) {
     if (!token) throw new Error("Native input tracking requires an attachment token");
@@ -91,11 +115,23 @@ export class NativeInputTracker {
       if (params.type === "mousePressed") state.emulated = { button: params.button ?? "left" };
       else if (params.type === "mouseReleased") complete = confirmClear("emulated", state.emulated);
     }
-    return this.native(record, operation, () => {
+    const nativeOperation = this.beforeInput ? async () => {
+      await this.durable(target.tabId, record, () => this.beforeInput(target.tabId, token));
+      // Pause, tab movement or destruction may win while storage is pending.
+      // The durability barrier cannot authorize a late native send.
+      this.assertSend(target.tabId, token);
+      this.assertInput?.(target.tabId, token);
+      return operation();
+    } : operation;
+    const result = this.native(record, nativeOperation, () => {
       if (this.attachments.get(target.tabId) !== record) return;
       complete();
       if (record.states.get(session) === state && !this.hasHeld({ states: new Map([[session, state]]) })) record.states.delete(session);
     });
+    return this.released ? result.then(async value => {
+      await this.confirmReleased(target.tabId, token, record);
+      return value;
+    }) : result;
   }
 
   release(tabId, token, sendCommand = (target, method, params) => chrome.debugger.sendCommand(target, method, params), timeoutMs = 500) {
@@ -113,7 +149,8 @@ export class NativeInputTracker {
     const pending = (async () => {
       // No new sends are admitted once blocked. A late down must settle before
       // its release, even when its caller already received an RPC timeout.
-      await within(() => Promise.allSettled([...record.inflight]));
+      await within(() => Promise.allSettled([...record.inflight,
+        ...[...this.durability].filter(([, value]) => value.record === record).map(([pending]) => pending)]));
       for (const state of record.states.values()) {
         const send = (method, params, success = () => {}) => within(() => this.native(record, () => sendCommand(state.target, method, params), success));
         if (state.dragging || state.buttons.size) await send("Input.cancelDragging", {}, () => { state.dragging = null; });
@@ -128,6 +165,7 @@ export class NativeInputTracker {
       }
       record.states.clear();
       record.error = null;
+      await within(() => this.confirmReleased(tabId, token, record));
     })().catch(error => { record.error = error; throw error; });
     record.release = pending;
     pending.finally(() => { if (record.release === pending) record.release = null; }).catch(() => {});
@@ -139,10 +177,16 @@ export class NativeInputTracker {
     if (!record || record.token !== token) return;
     if (!destroyed && (record.inflight.size || this.hasHeld(record) || record.error)) throw new Error("OBU_INPUT_RELEASE_UNCONFIRMED: release pending input, or close the original tab to recover");
     this.attachments.delete(tabId);
+    if (destroyed && this.onDestroyed) {
+      // Native target destruction is positive evidence even when its old send
+      // has not returned. Keep the durable clear observable after forgetting.
+      void this.durable(tabId, record, () => this.onDestroyed(tabId, token));
+    }
   }
 
   controlSnapshot() {
-    return { tabIds: [...this.attachments.keys()], pending: [...new Set([...this.attachments.values()].flatMap(record => [...record.inflight, ...(record.release ? [record.release] : [])]))] };
+    return { tabIds: [...new Set([...this.attachments.keys(), ...[...this.durability.values()].map(value => value.tabId)])],
+      pending: [...new Set([...this.attachments.values()].flatMap(record => [...record.inflight, ...(record.release ? [record.release] : [])]).concat([...this.durability.keys()]))] };
   }
 }
 

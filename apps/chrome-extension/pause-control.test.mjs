@@ -136,7 +136,8 @@ test('restart cannot convert an unfinished input release into an empty successfu
  assert.equal((await backend.getAutomationControlStatus()).state,'error');
  await assert.rejects(backend.pauseAutomation(),/INPUT_RELEASE_UNCONFIRMED/);
  env.tabs.delete(7);env.chrome.tabs.get=async()=>{throw new Error('No tab with id: 7')};
- assert.equal((await backend.pauseAutomation()).state,'paused');assert.deepEqual(env.storage[KEY].pendingTabIds,[]);
+ await assert.rejects(backend.pauseAutomation(),/INPUT_RELEASE_UNCONFIRMED/);
+ assert.equal(env.storage.OPEN_BROWSER_USE_INPUT_RISKS.risks.length,1);
 });
 
 test('bootstrap racing pause cannot return a successor epoch',async()=>{
@@ -310,9 +311,11 @@ test('Resume timing out before startup load cannot overwrite unread pending reco
  await assert.rejects(backend.resumeAutomation(17),/CLEANUP_TIMEOUT/);
  assert.deepEqual(env.storage[KEY],stored);assert.equal(env.calls.some(([method])=>method==='save'),false);
  load.resolve();await backend.controlReady;await tick();await backend.automationControl.writes;
- assert.deepEqual(env.storage[KEY],stored);assert.equal(backend.automationControl.inputBlocked,true);
+ assert.equal(env.storage[KEY].revision,stored.revision);assert.equal(env.storage[KEY].paused,true);assert.equal(backend.automationControl.inputBlocked,true);
+ assert.equal(env.storage.OPEN_BROWSER_USE_INPUT_RISKS.risks[0].tabId,7);
  await assert.rejects(backend.pauseAutomation(),/INPUT_RELEASE_UNCONFIRMED/);
- assert.deepEqual(env.storage[KEY].pendingTabIds,[7]);
+ assert.deepEqual(env.storage[KEY].pendingTabIds,[]);
+ assert.equal(env.storage.OPEN_BROWSER_USE_INPUT_RISKS.risks.length,1);
 });
 
 test('CRX Runtime mutation commands are blocked by both pause and attachment release',async()=>{

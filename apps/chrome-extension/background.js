@@ -1,5 +1,6 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
+import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
@@ -219,22 +220,34 @@ class NativeTransport {
 }
 
 class SessionStore {
-  constructor() {
+  constructor(lifetime) {
+    this.lifetime = lifetime;
+    this.writes = Promise.resolve();
     this.state = { sessions: {}, deliverableGroupId: null };
     this.ready = this.load();
   }
 
   async load() {
+    await this.lifetime.ready;
     const stored = await chrome.storage.local.get(SESSION_STATE_KEY);
     const value = stored[SESSION_STATE_KEY];
+    this.state = { incarnation: this.lifetime.incarnation, sessions: {}, deliverableGroupId: null, deliverableGroups: {} };
     if (value && typeof value === "object") {
+      const sameLifetime = this.lifetime.isCurrent(value.incarnation);
       this.state = {
-        sessions: value.sessions && typeof value.sessions === "object" ? value.sessions : {},
+        incarnation: this.lifetime.incarnation,
+        sessions: value.sessions && typeof value.sessions === "object" && !Array.isArray(value.sessions) ? value.sessions : {},
         deliverableGroupId:
-          typeof value.deliverableGroupId === "number" ? value.deliverableGroupId : null
+          sameLifetime && typeof value.deliverableGroupId === "number" ? value.deliverableGroupId : null,
+        deliverableGroups: sameLifetime && value.deliverableGroups && typeof value.deliverableGroups === "object" && !Array.isArray(value.deliverableGroups) ? value.deliverableGroups : {}
       };
-      let migrated = false;
+      let migrated = !sameLifetime;
       for (const session of Object.values(this.state.sessions)) {
+        if (session && typeof session === "object" && !sameLifetime) {
+          session.chromeGroupId = null;
+          session.activeTabId = null;
+          session.tabOrigins = {};
+        }
         if (
           session &&
           typeof session === "object" &&
@@ -248,16 +261,13 @@ class SessionStore {
       if (migrated) {
         await this.save();
       }
-      if (typeof this.state.deliverableGroupId === "number") {
-        await chrome.tabGroups
-          .update(this.state.deliverableGroupId, { title: DELIVERABLE_GROUP_TITLE })
-          .catch(() => {});
-      }
     }
   }
 
   async save() {
-    await chrome.storage.local.set({ [SESSION_STATE_KEY]: this.state });
+    const state = structuredClone(this.state);
+    this.writes = this.writes.catch(() => {}).then(() => chrome.storage.local.set({ [SESSION_STATE_KEY]: state }));
+    await this.writes;
   }
 
   async getSession(sessionId) {
@@ -297,7 +307,8 @@ class SessionStore {
 // Epochs come from one persistent monotonic counter. Evicting an idle session
 // cannot make an old epoch valid again, even when that session is bootstrapped.
 class ControlLedger {
-  constructor(assertAdmission = () => {}) {
+  constructor(assertAdmission = () => {}, lifetime) {
+    this.lifetime = lifetime;
     this.assertAdmission = assertAdmission;
     this.records = new Map();
     this.counter = 0;
@@ -307,6 +318,7 @@ class ControlLedger {
   }
 
   async load() {
+    if (this.lifetime) await this.lifetime.ready;
     const { [CONTROL_STATE_KEY]: state } = await chrome.storage.local.get(CONTROL_STATE_KEY);
     if (!state) return;
     if (state.version !== 1 || !Number.isSafeInteger(state.counter) || state.counter < 0 || !Array.isArray(state.records)) {
@@ -323,10 +335,19 @@ class ControlLedger {
       this.records.set(id, record);
     }
     if (this.records.size > MAX_CONTROL_SESSIONS) throw new Error("OBU_CONTROL_STATE_INVALID: too many persisted sessions");
+    if (this.lifetime && !this.lifetime.isCurrent(state.incarnation)) {
+      this.noNewLegacy = true;
+      for (const record of this.records.values()) {
+        this.invalidate(record, "browser-lifetime-changed");
+        record.legacyBlocked = true;
+        record.legacyTurns = [];
+      }
+      await this.save();
+    }
   }
 
   save() {
-    const state = JSON.parse(JSON.stringify({ version: 1, counter: this.counter, noNewLegacy: this.noNewLegacy, records: [...this.records] }));
+    const state = JSON.parse(JSON.stringify({ version: 1, incarnation: this.lifetime?.incarnation, counter: this.counter, noNewLegacy: this.noNewLegacy, records: [...this.records] }));
     const write = this.writes.catch(() => {}).then(() => chrome.storage.local.set({ [CONTROL_STATE_KEY]: state }));
     this.writes = write;
     return write;
@@ -467,6 +488,7 @@ class AutomationControlGate {
       this.revision = value?.revision ?? 0;
       this.pendingTabIds = new Set(value?.pendingTabIds ?? []);
       this.recoveredPendingTabs = new Set(this.pendingTabIds);
+      this.incarnation = typeof value?.incarnation === "string" ? value.incarnation : null;
       this.inputBlocked = this.requestedPause || value?.paused === true;
       if (this.state !== "error") this.state = this.inputBlocked ? "pausing" : "running";
     } catch (error) {
@@ -504,7 +526,7 @@ class AutomationControlGate {
     // with constructor defaults when startup storage is still unresolved.
     await this.ready;
     if (this.loadError) throw this.loadError;
-    const value = { version: 1, paused, revision: this.revision, pendingTabIds: [...this.pendingTabIds] };
+    const value = { version: 1, incarnation: this.incarnation, paused, revision: this.revision, pendingTabIds: [...this.pendingTabIds] };
     this.writes = this.writes.catch(() => {}).then(() => chrome.storage.local.set({ [AUTOMATION_CONTROL_KEY]: value }));
     await this.writes;
   }
@@ -581,14 +603,43 @@ class BrowserBackend {
     this.sitePendingFrames = new Map();
     this.siteRevokedTabs = new Set();
     this.sitePolicyUpdate = null;
-    this.store = new SessionStore();
-    this.controlLedger = new ControlLedger(() => { this.assertControlOpen(); this.siteAccess.assertReady(); });
+    this.browserLifetime = new BrowserLifetime({ storage: chrome.storage,
+      onStartup: chrome.runtime?.onStartup,
+      legacyPending: async () => { await this.automationControl.ready; return { tabIds: [...this.automationControl.recoveredPendingTabs], incarnation: this.automationControl.incarnation }; }
+    });
+    this.store = new SessionStore(this.browserLifetime);
+    this.controlLedger = new ControlLedger(() => { this.assertControlOpen(); this.siteAccess.assertReady(); }, this.browserLifetime);
     this.acceptedRequests = new Set();
     this.controlBootstrapRequests = new Set();
     this.nativeRecovery = null;
     this.automationTransitions = Promise.resolve();
     this.pauseReleaseFailures = new Map();
-    this.inputTracker = new NativeInputTracker();
+    this.inputRiskIds = new WeakMap();
+    const durableInput = async operation => {
+      try { return await operation(); }
+      catch (error) { this.automationControl.fail(error); void this.automationControl.persist(true).catch(() => {}); throw error; }
+    };
+    const clearInput = (tabId, token) => durableInput(async () => {
+      const riskId = this.inputRiskIds.get(token);
+      if (riskId) await this.browserLifetime.clearInputRisk(riskId);
+    });
+    this.inputTracker = new NativeInputTracker({
+      beforeInput: (tabId, token) => durableInput(async () => {
+        let riskId = this.inputRiskIds.get(token);
+        if (!riskId) { riskId = crypto.randomUUID(); this.inputRiskIds.set(token, riskId); }
+        await this.browserLifetime.markInputRisk({ riskId, tabId });
+      }),
+      assertInput: (tabId, token) => {
+        this.assertControlOpen();
+        this.assertAttachmentAdmission(tabId, token);
+        if (this.controlReleases.has(tabId) || this.browserEngine?.releases?.has(tabId))
+          throw new Error("OBU_INPUT_RELEASE_IN_PROGRESS: original attachment cleanup has started");
+        const owner = this.attachmentOwners.get(tabId);
+        if (!owner || owner.attachment !== token) throw new Error("OBU_TRANSFER_CANCELLED: input attachment ownership changed");
+        this.assertTransferScope(owner);
+      },
+      released: clearInput, onDestroyed: clearInput
+    });
     this.networkWaits = new BrowserNetworkWaits();
     this.navigationWaits = new BrowserNavigationWaits();
     this.directDownloads = new BrowserDownloads({ downloads: chrome.downloads, extensionId: chrome.runtime?.id,
@@ -606,7 +657,24 @@ class BrowserBackend {
       assertScope: scope => this.assertClipboardScope(scope)
     });
     this.navigationSetups = new Map();
-    this.auxiliaryTabs = new AuxiliaryTabOwnership({ storage: chrome.storage.session });
+    this.auxiliaryTabs = new AuxiliaryTabOwnership({ storage: {
+      setAccessLevel: value => chrome.storage.session.setAccessLevel(value),
+      get: async key => {
+        await this.browserLifetime.ready;
+        const stored = await chrome.storage.session.get(key), value = stored[key];
+        if (value === undefined) return {};
+        if (!this.browserLifetime.isCurrent(value?.incarnation)) {
+          await chrome.storage.session.set({ [key]: { version: 1, incarnation: this.browserLifetime.incarnation, records: [] } });
+          return {};
+        }
+        const { incarnation, ...state } = value;
+        return { [key]: state };
+      },
+      set: async values => {
+        await this.browserLifetime.ready;
+        return chrome.storage.session.set(Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { ...value, incarnation: this.browserLifetime.incarnation }])));
+      }
+    } });
     this.auxiliaryReleases = new Map();
     this.sessionMutations = new Map();
     this.endingSessions = new Map();
@@ -614,6 +682,7 @@ class BrowserBackend {
     this.browserEngine = browserEngine;
     this.controlEpochs = new Map();
     this.controlReleases = new Map();
+    this.coldAttachmentResets = new Set();
     this.attachedTabs = new Set();
     this.attachmentEpochs = new Map();
     this.attachmentOwners = new Map();
@@ -653,6 +722,7 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      void this.browserLifetime.originalTabRemoved(tabId).catch(error => this.automationControl.fail(error));
       this.markAttachmentDestroyed(tabId);
       this.browserEngine?.forget?.(tabId);
       this.siteNavigationVersions.delete(tabId);
@@ -746,12 +816,16 @@ class BrowserBackend {
         };
       } else if (method === "claimUserTab") {
         this[method] = async params => {
+          const deadlineAt = Date.now() + DEFAULT_CDP_TIMEOUT_MS;
           const reservation = this.auxiliaryTabs.reserve(params);
+          let cancelled = false;
+          const timeoutError = () => new Error("OBU_AUXILIARY_CLAIM_TIMEOUT: tab claim deadline expired");
+          const checkDeadline = () => { if (cancelled || Date.now() >= deadlineAt) throw timeoutError(); };
           try {
-            return await withTimeout(DEFAULT_CDP_TIMEOUT_MS,
-              () => this.runControlledRequest(() => handler(params, reservation)),
-              () => new Error("OBU_AUXILIARY_CLAIM_TIMEOUT: tab claim deadline expired"));
+            return await withTimeout(Math.max(1, deadlineAt - Date.now()),
+              () => this.runControlledRequest(() => handler(params, reservation, checkDeadline)), timeoutError);
           } catch (error) {
+            cancelled = true;
             if (this.auxiliaryTabs.owner(reservation.tabId) !== reservation)
               void this.releaseAuxiliaryClaim(reservation).catch(() => {});
             throw error;
@@ -792,6 +866,7 @@ class BrowserBackend {
 
   assertControlOpen() {
     this.automationControl.assertOpen();
+    this.browserLifetime.assertInputRecoveryClear();
     this.assertNativeControl();
   }
 
@@ -848,6 +923,8 @@ class BrowserBackend {
 
   assertAttachmentAdmission(tabId, token = this.attachmentEpochs.get(tabId)) {
     this.assertNativeControl();
+    if (this.coldAttachmentResets.has(tabId))
+      throw new Error("OBU_TAB_CONTROL_REVOKED: explicit claim is resetting an orphaned native attachment");
     if (token && this.revokedAttachmentTokens.has(token))
       throw new Error("OBU_TAB_CONTROL_REVOKED: tab moved out of its controlled location; wait for release and explicitly claim it again");
   }
@@ -1021,9 +1098,10 @@ class BrowserBackend {
     const exports = this.pageExports.controlSnapshot();
     const clipboard = this.clipboard.controlSnapshot();
     const broker = this.clipboardBroker.controlSnapshot();
+    const lifetime = this.browserLifetime.controlSnapshot();
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const waiter of this.downloadWaiters) tabIds.add(waiter.scope.tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...this.renderingQueues.values(), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
@@ -1092,17 +1170,8 @@ class BrowserBackend {
     // an uncertain native operation, and may unblock the captured drain below.
     try { await within(() => this.clipboardBroker.retryCleanup()); }
     catch (error) { errors.push(error); }
-    for (const tabId of gate.recoveredPendingTabs) {
-      try {
-        await within(() => chrome.tabs.get(tabId));
-        errors.push(new Error("OBU_INPUT_RELEASE_UNCONFIRMED: cannot confirm previous input release after worker restart; close the previously controlled pages, then retry Pause"));
-      } catch (error) {
-        if (/no tab with (given )?id|invalid tab id/i.test(String(error?.message ?? error))) {
-          gate.recoveredPendingTabs.delete(tabId);
-          gate.pendingTabIds.delete(tabId);
-        } else errors.push(error);
-      }
-    }
+    try { await within(() => this.browserLifetime.ready); this.browserLifetime.assertInputRecoveryClear(); }
+    catch (error) { errors.push(error); return fail(); }
     let outcomes;
     try { outcomes = await within(() => Promise.allSettled([...cancelled.releases, ...cancelled.pending])); }
     catch (error) { errors.push(error); return fail(); }
@@ -1309,17 +1378,19 @@ class BrowserBackend {
       }));
   }
 
-  async claimUserTab(params, reservation) {
+  async claimUserTab(params, reservation, checkDeadline) {
+    checkDeadline();
     reservation = this.auxiliaryTabs.check(reservation);
-    return this.runSessionMutation(params, () => this.claimUserTabInTurn(params, reservation));
+    return this.runSessionMutation(params, () => this.claimUserTabInTurn(params, reservation, checkDeadline));
   }
 
-  async claimUserTabInTurn(params, reservation) {
+  async claimUserTabInTurn(params, reservation, checkDeadline) {
     const session = await this.requireSession(params);
     const tabId = requireTabId(params, "claimUserTab");
     const epoch = this.controlLedger.assertCurrent(params).epoch;
     const revision = this.automationControl.revision;
     const check = () => {
+      checkDeadline();
       this.auxiliaryTabs.check(reservation);
       if (this.controlLedger.assertCurrent(params).epoch !== epoch || this.automationControl.revision !== revision)
         throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: browser control changed");
@@ -1348,6 +1419,8 @@ class BrowserBackend {
     }
     const window = await chrome.windows.get(tab.windowId);
     check();
+    await this.resetClaimedColdAttachment(tab, check);
+    check();
     if (window.type === "popup") {
       const validate = async () => {
         const live = await chrome.tabs.get(tabId);
@@ -1375,6 +1448,64 @@ class BrowserBackend {
       await this.auxiliaryTabs.remove(reservation);
     }
     return { ...toBrowserTab(tab), active: true };
+  }
+
+  async resetClaimedColdAttachment(tab, check) {
+    const tabId = tab.id;
+    const tracked = () => this.attachedTabs.has(tabId) || this.attachmentEpochs.has(tabId) ||
+      this.pendingAttachmentTabs.has(tabId) || this.browserEngine?.pages?.has(tabId) ||
+      this.browserEngine?.releases?.has(tabId);
+    check();
+    this.assertControlOpen(); // Recovered input is never cleared by debugger detach.
+    if (tracked() || this.controlReleases.has(tabId)) return;
+    const epoch = this.controlEpochs.get(tabId) ?? 0;
+    const current = () => {
+      check();
+      this.assertControlOpen();
+      if ((this.controlEpochs.get(tabId) ?? 0) !== epoch || tracked())
+        throw new Error("OBU_TAB_CONTROL_REVOKED: native attachment changed during explicit claim");
+    };
+    // A stopped worker can leave its extension-owned native debugger alive.
+    // Probe only a currently authorized explicit claim, never persisted IDs.
+    // Chrome's InitClientHost matches both target and extension ID: failure
+    // proves no authority to reset, rather than permission to detach a rival.
+    this.coldAttachmentResets.add(tabId);
+    let nativeDetachStarted = false, nativeDetachCompleted = false;
+    const operation = Promise.resolve().then(async () => {
+      current();
+      let result;
+      try { result = await chrome.debugger.sendCommand({ tabId }, "Target.getTargetInfo", {}); }
+      catch { current(); return; }
+      current();
+      const targetId = result?.targetInfo?.targetId;
+      if (typeof targetId !== "string" || targetId.length === 0 || result.targetInfo.type !== "page") return;
+      const live = await chrome.tabs.get(tabId);
+      current();
+      if (live.windowId !== tab.windowId || live.groupId !== tab.groupId)
+        throw new Error("OBU_TAB_CONTROL_REVOKED: claimed tab moved during native attachment reset");
+      this.assertSiteProof(await this.assertSiteTab(tabId, { recover: true }));
+      current();
+      // Opaque native identity prevents a numeric tab replacement from being
+      // detached. This API only closes this extension's client host. Failure
+      // remains observable; it does not certify input release or erase a risk.
+      nativeDetachStarted = true;
+      await chrome.debugger.detach({ targetId });
+      nativeDetachCompleted = true;
+      current();
+    });
+    // Admission cancellation is expected, but a native reset failure is not.
+    // Keep the actual cleanup barrier distinct from the claim's result so a
+    // successful detach followed by Pause does not report false cleanup failure.
+    const release = operation.then(() => {}, error => {
+      if (nativeDetachStarted && !nativeDetachCompleted) throw error;
+    });
+    this.controlReleases.set(tabId, release);
+    release.catch(() => {});
+    try { await operation; }
+    finally {
+      this.coldAttachmentResets.delete(tabId);
+      if (this.controlReleases.get(tabId) === release) this.controlReleases.delete(tabId);
+    }
   }
 
   async finalizeTabs(params) {
@@ -1564,7 +1695,10 @@ class BrowserBackend {
             this.assertAttachmentAdmission(target.tabId, token);
             this.assertSiteProof(proof);
             this.inputTracker.assertSend(target.tabId, token);
-            return this.inputTracker.send(target, token, method, params, operation);
+            return this.inputTracker.send(target, token, method, params, () => {
+              this.assertSiteProof(proof);
+              return operation();
+            });
           });
           return this.inputTracker.send(target, token, method, params, operation);
         },
@@ -1913,7 +2047,12 @@ class BrowserBackend {
       if (params.method === "Page.captureScreenshot" && target.sessionId === undefined) {
         return await this.captureScreenshot(target, params.commandParams ?? {}, remaining);
       }
-      const response = await this.inputTracker.send(target, attachment, params.method, params.commandParams ?? {}, () => chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {}));
+      const response = await this.inputTracker.send(target, attachment, params.method, params.commandParams ?? {}, () => {
+        checkTarget();
+        this.controlLedger.assertCurrent(params);
+        if (Date.now() >= startedAt + timeoutMs) throw new Error("Timed out preparing CDP command before native send");
+        return chrome.debugger.sendCommand(target, params.method, params.commandParams ?? {});
+      });
       if (target.sessionId === undefined && params.method === "Page.startScreencast") {
         this.externalScreencastTabs.add(target.tabId);
       } else if (target.sessionId === undefined && params.method === "Page.stopScreencast") {
@@ -3182,6 +3321,18 @@ class BrowserBackend {
 
   async recoverControlState() {
     await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready, this.siteAccess.ready]);
+    // The journal has already durably imported legacy Pause IDs. They cannot be
+    // rebound to numbers in a replacement browser and must not enter detach.
+    this.automationControl.recoveredPendingTabs.clear();
+    this.automationControl.pendingTabIds.clear();
+    this.automationControl.incarnation = this.browserLifetime.incarnation;
+    try { this.browserLifetime.assertInputRecoveryClear(); }
+    catch (error) {
+      this.automationControl.fail(error);
+      await this.controlLedger.invalidateAll("input-recovery-unknown");
+      await this.automationControl.persist(true);
+      return;
+    }
     try { await this.clipboardBroker.recover(); }
     catch (error) {
       // Keep admission blocked and old epochs invalid, but do not poison the
@@ -3283,35 +3434,18 @@ class BrowserBackend {
       return;
     }
 
-    const storedGroupId = this.store.state.deliverableGroupId;
     let lastGroupId = null;
+    this.store.state.deliverableGroups ??= {};
 
     for (const [windowId, windowTabIds] of tabsByWindow) {
-      const existingGroups = await chrome.tabGroups
-        .query({ windowId, title: DELIVERABLE_GROUP_TITLE })
-        .catch(() => []);
-
+      const ownedGroupId = this.store.state.deliverableGroups[windowId];
       let primaryGroupId = null;
-      if (existingGroups.length > 0) {
-        const preferred =
-          existingGroups.find((g) => g.id === storedGroupId) ??
-          existingGroups.reduce((min, g) => (g.id < min.id ? g : min), existingGroups[0]);
-        primaryGroupId = preferred.id;
-
-        for (const group of existingGroups) {
-          if (group.id === primaryGroupId) continue;
-          const dupTabs = await chrome.tabs.query({ groupId: group.id }).catch(() => []);
-          const dupTabIds = dupTabs
-            .map((t) => t.id)
-            .filter((id) => typeof id === "number");
-          if (dupTabIds.length > 0) {
-            this.assertControlOpen();
-            await chrome.tabs
-              .group({ groupId: primaryGroupId, tabIds: dupTabIds })
-              .catch(() => {});
-          }
-        }
+      if (Number.isSafeInteger(ownedGroupId)) {
+        const group = await chrome.tabGroups.get(ownedGroupId).catch(() => null);
+        if (group?.windowId === windowId) primaryGroupId = ownedGroupId;
       }
+      // Names are presentation, never ownership. A restored or user-created
+      // group with the delivery title must not absorb these tabs.
 
       if (typeof primaryGroupId === "number") {
         this.assertControlOpen();
@@ -3336,6 +3470,7 @@ class BrowserBackend {
         })
         .catch(() => {});
 
+      this.store.state.deliverableGroups[windowId] = primaryGroupId;
       lastGroupId = primaryGroupId;
     }
 

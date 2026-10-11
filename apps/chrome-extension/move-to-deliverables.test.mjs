@@ -1,12 +1,4 @@
-// Node test for moveToDeliverables (the deliverable tab-group merge fix).
-// Run: node apps/chrome-extension/move-to-deliverables.test.mjs
-//
-// Loads background.js into a sandbox with stubbed chrome.* APIs, then exercises
-// the BrowserBackend.moveToDeliverables method against simulated Chrome
-// tab/group state. Verifies that pre-existing deliverable groups (the bug
-// scenario from session restore) are reused and de-duplicated instead of
-// producing parallel groups with the same title.
-
+// Node delivery-group ownership tests. Group names never grant ownership.
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -214,11 +206,13 @@ __obu_export("DELIVERABLE_GROUP_TITLE", DELIVERABLE_GROUP_TITLE);
 }
 
 function makeController(SessionStore, BrowserBackend) {
-  const store = new SessionStore();
+  const lifetime = { ready: Promise.resolve(), incarnation: "fixture", isCurrent: id => id === "fixture", assertInputRecoveryClear() {} };
+  const store = new SessionStore(lifetime);
   // This isolated grouping fixture permits automation explicitly; pause races
   // are covered with the complete backend in pause-control.test.mjs.
   const controller = Object.create(BrowserBackend.prototype);
   controller.store = store;
+  controller.browserLifetime = lifetime;
   controller.automationControl = { assertOpen() {} };
   controller.activeTabsBySession = new Map();
   return { controller, store };
@@ -227,7 +221,7 @@ function makeController(SessionStore, BrowserBackend) {
 async function run() {
   const bgSource = (await readFile(BG_PATH, "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 
-  // === Test 1: existing deliverable group is reused (no duplicate created) ===
+  // === Test 1: exact current-lifetime deliverable group is reused ===
   {
     const { chrome, helpers } = createChromeFake();
     const { SessionStore, BrowserBackend } = await loadController(bgSource, chrome);
@@ -239,6 +233,7 @@ async function run() {
     const existingGroupId = helpers.createGroup({ windowId: 1, title: DELIVERABLE_TITLE });
     const restoredTab = helpers.createTab({ windowId: 1, groupId: existingGroupId });
     const newTab = helpers.createTab({ windowId: 1, groupId: -1 });
+    store.state.deliverableGroups[1] = existingGroupId;
 
     await controller.moveToDeliverables([newTab]);
 
@@ -250,7 +245,7 @@ async function run() {
     console.log("test 1 ok: reused existing deliverable group");
   }
 
-  // === Test 2: two stale duplicate groups get merged into one ===
+  // === Test 2: same-name unowned groups are never adopted or merged ===
   {
     const { chrome, helpers } = createChromeFake();
     const { SessionStore, BrowserBackend } = await loadController(bgSource, chrome);
@@ -268,11 +263,11 @@ async function run() {
     await controller.moveToDeliverables([newTab]);
 
     const groups = helpers.listGroupsByTitle(DELIVERABLE_TITLE, 1);
-    assert.equal(groups.length, 1, `expected groups to be merged to 1, got ${groups.length}`);
-    const survivor = groups[0].id;
-    const members = helpers.tabsInGroup(survivor).sort();
-    assert.deepEqual(members.sort(), [tabA, tabB, newTab].sort(), "all tabs should land in the merged group");
-    console.log("test 2 ok: merged duplicate deliverable groups");
+    assert.equal(groups.length, 3, "unowned groups must remain separate");
+    assert.deepEqual(helpers.tabsInGroup(groupA), [tabA]);
+    assert.deepEqual(helpers.tabsInGroup(groupB), [tabB]);
+    assert.deepEqual(helpers.tabsInGroup(store.state.deliverableGroups[1]), [newTab]);
+    console.log("test 2 ok: same-name groups preserved without adoption");
   }
 
   // === Test 3: no existing group at all -> creates one ===

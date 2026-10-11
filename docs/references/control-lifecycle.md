@@ -133,14 +133,16 @@ write without the later true value; an uncertain Resume followed by a failed
 Pause does not establish durable pause across restart. The UI reports failure
 and the current worker remains blocked throughout that interval.
 
-On worker restart, a saved paused state remains blocked. Outstanding saved tab
-IDs indicate input whose in-memory release state was lost: recovery cannot
-silently certify it clean while the previously controlled page remains open.
-Close those previously controlled pages and retry Pause. The extension never
-closes, moves, groups, or activates tabs as part of Pause. An already-issued tab
-disposition can finish, but later disposition steps are fenced. IDs may be reused
-across a complete browser restart; this slice does not certify that scenario or
-identify an unrelated new tab as the original page.
+On worker restart, a saved paused state remains blocked. Native input now has a
+durable attachment-risk journal even before Pause is requested; losing the
+in-memory tracker cannot certify release. Legacy pending tab IDs migrate as
+unknown risks and never authorize cleanup on a replacement browser's same-number
+tab. Original-tab removal within the same incarnation is positive evidence;
+cross-incarnation recovery uses profile-start witnesses and may need a later
+startup when old provenance was initially unknown. The extension never closes,
+moves, groups, or activates tabs as part of Pause. An already-issued disposition
+can finish, but later steps are fenced. See [browser lifetime](browser-lifetime.md)
+for persistence ordering, delayed startup and incomplete evidence.
 
 Mutation messages require the exact extension ID and popup URL, no sender tab,
 and a matching live `POPUP` context from `runtime.getContexts`. A sender document
@@ -260,12 +262,16 @@ The staged build also observes original release failures synchronously before
 Pause can clear them, and retains them on failed cases. That hook changes no
 production cleanup result and is excluded from the distributable extension.
 
-Full browser restart remains separate. Chrome only guarantees numeric tab IDs
-within a [browser session](https://developer.chrome.com/docs/extensions/reference/api/tabs#property-Tab-id).
-Persisted task groups, deliverables and pending Pause cleanup need a shared
-browser-lifetime identity before cross-browser-process restoration is safe.
-Clearing only a group ID, or treating missing session storage as confirmed
-input release, is insufficient.
+Full browser restart remains separate from the host case. Chrome only guarantees
+numeric tab IDs within a
+[browser session](https://developer.chrome.com/docs/extensions/reference/api/tabs#property-Tab-id).
+Task groups, deliverables, active tabs, origins and auxiliary claims now share
+an extension-loaded incarnation. A mismatch revokes these bindings before any
+browser mutation and retires idle as well as active epochs. Restored pages must
+be explicitly claimed; same-title groups do not acquire ownership. The separate
+input journal and startup-witness transaction prevent missing session storage
+from being interpreted as input release. Verification and remaining deployment
+boundaries are documented in [browser lifetime](browser-lifetime.md).
 
 `node --test apps/chrome-extension/pause-control.test.mjs` additionally covers
 durable pause, idle-epoch invalidation, startup/end/bootstrap races, stale

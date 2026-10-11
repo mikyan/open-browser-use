@@ -12,6 +12,7 @@ const sourceDir = path.join(repoRoot, "apps/chrome-extension");
 export const PLAYWRIGHT_CRX_VERSION = "0.15.0";
 const upstreamChunkSha256 = "ae0b36fa86fab5f0594530f29860721e5d05ea0cf06950df484a61f0e54c3b8c";
 const productionFiles = [
+  "browser-lifetime.js",
   "browser-media-source.js",
   "browser-media-lifetime.js",
   "browser-clipboard.js", "clipboard-broker.js", "clipboard-offscreen.html", "clipboard-offscreen.js",

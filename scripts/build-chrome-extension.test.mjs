@@ -348,6 +348,8 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   assert.ok(!(await fs.readdir(output)).some(file => file.endsWith(".test.mjs")));
   assert.equal(await fs.readFile(path.join(output, "auxiliary-tab-ownership.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "auxiliary-tab-ownership.js"), "utf8"));
+  assert.equal(await fs.readFile(path.join(output, "browser-lifetime.js"), "utf8"),
+    await fs.readFile(path.join("apps/chrome-extension", "browser-lifetime.js"), "utf8"));
   await fs.access(path.join(output, "browser-action-engine.js"));
   assert.equal(await fs.readFile(path.join(output, "browser-navigation-waits.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "browser-navigation-waits.js"), "utf8"));
