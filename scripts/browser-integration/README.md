@@ -399,6 +399,32 @@ unset, passed the original task and independent audit. Production code and the
 host/ZIP artifacts were unchanged. See the [input diagnostic record](../../docs/references/vivaldi-input-diagnostic.md)
 for the preserved failures and scope limits.
 
+`OBU_TEST_VIVALDI_DOM_FOCUS=1` selects a separate actual-Vivaldi experiment,
+exclusive with every other explicit native diagnostic/ownership flag. It uses
+the unchanged INPUT fixture, passive observer and manager/observer readiness
+setup, but does **not** enable the extra TASK_READY gate. After the original
+goto, one public SDK/CDP chain reads the document, queries `#note`, verifies its
+node description, then calls `DOM.focus` once. All four calls share one 5-second
+absolute budget; failure or a late result stops the chain. The original single
+fill and Submit follow only on completion. There is no extra pointer/key action,
+activation, value assignment, blur, fallback or replay. DOM.focus can cause
+ordinary page focus and scrolling; its ACK does not prove input delivery.
+
+The separate `domFocusDiagnostic.before` record uses the same passive document
+observation as the existing task. The original three INPUT snapshots remain
+`before-fill`, `after-fill`, `final`; no observer or fixture event set changes.
+`domFocusDiagnostic` is also saved under `input-diagnostic.json`'s `domFocus`.
+Native command identities, params, outcomes and ordering are checked separately
+from original-node continuity, initially empty/unfocused preconditions and real
+trusted input/POST results. An already focused input is not blurred to manufacture
+that precondition. CDP node IDs and observer WeakMap node IDs are separate
+namespaces. Object member ordering is not semantic identity. Native command
+ordering uses the same worker's sequence numbers; local await order and total
+deadline are checked independently. Cross-process timestamps remain observations,
+with no assumed clock equality or added tolerance.
+`mode: "vivaldi-dom-focus-diagnostic"` always has `passed: false`;
+complete collection and an observed experiment do not mean the task passed.
+
 Set `OBU_TEST_NATIVE_OWNERSHIP=1` to add the public multi-page ownership workflow
 after the unchanged standard task. This option independently records real task
 GETs; it does not require native API diagnostics. It opens A and B, submits both,

@@ -1129,6 +1129,30 @@ Brave `i40fyX` 完整任务/实际PNG/零焦点及独立审计通过。Vivaldi�
 保留失败和旧104/104，不增加豁免或归咎未证实的外部操作。下一片优先
 调查该完整回归边界；整体目标仍active，无推送或PR。
 
+用户随后明确确认上述失败轮期间操作过测试浏览器。保留原结果，补记
+该干扰证据，不把每条事件精确归因给用户。同生产源码/包独立重跑的
+`run-p0iiaM` 原104/104、终端exit0，焦点规则完全不变；六次fixture激活
+及两个明确popup的四focus精确对应，最终窗口normal/focused。独立核
+379源码/226旧结果、host/六调用器/四runtime/47制品成员，以及15研究
+任务90来源GET/15POST、75建60关15留通过；根代理查看后台实际PNG。
+
+新增独占Vivaldi DOM_FOCUS脚手架：首次原fill前经公开SDK/CDP执行一次
+getDocument/querySelector/describeNode/focus，共享5秒总预算。原INPUT
+HTML和三快照不变，另存之前的原节点观察；无TASK_READY、额外点击、
+按键或fallback。完整采集、空值/未focus前提、ACK和任务成功分开报告。
+代码不进入生产扩展，生产/SDK/host/ZIP未变；无推送或PR。
+
+DOM首轮 `YMxiBJ` 原任务空POST失败，同时暴露诊断比较器的对象字段顺序
+和跨进程Date.now假阴性。原terminal1/diagnosticfalse与审计v1保留，独立
+审计v2补记语义正确而输入失败。判定改用同worker序号和结构语义，本地
+期限另验，不加时间容差。最终脚手架217/217，新18项独立复核通过。
+
+最终 `ntZmPW` goto73ms、四DOM命令22ms，原节点获焦却仍无输入事件和
+有效文本，完整诊断exit0不算任务通过；433ms零前台事件。默认Brave
+`KKcjBO` 原12步/POST/实际PNG通过，744ms零前台事件。两轮独立核381
+源码/228旧结果/47制品成员及精确host/browser退出、注册/进程清理通过。
+此候选没有进入生产，Vivaldi输入与其余整体能力缺口继续保持未完成。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

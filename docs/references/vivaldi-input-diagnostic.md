@@ -225,3 +225,58 @@ native/browser实际exit0和进程、注册清理通过；微任务取消终态�
 窗口焦点、两次标签切换且终态窗口minimized。原因未定，不放宽验收或
 把它标为通过。完整CI为1079项Node、JS115、Python82及Go全包通过；
 此轮生产改动仍不能证明总体能力持平。
+
+用户随后确认在 `chNw0r` 对应测试时段操作过浏览器。旧失败记录保留，
+不逐条把事件归因给用户，但该轮不能作为没有外部操作的对照。同源码、
+同包的 `run-p0iiaM` 原104项全部通过，终端exit0；独立核379源码/226旧
+结果与原host、47制品成员通过。焦点账本的六次激活和四focus全部精确
+对应原有fixture动作，未增豁免；15研究任务原始请求/提交与关页也通过。
+
+## 原节点 DOM.focus 对照
+
+`OBU_TEST_VIVALDI_DOM_FOCUS=1` 是单独的诊断，不与其他显式native模式
+组合。在生产首次连接与原goto后，通过公开SDK/CDP依次getDocument、
+querySelector、describeNode、DOM.focus，四命令共用一次5秒预算，随后
+原单次fill和Submit。没有TASK_READY测试gate、额外点击/按键或输入重放。
+原INPUT fixture和三快照不变，另记一次before-dom-focus观察原节点身份、
+空值与尚未focus前提；前提不成立时不先blur制造条件。
+
+此假设来自固定Chromium源码：DOM.focus的focus trigger/type与JS
+element.focus不同，focus type会传到浏览器观察者。供应商可区分这两条
+路径，但这不证明Vivaldi会据此选择输入widget，也不等于真实用户激活。
+参考 [DOM agent](https://chromium.googlesource.com/chromium/src/+/9007248033443cbe529d18cf911d6954f5ce4f49/third_party/blink/renderer/core/inspector/inspector_dom_agent.cc)、
+[Element](https://chromium.googlesource.com/chromium/src/+/9007248033443cbe529d18cf911d6954f5ce4f49/third_party/blink/renderer/core/dom/element.cc)、
+[FocusParams](https://chromium.googlesource.com/chromium/src/+/9007248033443cbe529d18cf911d6954f5ce4f49/third_party/blink/renderer/core/dom/focus_params.h) 和
+[WebContents](https://chromium.googlesource.com/chromium/src/+/9007248033443cbe529d18cf911d6954f5ce4f49/content/browser/web_contents/web_contents_impl.cc)。
+
+诊断核对原始native命令/响应与目标、原document/node连续性和实际输入
+事件/POST。CDP nodeId与页面观察者WeakMap编号不混用；DOM.focus可能
+产生正常页面focus/scroll。采集完整、实验前提成立、真实任务成功分别
+报告，mode的passed恒false。失败或结果未知就停止，不补操作。
+
+首轮 `YMxiBJ` 原goto82ms，四命令20ms完成，原输入节点从body获焦。
+native四DOM命令唯一、目标/参数正确且均ACK；原document/node收到可信
+focus/selectionchange。但唯一insertText后仍空值，未出现beforeinput/
+input/change；唯一可信POST的note和inputEvents均空。398ms连续焦点检查
+零事件/豁免，host/browser精确exit0、私有进程和随机注册清理通过。
+
+该轮terminal exit1、collectionComplete=true而experimentObserved和
+diagnosticCompleted=false保留。独立审计发现新比较器错误地依赖对象
+字段顺序和跨进程Date.now完成时间（本轮相差1ms）；四命令原生序号及
+响应语义实际一致。后续判据改用同worker序号和结构语义，本地总期限
+另验，跨进程时间只记录观察，不加时间容差。独立审计v2在冻结381源码/
+227历史下通过，首个复现判据错误的审计v1也保留。修比较器不修输入，
+更不修改该轮原结果；此DOM.focus候选尚不能进入生产fill实现。
+
+判据修正后独立 `ntZmPW` 原goto73ms、四DOM命令22ms完成；原生112–119
+序号链、原目标和节点、参数/响应一致。随后唯一insertText及单Submit
+三鼠标命令与原始观察吻合，无额外输入。原节点获焦后仍没有输入事件，
+唯一POST为空；433ms连续焦点检查零事件/豁免。此轮diagnosticCompleted
+true、terminal exit0表示完整采集，task/acceptance仍false，无截图或finalize。
+host/browser精确exit0、私有进程/两视图随机注册清理及固定注册不变通过。
+
+最终默认Brave `KKcjBO` 未启用任何诊断模式，原12步、真实POST、实际PNG
+和清理通过；四检查点744ms零激活/零focus/零豁免。独立审计核381源码/
+228历史/47制品成员一致，两轮生产、SDK、host与ZIP未改。最终脚手架
+217/217，新增18项独立复核通过；旧失败与首次判据错误都保留。本片排除
+DOM.focus足以修复此输入的假设，未把额外点击加入生产或宣称通用修复。

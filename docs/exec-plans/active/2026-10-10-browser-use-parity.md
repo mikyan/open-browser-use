@@ -1684,3 +1684,71 @@ true，runner实际exit0。403ms零前台事件，host/browser实际exit0与精�
 避免在尚未解释的完整回归失败上继续叠加功能。新gate只覆盖首连接，
 raw attach、早期About设置、输入焦点及其他parity缺口均保持开放。
 完整目标仍active；只保留本地改动和提交，不推送或提PR。
+
+### 排除已确认的测试干扰并继续输入修复
+
+从干净 `d594bb9` 继续。上一轮属于progress：生产首提交检查已落地，
+有效Vivaldi实测和Brave验收取得新证据，完整回归失败亦被独立保留。
+本轮开始先复核实现与原始focus证据；用户随后明确确认对应测试时段
+“有操作”浏览器。因此 `chNw0r` 是存在外部操作干扰的失败轮，不再把
+它当作无外部输入的回归对照，也不将每条事件精确归给用户。
+
+据此停止尚未落盘的focus诊断扩展，保持生产、测试和验收判据不变，
+冻结v22的379源码/226旧结果，用同包重新完整104项。在这轮完成前不
+修改运行源码，不重启已运行的进程，不放宽任何focus豁免。
+
+并行研究Vivaldi无点击输入修复。公开DOM.focus可作为一次预选的新任务
+对照，在fill前执行，保留原单次fill/POST与所有失败；不得在失败之后
+重放。屏蔽输入事件再模拟鼠标虽可能提供widget线索，但会阻断用户输入，
+恢复失败的风险与后台体验目标冲突，本片不进入生产候选。
+
+同版本 `run-p0iiaM` 终端exit0、原104项全部通过。独立审计核验379源码、
+226旧结果、host、六调用器、四runtime及47制品成员；15研究任务的90来源
+GET、15原始POST、75建60关15留均通过。连续账本只有原六次fixture激活
+和两个明确popup产生的四focus，原窗口最终normal/focused、sentinel未变，
+没有新增豁免。旧失败字节保留。根代理查看了实际后台PNG，中文输入、
+跨frame内容和AI指针可见；主Port adapter不代替原生launcher退出证明。
+
+新增独占DOM_FOCUS诊断：原goto后、首次fill前读取document/原#note节点，
+一次DOM.focus；公开owner.cdp.call四次共用5秒预算，无TASK_READY、无
+额外点击或按键。独立before记录保留原输入观察表达式，旧三快照和HTML
+不变。ACK、采集完整、空值/未focus实验前提、真实任务成功分开判断。
+新增14项单测后，全脚手架213/213通过；生产/SDK/host/ZIP未改变。
+未知activeElement不视为未focus，错误insertText文本不视为原实验成立。
+
+v23冻结381源码/227旧结果后，`YMxiBJ` 实际terminal exit1。原goto82ms，
+四DOM命令20ms完成；原node获得可信focus/selectionchange，但原fill后仍
+空值、唯一POST为空，无beforeinput/input/change，因此不能作为输入修复。
+398ms连续焦点检查零事件/豁免；host/browser精确exit0和进程/注册清理通过。
+生产与原ZIP不变。原判定的collectionComplete为true、experimentObserved
+与diagnosticCompleted为false，保持原结果。
+
+独立复核发现两处诊断比较器假阴性：describeNode参数对象字段顺序不同，
+语义相同；DOM.focus的worker结束时间比调用端结束时间晚1ms，不能把两个
+上下文Date.now当成严格同一时钟。后续只修判定：对象结构语义比较，native
+唯一命令/目标/参数/返回值与同worker序号关联，本地await顺序/总期限独立
+检查。跨上下文时间窗口仅观察，不增加时间容差，也不把原任务改判通过。
+
+冻结v23下独立审计v2已exit0，381源码/227历史/47制品成员和原始HTTP、
+DOM、focus、精确清理通过；v1先复现了上述判据假阴性，两个审计都保留。
+原结果中的diagnosticCompleted=false/terminal1不改写；语义匹配说明另存
+审计结果，不作为新动作或任务通过证据。
+
+比较器修正再增四组回归：对象成员顺序、跨进程时间偏移、原生输入序号
+及鼠标ACK并发。作者/独立18/18，全脚手架最终217/217，无skip/cancel。
+修正只改变诊断匹配，原动作、fixture、原始结果和生产包不变。冻结v24
+381源码/228历史，以默认Brave及单次Vivaldi验证最终脚手架；后一轮是
+判据修正后的独立执行，不作为失败动作的fallback或原记录改判。
+
+最终默认Brave `KKcjBO` terminal exit0，原12步、唯一真实POST、实际
+PNG1877×1926及清理通过；根代理和独立审计查看截图，指针/点击圈可见。
+744ms四检查点零前台事件。Vivaldi `ntZmPW` diagnosticCompleted=true、
+terminal exit0，但task/acceptance仍false：goto73ms、DOM链22ms，原节点
+获得可信focus，原fill仍无输入事件且唯一POST空。433ms零前台事件。
+两轮独立审计核381源码/228历史/47制品成员、精确host/browser exit0、
+私有进程清空、双视图随机注册移除和固定注册不变通过。
+
+本片为progress：同生产版本完整104通过，明确用户操作干扰的旧失败边界，
+排除DOM.focus候选并修好可重复诊断。下一片继续Vivaldi无额外点击输入及
+其余矩阵缺口；不重复无新假设的同一路线，不放宽前台或真实输入要求。
+完整目标仍active，所有代码与证据只保留本地，无推送或PR。

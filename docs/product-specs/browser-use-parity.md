@@ -44,10 +44,15 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 最新检查点：新生产首次连接检查在Vivaldi `yeWkzC` 中，无TASK_READY即
 完成原goto（82ms），但输入仍空、任务失败；更早 `wv2kHQ` 在扩展安装前
-About求值超时。默认Brave `i40fyX` 通过且零焦点事件。主回归
-`run-chNw0r` 为41/104，另最终focus-ledger失败：未知窗口focus、两次
-标签激活及最终minimized尚未解释，不能把下表此前104/104扩大到新版本。
+About求值超时。默认Brave `i40fyX` 通过且零焦点事件。同版本主回归
+`run-p0iiaM` **104/104**、终端exit0及独立审计通过，原case集和焦点豁免
+未变。旧 `run-chNw0r` 41/104及最终focus-ledger失败保留；用户确认在
+对应时段操作过测试浏览器，不能把它当作无外部操作的回归对照。
 完整CI1079项Node（827+53+199）、JS115、Python82及Go通过。目标仍未完成。
+后续DOM.focus诊断 `ntZmPW` 原goto73ms、四命令22ms且原节点获焦，
+但原fill无输入事件/POST空，诊断完整而任务失败；原 `YMxiBJ` 失败保留。
+最终脚手架217/217；默认Brave `KKcjBO` 完整任务、零焦点与独立审计通过。
+本片生产/SDK/host/ZIP未改变，无额外点击的Vivaldi输入缺口仍开放。
 详细边界见[生产首次连接检查](../references/vivaldi-input-diagnostic.md#生产首次连接检查)。
 
 | ID | 能力 | 必须验证的行为 | 2026-10-11 当前证据与剩余缺口 |
