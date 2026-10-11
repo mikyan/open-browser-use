@@ -1,0 +1,43 @@
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_065ecd408b6134 2133-2144
+scripts/browser-integration/chooser-waits-fixture.test.mjs
+  s_08bbfd293d324f::t_89c87d96f5e917 53-54
+  s_08bbfd293d324f::t_0010171138f5af 5-7,43-52,55-105
+  s_08bbfd293d324f::t_e72ed893fa42b5 106
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_899d0343e74bd0 701
+  s_08bbfd293d324f::t_cec6e4db7d6ef7 264,699
+scripts/browser-integration/chooser-waits-fixture.mjs
+  s_08bbfd293d324f::t_fd213861b48eb5 27-66,87,91-92,104
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_065ecd408b6134 1471-1484
+scripts/browser-integration/chooser-ready-diagnostic.mjs
+  s_08bbfd293d324f::t_ec030250d0908d 146-147,152,159-160,163-200,220-221,229,236,248,256-261,263
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_065ecd408b6134 37-40
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_065ecd408b6134 68-71
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_065ecd408b6134 222-226,261-266
+  s_08bbfd293d324f::t_8cbfd56a23f995 197,209-221,242-243
+  s_08bbfd293d324f::t_b5ed17eaa3dcc9 267
+scripts/browser-integration/chooser-ready-diagnostic.test.mjs
+  s_08bbfd293d324f::t_d9cd54eabf73d6 234-235
+  s_08bbfd293d324f::t_2f2abe545b31ae 6-7,120,175-233,236-250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "0f90a180d2a152ec2153e8271db346c112d8c9c2",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
