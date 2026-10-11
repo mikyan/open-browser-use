@@ -1,0 +1,49 @@
+scripts/browser-integration/vivaldi-readiness-diagnostic.mjs
+  s_08bbfd293d324f::t_69d8088d98a813 1-44,46-49,51-52,54-66,69-99,103-114,135-139,141,143-144
+  s_08bbfd293d324f::t_bef6896641cfce 45,68,100-102,115-118,128-134,140,142
+  s_08bbfd293d324f::t_58224fc5a9405e 50,53,67,119-127
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_10c1330567f472 34-39
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_10c1330567f472 1068-1081
+docs/references/README.md
+  s_08bbfd293d324f::t_a1a97bff5ac9fe 61-62
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_6d6a3f8f814067 256-275
+docs/references/vivaldi-initial-document.md
+  s_08bbfd293d324f::t_10c1330567f472 56,64-95
+  s_08bbfd293d324f::t_d9b78745fdce14 57-58
+  s_08bbfd293d324f::t_a1a97bff5ac9fe 1-55,59-63
+  s_08bbfd293d324f::t_4949c1279a03af 96-104
+scripts/browser-integration/vivaldi-readiness-diagnostic.test.mjs
+  s_08bbfd293d324f::t_bef6896641cfce 148,150-163
+  s_08bbfd293d324f::t_6d6a3f8f814067 166-179
+  s_08bbfd293d324f::t_d5e57a0ee00b40 1-147,149,164-165,180-185
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_b7a14dc1ee9cd8 1474-1491
+  s_08bbfd293d324f::t_4949c1279a03af 1501
+  s_08bbfd293d324f::t_10c1330567f472 1492-1500,1502-1510
+docs/references/chromium-browser-installation.md
+  s_08bbfd293d324f::t_a1a97bff5ac9fe 170-172,176
+  s_08bbfd293d324f::t_10c1330567f472 173-175
+scripts/browser-integration/native-browser-installation.mjs
+  s_08bbfd293d324f::t_90f8c88977caaa 20,316,339-340,349,354,410-411,414,419-420,424-425,429,434-436,440,445-446,452,456,458,461,463,465,513,552,615,726
+  s_08bbfd293d324f::t_58224fc5a9405e 464
+  s_08bbfd293d324f::t_bef6896641cfce 431,723-724
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "8b2337c2e8d093952e6e5c1ca46cbc7f15db7535",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
