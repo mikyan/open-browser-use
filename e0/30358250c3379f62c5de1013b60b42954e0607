@@ -1,0 +1,54 @@
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_8eaaa68f684d2d 68-69
+  s_08bbfd293d324f::t_4d5a0bee6992e5 73,76-77
+  s_08bbfd293d324f::t_4bf4baee97039f 74-75,85
+  s_08bbfd293d324f::t_54075cb4bd3bc1 70-72
+scripts/browser-integration/chooser-ready-diagnostic.mjs
+  s_08bbfd293d324f::t_247fd5f3b59688 60-62,64
+  s_08bbfd293d324f::t_0c625563ce1a2b 1-59,63,65-160,173-183,186,188,193-198,201,203,205-209,215-219,224-228
+  s_08bbfd293d324f::t_5e3e72c00d14d9 199-200
+  s_08bbfd293d324f::t_ca82c6bf383619 161-172,184-185,187,189-192,202,204,210-214,220-223
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_4d5a0bee6992e5 1214-1220
+  s_08bbfd293d324f::t_8eaaa68f684d2d 1201-1204
+  s_08bbfd293d324f::t_e9f561e40e15f6 1205-1213
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_9b80ecac3239dc 48,55,507,582-583,2095-2106,2117
+  s_08bbfd293d324f::t_247fd5f3b59688 398,581
+scripts/browser-integration/chooser-ready-diagnostic.test.mjs
+  s_08bbfd293d324f::t_0567a6672d8820 7,100,107,122-156
+  s_08bbfd293d324f::t_4d64a6319aeeec 1-6,8-99,101-106,108-121,157-174
+scripts/browser-integration/chooser-waits-fixture.mjs
+  s_08bbfd293d324f::t_247fd5f3b59688 153-161
+  s_08bbfd293d324f::t_5e3e72c00d14d9 178,181-186
+  s_08bbfd293d324f::t_9b80ecac3239dc 123,134,148-152,171-175,177
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_8eaaa68f684d2d 1849-1853
+  s_08bbfd293d324f::t_4d5a0bee6992e5 1866-1876
+  s_08bbfd293d324f::t_e9f561e40e15f6 1854-1865
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_54075cb4bd3bc1 57-64
+  s_08bbfd293d324f::t_ca82c6bf383619 38-39,50-52
+  s_08bbfd293d324f::t_5e3e72c00d14d9 7-37,40-49,53-56
+  s_08bbfd293d324f::t_4d5a0bee6992e5 65-72
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_4d5a0bee6992e5 288-291
+  s_08bbfd293d324f::t_54075cb4bd3bc1 277-283
+  s_08bbfd293d324f::t_4bf4baee97039f 272,284-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e030358250c3379f62c5de1013b60b42954e0607",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
