@@ -1,0 +1,59 @@
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_102ce6d65d4574 1633-1636
+  s_08bbfd293d324f::t_ad05bcf3acf1e5 1620,1622-1627
+  s_08bbfd293d324f::t_9f81543b02dff5 1640-1642
+  s_08bbfd293d324f::t_5f17b5a4a60c14 42,54-57,242,254,403,1617-1619,1621,1628-1632,1637-1639,1643-1651,1997
+scripts/browser-integration/background-parallel-workflow.test.mjs
+  s_08bbfd293d324f::t_05a5692bd17399 1-8,10-17,19,24-44,47-53,67-120,122,125-139,141-156
+  s_08bbfd293d324f::t_cdaccb99cdef0e 9,18,20-23,45-46,54-66
+  s_08bbfd293d324f::t_89086a41ed600a 121,123-124,140
+docs/references/README.md
+  s_08bbfd293d324f::t_95ef1db9b7ef57 53-54
+scripts/browser-integration/background-parallel-workflow.mjs
+  s_08bbfd293d324f::t_06b176348a47c9 1-13,22-46,48-62,73-74,83,86-100,102-147,149,152-155,158-162,168-174,176-182,184,186-195,197-204,210-220,222-233,235-241,243-252,254-255,274-281,283-296,298-313,316,318-320,322-323,325-329,337-342,344-347,350,357,359-368,370-375,392-412,415-416,418-421,423-426
+  s_08bbfd293d324f::t_89086a41ed600a 47,150,206,208,221,257,259-261,271-273
+  s_08bbfd293d324f::t_5147ca323fd835 151,156,175,205,207,209,348,351-354,377-380
+  s_08bbfd293d324f::t_05a5692bd17399 183
+  s_08bbfd293d324f::t_c45c5e5ec5202a 14-21,101,148,163-167,185,196,234,242,256,258,282,297,314-315,317,321,324,330-336,343,349,355-356,358,369,376,381-391,413-414,417,422
+  s_08bbfd293d324f::t_cdaccb99cdef0e 63-72,75-82,84-85,157,253,262-270
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_4a802a1c80ad38 955
+  s_08bbfd293d324f::t_a8c21ad3f6c149 942-954,956-970
+  s_08bbfd293d324f::t_b31f080da6d8b1 971-977
+docs/references/background-parallel-workflow.md
+  s_08bbfd293d324f::t_e95321046b16f4 63-66
+  s_08bbfd293d324f::t_95ef1db9b7ef57 1-13,20-49,56-62
+  s_08bbfd293d324f::t_19bff80185afd1 67-68,77-86
+  s_08bbfd293d324f::t_e302b4d0b4f3ad 87-97
+  s_08bbfd293d324f::t_b31f080da6d8b1 98-104
+  s_08bbfd293d324f::t_ac9b50b6d99846 14-19,69-76
+  s_08bbfd293d324f::t_712d8236aa7514 50-55
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_b31f080da6d8b1 1301-1306
+  s_08bbfd293d324f::t_2c8a0d105800d2 1276-1285
+  s_08bbfd293d324f::t_679181c9abdd31 1260-1275
+  s_08bbfd293d324f::t_9b4d64f6e91f22 1286-1300
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_8cd9ac6f045363 328-332
+  s_08bbfd293d324f::t_56eb03e4e6acde 333-336,348-350
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_4d77a5e9aa0167 16,19,23-30
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_e1e87efb3d9231 55,58,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "f678039d2cc0cf0598ae0b55ed96a818718c21e9",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
