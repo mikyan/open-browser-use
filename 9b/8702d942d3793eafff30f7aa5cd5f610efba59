@@ -1,0 +1,109 @@
+docs/references/README.md
+  s_08bbfd293d324f::t_23976d5cd18104 27-28
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_c611f5db645fc4 760-778
+  s_08bbfd293d324f::t_8e98010bfcdc95 33,36,779-848
+scripts/browser-integration/browser-restart-support.test.mjs
+  s_08bbfd293d324f::t_51bfc3afacb17f 82-104
+  s_08bbfd293d324f::t_8cb65fff438fe5 1-2,4,6-11,18-31,129
+  s_08bbfd293d324f::t_713bd3e6e9f34f 5,12-17
+  s_08bbfd293d324f::t_1fbefd42408baa 3,106-119
+  s_08bbfd293d324f::t_23a9033593d75e 44-57
+  s_08bbfd293d324f::t_5f994803f3a69b 32-43
+  s_08bbfd293d324f::t_0ef560adc1c314 58-81,105,120-128
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_fb5bdcd2ead860 658-661
+  s_08bbfd293d324f::t_713bd3e6e9f34f 589-594,597,600-606
+  s_08bbfd293d324f::t_fd5ac364e1184e 585-587,607,628-629,665-674,681-684,696-700
+  s_08bbfd293d324f::t_52880631bd199c 568-584,588,595-596,598-599,608,631-635,639-656,664,675-680,685-695,701
+  s_08bbfd293d324f::t_23a9033593d75e 609-619,636-638
+  s_08bbfd293d324f::t_f91a6c8b6b43e3 562-567
+  s_08bbfd293d324f::t_51bfc3afacb17f 620-627,630,657,662-663
+apps/chrome-extension/browser-input-adapter.js
+  s_08bbfd293d324f::t_1cb02eeabb9566 14-15,17-37,118-122,124-126,131-134,152-153,168,180-184,188-189
+  s_08bbfd293d324f::t_0a0dfae5c688bb 13,16,123
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_ddfb177904b3bc 351-352
+apps/chrome-extension/native-input-durability.test.mjs
+  s_08bbfd293d324f::t_0a0dfae5c688bb 43-55
+  s_08bbfd293d324f::t_d5f0b29698e5bc 1-42,56-126
+docs/references/browser-lifetime.md
+  s_08bbfd293d324f::t_679048e86893ad 1-23,37-104,115-118
+  s_08bbfd293d324f::t_32a49f4b500eae 105-114
+  s_08bbfd293d324f::t_b19142198e3257 24-36
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_e379181e8b9a0f 632-634,637-640
+  s_08bbfd293d324f::t_e63e007908ba28 1173,1393,1698-1701,2050-2055,3329
+  s_08bbfd293d324f::t_b765bb59d9970a 606,608-611,617-631,641-642,725,819,821-823,825-826,828,869,926-927,1101,1104,1174,1469,3324-3328,3330-3335
+  s_08bbfd293d324f::t_db160a65ad5a94 3,223-225,231,234,236,238-239,241-242,244,246-250,268-270,310-311,321,338-346,350,491,529,1509-1510
+  s_08bbfd293d324f::t_bcf57fd0ea13c1 607,3438,3441,3443-3445,3447-3448,3473
+  s_08bbfd293d324f::t_7f79fb24be7dd3 660-677,1453,1457,1460,1464,1467,1481,1486,1490,1498-1499
+  s_08bbfd293d324f::t_d70b3307bb7efd 635-636
+  s_08bbfd293d324f::t_c452b94a18a9b6 685,1381-1382,1384,1387,1422-1423,1454-1456,1458-1459,1461-1463,1465-1466,1468,1470-1480,1482-1485,1487-1489,1491-1497,1500-1508
+apps/chrome-extension/browser-lifetime.js
+  s_08bbfd293d324f::t_154de3ab7778d8 1-157
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_f7d9a0fd8adb87 15
+apps/chrome-extension/browser-lifetime.test.mjs
+  s_08bbfd293d324f::t_36de7032dbf9eb 1-101
+  s_08bbfd293d324f::t_d14fd033221f1d 102-159
+scripts/browser-integration/browser-restart.mjs
+  s_08bbfd293d324f::t_b214f381290e60 25-27,231-232,246-253,268,467,479,482-483
+  s_08bbfd293d324f::t_1fbefd42408baa 16,352-357,364
+  s_08bbfd293d324f::t_eb5735ce1d63dd 1-15,17-24,28-35,39-123,128-134,157-230,233-245,254-267,269-275,278-290,332,334-335,339,342-343,349,351,358-360,362,367-380,383-384,386-387,407-416,418-419,427,432-437,442-462,464,466,469-478,480-481,484-486,489-503,506-511,516-548,672-680,682-686
+  s_08bbfd293d324f::t_5f994803f3a69b 381-382,385,389,391-401,405,487,504
+  s_08bbfd293d324f::t_23a9033593d75e 124-127,388,390,402-404,406,420-423,428-431,505,512-515
+  s_08bbfd293d324f::t_713bd3e6e9f34f 36-38,463,465
+  s_08bbfd293d324f::t_8e0664b1d3532b 135-150,276,336-338,340-341,344-348,350,361
+  s_08bbfd293d324f::t_3497eecd6f7016 151-156,417,438-441,488
+  s_08bbfd293d324f::t_73482646b139b3 468,549-552,554-597,600-610,612-625,627-628,630,632,634,638-651,653,655-664,669-671,681
+  s_08bbfd293d324f::t_51bfc3afacb17f 553,598-599,611,626,629,631,633,635-637,652,654,665-668
+  s_08bbfd293d324f::t_0fe7e1a6747e76 424-426
+  s_08bbfd293d324f::t_57ba57bc420690 277,291-331,333,363,365-366
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_9581de7620e899 245-248
+  s_08bbfd293d324f::t_d195ebd80569a5 282-284
+scripts/browser-integration/browser-restart-support.mjs
+  s_08bbfd293d324f::t_1330696465cb59 3-35,126-132
+  s_08bbfd293d324f::t_713bd3e6e9f34f 72
+  s_08bbfd293d324f::t_57ba57bc420690 36-44,56-64
+  s_08bbfd293d324f::t_8cb65fff438fe5 1-2,65-71,73-95,122-125,133-135
+  s_08bbfd293d324f::t_23a9033593d75e 109-121
+  s_08bbfd293d324f::t_1fbefd42408baa 45-55
+  s_08bbfd293d324f::t_5f994803f3a69b 96-108
+docs/references/control-lifecycle.md
+  s_08bbfd293d324f::t_9581de7620e899 136-145,265-274
+apps/chrome-extension/browser-lifetime-backend.test.mjs
+  s_08bbfd293d324f::t_d823a8c515ee7a 135-160
+  s_08bbfd293d324f::t_f30cc51200eac0 161-175
+  s_08bbfd293d324f::t_4e2d6aca4562a2 1-134,176-241
+  s_08bbfd293d324f::t_1a50f02eb12fef 242-392
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_206653f8082486 5,55,71
+apps/chrome-extension/move-to-deliverables.test.mjs
+  s_08bbfd293d324f::t_50d78bcba009d8 1,209-210,215,224,236,248,266-270
+apps/chrome-extension/pause-control.test.mjs
+  s_08bbfd293d324f::t_4eb984941431e5 139-140,314-315,317-318
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_1c1420ff0977c8 16-17,19,21,48-91
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_a1ba97c8e4b4dc 542-622
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_e6b381c5936eef 47-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "9b8702d942d3793eafff30f7aa5cd5f610efba59",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
