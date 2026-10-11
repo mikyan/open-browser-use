@@ -939,6 +939,42 @@ CI **920** 项Node（771+53+96）、JS115、Python82及Go全包通过，无跳�
 完整目标继续active，仅本地提交，不推送或提PR。细节集中记录在
 `docs/references/shared-research-workflow.md`，同步矩阵、计划及质量记录。
 
+### 后台长闲置、并行渲染和独立收尾
+
+新增可单独开启的真实浏览器场景，默认104项保持原范围。三个公开JS SDK
+session各有两个后台页；A静默至少310秒，B/C持续可信填写/点击、实际POST
+和截图，C中途结束并显式开始新scope，B继续。A恢复后的首条SDK请求是
+截图，然后更新并验证新画面。被动原生探针保留原Promise/参数/结果，记录
+真实frame/ACK、渲染区间与清理；不修改私有队列或焦点规则。
+
+首轮 `run-8DMNGR` **1/2** 在4.67秒即因DPR1.5元素图高度断言失败，原
+四张360×92 PNG和失败状态保留，不能称长闲置通过。原图16色块均正确；
+旧检查忽略截图引擎的CSS整数包围裁剪。修正后记录原native clip及截图后
+box/root scroll，严格复算尺寸和像素位置；没有放宽错误画面或旧状态判断。
+七项纯测试涵盖小数原点和1.25/1.5/1.75 DPR，并验证原Promise、全部分支
+settle和native事件顺序；scope结束尝试在发送前登记，未知finalize不重发。
+
+最终专项 `run-ttHLU9` **2/2**，静默310087.7247ms，31轮，172原始POST、
+182 PNG共9,783,561字节、2912色块采样独立核验。490原生渲染区间和563对
+跨owner重叠实际存在；C收尾与B成功操作重叠、原scope继续，8页真实关闭、
+无pending，原4tabs不变。连续账本零激活/零focus/零新增豁免。关键首次
+恢复、更新和跨源截图已查看。初始8页及恢复2页visibility均visible，保留
+生产focus emulation；该证据不等于hidden/intensive节流或OS鼠标测量。
+
+完整CI **927** Node（771+53+103）、JS115、Python82及Go全包通过；早期
+缺zip PATH、默认pnpm shell不兼容的环境失败日志保留。预跑冻结361源码、
+7二进制、192历史记录；旧基线和失败原图未覆盖。生产代码与原47文件/
+1,255,479字节扩展ZIP保持不变。系统调钟日志隔离、原Page GUID路径/实际
+取消的只读机制审计仍未给出普通扩展内可靠解法；既有缺口继续开放。
+全部修改仅本地，不推送或提PR。
+
+独立默认回归 `run-NDr4vF` **104/104**，case集合与既有主套件逐项一致且
+不包含长测。15研究任务、90原始来源、15POST与75创建/60关闭/15保留再次
+独立核验；连续六次激活和四次focus均精确来自原有fixture/控制面板动作。
+两轮冻结源码/runtime/产物/历史身份一致，无新增焦点豁免。正式runner
+保留opt-in入口、可重跑fixture和证据检查，具体边界另记
+`docs/references/background-parallel-workflow.md`。本片完成，整体目标active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

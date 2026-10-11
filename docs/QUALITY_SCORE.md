@@ -13,12 +13,20 @@
 
 | 区域 | 评分 | 原因 | 下一步 |
 | --- | --- | --- | --- |
-| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及暂停已有验收。最新主 `run-3OY97j` 83/83，新增五入口 chooser 准备确认、root/既有及新 OOPIF 原始文件字节与生命周期；Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3，真实重启/reload 历史8/8。Edge 同策略隔离后仍有未知 focus，不能称全浏览器无抢前台。 | 明确 content-return 基准，继续 Page GUID 路径/取消、headed OS 剪贴板、Edge 原生焦点、签名更新/更多恢复顺序及更广同组任务。 |
+| 产品面 | B | 公开动作、三个 SDK 与 CLI/MCP、后台光标/截图、跨 frame 上传及暂停已有验收。最新主 `run-NDr4vF` 104/104，含五入口×三布局研究流程；页面下载准备确认、原生GUID与文件字节另有9/9。Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3，真实重启/reload 历史8/8。Edge 同策略隔离后仍有未知 focus，不能称全浏览器无抢前台。 | 继续后台长期并行、Page GUID 路径/取消、headed OS 剪贴板、Edge 原生焦点、签名更新/更多恢复顺序及更广同组任务。 |
 | 架构文档 | B | 本地 IPC、动作协议、观察/capture refs、control 生命周期、暂停、来源边界与 incarnation/startup witness 已有 reference；新增 native 重连 timer/alarm 调度、真实 launcher/EOF 验收边界及 chooser 准备确认/原 deadline/实际清理契约。 | 查明 Edge 隔离原生恢复的未知 focus，补更多恢复顺序、签名更新及受限入口。 |
 | 插件 UI | B | MV3 popup、content cursor 和打包校验具备；真实暂停/失败界面与三种网站策略已截图检查。恢复指导区分关闭原受控页、完整退出重开及可能额外重启，风险退役后立即撤下建议；20张实际恢复PNG已校验，关键三图已查看。 | 更广平台浏览器验证及网站规则可用性持续补齐。 |
-| 测试 | B | 完整 CI：扩展751、脚本53、脚手架78（882 Node），JS105、Python73、Go全包及其余检查通过，无跳过。主 `run-3OY97j` 83/83，chooser 专项9/9，最新 Chrome 原生生命周期 `0B1hfL` 3/3；历史整进程/reload8/8保留。Edge清洁inventory但focus失败，未将其标通过。 | 补 Edge 原生恢复焦点定位、packed alarm 实际唤醒、签名更新、其他 OS/浏览器及更广同组比较。 |
+| 测试 | B | 完整 CI：扩展771、脚本53、脚手架103（927 Node），JS115、Python82、Go全包及其余检查通过，无跳过。主 `run-NDr4vF` 104/104；Chrome 原生生命周期 `native-lifecycle-dnAdTC` 3/3，历史整进程/reload8/8保留。长闲置最终 `run-ttHLU9` 2/2，310秒静默、182图/172POST及原生并行独立核验；首轮DPR裁剪校验失败保留。Edge清洁inventory但focus失败，未将其标通过。 | 补更长/更广并行压力、Edge 原生恢复焦点定位、packed alarm 实际唤醒、签名更新、其他 OS/浏览器及更广同组比较。 |
 | 可观测性 | B | 公开 diagnostics 有界记录真实 console/error/network；新 CRPage 在原生回调创建 handles 前过滤旧时间戳的 console/exception/Log，覆盖 root/OOPIF/worker，原 raw CDP 通知保留。真实重连/转交重放和新消息均已验收；时间边界依赖稳定系统钟。独立 network wait 有 ready 确认与原 deadline。 | 补系统时钟跳变后的隔离、可脱敏 debug trace 与更广真实站点场景。 |
 | 安全 | C | 本地 IPC、control epoch、暂停和通知已有回归；popup 独占的 origin 规则、完整 frame 检查与受限模式禁未经验证入口。普通标签移出任务范围及 host 断线同步阻断旧操作，清理后只接受显式新控制范围，不重放请求。持久数字 ID 绑定 session incarnation，原生 Input 发送前记录风险并在持久化等待后再次检查 deadline/epoch/站点/释放状态。未知输入保持阻断；session ID 不作认证，策略不是网络防火墙。 | 受限模式更广 CDP/数据操作、peer 授权及安装审计；未知持久写、更多进程重启恢复及 extension reload/update 顺序仍需专项验收；数字 ID 碰撞已有确定性回归。 |
+
+最新后台专项 `run-ttHLU9` **2/2**：三独立任务、两页命令静默310.088秒，
+首次恢复截图及新状态正确；172原始POST、182PNG/2912像素、490原生渲染
+区间/563跨owner重叠经两路独立检查。8页真实关闭、原4tabs不变，连续零
+激活/零focus。默认 `run-NDr4vF` **104/104** 保持原case集合，其六激活/
+四focus仍由已有明确fixture动作归因。首轮DPR几何失败保留且只修测试。
+生产/原ZIP未改；document visibility实际为visible，不宣称隐藏页节流，
+更长期/更广配置和其他既有缺口仍在，详见[证据边界](references/background-parallel-workflow.md)。
 
 最新验收脚手架修正增加 15 项 Node-only 回归，全部通过。固定 Headless
 内存环境的四个定向场景通过，包括同一个常驻 observer 下三次真实 worker

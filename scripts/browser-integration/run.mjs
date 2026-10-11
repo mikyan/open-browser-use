@@ -39,6 +39,7 @@ import { createFormWorkflowFixture, checkFormWorkflow, checkFormReceipt } from "
 import { createResearchWorkflowFixture, checkResearchReceipt } from "./research-workflow-fixture.mjs";
 import { checkResearchWorkflow } from "./research-workflow-checks.mjs";
 import { checkResearchTabDisposition } from "./research-workflow-evidence.mjs";
+import { createBackgroundParallelFixture, checkBackgroundParallelWorkflow } from "./background-parallel-workflow.mjs";
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
@@ -50,6 +51,10 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
 const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
+if (process.env.OBU_TEST_BACKGROUND_PARALLEL !== undefined && process.env.OBU_TEST_BACKGROUND_PARALLEL !== "1")
+  throw new Error("OBU_TEST_BACKGROUND_PARALLEL must be 1 or unset");
+const backgroundParallel = process.env.OBU_TEST_BACKGROUND_PARALLEL === "1";
+if (backgroundParallel && memoryClipboard) throw new Error("Background parallel acceptance requires the headed browser");
 let memoryClipboardGuard;
 const repo = path.resolve(directory, "../..");
 const sourceExecutable = process.env.OBU_TEST_HOST_BINARY;
@@ -234,6 +239,7 @@ const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
 const formWorkflows = createFormWorkflowFixture();
 const researchWorkflows = createResearchWorkflowFixture();
+const backgroundParallelFixture = createBackgroundParallelFixture();
 const chooserFixtures = createChooserWaitFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
 let httpPort, actionVisits = 0;
@@ -245,6 +251,7 @@ const http = createServer(async (request, response) => {
   if (embeddedMedia.handle(request, response, httpPort)) return;
   if (formWorkflows.handle(request, response, httpPort)) return;
   if (researchWorkflows.handle(request, response, httpPort)) return;
+  if (backgroundParallelFixture.handle(request, response, httpPort)) return;
   if (chooserFixtures.handle(request, response, httpPort)) return;
   if (downloadWaitFixtures.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
@@ -393,6 +400,7 @@ try {
   for (const name of ["research-workflow-fixture.mjs", "research-workflow-checks.mjs", "research-workflow-evidence.mjs", "research-workflow-checks.py", "go-research-workflow-checks/main.go"]) {
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   }
+  sourceIdentity.sha256.backgroundParallelWorkflow = createHash("sha256").update(await fs.readFile(path.join(directory, "background-parallel-workflow.mjs"))).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   nativeBridge = new NativeHostBridge({ server: ws, executable, socketDir, stats: nativeFrameStats,
@@ -1606,6 +1614,41 @@ try {
       return evidence;
     });
   }
+  if (backgroundParallel) await test("js-background-parallel-long-idle", async () => {
+    sourceIdentity.testHooks.push("background parallel: bounded passive original chrome.debugger command/event observer, restored after task; no native arguments/results or backend state changed");
+    const artifact = path.join(runDir, "background-parallel.json");
+    let detail, failure, checkpoints = 0, checkpointWrites = Promise.resolve();
+    const save = async value => {
+      const recorded = JSON.stringify(value, null, 2), serverRecorded = JSON.stringify(backgroundParallelFixture.allStats(), null, 2);
+      checkpointWrites = checkpointWrites.then(async () => {
+        await fs.writeFile(artifact, recorded);
+        await fs.writeFile(path.join(runDir, "background-parallel-server.json"), serverRecorded);
+      });
+      await checkpointWrites;
+      if (++checkpoints % 5 === 0) console.log("PROGRESS background-parallel", { checkpoint: checkpoints, elapsedMs: Date.now() - startedAt });
+    };
+    const startedAt = Date.now();
+    try {
+      detail = await checkBackgroundParallelWorkflow({ connectOpenBrowserUse, endpoint, fixtureURL,
+        fixture: backgroundParallelFixture, worker, onCheckpoint: async value => {
+          await save(value);
+          await activeInvariant();
+        },
+        saveScreenshot: async (name, bytes) => {
+          assert.equal(path.basename(name), name); assert.match(name, /^background-parallel-.*\.png$/);
+          await fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" });
+          const saved = { filename: name, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+          try { return { ...saved, ...pngDimensions(Buffer.from(bytes).toString("base64")) }; }
+          catch (error) { error.savedScreenshot = saved; throw error; }
+        } });
+    } catch (error) { failure = error; detail = { ...(error.backgroundParallel ?? {}), failed: true, error: error.stack ?? String(error) }; }
+    finally {
+      await save(detail ?? { failed: true, error: "No background parallel task result" });
+      await fs.writeFile(path.join(runDir, "background-parallel-server.json"), JSON.stringify(backgroundParallelFixture.allStats(), null, 2));
+    }
+    if (failure) throw failure;
+    return detail;
+  });
   await test("js-bounded-console-error-network-diagnostics", async () => {
     sourceIdentity.testHooks.push("diagnostics: passive native console/exception/Log observer records real replay timestamps and fresh Page capture evidence; no native event is altered or fabricated");
     const diagnostics = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-diagnostics", timeoutMs: 15000 });
@@ -1951,6 +1994,7 @@ try {
   await fs.writeFile(path.join(runDir, "media-breadth-server.json"), JSON.stringify(embeddedMedia.stats(), null, 2));
   await fs.writeFile(path.join(runDir, "form-workflow-server.json"), JSON.stringify(formWorkflows.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "research-workflow-server.json"), JSON.stringify(researchWorkflows.allStats(), null, 2));
+  if (backgroundParallel) await fs.writeFile(path.join(runDir, "background-parallel-server.json"), JSON.stringify(backgroundParallelFixture.allStats(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;

@@ -325,6 +325,15 @@ Optional variables:
 - `OBU_TEST_CASES`: optional regular expression selecting test names for a focused
   debugging run. The initial raw navigation/engine attachment always runs. Omit
   this variable for the complete acceptance suite.
+- `OBU_TEST_BACKGROUND_PARALLEL=1`: enable the additional headed long-idle case.
+  Select `OBU_TEST_CASES=background-parallel` to run it with the mandatory raw
+  navigation prerequisite. It keeps two pages untouched for at least 310 seconds
+  while other owners submit data and capture screenshots concurrently. This
+  opt-in case is excluded from the default 104-case suite; no shorter wait counts
+  as acceptance. The recorded `run-ttHLU9` passed **2/2** with a 310.088-second
+  command-free interval, 172 original POSTs and 182 decoded PNGs. Native stream
+  overlap, actual cleanup and zero focus/activation events were independently
+  checked. See [the evidence contract and limits](../../docs/references/background-parallel-workflow.md).
 
 The isolated test browser uses `--no-sandbox` because some Windows automation
 environments cannot initialize Chromium's sandbox. It serves only generated
@@ -336,8 +345,9 @@ virtual display. The suite does not use disabled background-throttling flags.
 
 The suite currently contains 104 cases with all Go helper binaries, including
 fifteen shared research workflows across five public entrypoints and three
-layouts. Headed `run-WWWaGP` passed **104/104** on the controlled testing-config
-baseline; research-focused `run-AOpN3n` passed **16/16**, including the mandatory
+layouts. Latest headed `run-NDr4vF` passed **104/104** on the controlled testing-config
+baseline with the opt-in long case disabled. Previous `run-WWWaGP` also passed
+**104/104**; research-focused `run-AOpN3n` passed **16/16**, including the mandatory
 native-navigation prerequisite. The earlier shared-form run `run-6SwxDM`
 passed **77/77**; form-focused `run-j4jsMy` passed **8/8**.
 The preceding finite-media headed `run-XnREpF` passed **70/70**; its
