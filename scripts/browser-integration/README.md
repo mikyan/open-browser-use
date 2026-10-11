@@ -4,6 +4,55 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
+## Opt-in page download diagnostic
+
+`OBU_TEST_DOWNLOAD_DIAGNOSTIC=1` selects only the original JS page-download
+ready case and the mandatory raw-navigation control. It rejects all other
+case-selection and diagnostic modes, including MCP binding and geometry DPR.
+Build the normal host and SDK, then run the usual runner with this flag set;
+unset it to return to the original 104 cases.
+
+The original HTML, single clicks and 10-second download/5-second click limits
+remain unchanged. This mode records the original arm, add-frame, click, collect,
+verify and cancel call phases, so an acknowledged click and a later download
+timeout are distinguishable. A cancellation error is kept separately from the
+original operation error in all modes. Default mode has no diagnostic command
+probe, phase array or failure DOM reads.
+
+The shared bounded native recorder observes commands for the exact fixture tab:
+Input methods, Page enable/disable and Runtime resume, plus frame/target and
+download events. It preserves the native receiver, arguments, Promise and
+errors; side-chain recording can affect timing. On the first operation failure,
+before cancellation, one total 3-second read-only pass captures window/focus
+metadata and the root and uniquely observed child document through the original
+control scope. It includes the fixture's click record, href, element geometry
+and hit testing. A root native point is never projected into a child viewport;
+a child center hit is explicitly a later observation. No extra click, wait for
+readiness, debugger attachment, focus change or action replay is introduced.
+
+`download-ready-js.json` stores the phase and diagnostic evidence alongside the
+original download/server data. `download-diagnostic.json` and
+`results.json.downloadDiagnostic` distinguish `originalTaskPassed` from
+`collectionComplete`; `acceptancePassed` is always false. Missing cases,
+truncation, unsettled commands, lost worker identity, failed reads or cleanup
+errors cannot count as complete collection. A successful diagnostic does not
+establish the cause of an earlier failure or replace the default regression.
+
+Recorded `run-avWmSX` passed both selected cases with terminal exit 0. Independent
+review matched 78 continuous native records, 29 commands and acknowledgements,
+12 Input calls, three GUIDs and three actual files (12,297 bytes) to the original
+server requests. The dynamic child's enable acknowledgements preceded its
+download input. Its 3,784 ms focus observation had no events or allowances.
+The earlier timeout did not recur; the failure-only DOM branch remains untested
+against that actual fault, and `acceptancePassed` remains false.
+
+The following default `run-Ve7nKv` retained terminal exit 1: 87 of the original
+104 cases passed, 17 failed and the final focus ledger failed separately. All
+five download callers and the download lifecycle case passed before the later
+unexplained focus event. The user confirmed manual window activity at that
+event's time; this is an externally disturbed run, not a clean focus comparison.
+The failed records remain unchanged and do not establish their complete cause.
+
 ## Opt-in MCP connection binding acceptance
 
 `OBU_TEST_MCP_BINDING=1` selects exactly the mandatory

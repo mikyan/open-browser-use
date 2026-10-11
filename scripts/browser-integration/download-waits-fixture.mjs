@@ -160,7 +160,7 @@ export async function startDownloadEvidence({ worker, owner, server, downloadRoo
   };
 }
 
-export async function checkDownloadReady({ owner, trigger, fixtureURL, prefix }) {
+export async function checkDownloadReady({ owner, trigger, fixtureURL, prefix, diagnostic }) {
   assert.equal((await owner.client.getInfo()).metadata.downloadWaitVersion, 1);
   const detail = { caller: "js", independentConnections: true, variants: [] };
   try {
@@ -168,16 +168,42 @@ export async function checkDownloadReady({ owner, trigger, fixtureURL, prefix })
       const key = `${prefix}-${variant}`, tab = await owner.newTab();
       await owner.cdp.navigate(tab.id, downloadPageURL(fixtureURL, key, variant));
       const sender = trigger.tab(tab.id), target = variant === "root" ? sender : sender.frameLocator("#download-frame");
-      const wait = await tab.expectDownload({ timeoutMs: 10000 }), item = { key, variant, tabId: tab.id, scope: downloadScope(owner), waiterId: wait.waiterId, remainingMs: wait.remainingMs, readyAt: Date.now() }; detail.variants.push(item);
+      const item = { key, variant, tabId: tab.id, scope: downloadScope(owner) }; detail.variants.push(item);
+      let wait, failure, phase;
+      const begin = name => { if (diagnostic) { item.stages ??= []; phase = { name, startedAt: Date.now() }; item.stages.push(phase); } };
+      const complete = () => { if (phase) { phase.completedAt = Date.now(); phase = null; } };
       try {
-        if (variant === "dynamic-oopif") await sender.getByRole("button", { name: "Add download frame", exact: true }).click();
+        if (diagnostic) await diagnostic.start({ owner, item });
+        begin("arm"); wait = await tab.expectDownload({ timeoutMs: 10000 });
+        Object.assign(item, { waiterId: wait.waiterId, remainingMs: wait.remainingMs, readyAt: Date.now() }); complete();
+        if (variant === "dynamic-oopif") { begin("add-frame"); await sender.getByRole("button", { name: "Add download frame", exact: true }).click(); complete(); }
+        begin("click");
         item.triggerSubmittedAt = Date.now(); await target.getByRole("link", { name: "Download fixture", exact: true }).click({ timeoutMs: 5000 });
+        complete(); begin("collect");
         const download = await wait.result(); item.result = { downloadId: download.downloadId }; item.collectedAt = Date.now();
+        complete(); begin("verify");
         await assert.rejects(download.path({ timeoutMs: 1000 }), /OBU_DOWNLOAD_PATH_UNAVAILABLE/);
         item.page = JSON.parse(await target.locator("#evidence").textContent()); assert.deepEqual(item.page.clicks, [{ trusted: true, sequence: 1 }]);
         if (variant === "dynamic-oopif") { item.frameAdds = await tab.evaluate("downloadEvidence.frameAdds"); assert.deepEqual(item.frameAdds, [{ trusted: true }]); }
         assert.deepEqual(downloadScope(trigger), item.scope);
-      } finally { await wait.cancel(); }
+        complete();
+      } catch (error) {
+        failure = error;
+        if (phase) { phase.failedAt = Date.now(); phase.error = String(error); phase = null; }
+        if (diagnostic) try { await diagnostic.failure({ owner, item }); } catch (observationError) { item.diagnosticFailureError = String(observationError); }
+      } finally {
+        if (wait) {
+          begin("cancel");
+          try { await wait.cancel(); complete(); }
+          catch (error) {
+            item.cancelError = String(error); failure ??= error;
+            if (phase) { phase.failedAt = Date.now(); phase.error = String(error); phase = null; }
+          }
+        }
+        if (diagnostic) try { await diagnostic.finish({ item }); } catch (observationError) { item.diagnosticFinishError = String(observationError); }
+        if (diagnostic && item.cancelError && item.diagnostic) item.diagnostic.collectionComplete = false;
+      }
+      if (failure) throw failure;
     }
     return detail;
   } catch (error) { error.downloadDetail = detail; throw error; }

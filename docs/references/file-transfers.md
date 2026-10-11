@@ -308,3 +308,13 @@ Directory upload, page-triggered download paths, broader media and specialized d
 exports, browser policy/prompt behavior, and direct locator upload still need
 broader product and end-to-end coverage; these slices do not claim complete P10
 parity.
+
+Later default `run-k5giEj` retained a JS dynamic-OOPIF download timeout: the
+file endpoint saw no request and the passive download trace saw no event. Its
+original record lacks click acknowledgements and failure DOM evidence, so the
+cause remains unknown. The opt-in download diagnostic described in the runner
+README adds bounded native input/setup timing and original call phases, plus
+one original-scope DOM pass on failure. `run-avWmSX` completed the three layouts
+and raw-navigation control; the earlier fault did not recur. This instrumentation
+is not a production fix, and its failure DOM branch has not yet observed that
+real fault. The original action limits and fixture HTML remain unchanged.

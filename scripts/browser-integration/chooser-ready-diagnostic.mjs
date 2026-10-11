@@ -13,7 +13,9 @@ export function chooserDiagnosticEnabled(env) {
 // Serialized into the isolated worker on explicit opt-in. Never invokes an API
 // action itself; the original receiver, arguments, Promise and errors survive.
 export function installChooserDiagnostic(api, target, tabId, options = {}) {
-  const key = "__obuChooserDiagnostic";
+  const kind = options.kind === undefined ? "chooser" : options.kind;
+  if (!["chooser", "download"].includes(kind)) throw new Error("Invalid diagnostic kind");
+  const key = kind === "download" ? "__obuDownloadDiagnostic" : "__obuChooserDiagnostic";
   if (Object.hasOwn(target, key)) throw new Error("Chooser diagnostic already installed");
   if (!Number.isSafeInteger(tabId) || tabId < 0) throw new Error("Invalid diagnostic tab");
   const maximumRecords = options.maximumRecords ?? 1024, maximumCharacters = options.maximumCharacters ?? 1024 * 1024;
@@ -22,7 +24,9 @@ export function installChooserDiagnostic(api, target, tabId, options = {}) {
   const bootId = target.crypto.randomUUID(), startedAt = Date.now(), nativeThen = Promise.prototype.then;
   const records = [], pending = new Map(), errors = [];
   let nextSequence = 0, callSerial = 0, retainedCharacters = 0, dropped = 0, truncations = 0, recordingErrors = 0, unknownSettlements = 0, restored = false;
-  const methods = new Set(["Page.frameAttached", "Page.frameNavigated", "Page.frameDetached", "Page.documentOpened", "Target.attachedToTarget", "Target.detachedFromTarget", "Page.fileChooserOpened"]);
+  const methods = new Set(["Page.frameAttached", "Page.frameNavigated", "Page.frameDetached", "Page.documentOpened", "Target.attachedToTarget", "Target.detachedFromTarget",
+    ...(kind === "download" ? ["Page.downloadWillBegin", "Page.downloadProgress"] : ["Page.fileChooserOpened"])]);
+  const command = kind === "download" ? /^(?:Input\.|Page\.(?:enable|disable)$|Runtime\.runIfWaitingForDebugger$)/ : /^(?:Input\.|Page\.(?:setInterceptFileChooserDialog|enable|disable)$|Runtime\.runIfWaitingForDebugger$)/;
   const copy = (value, budget = { nodes: 512, characters: 12000 }, depth = 0) => {
     if (--budget.nodes < 0 || depth > 10 || budget.characters <= 0) { truncations++; return { diagnosticTruncated: true }; }
     if (value === null || ["boolean", "number"].includes(typeof value)) return value;
@@ -60,8 +64,7 @@ export function installChooserDiagnostic(api, target, tabId, options = {}) {
     let id;
     try { id = args[0] && Object.getOwnPropertyDescriptor(args[0], "tabId"); }
     catch { return Reflect.apply(original, this, args); }
-    if (!id || id.value !== tabId || typeof args[1] !== "string" ||
-        !(/^(?:Input\.|Page\.(?:setInterceptFileChooserDialog|enable|disable)$|Runtime\.runIfWaitingForDebugger$)/).test(args[1]))
+    if (!id || id.value !== tabId || typeof args[1] !== "string" || !command.test(args[1]))
       return Reflect.apply(original, this, args);
     const callId = ++callSerial;
     let identity, startSequence;
@@ -84,7 +87,7 @@ export function installChooserDiagnostic(api, target, tabId, options = {}) {
   const listener = (source, method, params) => safe(() => {
     if (source.tabId === tabId && methods.has(method)) append({ kind: "event", source: copy(source), method, params: copy(params) });
   });
-  const snapshot = () => JSON.parse(JSON.stringify({ version: 1, bootId, tabId, startedAt, capturedAt: Date.now(),
+  const snapshot = () => JSON.parse(JSON.stringify({ version: 1, ...(kind === "download" ? { kind } : {}), bootId, tabId, startedAt, capturedAt: Date.now(),
     maximumRecords, maximumCharacters, maximumRecordCharacters: 16384, retainedCharacters, nextSequence,
     dropped, overflow: dropped > 0, truncations, recordingErrors, unknownSettlements, errors, restored,
     pending: [...pending.values()], records,

@@ -1252,6 +1252,32 @@ terminal1、原104项103通过/1失败。唯一失败JS动态跨源iframe下载�
 仅原六次auxiliary激活、四次明确popup focus，初末root均normal/focused。
 其他检查通过不改变全套失败结论。本片仅本地提交，完整目标继续active。
 
+### P10：动态下载失败的可观察性
+
+针对`k5giEj`缺少click ACK/DOM证据，新增独占下载诊断开关，沿用原三个
+布局及raw对照。复用有界native记录器，严格download类型分别记录原命令
+及事件；原receiver、参数、Promise与错误保持。setup/finish身份与截止
+防止晚安装和误清外部probe。原业务阶段、一次3秒原scope失败只读DOM及
+独立cancel错误补齐因果线索；不延长10s/5s期限、不重放输入或新增attach。
+默认没有probe或失败DOM，业务原异常也不会被cancel异常覆盖。
+
+脚手架284/284、独立定向32/32及6份HTML字节核验通过。v30冻结405源码、
+241旧结果，生产扩展48成员、ZIP、主机与SDK都未变。`avWmSX` terminal0，
+两原case通过；78条连续native记录、29命令/ACK和12 Input完整，三GUID
+与真实GET/文件12,297bytes一致，动态child enable ACK早于原下载输入。
+3784ms同observer无前台事件或豁免。旧超时未复现，失败DOM分支仅有语义
+测试，diagnostic acceptance恒false，未以成功样本添加生产补丁。
+
+默认`Ve7nKv`实际terminal1：原104项87通过/17失败另有focus最终失败。
+五入口下载和生命周期通过；后段21:30:52的focus使账本持续拒绝。用户
+明确确认当时有窗口操作，记录外部干扰背景；不据此断言所有事件或用例
+失败都由用户导致，也不作为干净焦点对照。全部旧失败继续保留，目标active。
+
+独立审计进一步核实五入口15次下载的唯一GUID、真实GET、scope通知及
+各4099字节原始文件逐字节一致，且均发生在新focus前。默认没有下载
+诊断注入；原结果未改。研究流程整体与焦点审计仍失败，单代host退出
+通过不等于后续重启用例通过。本片未重跑全CI，仅报告上述定向验证。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

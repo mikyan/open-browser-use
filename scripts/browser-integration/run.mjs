@@ -47,12 +47,14 @@ import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-w
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticEnabled, chooserDiagnosticCases, createChooserDiagnostic } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
+import { downloadDiagnosticEnabled, downloadDiagnosticCases, createDownloadDiagnostic } from "./download-ready-diagnostic.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const mcpBinding = mcpBindingEnabled(process.env);
 const chooserDiagnostic = chooserDiagnosticEnabled(process.env);
 const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
@@ -401,6 +403,10 @@ try {
   sourceIdentity.sha256.snapshotGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "snapshot-geometry-fixture.mjs"))).digest("hex");
   if (chooserDiagnostic) sourceIdentity.sha256.chooserDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-ready-diagnostic.mjs"))).digest("hex");
   if (mcpBinding) sourceIdentity.sha256.mcpBindingFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "mcp-binding-fixture.mjs"))).digest("hex");
+  if (downloadDiagnostic) {
+    sourceIdentity.sha256.downloadDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "download-ready-diagnostic.mjs"))).digest("hex");
+    sourceIdentity.sha256.sharedNativeDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-ready-diagnostic.mjs"))).digest("hex");
+  }
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
@@ -509,6 +515,7 @@ try {
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
     if (mcpBinding && !mcpBindingCases.includes(name)) return;
     if (chooserDiagnostic && !chooserDiagnosticCases.includes(name)) return;
     if (snapshotGeometry && name !== "js-raw-navigation-before-engine" && !name.includes("snapshot-geometry") && !name.startsWith("js-ai-snapshot-")) return;
@@ -534,7 +541,9 @@ try {
       sourceIdentity.testHooks.push(`page download ${kind}: bounded passive original Page.downloadWillBegin/progress listener; isolated directory delta checked against original HTTP response bytes, not a public GUID/path mapping; no backend hooks`);
       finishEvidence = await startDownloadEvidence({ worker, owner, server: downloadWaitFixtures, downloadRoot: path.join(runDir, "downloads"), until });
       if (kind === "js" || kind === "lifecycle") {
-        const parameters = { owner, trigger, foreign, fixtureURL, server: downloadWaitFixtures, worker, until, prefix };
+        if (downloadDiagnostic) sourceIdentity.testHooks.push("download diagnostic opt-in: exact-tab original Input/Page.enable/disable/Runtime.runIfWaitingForDebugger commands and download/frame events share a bounded sequence; original receiver/Promise retained, scheduling may change; one total 3-second original-scope DOM/window/focus pass on failure before cancellation, no input replay or attachment");
+        const parameters = { owner, trigger, foreign, fixtureURL, server: downloadWaitFixtures, worker, until, prefix,
+          ...(downloadDiagnostic ? { diagnostic: createDownloadDiagnostic({ worker, readFocus: readFocusLedger }) } : {}) };
         detail = await (kind === "js" ? checkDownloadReady(parameters) : checkDownloadLifecycle(parameters));
       } else if (kind === "cli" || kind === "mcp") {
         const cliCall = async (method, params) => {
@@ -2128,7 +2137,19 @@ try {
     try { mcpBindingResult.acceptancePassed = checkMCPBindingSelection(records); }
     catch (error) { records.push({ name: "mcp-binding-case-selection", passed: false, error: error.stack ?? String(error) }); }
   }
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), ...(mcpBindingResult ? { mcpBinding: mcpBindingResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  let downloadDiagnosticResult;
+  if (downloadDiagnostic) {
+    let artifact;
+    try { artifact = JSON.parse(await fs.readFile(path.join(runDir, "download-ready-js.json"), "utf8")); }
+    catch (error) { artifact = { readError: String(error) }; }
+    const selectionComplete = records.length === downloadDiagnosticCases.length && records.every((record, index) => record.name === downloadDiagnosticCases[index]);
+    downloadDiagnosticResult = { mode: "download-ready-diagnostic", acceptancePassed: false, selectionComplete,
+      originalTaskPassed: records.find(record => record.name === "js-page-download-ready-two-connections")?.passed ?? false,
+      collectionComplete: selectionComplete && artifact.variants?.length > 0 && artifact.variants.every(item => item.diagnostic?.collectionComplete === true && !item.diagnosticFailureError && !item.diagnosticFinishError),
+      evidence: "download-ready-js.json", readError: artifact.readError };
+    await fs.writeFile(path.join(runDir, "download-diagnostic.json"), JSON.stringify(downloadDiagnosticResult, null, 2));
+  }
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), ...(mcpBindingResult ? { mcpBinding: mcpBindingResult } : {}), ...(downloadDiagnosticResult ? { downloadDiagnostic: downloadDiagnosticResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);
@@ -2139,5 +2160,5 @@ try {
   assert.equal(actualSocketDirectory, socketDir);
   await fs.rm(actualSocketDirectory, { recursive: true, force: true });
   console.log("RESULT", path.join(runDir, "results.json"));
-  process.exitCode = records.some(record => !record.passed) || (chooserDiagnosticResult && !chooserDiagnosticResult.collectionComplete) ? 1 : 0;
+  process.exitCode = records.some(record => !record.passed) || (chooserDiagnosticResult && !chooserDiagnosticResult.collectionComplete) || (downloadDiagnosticResult && !downloadDiagnosticResult.collectionComplete) ? 1 : 0;
 }
