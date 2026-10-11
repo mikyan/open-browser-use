@@ -2198,3 +2198,26 @@ The main suite still uses the declared Native Port adapter; it does not replace
 the separate real native-launcher tests. Preserve failures and fallback paths in
 an independent comparison. See [shared research workflow](../../docs/references/shared-research-workflow.md)
 for the task contract, evidence and comparison boundaries.
+
+## Transformed iframe pointer actions
+
+The default suite includes `js-pointer-transformed-frames`; use
+`OBU_TEST_CASES=pointer-transformed` with the same runner prerequisites for a
+focused run. Seven fresh pages exercise same-process scale, rotated OOPIF,
+nested mixed frames, synchronous hover cover, hover translation, first-click
+cover during a counted action, and a rotated 12×12 target with explicit position.
+
+The existing transparent native input probe records original sends and actual
+settlements without suppressing, fabricating or replaying input. Page ledgers
+retain trusted target and ancestor events, exact native document identities,
+visible counters, original business POST bytes and synchronous mutation receipts.
+The existing continuous focus ledger grants no new allowance. Runner finalization
+checks disappearance of every task tab and its fixture debugger targets.
+
+`pointer-transformed-frames.json` and `pointer-transformed-server.json` preserve
+every attempted scenario, including partial failures. The helper's optional
+`caseNames` is diagnostic only and marks `fullCoverage:false`; the default runner
+always requests all seven. Original six-page variants remain byte-for-byte
+comparable to the old-production baseline. These cases do not establish general
+3D/pinch-zoom support or production native-launcher behavior; see
+[transformed iframe input](../../docs/references/transformed-frame-input.md).

@@ -174,7 +174,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   按钮不会因新增错误重放；计数按钮依次确认ACK，后续按下在原root点复核祖先命中及原receipt
   与已观察到的frame导航，不重新定位。每轮修饰键baseline在finally恢复，
   Keyboard与RawKeyboard携带同一私票，期限失效由原attachment清理。
-  hover副作用、非原子检查、事件来源及变换frame限制见
+  iframe输入使用原生content quad及fractional CSS尺寸，按实际renderer
+  local-root组合投影，同进程变换不重复计算；各父utility仍命中原iframe。
+  初始几何指纹在hover后与每个后继down前复核；变化不能沿用旧receipt。
+  详情见`docs/references/transformed-frame-input.md`。hover副作用、非原子检查、事件来源限制见
   `docs/references/pointer-delivery.md`。
   `snapshotAI` 递归读取 iframe 的原生 ARIA 树，限制总字节、节点、refs、frames
   和深度；renderer 提供真实元素 metadata，Frame 身份使用稳定 slot，避免

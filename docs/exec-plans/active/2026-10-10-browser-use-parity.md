@@ -2520,3 +2520,24 @@ CLI构建/版本、extension与Skill打包、docs/hygiene/action pinning及diff�
 通过。无活浏览器测试进程。本片有实现、反例及完整实机证据进展。
 整体目标保持active：当前Codex文件/诊断同组任务、其他目录frame组合、
 Page GUID路径/实际取消、原生profile恢复和P01–P15其余缺口仍需推进。
+
+### P06：变换 iframe 点击（本片完成，整体仍 active）
+
+下载只读调查确认 GUID cancellation 的候选有 context-wide delegate 副作用，
+路径也缺可靠桥接，不通过 URL/时间/文件名猜配对。继续推进真实输入缺口：
+旧CRX transformed分支跳过所有父命中，OOPIF仅按AABB平移。原生产SDqvcJ
+实测三父层误投保留；新adapter按实际renderer local-root组合原quad和
+fractional CSS平面，clip后投影并逐层检查原iframe。初始/hover后/后继down
+的几何指纹一致才放行；预提交可重准备，按钮已发后不重放。
+
+最终专项WmZggR七场通过、7859ms零focus；完整t0MP0c119/119 actualexit0，
+Node1673/1673无skip/cancel。原118项名称/顺序保留，新七场20Input、
+6唯一POST/24256B、16原document/HTML独立核实，窄目标坐标有独立CSS算术。
+完整226850ms仅原12activation/4controlfocus，无新增豁免；sentinel身份/
+选择保持但高1222→1165，七页/targets及两代host回收。源码/暂存差异、
+SDK与Go构建归属独立审计；旧preview ZIP不替换，未提PR。
+
+透视有数学测试，七实机场景不证明一般3D/pinchzoom；leaf自身transform
+的position旧AABB约定及普通temporary handle best-effort释放边界保留。
+详细范围见[本片计划](../completed/2026-10-12-transformed-frame-input.md)
+与[坐标及证据](../../references/transformed-frame-input.md)。完整目标继续。

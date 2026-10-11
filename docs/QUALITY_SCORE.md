@@ -11,6 +11,17 @@
 
 ## 当前评分
 
+变换iframe输入本片已通过完整`t0MP0c` **119/119、actual exit0**，
+Node **1673/1673**、零skip/cancel。原118项仍通过，新增七场覆盖同源scale、
+旋转OOPIF、nested、hover后遮挡/移位、首击后遮挡及旋转12×12显式position。
+旧`SDqvcJ`真实三种父层误投保留。新adapter按实际renderer local-root
+投影原生quad，以fractional CSS尺寸建平面并逐层命中原iframe；初始/hover后/
+后继down比较原几何指纹，缺失或变化不放行按钮。专项`WmZggR`七场通过，
+7859ms零focus，独立矩阵/原native/DOM/POST核实，七页及targets回收。
+本片不证明全部3D/pinch zoom、leaf自身transform的position或完整parity；
+临时handle仍是上游best-effort dispose，非native释放ACK。完整证据及
+限制见[变换iframe输入](references/transformed-frame-input.md)。
+
 正式locator文件上传已完成本片验收：最终`tQEVZJ` **118/118、exit0**，
 Node1642/1642、无skip/cancel；JS SDK134、Python99通过，Go全包通过且保留
 26项既有平台skip。五入口×三布局hidden input及JS root目录共16次原node

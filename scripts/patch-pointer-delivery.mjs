@@ -87,7 +87,8 @@ async function obuRunPointerClick(handle, progress, options, actionName = "click
         if (frame.pendingDocument()) throw obuPointerFailure("navigation interrupted the counted click");
     }
   };
-  let ticket, committed = false, moved = false, attempt = 0, currentReceipt;
+  let ticket, committed = false, moved = false, attempt = 0, currentReceipt, attemptFrameGeometry;
+  const sameFrameGeometry = value => Array.isArray(value) && value.length > 0 && JSON.stringify(value) === attemptFrameGeometry;
   const closeReceipt = async () => {
     const receipt = currentReceipt;
     currentReceipt = undefined;
@@ -97,6 +98,11 @@ async function obuRunPointerClick(handle, progress, options, actionName = "click
   };
   const state = {
     nextAttempt() { check(); return ++attempt; },
+    setFrameGeometry(value) {
+      check();
+      if (!Array.isArray(value) || !value.length) throw obuPointerFailure("original frame geometry is unavailable");
+      attemptFrameGeometry = JSON.stringify(value);
+    },
     retain(receipt) {
       currentReceipt = receipt;
       if (originalReceiptContext && originalReceiptContext !== receipt._context)
@@ -157,10 +163,10 @@ async function obuRunPointerClick(handle, progress, options, actionName = "click
       if (states) { await closeReceipt(); check(); ticket.check(); return false; }
       // Hover handlers can change the ancestor chain after the receipt. Keep
       // root routing and the original parent-frame hit tests before pressing.
-      const frameCheck = await handle._checkFrameIsHitTarget(point);
+      const frameCheck = await handle._checkFrameIsHitTarget(point, progress);
       check(); ticket.check();
       if (frameCheck === "error:notconnected") throw obuPointerFailure("original frame disconnected after move");
-      if ("hitTargetDescription" in frameCheck) {
+      if ("hitTargetDescription" in frameCheck || !sameFrameGeometry(frameCheck.frameGeometry)) {
         await closeReceipt(); check(); ticket.check(); return false;
       }
       const finalReceipt = await receipt.evaluate((h, value) => h.readMoveReceipt(value.id, { point: value.point }),
@@ -195,9 +201,9 @@ async function obuRunPointerClick(handle, progress, options, actionName = "click
           // node and receipt remain valid. Recheck the same root point and pass
           // its current frame geometry to the original receipt; never move,
           // locate a successor or retry an already committed button sequence.
-          const frameCheck = await handle._checkFrameIsHitTarget(point);
+          const frameCheck = await handle._checkFrameIsHitTarget(point, progress);
           check(); ticket.check();
-          if (frameCheck === "error:notconnected" || "hitTargetDescription" in frameCheck)
+          if (frameCheck === "error:notconnected" || "hitTargetDescription" in frameCheck || !sameFrameGeometry(frameCheck.frameGeometry))
             throw obuPointerFailure("original frame changed between counted clicks");
           const receipt = await currentReceipt.evaluate((h, value) => h.readMoveReceipt(value.id, { point: value.point }),
             { id: attempt, point: frameCheck.framePoint ?? null });
@@ -259,6 +265,8 @@ export function patchCrxPointerDelivery(source) {
     '  _dblclick(progress2, options2) {\n    if (openBrowserUseInputHooks?.beginPointerAction && !options2.force && !options2.trial && this._page.keyboard._modifiers().size === 0)\n      return obuRunPointerClick(this, progress2, { ...options2, clickCount: 2, waitAfter: "disabled" }, "dblclick");\n    return this._retryPointerAction(progress2, "dblclick", true, (point) => this._page.mouse.dblclick(point.x, point.y, options2), { ...options2, waitAfter: "disabled" });\n  }');
   source = replaceOnce(source, '    const { force = false, position } = options2;',
     '    const { force = false, position } = options2;\n    const obuDelivery = options2[obuPointerDelivery];\n    const obuMoveAttempt = obuDelivery?.nextAttempt();');
+  source = replaceOnce(source, '      const hitPoint = frameCheckResult.framePoint;',
+    '      const hitPoint = frameCheckResult.framePoint;\n      obuDelivery?.setFrameGeometry(frameCheckResult.frameGeometry);');
   source = replaceOnce(source,
     'const handle = await this.evaluateHandleInUtility(([injected, node2, { actionType: actionType2, hitPoint: hitPoint2, trial }]) => injected.setupHitTargetInterceptor(node2, actionType2, hitPoint2, trial), { actionType, hitPoint, trial: !!options2.trial });',
     'const handle = await this.evaluateHandleInUtility(([injected, node2, { actionType: actionType2, hitPoint: hitPoint2, trial, obuMoveAttempt: attempt }]) => injected.setupHitTargetInterceptor(node2, actionType2, hitPoint2, trial, attempt), { actionType, hitPoint, trial: !!options2.trial, obuMoveAttempt });');

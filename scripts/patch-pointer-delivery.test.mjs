@@ -130,7 +130,7 @@ function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves =
     _page: page, _frame: frame, _context: context, _disposed: false,
     instrumentation: { onBeforeInputAction: async () => {} },
     _scrollRectIntoViewIfNeeded: async () => "done", _clickablePoint: async () => ({ x: 30, y: 40 }),
-    _checkFrameIsHitTarget: async () => { frameChecks++; return { framePoint: { x: 30, y: 40 } }; },
+    _checkFrameIsHitTarget: async () => { frameChecks++; return { framePoint: { x: 30, y: 40 }, frameGeometry: ["original frame"] }; },
     evaluateInUtility: async (fn, arg) => {
       if (typeof arg === "number") { waits.push(arg); return; }
       return fn([injected, node, arg]);
@@ -260,7 +260,7 @@ test("fractional routed receipt passes the full click path without modifying the
   const rootPoint = { x: 430.22, y: 612.88 }, planned = { x: 50.663328, y: 147.240813 };
   const f = fixture({ moveEvent: { clientX: 49.75, clientY: 146.125 } });
   f.handle._clickablePoint = async () => rootPoint;
-  f.handle._checkFrameIsHitTarget = async () => ({ framePoint: planned });
+  f.handle._checkFrameIsHitTarget = async () => ({ framePoint: planned, frameGeometry: ["original frame"] });
   assert.equal(await f.click(), "done");
   assert.deepEqual(f.nativeCalls.map(call => [call.params.type, call.params.x, call.params.y]), [
     ["mouseMoved", rootPoint.x, rootPoint.y], ["mousePressed", rootPoint.x, rootPoint.y], ["mouseReleased", rootPoint.x, rootPoint.y]
@@ -399,7 +399,7 @@ test("a target disabled by hover is rechecked before any press", async () => {
 
 test("iframe movement cannot use a receipt from the previous local coordinates", async () => {
   const f = fixture(); let checks = 0;
-  f.handle._checkFrameIsHitTarget = async () => ({ framePoint: { x: ++checks === 2 ? 20 : 30, y: 40 } });
+  f.handle._checkFrameIsHitTarget = async () => ({ framePoint: { x: ++checks === 2 ? 20 : 30, y: 40 }, frameGeometry: ["original frame"] });
   assert.equal(await f.click(), "done");
   assert.deepEqual(f.calls.map(call => call.params.type), ["mouseMoved", "mouseMoved", "mousePressed", "mouseReleased"]);
 });
@@ -566,6 +566,45 @@ test("same-context node replacement or local cover between counted clicks cannot
   }
 });
 
+test("missing initial or later frame geometry cannot authorize native buttons", async () => {
+  for (const missingAt of [1, 2, 3]) {
+    const f = fixture({ tracked: true }); let checks = 0;
+    f.handle._checkFrameIsHitTarget = async () => ({ framePoint: { x: 30, y: 40 },
+      ...(++checks === missingAt ? {} : { frameGeometry: ["original frame"] }) });
+    if (missingAt === 2) {
+      await f.click();
+      assert.deepEqual(f.nativeCalls.map(call => call.params.type), ["mouseMoved", "mouseMoved", "mousePressed", "mouseReleased"]);
+    } else {
+      await assert.rejects(f.dblclick(), /OBU_POINTER_.*(geometry is unavailable|frame changed between counted clicks)/);
+      assert.equal(f.nativeCalls.filter(call => call.params.type === "mousePressed").length, missingAt === 1 ? 0 : 1);
+    }
+    assert.ok(f.handles.every(handle => handle.disposed));
+  }
+});
+
+test("hover geometry changes around an unchanged local point require another preparation move", async () => {
+  const f = fixture({ tracked: true }); let checks = 0;
+  f.handle._checkFrameIsHitTarget = async () => ({ framePoint: { x: 30, y: 40 },
+    frameGeometry: [{ frameId: "child", quad: ++checks === 1 ? [1, 2, 3, 4] : [2, 1, 4, 3] }] });
+  await f.click();
+  assert.equal(checks, 4, "each attempt captures its own initial and post-move geometry");
+  assert.deepEqual(f.nativeCalls.map(call => call.params.type), ["mouseMoved", "mouseMoved", "mousePressed", "mouseReleased"]);
+  assert.equal(f.handles.length, 2); assert.ok(f.handles.every(handle => handle.disposed));
+});
+
+test("a changed frame projection cannot reuse the first click receipt even at the same local point", async () => {
+  const f = fixture({ tracked: true }); let checks = 0;
+  f.handle._checkFrameIsHitTarget = async () => ({ framePoint: { x: 30, y: 40 },
+    frameGeometry: [{ frameId: "child", quad: ++checks <= 2 ? [1, 2, 3, 4] : [2, 1, 4, 3] }] });
+  let attempts = 0;
+  await assert.rejects(f.outerRetry(() => { attempts++; return f.dblclick(); }), /OBU_POINTER_.*frame changed between counted clicks/);
+  assert.equal(attempts, 1); assert.equal(checks, 3);
+  assert.deepEqual(f.nativeCalls.map(call => [call.params.type, call.params.clickCount]), [
+    ["mouseMoved", undefined], ["mousePressed", 1], ["mouseReleased", 1]
+  ]);
+  assert.ok(f.handles.every(handle => handle.disposed));
+});
+
 for (const changed of ["ancestor-cover", "frame-point", "disconnected-frame"]) {
   test(`later counted ancestor check rejects ${changed} without replaying the first pair`, async () => {
     const f = fixture({ tracked: true }), checks = [];
@@ -579,7 +618,7 @@ for (const changed of ["ancestor-cover", "frame-point", "disconnected-frame"]) {
         checks.push({ ...point });
         if (changed === "ancestor-cover") return { hitTargetDescription: "parent overlay" };
         if (changed === "disconnected-frame") return "error:notconnected";
-        return { framePoint: { x: 31, y: 40 } };
+        return { framePoint: { x: 31, y: 40 }, frameGeometry: ["original frame"] };
       };
     };
     let attempts = 0;
@@ -604,7 +643,7 @@ test("each later counted press rechecks the original root point including the th
     await originalUp(options);
     f.handle._checkFrameIsHitTarget = async point => {
       points.push({ count: options.clickCount + 1, ...point });
-      return { framePoint: { x: options.clickCount === 1 ? 30 : 31, y: 40 } };
+      return { framePoint: { x: options.clickCount === 1 ? 30 : 31, y: 40 }, frameGeometry: ["original frame"] };
     };
   };
   let attempts = 0;
@@ -633,7 +672,7 @@ test("a held later ancestor check preserves errors and cannot send after Pause, 
     if (changed === "deadline") f.expire();
     if (changed === "context") f.destroyContext();
     if (changed === "read-error") result.reject(original);
-    else result.resolve({ framePoint: { x: 30, y: 40 } });
+    else result.resolve({ framePoint: { x: 30, y: 40 }, frameGeometry: ["original frame"] });
     await assert.rejects(action, error => error instanceof f.NonRecoverableDOMError &&
       /^OBU_POINTER_/.test(error.message) && (changed !== "read-error" || error.cause === original));
     assert.equal(attempts, 1);

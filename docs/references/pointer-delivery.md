@@ -39,8 +39,9 @@ Before each later down, the ancestor hit check is repeated at the original root
 point, and its resulting frame-local point is compared by the original receipt.
 This rejects an observed iframe translation or ancestor cover as well as a
 removed node or lost local hit. These are additional reads, without another
-move, scroll or locator resolution. The upstream transformed-frame shortcut
-still cannot prove all transformed ancestors. An already observed pending navigation in
+move, scroll or locator resolution. The [frame projection adapter](transformed-frame-input.md)
+now checks transformed ancestors and compares the original geometry fingerprint;
+an unchanged local point alone cannot authorize a changed projection. An already observed pending navigation in
 the target frame or an ancestor is also terminal. These checks cannot predict
 future native navigation messages or atomically lock the DOM until dispatch.
 Once any down was submitted, no preparation or button sequence is retried.
@@ -68,8 +69,8 @@ observation window are readiness evidence, not authentication of the input
 source. A user's mouse event on that target during the window cannot be ruled
 out, even at a different position within the target. A move receipt also
 does not reserve Chromium's routing for the later press. The existing ancestor
-hit-test shortcut for transformed frames is unchanged; retaining root routing
-does not prove every transformed ancestor was checked.
+hit tests now use the frame projection adapter, while retaining root routing
+does not make those observations atomic or reserve future dispatch.
 
 Forced/trial clicks, clicks starting with already-held modifiers, and raw mouse,
 hover, drag and touch operations
@@ -80,9 +81,9 @@ overall Codex parity. The previously published preview ZIP is unchanged.
 ## Coordinate boundary
 
 Do not compare the move event numerically with Playwright's `framePoint` using
-a fixed pixel tolerance. The pinned CRX derives that point from bounding boxes
-and integer-parsed iframe border/padding; Chromium converts native coordinates
-through its frame layout. These are different calculations. In diagnostic run
+a fixed pixel tolerance. Before the frame projection adapter, pinned CRX derived
+that point from bounding boxes and integer-parsed iframe border/padding;
+Chromium converts native coordinates through its frame layout. In diagnostic run
 `9FyKTv`, an actual trusted move on the intended OOPIF button reported (306,19)
 while the predicted point was (306.28,20.33). A same-origin form button similarly
 reported (49,146) against (50.663328,147.240813). The former ±1 comparison rejected
@@ -93,10 +94,10 @@ floor client coordinates, while [PointerEvent getters](https://raw.githubusercon
 retain fractional move coordinates. Its [native coordinate conversion](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/third_party/blink/renderer/core/events/mouse_event.cc)
 uses the frame layout and zoom. The receipt therefore checks the actual local
 pointer position and target without inventing a cross-frame numerical identity.
-The root dispatch point and upstream ancestor hit tests are retained. A second
-upstream frame check must still return the same `framePoint` as before the move;
-this guards observed geometry changes, not precision equivalence with the event.
-When that point is available, the final receipt also rechecks its local hit,
+The frame projection adapter retains root dispatch and ordinary utility hit tests.
+A second frame check must return the same geometry fingerprint and `framePoint`
+as before the move; this guards observed geometry changes, not precision
+equivalence with the event. The final receipt also rechecks the planned local hit,
 alongside the actual received point. A hover-created overlay covering only the
 predicted press position must not pass merely because the earlier move hit.
 
