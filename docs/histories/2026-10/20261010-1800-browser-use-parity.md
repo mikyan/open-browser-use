@@ -1218,6 +1218,40 @@ worker均无诊断探针；194500ms连续账本仅原六次auxiliary创建激活
 237旧结果、48文件ZIP及实际SDK/host/caller身份匹配（运行后只改文档）。
 新通过不改写旧失败，也不证明其根因已修复；P04完成，完整目标仍active。
 
+### P02/P13：MCP 固定实际连接
+
+MCP此前保留当前tab、turn与epoch，却为每个浏览器工具重新发现endpoint。
+改为stdio服务持有首次实际连接，绑定后不随active记录、profile候选或
+同路径同UUID替换而改选实例。持续reader消费有界帧，唯一wire ID隔离
+迟到回复；响应等待超时不重放，健康连接可显式begin-turn。EOF、坏帧及
+不确定写入永久关闭本服务绑定，后续明确要求重启MCP。stdio退出释放连接。
+发现的网络尝试共用剩余预算；同步文件读取仍不能被socket deadline抢断。
+
+Windows真实named-pipe/stdio黑盒覆盖A/B相同数字tab/epoch、替换实例、
+半帧迟到、通知背压、写超时、丢失结束ACK及清理。另测完整回复紧接EOF、
+16种坏响应、合法业务错误与null结果。初次全Go测试发现旧分类用例将1ms
+同时当作文件扫描预算；改为合理分类预算并断言实际探测发生，期限另由
+专门测试验证。修正后Go全包及完整CI通过：Node836+59+258、JS120、Python86。
+当前环境无CGO竞态工具链，未宣称race检测通过。
+
+专项`run-ykbo3D`实际terminal0、2/2。同一旧MCP进程跨真实host重启后
+三次连接失效，新MCP显式领取新轮次；只有两次可信页面POST，最终回收
+两页及debugger targets，两个MCP正常退出。此处使用同浏览器的Native
+Port adapter，不是双浏览器或OS launcher验收。独立审计原始stdio、HTTP
+及制品通过，5999ms连续焦点账本零事件、零豁免。
+
+v29冻结402源码/239历史，新Go1.26.9主机；扩展48个制品成员与v28逐字节
+相同。重打包ZIP容器hash改变，不能称整个ZIP字节不变。默认`k5giEj`
+terminal1、原104项103通过/1失败。唯一失败JS动态跨源iframe下载达到
+原10秒等待期限，无文件端点GET和原生下载事件。其余四入口同类下载、
+全部15研究任务和恢复用例通过。现有trace没有原点击ACK和失败DOM；
+生产engine/下载模块/vendor/JS SDK与旧成功轮相同，不能证明本次新竞态
+或MCP因果。保留失败，不增加超时或重放；下一步补有界诊断定位。
+独立失败审计另核原104集合、402源码/239历史、新主机/调用器/48成员，
+十五研究任务90来源GET、15POST、75建/60关/15留；209160ms同observer
+仅原六次auxiliary激活、四次明确popup focus，初末root均normal/focused。
+其他检查通过不改变全套失败结论。本片仅本地提交，完整目标继续active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

@@ -4,6 +4,57 @@ Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
 Go caller. Check `go version` before the build commands below; a previously
 installed local toolchain may be older than the repository requirement.
 
+## Opt-in MCP connection binding acceptance
+
+`OBU_TEST_MCP_BINDING=1` selects exactly the mandatory
+`js-raw-navigation-before-engine` case and `mcp-connection-binding`. Build the
+current host and JS SDK and satisfy the normal browser prerequisites below:
+
+```powershell
+$env:OBU_TEST_MCP_BINDING = '1'
+node scripts/browser-integration/run.mjs
+```
+
+This mode rejects `OBU_TEST_CASES` and the chooser diagnostic, snapshot geometry
+(including its DPR setting), background-parallel and memory-clipboard settings.
+Unset the flag to restore the unchanged default 104-case selection. It adds no
+focus exemption or production worker probe.
+
+The first persistent MCP child discovers the isolated native host through
+`--socket-dir`, without `--socket`, begins a turn, creates a task tab and performs
+a real button click that generates a nonce-bound HTTP POST. The existing
+`NativeHostBridge` then terminates that actual host process and waits for the
+extension to reconnect to a new host PID and endpoint. The same old MCP process
+must return `OBU_MCP_BROWSER_DISCONNECTED` for both its next browser action and
+`begin_turn`; a scope error, process death or protocol error does not qualify.
+A newly started MCP process explicitly begins a new scope and completes a
+second real click/POST. The old process is checked again after that success.
+Only two POSTs are allowed, so the original action cannot be silently replayed.
+The fresh scope finalizes both created tabs, and independent native tab/target
+queries confirm their removal before both MCP children close through stdin EOF.
+
+`mcp-connection-binding.json` retains each child PID, original stdio request and
+response lines, stdout/stderr, captured scopes, host restart identities, error
+envelopes and tab-removal observations. `mcp-binding-server.json` stores actual
+GET identities and raw POST bytes/hashes. `results.json.mcpBinding` reports this
+separate acceptance result, alongside the original continuous focus ledger and
+host generations. Stdout/stderr, request counts and fixture bodies have finite
+limits; incomplete evidence or child cleanup fails the case. The suite retains
+the existing loopback WebSocket adapter for the extension native port, so this
+does not establish OS native-messaging launcher or separate browser-instance
+selector coverage. The independent Go transport tests cover live A/B selection
+with deliberately equal tab IDs and epochs.
+
+Recorded Windows Chromium 156 run `run-ykbo3D` passed both cases with terminal
+exit 0. Independent review verified the original MCP stdin/stdout, two POSTs,
+three disconnected-tool errors from the same old process, explicit fresh scope,
+tab/target cleanup and both MCP exit codes. Its continuous 5,999 ms focus ledger
+had no events or allowances. The following default `run-k5giEj` exited 1 with
+103/104 cases passing: the JS dynamic-OOPIF page-download wait reached its
+original deadline without a file request or download event. Other download
+callers and all MCP research tasks passed. Preserve that failure; the targeted
+binding result does not make the default regression successful.
+
 ## Opt-in chooser ready diagnostic
 
 `OBU_TEST_CHOOSER_DIAGNOSTIC=1` runs only the unchanged

@@ -50,7 +50,11 @@ func newMCPCommand() *cobra.Command {
 
 The server exposes browser tools over newline-delimited JSON-RPC on stdin/stdout.
 It is intended for agent runtimes that can launch local MCP servers, for example
-with the command "obu mcp".`,
+with the command "obu mcp".
+
+The first browser tool binds this server to one live browser connection. Changing
+the active browser does not redirect existing tools. If that connection closes,
+restart the MCP server to select a browser again; actions are never replayed.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			server := newMCPServer(options)
@@ -71,6 +75,7 @@ func newMCPServer(options socketOptions) *mcpServer {
 	if options.sessionID == "" {
 		options.sessionID = defaultMCPSessionID
 	}
+	options.mcpConnection = &mcpBrowserConnection{}
 	return &mcpServer{
 		options: options,
 		runner:  newActionRunner(options),
@@ -78,6 +83,7 @@ func newMCPServer(options socketOptions) *mcpServer {
 }
 
 func (server *mcpServer) serve(reader io.Reader, writer io.Writer) error {
+	defer server.shutdownBrowser()
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	encoder := json.NewEncoder(writer)
@@ -120,6 +126,10 @@ func (server *mcpServer) serve(reader io.Reader, writer io.Writer) error {
 		}
 	}
 	return <-scanResult
+}
+
+func (server *mcpServer) shutdownBrowser() {
+	server.options.mcpConnection.close()
 }
 
 func (server *mcpServer) handleLine(payload []byte) []map[string]any {

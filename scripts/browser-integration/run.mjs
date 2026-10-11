@@ -46,12 +46,14 @@ import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, 
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticEnabled, chooserDiagnosticCases, createChooserDiagnostic } from "./chooser-ready-diagnostic.mjs";
+import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const mcpBinding = mcpBindingEnabled(process.env);
 const chooserDiagnostic = chooserDiagnosticEnabled(process.env);
 const memoryClipboard = process.env.OBU_TEST_MEMORY_CLIPBOARD === "1";
 if (process.env.OBU_TEST_BACKGROUND_PARALLEL !== undefined && process.env.OBU_TEST_BACKGROUND_PARALLEL !== "1")
@@ -251,6 +253,7 @@ const backgroundParallelFixture = createBackgroundParallelFixture();
 const chooserFixtures = createChooserWaitFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
+const mcpBindingFixture = createMCPBindingFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
@@ -264,6 +267,7 @@ const http = createServer(async (request, response) => {
   if (chooserFixtures.handle(request, response, httpPort)) return;
   if (downloadWaitFixtures.handle(request, response, httpPort)) return;
   if (snapshotGeometryFixtures.handle(request, response, httpPort)) return;
+  if (mcpBinding && mcpBindingFixture.handle(request, response)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -396,6 +400,7 @@ try {
   sourceIdentity.sha256.aiSnapshotFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "ai-snapshot-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.snapshotGeometryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "snapshot-geometry-fixture.mjs"))).digest("hex");
   if (chooserDiagnostic) sourceIdentity.sha256.chooserDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-ready-diagnostic.mjs"))).digest("hex");
+  if (mcpBinding) sourceIdentity.sha256.mcpBindingFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "mcp-binding-fixture.mjs"))).digest("hex");
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
@@ -504,6 +509,7 @@ try {
   const closeAuxiliaryPopup = id => worker.evaluate(`chrome.windows.remove(${id}).catch(error=>{if(!/No window|Invalid window/i.test(String(error)))throw error})`);
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (mcpBinding && !mcpBindingCases.includes(name)) return;
     if (chooserDiagnostic && !chooserDiagnosticCases.includes(name)) return;
     if (snapshotGeometry && name !== "js-raw-navigation-before-engine" && !name.includes("snapshot-geometry") && !name.startsWith("js-ai-snapshot-")) return;
     if (process.env.OBU_TEST_CASES && name !== "js-raw-navigation-before-engine" && !new RegExp(process.env.OBU_TEST_CASES).test(name)) return;
@@ -657,6 +663,18 @@ try {
     assert.equal(await tab.locator("#role-result").textContent(), "clicked");
     return tab.engineInfo();
   });
+  if (mcpBinding) await test("mcp-connection-binding", () => checkMCPConnectionBinding({
+    executable, socketDir, fixtureURL, fixture: mcpBindingFixture, until,
+    restartHost: async () => {
+      await activeInvariant();
+      const result = await nativeBridge.restart();
+      endpoint = result.newEndpoint;
+      await activeInvariant();
+      return result;
+    },
+    readNative: () => focusObserver.evaluate("(async()=>({at:Date.now(),tabs:await chrome.tabs.query({}),targets:await chrome.debugger.getTargets()}))()"),
+    save: detail => fs.writeFile(path.join(runDir, "mcp-connection-binding.json"), JSON.stringify(detail, null, 2))
+  }));
   await test("js-native-large-requests", async () => {
     const clients = [], before = { ...nativeFrameStats }, witnesses = [];
     const hostPID = nativeBridge.host.pid;
@@ -2068,6 +2086,7 @@ try {
   await fs.writeFile(path.join(runDir, "research-workflow-server.json"), JSON.stringify(researchWorkflows.allStats(), null, 2));
   if (backgroundParallel) await fs.writeFile(path.join(runDir, "background-parallel-server.json"), JSON.stringify(backgroundParallelFixture.allStats(), null, 2));
   if (snapshotGeometry) await fs.writeFile(path.join(runDir, "snapshot-geometry-server.json"), JSON.stringify(snapshotGeometryFixtures.allStats(), null, 2));
+  if (mcpBinding) await fs.writeFile(path.join(runDir, "mcp-binding-server.json"), JSON.stringify(mcpBindingFixture.snapshot(), null, 2));
   // Tab/window removal can emit a last extension notification. Stop accepting
   // bridge writes before ending stdin, including callbacks already queued by ws.
   bridgeClosing = true;
@@ -2103,7 +2122,13 @@ try {
       evidence: "chooser-js.json", readError: artifact.readError };
     await fs.writeFile(path.join(runDir, "chooser-diagnostic.json"), JSON.stringify(chooserDiagnosticResult, null, 2));
   }
-  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
+  let mcpBindingResult;
+  if (mcpBinding) {
+    mcpBindingResult = { mode: "mcp-connection-binding", acceptancePassed: false, evidence: "mcp-connection-binding.json", server: "mcp-binding-server.json" };
+    try { mcpBindingResult.acceptancePassed = checkMCPBindingSelection(records); }
+    catch (error) { records.push({ name: "mcp-binding-case-selection", passed: false, error: error.stack ?? String(error) }); }
+  }
+  await fs.writeFile(path.join(runDir, "results.json"), JSON.stringify({ platform: process.platform, versions, headed: !memoryClipboard, memoryClipboardGuard, ...(chooserDiagnosticResult ? { chooserDiagnostic: chooserDiagnosticResult } : {}), ...(mcpBindingResult ? { mcpBinding: mcpBindingResult } : {}), productionExtension: true, adapter: "connectNative replaced by loopback WebSocket for isolated testing only", nativeHost: executable, sourceIdentity, nativeFrameStats, nativeHostGenerations: nativeBridge?.generations, focusLedger: focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents, records }, null, 2));
   await fs.writeFile(path.join(runDir, "host.log"), hostLog.join(""));
   await fs.writeFile(path.join(runDir, "chromium.log"), browserLog.join(""));
   const actualSocketDirectory = await fs.realpath(socketDir);

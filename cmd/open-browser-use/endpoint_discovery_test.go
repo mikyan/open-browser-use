@@ -57,21 +57,38 @@ func TestDiscoveryPreservesEndpointsOnTemporaryDialFailures(t *testing.T) {
 					t.Fatal(err)
 				}
 				previousDial := dialLocalEndpoint
+				dialCount := 0
 				dialLocalEndpoint = func(string, time.Duration) (net.Conn, error) {
+					dialCount++
 					return nil, &net.OpError{Op: "dial", Net: "local", Err: failure}
 				}
 				t.Cleanup(func() { dialLocalEndpoint = previousDial })
-				if conn, err := dialBrowserSocket("", dir, time.Millisecond); err == nil {
+				if conn, err := dialBrowserSocket("", dir, time.Second); err == nil {
 					conn.Close()
 					t.Fatal("expected failed connection")
 				}
-				if _, err := scanSocketDir(dir, "", time.Millisecond); err == nil {
+				if dialCount == 0 {
+					t.Fatal("active discovery did not probe the endpoint")
+				}
+				dialCount = 0
+				if _, err := scanSocketDir(dir, "", time.Second); err == nil {
 					t.Fatal("scan should fail")
 				}
-				if _, _, _, err := pickSocketForProfile(dir, "", "", time.Millisecond); err == nil {
+				if dialCount == 0 {
+					t.Fatal("directory discovery did not probe the endpoint")
+				}
+				dialCount = 0
+				if _, _, _, err := pickSocketForProfile(dir, "", "", time.Second); err == nil {
 					t.Fatal("profile scan should fail")
 				}
-				cleanupStaleSocketCandidates(dir, []socketCandidate{{path: path}}, "", time.Millisecond)
+				if dialCount == 0 {
+					t.Fatal("profile discovery did not probe the endpoint")
+				}
+				dialCount = 0
+				cleanupStaleSocketCandidates(dir, []socketCandidate{{path: path}}, "", time.Second)
+				if dialCount == 0 {
+					t.Fatal("stale cleanup did not probe the endpoint")
+				}
 				if _, err := os.Stat(recordPath); err != nil {
 					t.Fatalf("removed live endpoint after temporary error: %v", err)
 				}
@@ -92,14 +109,19 @@ func TestDiscoveryRemovesOnlyMissingPipeRecord(t *testing.T) {
 		}
 	}
 	previousDial := dialLocalEndpoint
+	probed := map[string]bool{}
 	dialLocalEndpoint = func(path string, _ time.Duration) (net.Conn, error) {
+		probed[path] = true
 		if path == missing {
 			return nil, os.ErrNotExist
 		}
 		return nil, os.ErrPermission
 	}
 	defer func() { dialLocalEndpoint = previousDial }()
-	_, _ = scanSocketDir(dir, "", time.Millisecond)
+	_, _ = scanSocketDir(dir, "", time.Second)
+	if !probed[missing] || !probed[live] {
+		t.Fatalf("expected both endpoints to be probed: %v", probed)
+	}
 	if _, err := os.Stat(host.EndpointRecordPath(dir, missing)); !os.IsNotExist(err) {
 		t.Fatalf("stale descriptor remained: %v", err)
 	}

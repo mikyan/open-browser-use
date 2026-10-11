@@ -85,9 +85,19 @@ func TestMCPToolCallInvokesBrowserSocket(t *testing.T) {
 		defer conn.Close()
 
 		var request map[string]any
-		if err := readLegacyCLIRequest(conn, &request); err != nil {
+		if err := wire.ReadJSON(conn, &request); err != nil {
 			serverDone <- err
 			return
+		}
+		if request["method"] == "getInfo" {
+			if err := wire.WriteJSON(conn, map[string]any{"jsonrpc": "2.0", "id": request["id"], "result": map[string]any{}}); err != nil {
+				serverDone <- err
+				return
+			}
+			if err := wire.ReadJSON(conn, &request); err != nil {
+				serverDone <- err
+				return
+			}
 		}
 		requests <- request
 		response := map[string]any{

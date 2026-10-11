@@ -1167,13 +1167,14 @@ func installChromeExternalExtensionForBrowser(extensionID string, outputPath str
 }
 
 type socketOptions struct {
-	control    *cliControl
-	socketPath string
-	socketDir  string
-	timeout    time.Duration
-	sessionID  string
-	browser    string
-	profile    string
+	mcpConnection *mcpBrowserConnection
+	control       *cliControl
+	socketPath    string
+	socketDir     string
+	timeout       time.Duration
+	sessionID     string
+	browser       string
+	profile       string
 }
 
 func addSocketFlags(cmd *cobra.Command, options *socketOptions) {
@@ -1182,7 +1183,7 @@ func addSocketFlags(cmd *cobra.Command, options *socketOptions) {
 	}
 	// Initialize lazily after flags have supplied the session ID.
 	options.control = &cliControl{}
-	cmd.Flags().StringVar(&options.socketPath, "socket", "", "open-browser-use Unix socket path")
+	cmd.Flags().StringVar(&options.socketPath, "socket", "", "local endpoint (Unix socket or Windows named pipe)")
 	cmd.Flags().StringVar(&options.socketDir, "socket-dir", host.DefaultSocketDir, "directory containing active socket registry")
 	cmd.Flags().DurationVar(&options.timeout, "timeout", 10*time.Second, "request timeout")
 	cmd.Flags().StringVar(&options.sessionID, "session-id", options.sessionID, "browser session id used for tab grouping and cleanup")
@@ -2417,6 +2418,10 @@ func applySessionDefaults(params map[string]any, sessionID string) {
 }
 
 func dialBrowserSocketForProfile(socketPath string, socketDir string, browser string, profile string, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	if timeout <= 0 {
+		return nil, errors.New("browser connection discovery timed out")
+	}
 	if strings.TrimSpace(browser) == "" && strings.TrimSpace(profile) == "" {
 		return dialBrowserSocket(socketPath, socketDir, timeout)
 	}
@@ -2428,7 +2433,7 @@ func dialBrowserSocketForProfile(socketPath string, socketDir string, browser st
 		if err != nil {
 			return nil, err
 		}
-		match, info, verifyErr := verifySocketMatchesProfile(conn, browser, profile, timeout)
+		match, info, verifyErr := verifySocketMatchesProfile(conn, browser, profile, time.Until(deadline))
 		if verifyErr != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("could not verify profile of socket %s: %w", socketPath, verifyErr)
@@ -2447,13 +2452,20 @@ func dialBrowserSocketForProfile(socketPath string, socketDir string, browser st
 }
 
 func dialBrowserSocket(socketPath string, socketDir string, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	if timeout <= 0 {
+		return nil, errors.New("browser connection discovery timed out")
+	}
 	if socketPath != "" {
 		return dialLocalEndpoint(socketPath, timeout)
 	}
 
 	record, err := host.ReadActiveSocketRecord(socketDir)
+	if time.Until(deadline) <= 0 {
+		return nil, errors.New("browser connection discovery timed out")
+	}
 	if err == nil {
-		conn, dialErr := dialLocalEndpoint(record.SocketPath, timeout)
+		conn, dialErr := dialLocalEndpoint(record.SocketPath, time.Until(deadline))
 		if dialErr == nil {
 			return conn, nil
 		}
@@ -2462,7 +2474,7 @@ func dialBrowserSocket(socketPath string, socketDir string, timeout time.Duratio
 			_ = host.RemoveActiveSocketRecord(socketDir, record.SocketPath)
 			removeSocketPathIfInDir(socketDir, record.SocketPath)
 		}
-		conn, scanErr := scanSocketDir(socketDir, record.SocketPath, timeout)
+		conn, scanErr := scanSocketDir(socketDir, record.SocketPath, time.Until(deadline))
 		if scanErr == nil {
 			return conn, nil
 		}
@@ -2473,7 +2485,7 @@ func dialBrowserSocket(socketPath string, socketDir string, timeout time.Duratio
 		return nil, fmt.Errorf("active socket registry points to unavailable socket %q; %s; no connectable socket found by scanning: %w", record.SocketPath, state, dialErr)
 	}
 
-	conn, scanErr := scanSocketDir(socketDir, "", timeout)
+	conn, scanErr := scanSocketDir(socketDir, "", time.Until(deadline))
 	if scanErr == nil {
 		return conn, nil
 	}
@@ -2530,8 +2542,13 @@ func (info connectedProfileInfo) label() string {
 }
 
 func getInfoOverConn(conn net.Conn, timeout time.Duration) (map[string]any, error) {
+	if timeout <= 0 {
+		return nil, errors.New("browser connection discovery timed out")
+	}
 	deadline := time.Now().Add(timeout)
-	_ = conn.SetDeadline(deadline)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, err
+	}
 	defer func() { _ = conn.SetDeadline(time.Time{}) }()
 	params := map[string]any{}
 	applySessionDefaults(params, defaultCLISessionID)
@@ -2622,6 +2639,7 @@ func verifySocketMatchesProfile(conn net.Conn, browserSelector string, profileSe
 }
 
 func pickSocketForProfile(socketDir string, browserSelector string, profileSelector string, timeout time.Duration) (net.Conn, connectedProfileInfo, []connectedProfileInfo, error) {
+	deadline := time.Now().Add(timeout)
 	candidates, err := listSocketCandidates(socketDir)
 	if err != nil {
 		return nil, connectedProfileInfo{}, nil, err
@@ -2629,18 +2647,18 @@ func pickSocketForProfile(socketDir string, browserSelector string, profileSelec
 	if len(candidates) == 0 {
 		return nil, connectedProfileInfo{}, nil, fmt.Errorf("no Open Browser Use socket found; open Chrome with the desired profile (`open-browser-use profiles` lists installed profiles)")
 	}
-	probeTimeout := timeout
-	if probeTimeout > 800*time.Millisecond {
-		probeTimeout = 800 * time.Millisecond
-	}
 	var seen []connectedProfileInfo
 	for _, candidate := range candidates {
+		probeTimeout := min(time.Until(deadline), 800*time.Millisecond)
+		if probeTimeout <= 0 {
+			return nil, connectedProfileInfo{}, seen, errors.New("browser connection discovery timed out")
+		}
 		conn, err := dialLocalEndpoint(candidate.path, probeTimeout)
 		if err != nil {
 			removeStaleSocketPath(socketDir, candidate.path, err)
 			continue
 		}
-		resp, err := getInfoOverConn(conn, probeTimeout)
+		resp, err := getInfoOverConn(conn, min(time.Until(deadline), probeTimeout))
 		if err != nil {
 			_ = conn.Close()
 			continue
@@ -2711,6 +2729,7 @@ func listSocketCandidates(socketDir string) ([]socketCandidate, error) {
 }
 
 func scanSocketDir(socketDir string, skipPath string, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
 	dir := socketDir
 	if dir == "" {
 		dir = host.DefaultSocketDir
@@ -2723,19 +2742,19 @@ func scanSocketDir(socketDir string, skipPath string, timeout time.Duration) (ne
 		return nil, fmt.Errorf("no socket files in %q", dir)
 	}
 
-	probeTimeout := timeout
-	if probeTimeout > 500*time.Millisecond {
-		probeTimeout = 500 * time.Millisecond
-	}
 	var lastErr error
 	for _, candidate := range candidates {
 		if candidate.path == skipPath {
 			continue
 		}
+		probeTimeout := min(time.Until(deadline), 500*time.Millisecond)
+		if probeTimeout <= 0 {
+			return nil, errors.New("browser connection discovery timed out")
+		}
 		conn, err := dialLocalEndpoint(candidate.path, probeTimeout)
 		if err == nil {
 			repairActiveSocketRecord(dir, candidate)
-			cleanupStaleSocketCandidates(dir, candidates, candidate.path, probeTimeout)
+			cleanupStaleSocketCandidates(dir, candidates, candidate.path, time.Until(deadline))
 			return conn, nil
 		}
 		removeStaleSocketPath(dir, candidate.path, err)
@@ -2748,13 +2767,14 @@ func scanSocketDir(socketDir string, skipPath string, timeout time.Duration) (ne
 }
 
 func cleanupStaleSocketCandidates(socketDir string, candidates []socketCandidate, keepPath string, timeout time.Duration) {
-	cleanupTimeout := timeout
-	if cleanupTimeout > 100*time.Millisecond {
-		cleanupTimeout = 100 * time.Millisecond
-	}
+	deadline := time.Now().Add(timeout)
 	for _, candidate := range candidates {
 		if candidate.path == keepPath {
 			continue
+		}
+		cleanupTimeout := min(time.Until(deadline), 100*time.Millisecond)
+		if cleanupTimeout <= 0 {
+			return
 		}
 		conn, err := dialLocalEndpoint(candidate.path, cleanupTimeout)
 		if err == nil {

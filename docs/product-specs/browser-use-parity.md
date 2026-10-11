@@ -42,6 +42,14 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+MCP现固定stdio服务首次选中的实际连接，断线后明确要求重启服务，不会
+将旧tab/epoch带到重新发现的实例。Windows真实IPC边界测试及浏览器
+专项`run-ykbo3D` 2/2通过；首次匹配歧义、各SDK重连和跨平台范围仍按原
+规则保留，详见[MCP连接生命周期](../references/mcp-connection-lifetime.md)。
+同版本默认`k5giEj`实际exit1、103/104，唯一失败是JS动态跨源frame下载
+等待超时；原104项、制品及焦点规则独立复核通过，不把专项当作全套成功。
+完整P02/P13与下载触发的未定位问题仍需继续。
+
 最新检查点：新生产首次连接检查在Vivaldi `yeWkzC` 中，无TASK_READY即
 完成原goto（82ms），但输入仍空、任务失败；更早 `wv2kHQ` 在扩展安装前
 About求值超时。默认Brave `i40fyX` 通过且零焦点事件。同版本主回归

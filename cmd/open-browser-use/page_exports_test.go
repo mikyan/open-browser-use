@@ -366,6 +366,7 @@ func TestMCPExportSmallResultAndBrowserError(t *testing.T) {
 			f := &exportFixture{failure: failure}
 			options := f.start(t)
 			server := newMCPServer(options)
+			t.Cleanup(server.shutdownBrowser)
 			directory := t.TempDir()
 			target := filepath.Join(directory, "page.pdf")
 			request, _ := json.Marshal(map[string]any{"name": "export_page", "arguments": map[string]any{"tab_id": 123, "format": "pdf", "output_path": target}})

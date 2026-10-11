@@ -166,7 +166,7 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	if remaining <= 0 {
 		return nil, errors.New("request timed out before connecting")
 	}
-	conn, err := dialBrowserSocketForProfile(options.socketPath, options.socketDir, options.browser, options.profile, remaining)
+	conn, err := dialCLIControl(options, deadline)
 	if err != nil {
 		return nil, err
 	}
@@ -428,6 +428,9 @@ func boundCLIActionDeadline(method string, params map[string]any, deadline time.
 }
 
 func sendCLIRequest(conn net.Conn, id, method string, params map[string]any) (map[string]any, error) {
+	if peer, ok := conn.(*mcpBoundConn); ok {
+		return peer.request(id, method, params)
+	}
 	if err := wire.WriteJSON(conn, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
@@ -531,7 +534,7 @@ func (control *cliControl) begin(options socketOptions, submitted *cliControlSna
 	if control.snapshot().generation != captured.generation {
 		return nil, errors.New("OBU_STALE_CONTROL_EPOCH: begin-turn was submitted before control changed")
 	}
-	conn, err := dialBrowserSocketForProfile(options.socketPath, options.socketDir, options.browser, options.profile, time.Until(deadline))
+	conn, err := dialCLIControl(options, deadline)
 	if err != nil {
 		return nil, err
 	}

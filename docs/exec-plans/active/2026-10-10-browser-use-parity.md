@@ -1874,3 +1874,39 @@ exit0、原两项通过，三variant共6次真实chooser/POST；动态child拦�
 本片P04及最终默认回归完成；chooser旧失败原因仍未知，没有据成功轮
 增加生产补丁或重放策略。Vivaldi无点击输入、Edge原生焦点及其他平台/
 完整任务边界继续保留。整体目标active，仅本地提交，无推送或PR。
+
+### P02/P13 MCP 连接实例绑定
+
+从干净`e030358`继续；上一片为progress，P04专项与最终104回归通过。
+已确认MCP保留runner/currentTab/control，却在每次invoke和begin重新发现
+endpoint。active registry或profile候选变化时，旧数字ID和epoch可能被
+带到另一实例；仅缓存路径或持久profile UUID不足以约束同路径替换。
+
+本片让MCP首次浏览器请求选定实际连接，并在整个stdio服务期间复用。
+初始化/list不要求浏览器在线；首次连接成功前可重新提交发现请求，绑定
+以后不重新发现或自动重放。独立reader持续消费通知，按唯一请求ID交付
+响应，避免闲置背压。响应等待超时保留reader帧边界并丢弃迟到回复，可
+显式在同连接begin-turn；EOF、帧错误及不确定写入关闭该binding，后续
+请求要求重启MCP。原submission期限、控制generation和后台行为保持。
+
+测试覆盖A/B切换、同路径替换、首次连接前失败、超时迟回复、断线零重发、
+空闲通知排空、stdio退出清理及原控制用例；根代理统一运行真实浏览器
+入口验证和必要主回归。首次selector发现及更广重连能力的边界仍需如实
+记录，不把本片完成等同整个能力矩阵完成。
+
+实现及独立复核完成：首次连接绑定、常驻reader、唯一wire ID、未知写入
+永久断线及stdio清理；发现各网络尝试共享剩余期限。Go全包与完整CI
+Node836+59+258、JS120、Python86通过。初次旧分类测试1ms扫描预算导致
+未实际探测，已改为合理预算并检查真实探测次数；超时由独立用例覆盖。
+无CGO工具链，race未验。v29冻结402源码/239历史和新主机，48扩展成员
+与v28相同；打包容器hash改变如实保留。
+
+专项`ykbo3D`实际terminal0、2/2及独立审计通过：旧进程三次断线拒绝，
+新进程显式恢复，两笔实际可信POST、task tabs/targets清理、两个MCP正常
+退出，5999ms同observer零事件/豁免。原生Port仍为声明的loopback适配。
+同构建默认`k5giEj`实际terminal1、103/104，唯一失败为JS动态OOPIF下载
+原10秒等待超时。没有file GET/native download事件，click ACK、DOM与
+child初始化顺序缺少原始证据；未定位，不能归因MCP或用户操作。其余
+下载入口、十五研究任务及恢复用例通过。本片为progress，目标继续active。
+下一步只加原调用阶段、透明原生命令时序及原scope失败DOM诊断，不延长
+期限、不重放点击、不激活页面，以确定下载触发失败的位置。

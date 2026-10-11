@@ -231,10 +231,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `metadata.extensionInstanceId` 反查到 browser/profile（grep 每个支持 browser
   root 的 `Local Extension Settings/<extension-id>/*.{log,ldb}`）。只有唯一匹配
   profile 才能归属品牌；复制 UUID 的多个匹配明确保留歧义，按 selector
-  选出匹配 socket。`obu mcp --browser ... --profile ...` 保存 selector，但当前每次
-  RPC 都重新发现 endpoint，尚未将长期 runner 固定到最初的连接实例；多个匹配
-  target 或 active registry 改变时存在切换实例的缺口，不能把 epoch 当作跨实例
-  身份。需要固定连接时显式传入 `--socket`。selector 不匹配时 CLI 列出当前已连通
+  选出匹配 socket。`obu mcp --browser ... --profile ...` 在首次浏览器工具调用
+  时选择实际连接，随后在stdio服务期间固定同一连接；active registry、候选
+  顺序及同路径替换均不触发重新发现。单reader持续消费通知和迟到回复，响应
+  超时不重放，健康连接可显式begin-turn；连接终止要求重启MCP。首次匹配仍
+  使用既有选择规则，详见[MCP连接生命周期](references/mcp-connection-lifetime.md)。
+  selector 不匹配时 CLI 列出当前已连通
   target 列表，提示用户打开对应 browser/profile。Windows 当前覆盖 Chrome
   Stable 和 Chrome Beta 的 `%LOCALAPPDATA%\Google\...\User Data` roots，以及 Edge
   的 `%LOCALAPPDATA%\Microsoft\Edge\User Data`，新增三品牌目录及 Opera 根 profile

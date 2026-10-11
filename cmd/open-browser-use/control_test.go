@@ -435,6 +435,7 @@ func TestMCPBatchEndDoesNotRebindQueuedTool(t *testing.T) {
 	f := &controlFixture{epoch: 40}
 	options := f.start(t)
 	server := newMCPServer(options)
+	t.Cleanup(server.shutdownBrowser)
 	if _, err := server.invoke("createTab", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -470,8 +471,8 @@ func TestMCPAlreadyReadLinesKeepTheirSubmissionEpoch(t *testing.T) {
 	if strings.Count(strings.Join(f.methods(), ","), "getTabs") != 1 {
 		t.Fatal("queued request silently rebound", f.methods())
 	}
-	if _, err := server.invoke("getTabs", nil); err != nil {
-		t.Fatal("fresh submission", err)
+	if _, err := server.invoke("getTabs", nil); err == nil || !strings.Contains(err.Error(), "OBU_MCP_BROWSER_DISCONNECTED") {
+		t.Fatal("stdio EOF must close the browser binding", err)
 	}
 }
 
