@@ -1,0 +1,72 @@
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_8845db3bdd956e 1319-1339
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_8845db3bdd956e 2025-2038
+  s_08bbfd293d324f::t_52b06152d01d93 2018-2020
+  s_08bbfd293d324f::t_14b945044f204a 2009-2017,2021-2024
+scripts/browser-integration/go-chooser-diagnostic-mode.test.mjs
+  s_08bbfd293d324f::t_62bb3c8d20ff83 1-15,19-25,30-36
+  s_08bbfd293d324f::t_11688c31b89db6 16-18,27-29
+  s_08bbfd293d324f::t_52b06152d01d93 26
+scripts/browser-integration/go-chooser-waits-checks/diagnostic_test.go
+  s_08bbfd293d324f::t_a68540943a6fa8 1-88
+  s_08bbfd293d324f::t_b16d1d47ead2e8 89-148
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_8845db3bdd956e 45-51
+scripts/browser-integration/go-chooser-diagnostic.test.mjs
+  s_08bbfd293d324f::t_75c99a5890fdbf 1-159,181-261
+  s_08bbfd293d324f::t_dc3d94da685df5 160-180
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_370e9c27c32d92 7-27,31-34,37-47
+  s_08bbfd293d324f::t_52b06152d01d93 28-30,35-36
+scripts/browser-integration/go-chooser-diagnostic-mode.mjs
+  s_08bbfd293d324f::t_52b06152d01d93 31
+  s_08bbfd293d324f::t_62bb3c8d20ff83 1-19,27,29-30,32-36
+  s_08bbfd293d324f::t_11688c31b89db6 20-26,28
+scripts/browser-integration/go-chooser-waits-checks/main.go
+  s_08bbfd293d324f::t_62d627e52d8c8f 16-20,28-29,36,48,61,63-66,71-74,77,82,109,187,208,222-223,228,231-234,236,238-246,257-260,267-270
+  s_08bbfd293d324f::t_0e83abe125545f 21-25,30-31,38-45,50-57,75-76,78-81,83-84,86-106,108,110,112-186,188-189,191-194,197,201-203,205-207,209-212,216-219,225,249-254,256,262-266
+  s_08bbfd293d324f::t_e9b500608204dd 272-274
+scripts/browser-integration/chooser-process.test.mjs
+  s_08bbfd293d324f::t_3f3f3ab52370a0 163,168
+  s_08bbfd293d324f::t_cd1dc7b6159c2b 1-162,164-167,169-176
+scripts/browser-integration/go-chooser-waits-checks/diagnostic.go
+  s_08bbfd293d324f::t_0e83abe125545f 3-12,18-20,40-41,47-49,53-57,65-68,73-74,78,81-83,86-89,105-107,111-112,116-117,121-122,153-155,162-163,167-171,175-176,190-191,196,198-202,204-206,216-218,228-231,240,243-245,247-249
+  s_08bbfd293d324f::t_295f6aeba932e6 1-2,13-17,21-39,42,44-46,58-64,108-109,203,207-209,211-215,219-227,232-239,241-242,246,250-252
+  s_08bbfd293d324f::t_aed6439d93bdf3 43,50-52,69-72,75-77,79-80,84-85,90-104,110,113-115,118-120,123-152,156-161,164-166,172-174,177-189,192-195,197,210
+  s_08bbfd293d324f::t_9d56bcb2a5f7fb 253-254
+scripts/browser-integration/chooser-process.mjs
+  s_08bbfd293d324f::t_3f3f3ab52370a0 46-48,75-80,182
+  s_08bbfd293d324f::t_81d18bdea47316 1-45,49-74,81-181,183-192
+scripts/browser-integration/go-chooser-diagnostic.mjs
+  s_08bbfd293d324f::t_dc3d94da685df5 93-97,100
+  s_08bbfd293d324f::t_c278b58b8346a9 121
+  s_08bbfd293d324f::t_3f96850a2ee840 1-92,98-99,101-120,122-164
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_8845db3bdd956e 14-23
+scripts/browser-integration/go-chooser-waits-checks/main_test.go
+  s_08bbfd293d324f::t_a68540943a6fa8 1-22,26,33-37,51-52,56-58,68-71,87,108-116,130-132,143-146,148,158-161,192-194,197-199,208,237-238
+  s_08bbfd293d324f::t_aed6439d93bdf3 23-25,27-32,38-50,53-55,59-67,72-86,88-107,117-129,133-142,147,149-157,162-191,195-196,200-207,209-236
+  s_08bbfd293d324f::t_a04fd110678ecb 239-242
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_b703f882eb9730 651-658,665-666,668-669,671-685,690-708
+  s_08bbfd293d324f::t_52b06152d01d93 670,686-687
+  s_08bbfd293d324f::t_46da2126f5007c 52-54,61,395-398,414-415,529
+  s_08bbfd293d324f::t_f00ca95c00f990 2203-2210,2229,2240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "1f56467ae74eb0b3fc1172722515807c1b3f2d19",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
