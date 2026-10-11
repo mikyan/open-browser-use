@@ -143,21 +143,61 @@ export function chooserChildTarget(trace, initialAttachments = []) {
 
 // Read only, in the current document. Root native coordinates are never applied
 // to a child viewport. A child's center hit is labeled as a later observation.
-export function chooserDocumentObservation(point) {
+export function chooserDocumentObservation(point, deadline) {
+  if (!Number.isFinite(deadline) || Date.now() >= deadline) throw new Error("Chooser DOM observation budget expired before read");
   const rect = element => element ? element.getBoundingClientRect().toJSON() : null;
   const describe = element => element ? { tag: element.tagName, id: element.id, type: element.getAttribute("type") } : null;
   const input = document.querySelector("#upload"), box = rect(input);
   const center = box && { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  return { at: Date.now(), href: location.href, readyState: document.readyState, hasFocus: document.hasFocus(), visibility: document.visibilityState,
+  const result = { at: Date.now(), href: location.href, readyState: document.readyState, hasFocus: document.hasFocus(), visibility: document.visibilityState,
     viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY, devicePixelRatio },
     chooserEvidence: typeof chooserEvidence === "object" ? chooserEvidence : null,
     activeElement: describe(document.activeElement), input: input ? { node: describe(input), rect: box, disabled: input.disabled, files: input.files.length } : null,
     frames: [...document.querySelectorAll("iframe")].map(frame => ({ node: describe(frame), src: frame.src, rect: rect(frame) })),
     nativeRootPoint: point, nativeRootHit: point ? describe(document.elementFromPoint(point.x, point.y)) : null,
     laterInputCenter: center, laterInputCenterHit: center ? describe(document.elementFromPoint(center.x, center.y)) : null };
+  if (Date.now() >= deadline) throw new Error("Chooser DOM observation budget expired during read");
+  return result;
 }
 
-export function createChooserDiagnostic({ worker, readFocus }) {
+export async function chooserNativeObservation(chrome, tabId, deadline) {
+  const check = () => { if (!Number.isFinite(deadline) || Date.now() >= deadline) throw new Error("Chooser native observation budget expired"); };
+  check();
+  const capture = async fn => { try { check(); const value = await fn(); check(); return { value }; } catch (error) { return { error: String(error) }; } };
+  const requestedAt = Date.now();
+  // Every started read has a rejection handler, even when a later read is
+  // refused by the same absolute deadline. No late continuation sends an API.
+  const [tab, windows, currentWindow, frames] = await Promise.all([
+    capture(() => chrome.tabs.get(tabId)), capture(() => chrome.windows.getAll({ populate: false })),
+    capture(() => chrome.windows.getCurrent({ populate: false })), capture(() => chrome.webNavigation.getAllFrames({ tabId }))
+  ]);
+  check(); return { requestedAt, completedAt: Date.now(), tab, windows, currentWindow, frames };
+}
+
+export function chooserPointerEvidenceComplete(evidence) {
+  const value = evidence?.pointerEvidence;
+  const types = ["pointermove", "pointerdown", "pointerup", "pointercancel", "mousemove", "mousedown", "mouseup", "click"];
+  if (!value || value.version !== 1 || typeof evidence.documentToken !== "string" || !evidence.documentToken ||
+      value.documentToken !== evidence.documentToken || value.installed !== true ||
+      value.maximumRecords !== 256 || value.maximumCharacters !== 65536 || value.overflow !== false ||
+      ["dropped", "truncations", "recordingErrors", "installationErrors"].some(key => value[key] !== 0) ||
+      JSON.stringify(value.eventTypes) !== JSON.stringify(types) || !Array.isArray(value.records) ||
+      value.records.length > 256 || value.nextSequence !== value.records.length) return false;
+  let characters = 0;
+  for (const [index, record] of value.records.entries()) {
+    if (!record || record.sequence !== index || record.documentToken !== value.documentToken || !types.includes(record.type) ||
+        typeof record.trusted !== "boolean" || typeof record.targetIsOriginalUpload !== "boolean" || typeof record.targetIsOriginalAdd !== "boolean" ||
+        !["at", "timeStamp", "clientX", "clientY", "button", "buttons"].every(key => Number.isFinite(record[key])) ||
+        !(record.pointerId === null || Number.isFinite(record.pointerId)) ||
+        !(record.pointerType === null || typeof record.pointerType === "string" && record.pointerType.length <= 128) ||
+        !(record.target === null || record.target && ["tag", "id", "type"].every(key => typeof record.target[key] === "string" && record.target[key].length <= 128))) return false;
+    characters += JSON.stringify(record).length;
+  }
+  return value.retainedCharacters === characters && characters <= 65536;
+}
+
+export function createChooserDiagnostic({ worker, readFocus, pointerEvidence = false }) {
+  assert.equal(typeof pointerEvidence, "boolean");
   const errors = [];
   const read = expression => worker.evaluate(expression);
   const traceExpression = "globalThis.__obuChooserDiagnostic?.snapshot()";
@@ -177,7 +217,8 @@ export function createChooserDiagnostic({ worker, readFocus }) {
     errors,
     async start({ owner, item }) {
       const scope = { session_id: owner.client.sessionId, turn_id: owner.client.turnId, control_epoch: owner.client.controlEpoch };
-      const value = item.diagnostic = { version: 1, scope, tabId: item.tabId, startedAt: Date.now(), failureRead: null };
+      const value = item.diagnostic = { version: 1, scope, tabId: item.tabId, startedAt: Date.now(), failureRead: null,
+        pointerEvidenceExpected: pointerEvidence, pointerObservationRequested: false, pointerObservationComplete: null };
       value.initialAttachments = await read(`globalThis.__integrationFrames.filter(entry=>entry.tabId===${item.tabId})`);
       value.installed = await read(`(${installChooserDiagnostic.toString()})(chrome,globalThis,${item.tabId})`);
     },
@@ -185,13 +226,14 @@ export function createChooserDiagnostic({ worker, readFocus }) {
       const value = item.diagnostic;
       if (!value || value.failureRead) return;
       const requestedAt = Date.now(), deadline = requestedAt + 3000;
+      value.pointerObservationRequested = pointerEvidence;
       const observation = value.failureRead = { requestedAt, deadline, budgetMs: 3000, reads: [], errors: [], timing: "After original failure, before original waiter cancellation and task finalization; one total budget for trace, native metadata, focus and DOM; no original deadline is extended" };
       try {
         observation.trace = await within(deadline, () => read(traceExpression));
         if (!observation.trace || observation.trace.bootId !== value.installed.bootId) throw new Error("Diagnostic worker incarnation missing or changed");
         // Independent read-only APIs are all issued together. A late metadata
         // result cannot issue another API after the outer budget has expired.
-        observation.nativeState = await within(deadline, () => read(`(async()=>{const capture=async fn=>{try{return{value:await fn()}}catch(error){return{error:String(error)}}};const requestedAt=Date.now();const [tab,windows,currentWindow,frames]=await Promise.all([capture(()=>chrome.tabs.get(${item.tabId})),capture(()=>chrome.windows.getAll({populate:false})),capture(()=>chrome.windows.getCurrent({populate:false})),capture(()=>chrome.webNavigation.getAllFrames({tabId:${item.tabId}}))]);return{requestedAt,completedAt:Date.now(),tab,windows,currentWindow,frames}})()`));
+        observation.nativeState = await within(deadline, () => read(`(${chooserNativeObservation.toString()})(chrome,${item.tabId},${deadline})`));
         try { observation.focus = await within(deadline, () => readFocus()); } catch (error) { observation.errors.push({ kind: "focus-read", error: String(error) }); }
         observation.child = chooserChildTarget(observation.trace, value.initialAttachments);
         const lastPress = observation.trace.records.filter(record => record.kind === "start" && record.method === "Input.dispatchMouseEvent" && record.params?.type === "mousePressed" && record.target.sessionId === undefined).at(-1);
@@ -203,7 +245,7 @@ export function createChooserDiagnostic({ worker, readFocus }) {
           if (timeoutMs <= 0) { record.error = "Diagnostic DOM-read budget expired before send"; record.skipped = true; continue; }
           try {
             record.result = await within(deadline, remaining => owner.client.request("executeCdp", { ...value.scope, target, method: "Runtime.evaluate", commandParams: {
-              expression: `(${chooserDocumentObservation.toString()})(${JSON.stringify(target.sessionId ? null : point)})`, returnByValue: true, awaitPromise: false
+              expression: `(${chooserDocumentObservation.toString()})(${JSON.stringify(target.sessionId ? null : point)},${deadline})`, returnByValue: true, awaitPromise: false
             }, timeoutMs: remaining }, { timeoutMs: remaining }));
             record.completedAt = Date.now();
           } catch (error) { record.error = String(error); record.failedAt = Date.now(); }
@@ -211,7 +253,14 @@ export function createChooserDiagnostic({ worker, readFocus }) {
       } catch (error) { observation.errors.push({ kind: "diagnostic-read", error: String(error) }); }
       observation.completedAt = Date.now();
       const expectedReads = item.variant === "root" ? 1 : 2;
+      if (pointerEvidence) {
+        for (const record of observation.reads) record.pointerEvidenceComplete = !record.error && !record.result?.exceptionDetails &&
+          chooserPointerEvidenceComplete(record.result?.result?.value?.chooserEvidence);
+        value.pointerObservationComplete = observation.reads.length === expectedReads && observation.reads.every(record => record.pointerEvidenceComplete === true);
+        observation.pointerEvidenceBoundary = "Passive capture in the opt-in fixture document only. Empty logs are valid; clocks are observations, not cross-process ordering. Failure-time document tokens do not prove the click-time document. No success-path DOM read is performed.";
+      }
       observation.complete = observation.completedAt < deadline && observation.errors.length === 0 &&
+        (!pointerEvidence || value.pointerObservationComplete === true) &&
         ["tab", "windows", "currentWindow", "frames"].every(key => observation.nativeState?.[key] && !observation.nativeState[key].error) &&
         !!observation.focus && observation.reads.length === expectedReads && observation.reads.every(record =>
           !record.error && !record.result?.exceptionDetails && record.result?.result?.value?.chooserEvidence?.documentToken);

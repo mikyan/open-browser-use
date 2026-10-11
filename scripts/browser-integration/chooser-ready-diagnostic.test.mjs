@@ -3,8 +3,8 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { readFileSync } from "node:fs";
-import { chooserDiagnosticCases, chooserDiagnosticEnabled, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic } from "./chooser-ready-diagnostic.mjs";
-import { checkChooserReady } from "./chooser-waits-fixture.mjs";
+import { chooserDiagnosticCases, chooserDiagnosticEnabled, installChooserDiagnostic, chooserTraceComplete, chooserChildTarget, createChooserDiagnostic, chooserDocumentObservation, chooserNativeObservation, chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
+import { checkChooserReady, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
 
 function setup(sendCommand = function () { return Promise.resolve({}); }, options) {
   const listeners = new Set(), target = { crypto: { randomUUID } };
@@ -117,7 +117,7 @@ test("failure capture uses original scope and raw executeCdp once per observed t
     assert.equal(params.commandParams.awaitPromise, false); assert.ok(!("waiterId" in params));
   }
   assert.deepEqual(calls.map(([, params]) => params.target), [{ tabId: 42 }, { tabId: 42, sessionId: "child" }]);
-  assert.match(calls[1][1].commandParams.expression, /\}\)\(null\)$/);
+  assert.match(calls[1][1].commandParams.expression, /\}\)\(null,\d+\)$/);
   assert.equal(item.diagnostic.collectionComplete, true);
 });
 
@@ -171,4 +171,80 @@ test("runner keeps default case filtering and explicitly labels this diagnostic 
   const fixture = readFileSync(new URL("./chooser-waits-fixture.mjs", import.meta.url), "utf8");
   assert.ok(fixture.indexOf("await diagnostic.failure({ owner, item })") < fixture.indexOf("await wait.cancel()"));
   assert.match(fixture, /expectFileChooser\(\{ timeoutMs: 10000 \}\)/);
+});
+
+function emptyPointerEvidence() {
+  const evidence = { documentToken: "original-document" };
+  installChooserPointerEvidence({ addEventListener() {} }, evidence, null, null);
+  return evidence;
+}
+
+test("pointer evidence requires bounded complete metadata but no delivered events or successful clicks", () => {
+  assert.equal(chooserPointerEvidenceComplete(emptyPointerEvidence()), true);
+  for (const mutate of [
+    value => { delete value.pointerEvidence; },
+    value => { delete value.pointerEvidence.recordingErrors; },
+    value => { value.pointerEvidence.installed = false; },
+    value => { value.pointerEvidence.dropped = 1; },
+    value => { value.pointerEvidence.overflow = true; },
+    value => { value.pointerEvidence.truncations = 1; },
+    value => { value.pointerEvidence.recordingErrors = 1; },
+    value => { value.pointerEvidence.installationErrors = 1; },
+    value => { value.pointerEvidence.documentToken = "another-document"; },
+    value => { value.pointerEvidence.nextSequence = 1; },
+    value => { value.pointerEvidence.retainedCharacters = 1; },
+    value => { value.pointerEvidence.eventTypes.pop(); }
+  ]) { const evidence = emptyPointerEvidence(); mutate(evidence); assert.equal(chooserPointerEvidenceComplete(evidence), false); }
+});
+
+test("failure collection validates each requested pointer ledger; success requests no DOM evidence", async () => {
+  for (const kind of ["success", "empty", "missing-child", "overflow-child", "recording-error"]) {
+    const state = setup(); let domReads = 0;
+    const owner = { client: { sessionId: "session", turnId: "turn", controlEpoch: 1, request: async (_method, params) => {
+      domReads++; const evidence = emptyPointerEvidence();
+      if (params.target.sessionId && kind === "missing-child") delete evidence.pointerEvidence;
+      if (params.target.sessionId && kind === "overflow-child") evidence.pointerEvidence.overflow = true;
+      if (kind === "recording-error") evidence.pointerEvidence.recordingErrors = 1;
+      return { result: { value: { chooserEvidence: evidence } } };
+    } } };
+    const worker = { evaluate: async expression => {
+      if (expression.includes("__integrationFrames")) return [{ tabId: 42, source: { tabId: 42 }, type: "iframe", sessionId: "child", targetId: "frame" }];
+      if (expression.startsWith("(function installChooserDiagnostic")) return state.installed;
+      if (expression.includes("probe.restore()")) return state.probe.restore();
+      if (expression.includes("?.snapshot()")) return state.probe.snapshot();
+      return { tab: { value: {} }, windows: { value: [] }, currentWindow: { value: {} }, frames: { value: [] } };
+    } };
+    const diagnostic = createChooserDiagnostic({ worker, readFocus: async () => ({ events: [] }), pointerEvidence: true });
+    const item = { tabId: 42, variant: "dynamic-oopif" };
+    await diagnostic.start({ owner, item });
+    if (kind !== "success") await diagnostic.failure({ owner, item });
+    await diagnostic.finish({ item });
+    assert.equal(domReads, kind === "success" ? 0 : 2);
+    assert.equal(item.diagnostic.pointerObservationRequested, kind !== "success");
+    assert.equal(item.diagnostic.pointerObservationComplete, kind === "success" ? null : kind === "empty");
+    assert.equal(item.diagnostic.collectionComplete, ["success", "empty"].includes(kind));
+    assert.equal(item.diagnostic.traceComplete, true, "native completeness remains separate from DOM completeness");
+  }
+});
+
+test("queued serialized native/DOM observations refuse all reads when the original deadline has expired", async () => {
+  let nativeCalls = 0, domReads = 0;
+  const chrome = { tabs: { get() { nativeCalls++; } }, windows: { getAll() { nativeCalls++; }, getCurrent() { nativeCalls++; } }, webNavigation: { getAllFrames() { nativeCalls++; } } };
+  const context = { chrome, Date: { now: () => 5000 } };
+  const native = runInNewContext(`(${chooserNativeObservation.toString()})(chrome,42,4000)`, context);
+  await assert.rejects(native, /budget expired/);
+  assert.equal(nativeCalls, 0);
+  Object.defineProperty(context, "document", { get() { domReads++; throw new Error("DOM touched"); } });
+  Object.defineProperty(context, "location", { get() { domReads++; throw new Error("location touched"); } });
+  assert.throws(() => runInNewContext(`(${chooserDocumentObservation.toString()})(null,4000)`, context), /budget expired/);
+  assert.equal(domReads, 0);
+});
+
+test("serialized native metadata drains a started rejection when the budget prevents the next API", async () => {
+  let clock = 1000, calls = 0, reject;
+  const chrome = { tabs: { get() { calls++; clock = 5000; return new Promise((_, no) => { reject = no; }); } },
+    windows: { getAll() { calls++; }, getCurrent() { calls++; } }, webNavigation: { getAllFrames() { calls++; } } };
+  const result = runInNewContext(`(${chooserNativeObservation.toString()})(chrome,42,4000)`, { chrome, Date: { now: () => clock } });
+  assert.equal(calls, 1); reject(new Error("late native failure"));
+  await assert.rejects(result, /budget expired/); assert.equal(calls, 1);
 });

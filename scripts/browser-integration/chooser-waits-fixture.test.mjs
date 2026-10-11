@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import test from "node:test";
-import { Script } from "node:vm";
-import { chooserPageHTML, chooserVariants, createChooserWaitFixtures, checkChooserReceipts, installChooserTrace } from "./chooser-waits-fixture.mjs";
+import { Script, runInNewContext } from "node:vm";
+import { chooserPageHTML, chooserVariants, createChooserWaitFixtures, checkChooserReceipts, installChooserTrace, installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
+import { chooserPointerEvidenceComplete } from "./chooser-ready-diagnostic.mjs";
 
 const bytes = Buffer.from("actual file 中文\0bytes");
 const files = [{ name: "fixture.txt", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }];
@@ -37,6 +38,70 @@ test("chooser fixture root and static/dynamic cross-origin scripts parse and ret
     if (variant === "dynamic-oopif" && route === "page") { assert.match(html, /Add upload frame/); assert.doesNotMatch(html, /<iframe/); }
     if (variant === "oopif" && route === "page") assert.match(html, /<iframe[^>]+localhost:1234/);
   }
+});
+
+function pointerDocument({ installationFailure = false } = {}) {
+  const listeners = new Map(), options = [], evidence = { documentToken: "original-document" };
+  const element = (tag, id, type = "") => ({ nodeType: 1, tagName: tag, getAttribute: name => ({ id, type })[name] ?? null });
+  const input = element("INPUT", "upload", "file"), add = element("BUTTON", "add-frame"), other = element("DIV", "wrong-target");
+  const document = { addEventListener(type, listener, value) {
+    if (installationFailure && type === "pointerup") throw new Error("listener failed");
+    listeners.set(type, listener); options.push(value);
+  } };
+  const install = runInNewContext(`(${installChooserPointerEvidence.toString()})`);
+  install(document, evidence, input, add);
+  const emit = (type, target = input, overrides = {}) => listeners.get(type)(Object.defineProperties({ type, target, isTrusted: true,
+    timeStamp: 3, clientX: 20, clientY: 30, button: 0, buttons: 1 }, Object.getOwnPropertyDescriptors(overrides)));
+  return { evidence, input, add, other, emit, options, listeners };
+}
+
+test("opt-in fixture serializes passive root/child listeners; default and false HTML have no added bytes or POST fields", () => {
+  for (const variant of chooserVariants) for (const route of ["page", "frame"]) {
+    const url = new URL(`http://127.0.0.1/chooser-waits/${route}?key=test-root&variant=${variant}`);
+    const original = chooserPageHTML(url, 1234), off = chooserPageHTML(url, 1234, { pointerEvidence: false });
+    const on = chooserPageHTML(url, 1234, { pointerEvidence: true });
+    assert.equal(original, off); assert.doesNotMatch(original, /pointerEvidence|installChooserPointerEvidence/);
+    assert.match(on, /installChooserPointerEvidence/);
+    for (const [, script] of on.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(script);
+    const postBody = html => html.match(/body:JSON.stringify\(([^\n]+)\)/)[1];
+    assert.equal(postBody(on), postBody(off));
+  }
+  assert.throws(() => createChooserWaitFixtures({ pointerEvidence: "1" }));
+  const fixture = createChooserWaitFixtures({ pointerEvidence: true }); let body;
+  fixture.handle({ url: "/chooser-waits/frame?key=test-root&variant=oopif" }, { setHeader() {}, end(value) { body = value; } }, 1234);
+  assert.match(body, /installChooserPointerEvidence/);
+});
+
+test("serialized pointer capture records exact node identity, trust and order without touching original event behavior", () => {
+  const state = pointerDocument();
+  assert.equal(chooserPointerEvidenceComplete(state.evidence), true, "zero delivered events remain complete");
+  assert.equal(state.listeners.size, 8);
+  for (const options of state.options) { assert.equal(options.capture, true); assert.equal(options.passive, true); }
+  const forbidden = () => { throw new Error("event behavior changed"); };
+  state.emit("pointerdown", state.input, { pointerId: 4, pointerType: "mouse", preventDefault: forbidden, stopPropagation: forbidden });
+  state.emit("mouseup", state.other, { isTrusted: false, buttons: 0 });
+  state.emit("click", state.add, { buttons: 0 });
+  const rows = state.evidence.pointerEvidence.records;
+  assert.deepEqual(Array.from(rows, row => [row.sequence, row.type, row.trusted, row.targetIsOriginalUpload, row.targetIsOriginalAdd]),
+    [[0, "pointerdown", true, true, false], [1, "mouseup", false, false, false], [2, "click", true, false, true]]);
+  assert.equal(rows[1].target.id, "wrong-target"); assert.equal(rows[0].pointerId, 4); assert.equal(rows[1].pointerId, null);
+  assert.equal(chooserPointerEvidenceComplete(state.evidence), true);
+});
+
+test("pointer records/characters are bounded and drops, truncation, installation or recording errors fail completeness", () => {
+  const count = pointerDocument();
+  for (let index = 0; index < 300; index++) count.emit("mousemove");
+  assert.ok(count.evidence.pointerEvidence.records.length <= 256);
+  assert.ok(count.evidence.pointerEvidence.retainedCharacters <= 65536);
+  assert.equal(count.evidence.pointerEvidence.nextSequence, 300); assert.ok(count.evidence.pointerEvidence.dropped > 0);
+  assert.equal(chooserPointerEvidenceComplete(count.evidence), false);
+  const clipped = pointerDocument();
+  clipped.input.getAttribute = () => "x".repeat(129); clipped.emit("click");
+  assert.ok(clipped.evidence.pointerEvidence.truncations > 0); assert.equal(chooserPointerEvidenceComplete(clipped.evidence), false);
+  const failed = pointerDocument();
+  failed.emit("click", failed.input, { get clientX() { throw new Error("read failed"); } });
+  assert.equal(failed.evidence.pointerEvidence.recordingErrors, 1); assert.equal(chooserPointerEvidenceComplete(failed.evidence), false);
+  assert.equal(chooserPointerEvidenceComplete(pointerDocument({ installationFailure: true }).evidence), false);
 });
 
 test("HTTP chooser witness computes actual decoded bytes and rejects mismatched lengths", async () => {

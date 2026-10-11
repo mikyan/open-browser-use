@@ -1468,6 +1468,20 @@ JS双连接、Go双连接在dynamic首轮collect超时，均无setter。三份�
 初始化，源码明确仍待命中表同步，且改变捕获/清理语义。保留这些边界，
 不据未证假设修改生产；旧发布包保持不变，完整目标继续进行。
 
+显式JS chooser诊断继续增加原页面被动capture的pointer/mouse有界序列：
+每文档256条/65536序列化字符、单字符串128字符，保留原目标/节点身份、
+坐标、按钮、可信位、documentToken及原事件时间。空序列可完整，缺失、
+截断、溢出、安装或记录异常均不完整。只复用原失败DOM读取，成功不新增
+DOM调用或上传字段；默认六种HTML与`96d4918`逐字节相同。worker API和
+序列化DOM函数在实际执行前检查原3秒deadline，迟到执行不能再读现场。
+
+Node1380/1380、作者及独立定向22/22通过。一次真实`Cq7i08` **2/2、exit0**
+未复现；root/static/dynamic原生trace完整，pointerEvidenceExpected=true，
+但pointerObservationRequested=false、pointerObservationComplete=null。
+该运行没有读到失败时鼠标序列，不是输入修复或新的完整验收。此前专项
+`JwX2Bc`独立核13POST/408文件字节与47551ms连续焦点零window-focus；三项
+collect失败及其6/3/5ms当前文档观察保持，完整目标继续active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

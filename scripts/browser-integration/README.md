@@ -194,7 +194,7 @@ binding result does not make the default regression successful.
 
 ## Opt-in chooser ready diagnostic
 
-`OBU_TEST_CHOOSER_DIAGNOSTIC=1` runs only the unchanged
+`OBU_TEST_CHOOSER_DIAGNOSTIC=1` runs only the existing
 `js-file-chooser-ready-two-connections` and mandatory
 `js-raw-navigation-before-engine` cases. It is exclusive with `OBU_TEST_CASES`,
 geometry, background-parallel and memory-clipboard settings. Build the normal
@@ -206,9 +206,24 @@ $env:OBU_TEST_CHOOSER_DIAGNOSTIC = '1'
 node scripts/browser-integration/run.mjs
 ```
 
-The original root/static-OOPIF/dynamic-OOPIF HTML, two-connection actions,
-10-second waiter deadline, upload bytes and historical-event rejection remain
-unchanged. The default 105 cases do not install this additional probe.
+The two-connection actions, 10-second waiter deadline, upload bytes and
+historical-event rejection remain unchanged. The default root/static-OOPIF/
+dynamic-OOPIF HTML remains byte-identical and does not install this probe.
+Only the opt-in fixture HTML records bounded passive capture listeners for
+pointer and mouse events in each root/child document. The records retain actual
+event types, trust flags, targets, original-node identity, client coordinates,
+buttons, document token and timestamps; they neither synthesize input nor
+prevent event delivery. They are read only by the existing failure observation,
+with no additional success-path DOM calls or upload fields. Recording can affect
+timing, and timestamps from different documents/native processes do not prove
+a strict causal order. Empty event logs are valid evidence; missing, overflowed
+or erroneous logs cannot be called complete. A successful diagnostic does not
+claim that its unread pointer logs were inspected.
+The `chooserEvidence.pointerEvidence` ledger caps each document at 256 records
+and 65,536 serialized characters, with individual strings capped at 128
+characters. Truncation is explicitly incomplete. Each diagnostic retains
+`pointerEvidenceExpected`, `pointerObservationRequested` and
+`pointerObservationComplete`; the last remains `null` on success without a read.
 Only the selected tab's original `Input.*`, chooser interception, `Page.enable`,
 `Page.disable` and `Runtime.runIfWaitingForDebugger` calls are observed, along
 with the seven existing frame/target/chooser event methods. Commands and events
@@ -224,7 +239,8 @@ window, exact tab, frames and the continuous focus ledger. It then attempts
 one read-only `Runtime.evaluate` per root and uniquely observed child session,
 through public `executeCdp` with the original session/turn/epoch. This has a
 separate total 3-second budget covering the trace, native metadata, focus and
-DOM reads, does not revive the expired waiter,
+DOM reads, with deadline checks before delayed worker APIs and injected DOM
+reads execute. It does not revive the expired waiter,
 attach a debugger, replay input, dismiss a dialog or change focus. Rejection
 under revoked scope is retained. These reads delay cleanup and observe the
 later DOM, not the click-time state. Root hit testing uses the recorded native
@@ -241,6 +257,13 @@ also retains `traceComplete` and `observationComplete`. `acceptancePassed`
 is always false. Exit failure preserves any original test failure or incomplete
 trace. Even a successful diagnostic is not a new acceptance run. Existing
 continuous focus checks receive no new exemptions.
+
+With this pointer recorder, `run-Cq7i08` completed **2/2, exit 0**. All three
+chooser variants had complete native traces but no failure read; pointer
+observation remained unrequested and unverified. It did not reproduce or explain
+the preceding ordinary `run-JwX2Bc` failures, whose three post-failure document
+reads found no child click. The recorder and late-execution deadline guards
+passed the 1,380-test Node suite; this is no production input fix.
 
 Recorded diagnostic `run-Yh4Yz7` completed with terminal exit 0 and both original
 cases passing. Independent review checked 69 acknowledged native commands,

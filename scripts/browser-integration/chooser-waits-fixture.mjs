@@ -24,7 +24,46 @@ export function installChooserTrace(chrome, target, tabId, maxEvents = 256) {
   target.__chooserReadyTrace = trace; chrome.debugger.onEvent.addListener(trace.listener);
 }
 
-export function chooserPageHTML(url, port) {
+// Only serialized into explicitly diagnostic fixture HTML. Capture listeners
+// observe delivery to this document; they do not intercept or synthesize input.
+export function installChooserPointerEvidence(document, evidence, input, add) {
+  const eventTypes = ["pointermove", "pointerdown", "pointerup", "pointercancel", "mousemove", "mousedown", "mouseup", "click"];
+  const ledger = evidence.pointerEvidence = { version: 1, documentToken: evidence.documentToken,
+    eventTypes, installed: false, maximumRecords: 256, maximumCharacters: 65536,
+    nextSequence: 0, retainedCharacters: 0, dropped: 0, overflow: false, truncations: 0,
+    recordingErrors: 0, installationErrors: 0, records: [] };
+  const text = value => {
+    if (typeof value !== "string") throw new Error("Unexpected pointer metadata");
+    if (value.length > 128) { ledger.truncations++; return value.slice(0, 128); }
+    return value;
+  };
+  const finite = value => { if (!Number.isFinite(value)) throw new Error("Invalid pointer number"); return value; };
+  const listener = event => {
+    const sequence = ledger.nextSequence++;
+    if (ledger.overflow || ledger.records.length >= ledger.maximumRecords) { ledger.dropped++; ledger.overflow = true; return; }
+    try {
+      const target = event.target;
+      const record = { sequence, documentToken: ledger.documentToken, at: finite(Date.now()), timeStamp: finite(event.timeStamp),
+        type: text(event.type), trusted: event.isTrusted,
+        target: target?.nodeType === 1 ? { tag: text(target.tagName), id: text(target.getAttribute("id") ?? ""), type: text(target.getAttribute("type") ?? "") } : null,
+        targetIsOriginalUpload: input !== null && target === input, targetIsOriginalAdd: add !== null && target === add,
+        clientX: finite(event.clientX), clientY: finite(event.clientY), button: finite(event.button), buttons: finite(event.buttons),
+        pointerId: event.pointerId === undefined ? null : finite(event.pointerId), pointerType: event.pointerType === undefined ? null : text(event.pointerType) };
+      if (typeof record.trusted !== "boolean") throw new Error("Invalid pointer trust metadata");
+      const size = JSON.stringify(record).length;
+      if (ledger.retainedCharacters + size > ledger.maximumCharacters) { ledger.dropped++; ledger.overflow = true; return; }
+      ledger.records.push(record); ledger.retainedCharacters += size;
+    } catch { ledger.recordingErrors++; }
+  };
+  for (const type of eventTypes) {
+    try { document.addEventListener(type, listener, { capture: true, passive: true }); }
+    catch { ledger.installationErrors++; }
+  }
+  ledger.installed = ledger.installationErrors === 0;
+}
+
+export function chooserPageHTML(url, port, { pointerEvidence = false } = {}) {
+  assert.equal(typeof pointerEvidence, "boolean");
   const key = url.searchParams.get("key"), variant = url.searchParams.get("variant");
   assert.match(key, /^[a-z0-9-]{1,100}$/); assert.ok(chooserVariants.includes(variant));
   const root = url.pathname.endsWith("/page"), childURL = `http://localhost:${port}/chooser-waits/frame?` + new URLSearchParams({ key, variant });
@@ -45,11 +84,12 @@ export function chooserPageHTML(url, port) {
         const files=await Promise.all([...input.files].map(async file=>{const bytes=new Uint8Array(await file.arrayBuffer());let raw='';for(const byte of bytes)raw+=String.fromCharCode(byte);return{name:file.name,size:file.size,type:file.type,base64:btoa(raw)}}));
         const response=await fetch('/chooser-waits/upload?'+new URLSearchParams({key,variant}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,variant,sequence,files,documentToken:chooserEvidence.documentToken,clicks:[...chooserEvidence.clicks],changes:[...chooserEvidence.changes],href:location.href})});
         const receipt=await response.json();if(!response.ok)throw new Error(JSON.stringify(receipt));document.querySelector('#receipt').textContent=JSON.stringify(receipt);
-      }}
+      }}${pointerEvidence ? `\n      (${installChooserPointerEvidence.toString()})(document,chooserEvidence,input,add);` : ""}
     </script>`;
 }
 
-export function createChooserWaitFixtures() {
+export function createChooserWaitFixtures({ pointerEvidence = false } = {}) {
+  assert.equal(typeof pointerEvidence, "boolean");
   const records = new Map();
   const entry = key => { if (!records.has(key)) records.set(key, { key, posts: [] }); return records.get(key); };
   return {
@@ -61,7 +101,7 @@ export function createChooserWaitFixtures() {
       const key = url.searchParams.get("key"), variant = url.searchParams.get("variant");
       if (!/^[a-z0-9-]{1,100}$/.test(key ?? "") || !chooserVariants.includes(variant)) { response.writeHead(400); response.end("invalid fixture key/variant"); return true; }
       if (["/chooser-waits/page", "/chooser-waits/frame"].includes(url.pathname)) {
-        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(chooserPageHTML(url, port)); return true;
+        response.setHeader("Content-Type", "text/html; charset=utf-8"); response.setHeader("Cache-Control", "no-store"); response.end(chooserPageHTML(url, port, { pointerEvidence })); return true;
       }
       if (url.pathname !== "/chooser-waits/upload" || request.method !== "POST") { response.writeHead(404); response.end(); return true; }
       const record = entry(key), hit = { at: Date.now(), method: request.method, variant }; record.posts.push(hit);

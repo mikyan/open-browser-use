@@ -261,7 +261,7 @@ const embeddedMedia = createEmbeddedMediaFixtures();
 const formWorkflows = createFormWorkflowFixture();
 const researchWorkflows = createResearchWorkflowFixture();
 const backgroundParallelFixture = createBackgroundParallelFixture();
-const chooserFixtures = createChooserWaitFixtures();
+const chooserFixtures = createChooserWaitFixtures({ pointerEvidence: chooserDiagnostic });
 const directoryUploads = createDirectoryUploadFixtures();
 const downloadWaitFixtures = createDownloadWaitFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
@@ -696,9 +696,9 @@ try {
     try {
       if (lifecycle) sourceIdentity.testHooks.push("chooser lifecycle: bounded passive native Page.fileChooserOpened listener only, removed after the uncollected-cancel case; no native event or result changes");
       else sourceIdentity.testHooks.push("chooser ready JS: per-variant bounded passive chrome.debugger.onEvent frame/target/fileChooserOpened trace for the exact tab; original native payloads retained on success/failure, listener removed afterward; no backend hooks or event/result changes");
-      if (chooserDiagnostic) sourceIdentity.testHooks.push("chooser diagnostic opt-in: exact-tab original native Input/chooser-interception/Page.enable/disable/Runtime.runIfWaitingForDebugger commands and chooser/frame events share one bounded sequence; transparent Promise side chains may affect scheduling; once-only current-scope raw DOM/window/focus reads on failure before cancellation; no action replay, new attachment or production hook");
+      if (chooserDiagnostic) sourceIdentity.testHooks.push("chooser diagnostic opt-in: exact-tab original native Input/chooser-interception/Page.enable/disable/Runtime.runIfWaitingForDebugger commands and chooser/frame events share one bounded sequence; opt-in fixture HTML records bounded passive root/child pointer and mouse events; recording may affect scheduling; once-only current-scope raw DOM/window/focus reads on failure before cancellation; no action replay, new attachment or production hook; default HTML unchanged");
       const parameters = { owner, trigger, foreign, fixtureURL, files: await getChooserFiles(), server: chooserFixtures, worker, until, prefix: "js-chooser",
-        ...(chooserDiagnostic ? { diagnostic: createChooserDiagnostic({ worker, readFocus: readFocusLedger }) } : {}) };
+        ...(chooserDiagnostic ? { diagnostic: createChooserDiagnostic({ worker, readFocus: readFocusLedger, pointerEvidence: true }) } : {}) };
       detail = await (lifecycle ? checkChooserLifecycle(parameters) : checkChooserReady(parameters)); return detail;
     } catch (error) { failure = error; detail = { ...(error.chooserDetail ?? {}), error: error.stack, server: chooserFixtures.allStats() }; throw error; }
     finally {
