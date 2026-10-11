@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { test } from "node:test";
 import { NativeInputTracker } from "../apps/chrome-extension/browser-input-adapter.js";
 import { createPointerMoveReceipt, patchCrxPointerDelivery, pointerDeliveryBridge } from "./patch-pointer-delivery.mjs";
+import { patchCrxFrameGeometry } from "./patch-frame-geometry.mjs";
 
 const require = createRequire(new URL("../apps/chrome-extension/package.json", import.meta.url));
 const directory = path.dirname(require.resolve("playwright-crx/package.json"));
@@ -130,6 +131,7 @@ function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves =
     _page: page, _frame: frame, _context: context, _disposed: false,
     instrumentation: { onBeforeInputAction: async () => {} },
     _scrollRectIntoViewIfNeeded: async () => "done", _clickablePoint: async () => ({ x: 30, y: 40 }),
+    _offsetPoint: async () => ({ x: 30, y: 40 }),
     _checkFrameIsHitTarget: async () => { frameChecks++; return { framePoint: { x: 30, y: 40 }, frameGeometry: ["original frame"] }; },
     evaluateInUtility: async (fn, arg) => {
       if (typeof arg === "number") { waits.push(arg); return; }
@@ -182,6 +184,44 @@ test("actual old CRX submits buttons after a missing move; patched pre-press ret
   assert.ok(fixed.logs.some(line => line.includes("retrying click")));
   assert.deepEqual(fixed.counts(), { began: 1, closed: 1, nativeMoves: 2, frameChecks: 3 });
   assert.ok(fixed.handles.every(handle => handle.disposed));
+});
+
+test("composed position adapter forwards the same explicit position at initial, pre-press and counted checks", async () => {
+  const source = patchCrxPointerDelivery(patchCrxFrameGeometry(upstream));
+  const f = fixture({ source }), position = { x: 12.25, y: 6.5 }, checks = [];
+  f.handle._offsetPoint = async (value, progress) => {
+    assert.equal(value, position); assert.equal(progress, f.progress); return { x: 30, y: 40 };
+  };
+  f.handle._checkFrameIsHitTarget = async (point, progress, value) => {
+    checks.push({ point: { ...point }, progress, value });
+    assert.equal(value, position); assert.equal(progress, f.progress);
+    return { framePoint: { x: 30, y: 40 }, frameGeometry: ["frame", { elementPosition: "original padding plane" }] };
+  };
+  assert.equal(await f.click({ position, clickCount: 2 }), "done");
+  assert.equal(checks.length, 3);
+  assert.deepEqual(f.calls.map((call) => call.params.type), ["mouseMoved", "mousePressed", "mouseReleased", "mousePressed", "mouseReleased"]);
+});
+
+test("explicit leaf-plane changes after hover reprepare while changes after commitment never replay", async () => {
+  const source = patchCrxPointerDelivery(patchCrxFrameGeometry(upstream));
+  for (const committed of [false, true]) {
+    let generation = 0;
+    const f = fixture({ source, onSend({ params }) {
+      if (params.type === (committed ? "mouseReleased" : "mouseMoved")) generation = 1;
+    } });
+    const position = { x: 12.25, y: 6.5 };
+    f.handle._checkFrameIsHitTarget = async (_point, progress, value) => {
+      assert.equal(value, position); assert.equal(progress, f.progress);
+      return { framePoint: { x: 30, y: 40 }, frameGeometry: ["unchanged frame", { elementPosition: "padding", generation }] };
+    };
+    if (committed) {
+      await assert.rejects(f.click({ position, clickCount: 2 }), /original frame changed between counted clicks/);
+      assert.deepEqual(f.calls.map((call) => call.params.type), ["mouseMoved", "mousePressed", "mouseReleased"]);
+    } else {
+      assert.equal(await f.click({ position }), "done");
+      assert.deepEqual(f.calls.map((call) => call.params.type), ["mouseMoved", "mouseMoved", "mousePressed", "mouseReleased"]);
+    }
+  }
 });
 
 test("synthetic, non-mouse, non-primary, foreign target and held-button receipts cannot authorize press", () => {

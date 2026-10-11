@@ -1704,6 +1704,29 @@ Go源/构建制品身份通过独立审计。Node1642、JS134、Python99通过�
 旧preview保持原字节，未提PR；更多文件frame组合、Codex同组文件/诊断
 比较、Page GUID路径及原生恢复等继续开放，不把本片验收当完整持平。
 
+### 元素自身变换的显式 position
+
+单一已解析HTML padding plane采用fractional CSS尺寸和原生padding quad，
+经renderer local-root映射处理叶元素缩放、旋转、zoom与有限透视。初始和
+hover/后继down几何指纹包含叶元素；hover变化可重准备，首击后变化终止
+后继按钮，不重放已提交点击。SVG/非替换inline/fragment仍保留原AABB约定；
+hover/drag仅复用初始投影，没有获得click的后置门禁。
+
+旧生产rj4xe2八场全失败、9原POST均误位；最初候选fRwtGy6/8的两OOPIF
+严格局部亚像素失败保留。无扩展raw CDP对照也有同类native量化；DPR1
+三原点与取整预测吻合，而后续DPR1.5探针没有pointerdown，不能记为通过。
+最终分开校验root请求投影与实际事件量化，原热点、节点、可信事件和
+唯一正确POST断言不变；不是生产硬编码补偿，也不宣称OOPIF亚像素相同。
+
+最终gQRNO2专项八场通过，3150ms零focus。完整DF0lUQ120/120、actual exit0，
+Node1699/1699、零skip/cancel；旧119项名称和顺序保留。新增25Input、8唯一
+POST/83571B、11原文档/HTML及八页/targets回收独立核验。227112ms账本
+仅原12activation/4controlfocus，无新增豁免；sentinel身份和选择保持，
+高度1222→1187。root请求逐轴最大误差0.010545CSS；OOPIF原局部0.173981CSS
+与实际root0.256823物理像素的逐轴最大残差保留。51生产/53暂存成员与普通扩展ZIP
+逐字节核验；旧preview ZIP未替换。Go/SDK未重跑，既有Go源及八个复用
+bin匹配build manifest。更广几何、文件/诊断和平台验收继续开放。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1713,4 +1736,7 @@ Go源/构建制品身份通过独立审计。Node1642、JS134、Python99通过�
 - `docs/product-specs/browser-use-parity.md`
 - `docs/exec-plans/active/2026-10-10-browser-use-parity.md`
 - `scripts/browser-integration/`
+- `scripts/patch-frame-geometry.mjs`, `scripts/patch-pointer-delivery.mjs`
+- `scripts/build-chrome-extension.mjs`
 - `docs/references/shared-research-workflow.md`
+- `docs/references/element-position-geometry.md`

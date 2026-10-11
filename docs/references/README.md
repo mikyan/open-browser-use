@@ -52,6 +52,8 @@
   附本片 Windows 真实浏览器验收范围，完整 Codex 任务对照仍待完成。
 - [Snapshot geometry](snapshot-geometry.md)：opt-in 元素位置、frame/ownerRef
   关系、视口 CSS 坐标与截图/点击坐标的边界，以及原限额和capture失效规则。
+- [Element position geometry](element-position-geometry.md)：元素 padding 局部位置、
+  原生 quad 投影、叶元素变化复查和跨 renderer 量化边界。
 - [Transformed iframe input](transformed-frame-input.md)：按实际 renderer 边界
   投影点击坐标、逐层遮挡检查、原几何指纹与提交后不重放的验收边界。
 - [MCP connection lifetime](mcp-connection-lifetime.md)：长期stdio会话固定实际

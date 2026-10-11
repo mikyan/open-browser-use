@@ -108,6 +108,32 @@ export function createFrameGeometryRuntime() {
       height: s.boxSizing === "border-box" ? height - vertical : height,
       boxSizing: s.boxSizing, cssWidth: width, cssHeight: height, horizontal, vertical };
   }
+  function readElementPlane([injected, node]) {
+    if (!node?.isConnected || node.ownerDocument !== injected.document) return "error:notconnected";
+    const view = node.ownerDocument.defaultView;
+    if (!view) return "error:notconnected";
+    const s = view.getComputedStyle(node), rects = node.getClientRects();
+    const number = (value) => /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value) ? Number.parseFloat(value) : NaN;
+    const cssWidth = number(s.width), cssHeight = number(s.height);
+    const borders = [s.borderLeftWidth, s.borderRightWidth, s.borderTopWidth, s.borderBottomWidth].map(number);
+    const padding = [s.paddingLeft, s.paddingRight, s.paddingTop, s.paddingBottom].map(number);
+    // Non-replaced inline boxes ignore specified width/height. SVG and
+    // fragmented elements do not have this single CSS padding-plane contract.
+    // Preserve their inherited local AABB semantics, without inventing a size
+    // from rounded offsetWidth/clientWidth or a union of separate fragments.
+    const replaced = /^(canvas|img|video|audio|iframe|input|textarea|select|button|object|embed)$/i.test(node.localName || "");
+    if (node.namespaceURI !== "http://www.w3.org/1999/xhtml" || rects.length !== 1 ||
+        s.display === "inline" && !replaced || !["content-box", "border-box"].includes(s.boxSizing) ||
+        ![cssWidth, cssHeight, ...borders, ...padding].every(Number.isFinite)) {
+      const box = node.getBoundingClientRect();
+      return { mode: "legacy", x: box.x, y: box.y, width: box.width, height: box.height,
+        left: Number.parseFloat(s.borderLeftWidth || "0"), top: Number.parseFloat(s.borderTopWidth || "0"),
+        namespace: node.namespaceURI, display: s.display, fragments: rects.length };
+    }
+    const width = s.boxSizing === "border-box" ? cssWidth - borders[0] - borders[1] : cssWidth + padding[0] + padding[1];
+    const height = s.boxSizing === "border-box" ? cssHeight - borders[2] - borders[3] : cssHeight + padding[2] + padding[3];
+    return { mode: "padding", width, height, cssWidth, cssHeight, boxSizing: s.boxSizing, borders, padding };
+  }
   function readViewport() {
     return { width: innerWidth, height: innerHeight, scrollX, scrollY,
       visualX: visualViewport?.offsetLeft ?? 0, visualY: visualViewport?.offsetTop ?? 0,
@@ -256,25 +282,43 @@ export function createFrameGeometryRuntime() {
     });
     return value?.hitTargetDescription ? "error:notinviewport" : value;
   }
+  async function positionGeometry(handle, value, state) {
+    if (!finitePoint(value)) throw invalid("Invalid element position");
+    const row = state.rows.at(-1);
+    const size = await state.read(() => row.context.evaluate(readElementPlane, [row.injected, handle]));
+    if (size === "error:notconnected") throw disconnected();
+    if (size?.mode === "legacy") {
+      const point = { x: size.x + size.left + value.x, y: size.y + size.top + value.y };
+      return { point: project(state.frameMaps.get(state.target).forward, point),
+        fingerprint: { elementPosition: size, handleIdentity: identityOf(handle) } };
+    }
+    if (size?.mode !== "padding") throw invalid("Unknown element padding plane");
+    const session = handle._page.delegate._sessionForHandle(handle), map = state.sessionMaps.get(session);
+    if (!map) throw disconnected();
+    const model = await state.read(() => session._client.send("DOM.getBoxModel", { objectId: handle._objectId }));
+    const raw = model?.model?.padding;
+    const elementMap = plane(raw, size.width, size.height);
+    // Native padding quads already include every transform inside this
+    // renderer. Compose only the local-root session map, never the frame map.
+    return { point: project(map, project(elementMap.forward, value)),
+      fingerprint: { elementPosition: size, paddingQuad: [...raw], handleIdentity: identityOf(handle) } };
+  }
   async function offset(handle, value, progress) {
-    const result = await withSnapshot(handle, progress, async (state) => {
-      const context = state.rows.at(-1).context;
-      // Retain the leaf's existing local padding-origin convention. This fixes
-      // transformed iframe ancestors, not the pre-existing AABB convention for
-      // a target element's own transform or fragmented inline/SVG padding box.
-      const point = await state.read(() => context.evaluate(([injected, node, offset]) => {
-        if (!node.isConnected || node.ownerDocument !== injected.document) return "error:notconnected";
-        const box = node.getBoundingClientRect(), style = node.ownerDocument.defaultView.getComputedStyle(node);
-        return { x: box.x + Number.parseFloat(style.borderLeftWidth || "0") + offset.x,
-          y: box.y + Number.parseFloat(style.borderTopWidth || "0") + offset.y };
-      }, [state.rows.at(-1).injected, handle, value]));
-      if (point === "error:notconnected") throw disconnected();
-      return project(state.frameMaps.get(state.target).forward, point);
-    });
+    const result = await withSnapshot(handle, progress, async (state) => (await positionGeometry(handle, value, state)).point);
     return result?.hitTargetDescription ? "error:notvisible" : result;
   }
-  async function hit(handle, point, progress) {
+  async function hit(handle, point, progress, position) {
     return withSnapshot(handle, progress, async (state) => {
+      if (position !== undefined) {
+        const target = await positionGeometry(handle, position, state);
+        // Use the pinned pointer pipeline's exact rounding, not an invented
+        // tolerance. This also catches layout changes between point selection
+        // and the first hit test. Later checks preserve the original root point.
+        const rounded = { x: (target.point.x * 100 | 0) / 100, y: (target.point.y * 100 | 0) / 100 };
+        if (point.x !== rounded.x || point.y !== rounded.y)
+          return { hitTargetDescription: "element position geometry changed" };
+        state.fingerprint.push(target.fingerprint);
+      }
       for (let i = 1; i < state.rows.length; i++) {
         const row = state.rows[i], parent = state.rows[i - 1];
         const parentPoint = project(state.frameMaps.get(parent.frame).inverse, point);
@@ -288,7 +332,7 @@ export function createFrameGeometryRuntime() {
       return { framePoint: project(state.frameMaps.get(state.target).inverse, point), frameGeometry: state.fingerprint };
     });
   }
-  return { quad, plane, project, inverse, clip, area, readOwnerPlane, clickable, offset, hit };
+  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, hit };
 }
 
 function replaceOnce(source, before, after, label) {
@@ -308,9 +352,9 @@ export function patchCrxFrameGeometry(source) {
   const hitStart = source.indexOf("  async _checkFrameIsHitTarget(point) {");
   const hitEnd = source.indexOf("\n};\nfunction throwRetargetableDOMError", hitStart);
   if (hitStart < 0 || hitEnd < 0) throw new Error("CRX frame geometry patch: frame hit method absent");
-  source = source.slice(0, hitStart) + `  async _checkFrameIsHitTarget(point, progress) { return obuFrameGeometry.hit(this, point, progress); }` + source.slice(hitEnd);
+  source = source.slice(0, hitStart) + `  async _checkFrameIsHitTarget(point, progress, position) { return obuFrameGeometry.hit(this, point, progress, position); }` + source.slice(hitEnd);
   source = replaceOnce(source, "const maybePoint = position ? await this._offsetPoint(position) : await this._clickablePoint();",
     "const maybePoint = position ? await this._offsetPoint(position, progress2) : await this._clickablePoint(progress2);", "point progress");
   return replaceOnce(source, "const frameCheckResult = await this._checkFrameIsHitTarget(point);",
-    "const frameCheckResult = await this._checkFrameIsHitTarget(point, progress2);", "frame hit progress");
+    "const frameCheckResult = await this._checkFrameIsHitTarget(point, progress2, position);", "frame hit progress");
 }

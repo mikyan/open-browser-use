@@ -59,6 +59,7 @@ import { runChooserProcess } from "./chooser-process.mjs";
 import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
 import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
 import { createTransformedPointerFixtures, checkTransformedPointer } from "./transformed-pointer-fixture.mjs";
+import { createElementPositionFixtures, checkElementPosition } from "./element-position-fixture.mjs";
 import { createDirectLocatorUploadFixtures, prepareDirectLocatorUploadFiles } from "./direct-locator-upload-fixture.mjs";
 import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-locator-upload-callers.mjs";
 
@@ -274,6 +275,7 @@ const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const transformedPointerFixtures = createTransformedPointerFixtures();
+const elementPositionFixtures = createElementPositionFixtures();
 const directUploads = createDirectLocatorUploadFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
@@ -293,6 +295,7 @@ let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
@@ -430,6 +433,7 @@ try {
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
   for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
   for (const name of ["direct-locator-upload-fixture.mjs", "direct-locator-upload-callers.mjs", "direct-locator-upload-native.mjs", "direct-locator-upload-checks.py", "go-direct-locator-upload-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
@@ -1329,6 +1333,30 @@ try {
     ], save: async value => {
       await fs.writeFile(path.join(runDir, "pointer-transformed-frames.json"), JSON.stringify(value, null, 2));
       await fs.writeFile(path.join(runDir, "pointer-transformed-server.json"), JSON.stringify(transformedPointerFixtures.allStats(), null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-element-position-geometry", async () => {
+    sourceIdentity.testHooks.push("element position geometry: transparent exact-tab native Input recorder; fixed fixture layout witnesses and trusted original-node pointer events plus original POST bodies verify local hotspots; synchronous hover/first-click element transforms exercise preparation and post-commit rejection; no new focus allowance");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-element-position-geometry", turnId: "element-position-input", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkElementPosition({ browser: owner, worker, fixtureURL, server: elementPositionFixtures, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-element-position-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-element-position-client", run: () => owner.close() },
+      { name: "verify-element-position-cleanup", run: async () => {
+        detail.finalNative = await worker.evaluate(`(async()=>({tabs:await chrome.tabs.query({}),targets:await chrome.debugger.getTargets()}))()`);
+        for (const item of detail.cases ?? []) {
+          assert.ok(!detail.finalNative.tabs.some(tab => tab.id === item.tabId), "Element position task tab remains after finalize");
+          const urls = Object.values(item.urls ?? {}).filter(Boolean);
+          assert.ok(!detail.finalNative.targets.some(target => urls.includes(target.url)), "Element position task target remains after finalize");
+        }
+      } }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "element-position.json"), JSON.stringify(value, null, 2));
+      await fs.writeFile(path.join(runDir, "element-position-server.json"), JSON.stringify(elementPositionFixtures.allStats(), null, 2));
     } });
     if (failure) throw failure;
     return detail;

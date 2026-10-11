@@ -42,7 +42,20 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
-最新完整`tQEVZJ` **118/118、exit0**，Node1642/1642。正式locator上传在
+最新完整`DF0lUQ` **120/120、actual exit0**，Node **1699/1699**、零skip/cancel。
+原119项名称和顺序保留；单一HTML元素的显式position按padding quad投影，
+处理元素自身scale/rotate/zoom/有限perspective，并将叶几何加入click指纹。
+新八场25原生Input、8唯一正确POST/83571B、11原文档/HTML及精确回收独立
+核实；旧生产八场误位和最初候选两OOPIF亚像素判据失败均保留。
+227112ms连续focus只有原12activation/4control-popup focus，无新增豁免；
+sentinel身份/选择保持，高1222→1187。正式root投影精度与原生OOPIF事件
+量化分别核验，逐轴最大实际root残差0.256823物理像素，不能宣称任意变换下
+子页面亚像素坐标相同。SVG/非替换inline/fragment旧约定、hover/drag后置门禁等
+仍开放，见[元素position几何](../references/element-position-geometry.md)。
+51生产/53暂存成员及扩展ZIP逐字节核验；旧preview未替换。本轮没有重跑
+Go/SDK套件，49个Go构建源和八个复用bin与已有manifest一致。
+
+此前完整`tQEVZJ` **118/118、exit0**，Node1642/1642。正式locator上传在
 五入口×三布局隐藏input及JS root目录中完成16次原node上传/清空；16唯一
 文件POST/17909B、50文件实例/563B、40外部进程actualclose与精确target
 清理独立核实，零Input/chooser。目录额外两metadata witness证明API返回前
@@ -243,7 +256,7 @@ P04位置快照已完成三种原生DPR的五入口专项：`oVaN3m`、`wTM1CH`�
 | P03 | 浏览器兼容 | Chrome、Edge、Brave、Opera、Vivaldi 的安装与发现正确，按品牌确认 profile 布局及独立或共享的 native namespace | Edge Stable 已有 Windows 注册验收，原生生命周期焦点仍失败。Windows Brave/Opera/Vivaldi selector 和默认 profile 发现已验；手动 ZIP 入口已实现，隔离导出/加载/原生启动已验，生产固定名称安装未实测，共享 Google namespace 保留原 origin；复制 UUID 歧义明确拒绝。Opera 无组路径 `7IDBb7` 与 Brave 原分组路径 `vC2mkf` 真实后台多页验收通过，零焦点事件。Vivaldi 旧初始化失败及无点击fill/逐键空值保留；新 `ttYgKb` 在首文档检查及一次明确输入框click后，原fill、提交、截图和关页通过、零前台事件，其后生产首次连接检查在 `yeWkzC` 无TASK_READY完成goto，但输入仍空，见[输入诊断](../references/vivaldi-input-diagnostic.md)。Linux 仅有官方源码确认的 Brave；其他系统和更广生命周期未验，见 [浏览器安装](../references/chromium-browser-installation.md) |
 | P04 | 页面观察 | 结构化语义快照含角色、可访问名称、值、状态；页面/文本/DOM/截图信息可验证 | 原生 ARIA 与 scoped 快照已实测；有界 `snapshotAI` 递归 frame 快照和 capture refs 的真实元数据、五种限额、过期与取消通过。新增 opt-in boxes/结构化frame视口数据，明确各frame内CSS坐标；五入口×三布局×三原生DPR共45张PNG独立核验通过，见[坐标契约](../references/snapshot-geometry.md)。跨frame原子性、父变换的全局投影与更广动态观察仍未保证；最近已完成默认全套`WLM6bV`112/112，旧失败保留 |
 | P05 | 定位器 | CSS、role/name、text、label、placeholder、testId、链式筛选/nth；多匹配严格报错；动态元素等待 | 既有原生 locator、strictness、遮挡等待与 capture ref 生命周期已验。新增有界 `has/hasNot/visible/and/or`、同 client/tab/frame 边界和递归 selector 守卫；最终 77/77 中三个布局、重复/隐藏卡片、同源/OOPIF 组合通过五入口。更多动态网站组合仍待扩展 |
-| P06 | 输入与动作 | click/dblclick/hover/fill/type/key/scroll/drag/select/check；等待稳定和遮挡，不误点；原生及受控表单 | 中文、React/contenteditable、可信逐键输入、HTML 拖放与捕获指针拖动已验。 目标投递门禁已扩展到普通多击/双击及显式modifiers；最终专项`uLGdWq`3/3和完整`WLM6bV`112/112核真实root双击、同源三击、OOPIF丢首move后双击与每attempt抬键恢复，首击导航后无第二击。提交后不重放，后继在原root点复核祖先命中及原receipt，检查仍非原子；本片已移除变换frame shortcut，按实际renderer边界投影并比较初始/hover后/后继down几何指纹，七场专项WmZggR通过且零focus事件，完整t0MP0c119/119、Node1673/1673通过，见[变换frame输入](../references/transformed-frame-input.md)；force/trial/预持修饰键、hover/drag/raw保留原边界，见[指针投递](../references/pointer-delivery.md)。七个完整表单流程覆盖label、多字段descriptor与混合多选、幂等check/uncheck、真实frame保存及准确提交；select change本身不要求硬件可信。取消释放可能触发click，不能回滚。Vivaldi `QAMMuD` 的insertText及 `HrDsGN` 的78条key均ACK但无输入；`ttYgKb` 明确click后原fill收到可信输入并正确提交。后者仅证明单次显式流程，不是通用fill生产修复；品牌兼容、更多受控表单与Unicode仍待补 |
+| P06 | 输入与动作 | click/dblclick/hover/fill/type/key/scroll/drag/select/check；等待稳定和遮挡，不误点；原生及受控表单 | 中文、React/contenteditable、可信逐键输入、HTML 拖放与捕获指针拖动已验。 目标投递门禁已扩展到普通多击/双击及显式modifiers；最终专项`uLGdWq`3/3和完整`WLM6bV`112/112核真实root双击、同源三击、OOPIF丢首move后双击与每attempt抬键恢复，首击导航后无第二击。提交后不重放，后继在原root点复核祖先命中及原receipt，检查仍非原子；本片已移除变换frame shortcut，按实际renderer边界投影并比较初始/hover后/后继down几何指纹，七场专项WmZggR通过且零focus事件，完整t0MP0c119/119、Node1673/1673通过，见[变换frame输入](../references/transformed-frame-input.md)。显式position现按单一HTML padding plane及原生quad投影叶transform，并加入click几何指纹；八场专项和完整DF0lUQ120/120、Node1699/1699通过，原生OOPIF量化、非替换inline/SVG旧约定与hover/drag边界见[元素position](../references/element-position-geometry.md)；force/trial/预持修饰键、hover/drag/raw保留原边界，见[指针投递](../references/pointer-delivery.md)。七个完整表单流程覆盖label、多字段descriptor与混合多选、幂等check/uncheck、真实frame保存及准确提交；select change本身不要求硬件可信。取消释放可能触发click，不能回滚。Vivaldi `QAMMuD` 的insertText及 `HrDsGN` 的78条key均ACK但无输入；`ttYgKb` 明确click后原fill收到可信输入并正确提交。后者仅证明单次显式流程，不是通用fill生产修复；品牌兼容、更多受控表单与Unicode仍待补 |
 | P07 | Frames 与 Shadow DOM | 同源/跨源 OOPIF/嵌套 frame/open shadow 内观察、定位和动作；导航后正确重建上下文 | 同源/OOPIF/嵌套/open shadow 已实测；递归 refs 在 iframe 前插、保留文档重排、20 次重复快照和 8 次替换循环后命中正确节点，frame 生命周期使旧 capture 失效；更多复杂组合仍待补 |
 | P08 | 导航与页面生命周期 | goto/back/forward/reload、SPA、popup、关闭、wait URL/load；正确监听早到事件 | 原生 URL/load observer 的短注册与动作完成队列分离，冷 wait→click、五入口 ready→trigger→collect、快速/SPA/中间 URL/redirect、独立 DCL/load/networkidle 和当前状态立即完成均已实测。既有 goto/BFCache/刷新及 auxiliary 原窗口接管保留；Opera 新建单页组消失已用明确无组归属修复，并有真实多页导航、handoff/恢复及关闭验收。原生 popup 创建仍抢前台，用户自行移窗后的渲染恢复和 Vivaldi 更广启动时序/输入待补 |
 | P09 | 截图与后台渲染 | viewport/full-page/element/crop，尺寸格式正确；闲置后台 tab 重复截图与输入稳定 | viewport/crop/full-page 与离屏根/同源/OOPIF/嵌套截图、导航后新内容已有验收；frame-owner 预滚修复 stable 等待。启动 trace 将首窗口停滞定位到 root Surface 依赖和 Chromium testing 实验组；受控基线禁用 testing config 后，定向 3/3、完整 headed 61/61。这是测试环境修正，原配置失败保留，不能宣称插件已兼容所有实验设置；普通 tab 移组撤权与显式恢复已验。新增 `run-ttHLU9` 2/2：两页原生命令静默310.088秒，首次恢复截图及后续更新通过，182图逐像素/原生clip核验；document visibility仍visible，不称hidden节流。更长闲置与更广压力待补 |
@@ -252,7 +265,7 @@ P04位置快照已完成三种原生DPR的五入口专项：`oVaN3m`、`wTM1CH`�
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属、光标/蓝框/点击圈及后台操作已实测。此前完整 `run-5TPsWz` 104 项连续 observer 中，六次测试窗口创建各有首 tab 激活；四条 focus 仅来自两次明确控制面板打开，均精确归因，原 sentinel 不变，没有额外前台事件。新增研究专项16/16为零激活/零focus，75创建、60关闭、15个非活动报告保留且既有tabs元数据不变。新增后台专项3独立任务、31轮、172POST、490渲染区间/563跨owner重叠，A闲置310秒、C结束时B原scope继续，8创建/8关闭、零激活/零focus。不是全套零事件；原生 popup 创建激活与更长/更广压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、移组/跨窗口撤权、可信输入释放、网络/导航/下载 handle 失效与 session incarnation 已验。真实 browser restart/reload `browser-restart-w5chI9` 8/8 含未知输入经 startup witness 的保守恢复。最终 Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3 增加实际 host 退出和两次原生 EOF exit0；挂起请求及时失败，原 deadline+250ms 无迟到动作，暂停经同 popup 显式恢复。主回归 `run-aZyBs1` 77/77。Edge `native-lifecycle-R7MPzo` 清单隔离通过但出现未知窗口 focus，整项失败且 reload 未执行。未决原生调用可能阻止清理，worker 丢失下载 handle 不保证底层传输取消；签名更新/禁启、packed alarm、其他 OS 及更多压力顺序待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及更广浏览器/扩展恢复顺序仍待完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 此前 Windows Chromium 156 主 headed `run-5TPsWz` 104/104，新增五入口×三布局研究15项：当前资料、跨源/动态frame、准确比较和来源、单次报告、实际75创建/60关闭/15保留。专项16/16与全套均独立核验原始请求/收据，扩展新增无组任务页与失败创建撤权，Opera/Brave 原生多页另行验收通过。该历史分片CI Node1079（827+53+199）、JS115、Python82、Go全包通过，另有opt-in后台长闲置2/2。最近完整回归`tQEVZJ`118/118，Node1642/1642；历史`XHmJdq`108/109与`hb2m29`100/111失败保留。本轮SDK检查JS134、Python99通过；Go全包通过并保留26项平台skip，跨平台CLI构建通过。Codex Edge共享研究最终3/3，无浏览器方法失败/替代；无独立OS焦点证据且测试server强制退出，限制另记。此前共享表单3/3、部分方法替代及严格frame指针0/3与87/89窗口失败均保留；不推断速度或完整持平。原生Chrome生命周期3/3不代替Edge失败；开放研究、文件/诊断同组任务及更多重复/平台比较仍待完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 此前 Windows Chromium 156 主 headed `run-5TPsWz` 104/104，新增五入口×三布局研究15项：当前资料、跨源/动态frame、准确比较和来源、单次报告、实际75创建/60关闭/15保留。专项16/16与全套均独立核验原始请求/收据，扩展新增无组任务页与失败创建撤权，Opera/Brave 原生多页另行验收通过。该历史分片CI Node1079（827+53+199）、JS115、Python82、Go全包通过，另有opt-in后台长闲置2/2。最近完整回归`DF0lUQ`120/120，Node1699/1699；原119项顺序保留，新增八场显式position有独立原始坐标/POST/focus核验；历史`XHmJdq`108/109与`hb2m29`100/111失败保留。此前上传分片SDK检查JS134、Python99通过；Go全包通过并保留26项平台skip，跨平台CLI构建通过；当前position分片未重跑这些套件。Codex Edge共享研究最终3/3，无浏览器方法失败/替代；无独立OS焦点证据且测试server强制退出，限制另记。此前共享表单3/3、部分方法替代及严格frame指针0/3与87/89窗口失败均保留；不推断速度或完整持平。原生Chrome生命周期3/3不代替Edge失败；开放研究、文件/诊断同组任务及更多重复/平台比较仍待完成 |
 
 ## Browser lifetime implementation and acceptance boundary
 

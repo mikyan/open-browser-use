@@ -2541,3 +2541,33 @@ SDK与Go构建归属独立审计；旧preview ZIP不替换，未提PR。
 的position旧AABB约定及普通temporary handle best-effort释放边界保留。
 详细范围见[本片计划](../completed/2026-10-12-transformed-frame-input.md)
 与[坐标及证据](../../references/transformed-frame-input.md)。完整目标继续。
+
+
+### P06：元素自身变换的显式 position（本片完成，整体仍 active）
+
+前一goal轮已产生生产实现、旧反例与最终专项；本轮从原活session取得完整
+terminal exit0，再独立核原始证据，属于实际验证和交付进展。旧AABB加offset
+在大canvas上会命中同node的错误内部位置。现对单一已解析HTML padding
+平面使用fractional CSS尺寸和原生quad，经真实renderer local-root映射；
+叶几何加入初始/hover后/后继down指纹。hover变换重新准备，首击后变化
+终止后继按钮，不重放。无position普通click不增加叶几何读取。
+
+旧生产rj4xe2八场全错、9错误POST保留；初版fRwtGy6/8的两个OOPIF严格
+局部亚像素判据失败也保留。无扩展native对照支持paint offset物理像素
+取整解释，但DPR1.5原始探针无pointerdown仍失败。最终区分root发送投影
+≤0.025CSS与实际OOPIF事件量化；并保留原node、12×12热点与唯一正确提交。
+不硬编码补偿，不宣称子页面亚像素等价。细节见[元素position几何](../../references/element-position-geometry.md)。
+
+最终专项gQRNO2八场通过，3150ms零focus；完整DF0lUQ120/120 actualexit0，
+Node1699/1699零skip/cancel。原119名称/顺序保留，25Input、8唯一正确POST/
+83571B、11原document/HTML及八页/targets回收经独立检查。227112ms连续
+focus仅原12activation/4controlfocus，未加豁免；sentinel身份/选择保持，
+高1222→1187。root投影逐轴最大0.010545CSS，OOPIF局部逐轴最大0.173981CSS、投回
+root逐轴最大0.256823物理像素保留。51生产/53暂存成员和正常ZIP独立核验。
+旧preview三ZIP仍匹配原checksum，未替换release。Go/SDK套件未重跑；
+49个Go源和八个复用bin匹配已有构建manifest。
+
+SVG/非替换inline/fragment仍保留旧position约定；hover/drag未新增click后置门禁。
+后续源码审计另发现正式boundingBox/元素截图仍经旧_framePosition平移；
+尚无本轮真实反例，下一步先验证变换OOPIF的返回box和实际PNG，再处理。
+Codex同组文件/诊断、其他平台和P01–P15剩余项继续开放。

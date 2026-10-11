@@ -1,5 +1,25 @@
 # Browser integration acceptance
 
+## Transformed element positions
+
+`OBU_TEST_CASES=element-position` selects the mandatory raw-navigation control
+and `js-element-position-geometry`. Eight fresh pages cover a scaled canvas,
+rotated border-box, same-process frame, dynamic OOPIF, CSS zoom, finite
+perspective, hover-time transform and first-click transform. Input comes from
+the public SDK; original root Input calls/ACKs, original-document trusted events,
+independent non-interactive CSS hotspot witnesses and original POST bytes are
+saved in `element-position.json` and `element-position-server.json`.
+
+The expected point is not derived with the production projection code. Native
+root press/release coordinates and actual pointer delivery have separate checks:
+the former must match the independent CSS projection; OOPIF event conversion
+has an explicit physical-pixel quantization budget. The original hotspot, node,
+click count and POST checks remain mandatory. The first strict OOPIF precision
+failure is retained separately; see
+[element-position geometry](../../docs/references/element-position-geometry.md).
+The test adds no activation/focus allowance, closes all eight owned tabs/targets,
+and retains all previous 119 cases in their original relative order.
+
 ## Direct locator uploads
 
 Build `./scripts/browser-integration/go-direct-locator-upload-checks` with the

@@ -163,7 +163,7 @@ async function obuRunPointerClick(handle, progress, options, actionName = "click
       if (states) { await closeReceipt(); check(); ticket.check(); return false; }
       // Hover handlers can change the ancestor chain after the receipt. Keep
       // root routing and the original parent-frame hit tests before pressing.
-      const frameCheck = await handle._checkFrameIsHitTarget(point, progress);
+      const frameCheck = await handle._checkFrameIsHitTarget(point, progress, options.position);
       check(); ticket.check();
       if (frameCheck === "error:notconnected") throw obuPointerFailure("original frame disconnected after move");
       if ("hitTargetDescription" in frameCheck || !sameFrameGeometry(frameCheck.frameGeometry)) {
@@ -201,7 +201,7 @@ async function obuRunPointerClick(handle, progress, options, actionName = "click
           // node and receipt remain valid. Recheck the same root point and pass
           // its current frame geometry to the original receipt; never move,
           // locate a successor or retry an already committed button sequence.
-          const frameCheck = await handle._checkFrameIsHitTarget(point, progress);
+          const frameCheck = await handle._checkFrameIsHitTarget(point, progress, options.position);
           check(); ticket.check();
           if (frameCheck === "error:notconnected" || "hitTargetDescription" in frameCheck || !sameFrameGeometry(frameCheck.frameGeometry))
             throw obuPointerFailure("original frame changed between counted clicks");

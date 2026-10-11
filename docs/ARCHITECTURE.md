@@ -179,6 +179,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   初始几何指纹在hover后与每个后继down前复核；变化不能沿用旧receipt。
   详情见`docs/references/transformed-frame-input.md`。hover副作用、非原子检查、事件来源限制见
   `docs/references/pointer-delivery.md`。
+  显式 position 对单一已解析 HTML CSS box 使用原生 padding quad 与 fractional
+  padding 尺寸投影，叶元素几何也加入 click 指纹；普通无 position 点击不增加
+  这些读取。非替换inline/SVG/fragment 的旧约定与 OOPIF 原生量化边界见
+  `docs/references/element-position-geometry.md`。
   `snapshotAI` 递归读取 iframe 的原生 ARIA 树，限制总字节、节点、refs、frames
   和深度；renderer 提供真实元素 metadata，Frame 身份使用稳定 slot，避免
   iframe 重排使引用串页。每个 attachment 只保留一个 capture；新快照、frame

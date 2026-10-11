@@ -11,14 +11,27 @@
 
 ## 当前评分
 
-变换iframe输入本片已通过完整`t0MP0c` **119/119、actual exit0**，
+显式元素position本片通过完整`DF0lUQ` **120/120、actual exit0**，
+Node **1699/1699**、零skip/cancel。旧119项名称与顺序保留；新八场覆盖
+元素scale/rotate/zoom/perspective、同进程/OOPIF及hover/首击后几何变化。
+单一HTML padding plane按原生quad投影，叶几何加入click指纹；旧生产八场
+全部误位的证据保留。最终专项`gQRNO2`八场正确POST，3150ms零focus。
+完整25Input、8唯一POST/83571B、11原document/HTML及八页/targets回收
+独立核实；227112ms仅原12activation/4controlfocus，无新增豁免，sentinel
+身份/选择保持，高1222→1187。原生root投影≤0.025CSS；OOPIF原事件逐轴最大
+偏差0.173981CSS仍记录，投回root逐轴最大0.256823物理像素，非相同亚像素承诺。
+SVG/非替换inline/fragment保留旧约定；hover/drag未获得click的提交后门禁。
+51生产/53暂存成员、正常ZIP核验通过，旧preview不替换。Go/SDK未重跑，
+原Go源和八个复用bin按build manifest核实。详见[元素position几何](references/element-position-geometry.md)。
+
+此前变换iframe输入本片已通过完整`t0MP0c` **119/119、actual exit0**，
 Node **1673/1673**、零skip/cancel。原118项仍通过，新增七场覆盖同源scale、
 旋转OOPIF、nested、hover后遮挡/移位、首击后遮挡及旋转12×12显式position。
 旧`SDqvcJ`真实三种父层误投保留。新adapter按实际renderer local-root
 投影原生quad，以fractional CSS尺寸建平面并逐层命中原iframe；初始/hover后/
 后继down比较原几何指纹，缺失或变化不放行按钮。专项`WmZggR`七场通过，
 7859ms零focus，独立矩阵/原native/DOM/POST核实，七页及targets回收。
-本片不证明全部3D/pinch zoom、leaf自身transform的position或完整parity；
+该历史分片不证明全部3D/pinch zoom、leaf自身transform的position或完整parity；
 临时handle仍是上游best-effort dispose，非native释放ACK。完整证据及
 限制见[变换iframe输入](references/transformed-frame-input.md)。
 

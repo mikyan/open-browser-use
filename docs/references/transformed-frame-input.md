@@ -32,9 +32,11 @@ iframe element must pass that document's normal `expectHitTarget` check; being
 inside a geometric quad alone never proves an unobstructed hit. The final local
 point is also checked by the existing target interceptor and move receipt.
 
-Explicit `position` retains the target's local padding-origin convention and
-projects that point through its frame. This does not fix the older AABB convention
-for a target element's own transform or fragmented inline/SVG padding planes.
+Explicit `position` now projects a single resolved HTML box through its own
+native padding plane before the renderer-boundary mapping. Leaf geometry joins
+the original click fingerprint. Inline/SVG/fragmented padding conventions and
+native OOPIF coordinate quantization retain explicit limits; see
+[element positions](element-position-geometry.md).
 
 ## Lifetime and commitment
 

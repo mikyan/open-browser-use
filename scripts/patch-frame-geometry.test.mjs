@@ -18,6 +18,10 @@ const near = (actual, expected, tolerance = 1e-8) => {
   for (const key of Object.keys(expected)) assert.ok(Math.abs(actual[key] - expected[key]) <= tolerance, `${key}: ${actual[key]} != ${expected[key]}`);
 };
 const rect = (x, y, width, height) => [x, y, x + width, y, x + width, y + height, x, y + height];
+const rounded = (point) => ({ x: (point.x * 100 | 0) / 100, y: (point.y * 100 | 0) / 100 });
+const boxStyle = { display: "block", width: "200px", height: "100px", boxSizing: "content-box",
+  borderLeftWidth: "0px", borderRightWidth: "0px", borderTopWidth: "0px", borderBottomWidth: "0px",
+  paddingLeft: "0px", paddingRight: "0px", paddingTop: "0px", paddingBottom: "0px" };
 
 function method(source, from, to) {
   const start = source.indexOf(from), end = source.indexOf(to, start);
@@ -47,7 +51,7 @@ function fixture({ nested = true, onSend, onEvaluate, onAdopt, releaseError } = 
   const Handle = vm.runInNewContext(
     method(patched, "const obuFrameGeometry =", "let ElementHandle$1 =") +
     "class Handle {" + method(patched, "  async _clickablePoint(progress)", "  async _retryAction(") +
-    method(patched, "  async _checkFrameIsHitTarget(point, progress)", "\n};\nfunction throwRetargetableDOMError") +
+    method(patched, "  async _checkFrameIsHitTarget(point, progress, position)", "\n};\nfunction throwRetargetableDOMError") +
     "}; Handle", { Error, Promise, Number, Map });
   const byObject = new Map(), byBackend = new Map(), frames = [], sessions = [];
   const delegate = {
@@ -74,7 +78,8 @@ function fixture({ nested = true, onSend, onEvaluate, onAdopt, releaseError } = 
             if (onAdopt) await onAdopt(owner, frame);
             return { object: { objectId, type: "object", subtype: "node" } };
           }
-          if (name === "DOM.getBoxModel") return { model: { content: [...byObject.get(params.objectId).raw] } };
+          if (name === "DOM.getBoxModel") return params.objectId === "target" ? { model: { padding: [...targetPadding] } } :
+            { model: { content: [...byObject.get(params.objectId).raw] } };
           if (name === "DOM.getContentQuads") return { quads: targetQuads ?? [targetRaw] };
           throw new Error(`Unexpected native call ${name}`);
         }
@@ -114,6 +119,7 @@ function fixture({ nested = true, onSend, onEvaluate, onAdopt, releaseError } = 
   const root = makeFrame("root", null, true);
   let target = root;
   let targetRaw = rect(40, 60, 50, 20);
+  let targetPadding = rect(40, 60, 50, 20);
   let targetQuads;
   if (nested) {
     const same = makeFrame("same", root, false, { width: 400.5, height: 300.25, viewportWidth: 401, viewportHeight: 300,
@@ -125,17 +131,19 @@ function fixture({ nested = true, onSend, onEvaluate, onAdopt, releaseError } = 
   }
   const handle = new Handle();
   Object.assign(handle, { _page: page, _frame: target, _context: target.context, _objectId: "target",
-    node: { isConnected: true, ownerDocument: target.context.document,
-      style: { borderLeftWidth: "1.25px", borderTopWidth: "2.5px" }, getBoundingClientRect: () => ({ x: 30, y: 40 }) } });
+    node: { isConnected: true, ownerDocument: target.context.document, namespaceURI: "http://www.w3.org/1999/xhtml", localName: "span",
+      style: { display: "inline", borderLeftWidth: "1.25px", borderTopWidth: "2.5px" },
+      getClientRects: () => [{}], getBoundingClientRect: () => ({ x: 30, y: 40, width: 50, height: 20 }) } });
   return { handle, progress, frames, sessions, calls, hits, releases, adopted, evaluations, byBackend,
     expire() { expired = true; }, setTargetRaw(value) { targetRaw = value; }, setTargetQuads(value) { targetQuads = value; },
-    clickable: () => handle._clickablePoint(progress), hit: (point) => handle._checkFrameIsHitTarget(point, progress),
+    setTargetPadding(value) { targetPadding = value; },
+    clickable: () => handle._clickablePoint(progress), hit: (point, position) => handle._checkFrameIsHitTarget(point, progress, position),
     offset: (offset) => handle._offsetPoint(offset, progress) };
 }
 
 test("pinned bundle patch installs progress-aware point and hit methods without transformed bypass", () => {
   assert.match(patched, /_offsetPoint\(position, progress2\).*_clickablePoint\(progress2\)/);
-  assert.match(patched, /frameCheckResult = await this\._checkFrameIsHitTarget\(point, progress2\)/);
+  assert.match(patched, /frameCheckResult = await this\._checkFrameIsHitTarget\(point, progress2, position\)/);
   assert.doesNotMatch(method(patched, "  async _checkFrameIsHitTarget(", "\n};\nfunction throwRetargetableDOMError"), /transformed|void 0/);
   assert.throws(() => patchCrxFrameGeometry(patched), /expected one|absent/);
   assert.throws(() => patchCrxFrameGeometry(upstream.replace("const frameCheckResult =", "const renamed =")), /frame hit progress/);
@@ -187,11 +195,111 @@ test("fixed utility content sizing subtracts fractional border and padding for b
   assert.equal(runtime.readOwnerPlane([{ document }, { isConnected: true, localName: "IFRAME", ownerDocument: document, style }]).width, 400.5);
 });
 
-test("position retains leaf local padding-origin then projects through rotated iframe ancestors", async () => {
+test("legacy inline position retains leaf local AABB origin then projects through rotated iframe ancestors", async () => {
   const f = fixture(); const point = await f.offset({ x: 3.5, y: 4.25 });
   // leaf=(34.75,46.75), OOPIF=(44.75,66.75), root=(406.5,162.125).
   near(point, { x: 406.5, y: 162.125 });
   assert.equal(f.calls.some((call) => call.name === "DOM.getContentQuads"), false);
+});
+
+test("explicit canvas position maps its padding plane rather than another point on the same scaled node", async () => {
+  const f = fixture({ nested: false });
+  Object.assign(f.handle.node, { localName: "canvas", style: { ...boxStyle, display: "inline",
+    borderLeftWidth: "10px", borderRightWidth: "10px", borderTopWidth: "10px", borderBottomWidth: "10px" },
+    getBoundingClientRect: () => ({ x: 100, y: 100, width: 440, height: 240 }) });
+  f.setTargetPadding(rect(120, 120, 400, 200));
+  near(await f.offset({ x: 150, y: 50 }), { x: 420, y: 220 });
+  const hit = await f.hit({ x: 420, y: 220 }, { x: 150, y: 50 });
+  assert.equal(hit.frameGeometry.at(-1).elementPosition.mode, "padding");
+  // The inherited AABB answer (260,160) is still inside the same canvas. The
+  // original node hit test alone cannot reject this semantic position error.
+  assert.match((await f.hit({ x: 260, y: 160 }, { x: 150, y: 50 })).hitTargetDescription, /position geometry changed/);
+});
+
+test("single CSS padding plane preserves fractional sizing in both box-sizing modes", () => {
+  const f = fixture({ nested: false }), node = f.handle.node;
+  node.style = { ...boxStyle, width: "200.5px", height: "120.25px", paddingLeft: "12.25px", paddingRight: "12.25px",
+    paddingTop: "7.75px", paddingBottom: "7.75px", borderLeftWidth: "3px", borderRightWidth: "3px",
+    borderTopWidth: "3px", borderBottomWidth: "3px" };
+  const read = () => runtime.readElementPlane([{ document: node.ownerDocument }, node]);
+  near(read(), { width: 225, height: 135.75 });
+  node.style.boxSizing = "border-box"; near(read(), { width: 194.5, height: 114.25 });
+  // An inline non-replaced node ignores even an explicitly specified width.
+  node.style.display = "inline"; assert.equal(read().mode, "legacy");
+});
+
+test("position composes a native same-process padding quad with only its OOPIF session map", async () => {
+  const f = fixture(); f.handle.node.style = { ...boxStyle, width: "50px", height: "20px" };
+  f.setTargetPadding(rect(40, 60, 100, 40));
+  near(await f.offset({ x: 12.5, y: 5 }), { x: 400, y: 192.5 });
+  const targetCalls = f.calls.filter((call) => call.name === "DOM.getBoxModel" && call.params.objectId === "target");
+  assert.deepEqual(targetCalls.map((call) => call.session), ["oopif"]);
+  near((await f.hit({ x: 400, y: 192.5 }, { x: 12.5, y: 5 })).framePoint, { x: 55, y: 50 });
+});
+
+test("position planes handle fractional CSS zoom, reflection and finite perspective", async () => {
+  const f = fixture({ nested: false });
+  f.handle.node.style = { ...boxStyle, width: "200.5px", height: "120.25px", zoom: "1.25" };
+  f.setTargetPadding(rect(30.125, 40.25, 250.625, 150.3125));
+  near(await f.offset({ x: 100.25, y: 60.125 }), { x: 155.4375, y: 115.40625 });
+  f.handle.node.style = { ...boxStyle };
+  f.setTargetPadding([300, 100, 100, 100, 100, 200, 300, 200]);
+  near(await f.offset({ x: 20, y: 30 }), { x: 280, y: 130 });
+  f.handle.node.style.width = "100px";
+  f.setTargetPadding([10, 20, 210, 20, 110, 120, 10, 120]);
+  near(await f.offset({ x: 25, y: 75 }), { x: 67.5 / 1.75, y: 185 / 1.75 });
+});
+
+test("position geometry changes before the first hit are retried and changes about the same point alter the fingerprint", async () => {
+  const f = fixture({ nested: false }); f.handle.node.style = { ...boxStyle };
+  f.setTargetPadding(rect(100, 100, 200, 100));
+  const position = { x: 100, y: 50 }, point = rounded(await f.offset(position));
+  const before = await f.hit(point, position);
+  f.setTargetPadding(rect(0, 50, 400, 200)); // Scale about the unchanged center.
+  const after = await f.hit(point, position);
+  assert.ok(after.frameGeometry);
+  assert.notEqual(JSON.stringify(before.frameGeometry), JSON.stringify(after.frameGeometry));
+  f.setTargetPadding(rect(101, 100, 200, 100));
+  assert.match((await f.hit(point, position)).hitTargetDescription, /position geometry changed/);
+  f.handle.node.style.width = "100px";
+  assert.match((await f.hit(point, position)).hitTargetDescription, /position geometry changed/);
+});
+
+test("legacy SVG and fragmented boxes keep inherited positions without native plane guesses", async () => {
+  for (const kind of ["svg", "fragment", "auto", "inline"]) {
+    const f = fixture({ nested: false }); f.handle.node.style = { ...boxStyle, borderLeftWidth: "1.25px", borderTopWidth: "2.5px" };
+    if (kind === "svg") f.handle.node.namespaceURI = "http://www.w3.org/2000/svg";
+    if (kind === "fragment") f.handle.node.getClientRects = () => [{}, {}];
+    if (kind === "auto") f.handle.node.style.width = "auto";
+    if (kind === "inline") f.handle.node.style.display = "inline";
+    const position = { x: 3.5, y: 4.25 }, point = await f.offset(position);
+    near(point, { x: 34.75, y: 46.75 });
+    assert.equal((await f.hit(point, position)).frameGeometry.at(-1).elementPosition.mode, "legacy");
+    assert.equal(f.calls.some((call) => call.name === "DOM.getBoxModel"), false);
+  }
+});
+
+test("ordinary clicks do not inspect or require the new target padding plane", async () => {
+  const f = fixture({ nested: false });
+  f.handle.node.getClientRects = () => { throw new Error("must not read target style or geometry"); };
+  near(await f.clickable(), { x: 65, y: 70 });
+  assert.ok((await f.hit({ x: 65, y: 70 })).frameGeometry);
+  assert.equal(f.calls.some((call) => call.name === "DOM.getBoxModel"), false);
+});
+
+test("invalid position planes and changed original contexts stop without legacy fallback or later native calls", async () => {
+  const f = fixture({ nested: false }); f.handle.node.style = { ...boxStyle };
+  f.setTargetPadding(rect(0, 0, 0, 0));
+  assert.equal(await f.offset({ x: 1, y: 2 }), "error:notvisible");
+  assert.match((await f.hit({ x: 1, y: 2 }, { x: 1, y: 2 })).hitTargetDescription, /unusable frame geometry/);
+  let g; g = fixture({ nested: false, onSend(name, params) { if (params.objectId === "target") g.expire(); } });
+  g.handle.node.style = { ...boxStyle };
+  await assert.rejects(g.offset({ x: 1, y: 2 }), /deadline/);
+  assert.deepEqual(g.calls.map((call) => call.name), ["DOM.getBoxModel"]);
+  let h; h = fixture({ nested: false, onSend(name, params) { if (params.objectId === "target") h.frames[0].context.destroyed = true; } });
+  h.handle.node.style = { ...boxStyle };
+  assert.equal(await h.offset({ x: 1, y: 2 }), "error:notconnected");
+  assert.deepEqual(h.calls.map((call) => call.name), ["DOM.getBoxModel"]);
 });
 
 test("each original parent utility hit is authoritative, including transformed ancestor overlays", async () => {
