@@ -1,0 +1,84 @@
+docs/references/mcp-connection-lifetime.md
+  s_08bbfd293d324f::t_48ee5aec12b107 1-25,28-49,66-69
+  s_08bbfd293d324f::t_d366be63219d33 56-60
+  s_08bbfd293d324f::t_6397034ba97aee 26-27
+  s_08bbfd293d324f::t_85d9625bcdb060 61-63
+  s_08bbfd293d324f::t_989aa96a744adf 50-55,64-65
+cmd/open-browser-use/control_test.go
+  s_08bbfd293d324f::t_a758a62a24da4f 438,474-475
+cmd/open-browser-use/endpoint_discovery_test.go
+  s_08bbfd293d324f::t_87a8ff356c2d98 60,62,66,70-74,77-81,84-91,112,114,121-124
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_d4d2202a08fe8c 169,431-433,537
+docs/references/README.md
+  s_08bbfd293d324f::t_48ee5aec12b107 51-52
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_4f3d0a6f34657f 1171-1177,2421-2424,2436,2455-2458,2464-2466,2468,2477,2488,2545-2547,2549-2551,2642,2652-2655,2661,2732,2750-2753,2757,2770,2775-2778
+  s_08bbfd293d324f::t_d4d2202a08fe8c 1170
+  s_08bbfd293d324f::t_48ee5aec12b107 1186
+cmd/open-browser-use/mcp_connection.go
+  s_08bbfd293d324f::t_d4d2202a08fe8c 1-118,122-123,125-135,172-205,212-217,223-267
+  s_08bbfd293d324f::t_2eb64002812832 119-121,124,136-171,209-211,218-222
+  s_08bbfd293d324f::t_a758a62a24da4f 206-208
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_c935285cfedae2 56,256,270,403,512,666-677
+  s_08bbfd293d324f::t_24249f40bfeaa2 49,2089,2125-2131
+cmd/open-browser-use/mcp_connection_test.go
+  s_08bbfd293d324f::t_27b199fba10d72 1-54,56-78,80-82,84-153,155-173,175-182,184,186-218,224-343,347-385,388-452,533,552-623
+  s_08bbfd293d324f::t_1ebf160530aa6a 174,183,185,219-223,453-504,506-521,523-524,526-530,532,534-551
+  s_08bbfd293d324f::t_794bd00d989305 55,79,83,154,386-387
+  s_08bbfd293d324f::t_d6cb3fafa99ea0 344-346,505,522,525,531
+scripts/browser-integration/mcp-binding-fixture.test.mjs
+  s_08bbfd293d324f::t_6c40a55b26d5d0 1-150
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_921c6067c3a538 7-47
+  s_08bbfd293d324f::t_11e43885ccc365 48-57
+cmd/open-browser-use/page_exports_test.go
+  s_08bbfd293d324f::t_a758a62a24da4f 369
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_48ee5aec12b107 234-239
+cmd/open-browser-use/mcp_test.go
+  s_08bbfd293d324f::t_a758a62a24da4f 88,92-100
+  s_08bbfd293d324f::t_9b44d59b735bd1 101
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_85d9625bcdb060 49-51
+  s_08bbfd293d324f::t_3e05d558e6631d 45-48,52
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_eb2efb1d317023 1877-1895
+  s_08bbfd293d324f::t_11e43885ccc365 1896-1912
+cmd/open-browser-use/mcp_connection_protocol_test.go
+  s_08bbfd293d324f::t_e652b429e391af 244
+  s_08bbfd293d324f::t_a4dd653c5a149f 1-243,245-247
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_11e43885ccc365 292-305
+scripts/browser-integration/mcp-binding-fixture.mjs
+  s_08bbfd293d324f::t_dc33b24b1a93c4 1-14,19-41,43-46,48-110,112,117-165,167-173,175-219
+  s_08bbfd293d324f::t_24249f40bfeaa2 15-18,42,47,111,113-116,166
+  s_08bbfd293d324f::t_c935285cfedae2 174
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_48ee5aec12b107 53-57
+  s_08bbfd293d324f::t_d4d2202a08fe8c 78,86,131-132
+  s_08bbfd293d324f::t_a3ce33d000528b 133-134
+cmd/open-browser-use/discovery_budget_test.go
+  s_08bbfd293d324f::t_4b175bf231eb8a 1-91
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_989aa96a744adf 1221-1239,1242-1243,1254
+  s_08bbfd293d324f::t_11e43885ccc365 1240-1241,1244-1249
+  s_08bbfd293d324f::t_85d9625bcdb060 1250-1253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "2719d44ff9b7755be1844bde9e283b02458f6316",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
