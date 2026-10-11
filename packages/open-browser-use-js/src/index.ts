@@ -144,6 +144,8 @@ export class OpenBrowserUseClient {
   #downloadWaitVersion: unknown = undefined;
   #socket: Socket | null = null;
   #connecting: Promise<void> | null = null;
+  #connectedOnce = false;
+  #disconnected = false;
   #pendingData = Buffer.alloc(0);
   #nextId = 1;
   #pending = new Map<string, PendingRequest>();
@@ -161,8 +163,10 @@ export class OpenBrowserUseClient {
   get controlEpoch(): number | null { return this.#control?.controlEpoch ?? null; }
 
   async connect(): Promise<this> {
+    this.#assertNotDisconnected();
     if (this.#connecting) {
       await this.#connecting;
+      this.#assertNotDisconnected();
       return this;
     }
     if (this.#socket) {
@@ -190,13 +194,24 @@ export class OpenBrowserUseClient {
         this.#disconnect(socket, error);
         reject(error);
       }, this.timeoutMs);
-      socket.once("connect", () => { clearTimeout(timer); resolve(); });
+      socket.once("connect", () => {
+        clearTimeout(timer);
+        // A closed or superseded initial attempt cannot revive this client.
+        if (this.#disconnected || this.#socket !== socket) {
+          socket.destroy();
+          reject(new Error("OBU_SDK_BROWSER_DISCONNECTED: Browser connection is closed. Create a new client and explicitly begin a new turn."));
+          return;
+        }
+        this.#connectedOnce = true;
+        resolve();
+      });
       socket.once("error", error => { clearTimeout(timer); reject(error); });
       socket.once("close", () => { clearTimeout(timer); reject(new Error("Open Browser Use socket closed before connecting")); });
     });
     this.#connecting = connecting;
     try {
       await connecting;
+      this.#assertNotDisconnected();
     } finally {
       if (this.#connecting === connecting) this.#connecting = null;
     }
@@ -204,7 +219,12 @@ export class OpenBrowserUseClient {
   }
 
   close(): void {
+    this.#disconnected = true;
     if (this.#socket) this.#disconnect(this.#socket, new Error("Open Browser Use client closed"));
+  }
+
+  #assertNotDisconnected(): void {
+    if (this.#disconnected) throw new Error("OBU_SDK_BROWSER_DISCONNECTED: Browser connection is closed. Create a new client and explicitly begin a new turn.");
   }
 
   onNotification(handler: NotificationHandler): () => void {
@@ -219,6 +239,7 @@ export class OpenBrowserUseClient {
   }
 
   async #request(method: string, params: BrowserUseRequestParams, options: { timeoutMs?: number; startBefore?: number }, capture?: (metadata: BrowserUseRequestParams) => void): Promise<JsonValue> {
+    this.#assertNotDisconnected();
     const locatorUpload = method === "browserAction" && params.action === "setInputFiles";
     if (locatorUpload) locatorUploadParams(params);
     if (method === "createTab" && Object.hasOwn(params, "backgroundWindow") && typeof params.backgroundWindow !== "boolean") throw new Error("backgroundWindow must be a boolean");
@@ -369,9 +390,11 @@ export class OpenBrowserUseClient {
   getControlState(): Promise<JsonValue> { return this.request("getControlState"); }
 
   async beginTurn(turnId?: string): Promise<OpenBrowserUseControlState | null> {
+    this.#assertNotDisconnected();
     if (turnId !== undefined && !turnId.trim()) throw new Error("beginTurn requires a non-empty turn ID");
     const revision = ++this.#controlRevision;
     const binding = await this.#negotiateControl(this.#turnId, Date.now() + this.timeoutMs);
+    this.#assertNotDisconnected();
     if (binding.closing) throw new Error("OBU_CONTROL_ENDING: control is still ending");
     if (revision !== this.#controlRevision) throw new Error("Control changed while beginTurn was pending; call beginTurn() again explicitly");
     this.#control = binding;
@@ -382,6 +405,7 @@ export class OpenBrowserUseClient {
   refreshControlState(): Promise<OpenBrowserUseControlState | null> { return this.beginTurn(); }
 
   [controlScopeSymbol](timeoutMs: number): ControlScope {
+    this.#assertNotDisconnected();
     assertTimeout(timeoutMs);
     const deadline = Date.now() + timeoutMs, turnId = this.#turnId, revision = this.#controlRevision;
     const binding = this.#control ?? this.#initializeControl(turnId, deadline);
@@ -410,7 +434,7 @@ export class OpenBrowserUseClient {
     if (this.#controlInitialization) return this.#controlInitialization;
     const revision = this.#controlRevision;
     const initialization = this.#negotiateControl(turnId, deadline, monotonicDeadline).then(binding => {
-      if (revision === this.#controlRevision) this.#control = binding;
+      if (!this.#disconnected && revision === this.#controlRevision) this.#control = binding;
       return binding;
     });
     this.#controlInitialization = initialization;
@@ -429,6 +453,7 @@ export class OpenBrowserUseClient {
 
   async #sendRequest(method: string, params: BrowserUseRequestParams, deadline: number, reservedResponseMs = 0, startBefore?: number, monotonicDeadline?: number): Promise<JsonValue> {
     await beforeDeadline(this.connect(), deadline, method, monotonicDeadline);
+    this.#assertNotDisconnected();
     const socket = this.#socket;
     if (!socket) {
       throw new Error("Open Browser Use socket is not connected");
@@ -689,8 +714,11 @@ export class OpenBrowserUseClient {
   }
 
   #disconnect(socket: Socket, error: Error): void {
-    // A delayed close event from an older connection must not tear down a retry.
+    // Only a never-connected first attempt may retry. An established physical
+    // connection owns every cached scope and handle for this client's lifetime.
+    // Keep the original error for pending work, and a stable error for new work.
     if (this.#socket !== socket) return;
+    if (this.#connectedOnce) this.#disconnected = true;
     this.#socket = null;
     this.#connecting = null;
     this.#pendingData = Buffer.alloc(0);

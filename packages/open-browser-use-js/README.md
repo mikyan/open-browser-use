@@ -279,9 +279,15 @@ Action `timeoutMs` must be between 1 and 120000. It is sent separately from
 Playwright arguments, and the outer IPC deadline allows the requested action
 budget plus a one-second response margin. Engine actions and event waits default
 to 10000 ms; a longer client-level default does not extend a shorter operation.
-Connection and handshake time consume that operation's budget. A transport error does not replay an
-operation: a later explicit request may reconnect, while the caller decides
-whether a previous mutation needs checking.
+Connection and handshake time consume that operation's budget. A client is bound
+to its first successful transport connection. After EOF, transport failure, or
+`close()`, later calls fail with `OBU_SDK_BROWSER_DISCONNECTED`; neither `connect()`
+nor `beginTurn()` reopens it. Create a new client and new tab/locator/wait handles,
+explicitly begin a new turn, and inspect page state before deciding whether an
+uncertain mutation should be repeated. No request is replayed automatically.
+An unsuccessful first connection attempt may be retried unless `close()` was
+called. A response timeout on a still-healthy JS socket keeps that same socket;
+local validation failures and received RPC errors also preserve the connection.
 
 ## Console, errors, and network diagnostics
 
@@ -481,7 +487,8 @@ the metadata flag continue using the legacy protocol.
 Successful `turnEnded()` and `finalizeTabs()` advance both `client.turnId` and
 `client.controlEpoch`. Requests already submitted retain their original binding
 and are rejected when that turn ends. The SDK never replays an action after a
-stale epoch, extension restart, or lost end acknowledgement. To resume explicitly:
+stale epoch, extension restart, or lost end acknowledgement. When the original
+transport is still connected, resume explicitly:
 
 ```js
 await client.beginTurn(); // refreshControlState() is an alias
@@ -509,8 +516,10 @@ reported immediately.
 
 If the extension worker restarts while the native host/socket survives, call
 `beginTurn()` explicitly to recover its new epoch. If the native host itself
-restarts, read the new endpoint from `active.json` and construct a new client;
-the SDK does not silently change its configured endpoint. Notification
+restarts or the transport is lost, read the selected endpoint from `active.json`
+and construct a new client, even if the endpoint string is unchanged. Recreate
+browser-bound handles and explicitly begin a new turn; the old client stays
+disconnected, including requests with manually supplied epoch metadata. Notification
 subscriptions are rebuilt by that new client's explicit requests.
 
 ## Cleanup

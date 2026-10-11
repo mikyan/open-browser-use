@@ -11,7 +11,21 @@
 
 ## 当前评分
 
-最新拖放分片通过完整`I0B25O` **122/122、actual exit0**，Node **1788/1788**，
+最新SDK连接分片通过完整`yVGT4D` **125/125、actual exit0**，旧122项名称/
+相对顺序保持；专项`aZMiIx`4/4。三SDK断线/close后保持终态，旧handles及
+手工epoch不能重连，恢复需要新client、新handles和显式新turn。六真实
+browser场景均旧操作零提交、新客户端各唯一可信POST；同backend实机与
+跨实例原生IPC反例严格区分。Node1792、JS142、Python110全过零skip/cancel；
+Go全仓519 test/subtest通过、26平台skip、8无测试helper编译通过，typecheck过。
+完整244620ms仅原12activation/4controlpopup focus，新增零豁免；专项2753ms
+零事件。新9个Go bin/50生产输入冻结，扩展运行源与旧preview未变。恢复
+边界、原始失败与更多平台范围见[连接身份](references/sdk-connection-identity.md)。
+Linux WSL2真实Unix socket另验Go523pass/10平台skip、JS142pass、Python109pass/
+1 Windows路径skip，全新host集成及helper通过；186源码与20重建dist一致。
+独立专项/完整原始业务、focus及构建来源审计通过。首次临时目录清空导致的
+启动失败保留；未运行Linux真实浏览器、macOS或CGO race。
+
+此前拖放分片通过完整`I0B25O` **122/122、actual exit0**，Node **1788/1788**，
 零skip/cancel；旧121项名称/相对顺序保持。普通dragTo输入前绑定原两节点，
 source在down前确认可信move与几何，提交后不重放；HTML目标在原生over后及
 drop事件时复查原节点/CSS平面，修复hover旧点、替换目标及同AABB内部热点

@@ -55,7 +55,7 @@ the transport does not alter tab ownership or browser selection.
   directory or requires browser profile access.
 - With `OBU_TEST_HOST_BINARY` set to a built host, the JS and Python test suites
   also exercise their actual local transport through the Go relay, including
-  response routing after reconnects.
+  response routing on a fresh client's connection after disconnection.
 - The optional [browser integration acceptance harness](../../scripts/browser-integration/README.md)
   connects the real host and SDK transports to a production extension build in
   an isolated Chromium profile. It separately records native-port adapter
@@ -83,8 +83,11 @@ are discarded when the socket closes.
 An extension worker restart does not clear subscriptions if the same host and
 client socket survive. Epoch validity remains the extension's responsibility.
 A native-host process restart creates a new endpoint and empty subscriptions:
-read the current registry and create a new SDK connection. Fixed-endpoint SDK
-clients do not silently switch to another endpoint or replay an operation.
+read the current registry and create a new SDK client and browser-bound handles.
+All three SDKs keep an established client bound to one actual connection: even
+same-path replacement cannot revive it. Explicitly begin a new turn on the new
+client; no operation is replayed. See [SDK connection identity](sdk-connection-identity.md)
+for first-connect retry and per-language timeout behavior.
 
 Only the existing unscoped `heartbeat` notification is global. Unknown unscoped
 notifications, unscoped CDP/download events from older extensions, and malformed

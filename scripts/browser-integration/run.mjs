@@ -13,6 +13,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
 import { createDragCommitFixtures, checkDragCommit } from "./drag-commit-fixture.mjs";
+import { createSDKConnectionFixtures, checkSDKConnections, sdkConnectionKinds } from "./sdk-connection-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
@@ -280,6 +281,7 @@ const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
 const boundingGeometryFixtures = createBoundingGeometryFixtures();
 const dragCommitFixtures = createDragCommitFixtures();
+const sdkConnectionFixtures = createSDKConnectionFixtures();
 const directUploads = createDirectLocatorUploadFixtures();
 const directDownloads = createDirectDownloadFixtures();
 const mediaDownloads = createMediaDownloadFixtures();
@@ -302,6 +304,7 @@ const http = createServer(async (request, response) => {
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (boundingGeometryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (dragCommitFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (sdkConnectionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
@@ -438,6 +441,8 @@ try {
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.dragCommitFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "drag-commit-fixture.mjs"))).digest("hex");
+  for (const name of ["sdk-connection-fixture.mjs", "sdk-connection-js.mjs", "sdk-connection-python.py", "go-sdk-connection-checks/main.go"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
@@ -1688,6 +1693,29 @@ try {
     } });
     if (failure) throw failure;
     return detail;
+  });
+  for (const kind of sdkConnectionKinds) await test(`${kind}-sdk-connection-identity`, async () => {
+    const detail = { kind };
+    try {
+      sourceIdentity.testHooks.push(`${kind} SDK connection identity: transparent local byte relay to the real host; original idle connection cut or explicitly closed; no native Port, epoch, browser ownership or focus allowance changes`);
+      let command, args = [], artifact;
+      const env = { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONUTF8: "1", OBU_JS_SDK_ENTRY: path.join(jsSnapshot, "index.js") };
+      if (kind === "go") {
+        assert.ok(process.env.OBU_TEST_GO_CONNECTION_BINARY, "Set OBU_TEST_GO_CONNECTION_BINARY for Go SDK connection acceptance");
+        artifact = path.join(runDir, process.platform === "win32" ? "go-sdk-connection.exe" : "go-sdk-connection");
+        await fs.copyFile(process.env.OBU_TEST_GO_CONNECTION_BINARY, artifact, fsConstants.COPYFILE_EXCL); command = artifact;
+      } else {
+        artifact = path.join(runDir, kind === "js" ? "sdk-connection-js.mjs" : "sdk-connection-python.py");
+        await fs.copyFile(path.join(directory, path.basename(artifact)), artifact, fsConstants.COPYFILE_EXCL);
+        command = kind === "js" ? process.execPath : process.env.OBU_TEST_PYTHON || "python"; args = kind === "js" ? [artifact] : ["-u", artifact];
+      }
+      detail.callerSHA256 = createHash("sha256").update(await fs.readFile(artifact)).digest("hex");
+      return await checkSDKConnections({ kind, commands: { command, args, env }, detail, fixtureURL, server: sdkConnectionFixtures,
+        socketDir, endpoint, until, worker, connect: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }) });
+    } finally {
+      await fs.writeFile(path.join(runDir, `sdk-connection-${kind}.json`), JSON.stringify(detail, null, 2));
+      await fs.writeFile(path.join(runDir, "sdk-connection-server.json"), JSON.stringify(sdkConnectionFixtures.allStats(), null, 2));
+    }
   });
   await test("js-public-downloads-session-isolation", async () => {
     const clients = await Promise.all(["first", "second"].map(suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-download-${suffix}`, timeoutMs: 15000 })));

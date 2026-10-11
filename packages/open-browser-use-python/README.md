@@ -259,10 +259,16 @@ The Windows implementation needs no extra Python packages and supports bounded
 overlapped I/O. An old Windows host publishing a `.sock` path must be updated.
 
 `timeout` bounds the entire synchronous request, including fragmented responses
-and notifications. Timeout, EOF, or invalid framing closes that connection. A
-subsequent explicit request reconnects; the caller must check page state before
-deciding whether to repeat a mutation. Use separate clients for concurrent Python
-request streams. Frames larger than the host's 64 MiB limit are rejected.
+and notifications. A wire timeout, EOF, invalid framing, or explicit `close()`
+ends this client's connection permanently. Subsequent calls, including `connect()`,
+`begin_turn()` and requests with a manual epoch, fail with
+`OBU_SDK_BROWSER_DISCONNECTED`. Create a new client and new tab/locator/wait
+handles, explicitly begin a new turn, and check page state before deciding
+whether to repeat an uncertain mutation. No request is replayed automatically.
+An unsuccessful first connection attempt can be retried unless explicitly closed.
+Local encoding errors, budgets exhausted before sending, and complete RPC error
+responses preserve a healthy connection. Use separate clients for concurrent
+Python request streams. Frames larger than the host's 64 MiB limit are rejected.
 
 Run unit checks with `python -m unittest`. To also exercise the real Go host,
 set `OBU_TEST_HOST_BINARY` to a freshly built host executable before running them.
@@ -274,7 +280,8 @@ in each request. Successful `turn_ended()` and `finalize_tabs()` install the nex
 epoch and turn ID. Requests from an ended epoch are rejected by the extension,
 including after worker restart; the SDK never refreshes and replays them.
 
-After inspecting a stale-epoch error or an uncertain end result, call
+While the original transport is still connected, after inspecting a stale-epoch
+error or an uncertain end result, call
 `browser.client.begin_turn()` explicitly before submitting new work. This reads
 current control state; it does not replay any operation. Older extensions without
 the capability flag retain legacy behavior. Use separate clients for separate

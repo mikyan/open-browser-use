@@ -25,6 +25,9 @@ An end request retires the entire current session epoch, including requests with
 different turn IDs already admitted in that epoch. A client must never refresh
 an epoch and replay an expired action automatically. After a stale-epoch or
 uncertain end error, explicit `beginTurn`/`getControlState` recovery is required.
+This uses the original connection only while it remains alive. Transport loss
+or explicit close ends the SDK client; create a new client and new handles before
+beginning a new turn. See [SDK connection identity](sdk-connection-identity.md).
 Clients connecting to a server without the metadata flag retain legacy behavior.
 
 ## Release and recovery ordering
@@ -256,8 +259,9 @@ admission and cancels accepted work before a replacement connection is tried.
 It durably invalidates control epochs, releases attachments and clears active
 session state without changing the user's Pause setting. Replies from the old
 Port are never sent to the replacement host's request-ID namespace. Reconnection
-does not replay browser actions: callers must explicitly reconnect and begin a
-new turn. Same-browser task membership remains available after this cleanup.
+does not replay browser actions: SDK callers must create a new client and new
+handles, then explicitly begin a new turn. Same-browser task membership remains
+available after this cleanup.
 
 `OBU_NATIVE_RECOVERY_PENDING` means actual cleanup is still running;
 `OBU_NATIVE_RECOVERY_FAILED` leaves admission blocked and permits an explicit

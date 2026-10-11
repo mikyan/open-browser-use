@@ -455,6 +455,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   helper。三个 SDK 同时提供核心 Browser Use method wrappers、download/clipboard
   convenience wrappers，也保留公开协议 `request`。复合 new-tab/navigation/CDP
   helpers 共享捕获的 session/turn/epoch 与原始 deadline，不在阶段间换到新轮次。
+  首次成功连接后，client及其handles固定到该实际连接；EOF、丢弃传输或显式
+  close使其终态，后续返回`OBU_SDK_BROWSER_DISCONNECTED`，不因同路径或active
+  registry变化重连。恢复需新client、新handles及显式新turn。首次连接从未成功
+  可重试；健康JS socket的响应超时不丢弃连接，Go/Python wire超时会丢弃。
+  本地编码/发送前预算和完整RPC业务错误保留健康连接。详见
+  [SDK连接身份](references/sdk-connection-identity.md)。
 
 当前实现包含 task/tab/target 归属、持久 turn epoch 和 popup 独占的 origin
 允许/禁止规则。全局暂停与网站规则不构成页面网络防火墙；自己的扩展控制页

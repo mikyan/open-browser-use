@@ -250,9 +250,16 @@ automatic recapture or replay. `DOMSnapshot` retains its existing scoped behavio
 
 Windows uses the host's local named pipe and Unix platforms use AF_UNIX. Read
 `socketPath` from `active.json`, or use `ConnectActive`. Upgrade the host and SDK
-together. A request deadline covers fragmented reads and notifications; timeout
-or invalid framing closes the connection. A later explicit request reconnects,
-without silently replaying the failed browser operation.
+together. A request deadline covers fragmented reads and notifications. A wire
+timeout, EOF, invalid framing, or explicit `Close` ends the client's connection
+permanently. Later calls return `ErrBrowserDisconnected` (message prefix
+`OBU_SDK_BROWSER_DISCONNECTED`); `Connect`, `BeginTurn`, manual epoch metadata and
+active-registry changes cannot revive the client or migrate its old handles.
+Create a new client and new tab/locator/wait handles, explicitly begin a new turn,
+and inspect page state before deciding whether to repeat an uncertain mutation.
+No operation is replayed. Initial discovery/dial failures can be retried unless
+explicitly closed; local encoding or unsent budget failures and complete RPC
+error responses preserve a healthy connection.
 
 Notification callbacks run synchronously in the request loop. They may register
 or remove handlers, including removing themselves; use a separate client for a
@@ -266,7 +273,8 @@ request and advances to the returned epoch/turn only after successful `TurnEnded
 or `FinalizeTabs`. Already submitted work keeps its original turn. A queued call
 from an ended turn fails, and waiting for the connection consumes its deadline.
 
-After inspecting a stale-epoch error or an uncertain end result, call
+While the original transport is still connected, after inspecting a stale-epoch
+error or an uncertain end result, call
 `browser.Client.BeginTurn()` explicitly before submitting new work. The SDK never
 silently refreshes control state or replays browser input. Extensions without the
 capability flag retain legacy behavior. Use one client per session.
@@ -358,7 +366,8 @@ Requires extension `metadata.navigationWaitVersion == 1`; no fallback or input
 replay occurs. `Timeout` zero defaults to 10 seconds for arming; nonzero values
 must be whole milliseconds from 1 through 120000. The original budget covers
 discovery, queue and attachment with one second added for transport. The handle
-keeps its exact session/turn/epoch through `BeginTurn` and reconnects.
+keeps its exact session/turn/epoch through `BeginTurn`; a closed connection makes
+that handle unusable, including after a new client connects.
 
 `Result(options ...NavigationWaitOptions) error` and `Cancel(...) error` accept
 only `Timeout`, defaulting to 120 and 10 seconds respectively. These read budgets

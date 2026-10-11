@@ -40,12 +40,13 @@ registry切换及Python实际transport行为尚未实测。
 ## Work and acceptance
 
 - [x] 复核三SDK调用链、MCP已有绑定实现与JS原生named-pipe条件反例。
-- [ ] 确认Go discovery切换和Python原生transport的具体反例及正常恢复对照。
-- [ ] 确定统一恢复契约、实现三SDK边界，补旧对象/并发/晚响应的回归。
-- [ ] 同一端点重用和两个live endpoint切换均核对原始收发；否定组不能
+- [x] 确认Go discovery切换和Python原生transport的具体反例及正常恢复对照。
+- [x] 确定统一恢复契约、实现三SDK边界，补旧对象/并发/晚响应的回归。
+- [x] 同一端点重用和两个live endpoint切换均核对原始收发；否定组不能
   仅因B自己的epoch/owner门禁而假通过。
-- [ ] SDK/Go/类型及适当浏览器回归，来源/真实业务/无新增focus规则独立审计。
-- [ ] 同步文档、总计划和同任务history，提交推送后关闭本片。
+- [x] SDK/Go/类型及适当浏览器回归，来源/真实业务/无新增focus规则独立审计。
+- [x] 同步文档、总计划和同任务history，完成本片实现与验收并归档；提交
+  推送到fork的实际结果另在交付时核验，不创建PR。
 
 ## Relevant production paths
 
@@ -59,3 +60,40 @@ registry切换及Python实际transport行为尚未实测。
 
 持有drop guard时worker丢失的实机恢复、Codex同组文件/诊断、平台生命周期
 及P01–P15其他未完成项继续保留；此分片不取代完整目标。
+
+## Implementation and Windows acceptance
+
+三SDK第一次成功connect后绑定实际连接，EOF/丢弃stream/close进入终态。
+后续有效调用返回`OBU_SDK_BROWSER_DISCONNECTED`，旧handles、manual epoch、
+beginTurn及Go active registry不能复活或迁移client；首次从未连接成功可
+重试。JS健康socket响应timeout保留连接，Go/Python原有wire timeout丢弃
+连接。完整业务错误及发送前预算/编码失败保留健康stream；初次connect
+迟到不能覆盖显式close。原在途错误和不重放规则保留。
+
+Go旧A/B同时live时健康连接仍留A，A原连接EOF后才按active重连B，解码收发
+记录保留；旧Python四组各13个旧scope请求到B，
+修复后均零旧请求且fresh恢复通过。JS连接身份专项17项对旧源12fail，新17pass。
+交叉评审发现Python本地预检误终止健康连接与迟到factory复活风险，已修
+且新增真实transport反例。Windows Node1792、JS142、Python110全过且零skip；
+Go全仓519 test/subtest pass、26平台skip，8无测试helper编译通过；typecheck过。
+
+专项`aZMiIx`4/4及完整`yVGT4D`125/125均actualexit0，旧122名称/相对顺序
+保持。三SDK各EOF/close两个真实browser场景使用透明字节relay，旧client
+四入口拒绝、零业务提交，fresh client明确协商后各一次trusted POST；
+同document token、原始frame、实际子进程退出与双端close、tab/target回收
+保存。该实机证据仍是同backend，跨实例碰撞仅原生IPC反例覆盖。
+
+专项2753ms零focus/activation，完整244620ms仅原12activation/4controlpopup
+focus，无新增豁免；sentinel身份/选择保持，高1222→1165。首host在重启
+测试SIGTERM，替代host实际exit0。新9个Go bin的50生产构建输入前后hash
+一致；扩展运行代码未变，旧preview不替换。独立专项/完整审计分别1093/
+1371项断言，原始业务、连续focus账本、实际exit/close及源码来源通过。
+报告hash前缀f55fc11e/15d356d7。恢复语义见
+[契约](../../references/sdk-connection-identity.md)。
+
+WSL2 Ubuntu真实Unix socket补验：Go523pass/10平台skip、JS142/142零skip、
+Python109pass/1 Windows路径skip，新host/helper及JS构建通过，外层和六
+子命令actualexit0。186源码/测试与当前源一致，20dist重建相同，四组
+Python替换端点零旧请求/明确fresh恢复。首次临时目录被环境清空发生在
+SDK测试启动前，失败保留；新持久短路径一次完成，无SDK失败重跑。未跑
+Linux实机浏览器、macOS及CGO race。此分片完成，完整目标继续active。

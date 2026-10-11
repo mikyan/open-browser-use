@@ -69,7 +69,7 @@ test("failed connection can retry after the host starts", async t => {
   assert.deepEqual(await client.request("ping"), { ok: true });
 });
 
-test("EOF mid-frame rejects the request and clears parser state before reconnect", async t => {
+test("EOF mid-frame preserves the original error and makes the bound client terminal", async t => {
   let connections = 0;
   const { client } = await fixture(t, socket => {
     const first = ++connections === 1;
@@ -80,8 +80,8 @@ test("EOF mid-frame rejects the request and clears parser state before reconnect
     });
   });
   await assert.rejects(client.request("ping"), /incomplete frame/);
-  assert.deepEqual(await client.request("ping"), { ok: true });
-  assert.equal(connections, 2);
+  await assert.rejects(client.request("ping"), /OBU_SDK_BROWSER_DISCONNECTED/);
+  assert.equal(connections, 1);
 });
 
 test("fragmented headers, coalesced responses, and notifications preserve request IDs", async t => {
@@ -105,7 +105,7 @@ test("fragmented headers, coalesced responses, and notifications preserve reques
   assert.deepEqual(notifications, [{ method: "heartbeat", params: { ok: true } }]);
 });
 
-test("malformed or oversized frames fail promptly and allow a clean retry", async t => {
+test("malformed or oversized frames fail promptly and make the bound client terminal", async t => {
   for (const kind of ["json", "size"]) {
     await t.test(kind, async t => {
       let connections = 0;
@@ -121,7 +121,8 @@ test("malformed or oversized frames fail promptly and allow a clean retry", asyn
         });
       });
       await assert.rejects(client.request("ping"), kind === "size" ? /frame too large/ : SyntaxError);
-      assert.deepEqual(await client.request("ping"), { ok: true });
+      await assert.rejects(client.request("ping"), /OBU_SDK_BROWSER_DISCONNECTED/);
+      assert.equal(connections, 1);
     });
   }
 });
@@ -136,7 +137,7 @@ test("request deadline does not poison later requests or accept a late response 
   assert.equal(await client.request("ping"), "current");
 });
 
-test("explicit close rejects pending work and permits reconnect without old-close interference", async t => {
+test("explicit close preserves the pending error and forbids reconnect", async t => {
   let notifyRequest;
   const received = new Promise(resolve => { notifyRequest = resolve; });
   let connections = 0;
@@ -149,5 +150,6 @@ test("explicit close rejects pending work and permits reconnect without old-clos
   await received;
   client.close();
   await rejection;
-  assert.deepEqual(await client.request("ping"), { ok: true });
+  await assert.rejects(client.request("ping"), /OBU_SDK_BROWSER_DISCONNECTED/);
+  assert.equal(connections, 1);
 });

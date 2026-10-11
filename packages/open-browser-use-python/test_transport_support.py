@@ -6,11 +6,11 @@ import uuid
 from pathlib import Path
 
 
-def local_server(directory):
+def local_server(directory, *, path=None):
     if os.name == "nt":
-        path = "\\\\.\\pipe\\open-browser-use-test-" + str(uuid.uuid4())
+        path = path or "\\\\.\\pipe\\open-browser-use-test-" + str(uuid.uuid4())
         return path, _WindowsListener(path)
-    path = str(Path(directory) / "obu.sock")
+    path = path or str(Path(directory) / "obu.sock")
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.settimeout(5)
     server.bind(path)

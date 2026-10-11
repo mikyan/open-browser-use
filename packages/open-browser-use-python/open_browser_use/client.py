@@ -44,6 +44,7 @@ class OpenBrowserUseClient:
             self.turn_id = f"turn-{time.time_ns()}"
         self._next_id = 1
         self._socket: Transport | None = None
+        self._disconnected = False
         self._notification_handlers: list[NotificationHandler] = []
         self.browser_engine: JsonObject | None = None
         self._lifecycle_version: int | None = None
@@ -61,16 +62,31 @@ class OpenBrowserUseClient:
         return self._connect(self.timeout)
 
     def _connect(self, timeout: float) -> "OpenBrowserUseClient":
+        self._require_connection_identity()
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
         if self._socket is None:
-            self._socket = connect_transport(self.socket_path, timeout)
+            connection = connect_transport(self.socket_path, timeout)
+            if self._disconnected:
+                try:
+                    connection.close()
+                finally:
+                    self._require_connection_identity()
+            self._socket = connection
         return self
 
     def close(self) -> None:
-        if self._socket is not None:
-            self._socket.close()
-            self._socket = None
+        # A client and all handles it created belong to one actual connection.
+        # Close is terminal even before connect; only an unsuccessful first
+        # connect_transport call may be retried on this instance.
+        self._disconnected = True
+        connection, self._socket = self._socket, None
+        if connection is not None:
+            connection.close()
+
+    def _require_connection_identity(self) -> None:
+        if self._disconnected:
+            raise RuntimeError("OBU_SDK_BROWSER_DISCONNECTED: browser connection ended; create a new client and new handles")
 
     def on_notification(self, handler: NotificationHandler) -> Callable[[], None]:
         self._notification_handlers.append(handler)
@@ -87,6 +103,7 @@ class OpenBrowserUseClient:
     def _request(self, method: str, params: JsonObject | None = None, *, timeout: float | None = None,
                  prepare: Callable[[JsonObject, float], None] | None = None,
                  execute: Callable[[JsonObject, float], Any] | None = None) -> Any:
+        self._require_connection_identity()
         locator_upload = method == "browserAction" and params is not None and params.get("action") == "setInputFiles"
         if locator_upload:
             locator_upload_params(params)
@@ -217,7 +234,7 @@ class OpenBrowserUseClient:
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
         if version is not None and (type(version) is not int or version != 1):
             raise RuntimeError(f"Unsupported turn lifecycle version: {version!r}; update the SDK")
-        # Never downgrade an established modern session after reconnecting.
+        # Never downgrade an established modern session on later discovery.
         if self._lifecycle_version != 1:
             self._lifecycle_version = 1 if version == 1 else 0
 
@@ -237,7 +254,7 @@ class OpenBrowserUseClient:
         return epoch, turn_id
 
     def begin_turn(self) -> Any:
-        """Explicitly recover current control state; never replay an old action."""
+        """Recover control state on this connection; never reconnect or replay."""
         state = self.request("getControlState")
         epoch, turn_id = self._validate_control_state(state)
         self._lifecycle_version, self._control_epoch, self.turn_id = 1, epoch, turn_id
@@ -245,6 +262,7 @@ class OpenBrowserUseClient:
 
     def _wire_request(self, method: str, merged_params: JsonObject, deadline: float, *, response_reserve: float = 0,
                       start_before: float | None = None) -> Any:
+        self._require_connection_identity()
         self._connect(remaining_time(deadline))
         if self._socket is None:
             raise RuntimeError("Open Browser Use socket is not connected")
@@ -279,11 +297,15 @@ class OpenBrowserUseClient:
             "method": method,
             "params": merged_params,
         }
+        # Local validation or an expired unsent budget does not discard a
+        # healthy connection. Only native I/O and wire failures below do so.
+        frame = encode_frame(request)
+        if start_before is not None:
+            (download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
+        wire_timeout = remaining_time(deadline)
         try:
-            if start_before is not None:
-                (download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
-            self._socket.settimeout(remaining_time(deadline))
-            self._socket.sendall(encode_frame(request))
+            self._socket.settimeout(wire_timeout)
+            self._socket.sendall(frame)
             while True:
                 response = read_frame(self._socket, deadline=deadline)
                 if response.get("id") == request_id:
@@ -295,7 +317,11 @@ class OpenBrowserUseClient:
         except BaseException:
             # A partial frame or late response must not poison the next request.
             # Do not replay: the timed-out operation may already have run.
-            self.close()
+            try:
+                self.close()
+            except BaseException:
+                # Preserve the original wire failure even if native close fails.
+                pass
             raise
         if "error" in response:
             message = response["error"].get("message", "Open Browser Use request failed")

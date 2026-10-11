@@ -1784,6 +1784,41 @@ epoch条件接受、未知session和不同epoch拒绝；真实tab归属和incarn
 仍是必要门禁，未执行真实浏览器误操作验收。更新已过期的MCP技术债条目，
 新建三SDK连接身份计划；本次未更改SDK生产行为，整体目标继续。
 
+### SDK连接身份修复与真实恢复验收
+
+本次SDK连接身份修复：三SDK的client及handles固定首次实际连接，EOF/丢弃
+stream/close后终态。后续有效调用报`OBU_SDK_BROWSER_DISCONNECTED`，原在途
+错误保留；首次从未连接成功允许重试。新client/handles与明确新turn才能
+恢复。完整RPC错误、本地编码及发送前预算失败保留健康stream；JS健康
+socket响应timeout仍可继续，Go/Python wire timeout丢弃stream后终态。
+交叉审查补修Python本地预检与迟到factory，未扩展线程安全承诺。
+
+真实Windows pipe反例：Go A/B同时live且active切换时健康client仍在A，
+A断线后旧实现才迁移B；保留实际解码请求。Python旧四组各13条旧scope
+请求到B，修复后零条且fresh恢复；JS连接身份专项17项旧12fail、新全过。Windows
+Node1792、JS142、Python110全过零skip/cancel，Go519 test/subtest通过，
+26平台skip及8无测试helper包编译通过另记，workspace typecheck通过。
+
+真实专项`aZMiIx`4/4、完整`yVGT4D`125/125均actualexit0，旧122名称/相对
+顺序一致。三SDK各EOF/close两场逐原HTML/POST/RPC字节、document token、
+四入口拒绝、旧零click、fresh唯一可信点击、actual exit/close、relay
+两端close及精确任务回收独立核实。实机relay仍连同一backend；跨实例
+碰撞是原生IPC证据，未声称真实浏览器误点击已复现。
+
+专项2753ms零focus/activation；完整244620ms连续16事件均匹配原12activation/
+4controlpopup focus，SDK六场零事件，新增零豁免。sentinel身份/选择保持，
+高1222→1165；原host重启测试SIGTERM、替代hostexit0。9新Go bin/50生产
+构建源、10 JS产物与当前TS编译、15 Python源码独立匹配；40扩展runtime
+hash与旧完整一致，41stage仅原adapter动态地址变化。旧preview三ZIP按
+原checksum确认未变，未创建PR。原始审计报告hash前缀为专项f55fc11e、
+完整15d356d7；边界见[SDK连接身份](../../references/sdk-connection-identity.md)。
+
+Linux WSL2 Ubuntu真实Unix socket补验Go523pass/10平台skip、JS142/142、
+Python109pass/1 Windows路径skip，全新host、helper与JS重建通过，外层及
+六子命令actualexit0。186源码/测试及20重建dist匹配，Python四组替换端
+零旧请求、新client恢复。首次临时目录被环境清空的启动失败保留，后续
+新持久短路径一次完成；未跑Linux浏览器、macOS或CGO race。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1801,4 +1836,5 @@ epoch条件接受、未知session和不同epoch拒绝；真实tab归属和incarn
 - `docs/references/transformed-element-bounds.md`
 - `docs/references/drag-delivery.md`
 - `docs/exec-plans/completed/2026-10-12-drag-commit.md`
-- `docs/exec-plans/active/2026-10-12-sdk-connection-identity.md`
+- `docs/exec-plans/completed/2026-10-12-sdk-connection-identity.md`
+- `docs/references/sdk-connection-identity.md`

@@ -31,7 +31,7 @@ def read_message(stream):
 
 @unittest.skipUnless(os.environ.get("OBU_TEST_HOST_BINARY"), "requires built native host")
 class NativeHostIntegrationTest(unittest.TestCase):
-    def test_round_trip_timeout_and_explicit_reconnect(self):
+    def test_round_trip_timeout_requires_new_client(self):
         with tempfile.TemporaryDirectory(prefix="obu-python-host-") as directory:
             process = subprocess.Popen(
                 [os.environ["OBU_TEST_HOST_BINARY"], "host", "--socket-dir", directory],
@@ -81,6 +81,11 @@ class NativeHostIntegrationTest(unittest.TestCase):
                     client.request("getInfo", {"probe": "late"})
                 self.assertIsNone(client._socket)
                 client.timeout = 2
+                with self.assertRaisesRegex(RuntimeError, "OBU_SDK_BROWSER_DISCONNECTED"):
+                    client.request("getInfo", {"probe": "stale after timeout"})
+                with self.assertRaisesRegex(RuntimeError, "OBU_SDK_BROWSER_DISCONNECTED"):
+                    client.connect()
+                client = OpenBrowserUseClient(endpoint, session_id="python-host-test", timeout=2)
                 self.assertEqual(client.request("getInfo", {"probe": "after timeout"})["probe"], "after timeout")
                 self.assertEqual([call["params"]["probe"] for call in calls], ["first", "late", "after timeout"])
             finally:

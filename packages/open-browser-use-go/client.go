@@ -23,6 +23,10 @@ const (
 	LoadStateLoad             = "load"
 )
 
+// ErrBrowserDisconnected means this client's original connection was closed or
+// lost. Create a new client to explicitly select and authorize a browser again.
+var ErrBrowserDisconnected = errors.New("OBU_SDK_BROWSER_DISCONNECTED: browser connection closed or lost; create a new client to reconnect")
+
 type Params map[string]any
 
 type Options struct {
@@ -50,6 +54,7 @@ type Client struct {
 
 	mu                     requestLock
 	conn                   net.Conn
+	disconnected           bool // Terminal after Close or a discarded stream; protected by mu.
 	nextID                 int64
 	controlMu              sync.Mutex
 	control                clientControlState
@@ -96,6 +101,12 @@ func (c *Client) Connect() error {
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.closeLocked()
+}
+
+func (c *Client) closeLocked() error {
+	// Even a never-connected client is terminal after an explicit Close.
+	c.disconnected = true
 	if c.conn == nil {
 		return nil
 	}
@@ -204,6 +215,9 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 		return nil, err
 	}
 	defer c.mu.Unlock()
+	if c.disconnected {
+		return nil, ErrBrowserDisconnected
+	}
 	_, manualEpoch := merged["control_epoch"]
 	if !controlDiscoveryMethod(method) && !manualEpoch {
 		if merged["session_id"] != c.options.SessionID || merged["turn_id"] != control.turnID {
@@ -461,6 +475,9 @@ func scopedParams(metadata Params, params Params) Params {
 // requestLocked performs one wire exchange under c.mu. Discovery shares the
 // original request deadline, and no failing operation is replayed.
 func (c *Client) requestLocked(method string, merged Params, deadline time.Time, responseReserve ...time.Duration) (any, error) {
+	if c.disconnected {
+		return nil, ErrBrowserDisconnected
+	}
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		return nil, os.ErrDeadlineExceeded
@@ -514,10 +531,9 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 	responseComplete := false
 	defer func() {
 		if !responseComplete {
-			// A partial frame or late response cannot be reused safely. Never
-			// replay the request: the browser may already have acted on it.
-			_ = c.conn.Close()
-			c.conn = nil
+			// Preserve this request's original error, but never carry its client,
+			// handles or cached authority onto another actual connection.
+			_ = c.closeLocked()
 		}
 	}()
 	c.nextID++
@@ -756,6 +772,9 @@ func (c *Client) connectLocked() error {
 }
 
 func (c *Client) connectWithTimeoutLocked(timeout time.Duration) error {
+	if c.disconnected {
+		return ErrBrowserDisconnected
+	}
 	if c.conn != nil {
 		return nil
 	}

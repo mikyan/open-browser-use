@@ -2629,12 +2629,34 @@ skip/cancel；旧121名称/顺序不变。十场/12原文档、110记录native�
 CSS/跨文档drag保留边界。持有guard时worker丢失恢复未实机验证，是后续
 候选；Codex同组文件/诊断、平台生命周期和完整P01–P15目标继续active。
 
-### 下一分片：SDK连接身份与恢复（active）
+### P02/P13：SDK连接身份与恢复
 
-拖放提交`27843a1`已推送并核远端一致。只读审计的6项JS实际named-pipe
-对照证明EOF/显式close后同路径替换会让新RPC携带旧session/turn/tab/epoch，
-并且B端同值control epoch可接受；它不是原请求重放，也不证明真实浏览器
-误点击，仍有实际owner/site/incarnation等必要条件。Go未指定SocketPath的
-active registry重发现与Python尚待原生验证。MCP实际连接绑定已有修复，
-不重复该工作。下一步按[连接身份计划](2026-10-12-sdk-connection-identity.md)
-确认三SDK恢复契约与跨实例负例；完整目标和其他能力缺口继续保留。
+前一轮审计与实现改变了当前源码和下一步验收依据，属于progress。三SDK
+绑定首次实际连接；EOF/丢弃stream/close后旧client和handles保持终态，
+connect、beginTurn、manual epoch与Go active registry不能迁移原scope。
+恢复需新client/handles和显式新turn；首次从未连接成功仍可重试，完整
+RPC业务错误、本地编码与发送前预算失败保留健康连接。JS健康socket
+响应timeout和Go/Python丢弃wire的差异明确保留，不自动重放操作。
+
+旧Go两个live端点/active切换及旧Python四组各13条旧scope请求到B的反例
+均保留；修复后旧请求零条、新client恢复通过。JS连接身份专项17项对旧源12fail、
+新源全过。交叉审查补修Python本地预检与迟到factory；Windows Node1792、
+JS142、Python110全过零skip/cancel，Go519 test/subtest通过、26平台skip，
+8无测试helper编译通过，typecheck通过。
+
+真实专项`aZMiIx`4/4、完整`yVGT4D`125/125、actualexit0，旧122名称/相对
+序保留。六场原始业务/relay记录均旧client四入口拒绝零提交、fresh各一次
+可信POST；实机透明relay连同一backend，不把原生IPC碰撞夸大为真实跨
+浏览器误操作。专项2753ms零focus；完整244620ms只原12activation及
+4controlpopup focus，无新豁免，sentinel保持，高1222→1165。9个新Go bin/
+50构建源冻结；扩展运行源与旧preview未变。Linux真实Unix socket补验
+Go523pass/10平台skip、JS142pass、Python109pass/1 Windows路径skip，186源及
+20重建dist一致；独立专项/完整业务、focus、构建来源审计均通过。细节见
+[已完成分片](../completed/2026-10-12-sdk-connection-identity.md)，契约见
+[SDK连接身份](../../references/sdk-connection-identity.md)。
+
+下一步优先页面导出原文件闭环：页面POST/Blob生成的原文件要能由Agent
+可靠取得用于分析，不能把新GET当原下载、不能按URL/时间/文件名猜归属。
+先补同组Codex文件任务对照与原生映射可行性证据，再决定实现。后台新页
+ready/跟进工作流、guard丢失恢复、平台生命周期及P01–P15仍开放，完整目标
+保持active。

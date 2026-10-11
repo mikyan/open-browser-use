@@ -2295,3 +2295,39 @@ target removal. Evidence covers the current process and these scenes; it does
 not establish worker-loss recovery or atomic layout/input. See
 [drag delivery](../../docs/references/drag-delivery.md) for the retained failures
 and the implementation's completion boundary.
+
+## SDK connection identity
+
+The default suite adds `js-sdk-connection-identity`,
+`python-sdk-connection-identity` and `go-sdk-connection-identity` after drag.
+Each aggregate runs EOF and explicit-close scenes with its public SDK in a
+separate process. Set `OBU_TEST_CASES=sdk-connection` for these three aggregates
+and the existing raw-navigation sentinel. Build the new Go caller with:
+
+```sh
+go build -o /tmp/go-sdk-connection-checks ./scripts/browser-integration/go-sdk-connection-checks
+export OBU_TEST_GO_CONNECTION_BINARY=/tmp/go-sdk-connection-checks
+```
+
+On Windows use an `.exe` output and set the equivalent PowerShell environment
+variable. The other existing host/browser/Go prerequisites still apply. JS uses
+the frozen SDK dist; Python uses the frozen package with `OBU_TEST_PYTHON` when
+provided. The runner copies the caller files/binary and records their hashes.
+The Go binary must be built from the tested sources; its hash alone cannot prove
+that relationship.
+
+A local byte relay forwards unchanged frames to the real Go host and extension.
+After reading the original document, the parent cuts the original connection or
+acknowledges the child's explicit close. Four old entry points must reject without
+opening another connection or producing a business submission. Only after those
+checks does the parent allow an explicit new client and turn to perform one
+trusted click. The old locator must remain unusable after successful recovery.
+
+`sdk-connection-{js,python,go}.json` retains raw request frames, both relay-end
+close times, caller stdout/stderr and actual exit/close, original document state,
+exact POST bytes and tab/target cleanup. `sdk-connection-server.json` also keeps
+wrong or duplicate submissions, so they cannot disappear from acceptance.
+The test leaves backend epoch, ownership and focus allowances unchanged. It
+proves recovery against the same real browser backend; native IPC tests cover
+same-path replacement and active-discovery changes across endpoints separately.
+See [connection contract and evidence](../../docs/references/sdk-connection-identity.md).

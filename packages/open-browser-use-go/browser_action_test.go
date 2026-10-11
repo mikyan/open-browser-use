@@ -1,6 +1,7 @@
 package obu
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -8,7 +9,7 @@ import (
 	"github.com/ifuryst/open-browser-use/internal/wire"
 )
 
-func TestRequestTimeoutDiscardsPartialFrameAndAllowsExplicitReconnect(t *testing.T) {
+func TestRequestTimeoutDiscardsPartialFrameAndRequiresNewClient(t *testing.T) {
 	path, cleanup := startSDKServer(t, func(conn net.Conn) {
 		readRequest(t, conn)
 		_, _ = conn.Write([]byte{50, 0})
@@ -17,8 +18,8 @@ func TestRequestTimeoutDiscardsPartialFrameAndAllowsExplicitReconnect(t *testing
 	defer cleanup()
 	client := NewClient(Options{SocketPath: path, Timeout: 25 * time.Millisecond})
 	defer client.Close()
-	if _, err := client.GetInfo(); err == nil {
-		t.Fatal("expected partial frame timeout")
+	if _, err := client.GetInfo(); err == nil || errors.Is(err, ErrBrowserDisconnected) {
+		t.Fatalf("expected original partial frame timeout, got %v", err)
 	}
 	if client.conn != nil {
 		t.Fatal("timed out stream must be discarded")
@@ -30,9 +31,14 @@ func TestRequestTimeoutDiscardsPartialFrameAndAllowsExplicitReconnect(t *testing
 	defer closeFresh()
 	client.options.SocketPath = fresh
 	client.options.Timeout = time.Second
-	result, err := client.GetInfo()
+	if _, err := client.GetInfo(); !errors.Is(err, ErrBrowserDisconnected) {
+		t.Fatalf("changing endpoint must not revive an old client: %v", err)
+	}
+	replacement := NewClient(Options{SocketPath: fresh, Timeout: time.Second})
+	defer replacement.Close()
+	result, err := replacement.GetInfo()
 	if err != nil || result != "fresh" {
-		t.Fatalf("explicit reconnect failed: %v, %v", result, err)
+		t.Fatalf("explicit new client failed: %v, %v", result, err)
 	}
 }
 

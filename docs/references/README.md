@@ -24,6 +24,8 @@
   有界准备移动、并发原生输入隔离与禁止重放已提交点击的边界。
 - [Local IPC transport](local-ipc-transport.md)：Windows named pipe、Unix socket、
   endpoint discovery 与跨语言帧协议。
+- [SDK connection identity](sdk-connection-identity.md)：实际连接固定、断线终态、
+  新client显式恢复，以及原生IPC与真实浏览器验收的不同边界。
 - [Native message transport](native-message-transport.md)：浏览器 1 MiB 出口
   上限、私有分片协商、有界组装、原预算和旧版本兼容。
 - [Browser control lifecycle](control-lifecycle.md)：持久 control epoch、结束与恢复、
