@@ -354,6 +354,38 @@ has no cross-connection readiness guarantee. Legacy Client methods retain raw
 JSON and current-invocation scope semantics. Prefer typed Tab handles for later
 operations, or supply the original scope explicitly to `request`.
 
+For a page-triggered download, use `tab.expect_download(timeout_ms=...)` (also
+available on `tab.playwright`) to obtain an `OpenBrowserUseDownloadWait` only
+after the observer is ready. This requires `metadata.downloadWaitVersion == 1`
+and works sequentially with the synchronous client:
+
+```python
+pending = tab.expect_download(timeout_ms=10000)
+tab.get_by_role("button", name="Download report").click()
+download = pending.result()
+print(download.download_id)
+# If the triggering workflow is abandoned: pending.cancel()
+```
+
+The wait exposes `waiter_id` and the ready acknowledgement's `remaining_ms`.
+The timeout defaults to 10000 integer milliseconds (1..120000), covering
+connection, capability discovery, setup, the trigger and collection under one
+original deadline. `remaining_ms` is a snapshot, not a new timeout. The extra
+second for reading the reply cannot authorize a collect sent after the deadline.
+`result()` returns the existing `OpenBrowserUseDownload`, retaining the original
+session/turn/epoch/tab. Concurrent result calls are rejected before a second
+collect is sent. Successful collection or cancellation consumes the wait locally;
+failure never automatically rearms it, retries a click or begins a new turn.
+
+`pending.cancel()` only cancels observation. It remains retryable on the exact
+wait after expiry, with its own ten-second cleanup budget, and does not cancel
+the browser's transfer or page network activity. The page GUID returned by
+`result()` still raises `OBU_DOWNLOAD_PATH_UNAVAILABLE` from `download.path()`
+and `OBU_DOWNLOAD_CANCEL_UNSUPPORTED` from `download.cancel()`. There is no
+guessed path or fallback GET; `download_url()` explicitly starts a separate
+request and cannot substitute for a page-triggered or POST download. The legacy
+`wait_for_download` API remains available without a ready handshake.
+
 ### PDF and MHTML page exports
 
 `tab.export_page("pdf" | "mhtml", ...)`, `tab.export_pdf(...)` and

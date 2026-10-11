@@ -1,5 +1,9 @@
 # Browser integration acceptance
 
+Use the Go version pinned by `go.mod` (currently 1.26.9) for the host and every
+Go caller. Check `go version` before the build commands below; a previously
+installed local toolchain may be older than the repository requirement.
+
 ## Real Windows native launcher lifecycle
 
 `native-lifecycle.mjs` tests the browser's actual `connectNative` launcher with
@@ -651,6 +655,87 @@ transcript; some rejection checks retain their assertion kind rather than the
 full rejected response. Cleanup auditing checks retained host exits, not a fresh
 OS process inventory. This accepts the tested chooser-ready workflow, not full
 P10 or Codex capability parity.
+
+## Ready-first page download acceptance
+
+Build the regular host and SDK artifacts as above, then build the separate typed
+Go caller and select the new cases, the retained legacy case, and real Pause:
+
+```powershell
+$env:GOTOOLCHAIN = 'local'
+$env:GOPATH = "$PWD/.tmp/toolchain/gopath"
+$env:GOCACHE = "$PWD/.tmp/toolchain/gocache"
+go build -o .tmp/go-download-waits-checks.exe ./scripts/browser-integration/go-download-waits-checks
+$env:OBU_TEST_GO_DOWNLOAD_WAIT_BINARY = "$PWD/.tmp/go-download-waits-checks.exe"
+$env:OBU_TEST_CASES = 'page-download-ready|public-downloads-session-isolation|global-pause'
+node scripts/browser-integration/run.mjs
+```
+
+The five `*-page-download-ready-two-connections` cases use JavaScript,
+synchronous Python/Go, CLI and MCP. Each uses independent connections under one
+session/turn/epoch: arm acknowledgement, immediate trusted page link click from
+the other connection, then collect. Each covers a cold root, an existing OOPIF,
+and an OOPIF added after acknowledgement. CLI/MCP use the public generic RPCs;
+the three SDK callers use the typed wait and existing download handle. These
+are page-triggered native downloads; `downloadURL` is never the trigger.
+
+`download-ready-*.json` retains bounded passive original native Page download
+events, collected GUIDs, scoped notifications, real child attachment evidence,
+trusted DOM click witnesses and complete server response bytes/hashes. The
+isolated directory's new completed files must match those response bytes,
+including each server-generated nonce. All responses deliberately suggest the
+same filename. This filesystem witness is a harness read, **not a public
+GUID-to-path mapping**. Public Page GUID path remains explicitly unavailable;
+URLs, timing and filenames are not used to infer product download ownership.
+The original `js-public-downloads-session-isolation` case remains unchanged.
+
+Failed focused run `run-c0ip6L` remains retained at **7/9**: Python and Go each
+produced three native GUIDs and three exact files, but their separate JS monitor
+had never sent a scoped request, so the host correctly withheld its scoped
+notifications. A local `onNotification` callback alone does not associate an IPC
+connection with a session. The harness now awaits public read-only `getTabs`
+bootstrap on that monitor before any caller starts; its scope and acknowledgement
+are retained as `monitorAssociation`. Notification requirements remain unchanged,
+and no missing events are backfilled. This is a harness correction, not a product
+download fix or a replacement for a fresh browser run.
+
+The lifecycle case checks the first of two native starts before collect,
+concurrent collect conflict, duplicate arm, foreign scope/cancel/source,
+historical events, original timeout across navigation, legal navigation under
+the original scope, end/old epoch and moved ownership with explicit new claim.
+A held real response suffix proves cancelling an uncollected observer does not
+cancel its transfer: the old transfer completes while a successor observes,
+and only a new click can supply that successor's distinct GUID. Real Pause also
+invalidates a pending page download observer without replay after Resume.
+
+No download-specific focus allowance is added. The existing continuous observer
+and documented loopback native-message adapter boundaries still apply. Caller
+scope and frozen-source evidence is not a complete wire transcript. This does
+not establish Page GUID path/transfer-cancel support or full Codex/P10 parity.
+
+Final Go 1.26.9 acceptance passed `run-lMFHcB` **9/9** and `run-k3mDiy`
+**89/89**, independently audited against a pre-run source/binary snapshot.
+Each run retains 24 original responses and matching actual files (98,376 bytes),
+22 collected GUIDs, scoped completion and native OOPIF provenance. Full CI
+passed 906 Node tests (771 extension, 53 scripts, 82 harness), JS 115, Python 82
+and every Go package, with no skips. The host uses go-winio 0.6.3's official
+close fix; the old 601-second Go failure, earlier binaries and toolchain remain
+retained. See [IPC transport](../../docs/references/local-ipc-transport.md).
+
+Earlier full `run-Ni9Djz` **87/89** failed both popup cases with an inactive
+root window, ultimately recorded as minimized. Its full ledger has six allowed
+fixture activations and zero focus events; it lacks initial window state and
+does not establish a cause. The runner now saves raw `focus-initial-state.json`
+and `focus-final-state.json`, also in `results.focusLedger`, containing window
+state/focus, active tabs, sampling timestamps and the complete observer ledger.
+These are asynchronous read-only snapshots, not atomic OS foreground evidence.
+No focus/unminimize call or allowance was added. Both final runs began with a
+normal focused root window; this does not explain away the earlier failure.
+The full final observer covers 129,574 ms with six fixture activations and four
+intentional popup focus events, all precisely attributed under the prior rules.
+It excludes browser startup and teardown. Host SIGTERM belongs to the explicit
+restart test; the successor exits normally. Historical failures remain failures,
+including the separate Edge native-launcher focus gap.
 
 ## Isolated clipboard acceptance
 

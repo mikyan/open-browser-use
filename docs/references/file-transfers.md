@@ -88,6 +88,55 @@ old transfer state even while its debugger attachment still exists. A later wait
 not return an old cached download. At most 128 records and 128 waits are retained;
 completed records may be evicted, and full active capacity fails explicitly.
 
+### Explicit page download readiness
+
+`getInfo.metadata.downloadWaitVersion === 1` advertises an explicit observer:
+
+| Method | Extra parameters alongside original scope and `tabId` | Result |
+| --- | --- | --- |
+| `armDownloadWait` | Optional integer `timeoutMs`, 1–120000, default 10000 | `{waiterId, remainingMs}` |
+| `collectDownloadWait` | `waiterId` | `{downloadId}` |
+| `cancelDownloadWait` | `waiterId` | `{}` |
+
+All requests retain `session_id`, `turn_id`, positive `control_epoch` and `tabId`;
+unknown fields are rejected. Arm reserves capacity before bootstrap, establishes
+the same CRX attachment used by actions, enables Page events on the root and
+known child sessions, and rechecks scope before acknowledging readiness. A
+second connection may trigger immediately after that acknowledgement using the
+same original scope. New child sessions join the setup barrier. The legacy
+`waitForDownload` uses the same observer and preserves its `{downloadId}` result.
+
+JS `tab.expectDownload`, Python `tab.expect_download` and Go `Tab.ExpectDownload`
+also exist under `playwright`. Their wait handle's `result`/`Result` returns the
+existing `Download` object bound to the original control scope. CLI/MCP use the
+three generic `call` methods. One outstanding or uncleaned observer per tab and
+128 in total are shared by old and new APIs. Each waiter is consumed at most
+once; concurrent collection is an explicit conflict. The first native event
+claims its candidate synchronously, before asynchronous ownership validation,
+so a later event with faster validation cannot win instead.
+
+Discovery, queues, attachment, setup, triggering, event validation and collection
+share the original deadline. Collect accepts no new timeout; SDKs recheck the
+original deadline after queueing and connection. The reply margin cannot
+authorize an expired request. Legal page navigation or redirects retain this
+tab/attachment observer without extending its deadline. A download GUID is not
+a DOM node: a proven candidate is not discarded solely because its document or
+child frame subsequently disappears. New events from a detached child are not
+accepted. Tab attachment loss, ownership transfer, end, Pause and worker/host
+replacement invalidate the original observer and its uncollected result.
+
+`cancelDownloadWait` cancels **observation only**. It revokes an undelivered
+result but does not stop a started browser transfer, remove a file, replay a click
+or initiate a substitute GET. A delivered download retains its existing
+lifecycle. Cancel remains available after expiry with the original scope and a
+separate cleanup response budget of at most 10 seconds. Unknown/foreign handles
+have no effect; normal tab/epoch admission applies regardless of handle existence.
+Pending native setup remains accounted for until it actually settles, and shared
+engine Page events are never disabled just to cancel an observer.
+
+This readiness protocol does not provide a GUID-to-path mechanism or transfer
+cancellation for page-triggered downloads. Those distinct limitations follow.
+
 The global [`chrome.downloads` API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
 exposes numeric IDs and file paths but no corresponding native GUID or source tab
 identity. The tested extension debugger exposes the tab-scoped Page events but
@@ -175,6 +224,12 @@ without proven ownership are not forwarded. The native host must route scoped
 events only to clients explicitly associated with that session; an extension
 metadata check alone is not cross-client isolation.
 
+Opening a socket and registering a local `onNotification` callback do not
+associate that connection with a host session. A separate notification monitor
+must first await a public scoped request such as `getTabs()` before another
+connection triggers a download. Notifications are live events, not a history
+query; subscribing later does not recover an earlier completion.
+
 If a user regroups a still-attached tab and another session legitimately acquires
 it, `attach` or `browserAction` releases the exact previous Page before creating a
 new one. Raw CDP requires an explicit new `attach` in that case. This prevents
@@ -216,6 +271,33 @@ not OS native registration. Scope evidence combines retained caller scope and
 frozen caller code, not a complete wire transcript; some negative cases retain
 the assertion kind. Focus coverage runs from observer readiness to the final
 snapshot. This slice does not establish Codex upload parity or complete P10.
+
+Page download readiness passed the final Go 1.26.9 focused `run-lMFHcB`
+**9/9** and full headed `run-k3mDiy` **89/89**. All five entry points use two
+independent connections with cold root, existing OOPIF and OOPIF created after
+arm. Evidence retains actual Page GUID/source, scoped completion notifications
+and separate renderer processes. The five entry-point and lifecycle fixtures
+produce 24 original responses and files (98,376 bytes), including 22 collected
+GUIDs. Cancelling an uncollected observer lets its actual transfer finish before
+a new trigger; the subsequent wait returns a distinct GUID. Fixed expiry,
+legal navigation, concurrent collection, foreign scope, ownership loss and
+Pause/worker replacement are also covered.
+
+The first focused `run-c0ip6L` **7/9** exposed an unassociated notification
+monitor; a public read-only `getTabs` acknowledgement now precedes triggers,
+without backfilling events or weakening the notification requirement. The first
+full `run-Ni9Djz` **87/89** failed both popup cases because the root window was
+inactive and was ultimately recorded as minimized. Its ledger contains no
+unexpected focus events, but lacks initial window state, so the cause remains
+unknown. Final runs retain read-only initial/final window snapshots and keep the
+same focus rules; their initial root windows were normal and focused. All failed
+evidence is retained. The final host also uses the upstream Windows pipe-close
+fix described in [local IPC transport](local-ipc-transport.md).
+
+File evidence compares original response bytes and server nonces with a private
+test directory delta. It does not add a public Page GUID-to-path mapping or
+actual transfer cancellation. The native Port adapter and observer coverage
+limits above still apply; full P10 and Codex parity are not established.
 
 Text and rich clipboard helpers now have a separate [contract and isolated
 acceptance](clipboard.md). A fresh browser profile does not isolate the operating

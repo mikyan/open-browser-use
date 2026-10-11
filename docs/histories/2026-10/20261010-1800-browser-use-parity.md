@@ -846,6 +846,66 @@ host清理审计依赖退出证据，未新增OS进程枚举。此前Edge原生f
 保持一致。ZIP外的构建manifest包含本地绝对路径，不作为公开附件；用户
 主浏览器的安装未改变。新JS生成模块与声明随源码一并纳入版本控制。
 
+### P10：跨连接页面下载准备确认
+
+新增 `downloadWaitVersion=1` 与 arm/collect/cancel 三个 RPC，JS/Python/Go
+提供同步可编排的 wait handle，CLI/MCP 沿用公开 call。准备确认覆盖原
+attachment 的 root、既有与后来加入的 OOPIF；另一连接在 ACK 后可立即
+点击。首个实际 Page 事件在异步权限校验前固定，原期限包含准备与最终
+校验，合法导航不续期。旧 waitForDownload 共用每 tab 一个、全局128个
+的注册表；并发 collect 冲突，成功单次交付，结果固定原 scope 和 tab。
+
+取消只退役观察，不取消页面的实际传输；超时后仍可按原 scope 用独立
+清理预算重试。真实未完成的 setup 保留清理账本，不关闭共享 Page 事件。
+Page GUID 的路径查询和实际取消仍明确报不支持，不猜测文件归属，也不
+用新 GET 代替原页面响应。独立评审补齐 Go 结果的 tab 绑定和原始请求
+前置校验；确定性测试覆盖首事件校验倒序、最终校验越过期限等竞态。
+
+首轮专项 `run-c0ip6L` **7/9** 中，Python/Go 各有三个真实下载和正确文件，
+但独立监控连接未发送 scoped RPC，因此主机没有关联其通知会话。现先
+等待公开只读 getTabs 再允许触发，保留原通知要求；真实 SDK wire 回归
+证明连接加本地回调本身不发送请求。失败证据保持原样。修复后专项
+`run-mRwIs8` **9/9**，独立审计24份实际文件共98,376字节与原始响应一致，
+五入口及跨进程 OOPIF、原生 GUID/通知范围、取消观察后传输完成均通过。
+19,297ms 连续 observer 内一条创建激活、两条主动 popup focus 精确归因。
+
+首轮完整 `run-Ni9Djz` **87/89**：两个控制面板场景均被浏览器以目标窗口
+未活动为由拒绝，其余场景通过。该运行仍为失败，不放宽焦点规则或用
+专项结果抵消。新增只读初始/最终窗口state、focused与完整ledger采样，
+不主动聚焦或还原窗口，亦不声称异步快照是原子OS前台日志。
+
+最终检查另暴露既有 Windows 管道关闭缺陷：旧 export 参数负例在601秒
+超时，Close 等待 doneCh，而 listenerRoutine 已回外层 select、Accept 已
+退出。采用 go-winio 正式 v0.6.3 的上游关闭广播修复，同步 x/sys v0.48.0
+和其所需 Go 1.26，仓库与构建固定官方已校验的 Go 1.26.9。旧工具链和
+失败日志保留，新工具链独立安装。回归分单次/八次并发 Close、无客户端/
+立即断连四类真实交错，并检查 Accept 实际退出、端点释放、存量连接仍
+可双向通讯；不以测试超时代替清理，不称有界压力为确定性复现。原卡死
+参数负例20次通过，相关 transport/host/wire 测试通过；正式CI和浏览器
+验收使用新构建的主机及所有Go调用程序，和旧版本证据分开记录。
+
+最终新版本专项 `run-lMFHcB` **9/9**、完整 `run-k3mDiy` **89/89**，独立
+16组审计均通过。两次初始窗口normal/focused=true；全套129,574ms连续
+observer内六次fixture创建激活与四次真实popup focus均精确归因，sentinel
+不变。24份实际文件98,376字节、22个collected GUID及取消后的真实传输
+完成再次核验。原主机SIGTERM属于明确重启注入，后继exit0；所有连接关闭。
+349份预跑源码/锁文件/二进制与实测一致；72份历史失败results、三份故障
+日志和六份旧Go二进制保持原hash。完整CI **906** 项Node（771+53+82）、
+JS115、Python82及Go全包通过，无跳过。
+
+该片仍使用明确声明的native Port adapter，scope证据不含完整RPC transcript，
+焦点覆盖不含启动与退出。旧窗口最小化原因未确定；未新增当前Codex下载
+对照，未解除此前Edge原生focus失败，Page GUID路径/实际取消仍是缺口。
+完整P10与长期目标继续active；仅本地开发和提交，不推送、不提PR。
+
+最终ZIP **1,255,479 bytes / 47 files**，SHA-256
+`cef6706a1cf69717835f168c4e96bd1f20146f0dfc610e9b28b58434a2c5a0c8`，
+逐成员与unpacked及两次实测一致；36项生产JS/JSON hash及其余静态资源
+均核对，无测试插桩或私有路径。主机SHA-256
+`9ea5b96aaf6a67221aaf87ec634f9e9fad50d36b9761eb2cbcafcd62846c475e`，
+与两run和新构建基线相同；源码、生成JS模块与声明一起纳入版本控制。
+ZIP外本地构建manifest未作为公开附件，用户主浏览器安装未改变。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

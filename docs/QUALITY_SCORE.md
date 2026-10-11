@@ -144,3 +144,19 @@ timer receiver与新OOPIF commit-before-swap缺陷已修复并有回归，旧失
 `8990be12bf0702945e919b6f852246bea01feb56dfba7558939b91a3f85f5f9d`。
 逐成员与unpacked及两轮实测hash/静态字节一致，无测试插桩或私有路径；
 ZIP外的本地构建元数据不属于该审计的公开交付内容。
+
+页面下载准备确认本片已完成五入口验收：Go1.26.9专项 `run-lMFHcB` **9/9**、
+完整 `run-k3mDiy` **89/89**，16组独立检查通过。24份实际文件98,376字节、
+原生GUID与scoped通知、OOPIF、取消观察后真实传输完成均核验。完整CI
+**906** 项Node（771+53+82）、JS115、Python82、Go全包通过，无跳过。
+新增官方go-winio0.6.3关闭修复及真实单次/并发Close回归；旧601秒CI失败
+保留。初始normal/focused窗口下129,574ms账本六次创建激活、四次主动popup
+focus精确归因；此前87/89的minimized窗口失败原因仍未知，新只读初末状态
+快照没有放宽焦点规则。旧Edge失败、Page GUID路径/实际取消及完整P10缺口
+均保留，也没有新增Codex下载对照或OS原生launcher验收。
+
+最终ZIP **1,255,479 bytes / 47 files**，SHA-256
+`cef6706a1cf69717835f168c4e96bd1f20146f0dfc610e9b28b58434a2c5a0c8`。
+逐成员与unpacked、两轮实测生产hash及静态字节一致；无测试插桩或私有路径。
+新主机和五个Go程序的Go1.26.9/winio0.6.3/xsys0.48.0及hash均独立核对。
+证据不是签名或可重现编译证明；完整目标继续active，仅本地提交。

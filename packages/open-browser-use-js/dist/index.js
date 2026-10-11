@@ -1,4 +1,6 @@
 var _a;
+import { OpenBrowserUseDownloadWait, downloadWaitMethods, downloadWaitParams, downloadWaitTimeout, downloadWaitAck, downloadWaitCancelled, assertDownloadWaitDeadline } from "./download-waits.js";
+export { OpenBrowserUseDownloadWait } from "./download-waits.js";
 import { clipboardMethods, clipboardParams, validateClipboardResult, OpenBrowserUseClipboard } from "./clipboard.js";
 import { OpenBrowserUseFileChooserWait, fileChooserWaitMethods, fileChooserWaitParams, fileChooserWaitTimeout, fileChooserWaitAck, fileChooserWaitResult, fileChooserWaitCancelled, assertFileChooserWaitDeadline } from "./file-chooser-waits.js";
 export { OpenBrowserUseFileChooserWait } from "./file-chooser-waits.js";
@@ -18,10 +20,11 @@ const headerBytes = 4;
 const maxFrameBytes = 64 * 1024 * 1024;
 const defaultNavigationTimeoutMs = 10_000;
 const controlExemptMethods = new Set(["ping", "getInfo", "getControlState"]);
-const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
+const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armDownloadWait", "armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods]);
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
+const downloadWaitSymbol = Symbol("downloadWait");
 const navigationWaitSymbol = Symbol("navigationWait");
 const networkWaitSymbol = Symbol("networkWait");
 const fileChooserWaitSymbol = Symbol("fileChooserWait");
@@ -41,6 +44,7 @@ export class OpenBrowserUseClient {
     #navigationWaitVersion = undefined;
     #networkWaitVersion = undefined;
     #fileChooserWaitVersion = undefined;
+    #downloadWaitVersion = undefined;
     #socket = null;
     #connecting = null;
     #pendingData = Buffer.alloc(0);
@@ -116,6 +120,8 @@ export class OpenBrowserUseClient {
     async #request(method, params, options, capture) {
         if (fileChooserWaitMethods.has(method))
             fileChooserWaitParams(method, params);
+        if (downloadWaitMethods.has(method))
+            downloadWaitParams(method, params);
         assertTimeout(options.timeoutMs ?? this.timeoutMs);
         const submittedAt = Date.now();
         let deadline = submittedAt + (options.timeoutMs ?? this.timeoutMs);
@@ -129,6 +135,8 @@ export class OpenBrowserUseClient {
                 deadline = Math.min(deadline, submittedAt + requested + 1000);
         }
         const merged = { session_id: this.sessionId, turn_id: turnId, ...captured };
+        if (downloadWaitMethods.has(method))
+            downloadWaitParams(method, merged);
         if (controlExemptMethods.has(method))
             return this.#sendRequest(method, merged, deadline);
         const explicitEpoch = Object.hasOwn(captured, "control_epoch");
@@ -159,6 +167,14 @@ export class OpenBrowserUseClient {
                 throw new Error("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1");
             if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
                 throw new Error("File chooser waits require an explicit control epoch");
+        }
+        if (downloadWaitMethods.has(method)) {
+            if (this.#downloadWaitVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
+            if (this.#downloadWaitVersion !== 1)
+                throw new Error("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension does not advertise downloadWaitVersion 1");
+            if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
+                throw new Error("Download waits require an explicit control epoch");
         }
         if (navigationWaitMethods.has(method)) {
             if (this.#navigationWaitVersion === undefined)
@@ -241,6 +257,16 @@ export class OpenBrowserUseClient {
         const captured = { ...binding, tabId, waiterId: ack.waiterId };
         return new OpenBrowserUseNavigationWait(ack, (method, timeout) => this.request(method, captured, { timeoutMs: timeout }));
     }
+    async [downloadWaitSymbol](tabId, options = {}) {
+        const timeoutMs = downloadWaitTimeout(options), deadline = Date.now() + timeoutMs;
+        let binding;
+        const value = await this.#request("armDownloadWait", { tabId, timeoutMs }, { timeoutMs: timeoutMs + 1000, startBefore: deadline }, metadata => { binding = metadata; });
+        const ack = downloadWaitAck(value, timeoutMs);
+        const expires = Math.min(deadline, Date.now() + ack.remainingMs);
+        assertDownloadWaitDeadline(expires);
+        const scope = { ...binding, tabId }, waiter = { ...scope, waiterId: ack.waiterId };
+        return new OpenBrowserUseDownloadWait(ack, expires, (method, budget, startBefore) => this.#request(method, waiter, { timeoutMs: budget, startBefore }), id => new OpenBrowserUseDownload(id, (method, timeoutMs) => this.request(method, { ...scope, downloadId: id, timeoutMs }, { timeoutMs: timeoutMs + 1000 })));
+    }
     async [fileChooserWaitSymbol](tabId, options = {}) {
         const timeoutMs = fileChooserWaitTimeout(options), deadline = Date.now() + timeoutMs;
         let binding;
@@ -322,10 +348,10 @@ export class OpenBrowserUseClient {
         if (remaining <= reservedResponseMs)
             throw new Error(`Open Browser Use request timed out before ${method} could start`);
         if (method === "browserAction" || eventWaitMethods.has(method)) {
-            const requested = ["armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
+            const requested = ["armDownloadWait", "armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", ...clipboardMethods].includes(method) && Object.hasOwn(params, "timeoutMs") ? params.timeoutMs : params.timeoutMs ?? 10_000;
             if (typeof requested !== "number" || !Number.isFinite(requested) || requested < 1 || requested > 120_000 || (eventWaitMethods.has(method) && !Number.isInteger(requested)))
                 throw new Error(`${method} timeoutMs must be ${eventWaitMethods.has(method) ? "an integer " : ""}between 1 and 120000`);
-            const available = Math.floor(remaining - 1000);
+            const available = Math.floor(method === "armDownloadWait" && startBefore !== undefined ? Math.min(remaining - 1000, startBefore - Date.now()) : remaining - 1000);
             if (available < 1)
                 throw new Error(`Open Browser Use request timed out before ${method} could start`);
             params = { ...params, timeoutMs: Math.min(requested, available) };
@@ -339,8 +365,12 @@ export class OpenBrowserUseClient {
         };
         const payload = encodeFrame(message);
         // The extra response-read allowance cannot authorize a late collect send.
-        if (startBefore !== undefined)
-            assertFileChooserWaitDeadline(startBefore);
+        if (startBefore !== undefined) {
+            if (downloadWaitMethods.has(method))
+                assertDownloadWaitDeadline(startBefore);
+            else
+                assertFileChooserWaitDeadline(startBefore);
+        }
         const promise = new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.#pending.delete(id);
@@ -369,6 +399,16 @@ export class OpenBrowserUseClient {
             this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
         if (method === "getInfo")
             this.#fileChooserWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.fileChooserWaitVersion ?? null : null;
+        if (method === "getInfo")
+            this.#downloadWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.downloadWaitVersion ?? null : null;
+        if (method === "armDownloadWait")
+            return downloadWaitAck(result, params.timeoutMs);
+        if (method === "collectDownloadWait") {
+            downloadID(result);
+            return result;
+        }
+        if (method === "cancelDownloadWait")
+            downloadWaitCancelled(result);
         if (method === "armFileChooserWait")
             return fileChooserWaitAck(result, params.timeoutMs);
         if (method === "collectFileChooserWait")
@@ -630,6 +670,9 @@ export class OpenBrowserUseTab {
     waitForDownload(options = {}) {
         return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });
     }
+    expectDownload(options = {}) {
+        return this.browser.client[downloadWaitSymbol](this.id, options);
+    }
     expectFileChooser(options = {}) {
         return this.browser.client[fileChooserWaitSymbol](this.id, options);
     }
@@ -807,6 +850,7 @@ export class OpenBrowserUseLocator {
 _a = OpenBrowserUseLocator;
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match, options = {}) { return this.tab.expectRequest(match, options); }
+    expectDownload(options = {}) { return this.tab.expectDownload(options); }
     expectFileChooser(options = {}) { return this.tab.expectFileChooser(options); }
     expectResponse(match, options = {}) { return this.tab.expectResponse(match, options); }
     snapshotAI(options = {}) { return this.tab.snapshotAI(options); }

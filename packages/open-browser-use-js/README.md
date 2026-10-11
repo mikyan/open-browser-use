@@ -599,6 +599,39 @@ The legacy Client methods still return raw JSON using the current invocation's
 scope; use typed Tab handles when retaining a download across calls, or supply
 original scope explicitly with `request`.
 
+For a page-triggered download, first await `tab.expectDownload({ timeoutMs })`
+(also available as `tab.playwright.expectDownload`). It requires
+`metadata.downloadWaitVersion === 1` and returns an `OpenBrowserUseDownloadWait`
+only after the observer is ready, so an immediate download from the next click
+can be retained before `result()` runs:
+
+```ts
+const pending = await tab.expectDownload({ timeoutMs: 10_000 });
+await tab.getByRole("button", { name: "Download report" }).click();
+const download = await pending.result();
+console.log(download.downloadId);
+// If the triggering workflow is abandoned: await pending.cancel();
+```
+
+The wait exposes `waiterId` and the ready acknowledgement's `remainingMs`.
+The timeout defaults to 10000 integer milliseconds (1..120000), covering
+connection, capability discovery, setup, the trigger and collection under one
+original deadline. `remainingMs` is a snapshot, not a new timeout. The one-second
+reply allowance cannot authorize a collect request after that deadline.
+`result()` returns the existing `OpenBrowserUseDownload`, permanently bound to
+the original session/turn/epoch/tab. A pending concurrent result is rejected;
+successful collection or cancellation consumes the wait locally. Failures are
+never automatically replayed or rebound to a new turn.
+
+`pending.cancel()` cancels only the observer, even after its deadline, with an
+independent ten-second cleanup budget. It can be retried on the exact same wait;
+it neither cancels the actual browser download nor blocks page network activity.
+The resulting page GUID still raises `OBU_DOWNLOAD_PATH_UNAVAILABLE` from
+`download.path()` and `OBU_DOWNLOAD_CANCEL_UNSUPPORTED` from `download.cancel()`.
+There is no guessed local path or fallback GET: `downloadURL()` starts a separate
+explicit request and cannot substitute for a page-triggered or POST download.
+The legacy `waitForDownload` API remains available without a ready handshake.
+
 ### PDF and MHTML page exports
 
 `tab.exportPage("pdf" | "mhtml", options)`, `tab.exportPDF(options)` and

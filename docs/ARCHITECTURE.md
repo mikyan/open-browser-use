@@ -365,6 +365,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   不随 collect 更新；实际 enable/disable 未结算或失败时继续保留容量和控制
   清理账本。取消可在观察期限后按原 scope 重试清理，成功回复要求真实清理完成。
   详见 [file transfers](references/file-transfers.md)。
+- `BrowserDownloadWaits` 在准备确认后观察首个实际 Page 下载事件，通过
+  `downloadWaitVersion=1` 协商 arm/collect/cancel，旧 `waitForDownload`
+  共享注册表与容量。root/已知及新child准备由动作屏障等待，首事件在异步
+  校验前固定，原deadline覆盖最终权限检查。原tab/attachment下的合法导航
+  保留等待；控制范围失效则撤销。取消只结束观察，不取消底层传输，不关闭
+  共享Page事件，也不提供猜测的GUID路径。详见同一文件传输契约。
 - JS、Python 和 Go SDK：连接 Windows named pipe 或 Unix socket 发送 Browser Use JSON-RPC。
   JS SDK 支持订阅 native socket 上的 JSON-RPC notification；Python SDK 会在
   同步 request loop 中分发并跳过 notification，避免 CDP event 插队破坏响应读取；

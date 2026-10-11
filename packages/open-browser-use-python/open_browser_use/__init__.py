@@ -1,4 +1,5 @@
 from ._clipboard import ClipboardEntry, ClipboardItem, OpenBrowserUseClipboard
+from ._download_waits import OpenBrowserUseDownloadWait
 from ._downloads import OpenBrowserUseDownload
 from ._file_chooser_waits import FileChooserWaitResult, OpenBrowserUseFileChooserWait
 from ._page_exports import ExportFormat, PDFOptions, PageExport
@@ -23,6 +24,7 @@ __all__ = [
     "PDFOptions",
     "PageExport",
     "OpenBrowserUseDownload",
+    "OpenBrowserUseDownloadWait",
     "NavigationLoadState",
     "NavigationWaitUntil",
     "OpenBrowserUseNavigationWait",

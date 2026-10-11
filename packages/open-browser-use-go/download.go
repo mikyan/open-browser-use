@@ -162,6 +162,9 @@ func (d *Download) call(method string, options []DownloadOptions) (any, error) {
 		return nil, err
 	}
 	params := scopedParams(d.params, Params{"downloadId": d.params["downloadId"], "timeoutMs": timeout.Milliseconds()})
+	if tabID, exists := d.params["tabId"]; exists {
+		params["tabId"] = tabID
+	}
 	return d.client.requestWithTimeout(method, params, timeout+time.Second)
 }
 

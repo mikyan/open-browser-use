@@ -213,7 +213,8 @@ test('first download by a proven new owner preserves only its own unbound setup'
 test('explicit download is isolated from native Page waiters and guessed numeric IDs', async () => {
   const {backend,direct}=await directEnvironment();
   const handle=await backend.downloadURL(direct);
-  const waiting=assert.rejects(backend.waitForDownload({...direct,timeoutMs:15}),/OBU_TRANSFER_TIMEOUT/);
+ const {url, ...scope}=direct;
+ const waiting=assert.rejects(backend.waitForDownload({...scope,timeoutMs:15}),/OBU_TRANSFER_TIMEOUT/);
   await backend.downloadPath({...direct,...handle});await waiting;
   await assert.rejects(backend.downloadPath({...direct,downloadId:'1'}),/OBU_DOWNLOAD_EXPIRED/);
   await backend.cancelDownload({...direct,...handle});
@@ -350,11 +351,13 @@ for (const method of ['waitForFileChooser', 'waitForDownload']) {
       assert.equal(engine.releases.has(7), true);
       const release = engine.releases.get(7);
       // The successor must wait for the old native attach to be cleaned up.
-      const successor = backend[method](task(7, { timeoutMs: 1000 }));
+      if (method === 'waitForDownload') await assert.rejects(backend[method](task(7, { timeoutMs: 1000 })), /WAIT_LIMIT/);
+      let successor = method === 'waitForDownload' ? null : backend[method](task(7, { timeoutMs: 1000 }));
       gate.resolve();
       await release.catch(() => {});
+      if (!successor) { await tick(); successor = backend[method](task(7, { timeoutMs: 1000 })); }
       for (let attempt = 0; attempt < 20; attempt++) {
-        if (method === 'waitForFileChooser' ? backend.fileChooserWaitersByTabId.get(7)?.state === 'pending' : backend.downloadWaiters.size) break;
+        if (method === 'waitForFileChooser' ? backend.fileChooserWaitersByTabId.get(7)?.state === 'pending' : backend.downloadWaits.byTab.get(7)?.state === 'pending') break;
         await tick();
       }
       if (method === 'waitForFileChooser') backend.handleCdpEvent({ tabId: 7 }, 'Page.fileChooserOpened', { backendNodeId: 123, mode: 'selectSingle' });
@@ -540,4 +543,124 @@ test("cold chooser migration preserves only its own unbound setup", async () => 
   chooserEvent(backend); const result = await backend.collectFileChooserWait({ ...nextScope, waiterId: ack.waiterId });
   assert.equal(backend.fileChoosersById.get(result.fileChooserId).scope.session_id, "other");
   await backend.setFileChooserFiles({ ...nextScope, fileChooserId: result.fileChooserId, files: [] });
+});
+
+test("download readiness rejects malformed options and native GUIDs before claiming a candidate", async () => {
+  const { backend, scope, commands } = await chooserReadyEnvironment(); commands.length = 0;
+  await assert.rejects(backend.armDownloadWait({ ...scope, url: "https://fixture.test" }), /does not support/);
+  await assert.rejects(backend.collectDownloadWait({ ...scope, waiterId: "unknown", timeoutMs: 100 }), /does not support/);
+  await assert.rejects(backend.cancelDownloadWait({ ...scope, waiterId: "unknown", extra: true }), /does not support/);
+  assert.deepEqual(commands, []);
+  const ack = await backend.armDownloadWait({ ...scope, timeoutMs: 1000 });
+  for (const guid of [null, 123, "", "x".repeat(257), "字".repeat(86)])
+    backend.handleCdpEvent({ tabId: 7 }, "Page.downloadWillBegin", { guid });
+  backend.handleCdpEvent({ tabId: 7, sessionId: "unknown-child" }, "Page.downloadWillBegin", { guid: "foreign-child" });
+  assert.equal(backend.downloadsById.size, 0);
+  assert.equal(backend.downloadWaits.records.get(ack.waiterId).state, "pending");
+  const guid = "x".repeat(256); begin(backend, 7, guid);
+  assert.equal((await backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId })).downloadId, guid);
+  await assert.rejects(backend.downloadPath({ ...scope, downloadId: guid }), /PATH_UNAVAILABLE/);
+  await assert.rejects(backend.cancelDownload({ ...scope, downloadId: guid }), /CANCEL_UNSUPPORTED/);
+});
+
+test("download first arrival stays selected while ownership validation is delayed", async () => {
+  const { backend, scope } = await chooserReadyEnvironment(), gate = deferred();
+  const ack = await backend.armDownloadWait({ ...scope, timeoutMs: 1000 });
+  const original = backend.validateTransferScope.bind(backend); let first = true;
+  backend.validateTransferScope = async value => { if (first) { first = false; await gate.promise; } return original(value); };
+  begin(backend, 7, "first-native-event"); begin(backend, 7, "second-native-event");
+  const result = backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId });
+  await tick(); assert.deepEqual([...backend.downloadsById.keys()], ["first-native-event"]);
+  gate.resolve(); assert.equal((await result).downloadId, "first-native-event");
+});
+
+test("download final ownership validation remains inside the original deadline", async () => {
+  const { backend, scope } = await chooserReadyEnvironment(), gate = deferred(), entered = deferred();
+  const ack = await backend.armDownloadWait({ ...scope, timeoutMs: 50 });
+  begin(backend, 7, "predeadline-event"); await tick();
+  const original = backend.validateTransferScope.bind(backend);
+  backend.validateTransferScope = async value => { entered.resolve(); await gate.promise; return original(value); };
+  const result = assert.rejects(backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId }), /WAIT_TIMEOUT/);
+  await entered.promise; await result; gate.resolve(); await tick();
+  assert.equal(backend.downloadsById.has("predeadline-event"), false);
+  assert.equal(backend.downloadWaits.records.size, 0);
+});
+
+test("legacy download observation reserves before the first cold browser action", async () => {
+  const { backend, scope, chrome } = await chooserReadyEnvironment(), gate = deferred(), entered = deferred();
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, args) => { if (method === "Page.enable") { entered.resolve(); await gate.promise; } return original(target, method, args); };
+  const waiting = backend.waitForDownload({ ...scope, timeoutMs: 1000 });
+  const engine = await backend.getBrowserEngine(); let dispatched = false;
+  engine.dispatch = async () => { dispatched = true; begin(backend, 7, "cold-page-download"); return { value: null }; };
+  const action = backend.browserAction({ ...scope, action: "click", locator: [{ kind: "css", selector: "a" }], timeoutMs: 1000 });
+  await entered.promise; await tick(); assert.equal(dispatched, false);
+  await assert.rejects(backend.armDownloadWait(scope), /WAIT_LIMIT/);
+  gate.resolve(); await action; assert.equal((await waiting).downloadId, "cold-page-download");
+});
+
+test("new download child setup blocks input and ordinary navigation does not replace the wait", async () => {
+  const { backend, scope, chrome } = await chooserReadyEnvironment(), gate = deferred();
+  const ack = await backend.armDownloadWait({ ...scope, timeoutMs: 1000 });
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, args) => { if (target.sessionId === "dynamic" && method === "Page.enable") await gate.promise; return original(target, method, args); };
+  backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", { sessionId: "dynamic", targetInfo: { type: "iframe" } });
+  backend.handleCdpEvent({ tabId: 7, sessionId: "dynamic" }, "Page.frameNavigated", { frame: { id: "child", url: "https://child.fixture" } });
+  backend.handleCdpEvent({ tabId: 7 }, "Page.frameNavigated", { frame: { id: "root", url: "https://fixture.test/redirect" } });
+  let dispatched = false;
+  backend.browserEngine.dispatch = async () => { dispatched = true; backend.handleCdpEvent({ tabId: 7, sessionId: "dynamic" }, "Page.downloadWillBegin", { guid: "child-guid", frameId: "child" }); return { value: null }; };
+  const action = backend.browserAction({ ...scope, action: "click", locator: [{ kind: "css", selector: "a" }], timeoutMs: 1000 });
+  await tick(); assert.equal(dispatched, false); gate.resolve(); await action;
+  backend.handleCdpEvent({ tabId: 7 }, "Target.detachedFromTarget", { sessionId: "dynamic" });
+  assert.equal((await backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId })).downloadId, "child-guid");
+});
+
+test("cancel download wait discards only an undelivered observer and never cancels the browser transfer", async () => {
+  const { backend, scope, chrome, commands } = await chooserReadyEnvironment();
+  let nativeCancel = false; chrome.downloads = { cancel: async () => { nativeCancel = true; } };
+  let ack = await backend.armDownloadWait(scope); begin(backend, 7, "undelivered"); await tick();
+  assert.equal(backend.downloadsById.get("undelivered").authorized, true);
+  await backend.cancelDownloadWait({ ...scope, waiterId: ack.waiterId });
+  assert.equal(backend.downloadsById.has("undelivered"), false);
+  ack = await backend.armDownloadWait(scope); begin(backend, 7, "delivered");
+  await backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId });
+  await backend.cancelDownloadWait({ ...scope, waiterId: ack.waiterId });
+  assert.equal(backend.downloadsById.has("delivered"), true);
+  assert.equal(nativeCancel, false); assert.equal(commands.some(call => call.method === "Page.disable" || call.method === "Browser.cancelDownload"), false);
+});
+
+test("download tracking eviction protects uncollected results even after native completion", async () => {
+  const { backend, scope } = await chooserReadyEnvironment();
+  for (let i = 0; i < 128; i++) backend.downloadsById.set(`uncollected-${i}`, { status: "complete", delivered: false });
+  let ack = await backend.armDownloadWait(scope); begin(backend, 7, "overflow");
+  await assert.rejects(backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId }), /EXPIRED|capacity/);
+  assert.equal(backend.downloadsById.size, 128); assert.equal(backend.downloadsById.has("uncollected-0"), true);
+  backend.downloadsById.get("uncollected-0").delivered = true;
+  ack = await backend.armDownloadWait(scope); begin(backend, 7, "replacement");
+  assert.equal((await backend.collectDownloadWait({ ...scope, waiterId: ack.waiterId })).downloadId, "replacement");
+  assert.equal(backend.downloadsById.has("uncollected-0"), false); assert.equal(backend.downloadsById.has("uncollected-1"), true);
+});
+
+test("Pause cannot complete while actual download observation setup remains pending", async () => {
+  const { backend, scope, chrome, commands } = await chooserReadyEnvironment(), gate = deferred(), entered = deferred();
+  backend.automationCleanupTimeoutMs = 20;
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, args) => { if (method === "Page.enable") { entered.resolve(); await gate.promise; } return original(target, method, args); };
+  const arming = assert.rejects(backend.armDownloadWait({ ...scope, timeoutMs: 1000 }), /CANCELLED|PAUSED|EXPIRED/);
+  await entered.promise;
+  await assert.rejects(backend.pauseAutomation(), /PAUSE_FAILED/); await arming;
+  assert.equal(backend.downloadWaits.byTab.size, 1); assert.ok(backend.downloadWaits.operations.size > 0);
+  gate.resolve(); await tick(); await backend.pauseAutomation();
+  assert.equal(backend.downloadWaits.records.size, 0);
+  assert.equal(commands.some(call => call.method === "Page.disable"), false);
+});
+
+test("cold download observer migration preserves only its own original reservation", async () => {
+  const { backend, scope, tabs } = await chooserReadyEnvironment(); await backend.attach(scope);
+  tabs.get(7).groupId = 20;
+  const otherSession = await backend.store.getSession("other"); otherSession.tabOrigins[7] = "user";
+  const state = await backend.getControlState({ session_id: "other", turn_id: "files" });
+  const next = { ...scope, session_id: "other", control_epoch: state.controlEpoch };
+  const ack = await backend.armDownloadWait(next); begin(backend, 7, "new-owner-guid");
+  assert.equal((await backend.collectDownloadWait({ ...next, waiterId: ack.waiterId })).downloadId, "new-owner-guid");
 });

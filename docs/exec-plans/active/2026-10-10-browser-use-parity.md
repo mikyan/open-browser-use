@@ -1152,3 +1152,75 @@ frame/session与独立renderer进程均保留。取消后原文档观察超过�
 `8990be12bf0702945e919b6f852246bea01feb56dfba7558939b91a3f85f5f9d`。
 成员与unpacked及两轮实际验收一致，无测试插桩/私有路径。保持本地开发
 与提交，不推送、不提PR，不替换用户主浏览器现有安装。
+
+### P10：页面触发下载的准备确认
+
+上一片 `09cd914` 已完成 chooser 准备确认；本片补页面真实下载的等待顺序。
+现代码在多次 attachment/权限 await 后才注册 download waiter，跨连接点击
+没有就绪保证。确定性复现还证明首个事件的异步校验较慢时会返回后一个GUID，
+以及最终权限校验可超过原期限后仍交付结果。旧 sequence 检查已能排除注册前
+事件，不把这一项误称为已证实的后继等待污染。
+
+协议协商 `getInfo.metadata.downloadWaitVersion === 1`，固定原 session/turn/
+positive control_epoch/tabId；三个方法拒绝未知字段：
+
+| RPC | 额外参数 | 结果 |
+| --- | --- | --- |
+| `armDownloadWait` | 可选 `timeoutMs`，整数1–120000，默认10000 | `{waiterId, remainingMs}` |
+| `collectDownloadWait` | `waiterId` | `{downloadId}` |
+| `cancelDownloadWait` | `waiterId` | `{}` |
+
+SDK提供 tab/playwright 的 expectDownload/expect_download/ExpectDownload，
+返回等待handle；result返回现有Download对象，保持原scope。cancel取消观察，
+不取消已经开始的浏览器传输；不能与Download.cancel混同。CLI/MCP沿用call。
+Page GUID路径与实际取消仍需要可靠机制，不能用新GET、URL/时间/文件名或
+SQLite无锁副本冒充。该缺口保留，完成等待不等于完成P10。
+
+同步reserve后才进入bootstrap，确认原CRX attachment、root/已知child的
+Page事件启用、监听与scope后返回ACK，新child加入真实准备屏障。首个合法
+原生事件在任何异步校验前固定候选；成功单次collect，并发冲突。每tab一个
+尚未交付/清理等待，全局128，旧waitForDownload共享同一实现。原deadline
+覆盖队列、连接、准备、触发和最终校验，collect不接收新timeout；额外回复
+余量不授权过期请求。cancel可在期限后按原scope用独立10秒预算完成观察清理。
+未知/外来handle不产生效果，正常scope admission仍适用。
+
+下载等待采用tab/attachment语义：合法导航或重定向不重置deadline，也不
+因为DOM文档更换而抹掉已观察到的真实下载。事件到达时只接纳确切root或
+当前注册child；已销毁child不能再提供新事件。已证明的候选可在普通child
+销毁后保留，但tab detach、所有权转交、end、Pause及worker/host替换仍撤销。
+清理不调用会影响共享引擎的Page.disable；实际未结算setup继续记录，不能
+用公开超时冒充真正释放。旧回调不能命中后来创建的waiter。
+
+先补首事件倒序和最终deadline确定性回归，再冻结代码做真实五入口验收。
+每入口两独立连接，覆盖冷root、既有与arm后新建OOPIF；ACK后立即点击，再
+collect，保留原生GUID/source和scope通知。隔离下载目录差集与内容nonce
+验证落盘UTF-8/二进制字节，明确属于测试文件证据，不声称公共GUID→path。
+另验并发、取消后实际传输仍可完成、旧事件/期限、合法导航、所有权/Pause
+及原文档迟到动作。保留旧公开下载场景和全部历史失败，连续observer严格
+检查前台与sentinel，不新增焦点豁免。通过后同步reference/history/矩阵。
+
+修复后专项 `run-mRwIs8` **9/9** 已独立审计通过：24份实际文件98,376字节，
+五入口原生GUID/跨进程OOPIF/scoped通知、取消观察后原传输继续均有原始证据。
+首轮 `run-c0ip6L` **7/9** 的监控连接未发送scoped RPC，现先await只读getTabs，
+新增真实SDK wire回归，原通知要求未放宽。首轮完整 `run-Ni9Djz` **87/89**
+的两个popup场景因根窗口inactive失败；账本只有六条预期创建activation、
+零focus，最后窗口minimized，初始state未记录，原因仍未知。下一步增加
+只读初始窗口state/focused记录并复跑，不调用focus掩盖，也不增加豁免。
+
+最终CI另保留一次Go测试601秒timeout：旧export非法参数测试在go-winio
+Listener.Close等待doneCh，而listenerRoutine回到外层select，Accept已退出。
+独立完整CLI包8.259秒和export结果负例100次2.897秒通过不能抵消该失败；
+现采用官方go-winio v0.6.3关闭广播修复、x/sys v0.48.0，并将构建版本固定
+到官方SHA校验的Go1.26.9，保留旧工具链和二进制。新回归分单次/八次Close
+与无客户端/立即断连四种真实交错，必须真正结束Accept、释放端点且保留
+既有连接；原卡死负例20次通过。有界压力不称确定性旧版本复现。
+升级后完整CI **906** 项Node（771+53+82）、JS115、Python82及Go全包通过，
+无跳过；新主机和五个Go调用程序另存。最终新版本专项 `run-lMFHcB` **9/9**、
+完整 `run-k3mDiy` **89/89** 均通过。两次均记录初始窗口normal/focused=true，
+没有主动focus/还原窗口，也没有增加豁免；旧minimized运行原因未被新成功
+解释或抵消。两轮独立16组审计通过，全套129,574ms账本六激活/四focus均
+精确归因，sentinel不变；24份原始响应与实际文件98,376字节再次核验。
+最终ZIP47文件、1,255,479bytes，SHA-256
+`cef6706a1cf69717835f168c4e96bd1f20146f0dfc610e9b28b58434a2c5a0c8`，
+逐成员与unpacked和两次实测一致，无测试插桩或私有路径。Go运行时、依赖
+和六个产物hash同预跑基线。完整P10与长期目标仍active，仅本地提交。

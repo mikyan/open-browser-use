@@ -38,6 +38,7 @@ type cliControlSnapshot struct {
 	deadline                 time.Time // populated only on queued MCP submissions
 	networkWaitSupported     bool
 	navigationWaitSupported  bool
+	downloadWaitSupported    bool
 	fileChooserWaitSupported bool
 	directDownloadsSupported bool
 	mediaDownloadsSupported  bool
@@ -135,6 +136,11 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	}
 	if _, ok := params["turn_id"]; !ok {
 		params["turn_id"] = captured.turn
+	}
+	if cliDownloadWaitMethod(method) {
+		if err := obu.ValidateDownloadWaitParams(method, obu.Params(params)); err != nil {
+			return nil, err
+		}
 	}
 	_, manual := params["control_epoch"]
 	if manual {
@@ -242,6 +248,25 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension requires fileChooserWaitVersion 1")
 		}
 	}
+	if cliDownloadWaitMethod(method) {
+		if manual {
+			// A raw CLI handle supplies its original session/turn/epoch across
+			// processes, but still negotiates this extension's download contract.
+			infoResponse, err := sendCLIRequest(conn, "cli-download-wait-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.downloadWaitSupported = metadata["downloadWaitVersion"] == float64(1)
+		}
+		if !captured.downloadWaitSupported {
+			return nil, errors.New("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension requires downloadWaitVersion 1")
+		}
+	}
 	if method == "downloadURL" || method == "cancelDownload" {
 		if manual {
 			infoResponse, err := sendCLIRequest(conn, "cli-download-info", "getInfo", map[string]any{})
@@ -323,6 +348,12 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, err
 		}
 	}
+	if cliDownloadWaitMethod(method) && response["error"] == nil {
+		budget, _ := params["timeoutMs"].(float64)
+		if err := obu.ValidateDownloadWaitResult(method, response["result"], budget); err != nil {
+			return nil, err
+		}
+	}
 	if cliClipboardMethod(method) && response["error"] == nil {
 		value, err := obu.ValidateClipboardResult(method, response["result"], int(params["maxBytes"].(float64)))
 		if err != nil {
@@ -364,8 +395,12 @@ func cliFileChooserWaitMethod(method string) bool {
 	return method == "armFileChooserWait" || method == "collectFileChooserWait" || method == "cancelFileChooserWait"
 }
 
+func cliDownloadWaitMethod(method string) bool {
+	return method == "armDownloadWait" || method == "collectDownloadWait" || method == "cancelDownloadWait"
+}
+
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "armDownloadWait" || method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -424,6 +459,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	captured.networkWaitSupported = metadata["networkWaitVersion"] == float64(1)
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
 	captured.fileChooserWaitSupported = metadata["fileChooserWaitVersion"] == float64(1)
+	captured.downloadWaitSupported = metadata["downloadWaitVersion"] == float64(1)
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	captured.mediaDownloadsSupported = metadata["mediaDownloadsVersion"] == float64(1)
 	captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)

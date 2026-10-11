@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 from ._clipboard import CLIPBOARD_METHODS, OpenBrowserUseClipboard, clipboard_params, clipboard_timeout, validate_clipboard_result
+from ._download_waits import DOWNLOAD_WAIT_METHODS, OpenBrowserUseDownloadWait, download_wait_params, download_wait_timeout, download_wait_ack, download_wait_cancelled, download_wait_remaining
 from ._downloads import OpenBrowserUseDownload, download_id, download_params, download_timeout
 from ._page_exports import ExportFormat, PDFOptions, PageExport, export_params, export_timeout, validate_export
 from ._transport import Transport, connect_transport, remaining_time
@@ -25,7 +26,7 @@ NotificationHandler = Callable[[JsonObject], None]
 DEFAULT_NAVIGATION_TIMEOUT = 10.0
 MAX_FRAME_SIZE = 64 * 1024 * 1024
 CONTROL_DISCOVERY_METHODS = frozenset({"ping", "getInfo", "getControlState"})
-BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", *CLIPBOARD_METHODS})
+BOUNDED_WAIT_METHODS = frozenset({"browserAction", "waitForFileChooser", "waitForDownload", "armDownloadWait", "armFileChooserWait", "armNetworkWait", "armNavigationWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "exportPage", *CLIPBOARD_METHODS})
 NAVIGATION_WAIT_METHODS = frozenset({"armNavigationWait", "collectNavigationWait", "cancelNavigationWait"})
 NETWORK_WAIT_METHODS = frozenset({"armNetworkWait", "collectNetworkWait", "cancelNetworkWait"})
 
@@ -53,6 +54,7 @@ class OpenBrowserUseClient:
         self._navigation_wait_version: Any = None
         self._network_wait_version: Any = None
         self._file_chooser_wait_version: Any = None
+        self._download_wait_version: Any = None
 
     def connect(self) -> "OpenBrowserUseClient":
         return self._connect(self.timeout)
@@ -86,6 +88,8 @@ class OpenBrowserUseClient:
                  execute: Callable[[JsonObject, float], Any] | None = None) -> Any:
         if method in FILE_CHOOSER_WAIT_METHODS:
             file_chooser_params(method, params or {})
+        if method in DOWNLOAD_WAIT_METHODS:
+            download_wait_params(method, params or {})
         request_timeout = self.timeout if timeout is None else timeout
         if not math.isfinite(request_timeout) or request_timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
@@ -95,6 +99,8 @@ class OpenBrowserUseClient:
         # discovery request so an end response cannot rebind older work.
         session_id, turn_id, epoch = self.session_id, self.turn_id, self._control_epoch
         merged_params: JsonObject = {"session_id": session_id, "turn_id": turn_id, **copy.deepcopy(params or {})}
+        if method in DOWNLOAD_WAIT_METHODS:
+            download_wait_params(method, merged_params)
         if method in BOUNDED_WAIT_METHODS:
             requested = merged_params.get("timeoutMs", 10000)
             if type(requested) in (int, float) and math.isfinite(requested) and 1 <= requested <= 120000:
@@ -125,6 +131,13 @@ class OpenBrowserUseClient:
                 raise RuntimeError("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1")
             if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
                 raise RuntimeError("File chooser waits require an explicit control epoch")
+        if method in DOWNLOAD_WAIT_METHODS:
+            if self._download_wait_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._download_wait_version) is not int or self._download_wait_version != 1:
+                raise RuntimeError("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension does not advertise downloadWaitVersion 1")
+            if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
+                raise RuntimeError("Download waits require an explicit control epoch")
         if method in NAVIGATION_WAIT_METHODS:
             if self._navigation_wait_version is None:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
@@ -180,6 +193,9 @@ class OpenBrowserUseClient:
         self._file_chooser_wait_version = metadata.get("fileChooserWaitVersion", 0) if isinstance(metadata, dict) else 0
         if self._file_chooser_wait_version is None:
             self._file_chooser_wait_version = 0
+        self._download_wait_version = metadata.get("downloadWaitVersion", 0) if isinstance(metadata, dict) else 0
+        if self._download_wait_version is None:
+            self._download_wait_version = 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
         if version is not None and (type(version) is not int or version != 1):
             raise RuntimeError(f"Unsupported turn lifecycle version: {version!r}; update the SDK")
@@ -234,6 +250,8 @@ class OpenBrowserUseClient:
                 (navigation_timeout if method == "armNavigationWait" else network_timeout)(requested)
             if type(requested) in (int, float) and math.isfinite(requested) and 1 <= requested <= 120000:
                 available_ms = math.floor((deadline - time.monotonic() - 1) * 1000)
+                if method == "armDownloadWait" and start_before is not None:
+                    available_ms = min(available_ms, math.floor((start_before - time.monotonic()) * 1000))
                 if available_ms < 1:
                     raise TimeoutError(f"{method} deadline expired during discovery or connection; request was not sent")
                 merged_params = {**merged_params, "timeoutMs": min(requested, available_ms)}
@@ -245,7 +263,7 @@ class OpenBrowserUseClient:
         }
         try:
             if start_before is not None:
-                file_chooser_remaining(start_before)
+                (download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
             self._socket.settimeout(remaining_time(deadline))
             self._socket.sendall(encode_frame(request))
             while True:
@@ -265,6 +283,12 @@ class OpenBrowserUseClient:
             message = response["error"].get("message", "Open Browser Use request failed")
             raise RuntimeError(message)
         result = response.get("result")
+        if method == "armDownloadWait":
+            download_wait_ack(result, merged_params["timeoutMs"])
+        elif method == "collectDownloadWait":
+            download_id(result)
+        elif method == "cancelDownloadWait":
+            download_wait_cancelled(result)
         if method == "armFileChooserWait":
             file_chooser_ack(result, merged_params["timeoutMs"])
         elif method == "collectFileChooserWait":
@@ -272,6 +296,30 @@ class OpenBrowserUseClient:
         elif method == "cancelFileChooserWait":
             file_chooser_cancelled(result)
         return result
+
+    def _expect_download(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
+        timeout = download_wait_timeout(timeout_ms)
+        expires = time.monotonic() + timeout / 1000
+
+        def arm(metadata: JsonObject, deadline: float) -> OpenBrowserUseDownloadWait:
+            scope = {key: metadata[key] for key in ("session_id", "turn_id", "control_epoch", "tabId")}
+            ack = self._wire_request("armDownloadWait", metadata, deadline, start_before=expires)
+            waiter_id, remaining = download_wait_ack(ack, timeout)
+            original_deadline = min(expires, time.monotonic() + remaining / 1000)
+            download_wait_remaining(original_deadline)
+            waiter = {**scope, "waiterId": waiter_id}
+
+            def call(method: str, budget: float, start_before: float | None) -> Any:
+                return self._request(method, waiter, timeout=budget,
+                    execute=lambda params, read_deadline: self._wire_request(method, params, read_deadline, start_before=start_before))
+
+            def download(identifier: str) -> OpenBrowserUseDownload:
+                return OpenBrowserUseDownload(identifier, lambda method, budget:
+                    self.request(method, {**scope, "downloadId": identifier, "timeoutMs": budget}, timeout=budget / 1000 + 1))
+
+            return OpenBrowserUseDownloadWait(waiter_id, remaining, original_deadline, call, download)
+
+        return self._request("armDownloadWait", {"tabId": tab_id, "timeoutMs": timeout}, timeout=timeout / 1000 + 1, execute=arm)
 
     def _expect_file_chooser(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUseFileChooserWait:
         timeout = file_chooser_timeout(timeout_ms)
@@ -551,6 +599,9 @@ class OpenBrowserUseTab(LocatorFactory):
     def wait_for_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
         return self.browser.client._download(self.id, "waitForDownload", {"timeoutMs": download_timeout(timeout_ms)})
 
+    def expect_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
+        return self.browser.client._expect_download(self.id, timeout_ms)
+
     def expect_file_chooser(self, *, timeout_ms: int | None = None) -> OpenBrowserUseFileChooserWait:
         return self.browser.client._expect_file_chooser(self.id, timeout_ms)
 
@@ -655,6 +706,9 @@ class OpenBrowserUseTab(LocatorFactory):
 
 
 class OpenBrowserUseTabPlaywright(LocatorFactory):
+    def expect_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
+        return self.tab.expect_download(timeout_ms=timeout_ms)
+
     def expect_file_chooser(self, *, timeout_ms: int | None = None) -> OpenBrowserUseFileChooserWait:
         return self.tab.expect_file_chooser(timeout_ms=timeout_ms)
 

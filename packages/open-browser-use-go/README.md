@@ -344,6 +344,40 @@ calling `Cancel` releases capacity. Pause, end, detach, ownership loss and worke
 restart invalidate the handle. Do not hold this client's request gate in `Result`
 while expecting another goroutine to trigger navigation through the same client.
 
+### Page download readiness
+
+`Tab.ExpectDownload` and `Tab.Playwright.ExpectDownload` return a `*DownloadWait`
+after the browser listener is ready. A synchronous caller can trigger the page
+action and then collect its download without starting a background goroutine:
+
+```go
+pending, err := tab.ExpectDownload(obu.DownloadWaitOptions{Timeout: 10 * time.Second})
+if err != nil { return err }
+defer pending.Cancel() // Retire the observer; this never cancels a file transfer.
+if err = tab.GetByRole("button", obu.RoleOptions{Name: "Export"}).Click(); err != nil {
+    return err
+}
+download, err := pending.Result()
+if err != nil { return err }
+fmt.Println(download.DownloadID)
+```
+
+The extension must advertise `downloadWaitVersion: 1`. Zero timeout selects 10
+seconds; positive timeouts must be whole milliseconds from 1ms to 120s. The
+original deadline includes discovery, queueing, readiness, the triggering action
+and collection; neither navigation nor `Result` renews it. Public `WaiterID` and
+`RemainingMS` are informational. A second connection may trigger after arm has
+returned, provided it uses the same original session, turn and control epoch.
+
+The first native download event is consumed once. Concurrent collection is
+rejected immediately; a successfully cancelled observer cannot collect. `Cancel`
+remains available after expiry with a separate 10-second cleanup response budget.
+It only retires observation and an undelivered result; an actual browser download
+may continue. A collected `*Download` retains its original scope, even if the
+client starts a new turn. Page GUID `Path` and transfer `Cancel` still report the
+documented unavailable/unsupported errors: readiness does not supply a guessed
+path, initiate a substitute GET or cancel someone else's download.
+
 ### Active URL downloads
 
 `Locator.DownloadMedia(MediaDownloadOptions{Filename: "image.png"})` downloads an

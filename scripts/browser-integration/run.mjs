@@ -38,6 +38,8 @@ import { lifecycleRecoveryFixture, checkOwnedTabRevocation, checkNativeHostResta
 import { createFormWorkflowFixture, checkFormWorkflow, checkFormReceipt } from "./form-workflow-fixture.mjs";
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
+import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
+import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -77,6 +79,12 @@ async function readFocusLedger() {
     assert.ok(focusObserver, "Persistent focus observer is unavailable");
     return focusObserver.evaluate(focusSnapshotExpression);
   });
+}
+async function readWindowFocusState(label) {
+  assert.ok(focusObserver, "Persistent focus observer is unavailable");
+  // Read-only sampling in the independent observer. Preserve the full native
+  // window/tab objects and ledger, with the async query interval made explicit.
+  return focusObserver.evaluate(`(async()=>{const startedAt=Date.now();const windows=await chrome.windows.getAll({populate:true});const active=await chrome.tabs.query({active:true,windowId:${sentinel.windowId}});const ledger=${focusSnapshotExpression};return{label:${JSON.stringify(label)},startedAt,completedAt:Date.now(),windows,active,ledger}})()`);
 }
 const browserLog = [];
 const hostLog = [];
@@ -223,6 +231,7 @@ const mediaDownloads = createMediaDownloadFixtures();
 const embeddedMedia = createEmbeddedMediaFixtures();
 const formWorkflows = createFormWorkflowFixture();
 const chooserFixtures = createChooserWaitFixtures();
+const downloadWaitFixtures = createDownloadWaitFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (networkFixtures.handle(request, response, httpPort)) return;
@@ -232,6 +241,7 @@ const http = createServer(async (request, response) => {
   if (embeddedMedia.handle(request, response, httpPort)) return;
   if (formWorkflows.handle(request, response, httpPort)) return;
   if (chooserFixtures.handle(request, response, httpPort)) return;
+  if (downloadWaitFixtures.handle(request, response, httpPort)) return;
   const route = new URL(request.url, "http://localhost").pathname;
   if (route === "/lifecycle-recovery") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(lifecycleRecoveryFixture()); return; }
   if (route === "/clipboard") {
@@ -349,6 +359,7 @@ try {
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
   for (const name of ["chooser-waits-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  for (const name of ["download-waits-fixture.mjs", "download-waits-callers.mjs", "download-waits-checks.py", "go-download-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.browserStartup = createHash("sha256").update(await fs.readFile(path.join(directory, "browser-startup.mjs"))).digest("hex");
   sourceIdentity.sha256.focusObserverHTML = createHash("sha256").update(focusObserverHTML).digest("hex");
   sourceIdentity.sha256.diagnosticsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "diagnostics-fixture.mjs"))).digest("hex");
@@ -437,6 +448,9 @@ try {
   // Both observed setup segments must be quiet. They are not merged and do not
   // establish atomic cross-context coverage before the observer was ready.
   focusEvidence.readyAt = Date.now();
+  focusEvidence.initialState = await readWindowFocusState("observer-ready-before-first-case");
+  await readFocusEvidence(focusLedger, focusEvidence, async () => focusEvidence.initialState.ledger);
+  await fs.writeFile(path.join(runDir, "focus-initial-state.json"), JSON.stringify(focusEvidence.initialState, null, 2));
   const fixtureURL = `http://127.0.0.1:${httpPort}/`;
   console.log("HARNESS", JSON.stringify({ endpoint, fixtureURL, runDir, sentinelId: sentinel.id }));
   browser = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-browser-integration", turnId: "acceptance", timeoutMs: 15000 });
@@ -472,6 +486,55 @@ try {
     }
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
+  for (const kind of ["js", "cli", "mcp", "python", "go", "lifecycle"]) await test(kind === "lifecycle" ? "js-page-download-ready-lifecycle" : `${kind}-page-download-ready-two-connections`, async () => {
+    const prefix = `${kind === "lifecycle" ? "js-lifecycle" : kind}-page-download`, options = { socketPath: endpoint, sessionId: prefix, turnId: "download-ready", timeoutMs: 15000 };
+    const owner = await connectOpenBrowserUse(options), trigger = ["js", "lifecycle"].includes(kind) ? await connectOpenBrowserUse(options) : null;
+    const foreign = kind === "lifecycle" ? await connectOpenBrowserUse({ ...options, sessionId: "page-download-successor" }) : null;
+    let detail = {}, failure, finishEvidence, callerOutput;
+    try {
+      sourceIdentity.testHooks.push(`page download ${kind}: bounded passive original Page.downloadWillBegin/progress listener; isolated directory delta checked against original HTTP response bytes, not a public GUID/path mapping; no backend hooks`);
+      finishEvidence = await startDownloadEvidence({ worker, owner, server: downloadWaitFixtures, downloadRoot: path.join(runDir, "downloads"), until });
+      if (kind === "js" || kind === "lifecycle") {
+        const parameters = { owner, trigger, foreign, fixtureURL, server: downloadWaitFixtures, worker, until, prefix };
+        detail = await (kind === "js" ? checkDownloadReady(parameters) : checkDownloadLifecycle(parameters));
+      } else if (kind === "cli" || kind === "mcp") {
+        const cliCall = async (method, params) => {
+          const response = JSON.parse(await subprocess(path.resolve(executable), ["call", "--socket", endpoint, "--session-id", prefix, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"]));
+          assert.equal(response.error, undefined, JSON.stringify(response)); return response.result;
+        };
+        const parameters = { kind, owner, fixtureURL };
+        detail = kind === "mcp" ? await withMCPClient(executable, endpoint, prefix, callA => withMCPClient(executable, endpoint, prefix, callB => checkDownloadWireCaller({ ...parameters, callA, callB }))) : await checkDownloadWireCaller({ ...parameters, callA: cliCall, callB: cliCall });
+      } else {
+        const output = path.join(runDir, `download-ready-${kind}-caller.json`), source = path.join(directory, kind === "python" ? "download-waits-checks.py" : "go-download-waits-checks/main.go");
+        callerOutput = output;
+        const frozen = path.join(runDir, kind === "python" ? "download-waits-checks.py" : "download-waits-checks.go");
+        await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+        let executablePath = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, fixtureURL, prefix, output];
+        const proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") }; detail.proof = proof;
+        if (kind === "go") {
+          assert.ok(process.env.OBU_TEST_GO_DOWNLOAD_WAIT_BINARY, "Set OBU_TEST_GO_DOWNLOAD_WAIT_BINARY for typed Go page download waits");
+          executablePath = path.join(runDir, process.platform === "win32" ? "go-download-waits-client.exe" : "go-download-waits-client");
+          await fs.copyFile(process.env.OBU_TEST_GO_DOWNLOAD_WAIT_BINARY, executablePath, fsConstants.COPYFILE_EXCL);
+          proof.binarySHA256 = createHash("sha256").update(await fs.readFile(executablePath)).digest("hex"); args = [endpoint, fixtureURL, prefix, output];
+        }
+        const result = JSON.parse(await subprocess(executablePath, args, { timeoutMs: 120000, env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } }));
+        assert.deepEqual(result, JSON.parse(await fs.readFile(output, "utf8"))); detail = { ...checkDownloadCallerResult(result, kind), proof };
+      }
+    } catch (error) {
+      failure = error;
+      if (callerOutput) { try { detail.partialCaller = JSON.parse(await fs.readFile(callerOutput, "utf8")); } catch (readError) { detail.partialCallerReadError = readError.message; } }
+      detail = { ...detail, ...(error.downloadDetail ?? {}), error: error.stack };
+    }
+    finally {
+      downloadWaitFixtures.release("js-page-download-lifecycle");
+      try { if (finishEvidence) await finishEvidence(detail, !failure); }
+      catch (error) { detail.evidenceError = error.stack; failure ??= error; }
+      await fs.writeFile(path.join(runDir, `download-ready-${kind}.json`), JSON.stringify(detail, null, 2));
+      try { await owner.client.finalizeTabs([]); if (foreign) await foreign.client.finalizeTabs([]); } finally { owner.close(); trigger?.close(); foreign?.close(); }
+    }
+    if (failure) throw failure;
+    return detail;
+  });
   let chooserFiles;
   const getChooserFiles = async () => chooserFiles ??= await prepareChooserFiles(runDir);
   for (const lifecycle of [false, true]) await test(lifecycle ? "js-file-chooser-ready-lifecycle" : "js-file-chooser-ready-two-connections", async () => {
@@ -1610,7 +1673,7 @@ try {
   }
   await test("js-user-global-pause-popup", async () => {
     const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
-    let pauseNetworkOutcome, pauseNavigationOutcome, pauseDownloadOutcome, pauseChooserOutcome, pausedWait, pausedNavigationWait, pausedChooserWait, pausedDownload, pausedTab, pauseAuxiliary;
+    let pauseNetworkOutcome, pauseNavigationOutcome, pauseDownloadOutcome, pauseChooserOutcome, pausePageDownloadOutcome, pausedWait, pausedNavigationWait, pausedChooserWait, pausedPageDownloadWait, pausedDownload, pausedTab, pauseAuxiliary;
     const traceFocus = createPopupFocusTrace("pause", "intentional harness chrome.action.openPopup for the user's Pause/Resume control");
     try {
       await traceFocus("pause-case:start");
@@ -1625,6 +1688,8 @@ try {
       const pendingNavigation = pausedNavigationWait.result({ timeoutMs: 120000 }).then(() => pauseNavigationOutcome = { succeeded: true }, error => pauseNavigationOutcome = { error: String(error) });
       pausedChooserWait = await pausedTab.expectFileChooser({ timeoutMs: 120000 });
       const pendingChooser = pausedChooserWait.result().then(value => pauseChooserOutcome = { value }, error => pauseChooserOutcome = { error: String(error) });
+      pausedPageDownloadWait = await pausedTab.expectDownload({ timeoutMs: 120000 });
+      const pendingPageDownload = pausedPageDownloadWait.result().then(value => pausePageDownloadOutcome = { downloadId: value.downloadId }, error => pausePageDownloadOutcome = { error: String(error) });
       const downloadTab = await prepareDirectDownloadTab(network, fixtureURL);
       pausedDownload = await downloadTab.downloadURL(directDownloadURL(fixtureURL, "js-paused-direct-download", "slow"));
       await until(() => directDownloads.stats("js-paused-direct-download").requests.length === 1, "owned native download before Pause");
@@ -1632,7 +1697,7 @@ try {
       const detail = await checkGlobalPause({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until, traceFocus,
-    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, directDownload: pauseDownloadOutcome }, null, 2)),
+    saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, pageDownloadWait: pausePageDownloadOutcome, directDownload: pauseDownloadOutcome }, null, 2)),
     connectPage: async url => {
       const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
       return workerConnection(target.webSocketDebuggerUrl);
@@ -1649,6 +1714,8 @@ try {
       assert.match(pauseNavigationOutcome.error, /OBU_NAVIGATION_WAIT_EXPIRED|paused|ended|cancel|stale/i);
       await until(() => pauseChooserOutcome, "Pause cancelled the pending file chooser collect", 5000);
       assert.match(pauseChooserOutcome.error, chooserExpired);
+      await until(() => pausePageDownloadOutcome, "Pause cancelled pending page download observation", 5000);
+      assert.match(pausePageDownloadOutcome.error, downloadExpired);
       await until(() => pauseDownloadOutcome, "Pause canceled pending download path", 5000);
       assert.match(pauseDownloadOutcome.error, directDownloadErrors.paused);
       await until(() => directDownloads.stats("js-paused-direct-download").requests[0].closed, "Pause canceled exact native download response", 5000);
@@ -1662,10 +1729,12 @@ try {
       await pendingNetwork;
       await pendingNavigation;
       await pendingChooser;
+      await pendingPageDownload;
       await pendingDownload;
       await assert.rejects(pausedWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NETWORK_WAIT_EXPIRED/);
       await assert.rejects(pausedNavigationWait.result(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED|OBU_NAVIGATION_WAIT_EXPIRED/);
       await assert.rejects(pausedChooserWait.result(), chooserExpired);
+      await assert.rejects(pausedPageDownloadWait.result(), downloadExpired);
       await assert.rejects(pausedDownload.path({ timeoutMs: 500 }), directDownloadErrors.epoch);
       await network.client.beginTurn();
       await assert.rejects(network.client.request("downloadPath", { downloadId: pausedDownload.downloadId, timeoutMs: 500 }), directDownloadErrors.expired);
@@ -1677,7 +1746,7 @@ try {
       assert.equal(networkFixtures.stats("js-paused-network").requests.length, 0);
       await network.client.finalizeTabs([]);
       assert.equal(directDownloads.stats("js-paused-direct-download").requests.length, 1, "Resume replayed the native download");
-      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, directDownload: pauseDownloadOutcome, networkNotReplayed: true };
+      return { ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, pageDownloadWait: pausePageDownloadOutcome, directDownload: pauseDownloadOutcome, networkNotReplayed: true };
     } finally {
       directDownloads.release("js-paused-direct-download");
       network.close();
@@ -1749,7 +1818,8 @@ try {
       let state, stateError;
       try {
         assert.ok(focusObserver, "Persistent focus observer was never ready");
-        state = await focusObserver.evaluate(`(async()=>({windows:await chrome.windows.getAll({populate:true}),active:await chrome.tabs.query({active:true,windowId:${sentinel.windowId}})}))()`);
+        state = await readWindowFocusState("after-last-case-before-teardown");
+        focusEvidence.finalState = state;
       } catch (error) {
         stateError = error;
         focusEvidence.finalStateError = error.stack ?? String(error);
@@ -1775,6 +1845,7 @@ try {
   focusEvidence.rawHistoryStatus = focusEvidence.finalValidation === "passed" ? "validated-final-snapshot" : "incomplete-known-prefix";
   focusEvidence.teardown = "begins after final snapshot validation and persistence; observer destruction and test window removals are outside agent coverage";
   await fs.writeFile(path.join(runDir, "focus-ledger.json"), JSON.stringify({ ...focusEvidence, activeEvents, allowedPopupActivations, windowFocusEvents, allowedWindowFocusEvents }, null, 2));
+  await fs.writeFile(path.join(runDir, "focus-final-state.json"), JSON.stringify(focusEvidence.finalState ?? { error: focusEvidence.finalStateError ?? "Observer setup did not reach window state capture" }, null, 2));
   // Capture the HTTP witness before teardown can close an unfinished response.
   await fs.writeFile(path.join(runDir, "direct-download-server.json"), JSON.stringify(directDownloads.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "media-download-server.json"), JSON.stringify(mediaDownloads.stats(), null, 2));
@@ -1799,6 +1870,8 @@ try {
   networkFixtures.close();
   navigationFixtures.close();
   directDownloads.close();
+  downloadWaitFixtures.close();
+  await fs.writeFile(path.join(runDir, "download-waits-server.json"), JSON.stringify(downloadWaitFixtures.allStats(), null, 2));
   await new Promise(resolve => http.close(resolve));
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));

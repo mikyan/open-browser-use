@@ -36,6 +36,7 @@ type controlFixture struct {
 	delayInfo              time.Duration
 	withoutNetworkWait     bool
 	withoutNavigationWait  bool
+	withoutDownloadWait    bool
 	withoutFileChooserWait bool
 	withoutDirectDownloads bool
 	withoutMediaDownloads  bool
@@ -101,6 +102,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 						if !fixture.withoutFileChooserWait {
 							result.(map[string]any)["metadata"].(map[string]any)["fileChooserWaitVersion"] = 1
 						}
+						if !fixture.withoutDownloadWait {
+							result.(map[string]any)["metadata"].(map[string]any)["downloadWaitVersion"] = 1
+						}
 						if !fixture.withoutNavigationWait {
 							result.(map[string]any)["metadata"].(map[string]any)["navigationWaitVersion"] = 1
 						}
@@ -123,11 +127,13 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 					}
 					if failure == nil {
 						switch method {
-						case "armFileChooserWait":
+						case "armFileChooserWait", "armDownloadWait":
 							result = map[string]any{"waiterId": "ready-wait", "remainingMs": params["timeoutMs"]}
+						case "collectDownloadWait":
+							result = map[string]any{"downloadId": "native-guid"}
 						case "collectFileChooserWait":
 							result = map[string]any{"fileChooserId": "chooser", "isMultiple": false}
-						case "cancelFileChooserWait":
+						case "cancelFileChooserWait", "cancelDownloadWait":
 							result = map[string]any{}
 						}
 					}
@@ -220,14 +226,18 @@ func TestCLIControlLostEndRequiresExplicitRecovery(t *testing.T) {
 }
 
 func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "armDownloadWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			for _, timeout := range []time.Duration{1500 * time.Millisecond, 1050 * time.Millisecond} {
 				t.Run(timeout.String(), func(t *testing.T) {
 					f := &controlFixture{epoch: 30, delayInfo: 80 * time.Millisecond}
 					options := f.start(t)
 					options.timeout = timeout
-					response, err := invokeWithOptions(options, method, map[string]any{"tabId": 1, "action": "click", "timeoutMs": 10_000})
+					params := map[string]any{"tabId": 1, "timeoutMs": 10_000}
+					if method == "browserAction" {
+						params["action"] = "click"
+					}
+					response, err := invokeWithOptions(options, method, params)
 					if timeout < 1100*time.Millisecond {
 						if err == nil || strings.Contains(strings.Join(f.methods(), ","), method) {
 							t.Fatalf("expired action sent: %v", err)
@@ -238,7 +248,7 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 						t.Fatal(err)
 					}
 					budgetKey := "timeoutMs"
-					if method == "armFileChooserWait" {
+					if method == "armFileChooserWait" || method == "armDownloadWait" {
 						budgetKey = "remainingMs"
 					}
 					budget := response["result"].(map[string]any)[budgetKey].(float64)
@@ -252,7 +262,7 @@ func TestCLIControlDeadlineIncludesHandshake(t *testing.T) {
 }
 
 func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
-	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "armDownloadWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		for _, invalid := range []any{nil, float64(0), float64(-1), 1.5, float64(120001), "1000"} {
 			if err := boundCLIActionDeadline(method, map[string]any{"timeoutMs": invalid}, time.Now().Add(20*time.Second)); err == nil {
 				t.Fatalf("accepted %s timeout %v", method, invalid)
@@ -266,12 +276,12 @@ func TestCLIWaitBudgetsValidateAndDefault(t *testing.T) {
 }
 
 func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
-	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"browserAction", "waitForFileChooser", "waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "armDownloadWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		t.Run(method, func(t *testing.T) {
 			f := &controlFixture{epoch: 34, delayInfo: 250 * time.Millisecond}
 			options := f.start(t)
 			options.timeout = 10 * time.Second
-			if _, err := invokeWithOptions(options, method, map[string]any{"timeoutMs": 100}); err == nil || !strings.Contains(err.Error(), "timed out before") {
+			if _, err := invokeWithOptions(options, method, map[string]any{"tabId": 1, "timeoutMs": 100}); err == nil || !strings.Contains(err.Error(), "timed out before") {
 				t.Fatalf("short operation accepted: %v", err)
 			}
 			if strings.Contains(strings.Join(f.methods(), ","), method) {
@@ -282,13 +292,13 @@ func TestCLIShortOperationBudgetIsNotExtendedByLongDefault(t *testing.T) {
 }
 
 func TestMCPQueuedOperationBudgetStartsAtSubmission(t *testing.T) {
-	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
+	for _, method := range []string{"waitForDownload", "armNetworkWait", "armNavigationWait", "armFileChooserWait", "armDownloadWait", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload"} {
 		f := &controlFixture{epoch: 34}
 		options := f.start(t)
 		options.timeout = 10 * time.Second
 		submitted := options.control.snapshot()
 		submitted.deadline = time.Now().Add(8 * time.Second) // submitted two seconds ago
-		if _, err := options.control.invoke(options, method, map[string]any{"timeoutMs": 100}, &submitted); err == nil || !strings.Contains(err.Error(), "timed out") {
+		if _, err := options.control.invoke(options, method, map[string]any{"tabId": 1, "timeoutMs": 100}, &submitted); err == nil || !strings.Contains(err.Error(), "timed out") {
 			t.Fatalf("queued operation accepted: %v", err)
 		}
 		if len(f.methods()) != 0 {
@@ -569,5 +579,84 @@ func TestCLIFileChooserWaitCapabilityAndFixedRawBinding(t *testing.T) {
 				t.Fatal("collect/cancel renewed deadline")
 			}
 		}
+	}
+}
+
+func TestCLIDownloadWaitCapabilityAndFixedRawBinding(t *testing.T) {
+	for _, method := range []string{"armDownloadWait", "collectDownloadWait", "cancelDownloadWait"} {
+		for _, manual := range []bool{false, true} {
+			f := &controlFixture{epoch: 36, withoutDownloadWait: true}
+			options := f.start(t)
+			options.timeout = 5 * time.Second
+			params := map[string]any{"tabId": 1}
+			if method != "armDownloadWait" {
+				params["waiterId"] = "w"
+			}
+			if manual {
+				params["control_epoch"], params["session_id"], params["turn_id"] = 36, "fixture", "original-turn"
+			}
+			if _, err := invokeWithOptions(options, method, params); err == nil || !strings.Contains(err.Error(), "OBU_DOWNLOAD_WAIT_UNSUPPORTED") {
+				t.Fatalf("unsupported download wait: %v", err)
+			}
+			for _, sent := range f.methods() {
+				if cliDownloadWaitMethod(sent) {
+					t.Fatal("unsupported RPC reached extension")
+				}
+			}
+		}
+	}
+	f := &controlFixture{epoch: 37}
+	options := f.start(t)
+	options.timeout = 5 * time.Second
+	scope := map[string]any{"tabId": 1, "control_epoch": 37, "session_id": "fixture", "turn_id": "original-turn"}
+	if _, err := invokeWithOptions(options, "armDownloadWait", scope); err != nil {
+		t.Fatal(err)
+	}
+	scope["waiterId"] = "ready-wait"
+	for _, method := range []string{"collectDownloadWait", "cancelDownloadWait"} {
+		if _, err := invokeWithOptions(options, method, scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, call := range f.calls {
+		method := call["method"].(string)
+		if !cliDownloadWaitMethod(method) {
+			continue
+		}
+		p := call["params"].(map[string]any)
+		if p["turn_id"] != "original-turn" || p["control_epoch"] != float64(37) || p["session_id"] != "fixture" {
+			t.Fatal(p)
+		}
+		if method != "armDownloadWait" {
+			if _, ok := p["timeoutMs"]; ok {
+				t.Fatal("collect/cancel renewed deadline")
+			}
+		}
+	}
+}
+
+func TestCLIDownloadWaitInvalidParametersDoNotOpenTransport(t *testing.T) {
+	f := &controlFixture{epoch: 37}
+	options := f.start(t)
+	for _, tc := range []struct {
+		method string
+		params map[string]any
+	}{
+		{"armDownloadWait", map[string]any{"tabId": -1}},
+		{"armDownloadWait", map[string]any{"tabId": 1, "action": "click"}},
+		{"armDownloadWait", map[string]any{"tabId": 1, "timeoutMs": nil}},
+		{"armDownloadWait", map[string]any{"tabId": 1, "session_id": ""}},
+		{"armDownloadWait", map[string]any{"tabId": 1, "control_epoch": 0}},
+		{"collectDownloadWait", map[string]any{"tabId": 1, "waiterId": "w", "timeoutMs": 1}},
+		{"cancelDownloadWait", map[string]any{"tabId": 1, "waiterId": ""}},
+	} {
+		if _, err := invokeWithOptions(options, tc.method, tc.params); err == nil || !strings.Contains(err.Error(), "invalid download wait parameters") {
+			t.Fatalf("invalid %s accepted: %v", tc.method, err)
+		}
+	}
+	if len(f.methods()) != 0 {
+		t.Fatal("invalid observer request opened transport", f.methods())
 	}
 }

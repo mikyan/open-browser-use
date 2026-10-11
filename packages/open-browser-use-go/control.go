@@ -41,7 +41,7 @@ func controlDiscoveryMethod(method string) bool {
 
 func (c *Client) observeControlSupport(info any) error {
 	version := 0
-	var fileChooserVersion, networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion any
+	var downloadWaitVersion, fileChooserVersion, networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion any
 	if object, ok := info.(map[string]any); ok {
 		if metadata, ok := object["metadata"].(map[string]any); ok {
 			directDownloadsVersion = metadata["directDownloadsVersion"]
@@ -50,6 +50,7 @@ func (c *Client) observeControlSupport(info any) error {
 			clipboardVersion = metadata["clipboardVersion"]
 			networkVersion = metadata["networkWaitVersion"]
 			navigationVersion = metadata["navigationWaitVersion"]
+			downloadWaitVersion = metadata["downloadWaitVersion"]
 			fileChooserVersion = metadata["fileChooserWaitVersion"]
 			if advertised, exists := metadata["turnLifecycleVersion"]; exists {
 				if advertised != float64(1) {
@@ -67,6 +68,7 @@ func (c *Client) observeControlSupport(info any) error {
 	c.clipboardKnown, c.clipboardVersion = true, clipboardVersion
 	c.networkWaitKnown, c.networkWaitVersion = true, networkVersion
 	c.navigationWaitKnown, c.navigationWaitVersion = true, navigationVersion
+	c.downloadWaitKnown, c.downloadWaitVersion = true, downloadWaitVersion
 	c.fileChooserWaitKnown, c.fileChooserWaitVersion = true, fileChooserVersion
 	if c.control.version != 1 {
 		c.control.version = version
