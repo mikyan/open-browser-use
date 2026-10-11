@@ -1,0 +1,83 @@
+docs/references/pointer-delivery.md
+  s_08bbfd293d324f::t_e0f9cc075aa4d4 131-152
+  s_08bbfd293d324f::t_4811d4ab4536e6 38-43
+  s_08bbfd293d324f::t_7201d9c2c0ff30 11-13,28-31,34-36,44-54,74-75
+  s_08bbfd293d324f::t_41f6c3c592f8dc 153-161
+  s_08bbfd293d324f::t_cf8c7e27d8c5f4 162-176
+  s_08bbfd293d324f::t_03e6c0502d6bb1 177-195
+  s_08bbfd293d324f::t_04513dc57cc352 37
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_c24c2f1c613ad6 1302
+  s_08bbfd293d324f::t_da0f5cfe83085e 60,1301,1303-1316
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_7201d9c2c0ff30 169,175-177
+  s_08bbfd293d324f::t_4811d4ab4536e6 174
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_41f6c3c592f8dc 1645-1650
+  s_08bbfd293d324f::t_cf8c7e27d8c5f4 1651-1660
+  s_08bbfd293d324f::t_e0f9cc075aa4d4 1621-1624,1626-1644
+  s_08bbfd293d324f::t_03e6c0502d6bb1 1661-1670
+  s_08bbfd293d324f::t_d5a14463cf065a 1625
+scripts/patch-pointer-delivery.mjs
+  s_08bbfd293d324f::t_b47d5ad68a21c9 56,58-60,72,83-88,107-138,184,189,191-193,204-216
+  s_08bbfd293d324f::t_2a87041e209aef 256-259,267-269,284-315
+  s_08bbfd293d324f::t_6fda76a35bf2ea 190,194-203
+apps/chrome-extension/native-input-tracker.test.mjs
+  s_08bbfd293d324f::t_87445a2ad6eb1b 190-237
+scripts/patch-pointer-delivery.test.mjs
+  s_08bbfd293d324f::t_388dfc1f9608ef 443-458,463-568,647-734,736-737
+  s_08bbfd293d324f::t_3add5e0814406f 7,26-27,36-37,60-63,71,77-78,83-86,89,101,104,113,115-116,119,125-126,153-154,156-157,160,429-431
+  s_08bbfd293d324f::t_961f47dc6128ee 163-167,459-462,735
+  s_08bbfd293d324f::t_d205114a71b2e6 569-599
+  s_08bbfd293d324f::t_ddd21f2bead5ee 600-646
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_03e6c0502d6bb1 2403,2453-2470
+  s_08bbfd293d324f::t_0e17cb9bc5933d 2402,2404-2424
+  s_08bbfd293d324f::t_cf8c7e27d8c5f4 2440-2452
+  s_08bbfd293d324f::t_41f6c3c592f8dc 2425-2439
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_03e6c0502d6bb1 14-30
+scripts/browser-integration/pointer-delivery-cases.test.mjs
+  s_08bbfd293d324f::t_70764f4057e099 475,486-505,531
+  s_08bbfd293d324f::t_cd5b0b74c25af8 9,506-530
+  s_08bbfd293d324f::t_e555aed910e30a 428-449,451-454,456-457,460-474
+  s_08bbfd293d324f::t_5457a0ddf0915e 351-352,419,424
+  s_08bbfd293d324f::t_12f9ad08b53555 8,245-303,320-350,353-418,420-423,425-427
+  s_08bbfd293d324f::t_b00103dc8b813b 304-319
+  s_08bbfd293d324f::t_c2e96517f63d33 476-485
+  s_08bbfd293d324f::t_bc092901485447 450,455,458-459
+scripts/browser-integration/pointer-delivery-cases.mjs
+  s_08bbfd293d324f::t_574cbc9704faa5 466-469,594,597-598,600-605
+  s_08bbfd293d324f::t_a058ae133d69a4 528-537,624
+  s_08bbfd293d324f::t_181cb4eda145d0 540,549,578
+  s_08bbfd293d324f::t_852ee11c552103 299-459,470-524,581,583-592,606-615,626-660
+  s_08bbfd293d324f::t_c84a1954113cd3 36
+  s_08bbfd293d324f::t_d66978cb1fb55f 460-465
+  s_08bbfd293d324f::t_751ae74ea9bd02 582
+  s_08bbfd293d324f::t_cc47ccc27af622 593,595-596,599
+  s_08bbfd293d324f::t_645bafca31ace5 525-527,538-539,541-548,550-553,555-577,579-580,616-623,625
+  s_08bbfd293d324f::t_37a4e781c6be57 554
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_7201d9c2c0ff30 249-251,255-257,260
+  s_08bbfd293d324f::t_4811d4ab4536e6 258-259
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_66ae87e0639aef 45-55,227,232,234,238,243
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_ae08ed17f2f2a1 131,141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "69e4ef66562bf670302f50a16d63bc3124c24b5d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
