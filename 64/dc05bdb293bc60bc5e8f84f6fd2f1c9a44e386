@@ -1,0 +1,57 @@
+scripts/browser-integration/chooser-ready-diagnostic.test.mjs
+  s_08bbfd293d324f::t_7168185fc40d85 338-339,341
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_a25dbf48a66120 2250-2266
+  s_08bbfd293d324f::t_61a552994a5852 2267-2272
+  s_08bbfd293d324f::t_ae4e84678c0fd0 2273-2287
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_12d9ed631ec912 226-245
+scripts/browser-integration/chooser-waits-callers.test.mjs
+  s_08bbfd293d324f::t_4cd19238bae169 1-202
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_12d9ed631ec912 403
+  s_08bbfd293d324f::t_b665be81786658 151,153,155,157,161,164-167,183-184,186,212-216,230
+  s_08bbfd293d324f::t_7168185fc40d85 46,832
+  s_08bbfd293d324f::t_1eafea3b20ef5e 738-740,742-743,747-753,755-769,794,811,825,828-831,833,838
+scripts/browser-integration/chooser-failure-observation.test.mjs
+  s_08bbfd293d324f::t_50752fef037812 4,7-8,10-11,25-84,86-118
+  s_08bbfd293d324f::t_7bbba771e68ace 85
+  s_08bbfd293d324f::t_fa1d1e89d27112 119
+scripts/browser-integration/chooser-waits-callers.mjs
+  s_08bbfd293d324f::t_e42f413cdbf278 6-27,29-84,86-87
+scripts/browser-integration/chooser-waits-python.test.mjs
+  s_08bbfd293d324f::t_3ec30cf199dd25 1-186
+scripts/browser-integration/chooser-waits-checks.py
+  s_08bbfd293d324f::t_9d4d553a7ab2ef 107,122
+  s_08bbfd293d324f::t_b83567de525c35 6,11-21,23-50,53,55-106,108-121,123-127,131-145,151-156,158-166,168-170
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_ae4e84678c0fd0 1565-1569
+  s_08bbfd293d324f::t_61a552994a5852 1560-1563
+  s_08bbfd293d324f::t_a25dbf48a66120 1548-1559,1564
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_ae4e84678c0fd0 20-22
+  s_08bbfd293d324f::t_61a552994a5852 14-19,23-24
+scripts/browser-integration/chooser-failure-observation.mjs
+  s_08bbfd293d324f::t_2427cc7e0299ae 3-50
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_ae4e84678c0fd0 50-51
+  s_08bbfd293d324f::t_61a552994a5852 45-49,52-53
+scripts/browser-integration/run-output.test.mjs
+  s_08bbfd293d324f::t_7168185fc40d85 3,6,88,92-93,96-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "64dc05bdb293bc60bc5e8f84f6fd2f1c9a44e386",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
