@@ -1618,6 +1618,56 @@ exit0；所有原失败保留。独立专项核三受控分支的真实pointermo
 child close、host预期重启与新进程exit0均确认。此结果不关闭自然Viz根因、
 跨平台与完整对齐目标，旧preview资产未修改。
 
+### 多击与显式修饰键
+
+普通clickCount与dblclick扩为同一原deadline内的完整按钮序列。真实move
+及目标receipt确认后按1…N逐对await down/up ACK，保留原delay；从首down
+提交起不重放。每次后续按下复核原root点祖先命中、原receipt及已观察到的导航，
+不重新定位、不移鼠标补救；检查不能锁定DOM或预测未来native通知。
+
+显式modifiers从每attempt设置前保存baseline，以finally覆盖准备重试及
+部分设置失败。Keyboard/RawKeyboard透传私票，过期或撤权不补发普通键盘
+操作，由原attachment账本清理未知held input。force/trial、已有held
+modifiers及hover/drag/raw路径仍保留原边界，整体对齐目标继续。
+
+固定bundle定向45/45、独立bundle/transport/tracker70/70、最终Node
+1569/1569均通过且零skip/cancel。新的独立fixture保留旧三分支七份HTML
+逐字节相同，21项本地测试包含modifier重试区间负例：漏掉中间抬键和
+重新设置不能仅凭最终状态成功过关。首次启动沿用旧selector只执行两项
+且通过；该结果不算新增计数验收。修正选择器后`vulf6j`实际3/3、exit0。
+
+四个真实新场景为root双击、同源三击加Shift、OOPIF受控丢首move后双击
+加Shift及首击导航后拒绝第二击。8次真实click、3次dblclick和4份唯一
+原POST吻合；新文档零后续点击，OOPIF重试有两对独立Shift设置/恢复。
+8,860ms连续账本零activation/焦点，host正常退出。该受控丢move不冒充
+自然Viz根因；旧preview资产保持不变。
+
+首次完整`NNr3Bp`111/112、exit1；原111项通过，新导航验收在server GET
+后立即读取URL而失败。3条真实Input及唯一可信POST证明首击已提交且第二
+击被阻止，随后仍为旧文档/loading快照；没有证据表明其后来一定完成。
+修正只涉及验收的条件观察，保留原5000ms剩余预算和原输入，不改生产
+行为或把旧失败重写成通过。
+
+最终fixture的只读导航观察在原5秒预算内验证新active文档及complete；
+外层超时后迟到结果不能更新样本，worker在native API前后核同一deadline，
+已发出的读取不能冒充取消。fixture28/28通过。随后发现并修复另一生产
+缺口：首击移动iframe时，原local receipt仍可能ready。旧候选三个实际
+bundle反例（祖先遮挡、framePoint变化、断开）均漏拒绝，原红证据保留。
+后续每次down现在先在原root点重核祖先命中，再由原receipt检查framePoint，
+不换坐标、不重选或重放。第三pair、祖先读取期间撤权/到期/换context及
+原异常保留也纳入回归。定向50/50、独立75/75、Node1581/1581通过；
+transform shortcut与非原子检查限制继续保留。
+
+最终冻结专项`uLGdWq`3/3、完整`WLM6bV`112/112均actual exit0，原111项
+名称顺序保留。四场景27条Input逐条ACK和4唯一POST共19723字节经独立
+核验；首击导航350ms确认新root文档，原5000ms剩余预算仍有效，目标零
+后续点击。专项8283ms零焦点事件，完整212803ms仍只有原11激活/4控制
+popup focus；sentinel身份/选择保持，视口高1222→1202。4任务tab已回收，
+host预期重启后新进程exit0；无最终debugger target清单，范围不扩称。
+生产50成员、暂存允许差异及源/SDK/host身份一致；专项不运行Go表单而
+缺少相应hash字段，完整binary仍与原配置/前轮一致。完整和新增场景两份
+独立审计互补，不拿新通过抹去旧失败。旧preview不改，完整目标继续active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

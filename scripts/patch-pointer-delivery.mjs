@@ -53,8 +53,11 @@ function obuPointerFailure(error) {
   return result;
 }
 
-async function obuRunPointerClick(handle, progress, options) {
+async function obuRunPointerClick(handle, progress, options, actionName = "click") {
   const mouse = handle._page.mouse, context = handle._context;
+  const keyboard = handle._page.keyboard, clickCount = options.clickCount ?? 1;
+  if (!Number.isInteger(clickCount) || clickCount < 1)
+    throw obuPointerFailure("click count must be a positive integer");
   const client = mouse._raw?._client, transport = client?._connection?._transport;
   const root = /^crx-tab-(\\d+)$/.exec(client?._sessionId || "");
   const tabId = root ? Number(root[1]) : transport?._sessions?.get(client?._sessionId);
@@ -66,7 +69,7 @@ async function obuRunPointerClick(handle, progress, options) {
       contextClient?._connection?._transport !== transport ||
       (contextRoot ? Number(contextRoot[1]) !== tabId : transport._sessions.get(contextSession) !== tabId))
     throw obuPointerFailure("original Chromium pointer route is unavailable");
-  let buttonsFinished = false, originalReceiptContext;
+  let buttonsFinished = false, completedClicks = 0, originalReceiptContext;
   const contextIsCurrent = value => value && !value._contextDestroyedScope.isClosed() &&
     value.frame._contextData.get(value.world)?.context === value;
   const check = () => {
@@ -77,6 +80,12 @@ async function obuRunPointerClick(handle, progress, options) {
          originalReceiptContext && !contextIsCurrent(originalReceiptContext) ||
          !contextRoot && transport._sessions.get(contextSession) !== tabId))
       throw obuPointerFailure("original pointer node/context/attachment changed");
+    // Do not send the next counted click after an already observed navigation.
+    // This reads existing Frame state; it cannot predict future CDP messages.
+    if (!buttonsFinished && completedClicks) {
+      for (let frame = handle._frame; frame; frame = frame.parentFrame())
+        if (frame.pendingDocument()) throw obuPointerFailure("navigation interrupted the counted click");
+    }
   };
   let ticket, committed = false, moved = false, attempt = 0, currentReceipt;
   const closeReceipt = async () => {
@@ -94,6 +103,38 @@ async function obuRunPointerClick(handle, progress, options) {
         throw obuPointerFailure("original utility context changed");
       originalReceiptContext = receipt._context;
       check();
+    },
+    async runAttempt(point, receipt, action) {
+      // Snapshot before ensureModifiers: a partial native key failure may throw
+      // before upstream returns its restore array. A retry restores this exact
+      // attempt's baseline before it can arm another receipt.
+      const baseline = options.modifiers ? Array.from(keyboard._modifiers()) : undefined;
+      let failure;
+      try {
+        check(); ticket.check();
+        if (baseline) await keyboard.ensureModifiers(options.modifiers, ticket);
+        check(); ticket.check();
+        if (!await state.prepare(point, receipt)) return false;
+        await action(point);
+        return true;
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        if (baseline) {
+          try {
+            check(); ticket.check();
+            await keyboard.ensureModifiers(baseline, ticket);
+            check(); ticket.check();
+          } catch (error) {
+            // No unguarded or out-of-deadline key recovery. The engine releases
+            // unknown held input through the native tracker on this terminal
+            // error; retain the action error if restoration also fails.
+            if (!failure) throw error;
+            try { failure.pointerModifierRestoreError = error; } catch {}
+          }
+        }
+      }
     },
     async prepare(point, receipt) {
       if (!receipt?._objectId) throw obuPointerFailure("original hit interceptor is unavailable");
@@ -140,17 +181,39 @@ async function obuRunPointerClick(handle, progress, options) {
     check();
     ticket = openBrowserUseInputHooks.beginPointerAction({ tabId }, check);
     ticket.check();
-    const result = await handle._retryPointerAction(progress, "click", true, async () => {
-      check(); ticket.check();
-      committed = true; // Set before calling down: native outcome may be unknown.
-      await mouse.down({ ...options, [obuPointerTicket]: ticket });
-      check(); ticket.check();
+    const delay = async () => {
       if (options.delay) {
         await new Promise(resolve => setTimeout(resolve, Math.min(options.delay, Math.max(0, progress.timeUntilDeadline()))));
         check(); ticket.check();
       }
-      await mouse.up({ ...options, [obuPointerTicket]: ticket });
-      buttonsFinished = true;
+    };
+    const result = await handle._retryPointerAction(progress, actionName, true, async (point) => {
+      for (let count = 1; count <= clickCount; count++) {
+        check(); ticket.check();
+        if (completedClicks) {
+          // A first click may move or cover the original frame while its local
+          // node and receipt remain valid. Recheck the same root point and pass
+          // its current frame geometry to the original receipt; never move,
+          // locate a successor or retry an already committed button sequence.
+          const frameCheck = await handle._checkFrameIsHitTarget(point);
+          check(); ticket.check();
+          if (frameCheck === "error:notconnected" || "hitTargetDescription" in frameCheck)
+            throw obuPointerFailure("original frame changed between counted clicks");
+          const receipt = await currentReceipt.evaluate((h, value) => h.readMoveReceipt(value.id, { point: value.point }),
+            { id: attempt, point: frameCheck.framePoint ?? null });
+          check(); ticket.check();
+          if (receipt?.attempt !== attempt || receipt.status !== "ready")
+            throw obuPointerFailure("original target changed between counted clicks");
+        }
+        committed = true; // Never reset: even a rejected down may have arrived.
+        await mouse.down({ ...options, clickCount: count, [obuPointerTicket]: ticket });
+        check(); ticket.check();
+        await delay();
+        await mouse.up({ ...options, clickCount: count, [obuPointerTicket]: ticket });
+        completedClicks = count;
+        buttonsFinished = count === clickCount;
+        if (!buttonsFinished) { check(); ticket.check(); await delay(); }
+      }
     }, { ...options, [obuPointerDelivery]: state });
     check(); ticket.check();
     if (moved && result !== "done") throw obuPointerFailure("original pointer target was lost");
@@ -190,7 +253,10 @@ export function patchCrxPointerDelivery(source) {
   source = source.replace(injectedMatch[0], () => "const source$4 = " + JSON.stringify(injected) + ";");
   source = replaceOnce(source,
     '  _click(progress2, options2) {\n    return this._retryPointerAction(progress2, "click", true, (point) => this._page.mouse.click(point.x, point.y, options2), options2);\n  }',
-    '  _click(progress2, options2) {\n    if (openBrowserUseInputHooks?.beginPointerAction && !options2.force && !options2.trial && (options2.clickCount ?? 1) === 1 && !options2.modifiers?.length && this._page.keyboard._modifiers().size === 0)\n      return obuRunPointerClick(this, progress2, options2);\n    return this._retryPointerAction(progress2, "click", true, (point) => this._page.mouse.click(point.x, point.y, options2), options2);\n  }');
+    '  _click(progress2, options2) {\n    if (openBrowserUseInputHooks?.beginPointerAction && !options2.force && !options2.trial && this._page.keyboard._modifiers().size === 0)\n      return obuRunPointerClick(this, progress2, options2);\n    return this._retryPointerAction(progress2, "click", true, (point) => this._page.mouse.click(point.x, point.y, options2), options2);\n  }');
+  source = replaceOnce(source,
+    '  _dblclick(progress2, options2) {\n    return this._retryPointerAction(progress2, "dblclick", true, (point) => this._page.mouse.dblclick(point.x, point.y, options2), { ...options2, waitAfter: "disabled" });\n  }',
+    '  _dblclick(progress2, options2) {\n    if (openBrowserUseInputHooks?.beginPointerAction && !options2.force && !options2.trial && this._page.keyboard._modifiers().size === 0)\n      return obuRunPointerClick(this, progress2, { ...options2, clickCount: 2, waitAfter: "disabled" }, "dblclick");\n    return this._retryPointerAction(progress2, "dblclick", true, (point) => this._page.mouse.dblclick(point.x, point.y, options2), { ...options2, waitAfter: "disabled" });\n  }');
   source = replaceOnce(source, '    const { force = false, position } = options2;',
     '    const { force = false, position } = options2;\n    const obuDelivery = options2[obuPointerDelivery];\n    const obuMoveAttempt = obuDelivery?.nextAttempt();');
   source = replaceOnce(source,
@@ -198,8 +264,9 @@ export function patchCrxPointerDelivery(source) {
     'const handle = await this.evaluateHandleInUtility(([injected, node2, { actionType: actionType2, hitPoint: hitPoint2, trial, obuMoveAttempt: attempt }]) => injected.setupHitTargetInterceptor(node2, actionType2, hitPoint2, trial, attempt), { actionType, hitPoint, trial: !!options2.trial, obuMoveAttempt });');
   source = replaceOnce(source, '      hitTargetInterceptionHandle = handle;',
     '      hitTargetInterceptionHandle = handle;\n      obuDelivery?.retain(handle);');
-  source = replaceOnce(source, '      await action(point);',
-    '      if (obuDelivery && !await obuDelivery.prepare(point, hitTargetInterceptionHandle))\n        return { hitTargetDescription: "original target has not received a matching pre-press move" };\n      await action(point);');
+  const modifiersAndAction = '      let restoreModifiers;\n      if (options2 && options2.modifiers)\n        restoreModifiers = await this._page.keyboard.ensureModifiers(options2.modifiers);\n      progress2.log(\x60  performing ${actionName} action\x60);\n      await action(point);\n      if (restoreModifiers)\n        await this._page.keyboard.ensureModifiers(restoreModifiers);';
+  source = replaceOnce(source, modifiersAndAction,
+    '      if (obuDelivery) {\n        progress2.log(\x60  performing ${actionName} action\x60);\n        if (!await obuDelivery.runAttempt(point, hitTargetInterceptionHandle, action))\n          return { hitTargetDescription: "original target has not received a matching pre-press move" };\n      } else {\n' + modifiersAndAction + '\n      }');
   source = replaceOnce(source, '          hitTargetInterceptionHandle == null ? void 0 : hitTargetInterceptionHandle.dispose();',
     '          obuDelivery?.forget(hitTargetInterceptionHandle);\n          hitTargetInterceptionHandle == null ? void 0 : hitTargetInterceptionHandle.dispose();');
   source = replaceOnce(source, '        if (options2.waitAfter !== false) {\n          const hitTargetResult = await stopHitTargetInterception;\n          if (hitTargetResult !== "done")\n            return hitTargetResult;',
@@ -214,6 +281,38 @@ export function patchCrxPointerDelivery(source) {
   source = replaceOnce(source,
     'await this._raw.up(this._x, this._y, button, this._buttons, this._keyboard._modifiers(), clickCount);',
     'await this._raw.up(this._x, this._y, button, this._buttons, this._keyboard._modifiers(), clickCount, options2[obuPointerTicket]);');
+  // Modifier changes belong to this exact action, including per-attempt
+  // restoration. Optional private parameters leave every old Keyboard caller
+  // unchanged; no mutable ticket is stored on the shared keyboard object.
+  const keyboardStart = source.indexOf("let Keyboard$1 = class Keyboard {"), keyboardEnd = source.indexOf("let Mouse$1 = class Mouse {", keyboardStart);
+  if (keyboardStart < 0 || keyboardEnd < 0) throw new Error("Pinned Playwright keyboard shape changed");
+  let keyboard = source.slice(keyboardStart, keyboardEnd);
+  for (const [before, after] of [
+    ["async down(key2)", "async down(key2, obuTicket)"],
+    ["async up(key2)", "async up(key2, obuTicket)"],
+    ["async ensureModifiers(mm)", "async ensureModifiers(mm, obuTicket)"],
+    ["this._raw.keydown(this._pressedModifiers, key2, description, autoRepeat)", "this._raw.keydown(this._pressedModifiers, key2, description, autoRepeat, obuTicket)"],
+    ["this._raw.keyup(this._pressedModifiers, key2, description)", "this._raw.keyup(this._pressedModifiers, key2, description, obuTicket)"],
+    ["if (needDown && !isDown)\n        await this.down(key2);", "if (needDown && !isDown)\n        await this.down(key2, obuTicket);"],
+    ["else if (!needDown && isDown)\n        await this.up(key2);", "else if (!needDown && isDown)\n        await this.up(key2, obuTicket);"]
+  ]) keyboard = replaceOnce(keyboard, before, after);
+  source = source.slice(0, keyboardStart) + keyboard + source.slice(keyboardEnd);
+  const rawKeyboardStart = source.indexOf("let RawKeyboardImpl$3 = class RawKeyboardImpl {"), rawKeyboardEnd = source.indexOf("let RawMouseImpl$3 = class RawMouseImpl {", rawKeyboardStart);
+  if (rawKeyboardStart < 0 || rawKeyboardEnd < 0) throw new Error("Pinned Playwright native keyboard shape changed");
+  let rawKeyboard = source.slice(rawKeyboardStart, rawKeyboardEnd);
+  for (const [signature, field] of [
+    ["async keydown(modifiers, keyName, description, autoRepeat)", "isKeypad: location2 === keypadLocation"],
+    ["async keyup(modifiers, keyName, description)", "location: location2"]
+  ]) {
+    const from = rawKeyboard.indexOf(signature), next = rawKeyboard.indexOf("\n  async ", from + signature.length);
+    if (from < 0 || next < 0) throw new Error("Pinned Playwright native keyboard method changed");
+    let method = rawKeyboard.slice(from, next);
+    method = replaceOnce(method, signature, signature.slice(0, -1) + ", obuTicket)");
+    method = replaceOnce(method, 'this._client.send("Input.dispatchKeyEvent", {', 'this._client.send("Input.dispatchKeyEvent", tagPointerCommand({');
+    method = replaceOnce(method, field + "\n    });", field + "\n    }, obuTicket));");
+    rawKeyboard = rawKeyboard.slice(0, from) + method + rawKeyboard.slice(next);
+  }
+  source = source.slice(0, rawKeyboardStart) + rawKeyboard + source.slice(rawKeyboardEnd);
   const rawStart = source.indexOf("let RawMouseImpl$3 = class RawMouseImpl {"), rawEnd = source.indexOf("let RawTouchscreenImpl$3 =", rawStart);
   if (rawStart < 0 || rawEnd < 0) throw new Error("Pinned Playwright native mouse shape changed");
   let raw = source.slice(rawStart, rawEnd);

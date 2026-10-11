@@ -246,12 +246,18 @@ including mouse/keyboard methods that lack native timeout options. Transport
 timeouts must leave enough time for the requested deadline and cancellation.
 An input already delivered to the browser cannot be undone. Submitted or
 outcome-unknown buttons, clicks and submissions are never automatically replayed.
-Ordinary single locator clicks without force, trial or modifiers now confirm
-target move delivery before submitting buttons. Missing delivery can repeat a
+Locator clicks (including `clickCount`, double click and explicit modifiers)
+without force/trial or pre-held input confirm target move delivery before
+submitting buttons. Missing delivery can repeat a
 settled preparation move at the existing actionability cadence within the same
 deadline; these moves can trigger hover effects. Attachment-scoped tickets reject
 intervening raw input and recheck the original authority immediately before native
-send. The receipt does not authenticate CDP events or reserve later routing; see
+send. Counted button pairs await each native acknowledgement and never replay a
+partially submitted sequence. Per-attempt modifier restoration shares the ticket;
+expired or revoked input is released by attachment cleanup. Later clicks recheck
+the ancestor hit at the original root point, original receipt and observed
+navigation state without re-resolving a target.
+The receipt does not authenticate CDP events or reserve later routing; see
 [pointer delivery](pointer-delivery.md) for the exact scope and limitations.
 
 For a blank tab created by the current worker, the first cold attachment used by

@@ -11,7 +11,23 @@
 
 ## 当前评分
 
-最新完整`FjHwEx` **111/111、exit0**，修正后受影响专项`Zth7Xv`14/14，
+最新完整`WLM6bV` **112/112、exit0**，最终专项`uLGdWq`3/3，Node1581/1581，
+零skip/cancel。门禁扩展到普通多击、双击和显式modifiers；首down后不重放，
+后续down在原root点复核祖先命中及原receipt，每attempt在finally恢复键盘
+baseline。旧候选的祖先遮挡、framePoint变化、断开三反例均确实失败，新
+固定bundle定向50/50、独立含tracker75/75通过；变换frame与非原子边界仍在。
+四真实场景共27条Input、4唯一POST/19,723字节，首击导航后拒绝第二击并
+在原5秒预算内350ms确认新文档。完整212,803ms账本仍为原11激活/4控制
+popup focus，无新增豁免；sentinel身份/选择保持，视口高1222→1202。
+原111项名称/顺序保留，host测试重启及精确任务页回收通过。50生产成员、
+暂存允许差异和当前SDK/host字节经独立核验；旧preview ZIP未更新。
+
+初次完整`NNr3Bp`111/112仍保留：新增fixture把server GET错当文档提交，
+读到旧loading文档。最终只读条件观察沿用原5秒预算，超时后不发布迟到
+样本，不能声称已发出的读取被取消。此轮不证明自然Viz根因、全部变换
+祖先命中、所有修饰键组合或P01–P15已经完成。
+
+此前完整`FjHwEx` **111/111、exit0**，修正后受影响专项`Zth7Xv`14/14，
 Node1544/1544、零skip/cancel。普通单击采用原节点可信mouse pointermove
 及实际/预计两点局部命中门禁，保留原root路由、原期限和按钮不重放。
 受控丢首move后恢复唯一提交，丢全部move在原5秒期限失败且零按钮/POST；

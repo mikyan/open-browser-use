@@ -8,8 +8,9 @@ request or the hit-test data that Chromium used at click time.
 
 ## Preparation and commitment
 
-Production ordinary single locator clicks without force, trial or modifiers
-prepare a move receipt in the original element's utility-world interceptor.
+Production locator clicks, counted clicks and double clicks without force or
+trial prepare a move receipt in the original element's utility-world interceptor.
+Explicit modifiers are supported when no input was already held at admission.
 This receipt is separate from Playwright's existing press interception result:
 accepting a move must not disable hit checks for later button events.
 
@@ -24,12 +25,33 @@ previous move settled. These moves can cause hover effects; they are not pure
 reads. There is no wheel flush, coordinate jitter, child direct route, renewed
 timeout, or replay of a submitted click.
 
-The action commits immediately before invoking down. Down and up are awaited
-sequentially on this path. A native error or an explicit hit-interception failure
+The action commits immediately before invoking the first down. Every down and up
+is awaited sequentially, with `clickCount` increasing from one through the
+requested count. The requested delay remains between down/up and between pairs;
+all waits use the original deadline. A native error or an explicit hit-interception failure
 after commitment is terminal, rather than re-entering the locator retry loop.
 The engine releases uncertain held input through the original attachment tracker.
-Normal navigation retains the upstream completion handling when the old utility
-context disappears; this is not an assertion of a final application receipt.
+Normal navigation after the final up retains the upstream completion handling
+when the old utility context disappears; this is not an assertion of a final
+application receipt. Double click retains its upstream disabled navigation wait.
+
+Before each later down, the ancestor hit check is repeated at the original root
+point, and its resulting frame-local point is compared by the original receipt.
+This rejects an observed iframe translation or ancestor cover as well as a
+removed node or lost local hit. These are additional reads, without another
+move, scroll or locator resolution. The upstream transformed-frame shortcut
+still cannot prove all transformed ancestors. An already observed pending navigation in
+the target frame or an ancestor is also terminal. These checks cannot predict
+future native navigation messages or atomically lock the DOM until dispatch.
+Once any down was submitted, no preparation or button sequence is retried.
+
+Each attempt snapshots its modifier baseline before setting keys. Optional
+private arguments carry the same ticket through Keyboard and native keydown/up.
+A `finally` restores that baseline even when preparation returns for retry or
+modifier setup partially fails. If the deadline, context or authority is lost,
+ordinary key dispatch is blocked and the engine uses its existing attachment
+cleanup. An action error remains primary if restoration also fails. An unknown
+native keyup remains held in the tracker until actual release is confirmed.
 
 ## Input ownership and limits
 
@@ -49,7 +71,8 @@ does not reserve Chromium's routing for the later press. The existing ancestor
 hit-test shortcut for transformed frames is unchanged; retaining root routing
 does not prove every transformed ancestor was checked.
 
-Forced/trial/modifier/multiple clicks and raw mouse, drag and touch operations
+Forced/trial clicks, clicks starting with already-held modifiers, and raw mouse,
+hover, drag and touch operations
 retain their prior behavior in this slice. They remain part of the broader
 parity objective. This patch does not assert complete input reliability or
 overall Codex parity. The previously published preview ZIP is unchanged.
@@ -105,3 +128,68 @@ the actual retry occurs. An in-memory negative control bypassing the final
 receipt status sends buttons and is detected, so a timeout cannot masquerade as
 proof of the pre-press gate. These are bounded acceptance results, not proof of
 natural Viz routing recovery or complete Browser Use parity.
+
+Counted-click coverage adds an independent runner case while preserving the old
+three scenarios and their seven rendered HTML documents byte-for-byte. Four
+fresh pages exercise root double click, same-origin triple click with Shift,
+OOPIF double click with Shift after a deliberately dropped first move, and a
+first-click top navigation with the public 150ms delay. Native records require
+every previous button ACK before the next invocation; each modifier interval
+contains exactly one preparation move, with buttons only in the final interval.
+Deleting an intermediate restore/setup pair is a rejected negative control.
+
+Focused run `vulf6j` passed all three runner cases. Its four new scenarios
+delivered respectively 2/3/2/1 click events and 1/1/1/0 double-click events, with
+one original POST each and matching visible counters on the non-navigation
+pages. The navigation changed the native root document and returned a terminal
+pointer-context error after only the first button pair; the destination received
+no second click. The controlled OOPIF case had two separate Shift intervals,
+one suppressed move and one real move. The 8,860ms observer interval recorded no
+activation or window-focus events. Node tests passed 1569/1569, without skips.
+These observations are bounded to the isolated Windows Chromium test profile;
+the native host uses the harness's declared loopback bridge, not the installed
+browser launcher. They do not establish atomic DOM/navigation checks, arbitrary
+modifier combinations, broader platforms or complete input parity.
+
+The first full counted run `NNr3Bp` was 111/112, with all prior 111 cases passing.
+Its new navigation check read the old loading tab/document just after the server
+received the destination request. Only move/down1/up1 were sent and acknowledged,
+and the action rejected the observed pending navigation in 347ms. A server GET
+is not document commitment; the old run does not prove eventual success or
+failure. The fixture must observe the actual destination URL, new active native
+document and completed load within the original action's remaining five-second
+budget, retaining the native probe and never resubmitting input.
+
+The final observation helper checks the same deadline in the worker before and
+after each native read. A late result after the outer timeout cannot append a
+sample or report commitment; a read already dispatched is not claimed cancelled.
+Its 28 deterministic fixture tests include held reads and late worker entry.
+
+Review also found a separate production gap: the first click could translate
+the iframe while the original local receipt remained ready. Three actual pinned
+bundle negative controls on the old counted candidate failed to reject ancestor
+cover, changed framePoint and frame disconnection. The later-down ancestor check
+described above fixes these cases; tests also cover the third pair and revocation,
+deadline or context loss while that check waits. Final delivery/transport tests
+passed 50/50, independent delivery/transport/tracker tests 75/75 and the full Node
+suite 1581/1581. These deterministic checks do not establish universal transformed
+frame coverage or atomicity between observation and the native send.
+
+Final frozen focused run `uLGdWq` passed 3/3 and full run `WLM6bV` passed 112/112,
+both with confirmed process exit zero. The prior 111 names and relative order
+were preserved. Independent audits checked all 27 native Input invocations and
+their acknowledgements, the four unique POST bodies (19,723 bytes in the full
+run), trusted events and visible counters. The navigation case confirmed a new
+active root document and completed load 350ms after action start, within the
+original 5,000ms budget; no later button pair or destination click occurred.
+
+The focused observer recorded no activation or focus events in 8,283ms. Full
+coverage lasted 212,803ms and contained only the original 11 activation and four
+control-popup focus allowances. Sentinel identity and selection were unchanged,
+but its viewport height changed from 1222 to 1202. The four task tabs were absent
+from the final inventory; there was no final debugger-target inventory to make
+a separate target-release assertion. The expected host restart ended with the
+new host exiting zero. All 50 production members were independently reconstructed,
+and staged differences were limited to the declared native adapter, CSP and
+observer. These are isolated-profile results; installed-browser and overall parity
+limits above remain open.

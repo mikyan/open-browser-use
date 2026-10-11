@@ -2399,3 +2399,72 @@ host原测试重启后新一代exit0。当前无活测试。P01–P15范围不�
 身份、URL和选择保持，宽1251不变，高1222→1196，未声称几何不变。四个
 外部chooser调用器共24轮及实际child close通过，成功无failureObservation；
 受控gate恢复、原POST与任务清理通过，原pending socket关闭且没有迟到click。
+
+### 多击与显式修饰键的投递事务（本片已验收，矩阵继续）
+
+上一开发轮为progress：`23f1a1b`已推送，完整111/111及Node1544/1544；
+随后的公司安装指导是问答，本身不推进能力。本轮重新核对工作树干净、
+没有活测试进程，继续原P01–P15目标，旧preview包不改写、不提PR。
+
+现有guard只覆盖普通单击；固定CRX的dblclick和clickCount会并发提交移动
+与多对按钮，显式modifiers又位于prepare前且早退时漏恢复。下一片将它们
+作为完整按钮事务接入现有私票：同一原deadline、一次目标receipt，原生
+move确认后按clickCount依次down/ACK/up/ACK；保留原delay与click/dblclick
+等待导航语义。首次down提交后不重放任何部分，多击期间换文档直接失败。
+
+每轮modifier ensure前保存本地baseline，用finally覆盖部分设置失败和
+prepare重试；Keyboard及RawKeyboard传同一私票，不绕开input账本。期限、
+Pause或attachment失效后不补发普通输入，转既有engine/tracker清理。原已
+持键、force/trial、hover、drag和raw Mouse保持各自语义与开放验证边界。
+
+验证包括固定bundle实际Keyboard/RawKeyboard、部分按钮失败不可重放、
+modifier恢复失败、原deadline及单击兼容；实机覆盖root双击、同源三击、
+OOPIF带Shift且首move受控丢弃，以及第一击导航时禁止第二击。保留原
+111项，新增独立case与原focus账本；根唯一启动浏览器，独立审查并核验
+业务事件/POST、原生顺序、源文件身份和实际退出后再提交推送。
+
+实现冻结后固定bundle45/45、独立bundle/transport/tracker70/70通过，
+fixture21/21含每attempt修饰键恢复负例；旧七份HTML与HEAD实际求值逐字节
+一致。专项`vulf6j`3/3、actual exit0：四新场景2/3/2/1次真实click和
+1/1/1/0次dblclick，4份唯一POST共19,680字节；8860ms账本零焦点事件。
+最新Node1569/1569、零skip/cancel。生产50成员及暂存差异独立重建相符。
+
+首次完整`NNr3Bp`111/112、actual exit1；原111项全部通过，唯一失败为
+新增首击导航的验收URL读取。原Input只move/down1/up1并逐条真实ACK，
+action347ms因已观察到pending navigation终止；GET在该错误前13ms到达，
+随后native快照仍旧root documentId、tab loading。它不证明后来导航成功
+或失败，不能用专项通过抹去。下一步仅修fixture观察：在原action开始起
+5000ms剩余预算内只读等待exact destination URL、新active documentId和
+complete，无重放或额外准备输入；native probe保持到观察完成。增加条件
+等待/超时负例后重新跑专项、Node与原112完整序列，生产代码保持不变。
+
+导航fixture已改为原5秒预算内的只读条件观察；外层超时后迟到读取不能
+发布成功或追加样本，worker进入及两次native API前后均检查同一deadline。
+已发出的读取不能声称被取消。fixture28/28及独立复核通过；中间专项
+`2WImVO`3/3通过，但最终超时边界补丁之后仍需重新验收。
+
+随后复核发现独立生产缺口：首击可以移动iframe而原local receipt仍ready。
+旧冻结候选在祖先遮挡、framePoint变化、断开三个实际bundle反例均漏拒绝，
+三红原始结果保留。现每个后续down前在原root点重核ancestor hit，并把
+所得framePoint交原receipt比对；不重新移动、滚动、定位或重放按钮。
+新增第三pair及祖先读取等待期间Pause/deadline/context失效测试；固定
+bundle与transport50/50、独立含tracker75/75、完整Node1581/1581通过。
+transform shortcut及检查到实际send之间的非原子边界仍明确保留。
+最终冻结专项`uLGdWq`3/3及完整`WLM6bV`112/112、actual exit0。
+专项8283ms零focus事件/豁免；完整212803ms仅原11次激活及4次控制popup
+focus，sentinel身份/选择不变，视口高1222→1202，不能声称几何完全相同。
+完整四新场景27条Input、4唯一POST共19723B，按钮2/3/2/1对与modifier
+每轮设置/恢复核实；导航在原5000ms内350ms确认新active root文档，
+目标文档零后续点击。任务tab从最终清单消失，旧host预期SIGTERM后新host
+exit0；没有最终debugger target清单，不单独声称target inventory验收。
+独立四场景与完整原111审计互补，50生产文件纯重建、暂存仅允许的adapter/
+CSP/observer差异、SDK/host及冻结源身份一致。专项不调用Go表单，故其
+goFormClient字段缺省；完整binary与配置binary及前完整轮逐字节相同。
+当前无活测试进程，本片有代码及实机证据进展，旧失败及完整矩阵继续保留。
+
+下一片优先补P10的正式locator文件上传：目前三SDK只有chooser setter，
+隐藏file input仍缺不点击/不打开chooser的直接入口。复用现有精确节点锁、
+directory completion及scope/deadline，不能把上游方法直接放行来绕过保护。
+验收需五入口同组root/同源/动态OOPIF隐藏输入表单的FileList、Unicode
+文件名、真实POST字节/唯一提交与清空，并证明无chooser/click/新增前台
+事件；目录沿用显式backgroundWindow，旧版协商拒绝及未知ACK/撤权另测。

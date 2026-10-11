@@ -5,7 +5,8 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { installChooserPointerEvidence } from "./chooser-waits-fixture.mjs";
 import { chooserPointerEvidenceComplete } from "./chooser-failure-observation.mjs";
-import { checkPointerDeadline, checkPointerDelivery, checkPointerDeliveryDocuments, checkPointerDeliveryTrace, checkPointerNavigationEvidence, createPointerDeliveryFixtures, installPointerDeliveryGate, pointerDeliveryHTML } from "./pointer-delivery-cases.mjs";
+import { checkPointerDeadline, checkPointerDelivery, checkPointerDeliveryDocuments, checkPointerDeliveryTrace, checkPointerNavigationEvidence, createPointerDeliveryFixtures, installPointerDeliveryGate, pointerDeliveryHTML,
+  countedPointerCases, countedPointerHTML, installCountedPointerEvidence, installCountedPointerProbe, checkCountedPointerTrace, checkCountedPointerDocuments, checkCountedPointerDelivery, waitForCountedNavigationCommit, readCountedNavigationState } from "./pointer-delivery-cases.mjs";
 
 const key = "pointer-0123456789abcdef0123456789abcdef-first";
 const childURL = `http://localhost:1234/pointer-delivery/frame?key=${key}`;
@@ -240,4 +241,291 @@ test("fixture preserves original frozen click error through restoration/evidence
   assert.equal(detail.passed, false); assert.equal(detail.cases.length, 1); assert.match(detail.error, /original click failed/);
   assert.match(detail.cases[0].restoreError, /restore failed/); assert.match(detail.cases[0].evidenceError, /read failed/);
   assert.equal(detail.cleanupErrors.length, 1); assert.equal(original.pointerDeliveryDetail, undefined);
+});
+
+const countedKey = spec => `pointer-counted-0123456789abcdef0123456789abcdef-${spec.name}`;
+async function countedTrace(spec) {
+  const api = { debugger: { sendCommand: () => Promise.resolve({}) } }, target = {};
+  installCountedPointerProbe(api, target, { id: "counted-test", tabId: 42, mode: spec.gate });
+  const send = (method, value) => api.debugger.sendCommand({ tabId: 42 }, method, value), mask = spec.modifiers.length ? 8 : 0;
+  const key = down => send("Input.dispatchKeyEvent", { type: down ? "rawKeyDown" : "keyUp", key: "Shift", code: "ShiftLeft", modifiers: down ? 8 : 0 });
+  const mouse = (type, count = 0) => send("Input.dispatchMouseEvent", { ...params(type, { clickCount: count }), modifiers: mask });
+  if (mask) await key(true);
+  await mouse("mouseMoved");
+  if (spec.gate === "drop-first") { if (mask) { await key(false); await key(true); } await mouse("mouseMoved"); }
+  for (let count = 1; count <= (spec.navigation ? 1 : spec.count); count++) { await mouse("mousePressed", count); await mouse("mouseReleased", count); }
+  if (mask) await key(false);
+  await tick(); return target.__obuCountedPointer.restore();
+}
+
+test("counted cases distinguish root dblclick, same-frame three clicks, dropped OOPIF move with modifiers and partial navigation", async () => {
+  assert.deepEqual(countedPointerCases.map(spec => spec.name), ["root-double", "same-triple", "oopif-double", "navigation-double"]);
+  for (const spec of countedPointerCases) {
+    const proof = checkCountedPointerTrace(await countedTrace(spec), spec);
+    assert.equal(proof.presses, spec.navigation ? 1 : spec.count); assert.equal(proof.releases, proof.presses);
+    assert.equal(proof.syntheticMoveAcks, spec.gate === "drop-first" ? 1 : 0);
+    assert.equal(proof.modifierPairs, spec.modifiers.length ? spec.gate === "drop-first" ? 2 : 1 : 0);
+  }
+});
+
+test("counted native proof rejects duplicated count, missing modifier restore, wrong root, premature pair and navigation second click", async () => {
+  const spec = countedPointerCases[2], trace = await countedTrace(spec);
+  for (const change of [
+    value => { value.records.find(record => record.params?.clickCount === 2).params.clickCount = 1; },
+    value => { value.records.find(record => record.params?.type === "mousePressed").params.modifiers = 0; },
+    value => { value.records.find(record => record.params?.type === "mouseReleased").source.sessionId = "child"; },
+    value => { value.records.filter(record => record.params?.type === "keyUp").at(-1).params.modifiers = 8; },
+    value => { value.records.find(record => record.params?.type === "rawKeyDown").params.key = "Control"; },
+    value => { const down = value.records.find(record => record.params?.type === "mousePressed"), ack = value.records.find(record => record.invocation === down.sequence), up = value.records.find(record => record.params?.type === "mouseReleased"); const original = ack.sequence; ack.sequence = up.sequence; up.sequence = original; value.records.sort((a, b) => a.sequence - b.sequence); value.records.find(record => record.invocation === original + 1).invocation = up.sequence; },
+    value => { value.pending = 1; }, value => { value.overflow = true; }, value => { value.recordingErrors = 1; }
+  ]) { const invalid = structuredClone(trace); change(invalid); assert.throws(() => checkCountedPointerTrace(invalid, spec)); }
+  const navigation = countedPointerCases[3], invalid = await countedTrace({ ...navigation, navigation: false });
+  assert.throws(() => checkCountedPointerTrace(invalid, navigation), /must not be duplicated or continue in a new document/);
+  const missing = await countedTrace(spec);
+  const finalUp = missing.records.findLast(record => record.params?.type === "keyUp");
+  missing.records = missing.records.filter(record => record !== finalUp && record.invocation !== finalUp.sequence);
+  assert.throws(() => checkCountedPointerTrace(missing, spec));
+});
+
+test("counted observer preserves native Promise/receiver/errors and never drops keys or foreign input", async () => {
+  const calls = [], originalError = Object.freeze(new Error("native key failure")), promise = Promise.resolve({ native: true });
+  const original = function (...args) { calls.push({ receiver: this, args }); if (args[2]?.fail) throw originalError; return promise; };
+  const api = { debugger: { sendCommand: original } }, target = {}, receiver = {};
+  const serialized = runInNewContext(`(${installCountedPointerProbe.toString()})`, { structuredClone });
+  serialized(api, target, { id: "serialized-counted", tabId: 42, mode: "drop-first" });
+  const args = [{ tabId: 42 }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift" }];
+  assert.equal(Reflect.apply(api.debugger.sendCommand, receiver, args), promise); assert.equal(calls[0].receiver, receiver); assert.equal(calls[0].args[2], args[2]);
+  for (const value of [[{ tabId: 77 }, "Input.dispatchMouseEvent", params("mouseMoved")], [{ tabId: 42, sessionId: "child" }, "Input.dispatchMouseEvent", params("mouseMoved")], [{ get tabId() { throw Error("Do not inspect getter"); } }, "Input.dispatchMouseEvent", params("mouseMoved")]]) assert.equal(api.debugger.sendCommand(...value), promise);
+  assert.throws(() => api.debugger.sendCommand({ tabId: 42 }, "Input.dispatchKeyEvent", { fail: true }), error => error === originalError);
+  await tick(); const probe = target.__obuCountedPointer.restore(); assert.equal(probe.dropped, 0); assert.equal(probe.pending, 0); assert.equal(api.debugger.sendCommand, original);
+  assert.equal(probe.records.filter(record => record.kind === "invoke").length, 3);
+});
+
+function resequenceCountedRecords(records) {
+  const newSequence = new Map(records.map((record, index) => [record.sequence, index + 1]));
+  return records.map((record, index) => ({ ...record, sequence: index + 1, ...(record.invocation === undefined ? {} : { invocation: newSequence.get(record.invocation) }) }));
+}
+
+test("each dropped-move attempt restores Shift before the next setup, and even synthetic moves require a settled keydown", async () => {
+  const spec = countedPointerCases[2], good = await countedTrace(spec);
+  const shared = structuredClone(good), keyCalls = shared.records.filter(record => record.params?.key === "Shift");
+  const remove = new Set([keyCalls[1].sequence, keyCalls[2].sequence]);
+  shared.records = resequenceCountedRecords(shared.records.filter(record => !remove.has(record.sequence) && !remove.has(record.invocation)));
+  assert.throws(() => checkCountedPointerTrace(shared, spec), /Each attempted move must set up and restore/);
+  const early = structuredClone(good), move = early.records.find(record => record.kind === "invoke" && !record.dispatched), ack = early.records.find(record => record.invocation === move.sequence);
+  early.records = resequenceCountedRecords([move, ack, ...early.records.filter(record => record !== move && record !== ack)]);
+  assert.throws(() => checkCountedPointerTrace(early, spec));
+});
+
+function countedDocument(key, token, { node = true } = {}) {
+  const evidence = { key, documentToken: token, clicks: 0, doubles: 0, posts: 0 }, listeners = new Map(), original = node ? { id: "counted" } : null;
+  const standalone = runInNewContext(`(${installCountedPointerEvidence.toString()})`);
+  standalone({ addEventListener(type, fn) { listeners.set(type, fn); } }, evidence, original);
+  return { evidence, emit(type, more = {}) { listeners.get(type)({ target: original ?? { id: "" }, isTrusted: true, detail: 0, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, button: 0, buttons: 0, timeStamp: 1, clientX: 20.25, clientY: 30.75, ...more }); } };
+}
+
+function countedBusiness(spec) {
+  const key = countedKey(spec), url = `http://127.0.0.1:1234/pointer-counted/page?key=${key}`,
+    targetURL = spec.layout === "root" ? url : `http://${spec.layout === "same" ? "127.0.0.1" : "localhost"}:1234/pointer-counted/frame?key=${key}`;
+  const root = countedDocument(key, "old-root", { node: spec.layout === "root" }), target = spec.layout === "root" ? root : countedDocument(key, "old-child");
+  const shift = spec.modifiers.length > 0;
+  if (shift) root.emit("keydown", { key: "Shift", code: "ShiftLeft", shiftKey: true });
+  target.emit("pointermove", { pointerType: "mouse", isPrimary: true, shiftKey: shift }); target.emit("mousemove", { shiftKey: shift });
+  for (let count = 1; count <= (spec.navigation ? 1 : spec.count); count++) {
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) target.emit(type, { detail: type.startsWith("pointer") ? 0 : count, buttons: ["pointerdown", "mousedown"].includes(type) ? 1 : 0, pointerType: type.startsWith("pointer") ? "mouse" : undefined, isPrimary: type.startsWith("pointer") ? true : undefined, shiftKey: shift });
+    target.evidence.clicks++;
+    if (count === 2) { target.emit("dblclick", { detail: 2, shiftKey: shift }); target.evidence.doubles++; }
+  }
+  target.evidence.posts++;
+  const value = { key, href: targetURL, trusted: true, documentToken: target.evidence.documentToken, evidence: structuredClone(target.evidence) }, bytes = Buffer.from(JSON.stringify(value));
+  if (shift) target.emit("keyup", { key: "Shift", code: "ShiftLeft", shiftKey: false });
+  const visibleResult = `${target.evidence.clicks} clicks / ${target.evidence.doubles} doubles`;
+  let documents = [{ href: url, evidence: root.evidence, visibleResult: spec.layout === "root" ? visibleResult : null }];
+  if (spec.layout !== "root") documents.push({ href: targetURL, evidence: target.evidence, visibleResult });
+  let destination;
+  if (spec.navigation) {
+    const after = countedDocument(key, "new-root"), href = targetURL.replace("/frame?", "/destination?");
+    documents = [{ href, evidence: after.evidence, visibleResult: "0 clicks / 0 doubles" }];
+    destination = { ...documents[0], url: href, documentId: "native-new-root", beforeDocumentId: "native-old-root" };
+  }
+  return structuredClone({ spec, key, targetURL, documents, destination, server: { gets: spec.navigation ? [{ path: "/pointer-counted/destination" }] : [],
+    posts: [{ method: "POST", value, bodyBase64: bytes.toString("base64"), bodyBytes: bytes.length, bodySHA256: hash(bytes), receipt: { bodySHA256: hash(bytes) } }] } });
+}
+
+function refreshCountedPost(value) {
+  const post = value.server.posts[0], raw = Buffer.from(JSON.stringify(post.value));
+  Object.assign(post, { bodyBase64: raw.toString("base64"), bodyBytes: raw.length, bodySHA256: hash(raw), receipt: { bodySHA256: hash(raw) } });
+}
+
+test("counted business evidence requires trusted counts/modifiers, visible effect and one original POST prefix", () => {
+  for (const spec of countedPointerCases) assert.equal(checkCountedPointerDocuments(countedBusiness(spec)).posts, 1);
+  const good = countedBusiness(countedPointerCases[2]);
+  for (const mutate of [
+    value => { value.documents[1].visibleResult = "1 clicks / 0 doubles"; },
+    value => { value.documents[1].evidence.records.find(event => event.type === "click").detail = 2; },
+    value => { value.documents[1].evidence.records.find(event => event.type === "mousedown").shift = false; },
+    value => { value.documents[1].evidence.records.find(event => event.type === "pointermove").pointerType = "pen"; },
+    value => { value.documents[1].evidence.records.find(event => event.type === "pointermove").isPrimary = false; },
+    value => { value.documents[1].evidence.records.find(event => event.type === "click").originalNode = false; },
+    value => { value.documents[1].evidence.records.find(event => event.type === "keyup").shift = true; },
+    value => { value.documents[1].evidence.overflow = true; },
+    value => { value.server.posts[0].value.evidence.documentToken = "replacement"; refreshCountedPost(value); },
+    value => { value.server.posts[0].value.evidence.records[0].clientX++; refreshCountedPost(value); },
+    value => { value.server.posts.push(structuredClone(value.server.posts[0])); },
+    value => { value.server.posts[0].bodySHA256 = "f".repeat(64); }
+  ]) { const invalid = structuredClone(good); mutate(invalid); assert.throws(() => checkCountedPointerDocuments(invalid)); }
+});
+
+test("partial first-click navigation requires a different native document, one GET and no destination button events", () => {
+  const good = countedBusiness(countedPointerCases[3]); assert.equal(checkCountedPointerDocuments(good).nativeDocumentChanged, true);
+  for (const change of [
+    value => { value.destination.documentId = value.destination.beforeDocumentId; },
+    value => { value.destination.evidence.documentToken = value.server.posts[0].value.documentToken; },
+    value => { value.destination.evidence.clicks = 1; },
+    value => { value.server.gets.push(value.server.gets[0]); },
+    value => { value.server.posts[0].value.evidence.clicks = 2; refreshCountedPost(value); },
+    value => { value.destination.href += "#other"; }
+  ]) { const invalid = structuredClone(good); change(invalid); assert.throws(() => checkCountedPointerDocuments(invalid)); }
+});
+
+test("counted HTML is passive and static, preserves genuine link navigation and serves exact raw bytes", async () => {
+  for (const spec of countedPointerCases) {
+    const html = countedPointerHTML(new URL(`http://127.0.0.1:1234/pointer-counted/page?key=${countedKey(spec)}`));
+    assert.doesNotMatch(html, /dispatchEvent|preventDefault|\.click\(\)|setInterval|setTimeout/);
+    assert.equal(html.includes('<iframe id="counted-frame"'), spec.layout !== "root");
+    if (spec.layout === "oopif") assert.match(html, /http:\/\/localhost:1234\/pointer-counted\/frame/);
+    if (spec.layout === "same") assert.match(html, /http:\/\/127\.0\.0\.1:1234\/pointer-counted\/frame/);
+  }
+  const spec = countedPointerCases[3], key = countedKey(spec), html = countedPointerHTML(new URL(`http://localhost:1234/pointer-counted/frame?key=${key}`));
+  assert.match(html, /<a id="counted".*target="_top"/); assert.match(html, /request\.open\('POST'.*,false\)/);
+  const fixture = createPointerDeliveryFixtures(), server = http.createServer((request, response) => {
+    if (!fixture.handle(request, response, new URL(request.url, `http://127.0.0.1:${server.address().port}`))) { response.writeHead(404); response.end(); }
+  });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`, response = await localHTTP(`${base}/pointer-counted/page?key=${key}`);
+    assert.equal(response.status, 200); assert.equal(fixture.stats(key).gets[0].sha256, hash(Buffer.from(response.body)));
+    const raw = JSON.stringify({ key, exact: "原始 counted bytes" }); assert.equal((await localHTTP(`${base}/pointer-counted/post?key=${key}`, { method: "POST", body: raw })).status, 200);
+    const stats = fixture.stats(key); assert.equal(stats.posts.length, 1); assert.equal(Buffer.from(stats.posts[0].bodyBase64, "base64").toString(), raw);
+    assert.equal((await localHTTP(`${base}/pointer-counted/page?key=foreign`)).status, 400);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test("counted fixture preserves the original frozen action failure through restore and observation errors", async () => {
+  const original = Object.freeze(new Error("original counted failure")), detail = {}, calls = [];
+  const browser = { client: { sessionId: "owner", turnId: "turn", controlEpoch: 1 }, newTab: async () => ({ id: 42,
+    getByRole: () => ({ dblclick: async options => { calls.push(["dblclick", options]); throw original; } }) }), cdp: { navigate: async () => { calls.push("navigate"); } } };
+  const worker = { evaluate: async expression => {
+    if (expression.startsWith("chrome.webNavigation")) { calls.push("before"); return [{ frameId: 0, documentId: "old", url: detail.cases[0].url, documentLifecycle: "active", errorOccurred: false }]; }
+    if (expression.includes("Counted probe setup deadline expired")) { calls.push("install"); return {}; }
+    if (expression.includes("return p.restore()")) { calls.push("restore"); throw Error("restore failed"); }
+    calls.push("evidence"); throw Error("read failed");
+  } };
+  await assert.rejects(checkCountedPointerDelivery({ browser, worker, fixtureURL: "http://127.0.0.1:1234/", server: { stats: () => ({ posts: [] }) }, detail, until: async (callback, label) => { assert.match(label, /original committed frame/); assert.equal(await callback(), true); } }), error => error === original);
+  assert.deepEqual(calls, ["navigate", "before", "install", ["dblclick", { timeoutMs: 5000 }], "restore", "evidence"]);
+  assert.equal(detail.cases.length, 1); assert.match(detail.error, /original counted failure/); assert.equal(detail.cleanupErrors.length, 1);
+  assert.match(detail.cases[0].restoreError, /restore failed/); assert.match(detail.cases[0].evidenceError, /read failed/);
+});
+
+function commitObservationFixture(read) {
+  const url = "http://localhost:1234/pointer-counted/destination?key=original", record = {};
+  let time = 1000, reads = 0;
+  const committed = { tab: { id: 42, active: false, status: "complete", url }, frames: [{ frameId: 0, url, documentId: "native-new", documentLifecycle: "active", errorOccurred: false }] };
+  const loading = { tab: { id: 42, active: false, status: "loading", url: "http://127.0.0.1:1234/original" }, frames: [{ frameId: 0, url: "http://127.0.0.1:1234/original", documentId: "native-old", documentLifecycle: "active", errorOccurred: false }] };
+  const run = overrides => waitForCountedNavigationCommit({ read: async () => { reads++; return read({ committed: structuredClone(committed), loading: structuredClone(loading), reads, advance: value => { time += value; } }); },
+    until: async callback => { for (let index = 0; index < 90; index++) { if (await callback()) return; time += 100; } throw Error("Test poll exhausted"); },
+    tabId: 42, url, beforeDocumentId: "native-old", deadlineAt: 1500, record, now: () => time, ...overrides });
+  return { run, record, reads: () => reads };
+}
+
+test("navigation observation retains old loading samples until the exact original tab has a new complete native document", async () => {
+  const f = commitObservationFixture(({ reads, loading, committed }) => reads === 1 ? loading : committed);
+  const native = await f.run(); assert.equal(native.tab.status, "complete"); assert.equal(f.reads(), 2);
+  assert.equal(f.record.complete, true); assert.equal(f.record.deadlineAt, 1500); assert.equal(f.record.documentId, "native-new");
+  assert.deepEqual(f.record.samples.map(sample => sample.tab.status), ["loading", "complete"]);
+  assert.equal(f.record.completedAt, 1100);
+});
+
+test("navigation observation rejects never-committed, same-document, pending or late success within the unchanged absolute budget", async () => {
+  for (const [index, read] of [
+    ({ loading }) => loading,
+    ({ committed }) => ({ ...committed, frames: [{ ...committed.frames[0], documentId: "native-old" }] }),
+    ({ committed }) => ({ ...committed, tab: { ...committed.tab, pendingUrl: committed.tab.url } }),
+    ({ committed, advance }) => { advance(501); return committed; }
+  ].entries()) {
+    const f = commitObservationFixture(read); await assert.rejects(f.run(), /original action deadline/);
+    assert.equal(f.record.complete, false); assert.equal(f.record.deadlineAt, 1500); assert.ok(f.reads() <= 5);
+    assert.equal(f.record.samples.length, index === 3 ? 0 : f.reads());
+    if (index === 3) assert.equal(f.reads(), 1, "The late successful read was sent but cannot publish a sample after outer expiry");
+  }
+  const expired = commitObservationFixture(() => { throw Error("Must not read"); });
+  await assert.rejects(expired.run({ deadlineAt: 1000 }), /original action deadline/); assert.equal(expired.reads(), 0);
+});
+
+test("native commit read errors and unsafe identities terminate once without hiding the original error or retrying input", async () => {
+  const original = Object.freeze(new Error("native tabs.get failed")), f = commitObservationFixture(() => { throw original; });
+  await assert.rejects(f.run(), error => error === original); assert.equal(f.reads(), 1); assert.equal(f.record.complete, false);
+  for (const change of [
+    value => { value.tab.id = 43; }, value => { value.tab.active = true; },
+    value => { value.frames[0].errorOccurred = true; }, value => { value.frames.push({ ...value.frames[0] }); }
+  ]) {
+    const bad = commitObservationFixture(({ committed }) => { change(committed); return committed; });
+    await assert.rejects(bad.run()); assert.equal(bad.reads(), 1); assert.equal(bad.record.complete, false);
+  }
+});
+
+test("a timed-out native commit read cannot publish late success or launch another read", async () => {
+  let settle, callback, reads = 0;
+  const pending = new Promise(resolve => { settle = resolve; }), record = {}, deadlineAt = Date.now() + 20;
+  await assert.rejects(waitForCountedNavigationCommit({ read: () => { reads++; return pending; }, until: async predicate => { callback = predicate; await predicate(); },
+    tabId: 42, url: "http://localhost/destination", beforeDocumentId: "old", deadlineAt, record }), /timed out|deadline/);
+  const snapshot = structuredClone(record);
+  settle({ tab: { id: 42, active: false, status: "complete", url: "http://localhost/destination" }, frames: [{ frameId: 0, url: "http://localhost/destination", documentId: "new", documentLifecycle: "active", errorOccurred: false }] });
+  await tick(); assert.equal(await callback(), true); assert.equal(reads, 1); assert.deepEqual(record, snapshot); assert.equal(record.complete, false);
+});
+
+test("outer observation timeout winning before the inner read timer prevents a late successful sample", async context => {
+  const timers = [];
+  context.mock.method(globalThis, "setTimeout", (callback, delay) => { const timer = { callback, delay, cleared: false }; timers.push(timer); return timer; });
+  context.mock.method(globalThis, "clearTimeout", timer => { if (timer) timer.cleared = true; });
+  let settle, callback, reads = 0;
+  const pending = new Promise(resolve => { settle = resolve; }), record = {};
+  const operation = waitForCountedNavigationCommit({ read: () => { reads++; return pending; }, until: async predicate => { callback = predicate; await predicate(); },
+    tabId: 42, url: "http://localhost/destination", beforeDocumentId: "old", deadlineAt: 1500, record, now: () => 1000 });
+  assert.equal(timers.length, 2); assert.deepEqual(timers.map(timer => timer.delay), [500, 500]);
+  // Deliberately deliver only the outer timeout. The inner read is still live;
+  // a wall-clock timeout/sleep cannot guarantee this exact interleaving.
+  timers[1].callback();
+  await assert.rejects(operation, /counted navigation commit observation timed out/);
+  assert.equal(timers[0].cleared, false); assert.equal(timers[1].cleared, true);
+  const snapshot = structuredClone(record);
+  settle({ tab: { id: 42, active: false, status: "complete", url: "http://localhost/destination" }, frames: [{ frameId: 0, url: "http://localhost/destination", documentId: "new", documentLifecycle: "active", errorOccurred: false }] });
+  await tick(); await tick();
+  assert.equal(timers[0].cleared, true); assert.deepEqual(record, snapshot); assert.equal(record.complete, false); assert.deepEqual(record.samples, []);
+  assert.equal(await callback(), true); assert.equal(reads, 1);
+});
+
+test("serialized native commit reader refuses late execution and never starts frame lookup after a held tab read expires", async () => {
+  let time = 1000, resolveTab;
+  const read = runInNewContext(`(${readCountedNavigationState.toString()})`, { Date: { now: () => time } });
+  const calls = [], pending = new Promise(resolve => { resolveTab = resolve; });
+  const api = { tabs: { get: id => { calls.push(["tab", id]); return pending; } }, webNavigation: { getAllFrames: ({ tabId }) => { calls.push(["frames", tabId]); return Promise.resolve([]); } } };
+  await assert.rejects(read(api, 42, 1000), /original action deadline/); assert.deepEqual(calls, []);
+  const operation = read(api, 42, 1500); assert.deepEqual(calls, [["tab", 42]]);
+  time = 1500; resolveTab({ id: 42 }); await assert.rejects(operation, /original action deadline/);
+  assert.deepEqual(calls, [["tab", 42]], "No second native request may start after the shared deadline");
+});
+
+test("serialized native commit reader preserves native failure identity and rejects late frame completion", async () => {
+  let time = 1000, resolveFrames;
+  const read = runInNewContext(`(${readCountedNavigationState.toString()})`, { Date: { now: () => time } });
+  const original = Object.freeze(new Error("native read failed"));
+  await assert.rejects(read({ tabs: { get: () => Promise.reject(original) } }, 42, 1500), error => error === original);
+  const frames = new Promise(resolve => { resolveFrames = resolve; }), calls = [];
+  const operation = read({ tabs: { get: async id => { calls.push(["tab", id]); return { id }; } }, webNavigation: { getAllFrames: ({ tabId }) => { calls.push(["frames", tabId]); return frames; } } }, 42, 1500);
+  await tick(); assert.deepEqual(calls, [["tab", 42], ["frames", 42]]);
+  time = 1500; resolveFrames([]); await assert.rejects(operation, /original action deadline/);
+  time = 1000;
+  const result = await read({ tabs: { get: async id => ({ id }) }, webNavigation: { getAllFrames: async () => [] } }, 42, 1500);
+  assert.deepEqual(structuredClone(result), { tab: { id: 42 }, frames: [] });
 });

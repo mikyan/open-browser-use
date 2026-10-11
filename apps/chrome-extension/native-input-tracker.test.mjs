@@ -187,6 +187,54 @@ test("pointer admission rejects held input of every tracked kind, including keys
   }
 });
 
+test("one pointer ticket retains its modifier across counted button pairs and clears only after native keyup", async () => {
+  const cleared = [], f = pointerFixture({ released: async () => { cleared.push("released"); } });
+  const ticket = f.begin(), record = f.tracker.attachments.get(42);
+  const key = (type, operation = async () => { f.native.push(type); }) => f.tracker.send(
+    { tabId: 42 }, f.token, "Input.dispatchKeyEvent",
+    { type, code: "ShiftLeft", key: "Shift", modifiers: type === "keyUp" ? 0 : 8 }, operation, ticket);
+  await key("rawKeyDown");
+  await f.send(ticket);
+  for (let clickCount = 1; clickCount <= 3; clickCount++) {
+    await f.send(ticket, { ...pointerMove, type: "mousePressed", button: "left", buttons: 1, clickCount, modifiers: 8 });
+    await f.send(ticket, { ...pointerMove, type: "mouseReleased", button: "left", clickCount, modifiers: 8 });
+    ticket.check();
+    assert.equal(f.tracker.hasHeld(record), true, "modifier remains held between pairs");
+    assert.deepEqual(cleared, [], "mouse release must not clear the held-key journal");
+  }
+  const ack = deferred(), restoring = key("keyUp", () => ack.promise);
+  assert.equal(f.tracker.hasHeld(record), true, "keyup intent alone is not release confirmation");
+  ack.resolve(); await restoring;
+  assert.equal(f.tracker.hasHeld(record), false);
+  assert.deepEqual(cleared, ["released"]);
+  ticket.check(); ticket.close();
+  const cleanup = [];
+  await f.tracker.release(42, f.token, async (...args) => cleanup.push(args));
+  assert.deepEqual(cleanup, [], "confirmed keyup must not be replayed in cleanup");
+});
+
+test("a modifier restore whose journal outlives the deadline is blocked and exact attachment cleanup releases it", async () => {
+  const journal = deferred(), entered = deferred(), deadlineError = new Error("original modifier deadline expired");
+  let writes = 0, expired = false;
+  const f = pointerFixture({ beforeInput: () => {
+    if (++writes === 2) { entered.resolve(); return journal.promise; }
+  } });
+  const ticket = f.begin(() => { if (expired) throw deadlineError; });
+  const key = type => f.tracker.send({ tabId: 42 }, f.token, "Input.dispatchKeyEvent",
+    { type, code: "ShiftLeft", key: "Shift", modifiers: type === "keyUp" ? 0 : 8 },
+    async () => { f.native.push(type); }, ticket);
+  await key("rawKeyDown");
+  const restoring = key("keyUp"), failed = assert.rejects(restoring, error => error === deadlineError);
+  await entered.promise; expired = true; journal.resolve(); await failed;
+  assert.deepEqual(f.native, ["rawKeyDown"], "no ordinary keyup may cross the expired send fence");
+  assert.equal(f.tracker.hasHeld(f.tracker.attachments.get(42)), true);
+  ticket.close(); assert.throws(() => f.begin(), /POINTER_ACTION_BUSY/);
+  const cleanup = [];
+  await f.tracker.release(42, f.token, async (...args) => cleanup.push(args));
+  assert.deepEqual(cleanup, [[{ tabId: 42 }, "Input.dispatchKeyEvent", { code: "ShiftLeft", key: "Shift", type: "keyUp", modifiers: 0 }]]);
+  assert.equal(f.tracker.hasHeld(f.tracker.attachments.get(42)), false);
+});
+
 test("closing a ticket never hides actual in-flight native input from successor admission", async () => {
   const f = pointerFixture(), native = deferred(), ticket = f.begin();
   const sending = f.send(ticket, pointerMove, () => native.promise);

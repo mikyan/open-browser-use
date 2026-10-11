@@ -57,7 +57,7 @@ import { goChooserDiagnosticEnabled, goChooserDiagnosticCases, summarizeGoChoose
 import { createGoChooserDiagnostic } from "./go-chooser-diagnostic.mjs";
 import { runChooserProcess } from "./chooser-process.mjs";
 import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
-import { createPointerDeliveryFixtures, checkPointerDelivery } from "./pointer-delivery-cases.mjs";
+import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
 
 // Playwright supplies the executable and the fixture's static YAML parser. No
 // page/context connection is used: actions go through the public SDK and host.
@@ -1294,6 +1294,22 @@ try {
     ], save: async value => {
       await fs.writeFile(path.join(runDir, "pointer-delivery.json"), JSON.stringify(value, null, 2));
       await fs.writeFile(path.join(runDir, "pointer-delivery-server.json"), JSON.stringify(pointerDeliveryFixtures.allStats(), null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-pointer-counted-delivery", async () => {
+    sourceIdentity.testHooks.push("counted pointer delivery: exact-tab native input invocation/settlement recorder; one OOPIF scenario explicitly drops only the first root mouseMoved with synthetic ACK; real trusted multi-click/modifier events, exact button counts, server POST and first-click navigation checked; read-only tab/document commit observations after partial navigation share the original action deadline while the native probe stays installed; no natural Viz reproduction, CDP-to-DOM authentication or new focus allowance");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-pointer-counted-delivery", turnId: "counted-pre-press-delivery", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkCountedPointerDelivery({ browser: owner, worker, fixtureURL, server: pointerDeliveryFixtures, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-counted-pointer-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-counted-pointer-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "pointer-counted-delivery.json"), JSON.stringify(value, null, 2));
+      await fs.writeFile(path.join(runDir, "pointer-counted-delivery-server.json"), JSON.stringify(pointerDeliveryFixtures.allStats(), null, 2));
     } });
     if (failure) throw failure;
     return detail;
