@@ -1065,6 +1065,20 @@ exit0及随机注册清理。实际PNG已查看；Opera三任务页无组，Brav
 审计自身的两处字段误用有原失败日志，修正读取实际静态成员和既有HTML
 hash后通过，运行证据和源码未动。完整目标仍active，未推送或提PR。
 
+本片新增独立 Vivaldi 首文档诊断，默认路径与生产插件不变：只对管理页和
+观察页，在首次目标连接前核真实tab/window/非活动状态、committed URL、
+complete及原target，创建至求值共用25秒期限。失败另留最多2.5秒只读
+tab/target快照；迟到create/connect不能继续发操作，诊断恒不算acceptance。
+15项新增回归加现有脚手架共157/157，独立审查、文档/卫生检查通过。
+
+真实Vivaldi `7y16Q1` 两设置页229/155ms内通过后进入生产任务，但fill ACK
+后value仍空、inputEvents为空，唯一POST也为空，task失败按原样保存。
+两检查点408ms零焦点事件/豁免，host/browser exit0及完整清理；独立核
+371源码/214旧结果、原47文件ZIP、host/SDK通过。关闭诊断的默认Brave
+`t8wpE8` 标准任务与独立审计通过，后台PNG已查看。生产ZIP保持原hash，
+未重打包、推送或提PR。单轮设置成功不证明Vivaldi已修复，后续继续核
+文本提交实际路由；完整目标保持active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

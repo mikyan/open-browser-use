@@ -1471,3 +1471,40 @@ exit0且清理完成，保留准备阶段失败，不称任务回归。默认主
 实读目标身份和状态，不增加激活、隐式重复输入或以等待掩盖失败。完整
 parity 目标保持 active；Edge 原生 focus、popup 初始激活、更多平台和
 同组任务比较等既有缺口仍按矩阵保留。
+
+### Vivaldi 首文档与调试器连接时序
+
+从干净 `c6ef3b1` 继续。上一片是实质进展：无组生产路径、真实双品牌
+多页任务与默认104全套均完成并独立核验；本片不重复改写已验结果。
+旧 Vivaldi 诊断缺少目标 attach 前的 native tabs.get 连续状态，不能由
+target URL 变空推断导航被取消。上游 Chromium 在初始空文档 attach 时
+会隐藏 pending 可见URL，并可能在未提交导航期间挂起 renderer 消息；
+该机制为实验依据，不是已确认的 Vivaldi 根因。
+
+先只改显式 `OBU_TEST_VIVALDI_READINESS=1` 测试诊断分支：管理页和
+独立观察页在首次目标CDP连接前，利用原已验证 vendor UI 只读检查实际
+tab ID/window/非活动状态、committed URL、status及同一target。创建、
+关联、采样、连接与首次求值共享入口25秒绝对deadline，不在gate后重置。
+默认验收路径与生产SDK任务不变，不同时添加API trace prelude，不激活、
+重新创建、reload或重试输入。诊断passed恒false，完整采集与任务表现分开。
+如setup可推进，下一实验才分离新任务页首次commit、group与attach的顺序，
+保留原scope、deadline及未知清理边界；没有证据前不加入生产等待或重试。
+
+本片诊断实现经独立审查及全部脚手架 **157/157**，文档/卫生检查通过。
+v16 冻结后真实 Vivaldi `7y16Q1` 的 manager/observer 分别3/2样本从原生
+loading变为committed complete，再各一次连接/求值；总229/155ms，原25秒
+预算不重置。已进入原生产任务，goto/fill/click ACK完成，但before/after
+实际value都空，after DOM focus为#note、selection0、inputEvents为空；
+唯一实际POST仍为空值/trusted click。诊断exit0/complete，task与acceptance
+均失败，旧初始化失败保留，不能由单轮设置成功认定根因或稳定修复。
+
+独立核371源码/214旧结果、原ZIP47成员、host/SDK和真实清理一致；两个
+任务检查点408ms零前台事件/豁免，host/browser保留句柄均exit0、随机注册
+和精确私有进程已清理。关闭诊断开关的默认 Brave `t8wpE8` 标准任务与
+独立审计通过，四检查点零前台事件，PNG实际查看。仅harness/文档变更，
+生产与v15ZIP字节不变，没有重复未受影响的全语言CI或默认104套件。
+
+下一片优先从可重现的输入无效继续：先读取真实原生命令、输入焦点和事件，
+区分Input.insertText与键盘路由，不以ACK或emulated hasFocus证明成功，
+不对同一次失败任务重放替代输入。初始文档问题也仍开放；任何生产改动
+都要有新的单变量证据和默认回归。本地提交，无推送或PR，目标保持active。

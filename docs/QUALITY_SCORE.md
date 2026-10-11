@@ -31,6 +31,12 @@ Vivaldi 实际连接/发现通过，后台输入与导航仍失败。生产固�
 HKCU 叶的导出验收不能代替生产固定名称安装、全品牌恢复或其他 OS。
 完整边界及后续品牌结果见 [Chromium 安装](references/chromium-browser-installation.md)。
 
+独立 Vivaldi 首文档诊断新增15项回归，脚手架合计 **157/157**。
+`7y16Q1` 的管理页与观察页先提交再连接，229/155ms内完成，但实际fill
+仍为空、唯一POST也为空；诊断完整不等于任务通过。默认Brave `t8wpE8`
+通过及独立审计，生产/ZIP不变。新证据核371源码/214旧结果，清理完整；
+已有初始化和输入缺口未解除，详见[首文档记录](references/vivaldi-initial-document.md)。
+
 最终 Opera 发现修复后的主回归 `run-ewJVHf` **104/104**，终端exit0。
 364源码、203旧结果与host/六调用器身份独立核对；15研究任务90来源GET/
 15POST、75建60关15留正确，六激活/四focus仍全为既有明确fixture动作。

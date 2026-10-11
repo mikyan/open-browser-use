@@ -17,6 +17,7 @@ import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeReg
 import { decodeParallelPNG } from "./background-parallel-workflow.mjs";
 import { nativeDiagnosticsEnabled, nativeDiagnosticPrelude, nativeDiagnosticResult, nativeDiagnosticTraceComplete } from "./native-api-diagnostics.mjs";
 import { nativeOwnershipEnabled, runNativeOwnershipWorkflow } from "./native-ownership-workflow.mjs";
+import { vivaldiReadinessEnabled, openVivaldiReadinessPage, vivaldiReadinessResult } from "./vivaldi-readiness-diagnostic.mjs";
 
 const brands = Object.freeze({
   brave: { label: "Brave", about: "brave://version/", manager: "brave://extensions/", base: "LOCALAPPDATA", relative: "BraveSoftware/Brave-Browser/User Data", product: /brave/i, publisher: /Brave Software/i },
@@ -312,7 +313,7 @@ export function nativeBrowserInstallationCleaned(report) {
     report.cleanup?.registration?.removed === true && report.cleanup?.forced !== true && !report.cleanup?.errors?.length;
 }
 export function nativeBrowserInstallationPassed(report) {
-  return report.mode !== "native-api-diagnostic" && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
+  return !["native-api-diagnostic", "vivaldi-readiness-diagnostic"].includes(report.mode) && !report.error && report.identity?.passed === true && report.discovery?.passed === true && report.task?.passed === true &&
     (report.ownershipRequested !== true || report.ownership?.passed === true) && report.focus?.passed === true && report.finalInventory?.passed === true && nativeBrowserInstallationCleaned(report);
 }
 
@@ -333,9 +334,10 @@ async function main() {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const diagnosticsEnabled = nativeDiagnosticsEnabled(process.env.OBU_TEST_NATIVE_DIAGNOSTICS);
   const ownershipEnabled = nativeOwnershipEnabled(process.env.OBU_TEST_NATIVE_OWNERSHIP);
-  const recordTaskRequests = diagnosticsEnabled || ownershipEnabled;
   const name = process.env.OBU_TEST_NATIVE_BROWSER;
   assert.ok(Object.hasOwn(brands, name), "Set OBU_TEST_NATIVE_BROWSER to brave, opera or vivaldi");
+  const readinessEnabled = vivaldiReadinessEnabled(process.env.OBU_TEST_VIVALDI_READINESS, { name, nativeDiagnostics: diagnosticsEnabled });
+  const recordTaskRequests = diagnosticsEnabled || ownershipEnabled || readinessEnabled;
   assert.ok(process.env.OBU_TEST_CHROMIUM_BINARY && process.env.OBU_TEST_HOST_BINARY, "Set OBU_TEST_CHROMIUM_BINARY and OBU_TEST_HOST_BINARY");
   const binary = path.resolve(process.env.OBU_TEST_CHROMIUM_BINARY), sourceHost = path.resolve(process.env.OBU_TEST_HOST_BINARY);
   await Promise.all([fs.access(binary), fs.access(sourceHost)]);
@@ -344,11 +346,12 @@ async function main() {
   const env = { ...process.env, TEMP: path.join(runDir, "temp"), TMP: path.join(runDir, "temp"), LOCALAPPDATA: path.join(runDir, "local"), APPDATA: path.join(runDir, "roaming"), USERPROFILE: path.join(runDir, "home"), HOME: path.join(runDir, "home") };
   const plan = nativeBrowserPlan(name, env), profile = plan.profileRoot;
   for (const directory of [env.TEMP, env.LOCALAPPDATA, env.APPDATA, env.USERPROFILE, profile]) await fs.mkdir(directory, { recursive: true });
-  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
+  const report = { name, runDir, profileRoot: profile, startedAt: Date.now(), passed: false, mode: readinessEnabled ? "vivaldi-readiness-diagnostic" : diagnosticsEnabled ? "native-api-diagnostic" : "acceptance",
     scope: "Actual signed Windows brand; native manifest export plus unique Google HKCU fixture registration; real connectNative launcher, catalogue/profile selectors and one JS SDK background task. Production fixed-leaf installer, other OS, browser restart/update and complete brand parity are not claimed.",
     helperPolicy: "Windows PowerShell 5.1 helpers use their own PSHOME/Modules only, with UTF-8 stdout/stderr; environment change is local to each helper child",
     focus: { allowedActivations: [], allowedFocus: [] }, cli: [], inventories: [], cleanup: { errors: [] } };
   if (diagnosticsEnabled) report.diagnostics = { enabled: true, snapshots: [], errors: [], boundary: "Opt-in staged-worker native API and selected passive-event observations only. Original task/focus/receipt failures remain failures; diagnostic completion never implies acceptance. Pending command outcomes and truncated payload values remain unknown; no retry, activation, input replacement, or private production-map reads." };
+  if (readinessEnabled) report.readinessDiagnostic = { enabled: true, timeoutMs: 25000, boundary: "Harness-only pre-first-target-connection native tabs.get and original target readiness gate for vendor-created manager/observer. One absolute budget per open covers creation, identity, metadata, connection and evaluation. No staged API prelude, activation, input substitute or production task change. Diagnostic completion requires both gates, task reached and strict cleanup; task/focus failures remain recorded and passed is always false." };
   if (ownershipEnabled) { report.ownershipRequested = true; report.ownership = { enabled: true, passed: false }; }
   const save = (file, value) => fs.writeFile(path.join(runDir, file), JSON.stringify(value, null, 2));
   const checkpoint = async () => { await Promise.all([save("results.json", report), ...(recordTaskRequests ? [save("task-requests.json", taskRequests)] : []), ...(ownershipEnabled ? [save("ownership.json", report.ownership)] : [])]); };
@@ -404,55 +407,62 @@ async function main() {
     value.sha256 = digest(await fs.readFile(file)); return checkBrandIdentity(value, name);
   }
   async function fixedRegistration() { const value = JSON.parse(await powershell(fixedRegistrationSource)); return { sha256: digest(canonicalJSON(value)), views: value.map(({ view, exists }) => ({ view, exists })) }; }
-  async function cdp(url, { handshakeTimeoutMs = 10000, connectionRecord = {} } = {}) {
+  async function cdp(url, { handshakeTimeoutMs = 10000, connectionRecord = {}, budget } = {}) {
+    if (budget) handshakeTimeoutMs = Math.min(handshakeTimeoutMs, budget.remaining());
     Object.assign(connectionRecord, { requestedUrl: url, requestedAt: Date.now(), handshakeTimeoutMs, state: "connecting", attemptedConnections: 1 });
     await checkpoint();
+    if (budget) handshakeTimeoutMs = Math.min(handshakeTimeoutMs, budget.remaining());
     const socket = new WebSocket(url), pending = new Map(); let serial = 0;
     const fail = error => { for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(error); } pending.clear(); };
     socket.on("error", fail); socket.on("close", () => fail(new Error("Diagnostic CDP closed")));
     socket.on("message", bytes => { const value = JSON.parse(bytes), entry = pending.get(value.id); if (!entry) return; pending.delete(value.id); clearTimeout(entry.timer); value.error ? entry.reject(new Error(JSON.stringify(value.error))) : entry.resolve(value.result); });
-    const call = (method, params = {}) => new Promise((resolve, reject) => { if (socket.readyState !== WebSocket.OPEN) return reject(new Error("Diagnostic CDP closed")); const id = ++serial, timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out`)); }, 20000); pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params })); });
-    const value = { call, state: () => ["connecting", "open", "closing", "closed"][socket.readyState], close: () => { fail(new Error("Fixture closing diagnostic CDP")); if (socket.readyState === WebSocket.CONNECTING) socket.terminate(); else socket.close(); }, evaluate: async expression => { const answer = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (answer.exceptionDetails) throw new Error(JSON.stringify(answer.exceptionDetails)); return answer.result.value; } };
+    const call = (method, params = {}, options = {}) => new Promise((resolve, reject) => { const timeout = options.budget ? Math.min(20000, options.budget.remaining()) : 20000; if (socket.readyState !== WebSocket.OPEN) return reject(new Error("Diagnostic CDP closed")); const id = ++serial, timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out`)); }, timeout); pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params })); });
+    const value = { call, state: () => ["connecting", "open", "closing", "closed"][socket.readyState], close: () => { fail(new Error("Fixture closing diagnostic CDP")); if (socket.readyState === WebSocket.CONNECTING) socket.terminate(); else socket.close(); }, evaluate: async (expression, options) => { const answer = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, options); if (answer.exceptionDetails) throw new Error(JSON.stringify(answer.exceptionDetails)); return answer.result.value; } };
     connections.add(value); // Track before handshake, including timed-out sockets.
     await awaitNativeDiagnosticSocket(socket, { record: connectionRecord, persist: checkpoint, timeoutMs: handshakeTimeoutMs }); return value;
   }
-  const targets = async () => {
-    const response = await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(5000) });
+  const targets = async budget => {
+    const response = await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(budget ? Math.min(5000, budget.remaining()) : 5000) });
     assert.equal(response.ok, true, `Diagnostic target list HTTP ${response.status}`);
     const values = await response.json(); assert.ok(Array.isArray(values)); return values;
   };
-  async function openDiagnostic(url, createTarget) {
+  async function openDiagnostic(url, createTarget, purpose) {
     const record = {}; report.diagnosticPages ??= []; report.diagnosticPages.push(record);
+    if (readinessEnabled && createTarget) return openVivaldiReadinessPage({ url, purpose, createTarget, targets, failureTargets: () => targets(), connect: cdp, record, persist: async () => { await save("diagnostic-pages.json", report.diagnosticPages); await checkpoint(); } });
     return openNativeDiagnosticPage({ url, createTarget, control, targets, connect: cdp, record, persist: async () => { await save("diagnostic-pages.json", report.diagnosticPages); await checkpoint(); } });
   }
-  async function createVivaldiDiagnostic(url, purpose) {
+  async function createVivaldiDiagnostic(url, purpose, budget) {
+    const read = (operation, label) => budget ? budget.run(operation, label) : operation();
+    const evaluate = expression => read(() => ui.evaluate(expression, budget ? { budget } : undefined), "vendor UI evaluation");
     const record = { purpose, requestedUrl: url, requestedAt: Date.now() }; report.vendorUICreations ??= []; report.vendorUICreations.push(record);
     if (purpose === "installation-manager") report.installationUI.vendorCreation = record;
     await checkpoint();
-    const before = await targets(); record.targetsBefore = before.slice(0, 80).map(diagnosticTarget);
+    const before = await read(() => targets(budget), "vendor target list"); record.targetsBefore = before.slice(0, 80).map(diagnosticTarget);
     const prior = report.vendorUICreations.find(value => value !== record && value.vendorIdentity)?.vendorTarget;
     const matches = before.filter(target => { try { const url = new URL(target.url); return target.type === "app" && (prior ? target.id === prior.id && target.url === prior.url : target.title === "Vivaldi") && url.protocol === "chrome-extension:" && url.pathname === "/window.html"; } catch { return false; } });
     assert.equal(matches.length, 1, "Require one actually observed Vivaldi vendor window app");
     record.vendorTarget = diagnosticTarget(matches[0]); record.connection = {}; await checkpoint();
-    const ui = await cdp(matches[0].webSocketDebuggerUrl, { connectionRecord: record.connection });
-    record.vendorIdentity = await ui.evaluate("(async()=>({url:location.href,title:document.title,runtimeId:chrome.runtime.id,manifestName:chrome.runtime.getManifest().name,hasTabsCreate:typeof chrome.tabs?.create==='function',window:await chrome.windows.getCurrent()}))()");
+    const ui = await read(() => cdp(matches[0].webSocketDebuggerUrl, { connectionRecord: record.connection, ...(budget ? { budget } : {}) }), "vendor UI connection");
+    record.vendorIdentity = await evaluate("(async()=>({url:location.href,title:document.title,runtimeId:chrome.runtime.id,manifestName:chrome.runtime.getManifest().name,hasTabsCreate:typeof chrome.tabs?.create==='function',window:await chrome.windows.getCurrent()}))()");
     await checkpoint(); const identity = record.vendorIdentity;
     assert.equal(identity.url, matches[0].url); assert.equal(identity.runtimeId, new URL(identity.url).hostname); assert.match(identity.manifestName, /vivaldi/i); assert.equal(identity.hasTabsCreate, true); assert.ok(Number.isInteger(identity.window?.id)); assert.equal(identity.window.type, "normal");
     record.arguments = { url, windowId: identity.window.id, active: false }; record.createRequestedAt = Date.now(); await checkpoint();
     // The shipped bundle's openURL path uses tabs.create({url,windowId,
     // active:!inBackground}). Do not call private webpack exports or retry.
-    record.reply = await ui.evaluate(`chrome.tabs.create(${JSON.stringify(record.arguments)}).then(({id,windowId,active,url,pendingUrl,status})=>({id,windowId,active,url,pendingUrl,status}))`);
+    record.reply = await evaluate(`chrome.tabs.create(${JSON.stringify(record.arguments)}).then(({id,windowId,active,url,pendingUrl,status})=>({id,windowId,active,url,pendingUrl,status}))`);
     record.createCompletedAt = Date.now(); await checkpoint();
     assert.ok(Number.isInteger(record.reply.id)); assert.equal(record.reply.windowId, identity.window.id); assert.equal(record.reply.active, false); assert.ok([record.reply.url, record.reply.pendingUrl].includes(url));
     const oldIds = new Set(before.map(target => target.id));
-    const targetDeadline = Date.now() + 25000; let target;
+    const targetDeadline = budget?.deadline ?? Date.now() + 25000; let target;
     do {
-      const current = await targets(); record.targetsAfter = current.slice(0, 80).map(diagnosticTarget);
+      const current = await read(() => targets(budget), "vendor-created target association"); record.targetsAfter = current.slice(0, 80).map(diagnosticTarget);
       const candidates = current.filter(target => !oldIds.has(target.id) && target.type === "page" && target.url === url);
       assert.ok(candidates.length <= 1, "Ambiguous new Vivaldi manager targets"); target = candidates[0]; if (target) break;
-      assert.ok(Date.now() < targetDeadline, "No unique vendor-created extension manager target before deadline"); await delay(75);
+      assert.ok(Date.now() < targetDeadline, "No unique vendor-created extension manager target before deadline"); await read(() => delay(budget ? Math.min(75, budget.remaining()) : 75), "vendor target interval");
     } while (true);
-    record.target = diagnosticTarget(target); record.association = "Unique new exact-URL page target after one native tabs.create; CDP TargetInfo has no numeric tabId"; await checkpoint(); return target.id;
+    record.target = diagnosticTarget(target); record.association = "Unique new exact-URL page target after one native tabs.create; CDP TargetInfo has no numeric tabId"; await checkpoint();
+    if (budget) { budget.remaining(); return { targetId: target.id, tabId: record.reply.id, windowId: record.reply.windowId, target, readTab: (readBudget = budget) => readBudget.run(() => ui.evaluate(`chrome.tabs.get(${record.reply.id}).then(({id,windowId,active,url,pendingUrl,status,pinned,groupId,discarded,frozen})=>({id,windowId,active,url,pendingUrl,status,pinned,groupId,discarded,frozen}))`, { budget: readBudget }), "native tabs.get via existing vendor UI") }; }
+    return target.id;
   }
   async function inventory(label, expected = [extensionId, companion.extensionId]) {
     const record = { label, at: Date.now() }; report.inventories.push(record);
@@ -500,7 +510,7 @@ async function main() {
     fixedBefore = await fixedRegistration(); report.fixedRegistrationBefore = fixedBefore;
     await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), sdk, { recursive: true });
     report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).stdout.trim(), host: digest(await fs.readFile(host)), harness: digest(await fs.readFile(fileURLToPath(import.meta.url))), jsSDK: await hashes(sdk), dependencies: {} };
-    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
+    for (const file of ["browser-startup.mjs", "focus-ledger.mjs", "extension-reload-support.mjs", "native-lifecycle-support.mjs", "background-parallel-workflow.mjs", "native-api-diagnostics.mjs", "native-ownership-workflow.mjs", "vivaldi-readiness-diagnostic.mjs", "../build-chrome-extension.mjs"]) report.sourceIdentity.dependencies[file] = digest(await fs.readFile(path.join(repo, "scripts/browser-integration", file)));
     report.identity = { suppliedExecutable: await executableIdentity(binary) }; await checkpoint();
     await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
     const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), nativeConstant = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
@@ -539,7 +549,7 @@ async function main() {
     report.identity.passed = true; await checkpoint();
     report.installationUI = { managerBackground: true, phase: "before sentinel and independent focus ledger", method: name === "vivaldi" ? "Observed vendor UI app chrome.tabs.create with active:false; official openURL creation path" : "Background Target.createTarget", taskAndObserverBackground: true };
     await checkpoint();
-    const settings = await openDiagnostic(plan.manager, name === "vivaldi" ? () => createVivaldiDiagnostic(plan.manager, "installation-manager") : undefined); manager = settings.page; report.settingsTarget = settings.targetId;
+    const settings = await openDiagnostic(plan.manager, name === "vivaldi" ? budget => createVivaldiDiagnostic(plan.manager, "installation-manager", budget) : undefined, "installation-manager"); manager = settings.page; report.settingsTarget = settings.targetId;
     const diagnostic = await settingsDiagnostic("before-install"); await inventory("before-install", []);
     assert.equal(diagnostic.configuration.canLoadUnpacked, true); assert.equal(diagnostic.configuration.isDeveloperModeControlledByPolicy, false);
     // Use Chromium's actual rendered control only after recording its DOM.
@@ -602,7 +612,7 @@ async function main() {
       return value.status === "complete" && value.url === report.sentinelRequest.url && value;
     }, "foreground sentinel exact requested URL loaded");
     report.sentinel = checkLoadedSentinel(report.sentinelCreateReply, loadedSentinel, report.sentinelRequest.url); report.sentinelRequest.loadedAt = Date.now();
-    const observing = await openDiagnostic(companion.url, name === "vivaldi" ? () => createVivaldiDiagnostic(companion.url, "focus-observer") : undefined); observer = observing.page; report.observerTarget = observing.targetId; await until(() => observer.evaluate("globalThis.__integrationFocusLedger?.snapshot().ready"), "independent focus observer ready");
+    const observing = await openDiagnostic(companion.url, name === "vivaldi" ? budget => createVivaldiDiagnostic(companion.url, "focus-observer", budget) : undefined, "focus-observer"); observer = observing.page; report.observerTarget = observing.targetId; await until(() => observer.evaluate("globalThis.__integrationFocusLedger?.snapshot().ready"), "independent focus observer ready");
     await focus("before-task");
     report.task = { nonce: randomBytes(12).toString("hex"), steps: [] }; const task = report.task;
     async function step(operation, run) { const record = { operation, requestedAt: Date.now() }; task.steps.push(record); try { const value = await run(); record.completedAt = Date.now(); await checkpoint(); return value; } catch (error) { record.error = error.message; await checkpoint(); throw error; } }
@@ -710,9 +720,10 @@ async function main() {
       report.diagnostics.traceComplete = !report.diagnostics.errors.length && !taskRequests.overflow && nativeDiagnosticTraceComplete(diagnosticInitial, diagnosticFinal);
       report.diagnostics.cleanupComplete = nativeBrowserInstallationCleaned(report);
     }
-    const result = nativeDiagnosticResult({ enabled: diagnosticsEnabled, acceptancePassed: nativeBrowserInstallationPassed(report), taskReached: !!report.task?.steps?.length, traceComplete: report.diagnostics?.traceComplete, cleanupComplete: report.diagnostics?.cleanupComplete });
+    const result = readinessEnabled ? vivaldiReadinessResult({ pages: report.diagnosticPages?.filter(page => page.mode === "vivaldi-readiness-diagnostic"), taskReached: !!report.task?.steps?.length, cleanupComplete: nativeBrowserInstallationCleaned(report), taskRequestsOverflow: taskRequests.overflow }) : nativeDiagnosticResult({ enabled: diagnosticsEnabled, acceptancePassed: nativeBrowserInstallationPassed(report), taskReached: !!report.task?.steps?.length, traceComplete: report.diagnostics?.traceComplete, cleanupComplete: report.diagnostics?.cleanupComplete });
+    if (readinessEnabled) Object.assign(report.readinessDiagnostic, { observationsComplete: result.observationsComplete, cleanupComplete: nativeBrowserInstallationCleaned(report), taskRequestsOverflow: taskRequests.overflow, taskOutcome: { taskPassed: report.task?.passed === true, focusPassed: report.focus?.passed === true, error: report.error ?? null, focusError: report.focus.error ?? null } });
     report.completedAt = Date.now(); report.passed = result.passed;
-    if (diagnosticsEnabled) report.diagnosticCompleted = result.diagnosticCompleted;
+    if (diagnosticsEnabled || readinessEnabled) report.diagnosticCompleted = result.diagnosticCompleted;
     await checkpoint(); console.log("RESULT", JSON.stringify({ file: path.join(runDir, "results.json"), mode: report.mode, passed: report.passed, diagnosticCompleted: report.diagnosticCompleted })); process.exitCode = result.exitCode;
   }
 }

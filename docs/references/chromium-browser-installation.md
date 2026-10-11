@@ -167,6 +167,13 @@ Opera 的 A/B/C 原生快照都无分组，Brave 保留真实任务组并在交�
 浏览器和原生 host 正常 exit0，清理完整。该记录既不证明 Vivaldi 任务通过，
 也不能归因为新 ownership 路径回归；旧的实际输入与初始化失败仍开放。
 
+对 attach 前原生提交状态的独立诊断、固定上游源码和推断边界见
+[Vivaldi 首文档诊断](vivaldi-initial-document.md)。诊断不改默认验收或生产
+输入，不因 target URL 变空就认定导航失败。
+新 `7y16Q1` 两个设置页面均通过提交检查并进入任务，但 fill ACK 后实际值
+仍空，唯一原始 POST 也为空；诊断完整、任务失败。默认 Brave `t8wpE8`
+通过，生产 ZIP 未变。单次设置成功不解除 Vivaldi 原初始化及输入缺口。
+
 ## 官方资料与来源
 
 - [Brave 官方发布](https://github.com/brave/brave-browser/releases/tag/v1.97.56)：

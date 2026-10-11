@@ -253,6 +253,26 @@ they do not mean the task succeeded. Original task and focus failures remain
 in the report. A setup failure before the native host starts cannot meet that
 complete-native-run condition. Remove the variable for subsequent acceptance.
 
+For the separate Vivaldi pre-attach experiment, set
+`OBU_TEST_VIVALDI_READINESS=1` with `OBU_TEST_NATIVE_BROWSER=vivaldi`.
+Unset, empty or `0` preserves the default path; other values, other brands,
+or combining it with native API diagnostics are rejected. Only the vendor-created
+installation manager and observer use this gate. Before their first target
+connection, native `tabs.get` must report the original inactive tab/window,
+committed exact URL and `complete` status, with the same uniquely associated CDP
+target. Creation, identity, successful incomplete-state sampling, connection and
+document evaluation share one absolute 25-second deadline. Read errors are
+terminal; no target is recreated, activated, replaced or reconnected. About and
+the production SDK task retain their original paths, and no API prelude is staged.
+
+`diagnostic-pages.json` retains bounded first/last samples and any overflow.
+After failure, a separate single read of the original tab and target metadata
+has at most 2.5 seconds; it cannot alter the original error or success budget.
+`mode: "vivaldi-readiness-diagnostic"` always has `passed: false`. Exit zero and
+`diagnosticCompleted: true` require both gates to complete, the task to be reached,
+no HTTP ledger overflow and strict cleanup. Task/focus failures remain visible;
+this result is not browser acceptance or proof of a Vivaldi root cause.
+
 Set `OBU_TEST_NATIVE_OWNERSHIP=1` to add the public multi-page ownership workflow
 after the unchanged standard task. This option independently records real task
 GETs; it does not require native API diagnostics. It opens A and B, submits both,
