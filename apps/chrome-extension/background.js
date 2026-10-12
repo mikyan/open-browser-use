@@ -2430,6 +2430,18 @@ class BrowserBackend {
 
   async getBrowserEngine() {
     if (this.browserEngine) return this.browserEngine;
+    const beginPointerAction = (target, check, hover = false) => {
+      this.assertControlOpen();
+      const token = this.attachmentEpochs.get(target.tabId);
+      const assertCurrent = () => {
+        this.assertControlOpen();
+        this.assertAttachmentAdmission(target.tabId, token);
+        check();
+      };
+      assertCurrent();
+      return hover ? this.inputTracker.beginHoverAction(target.tabId, token, assertCurrent) :
+        this.inputTracker.beginPointerAction(target.tabId, token, assertCurrent);
+    };
     this.browserEngine = createBrowserActionEngine({
       restrictedSelectors: () => this.siteAccess.restricted,
       prepareFileInput: options => this.prepareLocatorFileInput(options),
@@ -2444,17 +2456,8 @@ class BrowserBackend {
       isInternalEvent: (source, method, params) => this.isInternalCdpEvent(source, method, params),
       inputHooks: {
         prepareMediaCleanup: (target, contextId) => this.prepareMediaCleanup(target, contextId),
-        beginPointerAction: (target, check) => {
-          this.assertControlOpen();
-          const token = this.attachmentEpochs.get(target.tabId);
-          const assertCurrent = () => {
-            this.assertControlOpen();
-            this.assertAttachmentAdmission(target.tabId, token);
-            check();
-          };
-          assertCurrent();
-          return this.inputTracker.beginPointerAction(target.tabId, token, assertCurrent);
-        },
+        beginPointerAction: (target, check) => beginPointerAction(target, check),
+        beginHoverAction: (target, check) => beginPointerAction(target, check, true),
         send: (target, method, params, operation, pointerGuard) => {
           this.assertControlOpen();
           const token = this.attachmentEpochs.get(target.tabId);

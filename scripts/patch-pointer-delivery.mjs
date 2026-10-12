@@ -1,11 +1,11 @@
 import vm from "node:vm";
 
-// This is an explicit pre-press actionability change to the pinned CRX build.
+// Explicit click preparation and hover delivery checks for the pinned CRX build.
 // A DOM receipt is evidence in an action window, not a CDP request authenticator.
 export function createPointerMoveReceipt(injected, original, element, point, attempt) {
   const document = original.ownerDocument;
   const expectedPoint = point ? { x: point.x, y: point.y } : null;
-  let closed = false, status = "missing", receivedPoint;
+  let closed = false, status = "missing", receivedPoint, delivered = false;
   const current = () => !closed && original.isConnected && element.isConnected &&
     original.ownerDocument === document && element.ownerDocument === document && injected.document === document;
   return {
@@ -27,6 +27,7 @@ export function createPointerMoveReceipt(injected, original, element, point, att
       }
       receivedPoint = { x: event.clientX, y: event.clientY };
       status = "ready";
+      delivered = true;
     },
     read(expectedAttempt, geometry) {
       const nextPoint = geometry ? geometry.point : expectedPoint;
@@ -37,6 +38,14 @@ export function createPointerMoveReceipt(injected, original, element, point, att
       const hit = status !== "ready" || injected.expectHitTarget(receivedPoint, element) === "done" &&
         (!nextPoint || injected.expectHitTarget(nextPoint, element) === "done");
       return { attempt, status: expectedAttempt === attempt && current() && samePoint && hit ? status : "invalid" };
+    },
+    readDelivery(expectedAttempt) {
+      // Hover is complete at delivery. Its handler may move/remove/disable the
+      // node or cover it with a menu before the native move ACK is observed.
+      // Retain the event-time target/local-hit proof, without weakening the
+      // separate click readiness read above. The bridge still checks context,
+      // attachment, authority and the original deadline after the native ACK.
+      return { attempt, status: !closed && injected.document === document && expectedAttempt === attempt ? delivered ? "ready" : status : "invalid" };
     },
     close() { closed = true; }
   };
@@ -51,6 +60,97 @@ function obuPointerFailure(error) {
   const result = new NonRecoverableDOMError("OBU_POINTER_DELIVERY_UNCONFIRMED: " + (error?.message || String(error)));
   result.cause = error;
   return result;
+}
+
+async function obuRunPointerHover(handle, progress, options) {
+  const mouse = handle._page.mouse, keyboard = handle._page.keyboard, context = handle._context;
+  const client = mouse._raw?._client, transport = client?._connection?._transport;
+  const root = /^crx-tab-(\\d+)$/.exec(client?._sessionId || "");
+  const tabId = root ? Number(root[1]) : transport?._sessions?.get(client?._sessionId);
+  const nativeIdentity = transport?._tabToTarget?.get(tabId);
+  const contextClient = context?.delegate?._client, contextSession = contextClient?._sessionId;
+  const contextRoot = /^crx-tab-(\\d+)$/.exec(contextSession || "");
+  if (!Number.isSafeInteger(tabId) || !nativeIdentity || !(context?.delegate instanceof CRExecutionContext) ||
+      contextClient?._connection?._transport !== transport ||
+      (contextRoot ? Number(contextRoot[1]) !== tabId : transport._sessions.get(contextSession) !== tabId))
+    throw obuPointerFailure("original Chromium hover route is unavailable");
+  let ticket, attempt = 0, moved = false, delivered = false, currentReceipt, receiptContext, failure;
+  const contextIsCurrent = value => value && !value._contextDestroyedScope.isClosed() &&
+    value.frame._contextData.get(value.world)?.context === value;
+  const check = () => {
+    progress.throwIfAborted();
+    if (progress.timeUntilDeadline() <= 0) throw obuPointerFailure("original hover deadline expired");
+    if (transport._tabToTarget.get(tabId) !== nativeIdentity || handle._disposed || handle._context !== context ||
+        !contextIsCurrent(context) || receiptContext && !contextIsCurrent(receiptContext) ||
+        !contextRoot && transport._sessions.get(contextSession) !== tabId)
+      throw obuPointerFailure("original hover context/attachment changed");
+  };
+  const closeReceipt = async () => {
+    const receipt = currentReceipt; currentReceipt = undefined;
+    if (!receipt) return;
+    try { await receipt.evaluate(h => h.stop()); } finally { receipt.dispose(); }
+  };
+  const state = {
+    nextAttempt() { check(); ticket.check(); if (delivered) throw obuPointerFailure("delivered hover cannot replay"); return ++attempt; },
+    setFrameGeometry() { check(); ticket.check(); },
+    retain(receipt) {
+      currentReceipt = receipt;
+      if (receiptContext && receiptContext !== receipt._context) throw obuPointerFailure("original hover utility context changed");
+      receiptContext = receipt._context; check(); ticket.check();
+    },
+    async runAttempt(point, receipt, action) {
+      if (!receipt?._objectId) throw obuPointerFailure("original hover interceptor is unavailable");
+      const baseline = options.modifiers ? Array.from(keyboard._modifiers()) : undefined;
+      let actionError;
+      try {
+        check(); ticket.check();
+        if (baseline) await keyboard.ensureModifiers(options.modifiers, ticket);
+        check(); ticket.check();
+        moved = true;
+        await action(point); // The original native move must settle first.
+        check(); ticket.check();
+        const result = await receipt.evaluate((h, id) => h.readHoverReceipt(id), attempt);
+        check(); ticket.check();
+        if (result?.attempt !== attempt) throw obuPointerFailure("stale hover receipt");
+        if (result.status !== "ready") { await closeReceipt(); check(); ticket.check(); return false; }
+        delivered = true;
+        return true;
+      } catch (error) { actionError = error; throw error; }
+      finally {
+        if (baseline) {
+          try { check(); ticket.check(); await keyboard.ensureModifiers(baseline, ticket); check(); ticket.check(); }
+          catch (error) { if (!actionError) throw error; try { actionError.pointerModifierRestoreError = error; } catch {} }
+        }
+      }
+    },
+    checkedResult(result) {
+      // A compatibility mousemove may see a menu created by the already
+      // delivered pointermove. It cannot undo the event-time hover receipt.
+      if (delivered) return "done";
+      throw obuPointerFailure(typeof result === "string" ? result : JSON.stringify(result));
+    },
+    forget(receipt) { if (currentReceipt === receipt) currentReceipt = undefined; }
+  };
+  try {
+    check();
+    ticket = openBrowserUseInputHooks.beginHoverAction({ tabId }, check);
+    // Only the native tracker may classify confirmed pre-held input as a
+    // legacy hover. Unknown/in-flight input throws, never falls back on BUSY.
+    if (ticket === null) return await handle._retryPointerAction(progress, "hover", false,
+      point => mouse.move(point.x, point.y), { ...options, waitAfter: "disabled" });
+    ticket.check();
+    const result = await handle._retryPointerAction(progress, "hover", false,
+      point => mouse.move(point.x, point.y, { forClick: true, [obuPointerTicket]: ticket }),
+      { ...options, waitAfter: "disabled", [obuPointerDelivery]: state });
+    check(); ticket.check();
+    if (moved && (result !== "done" || !delivered)) throw obuPointerFailure("original hover delivery was not confirmed");
+    return result;
+  } catch (error) { failure = obuPointerFailure(error); throw failure; }
+  finally {
+    try { await closeReceipt(); }
+    catch (error) { if (!failure) throw obuPointerFailure(error); try { failure.pointerReceiptCleanupError = error; } catch {} }
+    finally { ticket?.close(); }
+  }
 }
 
 async function obuRunPointerClick(handle, progress, options, actionName = "click") {
@@ -250,13 +350,16 @@ export function patchCrxPointerDelivery(source) {
   injected = replaceOnce(injected, "  setupHitTargetInterceptor(node, action, hitPoint, blockAllEvents) {",
     "  setupHitTargetInterceptor(node, action, hitPoint, blockAllEvents, obuMoveAttempt) {");
   injected = replaceOnce(injected, "    let result;\n    const listener = (event) => {\n      if (!events.has(event.type))",
-    "    const obuMove = obuMoveAttempt === undefined ? undefined : createPointerMoveReceipt(this, node, element, hitPoint, obuMoveAttempt);\n    let result;\n    const listener = (event) => {\n      if (obuMove && event.type === \"pointermove\") { obuMove.observe(event); return; }\n      if (!events.has(event.type))");
+    "    const obuMove = obuMoveAttempt === undefined ? undefined : createPointerMoveReceipt(this, node, element, hitPoint, obuMoveAttempt);\n    let result;\n    const listener = (event) => {\n      if (obuMove && event.type === \"pointermove\") { obuMove.observe(event); return; }\n      // Preserve the same native move's compatibility event after a hover\n      // handler moves/removes the target or opens a covering menu. Clicks\n      // still require their original post-hover hit interception.\n      if (action === \"hover\" && !blockAllEvents && event.type === \"mousemove\" && obuMove?.readDelivery(obuMoveAttempt).status === \"ready\") return;\n      if (!events.has(event.type))");
   injected = replaceOnce(injected, "    const stop = () => {\n      if (this._hitTargetInterceptor === listener)",
     "    const stop = () => {\n      obuMove?.close();\n      if (this._hitTargetInterceptor === listener)");
   injected = replaceOnce(injected, "    this._hitTargetInterceptor = listener;\n    return { stop };",
-    "    this._hitTargetInterceptor = listener;\n    return { stop, readMoveReceipt: (id, geometry) => obuMove?.read(id, geometry) }; ");
+    "    this._hitTargetInterceptor = listener;\n    return { stop, readMoveReceipt: (id, geometry) => obuMove?.read(id, geometry), readHoverReceipt: id => obuMove?.readDelivery(id) }; ");
   injected = createPointerMoveReceipt.toString() + "\n" + injected;
   source = source.replace(injectedMatch[0], () => "const source$4 = " + JSON.stringify(injected) + ";");
+  source = replaceOnce(source,
+    '  _hover(progress2, options2) {\n    return this._retryPointerAction(progress2, "hover", false, (point) => this._page.mouse.move(point.x, point.y), { ...options2, waitAfter: "disabled" });\n  }',
+    '  _hover(progress2, options2) {\n    if (openBrowserUseInputHooks?.beginHoverAction && !options2.force && !options2.trial)\n      return obuRunPointerHover(this, progress2, options2);\n    return this._retryPointerAction(progress2, "hover", false, (point) => this._page.mouse.move(point.x, point.y), { ...options2, waitAfter: "disabled" });\n  }');
   source = replaceOnce(source,
     '  _click(progress2, options2) {\n    return this._retryPointerAction(progress2, "click", true, (point) => this._page.mouse.click(point.x, point.y, options2), options2);\n  }',
     '  _click(progress2, options2) {\n    if (openBrowserUseInputHooks?.beginPointerAction && !options2.force && !options2.trial && this._page.keyboard._modifiers().size === 0)\n      return obuRunPointerClick(this, progress2, options2);\n    return this._retryPointerAction(progress2, "click", true, (point) => this._page.mouse.click(point.x, point.y, options2), options2);\n  }');

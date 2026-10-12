@@ -179,6 +179,11 @@ After a screenshot times out, its rendering queue and Pause cleanup still track
 the actual native capture until completion. See the
 [screenshot completion contract](docs/references/screenshot-completion.md).
 
+Ordinary locator hover on idle input confirms that the original target received
+the move before reporting success. It preserves menus and target changes caused
+by that hover; force/trial and already-held input keep their existing behavior.
+See the [hover delivery contract](docs/references/hover-delivery.md).
+
 JavaScript, Python, and Go SDKs expose semantic locators and automatic waits; all
 clients can use the shared [browser action protocol](docs/references/browser-action-protocol.md).
 The [capability matrix](docs/product-specs/browser-use-parity.md) records remaining

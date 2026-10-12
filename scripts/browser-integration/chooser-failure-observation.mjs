@@ -274,11 +274,13 @@ export async function observeChooserFailure({ worker, item, fixtureURL, budgetMs
 // Complete each existing cleanup once and persist its outcome. A failed cleanup
 // must neither skip closing the other connection nor replace the task's error.
 export async function finishChooserCase({ detail, originalError, cleanup, save, reportErrors = value => console.error("Chooser cleanup errors", value) }) {
-  const errors = []; let firstError;
+  const errors = [], previousErrors = [...(detail.cleanupErrors ?? [])]; let firstError;
+  if (originalError && Object.hasOwn(detail, "passed")) detail.passed = false;
   const remember = (stage, error) => {
     firstError ??= error;
     errors.push({ stage, error: error?.stack ?? String(error) });
-    detail.cleanupErrors = errors;
+    detail.cleanupErrors = previousErrors.length ? [...previousErrors, ...errors] : errors;
+    if (Object.hasOwn(detail, "passed")) detail.passed = false;
   };
   for (const step of cleanup) {
     try { await step.run(); } catch (error) { remember(step.name, error); }
@@ -286,9 +288,9 @@ export async function finishChooserCase({ detail, originalError, cleanup, save, 
   try { await save(detail); } catch (error) { remember("persist", error); }
   if (errors.length) {
     // The log still retains the evidence if writing the artifact itself failed.
-    try { reportErrors(errors); } catch { /* Logging cannot suppress cleanup/original failure. */ }
+    try { reportErrors(detail.cleanupErrors); } catch { /* Logging cannot suppress cleanup/original failure. */ }
     const retainedError = originalError ?? firstError;
-    try { retainedError.chooserCleanupErrors = errors; } catch { /* Frozen errors retain their original identity; detail/log already hold metadata. */ }
+    try { retainedError.chooserCleanupErrors = detail.cleanupErrors; } catch { /* Frozen errors retain their original identity; detail/log already hold metadata. */ }
     if (!originalError) throw firstError;
   }
 }

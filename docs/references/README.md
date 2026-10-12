@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Hover delivery](hover-delivery.md)：原目标悬停事件确认、菜单及目标变化语义、
+  已确认持输入兼容、原attachment错误恢复与真实验收边界。
 - [Screenshot completion](screenshot-completion.md)：截图调用超时与实际原生完成
   的区分、原 attachment 渲染队列和 Pause 清理屏障，以及受控 ACK 验收边界。
 - [Transformed element bounds](transformed-element-bounds.md)：正式元素边界框与

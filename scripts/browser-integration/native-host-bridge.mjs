@@ -39,8 +39,8 @@ function nativeFrame(message) {
 }
 
 export class NativeHostBridge {
-  constructor({ server, executable, socketDir, log = () => {}, onFailure = () => {}, stats, spawnHost = spawn, readRecord = () => fs.readFile(path.join(socketDir, "active.json"), "utf8").then(JSON.parse), timeoutMs = 20000 }) {
-    Object.assign(this, { server, executable, socketDir, log, onFailure, spawnHost, readRecord, timeoutMs });
+  constructor({ server, executable, socketDir, log = () => {}, onFailure = () => {}, onRPC, stats, spawnHost = spawn, readRecord = () => fs.readFile(path.join(socketDir, "active.json"), "utf8").then(JSON.parse), timeoutMs = 20000 }) {
+    Object.assign(this, { server, executable, socketDir, log, onFailure, onRPC, spawnHost, readRecord, timeoutMs });
     this.stats = stats ?? { frames: 0, maxFrameBytes: 0, starts: 0, chunks: 0, commits: 0 };
     this.current = null;
     this.closing = false;
@@ -133,6 +133,9 @@ export class NativeHostBridge {
         const message = JSON.parse(raw.toString());
         if (message.method === "obu.native.hello" && message.params?.version === 1) connection.hello = true;
         if (generation.host.stdin.destroyed || generation.host.stdin.writableEnded || generation.host.exitCode !== null) throw new Error("Native host input closed during active acceptance");
+        // Optional read-only evidence in the caller's Node clock domain, before
+        // forwarding. Observers cannot alter the bytes sent to the actual host.
+        this.onRPC?.("response", structuredClone(message));
         generation.host.stdin.write(nativeFrame(message), error => { if (error) this.fail(error, generation); });
       } catch (error) { this.fail(error, generation); }
     });
@@ -148,13 +151,16 @@ export class NativeHostBridge {
         if (generation.buffer.length < 4 + length) break;
         const message = generation.buffer.subarray(4, 4 + length).toString();
         generation.buffer = generation.buffer.subarray(4 + length);
-        const method = JSON.parse(message).method;
+        const parsed = JSON.parse(message), method = parsed.method;
         this.stats.frames++;
         this.stats.maxFrameBytes = Math.max(this.stats.maxFrameBytes, length);
         if (method === "obu.native.start") this.stats.starts++;
         if (method === "obu.native.chunk") this.stats.chunks++;
         if (method === "obu.native.commit") this.stats.commits++;
-        if (generation.socket?.readyState === OPEN) generation.socket.send(message, error => { if (error) this.fail(error, generation); });
+        if (generation.socket?.readyState === OPEN) {
+          this.onRPC?.("request", parsed);
+          generation.socket.send(message, error => { if (error) this.fail(error, generation); });
+        }
         else generation.record.discardedFrames++; // No port queue or reconnect replay.
       }
     } catch (error) { this.fail(error, generation); }

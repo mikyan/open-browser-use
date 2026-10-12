@@ -78,6 +78,35 @@ test("a disconnected worker port has no outbound replay queue", async () => {
   } finally { await bridge.close(); }
 });
 
+test("optional RPC observer precedes forwarding and cannot mutate either direction", async () => {
+  const { bridge, hosts, connect, errors } = fixture(), order = [], writes = [];
+  try {
+    await bridge.start(); const socket = connect(), send = socket.send.bind(socket);
+    socket.send = (message, done) => { order.push("send-request"); send(message, done); };
+    const write = hosts[0].stdin.write.bind(hosts[0].stdin);
+    hosts[0].stdin.write = (...args) => { writes.push(args[0]); order.push("write-response"); return write(...args); };
+    bridge.onRPC = (direction, message) => { order.push(direction); message.id = "observer-mutation"; };
+    hosts[0].stdout.write(frame({ id: "original-request", method: "browserAction", params: { timeoutMs: 999 } }));
+    socket.emit("message", Buffer.from(JSON.stringify({ id: "original-request", error: { message: "original timeout" } })));
+    assert.deepEqual(order, ["request", "send-request", "response", "write-response"]);
+    assert.equal(socket.sent[0].id, "original-request");
+    assert.deepEqual(JSON.parse(writes[0].subarray(4)), { id: "original-request", error: { message: "original timeout" } });
+    socket.close(); hosts[0].stdout.write(frame({ id: "discarded", method: "browserAction" }));
+    assert.equal(order.length, 4); assert.deepEqual(errors, []);
+  } finally { await bridge.close(); }
+});
+
+test("RPC observation failure fails acceptance before forwarding rather than silently losing evidence", async () => {
+  const { bridge, hosts, connect, errors } = fixture();
+  try {
+    await bridge.start(); const socket = connect();
+    bridge.onRPC = () => { throw Error("RPC observer failed"); };
+    hosts[0].stdout.write(frame({ id: "original", method: "browserAction" }));
+    assert.deepEqual(socket.sent, []); assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /RPC observer failed/);
+  } finally { await bridge.close(); }
+});
+
 test("active.json from the old PID is not accepted as the new endpoint", async () => {
   const { bridge, hosts } = fixture(); let reads = 0;
   bridge.readRecord = async () => ({ pid: ++reads < 3 ? 999 : hosts[0].pid, socketPath: reads < 3 ? "stale" : "fresh" });

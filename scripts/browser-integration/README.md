@@ -1,5 +1,41 @@
 # Browser integration acceptance
 
+## Hover delivery and recovery
+
+The ordinary suite includes `js-hover-delivery` and `js-hover-native-pause`.
+Select both with `OBU_TEST_CASES=^(js-hover-delivery|js-hover-native-pause)$`
+and the normal host/browser prerequisites below; the raw-navigation control also
+runs. `hover-delivery.json`, `hover-native-pause.json` and their server artifacts
+retain original native input/ACK, frame/document, page event and POST evidence.
+
+Seven public locator-hover scenarios cover root, same-origin, OOPIF and transformed
+OOPIF with first/all moves deliberately dropped by a synthetic-ACK gate. Each
+success must have exactly one native target move and original POST, including a
+disabled target, target movement/removal and a covering menu. The covering menu
+must also initialize once from its normal trusted compatibility `mousemove`.
+No synthetic DOM events or child direct input are used. All-drop cases require
+the original 5000ms backend wire timeout, no business input and no extra Input
+commands hidden by the inner mouse-only gate.
+
+The optional NativeHostBridge observer timestamps exact request/response metadata
+in the same Node process as the caller, synchronously before forwarding. Budget
+deductions and caller settlement are checked there, while worker input/held-ACK
+sequence remains separate. IDs, scope, budget and errors must agree across both
+observers. Cross-process wall clocks cannot prove sub-millisecond causal order.
+
+The separate Pause case holds publication of one actual successful move ACK;
+it does not suppress that move. Original deadline errors must reach the wire
+while publication remains held. Pause must spend its unchanged 10-second cleanup
+budget and fail with the actual cleanup-timeout cause; premature Resume stays
+blocked. Release, explicit Retry Pause/Resume, old-scope denial and exact tab/target
+cleanup follow without replay. The 30-second gate watchdog is always failure.
+Teardown keeps inner and outer errors, and writes server evidence before the main
+detail. Final results and actual exit remain authoritative if persistence fails.
+
+The gate and staged backend reference are private test instrumentation, not natural
+compositor-failure, native-host installation or popup-UI acceptance. No additional
+focus allowance is added. See [hover contract and results](../../docs/references/hover-delivery.md).
+
 ## Screenshot native completion
 
 The ordinary suite includes `js-screenshot-native-drain`. To select it with

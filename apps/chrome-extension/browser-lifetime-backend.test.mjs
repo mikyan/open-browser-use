@@ -194,6 +194,34 @@ async function pointerHookFixture(t) {
       () => f.chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", params), ticket) };
 }
 
+test("backend hover admission preserves confirmed pre-held keys and forwards an idle ticket", async t => {
+  const f = await pointerHookFixture(t);
+  const key = type => f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type, key: "Shift", code: "ShiftLeft" }, async () => ({}));
+  await key("rawKeyDown");
+  assert.equal(f.pointerHooks.beginHoverAction(f.target, () => {}), null);
+  await key("keyUp");
+  const ticket = f.pointerHooks.beginHoverAction(f.target, () => {});
+  try {
+    await f.sendMove(ticket); ticket.check();
+    assert.throws(() => f.pointerHooks.beginHoverAction(f.target, () => {}), /POINTER_ACTION_BUSY/);
+  } finally { ticket.close(); }
+});
+
+test("backend hover pre-held compatibility still checks the original deadline and Pause", async t => {
+  const f = await pointerHookFixture(t), expired = Object.freeze(new Error("original hover deadline"));
+  await f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Shift", code: "ShiftLeft" }, async () => ({}));
+  assert.throws(() => f.pointerHooks.beginHoverAction(f.target, () => { throw expired; }), error => error === expired);
+  f.backend.automationControl.block();
+  assert.throws(() => f.pointerHooks.beginHoverAction(f.target, () => {}), /AUTOMATION_PAUSED/);
+});
+
+test("backend hover refuses a rejected native move even after a later acknowledged move", async t => {
+  const f = await pointerHookFixture(t), failed = new Error("unknown native hover movement");
+  await assert.rejects(f.pointerHooks.send(f.target, "Input.dispatchMouseEvent", f.move, async () => { throw failed; }), error => error === failed);
+  await f.sendMove();
+  assert.throws(() => f.pointerHooks.beginHoverAction(f.target, () => {}), /POINTER_ACTION_BUSY/);
+});
+
 test("pointer progress expiring behind the transfer gate prevents native input before any journal intent", async t => {
   const f = await pointerHookFixture(t), gate = f.gate();
   const originalError = Object.freeze(new Error("original pointer deadline expired"));

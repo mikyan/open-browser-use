@@ -150,6 +150,10 @@ go build -o dist/ ./cmd/open-browser-use
 截图超时后，仍会等待已发出的原生截图完成再释放渲染队列；未完成时暂停
 保持阻断。具体范围见[截图完成契约](docs/references/screenshot-completion.md)。
 
+输入空闲时，普通定位器悬停会确认原目标实际收到移动后才报告成功，允许悬停
+打开菜单或改变目标。force/trial 与已持有输入沿用原行为；具体范围见
+[悬停投递契约](docs/references/hover-delivery.md)。
+
 JS、Python、Go SDK 提供语义定位与自动等待，CLI/MCP 共用
 [浏览器动作协议](docs/references/browser-action-protocol.md)。
 `make ci` 包含平台检查和 SDK 到真实 Go host 的通信回归，

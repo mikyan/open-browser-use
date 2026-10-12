@@ -24,7 +24,7 @@ function slice(source, start, end) {
   return source.slice(from, to);
 }
 
-function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves = 0, onSend, stopError, stopResult, noHooks = false, delayHook, moveEvent, tracked = false, platform = "win32" } = {}) {
+function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves = 0, onSend, afterSend, stopError, stopResult, noHooks = false, delayHook, moveEvent, tracked = false, platform = "win32" } = {}) {
   const calls = [], nativeCalls = [], handles = [], waits = [], logs = [], tags = new WeakMap(), timeline = [];
   const windowListeners = new Map();
   const document = {}, node = { ownerDocument: document, isConnected: true };
@@ -72,9 +72,19 @@ function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves =
       if (tracker) return tracker.beginPointerAction(7, attachment, () => { check(); if (paused) throw new Error("control revoked"); });
       let ticketClosed = false;
       return { check() { check(); if (paused || ticketClosed) throw new Error("control revoked"); }, close() { ticketClosed = true; closed++; } };
+    }, beginHoverAction(target, check) {
+      assert.deepEqual({ ...target }, { tabId: 7 });
+      if (tracker) {
+        const ticket = tracker.beginHoverAction(7, attachment, () => { check(); if (paused) throw new Error("control revoked"); });
+        if (ticket) began++; return ticket;
+      }
+      if (page.keyboard._modifiers().size || page.mouse._buttons.size) return null;
+      began++; let ticketClosed = false;
+      return { check() { check(); if (paused || ticketClosed) throw new Error("control revoked"); }, close() { ticketClosed = true; closed++; } };
     } }
   };
   const methods = slice(source, "  async _retryAction(", "  async _markAsTargetElement(") +
+    slice(source, "  _hover(progress2, options2) {", "  async click(") +
     slice(source, "  _click(progress2, options2) {", "  async dblclick(") +
     slice(source, "  _dblclick(progress2, options2) {", "  async tap(");
   const runtime = vm.runInNewContext(
@@ -111,6 +121,7 @@ function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves =
       if (params.type === "mouseMoved" && nativeMoves > dropMoves) { emit("pointermove", moveEvent); emit("mousemove", moveEvent); }
       if (params.type === "mousePressed") { emit("pointerdown"); emit("mousedown"); }
       if (params.type === "mouseReleased") { emit("pointerup"); emit("mouseup"); emit("click"); }
+      if (afterSend) await afterSend({ method, params, emit, calls, nativeMoves, ticket });
       timeline.push({ phase: "ack", method, ...params });
       return {};
       };
@@ -154,6 +165,8 @@ function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves =
   });
   const retryFrame = Object.assign(new runtime.TestFrame(), { isDetached: () => false, _page: page });
   return { handle, page, frame, parentFrame, node, injected, emit, windowListeners, progress, calls, nativeCalls, timeline, handles, logs, waits, context, identities, sessions, NonRecoverableDOMError, tracker,
+    hover: options => handle._hover(progress, options || {}),
+    raw: (method, params) => client.send(method, params),
     click: options => handle._click(progress, options || {}),
     dblclick: options => handle._dblclick(progress, options || {}),
     outerRetry: action => retryFrame.retryWithProgressAndTimeouts(progress, [0], action),
@@ -162,9 +175,298 @@ function fixture({ source = patched, bridge = pointerDeliveryBridge, dropMoves =
     counts: () => ({ began, closed: tracker ? began - (tracker.attachments.get(7).pointerGuard ? 1 : 0) : closed, nativeMoves, frameChecks }) };
 }
 
+test("ordinary hover retries a missing move receipt before returning success", async () => {
+  const f = fixture({ dropMoves: 1 });
+  assert.equal(await f.hover(), "done");
+  assert.deepEqual(f.calls.map(call => call.params.type), ["mouseMoved", "mouseMoved"]);
+  assert.ok(f.calls.every(call => call.ticket)); assert.equal(f.counts().began, 1); assert.equal(f.counts().closed, 1);
+  assert.ok(f.logs.some(line => line.includes("retrying hover")));
+});
+
+test("ordinary hover dropping every move rejects under its original deadline", async () => {
+  const f = fixture({ dropMoves: Infinity, onSend: ({ nativeMoves }) => { if (nativeMoves === 3) f.expire(); } });
+  await assert.rejects(f.hover(), /OBU_POINTER_.*deadline expired/);
+  assert.equal(f.calls.length, 3); assert.ok(f.calls.every(call => call.params.type === "mouseMoved" && call.ticket));
+  assert.deepEqual(f.waits, [20]); assert.equal(f.counts().closed, 1);
+});
+
+test("ordinary hover cancellation while native ACK is held cannot return success", async () => {
+  const ack = deferred(), entered = deferred();
+  const f = fixture({ onSend: async ({ params }) => { if (params.type === "mouseMoved") { entered.resolve(); await ack.promise; } } });
+  const action = f.hover(); await entered.promise; f.pause(); ack.resolve();
+  await assert.rejects(action, /OBU_POINTER_.*control revoked/);
+  assert.equal(f.calls.length, 1); assert.equal(f.counts().closed, 1);
+});
+
+test("hover waits for the native ACK even when the original event receipt is already ready", async () => {
+  const ack = deferred(), entered = deferred();
+  const f = fixture({ tracked: true, afterSend: async ({ params }) => {
+    if (params.type === "mouseMoved") { entered.resolve(); await ack.promise; }
+  } });
+  let settled = false;
+  const action = f.hover().finally(() => { settled = true; });
+  await entered.promise; await flush();
+  assert.equal(settled, false); assert.equal(f.tracker.attachments.get(7).inflight.size, 1);
+  assert.equal(f.timeline.filter(item => item.phase === "ack").length, 0);
+  assert.equal(f.calls.length, 1); ack.resolve();
+  assert.equal(await action, "done"); assert.equal(f.tracker.attachments.get(7).inflight.size, 0);
+  assert.equal(f.counts().closed, 1); assert.ok(f.handles.every(handle => handle.disposed));
+});
+
+test("hover receipt records event-time delivery independently of later click readiness", () => {
+  const document = {}, node = { ownerDocument: document, isConnected: true };
+  const injected = { document, expectHitTarget: () => "done" };
+  const event = { type: "pointermove", isTrusted: true, isPrimary: true, pointerType: "mouse", buttons: 0,
+    clientX: 30.25, clientY: 40.75, composedPath: () => [node] };
+  const receipt = createPointerMoveReceipt(injected, node, node, { x: 30, y: 40 }, 7);
+  receipt.observe(event); node.isConnected = false;
+  injected.expectHitTarget = () => ({ hitTargetDescription: "hover menu" });
+  receipt.observe({ ...event, composedPath: () => [{}] });
+  assert.equal(receipt.read(7).status, "invalid");
+  assert.equal(receipt.readDelivery(7).status, "ready");
+  assert.equal(receipt.readDelivery(8).status, "invalid");
+  injected.document = {}; assert.equal(receipt.readDelivery(7).status, "invalid");
+  injected.document = document; receipt.close(); assert.equal(receipt.readDelivery(7).status, "invalid");
+});
+
+test("hover accepts disabled targets and event-time node removal, movement or covering menus without replay", async () => {
+  for (const effect of ["disabled", "removed", "moved", "menu"]) {
+    const f = fixture({ tracked: true }), states = [];
+    f.injected.checkElementStates = (_node, requested) => {
+      states.push(Array.from(requested));
+      return requested.includes("enabled") ? { missingState: "enabled" } : undefined;
+    };
+    const pointerListener = f.windowListeners.get("pointermove");
+    const original = pointerListener.listener;
+    pointerListener.listener = event => {
+      original(event); // Capture on the original node before its page handler.
+      if (effect === "removed") f.node.isConnected = false;
+      if (effect === "moved") f.handle._checkFrameIsHitTarget = () => { throw new Error("unexpected post-hover projection check"); };
+      if (effect === "menu" || effect === "moved") f.injected.expectHitTarget = () => ({ hitTargetDescription: "hover effect" });
+    };
+    assert.equal(await f.hover(), "done", effect);
+    assert.deepEqual(states, [["visible", "stable"]]);
+    assert.deepEqual(f.calls.map(call => call.params.type), ["mouseMoved"]);
+    assert.equal(f.counts().frameChecks, 1); assert.equal(f.counts().closed, 1);
+    assert.ok(f.handles.every(handle => handle.disposed));
+  }
+});
+
+test("hover lets the original compatibility mousemove initialize a menu opened by pointermove", async () => {
+  const f = fixture({ tracked: true });
+  const business = { menuOpen: false, initialized: 0 }, events = [];
+  for (const type of ["pointermove", "mousemove"]) {
+    const entry = f.windowListeners.get(type), original = entry.listener;
+    entry.listener = event => {
+      let prevented = false, stopped = false;
+      event.preventDefault = () => { prevented = true; };
+      event.stopPropagation = event.stopImmediatePropagation = () => { stopped = true; };
+      original(event); // Pinned window capture listener runs before page handlers.
+      if (!stopped && type === "pointermove") {
+        business.menuOpen = true;
+        f.injected.expectHitTarget = () => ({ hitTargetDescription: "menu opened by original pointermove" });
+      }
+      if (!stopped && type === "mousemove" && business.menuOpen) business.initialized++;
+      events.push({ type, prevented, stopped });
+    };
+  }
+  assert.equal(await f.hover(), "done");
+  assert.deepEqual(f.nativeCalls.map(call => call.params.type), ["mouseMoved"]);
+  assert.deepEqual(business, { menuOpen: true, initialized: 1 }, "success must preserve the original move's page business handler");
+  assert.deepEqual(events, [
+    { type: "pointermove", prevented: false, stopped: false },
+    { type: "mousemove", prevented: false, stopped: false }
+  ]);
+});
+
+test("compatibility mousemove bypass needs a ready hover receipt and never weakens click or trial interception", () => {
+  for (const [action, blockAllEvents, proof, blocked] of [
+    ["hover", false, false, true], ["hover", false, "synthetic", true],
+    ["hover", true, true, true], ["mouse", false, true, true], ["hover", false, true, false]
+  ]) {
+    const f = fixture();
+    const receipt = f.injected.setupHitTargetInterceptor(f.node, action, { x: 30, y: 40 }, blockAllEvents, 1);
+    if (proof) f.emit("pointermove", { isTrusted: proof !== "synthetic" });
+    f.injected.expectHitTarget = () => ({ hitTargetDescription: "covering menu" });
+    let stopped = false;
+    f.emit(action === "mouse" ? "mousedown" : "mousemove", { stopImmediatePropagation() { stopped = true; } });
+    assert.equal(stopped, blocked, JSON.stringify({ action, blockAllEvents, proof }));
+    const result = receipt.stop();
+    if (action === "mouse") assert.equal(result.hitTargetDescription, "covering menu");
+  }
+});
+
+test("hover retains the explicit position adapter without demanding unchanged geometry after delivery", async () => {
+  const f = fixture({ source: patchCrxPointerDelivery(patchCrxFrameGeometry(upstream)), tracked: true });
+  const position = { x: 12.25, y: 6.5 }, checks = [];
+  f.handle._offsetPoint = async (value, progress) => {
+    assert.equal(value, position); assert.equal(progress, f.progress); return { x: 30, y: 40 };
+  };
+  f.handle._checkFrameIsHitTarget = async (point, progress, value) => {
+    checks.push(point); assert.equal(progress, f.progress); assert.equal(value, position);
+    return { framePoint: { x: 30, y: 40 }, frameGeometry: ["original projection"] };
+  };
+  assert.equal(await f.hover({ position }), "done"); assert.equal(checks.length, 1);
+  assert.deepEqual(f.nativeCalls.map(call => [call.params.x, call.params.y]), [[30, 40]]);
+});
+
+test("hover cannot turn ready receipts into success after cancellation, deadline or original route loss", async () => {
+  for (const change of ["pause", "expire", "abort", "destroyContext", "attachment", "session", "utility-context"]) {
+    const ack = deferred(), entered = deferred();
+    const f = fixture({ tracked: true, afterSend: async () => { entered.resolve(); await ack.promise; } });
+    let attempts = 0;
+    const action = f.outerRetry(() => { attempts++; return f.hover(); }); await entered.promise;
+    if (change === "attachment") f.identities.set(7, {});
+    else if (change === "session") f.sessions.set("child-session", 8);
+    else if (change === "utility-context") f.frame._contextData.set("utility", { context: {} });
+    else f[change]();
+    ack.resolve();
+    await assert.rejects(action, error => error instanceof f.NonRecoverableDOMError && /^OBU_POINTER_/.test(error.message));
+    assert.equal(attempts, 1); assert.equal(f.nativeCalls.length, 1); assert.equal(f.counts().closed, 1);
+    assert.ok(f.handles.every(handle => handle.disposed));
+  }
+});
+
+test("hover native rejection and stale receipt are terminal in the original locator retry policy", async () => {
+  const original = new Error("native move failed after submission");
+  for (const stale of [false, true]) {
+    const f = fixture({ tracked: true, afterSend: stale ? undefined : () => { throw original; } });
+    if (stale) {
+      const evaluate = f.handle.evaluateHandleInUtility;
+      f.handle.evaluateHandleInUtility = async (...args) => {
+        const handle = await evaluate(...args), read = handle.evaluate;
+        handle.evaluate = (fn, arg) => String(fn).includes("readHoverReceipt") ? { attempt: 99, status: "ready" } : read.call(handle, fn, arg);
+        return handle;
+      };
+    }
+    let attempts = 0;
+    await assert.rejects(f.outerRetry(() => { attempts++; return f.hover(); }), error =>
+      error instanceof f.NonRecoverableDOMError && (stale ? /stale hover receipt/.test(error.message) : error.cause === original));
+    assert.equal(attempts, 1); assert.equal(f.nativeCalls.length, 1); assert.equal(f.counts().closed, 1);
+  }
+});
+
+test("hover cannot borrow a replacement receipt context on a missing-event retry", async () => {
+  const f = fixture({ dropMoves: 1, tracked: true }), evaluate = f.handle.evaluateHandleInUtility;
+  f.handle.evaluateHandleInUtility = async (...args) => {
+    const result = await evaluate(...args);
+    if (f.handles.length === 2) result._context = { ...f.context };
+    return result;
+  };
+  await assert.rejects(f.hover(), /original hover utility context changed/);
+  assert.equal(f.calls.length, 1); assert.ok(f.handles.every(handle => handle.disposed));
+});
+
+test("late hover receipt evaluation cannot succeed after cancellation or original context loss", async () => {
+  for (const change of ["pause", "expire", "destroyContext"]) {
+    const gate = deferred(), entered = deferred(), f = fixture({ tracked: true });
+    const evaluate = f.handle.evaluateHandleInUtility;
+    f.handle.evaluateHandleInUtility = async (...args) => {
+      const handle = await evaluate(...args), read = handle.evaluate;
+      handle.evaluate = async (fn, arg) => {
+        const result = await read.call(handle, fn, arg);
+        if (String(fn).includes("readHoverReceipt")) { entered.resolve(); await gate.promise; }
+        return result;
+      };
+      return handle;
+    };
+    const action = f.hover(); await entered.promise;
+    assert.equal(f.timeline.filter(item => item.phase === "ack").length, 1);
+    f[change](); gate.resolve();
+    await assert.rejects(action, error => error instanceof f.NonRecoverableDOMError && /^OBU_POINTER_/.test(error.message));
+    assert.equal(f.calls.length, 1); assert.equal(f.counts().closed, 1);
+    assert.ok(f.handles.every(handle => handle.disposed));
+  }
+});
+
+test("stopping an old hover listener cannot close or authorize its successor receipt", () => {
+  const f = fixture(), point = { x: 30, y: 40 };
+  const first = f.injected.setupHitTargetInterceptor(f.node, "hover", point, false, 1);
+  f.emit("pointermove"); assert.equal(first.readHoverReceipt(1).status, "ready");
+  const second = f.injected.setupHitTargetInterceptor(f.node, "hover", point, false, 2);
+  first.stop();
+  assert.equal(second.readHoverReceipt(2).status, "missing");
+  f.emit("pointermove"); assert.equal(second.readHoverReceipt(2).status, "ready");
+  assert.equal(first.readHoverReceipt(1).status, "invalid");
+  first.stop(); assert.equal(second.readHoverReceipt(2).status, "ready");
+  second.stop(); assert.equal(second.readHoverReceipt(2).status, "invalid");
+});
+
+test("foreign input while hover waits for native ACK invalidates that receipt without replay", async () => {
+  const ack = deferred(), entered = deferred();
+  const f = fixture({ tracked: true, afterSend: async ({ params, ticket }) => {
+    if (params.type === "mouseMoved" && ticket) { entered.resolve(); await ack.promise; }
+  } });
+  const action = f.hover(); await entered.promise;
+  await f.raw("Input.dispatchMouseEvent", { type: "mouseMoved", button: "none", buttons: 0, x: 1, y: 1 });
+  ack.resolve(); await assert.rejects(action, /OBU_POINTER_.*exclusive input admission/);
+  assert.deepEqual(f.calls.map(call => [call.params.type, call.ticket]), [["mouseMoved", true], ["mouseMoved", false]]);
+  assert.equal(f.counts().closed, 1); assert.ok(f.handles.every(handle => handle.disposed));
+});
+
+test("hover modifiers use the original native ticket and restore the baseline before retrying", async () => {
+  const f = fixture({ tracked: true, dropMoves: 1 });
+  assert.equal(await f.hover({ modifiers: ["Shift"] }), "done");
+  assert.deepEqual(f.calls.map(call => [call.params.type, call.params.modifiers]), [
+    ["rawKeyDown", 8], ["mouseMoved", 8], ["keyUp", 0],
+    ["rawKeyDown", 8], ["mouseMoved", 8], ["keyUp", 0]
+  ]);
+  assert.ok(f.calls.every(call => call.ticket));
+  assert.equal(f.page.keyboard._modifiers().size, 0); assert.equal(f.tracker.hasHeld(f.tracker.attachments.get(7)), false);
+  for (const platform of ["win32", "darwin"]) {
+    const mapped = fixture({ tracked: true, platform });
+    assert.equal(await mapped.hover({ modifiers: ["ControlOrMeta"] }), "done");
+    assert.deepEqual(mapped.calls.filter(call => call.method === "Input.dispatchKeyEvent").map(call => call.params.key),
+      [platform === "darwin" ? "Meta" : "Control", platform === "darwin" ? "Meta" : "Control"]);
+  }
+  const empty = fixture({ tracked: true }); assert.equal(await empty.hover({ modifiers: [] }), "done");
+  assert.deepEqual(empty.calls.map(call => call.params.type), ["mouseMoved"]);
+});
+
+test("hover rejects modifier failure without further ordinary input and leaves explicit native release responsible", async () => {
+  for (const failed of ["rawKeyDown", "mouseMoved", "keyUp"]) {
+    const original = new Error("unconfirmed native " + failed);
+    const f = fixture({ tracked: true, onSend: ({ params }) => { if (params.type === failed) throw original; } });
+    await assert.rejects(f.hover({ modifiers: ["Shift"] }), error => error instanceof f.NonRecoverableDOMError && error.cause === original);
+    assert.deepEqual(f.calls.map(call => call.params.type), ["rawKeyDown", "mouseMoved", "keyUp"].slice(0, ["rawKeyDown", "mouseMoved", "keyUp"].indexOf(failed) + 1));
+    assert.equal(f.tracker.attachments.get(7).error, original);
+    assert.ok(f.tracker.hasHeld(f.tracker.attachments.get(7))); assert.equal(f.counts().closed, 1);
+    await assert.rejects(f.hover(), /OBU_POINTER_.*BUSY/);
+  }
+});
+
+test("hover admission cannot use locally held CRX modifiers to bypass unknown native inflight input", async () => {
+  const ack = deferred(), entered = deferred();
+  const f = fixture({ tracked: true, afterSend: async ({ params }) => {
+    if (params.type === "rawKeyDown") { entered.resolve(); await ack.promise; }
+  } });
+  const key = f.page.keyboard.down("Shift"); await entered.promise;
+  assert.equal(f.page.keyboard._modifiers().has("Shift"), true);
+  await assert.rejects(f.hover(), /OBU_POINTER_.*BUSY/);
+  assert.deepEqual(f.calls.map(call => call.params.type), ["rawKeyDown"]);
+  ack.resolve(); await key;
+  assert.equal(await f.hover(), "done");
+  assert.equal(f.counts().began, 0); assert.ok(f.calls.every(call => !call.ticket));
+});
+
+test("hover force, trial, standalone and confirmed pre-held native input retain the original wire", async () => {
+  for (const mode of ["force", "trial", "standalone", "key", "mouse", "raw-key"]) {
+    const before = fixture({ source: upstream, tracked: true }), after = fixture({ tracked: true, noHooks: mode === "standalone" });
+    const options = mode === "force" ? { force: true } : mode === "trial" ? { trial: true } : {};
+    for (const f of [before, after]) {
+      if (mode === "key") await f.page.keyboard.down("Shift");
+      if (mode === "mouse") await f.page.mouse.down({ button: "left" });
+      if (mode === "raw-key") await f.raw("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "ShiftLeft", key: "Shift" });
+      assert.equal(await f.hover(options), "done");
+    }
+    assert.equal(JSON.stringify(after.calls), JSON.stringify(before.calls), mode);
+    assert.equal(after.counts().began, 0); assert.ok(after.calls.every(call => !call.ticket));
+  }
+});
+
 test("pinned patch fails closed on changed injection, click, retry and native mouse/keyboard shapes", () => {
   for (const anchor of ["this._allHitTargetInterceptorEvents =", "setupHitTargetInterceptor(node, action, hitPoint, blockAllEvents)",
-    "  _click(progress2, options2) {", "  _dblclick(progress2, options2) {", "      await action(point);",
+    "  _hover(progress2, options2) {", "  _click(progress2, options2) {", "  _dblclick(progress2, options2) {", "      await action(point);",
     "let RawMouseImpl$3 = class RawMouseImpl {", "async ensureModifiers(mm)", "let RawKeyboardImpl$3 = class RawKeyboardImpl {",
     "async keydown(modifiers, keyName, description, autoRepeat)"])
     assert.throws(() => patchCrxPointerDelivery(upstream.replace(anchor, "changed native shape")), /shape changed|method changed/);
@@ -234,6 +536,7 @@ test("synthetic, non-mouse, non-primary, foreign target and held-button receipts
     const receipt = createPointerMoveReceipt(injected, node, node, { x: 30, y: 40 }, 1);
     receipt.observe({ ...event, ...overrides });
     assert.notEqual(receipt.read(1).status, "ready");
+    assert.notEqual(receipt.readDelivery(1).status, "ready");
   }
   const receipt = createPointerMoveReceipt(injected, node, node, { x: 30.4, y: 40.6 }, 2);
   receipt.observe(event); assert.equal(receipt.read(2).status, "ready");
@@ -749,7 +1052,7 @@ test("explicit empty modifiers and ControlOrMeta retain pinned keyboard semantic
   assert.ok(empty.calls.every(call => call.method === "Input.dispatchMouseEvent"));
 });
 
-test("partial ensureModifiers failure restores the original baseline even before ensure returned", async () => {
+test("partial native ensureModifiers failure retains unknown keys for explicit release", async () => {
   const original = new Error("second modifier failed");
   const f = fixture({ tracked: true, onSend: ({ params }) => {
     if (params.type === "rawKeyDown" && params.key === "Shift") throw original;
@@ -757,13 +1060,18 @@ test("partial ensureModifiers failure restores the original baseline even before
   await assert.rejects(f.click({ modifiers: ["Control", "Shift"] }), error =>
     error instanceof f.NonRecoverableDOMError && error.cause === original);
   assert.deepEqual(f.calls.map(call => [call.params.type, call.params.key]), [
-    ["rawKeyDown", "Control"], ["rawKeyDown", "Shift"], ["keyUp", "Control"], ["keyUp", "Shift"]
+    ["rawKeyDown", "Control"], ["rawKeyDown", "Shift"]
   ]);
-  assert.ok(f.calls.every(call => call.ticket)); assert.equal(f.page.keyboard._modifiers().size, 0);
-  assert.equal(f.tracker.hasHeld(f.tracker.attachments.get(7)), false);
+  assert.ok(f.calls.every(call => call.ticket)); assert.equal(f.page.keyboard._modifiers().size, 2);
+  const record = f.tracker.attachments.get(7), released = [];
+  assert.equal(record.error, original); assert.equal(f.tracker.hasHeld(record), true);
+  assert.match(original.pointerModifierRestoreError.message, /POINTER_ACTION_INVALIDATED/);
+  await f.tracker.release(7, record.token, async (_target, method, params) => { released.push([method, params.type, params.key]); });
+  assert.deepEqual(released, [["Input.dispatchKeyEvent", "keyUp", "Control"], ["Input.dispatchKeyEvent", "keyUp", "Shift"]]);
+  assert.equal(record.error, null); assert.equal(f.tracker.hasHeld(record), false);
 });
 
-test("modifier restoration failure preserves the action error and unknown held keys", async () => {
+test("native move rejection preserves the action error while failed explicit release retains unknown keys", async () => {
   for (const frozen of [false, true]) {
     const original = new Error("native move failed"), cleanup = new Error("restore keyup failed");
     if (frozen) Object.freeze(original);
@@ -773,10 +1081,26 @@ test("modifier restoration failure preserves the action error and unknown held k
     } });
     await assert.rejects(f.dblclick({ modifiers: ["Shift"] }), error =>
       error instanceof f.NonRecoverableDOMError && error.cause === original &&
-      (frozen || original.pointerModifierRestoreError === cleanup));
-    assert.deepEqual(f.calls.map(call => call.params.type), ["rawKeyDown", "mouseMoved", "keyUp"]);
-    assert.ok(f.tracker.hasHeld(f.tracker.attachments.get(7)), "failed keyup is still native input uncertainty despite local Keyboard bookkeeping");
+      (frozen || /POINTER_ACTION_INVALIDATED/.test(original.pointerModifierRestoreError.message)));
+    assert.deepEqual(f.calls.map(call => call.params.type), ["rawKeyDown", "mouseMoved"]);
+    const record = f.tracker.attachments.get(7);
+    await assert.rejects(f.tracker.release(7, record.token, async () => { throw cleanup; }), error => error === cleanup);
+    assert.ok(f.tracker.hasHeld(record)); assert.equal(record.error, cleanup);
+    await f.tracker.release(7, record.token, async () => ({}));
+    assert.equal(f.tracker.hasHeld(record), false); assert.equal(record.error, null);
   }
+});
+
+test("modifier restore keeps the primary error when a custom hook remains valid", async () => {
+  const original = new Error("custom native move failure"), cleanup = new Error("custom restore failure");
+  const f = fixture({ onSend: ({ params }) => {
+    if (params.type === "mouseMoved") throw original;
+    if (params.type === "keyUp") throw cleanup;
+  } });
+  await assert.rejects(f.hover({ modifiers: ["Shift"] }), error =>
+    error instanceof f.NonRecoverableDOMError && error.cause === original && original.pointerModifierRestoreError === cleanup);
+  assert.deepEqual(f.calls.map(call => call.params.type), ["rawKeyDown", "mouseMoved", "keyUp"]);
+  assert.equal(f.counts().closed, 1);
 });
 
 test("restore-only failure cannot report a successful counted click or replay its buttons", async () => {

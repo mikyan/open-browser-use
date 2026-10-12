@@ -200,6 +200,13 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   初始几何指纹在hover后与每个后继down前复核；变化不能沿用旧receipt。
   详情见`docs/references/transformed-frame-input.md`。hover副作用、非原子检查、事件来源限制见
   `docs/references/pointer-delivery.md`。
+  普通idle hover采用独立event-time receipt：原生move ACK与原节点可信mouse
+  pointermove均确认才完成，合法菜单遮罩/移动/移除不触发重放。它不要求enabled，
+  也不沿用click的事后稳定性/命中复核。hover admission只允许已确认ACK的持键/
+  持按钮进入旧行为，unknown/inflight/durability/cleanup不得借此绕过私有ticket。
+  实际原生输入失败保留原attachment错误，直到显式释放完成；已确认销毁的旧
+  attachment迟到错误不污染继任。force/trial仍用旧行为，原listener stop保持
+  upstream best effort。见[悬停投递](references/hover-delivery.md)。
   显式 position 对单一已解析 HTML CSS box 使用原生 padding quad 与 fractional
   padding 尺寸投影，叶元素几何也加入 click 指纹；普通无 position 点击不增加
   这些读取。非替换inline/SVG/fragment 的旧约定与 OOPIF 原生量化边界见

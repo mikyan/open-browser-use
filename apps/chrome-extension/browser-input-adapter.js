@@ -7,6 +7,7 @@ const buttonBits = { left: 1, right: 2, middle: 4, back: 8, forward: 16 };
 // Tickets are private, in-process capabilities. A caller cannot copy a ticket's
 // methods onto another object, or use one from a different tracker/attachment.
 const pointerTickets = new WeakMap();
+const confirmedHolds = new WeakSet();
 
 // One tracker is shared by the backend's raw CDP route and CRX. Tokens name a
 // native attachment, not a tab's current session, so late completions cannot
@@ -62,6 +63,25 @@ export class NativeInputTracker {
     const record = this.current(tabId, token);
     if (record.blocked) throw new Error("OBU_INPUT_RELEASE_IN_PROGRESS: native attachment is being released");
     return record;
+  }
+
+  beginHoverAction(tabId, token, check = () => {}) {
+    if (typeof check !== "function") throw new TypeError("Pointer authority check must be a function");
+    const record = this.assertSend(tabId, token);
+    check();
+    if (this.assertSend(tabId, token) !== record)
+      throw new Error("OBU_INPUT_ATTACHMENT_CHANGED: hover input attachment changed");
+    // Only an acknowledged pre-held key/button may use legacy hover semantics.
+    // Unknown native outcomes and cleanup work are not that compatibility case.
+    if (record.pointerGuard || record.inflight.size || record.error || record.release ||
+        record.cleanups.size || record.cleanupInflight.size ||
+        [...this.durability.values()].some(value => value.record === record) ||
+        [...record.states.values()].some(state => state.dragging || state.intercepting ||
+          state.dragInterceptionUsed || state.touch || state.emulated ||
+          [...state.buttons.values(), ...state.keys.values()].some(hold => !confirmedHolds.has(hold))))
+      throw new Error("OBU_POINTER_ACTION_BUSY: hover requires confirmed native input");
+    if ([...record.states.values()].some(state => state.buttons.size || state.keys.size)) return null;
+    return this.beginPointerAction(tabId, token, check);
   }
 
   beginPointerAction(tabId, token, check = () => {}) {
@@ -201,7 +221,11 @@ export class NativeInputTracker {
     let complete = () => {};
     const confirmClear = (key, expected) => () => { if (state[key] === expected) state[key] = null; };
     if (method === "Input.dispatchMouseEvent" && Object.hasOwn(buttonBits, params.button)) {
-      if (params.type === "mousePressed") state.buttons.set(params.button, {});
+      if (params.type === "mousePressed") {
+        const press = {};
+        state.buttons.set(params.button, press);
+        complete = () => confirmedHolds.add(press);
+      }
       if (params.type === "mouseReleased") {
         const press = state.buttons.get(params.button);
         complete = () => { if (state.buttons.get(params.button) === press) state.buttons.delete(params.button); };
@@ -212,6 +236,7 @@ export class NativeInputTracker {
         const key = {};
         for (const name of ["code", "key", "windowsVirtualKeyCode", "nativeVirtualKeyCode", "location", "isKeypad"]) if (params[name] !== undefined) key[name] = params[name];
         state.keys.set(identity, key);
+        complete = () => confirmedHolds.add(key);
       } else if (params.type === "keyUp") {
         const key = state.keys.get(identity);
         complete = () => { if (state.keys.get(identity) === key) state.keys.delete(identity); };
@@ -235,7 +260,12 @@ export class NativeInputTracker {
     }
     const sendNative = () => {
       if (pointerGuard !== undefined) this.checkPointerAction(target.tabId, token, pointerGuard);
-      return operation();
+      // Only failures after entering the native operation make its outcome
+      // unknown. A guard refusing dispatch retains its own original error.
+      const failed = error => { record.error = error; throw error; };
+      let actual;
+      try { actual = operation(); } catch (error) { return failed(error); }
+      return Promise.resolve(actual).catch(failed);
     };
     const nativeOperation = this.beforeInput ? async () => {
       await this.durable(target.tabId, record, () => this.beforeInput(target.tabId, token));

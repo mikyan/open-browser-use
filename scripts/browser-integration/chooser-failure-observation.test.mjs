@@ -289,6 +289,33 @@ test("successful cleanup invokes only the original operations and one save; pers
   await assert.rejects(finishChooserCase({ detail: {}, cleanup: [], save: () => { throw error; }, reportErrors: () => { throw new Error("log failed"); } }), value => value === error);
 });
 
+test("outer cleanup preserves inner failure evidence and writes a failed artifact", async () => {
+  const original = new Error("original hover failed"), outer = new Error("client close failed");
+  const inner = { stage: "actual-delivery-drain", error: "native input still pending" };
+  const detail = { passed: true, cleanupErrors: [inner] }, logs = []; let saved;
+  await finishChooserCase({ detail, originalError: original,
+    cleanup: [{ name: "close-client", run() { throw outer; } }],
+    save: value => { saved = structuredClone(value); }, reportErrors: value => logs.push(value) });
+  assert.equal(saved.passed, false);
+  assert.deepEqual(saved.cleanupErrors.map(value => value.stage), ["actual-delivery-drain", "close-client"]);
+  assert.deepEqual(saved.cleanupErrors[0], inner);
+  assert.equal(original.chooserCleanupErrors, detail.cleanupErrors);
+  assert.deepEqual(logs, [detail.cleanupErrors]);
+});
+
+test("cleanup failure cannot leave a successful artifact and original failure stays failed even with clean teardown", async () => {
+  const cleanupError = new Error("finalize failed"), original = new Error("operation failed");
+  for (const withOriginal of [false, true]) {
+    const detail = { passed: true, cleanupErrors: [] }; let saved;
+    const finish = finishChooserCase({ detail, originalError: withOriginal ? original : undefined,
+      cleanup: withOriginal ? [] : [{ name: "finalize", run() { throw cleanupError; } }],
+      save: value => { saved = structuredClone(value); }, reportErrors() {} });
+    if (withOriginal) await finish;
+    else await assert.rejects(finish, error => error === cleanupError);
+    assert.equal(saved.passed, false);
+  }
+});
+
 test("frozen business and cleanup errors preserve their identity when metadata cannot be attached", async () => {
   const original = Object.freeze(new Error("frozen original")), cleanupError = Object.freeze(new Error("frozen cleanup"));
   for (const originalError of [original, undefined]) {

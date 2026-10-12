@@ -77,6 +77,7 @@ import { runChooserProcess } from "./chooser-process.mjs";
 import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
 import { checkScreenshotDrain } from "./screenshot-drain-fixture.mjs";
 import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
+import { createHoverDeliveryFixtures, createHoverRPCRelay, checkHoverDelivery, checkHoverPause } from "./hover-delivery-fixture.mjs";
 import { createTransformedPointerFixtures, checkTransformedPointer } from "./transformed-pointer-fixture.mjs";
 import { createElementPositionFixtures, checkElementPosition } from "./element-position-fixture.mjs";
 import { createDirectLocatorUploadFixtures, prepareDirectLocatorUploadFiles } from "./direct-locator-upload-fixture.mjs";
@@ -316,6 +317,8 @@ async function workerConnection(url) {
 const networkFixtures = createNetworkWaitFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
+const hoverDeliveryFixtures = createHoverDeliveryFixtures();
+const hoverRPCRelay = createHoverRPCRelay();
 const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
 const boundingGeometryFixtures = createBoundingGeometryFixtures();
@@ -345,6 +348,7 @@ const http = createServer(async (request, response) => {
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (hoverDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (boundingGeometryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -500,6 +504,7 @@ try {
   for (const name of ["sdk-connection-fixture.mjs", "sdk-connection-js.mjs", "sdk-connection-python.py", "go-sdk-connection-checks/main.go"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
+  sourceIdentity.sha256.hoverDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "hover-delivery-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
   for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
@@ -563,7 +568,8 @@ try {
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
   nativeBridge = new NativeHostBridge({ server: ws, executable, socketDir, stats: nativeFrameStats,
-    log: text => hostLog.push(text), onFailure: failNativeBridge });
+    log: text => hostLog.push(text), onFailure: failNativeBridge,
+    onRPC: (direction, message) => hoverRPCRelay.observe(direction, message) });
   let { endpoint } = await nativeBridge.start();
   const chromiumBinary = process.env.OBU_TEST_CHROMIUM_BINARY || chromium.executablePath();
   await fs.access(chromiumBinary);
@@ -1679,6 +1685,40 @@ try {
       saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
       saveDetail: detail => fs.writeFile(path.join(runDir, "screencast-concurrency.json"), JSON.stringify(detail, null, 2))
     });
+  });
+  await test("js-hover-delivery", async () => {
+    sourceIdentity.testHooks.push("hover delivery: exact-tab original native input recorder; selected root moves deliberately dropped with synthetic ACK, real document nonce/event-time ledgers and single POST receipts checked independently. No simulated DOM event, changed deadline, child direct input or focus allowance; controlled missing delivery is not a natural Chromium failure");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-hover-delivery", turnId: "hover-delivery", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkHoverDelivery({ browser: owner, worker, fixtureURL, server: hoverDeliveryFixtures, rpcRelay: hoverRPCRelay, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-hover-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-hover-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "hover-delivery-server.json"), JSON.stringify(hoverDeliveryFixtures.allStats(), null, 2));
+      await fs.writeFile(path.join(runDir, "hover-delivery.json"), JSON.stringify(value, null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-hover-native-pause", async () => {
+    sourceIdentity.testHooks.push("hover cancellation: publication of one actual successful native mouseMoved ACK held by a bounded test-only gate; actual page event already delivered. Original deadline and backend Pause budget unchanged; explicit backend Retry/Resume through staged reference, old scope rejection, cleanup and unchanged focus ledger. Not naturally pending input or a new popup UI/native installation acceptance");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-hover-pause", turnId: "hover-pause", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try {
+      await checkHoverPause({ browser: owner, worker, fixtureURL, server: hoverDeliveryFixtures, rpcRelay: hoverRPCRelay, until, detail });
+      await browser.client.beginTurn();
+    } catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-hover-pause-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-hover-pause-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "hover-pause-server.json"), JSON.stringify(hoverDeliveryFixtures.allStats(), null, 2));
+      await fs.writeFile(path.join(runDir, "hover-native-pause.json"), JSON.stringify(value, null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
   });
   await test("js-pointer-delivery", async () => {
     sourceIdentity.testHooks.push("pointer delivery controlled negative: exact-tab root mouseMoved calls receive explicitly synthetic ACKs without native dispatch (first or all moves); other native calls preserve receiver/parameters/Promise; real child event ledgers, once-only buttons, server POST and ordinary navigation checked; no natural Viz reproduction or CDP-to-DOM authentication claim");

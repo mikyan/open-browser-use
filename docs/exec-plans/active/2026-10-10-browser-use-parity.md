@@ -27,13 +27,18 @@ Node2467/2467；专项`kSmNJ7`3/3含五场，完整`kuWd2o`126/126 actualexit0�
 旧125名称/顺序和12activation/4controlfocus许可不变。原PNG已生成后的ACK
 交付gate不等于自然raster挂起，Backend Pause不等于popup UI；高层external、
 worker丢失及平台矩阵仍未补。旧preview不变，见[截图契约](../../references/screenshot-completion.md)。
-后续hover投递反例与normal源抢focus、完整P01–P15继续开放。
-下一片已有可重复的当前pinned CRX `_hover` 反例：
-`node .tmp/hover-delivery/reproduce-hover-v1.mjs --assert-delivery`实际exit1，
-丢首次/全部页面move事件仍返回done。它执行当前patch后的真实方法，但transport
-ACK和页面事件为VM模拟，不算自然Chromium故障。后续独立hover receipt需保留
-event-time目标命中，不能直接沿用click的enabled与事后命中重读：合法hover
-可禁用/移动目标或打开遮罩菜单。force、已持输入、原期限与modifier恢复仍须保留。
+normal源抢focus与完整P01–P15继续开放。本次完成
+[hover投递](../completed/2026-10-12-hover-delivery.md)：基线pinned CRX `_hover` 在模拟
+transport ACK成功、丢首次/全部页面move事件时仍返回done，归档反例actualexit1。
+它不是自然Chromium故障，也不再描述当前修复源码。独立event-time receipt及
+已确认持输入admission现已实现，合法禁用/移动/移除或菜单覆盖保持hover语义；
+修复菜单compatibility mousemove初始化遗漏，extension1146/build204/
+integration1202全通过。最终专项`TTV0uq`8/8 actualexit0，六原POST/6704B，
+八tab/target清理和Pause10015ms后显式恢复通过；43538ms零激活/focus。
+两轮fixture时间检查失败保留，最终改为同Node relay证明预算/回复次序；
+完整`Ghqqmo`128/128 actualexit0，旧126名称/顺序保留，302099ms仍只用
+原12activation/4controlfocus许可。force/trial及已确认持输入保留旧行为，不宣称新增receipt
+保证；原生安装与更广平台仍须独立验证。
 
 2026-10-12 原地交付真实native中断矩阵完成：`ZC912S`/`jyTWRj`/`GXH6Fg`/
 `WcFjy3`各3/3 actualexit0，两原storage ACK后hostloss/workerstop覆盖三布局。

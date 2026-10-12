@@ -49,6 +49,18 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P06/P13新增普通idle locator hover投递确认：原生ACK与原节点事件回执同时
+成立才成功，菜单覆盖/移动/移除不重放，兼容mousemove保留页面初始化。
+确认持输入与未决原生意图分开，实际输入失败须显式释放。Node2552/2552，
+最终`TTV0uq`8/8 actualexit0，七投递场景加独立Pause；六原POST/6704B，
+八tab/target清理、10015ms清理超时后显式恢复与旧权限拒绝通过；43538ms
+零activation/focus/许可。同进程relay避免跨进程毫秒时钟误判，保留两轮
+fixture失败。最终完整`Ghqqmo`128/128 actualexit0，原126名称顺序保留，
+302099ms沿用原12activation/4controlfocus许可，没有新增hover豁免。
+受控丢弃/ACK交付及staged Backend不等同自然事件故障或原生
+安装，force/trial/已确认持输入沿用旧语义。完整矩阵仍开放，见
+[悬停投递](../references/hover-delivery.md)。
+
 P09/P13截图完成屏障已补：raw root及正式engine发送登记实际capture，原期限
 结束不丢失底层完成；Pause保持阻断直到真实结算，原attachment与继任隔离。
 Node2467/2467；专项`kSmNJ7`3/3、五场原七PNG已核验，完整`kuWd2o`126/126

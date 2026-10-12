@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+普通idle hover现同时确认原生ACK与原目标event-time pointermove，已送达不因
+菜单遮罩/目标移动移除重放；兼容mousemove仍到达菜单初始化。已确认持键/
+持按钮才可走旧路径，实际输入错误须显式释放。Node2552/2552，最终专项
+`TTV0uq`8/8 actualexit0，六原POST/6704B、Pause10015ms、八原tab/target
+清理通过，43538ms无activation/focus/豁免。同Node relay验证剩余预算与
+回复因果，原两次fixture失败保留。最终完整`Ghqqmo`128/128 actualexit0，
+旧126名称顺序不变；302099ms仅原12activation/4controlfocus许可，
+本轮Pause10006ms、六原POST/6704B与清理核验通过。force/trial/已持输入及原生安装不扩充
+保证，旧preview不变。见[悬停证据](references/hover-delivery.md)。
+
 截图超时不再提前释放原生 capture 的渲染队列与 Pause 屏障；实际发送前复核
 原 lease/attachment，底层完成后才清理，不重放截图。Node2467/2467，专项
 `kSmNJ7`3/3含五场，原七PNG独立解码，39291ms零激活/focus/豁免；sentinel
