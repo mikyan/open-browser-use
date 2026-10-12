@@ -163,6 +163,83 @@ function fileInputRenderer() {
 const task=(tabId=7,extra={})=>params('files',{tabId,...extra});
 const other=(extra={})=>({session_id:'other',turn_id:'files',tabId:8,...extra});
 const begin=(backend,tabId,guid)=>backend.handleCdpEvent({tabId},'Page.downloadWillBegin',{guid,frameId:'root',url:'https://identical.fixture/download',suggestedFilename:'same.txt'});
+
+async function boundDownloadEnvironment(hooks = {}) {
+  const env = await chooserReadyEnvironment(), requests = [];
+  const state = { version: 1, available: true, generation: "original-generation" };
+  const client = { status: () => ({ ...state }), async request(operation, claim, options) {
+    requests.push({ operation, claim, options });
+    await hooks[operation]?.(claim, options);
+    return operation === "path" ? { path: "C:\\fixture\\original.bin" } : operation === "cancel" ? { cancelled: true } : {};
+  } };
+  env.chrome.debugger.getTargets = async () => [{ tabId: 7, id: "original-root-target", type: "page" }];
+  env.backend.nativePageDownloads = () => client;
+  return { ...env, requests, client, state, async download(guid = "original-guid") {
+    const ack = await env.backend.armDownloadWait({ ...env.scope, timeoutMs: 1000 });
+    begin(env.backend, 7, guid);
+    const result = await env.backend.collectDownloadWait({ ...env.scope, waiterId: ack.waiterId });
+    return { ...env.scope, downloadId: result.downloadId };
+  } };
+}
+
+test("bound Page path and cancel use the authorized GUID, exact scope and original claim", async () => {
+  const f = await boundDownloadEnvironment(), params = await f.download();
+  assert.deepEqual(clone(await f.backend.downloadPath(params)), { path: "C:\\fixture\\original.bin" });
+  assert.deepEqual(clone(await f.backend.cancelDownload(params)), { cancelled: true });
+  assert.deepEqual(f.requests.map(r => r.operation), ["claim", "path", "cancel"]);
+  const claim = f.requests[0].claim;
+  assert.equal(claim.guid, params.downloadId); assert.equal(claim.frameId, "root");
+  assert.equal(claim.rootTargetId, "original-root-target"); assert.ok(claim.claimId);
+  for (const name of ["session_id", "turn_id", "control_epoch", "tabId"]) assert.equal(claim[name], params[name]);
+  assert.equal("attachment" in claim, false);
+  assert.ok(f.requests.every(r => r.claim === claim && r.options.deadlineAt > Date.now()));
+  await assert.rejects(f.backend.downloadPath({ ...other(), downloadId: params.downloadId }), /unowned/i);
+  assert.equal(f.requests.length, 3);
+});
+
+test("a later binding cannot upgrade a download armed on an unbound port", async () => {
+  const f = await boundDownloadEnvironment(); f.state.available = false;
+  const params = await f.download(); f.state.available = true;
+  await assert.rejects(f.backend.downloadPath(params), /PATH_UNAVAILABLE/);
+  assert.deepEqual(f.requests, []);
+});
+
+test("replacement native port or generation cannot receive an old Page claim", async () => {
+  for (const replacement of ["port", "generation"]) {
+    const f = await boundDownloadEnvironment(), params = await f.download();
+    await f.backend.downloadsById.get(params.downloadId).nativeClaimPromise;
+    if (replacement === "port") f.backend.nativePageDownloads = () => ({ ...f.client });
+    else f.state.generation = "successor-generation";
+    await assert.rejects(f.backend.downloadPath(params), /PATH_UNAVAILABLE/);
+    await assert.rejects(f.backend.cancelDownload(params), /PATH_UNAVAILABLE/);
+    assert.deepEqual(f.requests.map(r => r.operation), ["claim"]);
+  }
+});
+
+test("retiring a Page record before claim ACK releases only after the original claim settles", async () => {
+  const gate = deferred(), f = await boundDownloadEnvironment({ claim: () => gate.promise });
+  const params = await f.download(); f.backend.retirePageDownload(params.downloadId);
+  await assert.rejects(f.backend.downloadPath(params), /unowned/i);
+  assert.deepEqual(f.requests.map(r => r.operation), ["claim"]);
+  gate.resolve(); await tick();
+  assert.deepEqual(f.requests.map(r => r.operation), ["claim", "release"]);
+  assert.equal(f.requests[0].claim, f.requests[1].claim);
+});
+
+test("path delivery rechecks original attachment after an in-flight native reply", async () => {
+  const gate = deferred(), entered = deferred();
+  const f = await boundDownloadEnvironment({ path: () => { entered.resolve(); return gate.promise; } }), params = await f.download();
+  const result = assert.rejects(f.backend.downloadPath(params), /TRANSFER_CANCELLED/);
+  await entered.promise; f.backend.attachmentEpochs.set(7, {}); gate.resolve(); await result;
+  assert.deepEqual(f.requests.map(r => r.operation), ["claim", "path"]);
+});
+
+test("failed original claim is never retried by path or cancel", async () => {
+  const f = await boundDownloadEnvironment({ claim: () => { throw new Error("original claim rejected"); } }), params = await f.download();
+  await assert.rejects(f.backend.downloadPath(params), /original claim rejected/);
+  await assert.rejects(f.backend.cancelDownload(params), /original claim rejected/);
+  assert.deepEqual(f.requests.map(r => r.operation), ["claim"]);
+});
 const progress=(backend,tabId,guid)=>backend.handleCdpEvent({tabId},'Page.downloadProgress',{guid,state:'completed',receivedBytes:20,totalBytes:20});
 
 test('download waits use native tab identity and GUID, never global cache or identical URL',async()=>{

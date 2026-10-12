@@ -274,6 +274,7 @@ test("native recovery drains a real late attach before acknowledging bootstrap a
 
 test("current native port disconnect signals once; stale callbacks do not revoke the replacement port", async t => {
   const f = await fixture(t), ports = [], alarms = [];
+  f.chrome.runtime.id = "a".repeat(32);
   f.chrome.alarms = { onAlarm: { addListener: listener => alarms.push(listener) }, create: async () => {}, clear: async () => true };
   f.chrome.runtime.connectNative = () => {
     const port = { onMessage: event(), onDisconnect: event(), postMessage() {} };

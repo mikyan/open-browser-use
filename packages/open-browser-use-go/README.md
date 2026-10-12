@@ -293,9 +293,10 @@ Raw navigation matches its loader ID before accepting document readiness.
 the response. A blocking waiter and its trigger need separate clients with the
 same session, but goroutine scheduling does not establish readiness. For uploads,
 use `ExpectFileChooser` below before triggering the action. Download IDs are
-task-scoped opaque GUIDs; `DownloadPath` reports
-`OBU_DOWNLOAD_PATH_UNAVAILABLE` because the extension API cannot reliably map
-those GUIDs to local paths. Upload file paths remain supported.
+task-scoped opaque GUIDs. `DownloadPath` requires the optional
+[native Browser binding](../../docs/references/original-page-download-delivery.md);
+ordinary extension-only connections report `OBU_DOWNLOAD_PATH_UNAVAILABLE`.
+Upload file paths remain supported.
 
 ## Ready file chooser waits
 
@@ -406,9 +407,13 @@ rejected immediately; a successfully cancelled observer cannot collect. `Cancel`
 remains available after expiry with a separate 10-second cleanup response budget.
 It only retires observation and an undelivered result; an actual browser download
 may continue. A collected `*Download` retains its original scope, even if the
-client starts a new turn. Page GUID `Path` and transfer `Cancel` still report the
-documented unavailable/unsupported errors: readiness does not supply a guessed
-path, initiate a substitute GET or cancel someone else's download.
+client starts a new turn. Check `getInfo.metadata.pageDownloads.available` before
+arming. An explicitly verified
+[native Browser binding](../../docs/references/original-page-download-delivery.md)
+lets Page GUID `Path` wait for the original completed file and transfer `Cancel`
+cancel that download. Otherwise they report the documented unavailable/unsupported
+errors. Later binding does not upgrade old handles; connection or scope loss
+invalidates them. Readiness never supplies a guessed path or a substitute GET.
 
 ### Active URL downloads
 
@@ -450,7 +455,7 @@ occurs.
 Handles retain their original session, turn and epoch. End, pause or lost
 ownership may invalidate a handle; `BeginTurn` does not rebind it.
 `Tab.WaitForDownload(...DownloadOptions)` gives the same bound handle for observed
-page downloads, whose GUID path/cancel remains unsupported. That observer does
+page downloads; GUID path/cancel requires the native binding above. That observer does
 not promise cross-connection readiness. Existing Client methods retain raw JSON
 and current-invocation scope semantics; use the typed handle for later operations,
 or provide the original scope explicitly through `Request`.

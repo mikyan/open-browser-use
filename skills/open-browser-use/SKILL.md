@@ -176,7 +176,7 @@ each individual browser operation.
 ## File Choosers, Downloads, And Clipboard
 
 - For an observed file input, use direct locator upload, including hidden inputs; see [Direct File Inputs](references/sdk-and-protocol.md#direct-file-inputs). When the workflow requires a chooser, arm its waiter before the page trigger and set paths on the returned handle.
-- For an authorized HTTP(S) GET download with a local path, use `tab.downloadURL` and its handle's `path`/`cancel` methods after checking `directDownloadsVersion`. For a download triggered by a page action, register `waitForDownload` first; its GUID does not currently provide a local path. See the [SDK reference](references/sdk-and-protocol.md#direct-downloads) for scope and timeout rules.
+- For an authorized HTTP(S) GET download, use `tab.downloadURL` after checking `directDownloadsVersion`; see [direct downloads](references/sdk-and-protocol.md#direct-downloads). For a page-triggered download, arm `expectDownload` before the action and check the separate native-path capability; see [page-triggered waits](references/sdk-and-protocol.md#page-triggered-download-waits) for path, cancellation and scope rules.
 - Clipboard helpers operate through the current controlled tab and should be treated as sensitive user actions.
 
 ## References

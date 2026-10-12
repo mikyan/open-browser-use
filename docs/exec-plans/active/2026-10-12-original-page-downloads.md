@@ -127,3 +127,44 @@ managed mode就宣称现有安装已对齐。完整证据与范围见
 现有用户root入口必须显式授权配置且排他使用：default也设置context下载
 行为，CDP没有读取/恢复其他控制端旧override的接口。没有授权原生通路的
 普通安装保持明确不可用；本轮不修改用户profile设置、不新增授权询问。
+
+## Production integration
+
+安装指导回合没有完成能力开发；恢复时工作区有未编译的host/CLI/Browser
+草稿，必须复核并补验证，不能混入已发布的preview。三模块分工：原生Browser
+连接及GUID记录、Host私有分流及显式CLI、每个Native Port独立的扩展客户端。
+root负责现有Page记录授权、构建清单、真实浏览器验收和文档整合。
+
+冻结入口为`bind-browser --socket <exact endpoint> --cdp-url <literal loopback
+Browser websocket> --exclusive`，不发现或扫描浏览器。Host先通过原Native
+Port发随机nonce，扩展发布`globalThis.__obuNativeDownloadBinding`，原生
+Browser读取同worker的nonce/extension/instance/boot/port全身份后才启用事件。
+已提交连接属于Relay，CLI退出不撤销；未提交时CLI EOF取消。无自动重连。
+
+私有方法统一`obu.native.pageDownloads`，无外层RPC ID，params包含version=1
+和type challenge/response/ready/request/reply；ready和request/reply绑定nonce
+及generation。操作claim/path/cancel/release只通过原Port，SDK不能注入。claim
+包含GUID、frame、rootTarget、原session/turn/epoch/tab和每条Page记录唯一claimId。
+wait在ready时保存原Port及generation，Page归属校验后才claim；path/cancel返回
+前再次核原scope、记录、连接和期限。撤销立即删除本地记录，再释放原host claim。
+路径只接受原completed事件filePath并验证普通可读文件，不按名称猜测或重新GET。
+
+正式实现已完成JS原文件路径/取消的受控浏览器验收。`TYsHFS`2/2验证18份
+3120B原POST/Blob、3owner、root/OOPIF/dynamic OOPIF及两held-download
+生命周期。其后审查发现并修复Host迟到ready ACK越过期限、撤销tombstone
+被128事件缓存驱逐两问题；4096 GUID独立ledger保留整个generation，满额
+终结绑定。Browser ACK另做实际期限检查；只有身份核实且进入配置阶段才能
+清理download override，preidentity迟到ACK零配置写入。
+
+最终57生产输入/9bin重新构建，`M8DwSY`2/2 actualexit0复验同组正式路径。
+原始`51yhd4`仅因生命周期错误文案断言不匹配失败，保留原日志；没有把失败
+当成功、没有重放原下载。最终Node1837、JS142、Python110、typecheck与vet
+通过；Windows全Go607pass/26平台skip，native包Windows69/Linux70零skip。
+普通未绑定完整套件`bi7ASp`125/125通过，其源码checkpoint早于上述bound
+修复；224026ms focus沿用12activation/4controlfocus允许项，新增零豁免。
+
+安装指导回合自身未产生能力进展，本轮重新核工作区与源码冻结、完成最终
+构建/真实浏览器/独立审查，属于progress。当前只证明显式排他绑定的JS路线，
+没有收窄原计划成功条件。下一步先验Python/Go/CLI/MCP同原文件任务、未owned
+用户下载隔离、真实root断线和失败下载，再解决普通现有profile的安装/授权
+体验。所有未取得的范围仍保持开放，旧preview三ZIP不替换。

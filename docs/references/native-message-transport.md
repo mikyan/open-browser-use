@@ -31,6 +31,13 @@ not broadcast it. Clients cannot submit any `obu.native.*` method. Older hosts
 ignore the unknown notification; their original size limitation still applies.
 An extension update alone cannot fix an older host's output framing.
 
+The optional original-download binding uses another private notification,
+`obu.native.pageDownloads`, consumed before the fragment receiver. Its v1
+challenge/response/ready/request/reply envelopes use private request IDs and
+nonce/generation fields, never an SDK pending ID. It is also rejected from local
+SDK callers. The public local-only `host.bindBrowser` request stays in the relay
+and does not enter the extension RPC namespace. See [original downloads](original-page-download-delivery.md).
+
 Requests at or below 1 MiB after host ID rewriting keep ordinary framing. Larger
 requests require the hello, a remapped request ID and at most 64 MiB of serialized
 JSON. Without negotiation, or above this logical limit, the host replies with

@@ -692,12 +692,25 @@ timeout does not authorize replay; directory enumeration can outlive the caller.
 
 ### Page-triggered download waits
 
-Download waits similarly register before the trigger and return an opaque
-task-scoped GUID. Do not infer a local path or reuse another task's download ID.
-The extension reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` for Page GUID path lookup.
-This limitation does not prevent uploading known local files.
 With `downloadWaitVersion === 1`, `expectDownload` / `expect_download` /
-`ExpectDownload` offer the same arm, trigger, result and cancel sequence.
+`ExpectDownload` acknowledge observation before the trigger. Arm once, trigger
+once, then collect the task-scoped GUID. Collection observes download start;
+the returned handle's `path()` separately waits for completion.
+
+Check `getInfo.metadata.pageDownloads.available` before arming when a local
+original-file path is required. In the development branch, an explicitly bound
+Browser root connection enables `path()` and transfer `cancel()` for that original
+GUID, including POSTs and Blobs. Ordinary extension-only installations and the
+published preview report `OBU_DOWNLOAD_PATH_UNAVAILABLE` /
+`OBU_DOWNLOAD_CANCEL_UNSUPPORTED`. A later binding does not upgrade an old handle.
+Use only an already configured native binding; enabling remote debugging or
+changing Browser download configuration is a separate setup task.
+
+Retain the original session/turn/epoch/tab and connection. Missing files, lost
+ownership and disconnected bindings fail; no path is inferred and no replacement
+GET or click is made. Read the returned file explicitly to verify its bytes.
+Canceling the wait only stops observation; canceling the collected download asks
+the browser to stop that transfer. A path timeout leaves the transfer running.
 
 ## Direct Downloads
 

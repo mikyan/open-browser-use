@@ -1852,6 +1852,47 @@ nonce；同URL/同名并发、外国GUID拒绝和完整通知归属通过。各9
 下一步接入host/extension私有能力与实际连接身份，原scope先授权后交付，
 保留普通未启用Browserroot安装的明确限制。完整目标与原文件计划继续active。
 
+### 正式原文件路径与取消
+
+新增指定loopback Browser root的`bind-browser --socket ... --cdp-url ...
+--exclusive`，不自动启用远程调试或发现浏览器。真实Native Port与Browser
+worker以随机nonce核extension/instance/boot/port身份，收到原生配置ACK后
+才发布能力。CLI提交后退出不关闭绑定；未提交EOF、原连接丢失或未知命令
+结果结束绑定。Page记录先验证原scope，再按唯一claim与GUID/frame/root
+交付原生completed路径；filePath仅接受可读普通文件，不是不可变文件快照。
+等待取消/关页仅撤销访问；Download.cancel取得实际Browser取消ACK。
+
+审查发现并修复撤销缓存被驱逐、迟到ready成功回复越过期限两P2。独立
+4096GUID ledger保持原generation，满额关闭绑定；foreign scope不能撤销
+active claim。传输发送/ACK/解码均检查实际期限；身份核实前迟到ACK零
+Browser配置写，已核身份的迟到enable ACK才尝试原连接复位。旧源码红测试
+及首次新增detach断言误分类失败保留；独立复查19项通过，确认两问题关闭。
+
+最终57生产输入/9bin冻结，Windows Chromium `M8DwSY`2/2 actualexit0：
+正式JS接口取得18文件/3120B，3任务同URL/同filename，root/OOPIF/动态OOPIF
+覆盖9一次性POST和9立即revoke Blob，无替代GET。原Page来源、字节/SHA与
+nonce分析、外国GUID拒绝、文件消失及通知隔离通过。两held GET验证path
+等待超时、原传输取消、关tab撤权后原HTTP仍完成。独审核20tab回收，8274ms
+零activation/focus及零豁免；启动/拆除与全OS窗口不在覆盖内。
+
+先前`TYsHFS`同组2/2、7650ms零focus，`51yhd4`仅因既有scope错误文案断言
+不匹配失败，未重放原点击。普通未绑定完整`bi7ASp`125/125 actualexit0，
+与旧125基线名称/顺序及74源hash一致；224026ms仅原12activation/4control
+focus允许事件。它在最终bound修复之前，不能冒称新Host全125已跑。正式
+product测试用Native Port loopback adapter，不保存全部私有Host/Browser帧；
+不要将其与前轮独立原生observer的逐帧trace混用。
+
+最终Node1837/1837、JS142、Python110、另3个protocol/rewrite测试全过；
+Go607pass/26平台skip、typecheck及vet通过。native包Windows69/Linux70
+全过。Windows默认shell不能运行npm包测试中的`.sh`，原失败保留；其余
+pnpm包通过，CLI以原flags等价编译六平台并用原Windows launcher输出1.0.0，
+116源前后hash一致，其他五平台未宣称运行。三SDK/Skill/README/参考说明
+同步条件能力，已发布preview三个ZIP的SHA保持一致。
+
+此片只完成显式排他绑定的JS原文件交付，普通日常扩展仍不可用。正式五入口、
+未owned用户下载、真实连接丢失/危险下载、当前profile授权与更多平台继续
+在原计划中开放；没有宣称P01–P15完整对齐，也未提PR或替换旧发布包。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

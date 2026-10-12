@@ -24,6 +24,9 @@ debugger、history 和 tab groups。
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。
 - `internal/host/`：Go native messaging stdio 到本地 IPC endpoint 的中继。
+- `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
+  挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
+  仅来自该连接的原生completed事件；普通安装不自动建立此连接。
 - `internal/transport/`：Unix socket 与 Windows 当前用户 named pipe 的平台边界。
 - `internal/wire/`：Open Browser Use native frame codec。
 - `packages/browser-client-rewrite/`：当前 Browser Use client 的可读重写

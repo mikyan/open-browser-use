@@ -194,7 +194,7 @@ __obu_export("DELIVERABLE_GROUP_TITLE", DELIVERABLE_GROUP_TITLE);
   // up listeners at module load — our chrome fake supplies addListener stubs.
   // It also tries to connect a native messaging port: stub it.
   vm.runInContext(
-    "chrome.runtime.connectNative = () => ({ onMessage: { addListener(){} }, onDisconnect: { addListener(){} }, postMessage(){}, disconnect(){} });",
+    "chrome.runtime.id = 'a'.repeat(32); chrome.runtime.connectNative = () => ({ onMessage: { addListener(){} }, onDisconnect: { addListener(){} }, postMessage(){}, disconnect(){} });",
     context
   );
   vm.runInContext(bgSource + "\n" + exporter, context);

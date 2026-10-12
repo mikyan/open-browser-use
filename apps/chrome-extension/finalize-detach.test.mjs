@@ -170,7 +170,7 @@ async function loadBackground(bgSource, chromeFake) {
   });
   vm.runInContext(inject, context);
   vm.runInContext(
-    "chrome.runtime.connectNative = () => ({ onMessage: { addListener(){} }, onDisconnect: { addListener(){} }, postMessage(){}, disconnect(){} });",
+    "chrome.runtime.id = 'a'.repeat(32); chrome.runtime.connectNative = () => ({ onMessage: { addListener(){} }, onDisconnect: { addListener(){} }, postMessage(){}, disconnect(){} });",
     context
   );
   vm.runInContext(bgSource + "\n" + exporter, context);

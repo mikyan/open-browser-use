@@ -4,6 +4,7 @@ go 1.26.9
 
 require (
 	github.com/Microsoft/go-winio v0.6.3
+	github.com/coder/websocket v1.8.15
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/sys v0.48.0
 )

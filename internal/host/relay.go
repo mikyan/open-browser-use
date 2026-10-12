@@ -53,6 +53,7 @@ type Relay struct {
 	closing           bool
 	writers           sync.WaitGroup
 	clientWriteLimits clientWriteLimits
+	browserBinding    *browserBinding
 }
 
 type pendingRequest struct {
@@ -71,7 +72,7 @@ func NewRelay(config Config, stdin io.Reader, stdout io.Writer) *Relay {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
-	return &Relay{
+	r := &Relay{
 		config:            config,
 		logger:            logger,
 		stdin:             stdin,
@@ -80,6 +81,8 @@ func NewRelay(config Config, stdin io.Reader, stdout io.Writer) *Relay {
 		pending:           make(map[string]pendingRequest),
 		clientWriteLimits: defaultClientWriteLimits,
 	}
+	r.browserBinding = newBrowserBinding(r)
+	return r
 }
 
 func (r *Relay) SocketPath() string {
@@ -169,6 +172,9 @@ func (r *Relay) readClientLoop(client *clientConn) {
 			return
 		}
 		receivedAt := time.Now()
+		if r.browserBinding.handleClient(client, payload, receivedAt) {
+			continue
+		}
 		forwarded, hostID, originalID, err := r.rewriteClientRequest(payload)
 		if err != nil {
 			r.writeClientError(client, originalID, err)
@@ -240,6 +246,9 @@ func (r *Relay) dispatchExtensionPayload(payload []byte) error {
 	var message map[string]any
 	if err := json.Unmarshal(payload, &message); err != nil {
 		return err
+	}
+	if r.browserBinding.consume(message) {
+		return nil
 	}
 	if r.consumeNativeTransportMessage(message) {
 		return nil
@@ -372,6 +381,7 @@ func (r *Relay) closeClients() {
 	for _, client := range clients {
 		client.close(nil)
 	}
+	r.browserBinding.close()
 	r.writers.Wait()
 }
 

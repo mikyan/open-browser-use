@@ -222,8 +222,8 @@ have no effect; normal tab/epoch admission applies regardless of handle existenc
 Pending native setup remains accounted for until it actually settles, and shared
 engine Page events are never disabled just to cancel an observer.
 
-This readiness protocol does not provide a GUID-to-path mechanism or transfer
-cancellation for page-triggered downloads. Those distinct limitations follow.
+Readiness alone does not provide a GUID-to-path mechanism or transfer
+cancellation. The optional native Browser binding below supplies those operations.
 
 The global [`chrome.downloads` API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
 exposes numeric IDs and file paths but no corresponding native GUID or source tab
@@ -232,16 +232,18 @@ rejects `Browser.setDownloadBehavior`. The implementation therefore does not
 join those sources by URL, timing, filename, or guessed numeric ID. Simultaneous
 downloads of the same URL in different sessions remain distinct.
 
-`downloadPath` first verifies the GUID's ownership, then returns the explicit
-`OBU_DOWNLOAD_PATH_UNAVAILABLE` error. A foreign or unknown GUID is rejected.
+Without a native binding at arm time, `downloadPath` verifies the GUID's ownership,
+then returns `OBU_DOWNLOAD_PATH_UNAVAILABLE`. A foreign or unknown GUID is rejected.
 It does not return a plausible path, a successful `null`, or another tab's file.
-The parameter remains available in SDKs for compatibility; reliable local path
-delivery still needs a browser-supported, provable GUID-to-path mechanism.
 
-A [native Browser transport proof](original-page-download-delivery.md) now joins
-the same original Page GUID to a completed Browser event's exact filePath for
-one-use POST and revoked Blob downloads. It runs only in a fresh isolated test
-profile; the public extension path remains unavailable pending product integration.
+The development branch's [explicit Browser binding](original-page-download-delivery.md)
+verifies the actual extension worker/Native Port before enabling native events.
+An authorized original Page claim joins the same GUID/frame to a completed Browser
+event's exact filePath. Public `Download.path()` validates the regular readable
+file and original scope; `Download.cancel()` requires a real Browser cancel ACK.
+The original port/generation and scope cannot be replaced. This has focused JS
+SDK acceptance with one-use POST and revoked Blob files in an isolated Windows
+profile; the published preview and ordinary extension-only setup remain unchanged.
 
 Reading the profile's History database is not a supported alternative. A live
 Windows Chromium 156 probe using normal read-only SQLite locking failed every

@@ -136,6 +136,9 @@ go build -o dist/ ./cmd/open-browser-use
 `scripts/package-chrome-extension.sh` 将相同构建产物打包成 ZIP。
 
 使用 `dist/` 中新构建的 CLI 和本仓库内的 SDK；公开发行包不包含这些本地改动。
+需要读取网页原始 POST/Blob 下载时，开发分支提供可选的
+[原生浏览器绑定](docs/references/original-page-download-delivery.md)。它要求明确
+授权的 Browser 连接；普通扩展安装和已发布预览包不会自动启用。
 按实际加载的扩展 ID 注册这个 CLI 作为 native host，Windows Edge 的命令见
 [本地注册说明](docs/references/edge-installation.md)。
 

@@ -2,6 +2,14 @@
 
 ## Original page download transport proof
 
+`OBU_TEST_ORIGINAL_DOWNLOADS=product` exercises the production `bind-browser`
+CLI and JS SDK paths with a newly built matching host. It binds only the test's
+exact isolated Browser endpoint, waits for the CLI's actual exit, and verifies
+18 original POST/Blob files, foreign GUID rejection, missing-file failure and
+two held-transfer cancel/revocation cases. It does not create a second Browser
+download observer. Other SDK/CLI/MCP complete file workflows remain separate
+acceptance work; this mode is not the full regression suite.
+
 Set `OBU_TEST_ORIGINAL_DOWNLOADS=default` or `allowAndName`, plus the usual
 `OBU_TEST_HOST_BINARY` and optional `OBU_TEST_CHROMIUM_BINARY`, then run
 `node scripts/browser-integration/run.mjs`. Do not combine this mode with other

@@ -15,10 +15,24 @@ import { BrowserClipboardBroker } from "./clipboard-broker.js";
 import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";
 import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";
 import { NativeMessageReceiver } from "./native-message-receiver.js";
+import { NativePageDownloads } from "./native-page-downloads.js";
 import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-policy.js";
 import { assertSiteAccessFrames } from "./site-access-frames.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
+let extensionInstancePromise;
+function getExtensionInstanceId() {
+  if (!extensionInstancePromise) {
+    extensionInstancePromise = (async () => {
+      const stored = await chrome.storage.local.get("extensionInstanceId");
+      if (typeof stored.extensionInstanceId === "string" && stored.extensionInstanceId) return stored.extensionInstanceId;
+      const extensionInstanceId = crypto.randomUUID();
+      await chrome.storage.local.set({ extensionInstanceId });
+      return extensionInstanceId;
+    })().catch(error => { extensionInstancePromise = undefined; throw error; });
+  }
+  return extensionInstancePromise;
+}
 const NATIVE_HOST_STATUS_KEY = "OPEN_BROWSER_USE_NATIVE_HOST_STATUS";
 const SESSION_STATE_KEY = "OPEN_BROWSER_USE_SESSION_STATE";
 const CONTROL_STATE_KEY = "OPEN_BROWSER_USE_CONTROL_STATE";
@@ -120,6 +134,7 @@ class NativeTransport {
     this.hostName = hostName;
     this.port = null;
     this.receiver = null;
+    this.pageDownloads = null;
     this.messageCallback = null;
     this.onDisconnect = onDisconnect;
     this.reconnectAttempt = 0;
@@ -159,7 +174,7 @@ class NativeTransport {
     // A real attempt consumes the pending retry; notifications never do.
     if (this.reconnect) clearTimeout(this.reconnect.timer);
     this.reconnect = null;
-    let port, receiver;
+    let port, receiver, pageDownloads;
     try {
       port = chrome.runtime.connectNative(this.hostName);
       this.port = port;
@@ -176,13 +191,25 @@ class NativeTransport {
         }
       });
       this.receiver = receiver;
+      pageDownloads = new NativePageDownloads({
+        target: globalThis,
+        extensionId: chrome.runtime.id,
+        getInstanceId: getExtensionInstanceId,
+        send: message => {
+          if (this.port !== port || this.pageDownloads !== pageDownloads) throw new Error("Original native port disconnected");
+          port.postMessage(message);
+        }
+      });
+      this.pageDownloads = pageDownloads;
       port.onMessage.addListener((message) => {
-        if (this.port === port && this.receiver === receiver) receiver.receive(message);
+        if (this.port === port && this.receiver === receiver && !pageDownloads.receive(message)) receiver.receive(message);
       });
       port.onDisconnect.addListener(() => {
         if (this.port !== port) return;
         this.port = null;
         this.receiver = null;
+        this.pageDownloads = null;
+        pageDownloads.close("Native host disconnected");
         receiver.close();
         // Fence already admitted work before scheduling the replacement host.
         // The callback is tied to this exact port, just like replies above.
@@ -196,7 +223,8 @@ class NativeTransport {
         if (this.port === port && !this.reconnect) return chrome.alarms.clear(RECONNECT_ALARM_NAME);
       });
     } catch (error) {
-      if (this.port === port) { this.port = null; this.receiver = null; }
+      if (this.port === port) { this.port = null; this.receiver = null; this.pageDownloads = null; }
+      pageDownloads?.close("Native host connection failed");
       receiver?.close();
       try { port?.disconnect(); } catch {}
       this.scheduleReconnect(error instanceof Error ? error.message : String(error));
@@ -749,10 +777,12 @@ class BrowserBackend {
       publish: (result, waiter) => {
         const record = this.downloadsById.get(result.downloadId);
         if (record?.waiterId !== waiter.waiterId) throw new Error("OBU_DOWNLOAD_WAIT_EXPIRED: download result is no longer available");
-        record.authorized = true; this.emitDownloadChange(record);
+        record.authorized = true;
+        this.claimPageDownload(record, waiter.deadlineAt);
+        this.emitDownloadChange(record);
       },
       discard: (result, waiter) => {
-        if (this.downloadsById.get(result.downloadId)?.waiterId === waiter.waiterId) this.downloadsById.delete(result.downloadId);
+        if (this.downloadsById.get(result.downloadId)?.waiterId === waiter.waiterId) this.retirePageDownload(result.downloadId);
       },
       deliver: (result, waiter) => {
         const record = this.downloadsById.get(result.downloadId);
@@ -1402,11 +1432,7 @@ class BrowserBackend {
   }
 
   async getInfo() {
-    let { extensionInstanceId } = await chrome.storage.local.get("extensionInstanceId");
-    if (typeof extensionInstanceId !== "string") {
-      extensionInstanceId = crypto.randomUUID();
-      await chrome.storage.local.set({ extensionInstanceId });
-    }
+    const extensionInstanceId = await getExtensionInstanceId();
     const webMcpEnabled = (await this.webMcpGate?.enabled?.()) === true;
     return {
       name: "Open Browser Use Chrome",
@@ -1429,6 +1455,7 @@ class BrowserBackend {
         downloadWaitVersion: 1,
         auxiliaryTabsVersion: 1,
         directDownloadsVersion: 1,
+        pageDownloads: this.nativePageDownloads?.()?.status() ?? { version: 1, available: false, reason: "Browser connection is not bound" },
         pageExportVersion: 1,
         clipboardVersion: 1,
         mediaDownloadsVersion: 1,
@@ -3197,7 +3224,7 @@ class BrowserBackend {
     else void this.fileChooserWaits.invalidateTab(tabId, error).catch(() => {});
     if (attachedOnly) void this.downloadWaits.invalidateAttachedTab(tabId, error).catch(() => {});
     else void this.downloadWaits.invalidateTab(tabId, error).catch(() => {});
-    for (const [id, record] of this.downloadsById) if (record.scope.tabId === tabId) this.downloadsById.delete(id);
+    for (const [id, record] of this.downloadsById) if (record.scope.tabId === tabId) this.retirePageDownload(id);
     for (const [id, chooser] of this.fileChoosersById) if (chooser.scope.tabId === tabId) this.fileChoosersById.delete(id);
   }
 
@@ -3399,6 +3426,15 @@ class BrowserBackend {
     check();
     const scope = await this.transferScope(params, "armDownloadWait", record.deadlineAt);
     check(); this.downloadWaits.bind(record, scope);
+    const client = this.nativePageDownloads?.();
+    const status = client?.status();
+    if (status?.available) {
+      const targets = await this.downloadWaits.within(record, () => chrome.debugger.getTargets());
+      const target = targets.find(target => target.tabId === scope.tabId && target.type === "page");
+      if (!target?.id || this.nativePageDownloads?.() !== client || !client.status().available || client.status().generation !== status.generation)
+        throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: original Browser connection changed while arming");
+      record.nativeContext = Object.freeze({ client, generation: status.generation, rootTargetId: target.id });
+    }
     return this.downloadWaits.arm(record, [undefined, ...this.childSessionsByTabId.get(params.tabId) ?? []]);
   }
 
@@ -3568,9 +3604,12 @@ class BrowserBackend {
     if (this.downloadsById.has(params.downloadId)) {
       const record = this.downloadsById.get(params.downloadId);
       if (record.scope.session_id !== params.session_id) throw new Error("OBU_DOWNLOAD_EXPIRED: unknown or unowned download");
-      await this.validateTransferScope(record.scope);
-      this.assertTransferScope(record.scope);
-      throw new Error("OBU_DOWNLOAD_CANCEL_UNSUPPORTED: webpage GUIDs cannot be cancelled by the direct download API");
+      if (!record.nativeContext) {
+        await this.withinTransferDeadline(deadline, () => this.validateTransferScope(record.scope));
+        this.assertTransferScope(record.scope);
+        throw new Error("OBU_DOWNLOAD_CANCEL_UNSUPPORTED: original Browser connection was not bound when this download was armed");
+      }
+      return this.pageDownloadOperation(record, params, "cancel", deadline);
     }
     return this.directDownloads.cancel(params, deadline);
   }
@@ -3581,9 +3620,66 @@ class BrowserBackend {
     if (this.directDownloads.has(params.downloadId)) return this.directDownloads.path(params, deadline);
     const record = this.downloadsById.get(params.downloadId);
     if (!record || record.scope.session_id !== params.session_id) throw new Error("OBU_DOWNLOAD_EXPIRED: Unknown or unowned download id");
+    if (!record.nativeContext) {
+      this.assertTransferScope(record.scope);
+      await this.requireSessionTab({ ...params, tabId: record.scope.tabId }, "downloadPath");
+      throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: Chrome's tab-scoped download events do not expose a proven local path");
+    }
+    return this.pageDownloadOperation(record, params, "path", deadline);
+  }
+
+  assertPageDownload(record, deadline) {
+    if (deadline <= Date.now()) throw new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired");
     this.assertTransferScope(record.scope);
-    await this.requireSessionTab({ ...params, tabId: record.scope.tabId }, "downloadPath");
-    throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: Chrome's tab-scoped download events do not expose a proven local path");
+    if (!record.authorized || this.downloadsById.get(record.id) !== record)
+      throw new Error("OBU_DOWNLOAD_EXPIRED: original Page download has been revoked");
+    const native = record.nativeContext, status = native?.client.status();
+    if (!native || this.nativePageDownloads?.() !== native.client || !status.available || status.generation !== native.generation)
+      throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: original Browser connection is no longer available");
+  }
+
+  claimPageDownload(record, deadline) {
+    if (!record.nativeContext) return;
+    record.nativeClaim = Object.freeze({ guid: record.id, frameId: record.frameId, rootTargetId: record.nativeContext.rootTargetId,
+      session_id: record.scope.session_id, turn_id: record.scope.turn_id, control_epoch: record.scope.control_epoch,
+      tabId: record.scope.tabId, claimId: crypto.randomUUID() });
+    record.nativeClaimPromise = Promise.resolve().then(() => {
+      this.assertPageDownload(record, deadline);
+      return record.nativeContext.client.request("claim", record.nativeClaim, { deadlineAt: deadline });
+    });
+    // The begin event remains usable even when the optional native claim fails.
+    // path/cancel report that original failure without replaying a claim.
+    record.nativeClaimPromise.catch(() => {});
+  }
+
+  async pageDownloadOperation(record, params, operation, deadline) {
+    const check = () => this.assertPageDownload(record, deadline);
+    check();
+    await this.withinTransferDeadline(deadline, () => this.requireSessionTab({ ...params, tabId: record.scope.tabId }, operation === "path" ? "downloadPath" : "cancelDownload"));
+    check();
+    if (!record.nativeClaimPromise) throw new Error("OBU_DOWNLOAD_EXPIRED: original Page claim is absent");
+    await this.withinTransferDeadline(deadline, () => record.nativeClaimPromise);
+    await this.withinTransferDeadline(deadline, () => this.validateTransferScope(record.scope));
+    check();
+    const result = await record.nativeContext.client.request(operation, record.nativeClaim, { deadlineAt: deadline });
+    await this.withinTransferDeadline(deadline, () => this.validateTransferScope(record.scope));
+    check();
+    return result;
+  }
+
+  retirePageDownload(id) {
+    const record = this.downloadsById.get(id);
+    if (!record) return;
+    this.downloadsById.delete(id);
+    if (!record.nativeClaimPromise) return;
+    // Release follows the original claim's settlement, so an in-flight claim
+    // cannot arrive after release and restore authority. No browser cancellation.
+    const release = () => {
+      const native = record.nativeContext, status = native.client.status();
+      if (this.nativePageDownloads?.() === native.client && status.available && status.generation === native.generation)
+        return native.client.request("release", record.nativeClaim, { deadlineAt: Date.now() + 10000 });
+    };
+    record.nativeClaimPromise.then(release, release).catch(() => {});
   }
 
   readClipboardText(params, record) { return this.clipboardOperation("readClipboardText", params, record); }
@@ -3751,7 +3847,7 @@ class BrowserBackend {
       if (this.downloadsById.get(params.guid) !== record || record.progressRevision !== revision) return;
       record.status = status;
       if (record.authorized) this.emitDownloadChange(record);
-    } catch { if (this.downloadsById.get(params.guid) === record) this.downloadsById.delete(params.guid); }
+    } catch { if (this.downloadsById.get(params.guid) === record) this.retirePageDownload(params.guid); }
   }
 
   async handleFileChooserOpened(source, params) {
@@ -3778,10 +3874,11 @@ class BrowserBackend {
     this.downloadWaits.observe(waiter, source.sessionId, record => {
       if (this.downloadsById.size >= 128) {
         const completed = [...this.downloadsById].find(([, item]) => item.delivered && ["complete", "canceled"].includes(item.status));
-        if (completed) this.downloadsById.delete(completed[0]);
+        if (completed) this.retirePageDownload(completed[0]);
         else throw new Error("Download tracking capacity reached");
       }
       this.downloadsById.set(params.guid, { id: params.guid, scope: record.scope, targetSessionId: source.sessionId, frameId: params.frameId,
+        nativeContext: record.nativeContext,
         waiterId: record.waiterId, url: typeof params.url === "string" ? params.url.slice(0, 8192) : undefined,
         suggestedFilename: typeof params.suggestedFilename === "string" ? params.suggestedFilename.slice(0, 1024) : undefined,
         status: "started", authorized: false });
@@ -4867,15 +4964,13 @@ function startHeartbeat(peer, backend) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const { extensionInstanceId } = await chrome.storage.local.get("extensionInstanceId");
-  if (typeof extensionInstanceId !== "string") {
-    await chrome.storage.local.set({ extensionInstanceId: crypto.randomUUID() });
-  }
+  await getExtensionInstanceId();
 });
 
 const webMcpGate = new WebMcpGate();
 const backend = new BrowserBackend({ webMcpGate });
 const transport = new NativeTransport(NATIVE_HOST_NAME, { onDisconnect: () => { void backend.nativeDisconnected().catch(() => {}); } });
+backend.nativePageDownloads = () => transport.pageDownloads;
 const peer = new JsonRpcPeer(transport, backend);
 async function handleAutomationControlMessage(message, sender) {
   if (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL("popup.html")) {

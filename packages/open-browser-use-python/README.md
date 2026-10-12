@@ -302,8 +302,9 @@ File chooser/download waits default to 10000 ms, accept integer `timeout_ms`
 from 1 to 120000 and reserve one second for the response. Use separate clients
 with the same session for a synchronous waiter and its trigger. Download IDs are
 opaque GUIDs scoped to the originating task; never infer a local filename from
-them. `download_path` reports `OBU_DOWNLOAD_PATH_UNAVAILABLE` because the browser
-does not expose a reliable GUID-to-local-path mapping through this extension API.
+them. Page GUID `download_path` requires the optional
+[native Browser binding](../../docs/references/original-page-download-delivery.md);
+ordinary extension-only connections report `OBU_DOWNLOAD_PATH_UNAVAILABLE`.
 
 ## Ready navigation waits
 
@@ -377,7 +378,7 @@ have started a download, so the SDK never repeats the GET automatically.
 The handle permanently retains its original session/turn/epoch; end, pause and
 ownership loss can invalidate it. A new turn does not revive it.
 `tab.wait_for_download(timeout_ms=...)` returns the same bound handle for an
-observed page download, whose GUID path/cancel remains unsupported; the observer
+observed page download; GUID path/cancel requires the native binding below. The observer
 has no cross-connection readiness guarantee. Legacy Client methods retain raw
 JSON and current-invocation scope semantics. Prefer typed Tab handles for later
 operations, or supply the original scope explicitly to `request`.
@@ -407,10 +408,14 @@ failure never automatically rearms it, retries a click or begins a new turn.
 
 `pending.cancel()` only cancels observation. It remains retryable on the exact
 wait after expiry, with its own ten-second cleanup budget, and does not cancel
-the browser's transfer or page network activity. The page GUID returned by
-`result()` still raises `OBU_DOWNLOAD_PATH_UNAVAILABLE` from `download.path()`
-and `OBU_DOWNLOAD_CANCEL_UNSUPPORTED` from `download.cancel()`. There is no
-guessed path or fallback GET; `download_url()` explicitly starts a separate
+the browser's transfer or page network activity. Check
+`getInfo.metadata.pageDownloads.available` before arming. With an explicitly
+verified [native Browser binding](../../docs/references/original-page-download-delivery.md),
+`download.path()` waits for the original completed file and `download.cancel()`
+cancels that transfer. Otherwise they raise `OBU_DOWNLOAD_PATH_UNAVAILABLE` and
+`OBU_DOWNLOAD_CANCEL_UNSUPPORTED`. Later binding does not upgrade old handles;
+connection or scope loss invalidates them. There is no guessed path or fallback
+GET; `download_url()` explicitly starts a separate
 request and cannot substitute for a page-triggered or POST download. The legacy
 `wait_for_download` API remains available without a ready handshake.
 

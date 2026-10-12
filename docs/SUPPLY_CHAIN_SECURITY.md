@@ -10,6 +10,11 @@
 
 ## 当前对应关系
 
+- 原生 Browser 下载连接固定使用 `github.com/coder/websocket v1.8.15`，
+  版本与内容校验提交在 `go.mod`/`go.sum`。关闭代理和重定向，输入端点仍由
+  调用方明确指定；该依赖不是浏览器发现或授权机制。Windows/Linux实际
+  loopback WebSocket协议测试与真实浏览器专项分别记录，不能互相替代。
+
 - `anchore/sbom-action`：生成 SPDX 格式的 SBOM。
 - `actions/attest-build-provenance`：为 release artifact 生成签名 provenance。
 - `scripts/check-action-pinning.sh`：如果 workflow 里出现浮动 tag 而不是 SHA，直接让 CI 失败。

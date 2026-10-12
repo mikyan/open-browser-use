@@ -11,13 +11,16 @@
 
 ## 当前评分
 
-原文件交付仍为未实现产品能力。新原生Browser通路实证在独立Windows
-profile的default/allowAndName两轮各2/2、actualexit0，36份POST/Blob原文件
-共6330B经精确Page/Browser GUID及原生filePath读取核验；root/OOPIF/动态
-OOPIF、同名三任务通知隔离、复位ACK/actualclose及连续focus零事件通过。
-fixture/observer24单测通过。当前Codex root对照3文件成功、Edge Blob一次
-waiter超时保留。生产代码与旧preview未改；未owned用户下载、正式五入口、
-取消/失效、当前用户profile授权及跨平台仍待实现/验证。详见
+原文件交付已有可选的正式Host/CLI绑定与扩展私有通路。最终修复后的
+Windows Chromium `M8DwSY` 2/2、actualexit0，JS接口取得18份POST/Blob
+原文件共3120B，root/OOPIF/动态OOPIF、同名三任务归属与通知隔离通过。
+两份额外下载证明pending path超时、实际取消及关tab撤权不取消原传输。
+撤销ledger不驱逐，迟到ACK按实际期限拒绝；身份核实前不写Browser配置。
+最终Node1837/1837、JS142、Python110及typecheck通过；Go607pass/26平台
+skip，native包Windows69/Linux70零skip，vet通过。先前checkpoint的完整
+`bi7ASp`125/125覆盖普通未绑定路线，不冒充最终bound修复后的完整套件。
+旧preview未变；普通扩展安装尚不可交付Page GUID路径，未owned用户下载、
+正式五入口、连接丢失/危险下载、当前用户profile授权及跨平台仍待验。详见
 [原文件交付](references/original-page-download-delivery.md)。
 
 最新SDK连接分片通过完整`yVGT4D` **125/125、actual exit0**，旧122项名称/

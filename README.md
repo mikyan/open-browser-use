@@ -157,6 +157,13 @@ packages do not include these local changes. Register that CLI as the native
 host for the loaded extension's actual ID. For Windows Edge, follow the
 [local manifest instructions](docs/references/edge-installation.md).
 
+For original page-triggered POST/Blob download paths, this branch adds an optional
+[native Browser binding](docs/references/original-page-download-delivery.md).
+It requires a specified Browser root endpoint and exclusive download control;
+the CLI does not enable remote debugging or discover an endpoint automatically.
+Ordinary extension-only installations and the published preview retain their
+explicit unavailable errors for Page GUID paths.
+
 Native `target=_blank` and `window.open` can still activate a new tab/window;
 popup handling does not yet meet the background-only goal. New popup pages must
 pass normal ownership checks before attachment. See the

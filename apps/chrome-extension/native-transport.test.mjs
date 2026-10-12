@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import { NativeMessageReceiver } from "./native-message-receiver.js";
+import { NativePageDownloads } from "./native-page-downloads.js";
 
 const background = await readFile(new URL("./background.js", import.meta.url), "utf8");
 const source = background.split("class NativeTransport {")[1].split("class SessionStore {")[0];
@@ -11,7 +12,7 @@ function fixture(hooks = {}) {
   const ports = [], alarms = [], statuses = [], alarmWrites = [], scheduledAlarms = new Map(), timers = new Map();
   let now = 0, nextTimer = 0, attempts = 0;
   const chrome = {
-    runtime: { connectNative() {
+    runtime: { id: "a".repeat(32), connectNative() {
       attempts++;
       hooks.connect?.();
       const messages = [], disconnects = [], sent = [];
@@ -55,7 +56,7 @@ function fixture(hooks = {}) {
     get timers() { return timers.size; }
   };
   const { NativeTransport, JsonRpcPeer } = vm.runInNewContext(`class JsonRpcPeer {${peerSource}; class NativeTransport {${source}; ({NativeTransport,JsonRpcPeer})`, {
-    chrome, NativeMessageReceiver, NATIVE_HOST_STATUS_KEY: "nativeStatus", RECONNECT_ALARM_NAME: "reconnect",
+    chrome, NativeMessageReceiver, NativePageDownloads, getExtensionInstanceId: async () => "fixture-instance", NATIVE_HOST_STATUS_KEY: "nativeStatus", RECONNECT_ALARM_NAME: "reconnect",
     PUBLIC_BROWSER_METHODS: new Set(["ping"]), Date: class extends Date { static now() { return now; } },
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); }

@@ -2685,3 +2685,18 @@ extension实际双连接身份、私有能力协商和原Page claim，再交付�
 取消/撤销等生命周期。普通扩展安装没有授权root时保持明确不可用，独立
 profile的成功不能替代现有用户浏览器支持或完整P01–P15。见
 [对照与证据边界](../../references/original-page-download-delivery.md)。
+
+### P10/P15：正式原文件绑定与交付
+
+新增显式`bind-browser`、原Native Port/worker随机挑战及同连接generation的
+私有claim/path/cancel/release。Page GUID先经任务原scope授权，路径仅取原生
+completed.filePath并核普通可读文件；不猜路径、不重发GET。原Browser连接
+丢失使绑定终态。撤销独立ledger和迟到ACK双时钟检查已修复并独立复核；
+身份未核实前的超时不能写Browser配置。
+
+修复后`M8DwSY`2/2验证正式JS的18原文件/3120B与两生命周期，最终57源/9bin
+可追溯。Node1837、JS142、Python110、Go607pass/26skip、typecheck及vet通过；
+native包另有Windows69/Linux70全过。未绑定完整`bi7ASp`125/125属于此前
+checkpoint，不能当作最终修复后的全量证据。公司安装preview未替换。
+原文件计划继续active：其余四入口、未owned用户下载、真实连接丢失/危险
+下载、现有用户profile及跨平台需补证；整体P01–P15未完成。

@@ -86,6 +86,7 @@ func newRootCommand() *cobra.Command {
 	root.Flags().BoolVarP(&showVersion, "version", "v", false, "print version")
 	root.AddCommand(
 		newHostCommand(),
+		newBindBrowserCommand(),
 		newSetupCommand(),
 		newManifestCommand(),
 		newInstallManifestCommand(),

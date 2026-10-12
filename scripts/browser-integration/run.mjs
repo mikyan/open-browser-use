@@ -54,7 +54,7 @@ import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, 
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs";
 import { connectOriginalDownloadObserver } from "./original-download-observer.mjs";
-import { checkOriginalDownloadProof } from "./original-download-proof.mjs";
+import { checkOriginalDownloadProof, checkProductDownloadLifecycle } from "./original-download-proof.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
@@ -77,8 +77,9 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
-if (originalDownloadBehavior !== undefined && !["default", "allowAndName"].includes(originalDownloadBehavior))
-  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, or unset");
+if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product"].includes(originalDownloadBehavior))
+  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, or unset");
+const productDownloads = originalDownloadBehavior === "product";
 if (originalDownloadBehavior && ["OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
   throw new Error("Original download proof is a separate headed mode");
 const mcpBinding = mcpBindingEnabled(process.env);
@@ -623,24 +624,39 @@ try {
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
   if (originalDownloadBehavior) await test("js-original-download-native-proof", async () => {
-    const owners = [], detail = { boundary: "Native transport feasibility proof, not a public path implementation" };
+    const owners = [], detail = { boundary: productDownloads ? "Production CLI binding and SDK original paths" : "Native transport feasibility proof, not a public path implementation" };
     let native, failure;
     try {
       const activePort = (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).trim().split(/\r?\n/);
       const url = new URL(browserVersion.webSocketDebuggerUrl);
       assert.equal(url.port, activePort[0]); assert.equal(url.pathname, activePort[1]);
-      native = await connectOriginalDownloadObserver({ webSocketURL: url.href, ownedIsolatedProfile: path.resolve(profile) });
-      const targets = await native.call("Target.getTargets");
+      if (!productDownloads) native = await connectOriginalDownloadObserver({ webSocketURL: url.href, ownedIsolatedProfile: path.resolve(profile) });
+      const targets = native ? await native.call("Target.getTargets") : await observerBrowserControl.call("Target.getTargets", {});
       const workerTargets = (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json())
         .filter(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
       assert.equal(workerTargets.length, 1);
       assert.ok(targets.targetInfos.some(target => target.targetId === workerTargets[0].id));
       assert.equal(await worker.evaluate("chrome.runtime.id"), extensionId);
       detail.identity = { pid: chrome.pid, profile, activePort, browserVersion, extensionId, worker: workerTargets[0], targets };
-      await native.start({ behavior: originalDownloadBehavior, ...(originalDownloadBehavior === "allowAndName" ? { downloadPath: path.join(runDir, "downloads") } : {}) });
-      sourceIdentity.testHooks.push("original download proof: real Browser root connection changes only fresh isolated profile download behavior/events; passive Page trace, exact GUID/frame merge and native filePath reads; no product fallback or directory delta");
+      if (productDownloads) {
+        const before = await browser.client.getInfo();
+        assert.equal(before.metadata.pageDownloads.available, false);
+        detail.bindingProcess = {};
+        detail.binding = JSON.parse(await subprocess(executable, ["bind-browser", "--socket", endpoint, "--cdp-url", url.href, "--exclusive", "--timeout", "20s"], { processEvidence: detail.bindingProcess }));
+        assert.equal(detail.binding.result.bound, true);
+        const after = await browser.client.getInfo();
+        assert.equal(after.metadata.pageDownloads.available, true);
+        assert.equal(after.metadata.pageDownloads.generation, detail.binding.result.generation);
+        detail.bindingProof = await worker.evaluate("globalThis.__obuNativeDownloadBinding");
+        for (const key of ["extensionId", "extensionInstanceId", "workerBootId", "portId"]) assert.equal(detail.bindingProof[key], detail.binding.result[key]);
+        sourceIdentity.testHooks.push("production original downloads: explicit bind-browser to exact owned isolated Browser root; no independent Browser download observer/configuration; passive Page trace and returned product path byte inspection");
+      } else {
+        await native.start({ behavior: originalDownloadBehavior, ...(originalDownloadBehavior === "allowAndName" ? { downloadPath: path.join(runDir, "downloads") } : {}) });
+        sourceIdentity.testHooks.push("original download proof: real Browser root connection changes only fresh isolated profile download behavior/events; passive Page trace, exact GUID/frame merge and native filePath reads; no product fallback or directory delta");
+      }
       for (let index = 0; index < 3; index++) owners.push(await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `original-download-${index}`, turnId: "native-proof", timeoutMs: 20000 }));
-      Object.assign(detail, await checkOriginalDownloadProof({ owners, worker, native, fixture: originalDownloadFixtures, fixtureURL, downloadRoot: path.join(runDir, "downloads"), until, behavior: originalDownloadBehavior }));
+      Object.assign(detail, await checkOriginalDownloadProof({ owners, worker, native, fixture: originalDownloadFixtures, fixtureURL, downloadRoot: path.join(runDir, "downloads"), until, behavior: productDownloads ? "default" : originalDownloadBehavior, product: productDownloads }));
+      if (productDownloads) await checkProductDownloadLifecycle({ owner: owners[0], fixture: downloadWaitFixtures, fixtureURL, until, detail });
     } catch (error) { failure = error; Object.assign(detail, error.originalDownloadDetail ?? {}, { error: error.stack, ...(error.observerSnapshot ? { observerFailure: error.observerSnapshot } : {}) }); }
     finally {
       detail.cleanup = [];
@@ -657,7 +673,7 @@ try {
       await fs.writeFile(path.join(runDir, "original-download-proof.json"), JSON.stringify(detail, null, 2));
     }
     if (failure) throw failure;
-    return { evidence: "original-download-proof.json", behavior: originalDownloadBehavior, originalFiles: detail.cases.length, publicPathImplemented: false };
+    return { evidence: "original-download-proof.json", behavior: originalDownloadBehavior, originalFiles: detail.cases.length, publicPathImplemented: productDownloads };
   });
   for (const kind of ["js", "cli", "mcp", "python", "go", "lifecycle"]) await test(kind === "lifecycle" ? "js-page-download-ready-lifecycle" : `${kind}-page-download-ready-two-connections`, async () => {
     const prefix = `${kind === "lifecycle" ? "js-lifecycle" : kind}-page-download`, options = { socketPath: endpoint, sessionId: prefix, turnId: "download-ready", timeoutMs: 15000 };
