@@ -1,0 +1,77 @@
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_67d6295b4969e9 481-482,494-502,505-515,517-529,534-541,545-554
+  s_08bbfd293d324f::t_62b82bc3a46007 503-504,516,530-533,542-544,555-561
+  s_08bbfd293d324f::t_7ed3322ffaaa9b 562
+scripts/browser-integration/native-lifecycle-support.mjs
+  s_08bbfd293d324f::t_23d730a9e57c86 25-33
+  s_08bbfd293d324f::t_b0e34043e24d93 8,11-21,74-78
+  s_08bbfd293d324f::t_436202e69c5c72 35-63
+  s_08bbfd293d324f::t_b4ceea74783c90 34
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_6b72789cb22fe2 17-18,20-22
+  s_08bbfd293d324f::t_62b82bc3a46007 19
+scripts/browser-integration/native-lifecycle.mjs
+  s_08bbfd293d324f::t_a590109b231e03 329,338,340,360,362-373,375,380-384,386-393,395,402-403,405-406,408-418
+  s_08bbfd293d324f::t_23d730a9e57c86 330-336,339,342,385
+  s_08bbfd293d324f::t_75a69da4a6ceeb 468,474,486,515-518,520-524,526-527,532,647
+  s_08bbfd293d324f::t_9ac5a78111382c 19,399
+  s_08bbfd293d324f::t_ebad0687c9a810 374,376-379,394,404,407,519,528-530
+  s_08bbfd293d324f::t_8326640c3bf48b 396,398,400-401,448,450-454,531
+  s_08bbfd293d324f::t_ec872fc723c97f 300-308,397,525
+  s_08bbfd293d324f::t_9310bfdc7e89be 23,27,46-47
+scripts/browser-integration/native-lifecycle-support.test.mjs
+  s_08bbfd293d324f::t_b0e34043e24d93 77-107
+  s_08bbfd293d324f::t_436202e69c5c72 3-4,118-210
+  s_08bbfd293d324f::t_23d730a9e57c86 108-117
+docs/exec-plans/active/2026-10-12-created-page-waits.md
+  s_08bbfd293d324f::t_62b82bc3a46007 360,373-376
+  s_08bbfd293d324f::t_67d6295b4969e9 358-359,361-372,377-386
+scripts/browser-integration/created-page-cleanup-fault.test.mjs
+  s_08bbfd293d324f::t_6bbbe36bda4b54 1-4,6-142,146-209,215-218,222-225,227-246,252
+  s_08bbfd293d324f::t_acbe7964e1b4ba 5,143-145,210-214,219-221,226,247-251
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_62b82bc3a46007 50
+  s_08bbfd293d324f::t_6b72789cb22fe2 48-49,51-53
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_45544c2669d145 1013-1041,1049-1053,1060
+  s_08bbfd293d324f::t_67d6295b4969e9 1042,1046-1048,1054,1056-1059
+  s_08bbfd293d324f::t_62b82bc3a46007 1043-1045,1055
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_6b72789cb22fe2 2127-2135,2138-2139,2142-2146,2151-2153
+  s_08bbfd293d324f::t_62b82bc3a46007 2136-2137,2140-2141,2147-2150
+scripts/browser-integration/native-created-page-cleanup.test.mjs
+  s_08bbfd293d324f::t_169e0a01215a9e 23,33,88
+  s_08bbfd293d324f::t_237beaa15c3a3f 1-5,7-22,24-32,34-50,58-87,89-99,122-124,126,129,132-144
+  s_08bbfd293d324f::t_468737f981f2df 125,127-128,130-131
+  s_08bbfd293d324f::t_b714c8e14902d7 6,51-57,100-121
+scripts/browser-integration/created-page-cleanup-fault.mjs
+  s_08bbfd293d324f::t_eea02132a09d93 1-24,27,30-33,35-94,96-98,100-102,114-117,119-121,124-125,127-132,134-167,169
+  s_08bbfd293d324f::t_fc7114a575b3a2 25-26,28-29,103-112,126,168
+  s_08bbfd293d324f::t_ced00b53fdd3aa 34,95,99,113,118,122,133
+  s_08bbfd293d324f::t_acbe7964e1b4ba 123
+scripts/browser-integration/native-created-page-cleanup.mjs
+  s_08bbfd293d324f::t_05c2a0fbba2395 66,113-114,116-123,176-179,240,243,254-255
+  s_08bbfd293d324f::t_b714c8e14902d7 14-27,228-229,265
+  s_08bbfd293d324f::t_169e0a01215a9e 30,47,106,115,164,262-264,266
+  s_08bbfd293d324f::t_468737f981f2df 132-143
+  s_08bbfd293d324f::t_c738dbd99c79ae 1-13,28-29,31-46,48-65,67-105,107-112,124-131,144-163,165-175,180-227,230-239,241-242,244-253,256-261,267-364
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_62b82bc3a46007 28,30
+  s_08bbfd293d324f::t_6b72789cb22fe2 29,31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "f67fe60f0f3930d4b6de877a6fe586de8cb971bf",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
