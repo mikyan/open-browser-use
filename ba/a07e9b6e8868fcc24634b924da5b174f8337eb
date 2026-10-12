@@ -1,0 +1,145 @@
+scripts/browser-integration/normal-browser-downloads.test.mjs
+  s_08bbfd293d324f::t_4e674bc5a83268 1-3,7-8,13-16,18-19,26-47,62-70,72-75,144-147,150,152-154,157,222-235,245-270,298-346,348-349
+  s_08bbfd293d324f::t_771d92551e9155 271-290
+  s_08bbfd293d324f::t_cba2a5cb0dba1b 9,120,139-143
+  s_08bbfd293d324f::t_8ad10c8adc6643 10,17,148-149,151,155-156,160-192,201-212
+  s_08bbfd293d324f::t_b30ae186d80d2b 12,48-61
+  s_08bbfd293d324f::t_2a7b79097c8050 4-6,11,20-25,71,76-119,121-138,236-244
+  s_08bbfd293d324f::t_8c2936fd9a62b8 158-159,213-221,347
+  s_08bbfd293d324f::t_5d0b7d69af91d1 193-200,291-297
+docs/exec-plans/active/2026-10-12-normal-browser-downloads.md
+  s_08bbfd293d324f::t_19d56894732b3d 36-40,87-95
+  s_08bbfd293d324f::t_b3f2c1234d0a0c 50-51,96-103
+  s_08bbfd293d324f::t_aa4bb9eff486c8 52-54,104-106
+  s_08bbfd293d324f::t_ca3af4f822bb6b 1-35,42,55-60
+  s_08bbfd293d324f::t_6a65551cfa60c5 72-79
+  s_08bbfd293d324f::t_3e5366bad80471 41,45-49,107-110
+  s_08bbfd293d324f::t_4022f8cff79258 43-44,61-71
+  s_08bbfd293d324f::t_0810736e8785ab 80-86
+internal/browserdownloads/loopback_test.go
+  s_08bbfd293d324f::t_191189e6ebeccb 5,8,11,31-205
+  s_08bbfd293d324f::t_08d9f0ce883384 251
+  s_08bbfd293d324f::t_b8515ef74173db 1-4,6-7,9-10,12-30,206-207,236-250,252-264
+  s_08bbfd293d324f::t_6a0aa7fd6b6123 208-235
+  s_08bbfd293d324f::t_ec24cf6ee7f5c4 265-316
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_11faa1f9d22a11 14-16,27
+  s_08bbfd293d324f::t_3e5366bad80471 25-26
+  s_08bbfd293d324f::t_19d56894732b3d 17-21
+  s_08bbfd293d324f::t_aa4bb9eff486c8 22-24
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_feeea02bfe3538 7
+scripts/browser-integration/original-download-proof.mjs
+  s_08bbfd293d324f::t_32ff2d2f26a6d9 22-48
+  s_08bbfd293d324f::t_458f8fdbd95499 49-74,225-228,266-267
+scripts/browser-integration/normal-browser-downloads-proof.test.mjs
+  s_08bbfd293d324f::t_36faf3a1a7c3c0 117-145
+  s_08bbfd293d324f::t_1cab097ca66342 157,159-160,194,197,199-200,219-222
+  s_08bbfd293d324f::t_9f48382f5a3e08 12,80,153-156,158,161-193,195-196,198,201-218
+  s_08bbfd293d324f::t_b9142a67d39045 1-11,13-79,81-116,146-152,223
+internal/browserdownloads/connection_refused_windows.go
+  s_08bbfd293d324f::t_08d9f0ce883384 1-5
+internal/host/browser_binding_test.go
+  s_08bbfd293d324f::t_6a0aa7fd6b6123 298-350,372-373
+  s_08bbfd293d324f::t_08d9f0ce883384 100-102
+  s_08bbfd293d324f::t_1e8019fa1ca593 351-371,374
+scripts/browser-integration/normal-browser-downloads-proof.mjs
+  s_08bbfd293d324f::t_1550eb6bc728e5 1-10,12-98,100-111,113-131,135-157,163-190,194-200,202-219,221-222,224-242,244-245,248-256,259
+  s_08bbfd293d324f::t_1cab097ca66342 220,247
+  s_08bbfd293d324f::t_36faf3a1a7c3c0 132-134
+  s_08bbfd293d324f::t_9f48382f5a3e08 11,99,112,201
+  s_08bbfd293d324f::t_b9142a67d39045 192-193,223,243,257-258
+  s_08bbfd293d324f::t_fbb9d282aaff5e 158-162,191,246
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_19d56894732b3d 28-32
+  s_08bbfd293d324f::t_3e5366bad80471 34-37
+  s_08bbfd293d324f::t_11faa1f9d22a11 24-27,33,38
+scripts/browser-integration/normal-browser-downloads.mjs
+  s_08bbfd293d324f::t_8ad10c8adc6643 86,172
+  s_08bbfd293d324f::t_bc6f30f095680e 87-89
+  s_08bbfd293d324f::t_67a028db958bbb 1-13,15,18-26,28-53,56,59-65,72-79,93-94,96-126,133-154,156-162,164,169-171,173-175,188-189,199-213,218-227,229,232-235,238,241-242,244-265,267-296,299-301,303-309,311-325,327-328,330,332-333,338-357,369-373,378-391
+  s_08bbfd293d324f::t_8c2936fd9a62b8 83-85,90-91
+  s_08bbfd293d324f::t_a53f1a7290381c 57-58,80-82,92,155,163,165-168,178-187,198,214-217,228,236,336
+  s_08bbfd293d324f::t_c04f889bed9b26 95,358-368
+  s_08bbfd293d324f::t_9003c9259281b0 16,54-55,66-71,130-132,243,302,310,329,331,337
+  s_08bbfd293d324f::t_771d92551e9155 176-177,230-231,239-240,374-375
+  s_08bbfd293d324f::t_cba2a5cb0dba1b 14,127-129,237
+  s_08bbfd293d324f::t_112a3e1b151058 27,266,326,334-335
+  s_08bbfd293d324f::t_099e0edcc0374f 190-197,376-377
+  s_08bbfd293d324f::t_18b9a9f89a1656 17,297-298
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_ebbcf34a0ab915 305-312,317
+  s_08bbfd293d324f::t_4a9ea4e6e7149b 313-316
+scripts/browser-integration/original-download-proof.test.mjs
+  s_08bbfd293d324f::t_458f8fdbd95499 2,7,9-10,29-80
+  s_08bbfd293d324f::t_4673264e9b9a5f 1,3-6,8,11-28,81-119
+scripts/browser-integration/normal-browser-downloads-support.mjs
+  s_08bbfd293d324f::t_f18c3c6bb5f800 1-2,4-5,8-15,114-123,129-130,208-227,238,242-243,245-263,307-327,329,333-336,342-345,347-383,385,389,392-395,397-399,401-406,409,412-414,416,418,420-421,424,426-431,433,437-461
+  s_08bbfd293d324f::t_c4b629ec71e94a 7,124-128,131-133,136,158,161-163,168,199-200,386-388,390-391,396,400,407-408,410-411,415,417,423,425,432,434-436
+  s_08bbfd293d324f::t_8ad10c8adc6643 134,138-139,151,155-156,159
+  s_08bbfd293d324f::t_5d0b7d69af91d1 137
+  s_08bbfd293d324f::t_c5c62e1cffa6bf 103-113,240
+  s_08bbfd293d324f::t_8c2936fd9a62b8 3,201-207,384,419,422
+  s_08bbfd293d324f::t_771d92551e9155 264-276,280-281,284-291
+  s_08bbfd293d324f::t_cba2a5cb0dba1b 228-237
+  s_08bbfd293d324f::t_d062985cb5c7f2 6,16-102,239,241,244,328,330-332,337-341,346
+  s_08bbfd293d324f::t_112a3e1b151058 292-306
+  s_08bbfd293d324f::t_bc6f30f095680e 135,140-150,152-154,157,160,164-167,169-198,277-279,282-283
+docs/histories/2026-10/20261012-2040-normal-browser-downloads.md
+  s_08bbfd293d324f::t_11faa1f9d22a11 1-23,30-44,67-77
+  s_08bbfd293d324f::t_19d56894732b3d 48-52
+  s_08bbfd293d324f::t_aa4bb9eff486c8 27-29,59-60
+  s_08bbfd293d324f::t_0810736e8785ab 45-47
+  s_08bbfd293d324f::t_3e5366bad80471 61-66
+  s_08bbfd293d324f::t_b3f2c1234d0a0c 24-26,53-58
+internal/browserdownloads/connection_refused_unix.go
+  s_08bbfd293d324f::t_08d9f0ce883384 1-7
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_19d56894732b3d 44-45
+docs/references/README.md
+  s_08bbfd293d324f::t_feeea02bfe3538 19-20
+internal/browserdownloads/manager.go
+  s_08bbfd293d324f::t_08d9f0ce883384 85-89,102
+internal/browserdownloads/transport.go
+  s_08bbfd293d324f::t_191189e6ebeccb 136,140-146
+  s_08bbfd293d324f::t_08d9f0ce883384 6,23-41,122-126,132-135,137-139,147-149,170-206
+  s_08bbfd293d324f::t_ca19711a0f8acd 207
+cmd/open-browser-use/bind_browser_discovery_test.go
+  s_08bbfd293d324f::t_08d9f0ce883384 138
+internal/host/browser_binding.go
+  s_08bbfd293d324f::t_08d9f0ce883384 62,67-68,137-140,146-157,193,209,224
+cmd/open-browser-use/bind_browser.go
+  s_08bbfd293d324f::t_08d9f0ce883384 78-82
+internal/browserdownloads/manager_test.go
+  s_08bbfd293d324f::t_b8515ef74173db 8,51-54,57,114-118
+docs/references/current-session-connection.md
+  s_08bbfd293d324f::t_ebbcf34a0ab915 59-69,87-89
+  s_08bbfd293d324f::t_4a9ea4e6e7149b 109-111
+  s_08bbfd293d324f::t_4022f8cff79258 91-104,112
+  s_08bbfd293d324f::t_b3f2c1234d0a0c 105-108
+  s_08bbfd293d324f::t_9105331b9eb7a0 90
+docs/references/normal-browser-downloads.md
+  s_08bbfd293d324f::t_aa4bb9eff486c8 23-32,36
+  s_08bbfd293d324f::t_4a9ea4e6e7149b 82-85
+  s_08bbfd293d324f::t_3e5366bad80471 33-35,127-132
+  s_08bbfd293d324f::t_0810736e8785ab 109-114
+  s_08bbfd293d324f::t_ebbcf34a0ab915 1-6,37-81,86-90,95-108,123-126
+  s_08bbfd293d324f::t_19d56894732b3d 115-122
+  s_08bbfd293d324f::t_b3f2c1234d0a0c 7-22,91-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "baa07e9b6e8868fcc24634b924da5b174f8337eb",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
