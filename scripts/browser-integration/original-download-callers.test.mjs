@@ -85,6 +85,8 @@ for (const kind of ["cli", "mcp"]) for (const variant of ["root", "oopif", "dyna
     assert.equal(result.file.bytes, f.bytes.length); assert.equal(result.file.sha256, createHash("sha256").update(f.bytes).digest("hex"));
     assert.ok(result.readyAt <= result.triggerAt && result.triggerAt <= result.collectedAt);
     assert.deepEqual(calls.map(x => x.method), ["armDownloadWait", ...(variant === "dynamic-oopif" ? ["browserAction"] : []), "browserAction", "collectDownloadWait", "downloadPath", "cancelDownloadWait"]);
+    assert.equal(calls[0].params.requirePath, true);
+    assert.ok(calls.slice(1).every(call => !Object.hasOwn(call.params, "requirePath")));
     for (const { params } of calls) assert.deepEqual([params.session_id, params.turn_id, params.control_epoch, params.tabId], ["original-session", "original-turn", 7, 42]);
     const actions = calls.filter(x => x.method === "browserAction"), trigger = actions.at(-1);
     assert.deepEqual(trigger.params.locator, [...(variant === "root" ? [] : [{ kind: "frame", selector: "#download-frame" }]), { kind: "role", role: "button", name: "Download original report", exact: true }]);

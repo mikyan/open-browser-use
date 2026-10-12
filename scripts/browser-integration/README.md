@@ -249,7 +249,9 @@ set `OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY=<go-caller>` and
 `OBU_TEST_ORIGINAL_DOWNLOADS=five-entry`, and run the same runner with the matching
 host. `OBU_TEST_PYTHON` optionally selects the Python executable. This separate
 headed mode requests 30 original files: JS/CLI/MCP/Python/Go × root/OOPIF/dynamic
-OOPIF × POST/Blob. Every group waits for all five original arm acknowledgements
+OOPIF × POST/Blob. All five callers require original-file readiness with
+`requirePath: true` (Python `require_path=True`, Go `RequirePath: true`).
+Every group waits for all five original arm acknowledgements
 before releasing any click. Typed callers exchange bounded ready/release files
 in the isolated run directory; CLI/MCP use an awaited callback. The barrier
 retains each original wait deadline, observes external-process failure and
@@ -329,6 +331,23 @@ Chromium prerequisites to run the JS negative lifecycle case and raw-navigation
 control. This mode does not require the Go five-entry caller. It uses a fresh
 isolated profile with debugging launch flags, not an existing user profile or
 the ordinary browser authorization dialog.
+
+Before the existing download lifecycle cases, four fresh POST pages exercise
+required readiness: unbound, disconnected after a cached available response,
+disconnected while the original successful root `Page.enable` ACK publication
+is held, and disconnected after ready. The last case rejects the old waiter
+both before and after explicit rebind, then prepares and cancels a new waiter.
+The gate changes ACK publication timing, not the native invocation/result or
+production deadline; its watchdog is failure. These four pages must have no
+Input commands, Page/Browser download events, POSTs or report requests, with
+unchanged document identities and exact tab/target cleanup. Final stopped
+traces require one actual response per original request and the exact caller
+error or ready handle. SDK-only rejection is insufficient.
+
+Their `requiredReadiness` evidence is nested in
+`original-download-negative.json`, separate from the five triggered POSTs below.
+Four real bindings and their relays are closed before the original negative
+case binds again. No additional focus allowance is used.
 
 Five original POST responses share one URL and filename. A separate CDP actor
 clicks one exact harness-created, unowned background tab; its original Page GUID

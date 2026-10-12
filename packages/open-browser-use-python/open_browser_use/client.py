@@ -63,6 +63,7 @@ class OpenBrowserUseClient:
         self._network_wait_version: Any = None
         self._file_chooser_wait_version: Any = None
         self._download_wait_version: Any = None
+        self._download_wait_path_version: Any = None
 
     def connect(self) -> "OpenBrowserUseClient":
         return self._connect(self.timeout)
@@ -205,6 +206,9 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._download_wait_version) is not int or self._download_wait_version != 1:
                 raise RuntimeError("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension does not advertise downloadWaitVersion 1")
+            if (method == "armDownloadWait" and merged_params.get("requirePath") is True
+                    and (type(self._download_wait_path_version) is not int or self._download_wait_path_version != 1)):
+                raise RuntimeError("OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED: extension does not advertise downloadWaitPathVersion 1")
             if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
                 raise RuntimeError("Download waits require an explicit control epoch")
         if method in NAVIGATION_WAIT_METHODS:
@@ -268,6 +272,7 @@ class OpenBrowserUseClient:
         if self._file_chooser_wait_version is None:
             self._file_chooser_wait_version = 0
         self._download_wait_version = metadata.get("downloadWaitVersion", 0) if isinstance(metadata, dict) else 0
+        self._download_wait_path_version = metadata.get("downloadWaitPathVersion", 0) if isinstance(metadata, dict) else 0
         if self._download_wait_version is None:
             self._download_wait_version = 0
         self._page_wait_version = metadata.get("pageWaitVersion", 0) if isinstance(metadata, dict) else 0
@@ -437,7 +442,9 @@ class OpenBrowserUseClient:
 
         return self._request("armPageWait", {"tabId": tab_id, "timeoutMs": timeout}, timeout=timeout / 1000, execute=arm)
 
-    def _expect_download(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
+    def _expect_download(self, tab_id: int, timeout_ms: int | None = None, require_path: bool = False) -> OpenBrowserUseDownloadWait:
+        if type(require_path) is not bool:
+            raise ValueError("Download wait require_path must be boolean")
         timeout = download_wait_timeout(timeout_ms)
         expires = time.monotonic() + timeout / 1000
 
@@ -459,7 +466,7 @@ class OpenBrowserUseClient:
 
             return OpenBrowserUseDownloadWait(waiter_id, remaining, original_deadline, call, download)
 
-        return self._request("armDownloadWait", {"tabId": tab_id, "timeoutMs": timeout}, timeout=timeout / 1000 + 1, execute=arm)
+        return self._request("armDownloadWait", {"tabId": tab_id, "timeoutMs": timeout, **({"requirePath": True} if require_path else {})}, timeout=timeout / 1000 + 1, execute=arm)
 
     def _expect_file_chooser(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUseFileChooserWait:
         timeout = file_chooser_timeout(timeout_ms)
@@ -743,8 +750,8 @@ class OpenBrowserUseTab(LocatorFactory):
     def expect_page(self, *, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
         return self.browser.client._expect_page(self.id, timeout_ms)
 
-    def expect_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
-        return self.browser.client._expect_download(self.id, timeout_ms)
+    def expect_download(self, *, timeout_ms: int | None = None, require_path: bool = False) -> OpenBrowserUseDownloadWait:
+        return self.browser.client._expect_download(self.id, timeout_ms, require_path)
 
     def expect_file_chooser(self, *, timeout_ms: int | None = None) -> OpenBrowserUseFileChooserWait:
         return self.browser.client._expect_file_chooser(self.id, timeout_ms)
@@ -857,8 +864,8 @@ class OpenBrowserUseTabPlaywright(LocatorFactory):
     def expect_page(self, *, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
         return self.tab.expect_page(timeout_ms=timeout_ms)
 
-    def expect_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
-        return self.tab.expect_download(timeout_ms=timeout_ms)
+    def expect_download(self, *, timeout_ms: int | None = None, require_path: bool = False) -> OpenBrowserUseDownloadWait:
+        return self.tab.expect_download(timeout_ms=timeout_ms, require_path=require_path)
 
     def expect_file_chooser(self, *, timeout_ms: int | None = None) -> OpenBrowserUseFileChooserWait:
         return self.tab.expect_file_chooser(timeout_ms=timeout_ms)

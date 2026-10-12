@@ -11,6 +11,17 @@
 
 ## 当前评分
 
+原文件下载新增准备确认：五入口通过`requirePath`在一次性导出前固定原绑定/
+generation/root target，准备中断线不能ready，ready后断线撤销旧waiter；
+显式重绑仅服务新等待。Node2605/2605、JS158、Python122、Go SDK111与
+CLI137顶层通过（24项既有平台/权限skip）。专项`99xibC`3/3含四页零触发与
+原负例NetLog，4007ms零激活/focus；五入口`2WEsDf`2/2、30原文件/5200B，
+13350ms零激活/focus。完整`9YXWxm`128/128 actualexit0，原名称顺序不变，
+303905ms仅原12activation/4controlfocus许可。保留端口与relay归档的两次
+脚手架失败，不放宽原门禁。
+这不保证ready后未来传输成功，也不补普通启动授权、原生安装与跨平台范围；
+旧preview不变。见[下载准备证据](references/original-page-download-delivery.md#readiness-verification)。
+
 普通idle hover现同时确认原生ACK与原目标event-time pointermove，已送达不因
 菜单遮罩/目标移动移除重放；兼容mousemove仍到达菜单初始化。已确认持键/
 持按钮才可走旧路径，实际输入错误须显式释放。Node2552/2552，最终专项

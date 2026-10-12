@@ -182,6 +182,273 @@ async function boundDownloadEnvironment(hooks = {}) {
   } };
 }
 
+test("required download path advertises its own capability and refuses an unbound observer before attachment", async () => {
+  const f = await boundDownloadEnvironment(); f.state.available = false;
+  f.chrome.runtime = { id: "a".repeat(32), getManifest: () => ({ version: "fixture" }) };
+  assert.equal((await f.backend.getInfo()).metadata.downloadWaitPathVersion, 1);
+  await assert.rejects(f.backend.armDownloadWait({ ...f.scope, requirePath: true }), /OBU_DOWNLOAD_PATH_UNAVAILABLE/);
+  assert.equal(f.calls.some(call => call[0] === "attach"), false);
+  assert.equal(f.backend.downloadWaits.records.size, 0); assert.deepEqual(f.requests, []);
+});
+
+test("required download path rejects a changed or ambiguous root target after Page.enable ACK", async () => {
+  for (const ambiguity of [false, true]) {
+    const f = await boundDownloadEnvironment(); let enabled = false;
+    const original = f.chrome.debugger.sendCommand;
+    f.chrome.debugger.sendCommand = async (target, method, args) => {
+      const result = await original(target, method, args); if (method === "Page.enable") enabled = true; return result;
+    };
+    f.chrome.debugger.getTargets = async () => enabled ?
+      [{ tabId: 7, id: "replacement", type: "page" }, ...(ambiguity ? [{ tabId: 7, id: "original-root-target", type: "page" }] : [])] :
+      [{ tabId: 7, id: "original-root-target", type: "page" }];
+    await assert.rejects(f.backend.armDownloadWait({ ...f.scope, requirePath: true }), /PATH_UNAVAILABLE/);
+    assert.deepEqual(f.requests, []); assert.equal(f.backend.downloadWaits.records.size, 0);
+  }
+});
+
+test("required download path cannot adopt a different root target while native attachment is pending", { timeout: 2000 }, async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let entered = false, rootId = "original-root-target", reads = 0;
+  f.chrome.debugger.getTargets = async () => { reads++; return [{ tabId: 7, id: rootId, type: "page" }]; };
+  const original = f.chrome.debugger.attach;
+  f.chrome.debugger.attach = async target => { entered = true; await gate.promise; return original(target); };
+  const outcome = f.backend.armDownloadWait({ ...f.scope, requirePath: true, timeoutMs: 1000 }).then(value => ({ value }), error => ({ error }));
+  try {
+    await until(() => entered); rootId = "replacement-target"; gate.resolve();
+    const result = await outcome;
+    assert.match(String(result.error), /PATH_UNAVAILABLE/);
+    assert.equal(result.value, undefined); assert.ok(reads >= 2); assert.deepEqual(f.requests, []);
+  } finally { gate.resolve(); await outcome; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+test("required download path rechecks binding after the final asynchronous target proof", async () => {
+  const f = await boundDownloadEnvironment(); let reads = 0, enabled = false;
+  const original = f.chrome.debugger.sendCommand;
+  f.chrome.debugger.sendCommand = async (target, method, args) => {
+    const result = await original(target, method, args); if (method === "Page.enable") enabled = true; return result;
+  };
+  f.chrome.debugger.getTargets = async () => {
+    reads++; if (enabled) queueMicrotask(() => { f.state.available = false; });
+    return [{ tabId: 7, id: "original-root-target", type: "page" }];
+  };
+  await assert.rejects(f.backend.armDownloadWait({ ...f.scope, requirePath: true }), /PATH_UNAVAILABLE/);
+  assert.equal(reads, 3); assert.equal(f.backend.downloadWaits.records.size, 0);
+});
+
+test("required download path retains its original deadline during the final target read", { timeout: 2000 }, async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let reads = 0;
+  f.chrome.debugger.getTargets = async () => {
+    if (++reads === 3) await gate.promise;
+    return [{ tabId: 7, id: "original-root-target", type: "page" }];
+  };
+  const outcome = f.backend.armDownloadWait({ ...f.scope, requirePath: true, timeoutMs: 30 }).then(value => ({ value }), error => ({ error }));
+  try {
+    await until(() => reads === 3);
+    assert.match(String((await outcome).error), /WAIT_TIMEOUT/);
+    gate.resolve(); await tick(); assert.deepEqual(f.requests, []);
+    assert.equal(f.backend.downloadWaits.records.size, 0);
+  } finally { gate.resolve(); await outcome; }
+});
+
+test("required download path revalidates root identity after a child joins during the prior proof", { timeout: 2000 }, async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let reads = 0, entered = false, rootId = "original-root-target";
+  const original = f.chrome.debugger.sendCommand;
+  f.chrome.debugger.sendCommand = async (target, method, args) => {
+    if (target.sessionId === "late-child" && method === "Page.enable") { entered = true; await gate.promise; }
+    return original(target, method, args);
+  };
+  f.chrome.debugger.getTargets = async () => {
+    const target = { tabId: 7, id: rootId, type: "page" };
+    if (++reads === 3) f.backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", {
+      sessionId: "late-child", targetInfo: { type: "iframe", targetId: "late-frame", parentFrameId: "root" }
+    });
+    return [target];
+  };
+  const outcome = f.backend.armDownloadWait({ ...f.scope, requirePath: true, timeoutMs: 1000 }).then(value => ({ value }), error => ({ error }));
+  try {
+    await until(() => entered); rootId = "replacement-target"; gate.resolve();
+    const result = await outcome;
+    assert.match(String(result.error), /PATH_UNAVAILABLE/);
+    assert.equal(result.value, undefined); assert.ok(reads >= 4);
+  } finally { gate.resolve(); await outcome; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+test("required download path fixes its original identity and preserves a real child download", async () => {
+  const f = await boundDownloadEnvironment();
+  const ack = await f.backend.armDownloadWait({ ...f.scope, requirePath: true, timeoutMs: 1000 });
+  const record = f.backend.downloadWaits.records.get(ack.waiterId);
+  assert.equal(record.nativeContext.client, f.client);
+  assert.equal(record.nativeContext.generation, "original-generation");
+  assert.equal(record.nativeContext.rootTargetId, "original-root-target");
+  f.backend.childSessionsByTabId.set(7, new Set(["future-child"]));
+  await f.backend.downloadWaits.enable(record, "future-child");
+  f.backend.handleCdpEvent({ tabId: 7, sessionId: "future-child" }, "Page.downloadWillBegin",
+    { guid: "child-original", frameId: "child-frame", url: "https://fixture.test/one-use", suggestedFilename: "once.bin" });
+  const value = await f.backend.collectDownloadWait({ ...f.scope, waiterId: ack.waiterId });
+  assert.equal(value.downloadId, "child-original");
+  assert.deepEqual(clone(await f.backend.downloadPath({ ...f.scope, downloadId: value.downloadId })), { path: "C:\\fixture\\original.bin" });
+  assert.equal(f.requests[0].claim.frameId, "child-frame");
+  assert.equal(f.requests[0].claim.rootTargetId, "original-root-target");
+});
+
+for (const stage of ["admission", "attachment", "targets", "enable", "validation"]) {
+  for (const changed of ["client", "generation", "unavailable"]) {
+    test(`required download path rejects original ${changed} loss during ${stage} without adopting its replacement`, { timeout: 2000 }, async () => {
+      const f = await boundDownloadEnvironment(), gate = deferred(); let entered = false;
+      const hold = async operation => { entered = true; await gate.promise; return operation(); };
+      if (stage === "admission") f.backend.controlReleases.set(7, gate.promise);
+      if (stage === "attachment") {
+        const original = f.chrome.debugger.attach;
+        f.chrome.debugger.attach = target => hold(() => original(target));
+      }
+      if (stage === "targets") {
+        const original = f.chrome.debugger.getTargets;
+        f.chrome.debugger.getTargets = () => hold(original);
+      }
+      if (stage === "enable") {
+        const original = f.chrome.debugger.sendCommand;
+        f.chrome.debugger.sendCommand = (target, method, args) => method === "Page.enable" ? hold(() => original(target, method, args)) : original(target, method, args);
+      }
+      if (stage === "validation") {
+        const original = f.backend.validateTransferScope.bind(f.backend);
+        f.backend.validateTransferScope = scope => hold(() => original(scope));
+      }
+      const outcome = f.backend.armDownloadWait({ ...f.scope, requirePath: true, timeoutMs: 1000 }).then(value => ({ value }), error => ({ error }));
+      try {
+        if (stage === "admission") { await tick(); entered = true; }
+        else await until(() => entered);
+        if (changed === "client") f.backend.nativePageDownloads = () => ({ ...f.client });
+        else if (changed === "generation") f.state.generation = "replacement-generation";
+        else f.state.available = false;
+        gate.resolve(); f.backend.controlReleases.delete(7);
+        const result = await outcome;
+        assert.match(String(result.error), /OBU_DOWNLOAD_PATH_UNAVAILABLE/);
+        assert.equal(result.value, undefined); assert.deepEqual(f.requests, []);
+      } finally {
+        gate.resolve(); f.backend.controlReleases.delete(7); await outcome;
+        await f.backend.downloadWaits.invalidateAll();
+      }
+    });
+  }
+}
+
+test("required download path retains actual Page.enable drain after synchronous binding revocation", { timeout: 2000 }, async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let entered = false;
+  const original = f.chrome.debugger.sendCommand;
+  f.chrome.debugger.sendCommand = async (target, method, args) => {
+    if (method === "Page.enable") { entered = true; await gate.promise; }
+    return original(target, method, args);
+  };
+  const outcome = f.backend.armDownloadWait({ ...f.scope, requirePath: true, timeoutMs: 1000 }).then(value => ({ value }), error => ({ error }));
+  try {
+    await until(() => entered); f.state.available = false;
+    const drained = f.backend.nativeDownloadStateChanged(f.client, f.client.status());
+    assert.match(String((await outcome).error), /OBU_DOWNLOAD_PATH_UNAVAILABLE/);
+    assert.ok(f.backend.downloadWaits.controlSnapshot().pending.length > 0);
+    await assert.rejects(f.backend.armDownloadWait({ ...f.scope }), /WAIT_LIMIT/);
+    gate.resolve(); await drained;
+    assert.equal(f.backend.downloadWaits.records.size, 0);
+  } finally { gate.resolve(); await outcome; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+test("required ready waiter is revoked without an event or collect and never revives on a new binding", async () => {
+  const f = await boundDownloadEnvironment();
+  const ack = await f.backend.armDownloadWait({ ...f.scope, requirePath: true });
+  const record = f.backend.downloadWaits.records.get(ack.waiterId);
+  f.state.available = false;
+  await f.backend.nativeDownloadStateChanged(f.client, f.client.status());
+  assert.equal(record.invalid, true); assert.equal(f.backend.downloadWaits.records.size, 0);
+  f.state.available = true; f.state.generation = "new-generation";
+  await f.backend.nativeDownloadStateChanged(f.client, f.client.status());
+  begin(f.backend, 7, "late-old-event");
+  await assert.rejects(f.backend.collectDownloadWait({ ...f.scope, waiterId: ack.waiterId }), /WAIT_EXPIRED/);
+  assert.deepEqual(f.requests, []);
+});
+
+test("required download loses binding while a future child enable is pending without losing its real drain", async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred();
+  const ack = await f.backend.armDownloadWait({ ...f.scope, requirePath: true });
+  const record = f.backend.downloadWaits.records.get(ack.waiterId);
+  f.backend.childSessionsByTabId.set(7, new Set(["future-child"]));
+  const original = f.chrome.debugger.sendCommand; let entered = false;
+  f.chrome.debugger.sendCommand = async (target, method, args) => {
+    if (target.sessionId === "future-child" && method === "Page.enable") { entered = true; await gate.promise; }
+    return original(target, method, args);
+  };
+  const enable = f.backend.downloadWaits.enable(record, "future-child");
+  try {
+    await until(() => entered);
+    const collection = f.backend.collectDownloadWait({ ...f.scope, waiterId: ack.waiterId }).then(value => ({ value }), error => ({ error }));
+    f.state.available = false;
+    const drain = f.backend.nativeDownloadStateChanged(f.client, f.client.status());
+    assert.match(String((await collection).error), /PATH_UNAVAILABLE/);
+    assert.equal(record.invalid, true); assert.ok(f.backend.downloadWaits.controlSnapshot().pending.length > 0);
+    gate.resolve(); await enable; await drain;
+    assert.equal(f.backend.downloadWaits.records.size, 0); assert.deepEqual(f.requests, []);
+  } finally { gate.resolve(); await enable; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+test("binding revoked before early begin publication discards the GUID without a native claim", async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let entered = false;
+  const original = f.chrome.debugger.sendCommand;
+  f.chrome.debugger.sendCommand = async (target, method, args) => {
+    if (method === "Page.enable") { entered = true; await gate.promise; }
+    return original(target, method, args);
+  };
+  const outcome = f.backend.armDownloadWait({ ...f.scope, requirePath: true }).then(value => ({ value }), error => ({ error }));
+  try {
+    await until(() => entered); begin(f.backend, 7, "early-guid");
+    f.state.available = false;
+    const drain = f.backend.nativeDownloadStateChanged(f.client, f.client.status());
+    assert.match(String((await outcome).error), /PATH_UNAVAILABLE/);
+    gate.resolve(); await drain;
+    assert.equal(f.backend.downloadsById.has("early-guid"), false); assert.deepEqual(f.requests, []);
+  } finally { gate.resolve(); await outcome; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+test("optional bound download readiness retains legacy observation when only Browser binding is lost", async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let entered = false;
+  const original = f.chrome.debugger.sendCommand;
+  f.chrome.debugger.sendCommand = async (target, method, args) => {
+    if (method === "Page.enable") { entered = true; await gate.promise; }
+    return original(target, method, args);
+  };
+  const ready = f.backend.armDownloadWait({ ...f.scope, requirePath: false });
+  try {
+    await until(() => entered); f.state.available = false;
+    await f.backend.nativeDownloadStateChanged(f.client, f.client.status());
+    gate.resolve(); const ack = await ready;
+    begin(f.backend, 7, "optional-guid");
+    assert.equal((await f.backend.collectDownloadWait({ ...f.scope, waiterId: ack.waiterId })).downloadId, "optional-guid");
+    await assert.rejects(f.backend.downloadPath({ ...f.scope, downloadId: "optional-guid" }), /PATH_UNAVAILABLE/);
+    assert.deepEqual(f.requests, []);
+  } finally { gate.resolve(); await ready; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+test("required matched waiter cannot deliver after binding loss during final validation", async () => {
+  const f = await boundDownloadEnvironment(), gate = deferred(); let entered = false;
+  const ack = await f.backend.armDownloadWait({ ...f.scope, requirePath: true });
+  begin(f.backend, 7, "original-guid"); await tick();
+  const original = f.backend.validateTransferScope.bind(f.backend);
+  f.backend.validateTransferScope = async scope => { entered = true; await gate.promise; return original(scope); };
+  const outcome = f.backend.collectDownloadWait({ ...f.scope, waiterId: ack.waiterId }).then(value => ({ value }), error => ({ error }));
+  try {
+    await until(() => entered); f.state.generation = "replacement"; gate.resolve();
+    assert.match(String((await outcome).error), /PATH_UNAVAILABLE/);
+    assert.equal(f.backend.downloadsById.has("original-guid"), false);
+  } finally { gate.resolve(); await outcome; await f.backend.downloadWaits.invalidateAll(); }
+});
+
+for (const requirePath of [undefined, false]) test(`optional download observation (${requirePath}) remains valid without a binding`, async () => {
+  const f = await boundDownloadEnvironment(); f.state.available = false;
+  const ack = await f.backend.armDownloadWait({ ...f.scope, ...(requirePath === undefined ? {} : { requirePath }) });
+  await f.backend.nativeDownloadStateChanged?.(f.client, f.client.status());
+  begin(f.backend, 7, "observation-only");
+  const result = await f.backend.collectDownloadWait({ ...f.scope, waiterId: ack.waiterId });
+  assert.equal(result.downloadId, "observation-only");
+  await assert.rejects(f.backend.downloadPath({ ...f.scope, downloadId: result.downloadId }), /PATH_UNAVAILABLE/);
+  assert.deepEqual(f.requests, []);
+});
+
 test("bound Page path and cancel use the authorized GUID, exact scope and original claim", async () => {
   const f = await boundDownloadEnvironment(), params = await f.download();
   assert.deepEqual(clone(await f.backend.downloadPath(params)), { path: "C:\\fixture\\original.bin" });

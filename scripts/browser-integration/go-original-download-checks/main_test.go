@@ -137,7 +137,7 @@ func exerciseNativeHelper(t *testing.T, variant, kind, mode string) {
 			failure := ""
 			switch method {
 			case "getInfo":
-				result = map[string]any{"metadata": map[string]any{"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "directDownloadsVersion": 1}}
+				result = map[string]any{"metadata": map[string]any{"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "downloadWaitPathVersion": 1, "directDownloadsVersion": 1}}
 			case "getControlState":
 				controls++
 				epoch := 7
@@ -146,6 +146,9 @@ func exerciseNativeHelper(t *testing.T, variant, kind, mode string) {
 				}
 				result = map[string]any{"lifecycleVersion": 1, "controlEpoch": epoch, "closing": false, "nextTurnId": "must-not-adopt"}
 			case "armDownloadWait":
+				if params["requirePath"] != true {
+					t.Errorf("original-file helper did not require path readiness: %#v", params)
+				}
 				remaining := 14000
 				if mode == "gate-timeout" {
 					remaining = 100

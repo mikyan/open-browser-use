@@ -10,7 +10,11 @@ import (
 
 // DownloadWaitOptions includes setup, triggering and collection in one deadline.
 // Zero selects 10 seconds; other values must be whole milliseconds.
-type DownloadWaitOptions struct{ Timeout time.Duration }
+type DownloadWaitOptions struct {
+	Timeout time.Duration
+	// RequirePath requires path support on the original native browser binding before readiness.
+	RequirePath bool
+}
 
 // DownloadWait observes a page-triggered download after explicit readiness.
 // Cancelling this observer never cancels the actual browser transfer.
@@ -44,7 +48,11 @@ func (t *Tab) ExpectDownload(options ...DownloadWaitOptions) (*DownloadWait, err
 	originalDeadline := time.Now().Add(timeout)
 	tabID := t.ID
 	client := t.Browser.Client
-	value, err := client.requestInScope("armDownloadWait", Params{"tabId": tabID, "timeoutMs": timeout.Milliseconds()}, timeout+time.Second, func(metadata Params, deadline time.Time) (any, error) {
+	params := Params{"tabId": tabID, "timeoutMs": timeout.Milliseconds()}
+	if len(options) == 1 && options[0].RequirePath {
+		params["requirePath"] = true
+	}
+	value, err := client.requestInScope("armDownloadWait", params, timeout+time.Second, func(metadata Params, deadline time.Time) (any, error) {
 		epoch, ok := metadata["control_epoch"].(int64)
 		if !ok || epoch < 1 {
 			return nil, errors.New("download waits require an explicit control epoch")
@@ -137,6 +145,12 @@ func ValidateDownloadWaitParams(method string, params Params) error {
 	allowed := map[string]bool{"session_id": true, "turn_id": true, "control_epoch": true, "tabId": true}
 	if method == "armDownloadWait" {
 		allowed["timeoutMs"] = true
+		allowed["requirePath"] = true
+		if value, exists := params["requirePath"]; exists {
+			if _, valid := value.(bool); !valid {
+				return invalid
+			}
+		}
 	} else {
 		allowed["waiterId"] = true
 		if !networkString(params["waiterId"], 128, false) {

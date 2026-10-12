@@ -145,6 +145,7 @@ export class OpenBrowserUseClient {
   #networkWaitVersion: unknown = undefined;
   #fileChooserWaitVersion: unknown = undefined;
   #downloadWaitVersion: unknown = undefined;
+  #downloadWaitPathVersion: unknown = undefined;
   #pageWaitVersion: unknown = undefined;
   #scopeParent: OpenBrowserUseClient | null = null;
   #boundScope: BrowserUseRequestParams = {};
@@ -312,6 +313,8 @@ export class OpenBrowserUseClient {
     if (downloadWaitMethods.has(method)) {
       if (this.#downloadWaitVersion === undefined) await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
       if (this.#downloadWaitVersion !== 1) throw new Error("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension does not advertise downloadWaitVersion 1");
+      if (method === "armDownloadWait" && merged.requirePath === true && this.#downloadWaitPathVersion !== 1)
+        throw new Error("OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED: extension does not advertise downloadWaitPathVersion 1");
       if (!Number.isSafeInteger(merged.control_epoch) || (merged.control_epoch as number) < 1) throw new Error("Download waits require an explicit control epoch");
     }
     if (navigationWaitMethods.has(method)) {
@@ -416,7 +419,9 @@ export class OpenBrowserUseClient {
   async [downloadWaitSymbol](tabId: number, options: OpenBrowserUseDownloadWaitOptions = {}): Promise<OpenBrowserUseDownloadWait> {
     const timeoutMs = downloadWaitTimeout(options), deadline = Date.now() + timeoutMs;
     let binding: BrowserUseRequestParams | undefined;
-    const value = await this.#request("armDownloadWait", { tabId, timeoutMs }, { timeoutMs: timeoutMs + 1000, startBefore: deadline }, metadata => { binding = metadata; });
+    const value = await this.#request("armDownloadWait", { tabId, timeoutMs,
+      ...(options.requirePath === true ? { requirePath: true } : {}) },
+      { timeoutMs: timeoutMs + 1000, startBefore: deadline }, metadata => { binding = metadata; });
     const ack = downloadWaitAck(value, timeoutMs);
     const expires = Math.min(deadline, Date.now() + ack.remainingMs);
     assertDownloadWaitDeadline(expires);
@@ -572,6 +577,7 @@ export class OpenBrowserUseClient {
     if (method === "getInfo") this.#networkWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.networkWaitVersion ?? null : null;
     if (method === "getInfo") this.#fileChooserWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.fileChooserWaitVersion ?? null : null;
     if (method === "getInfo") this.#downloadWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.downloadWaitVersion ?? null : null;
+    if (method === "getInfo") this.#downloadWaitPathVersion = isObject(result) && isObject(result.metadata) ? result.metadata.downloadWaitPathVersion ?? null : null;
     if (method === "armDownloadWait") return downloadWaitAck(result, params.timeoutMs as number);
     if (method === "collectDownloadWait") { downloadID(result); return result; }
     if (method === "cancelDownloadWait") downloadWaitCancelled(result);

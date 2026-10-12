@@ -15,6 +15,144 @@ func downloadWaitInfo() Params {
 	return Params{"metadata": Params{"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "directDownloadsVersion": 1}}
 }
 
+func TestDownloadWaitRequirePathArmBooleanOnly(t *testing.T) {
+	for _, requirePath := range []bool{true, false} {
+		if err := ValidateDownloadWaitParams("armDownloadWait", Params{"tabId": float64(9), "requirePath": requirePath}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, requirePath := range []any{nil, float64(0), float64(1), "true", Params{}, []any{}} {
+		if err := ValidateDownloadWaitParams("armDownloadWait", Params{"tabId": float64(9), "requirePath": requirePath}); err == nil {
+			t.Fatalf("accepted non-boolean requirePath: %v", requirePath)
+		}
+	}
+	for _, method := range []string{"collectDownloadWait", "cancelDownloadWait"} {
+		for _, requirePath := range []bool{true, false} {
+			if err := ValidateDownloadWaitParams(method, Params{"tabId": float64(9), "waiterId": "w", "requirePath": requirePath}); err == nil {
+				t.Fatalf("%s accepted requirePath", method)
+			}
+		}
+	}
+}
+
+func TestDownloadWaitRequirePathTypedWireAndHandleIsolation(t *testing.T) {
+	for _, playwright := range []bool{false, true} {
+		path, cleanup := startSDKServer(t, func(conn net.Conn) {
+			r := readRequest(t, conn)
+			info := downloadWaitInfo()
+			info["metadata"].(Params)["downloadWaitPathVersion"] = 1
+			writeResponse(t, conn, r["id"], info)
+			r = readRequest(t, conn)
+			writeResponse(t, conn, r["id"], testControlState(7, "next"))
+			for _, method := range []string{"armDownloadWait", "collectDownloadWait", "cancelDownloadWait"} {
+				r = readRequest(t, conn)
+				if r["method"] != method {
+					t.Errorf("wrong method: %v", r)
+				}
+				p := r["params"].(map[string]any)
+				var result any = Params{}
+				if method == "armDownloadWait" {
+					if p["requirePath"] != true || p["timeoutMs"].(float64) <= 0 || p["timeoutMs"].(float64) > 1000 {
+						t.Errorf("lost path/timeout contract: %v", p)
+					}
+					result = Params{"waiterId": "w", "remainingMs": 500}
+				} else {
+					if _, leaked := p["requirePath"]; leaked {
+						t.Error("requirePath leaked into handle")
+					}
+					if len(p) != 5 || p["waiterId"] != "w" || p["turn_id"] != "initial" || p["control_epoch"] != float64(7) {
+						t.Errorf("handle rebound: %v", p)
+					}
+					if method == "collectDownloadWait" {
+						result = Params{"downloadId": "page-guid"}
+					}
+				}
+				writeResponse(t, conn, r["id"], result)
+			}
+		})
+		c := NewClient(Options{SocketPath: path, TurnID: "initial"})
+		tab := NewBrowser(c).Tab(9)
+		options := DownloadWaitOptions{Timeout: time.Second, RequirePath: true}
+		var wait *DownloadWait
+		var err error
+		if playwright {
+			wait, err = tab.Playwright.ExpectDownload(options)
+		} else {
+			wait, err = tab.ExpectDownload(options)
+		}
+		if err != nil {
+			_ = c.Close()
+			cleanup()
+			t.Fatal(err)
+		}
+		if download, err := wait.Result(); err != nil || download.DownloadID != "page-guid" {
+			t.Fatalf("collect: %v %v", download, err)
+		}
+		if err := wait.Cancel(); err != nil {
+			t.Fatal(err)
+		}
+		_ = c.Close()
+		cleanup()
+	}
+}
+
+func TestDownloadWaitRequirePathCapabilityIsStrictAndReobserved(t *testing.T) {
+	for _, version := range []any{nil, true, "1", 2} {
+		path, cleanup := startSDKServer(t, func(conn net.Conn) {
+			r := readRequest(t, conn)
+			info := downloadWaitInfo()
+			info["metadata"].(Params)["downloadWaitPathVersion"] = version
+			writeResponse(t, conn, r["id"], info)
+			r = readRequest(t, conn)
+			writeResponse(t, conn, r["id"], testControlState(7, "next"))
+		})
+		c := NewClient(Options{SocketPath: path})
+		_, err := NewBrowser(c).Tab(9).ExpectDownload(DownloadWaitOptions{RequirePath: true})
+		if err == nil || !strings.Contains(err.Error(), "OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED") {
+			t.Fatalf("accepted %v capability: %v", version, err)
+		}
+		_ = c.Close()
+		cleanup()
+	}
+	path, cleanup := startSDKServer(t, func(conn net.Conn) {
+		for _, method := range []string{"getInfo", "getControlState", "armDownloadWait", "getInfo", "armDownloadWait"} {
+			r := readRequest(t, conn)
+			if r["method"] != method {
+				t.Errorf("wrong method %v", r)
+			}
+			var result any = Params{"waiterId": "w", "remainingMs": 100}
+			if method == "getInfo" {
+				result = downloadWaitInfo()
+			}
+			if method == "getControlState" {
+				result = testControlState(7, "next")
+			}
+			if method == "armDownloadWait" && r["params"].(map[string]any)["requirePath"] != false {
+				t.Error("false contract changed")
+			}
+			writeResponse(t, conn, r["id"], result)
+		}
+	})
+	defer cleanup()
+	c := NewClient(Options{SocketPath: path})
+	defer c.Close()
+	if _, err := c.Request("armDownloadWait", Params{"tabId": 9, "requirePath": false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.observeControlSupport(map[string]any{"metadata": map[string]any{"turnLifecycleVersion": float64(1), "downloadWaitVersion": float64(1), "downloadWaitPathVersion": float64(1)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Request("getInfo", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Request("armDownloadWait", Params{"tabId": 9, "requirePath": true}); err == nil || !strings.Contains(err.Error(), "PATH_UNSUPPORTED") {
+		t.Fatal(err)
+	}
+	if _, err := c.Request("armDownloadWait", Params{"tabId": 9, "requirePath": false}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func downloadWaitHandshake(t *testing.T, conn net.Conn) {
 	t.Helper()
 	r := readRequest(t, conn)

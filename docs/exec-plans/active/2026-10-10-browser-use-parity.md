@@ -21,6 +21,15 @@
 
 ## 当前并行切片
 
+2026-10-12 已完成[原文件下载准备确认](../completed/2026-10-12-download-path-readiness.md)：
+五入口requirePath固定原Browser绑定/root target并沿用原预算；准备中断线、
+ready后失效及重绑不复活通过。Node2605/2605，专项`99xibC`3/3、五入口
+`2WEsDf`2/2核30原文件/5200B，两个专项零focus/activation/许可。完整
+`9YXWxm`128/128 actualexit0，原全部128名称顺序保持，303905ms仅原
+12activation/4controlfocus许可。保留端口与relay归档失败；普通观察兼容，
+旧preview不变。下一优先项为正常启动Edge授权→真实Native Messaging→
+原导出读取分析的闭环；该片不能代替正常安装授权及完整P01–P15验收。
+
 2026-10-12 截图实际完成屏障已修复：调用超时/Progress abort后仍保留原capture，
 等待真实结算再释放原attachment队列及全局Pause drain，限制检查后重核期限。
 Node2467/2467；专项`kSmNJ7`3/3含五场，完整`kuWd2o`126/126 actualexit0，

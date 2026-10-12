@@ -49,6 +49,16 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P10/P13/P15新增原文件准备确认：`requirePath`要求原Native Port/Browser
+generation和root target在准备完成时仍有效，全部child Page.enable结算后
+复核；断线及重绑不复活旧waiter。专项`99xibC`3/3通过，四页零业务触发、
+原始RPC与旧NetLog门禁/清理均验证；五入口`2WEsDf`2/2、六组同步ready、
+30原文件/5200B核验。两个专项零activation/focus/新增许可；Node2605/2605。
+完整`9YXWxm`128/128 actualexit0，原128名称顺序保持，303905ms仅原
+12activation/4controlfocus许可。
+受控relay断开和成功ACK延迟发布不等同自然网络故障；普通启动授权/真实
+安装仍未补齐，完整矩阵继续开放。见[原文件下载](../references/original-page-download-delivery.md#readiness-verification)。
+
 P06/P13新增普通idle locator hover投递确认：原生ACK与原节点事件回执同时
 成立才成功，菜单覆盖/移动/移除不重放，兼容mousemove保留页面初始化。
 确认持输入与未决原生意图分开，实际输入失败须显式释放。Node2552/2552，

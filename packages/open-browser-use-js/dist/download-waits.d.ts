@@ -2,6 +2,7 @@ import { OpenBrowserUseDownload } from "./downloads.js";
 import type { JsonValue } from "./index.js";
 export type OpenBrowserUseDownloadWaitOptions = {
     timeoutMs?: number;
+    requirePath?: boolean;
 };
 export declare const downloadWaitMethods: Set<string>;
 export declare function downloadWaitTimeout(options?: OpenBrowserUseDownloadWaitOptions): number;

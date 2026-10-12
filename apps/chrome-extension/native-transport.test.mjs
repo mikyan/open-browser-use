@@ -61,13 +61,32 @@ function fixture(hooks = {}) {
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); }
   });
-  const transport = new NativeTransport("fixture.host"), received = [];
+  const transport = new NativeTransport("fixture.host", hooks.transportOptions), received = [];
   transport.setMessageCallback(message => received.push(message));
   return { transport, ports, received, JsonRpcPeer, clock, hooks, statuses, alarmWrites, scheduledAlarms,
     get attempts() { return attempts; },
     flush: () => transport.reconnectAlarmUpdate,
     reconnect: () => alarms.forEach(fn => fn({ name: "reconnect" })) };
 }
+
+test("original Browser state transitions synchronously notify the exact Native Port without public RPC traffic", async () => {
+  const changes = [], f = fixture({ transportOptions: { onPageDownloadsStateChange: (client, state) => changes.push({ client, state }) } });
+  const port = f.ports[0], client = f.transport.pageDownloads;
+  const message = params => ({ jsonrpc: "2.0", method: "obu.native.pageDownloads", params: { version: 1, ...params } });
+  port.deliver(message({ type: "challenge", requestId: "c1", nonce: "first-nonce" }));
+  assert.equal(changes.at(-1).client, client); assert.equal(changes.at(-1).state.available, false);
+  await new Promise(resolve => setImmediate(resolve));
+  port.deliver(message({ type: "ready", nonce: "first-nonce", generation: "first-generation", available: true }));
+  assert.equal(changes.at(-1).state.available, true);
+  port.deliver(message({ type: "ready", nonce: "first-nonce", generation: "first-generation", available: false }));
+  assert.equal(changes.at(-1).state.available, false);
+  assert.deepEqual(f.received, []);
+  port.disconnect(); f.reconnect();
+  const successor = f.transport.pageDownloads, count = changes.length;
+  port.deliver(message({ type: "ready", nonce: "first-nonce", generation: "first-generation", available: true }));
+  assert.equal(changes.length, count); assert.notEqual(successor, client);
+  f.ports[1].disconnect(); assert.equal(changes.at(-1).client, successor);
+});
 function fragments(id) {
   const request = { jsonrpc: "2.0", id, method: "executeCdp", params: { text: "中文🌏<&>".repeat(150_000), timeoutMs: 10000 } };
   const bytes = Buffer.from(JSON.stringify(request));

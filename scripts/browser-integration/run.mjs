@@ -66,6 +66,7 @@ import { runOriginalDownloadCaller, runOriginalDownloadProcess } from "./origina
 import { createOriginalDownloadNegativeFixtures } from "./original-download-negative-fixture.mjs";
 import { createOriginalDownloadRelay } from "./original-download-relay.mjs";
 import { checkOriginalDownloadNegatives } from "./original-download-negative-cases.mjs";
+import { checkRequiredDownloadReadiness } from "./required-download-readiness.mjs";
 import { assertOriginalNegativeNetlog } from "./original-download-negative-netlog.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
@@ -543,7 +544,7 @@ try {
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   if (originalDownloadBehavior) for (const name of ["original-download-fixture.mjs", "original-download-observer.mjs", "original-download-proof.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
-  if (negativeDownloads) for (const name of ["original-download-negative-fixture.mjs", "original-download-negative-cases.mjs", "original-download-relay.mjs", "original-download-callers.mjs", "original-download-negative-netlog.mjs"])
+  if (negativeDownloads) for (const name of ["original-download-negative-fixture.mjs", "original-download-negative-cases.mjs", "original-download-relay.mjs", "original-download-callers.mjs", "original-download-negative-netlog.mjs", "required-download-readiness.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
@@ -686,7 +687,7 @@ try {
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
   if (negativeDownloads) await test(originalDownloadTestName, async () => {
-    const owners = [], relays = [], detail = { boundary: "Production JS negative checks on an isolated launch-flag Chromium; transparent Browser WebSocket fault injection, not natural network loss", bindings: [] };
+    const owners = [], relays = [], readinessRelays = [], detail = { boundary: "Production JS negative checks on an isolated launch-flag Chromium; transparent Browser WebSocket fault injection, not natural network loss", bindings: [] };
     let failure;
     const connectionState = () => ({ hostPid: nativeBridge.host.pid, endpoint,
       hostGeneration: nativeBridge.current.record.generation,
@@ -703,8 +704,8 @@ try {
       assert.equal(matchingWorkers.length, 1);
       assert.equal(await worker.evaluate("chrome.runtime.id"), extensionId);
       detail.identity = { pid: chrome.pid, profile, activePort, browserVersion, extensionId, worker: matchingWorkers[0], targets };
-      const bind = async () => {
-        const relay = await createOriginalDownloadRelay({ targetURL: url.href }); relays.push(relay);
+      const bind = async (relayGroup = relays) => {
+        const relay = await createOriginalDownloadRelay({ targetURL: url.href }); relayGroup.push(relay);
         const record = { startedAt: Date.now(), relayURL: relay.url, capabilities: { before: await browser.client.getInfo() }, bindingProcess: {} };
         detail.bindings.push(record);
         assert.equal(record.capabilities.before.metadata.pageDownloads.available, false);
@@ -721,9 +722,13 @@ try {
         record.completedAt = Date.now();
         return { relay, ...record };
       };
-      const initial = await bind();
       for (const sessionId of ["original-negative-owner", "original-negative-foreign"])
         owners.push(await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "negative-proof", timeoutMs: 20000 }));
+      sourceIdentity.testHooks.push("required original download readiness: exact-tab native and public RPC observations, real Browser relay disconnect before/during/after preparation; one actual Page.enable ACK publication held under a bounded test-only gate. No download trigger or fabricated native failure, no new focus allowance; not normal-start approval acceptance");
+      detail.requiredReadiness = {};
+      await checkRequiredDownloadReadiness({ owner: owners[0], worker, fixture: originalDownloadFixtures,
+        fixtureURL, until, bind: () => bind(readinessRelays), connectionState, detail: detail.requiredReadiness });
+      const initial = await bind();
       sourceIdentity.testHooks.push("original negative downloads: bounded transparent Browser WebSocket message relay; exact real transport terminated only after original private path submission; no altered CDP response, inferred GUID/path, automatic rebind or native-port restart; independent CDP actor only on the exact synthetic unowned tab, with emulated focus and a real first screencast frame/ACK before its unique input sequence; no OS focus or input retry");
       detail.checks = {};
       await checkOriginalDownloadNegatives({ owner: owners[0], foreign: owners[1], worker,
@@ -739,8 +744,17 @@ try {
         catch (error) { detail.ownerCleanup.push({ error: error.stack }); failure ??= error; }
         finally { owner.close(); }
       }
-      for (const relay of relays) try { await relay.close(); }
+      for (const relay of [...readinessRelays, ...relays]) try { await relay.close(); }
       catch (error) { (detail.relayCleanupErrors ??= []).push(error.stack); failure ??= error; }
+      try {
+        assert.equal(new Set([...readinessRelays, ...relays]).size, readinessRelays.length + relays.length);
+        assert.equal(detail.bindings.length, readinessRelays.length + relays.length);
+        if (!failure) {
+          assert.equal(readinessRelays.length, 4); assert.equal(relays.length, 2);
+          assert.deepEqual(detail.requiredReadiness.relays, readinessRelays.map(relay => relay.snapshot()));
+        }
+      } catch (error) { detail.relayGroupError = error.stack; failure ??= error; }
+      detail.readinessRelayCleanup = readinessRelays.map(relay => relay.snapshot());
       detail.relays = relays.map(relay => relay.snapshot());
       detail.server = originalDownloadNegativeFixtures.allStats();
       await fs.writeFile(path.join(runDir, "original-download-negative.json"), JSON.stringify(detail, null, 2));
@@ -787,7 +801,7 @@ try {
         assert.equal(after.metadata.pageDownloads.generation, detail.binding.result.generation);
         detail.bindingProof = await worker.evaluate("globalThis.__obuNativeDownloadBinding");
         for (const key of ["extensionId", "extensionInstanceId", "workerBootId", "portId"]) assert.equal(detail.bindingProof[key], detail.binding.result[key]);
-        sourceIdentity.testHooks.push("production original downloads: explicit bind-browser to exact owned isolated Browser root; no independent Browser download observer/configuration; passive Page trace and returned product path byte inspection");
+        sourceIdentity.testHooks.push("production original downloads: explicit bind-browser to exact owned isolated Browser root; requirePath preparation through all selected public callers; no independent Browser download observer/configuration; passive Page trace and returned product path byte inspection");
         if (autoConnectDownloads) sourceIdentity.testHooks.push("auto-connect: production CLI reads actual isolated DevToolsActivePort; no cdp-url passed; launch-flag Chromium only, not normal-start permission UI or Edge/default profile acceptance");
       } else {
         await native.start({ behavior: originalDownloadBehavior, ...(originalDownloadBehavior === "allowAndName" ? { downloadPath: path.join(runDir, "downloads") } : {}) });

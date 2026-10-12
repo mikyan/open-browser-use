@@ -41,6 +41,10 @@ debugger、history 和 tab groups。
   CLI显式`bind-browser --auto-connect --browser chrome|edge`只读选定根目录的
   `DevToolsActivePort`定位候选，仍经同Native Port挑战；授权等待与后续setup
   共享原总期限，每条CDP仍最多10秒。见[当前会话连接](references/current-session-connection.md)。
+  原文件等待可要求`requirePath:true`，经`downloadWaitPathVersion:1`协商，
+  在准备阶段固定原Native Port/generation/page target；缺绑定或中途更换
+  不能返回ready。原绑定通知会撤销required waiter，显式重绑只服务新等待；
+  普通观察语义不变，ready不等于未来下载必然成功或与独立click原子执行。
 - `internal/transport/`：Unix socket 与 Windows 当前用户 named pipe 的平台边界。
 - `internal/wire/`：Open Browser Use native frame codec。
 - `packages/browser-client-rewrite/`：当前 Browser Use client 的可读重写

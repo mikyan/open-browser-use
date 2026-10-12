@@ -16,6 +16,78 @@ class DownloadWaitTest(unittest.TestCase):
     serve = lifecycle.ControlLifecycleTest.serve
     state = lifecycle.ControlLifecycleTest.state
 
+    def test_require_path_is_strict_boolean_only_on_arm(self):
+        for require_path in (True, False):
+            download_wait_params("armDownloadWait", {"tabId": 9, "requirePath": require_path})
+        for require_path in (None, 0, 1, "true", {}, []):
+            with self.assertRaisesRegex(ValueError, "requirePath|parameters"):
+                download_wait_params("armDownloadWait", {"tabId": 9, "requirePath": require_path})
+        for method in ("collectDownloadWait", "cancelDownloadWait"):
+            for require_path in (True, False):
+                with self.assertRaisesRegex(ValueError, "parameters"):
+                    download_wait_params(method, {"tabId": 9, "waiterId": "w", "requirePath": require_path})
+
+    def test_require_path_ready_capability_and_exact_handle_wire(self):
+        for surface in ("tab", "playwright"):
+            def arm(p):
+                self.assertIs(p["requirePath"], True)
+                self.assertGreater(p["timeoutMs"], 0)
+                self.assertLessEqual(p["timeoutMs"], 1000)
+
+            def handle(p):
+                self.assertEqual(set(p), {"session_id", "turn_id", "control_epoch", "tabId", "waiterId"})
+                self.assertEqual((p["turn_id"], p["control_epoch"], p["waiterId"]), ("initial", 7, "path-wait"))
+
+            def exercise(client):
+                tab = OpenBrowserUseBrowser(client).tab(9)
+                wait = (tab if surface == "tab" else tab.playwright).expect_download(timeout_ms=1000, require_path=True)
+                self.assertEqual(wait.result().download_id, "page-guid")
+                wait.cancel()
+
+            self.serve([
+                ("getInfo", NOOP, {"result": {"metadata": {"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "downloadWaitPathVersion": 1}}}),
+                ("getControlState", NOOP, self.state(7)),
+                ("armDownloadWait", arm, {"result": {"waiterId": "path-wait", "remainingMs": 500}}),
+                ("collectDownloadWait", handle, {"result": DOWNLOAD}), ("cancelDownloadWait", handle, {"result": {}}),
+            ], exercise)
+
+    def test_require_path_unsupported_and_metadata_refresh(self):
+        for version in (None, True, "1", 2):
+            def exercise(client):
+                with self.assertRaisesRegex(RuntimeError, "OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED"):
+                    OpenBrowserUseBrowser(client).tab(9).expect_download(require_path=True)
+                with self.assertRaisesRegex(RuntimeError, "OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED"):
+                    client.request("armDownloadWait", {"tabId": 9, "requirePath": True})
+            self.serve([
+                ("getInfo", NOOP, {"result": {"metadata": {"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "downloadWaitPathVersion": version}}}),
+                ("getControlState", NOOP, self.state(7)),
+            ], exercise)
+
+        def refresh(client):
+            tab = OpenBrowserUseBrowser(client).tab(9)
+            tab.expect_download(require_path=True)
+            client.request("getInfo")
+            with self.assertRaisesRegex(RuntimeError, "OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED"):
+                tab.expect_download(require_path=True)
+            tab.expect_download(require_path=False)
+            client.request("armDownloadWait", {"tabId": 9, "requirePath": False}, timeout=2)
+
+        self.serve([
+            ("getInfo", NOOP, {"result": {"metadata": {"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "downloadWaitPathVersion": 1}}}),
+            ("getControlState", NOOP, self.state(7)),
+            ("armDownloadWait", NOOP, {"result": {"waiterId": "w", "remainingMs": 500}}),
+            ("getInfo", NOOP, INFO),
+            ("armDownloadWait", lambda p: self.assertNotIn("requirePath", p), {"result": {"waiterId": "w", "remainingMs": 500}}),
+            ("armDownloadWait", lambda p: self.assertIs(p["requirePath"], False), {"result": {"waiterId": "w", "remainingMs": 500}}),
+        ], refresh)
+
+    def test_typed_require_path_rejects_non_boolean_without_connecting(self):
+        client = OpenBrowserUseClient("unused")
+        tab = OpenBrowserUseBrowser(client).tab(9)
+        for value in (None, 0, 1, "true", {}, []):
+            with self.assertRaisesRegex(ValueError, "require_path"):
+                tab.expect_download(require_path=value)
+
     def test_ready_trigger_collect_and_download_binding_are_separate(self):
         def old(p):
             self.assertEqual((p["turn_id"], p["control_epoch"], p["tabId"]), ("initial", 7, 9))

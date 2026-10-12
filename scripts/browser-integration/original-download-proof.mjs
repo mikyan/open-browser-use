@@ -81,7 +81,7 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
           let waiter, cleanup, waitDeadline;
           if (!caller) {
             const armStarted = performance.now();
-            waiter = await tab.expectDownload({ timeoutMs: 15000 }); item.waiterId = waiter.waiterId; item.readyAt = Date.now();
+            waiter = await tab.expectDownload({ timeoutMs: 15000, ...(product ? { requirePath: true } : {}) }); item.requirePath = product; item.waiterId = waiter.waiterId; item.readyAt = Date.now();
             waitDeadline = Math.min(armStarted + 15000, performance.now() + waiter.remainingMs);
             cleanup = { item, waiter, attempted: false }; waiters.push(cleanup);
             if (!callers && variant === "dynamic-oopif") await tab.getByRole("button", { name: "Add download frame", exact: true }).click();

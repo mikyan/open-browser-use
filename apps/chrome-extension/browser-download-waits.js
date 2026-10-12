@@ -21,14 +21,15 @@ function validate(params, extra, legacy = false) {
 }
 
 export class BrowserDownloadWaits {
-  constructor({ send, assertScope, validateScope, sourceAlive, publish, discard, deliver = () => {}, now = () => Date.now(),
+  constructor({ send, assertScope, validateScope, sourceAlive, publish, discard, deliver = () => {}, assertBinding = () => {}, now = () => Date.now(),
     setTimer = (fn, delay) => globalThis.setTimeout(fn, delay), clearTimer = id => globalThis.clearTimeout(id), maxTotal = 128, cleanupTimeoutMs = 10000 } = {}) {
-    Object.assign(this, { send, assertScope, validateScope, sourceAlive, publish, discard, deliver, now, setTimer, clearTimer, maxTotal, cleanupTimeoutMs });
+    Object.assign(this, { send, assertScope, validateScope, sourceAlive, publish, discard, deliver, assertBinding, now, setTimer, clearTimer, maxTotal, cleanupTimeoutMs });
     this.records = new Map(); this.byTab = new Map(); this.operations = new Set();
   }
 
   reserve(params, { legacy = false } = {}) {
-    validate(params, ["timeoutMs"], legacy);
+    validate(params, legacy ? ["timeoutMs"] : ["timeoutMs", "requirePath"], legacy);
+    if (Object.hasOwn(params, "requirePath") && typeof params.requirePath !== "boolean") throw new Error("requirePath must be a boolean");
     const timeoutMs = params.timeoutMs ?? 10000;
     if (params.timeoutMs === null || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw new Error("timeoutMs must be an integer from 1 to 120000");
     if (this.byTab.has(params.tabId) || this.records.size >= this.maxTotal) throw new Error("OBU_DOWNLOAD_WAIT_LIMIT: download wait capacity reached");
@@ -42,6 +43,10 @@ export class BrowserDownloadWaits {
   check(record) {
     if (this.records.get(record.waiterId) !== record || record.invalid || record.delivered) throw record.error ?? expired();
     if (this.now() >= record.deadlineAt) { this.fail(record, timeout()); throw record.error; }
+    if (record.params.requirePath) {
+      try { this.assertBinding(record); }
+      catch (error) { this.fail(record, error); throw error; }
+    }
     if (record.scope) this.assertScope(record.scope);
   }
 
@@ -86,10 +91,13 @@ export class BrowserDownloadWaits {
     return pending;
   }
 
-  async settleTargets(record) {
+  async settleTargets(record, validate = false) {
     while (true) {
       const targets = [...record.targets.values()];
       await Promise.all(targets); this.check(record);
+      // A child can join while the final root-target proof awaits Chrome. Its
+      // real enable ACK must precede a fresh proof within the same deadline.
+      if (validate) { await this.validateScope(record.scope, record); this.check(record); }
       if (targets.length === record.targets.size) return;
     }
   }
@@ -97,8 +105,12 @@ export class BrowserDownloadWaits {
   arm(record, sessions) {
     return this.within(record, async () => {
       await Promise.all(sessions.map(session => this.enable(record, session)));
-      await this.validateScope(record.scope, record); this.check(record);
-      await this.settleTargets(record);
+      if (record.params.requirePath) await this.settleTargets(record, true);
+      else {
+        await this.validateScope(record.scope, record); this.check(record);
+        await this.settleTargets(record);
+      }
+      this.check(record);
       if (record.state === "arming") record.state = "pending";
       record.ready.resolve();
       return { waiterId: record.waiterId, remainingMs: Math.min(record.params.timeoutMs, record.deadlineAt - this.now()) };

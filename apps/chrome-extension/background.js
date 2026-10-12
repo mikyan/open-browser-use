@@ -133,13 +133,14 @@ class JsonRpcPeer {
 }
 
 class NativeTransport {
-  constructor(hostName, { onDisconnect = () => {} } = {}) {
+  constructor(hostName, { onDisconnect = () => {}, onPageDownloadsStateChange = () => {} } = {}) {
     this.hostName = hostName;
     this.port = null;
     this.receiver = null;
     this.pageDownloads = null;
     this.messageCallback = null;
     this.onDisconnect = onDisconnect;
+    this.onPageDownloadsStateChange = onPageDownloadsStateChange;
     this.reconnectAttempt = 0;
     this.reconnect = null;
     this.reconnectAlarmUpdate = Promise.resolve();
@@ -198,6 +199,7 @@ class NativeTransport {
         target: globalThis,
         extensionId: chrome.runtime.id,
         getInstanceId: getExtensionInstanceId,
+        onStateChange: state => this.onPageDownloadsStateChange(pageDownloads, state),
         send: message => {
           if (this.port !== port || this.pageDownloads !== pageDownloads) throw new Error("Original native port disconnected");
           port.postMessage(message);
@@ -817,8 +819,10 @@ class BrowserBackend {
     this.downloadWaits = new BrowserDownloadWaits({
       send: (scope, sessionId) => chrome.debugger.sendCommand({ tabId: scope.tabId, ...(sessionId ? { sessionId } : {}) }, "Page.enable"),
       assertScope: scope => this.assertTransferScope(scope),
+      assertBinding: record => this.assertDownloadWaitBinding(record),
       validateScope: async (scope, waiter) => {
         await this.validateTransferScope(scope);
+        if (waiter.params.requirePath) await this.validateDownloadWaitTarget(waiter);
         if (waiter.result && this.downloadsById.get(waiter.result.downloadId)?.waiterId !== waiter.waiterId)
           throw new Error("OBU_DOWNLOAD_WAIT_EXPIRED: download result is no longer available");
       },
@@ -1564,6 +1568,7 @@ class BrowserBackend {
         auxiliaryDeliveryVersion: 1,
         directDownloadsVersion: 1,
         pageDownloads: this.nativePageDownloads?.()?.status() ?? { version: 1, available: false, reason: "Browser connection is not bound" },
+        downloadWaitPathVersion: 1,
         pageExportVersion: 1,
         clipboardVersion: 1,
         mediaDownloadsVersion: 1,
@@ -3762,6 +3767,14 @@ class BrowserBackend {
   async startDownloadWait(params, { legacy = false } = {}) {
     const record = this.downloadWaits.reserve(params, { legacy });
     try {
+      // Capture before admission/attachment can yield. A successor binding may
+      // serve a new request, but must never silently upgrade this reservation.
+      if (record.params.requirePath) {
+        const client = this.nativePageDownloads?.(), status = client?.status();
+        if (!status?.available || !status.generation)
+          throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: bind an authorized Browser connection before requiring an original download path");
+        record.nativeBinding = Object.freeze({ client, generation: status.generation });
+      }
       const ack = await this.downloadWaits.within(record, () => this.runControlledRequest(() => {
         this.assertSiteMethod("armDownloadWait", record.params);
         return BrowserBackend.prototype.armDownloadWait.call(this, record.params, record);
@@ -3774,22 +3787,56 @@ class BrowserBackend {
 
   async armDownloadWait(params, record) {
     const check = () => this.downloadWaits.check(record);
+    if (params.requirePath) {
+      const { client, generation } = record.nativeBinding;
+      const targets = await this.downloadWaits.within(record, () => chrome.debugger.getTargets());
+      const matches = targets.filter(target => target.tabId === params.tabId && target.type === "page");
+      if (matches.length !== 1 || !matches[0].id)
+        throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: original download target is unavailable or ambiguous");
+      record.nativeContext = Object.freeze({ client, generation, rootTargetId: matches[0].id });
+    }
     await this.downloadWaits.within(record, () => this.controlReleases.get(params.tabId));
     await this.prepareTransferAttachment(params, record.deadlineAt, { check, preserveDownloadWait: record,
       onAttachStarted: (cancel, actual) => { record.cancelAdmission = cancel; this.downloadWaits.track(record, actual); } });
     check();
     const scope = await this.transferScope(params, "armDownloadWait", record.deadlineAt);
     check(); this.downloadWaits.bind(record, scope);
-    const client = this.nativePageDownloads?.();
+    const client = record.nativeBinding?.client ?? this.nativePageDownloads?.();
     const status = client?.status();
-    if (status?.available) {
+    if (params.requirePath) await this.validateDownloadWaitTarget(record);
+    else if (status?.available) {
       const targets = await this.downloadWaits.within(record, () => chrome.debugger.getTargets());
-      const target = targets.find(target => target.tabId === scope.tabId && target.type === "page");
+      const matches = targets.filter(target => target.tabId === scope.tabId && target.type === "page");
+      const target = matches[0];
       if (!target?.id || this.nativePageDownloads?.() !== client || !client.status().available || client.status().generation !== status.generation)
         throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: original Browser connection changed while arming");
       record.nativeContext = Object.freeze({ client, generation: status.generation, rootTargetId: target.id });
     }
     return this.downloadWaits.arm(record, [undefined, ...this.childSessionsByTabId.get(params.tabId) ?? []]);
+  }
+
+  assertDownloadWaitBinding(record) {
+    const binding = record.nativeBinding, status = binding?.client.status();
+    if (!binding || this.nativePageDownloads?.() !== binding.client || !status.available || status.generation !== binding.generation)
+      throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: the original Browser download binding is no longer available; arm a new wait explicitly");
+  }
+
+  async validateDownloadWaitTarget(record) {
+    this.downloadWaits.check(record);
+    const targets = await chrome.debugger.getTargets();
+    this.downloadWaits.check(record);
+    const matches = targets.filter(target => target.tabId === record.scope.tabId && target.type === "page");
+    if (matches.length !== 1 || matches[0].id !== record.nativeContext?.rootTargetId)
+      throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: original download target changed");
+  }
+
+  nativeDownloadStateChanged() {
+    // Called synchronously by the exact Native Port's state notification. Fail
+    // pending required observers now, including ones nobody has collected yet.
+    return this.downloadWaits.invalidate(record => {
+      if (!record.params.requirePath) return false;
+      try { this.assertDownloadWaitBinding(record); return false; } catch { return true; }
+    }, new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE: the original Browser download binding was revoked"));
   }
 
   async collectDownloadWait(params) {
@@ -5379,7 +5426,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 const webMcpGate = new WebMcpGate();
 const backend = new BrowserBackend({ webMcpGate });
-const transport = new NativeTransport(NATIVE_HOST_NAME, { onDisconnect: () => { void backend.nativeDisconnected().catch(() => {}); } });
+const transport = new NativeTransport(NATIVE_HOST_NAME, {
+  onDisconnect: () => { void backend.nativeDisconnected().catch(() => {}); },
+  onPageDownloadsStateChange: () => backend.nativeDownloadStateChanged()
+});
 backend.nativePageDownloads = () => transport.pageDownloads;
 const peer = new JsonRpcPeer(transport, backend);
 async function handleAutomationControlMessage(message, sender) {

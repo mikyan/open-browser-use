@@ -29,17 +29,18 @@ func readLegacyCLIRequest(conn net.Conn, request *map[string]any) error {
 }
 
 type controlFixture struct {
-	mu                     sync.Mutex
-	calls                  []map[string]any
-	epoch                  int64
-	loseEnd                bool
-	delayInfo              time.Duration
-	withoutNetworkWait     bool
-	withoutNavigationWait  bool
-	withoutDownloadWait    bool
-	withoutFileChooserWait bool
-	withoutDirectDownloads bool
-	withoutMediaDownloads  bool
+	mu                      sync.Mutex
+	calls                   []map[string]any
+	epoch                   int64
+	loseEnd                 bool
+	delayInfo               time.Duration
+	withoutNetworkWait      bool
+	withoutNavigationWait   bool
+	withoutDownloadWait     bool
+	withoutFileChooserWait  bool
+	withoutDirectDownloads  bool
+	withoutMediaDownloads   bool
+	downloadWaitPathVersion any
 }
 
 func (fixture *controlFixture) methods() []string {
@@ -104,6 +105,9 @@ func (fixture *controlFixture) start(t *testing.T) socketOptions {
 						}
 						if !fixture.withoutDownloadWait {
 							result.(map[string]any)["metadata"].(map[string]any)["downloadWaitVersion"] = 1
+						}
+						if fixture.downloadWaitPathVersion != nil {
+							result.(map[string]any)["metadata"].(map[string]any)["downloadWaitPathVersion"] = fixture.downloadWaitPathVersion
 						}
 						if !fixture.withoutNavigationWait {
 							result.(map[string]any)["metadata"].(map[string]any)["navigationWaitVersion"] = 1
@@ -635,6 +639,120 @@ func TestCLIDownloadWaitCapabilityAndFixedRawBinding(t *testing.T) {
 				t.Fatal("collect/cancel renewed deadline")
 			}
 		}
+	}
+}
+
+func TestCLIDownloadWaitRequirePathRejectsOldPeerBeforeArm(t *testing.T) {
+	for _, manual := range []bool{false, true} {
+		f := &controlFixture{epoch: 37}
+		options := f.start(t)
+		options.timeout = 5 * time.Second
+		params := map[string]any{"tabId": 1, "requirePath": true}
+		if manual {
+			params["session_id"], params["turn_id"], params["control_epoch"] = "fixture", "original", 37
+		}
+		if _, err := invokeWithOptions(options, "armDownloadWait", params); err == nil || !strings.Contains(err.Error(), "OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED") {
+			t.Fatalf("path contract was silently weakened: %v", err)
+		}
+		for _, method := range f.methods() {
+			if method == "armDownloadWait" {
+				t.Fatal("old peer received path-required arm")
+			}
+		}
+	}
+}
+
+func TestCLIMCPDownloadWaitRequirePathWireAndStrictCapability(t *testing.T) {
+	for _, mcp := range []bool{false, true} {
+		for _, version := range []any{nil, true, "1", 2, 1} {
+			f := &controlFixture{epoch: 37, downloadWaitPathVersion: version}
+			options := f.start(t)
+			options.timeout = 3 * time.Second
+			invoke := func(method string, params map[string]any) error {
+				_, err := invokeWithOptions(options, method, params)
+				return err
+			}
+			if mcp {
+				server := newMCPServer(options)
+				defer server.shutdownBrowser()
+				invoke = func(method string, params map[string]any) error {
+					_, err := server.runTool("call", map[string]any{"method": method, "params": params})
+					return err
+				}
+			}
+			err := invoke("armDownloadWait", map[string]any{"tabId": 1, "requirePath": true, "timeoutMs": 1000})
+			if version == 1 {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED") {
+				t.Fatalf("mcp=%v version=%v err=%v", mcp, version, err)
+			}
+			if err := invoke("armDownloadWait", map[string]any{"tabId": 1, "requirePath": false}); err != nil {
+				t.Fatal(err)
+			}
+			for _, method := range []string{"collectDownloadWait", "cancelDownloadWait"} {
+				if err := invoke(method, map[string]any{"tabId": 1, "waiterId": "ready-wait", "requirePath": false}); err == nil {
+					t.Fatal("handle accepted requirePath")
+				}
+			}
+			for _, value := range []any{nil, 1, "true", []any{}} {
+				if err := invoke("armDownloadWait", map[string]any{"tabId": 1, "requirePath": value}); err == nil {
+					t.Fatal("non-boolean accepted")
+				}
+			}
+			f.mu.Lock()
+			for _, call := range f.calls {
+				if call["method"] == "armDownloadWait" {
+					p := call["params"].(map[string]any)
+					if p["requirePath"] == true && (version != 1 || p["timeoutMs"].(float64) > 1000 || p["timeoutMs"].(float64) < 1) {
+						t.Errorf("weakened contract %v", p)
+					}
+				}
+			}
+			f.mu.Unlock()
+		}
+	}
+}
+
+func TestMCPDownloadWaitPathCapabilityRefreshDropsOldSupport(t *testing.T) {
+	f := &controlFixture{epoch: 37, downloadWaitPathVersion: 1}
+	options := f.start(t)
+	options.timeout = 3 * time.Second
+	server := newMCPServer(options)
+	defer server.shutdownBrowser()
+	arm := func(params map[string]any) error {
+		_, err := server.runTool("call", map[string]any{"method": "armDownloadWait", "params": params})
+		return err
+	}
+	if err := arm(map[string]any{"tabId": 1, "requirePath": true}); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.downloadWaitPathVersion = nil
+	f.mu.Unlock()
+	if _, err := server.runTool("begin_turn", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := arm(map[string]any{"tabId": 1, "requirePath": true}); err == nil || !strings.Contains(err.Error(), "PATH_UNSUPPORTED") {
+		t.Fatal(err)
+	}
+	if err := arm(map[string]any{"tabId": 1}); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var arms []map[string]any
+	for _, call := range f.calls {
+		if call["method"] == "armDownloadWait" {
+			arms = append(arms, call["params"].(map[string]any))
+		}
+	}
+	if len(arms) != 2 || arms[0]["requirePath"] != true {
+		t.Fatalf("unexpected replay or lost flag: %v", arms)
+	}
+	if _, leaked := arms[1]["requirePath"]; leaked {
+		t.Fatal("default arm gained a new path contract")
 	}
 }
 

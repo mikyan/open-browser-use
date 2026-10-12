@@ -674,7 +674,11 @@ never automatically replayed or rebound to a new turn.
 `pending.cancel()` cancels only the observer, even after its deadline, with an
 independent ten-second cleanup budget. It can be retried on the exact same wait;
 it neither cancels the actual browser download nor blocks page network activity.
-Check `getInfo.metadata.pageDownloads.available` before arming. With an explicitly
+If the task needs the original file, use
+`tab.expectDownload({ timeoutMs: 10_000, requirePath: true })`. This additionally
+requires `downloadWaitPathVersion: 1` and rejects an absent or changed binding
+before ready. Omitting `requirePath` or passing false only prepares observation.
+Readiness cannot guarantee the connection survives a later click. With an explicitly
 verified [native Browser binding](../../docs/references/original-page-download-delivery.md),
 `download.path()` waits for the original completed file and `download.cancel()`
 cancels that transfer. Without it they return `OBU_DOWNLOAD_PATH_UNAVAILABLE` and

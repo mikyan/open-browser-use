@@ -10,6 +10,7 @@ import { Script, createContext } from "node:vm";
 import test from "node:test";
 import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs";
 import { startOriginalDownloadFixtureServer } from "./original-download-server.mjs";
+import { listenFixture } from "./fixture-listener.mjs";
 
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const postBody = (item, extra = {}) => new URLSearchParams({ owner: item.owner, token: item.token,
@@ -21,7 +22,7 @@ async function serve(t) {
   const server = createServer((req, res) => {
     if (!fixture.handle(req, res, base)) { res.writeHead(404); res.end("outside fixture"); }
   });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  await listenFixture(server);
   base = `http://127.0.0.1:${server.address().port}/`;
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   return { fixture, base };
@@ -162,6 +163,8 @@ async function temporaryOutput(t) {
 test("standalone server reaches both loopback families and persists cases without overwriting evidence", async t => {
   const output = await temporaryOutput(t), server = await startOriginalDownloadFixtureServer({ output });
   try {
+    const port = Number(new URL(server.baseURL).port);
+    assert.ok(port >= 49152 && port <= 65535, "Automatic fixture endpoints stay outside Fetch restricted service ports");
     assert.deepEqual(server.ready.cases.map(item => item.owner), ["iab-post", "iab-blob", "edge-post", "edge-blob"]);
     await assert.rejects(startOriginalDownloadFixtureServer({ output }), /EEXIST/);
     const response = await fetch(server.baseURL + "__original-download/cases", { method: "POST", body: JSON.stringify({ kind: "post", owner: "child-owner", variant: "oopif" }) });
@@ -177,6 +180,17 @@ test("standalone server reaches both loopback families and persists cases withou
     assert.equal(cases.length, 5); assert.equal(cases.at(-1).key, child.key);
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(output, "ready.json"), "utf8")), server.ready);
   } finally { await server.close(); }
+});
+
+test("standalone explicit ports retain the original bind error and never fall back", async () => {
+  const occupied = createServer();
+  try {
+    const port = await listenFixture(occupied);
+    await assert.rejects(startOriginalDownloadFixtureServer({ port }), error => error.code === "EADDRINUSE" && error.port === port);
+    assert.equal(occupied.listening, true); assert.equal(occupied.address().port, port);
+  } finally {
+    if (occupied.listening) await new Promise((resolve, reject) => occupied.close(error => error ? reject(error) : resolve()));
+  }
 });
 
 test("CLI stop drains the real server then writes final ledger and exits successfully", { timeout: 10000 }, async t => {

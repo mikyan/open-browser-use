@@ -415,8 +415,13 @@ rejected immediately; a successfully cancelled observer cannot collect. `Cancel`
 remains available after expiry with a separate 10-second cleanup response budget.
 It only retires observation and an undelivered result; an actual browser download
 may continue. A collected `*Download` retains its original scope, even if the
-client starts a new turn. Check `getInfo.metadata.pageDownloads.available` before
-arming. An explicitly verified
+client starts a new turn. When the task needs the original file, pass
+`DownloadWaitOptions{Timeout: 10 * time.Second, RequirePath: true}`. This requires
+`downloadWaitPathVersion: 1` and rejects an absent or changed binding before ready.
+The zero-value flag preserves observation-only behavior; readiness cannot promise
+the connection survives a later click. Use keyed options literals: adding the
+`RequirePath` field in this development API requires callers with positional
+struct literals to update them. An explicitly verified
 [native Browser binding](../../docs/references/original-page-download-delivery.md)
 lets Page GUID `Path` wait for the original completed file and transfer `Cancel`
 cancel that download. Otherwise they report the documented unavailable/unsupported

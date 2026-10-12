@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs";
+import { listenFixture } from "./fixture-listener.mjs";
 
 const admin = "/__original-download/";
 const json = (response, status, value) => {
@@ -63,12 +64,13 @@ export async function startOriginalDownloadFixtureServer({ port = 0, output } = 
   try {
     for (const host of ["127.0.0.1", "::1"]) {
       const server = createServer(handle); servers.push(server);
-      await new Promise((resolve, reject) => {
-        const failed = error => { server.off("listening", ready); reject(error); };
-        const ready = () => { server.off("error", failed); resolve(); };
-        server.once("error", failed); server.once("listening", ready);
-        server.listen({ host, port, ipv6Only: host === "::1" });
-      });
+      if (port === 0) await listenFixture(server);
+      else await new Promise((resolve, reject) => {
+          const failed = error => { server.off("listening", ready); reject(error); };
+          const ready = () => { server.off("error", failed); resolve(); };
+          server.once("error", failed); server.once("listening", ready);
+          server.listen({ host, port, ipv6Only: host === "::1" });
+        });
       port = server.address().port; baseURL = `http://127.0.0.1:${port}/`;
     }
     const cases = [];

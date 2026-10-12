@@ -697,14 +697,26 @@ With `downloadWaitVersion === 1`, `expectDownload` / `expect_download` /
 once, then collect the task-scoped GUID. Collection observes download start;
 the returned handle's `path()` separately waits for completion.
 
-Check `getInfo.metadata.pageDownloads.available` before arming when a local
-original-file path is required. In the development branch, an explicitly bound
+When the task needs the original file, arm with `requirePath: true` in JS or raw
+CLI/MCP calls, `require_path=True` in Python, or
+`DownloadWaitOptions{RequirePath: true}` in Go. The development extension advertises
+`downloadWaitPathVersion: 1`; required mode rejects an unsupported peer or missing
+binding before returning ready. Start the one-time export only after that ready
+acknowledgement. An earlier `getInfo` capability read alone is not preparation.
+Omit the option only when observing download start is sufficient.
+
+In the development branch, an explicitly bound
 Browser root connection enables `path()` and transfer `cancel()` for that original
 GUID, including POSTs and Blobs. Ordinary extension-only installations and the
 published preview report `OBU_DOWNLOAD_PATH_UNAVAILABLE` /
 `OBU_DOWNLOAD_CANCEL_UNSUPPORTED`. A later binding does not upgrade an old handle.
 Use only an already configured native binding; enabling remote debugging or
 changing Browser download configuration is a separate setup task.
+
+Readiness checks the original binding through preparation. A later disconnect
+can still fail the download; it does not atomically guard a separate click.
+After reconnecting, prepare a new wait for a new user-authorized attempt; an old
+wait does not acquire the replacement binding.
 
 Retain the original session/turn/epoch/tab and connection. Missing files, lost
 ownership and disconnected bindings fail; no path is inferred and no replacement

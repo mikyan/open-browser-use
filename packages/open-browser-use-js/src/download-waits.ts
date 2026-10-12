@@ -1,19 +1,21 @@
 import { OpenBrowserUseDownload, downloadID } from "./downloads.js";
 import type { JsonValue } from "./index.js";
 
-export type OpenBrowserUseDownloadWaitOptions = { timeoutMs?: number };
+export type OpenBrowserUseDownloadWaitOptions = { timeoutMs?: number; requirePath?: boolean };
 export const downloadWaitMethods = new Set(["armDownloadWait", "collectDownloadWait", "cancelDownloadWait"]);
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const identifier = (value: unknown): value is string => typeof value === "string" && value.length > 0 && Buffer.byteLength(value, "utf8") <= 128;
 
 export function downloadWaitTimeout(options: OpenBrowserUseDownloadWaitOptions = {}): number {
-  if (!object(options) || Object.keys(options).some(key => key !== "timeoutMs")) throw new Error("Download wait options only accept timeoutMs");
+  if (!object(options) || Object.keys(options).some(key => key !== "timeoutMs" && key !== "requirePath")) throw new Error("Download wait options only accept timeoutMs and requirePath");
+  if (Object.hasOwn(options, "requirePath") && typeof options.requirePath !== "boolean") throw new Error("Download wait requirePath must be boolean");
   const timeout = options.timeoutMs === undefined ? 10000 : options.timeoutMs;
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120000) throw new Error("Download wait timeoutMs must be an integer from 1 to 120000");
   return timeout;
 }
 export function downloadWaitParams(method: string, params: Record<string, unknown>): void {
   const allowed = ["session_id", "turn_id", "control_epoch", "tabId", method === "armDownloadWait" ? "timeoutMs" : "waiterId"];
+  if (method === "armDownloadWait") allowed.push("requirePath");
   if (!object(params) || Object.keys(params).some(key => !allowed.includes(key)) || !Number.isSafeInteger(params.tabId) || (params.tabId as number) < 0 ||
       (method !== "armDownloadWait" && !identifier(params.waiterId))) throw new Error("Invalid download wait parameters");
   for (const key of ["session_id", "turn_id"]) {
@@ -21,7 +23,8 @@ export function downloadWaitParams(method: string, params: Record<string, unknow
     if (Object.hasOwn(params, key) && (typeof value !== "string" || !value || Buffer.byteLength(value, "utf8") > 4096)) throw new Error("Invalid download wait scope");
   }
   if (Object.hasOwn(params, "control_epoch") && (!Number.isSafeInteger(params.control_epoch) || (params.control_epoch as number) < 1)) throw new Error("Invalid download wait scope");
-  if (method === "armDownloadWait") downloadWaitTimeout({ timeoutMs: params.timeoutMs as number | undefined });
+  if (method === "armDownloadWait") downloadWaitTimeout({ timeoutMs: params.timeoutMs as number | undefined,
+    ...(Object.hasOwn(params, "requirePath") ? { requirePath: params.requirePath as boolean } : {}) });
 }
 export function downloadWaitAck(value: unknown, timeout: number): { waiterId: string; remainingMs: number } {
   if (!object(value) || Object.keys(value).length !== 2 || !identifier(value.waiterId) || typeof value.remainingMs !== "number" ||

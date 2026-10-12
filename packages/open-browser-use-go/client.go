@@ -55,33 +55,34 @@ type Client struct {
 	boundScope      Params
 	boundGeneration uint64
 
-	mu                     requestLock
-	conn                   net.Conn
-	disconnected           bool // Terminal after Close or a discarded stream; protected by mu.
-	nextID                 int64
-	controlMu              sync.Mutex
-	control                clientControlState
-	mediaDownloadsKnown    bool
-	mediaDownloadsVersion  any
-	directDownloadsKnown   bool
-	directDownloadsVersion any
-	clipboardKnown         bool
-	clipboardVersion       any
-	pageExportKnown        bool
-	pageExportVersion      any
-	pageWaitKnown          bool
-	pageWaitVersion        any
-	downloadWaitKnown      bool
-	downloadWaitVersion    any
-	fileChooserWaitKnown   bool
-	fileChooserWaitVersion any
-	navigationWaitKnown    bool
-	navigationWaitVersion  any
-	networkWaitKnown       bool
-	networkWaitVersion     any
-	notificationMu         sync.Mutex
-	nextHandlerID          uint64
-	notificationHandlers   []notificationSubscription
+	mu                      requestLock
+	conn                    net.Conn
+	disconnected            bool // Terminal after Close or a discarded stream; protected by mu.
+	nextID                  int64
+	controlMu               sync.Mutex
+	control                 clientControlState
+	mediaDownloadsKnown     bool
+	mediaDownloadsVersion   any
+	directDownloadsKnown    bool
+	directDownloadsVersion  any
+	clipboardKnown          bool
+	clipboardVersion        any
+	pageExportKnown         bool
+	pageExportVersion       any
+	pageWaitKnown           bool
+	pageWaitVersion         any
+	downloadWaitKnown       bool
+	downloadWaitVersion     any
+	downloadWaitPathVersion any
+	fileChooserWaitKnown    bool
+	fileChooserWaitVersion  any
+	navigationWaitKnown     bool
+	navigationWaitVersion   any
+	networkWaitKnown        bool
+	networkWaitVersion      any
+	notificationMu          sync.Mutex
+	nextHandlerID           uint64
+	notificationHandlers    []notificationSubscription
 }
 
 func NewClient(options Options) *Client {
@@ -415,9 +416,13 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 		}
 		c.controlMu.Lock()
 		supported := c.downloadWaitVersion == float64(1)
+		pathSupported := c.downloadWaitPathVersion == float64(1)
 		c.controlMu.Unlock()
 		if !supported {
 			return nil, errors.New("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension does not advertise downloadWaitVersion 1")
+		}
+		if method == "armDownloadWait" && merged["requirePath"] == true && !pathSupported {
+			return nil, errors.New("OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED: extension does not advertise downloadWaitPathVersion 1")
 		}
 	}
 	if method == "downloadURL" || method == "cancelDownload" {

@@ -60,6 +60,88 @@ A mismatched scope cannot revoke an active claim. The private bridge allows
 pending operations to 128 and challenges to 4096 per port. These limits fail
 explicitly; they do not broaden ownership or replay work.
 
+## Required file-path readiness
+
+Callers that need the actual original file can request
+`expectDownload({ requirePath: true })`, Python `require_path=True`, or Go
+`DownloadWaitOptions{RequirePath: true}`. CLI/MCP use `requirePath: true` on
+`armDownloadWait`. This opt-in requires `downloadWaitPathVersion: 1`; an older
+peer is explicitly unsupported. Omission/false preserves download observation.
+
+Required preparation captures the original Native Port client and Browser
+generation before asynchronous admission. The original page target is fixed
+before attachment preparation and rechecked after all enabled child sources settle, within
+the same original deadline. New child sources require another final check;
+missing, ambiguous or replaced targets cannot return ready. Losing the native
+binding invalidates required reservations and pending waiters, including ones
+whose result has not yet been collected. Rebinding cannot revive an old waiter.
+
+This checks preparation, not an atomic transaction with a subsequent independent
+click. Ready does not promise future file completion: disconnect, cancellation,
+missing file and revoked ownership still fail on the original handle. Canceling
+a waiter remains observer cleanup only. The current implementation and verification
+work are tracked in the [readiness plan](../exec-plans/completed/2026-10-12-download-path-readiness.md).
+
+### Readiness verification
+
+Required-path preparation is covered by extension1181/build204/integration1220
+Node tests (2605 total, no skips). JS158 and Python122 include separately run
+real-host cases. Go SDK111 and CLI/MCP137 top-level tests pass; 24 existing CLI
+platform/permission cases remain skipped. Go vet passes. The three SDKs omit a
+typed false on the wire for old peers; raw flags are strictly boolean and only
+belong to `armDownloadWait`, never legacy `waitForDownload`, collect or cancel.
+Go callers using positional options literals must change to keyed fields.
+
+Final isolated run `99xibC` passes 3/3, actual exit 0. Four required-readiness
+scenarios preserve the original Native Port and host while the real Browser
+relay is closed: initially unbound, after cached discovery, during preparation,
+and after ready followed by explicit rebind. Original backend responses reject
+the first three arms and both old-handle collections; only a new waiter becomes
+ready. Each original page retains its document identity, one GET and zero
+business inputs, POSTs or download events. The held case delays publication of
+an already successful root Page.enable ACK; it does not simulate a naturally
+unfinished native operation. Its watchdog is failure. All four original relays
+and exact pages/targets are cleaned up. The unchanged negative transfer cases
+and strict NetLog gate also pass: five original POSTs and one rejected Chromium
+Download Manager resume GET, never substituted file delivery.
+
+Five-entry run `2WEsDf` passes 2/2, actual exit 0, using required preparation
+through JS, CLI, MCP, Python and Go. All six root/OOPIF/dynamic-OOPIF × POST/Blob
+groups retain their all-ready barrier and original deadlines. The 30 original
+files contain 5200 bytes; public caller paths, original Page GUIDs, source/scope,
+server witnesses and file hashes remain independently checked. Both specialized
+runs have zero observed activation/focus events and no added allowances, over
+4007ms and 13350ms respectively. The existing missing-file rejection case deletes
+one 170-byte file after original verification; the independent audit re-reads
+the remaining 29 paths/5030 bytes and checks the first file's captured evidence.
+
+Full ordinary regression `9YXWxm` passes 128/128, actual exit 0. Every name and
+its order matches `Ghqqmo`; 303905ms of focus coverage retains exactly the existing
+twelve task-window activation and four control-popup focus allowances. This
+separate full run keeps default observation semantics and is not a claim that
+all 128 cases ran with Browser downloads bound.
+The sentinel stays selected, while viewport heights change (1222 to 1165 in
+the specialized runs and 1204 in the full run). The full test intentionally
+terminates its first host; the replacement closes normally through EOF. Exact
+private processes are absent afterward. Unlike the negative run's Browser.close
+proof, ordinary mode does not retain an independent Chromium exit code, so its
+runner exit 0 is not a graceful-browser-shutdown claim.
+
+The first full integration unit run remains 1218/1219, exit 1: a listener using
+port zero received a Fetch-restricted port. Both fixture entry points now use
+the existing directly reserved private-port helper; explicit ports preserve
+their original bind error. The first browser run `KMGg88` remains 2/3, exit 1:
+the new four relay records had been mixed into the existing exact-two NetLog
+evidence. The runner now assigns separate collections at creation, closes all
+six and verifies the final readiness records are unchanged. The strict original
+NetLog gate was not relaxed. Neither failed run is relabelled as passing.
+
+The final checkpoint records 355 source hashes, all JS distribution files,
+124 Go/module inputs and ten freshly built host/helper binaries. Browser and
+runtime versions are pinned. This is isolated launch-flag Chromium with the
+loopback Native Port adapter, not ordinary browser authorization, existing user
+profile or cross-platform acceptance. Published preview ZIPs remain unchanged.
+
 ## Product integration evidence
 
 Final five-entry run `Fb9uuB` passed 2/2 with actual exit 0. JS, CLI, MCP,

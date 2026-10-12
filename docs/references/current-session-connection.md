@@ -34,6 +34,13 @@ recency, and there is no fallback to another root or port.
 download override. This changes CDP context state, not user download preferences;
 see [original ownership and cleanup](original-page-download-delivery.md).
 
+For a subsequent task that needs the actual file, prepare the page's download
+with `requirePath: true` and wait for its ready acknowledgement before triggering
+the export. The readiness check uses the original binding; a prior available
+capability response alone does not cover disconnection during preparation.
+This option and its SDK spellings are documented with
+[original-file readiness](original-page-download-delivery.md#required-file-path-readiness).
+
 ## Discovery, identity and deadlines
 
 Discovery reads only the selected root's `DevToolsActivePort`: an ordinary file

@@ -31,20 +31,21 @@ func newBeginTurnCommand() *cobra.Command {
 // A submission owns its turn and epoch before waiting for the transport. Ends
 // invalidate queued submissions; they never silently move to the next turn.
 type cliControlSnapshot struct {
-	session, turn            string
-	version                  int // -1: unknown, 0: legacy, 1: epoch protocol
-	epoch                    int64
-	generation               uint64
-	deadline                 time.Time // populated only on queued MCP submissions
-	networkWaitSupported     bool
-	navigationWaitSupported  bool
-	downloadWaitSupported    bool
-	pageWaitSupported        bool
-	fileChooserWaitSupported bool
-	directDownloadsSupported bool
-	mediaDownloadsSupported  bool
-	pageExportSupported      bool
-	clipboardSupported       bool
+	session, turn             string
+	version                   int // -1: unknown, 0: legacy, 1: epoch protocol
+	epoch                     int64
+	generation                uint64
+	deadline                  time.Time // populated only on queued MCP submissions
+	networkWaitSupported      bool
+	navigationWaitSupported   bool
+	downloadWaitSupported     bool
+	downloadWaitPathSupported bool
+	pageWaitSupported         bool
+	fileChooserWaitSupported  bool
+	directDownloadsSupported  bool
+	mediaDownloadsSupported   bool
+	pageExportSupported       bool
+	clipboardSupported        bool
 }
 
 type cliControl struct {
@@ -300,9 +301,13 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			}
 			metadata, _ := info["metadata"].(map[string]any)
 			captured.downloadWaitSupported = metadata["downloadWaitVersion"] == float64(1)
+			captured.downloadWaitPathSupported = metadata["downloadWaitPathVersion"] == float64(1)
 		}
 		if !captured.downloadWaitSupported {
 			return nil, errors.New("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension requires downloadWaitVersion 1")
+		}
+		if method == "armDownloadWait" && params["requirePath"] == true && !captured.downloadWaitPathSupported {
+			return nil, errors.New("OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED: extension requires downloadWaitPathVersion 1")
 		}
 	}
 	if cliPageWaitMethod(method) {
@@ -546,6 +551,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
 	captured.fileChooserWaitSupported = metadata["fileChooserWaitVersion"] == float64(1)
 	captured.downloadWaitSupported = metadata["downloadWaitVersion"] == float64(1)
+	captured.downloadWaitPathSupported = metadata["downloadWaitPathVersion"] == float64(1)
 	captured.pageWaitSupported = metadata["pageWaitVersion"] == float64(1)
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	captured.mediaDownloadsSupported = metadata["mediaDownloadsVersion"] == float64(1)

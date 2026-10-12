@@ -174,7 +174,7 @@ export async function runOriginalDownloadCaller({ kind, downloadKind, key, execu
     const options = { executable, socketPath, sessionId, spawnProcess, responseTimeoutMs };
     adapter = await stage("connect", () => kind === "cli" ? cliAdapter(options, detail) : mcpAdapter(options, detail));
     const submittedAt = Date.now(), armStarted = performance.now();
-    const ack = await call("arm", "armDownloadWait", { tabId, timeoutMs: 15000 });
+    const ack = await call("arm", "armDownloadWait", { tabId, timeoutMs: 15000, requirePath: true });
     // Keep a returned ID for cleanup even if another ACK field is malformed.
     if (typeof ack?.waiterId === "string" && ack.waiterId) detail.waiterId = ack.waiterId;
     assert.ok(detail.waiterId && typeof ack.remainingMs === "number" && ack.remainingMs > 0 && ack.remainingMs <= 15000);

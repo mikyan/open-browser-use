@@ -49,6 +49,7 @@ export class OpenBrowserUseClient {
     #networkWaitVersion = undefined;
     #fileChooserWaitVersion = undefined;
     #downloadWaitVersion = undefined;
+    #downloadWaitPathVersion = undefined;
     #pageWaitVersion = undefined;
     #scopeParent = null;
     #boundScope = {};
@@ -249,6 +250,8 @@ export class OpenBrowserUseClient {
                 await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
             if (this.#downloadWaitVersion !== 1)
                 throw new Error("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension does not advertise downloadWaitVersion 1");
+            if (method === "armDownloadWait" && merged.requirePath === true && this.#downloadWaitPathVersion !== 1)
+                throw new Error("OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED: extension does not advertise downloadWaitPathVersion 1");
             if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
                 throw new Error("Download waits require an explicit control epoch");
         }
@@ -366,7 +369,8 @@ export class OpenBrowserUseClient {
     async [downloadWaitSymbol](tabId, options = {}) {
         const timeoutMs = downloadWaitTimeout(options), deadline = Date.now() + timeoutMs;
         let binding;
-        const value = await this.#request("armDownloadWait", { tabId, timeoutMs }, { timeoutMs: timeoutMs + 1000, startBefore: deadline }, metadata => { binding = metadata; });
+        const value = await this.#request("armDownloadWait", { tabId, timeoutMs,
+            ...(options.requirePath === true ? { requirePath: true } : {}) }, { timeoutMs: timeoutMs + 1000, startBefore: deadline }, metadata => { binding = metadata; });
         const ack = downloadWaitAck(value, timeoutMs);
         const expires = Math.min(deadline, Date.now() + ack.remainingMs);
         assertDownloadWaitDeadline(expires);
@@ -549,6 +553,8 @@ export class OpenBrowserUseClient {
             this.#fileChooserWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.fileChooserWaitVersion ?? null : null;
         if (method === "getInfo")
             this.#downloadWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.downloadWaitVersion ?? null : null;
+        if (method === "getInfo")
+            this.#downloadWaitPathVersion = isObject(result) && isObject(result.metadata) ? result.metadata.downloadWaitPathVersion ?? null : null;
         if (method === "armDownloadWait")
             return downloadWaitAck(result, params.timeoutMs);
         if (method === "collectDownloadWait") {

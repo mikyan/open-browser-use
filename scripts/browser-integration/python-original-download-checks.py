@@ -192,7 +192,7 @@ def run(config):
         detail["rootBefore"] = stage("rootBefore", lambda: check_initial_page(state_text(tab.locator("#state").text_content(timeout_ms=5000)), config))
         detail["scopeAfter"] = stage("scopeAfter", lambda: check_scope(browser.client.request("getControlState", scope), config))
         gate_deadline = time.monotonic() + 15
-        wait = stage("ready", lambda: tab.expect_download(timeout_ms=15000))
+        wait = stage("ready", lambda: tab.expect_download(timeout_ms=15000, require_path=True))
         gate_deadline = min(gate_deadline, time.monotonic() + wait.remaining_ms / 1000)
         detail.update(waiterId=wait.waiter_id, remainingMs=wait.remaining_ms, readyAt=now())
         stage("gate", lambda: await_ready_gate(config["readyGate"], detail, gate_deadline))

@@ -58,6 +58,56 @@ test("strict download wait schemas and capacity are enforced before native work"
   await f.registry.cancel(handle);
 });
 
+test("requirePath is a strict optional boolean and never part of a collect/cancel handle", async () => {
+  const f = fixture();
+  for (const requirePath of [null, 0, 1, "true", [], {}])
+    assert.throws(() => f.registry.reserve({ ...params, requirePath }), /requirePath/);
+  for (const requirePath of [false, true]) {
+    const { record, handle } = await f.arm({ requirePath });
+    assert.equal(record.params.requirePath, requirePath);
+    assert.throws(() => f.registry.lookup({ ...handle, requirePath }), /does not support/);
+    await assert.rejects(f.registry.cancel({ ...handle, requirePath }), /does not support/);
+    await f.registry.cancel(handle);
+  }
+});
+
+test("legacy download waits reject requirePath before reserving capacity or native setup", async () => {
+  const f = fixture();
+  for (const requirePath of [true, false, undefined]) {
+    assert.throws(() => f.registry.reserve({ ...params, requirePath }, { legacy: true }), /does not support requirePath/);
+    assert.equal(f.registry.records.size, 0); assert.equal(f.registry.byTab.size, 0);
+    assert.equal(f.timers.size, 0); assert.deepEqual(f.calls, []);
+  }
+  const record = f.registry.reserve({ ...params, control_epoch: undefined }, { legacy: true });
+  assert.equal(record.legacy, true); assert.equal(Object.hasOwn(record.params, "requirePath"), false);
+  await f.registry.invalidateAll();
+  assert.equal(f.registry.records.size, 0); assert.equal(f.timers.size, 0);
+});
+
+test("binding checks fence the final readiness and delivery continuations", async () => {
+  let valid = true;
+  const f = fixture({ assertBinding: () => { if (!valid) throw new Error("OBU_DOWNLOAD_PATH_UNAVAILABLE"); },
+    validateScope: async () => { valid = false; } });
+  const record = f.reserve({ requirePath: true });
+  await assert.rejects(f.registry.arm(record, [undefined]), /PATH_UNAVAILABLE/);
+  assert.equal(record.invalid, true);
+  assert.deepEqual(f.published, []);
+  assert.equal(f.registry.records.size, 0);
+});
+
+test("required path readiness cannot renew its deadline when children keep joining during validation", async () => {
+  let sequence = 0;
+  const f = fixture({ validateScope: async (_scope, record) => {
+    void f.registry.enable(record, `child-${++sequence}`).catch(() => {});
+    await f.advance(25);
+  } });
+  const record = f.reserve({ requirePath: true });
+  await assert.rejects(f.registry.arm(record, [undefined]), /WAIT_TIMEOUT/);
+  assert.equal(sequence, 4); assert.equal(record.deadlineAt, 100);
+  await f.registry.drain(record);
+  assert.equal(f.registry.records.size, 0); assert.equal(f.timers.size, 0);
+});
+
 test("foreign scope cannot consume or cancel the owned download observer", async () => {
   const f = fixture(), { record, handle } = await f.arm();
   for (const extra of [{ session_id: "other" }, { turn_id: "other" }, { control_epoch: 2 }, { tabId: 8 }]) {

@@ -11,6 +11,15 @@ import { downloadWaitAck, downloadWaitParams } from "../dist/download-waits.js";
 const info = { metadata: { turnLifecycleVersion: 1, downloadWaitVersion: 1, directDownloadsVersion: 1 } };
 const state = epoch => ({ controlEpoch: epoch, nextTurnId: `turn-${epoch}`, lifecycleVersion: 1, closing: false });
 const download = { downloadId: "page-guid" };
+
+test("requirePath is a strict boolean available only on download wait arm", () => {
+  for (const requirePath of [true, false]) assert.doesNotThrow(() => downloadWaitParams("armDownloadWait", { tabId: 9, requirePath }));
+  for (const requirePath of [null, 0, 1, "true", {}, []])
+    assert.throws(() => downloadWaitParams("armDownloadWait", { tabId: 9, requirePath }), /requirePath|parameters/);
+  for (const method of ["collectDownloadWait", "cancelDownloadWait"])
+    for (const requirePath of [true, false]) assert.throws(() => downloadWaitParams(method, { tabId: 9, waiterId: "w", requirePath }), /parameters/);
+});
+
 async function fixture(t, handler) {
   const endpoint = process.platform === "win32" ? `\\\\.\\pipe\\obu-download-${randomUUID()}` : join(tmpdir(), `obu-download-${randomUUID()}.sock`);
   const calls = [], sockets = new Set();
@@ -51,6 +60,62 @@ test("download ready ACK precedes action, collect and cancellation retain exact 
   assert.equal((await wait.result()).downloadId, download.downloadId); await wait.cancel();
   await assert.rejects(wait.result(), /OBU_DOWNLOAD_WAIT_INVALID/);
   assert.deepEqual(f.calls.map(v => v.method), ["getInfo", "getControlState", "armDownloadWait", "browserAction", "collectDownloadWait", "cancelDownloadWait"]);
+});
+
+test("typed download waits negotiate requirePath and never copy it into collect or cancel", async t => {
+  for (const surface of ["tab", "playwright"]) {
+    const f = await fixture(t, (req, reply) => {
+      if (req.method === "getInfo") return reply({ metadata: { ...info.metadata, downloadWaitPathVersion: 1 } });
+      if (req.method === "getControlState") return reply(state(7));
+      if (req.method === "armDownloadWait") {
+        assert.equal(req.params.requirePath, true); assert.ok(req.params.timeoutMs > 0 && req.params.timeoutMs <= 1000);
+        return reply({ waiterId: "path-wait", remainingMs: 500 });
+      }
+      assert.deepEqual(req.params, { session_id: f.client.sessionId, turn_id: "initial", control_epoch: 7, tabId: 9, waiterId: "path-wait" });
+      reply(req.method === "collectDownloadWait" ? download : {});
+    });
+    const wait = await (surface === "tab" ? f.tab : f.tab.playwright).expectDownload({ timeoutMs: 1000, requirePath: true });
+    assert.equal((await wait.result()).downloadId, "page-guid"); await wait.cancel();
+  }
+});
+
+test("path-required raw and typed waits reject absent or malformed capability without sending arm", async t => {
+  for (const version of [undefined, null, true, "1", 2]) {
+    const f = await fixture(t, (req, reply) => reply(req.method === "getInfo" ?
+      { metadata: { ...info.metadata, ...(version === undefined ? {} : { downloadWaitPathVersion: version }) } } : state(7)));
+    await assert.rejects(f.tab.expectDownload({ requirePath: true }), /OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED/);
+    await assert.rejects(f.client.request("armDownloadWait", { tabId: 9, requirePath: true }), /OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED/);
+    assert.ok(!f.calls.some(call => call.method === "armDownloadWait"));
+  }
+});
+
+test("typed false and omission keep strict old peers usable while raw false stays explicit", async t => {
+  let pathSupport = false;
+  const f = await fixture(t, (req, reply, fail) => {
+    if (req.method === "getInfo") return reply(pathSupport ? { metadata: { ...info.metadata, downloadWaitPathVersion: 1 } } : info);
+    if (req.method === "getControlState") return reply(state(7));
+    if (!pathSupport && Object.hasOwn(req.params, "requirePath")) return fail("Old peer rejects unknown field requirePath");
+    reply({ waiterId: "w", remainingMs: 100 });
+  });
+  await f.tab.expectDownload({ requirePath: false }); await f.tab.expectDownload();
+  pathSupport = true; await f.client.getInfo();
+  await f.client.request("armDownloadWait", { tabId: 9, requirePath: false, timeoutMs: 1000 });
+  const arms = f.calls.filter(call => call.method === "armDownloadWait");
+  assert.deepEqual(arms.map(call => call.params.requirePath), [undefined, undefined, false]);
+  for (const requirePath of [undefined, null, 0, 1, "true", {}, []]) await assert.rejects(f.tab.expectDownload({ requirePath }), /requirePath/);
+  assert.equal(f.calls.filter(call => call.method === "armDownloadWait").length, 3);
+});
+
+test("fresh metadata and an explicitly new connection cannot inherit requirePath support", async t => {
+  let advertised = { metadata: { ...info.metadata, downloadWaitPathVersion: 1 } };
+  const f = await fixture(t, (req, reply) => reply(req.method === "getInfo" ? advertised : req.method === "getControlState" ? state(7) : { waiterId: "w", remainingMs: 100 }));
+  const wait = await f.tab.expectDownload({ requirePath: true });
+  advertised = info; await f.client.getInfo();
+  await assert.rejects(f.tab.expectDownload({ requirePath: true }), /OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED/);
+  f.client.close(); await assert.rejects(wait.result(), /DISCONNECTED|closed/);
+  const fresh = new OpenBrowserUseClient({ socketPath: f.client.socketPath, turnId: "fresh" }); t.after(() => fresh.close());
+  await assert.rejects(fresh.request("armDownloadWait", { tabId: 9, requirePath: true }), /OBU_DOWNLOAD_WAIT_PATH_UNSUPPORTED/);
+  assert.equal(f.calls.filter(call => call.method === "armDownloadWait").length, 1);
 });
 
 test("delayed ACK preserves ended scope and rejection never rearms or begins a turn", async t => {

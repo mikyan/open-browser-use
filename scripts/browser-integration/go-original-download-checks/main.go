@@ -375,7 +375,7 @@ func run(raw []byte) (detail map[string]any) {
 	}
 	gateDeadline := time.Now().Add(15 * time.Second)
 	if stage("ready", func() (err error) {
-		wait, err = tab.ExpectDownload(obu.DownloadWaitOptions{Timeout: 15 * time.Second})
+		wait, err = tab.ExpectDownload(obu.DownloadWaitOptions{Timeout: 15 * time.Second, RequirePath: true})
 		return err
 	}) != nil {
 		return detail

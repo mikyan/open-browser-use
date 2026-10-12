@@ -24,6 +24,8 @@ def download_wait_timeout(value: int | None = None) -> int:
 
 def download_wait_params(method: str, params: dict[str, Any]) -> None:
     allowed = {"session_id", "turn_id", "control_epoch", "tabId", "timeoutMs" if method == "armDownloadWait" else "waiterId"}
+    if method == "armDownloadWait":
+        allowed.add("requirePath")
     if (not isinstance(params, dict) or set(params) - allowed or type(params.get("tabId")) is not int
             or not 0 <= params["tabId"] <= 9007199254740991
             or (method != "armDownloadWait" and not _identifier(params.get("waiterId")))):
@@ -34,6 +36,8 @@ def download_wait_params(method: str, params: dict[str, Any]) -> None:
     if "control_epoch" in params and (type(params["control_epoch"]) is not int or not 1 <= params["control_epoch"] <= 9007199254740991):
         raise ValueError("Invalid download wait scope")
     if method == "armDownloadWait":
+        if "requirePath" in params and type(params["requirePath"]) is not bool:
+            raise ValueError("Download wait requirePath must be boolean")
         if "timeoutMs" in params and params["timeoutMs"] is None:
             raise ValueError("Download wait timeoutMs cannot be null")
         download_wait_timeout(params.get("timeoutMs"))

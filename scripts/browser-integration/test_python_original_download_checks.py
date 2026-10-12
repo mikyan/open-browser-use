@@ -76,12 +76,13 @@ class OriginalDownloadHelperTests(unittest.TestCase):
                                 self.assertEqual(params["control_epoch"], 7)
                             result, failure = {}, None
                             if method == "getInfo":
-                                result = {"metadata": {"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "directDownloadsVersion": 1}}
+                                result = {"metadata": {"turnLifecycleVersion": 1, "downloadWaitVersion": 1, "downloadWaitPathVersion": 1, "directDownloadsVersion": 1}}
                             elif method == "getControlState":
                                 controls += 1
                                 result = {"lifecycleVersion": 1, "controlEpoch": 8 if mode == "changed-epoch" and controls == 3 else 7,
                                           "closing": False, "nextTurnId": "must-not-adopt"}
                             elif method == "armDownloadWait":
+                                self.assertIs(params.get("requirePath"), True)
                                 remaining = 100 if mode == "gate-timeout" else 500 if mode == "gate-add-late" else 14000
                                 result = {"waiterId": "original-waiter", "remainingMs": remaining}
                             elif method == "collectDownloadWait":

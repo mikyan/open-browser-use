@@ -3,8 +3,10 @@ export const downloadWaitMethods = new Set(["armDownloadWait", "collectDownloadW
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const identifier = (value) => typeof value === "string" && value.length > 0 && Buffer.byteLength(value, "utf8") <= 128;
 export function downloadWaitTimeout(options = {}) {
-    if (!object(options) || Object.keys(options).some(key => key !== "timeoutMs"))
-        throw new Error("Download wait options only accept timeoutMs");
+    if (!object(options) || Object.keys(options).some(key => key !== "timeoutMs" && key !== "requirePath"))
+        throw new Error("Download wait options only accept timeoutMs and requirePath");
+    if (Object.hasOwn(options, "requirePath") && typeof options.requirePath !== "boolean")
+        throw new Error("Download wait requirePath must be boolean");
     const timeout = options.timeoutMs === undefined ? 10000 : options.timeoutMs;
     if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120000)
         throw new Error("Download wait timeoutMs must be an integer from 1 to 120000");
@@ -12,6 +14,8 @@ export function downloadWaitTimeout(options = {}) {
 }
 export function downloadWaitParams(method, params) {
     const allowed = ["session_id", "turn_id", "control_epoch", "tabId", method === "armDownloadWait" ? "timeoutMs" : "waiterId"];
+    if (method === "armDownloadWait")
+        allowed.push("requirePath");
     if (!object(params) || Object.keys(params).some(key => !allowed.includes(key)) || !Number.isSafeInteger(params.tabId) || params.tabId < 0 ||
         (method !== "armDownloadWait" && !identifier(params.waiterId)))
         throw new Error("Invalid download wait parameters");
@@ -23,7 +27,8 @@ export function downloadWaitParams(method, params) {
     if (Object.hasOwn(params, "control_epoch") && (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1))
         throw new Error("Invalid download wait scope");
     if (method === "armDownloadWait")
-        downloadWaitTimeout({ timeoutMs: params.timeoutMs });
+        downloadWaitTimeout({ timeoutMs: params.timeoutMs,
+            ...(Object.hasOwn(params, "requirePath") ? { requirePath: params.requirePath } : {}) });
 }
 export function downloadWaitAck(value, timeout) {
     if (!object(value) || Object.keys(value).length !== 2 || !identifier(value.waiterId) || typeof value.remainingMs !== "number" ||

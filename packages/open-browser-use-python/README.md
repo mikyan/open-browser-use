@@ -416,8 +416,11 @@ failure never automatically rearms it, retries a click or begins a new turn.
 
 `pending.cancel()` only cancels observation. It remains retryable on the exact
 wait after expiry, with its own ten-second cleanup budget, and does not cancel
-the browser's transfer or page network activity. Check
-`getInfo.metadata.pageDownloads.available` before arming. With an explicitly
+the browser's transfer or page network activity. When the task needs the original
+file, use `tab.expect_download(timeout_ms=10000, require_path=True)`. This requires
+`downloadWaitPathVersion == 1` and rejects an absent or changed binding before
+ready. The flag must be a boolean; false only prepares observation. Readiness
+cannot guarantee the connection survives a later click. With an explicitly
 verified [native Browser binding](../../docs/references/original-page-download-delivery.md),
 `download.path()` waits for the original completed file and `download.cancel()`
 cancels that transfer. Otherwise they raise `OBU_DOWNLOAD_PATH_UNAVAILABLE` and
