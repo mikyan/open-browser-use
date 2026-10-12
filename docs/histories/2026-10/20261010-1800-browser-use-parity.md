@@ -1828,6 +1828,30 @@ CRX的resolved Promise和synthetic目录均非证据。历史Codex1.1.4全局下
 通知也不证明当前任务归属。新计划先核当前Codex同场文件任务与原生通路，
 保留登录/授权UI、context配置及品牌边界，不把新运行模式当作全面完成。
 
+### 原始POST/Blob文件与Browser通路实证
+
+新增可复用一次性POST/即时revoke Blob fixture、loopback对照服务、真正
+Browser root观察器和独立proof模式。POST payload从HTML移除，全部请求/
+响应原字节保留；CLI stop单测发现stdin持有进程，修复后fixture8项与
+observer16项合计24/24、actualexit0、无skip/cancel。
+
+当前Codex工具同组root对照IAB POST/Blob与Edge POST返回路径，三个文件
+nonce/原字节/SHA匹配；Edge Blob单次10秒超时保留，未重复触发或猜文件。
+这不证明其浏览器未生成文件，也不证明并发/OOPIF/focus或普遍支持边界。
+
+真正Windows独立profile default与allowAndName两次各2/2、actualexit0，
+每轮18文件覆盖3任务×root/OOPIF/动态OOPIF×POST/Blob。精确原GUID、frame、
+源tab与scope合流后，只从Browser完成事件filePath读取单句柄原字节并分析
+nonce；同URL/同名并发、外国GUID拒绝和完整通知归属通过。各9唯一POST、
+0替代GET、共6330B；配置/复位ACK和actualclose、18waiter/3owner清理通过。
+连续7817/7494ms零focus/activation；第三owner为无关任务，非未owned用户。
+
+独立审计核实际文件、168原Browser帧/21命令ACK（每轮）、Page事件、源树
+与清理；过严stage哈希比较的失败保留，最终确认仅随机bridge端口有差别。
+生产host/扩展/SDK未改，旧preview三ZIP未改，不据此声称正式路径交付已实现。
+下一步接入host/extension私有能力与实际连接身份，原scope先授权后交付，
+保留普通未启用Browserroot安装的明确限制。完整目标与原文件计划继续active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1847,3 +1871,5 @@ CRX的resolved Promise和synthetic目录均非证据。历史Codex1.1.4全局下
 - `docs/exec-plans/completed/2026-10-12-drag-commit.md`
 - `docs/exec-plans/completed/2026-10-12-sdk-connection-identity.md`
 - `docs/references/sdk-connection-identity.md`
+- `docs/references/original-page-download-delivery.md`
+- `docs/exec-plans/active/2026-10-12-original-page-downloads.md`

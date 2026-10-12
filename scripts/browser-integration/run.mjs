@@ -52,6 +52,9 @@ import { createBackgroundWindowRecorder, checkBackgroundWindowCleanup, checkBack
 import { directoryWorldHTML, checkDirectoryWorld } from "./directory-world-fixture.mjs";
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
+import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs";
+import { connectOriginalDownloadObserver } from "./original-download-observer.mjs";
+import { checkOriginalDownloadProof } from "./original-download-proof.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
@@ -73,6 +76,11 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
+const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
+if (originalDownloadBehavior !== undefined && !["default", "allowAndName"].includes(originalDownloadBehavior))
+  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, or unset");
+if (originalDownloadBehavior && ["OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
+  throw new Error("Original download proof is a separate headed mode");
 const mcpBinding = mcpBindingEnabled(process.env);
 const chooserMode = chooserDiagnosticMode(process.env);
 const chooserDiagnostic = chooserMode !== null;
@@ -295,10 +303,12 @@ const chooserFixtures = createChooserWaitFixtures({ pointerEvidence: chooserDiag
     chooserMode === "pointer-go-context" ? { pointerEvidenceKeys: chooserPointerGoContextKeys } : {}) });
 const directoryUploads = createDirectoryUploadFixtures({ pointerEvidence: chooserAllPointers });
 const downloadWaitFixtures = createDownloadWaitFixtures();
+const originalDownloadFixtures = createOriginalDownloadFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
+  if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -480,6 +490,8 @@ try {
     sourceIdentity.sha256.sharedNativeDiagnostic = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-ready-diagnostic.mjs"))).digest("hex");
   }
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  if (originalDownloadBehavior) for (const name of ["original-download-fixture.mjs", "original-download-observer.mjs", "original-download-proof.mjs"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.directDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "direct-downloads-fixture.mjs"))).digest("hex");
@@ -591,6 +603,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== "js-original-download-native-proof") return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
     if (mcpBinding && !mcpBindingCases.includes(name)) return;
@@ -609,6 +622,43 @@ try {
     }
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
+  if (originalDownloadBehavior) await test("js-original-download-native-proof", async () => {
+    const owners = [], detail = { boundary: "Native transport feasibility proof, not a public path implementation" };
+    let native, failure;
+    try {
+      const activePort = (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).trim().split(/\r?\n/);
+      const url = new URL(browserVersion.webSocketDebuggerUrl);
+      assert.equal(url.port, activePort[0]); assert.equal(url.pathname, activePort[1]);
+      native = await connectOriginalDownloadObserver({ webSocketURL: url.href, ownedIsolatedProfile: path.resolve(profile) });
+      const targets = await native.call("Target.getTargets");
+      const workerTargets = (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json())
+        .filter(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
+      assert.equal(workerTargets.length, 1);
+      assert.ok(targets.targetInfos.some(target => target.targetId === workerTargets[0].id));
+      assert.equal(await worker.evaluate("chrome.runtime.id"), extensionId);
+      detail.identity = { pid: chrome.pid, profile, activePort, browserVersion, extensionId, worker: workerTargets[0], targets };
+      await native.start({ behavior: originalDownloadBehavior, ...(originalDownloadBehavior === "allowAndName" ? { downloadPath: path.join(runDir, "downloads") } : {}) });
+      sourceIdentity.testHooks.push("original download proof: real Browser root connection changes only fresh isolated profile download behavior/events; passive Page trace, exact GUID/frame merge and native filePath reads; no product fallback or directory delta");
+      for (let index = 0; index < 3; index++) owners.push(await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `original-download-${index}`, turnId: "native-proof", timeoutMs: 20000 }));
+      Object.assign(detail, await checkOriginalDownloadProof({ owners, worker, native, fixture: originalDownloadFixtures, fixtureURL, downloadRoot: path.join(runDir, "downloads"), until, behavior: originalDownloadBehavior }));
+    } catch (error) { failure = error; Object.assign(detail, error.originalDownloadDetail ?? {}, { error: error.stack, ...(error.observerSnapshot ? { observerFailure: error.observerSnapshot } : {}) }); }
+    finally {
+      detail.cleanup = [];
+      for (const owner of owners) {
+        try { detail.cleanup.push(await owner.client.finalizeTabs([])); }
+        catch (error) { detail.cleanup.push({ error: error.stack }); failure ??= error; }
+        finally { owner.close(); }
+      }
+      if (native) {
+        try { await native.close(); } catch (error) { detail.nativeCloseError = error.stack; failure ??= error; }
+        detail.browserTrace = native.snapshot();
+      }
+      detail.server = originalDownloadFixtures.allStats();
+      await fs.writeFile(path.join(runDir, "original-download-proof.json"), JSON.stringify(detail, null, 2));
+    }
+    if (failure) throw failure;
+    return { evidence: "original-download-proof.json", behavior: originalDownloadBehavior, originalFiles: detail.cases.length, publicPathImplemented: false };
+  });
   for (const kind of ["js", "cli", "mcp", "python", "go", "lifecycle"]) await test(kind === "lifecycle" ? "js-page-download-ready-lifecycle" : `${kind}-page-download-ready-two-connections`, async () => {
     const prefix = `${kind === "lifecycle" ? "js-lifecycle" : kind}-page-download`, options = { socketPath: endpoint, sessionId: prefix, turnId: "download-ready", timeoutMs: 15000 };
     const owner = await connectOpenBrowserUse(options), trigger = ["js", "lifecycle"].includes(kind) ? await connectOpenBrowserUse(options) : null;

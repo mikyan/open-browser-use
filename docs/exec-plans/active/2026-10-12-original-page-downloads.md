@@ -7,7 +7,8 @@
 Windows真实完整125/125、Windows/Linux SDK及原生IPC通过，属于progress。
 旧preview保持不变，不创建PR、不移动系统鼠标或选中用户tab，不增加Pi适配。
 
-现有`expectDownload`能确认Page GUID、原tab/frame/session/epoch并等待完成，
+现有`expectDownload`能确认Page GUID、原tab/frame/session/epoch并等待匹配，
+`result()`在原始begin事件通过归属校验后返回，不代表文件已下载完成；
 但`downloadPath`对Page GUID明确返回`OBU_DOWNLOAD_PATH_UNAVAILABLE`。可靠
 路径仅来自本项目主动`chrome.downloads.download`返回的numeric ID；新GET
 不能替代POST报表、一次性响应或立即撤销的Blob。现有浏览器测试已核原始
@@ -21,7 +22,8 @@ resolved Promise，synthetic `/tmp/downloads`也不是原生路径证据。Histo
 历史Codex扩展1.1.4快照的`handleDownloadCreated`在浏览器控制活跃时向外
 发送全局numeric ID、filename、URL；此层没有任务tab绑定。它是历史线索，
 不是当前Codex能力或跨任务归属证明，更不是复制全局下载可见性的理由。
-当前文件任务尚未做同场Codex验收，先核当前公开工具表面和真实输出。
+本计划建立时尚未做同场Codex验证；本轮root单次对照见下文，完整文件任务
+验收仍未完成，不能以旧源码或公开工具表面替代真实输出。
 
 ## Candidate native mechanisms, not implemented claims
 
@@ -42,9 +44,9 @@ Fetch原响应捕获可另行提供HTTP正文能力，但没有GUID归属且不�
 
 ## Work and acceptance
 
-- [ ] 核当前Codex同组文件流程：原POST、Blob、返回路径/内容及后续读取，
+- [x] 核当前Codex同组文件流程：原POST、Blob、返回路径/内容及后续读取，
   记录实际支持与限制，区分IAB和扩展，不以旧源码或描述代替实测。
-- [ ] 以独立合成页面验证真正browser-level传输，固定实际browser身份，
+- [x] 以独立合成页面验证真正browser-level传输，固定实际browser身份，
   只读记录原Page/Browser事件；任何下载配置变化限于明确受控context。
   若当前profile入口需人机授权，先完成可审查的独立实现再说明真实需求。
 - [ ] 正式入口保留ready→trigger→collect，原POST只允许一次；替代GET
@@ -71,3 +73,57 @@ Fetch原响应捕获可另行提供HTTP正文能力，但没有GUID归属且不�
 
 后台新页ready/跟进、其他平台及guard丢失恢复继续开放；本片不改写整体
 成功条件，也不把单独browser-level连接方案当作已解决所有浏览器的安装。
+
+## 2026-10-12: original bytes and native path feasibility
+
+前一问答仅给公司电脑安装步骤，没有能力验收进展。本轮完成可复用fixture、
+原生观察器和真实对照，改变下一步实现依据，属于progress。生产扩展/host/
+SDK未修改，公开`downloadPath`仍返回原限制；完整计划保持active。
+
+当前Codex公开工具`waitForEvent('download')`后调用`path()`，单次root
+IAB POST、IAB立即revoke Blob、Edge extension POST均返回可读路径，三个
+原文件152/152/153B、nonce及SHA一致。Edge Blob一次可信点击后等待10秒
+超时；未重试、未猜路径，不能断言浏览器未下载。两POST各一次、无替代GET。
+此对照没有并发、OOPIF、native GUID或focus证据，不外推完整能力/隔离。
+
+本项目真实`run-uK4EVu` default与`run-0CgnzY` allowAndName均2/2、actual
+exit0。每次3 owner×root/OOPIF/dynamic-OOPIF×POST/Blob=18原文件，分别
+3120/3210B。SDK begin GUID、原Page source/frame、同browser Browser GUID
+逐一绑定；真正completed事件的filePath直接打开单一句柄读原字节并分析nonce。
+三owner同URL/filename并发、通知和外国GUID请求隔离通过；第三owner是
+无关任务，尚非未owned用户下载。default保留浏览器常规文件名，allowAndName
+使用GUID文件名；两种路径都从事件读取，没有目录差分/拼名查询/重新GET。
+
+Browser连接核实际子进程profile、DevToolsActivePort端口/path、同root内
+extension worker与任务targets，完整保存原wire命令/ACK/events。两次
+default/eventsEnabled:false复位ACK及socket close已确认。连续focus分别
+7817/7494ms，均零activation/focus事件、零新增豁免；启动/拆除不在覆盖内。
+fixture/observer合计24/24单测、零skip/cancel；生产构建50源与既有host匹配。
+这两轮是独立设置的对照，不是对超时触发重跑。旧preview三ZIP保持不变。
+
+下一步将已证明的原生通路接入正式host/extension权限与连接边界，完成
+capability协商、原Page记录先授权、同连接GUID路径交付以及取消/失效/未知
+ACK。没有真实Browser root通路的普通扩展继续明确不可用；不能只实现新
+managed mode就宣称现有安装已对齐。完整证据与范围见
+[原文件交付](../../references/original-page-download-delivery.md)。
+
+## Next product integration sequence
+
+1. `internal/host/relay.go`目前仅转发、无WebSocket客户端。新增明确绑定
+   Browser连接的小模块；指定endpoint，不扫描端口/自动选择最近profile。
+   先实测native port与原extension worker的随机nonce双通路挑战，将worker
+   boot、extension instance与Browser连接generation绑定，不能只认extension
+   ID/URL。host自建profile的PID/path证明作为另一路，不替代已有浏览器支持。
+2. 新增按native port隔离的私有请求/响应分流。现有`obu.native.*`接收器
+   对未知消息的处理不同，不能借SDK pending ID偷渡。身份及真实events ACK
+   成功后才在`getInfo`披露能力；arm等待此ready，断连立刻撤销能力和缓存。
+3. 保留`handleOwnedDownload`已有Page记录与scope授权，从该port私有claim
+   发送GUID/frame/root target/attachment/原scope。host仅按同连接generation
+   和精确GUID合流，处理事件/claim先后到达的有界缓存；不广播全局下载。
+4. `downloadPath`完成原授权后请求host，等待原completed后用其filePath
+   打开普通可读文件，返回前再核scope/record/deadline。随后做cancel、scope
+   失效、文件消失、未知ACK和三SDK/CLI/MCP真实验收，不重触发或重新GET。
+
+现有用户root入口必须显式授权配置且排他使用：default也设置context下载
+行为，CDP没有读取/恢复其他控制端旧override的接口。没有授权原生通路的
+普通安装保持明确不可用；本轮不修改用户profile设置、不新增授权询问。

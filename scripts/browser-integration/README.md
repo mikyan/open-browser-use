@@ -1,5 +1,29 @@
 # Browser integration acceptance
 
+## Original page download transport proof
+
+Set `OBU_TEST_ORIGINAL_DOWNLOADS=default` or `allowAndName`, plus the usual
+`OBU_TEST_HOST_BINARY` and optional `OBU_TEST_CHROMIUM_BINARY`, then run
+`node scripts/browser-integration/run.mjs`. Do not combine this mode with other
+test selection/diagnostic flags. It runs one native-download proof plus the
+mandatory raw-navigation control in a fresh headed profile. It is not full
+product acceptance and does not implement the public `downloadPath` fallback.
+
+`original-download-proof.json` preserves actual Browser wire/ACK/close evidence,
+Page events, three-owner notifications, one-use POST/Blob witnesses, 18 exact
+native event paths and original file bytes. Cases cover root, OOPIF and dynamic
+OOPIF with colliding URLs/filenames. Only the private profile's download settings
+are changed; cleanup confirms the default/events-disabled ACK and socket close.
+No file is selected through directory differences, URL/name matching or a new GET.
+See [the verified scope and remaining work](../../docs/references/original-page-download-delivery.md).
+
+For manual tool comparisons, run
+`node scripts/browser-integration/original-download-server.mjs --output <new-directory>`.
+The loopback-only server prints four fresh IAB/Edge POST/Blob cases. Use their
+actual URLs and click once per case. Input `stop` on stdin saves the final HTTP
+ledger and shuts down. Existing output directories are rejected. Unit checks:
+`node --test scripts/browser-integration/original-download-fixture.test.mjs scripts/browser-integration/original-download-observer.test.mjs`.
+
 ## Transformed element bounds and screenshots
 
 `OBU_TEST_CASES=bounding-geometry` selects the mandatory raw-navigation control

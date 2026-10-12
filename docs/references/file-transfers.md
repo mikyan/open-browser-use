@@ -199,6 +199,10 @@ once; concurrent collection is an explicit conflict. The first native event
 claims its candidate synchronously, before asynchronous ownership validation,
 so a later event with faster validation cannot win instead.
 
+Collection completes when that original begin event is admitted, not when the
+file has finished transferring. A returned handle alone is not a readable-file
+or completed-download acknowledgement.
+
 Discovery, queues, attachment, setup, triggering, event validation and collection
 share the original deadline. Collect accepts no new timeout; SDKs recheck the
 original deadline after queueing and connection. The reply margin cannot
@@ -233,6 +237,11 @@ downloads of the same URL in different sessions remain distinct.
 It does not return a plausible path, a successful `null`, or another tab's file.
 The parameter remains available in SDKs for compatibility; reliable local path
 delivery still needs a browser-supported, provable GUID-to-path mechanism.
+
+A [native Browser transport proof](original-page-download-delivery.md) now joins
+the same original Page GUID to a completed Browser event's exact filePath for
+one-use POST and revoked Blob downloads. It runs only in a fresh isolated test
+profile; the public extension path remains unavailable pending product integration.
 
 Reading the profile's History database is not a supported alternative. A live
 Windows Chromium 156 probe using normal read-only SQLite locking failed every

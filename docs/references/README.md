@@ -34,6 +34,8 @@
   原标签销毁与保守的启动见证恢复，以及真实重启验收的边界。
 - [File transfers](file-transfers.md)：上传拦截准备、跨 frame 来源、清空文件、
   按任务等待下载和当前本地路径查找限制。
+- [Original page download delivery](original-page-download-delivery.md)：当前Codex
+  原POST/Blob对照、同GUID原生路径实证，以及尚未接入正式接口的边界。
 - [Locator file uploads](locator-file-upload.md)：隐藏file input的直接路径上传、
   与chooser共用的节点锁、目录完成及五入口验收边界。
 - [Network waits](network-waits-design.md)：已实现的两阶段 request/response

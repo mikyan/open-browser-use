@@ -2661,3 +2661,27 @@ Go523pass/10平台skip、JS142pass、Python109pass/1 Windows路径skip，186源�
 [原页面下载计划](2026-10-12-original-page-downloads.md)。后台新页
 ready/跟进工作流、guard丢失恢复、平台生命周期及P01–P15仍开放，完整目标
 保持active。
+
+### P10/P15：原文件交付的真实通路
+
+公司安装问答不计能力进展。本轮当前Codex同组root单次对照确认IAB POST/
+立即revoke Blob和Edge POST原路径/字节一致；Edge Blob单次waiter超时，
+失败保留且未重复点击，不外推其整体能力。原POST响应不在HTML中预置。
+
+新增原文件fixture、loopback对照server、原生Browser观察器及opt-in proof。
+独立default `uK4EVu`与allowAndName `0CgnzY`均2/2、actualexit0；每轮
+3owner×3布局×2种下载=18原文件，9唯一POST、0替代GET，合计6330B。
+同URL/同文件名并发，精确Page/Browser GUID/frame/source与原scope绑定，
+从原completed.filePath打开单句柄读原字节、SHA及nonce；不扫描目录选文件。
+三任务通知隔离与外国GUID拒绝通过，尚未覆盖未owned用户下载。真正root
+连接的profile/port/worker/target身份、配置/复位ACK及actualclose均核实。
+连续7817/7494ms零focus/activation，无新豁免；24单测零skip/cancel。
+
+两个独立审计核实36份实盘文件与原wire；过严stage哈希比较的中间失败保留，
+实文件只随机native adapter桥接端口不同，生产代码/host/SDK一致。旧preview
+三ZIP未变；正式`downloadPath`仍不可用，这不是产品功能发布或完整125回归。
+继续[原文件计划](2026-10-12-original-page-downloads.md)：先建立host与
+extension实际双连接身份、私有能力协商和原Page claim，再交付路径及实现
+取消/撤销等生命周期。普通扩展安装没有授权root时保持明确不可用，独立
+profile的成功不能替代现有用户浏览器支持或完整P01–P15。见
+[对照与证据边界](../../references/original-page-download-delivery.md)。

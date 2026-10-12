@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+原文件交付仍为未实现产品能力。新原生Browser通路实证在独立Windows
+profile的default/allowAndName两轮各2/2、actualexit0，36份POST/Blob原文件
+共6330B经精确Page/Browser GUID及原生filePath读取核验；root/OOPIF/动态
+OOPIF、同名三任务通知隔离、复位ACK/actualclose及连续focus零事件通过。
+fixture/observer24单测通过。当前Codex root对照3文件成功、Edge Blob一次
+waiter超时保留。生产代码与旧preview未改；未owned用户下载、正式五入口、
+取消/失效、当前用户profile授权及跨平台仍待实现/验证。详见
+[原文件交付](references/original-page-download-delivery.md)。
+
 最新SDK连接分片通过完整`yVGT4D` **125/125、actual exit0**，旧122项名称/
 相对顺序保持；专项`aZMiIx`4/4。三SDK断线/close后保持终态，旧handles及
 手工epoch不能重连，恢复需要新client、新handles和显式新turn。六真实
