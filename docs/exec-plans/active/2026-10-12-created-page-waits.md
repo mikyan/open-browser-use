@@ -497,6 +497,51 @@ acceptance for an in-flight delivery. That lifecycle verification is the next
 slice, alongside the unresolved normal-source focus requirement. Keep the full
 P01–P15 objective active and preserve its original requirements.
 
+### Native interruption acceptance
+
+The company-install response completed guidance only; the last capability
+checkpoint remains `0cb9e6a`. Revalidated the current tree: production unchanged,
+three untracked acceptance drafts retained. The next slice is two real native
+storage ACK boundaries (first source claim deletion and final marker write),
+crossed with exact host termination and genuine worker stop/start, each across
+root/OOPIF/dynamic-OOPIF. Use original trusted input and one business POST before
+the hold; do not retry original finalization or synthesize replacement pages.
+
+The first deletion deliberately leaves the child's original committed claim.
+Host reconnect may retain that membership; worker reconstruction must clean it.
+After marker ACK, worker loss may preserve non-authorizing presentation markers,
+whereas surviving-worker host recovery must roll back its own markers. Verify
+actual durable state and original document/HTTP evidence beyond the original
+request deadline, retaining the distinction between missing ACK and failure.
+Capture pre-interruption observers before worker death; do not claim a dead
+closure produced stop/rollback ACKs or continuous cross-worker RPC observation.
+
+The native launcher keeps unique private host registration, exact process
+ancestry/creation identity, original browser/profile/observer incarnation and
+strict full-layout/focus/cleanup gates. Genuine worker replacement must change
+target/context/boot and close the original native host via EOF, without using
+runtime.reload or changing browser incarnation. Existing conditional popup
+creation allowances remain; no new focus exemptions. Run the Node gates before
+the four native launches, freeze their sources, audit actual results and keep
+the published preview ZIPs unchanged. No claim of completion before execution.
+
+Native acceptance is now verified: `ZC912S`/`jyTWRj`/`GXH6Fg`/`WcFjy3` each
+complete all three layouts with actual exit 0. Twelve original POSTs total
+2,680 bytes; twelve original requests fail on actual socket closure before
+deadline, with original-document observation through deadline +250 ms.
+Six worker-loss hosts have exact normal EOF exit-0 witnesses. The first-delete
+partial membership and marker persistence/rollback branches match the contract.
+All 120 cleanup steps pass; each continuous ledger keeps only three existing
+sole-popup activations and zero window focus. Forced-host historical descriptor
+files remain explicitly documented, with old pipes unreachable; private
+processes and registration are gone. The final integration suite is 1,129/1,129
+with no skips/cancellations, including the final 100 focused checks. Production,
+reused host/SDK inputs and existing preview ZIPs are unchanged. The ordinary
+125-case suite was not repeated for this test-only slice. See the
+[native evidence](../../references/created-page-waits.md#native-interruption-results).
+The complete parity goal remains active; conditional popup success does not
+resolve the normal-source or other-application foreground requirement.
+
 ## Relevant implementation
 
 - `apps/chrome-extension/background.js`, `auxiliary-tab-ownership.js`

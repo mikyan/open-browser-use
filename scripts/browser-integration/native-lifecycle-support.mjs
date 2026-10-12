@@ -5,7 +5,7 @@ export const nativeLifecycleCases = Object.freeze(["native-host-exit", "native-e
 export const nativeCreatedPageCases = Object.freeze(["native-created-page-host-loss"]);
 export const nativeIdleDurationMs = 10000;
 export function resolveNativeLifecycleMode(value = "acceptance") {
-  assert.ok(["acceptance", "idle-diagnostic", "created-page-host-loss", "created-page-cleanup"].includes(value), `Unknown OBU_TEST_NATIVE_MODE: ${value}`);
+  assert.ok(["acceptance", "idle-diagnostic", "created-page-host-loss", "created-page-cleanup", "auxiliary-delivery"].includes(value), `Unknown OBU_TEST_NATIVE_MODE: ${value}`);
   return value;
 }
 export function resolveNativeCleanupScenario(mode, change, recovery) {
@@ -21,6 +21,18 @@ export function resolveNativeCleanupScenario(mode, change, recovery) {
 }
 export function allNativeLifecycleCasesPassed(records, expected = nativeLifecycleCases) {
   return records.length === expected.length && expected.every(name => records.filter(value => value.name === name && value.passed === true).length === 1);
+}
+export function resolveNativeDeliveryScenario(mode, phase, interruption) {
+  resolveNativeLifecycleMode(mode);
+  if (mode !== "auxiliary-delivery") {
+    assert.equal(phase, undefined, "OBU_TEST_NATIVE_DELIVERY_PHASE requires auxiliary-delivery mode");
+    assert.equal(interruption, undefined, "OBU_TEST_NATIVE_INTERRUPTION requires auxiliary-delivery mode");
+    return null;
+  }
+  assert.ok(["claim-delete", "marker-write"].includes(phase), `Unknown OBU_TEST_NATIVE_DELIVERY_PHASE: ${phase}`);
+  assert.ok(["host-loss", "worker-stop"].includes(interruption), `Unknown OBU_TEST_NATIVE_INTERRUPTION: ${interruption}`);
+  const variants = ["root", "oopif", "dynamic-oopif"];
+  return { phase, interruption, variants, names: variants.map(variant => `native-auxiliary-delivery-${phase}-${interruption}-${variant}`) };
 }
 export function selectCleanupPopupWindow(windows, { sentinelWindowId, sourceWindowId }) {
   assert.ok(Array.isArray(windows));
@@ -72,9 +84,15 @@ export function nativeLifecycleOutcome(report) {
     report.finalExtensionInventory?.passed === true && report.extensionInventories?.every(value => value.passed === true);
   if (mode !== "idle-diagnostic") {
     const scenario = mode === "created-page-cleanup" ? resolveNativeCleanupScenario(mode, report.cleanupScenario?.change, report.cleanupScenario?.recovery) : null;
-    const expected = scenario ? [scenario.name] : mode === "created-page-host-loss" ? nativeCreatedPageCases : nativeLifecycleCases;
-    const verified = !scenario || report.cleanupScenario.name === scenario.name && report.records.every(record =>
-      record.detail?.change === scenario.change && record.detail?.recovery === scenario.recovery && record.detail?.recoveryVerified === true);
+    const delivery = mode === "auxiliary-delivery" ? resolveNativeDeliveryScenario(mode, report.deliveryScenario?.phase, report.deliveryScenario?.interruption) : null;
+    const expected = delivery ? delivery.names : scenario ? [scenario.name] : mode === "created-page-host-loss" ? nativeCreatedPageCases : nativeLifecycleCases;
+    const verified = (!scenario || report.cleanupScenario.name === scenario.name && report.records.every(record =>
+      record.detail?.change === scenario.change && record.detail?.recovery === scenario.recovery && record.detail?.recoveryVerified === true)) &&
+      (!delivery || delivery.variants.every((variant, index) => {
+        const record = report.records.find(value => value.name === delivery.names[index]);
+        return record?.detail?.phase === delivery.phase && record.detail.interruption === delivery.interruption &&
+          record.detail.variant === variant && record.detail.recoveryVerified === true;
+      }));
     const passed = !!complete && verified && allNativeLifecycleCasesPassed(report.records, expected) && report.focus.finalValidation === "passed";
     return { passed, exitCode: passed ? 0 : 1 };
   }

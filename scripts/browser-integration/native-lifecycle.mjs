@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
 import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { browserStartupOptions, resolveFieldTrialConfig } from "./browser-startup.mjs";
-import { FocusLedger, focusArrays, focusSnapshotExpression, readFocusEvidence } from "./focus-ledger.mjs";
+import { FocusLedger, currentWorkerVersion, focusArrays, focusSnapshotExpression, readFocusEvidence } from "./focus-ledger.mjs";
 import { stageReloadObserver, reloadLifecycleRecorderSource, reloadLifecycleSnapshotExpression } from "./extension-reload-support.mjs";
 import { assertNoNewFocusEvents, assertSamePopupDocument, popupUIReflectsStatus, restartFixtureHTML } from "./browser-restart-support.mjs";
 import { checkNativeHostRestart, lifecycleRecoveryFixture } from "./lifecycle-recovery-fixture.mjs";
@@ -21,10 +21,13 @@ import { createCreatedPageFixtures } from "./created-page-fixture.mjs";
 import { createBackgroundWindowRecorder } from "./background-window-fixture.mjs";
 import { checkNativeCreatedPageHostLoss } from "./native-created-page-loss.mjs";
 import { checkNativeCreatedPageCleanup } from "./native-created-page-cleanup.mjs";
+import { checkNativeInterruptedPopupDelivery } from "./native-auxiliary-delivery.mjs";
+import { resolveNativeDeliveryScenario } from "./native-lifecycle-support.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 
 const mode = resolveNativeLifecycleMode(process.env.OBU_TEST_NATIVE_MODE);
 const cleanupScenario = resolveNativeCleanupScenario(mode, process.env.OBU_TEST_NATIVE_CHANGE, process.env.OBU_TEST_NATIVE_RECOVERY);
+const deliveryScenario = resolveNativeDeliveryScenario(mode, process.env.OBU_TEST_NATIVE_DELIVERY_PHASE, process.env.OBU_TEST_NATIVE_INTERRUPTION);
 assert.equal(process.platform, "win32", "Real native lifecycle registration currently supports Windows only");
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const browserName = process.env.OBU_TEST_NATIVE_BROWSER ?? "chrome";
@@ -45,6 +48,8 @@ const records = [], hostGenerations = [], clients = new Set(), witnesses = [], b
 const report = { scope: "Windows real browser native launcher, host termination and same-version unpacked runtime.reload; no native Port adapter; not signed update, full browser restart, other platforms or user profile", mode, runDir, browserName, profile, nativeName, expectedCases: mode === "acceptance" ? nativeLifecycleCases : mode === "created-page-host-loss" ? nativeCreatedPageCases : [], records, hostGenerations, witnesses, diagnostics, startedAt: Date.now(), focus: { allowedActivations: [], allowedFocus: [] }, ...(mode === "idle-diagnostic" && { diagnostic: { complete: false, durationMs: nativeIdleDurationMs, samples: [], scope: "read-only idle post-install control; no SDK calls, browser actions, host termination or runtime.reload during observation; not lifecycle acceptance" } }) };
 if (cleanupScenario) Object.assign(report, { cleanupScenario, expectedCases: [cleanupScenario.name],
   scope: "Windows real native launcher; exact created-page cleanup receives deliberate native Chrome quota rejection, followed by public recovery; unchanged host/worker, no Native Port adapter or natural storage-failure claim" });
+if (deliveryScenario) Object.assign(report, { deliveryScenario, expectedCases: deliveryScenario.names,
+  scope: "Windows real native Port; original popup/child delivery held after exact native storage ACK, then exact host loss or genuine worker stop/start; three layouts; no runtime.reload, replacement documents or disposition replay" });
 const hash = data => createHash("sha256").update(data).digest("hex"), delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const subprocessChildren = new Set();
 const save = (name, value) => fs.writeFile(path.join(runDir, name), JSON.stringify(value, null, 2));
@@ -85,7 +90,7 @@ async function cdp(url) {
   const fail = error => { for (const value of pending.values()) { clearTimeout(value.timer); value.reject(error); } pending.clear(); };
   socket.on("error", fail); socket.on("close", () => fail(new Error("Diagnostic CDP closed")));
   socket.on("message", bytes => { const value = JSON.parse(bytes); if (value.method) events.push({ ...value, observedAt: Date.now() }); const task = pending.get(value.id); if (!task) return; pending.delete(value.id); clearTimeout(task.timer); value.error ? task.reject(new Error(JSON.stringify(value.error))) : task.resolve(value.result); });
-  const call = (method, params = {}) => new Promise((resolve, reject) => { if (socket.readyState !== WebSocket.OPEN) return reject(new Error("Diagnostic CDP closed")); const id = ++serial, timer = setTimeout(() => { pending.delete(id); reject(new Error(`Diagnostic ${method} timed out`)); }, 20000); pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params })); });
+  const call = (method, params = {}, timeoutMs = 20000) => new Promise((resolve, reject) => { if (socket.readyState !== WebSocket.OPEN) return reject(new Error("Diagnostic CDP closed")); const id = ++serial, timer = setTimeout(() => { pending.delete(id); reject(new Error(`Diagnostic ${method} timed out`)); }, timeoutMs); pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params })); });
   return { call, events, close: () => { fail(new Error("Fixture closed CDP")); socket.close(); }, evaluate: async expression => { const result = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }); if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails)); return result.result.value; } };
 }
 
@@ -112,7 +117,7 @@ async function endpointRecords() {
 async function unreachable(socketPath) {
   return bounded(new Promise((resolve, reject) => { const socket = net.createConnection(socketPath); socket.once("connect", () => { socket.destroy(); resolve(false); }); socket.once("error", error => { socket.destroy(); if (["ENOENT", "ECONNREFUSED"].includes(error.code)) resolve({ code: error.code, at: Date.now() }); else reject(error); }); }), 2000, "old endpoint probe");
 }
-async function waitHost(previous, label) {
+async function waitHost(previous, label, timeoutMs = 45000) {
   const value = await until(async () => {
     const next = JSON.parse(await fs.readFile(endpointFile, "utf8"));
     if (previous && (next.pid === previous.pid || next.socketPath === previous.socketPath || next.startedAt === previous.startedAt)) return false;
@@ -120,14 +125,14 @@ async function waitHost(previous, label) {
     if (status?.state !== "connected" || status.hostName !== nativeName) return false;
     const browser = await connectOpenBrowserUse({ socketPath: next.socketPath, sessionId: "native-lifecycle-inspection", timeoutMs: 2000 });
     try { const info = await browser.client.getInfo(); assert.equal(typeof info.metadata.extensionInstanceId, "string"); assert.ok(info.metadata.extensionInstanceId.length > 0); return { ...next, identity, status, info, observedAt: Date.now() }; } finally { browser.close(); }
-  }, label, 45000);
+  }, label, timeoutMs);
   endpoint = value; hostGenerations.push(value); return value;
 }
-async function waitOldHostGone(previous, { cleanEOF }) {
-  const missing = await until(async () => !(await processTable()).some(value => value.ProcessId === previous.pid) && { at: Date.now() }, "original native host process exit", 15000);
-  const oldEndpoint = await until(() => unreachable(previous.socketPath), "old named pipe unavailable", 5000);
+async function waitOldHostGone(previous, { cleanEOF, remaining = () => Infinity }) {
+  const missing = await until(async () => !(await processTable()).some(value => value.ProcessId === previous.pid) && { at: Date.now() }, "original native host process exit", Math.min(15000, remaining()));
+  const oldEndpoint = await until(() => unreachable(previous.socketPath), "old named pipe unavailable", Math.min(5000, remaining()));
   let entries = await endpointRecords();
-  if (cleanEOF) entries = await until(async () => { const values = await endpointRecords(); return values.every(value => value.record.socketPath !== previous.socketPath) && values; }, "EOF host descriptor cleanup", 10000);
+  if (cleanEOF) entries = await until(async () => { const values = await endpointRecords(); return values.every(value => value.record.socketPath !== previous.socketPath) && values; }, "EOF host descriptor cleanup", Math.min(10000, remaining()));
   return { missing, oldEndpoint, recordsAfter: entries, cleanupExpectation: cleanEOF ? "normal native EOF removes old active/endpoint descriptor" : "forced process exit may retain stale descriptors; no production cleanup inferred" };
 }
 let watchSequence = 0;
@@ -200,8 +205,8 @@ async function artifactCheckpoint(tag, phase) {
   } catch (error) { record.passed = false; record.error = error.message; throw error; }
   finally { record.completedAt = Date.now(); await save("artifact-focus-checkpoints.json", report.artifactFocusCheckpoints); }
 }
-async function bindWorker(oldTarget) {
-  const target = await until(async () => { const all = await targets(); return (!oldTarget || !all.some(value => value.id === oldTarget)) && all.find(value => value.type === "service_worker" && value.url === `chrome-extension://${extensionId}/background.js`); }, "exact native replacement worker");
+async function bindWorker(oldTarget, timeoutMs = 25000) {
+  const target = await until(async () => { const all = await targets(), matches = all.filter(value => value.type === "service_worker" && value.url === `chrome-extension://${extensionId}/background.js`); assert.ok(matches.length <= 1, "Ambiguous native extension workers"); return (!oldTarget || !all.some(value => value.id === oldTarget)) && matches[0]; }, "exact native replacement worker", timeoutMs);
   worker?.close(); worker = await cdp(target.webSocketDebuggerUrl); workerTarget = target.id; return target;
 }
 async function installExtensions() {
@@ -323,6 +328,57 @@ async function reload(detail) {
   assert.ok(detail.targetEvents.some(value => value.method === "Target.targetDestroyed" && value.params.targetId === detail.before.workerTarget));
   assert.ok(detail.targetEvents.some(value => value.method === "Target.targetCreated" && value.params.targetInfo.targetId === detail.after.workerTarget));
   assertNoNewFocusEvents(detail.before.focus, detail.after.focus);
+}
+
+async function stopWorker(detail, deadline) {
+  const remaining = () => { const value = Math.floor(deadline - performance.now()); assert.ok(value > 0, "Native worker replacement exceeded its original recovery budget"); return value; };
+  remaining();
+  detail.before = await cleanupRuntimeIdentity();
+  const oldTargets = (await targets()).filter(value => value.type === "service_worker" && value.url === `chrome-extension://${extensionId}/background.js`);
+  assert.equal(oldTargets.length, 1); assert.equal(oldTargets[0].id, detail.before.workerTarget);
+  await observer.call("ServiceWorker.enable", {}, remaining());
+  detail.version = await until(() => currentWorkerVersion(observer.events, { url: oldTargets[0].url, targetId: oldTargets[0].id }), "exact running native worker version", remaining());
+  const targetStart = control.events.length, workerStart = observer.events.length;
+  const exitObserver = await observeEOF(detail.before.host); detail.exitObserverReady = exitObserver.ready;
+  // A live diagnostic debugger connection can keep the worker alive. Close only
+  // this fixture's connection before stopping the exact observed version.
+  remaining(); worker.close(); detail.requestedAt = Date.now(); detail.stopInvocations = 1;
+  detail.stopReply = await observer.call("ServiceWorker.stopWorker", { versionId: detail.version.versionId }, remaining()); detail.stopAcknowledgedAt = Date.now();
+  remaining();
+  detail.startRequestedAt = Date.now(); detail.startInvocations = 1;
+  detail.startReply = await observer.call("ServiceWorker.startWorker", { scopeURL: `chrome-extension://${extensionId}/` }, remaining()); detail.startAcknowledgedAt = Date.now();
+  await bindWorker(detail.before.workerTarget, remaining());
+  await waitHost(detail.before.host, "new native host after genuine worker replacement", remaining());
+  detail.oldHost = await waitOldHostGone(detail.before.host, { cleanEOF: true, remaining });
+  detail.processExit = await exitObserver.completed;
+  assert.equal(detail.processExit.error, undefined, "Worker-stop native EOF observation failed");
+  assert.equal(detail.processExit.result.exitCode, 0, "Native host did not exit cleanly after worker Port EOF");
+  detail.after = await cleanupRuntimeIdentity();
+  detail.completedAt = Date.now(); detail.recoveryBudgetRemainingMs = remaining();
+  detail.targetEvents = control.events.slice(targetStart);
+  detail.workerEvents = observer.events.slice(workerStart).filter(value => value.method.startsWith("ServiceWorker."));
+  for (const key of ["browserPid", "browserId", "extensionId", "extensionInstanceId", "observerTarget", "incarnation"]) assert.equal(detail.after[key], detail.before[key]);
+  for (const key of ["workerTarget", "contextId"]) assert.notEqual(detail.after[key], detail.before[key]);
+  assert.notEqual(detail.after.lifecycle.bootId, detail.before.lifecycle.bootId);
+  assert.equal(detail.after.lifecycle.manifestVersion, detail.before.lifecycle.manifestVersion);
+  assert.deepEqual(detail.after.lifecycle.events, [], "Worker stop/start unexpectedly performed extension install/reload/startup");
+  assert.ok(detail.targetEvents.some(value => value.method === "Target.targetDestroyed" && value.params.targetId === detail.before.workerTarget));
+  assert.ok(detail.targetEvents.some(value => value.method === "Target.targetCreated" && value.params.targetInfo.targetId === detail.after.workerTarget));
+  assert.ok(detail.workerEvents.some(value => value.method === "ServiceWorker.workerVersionUpdated" && value.params.versions.some(version => version.versionId === detail.version.versionId && version.runningStatus === "stopped")));
+  assertNoNewFocusEvents(detail.before.focus, detail.after.focus);
+  detail.verified = true;
+}
+
+async function createDeliveryPopup(url) {
+  const before = await assertFocus();
+  const popup = await worker.evaluate(`chrome.windows.create({url:${JSON.stringify(url)},type:'popup',focused:false,width:520,height:480})`);
+  assert.equal(popup.type, "popup"); assert.equal(popup.focused, false); assert.equal(popup.tabs.length, 1);
+  const after = await focus();
+  report.focus.allowedActivations.push(...ledger.allowPopupCreation(before, after, {
+    tabId: popup.tabs[0].id, windowId: popup.id, url,
+    fixture: new URL(url).searchParams.get("auxiliary"), reason: "sole tab created in an unfocused popup window"
+  }));
+  return popup;
 }
 
 let popupSequence = 0;
@@ -466,12 +522,13 @@ try {
   report.sourceIdentity.dependencies = {};
   for (const name of ["lifecycle-recovery-fixture.mjs", "extension-reload-support.mjs", "browser-restart-support.mjs", "focus-ledger.mjs", "browser-startup.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
   for (const name of ["native-created-page-loss.mjs", "native-created-page-cleanup.mjs", "created-page-cleanup-fault.mjs", "created-page-fixture.mjs", "created-page-provenance.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "background-window-fixture.mjs", "fixture-listener.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
+  for (const name of ["native-auxiliary-delivery.mjs", "auxiliary-delivery-gate.mjs", "created-page-popup-source.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
   report.sourceIdentity.buildScript = hash(await fs.readFile(path.join(repo, "scripts/build-chrome-extension.mjs")));
   await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
   const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), original = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
   assert.equal(background.split(original).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
   let stagedBackground = background.replace(original, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`);
-  if (mode === "created-page-host-loss" || cleanupScenario) {
+  if (mode === "created-page-host-loss" || cleanupScenario || deliveryScenario) {
     const anchor = "const backend = new BrowserBackend({ webMcpGate });";
     assert.equal(stagedBackground.split(anchor).length, 2);
     stagedBackground = stagedBackground.replace(anchor, anchor + "\nglobalThis.__integrationBackend = backend;");
@@ -484,6 +541,7 @@ try {
   report.stagingExceptions = ["unique native host-name constant", "public unpacked extension key", "passive native lifecycle listener only; production connectNative unchanged"];
   if (mode === "created-page-host-loss") report.stagingExceptions.push("backend reference for bounded original page-wait/admission/cleanup observation; no Native Port adapter, manufactured child, focus restoration or replay");
   if (cleanupScenario) report.stagingExceptions.push("backend reference for bounded original cleanup observation and exact-claim quota fault injection; original native storage Promise/rejection, no Native Port adapter, replacement child or focus restoration");
+  if (deliveryScenario) report.stagingExceptions.push("backend reference and bounded one-shot hold after exact native claim/marker storage ACK; original API called once, no synthesized ACK/failure, authority mutation or business replay");
   assert.deepEqual(Object.keys(report.productionExtensionHashes).filter(name => report.productionExtensionHashes[name] !== report.stagedExtensionHashes[name]).sort(), ["background.js", "manifest.json"]);
   companion = await stageReloadObserver({ directory: path.join(runDir, "observer-extension") }); report.observer = companion;
   const manifestPath = path.join(runDir, "native-host.json"); await subprocess(host, ["install-manifest", "--browser", browserName, "--extension-id", extensionId, "--path", host, "--output", manifestPath], { env });
@@ -512,6 +570,27 @@ try {
   console.log("HARNESS", JSON.stringify({ runDir, mode, browserName, browserPid: child.pid, hostPid: endpoint.pid }));
 
   if (mode === "idle-diagnostic") await observeIdle();
+  else if (deliveryScenario) {
+    for (const [index, variant] of deliveryScenario.variants.entries()) {
+      const name = deliveryScenario.names[index];
+      const passed = await runCase(name, async detail => {
+        await checkNativeInterruptedPopupDelivery({ connect, getWorker: () => worker, createPopup: createDeliveryPopup,
+          readFocus: focus, identity: cleanupRuntimeIdentity, fixtureURL, server: createdPages, detail,
+          phase: deliveryScenario.phase, interruption: deliveryScenario.interruption, variant,
+          terminateHost: async () => {
+            const previous = endpoint, identity = await processIdentity(previous);
+            const identityFile = path.join(runDir, `${name}-kill-identity.json`); await fs.writeFile(identityFile, JSON.stringify(identity.process));
+            const killed = JSON.parse(await subprocess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(runDir, "terminate-native.ps1"), identityFile]));
+            return { previous, identity, killed };
+          },
+          reconnectHost: async previous => ({ old: await waitOldHostGone(previous, { cleanEOF: false }), next: await waitHost(previous, "delivery automatic native reconnect") }),
+          restartWorker: async ({ deadline }) => { const evidence = detail.workerRestart = {}; await stopWorker(evidence, deadline); return evidence; },
+          saveDetail: value => save(`${name}-detail.json`, value)
+        });
+      });
+      if (!passed) throw new Error(`${name} failed; later scenes not executed`);
+    }
+  }
   else if (cleanupScenario) {
     const popupControl = cleanupPopupDriver();
     await runCase(cleanupScenario.name, async detail => {
@@ -644,7 +723,7 @@ finally {
   if (registryAttempted && !subprocessChildren.size) { try { report.registrationCleanup = JSON.parse(await subprocess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", registryScript, "cleanup"])); } catch (error) { report.registrationCleanupError = error.message; } }
   else if (registryAttempted) report.registrationCleanupError = "A fixture helper remains live; registry cleanup withheld to avoid a late create/cleanup race";
   server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));
-  if (mode === "created-page-host-loss" || cleanupScenario) await save("created-page-server.json", createdPages.allStats());
+  if (mode === "created-page-host-loss" || cleanupScenario || deliveryScenario) await save("created-page-server.json", createdPages.allStats());
   await fs.writeFile(path.join(runDir, "browser.log"), browserLogs.join(""));
   for (const name of ["chrome_debug.log", "debug.log"]) { try { await fs.copyFile(path.join(profile, name), path.join(runDir, name)); } catch (error) { if (error.code !== "ENOENT") diagnostics.push({ phase: "log copy", error: error.message }); } }
   const outcome = nativeLifecycleOutcome(report); report.passed = outcome.passed; report.exitCode = outcome.exitCode;

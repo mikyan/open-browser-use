@@ -21,6 +21,15 @@
 
 ## 当前并行切片
 
+2026-10-12 原地交付真实native中断矩阵完成：`ZC912S`/`jyTWRj`/`GXH6Fg`/
+`WcFjy3`各3/3 actualexit0，两原storage ACK后hostloss/workerstop覆盖三布局。
+12原POST/2680B，旧请求实际socketclosed而非timeout，原期限+250ms无重放；
+六旧host EOF0、120清理、每场三原sole-popup activation/零focus。最终Node
+1129/1129，生产与preview不变，普通125未重跑。部分交付契约与强杀descriptor
+边界见[原生证据](../../references/created-page-waits.md#native-interruption-results)。
+上一生产提交的auxiliaryDeliveryVersion1已支持原地交付；本片补真实恢复证据。
+normal源抢focus、其他应用前台及完整P01–P15继续开放。
+
 2026-10-12 popup源专项`wLjyi9`2/2、actualexit0，三布局原生未owned child
 首次跨窗接管、三POST/589B、正常finalize撤权及20项清理通过；Node260/260。
 三次既有sole-popup activation、零windowfocus，仅证明normal窗已focused

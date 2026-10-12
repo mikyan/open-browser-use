@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
+import { resolveNativeDeliveryScenario } from "./native-lifecycle-support.mjs";
 import { allNativeLifecycleCasesPassed, assertFixtureExtensionInventory, assertNativeProcessIdentity, clickCleanupPopup, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, resolveNativeLifecycleMode, resolveNativeCleanupScenario, selectCleanupPopupWindow } from "./native-lifecycle-support.mjs";
 
 const executable = "C:\\fixture\\native-host.exe", browserPid = 100;
@@ -9,6 +10,47 @@ const processes = [
   { ProcessId: 101, ParentProcessId: 100, ExecutablePath: "C:\\Windows\\cmd.exe", CreationDate: "today" },
   { ProcessId: 102, ParentProcessId: 101, ExecutablePath: executable, CreationDate: "today" }
 ];
+
+test("native delivery selectors reject incomplete, mixed and cross-mode scenarios", () => {
+  for (const phase of ["claim-delete", "marker-write"]) for (const interruption of ["host-loss", "worker-stop"]) {
+    const value = resolveNativeDeliveryScenario("auxiliary-delivery", phase, interruption);
+    assert.deepEqual(value.variants, ["root", "oopif", "dynamic-oopif"]);
+    assert.deepEqual(value.names, value.variants.map(variant => `native-auxiliary-delivery-${phase}-${interruption}-${variant}`));
+    assert.equal(resolveNativeCleanupScenario("auxiliary-delivery"), null);
+    assert.throws(() => resolveNativeCleanupScenario("auxiliary-delivery", "child-close", "retry-pause"));
+  }
+  for (const invalid of [undefined, null, "", "all", "claim-delete,marker-write"]) {
+    assert.throws(() => resolveNativeDeliveryScenario("auxiliary-delivery", invalid, "host-loss"), /OBU_TEST_NATIVE_DELIVERY_PHASE/);
+    assert.throws(() => resolveNativeDeliveryScenario("auxiliary-delivery", "claim-delete", invalid), /OBU_TEST_NATIVE_INTERRUPTION/);
+  }
+  for (const mode of ["acceptance", "idle-diagnostic", "created-page-host-loss", "created-page-cleanup"]) {
+    assert.equal(resolveNativeDeliveryScenario(mode), null);
+    assert.throws(() => resolveNativeDeliveryScenario(mode, "marker-write", "worker-stop"), /requires auxiliary-delivery/);
+    assert.throws(() => resolveNativeDeliveryScenario(mode, undefined, "worker-stop"), /requires auxiliary-delivery/);
+  }
+});
+
+test("native delivery acceptance requires all exact layouts and independent cleanup/focus gates", () => {
+  for (const phase of ["claim-delete", "marker-write"]) for (const interruption of ["host-loss", "worker-stop"]) {
+    const deliveryScenario = resolveNativeDeliveryScenario("auxiliary-delivery", phase, interruption);
+    const records = deliveryScenario.names.map((name, index) => ({ name, passed: true,
+      detail: { phase, interruption, variant: deliveryScenario.variants[index], recoveryVerified: true } }));
+    const report = { mode: "auxiliary-delivery", deliveryScenario, records, focus: { finalValidation: "passed" },
+      registrationCleanup: { removed: true }, nativeCleanup: {}, browserProcessesGone: {},
+      finalExtensionInventory: { passed: true }, extensionInventories: [{ passed: true }] };
+    assert.deepEqual(nativeLifecycleOutcome(report), { passed: true, exitCode: 0 });
+    const badDetails = [{ phase: "other" }, { interruption: "other" }, { variant: "other" }, { recoveryVerified: false }];
+    for (const patch of [
+      { records: records.slice(0, 2) }, { records: [...records, records[0]] },
+      { records: [records[0], records[0], records[2]] },
+      { records: [{ ...records[0], passed: false }, ...records.slice(1)] },
+      ...badDetails.map(bad => ({ records: [{ ...records[0], detail: { ...records[0].detail, ...bad } }, ...records.slice(1)] })),
+      { focus: { finalValidation: "failed" } }, { registrationCleanup: { removed: false } },
+      { nativeCleanupError: "live" }, { browserProcessCleanupError: "live" }, { helperCleanupError: "live" },
+      { extensionInventories: [{ passed: false }] }, { error: "interrupted matrix" }
+    ]) assert.deepEqual(nativeLifecycleOutcome({ ...report, ...patch }), { passed: false, exitCode: 1 });
+  }
+});
 test("native process identity accepts direct and launcher-child ancestry", () => {
   assert.deepEqual(assertNativeProcessIdentity({ pid: 102 }, processes, { executable, browserPid }).ancestry.map(value => value.ProcessId), [102, 101, 100]);
   assert.equal(assertNativeProcessIdentity({ pid: 102 }, [{ ...processes[2], ParentProcessId: 100 }, processes[0]], { executable, browserPid }).ancestry.length, 2);

@@ -698,6 +698,90 @@ are preserved. Public delivery semantics, other focus states, real native
 registration, other callers/browsers and the broader lifecycle matrix remain
 open; no popup creation API is introduced by this diagnostic.
 
+## Native interruption of original-page delivery
+
+The opt-in Windows native launcher has a separate `auxiliary-delivery` mode.
+Set `OBU_TEST_NATIVE_DELIVERY_PHASE` to `claim-delete` or `marker-write`, and
+`OBU_TEST_NATIVE_INTERRUPTION` to `host-loss` or `worker-stop`. Each invocation
+runs root, existing OOPIF and dynamic OOPIF in order; all three, plus the original
+focus and cleanup gates, are required. The older cleanup selectors cannot be
+combined with this mode. Supply the same explicit private Chromium and native
+host binary paths required by `native-lifecycle.mjs`.
+
+Each scene publicly claims an unfocused original popup, follows one trusted
+Control-click to its natural user-origin child, and commits one original POST.
+An omitted explicit agent work tab must close. The staged observer calls the
+original storage API once with unchanged arguments and receiver, then holds
+only publication of its successful Promise result. This is an **after-ACK**
+boundary, not proof of unacknowledged writes completing after worker death.
+
+The first source-claim deletion intentionally leaves the child's committed
+claim. Same-worker host recovery retains that original membership; a worker
+reconstruction must remove it. Acknowledged presentation markers can survive
+worker loss without conveying authority. Same-worker host loss must roll back
+its own markers. No scene retries the interrupted keep/disposition operation.
+Fresh empty finalization is recorded separately as cleanup.
+
+Host termination revalidates the private executable, creation time and browser
+ancestry before killing its retained process handle. Worker interruption uses
+the exact observed ServiceWorker version and one stop/start, keeps browser
+incarnation, and requires a new worker target/context/boot plus normal native
+host EOF exit. It does not use runtime.reload. Both interruptions must happen
+before the original 20-second request deadline; an SDK timeout is not accepted
+as a disconnect result. Original document, nonce, HTTP bytes and trusted-input
+state are observed through the deadline plus 250 ms to reject business replay.
+
+The pre-interruption business observers stop before the storage hold. Their
+native calls and ACKs do not establish continuous RPC coverage across worker
+death; the latter is checked with retained documents and server evidence. No
+restoration or rollback ACK is invented for the destroyed worker's closure.
+The conditional popup focus prerequisite remains the same, with only the
+existing sole-popup activation allowance and no new focus exemption.
+
+### Native interruption results
+
+All four isolated Chromium 156 invocations completed with actual exit 0:
+
+| Run | After-ACK boundary | Interruption | Layouts | Original POST bytes | Continuous focus interval |
+| --- | --- | --- | --- | --- | --- |
+| `ZC912S` | First source claim deletion | Host loss | 3/3 | 667 | 65,836 ms |
+| `jyTWRj` | Marker write | Host loss | 3/3 | 667 | 65,675 ms |
+| `GXH6Fg` | First source claim deletion | Worker stop/start | 3/3 | 673 | 65,711 ms |
+| `WcFjy3` | Marker write | Worker stop/start | 3/3 | 673 | 65,725 ms |
+
+The twelve original POSTs total **2,680 bytes**. All twelve original finalizes
+reject with `Open Browser Use socket closed` before their original deadlines;
+no timeout is counted as a disconnect. Observation continues for 20,250–20,265
+ms after submission. Original source/frame/child documents, nonces, receipt
+bytes and native positions remain intact; twelve omitted work pages stay
+closed. Old/fresh/foreign permission checks follow the partial-delivery
+contract above. The six exact old hosts in the worker runs exit normally with
+EOF code 0. Worker target/context/boot and host change while browser/extension/
+observer identities and browser incarnation remain unchanged.
+
+Pre-interruption native observers account for 1,977 calls: 1,965 fulfilled and
+twelve recorded rejections, not all-success RPC coverage. All 120 cleanup
+steps pass. Every run retains exactly three pre-existing sole-popup activation
+allowances and zero window-focus events. The private browser exits 0 in all
+four runs; exact observed browser/host processes and owned registry leaves
+are gone. Each forced-host run retains three historical endpoint descriptors,
+as allowed by the existing forced-exit contract; their old pipes are
+unreachable, and the active/last normal-EOF endpoints are removed. Both worker
+runs remove all endpoint descriptors. Do not describe forced exit as cleaning
+every descriptor file.
+
+The final integration Node suite passes **1,129/1,129**, zero skips/cancellations;
+the new gate/helper and affected support checks pass 100/100. Independent
+audits join the original native/storage/HTTP artifacts, rather than trusting
+only case booleans. They also verify 319 frozen sources, unchanged host/SDK
+inputs and binary identities, and the three unchanged preview ZIP hashes.
+The first audit-script version failed on report-schema assumptions and remains
+preserved; the corrected audit does not relabel those schema failures as
+browser failures. Production code was unchanged for this acceptance slice.
+The previous ordinary 125-case run was not repeated. Native unacknowledged
+write races, other foreground applications, normal-window focus failures,
+other callers/browsers/platforms and complete P01–P15 parity remain open.
+
 ## Earlier native feasibility evidence
 
 Windows isolated Chromium run `FjJons` completed **2/2, actual exit 0**: the

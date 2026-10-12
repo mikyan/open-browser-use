@@ -12,6 +12,13 @@
 
 ## Baseline sources
 
+原地交付的真实native中断矩阵已补齐两个after-ACK边界：四场各三布局，
+全部actualexit0，12原POST/2680B及原期限后的无重放观察；hostloss部分归属
+保留与worker重建撤权、marker回滚/非授权保留分别验收。Node1129/1129，
+120清理通过，六旧host EOF0；每场仅三原sole-popup activation、零focus。
+这是P02/P13相关的条件场景证据，未解决P12的normal源或其他应用前台，
+完整P01–P15仍未完成。详见[原生中断结果](../references/created-page-waits.md#native-interruption-results)。
+
 截至 2026-10-10，已核对官方文档：
 
 - [Browser extension](https://learn.chatgpt.com/docs/chrome-extension)：真实已登录 profile、tab 上下文、Chrome/Edge/Brave/Opera/Vivaldi、网站访问控制。

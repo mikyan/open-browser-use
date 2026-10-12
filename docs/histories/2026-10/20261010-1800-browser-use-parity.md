@@ -2196,6 +2196,27 @@ activation，无windowfocus；sentinel保持选择但高度1222→1165。browser
 三旧preview ZIP不变。两浏览器场使用loopback Port adapter，VM恢复不冒充
 新交付native restart验收；原normal源focus失败、其他应用前台和完整对齐仍开放。
 
+### 原地交付的真实原生中断验收
+
+新增staged-only存储ACK后hold与真实native launcher场景，调用原API一次且
+保持参数/receiver，禁止将超时或销毁后的closure当成功ACK。首source删除
+有意保留child原claim，以区分host重连和worker重建；marker ACK后分别核
+实际rollback或保留非授权展示。真实stop/start不使用runtime.reload，唯一
+版本、target/context/boot、browser incarnation及原host EOF均独立核验。
+
+四场`ZC912S`/`jyTWRj`/`GXH6Fg`/`WcFjy3`各3/3、actualexit0，原始POST共
+2680B。12旧请求均原期限前socketclosed，观察20250–20265ms；六worker旧host
+EOF0，120清理通过。原生业务observer在hold前停止，1977调用=1965fulfilled
++12rejected，不冒称跨worker完整RPC追踪。每场仅3原sole-popup activation、
+零windowfocus；四browser exit0、私有进程和注册撤除。两强杀host场各留三
+历史descriptor，旧pipe不可达，未宣称全部descriptor清空。
+
+最终integration Node1129/1129无skip/cancel，聚焦100/100。审计发现并修正
+observerReady漏记录、超时可能冒充断连成功两项fixture缺口；第一版独立
+审计的schema失败保留，改正实际结构后四场证据核验通过。生产未改，319
+frozen源/host与SDK构建输入核同，三旧preview不变；普通125未重跑。normal
+源与其他应用前台、未ACK存储和完整P01–P15仍开放。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+新增原地交付真实Native Port中断验收，四场各3/3、actualexit0：两after-ACK
+边界×hostloss/真实workerstop×三布局，12原POST/2680B、原deadline后250ms
+无业务重放；部分claim、marker保留/回滚及旧权限拒绝符合契约。六原host
+正常EOF exit0，120清理通过；每场仅3既有sole-popup activation、零windowfocus。
+最终integration Node1129/1129无skip/cancel，生产与旧preview不变；强杀host
+历史descriptor保留边界明确，普通125未重跑。normal源及其他前台状态未解决，
+见[原生交付中断](references/created-page-waits.md#native-interruption-results)。
+
 辅助页原地交付已落地：`auxiliaryDeliveryVersion=1`，保留原popup/created-page，
 撤销任务归属，实际清理/存储/回滚结束前阻断新轮次。新增28后端例及独立gate
 复核通过，全部Node2339/2339无skip/cancel。专项`iUAIHY`2/2、三布局589B
