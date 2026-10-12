@@ -1,0 +1,62 @@
+scripts/browser-integration/created-page-worker-restart.test.mjs
+  s_08bbfd293d324f::t_4f664246c68bb8 103
+  s_08bbfd293d324f::t_9a26e9c51eee89 1-78,92-102,104-238
+  s_08bbfd293d324f::t_ddb37efda71c27 79-91
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_065dcf4fa99f95 45-48,52-53
+  s_08bbfd293d324f::t_7414a7372f5e40 49-51
+scripts/browser-integration/created-page-unowned.mjs
+  s_08bbfd293d324f::t_21409353c8d936 9,30-31,33-34,98-99,106,108-109,175-200,213-218,267,276
+  s_08bbfd293d324f::t_95770057c6c279 37,201-207,210-212
+  s_08bbfd293d324f::t_e3bba3deed53c1 208-209
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_5dea13ab6c729e 26-27
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_5dea13ab6c729e 65-71,299-327,330-343,355,415
+  s_08bbfd293d324f::t_7414a7372f5e40 328-329,344-354
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_21409353c8d936 91-92,442,1293-1294,1301,2668-2675,2677,2690,2695
+  s_08bbfd293d324f::t_95770057c6c279 486-487
+scripts/browser-integration/created-page-worker-restart.mjs
+  s_08bbfd293d324f::t_a273f2d7235148 1-50,52-57,59-61,63-68,72-82,84-100,107,109-252,260-268,270-277
+  s_08bbfd293d324f::t_ddb37efda71c27 51,69-70,269
+  s_08bbfd293d324f::t_4f664246c68bb8 58,62,71,83,101-106,108,253-259
+apps/chrome-extension/page-waits-recovery.test.mjs
+  s_08bbfd293d324f::t_b52692bc03dfc0 62-66,170-198
+  s_08bbfd293d324f::t_5565d8be5c5496 85-169,199
+  s_08bbfd293d324f::t_51f0e42fc6133d 1-61,67-84
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_7414a7372f5e40 18-20
+  s_08bbfd293d324f::t_065dcf4fa99f95 14-17,21
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_7414a7372f5e40 2079-2082
+  s_08bbfd293d324f::t_065dcf4fa99f95 2064-2078,2083
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_6757a778f638c3 4491-4496,4515
+  s_08bbfd293d324f::t_a9d2a5c1500722 4347,4499,4505-4514
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_065dcf4fa99f95 5-25
+docs/exec-plans/active/2026-10-12-created-page-waits.md
+  s_08bbfd293d324f::t_5dea13ab6c729e 232,234-236,252-266
+  s_08bbfd293d324f::t_2617afb68513a3 233,237-251,271
+  s_08bbfd293d324f::t_7414a7372f5e40 267-270
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_065dcf4fa99f95 24-25,28-30
+  s_08bbfd293d324f::t_7414a7372f5e40 26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "619bf9f796e4b8e163e5e061ccf329924f74ac7f",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
