@@ -1,0 +1,68 @@
+apps/chrome-extension/browser-download-waits.test.mjs
+  s_08bbfd293d324f::t_d62632eb9c8bbb 42-44
+docs/references/control-lifecycle.md
+  s_08bbfd293d324f::t_65d7042d5601cc 92-104
+  s_08bbfd293d324f::t_6e36ffaacba31a 105-115
+  s_08bbfd293d324f::t_200998ea690843 116-123,129
+  s_08bbfd293d324f::t_8e747ccf9c3bfa 124-128
+apps/chrome-extension/network-wait-backend.test.mjs
+  s_08bbfd293d324f::t_540399f2d9d17c 105-108
+apps/chrome-extension/browser-file-chooser-waits.js
+  s_08bbfd293d324f::t_66050d0be23991 257
+apps/chrome-extension/browser-downloads.test.mjs
+  s_08bbfd293d324f::t_d62632eb9c8bbb 51
+apps/chrome-extension/browser-navigation-waits.test.mjs
+  s_08bbfd293d324f::t_d62632eb9c8bbb 69,73
+apps/chrome-extension/browser-network-waits.test.mjs
+  s_08bbfd293d324f::t_d62632eb9c8bbb 200,209
+apps/chrome-extension/browser-page-exports.js
+  s_08bbfd293d324f::t_66050d0be23991 277-279
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_200998ea690843 14-22
+apps/chrome-extension/browser-downloads.js
+  s_08bbfd293d324f::t_66050d0be23991 371
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_6e36ffaacba31a 2009-2022
+  s_08bbfd293d324f::t_0cc1f78f003e44 2023-2024
+apps/chrome-extension/control-snapshot-authority.test.mjs
+  s_08bbfd293d324f::t_a6ec946a4cadaf 1-60
+apps/chrome-extension/browser-network-waits.js
+  s_08bbfd293d324f::t_66050d0be23991 266
+apps/chrome-extension/browser-navigation-waits.js
+  s_08bbfd293d324f::t_66050d0be23991 239
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_6e36ffaacba31a 2776-2785
+  s_08bbfd293d324f::t_f42940b80e3af2 2786-2787
+apps/chrome-extension/browser-page-exports.test.mjs
+  s_08bbfd293d324f::t_66050d0be23991 192
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_66050d0be23991 1315-1317
+apps/chrome-extension/browser-file-chooser-waits.test.mjs
+  s_08bbfd293d324f::t_d62632eb9c8bbb 62-64
+apps/chrome-extension/browser-download-waits.js
+  s_08bbfd293d324f::t_66050d0be23991 199
+apps/chrome-extension/browser-clipboard.js
+  s_08bbfd293d324f::t_66050d0be23991 312-314
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_3f0bce081ac1a7 92-93,134-142
+  s_08bbfd293d324f::t_200998ea690843 114-115,143-148
+  s_08bbfd293d324f::t_8e28f039391a00 149
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d96527ee18417f 45-53,302
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "10f751f7ac6ffec0cc463f16404cb29239b732b0",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
