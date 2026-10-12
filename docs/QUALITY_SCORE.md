@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+截图超时不再提前释放原生 capture 的渲染队列与 Pause 屏障；实际发送前复核
+原 lease/attachment，底层完成后才清理，不重放截图。Node2467/2467，专项
+`kSmNJ7`3/3含五场，原七PNG独立解码，39291ms零激活/focus/豁免；sentinel
+视口高度变化保留。完整`kuWd2o`126/126 actualexit0，旧125名称顺序不变，
+282457ms只有既有12activation/4controlfocus。浏览器测试持有已生成PNG的
+ACK交付，使用Native Port adapter及Backend Pause入口，不等同自然raster
+挂起、安装或popup UI验收。旧preview不变；完整P01–P15仍开放。
+见[截图完成与验收边界](references/screenshot-completion.md)。
+
 新增原地交付真实Native Port中断验收，四场各3/3、actualexit0：两after-ACK
 边界×hostloss/真实workerstop×三布局，12原POST/2680B、原deadline后250ms
 无业务重放；部分claim、marker保留/回滚及旧权限拒绝符合契约。六原host

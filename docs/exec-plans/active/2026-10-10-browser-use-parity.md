@@ -21,6 +21,20 @@
 
 ## 当前并行切片
 
+2026-10-12 截图实际完成屏障已修复：调用超时/Progress abort后仍保留原capture，
+等待真实结算再释放原attachment队列及全局Pause drain，限制检查后重核期限。
+Node2467/2467；专项`kSmNJ7`3/3含五场，完整`kuWd2o`126/126 actualexit0，
+旧125名称/顺序和12activation/4controlfocus许可不变。原PNG已生成后的ACK
+交付gate不等于自然raster挂起，Backend Pause不等于popup UI；高层external、
+worker丢失及平台矩阵仍未补。旧preview不变，见[截图契约](../../references/screenshot-completion.md)。
+后续hover投递反例与normal源抢focus、完整P01–P15继续开放。
+下一片已有可重复的当前pinned CRX `_hover` 反例：
+`node .tmp/hover-delivery/reproduce-hover-v1.mjs --assert-delivery`实际exit1，
+丢首次/全部页面move事件仍返回done。它执行当前patch后的真实方法，但transport
+ACK和页面事件为VM模拟，不算自然Chromium故障。后续独立hover receipt需保留
+event-time目标命中，不能直接沿用click的enabled与事后命中重读：合法hover
+可禁用/移动目标或打开遮罩菜单。force、已持输入、原期限与modifier恢复仍须保留。
+
 2026-10-12 原地交付真实native中断矩阵完成：`ZC912S`/`jyTWRj`/`GXH6Fg`/
 `WcFjy3`各3/3 actualexit0，两原storage ACK后hostloss/workerstop覆盖三布局。
 12原POST/2680B，旧请求实际socketclosed而非timeout，原期限+250ms无重放；

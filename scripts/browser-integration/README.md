@@ -1,5 +1,28 @@
 # Browser integration acceptance
 
+## Screenshot native completion
+
+The ordinary suite includes `js-screenshot-native-drain`. To select it with
+the existing stream regression, set `OBU_TEST_CASES` to
+`^(js-screenshot-native-drain|js-screencast-concurrency)$` and run
+`node scripts/browser-integration/run.mjs` with the normal host/browser
+prerequisites below. The mandatory raw-navigation control also runs.
+
+The fixture holds delivery of an actual successful `Page.captureScreenshot`
+result after Chromium has generated its PNG. It checks the original wire timeout,
+real production rendering queue/drain identity, successor stream order, and the
+unchanged 10-second Pause budget. External streams explicitly queue stop then
+start; Pause must reject both without replay. After release, Retry Pause/Resume
+must finish cleanup, reject old scope and allow a fresh turn.
+
+Five scenarios cover raw internal/external streams with successor/Pause and a
+high-level internal screenshot with Pause. `screenshot-native-drain.json` and
+seven PNGs retain original results and subsequent frame pixels. The 30-second
+delivery watchdog is always failure. The test-only gate and staged backend
+reference do not enter production builds. This is neither naturally slow raster
+acceptance nor new native-host installation/popup UI coverage; see
+[completion contract and results](../../docs/references/screenshot-completion.md).
+
 ## Native created-page provenance
 
 For real native-host termination with a surviving worker, use the separate

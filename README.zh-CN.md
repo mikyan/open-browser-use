@@ -147,6 +147,8 @@ go build -o dist/ ./cmd/open-browser-use
 扩展工具栏弹窗中的 **Pause all agents** 可暂停所有 Agent；清理失败时保持
 阻断，点击 **Retry pause** 重试。**Resume control** 只允许 Agent 开始新轮次，
 不会重放旧任务。暂停保留页面，无法撤销已发生的页面操作。
+截图超时后，仍会等待已发出的原生截图完成再释放渲染队列；未完成时暂停
+保持阻断。具体范围见[截图完成契约](docs/references/screenshot-completion.md)。
 
 JS、Python、Go SDK 提供语义定位与自动等待，CLI/MCP 共用
 [浏览器动作协议](docs/references/browser-action-protocol.md)。

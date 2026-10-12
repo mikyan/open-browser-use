@@ -552,3 +552,12 @@ release gives a replacement attachment a new queue; the old Promise stays in the
 global cleanup ledger until it actually settles. Its late acknowledgement cannot
 claim the replacement's stream or remove its queue. Cancellation removes frame
 listeners promptly, but a timeout alone is not evidence of native cleanup.
+
+Raw root screenshots and screenshots sent by the Playwright engine also retain
+their actual native completion. The engine's ProgressController can fail before
+that completion, so its returned Promise is not the cleanup witness. Native
+captures are registered against the original rendering lease and attachment,
+before asynchronous site checks, and checked again immediately before dispatch.
+An expired or closed lease cannot send a late capture. Ordinary operations keep
+their cancellation race; only registered native captures keep the lease draining.
+No capture is replayed. See [screenshot completion](screenshot-completion.md).

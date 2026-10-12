@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import path from "node:path";
 import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
+import { BrowserActionEngine } from "./browser-action-engine.js";
 
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
@@ -11,7 +14,7 @@ const json = (value) => JSON.parse(JSON.stringify(value));
 const defer = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function loadBackend({ attachError, command, detach, frames = true } = {}) {
+async function loadBackend({ attachError, command, detach, frames = true, engineFactory } = {}) {
   const calls = [];
   const listeners = new Set();
   let detachListener;
@@ -40,7 +43,7 @@ async function loadBackend({ attachError, command, detach, frames = true } = {})
     windows: { async update() { throw new Error("Must not focus a window"); } }
   };
   const BrowserBackend = vm.runInNewContext(`${source.slice(0, runtimeStart)}\nBrowserBackend;`, {
-    chrome, Date, setTimeout, clearTimeout
+    chrome, Date, setTimeout, clearTimeout, createBrowserActionEngine: engineFactory
   });
   const backend = new BrowserBackend();
   await backend.store.ready;
@@ -49,8 +52,137 @@ async function loadBackend({ attachError, command, detach, frames = true } = {})
   const cdp = (method, commandParams = {}, extra = {}) => backend.executeCdp({
     ...session, target: { tabId: 7 }, method, commandParams, timeoutMs: 250, ...extra
   });
-  return { backend, attach, cdp, calls, emit, listeners, detachListener: () => detachListener({ tabId: 7 }) };
+  return { backend, attach, cdp, calls, emit, listeners, chrome, detachListener: () => detachListener({ tabId: 7 }) };
 }
+
+// Exercise the pinned Playwright abort race, not a substitute timeout wrapper.
+const require = createRequire(import.meta.url);
+const upstreamDirectory = path.dirname(require.resolve("playwright-crx/package.json"));
+const upstreamEntry = await readFile(path.join(upstreamDirectory, "lib/index.mjs"), "utf8");
+const upstreamChunk = /from ["']\.\/([^"']+\.mjs)/.exec(upstreamEntry)[1];
+const upstream = await readFile(path.join(upstreamDirectory, "lib", upstreamChunk), "utf8");
+const progressStart = "class ProgressController {", progressEnd = "const fileUploadSizeLimit$1 =";
+assert.equal(upstream.split(progressStart).length, 2);
+assert.equal(upstream.split(progressEnd).length, 2);
+class ManualPromise extends Promise {
+  constructor() { let resolve, reject; super((yes, no) => { resolve = yes; reject = no; }); this.resolve = resolve; this.reject = reject; }
+  static get [Symbol.species]() { return Promise; }
+}
+class NativeTimeoutError extends Error { constructor(message) { super(message); this.name = "TimeoutError"; } }
+const ProgressController = vm.runInNewContext(`${upstream.slice(upstream.indexOf(progressStart), upstream.indexOf(progressEnd))}\nProgressController;`, {
+  assert, ManualPromise, TimeoutError$1: NativeTimeoutError, monotonicTime: () => performance.now(), setTimeout, clearTimeout
+});
+
+async function engineCaptureFixture() {
+  const capture = defer(), entered = defer();
+  let hooks, controller, captures = 0;
+  const page = {
+    on() {}, off() {},
+    async screenshot(options) {
+      controller = new ProgressController({ log: [] }, { instrumentation: { onCallLog() {} }, attribution: { context: { _activeProgressControllers: new Set() } } });
+      return controller.run(() => hooks.send({ tabId: 7 }, "Page.captureScreenshot", { format: "png" }, () => {
+        captures++; entered.resolve(); return captures === 1 ? capture.promise : Promise.resolve(Buffer.from("successor image"));
+      }), options.timeout);
+    }
+  };
+  const runtime = {
+    crx: { start: async () => ({ attach: async () => page, detach: async () => {} }) },
+    setOpenBrowserUseInputHooks(value) { hooks = value; }, setOpenBrowserUseEventFilter() {}, setOpenBrowserUseCommandObserver() {}, assertOpenBrowserUseSelector() {}
+  };
+  const f = await loadBackend({ engineFactory: options => new BrowserActionEngine({ ...options, loadRuntime: async () => runtime }) });
+  f.chrome.tabs.get = async () => ({ id: 7, groupId: 10, url: "https://fixture.test", incognito: false });
+  const previousChrome = globalThis.chrome; globalThis.chrome = f.chrome;
+  await f.backend.attach({ ...session, tabId: 7 });
+  const engine = await f.backend.getBrowserEngine(); await engine.attach(7);
+  return { ...f, capture, entered, page, engine, send: (...args) => hooks.send(...args), captureCount: () => captures, abort: error => controller.abort(error), restore: () => { globalThis.chrome = previousChrome; } };
+}
+
+test("a CRX screenshot cannot send without a currently accepting rendering lease", async () => {
+  const f = await engineCaptureFixture();
+  try {
+    let sent = false;
+    assert.throws(() => f.send({ tabId: 7 }, "Page.captureScreenshot", {}, () => { sent = true; }), /requires an active rendering lease/);
+    assert.equal(sent, false);
+    assert.equal(f.backend.renderingDrains.size, 0);
+    // Non-screenshot commands keep their ordinary admission and response path.
+    assert.equal(await f.send({ tabId: 7 }, "Runtime.evaluate", {}, () => "ordinary result"), "ordinary result");
+  } finally { f.restore(); }
+});
+
+for (const external of [false, true]) test(`real engine and pinned Progress abort retain actual CRX screenshot in the original lease and Pause drain (${external ? "caller-owned" : "internal"} stream)`, async () => {
+  const f = await engineCaptureFixture();
+  try {
+    if (external) await f.cdp("Page.startScreencast", { format: "jpeg" });
+    const failure = new NativeTimeoutError("pinned screenshot progress expired");
+    const action = f.backend.browserAction({ ...session, tabId: 7, action: "screenshot", timeoutMs: 2000 });
+    const rejected = assert.rejects(action, error => error === failure);
+    await f.entered.promise;
+    const original = f.backend.renderingQueues.get(7);
+    f.abort(failure); await rejected; await tick();
+    assert.ok(f.backend.renderingDrains.has(original), "the original lease must retain the native command after Playwright aborts");
+    assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, 0);
+    let paused = false;
+    const pause = f.backend.pauseAutomation().then(result => { paused = true; return result; });
+    await tick(); assert.equal(paused, false);
+    f.capture.resolve(Buffer.from("native image"));
+    assert.equal((await pause).cleanupComplete, true);
+    assert.equal(f.backend.renderingDrains.size, 0);
+    assert.equal(f.captureCount(), 1);
+  } finally { f.capture.resolve(Buffer.from("native image")); f.restore(); }
+});
+
+test("a CRX screenshot awaiting a restricted proof cannot send after its original Progress aborted", async () => {
+  const f = await engineCaptureFixture(), proof = defer(), proofEntered = defer();
+  try {
+    // Install the asynchronous native-send proof only after ordinary admission.
+    const originalScreenshot = f.page.screenshot;
+    f.page.screenshot = options => {
+      Object.defineProperty(f.backend.siteAccess, "restricted", { value: true });
+      f.backend.assertSiteTab = () => { proofEntered.resolve(); return proof.promise; };
+      f.backend.assertSiteProof = () => {};
+      return originalScreenshot(options);
+    };
+    const action = f.backend.browserAction({ ...session, tabId: 7, action: "screenshot", timeoutMs: 2000 });
+    const originalAttachment = f.backend.attachmentEpochs.get(7);
+    const failure = new Error("pinned screenshot progress aborted during proof");
+    const rejected = assert.rejects(action, error => error === failure);
+    await proofEntered.promise;
+    const original = f.backend.renderingQueues.get(7);
+    f.abort(failure); await rejected;
+    assert.ok(f.backend.renderingDrains.has(original));
+    assert.equal(f.backend.attachmentEpochs.get(7), originalAttachment, "the lease guard must work without engine timeout detaching this attachment");
+    proof.resolve({}); await tick(); await tick();
+    let nativeSent = false; f.entered.promise.then(() => { nativeSent = true; }); await tick();
+    assert.equal(nativeSent, false);
+    assert.equal(f.backend.renderingDrains.size, 0);
+  } finally { proof.resolve({}); f.capture.resolve(Buffer.from("native image")); f.restore(); }
+});
+
+test("a real-engine successor lease is independent of the aborted Progress command's original native capture", async () => {
+  const f = await engineCaptureFixture();
+  try {
+    const action = f.backend.browserAction({ ...session, tabId: 7, action: "screenshot", timeoutMs: 2000 });
+    const failure = new NativeTimeoutError("old screenshot progress expired");
+    const rejected = assert.rejects(action, error => error === failure);
+    await f.entered.promise;
+    const original = f.backend.renderingQueues.get(7), oldAttachment = f.backend.attachmentEpochs.get(7);
+    f.abort(failure); await rejected;
+    const successor = await f.backend.browserAction({ ...session, tabId: 7, action: "screenshot", timeoutMs: 1000 });
+    assert.equal(successor.value.base64, Buffer.from("successor image").toString("base64"));
+    const newAttachment = f.backend.attachmentEpochs.get(7);
+    assert.notEqual(newAttachment, oldAttachment);
+    assert.ok(f.backend.renderingDrains.has(original));
+    await f.cdp("Page.startScreencast", { format: "jpeg" });
+    const stops = f.calls.filter(([method]) => method === "Page.stopScreencast").length;
+    f.capture.resolve(Buffer.from("old image")); await tick(); await tick();
+    assert.equal(f.backend.renderingDrains.size, 0);
+    assert.equal(f.backend.attachmentEpochs.get(7), newAttachment);
+    assert.equal(f.backend.externalScreencastTabs.has(7), true);
+    assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, stops);
+    assert.equal(f.captureCount(), 2);
+    await f.cdp("Page.stopScreencast");
+  } finally { f.capture.resolve(Buffer.from("native image")); f.restore(); }
+});
 
 test("attachment enables background rendering once without tab or window activation", async () => {
   const { backend, attach, calls, detachListener } = await loadBackend();
@@ -203,32 +335,168 @@ test("the shared screenshot lease stays live until the Playwright operation sett
   assert.equal(listeners.size, 0);
 });
 
-test("shared lease timeout is identifiable, bounded and releases capture resources", async () => {
+test("shared lease timeout is bounded and removes listeners while actual capture continues draining", async () => {
   const { backend, attach, calls, listeners } = await loadBackend();
+  const completion = defer();
   await attach();
-  await assert.rejects(backend.withRenderingLease({ tabId: 7 }, 20, () => new Promise(() => {})), error => {
-    assert.equal(error.name, "TimeoutError");
-    assert.match(error.message, /running rendered action/);
-    return true;
-  });
+  try {
+    await assert.rejects(backend.withRenderingLease({ tabId: 7 }, 20, () => backend.trackRenderingCapture(backend.attachmentEpochs.get(7), () => completion.promise)), error => {
+      assert.equal(error.name, "TimeoutError");
+      assert.match(error.message, /running rendered action/);
+      return true;
+    });
+    assert.equal(listeners.size, 0);
+    assert.equal(backend.renderingDrains.size, 2);
+    assert.equal(calls.some(([method]) => method === "Page.stopScreencast"), false);
+  } finally {
+    completion.resolve("abandoned-image");
+  }
   await tick();
   assert.equal(calls.at(-1)[0], "Page.stopScreencast");
-  assert.equal(listeners.size, 0);
+  assert.equal(backend.renderingDrains.size, 0);
+});
+
+for (const external of [false, true]) {
+  test(`a timed-out capture retains actual rendering exclusion (${external ? "caller-owned" : "internal"} stream)`, async () => {
+    const entered = defer(), completion = defer();
+    const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+      if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+    } });
+    await attach();
+    if (external) await cdp("Page.startScreencast", { format: "jpeg" });
+    const capture = assert.rejects(cdp("Page.captureScreenshot", {}, { timeoutMs: 25 }), /Timed out/);
+    await entered.promise;
+    const originalTail = backend.renderingQueues.get(7);
+    let next;
+    try {
+      await capture;
+      await tick();
+      const stops = calls.filter(([method]) => method === "Page.stopScreencast").length;
+      next = Promise.allSettled([cdp("Page.stopScreencast", {}, { timeoutMs: 1000 })]);
+      await tick();
+      assert.equal(backend.renderingDrains.has(originalTail), true, "an expired observer cannot retire the real native capture");
+      assert.ok(backend.globalControlSnapshot().pending.includes(originalTail));
+      assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, stops, "a later stream mutation must not overlap the original capture");
+      assert.equal(calls.filter(([method]) => method === "Page.captureScreenshot").length, 1, "timeout must not replay capture");
+    } finally {
+      completion.resolve({ data: "late-original-image" });
+      await capture;
+      if (next) assert.equal((await next)[0].status, "fulfilled");
+      await tick();
+    }
+    assert.equal(backend.renderingDrains.has(originalTail), false);
+  });
+
+  test(`Pause waits for a timed-out capture's actual settlement (${external ? "caller-owned" : "internal"} stream)`, async () => {
+    const entered = defer(), completion = defer();
+    const { backend, attach, cdp } = await loadBackend({ command: method => {
+      if (method === "Page.captureScreenshot") { entered.resolve(); return completion.promise; }
+    } });
+    await attach();
+    if (external) await cdp("Page.startScreencast", { format: "jpeg" });
+    const capture = assert.rejects(cdp("Page.captureScreenshot", {}, { timeoutMs: 25 }), /Timed out/);
+    await entered.promise;
+    const originalTail = backend.renderingQueues.get(7);
+    await capture;
+    await tick();
+    let pauseSettled = false;
+    const pause = backend.pauseAutomation().finally(() => { pauseSettled = true; });
+    const result = Promise.allSettled([pause]);
+    try {
+      await tick(); await tick();
+      assert.equal(pauseSettled, false, "Pause cannot report cleanup complete before native capture settles");
+      assert.equal(backend.renderingDrains.has(originalTail), true);
+    } finally {
+      completion.resolve({ data: "late-original-image" });
+      const [finished] = await result;
+      assert.equal(finished.status, "fulfilled");
+      assert.equal(finished.value.state, "paused");
+      assert.equal(finished.value.cleanupComplete, true);
+    }
+    assert.equal(backend.renderingDrains.size, 0);
+  });
+
+  test(`Pause stays failed until an unresolved capture really rejects (${external ? "caller-owned" : "internal"} stream)`, async () => {
+    const entered = defer();
+    let rejectNative;
+    const native = new Promise((_, reject) => { rejectNative = reject; });
+    const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+      if (method === "Page.captureScreenshot") { entered.resolve(); return native; }
+    } });
+    await attach();
+    if (external) await cdp("Page.startScreencast", { format: "jpeg" });
+    const capture = assert.rejects(cdp("Page.captureScreenshot", {}, { timeoutMs: 25 }), /Timed out/);
+    await entered.promise;
+    const originalTail = backend.renderingQueues.get(7);
+    await capture;
+    backend.automationCleanupTimeoutMs = 25;
+    try {
+      await assert.rejects(backend.pauseAutomation(), /OBU_AUTOMATION_CLEANUP_TIMEOUT/);
+      const failed = await backend.getAutomationControlStatus();
+      assert.equal(failed.state, "error");
+      assert.equal(failed.inputBlocked, true);
+      assert.equal(failed.cleanupComplete, false);
+      assert.equal(backend.renderingDrains.has(originalTail), true);
+    } finally {
+      rejectNative(new Error("native capture failed after caller timeout"));
+      await tick();
+    }
+    backend.automationCleanupTimeoutMs = 1000;
+    const retried = await backend.pauseAutomation();
+    assert.equal(retried.state, "paused");
+    assert.equal(retried.cleanupComplete, true);
+    assert.equal(backend.renderingDrains.size, 0);
+    assert.equal(calls.filter(([method]) => method === "Page.captureScreenshot").length, 1, "Retry Pause cannot repeat the screenshot");
+  });
+}
+
+test("confirmed detach lets a successor render while the original capture still drains", async () => {
+  const entered = defer(), completion = defer();
+  let captures = 0;
+  const { backend, attach, cdp, calls } = await loadBackend({ command: method => {
+    if (method === "Page.captureScreenshot" && ++captures === 1) { entered.resolve(); return completion.promise; }
+  } });
+  await attach();
+  const capture = assert.rejects(cdp("Page.captureScreenshot", {}, { timeoutMs: 25 }), /Timed out/);
+  await entered.promise;
+  const oldTail = backend.renderingQueues.get(7);
+  await capture;
+  await backend.detach({ ...session, tabId: 7 });
+  await attach();
+  const successor = backend.attachmentEpochs.get(7);
+  try {
+    assert.deepEqual(await cdp("Page.captureScreenshot"), { data: "original-image" });
+    await cdp("Page.startScreencast", { format: "jpeg" });
+    assert.equal(backend.renderingDrains.has(oldTail), true);
+    const stops = calls.filter(([method]) => method === "Page.stopScreencast").length;
+    completion.resolve({ data: "late-original-image" });
+    await tick();
+    assert.equal(backend.renderingDrains.has(oldTail), false);
+    assert.equal(backend.attachmentEpochs.get(7), successor);
+    assert.equal(backend.externalScreencastTabs.has(7), true);
+    assert.equal(calls.filter(([method]) => method === "Page.stopScreencast").length, stops, "old completion must not stop the successor's stream");
+  } finally {
+    completion.resolve({ data: "late-original-image" });
+    await cdp("Page.stopScreencast");
+  }
 });
 
 test("detach cancels an in-flight screenshot lease and removes its listener immediately", async () => {
   const { backend, attach, calls, listeners } = await loadBackend();
   const completion = defer();
   await attach();
-  const pending = backend.withRenderingLease({ tabId: 7 }, 500, () => completion.promise);
+  const pending = backend.withRenderingLease({ tabId: 7 }, 500, () => backend.trackRenderingCapture(backend.attachmentEpochs.get(7), () => completion.promise));
   const rejected = assert.rejects(pending, /cancelled because tab control ended/);
   await tick();
   backend.releaseEngineAttachment(7);
   assert.equal(listeners.size, 0);
+  assert.equal(backend.renderingDrains.size, 2, "caller cancellation does not settle the rendering operation or its registered capture");
   await attach();
   await rejected;
   assert.equal(calls.some(([method]) => method === "Page.stopScreencast"), false);
   completion.resolve("abandoned-image");
+  await tick();
+  assert.equal(backend.renderingDrains.size, 0);
 });
 
 test("raw and engine captures share the same per-tab screenshot queue", async () => {

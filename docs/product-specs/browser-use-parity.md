@@ -49,6 +49,14 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P09/P13截图完成屏障已补：raw root及正式engine发送登记实际capture，原期限
+结束不丢失底层完成；Pause保持阻断直到真实结算，原attachment与继任隔离。
+Node2467/2467；专项`kSmNJ7`3/3、五场原七PNG已核验，完整`kuWd2o`126/126
+actualexit0保留旧125顺序及原12activation/4controlfocus。测试仅持有已生成
+PNG的ACK交付，使用loopback adapter与Backend Pause；不扩大为高层external、
+真实安装或自然raster故障验收。完整矩阵与旧preview状态不变，见
+[截图完成](../references/screenshot-completion.md)。
+
 辅助页现支持`auxiliaryDeliveryVersion=1`原地交付：已有finalizeTabs keep语义
 保留原popup/created-page、真实清理后撤权，并在最终写入/验证/回滚时阻断新
 scope。`iUAIHY`2/2 actualexit0，三布局3原POST/589B、6原页面及持久marker、

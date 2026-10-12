@@ -366,6 +366,25 @@ fix mechanism. Expiring the gesture is not a general solution either: the
 [popup blocker](https://github.com/chromium/chromium/blob/156.0.8078.4/components/blocked_content/popup_blocker.cc)
 also checks background-tab navigation without a gesture.
 
+The same pinned version rules out minimization alone as a supported no-focus
+remedy. If the activation path reaches
+[HWNDMessageHandler::Activate](https://github.com/chromium/chromium/blob/156.0.8078.4/ui/views/win/hwnd_message_handler.cc#L823),
+it restores a minimized window with `SW_RESTORE`, then calls `SetWindowPos`
+with `HWND_TOP` and `SetForegroundWindow`. Separately,
+[AddNewContents](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc#L657)
+starts with `kShowWindow`; a background-tab disposition is not itself a
+persistent window-activation suppression policy.
+
+That delegate also has a special background Actor-task branch, but its
+[predicate](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/actor/actor_util.cc#L25)
+requires a browser-owned Actor task and checks tab activation/Glic state.
+An unfocused or minimized extension-controlled window does not establish that
+association. This is internal browser policy, not a generic CDP or extension
+option exposed by the inspected interfaces; it is not an available plugin fix.
+These are version-pinned source deductions, not a minimized-window experiment,
+an instrumented native call stack, or acceptance with another application in
+the foreground. No runtime result or focus allowance is added.
+
 The saved Codex 1.1.4 extension source (`formatted/background.js`, lines
 1388–1420 under `codex-chrome-extension-1.1.4`) similarly creates inactive tabs
 in an existing focused normal window, falling back to an unfocused window.

@@ -75,6 +75,7 @@ import { goChooserDiagnosticEnabled, goChooserDiagnosticCases, summarizeGoChoose
 import { createGoChooserDiagnostic } from "./go-chooser-diagnostic.mjs";
 import { runChooserProcess } from "./chooser-process.mjs";
 import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScreencastConcurrency } from "./screencast-concurrency-fixture.mjs";
+import { checkScreenshotDrain } from "./screenshot-drain-fixture.mjs";
 import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
 import { createTransformedPointerFixtures, checkTransformedPointer } from "./transformed-pointer-fixture.mjs";
 import { createElementPositionFixtures, checkElementPosition } from "./element-position-fixture.mjs";
@@ -440,7 +441,9 @@ try {
   // The optional clipboard fixture can hold an actual scope check. Expose the
   // instance only in this isolated staged build, never in a production package.
   const clipboardTestHook = memoryClipboard ? "\nglobalThis.__integrationClipboardBackend = backend;\n" : "";
-  const createdPageTestHook = ["unowned", "worker-restart", "popup-source", "popup-delivery"].includes(createdPageProof) ? "\nglobalThis.__integrationBackend = backend;\n" : "";
+  // Read-only queue/drain observation and the existing Pause API are used by
+  // screenshot deadline acceptance. This reference exists only in staged tests.
+  const createdPageTestHook = !createdPageProof || ["unowned", "worker-restart", "popup-source", "popup-delivery"].includes(createdPageProof) ? "\nglobalThis.__integrationBackend = backend;\n" : "";
   // Preserve the original release failure before a subsequent Pause clears it.
   // This staged-only observer returns the exact production promise and does
   // not change synchronous ordering, admission, or cleanup outcomes.
@@ -555,6 +558,7 @@ try {
   }
   sourceIdentity.sha256.backgroundParallelWorkflow = createHash("sha256").update(await fs.readFile(path.join(directory, "background-parallel-workflow.mjs"))).digest("hex");
   sourceIdentity.sha256.screencastConcurrencyFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "screencast-concurrency-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.screenshotDrainFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "screenshot-drain-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.screencastConcurrencyProbe = createHash("sha256").update(installScreencastConcurrencyProbe.toString()).digest("hex");
   if (goExecutable) sourceIdentity.sha256.goClient = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
 
@@ -1653,6 +1657,19 @@ try {
     assert.ok(full.height >= Math.round(1600 * dimensions.dpr));
     assert.ok(full.height > viewport.height);
     return { viewport: { width: viewport.width, height: viewport.height }, crop: { width: crop.width, height: crop.height }, full: { width: full.width, height: full.height }, bytes: viewport.bytes.length };
+  });
+  await test("js-screenshot-native-drain", async () => {
+    sourceIdentity.testHooks.push("screenshot deadline: first original successful native capture ACK delivery held by bounded test-only gate; caller deadline unchanged, rendering queue/drain read directly through staged backend reference, existing Pause/Resume exercised. This models unresolved native completion delivery, not an unfinished raster operation. Original PNG bytes, stream ordering, cleanup and unchanged focus ledger are checked; watchdog release is failure, no screenshot replay or production queue replacement");
+    const detail = await checkScreenshotDrain({
+      connectBrowser: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-screenshot-native-drain", turnId: "screenshot-deadline", timeoutMs: 20000 }),
+      worker, fixtureURL,
+      saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
+      saveDetail: detail => fs.writeFile(path.join(runDir, "screenshot-native-drain.json"), JSON.stringify(detail, null, 2))
+    });
+    // Global Pause revokes every old scope. Later ordinary cases deliberately
+    // enter a new turn after the helper's verified explicit Resume.
+    await browser.client.beginTurn();
+    return detail;
   });
   await test("js-screencast-concurrency", async () => {
     sourceIdentity.testHooks.push("screencast concurrency: exact-tab native command/frame recorder and first actual screenshot ACK delivery gate; two public SDK connections share one scope, a same-client read barrier and 300ms controlled overlap are not queue-admission/native-execution proof; actual stream command ordering, frames, public ACKs and PNG pixels are checked; no simulated result/frame, production private queue wrapper, focus allowance or natural failure/performance claim");

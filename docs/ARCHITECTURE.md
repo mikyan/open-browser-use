@@ -180,6 +180,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   CLI/MCP 通过现有 `call` 使用。单 tab 动作排队、请求 deadline 覆盖排队和
   attachment、结束控制时取消等待，所有动作仍检查 session/tab ownership。
   原生 CDP 与引擎通过共享 attachment/focus/光标反馈 hooks 协作。
+  根页面截图在实际原生发送处登记原 attachment 的渲染 lease；调用超时只结束
+  等待，原截图结算前继续持有同 attachment 队列与全局 Pause 清理屏障。
+  普通动作取消仍有界，新 attachment 不继承旧权限；见
+  [截图完成契约](references/screenshot-completion.md)。
   MV3 worker 静态加载 `browser-runtime.js`；构建复制固定版本 ESM 和版权文件
   到 `dist/chrome-extension-unpacked/`，不把第三方生成 bundle 提交到源码。
   协议、构建和版本限制见 `docs/references/browser-action-protocol.md`。

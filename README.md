@@ -175,6 +175,9 @@ Use **Pause all agents** in the extension's toolbar popup to block automation.
 Failed cleanup stays blocked and offers **Retry pause**. **Resume control**
 permits a new turn; it never replays old work. Pause preserves pages and cannot
 undo actions already delivered to them.
+After a screenshot times out, its rendering queue and Pause cleanup still track
+the actual native capture until completion. See the
+[screenshot completion contract](docs/references/screenshot-completion.md).
 
 JavaScript, Python, and Go SDKs expose semantic locators and automatic waits; all
 clients can use the shared [browser action protocol](docs/references/browser-action-protocol.md).

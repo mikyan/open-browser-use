@@ -810,6 +810,7 @@ class BrowserBackend {
     this.pointerFeedbackByTabId = new Map();
     this.renderingQueues = new Map();
     this.renderingDrains = new Set();
+    this.renderingLeases = new Map();
     this.externalScreencastTabs = new Set();
     this.internalScreencasts = new Map();
     this.downloadsById = new Map();
@@ -2459,7 +2460,7 @@ class BrowserBackend {
           const token = this.attachmentEpochs.get(target.tabId);
           this.assertAttachmentAdmission(target.tabId, token);
           this.inputTracker.assertSend(target.tabId, token);
-          const send = () => {
+          const send = (nativeOperation = operation) => {
             this.assertControlOpen();
             this.assertAttachmentAdmission(target.tabId, token);
             this.inputTracker.assertSend(target.tabId, token);
@@ -2470,13 +2471,20 @@ class BrowserBackend {
               this.inputTracker.assertSend(target.tabId, token);
               return this.inputTracker.send(target, token, method, params, () => {
                 this.assertSiteProof(proof);
-                return operation();
+                return nativeOperation();
               }, pointerGuard);
             });
-            return this.inputTracker.send(target, token, method, params, operation, pointerGuard);
+            return this.inputTracker.send(target, token, method, params, nativeOperation, pointerGuard);
           };
+          // Playwright's ProgressController may reject before the native
+          // screenshot does. Capture this lease before asynchronous policy
+          // checks, and retain the actual send without queueing behind itself.
+          if (method === "Page.captureScreenshot") return this.trackRenderingCapture(token, check => send(() => {
+            check();
+            return operation();
+          }));
           if (method.startsWith("Input.") && (this.fileChooserWaitersByTabId.has(target.tabId) || this.downloadWaits.byTab.has(target.tabId)))
-            return this.waitForTransferTargets(target.tabId).then(send);
+            return this.waitForTransferTargets(target.tabId).then(() => send());
           return send();
         },
         release: tabId => this.releaseTrackedInput(tabId),
@@ -2946,7 +2954,27 @@ class BrowserBackend {
   }
 
   async captureScreenshot(target, commandParams, timeoutMs) {
-    return this.withRenderingLease(target, timeoutMs, () => chrome.debugger.sendCommand(target, "Page.captureScreenshot", commandParams), "screenshot");
+    const attachment = this.attachmentEpochs.get(target.tabId);
+    return this.withRenderingLease(target, timeoutMs, () => this.trackRenderingCapture(attachment, check => {
+      check();
+      return chrome.debugger.sendCommand(target, "Page.captureScreenshot", commandParams);
+    }), "screenshot");
+  }
+
+  trackRenderingCapture(attachment, operation) {
+    const lease = this.renderingLeases.get(attachment);
+    if (!lease) throw new Error("Native screenshot requires an active rendering lease");
+    const check = () => {
+      lease.check();
+      if (!lease.accepting) throw new Error("Rendering request expired before native screenshot");
+    };
+    check();
+    const actual = Promise.resolve().then(() => operation(check));
+    lease.pending.add(actual);
+    this.renderingDrains.add(actual);
+    const settled = () => { lease.pending.delete(actual); this.renderingDrains.delete(actual); };
+    actual.then(settled, settled);
+    return actual;
   }
 
   queueRendering(tabId, operation) {
@@ -2968,20 +2996,37 @@ class BrowserBackend {
     const attachment = this.attachmentEpochs.get(tabId);
     let expired = false;
     let closeCapture;
+    let rejectCancellation;
+    const cancellation = new Promise((_, reject) => { rejectCancellation = reject; });
+    cancellation.catch(() => {});
     let phase = `waiting in rendering queue for ${action}`;
     const timeoutError = () => Object.assign(new Error(`Timed out after ${timeoutMs}ms ${phase}.`), { name: "TimeoutError" });
-    const withinDeadline = (operation) => withTimeout(Math.max(1, deadline - Date.now()), operation, timeoutError);
     const ownsAttachment = () => this.attachedTabs.has(tabId) && this.attachmentEpochs.get(tabId) === attachment;
     const assertCurrent = () => {
       this.assertControlOpen();
       this.assertAttachmentAdmission(tabId, attachment);
       if (expired || Date.now() >= deadline || !ownsAttachment()) throw new Error(`Rendering request expired before ${action}`);
     };
+    const runOperation = async () => {
+      const lease = { pending: new Set(), accepting: true, check: assertCurrent };
+      this.renderingLeases.set(attachment, lease);
+      try { return await Promise.race([operation(), cancellation]); }
+      catch (error) {
+        // Preserve an early Playwright failure for the caller while this queue
+        // still excludes later rendering until its native capture settles.
+        if (lease.pending.size) rejectCancellation(error);
+        throw error;
+      } finally {
+        lease.accepting = false;
+        await Promise.allSettled([...lease.pending]);
+        if (this.renderingLeases.get(attachment) === lease) this.renderingLeases.delete(attachment);
+      }
+    };
     const queued = this.queueRendering(tabId, async () => {
       assertCurrent();
       if (this.externalScreencastTabs.has(tabId)) {
         phase = `running ${action} with caller-owned stream`;
-        const result = await withinDeadline(operation);
+        const result = await runOperation();
         assertCurrent();
         return result;
       }
@@ -2990,9 +3035,6 @@ class BrowserBackend {
       this.internalScreencasts.set(tabId, stream);
       let rejectFrame;
       let onFrame;
-      let cancelCapture;
-      const cancelled = new Promise((_, reject) => { cancelCapture = reject; });
-      cancelled.catch(() => {});
       const frame = new Promise((resolve, reject) => {
         rejectFrame = reject;
         onFrame = (source, method, params) => {
@@ -3008,9 +3050,12 @@ class BrowserBackend {
         expired = true;
         chrome.debugger.onEvent.removeListener(onFrame);
         rejectFrame(error);
-        cancelCapture(error);
       };
-      stream.cancel = () => closeCapture(new Error("Rendered action was cancelled because tab control ended"));
+      stream.cancel = () => {
+        const error = new Error("Rendered action was cancelled because tab control ended");
+        closeCapture(error);
+        rejectCancellation(error);
+      };
       try {
         phase = `waiting for background frame before ${action}`;
         // Keep the queue through real native start/stop settlement. The outer
@@ -3027,7 +3072,9 @@ class BrowserBackend {
         await frame;
         assertCurrent();
         phase = `running ${action}`;
-        const result = await withinDeadline(() => Promise.race([operation(), cancelled]));
+        // Cancellation can finish the action wrapper, but registered native
+        // screenshots retain this queue until their actual completion.
+        const result = await runOperation();
         assertCurrent();
         return result;
       } finally {
@@ -3041,9 +3088,10 @@ class BrowserBackend {
       }
     });
     try {
-      return await withTimeout(timeoutMs, () => queued, timeoutError);
+      return await withTimeout(timeoutMs, () => Promise.race([queued, cancellation]), timeoutError);
     } finally {
       expired = true;
+      rejectCancellation(timeoutError());
       closeCapture?.(timeoutError());
     }
   }

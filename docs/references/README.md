@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Screenshot completion](screenshot-completion.md)：截图调用超时与实际原生完成
+  的区分、原 attachment 渲染队列和 Pause 清理屏障，以及受控 ACK 验收边界。
 - [Transformed element bounds](transformed-element-bounds.md)：正式元素边界框与
   截图的跨renderer四角投影、剩余期限、无布局语义和独立像素验收。
 - [Browser action protocol](browser-action-protocol.md)：公开 Playwright engine
