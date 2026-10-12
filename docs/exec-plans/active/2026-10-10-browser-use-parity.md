@@ -2728,3 +2728,18 @@ WindowsGo654pass/27skip、Node68、WSL binding23pass/0skip、vet及Linux/macOS
 人工授权、Edge/defaultroot真实连接、未owned下载和实际断线仍待验。用户
 权限UI不自动操作；本片没有缩小P01–P15成功条件。详见
 [当前会话连接](../../references/current-session-connection.md)。
+
+### P10/P13：原文件隔离与连接丢失负例
+
+隔离JS最终`AtJMQl`3/3 actualexit0、Node79/79，验证合成未owned下载不可被
+owner/foreign取路径或取消、HTTP中断、真实Browser下载流在private path
+在途后切断、Native Port与普通页面动作仍健康。显式第二次CLI绑定更换原
+nonce/generation，旧句柄path/cancel仍拒绝，仅新下载可交付原文件。
+三份原文件49152B含独立observer未owned对照，3184ms零focus/activation。
+
+首帧缺失与两次零GET假设失败原样保留。完整NetLog实际同source证明一次
+405 GET属于Chromium Download Manager resume；最终gate在正常Browser.close
+及实际exit0后严格核验来源，不允许未知替代请求。原生relay断开cleanup
+警告保留，未宣称reset ACK。生产与preview未改、125基线未重跑；普通
+现有profile授权、五入口全负例、危险文件与其他平台仍开放。具体证据见
+[原文件交付](../../references/original-page-download-delivery.md#unowned-downloads-and-browser-connection-loss)。

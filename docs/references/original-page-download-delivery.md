@@ -145,6 +145,83 @@ the existing `not part of browser session` rejection. Its 18 byte checks and
 actual cancellation succeeded. That failure is retained; the assertion now
 recognizes the real ownership error without accepting successful path delivery.
 
+## Unowned downloads and Browser connection loss
+
+The opt-in `OBU_TEST_ORIGINAL_DOWNLOADS=negative` case uses the production JS
+client and CLI binding in an isolated launch-flag Chromium. Five one-time POST
+responses share a URL and filename. An independent CDP actor operates one
+harness-created, unowned page; the test compares its original Page GUID with the
+Browser root event and rejects path/cancel through both public clients. This is
+a synthetic unowned-page comparison, not an observation of a person's downloads.
+
+One original HTTP response is interrupted after 4096 bytes. Separately, a
+bounded transparent WebSocket relay can cut the original Browser transport after
+observing a real private path request in flight. Host/Native Port identity and
+ordinary page operations remain independent controls. Completed and pending old
+handles must fail before and after explicit CLI rebinding; only a new original
+download may deliver a path. Full message bytes, forwarding, actual close and
+both binding subprocess outcomes are retained, without replay or implicit retry.
+
+The first run `DBAeYX` failed before the unowned download: the actor's first
+`mouseMoved` had no ACK within its original five-second deadline. It sent no
+press/release, the page had only its GET and no POST/GUID, and later disconnect
+checks were not reached. The failure and exact target/frame evidence remain.
+Both owned downloads had original files after cleanup released the held
+response; this does not turn the aggregate into a pass. The actor originally
+omitted the production input path's first-frame rendering preparation. Its
+subsequent version requires a real screencast frame and ACK before any input,
+without activating the tab, extending an already submitted command or retrying
+input. A DOM-ready or hit-test response alone is not this rendering evidence.
+
+`j2Mgia` then reached the lifecycle checks but failed the final request count:
+five original POSTs plus an unexpected GET. The GET preceded the public path
+request, but that timing alone did not identify its source. `D6w3lZ` retained
+the same failing assertion while adding passive Network observations on the
+exact interrupted tab and a complete Browser NetLog. Its Browser.close ACK and
+actual process exit 0 preceded parsing that log. NetLog source 282 joined the
+GET to `REQUEST_ALIVE.traffic_annotation = 35380758`, the
+`download_manager_resume` annotation, and retained the interrupted page's exact
+Referer, identity encoding and 405 response. The renderer Network log alone did
+not expose that no-renderer request.
+
+The pinned Chromium revision's
+[resume implementation](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/download/internal/common/download_item_impl.cc)
+creates a Download Manager request with the original GUID;
+[its parameter constructor](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/components/download/public/common/download_url_parameters.cc)
+defaults to GET. The
+[annotation hash](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/net/traffic_annotation/network_traffic_annotation.h)
+and the actual NetLog establish the request component. The annotation is shared
+by manual and automatic resume and does not itself contain a GUID; automatic
+recovery is inferred from this controlled run's single interruption, original
+progress reset and absence of a resume action. No GUID or file path is inferred
+from the GET, URL, filename or timing.
+
+Acceptance therefore requires a separate final network-provenance gate after
+normal browser shutdown. The five original POSTs remain unique; the one observed
+resume GET must have the exact original NetLog source chain and a rejected 405
+response. Missing provenance, unknown annotations, extra requests or replacement
+file delivery must fail. Previous failed aggregates remain failed; their logs
+are not relabeled after adding this more precise browser behavior contract.
+
+Final `AtJMQl` passed all three gates with actual exit 0: lifecycle, ordinary
+navigation and network provenance. The 79 focused Node tests also passed with
+zero skips/cancellations. Three independently read original files total 49,152
+bytes: two owned path results and the unowned observer-only file. The held
+download completed through the still-healthy Page channel after the Browser
+connection was cut; no local path was guessed for it. Old completed/pending
+handles rejected path/cancel both before and after the second binding. Native
+Host/Port identity, SDK scope and control state remained unchanged; the explicit
+replacement binding had a new nonce/generation. The 3,184 ms covered focus
+interval had zero activations, focus events or allowances. Sentinel identity and
+selection held, while height changed from 1,222 to 1,165; geometry was not constant.
+
+Both relay terminations retained native cleanup warnings; this is not proof of
+a successful download-behavior reset ACK on a lost connection. The final browser
+had a real Browser.close ACK and exit 0. The existing 61 Go/module inputs and ten
+binaries matched the prior manifest; no rebuild is claimed. Production code and
+the published preview archives were unchanged, and the ordinary 125-case baseline
+was not rerun for this test-only slice.
+
 ## Current Codex comparison
 
 On 2026-10-12, the same local fixture was exercised once per case through the
@@ -239,11 +316,12 @@ proof's configuration is confined to its own isolated profile. It does not
 authorize changing a user's existing browser configuration.
 
 Binding, original claims, path/cancel and invalidation now have production code
-and focused five-entry positive acceptance above. An unowned user-download
-comparison, real Browser connection loss during
-delivery, dangerous/failed downloads and current-user-profile authorization still
-need acceptance. Windows and Linux native WebSocket unit tests do not substitute
-for those browser workflows or macOS/other browser coverage.
+and focused five-entry positive acceptance above. The JS synthetic unowned-page,
+interrupted HTTP response and controlled real Browser transport loss cases are
+covered separately above. Five-entry negative coverage, dangerous downloads,
+additional failure modes, current-user-profile authorization and other browser/OS
+coverage remain open. These isolated results do not substitute for ordinary
+existing-profile installation or naturally occurring network-loss coverage.
 
 An ordinary extension installation without a verified Browser root transport
 must continue reporting that the capability is unavailable. An explicitly

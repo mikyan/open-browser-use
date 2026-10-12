@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+原文件负例最终隔离`AtJMQl`3/3 actualexit0，Node79/79零skip/cancel。JS验证
+合成未owned页的path/cancel拒绝、HTTP中断、原Browser流在private path在途
+后切断、Native Port/普通操作保持健康、旧句柄断开及显式重绑后仍拒绝，新
+下载可交付。三原文件49152B含独立observer未owned文件，不算Agent获得它；
+3184ms零focus/activation/豁免。一次额外GET由完整NetLog同source归到Chrome
+Download Manager resume并被405拒绝；旧三轮失败保留，不宣称零GET或自然
+网络丢失。relay关闭有原cleanup警告，不冒称reset ACK。生产、61构建输入/
+10bin及旧preview未改；未重跑125基线。五入口全负例、危险文件、普通用户
+profile授权及其他平台继续待验。见[原文件交付](references/original-page-download-delivery.md#unowned-downloads-and-browser-connection-loss)。
+
 当前会话发现已接入生产CLI，选定Chrome/Edge根目录只读端口文件，随后仍核
 原Native Port/worker身份。原10秒授权等待截断已修，真实11秒握手与拒绝/
 取消/迟到连接通过；单条CDP仍10秒。隔离`h9Udpf`2/2、30原文件/5200B和

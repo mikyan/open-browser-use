@@ -1939,6 +1939,30 @@ ACK或无错误原生清理的证明。实际任务回收与拆除范围分开�
 Edge/defaultroot真实入口、多profile/断线/未owned下载仍开放。未重跑普通
 125基线、未改SDK/扩展或旧preview、未提PR；完整P01–P15继续active。
 
+#### 原文件隔离与连接丢失验收（2026-10-12）
+
+新增隔离JS负例、受控一次性POST/中断服务器和单连接透明Browser WebSocket
+中继；无归属后台页由独立actor操作，原Page/Browser GUID与原文件字节共同
+验证。原private path在途后切断下载流，Host/Port和普通页面保持健康；两次
+显式CLI绑定的原参数、nonce/generation/实际进程close保留。旧完成/等待
+句柄断连前后及重绑后不能复活，新原文件可交付。
+
+首`DBAeYX`因actor遗漏首帧准备而无mouseMoved ACK，未发送点击/POST，失败
+保留；补真实小PNG首帧及原ACK，缺帧/ACK均零Input。`j2Mgia`与`D6w3lZ`在
+末尾6!=5失败：一份下载中断后Chrome多发GET。D6完整NetLog同source的
+35380758 annotation、GET/精确原页面Referer/405说明它来自Download Manager
+resume；单凭时间或URL不作归属。增加独立末尾来源gate，严格五原POST加
+一份有完整来源的拒绝GET；未知来源/额外请求/替代文件均失败。两个NetLog
+初始格式解析失败也保留；number offset和合法负source ID按实际格式校正。
+
+最终`AtJMQl`3/3 actualexit0、Node79/79零skip/cancel，三原文件49152B，
+3184ms零activation/focus/豁免。未owned文件仅由独立observer核字节，非
+Agent取得；held在流断后由Page证明完成，不猜本地路径。正常Browser.close
+ACK及browser/host exit0均记录；两relay断开cleanup警告保留，非reset ACK。
+61构建输入/10bin复核旧manifest，未重建或改生产；125基线未重跑，三旧ZIP
+不变、未提PR。普通现有profile授权、五入口全负例、危险文件、自然网络
+故障及跨平台与完整P01–P15保持未完成。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

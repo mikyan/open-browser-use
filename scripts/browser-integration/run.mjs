@@ -56,6 +56,10 @@ import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs"
 import { connectOriginalDownloadObserver } from "./original-download-observer.mjs";
 import { checkOriginalDownloadProof, checkProductDownloadLifecycle } from "./original-download-proof.mjs";
 import { runOriginalDownloadCaller, runOriginalDownloadProcess } from "./original-download-callers.mjs";
+import { createOriginalDownloadNegativeFixtures } from "./original-download-negative-fixture.mjs";
+import { createOriginalDownloadRelay } from "./original-download-relay.mjs";
+import { checkOriginalDownloadNegatives } from "./original-download-negative-cases.mjs";
+import { assertOriginalNegativeNetlog } from "./original-download-negative-netlog.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
@@ -78,12 +82,13 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
-if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry", "auto-connect"].includes(originalDownloadBehavior))
-  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, auto-connect, or unset");
+if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry", "auto-connect", "negative"].includes(originalDownloadBehavior))
+  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, auto-connect, negative, or unset");
+const negativeDownloads = originalDownloadBehavior === "negative";
 const autoConnectDownloads = originalDownloadBehavior === "auto-connect";
 const fiveEntryDownloads = originalDownloadBehavior === "five-entry" || autoConnectDownloads;
-const productDownloads = originalDownloadBehavior === "product" || fiveEntryDownloads;
-const originalDownloadTestName = autoConnectDownloads ? "five-entry-original-download-auto-connect" : fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
+const productDownloads = originalDownloadBehavior === "product" || fiveEntryDownloads || negativeDownloads;
+const originalDownloadTestName = negativeDownloads ? "js-original-download-negative-lifecycle" : autoConnectDownloads ? "five-entry-original-download-auto-connect" : fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
 if (fiveEntryDownloads && !process.env.OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY)
   throw new Error("Set OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY for five-entry original downloads");
 if (originalDownloadBehavior && ["OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
@@ -142,6 +147,8 @@ async function readWindowFocusState(label) {
   return focusObserver.evaluate(`(async()=>{const startedAt=Date.now();const windows=await chrome.windows.getAll({populate:true});const active=await chrome.tabs.query({active:true,windowId:${sentinel.windowId}});const ledger=${focusSnapshotExpression};return{label:${JSON.stringify(label)},startedAt,completedAt:Date.now(),windows,active,ledger}})()`);
 }
 const browserLog = [];
+const negativeBrowserLifecycle = {};
+let negativeBrowserClosed;
 const hostLog = [];
 const nativeFrameStats = { frames: 0, maxFrameBytes: 0, starts: 0, chunks: 0, commits: 0 };
 let bridgeClosing = false, bridgeFailure;
@@ -311,11 +318,13 @@ const chooserFixtures = createChooserWaitFixtures({ pointerEvidence: chooserDiag
 const directoryUploads = createDirectoryUploadFixtures({ pointerEvidence: chooserAllPointers });
 const downloadWaitFixtures = createDownloadWaitFixtures();
 const originalDownloadFixtures = createOriginalDownloadFixtures();
+const originalDownloadNegativeFixtures = createOriginalDownloadNegativeFixtures();
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
+  if (originalDownloadNegativeFixtures.handle(request, response)) return;
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -499,6 +508,8 @@ try {
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   if (originalDownloadBehavior) for (const name of ["original-download-fixture.mjs", "original-download-observer.mjs", "original-download-proof.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  if (negativeDownloads) for (const name of ["original-download-negative-fixture.mjs", "original-download-negative-cases.mjs", "original-download-relay.mjs", "original-download-callers.mjs", "original-download-negative-netlog.mjs"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.navigationWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "navigation-waits-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.directDownloadsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "direct-downloads-fixture.mjs"))).digest("hex");
@@ -531,6 +542,7 @@ try {
   const startup = browserStartupOptions([
     ...(memoryClipboard ? ["--headless=new", "--enable-automation", "--disable-background-networking", "--disable-component-update"] : []),
     ...(snapshotGeometry ? [`--force-device-scale-factor=${geometryDPR}`] : []),
+    ...(negativeDownloads ? [`--log-net-log=${path.join(runDir, "original-download-negative-netlog.json")}`] : []),
     `--user-data-dir=${profile}`, "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
     "--no-first-run", "--no-default-browser-check", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "about:blank"
   ], fieldTrialConfig);
@@ -541,6 +553,9 @@ try {
     binarySha256: createHash("sha256").update(await fs.readFile(chromiumBinary)).digest("hex")
   }, null, 2));
   chrome = spawn(chromiumBinary, startup.args, { windowsHide: startup.windowsHide, stdio: ["ignore", "ignore", "pipe"] });
+  if (negativeDownloads) negativeBrowserClosed = new Promise(resolve => chrome.once("close", (code, signal) => {
+    Object.assign(negativeBrowserLifecycle, { closeObserved: true, closedAt: Date.now(), code, signal }); resolve();
+  }));
   chrome.stderr.on("data", data => browserLog.push(data.toString()));
   chrome.on("exit", (code, signal) => browserLog.push(`Browser exited: ${code} ${signal}\n`));
   const debugPort = await until(async () => (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0], "Chromium debug port");
@@ -629,7 +644,70 @@ try {
     }
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
-  if (originalDownloadBehavior) await test(originalDownloadTestName, async () => {
+  if (negativeDownloads) await test(originalDownloadTestName, async () => {
+    const owners = [], relays = [], detail = { boundary: "Production JS negative checks on an isolated launch-flag Chromium; transparent Browser WebSocket fault injection, not natural network loss", bindings: [] };
+    let failure;
+    const connectionState = () => ({ hostPid: nativeBridge.host.pid, endpoint,
+      hostGeneration: nativeBridge.current.record.generation,
+      nativePortConnections: nativeBridge.current.record.connections.length,
+      nativePortConnectedAt: nativeBridge.current.record.connections.at(-1)?.connectedAt,
+      extensionId: nativeBridge.extensionId, nativeSocketReadyState: nativeBridge.socket.readyState,
+      hostExitCode: nativeBridge.host.exitCode });
+    try {
+      const url = new URL(browserVersion.webSocketDebuggerUrl);
+      const activePort = (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).trim().split(/\r?\n/);
+      assert.equal(url.port, activePort[0]); assert.equal(url.pathname, activePort[1]);
+      const targets = await observerBrowserControl.call("Target.getTargets", {});
+      const matchingWorkers = targets.targetInfos.filter(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
+      assert.equal(matchingWorkers.length, 1);
+      assert.equal(await worker.evaluate("chrome.runtime.id"), extensionId);
+      detail.identity = { pid: chrome.pid, profile, activePort, browserVersion, extensionId, worker: matchingWorkers[0], targets };
+      const bind = async () => {
+        const relay = await createOriginalDownloadRelay({ targetURL: url.href }); relays.push(relay);
+        const record = { startedAt: Date.now(), relayURL: relay.url, capabilities: { before: await browser.client.getInfo() }, bindingProcess: {} };
+        detail.bindings.push(record);
+        assert.equal(record.capabilities.before.metadata.pageDownloads.available, false);
+        record.binding = JSON.parse(await runOriginalDownloadProcess({ command: executable,
+          args: ["bind-browser", "--socket", endpoint, "--cdp-url", relay.url, "--exclusive", "--timeout", "20s"],
+          detail: record.bindingProcess, timeoutMs: 25000 }));
+        assert.equal(record.bindingProcess.closeObserved, true); assert.equal(record.bindingProcess.exitCode, 0);
+        assert.equal(record.binding.result.bound, true);
+        record.capabilities.after = await browser.client.getInfo();
+        assert.equal(record.capabilities.after.metadata.pageDownloads.available, true);
+        assert.equal(record.capabilities.after.metadata.pageDownloads.generation, record.binding.result.generation);
+        record.proof = await worker.evaluate("globalThis.__obuNativeDownloadBinding");
+        for (const key of ["extensionId", "extensionInstanceId", "workerBootId", "portId"]) assert.equal(record.proof[key], record.binding.result[key]);
+        record.completedAt = Date.now();
+        return { relay, ...record };
+      };
+      const initial = await bind();
+      for (const sessionId of ["original-negative-owner", "original-negative-foreign"])
+        owners.push(await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "negative-proof", timeoutMs: 20000 }));
+      sourceIdentity.testHooks.push("original negative downloads: bounded transparent Browser WebSocket message relay; exact real transport terminated only after original private path submission; no altered CDP response, inferred GUID/path, automatic rebind or native-port restart; independent CDP actor only on the exact synthetic unowned tab, with emulated focus and a real first screencast frame/ACK before its unique input sequence; no OS focus or input retry");
+      detail.checks = {};
+      await checkOriginalDownloadNegatives({ owner: owners[0], foreign: owners[1], worker,
+        fixture: originalDownloadNegativeFixtures, fixtureURL, downloadRoot: path.join(runDir, "downloads"), until,
+        browserURL: url.href, relay: initial.relay, connectionState, rebind: bind, detail: detail.checks });
+    } catch (error) {
+      failure = error; detail.error = error.stack;
+      if (error.originalDownloadNegativeDetail) detail.checks = error.originalDownloadNegativeDetail;
+    } finally {
+      detail.ownerCleanup = [];
+      for (const owner of owners) {
+        try { detail.ownerCleanup.push(await owner.client.finalizeTabs([])); }
+        catch (error) { detail.ownerCleanup.push({ error: error.stack }); failure ??= error; }
+        finally { owner.close(); }
+      }
+      for (const relay of relays) try { await relay.close(); }
+      catch (error) { (detail.relayCleanupErrors ??= []).push(error.stack); failure ??= error; }
+      detail.relays = relays.map(relay => relay.snapshot());
+      detail.server = originalDownloadNegativeFixtures.allStats();
+      await fs.writeFile(path.join(runDir, "original-download-negative.json"), JSON.stringify(detail, null, 2));
+    }
+    if (failure) throw failure;
+    return { evidence: "original-download-negative.json", bindingAttempts: detail.bindings.length };
+  });
+  if (originalDownloadBehavior && !negativeDownloads) await test(originalDownloadTestName, async () => {
     const owners = [], detail = { boundary: productDownloads ? "Production CLI binding and SDK original paths" : "Native transport feasibility proof, not a public path implementation" };
     let native, failure;
     try {
@@ -2704,8 +2782,20 @@ try {
     try { await observerBrowserControl?.call("Target.closeTarget", { targetId: observerTargetId }); }
     catch (error) { hostLog.push(`Focus observer teardown: ${error.message}\n`); }
   }
+  if (negativeDownloads && observerBrowserControl && chrome && chrome.exitCode === null) {
+    let closeTimer;
+    try {
+      negativeBrowserLifecycle.closeRequestedAt = Date.now();
+      negativeBrowserLifecycle.closeResponse = await observerBrowserControl.call("Browser.close");
+      await Promise.race([negativeBrowserClosed, new Promise((_, reject) => { closeTimer = setTimeout(() => reject(new Error("Isolated negative browser did not actually close")), 5000); })]);
+      assert.equal(negativeBrowserLifecycle.code, 0);
+    } catch (error) {
+      negativeBrowserLifecycle.error = error.stack;
+      records.push({ name: "negative-browser-close", passed: false, error: error.stack });
+    } finally { clearTimeout(closeTimer); }
+  }
   focusObserver?.close(); observerBrowserControl?.close();
-  if (worker) { try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
+  if (worker) { if (!negativeDownloads) try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
   if (chrome && chrome.exitCode === null) chrome.kill();
   try { await nativeBridge?.close(); }
   catch (error) { records.push({ name: "native-host-cleanup", passed: false, error: error.stack ?? String(error) }); }
@@ -2715,8 +2805,27 @@ try {
   navigationFixtures.close();
   directDownloads.close();
   downloadWaitFixtures.close();
+  originalDownloadNegativeFixtures.close();
   await fs.writeFile(path.join(runDir, "download-waits-server.json"), JSON.stringify(downloadWaitFixtures.allStats(), null, 2));
   await new Promise(resolve => http.close(resolve));
+  if (negativeDownloads) await fs.writeFile(path.join(runDir, "original-download-negative-server.json"), JSON.stringify(originalDownloadNegativeFixtures.allStats(), null, 2));
+  if (negativeDownloads) await fs.writeFile(path.join(runDir, "original-download-negative-browser-close.json"), JSON.stringify(negativeBrowserLifecycle, null, 2));
+  if (negativeDownloads) {
+    const validation = { evidence: "original-download-negative-network-provenance.json", passed: false };
+    try {
+      const filename = path.join(runDir, "original-download-negative-netlog.json");
+      const stat = await fs.stat(filename); assert.ok(stat.isFile() && stat.size > 0 && stat.size <= 32 * 1024 * 1024, "Bounded complete Browser NetLog required");
+      const raw = await fs.readFile(filename); assert.equal(raw.length, stat.size);
+      validation.netlog = { bytes: raw.length, sha256: createHash("sha256").update(raw).digest("hex") };
+      const detail = JSON.parse(await fs.readFile(path.join(runDir, "original-download-negative.json"), "utf8"));
+      validation.detail = assertOriginalNegativeNetlog({ netlog: JSON.parse(raw.toString("utf8")), detail, browserClose: negativeBrowserLifecycle });
+      validation.passed = true;
+    } catch (error) { validation.error = error.stack; }
+    records.push({ name: "js-original-download-network-provenance", passed: validation.passed,
+      ...(validation.passed ? { detail: { evidence: validation.evidence } } : { error: validation.error }) });
+    await fs.writeFile(path.join(runDir, validation.evidence), JSON.stringify(validation, null, 2));
+    console.log(validation.passed ? "PASS" : "FAIL", "js-original-download-network-provenance", validation.error ?? "");
+  }
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
   let chooserDiagnosticResult;

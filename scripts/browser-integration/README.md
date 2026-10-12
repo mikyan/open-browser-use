@@ -88,6 +88,49 @@ actual URLs and click once per case. Input `stop` on stdin saves the final HTTP
 ledger and shuts down. Existing output directories are rejected. Unit checks:
 `node --test scripts/browser-integration/original-download-fixture.test.mjs scripts/browser-integration/original-download-observer.test.mjs`.
 
+## Original download isolation and connection loss
+
+Set `OBU_TEST_ORIGINAL_DOWNLOADS=negative` with the existing built host and
+Chromium prerequisites to run the JS negative lifecycle case and raw-navigation
+control. This mode does not require the Go five-entry caller. It uses a fresh
+isolated profile with debugging launch flags, not an existing user profile or
+the ordinary browser authorization dialog.
+
+Five original POST responses share one URL and filename. A separate CDP actor
+clicks one exact harness-created, unowned background tab; its original Page GUID
+must join the original Browser event, while both public clients reject path and
+cancel and no private claim/native cancellation occurs. Another response ends
+after its original 4096-byte prefix, retaining the browser's actual terminal
+state without interpreting it as an intentional user cancellation.
+
+A bounded, single-connection WebSocket relay captures complete original data
+messages and their forwarding/close records. It cuts only the Browser download
+connection after observing an actual in-flight private path request. The native
+host, Native Port, SDK and ordinary page operation must remain healthy. Old
+completed and pending handles must fail before and after a second explicit CLI
+binding; only a newly armed original download may return a path. The replacement
+binding uses a new relay and nonce/generation, never an automatic retry.
+
+`original-download-negative.json` retains both binding subprocesses, capabilities,
+private/Page/Browser observations, original HTTP and file bytes, ownership,
+notifications and cleanup. `original-download-negative-server.json` records final
+HTTP teardown. The independent unowned actor requires a real small screencast
+frame and its ACK before its sole input sequence; it then stops capture and
+disables renderer focus emulation without activating the tab/window.
+
+This mode also captures `original-download-negative-netlog.json` and requires
+Browser.close ACK plus actual process exit before parsing the complete JSON.
+The final `js-original-download-network-provenance` gate checks five original
+POSTs and the interrupted download's one rejected GET against exact NetLog
+source IDs and the pinned Chromium Download Manager resume annotation. Renderer
+Network events alone cannot attribute this no-renderer request. Unknown origin,
+missing records, extra requests or replacement delivery fail; the original
+failed runs remain preserved. The gate writes
+`original-download-negative-network-provenance.json`. Existing continuous focus
+checks gain no allowance. This is JS
+negative acceptance with controlled transport loss, not five-entry negative
+coverage, naturally occurring network loss or authorization UI acceptance.
+
 ## Transformed element bounds and screenshots
 
 `OBU_TEST_CASES=bounding-geometry` selects the mandatory raw-navigation control

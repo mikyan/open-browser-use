@@ -259,3 +259,50 @@ Linux/macOS测试二进制交叉编译及vet通过，61源/10bin冻结。此轮�
 Edge实际授权或默认日常profile安装已完成。下一步继续原计划的未owned用户
 下载、实际Browser断连/失败文件和多profile授权；具体契约及范围见
 [当前会话连接](../../references/current-session-connection.md)。完整目标保持active。
+
+## Next: unowned downloads, interrupted responses and connection loss
+
+前一目标轮已推送`41adfee`并取得生产自动发现/手动兼容实机与原生超时反例，
+属于progress。本轮从干净工作区补尚缺的真实下载负例，不改变P01–P15目标。
+
+- 同浏览器内由独立测试CDP actor创建一个确实未claim的后台页，与owned下载
+  使用同POST URL和同文件名。原Page/Browser GUID只作为独立见证；公开owner
+  与foreign path/cancel必须拒绝，不泄露路径/内容，不出现该GUID的私有claim
+  或原生cancel。释放原HTTP后验证同GUID原文件字节，不能仅测另一个owner。
+- 精确中断一份已发4096B前缀、声明完整长度的原响应。保留原Page/Browser
+  terminal canceled与公开错误，不把此状态解释为用户主动取消；不能冒充
+  整体网络错误原因或重新请求原文件，健康绑定仍可处理后续下载。
+- 通过透明、只转发原WebSocket消息的测试relay切断真实Browser root流，
+  保留native host/Port/SDK和普通动作。只有确认原private path已发才注入
+  故障，原pending/已完成句柄都必须拒绝，能力撤销且不隐式重连。正常Page
+  完成通知仍可经extension到达，不能误当重连。
+- 显式CLI二次绑定使用新的relay/nonce/generation，旧claim/句柄不能复活，
+  只有新等待/原请求可交付新文件。记录两次实际端点、身份、消息/ACK/close、
+  原始HTTP、SDK输出/错误和精确任务回收，维持连续焦点零新增豁免。
+
+这是受控故障注入与JS负例验收，不冒称自然网络中断、五入口全部负例、真实
+用户点击或正常启动的人工授权已验。测试代码由独立review核验；只有root
+启动隔离浏览器，原production/preview未有修复依据时保持不改。
+
+## Negative acceptance outcome
+
+前一开发目标轮推进了本片脚手架；安装说明问答本身不计能力开发。本轮从
+实际工作区继续，完成真实下载隔离/断连与原始网络归因，属于progress。
+最终`AtJMQl`3/3 actualexit0，Node79/79零skip/cancel。五原POST、三份实际
+文件49152B（未owned文件仅独立observer读）、private在途后原流切断、两次
+CLI实际绑定、旧句柄双阶段拒绝及新原文件交付均保留证据。Native Port/
+host/SDK作用域和control未变；3184ms零activation/focus/豁免。
+
+首`DBAeYX`独立actor缺真实首帧门禁，mouseMoved未ACK且无点击/POST；
+补精确页面focus emulation、小PNG首帧及ACK后唯一输入。`j2Mgia`与`D6w3lZ`
+保留6!=5失败：中断后额外GET先于path。D6加入完整NetLog并正常关闭browser，
+同source的35380758 annotation、GET/原页面Referer/405确认Download Manager
+resume路径。修正原测试的零GET假设为五原POST不重放加一次明确浏览器恢复
+请求来源必验；不能泛化允许GET、忽略错误或据URL/文件名猜GUID和路径。
+最终独立gate在真实Browser.close ACK/exit0后读完整有界JSON；任意来源
+缺失、未知版本、额外请求或替代交付仍失败。此前所有失败记录未重写。
+
+两relay终止有原生cleanup警告，不宣称reset ACK；浏览器与host实际退出0。
+61源/10bin按旧manifest核验未重编译，生产和已发布三ZIP不变，未重跑125。
+此片关闭隔离JS的上述具体缺口，普通授权/五入口全负例/危险文件/自然网络
+故障及其他OS仍开放；主P01–P15和完整目标保持active。
