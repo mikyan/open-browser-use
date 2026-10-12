@@ -1,0 +1,83 @@
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_f16971d30e1593 31-36
+  s_08bbfd293d324f::t_0bc13ab66af932 24-30,37
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_d6979e2c5cabc0 78,444-446,561,1661-1662,1664-1668
+  s_08bbfd293d324f::t_402a8bed595728 1663,1669-1672
+  s_08bbfd293d324f::t_7d6291db5455da 1673
+README.zh-CN.md
+  s_08bbfd293d324f::t_eb3679321a91f1 150-151
+scripts/browser-integration/screenshot-drain-fixture.test.mjs
+  s_08bbfd293d324f::t_8420036c77824d 1-2,4-71,85-141,143-144,146-150,156,164-167,188-195,198-224
+  s_08bbfd293d324f::t_212f4c1829fbce 72-84,142,151-155,157-163,168,170-178
+  s_08bbfd293d324f::t_a2eb938121b696 145,196-197
+  s_08bbfd293d324f::t_793361362b9a0b 3,169,179-187
+apps/chrome-extension/background-rendering.test.mjs
+  s_08bbfd293d324f::t_9bd7bb8f37d36e 97,99-110
+  s_08bbfd293d324f::t_55fd4a1d4d5842 186,357-398,400-407,409-417,451-481
+  s_08bbfd293d324f::t_65e6151f5c8159 418-429,431-438,440-450,498-499
+  s_08bbfd293d324f::t_dc7c3b6892e9a3 399,408,430,439
+  s_08bbfd293d324f::t_8046506fc32365 3-4,7,17,46,55,58-77,79-83,85-96,98,111,113-114,116-129,131-145,148-152,154-158,185
+  s_08bbfd293d324f::t_a09e74e115a67b 78,84,112,115,130,146-147,153,159-184
+  s_08bbfd293d324f::t_db8cde5ea13237 338,340,342,344-348,350-353,356
+  s_08bbfd293d324f::t_ffb0d587cf91fb 343,349,488,493
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_800e93a844720c 369-387
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_eb3679321a91f1 3-25
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_629d1fd5c8463e 7
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_0bc13ab66af932 14-22
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_ffb0d587cf91fb 3075-3076,3094
+  s_08bbfd293d324f::t_2fea976ca4d324 813,2463,2474,2477,2479-2485,2957-2965,2967-2972,2974,2976-2977,3010-3012,3014-3023,3029,3077
+  s_08bbfd293d324f::t_dc7c3b6892e9a3 2487
+  s_08bbfd293d324f::t_9bd7bb8f37d36e 2966,2973,2975
+  s_08bbfd293d324f::t_db8cde5ea13237 2999-3001,3024,3054-3058,3091
+  s_08bbfd293d324f::t_c5d7c34c640535 3013
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_0bc13ab66af932 52-59
+docs/exec-plans/completed/2026-10-12-screenshot-native-drain.md
+  s_08bbfd293d324f::t_629d1fd5c8463e 1-95
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_dd1cba01572f45 555-563
+scripts/browser-integration/screenshot-drain-fixture.mjs
+  s_08bbfd293d324f::t_20186df3ea0e05 202-214,314
+  s_08bbfd293d324f::t_daaaec6ce4f531 167,283,312,316,322,325,340
+  s_08bbfd293d324f::t_83be681e900a2e 1-9,11-14,16-64,68,70-77,79-80,82-85,87-92,94-110,112-125,127-138,143-144,146-151,153-160,165-166,168-169,187-191,193-201,215-227,234-244,246-254,256-282,284-298,301,303-307,311,326-331,334-338,341-346,350-351,353-359,362-387
+  s_08bbfd293d324f::t_d5db744f4cf3b0 10,255,300,302,333,361
+  s_08bbfd293d324f::t_dc658e9ed95e58 65-67,69,164,228-233,245,299,308-309
+  s_08bbfd293d324f::t_5b8049535687bd 15,78,81,86,93,126,139-142,152,170-186,315,317-321,323-324,339,352,360
+  s_08bbfd293d324f::t_0fca2ebb976f45 111,145,161-163,192,310,313,332,347-349
+docs/histories/2026-10/20261012-1821-screenshot-native-completion.md
+  s_08bbfd293d324f::t_f16971d30e1593 1-68
+README.md
+  s_08bbfd293d324f::t_eb3679321a91f1 178-180
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_eb3679321a91f1 183-186
+docs/references/README.md
+  s_08bbfd293d324f::t_eb3679321a91f1 19-20
+docs/references/screenshot-completion.md
+  s_08bbfd293d324f::t_a1b4cc4d612473 82-83
+  s_08bbfd293d324f::t_eb3679321a91f1 55-66,85-90
+  s_08bbfd293d324f::t_0bc13ab66af932 67-81,84
+  s_08bbfd293d324f::t_4422f28df131ff 38-41,91-97
+  s_08bbfd293d324f::t_dd1cba01572f45 1-37,42-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "5366b84fe5aec2ccbbe32fca43c04c4ebca13070",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
