@@ -1,0 +1,82 @@
+docs/exec-plans/active/2026-10-12-original-page-downloads.md
+  s_08bbfd293d324f::t_a51a7c9ed4eb8f 286-308
+  s_08bbfd293d324f::t_1c35e2c41558c7 262-285
+scripts/browser-integration/original-download-negative-fixture.test.mjs
+  s_08bbfd293d324f::t_86719be1dba055 1-141,157-179
+  s_08bbfd293d324f::t_768d432791b5b7 142-156
+scripts/browser-integration/original-download-negative-netlog.mjs
+  s_08bbfd293d324f::t_bf6f31d9d99f6f 56-57,163-164
+  s_08bbfd293d324f::t_029ac644edb487 68-70
+  s_08bbfd293d324f::t_129ee9e19e0a48 11-14,135
+  s_08bbfd293d324f::t_4bc75987fdc4d8 1-10,15-55,58-67,71-134,136-162,165-173
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_e4895cdc2879f1 150-151,545,556-558,2785-2796,2798,2812
+  s_08bbfd293d324f::t_956e8d145a828a 59-61,85-87,90-91,321,327
+  s_08bbfd293d324f::t_ba5e25880fa063 62,511,2813-2828
+  s_08bbfd293d324f::t_32cd9f363d8cb0 512,647-685,687-710,2808,2811
+  s_08bbfd293d324f::t_29f898ca27297e 686
+scripts/browser-integration/original-download-negative-fixture.mjs
+  s_08bbfd293d324f::t_768d432791b5b7 101
+  s_08bbfd293d324f::t_86719be1dba055 1-100,102-132
+scripts/browser-integration/original-download-negative-netlog.test.mjs
+  s_08bbfd293d324f::t_bf6f31d9d99f6f 10
+  s_08bbfd293d324f::t_129ee9e19e0a48 1-9,11-54,56-110
+  s_08bbfd293d324f::t_029ac644edb487 55
+docs/references/original-page-download-delivery.md
+  s_08bbfd293d324f::t_2c1cc9723d739c 148-175
+  s_08bbfd293d324f::t_28c9a5626d53e5 176-205
+  s_08bbfd293d324f::t_a51a7c9ed4eb8f 206-224,319-324
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_aba3210b320c7d 91-116,131-133
+  s_08bbfd293d324f::t_97a34add453987 117-130
+scripts/browser-integration/original-download-relay.mjs
+  s_08bbfd293d324f::t_1b9e6d56bd25fa 117,214
+  s_08bbfd293d324f::t_8c57e71236089a 53,159,167,171
+  s_08bbfd293d324f::t_09796a7dbf24c5 1-52,54-116,118-158,160-166,168-170,172-213,215-236
+scripts/browser-integration/original-download-negative-cases.mjs
+  s_08bbfd293d324f::t_2a0e818c7a5f5f 252,287-290
+  s_08bbfd293d324f::t_7729812ae12b8b 270,316,364,385,401
+  s_08bbfd293d324f::t_32debc1b37f068 152,154-155,159,170-182,184-200,203-211,214-215,336-341
+  s_08bbfd293d324f::t_f8e3e7d864a228 349
+  s_08bbfd293d324f::t_dd2574094052b4 48-53,235-240,282,284,286
+  s_08bbfd293d324f::t_f7619d0e2c664d 85-104,417-418
+  s_08bbfd293d324f::t_8b14142d40af12 10,129,253,255,267,294,334,422
+  s_08bbfd293d324f::t_ab8b06c6cc3c11 1-9,11-47,54-84,105-128,130-151,153,156-158,160-169,217-219,229-231,233-234,241-242,244-251,254,256-266,268-269,271-274,281,283,285,291-293,295-315,317-321,323-333,335,342-348,350-363,365-384,386-400,402-404,406-416,419-421,423-426,432-444
+  s_08bbfd293d324f::t_0badf27d1a30d2 183,201-202,212-213,322
+  s_08bbfd293d324f::t_2f574c681864fa 216,220-228,232,243,275-280,405,427-431
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_a51a7c9ed4eb8f 14-23
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_3532fff2410ed9 2731-2745
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_295bf1b3e7c6d7 1965
+  s_08bbfd293d324f::t_3532fff2410ed9 1942-1964
+scripts/browser-integration/original-download-negative-cases.test.mjs
+  s_08bbfd293d324f::t_3644fec08f0229 11,255-288
+  s_08bbfd293d324f::t_83d07a745d1523 1-7,9-10,12-140,195-200,289
+  s_08bbfd293d324f::t_e54bf2fca3677c 201-233
+  s_08bbfd293d324f::t_361cd39ceaa1e3 141-194
+  s_08bbfd293d324f::t_8a230f57417ace 8,234-254
+scripts/browser-integration/original-download-relay.test.mjs
+  s_08bbfd293d324f::t_1b9e6d56bd25fa 157-167,218,244
+  s_08bbfd293d324f::t_8c57e71236089a 1-156,168-190,204-217,219-243,245
+  s_08bbfd293d324f::t_f4e15e0d524e83 191-203
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_b81040e4fd5d84 290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "06ca0744637953e8ac6374f18702f5757149e1e5",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
