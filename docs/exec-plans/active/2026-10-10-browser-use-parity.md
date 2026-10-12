@@ -2839,3 +2839,21 @@ Node106/106、typed真实IPC九方法/32场景通过，Go helper重新构建和�
 全部child仍继承原group；未owned首次接纳、相关生命周期负例、普通popup
 前台行为及完整P01–P15继续开放。下一步按[新页计划](2026-10-12-created-page-waits.md)
 验证自然产生的未owned子页及实际撤销/中断边界，不用单测代替实机证据。
+
+### P08/P13/P14：辅助原页面交付
+
+公司安装问答未推进能力；随后接续已在工作树中的交付实现，修复最终存储和
+原生位置复核尚未完成时新scope进入、失败回滚重复两次的问题。交付保留原
+popup/created-page，实际清理后撤权；有界presentation记录不授予控制，关闭/
+重新接管时清理。28新增backend例和独立两处gate复核通过，全部Node2339/2339。
+
+隔离`iUAIHY`2/2 actualexit0，root/已有OOPIF/动态OOPIF三原child、3POST/589B；
+6原页面及实际持久marker保留，3显式工作页关闭，旧scope3/新scope6/交付后
+foreign6拒绝，21清理通过。3829ms仅原3sole-popup activation，无windowfocus。
+原来普通125名称/顺序保留，`ZUgidL`125/125 actualexit0，244371ms仅原12激活/
+4控制popup焦点许可。源码/原生调用/业务字节/焦点/退出另有独立审计。
+
+旧preview不重打包；host/Go/SDK输入及二进制核同，不冒称重新构建。上述浏览器
+采用loopback Port adapter，新增交付的native worker/host中断实测仍需补齐；
+normal背景源抢focus、其他应用前台与完整P01–P15保持开放。详见
+[新页计划](2026-10-12-created-page-waits.md)及[交付证据](../../references/created-page-waits.md#original-page-delivery-evidence)。

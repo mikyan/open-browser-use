@@ -71,8 +71,10 @@ An omitted agent-origin ordinary page closes on finalization; a user-origin
 page is released. Reclaiming the same agent page does not downgrade its origin.
 Handoff retains membership for a later explicit turn. An ordinary deliverable
 remains as a real inactive page, releases task ownership and stores presentation
-metadata without inventing a native group ID. Popup deliverables retain their
-existing explicit limitation. Ending control still releases attachments and
+metadata without inventing a native group ID. Builds advertising
+`auxiliaryDeliveryVersion: 1` extend this in-place contract to popup and native
+created-page members; see [original-page delivery](created-page-waits.md#delivering-original-pages).
+Ending control still releases attachments and
 input before disposition; no operation is automatically replayed.
 
 The backend can establish that it constructed a successful response, not that

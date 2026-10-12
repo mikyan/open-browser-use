@@ -122,13 +122,18 @@ test("two sessions cannot commit concurrent claims for a group-less popup", asyn
   assert.equal(membership.filter(tabs => tabs.some(tab => tab.id === 8)).length, 1);
 });
 
-test("auxiliary deliverable fails before ending its epoch or disposing any tab", async t => {
+test("auxiliary deliverable releases authority while preserving its native window and page", async t => {
   const f = await fixture(t); await f.backend.claimUserTab(f.params); await f.backend.attach(f.params);
-  const before = f.calls.length;
-  await assert.rejects(f.backend.finalizeTabs({ ...f.params, keep: [{ tabId: 8, status: "deliverable" }] }), /handoff|deliverable|OBU_AUXILIARY/i);
-  assert.equal((await f.backend.getControlState({ session_id: "task" })).controlEpoch, f.params.control_epoch);
-  assert.equal(f.attached.has(8), true);
-  assert.equal(f.calls.slice(before).some(([name]) => ["remove", "ungroup", "group", "detach"].includes(name)), false);
+  const before = f.calls.length, native = clone(f.tabs.get(8));
+  const result = await f.backend.finalizeTabs({ ...f.params, keep: [{ tabId: 8, status: "deliverable" }] });
+  assert.deepEqual(f.tabs.get(8), native); assert.equal(f.attached.has(8), false);
+  assert.equal(f.backend.auxiliaryTabs.entry(8), undefined);
+  assert.equal(f.calls.slice(before).some(([name, ids]) => ["remove", "ungroup", "group"].includes(name) && [].concat(ids).includes(8)), false);
+  assert.equal(f.backend.store.state.deliverableTabs[8].windowId, native.windowId);
+  await assert.rejects(f.backend.attach(f.params), unavailable);
+  const scope = f.fresh(f.params, result);
+  assert.equal((await f.backend.getTabs(scope)).some(tab => tab.id === 8), false);
+  await assert.rejects(f.backend.attach(scope), unavailable);
 });
 
 test("handoff and turn end retain popup membership without a primary group; omission releases without closing", async t => {

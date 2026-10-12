@@ -205,12 +205,17 @@ detaches and releases membership while leaving the tab/window open. `handoff`
 keeps the original window and membership with active control ended. These
 dispositions do not ungroup or move a group-less auxiliary tab.
 
-The implementation rejects `status:'deliverable'` for an auxiliary
-popup during validation, before ending the epoch or mutating any tabs, with a
-clear instruction to use `handoff`. Current deliverable grouping cannot preserve
-that window's native popup semantics. A later window-preserving deliverable
-representation needs its own contract; silently moving it would reintroduce the
-observed defect. Ordinary grouped deliverables remain unchanged.
+Development builds advertising `auxiliaryDeliveryVersion: 1` accept
+`status:'deliverable'` for auxiliary popups and created pages. They release the
+original claim and persist bounded presentation metadata in place, without
+moving or grouping the page. This supersedes the earlier explicit refusal.
+Unlike `handoff`, delivery does not retain membership for the next turn.
+Native cleanup, storage publication and rollback remain within the ending
+session's admission fence. A failed batch may have already released some
+claims and must not report success or replay disposition on recovery.
+Ordinary grouped deliverables retain their existing grouping behavior. See
+[original-page delivery](created-page-waits.md#delivering-original-pages) for
+the precise contract, lifecycle boundaries and validation status.
 
 `tabs.onRemoved`, including its events when the whole popup window closes,
 retires the matching claim and confirms target destruction to input/attachment

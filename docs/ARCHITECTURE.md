@@ -27,7 +27,8 @@ debugger、history 和 tab groups。
   已被 ledger 淘汰的隔离记录按确切 claim 清理，失败由显式 bootstrap 重试。
   Native host 断开后的显式 bootstrap 同样重试已失败且已结算的新页清理，
   在恢复屏障内等待完成；在途清理共享，旧输入与接管不重放。Host 丢失时，
-  已交付子页仍保留成员归属，不能等同于 worker 替换后的隔离撤权。
+  等待接口已返回且尚未 finalize 的子页仍保留成员归属，不能等同于 worker
+  替换后的隔离撤权。显式 deliverable 另行释放成员归属；其有界展示记录不授权。
   导航/关页后的失败清理也可由显式会话恢复或 Retry Pause 重试；前者仅限
   本会话，后者先全局阻断再等待新清理。自动故障暂停不触发重试。
 - `cmd/open-browser-use/`：Go native messaging host 和 CLI 主入口。二进制
@@ -342,7 +343,9 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `auxiliary-tab-ownership.js` 在 trusted-context `chrome.storage.session`
   保存有界归属与隔离锁，普通动作、target、通知和 transfer 共用成员检查。
   结束/暂停释放控制但保留已提交归属；popup handoff 保留窗口，finalize 遗漏
-  popup 则释放归属而不关闭页面；popup deliverable 在修改前拒绝。用户移走 popup
+  popup 则释放归属而不关闭页面；`auxiliaryDeliveryVersion=1` 支持 popup 与
+  created-page 原地 deliverable，实际撤权和存储完成前不确认交付。展示记录
+  上限 256、关闭/重新接管时清理且不授予权限。用户移走 popup
   会隔离旧归属，清理成功前禁止新 owner。完整浏览器重启需重新显式 claim，
   详见 [popup ownership](references/popup-ownership-design.md)。同一 registry 的
   v2 内部记录还支持普通无组任务页：只有新页或显式 claim 的 admission

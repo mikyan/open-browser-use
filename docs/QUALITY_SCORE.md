@@ -11,11 +11,21 @@
 
 ## 当前评分
 
+辅助页原地交付已落地：`auxiliaryDeliveryVersion=1`，保留原popup/created-page，
+撤销任务归属，实际清理/存储/回滚结束前阻断新轮次。新增28后端例及独立gate
+复核通过，全部Node2339/2339无skip/cancel。专项`iUAIHY`2/2、三布局589B
+原POST、6原页交付、3工作页关闭、持久marker及21清理通过；3829ms仅原3次
+popup创建activation，无windowfocus。普通`ZUgidL`125/125 actualexit0，名单/
+顺序不变，244371ms仅原12activation/4controlfocus。旧preview保持；VM重建
+不等于新增交付的原生restart验收，normal源抢focus及完整矩阵继续开放。
+见[交付证据](references/created-page-waits.md#original-page-delivery-evidence)。
+
 条件popup源路由`wLjyi9`2/2、actualexit0：三布局原生未owned child跨窗接管、
 589B原POST及正常finalize撤权通过；20项清理、浏览器/host实际exit0。
 三次既有sole-popup创建activation许可，零windowfocus；Node260/260。
 前提是唯一normal窗口已focused，不能覆盖其他应用前台或修复normal背景源。
-生产/旧preview未改，auxiliary deliverable与真实native注册仍未验。
+该历史轮生产/旧preview未改；当时未验的auxiliary deliverable由上方新片补齐，
+真实native注册边界仍未补齐。
 见[条件路由范围](references/created-page-waits.md#popup-source-routing-feasibility)。
 
 修复导航/关页清理失败后，结束任务或Pause使旧handle失效而显式恢复卡住的

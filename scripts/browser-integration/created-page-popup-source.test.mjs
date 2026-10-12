@@ -5,7 +5,7 @@ import { AuxiliaryTabOwnership, AUXILIARY_TABS_KEY } from "../../apps/chrome-ext
 import { installCreatedPageAdoptionObserver } from "./created-page-adoption-observer.mjs";
 import {
   assertPopupSourcePlacement, assertPopupChildPlacement, assertPopupFocusUnchanged,
-  assertPopupRetirement, assertPopupAdoption, assertPopupNativeControl, checkCreatedPagePopupSource,
+  assertPopupRetirement, assertPopupDelivery, assertPopupAdoption, assertPopupNativeControl, checkCreatedPagePopupSource,
 } from "./created-page-popup-source.mjs";
 
 const copy = value => structuredClone(value);
@@ -61,6 +61,29 @@ test("finalize preserves exact user pages while removing all authority and debug
     v => { v.tabs = [{ id: 2 }]; },
     v => { v.native.tabs = v.native.tabs.filter(tab => tab.id !== 2); },
   ]) { const invalid = copy(value); mutate(invalid); assert.throws(() => assertPopupRetirement(invalid)); }
+});
+
+test("delivery requires retained original user pages, delivery markers and actual agent work-page closure", () => {
+  const value = { ...placement(), ownership: [2, 3].map(tabId => ({ tabId, owner: null, entry: null, stored: [] })), tabs: [],
+    delivery: { "2": { windowId: 20, groupId: -1, pinned: false, deliveryId: "source-delivery", deliveredAt: 123 }, "3": { windowId: 10, groupId: -1, pinned: false, deliveryId: "child-delivery", deliveredAt: 124 } } };
+  value.storedDelivery = copy(value.delivery);
+  value.item.workTabId = 4;
+  assertPopupDelivery(value);
+  for (const mutate of [
+    v => { v.native.tabs.push({ id: 4, windowId: 10 }); },
+    v => { v.item.workTabId = v.item.childId; },
+    v => { delete v.delivery["2"]; },
+    v => { v.delivery["3"].windowId = 20; },
+    v => { v.delivery["3"].groupId = 10; },
+    v => { v.delivery["2"].pinned = true; },
+    v => { v.delivery["2"].deliveryId = ""; },
+    v => { delete v.storedDelivery["3"]; },
+    v => { v.storedDelivery["2"].deliveryId = "previous-attempt"; },
+    v => { v.storedDelivery["4"] = copy(v.delivery["2"]); },
+    v => { v.delivery["4"] = { windowId: 10 }; },
+    v => { v.ownership[0].owner = { session_id: "old-owner" }; },
+    v => { v.native.tabs = v.native.tabs.filter(tab => tab.id !== 3); },
+  ]) { const invalid = copy(value); mutate(invalid); assert.throws(() => assertPopupDelivery(invalid)); }
 });
 
 async function adoptionEvidence() {

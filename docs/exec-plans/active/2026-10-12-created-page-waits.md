@@ -431,7 +431,7 @@ keep normal-window focus, other foreground applications, real native registratio
 and public auxiliary delivery open. Do not promote the conditional fixture into
 a general no-focus product API or replace the original failed scene.
 
-### Next product slice: original-page delivery
+### Original-page delivery
 
 The positive three-layout workflow makes the remaining explicit delivery
 refusal concrete. Extend existing `finalizeTabs([{tabId,status:"deliverable"}])`
@@ -453,6 +453,49 @@ released, and old/fresh/foreign unauthorized use rejects. Add moved/pinned/close
 or replaced-claim races, cleanup/storage failure recovery and worker/host
 restoration boundaries before broad acceptance. Retain the separate failed
 normal-source focus requirement and do not infer undocumented Codex behavior.
+
+The previous checkpoint `0dcbbad` is verified progress, committed and pushed;
+its real three-layout popup workflow now supplies the original-page witness
+for this product change. First backend counterexamples on that unchanged
+source reject both popup and created-page delivery. The implementation uses
+`getInfo.metadata.auxiliaryDeliveryVersion === 1` and the existing keep wire.
+Prepare a separate `popup-delivery` browser mode using the original three-layout
+workflow plus explicitly created agent work tabs. After original source/child
+delivery, require real work-tab closure, preserved user documents/positions,
+non-authorizing markers, old/fresh/foreign rejection and marker removal when
+the exact test pages close. Preserve the ordinary 125-case list; update its
+obsolete popup-refusal check to actual delivery, explicit reclaim, then the
+same existing handoff/move/close lifecycle. Freeze source, run all Node tests
+and the full ordinary browser matrix; no success is recorded before execution.
+
+This slice is now implemented and verified. The intervening company-install
+Q&A made no capability progress; the resumed work revalidated the pending tree
+and completed its existing production change. Review exposed early admission
+after finishEnd but before marker publication. The final implementation keeps
+that phase, verification and rollback under the same session fence; a pending
+idle record cannot be evicted. A saved intermediate source also demonstrates
+duplicate rollback (two attempts instead of one); the fixed regression passes.
+Actual Backend tests cover pending ACKs, partial batches, foreign replacement,
+bounded metadata and VM reconstruction/native-disconnect boundaries.
+
+The final 28 new backend cases and all Node suites pass 2,339/2,339 without
+skips/cancellations. `iUAIHY` passes 2/2 with actual exit 0: three original POSTs
+total 589 bytes, six original user pages delivered with native-storage markers,
+three omitted agent work pages closed, and 21 cleanup steps passed. Old, fresh
+and foreign scope checks reject. The continuous 3,829 ms ledger has three
+existing sole-popup activations and no window focus. Original source/child
+documents remain observable before and after finalization. This is not an
+atomic guarantee against external navigation.
+
+The same production source passes ordinary `ZUgidL` 125/125, actual exit 0;
+names/order match `B5TASC`. Its 244,371 ms continuous ledger preserves exactly
+the existing twelve activation/four control-popup focus allowances. Host/Go
+helpers/SDK binaries were verified against unchanged inputs, not rebuilt.
+Published preview ZIPs remain byte-identical. These runs use the loopback
+Native Port adapter; VM restart tests do not replace native worker/host-loss
+acceptance for an in-flight delivery. That lifecycle verification is the next
+slice, alongside the unresolved normal-source focus requirement. Keep the full
+P01–P15 objective active and preserve its original requirements.
 
 ## Relevant implementation
 

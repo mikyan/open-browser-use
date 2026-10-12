@@ -52,6 +52,7 @@ const CURSOR_ARRIVAL_TIMEOUT_MS = 1_000;
 const POINTER_FEEDBACK_TIMEOUT_MS = 250;
 const MAX_POINTER_FEEDBACK_JOBS = 8;
 const MAX_USER_TABS = 1000;
+const MAX_DELIVERABLE_TABS = 256;
 const DEFAULT_SESSION_GROUP_TITLE = "Task - OBU";
 const DELIVERABLE_GROUP_TITLE = "✅ Open Browser Use";
 const LEGACY_SESSION_GROUP_TITLE_PATTERN = /^Open Browser Use [0-9a-f]{8}$/i;
@@ -284,6 +285,8 @@ class SessionStore {
   constructor(lifetime) {
     this.lifetime = lifetime;
     this.writes = Promise.resolve();
+    this.deliverableRevision = 0;
+    this.persistedDeliverableRevision = 0;
     this.state = { sessions: {}, deliverableGroupId: null };
     this.ready = this.load();
   }
@@ -301,9 +304,10 @@ class SessionStore {
         deliverableGroupId:
           sameLifetime && typeof value.deliverableGroupId === "number" ? value.deliverableGroupId : null,
         deliverableGroups: sameLifetime && value.deliverableGroups && typeof value.deliverableGroups === "object" && !Array.isArray(value.deliverableGroups) ? value.deliverableGroups : {},
-        deliverableTabs: sameLifetime && value.deliverableTabs && typeof value.deliverableTabs === "object" && !Array.isArray(value.deliverableTabs) ? value.deliverableTabs : {}
+        deliverableTabs: sameLifetime ? this.normalizeDeliverables(value.deliverableTabs) : {}
       };
       let migrated = !sameLifetime;
+      if (JSON.stringify(this.state.deliverableTabs) !== JSON.stringify(value.deliverableTabs ?? {})) this.deliverableRevision++;
       for (const session of Object.values(this.state.sessions)) {
         if (session && typeof session === "object" && !sameLifetime) {
           session.chromeGroupId = null;
@@ -329,8 +333,45 @@ class SessionStore {
 
   async save() {
     const state = structuredClone(this.state);
+    const revision = this.deliverableRevision;
     this.writes = this.writes.catch(() => {}).then(() => chrome.storage.local.set({ [SESSION_STATE_KEY]: state }));
     await this.writes;
+    this.persistedDeliverableRevision = Math.max(this.persistedDeliverableRevision, revision);
+  }
+
+  normalizeDeliverables(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([id, item]) => /^(0|[1-9]\d*)$/.test(id) && Number.isSafeInteger(Number(id)) &&
+      item && typeof item === "object" && Number.isSafeInteger(item.windowId) && item.windowId >= 0)
+      .sort((a, b) => (b[1].deliveredAt ?? 0) - (a[1].deliveredAt ?? 0)).slice(0, MAX_DELIVERABLE_TABS)
+      .map(([id, item]) => [id, { windowId: item.windowId,
+        ...(item.groupId === -1 ? { groupId: -1 } : {}), ...(typeof item.pinned === "boolean" ? { pinned: item.pinned } : {}),
+        ...(typeof item.deliveryId === "string" && item.deliveryId.length <= 128 ? { deliveryId: item.deliveryId } : {}),
+        ...(Number.isFinite(item.deliveredAt) && item.deliveredAt >= 0 ? { deliveredAt: item.deliveredAt } : {}) }]));
+  }
+
+  // Presentation only: these records never participate in tab admission.
+  setDeliverables(entries) {
+    if (entries.length > MAX_DELIVERABLE_TABS) throw new Error("OBU_AUXILIARY_DELIVERY_CAPACITY: too many delivered pages");
+    const records = this.state.deliverableTabs ??= {};
+    const selected = new Set(entries.map(([id]) => String(id)));
+    for (const [id, marker] of entries) records[String(id)] = marker;
+    const prior = Object.keys(records).filter(id => !selected.has(id)).sort((a, b) => (records[a].deliveredAt ?? 0) - (records[b].deliveredAt ?? 0));
+    while (Object.keys(records).length > MAX_DELIVERABLE_TABS) delete records[prior.shift()];
+    this.deliverableRevision++;
+  }
+
+  async forgetDeliverable(tabId, expected) {
+    await this.ready;
+    const records = this.state.deliverableTabs, marker = records?.[String(tabId)];
+    if (marker && (expected === undefined || marker === expected)) {
+      delete records[String(tabId)]; this.deliverableRevision++;
+    }
+    await this.flushDeliverables();
+  }
+
+  async flushDeliverables() {
+    if (this.persistedDeliverableRevision !== this.deliverableRevision) await this.save();
   }
 
   async getSession(sessionId) {
@@ -370,9 +411,10 @@ class SessionStore {
 // Epochs come from one persistent monotonic counter. Evicting an idle session
 // cannot make an old epoch valid again, even when that session is bootstrapped.
 class ControlLedger {
-  constructor(assertAdmission = () => {}, lifetime) {
+  constructor(assertAdmission = () => {}, lifetime, isFinalizing = () => false) {
     this.lifetime = lifetime;
     this.assertAdmission = assertAdmission;
+    this.isFinalizing = isFinalizing;
     this.records = new Map();
     this.counter = 0;
     this.noNewLegacy = false;
@@ -424,7 +466,7 @@ class ControlLedger {
   create(sessionId, legacy = false) {
     if (legacy && this.noNewLegacy) throw new Error("OBU_CONTROL_BOOTSTRAP_REQUIRED: call getControlState and send control_epoch");
     if (this.records.size >= MAX_CONTROL_SESSIONS) {
-      const idle = [...this.records].find(([, record]) => record.status === "idle");
+      const idle = [...this.records].find(([id, record]) => record.status === "idle" && !this.isFinalizing(id));
       if (!idle) throw new Error("OBU_CONTROL_CAPACITY: end an active session before bootstrapping another");
       this.noNewLegacy = true;
       this.records.delete(idle[0]);
@@ -443,13 +485,15 @@ class ControlLedger {
     await this.ready;
     this.assertAdmission();
     const record = this.records.get(sessionId) ?? this.create(sessionId);
+    if (this.isFinalizing(sessionId)) return { ...this.describe(record), closing: true };
     await this.save();
     this.assertAdmission();
-    return this.describe(record);
+    return { ...this.describe(record), ...(this.isFinalizing(sessionId) ? { closing: true } : {}) };
   }
 
   assertCurrent(params) {
     this.assertAdmission();
+    if (this.isFinalizing(params.session_id)) throw new Error("OBU_CONTROL_ENDING: final delivery is still being committed");
     const record = this.records.get(params.session_id);
     if (params.control_epoch !== undefined) {
       if (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1) throw new Error("control_epoch must be a positive safe integer");
@@ -671,7 +715,9 @@ class BrowserBackend {
       legacyPending: async () => { await this.automationControl.ready; return { tabIds: [...this.automationControl.recoveredPendingTabs], incarnation: this.automationControl.incarnation }; }
     });
     this.store = new SessionStore(this.browserLifetime);
-    this.controlLedger = new ControlLedger(() => { this.assertControlOpen(); this.siteAccess.assertReady(); }, this.browserLifetime);
+    this.auxiliaryDeliveries = new Map();
+    this.controlLedger = new ControlLedger(() => { this.assertControlOpen(); this.siteAccess.assertReady(); }, this.browserLifetime,
+      sessionId => this.endingSessions?.get(sessionId)?.finalizing === true);
     this.acceptedRequests = new Set();
     this.controlBootstrapRequests = new Set();
     this.nativeRecovery = null;
@@ -861,6 +907,8 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      this.invalidateAuxiliaryDelivery(tabId);
+      void this.store.forgetDeliverable(tabId).catch(() => {});
       void this.browserLifetime.originalTabRemoved(tabId).catch(error => this.automationControl.fail(error));
       this.markAttachmentDestroyed(tabId);
       this.browserEngine?.forget?.(tabId);
@@ -884,6 +932,9 @@ class BrowserBackend {
       if (claim) void this.releaseAuxiliaryClaim(claim, { destroyed: true }).catch(() => {});
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
+      const delivery = this.auxiliaryDeliveries.get(tabId);
+      if (delivery && ((Object.hasOwn(change, "groupId") && change.groupId !== delivery.position.groupId) ||
+          (Object.hasOwn(change, "pinned") && change.pinned !== delivery.position.pinned))) this.invalidateAuxiliaryDelivery(tabId);
       this.observeCreationChange(tabId, "updated", change);
       if (change.url) {
         void this.fileChooserWaits.invalidateAttachedTab(tabId).catch(() => {});
@@ -905,12 +956,13 @@ class BrowserBackend {
     chrome.tabs?.onActivated?.addListener(info => this.observeCreationChange(info.tabId, "activated", info));
     chrome.webNavigation?.onCreatedNavigationTarget?.addListener(details => this.pageWaits.observe(details));
     chrome.tabs?.onMoved?.addListener(tabId => {
+      this.invalidateAuxiliaryDelivery(tabId);
       this.observeCreationChange(tabId, "moved");
       const record = this.auxiliaryTabs.owner(tabId);
       if (["ordinary", "background-window", "created-page"].includes(record?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
-    chrome.tabs?.onDetached?.addListener(tabId => { this.observeCreationChange(tabId, "detached"); void this.pageWaits.invalidateTab(tabId).catch(() => {}); });
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.observeCreationChange(removed, "replaced"); void this.pageWaits.invalidateTab(removed).catch(() => {}); });
+    chrome.tabs?.onDetached?.addListener(tabId => { this.invalidateAuxiliaryDelivery(tabId); this.observeCreationChange(tabId, "detached"); void this.pageWaits.invalidateTab(tabId).catch(() => {}); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.invalidateAuxiliaryDelivery(removed); void this.store.forgetDeliverable(removed).catch(() => {}); this.observeCreationChange(removed, "replaced"); void this.pageWaits.invalidateTab(removed).catch(() => {}); });
     chrome.tabs?.onRemoved?.addListener(tabId => this.observeCreationChange(tabId, "removed"));
     chrome.windows?.onFocusChanged?.addListener(windowId => {
       if (!Number.isSafeInteger(windowId) || windowId < 0) return;
@@ -1026,6 +1078,7 @@ class BrowserBackend {
         this[method] = async params => {
           const deadlineAt = Date.now() + DEFAULT_CDP_TIMEOUT_MS;
           const reservation = this.auxiliaryTabs.reserve(params);
+          if (this.auxiliaryDeliveries.get(params.tabId)?.record !== reservation) this.invalidateAuxiliaryDelivery(params.tabId);
           let cancelled = false;
           const timeoutError = () => new Error("OBU_AUXILIARY_CLAIM_TIMEOUT: tab claim deadline expired");
           const checkDeadline = () => { if (cancelled || Date.now() >= deadlineAt) throw timeoutError(); };
@@ -1507,6 +1560,7 @@ class BrowserBackend {
         downloadWaitVersion: 1,
         pageWaitVersion: 1,
         auxiliaryTabsVersion: 1,
+        auxiliaryDeliveryVersion: 1,
         directDownloadsVersion: 1,
         pageDownloads: this.nativePageDownloads?.()?.status() ?? { version: 1, available: false, reason: "Browser connection is not bound" },
         pageExportVersion: 1,
@@ -1907,8 +1961,12 @@ class BrowserBackend {
   async claimUserTab(params, reservation, checkDeadline) {
     checkDeadline();
     reservation = this.auxiliaryTabs.check(reservation);
-    return this.runSessionMutation(params, () => this.admitSessionMembership(params.session_id,
-      () => this.claimUserTabInTurn(params, reservation, checkDeadline)));
+    return this.runSessionMutation(params, () => this.admitSessionMembership(params.session_id, async () => {
+      const result = await this.claimUserTabInTurn(params, reservation, checkDeadline);
+      await this.store.forgetDeliverable(params.tabId);
+      checkDeadline();
+      return result;
+    }));
   }
 
   async claimUserTabInTurn(params, reservation, checkDeadline) {
@@ -2083,6 +2141,58 @@ class BrowserBackend {
     }
   }
 
+  invalidateAuxiliaryDelivery(tabId) {
+    const delivery = this.auxiliaryDeliveries.get(tabId);
+    if (delivery) delivery.invalid = true;
+  }
+
+  assertAuxiliaryDelivery(delivery) {
+    this.assertControlOpen();
+    const { record, position, released, marker } = delivery;
+    if (delivery.invalid || this.auxiliaryDeliveries.get(position.id) !== delivery ||
+        (released ? this.auxiliaryTabs.entry(position.id) !== undefined : this.auxiliaryTabs.owner(position.id) !== record) ||
+        (marker && this.store.state.deliverableTabs?.[String(position.id)] !== marker))
+      throw new Error("OBU_AUXILIARY_DELIVERY_CHANGED: original page ownership or placement changed during delivery");
+  }
+
+  async verifyAuxiliaryDeliveries(deliveries) {
+    for (const delivery of deliveries) {
+      this.assertAuxiliaryDelivery(delivery);
+      let tab, window;
+      try {
+        tab = await chrome.tabs.get(delivery.position.id);
+        this.assertAuxiliaryDelivery(delivery);
+        window = await chrome.windows.get(delivery.position.windowId);
+      } catch (error) {
+        if (/No tab|Invalid tab|No window|Invalid window/i.test(String(error)))
+          throw new Error("OBU_AUXILIARY_DELIVERY_CHANGED: original native page or window closed", { cause: error });
+        throw error;
+      }
+      this.assertAuxiliaryDelivery(delivery);
+      const position = delivery.position;
+      if (tab.id !== position.id || tab.windowId !== position.windowId || tab.groupId !== position.groupId ||
+          Boolean(tab.pinned) !== position.pinned || (delivery.windowType !== undefined && window.type !== delivery.windowType))
+        throw new Error("OBU_AUXILIARY_DELIVERY_CHANGED: original native page moved or changed pin state");
+      delivery.windowType ??= window.type;
+    }
+    // An earlier page can receive a native change while a later query awaits.
+    for (const delivery of deliveries) this.assertAuxiliaryDelivery(delivery);
+  }
+
+  async rollbackAuxiliaryDeliveries(deliveries) {
+    if (!deliveries.some(delivery => delivery.marker)) return;
+    for (const delivery of deliveries) {
+      if (delivery.marker && this.store.state.deliverableTabs?.[String(delivery.position.id)] === delivery.marker) {
+        delete this.store.state.deliverableTabs[String(delivery.position.id)];
+        this.store.deliverableRevision++;
+      }
+    }
+    // A failed original write has settled before this rollback is issued. The
+    // real serialized rollback ACK is required; explicit bootstrap retries a
+    // failed presentation flush without replaying native disposition.
+    await this.store.flushDeliverables();
+  }
+
   async finalizeTabs(params) {
     const session = await this.requireSession(params);
     if (!Array.isArray(params.keep)) {
@@ -2106,121 +2216,149 @@ class BrowserBackend {
       if (status !== "handoff" && status !== "deliverable") {
         throw new Error(`finalizeTabs received invalid status ${String(status)}`);
       }
-      if (status === "deliverable" && ["popup", "created-page"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) {
-        throw new Error("OBU_AUXILIARY_DELIVERABLE_UNSUPPORTED: use handoff to preserve the native window");
-      }
       keep.set(tabId, status);
     }
-    return this.endSessionControl(params, async () => {
-      tabs = await this.getSessionTabs(session.sessionId, { strict: true });
-      const sessionState = await this.store.getSession(session.sessionId);
-      const agentTabsToClose = [];
-      const userTabsToRelease = [];
-      const deliverableTabs = [];
-      const handoffTabs = [];
-      const auxiliaryToRelease = [];
-      const ordinaryToRelease = [];
-      const backgroundRecords = new Map();
+    const deliveries = [];
+    try {
       for (const tab of tabs) {
-        if (!hasTabId(tab)) {
-          continue;
-        }
-        const keptStatus = keep.get(tab.id);
-        const explicit = this.auxiliaryTabs.owner(tab.id);
-        if (explicit?.kind === "background-window") backgroundRecords.set(tab.id, explicit);
-        if (keptStatus === "handoff") {
-          handoffTabs.push(tab.id);
-          continue;
-        }
-        if (keptStatus === "deliverable") {
-          deliverableTabs.push(tab.id);
-          if (["ordinary", "background-window", "created-page"].includes(explicit?.kind)) ordinaryToRelease.push(explicit);
-          continue;
-        }
-        const auxiliary = this.auxiliaryTabs.owner(tab.id);
-        if (auxiliary?.session_id === session.sessionId && ["popup", "created-page"].includes(auxiliary.kind)) {
-          auxiliaryToRelease.push(auxiliary);
-        } else if ((auxiliary?.origin ?? sessionState.tabOrigins[String(tab.id)]) === "agent") {
-          agentTabsToClose.push(tab.id);
-          if (auxiliary) ordinaryToRelease.push(auxiliary);
-        } else {
-          userTabsToRelease.push(tab.id);
-          if (auxiliary) ordinaryToRelease.push(auxiliary);
-        }
+        const record = this.auxiliaryTabs.owner(tab.id);
+        if (keep.get(tab.id) !== "deliverable" || !record) continue;
+        if (this.auxiliaryDeliveries.has(tab.id) || this.auxiliaryDeliveries.size >= MAX_DELIVERABLE_TABS)
+          throw new Error("OBU_AUXILIARY_DELIVERY_CAPACITY: another delivery is still pending");
+        const delivery = { record, position: { id: tab.id, windowId: tab.windowId, groupId: tab.groupId, pinned: Boolean(tab.pinned) }, released: false };
+        deliveries.push(delivery); this.auxiliaryDeliveries.set(tab.id, delivery);
       }
-      // Detach every disposition, including handoff tabs we keep alive: leaving a
-      // tab attached keeps Chrome's "started debugging this browser" banner up
-      // after the turn ends. The debugger re-attaches lazily on the next CDP call
-      // (the CLI runner and background handlers attach on demand), so dropping it
-      // here is loss-free while clearing the banner.
-      await this.detachMany([
-        ...agentTabsToClose,
-        ...userTabsToRelease,
-        ...deliverableTabs,
-        ...handoffTabs,
-        ...auxiliaryToRelease.map(record => record.tabId)
-      ]);
-      // Detach may await real native input cleanup. A user move during that
-      // wait withdraws this exact page from every planned disposition.
-      const backgroundStillOwned = async (tabId, record) => {
-        const live = await this.liveAuxiliaryTab(record, { strict: true });
-        return !!live && this.auxiliaryTabs.owner(tabId) === record;
-      };
-      for (const [tabId, record] of backgroundRecords) if (!await backgroundStillOwned(tabId, record)) {
-        for (const list of [agentTabsToClose, userTabsToRelease, deliverableTabs, handoffTabs]) {
-          const index = list.indexOf(tabId); if (index !== -1) list.splice(index, 1);
-        }
-        const index = ordinaryToRelease.indexOf(record); if (index !== -1) ordinaryToRelease.splice(index, 1);
-      }
-      for (const record of auxiliaryToRelease) await this.releaseAuxiliaryClaim(record);
-      this.assertControlOpen();
-      if (agentTabsToClose.length > 0) {
-        const grouped = agentTabsToClose.filter(tabId => !backgroundRecords.has(tabId));
-        if (grouped.length) await chrome.tabs.remove(grouped.length === 1 ? grouped[0] : grouped);
-        for (const tabId of agentTabsToClose) {
-          const record = backgroundRecords.get(tabId);
-          if (record && await backgroundStillOwned(tabId, record)) {
-            this.assertControlOpen();
-            await chrome.tabs.remove(tabId);
+      await this.verifyAuxiliaryDeliveries(deliveries);
+      const result = await this.endSessionControl(params, async () => {
+        tabs = await this.getSessionTabs(session.sessionId, { strict: true });
+        await this.verifyAuxiliaryDeliveries(deliveries);
+        const sessionState = await this.store.getSession(session.sessionId);
+        const agentTabsToClose = [];
+        const userTabsToRelease = [];
+        const deliverableTabs = [];
+        const handoffTabs = [];
+        const auxiliaryToRelease = [];
+        const ordinaryToRelease = [];
+        const backgroundRecords = new Map();
+        for (const tab of tabs) {
+          if (!hasTabId(tab)) {
+            continue;
+          }
+          const keptStatus = keep.get(tab.id);
+          const explicit = this.auxiliaryTabs.owner(tab.id);
+          if (explicit?.kind === "background-window") backgroundRecords.set(tab.id, explicit);
+          if (keptStatus === "handoff") {
+            handoffTabs.push(tab.id);
+            continue;
+          }
+          if (keptStatus === "deliverable") {
+            deliverableTabs.push(tab.id);
+            continue;
+          }
+          const auxiliary = this.auxiliaryTabs.owner(tab.id);
+          if (auxiliary?.session_id === session.sessionId && ["popup", "created-page"].includes(auxiliary.kind)) {
+            auxiliaryToRelease.push(auxiliary);
+          } else if ((auxiliary?.origin ?? sessionState.tabOrigins[String(tab.id)]) === "agent") {
+            agentTabsToClose.push(tab.id);
+            if (auxiliary) ordinaryToRelease.push(auxiliary);
+          } else {
+            userTabsToRelease.push(tab.id);
+            if (auxiliary) ordinaryToRelease.push(auxiliary);
           }
         }
-      }
-      this.assertControlOpen();
-      if (userTabsToRelease.length > 0 && chrome.tabs.ungroup) {
-        const groupedUsers = userTabsToRelease.filter(tabId => !ordinaryToRelease.some(record => record.tabId === tabId));
-        if (groupedUsers.length) await chrome.tabs.ungroup(groupedUsers.length === 1 ? groupedUsers[0] : groupedUsers);
-      }
-      this.assertControlOpen();
-      if (deliverableTabs.length > 0) {
-        const explicitIds = new Set(ordinaryToRelease.filter(record => deliverableTabs.includes(record.tabId)).map(record => record.tabId));
-        await this.moveToDeliverables(deliverableTabs.filter(tabId => !explicitIds.has(tabId)));
-        // These are delivered pages, not remaining task authority or imaginary
-        // native groups. The lifetime-bound store drops their IDs on restart.
-        this.store.state.deliverableTabs ??= {};
-        for (const record of ordinaryToRelease) if (explicitIds.has(record.tabId))
-          this.store.state.deliverableTabs[String(record.tabId)] = { windowId: record.windowId };
-        if (explicitIds.size) await this.store.save();
-      }
-      for (const record of ordinaryToRelease) {
-        if (record.kind === "background-window" && this.auxiliaryTabs.entry(record.tabId) === record &&
-            this.auxiliaryTabs.owner(record.tabId) !== record) continue;
-        await this.releaseAuxiliaryClaim(record, { disposition: true });
-      }
-      for (const tabId of [...agentTabsToClose, ...userTabsToRelease, ...deliverableTabs]) {
-        delete sessionState.tabOrigins[String(tabId)];
-        this.cursorByTabId.delete(tabId);
-      }
-      if (handoffTabs.length > 0) {
-        sessionState.activeTabId = handoffTabs.includes(sessionState.activeTabId)
-          ? sessionState.activeTabId
-          : handoffTabs[0];
-        this.activeTabsBySession.set(session.sessionId, sessionState.activeTabId);
+        // Detach every disposition, including handoff tabs we keep alive: leaving a
+        // tab attached keeps Chrome's "started debugging this browser" banner up
+        // after the turn ends. The debugger re-attaches lazily on the next CDP call
+        // (the CLI runner and background handlers attach on demand), so dropping it
+        // here is loss-free while clearing the banner.
+        await this.detachMany([
+          ...agentTabsToClose,
+          ...userTabsToRelease,
+          ...deliverableTabs,
+          ...handoffTabs,
+          ...auxiliaryToRelease.map(record => record.tabId)
+        ]);
+        await this.verifyAuxiliaryDeliveries(deliveries);
+        // Detach may await real native input cleanup. A user move during that
+        // wait withdraws this exact page from every planned disposition.
+        const backgroundStillOwned = async (tabId, record) => {
+          const live = await this.liveAuxiliaryTab(record, { strict: true });
+          return !!live && this.auxiliaryTabs.owner(tabId) === record;
+        };
+        for (const [tabId, record] of backgroundRecords) if (!await backgroundStillOwned(tabId, record)) {
+          for (const list of [agentTabsToClose, userTabsToRelease, deliverableTabs, handoffTabs]) {
+            const index = list.indexOf(tabId); if (index !== -1) list.splice(index, 1);
+          }
+          const index = ordinaryToRelease.indexOf(record); if (index !== -1) ordinaryToRelease.splice(index, 1);
+        }
+        for (const record of auxiliaryToRelease) await this.releaseAuxiliaryClaim(record);
+        this.assertControlOpen();
+        if (agentTabsToClose.length > 0) {
+          const grouped = agentTabsToClose.filter(tabId => !backgroundRecords.has(tabId));
+          if (grouped.length) await chrome.tabs.remove(grouped.length === 1 ? grouped[0] : grouped);
+          for (const tabId of agentTabsToClose) {
+            const record = backgroundRecords.get(tabId);
+            if (record && await backgroundStillOwned(tabId, record)) {
+              this.assertControlOpen();
+              await chrome.tabs.remove(tabId);
+            }
+          }
+        }
+        this.assertControlOpen();
+        if (userTabsToRelease.length > 0 && chrome.tabs.ungroup) {
+          const groupedUsers = userTabsToRelease.filter(tabId => !ordinaryToRelease.some(record => record.tabId === tabId));
+          if (groupedUsers.length) await chrome.tabs.ungroup(groupedUsers.length === 1 ? groupedUsers[0] : groupedUsers);
+        }
+        this.assertControlOpen();
+        if (deliverableTabs.length > 0) {
+          const explicitIds = new Set(deliveries.map(delivery => delivery.position.id));
+          await this.moveToDeliverables(deliverableTabs.filter(tabId => !explicitIds.has(tabId)));
+        }
+        for (const record of ordinaryToRelease) {
+          if (record.kind === "background-window" && this.auxiliaryTabs.entry(record.tabId) === record &&
+              this.auxiliaryTabs.owner(record.tabId) !== record) continue;
+          await this.releaseAuxiliaryClaim(record, { disposition: true });
+        }
+        for (const delivery of deliveries) {
+          await this.verifyAuxiliaryDeliveries([delivery]);
+          const removed = await this.releaseAuxiliaryClaim(delivery.record, { disposition: true });
+          if (removed !== true || this.auxiliaryTabs.entry(delivery.position.id) !== undefined)
+            throw new Error("OBU_AUXILIARY_DELIVERY_CHANGED: original auxiliary claim was not removed");
+          delivery.released = true;
+          await this.verifyAuxiliaryDeliveries([delivery]);
+        }
+        for (const tabId of [...agentTabsToClose, ...userTabsToRelease, ...deliverableTabs]) {
+          delete sessionState.tabOrigins[String(tabId)];
+          this.cursorByTabId.delete(tabId);
+        }
+        if (handoffTabs.length > 0) {
+          sessionState.activeTabId = handoffTabs.includes(sessionState.activeTabId)
+            ? sessionState.activeTabId
+            : handoffTabs[0];
+          this.activeTabsBySession.set(session.sessionId, sessionState.activeTabId);
+          await this.store.save();
+        } else {
+          this.activeTabsBySession.delete(session.sessionId);
+          await this.store.removeSession(session.sessionId);
+        }
+      }, { retainClosingOnFailure: deliveries.length > 0, complete: deliveries.length ? async () => {
+        // Session/control writes have real ACKs, but the session remains fenced
+        // until presentation publication, verification and any rollback finish.
+        await this.verifyAuxiliaryDeliveries(deliveries);
+        const entries = deliveries.map(delivery => {
+          const { id, windowId, groupId, pinned } = delivery.position;
+          return [id, { windowId, groupId, pinned, deliveryId: crypto.randomUUID(), deliveredAt: Date.now() }];
+        });
+        this.store.setDeliverables(entries);
+        for (const [index, delivery] of deliveries.entries()) delivery.marker = entries[index][1];
         await this.store.save();
-      } else {
-        this.activeTabsBySession.delete(session.sessionId);
-        await this.store.removeSession(session.sessionId);
-      }
-    });
+        await this.verifyAuxiliaryDeliveries(deliveries);
+      } : undefined, rollback: deliveries.length ? () => this.rollbackAuxiliaryDeliveries(deliveries) : undefined });
+      return result;
+    } finally {
+      for (const delivery of deliveries) if (this.auxiliaryDeliveries.get(delivery.position.id) === delivery)
+        this.auxiliaryDeliveries.delete(delivery.position.id);
+    }
   }
 
   async nameSession(params) {
@@ -4356,6 +4494,8 @@ class BrowserBackend {
       await this.recoverEndedSession(params.session_id, record, { retryPageCleanup: true });
     }
     if (!record) await this.releaseRecoveredCreatedPages(params.session_id);
+    if (this.endingSessions.get(params.session_id)?.finalizing) return this.controlLedger.bootstrap(params.session_id);
+    await this.store.flushDeliverables();
     return this.controlLedger.bootstrap(params.session_id);
   }
 
@@ -4421,7 +4561,7 @@ class BrowserBackend {
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
 
-  async endSessionControl(params, finish) {
+  async endSessionControl(params, finish, { retainClosingOnFailure = false, complete, rollback } = {}) {
     if (this.endingSessions.has(params.session_id)) throw new Error("OBU_CONTROL_ENDING: browser control is still being released");
     const ending = {};
     this.endingSessions.set(params.session_id, ending);
@@ -4450,15 +4590,30 @@ class BrowserBackend {
         this.assertControlOpen();
         await finish();
       } catch (error) {
+        if (retainClosingOnFailure) throw error;
         await this.clearSessionActivity(params.session_id);
         await this.controlLedger.finishEnd(record);
         throw error;
       }
       await this.clearSessionActivity(params.session_id);
       this.assertControlOpen();
+      ending.finalizing = typeof complete === "function";
       const result = await this.controlLedger.finishEnd(record);
       this.assertControlOpen();
+      if (complete) await complete();
+      this.assertControlOpen();
+      if (this.controlLedger.records.get(params.session_id) !== record || record.status !== "idle" || record.epoch !== result.controlEpoch)
+        throw new Error("OBU_CONTROL_ENDING: control changed before final acknowledgement");
       return result;
+    } catch (error) {
+      // One original rollback attempt remains inside the session fence. A
+      // failed write is left dirty for explicit bootstrap, never retried by a
+      // second outer catch after admission has reopened.
+      if (rollback) try { await rollback(); }
+      catch (rollbackError) {
+        throw new Error(`OBU_AUXILIARY_DELIVERY_CLEANUP_FAILED: ${error.message}; presentation rollback: ${rollbackError.message}`, { cause: error });
+      }
+      throw error;
     } finally {
       if (this.endingSessions.get(params.session_id) === ending) this.endingSessions.delete(params.session_id);
     }

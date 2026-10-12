@@ -56,6 +56,22 @@ export function assertPopupRetirement({ item, native, ownership, tabs }) {
   }
 }
 
+export function assertPopupDelivery({ item, native, ownership, tabs, delivery, storedDelivery }) {
+  assertPopupRetirement({ item, native, ownership, tabs });
+  assert.ok(Number.isSafeInteger(item.workTabId));
+  assert.ok(![item.tabId, item.childId, item.sentinel.id].includes(item.workTabId));
+  assert.equal(native.tabs.some(tab => tab.id === item.workTabId), false, "Omitted agent work page was actually closed");
+  for (const id of [item.tabId, item.childId]) {
+    const tab = one(native.tabs.filter(tab => tab.id === id), "Exact delivered page"), marker = delivery[String(id)];
+    for (const key of ["windowId", "groupId", "pinned"]) assert.equal(marker?.[key], tab[key], `Delivery marker preserves ${key}`);
+    assert.equal(typeof marker.deliveryId, "string"); assert.ok(marker.deliveryId.length > 0);
+    assert.ok(Number.isFinite(marker.deliveredAt) && marker.deliveredAt > 0);
+    assert.deepEqual(storedDelivery[String(id)], marker, "Actual native storage contains the acknowledged marker");
+  }
+  assert.equal(delivery[String(item.workTabId)], undefined, "Closed work page is not a delivered result");
+  assert.equal(storedDelivery[String(item.workTabId)], undefined);
+}
+
 export function assertPopupAdoption({ snapshot, items }) {
   assert.equal(snapshot.closed, true); assert.equal(snapshot.restored, true); assert.equal(snapshot.overflow, false);
   assert.deepEqual(snapshot.errors, []); assert.deepEqual(snapshot.pendingOperations, []);
@@ -131,9 +147,9 @@ export function assertPopupNativeControl({ snapshot, items }) {
   return { calls: calls.length, rejected: snapshot.records.filter(row => ["rejected", "threw"].includes(row.kind)).length };
 }
 
-export async function checkCreatedPagePopupSource({ connectBrowser, getWorker, createPopup, readFocus, fixtureURL, server, saveDetail = async () => {}, detail = {} }) {
+export async function checkCreatedPagePopupSource({ connectBrowser, getWorker, createPopup, readFocus, fixtureURL, server, deliverPages = false, saveDetail = async () => {}, detail = {} }) {
   const owners = [], sources = new Map(), waits = [], cancelled = new Set(), installed = []; let foreign, failure, scene;
-  Object.assign(detail, { feasibilityOnly: true, boundary: "Test-created unfocused popup source, publicly claimed as user-origin. One already-focused normal window; original trusted Control-click and native child only. This is not a public popup creation feature or a fix for backgroundWindow normal sources. No focus restoration, child substitution or regrouping. Document/frame continuity is observational.", cases: [], cleanup: [] });
+  Object.assign(detail, { feasibilityOnly: true, deliverPages, workTabs: [], boundary: "Test-created unfocused popup source, publicly claimed as user-origin. One already-focused normal window; original trusted Control-click and native child only. This is not a public popup creation feature or a fix for backgroundWindow normal sources. No focus restoration, child substitution or regrouping. Document/frame continuity is observational. Delivery mode additionally prepares explicit public agent work tabs before the native-control observer; original popup/child input, delivery and cleanup remain observed.", cases: [], cleanup: [] });
   const evaluate = expression => getWorker().evaluate(expression);
   const inventory = () => evaluate("(async()=>({tabs:await chrome.tabs.query({}),windows:await chrome.windows.getAll({}),targets:await chrome.debugger.getTargets()}))()");
   const frames = id => evaluate(`chrome.webNavigation.getAllFrames({tabId:${id}})`);
@@ -149,12 +165,24 @@ export async function checkCreatedPagePopupSource({ connectBrowser, getWorker, c
   try {
     for (const variant of ["root", "oopif", "dynamic-oopif"]) owners.push(await connectBrowser(`created-popup-${variant}`));
     foreign = await connectBrowser("created-popup-foreign");
+    for (const [index, browser] of owners.entries()) {
+      const info = await browser.client.getInfo();
+      if (deliverPages) assert.equal(info.metadata?.auxiliaryDeliveryVersion, 1, "Public auxiliary delivery capability");
+      await browser.client.beginTurn(`popup-${["root", "oopif", "dynamic-oopif"][index]}`);
+      if (deliverPages) {
+        const work = await browser.newTab();
+        const native = one((await inventory()).tabs.filter(tab => tab.id === work.id), "Publicly created original agent work tab");
+        assert.equal(native.active, false);
+        const origin = await evaluate(`(async()=>{const s=await __integrationBackend.store.getSession(${JSON.stringify(browser.client.sessionId)});return s.tabOrigins[String(${work.id})]??__integrationBackend.auxiliaryTabs.owner(${work.id})?.origin})()`);
+        assert.equal(origin, "agent");
+        detail.workTabs.push({ sessionId: browser.client.sessionId, tabId: work.id, native, origin });
+      }
+    }
     detail.nativeControlObserver = await evaluate(`(${installCreatedPageNativeControlObserver.toString()})(chrome,globalThis)`); installed.push("nativeControl");
     detail.nativeObserver = await evaluate(`(${installCreatedPageObserver.toString()})(chrome,globalThis)`); installed.push("trace");
     detail.adoptionObserver = await evaluate(`(${installCreatedPageAdoptionObserver.toString()})(__integrationBackend,chrome,globalThis,${JSON.stringify({ sessions: owners.map(browser => browser.client.sessionId) })})`); installed.push("adoption");
     for (const [index, variant] of ["root", "oopif", "dynamic-oopif"].entries()) {
       const browser = owners[index], fixture = server.createCase({ owner: `popup-source-${variant}`, variant });
-      await browser.client.getInfo(); await browser.client.beginTurn(`popup-${variant}`);
       const before = await inventory(), destinationWindow = one(before.windows.filter(window => window.type === "normal"), "Single normal window fixture");
       assert.equal(destinationWindow.focused, true); assert.notEqual(destinationWindow.state, "minimized");
       const sentinel = one(before.tabs.filter(tab => tab.windowId === destinationWindow.id && tab.active), "Original selected sentinel");
@@ -163,6 +191,7 @@ export async function checkCreatedPagePopupSource({ connectBrowser, getWorker, c
       const win = await createPopup("about:blank"), original = one(win.tabs ?? [], "Popup creation returned its sole native source tab");
       const item = { variant, key: fixture.key, owner: fixture.owner, tabId: original.id, sourceWindow: win, createdTab: original, destinationWindow, sentinel,
         scope: scopeOf(browser), sourceURL: new URL(fixture.urlPath, fixtureURL).href, childURL: new URL("/created-page/child", fixtureURL).href };
+      if (deliverPages) item.workTabId = detail.workTabs[index].tabId;
       sources.set(item.tabId, item); detail.cases.push(item);
       assert.equal(before.windows.some(window => window.id === win.id), false); assert.equal(win.type, "popup"); assert.equal(win.focused, false);
       item.focusAfterCreation = await readFocus();
@@ -230,17 +259,26 @@ export async function checkCreatedPagePopupSource({ connectBrowser, getWorker, c
       item.cancelDelivered = await step(item, "cancel-delivered-original-wait", () => createdPageAction(deadline, () => waiter.cancel())); cancelled.add(waiter.waiterId);
       item.afterDeliveredCancel = (await createdPageAction(deadline, () => ownership([item.childId])))[0];
       assert.deepEqual(item.afterDeliveredCancel.owner, item.childOwnership.owner, "Delivered cancellation retains the original child authority");
-      item.deliverableError = await step(item, "deliverable-refused", () => createdPageAction(deadline, () => reject(() => browser.client.finalizeTabs([{ tabId: item.childId, status: "deliverable" }]), /OBU_AUXILIARY_DELIVERABLE_UNSUPPORTED/)));
-      assert.deepEqual(scopeOf(browser), item.scope); item.afterRefusal = await createdPageAction(deadline, () => browser.getTabs());
-      assert.ok(item.afterRefusal.some(value => value.id === item.tabId)); assert.ok(item.afterRefusal.some(value => value.id === item.childId));
+      assert.deepEqual(scopeOf(browser), item.scope); item.beforeFinalizeTabs = await createdPageAction(deadline, () => browser.getTabs());
+      assert.ok(item.beforeFinalizeTabs.some(value => value.id === item.tabId)); assert.ok(item.beforeFinalizeTabs.some(value => value.id === item.childId));
+      if (deliverPages) assert.ok(item.beforeFinalizeTabs.some(value => value.id === item.workTabId));
       item.afterBusiness = await createdPageAction(deadline, inventory); assertPopupChildPlacement({ item, birth: item.childBirth, native: item.afterBusiness });
       item.focusAfterBusiness = await createdPageAction(deadline, readFocus); assertPopupFocusUnchanged(item.focusBeforeInput, item.focusAfterBusiness);
       item.workflow.completedAt = Date.now(); assert.ok(performance.now() < deadline); item.businessComplete = true;
-      item.finalizeAck = await step(item, "formal-finalize", () => browser.client.finalizeTabs([])); item.finalized = true;
+      item.keep = deliverPages ? [item.tabId, item.childId].map(tabId => ({ tabId, status: "deliverable" })) : [];
+      item.finalizeAck = await step(item, "formal-finalize", () => browser.client.finalizeTabs(item.keep)); item.finalized = true;
       const retirementDeadline = performance.now() + 20000;
       item.retired = { native: await createdPageAction(retirementDeadline, inventory), ownership: await createdPageAction(retirementDeadline, () => ownership([item.tabId, item.childId])) };
+      item.oldScopeDenied = await createdPageAction(retirementDeadline, options => reject(() => browser.client.request("attach", { tabId: item.childId, ...item.scope }, options), /OBU_CONTROL_|OBU_TURN_|stale|expired/i));
       await createdPageAction(retirementDeadline, () => browser.client.beginTurn()); item.freshScope = scopeOf(browser); assert.ok(item.freshScope.control_epoch > item.scope.control_epoch);
       item.retired.tabs = await createdPageAction(retirementDeadline, () => browser.getTabs()); assertPopupRetirement({ item, ...item.retired });
+      if (deliverPages) {
+        item.retired.delivery = await createdPageAction(retirementDeadline, () => evaluate("structuredClone(__integrationBackend.store.state.deliverableTabs??{})"));
+        item.retired.storedDelivery = await createdPageAction(retirementDeadline, () => evaluate("chrome.storage.local.get('OPEN_BROWSER_USE_SESSION_STATE').then(value=>value.OPEN_BROWSER_USE_SESSION_STATE?.deliverableTabs??{})"));
+        assertPopupDelivery({ item, ...item.retired });
+        item.foreignDeniedAfterDelivery = [];
+        for (const tabId of [item.tabId, item.childId]) item.foreignDeniedAfterDelivery.push(await createdPageAction(retirementDeadline, options => reject(() => foreign.client.request("attach", { tabId }, options), denied)));
+      }
       item.retired.sourceFrames = await createdPageAction(retirementDeadline, () => frames(item.tabId)); item.retired.childFrames = await createdPageAction(retirementDeadline, () => frames(item.childId));
       assert.equal(item.retired.sourceFrames.find(frame => frame.frameId === item.sourceFrame.frameId)?.documentId, item.sourceFrame.documentId);
       assert.equal(item.retired.childFrames.find(frame => frame.frameId === 0)?.documentId, item.childFrame.documentId);
@@ -275,6 +313,15 @@ export async function checkCreatedPagePopupSource({ connectBrowser, getWorker, c
       detail.finalNative = await inventory(); assert.deepEqual(detail.finalNative.tabs.filter(tab => ids.includes(tab.id)), []);
       assert.deepEqual(detail.finalNative.windows.filter(window => detail.cases.some(item => item.sourceWindow.id === window.id)), []);
       assert.deepEqual(detail.finalNative.targets.filter(target => ids.includes(target.tabId) && target.attached), []); return { absent: ids };
+    });
+    if (deliverPages && ids.length) await cleanup("delivery-markers-pruned", ids, async () => {
+      const deadline = performance.now() + 5000;
+      for (;;) {
+        detail.finalDelivery = await createdPageAction(deadline, () => evaluate("structuredClone(__integrationBackend.store.state.deliverableTabs??{})"));
+        detail.finalStoredDelivery = await createdPageAction(deadline, () => evaluate("chrome.storage.local.get('OPEN_BROWSER_USE_SESSION_STATE').then(value=>value.OPEN_BROWSER_USE_SESSION_STATE?.deliverableTabs??{})"));
+        if (ids.every(id => !Object.hasOwn(detail.finalDelivery, String(id)) && !Object.hasOwn(detail.finalStoredDelivery, String(id)))) return { absent: ids };
+        await delay(20);
+      }
     });
     for (const browser of [...owners, foreign].filter(Boolean)) await cleanup("close-sdk", browser.client.sessionId, () => browser.close());
     const names = { adoption: "__createdPageAdoption", trace: "__createdPageProvenance", nativeControl: "__createdPageNativeControl" };

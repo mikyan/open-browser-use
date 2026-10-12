@@ -120,13 +120,26 @@ creation event, never window focus. Production `backgroundWindow:true` still
 creates a normal window; this mode does not change that API. A successful route
 is conditional evidence with the loopback Native Port adapter, not general
 activation suppression, ordinary native popup behavior or another browser's
-acceptance. User-origin auxiliary pages still reject `deliverable`; finalization
-must preserve their pages while revoking authority before fixture cleanup.
+acceptance. This mode finalizes without a keep list and must preserve user-origin
+pages while revoking authority before fixture cleanup. Explicit delivery is
+covered by the separate mode below; the historical `wLjyi9` build rejected it.
 Creation/claim/navigation are preparation; formal finalization uses its SDK
 budget, and retirement checks have a separate 20-second budget. Run `wLjyi9`
 passes 2/2, actual exit 0: three original business POSTs/589 bytes, three existing
 popup-creation activation allowances, zero window focus, and 20 cleanup steps.
 See the [verified scope](../../docs/references/created-page-waits.md#popup-source-routing-feasibility).
+
+`OBU_TEST_CREATED_PAGES=popup-delivery` uses the same three original layouts and
+adds public in-place delivery. Before installing the native-control observer it
+creates one explicit agent work tab per task. Each task submits its original
+child POST, then calls `finalizeTabs` with the source and child as deliverables.
+The witness requires actual work-tab closure, original source/child positions
+and documents, removed auxiliary authority/debugger attachments, acknowledged
+native-storage delivery markers, and old/new/foreign scope denial. Exact fixture
+closure must prune both memory and stored markers. The runner writes
+`created-page-popup-delivery.json`; it does not add focus allowances or change
+the ordinary suite's case names/order. The same conditional popup-source focus
+and Native Port adapter limitations apply.
 
 `OBU_TEST_CREATED_PAGES=provenance` remains a separate headed feasibility mode for
 the [created-page readiness plan](../../docs/exec-plans/active/2026-10-12-created-page-waits.md).

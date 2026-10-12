@@ -143,8 +143,10 @@ export async function checkAuxiliaryPopupLifecycle({ connectBrowser, getWorker, 
   const detail = {};
   let movedTabId;
   try {
-    detail.auxiliaryTabsVersion = (await first.client.getInfo()).metadata.auxiliaryTabsVersion;
+    const info = await first.client.getInfo();
+    detail.auxiliaryTabsVersion = info.metadata.auxiliaryTabsVersion;
     assert.equal(detail.auxiliaryTabsVersion, 1);
+    assert.equal(info.metadata.auxiliaryDeliveryVersion, 1);
     const popup = await createPopup(fixtureURL + "popup-child-authorization?auxiliary=lifecycle"); popups.push(popup);
     const tabId = popup.tabs[0].id;
     await until(() => getWorker().evaluate(`chrome.tabs.get(${tabId}).then(tab=>tab.status==='complete')`), "lifecycle popup loaded");
@@ -155,8 +157,17 @@ export async function checkAuxiliaryPopupLifecycle({ connectBrowser, getWorker, 
     detail.claims = claims.map(result => result.status === "fulfilled" ? { status: result.status } : { status: result.status, error: String(result.reason) });
     await winner.tab(tabId).getByRole("button", { name: "Child action", exact: true }).click();
     const epoch = winner.client.controlEpoch;
-    await assert.rejects(winner.client.finalizeTabs([{ tabId, status: "deliverable" }]), /handoff|deliverable|OBU_AUXILIARY/i);
-    assert.equal(winner.client.controlEpoch, epoch); assert.equal(await isAttached(getWorker, tabId), true);
+    detail.deliveryBefore = await getWorker().evaluate(`chrome.tabs.get(${tabId})`);
+    detail.deliveryAck = await winner.client.finalizeTabs([{ tabId, status: "deliverable" }]);
+    assert.ok(winner.client.controlEpoch > epoch); assert.equal(await isAttached(getWorker, tabId), false);
+    detail.deliveryAfter = await getWorker().evaluate(`chrome.tabs.get(${tabId})`);
+    for (const key of ["id", "windowId", "groupId", "pinned", "active", "url"])
+      assert.equal(detail.deliveryAfter[key], detail.deliveryBefore[key], `Delivery changed original popup ${key}`);
+    await winner.client.beginTurn();
+    assert.equal((await winner.getTabs()).some(tab => tab.id === tabId), false);
+    await assert.rejects(winner.tab(tabId).domSnapshot(), ownershipError);
+    await winner.client.claimUserTab(tabId);
+    detail.deliveryReleased = true;
     assert.equal((await getWorker().evaluate(`chrome.tabs.get(${tabId})`)).windowId, popup.id);
     await winner.client.finalizeTabs([{ tabId, status: "handoff" }]);
     assert.equal(await isAttached(getWorker, tabId), false);

@@ -2170,6 +2170,32 @@ sentinel选择保持但高度1222→1165，不宣称像素不变。测试用loop
 生产/已发布preview未改，不以此推出新popup API或完整不抢焦点能力。
 显式辅助页deliverable、其他应用前台及真实native入口继续待补。
 
+### 原地交付与结束会话栅栏
+
+开发版新增`auxiliaryDeliveryVersion=1`，复用既有finalizeTabs keep支持原popup/
+created-page交付；保留实际tab/window/group/pin，释放归属和调试attachment，
+元数据有界且不授权。用户原页面不因来源关系变成可丢弃工作页。所有结束
+存储及最终复核在会话栅栏内；新scope不得穿透，失败仅一次实际rollback，
+不能删除替换owner的记录或在失败后自动重放交付。
+
+28新增Backend VM回归覆盖pending原生清理/存储、移动/pin/关闭、foreign替换、
+部分batch、metadata容量/清理、VM重建和host-disconnect。保留旧提交两条
+unsupported反例及中间源码重复rollback反例；独立最终native read/rollback ACK
+gate验证通过。全部Node2339/2339（1109+184+1046）无skip/cancel。
+
+`iUAIHY`实际exit0、2/2：root/已有/动态OOPIF的三原child完成唯一POST589B，
+6原页面交付及实际local-storage marker、3agent工作页关闭、原document/位置
+保留通过。旧3/新6/交付后foreign6拒绝，21清理全过；525原native调用含489
+fulfilled/36already-unattached拒绝。3829ms连续focus只含3既有sole-popup
+activation，无windowfocus；sentinel保持选择但高度1222→1165。browser/host
+实际exit0、精确进程/endpoint缺失独立核验。
+
+同源普通`ZUgidL`125/125 actualexit0，原名单顺序不变，244371ms仅原12activation/
+4control-popup focus许可。新版普通popup生命周期验证交付、撤权后显式reclaim
+以及原handoff/move/close流程。host/八Go helper/SDK输入和二进制核同而未重建；
+三旧preview ZIP不变。两浏览器场使用loopback Port adapter，VM恢复不冒充
+新交付native restart验收；原normal源focus失败、其他应用前台和完整对齐仍开放。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

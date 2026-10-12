@@ -61,7 +61,8 @@ its reverse lock; another explicit `cancelPageWait` may retry only a cleanup
 attempt that actually settled and failed, never an in-flight operation or the
 original adoption. Auxiliary storage version 4 reads older versions and saves
 the new kind. After worker restart all persisted `created-page` records are
-quarantined for exact cleanup, including previously delivered pages, rather than
+quarantined for exact cleanup, including children already returned by a waiter
+but not yet finalized, rather than
 reconstructing authorization from child IDs. Idle sessions enter the existing
 closing barrier when they retain such a quarantine. Created-page claims whose
 idle control record was evicted are also retired without recreating that record;
@@ -72,8 +73,9 @@ lifecycle matrix remains open.
 
 Host disconnect in a surviving worker has a different contract from worker
 replacement. It invalidates an undelivered waiter and releases that wait's new
-child admission. A previously delivered child's committed membership survives,
-but its old control epoch and attachment do not. If undelivered cleanup settles
+child admission. A child's committed membership survives if the waiter already
+returned it and the task has not finalized it; its old control epoch and
+attachment do not. If undelivered cleanup settles
 with an error, ordinary work remains fenced; explicit control bootstrap retries
 that failed cleanup before admitting a new turn. Repeated disconnect signals
 and overlapping bootstraps do not duplicate an in-flight cleanup or replay
@@ -93,6 +95,79 @@ auxiliary registry contributes admitted child ownership.
 Candidate IDs still participate in exact invalidation and the barrier still
 tracks actual setup/adoption work. Pending attachments have their own backend
 control records; excluding unowned IDs does not discard these barriers.
+
+## Delivering original pages
+
+Development builds advertising `getInfo.metadata.auxiliaryDeliveryVersion === 1`
+accept existing `finalizeTabs([{tabId, status: "deliverable"}])` for claimed popup
+and native `created-page` members. The call keeps the original tab, window,
+group and pin position, drains the task's input/attachment/wait cleanup, and
+releases the original auxiliary claim. It does not navigate, reload, move,
+group or activate these pages. Unlisted explicit agent work tabs close;
+unlisted user-origin pages are released. Native children remain user-origin:
+their source relationship does not make them disposable agent work.
+
+After success, old control is invalid and a new turn does not regain these
+pages through `getTabs` or `attach`. Another task has no authority either;
+further control requires an explicit new claim. Presentation metadata is
+bounded to 256 tabs, is pruned on closure/reclaim and never grants control.
+It is distinct from a page-wait result, which retains the child's membership
+until task finalization or another applicable revocation.
+
+Native position/claim changes during asynchronous finalization reject delivery;
+rollback removes only markers written by that attempt and must await the real
+storage result. Cleanup failure is not a successful delivery. Batch delivery
+is not atomic: an earlier claim may already be released when a later step
+fails. Explicit recovery drains cleanup; it does not replay the delivery or
+input. In-place behavior does not prevent a user or website from navigating
+the tab concurrently. Document continuity in the browser workflow is an
+observation before and after delivery, not an atomic navigation lock.
+
+This capability is verified in the development source and is not in the
+published `preview-20261011-593a4ba` archives. The separate normal-window
+foreground activation failure remains open; delivery does not suppress native
+popup focus.
+
+### Original-page delivery evidence
+
+Run `iUAIHY` passes 2/2 with actual exit 0. Root, existing OOPIF and dynamic
+OOPIF tasks each use the original trusted Control-click, first unowned native
+child and one business POST; all three POSTs total 589 bytes. Public finalization
+delivers the six original source/child pages in place and closes three explicit
+agent work tabs. Actual local storage contains the six acknowledged markers.
+Original document IDs/positions survive, attachments and claims disappear, and
+three stale-scope, six new-scope and six post-delivery foreign-scope attaches
+reject. The earlier three foreign checks also reject. All 21 cleanup steps pass,
+including closure of the exact six fixture pages and persisted marker pruning.
+
+The original workflows take 622/646/736 ms within their individual 20-second
+budgets; preparation, finalization and retirement are separate. The continuous
+3,829 ms focus ledger contains only three existing sole-popup creation activation
+allowances and zero window focus. Original native-control evidence contains
+525 calls: 489 fulfilled and 36 retained already-unattached debugger rejections.
+Browser.close acknowledges and the browser/host exit 0; the exact private
+process and endpoint inventory is empty after cleanup. The sentinel remains
+selected, with viewport height 1222 to 1165; this is not pixel invariance.
+
+The unchanged ordinary 125-case names/order also pass in `ZUgidL`, actual exit
+0. Its original 244,371 ms continuous ledger retains exactly twelve activation
+and four control-popup focus allowances; there are no new exemptions. The
+ordinary popup lifecycle now performs real delivery, denial in a new turn,
+explicit reclaim and its existing handoff/move/close checks.
+
+All three Node suites pass 2,339/2,339 (extension 1,109; build 184; integration
+1,046), with no skips or cancellations. New backend VM tests cover pending
+native cleanup/storage, moved/pinned/closed pages, replaced claims, partial batches,
+bounded metadata and recovery. A gated final native read and gated rollback ACK
+independently verify that the next turn stays fenced. The first implementation
+allowed an early new scope; a later saved implementation still performed two
+rollback attempts. Both findings were corrected, and the retained latter source
+fails the one-rollback regression. VM worker reconstruction/host-disconnect
+checks establish non-authorizing metadata, not native restart acceptance for
+this new feature. Go/SDK sources and verified binaries are unchanged, not rebuilt.
+Both browser runs use the loopback Native Port adapter; only the delivery
+specialty run uses the conditional popup-source scene. Neither establishes normal-window focus suppression,
+other-app foreground behavior or full P01–P15 parity.
 
 ## Native relationship
 
