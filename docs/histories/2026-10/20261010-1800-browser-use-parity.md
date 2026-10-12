@@ -2151,6 +2151,25 @@ exit1。未新增focus许可，popup只在已经聚焦的精确私有窗口打�
 源/构建及三个已发布preview保持原字节，未重跑此前全Node2238或普通125。
 此片证明定向参数注入的恢复，不证明自然storage故障或不抢focus已完成。
 
+### Popup 源页面的条件路由验收
+
+增加单独`popup-source`测试入口，使用原生unfocused popup、公开claimUserTab
+与原trusted Control-click/expectPage，未改变生产normal背景窗口合同。
+来源按原native source/frame和child birth绑定，跨窗接管不移动、不替换或
+预先创建child。19新增测试覆盖错误位置/归属、原storage与input ACK缺失、
+瞬时focus后恢复及初始化失败；相关Node260/260、零skip/cancel。
+
+隔离`wLjyi9`2/2、actualexit0：root/已有OOPIF/动态OOPIF三原native child
+完成唯一POST，共589B；三外任务和六fresh scope拒绝、delivered cancel保留
+权限及formal-finalize撤权后原文档保留通过。workflow分别603/647/882ms，
+原预算20秒；准备、finalize与retirement预算另计。20清理项、Browser.close
+原ACK及browser/host实际exit0保留，534原native调用含507成功/27未附加拒绝。
+连续focus仅三次已有sole-popup activation，无windowfocus及新增focus许可；
+sentinel选择保持但高度1222→1165，不宣称像素不变。测试用loopback adapter，
+仅验证唯一normal窗已focused时的条件路由；原normal源抢focus失败仍在。
+生产/已发布preview未改，不以此推出新popup API或完整不抢焦点能力。
+显式辅助页deliverable、其他应用前台及真实native入口继续待补。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

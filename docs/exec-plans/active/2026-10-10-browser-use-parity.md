@@ -21,6 +21,12 @@
 
 ## 当前并行切片
 
+2026-10-12 popup源专项`wLjyi9`2/2、actualexit0，三布局原生未owned child
+首次跨窗接管、三POST/589B、正常finalize撤权及20项清理通过；Node260/260。
+三次既有sole-popup activation、零windowfocus，仅证明normal窗已focused
+这个前提下的路由；normal背景源的原失败、其他前台状态及显式deliverable
+仍待补。生产与旧preview不变，见[条件路由](../../references/created-page-waits.md#popup-source-routing-feasibility)。
+
 2026-10-12 补齐导航/child关闭后清理失败的显式恢复：同session closing
 bootstrap与全局Retry Pause均纳入已有屏障，自动事件不重试。最终12例在
 旧源2通过/10失败，相关137/137及全Node2238/2238通过；在途共享及foreign

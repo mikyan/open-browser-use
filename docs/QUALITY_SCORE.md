@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+条件popup源路由`wLjyi9`2/2、actualexit0：三布局原生未owned child跨窗接管、
+589B原POST及正常finalize撤权通过；20项清理、浏览器/host实际exit0。
+三次既有sole-popup创建activation许可，零windowfocus；Node260/260。
+前提是唯一normal窗口已focused，不能覆盖其他应用前台或修复normal背景源。
+生产/旧preview未改，auxiliary deliverable与真实native注册仍未验。
+见[条件路由范围](references/created-page-waits.md#popup-source-routing-feasibility)。
+
 修复导航/关页清理失败后，结束任务或Pause使旧handle失效而显式恢复卡住的
 缺口。session bootstrap仅重试本会话，Retry Pause先阻断再重试，自动故障
 暂停不重试；原pending共享，持续失败继续阻断。最终12例旧源2通过/10失败，

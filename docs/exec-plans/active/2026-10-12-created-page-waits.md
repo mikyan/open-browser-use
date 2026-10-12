@@ -385,6 +385,75 @@ focus experiment, establish that it preserves the original trusted page action,
 actual source relationship and child identity; substituting another tab or
 restoring focus after activation does not satisfy the product requirement.
 
+## Popup-source routing experiment
+
+The previous checkpoint `f67fe60` is verified progress: all four native quota
+recovery combinations, strict focus failures, the same-document popup click
+guard and 146 focused tests are committed and pushed. No browser process from
+that checkpoint remains running.
+
+The next diagnostic keeps production unchanged and uses an actual fixture-created
+unfocused popup window, then public claimUserTab to grant its source authority.
+Pinned Chromium 156 rejects a nonempty popup as a tabstrip destination and routes
+NEW_BACKGROUND_TAB to a normal browser on the same profile/workspace. That normal
+browser is chosen by activation order, not a current-focus predicate, and its
+Show action can still activate it. The experiment requires exactly one normal
+window already focused; it does not establish general activation suppression.
+
+Run the original created-page task through root, existing OOPIF and newly inserted
+OOPIF sources. Retain the original source/child IDs, frame documents, original
+20-second budget, actual trusted Control-click and exact child business POST.
+The passive adoption observer must show an originally unowned child admitted in
+its native birth window, without movement, group substitution or explicit child
+claim. Source and child need not share a window; production already supports
+that relationship. Verify foreign-task denial, finalization/revocation and exact
+fixture cleanup with continuous focus evidence. Keep the existing normal-window
+failure and its helper assertions intact. The native Port adapter remains an
+explicit limit of this diagnostic.
+
+Do not silently change backgroundWindow:true, which promises a normal window.
+A popup-source success would justify further product/API design and adverse
+focus-state experiments; it cannot close the normal-window or general no-focus
+requirement. Missing/ambiguous focused normal state rejects the fixture before
+the original input, rather than restoring focus or inventing another child.
+
+Run `wLjyi9` now verifies this conditional path: 2/2, actual exit 0, with three
+natural unowned children and three unique original POSTs totaling 589 bytes.
+Root/OOPIF/dynamic-OOPIF workflows take 603/647/882 ms within their original
+20-second budgets; preparation, finalization and retirement have separate
+budgets. Source and child keep their documents/native positions across formal
+finalization, lose authority, and reject fresh/foreign attaches. All 20 cleanup
+steps pass. The continuous observer retains three existing sole-popup activation
+allowances and zero window focus. Node checks pass 260/260, including 19 new
+counterexample tests. Production and preview bytes remain unchanged.
+The [evidence and limitations](../../references/created-page-waits.md#popup-source-routing-feasibility)
+keep normal-window focus, other foreground applications, real native registration
+and public auxiliary delivery open. Do not promote the conditional fixture into
+a general no-focus product API or replace the original failed scene.
+
+### Next product slice: original-page delivery
+
+The positive three-layout workflow makes the remaining explicit delivery
+refusal concrete. Extend existing `finalizeTabs([{tabId,status:"deliverable"}])`
+semantics to user-origin popup/created-page members without moving or grouping
+their original pages. This requires an explicit auxiliary branch, not merely
+removing the current refusal: popup otherwise falls into the grouped-delivery
+path. End the old control epoch, drain actual input/attachment/wait cleanup,
+recheck the original claim and native placement after asynchronous work, then
+release authority while preserving the original tab/window/document. Any
+delivery metadata must be bounded, pruned on closure/reclaim and non-authorizing;
+the current presentation map has no such pruning. Failure must not return a
+successful delivery ACK or silently grant a fresh claim.
+
+Keep natural children user-origin. A native source relationship is not proof
+that every child is disposable agent-created work. Validate a mixed workflow:
+explicit agent work tabs omitted from keep close, the exact user popup and
+original business child are delivered in place, other user pages are only
+released, and old/fresh/foreign unauthorized use rejects. Add moved/pinned/closed
+or replaced-claim races, cleanup/storage failure recovery and worker/host
+restoration boundaries before broad acceptance. Retain the separate failed
+normal-source focus requirement and do not infer undocumented Codex behavior.
+
 ## Relevant implementation
 
 - `apps/chrome-extension/background.js`, `auxiliary-tab-ownership.js`

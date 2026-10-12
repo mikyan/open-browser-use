@@ -560,6 +560,69 @@ same-evaluation identity check, tested against replaced/missing/ambiguous
 contexts, delayed lookup and changed button/document state. Earlier artifacts
 are retained with that narrower evidence boundary.
 
+## Popup-source routing feasibility
+
+The isolated `popup-source` diagnostic `wLjyi9` passes **2/2, actual exit 0**:
+the existing raw-navigation prerequisite and a three-layout public JS workflow.
+The fixture creates a real unfocused popup, claims its source through public
+`claimUserTab`, and arms `expectPage` before one trusted Control-click. Root,
+existing OOPIF and newly inserted OOPIF sources each produce a previously
+unowned native child in the same already-focused normal window. That destination
+is different from each source window. The child remains inactive, ungrouped and
+unpinned at its original native birth position; no child is fabricated, moved,
+explicitly claimed or substituted. Native source/frame evidence, rather than
+`openerTabId`, binds the original source to its child.
+
+All three original children complete their own form POST: **193/194/202 bytes,
+589 total**, with distinct original HTML/document nonces and matching response
+receipts. Source-frame document IDs remain stable, both iframe cases use actual
+OOPIF renderer sessions, and the dynamic frame is inserted after ready. The
+single original workflow budgets are 20 seconds; actual workflows take
+603/647/882 ms. Source creation/claim/navigation are preparation, formal
+finalization has its own SDK budget, and retirement checks have another
+20-second budget. These are not whole-run 20-second claims.
+
+Passive original-call evidence records three first reservations, durable
+pending/committed storage ACKs and three original adoption ACKs. Three foreign
+attaches are denied. Cancelling each delivered waiter in its original scope
+preserves the child's claim. Explicit `deliverable` remains unsupported for
+these auxiliary pages and is rejected before ending the scope; `finalizeTabs([])`
+then preserves the original user-origin source/child documents and positions
+while removing authority and debugger attachments. Six attaches in new scopes
+are denied. This proves existing finalization, not a new deliverable feature.
+
+The continuous 3,838 ms observer interval records only three existing sole-tab popup-creation
+activation allowances and **zero window-focus events/allowances**. Setup,
+claim/navigation, all three workflows, retirement and exact fixture cleanup
+remain under that observer. The sentinel's identity and selection are unchanged;
+its viewport height changes from 1222 to 1165, so this is not a pixel-unchanged
+claim. The browser startup/teardown remain outside action coverage.
+All 20 helper cleanup steps pass; six exact fixture tabs, the three popup windows
+and their debugger attachments are absent. Observers restore their originals
+and remove listeners. Browser.close receives an ACK and the original browser
+and native host actually exit 0. The 534 recorded native calls contain 507
+fulfilled and 27 already-unattached debugger rejections, not 534 successes.
+
+The focused Node suite passes **260/260**, no skips/cancellations, including
+19 new placement, ownership, original-ACK and focus-history counterexample tests.
+Production/build/SDK inputs and published preview bytes remain unchanged; the
+prior full ordinary 125 and full Node 2238 suites were not repeated for this
+harness-only change. The browser uses the established loopback Native Port
+adapter, not a real extension native-messaging registration.
+
+This success does **not** fix the failed normal `backgroundWindow:true` source
+workflow. Pinned Chromium routes background tabs from non-tabstrip popup sources
+to a suitable normal window by activation order, but still requests that
+destination to show. See its [navigator](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/ui/navigator/browser_navigator.cc#L115),
+[window selection](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/ui/browser_window/internal/profile_browser_collection.cc#L24)
+and [Show implementation](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/ui/views/frame/browser_view.cc#L1518).
+The observed success is conditional on one normal window already being focused;
+it does not establish activation suppression when the user works in another
+application. Production normal-window creation and all previous focus failures
+are preserved. Public delivery semantics, other focus states, real native
+registration, other callers/browsers and the broader lifecycle matrix remain
+open; no popup creation API is introduced by this diagnostic.
+
 ## Earlier native feasibility evidence
 
 Windows isolated Chromium run `FjJons` completed **2/2, actual exit 0**: the

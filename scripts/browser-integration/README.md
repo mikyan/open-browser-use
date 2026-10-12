@@ -104,6 +104,30 @@ failure, malformed/expired acknowledgements, original deadlines, empty-state
 readiness and cleanup. Their fake-browser IPC tests do not replace the browser
 matrix. Unowned-child first admission and lifecycle negatives remain separate.
 
+`OBU_TEST_CREATED_PAGES=popup-source` is a separate routing diagnostic. It uses
+the existing raw-navigation prerequisite and `js-created-page-popup-source`.
+An actual unfocused popup fixture is claimed through public `claimUserTab`;
+root, existing OOPIF and newly inserted OOPIF sources then use the original
+trusted Control-click and public `expectPage` result. No child is pre-created,
+explicitly claimed, moved or substituted. The fixture requires one normal window
+already focused, and binds the child to its actual native birth window.
+
+`created-page-popup-source.json` and `created-page-server.json` retain source
+and child documents, native creation/adoption/input acknowledgements, the original
+20-second workflow budgets, business receipt bytes, foreign-owner denials and exact
+cleanup. The unchanged ledger permits only the existing exact sole-tab popup
+creation event, never window focus. Production `backgroundWindow:true` still
+creates a normal window; this mode does not change that API. A successful route
+is conditional evidence with the loopback Native Port adapter, not general
+activation suppression, ordinary native popup behavior or another browser's
+acceptance. User-origin auxiliary pages still reject `deliverable`; finalization
+must preserve their pages while revoking authority before fixture cleanup.
+Creation/claim/navigation are preparation; formal finalization uses its SDK
+budget, and retirement checks have a separate 20-second budget. Run `wLjyi9`
+passes 2/2, actual exit 0: three original business POSTs/589 bytes, three existing
+popup-creation activation allowances, zero window focus, and 20 cleanup steps.
+See the [verified scope](../../docs/references/created-page-waits.md#popup-source-routing-feasibility).
+
 `OBU_TEST_CREATED_PAGES=provenance` remains a separate headed feasibility mode for
 the [created-page readiness plan](../../docs/exec-plans/active/2026-10-12-created-page-waits.md).
 It selects only the existing raw-navigation control and

@@ -42,6 +42,13 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+Popup源的条件路由专项`wLjyi9`2/2、actualexit0：JS三布局首次接纳原生未owned
+child，三唯一POST/589B，正常finalize保留原user页面而撤权；20清理项通过。
+只有3次既有sole-popup创建activation许可，零windowfocus；Node260/260。
+前提是唯一normal窗口已经focused；生产`backgroundWindow:true`仍为normal，
+原失败未修复，其他应用前台、真实native注册及辅助页deliverable仍未完成。
+未改生产或旧preview，详见[条件路由证据](../references/created-page-waits.md#popup-source-routing-feasibility)。
+
 显式恢复已补齐导航/关页后失败清理：closing会话bootstrap只重试自身，
 Retry Pause在全局阻断后重试，自动故障暂停保持不重试；并发pending共享，
 失败保持隔离且不重放输入/adoption。最终12后端例旧源2通过/10失败，修复后
