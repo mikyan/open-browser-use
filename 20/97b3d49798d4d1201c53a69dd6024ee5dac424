@@ -1,0 +1,53 @@
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_630d4307f7cbed 24-26,29-30
+  s_08bbfd293d324f::t_d06e76b65e3b49 27-28
+docs/references/control-lifecycle.md
+  s_08bbfd293d324f::t_aca146eea67f97 92-100
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_630d4307f7cbed 2106-2120
+  s_08bbfd293d324f::t_e1ed1139a48fc1 2121
+  s_08bbfd293d324f::t_d06e76b65e3b49 2122-2126
+docs/exec-plans/active/2026-10-12-created-page-waits.md
+  s_08bbfd293d324f::t_6faa472405649b 320-328,330-340
+  s_08bbfd293d324f::t_a2834846b044e6 329
+  s_08bbfd293d324f::t_2f153750c147b6 341
+  s_08bbfd293d324f::t_d06e76b65e3b49 350-357
+  s_08bbfd293d324f::t_37d9c31214c5fd 358-369
+  s_08bbfd293d324f::t_630d4307f7cbed 342-349
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_a2834846b044e6 477-478
+  s_08bbfd293d324f::t_d06e76b65e3b49 484-493
+  s_08bbfd293d324f::t_92505f45aaaa99 82-89,281-300,465-476,479-482
+  s_08bbfd293d324f::t_4da54c67c75603 483
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_630d4307f7cbed 14-17,21
+  s_08bbfd293d324f::t_d06e76b65e3b49 18-20
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_70effc4471e875 860,1167,1247,1356,1359-1362,1366,4356,4529,4534
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d06e76b65e3b49 49-51
+  s_08bbfd293d324f::t_630d4307f7cbed 45-48,52
+apps/chrome-extension/page-waits-transition-recovery.test.mjs
+  s_08bbfd293d324f::t_d8ff01ad4ed3f1 6,23,26-43,56,91,99-175,178-208,210-228
+  s_08bbfd293d324f::t_25d61864ec2b33 1-5,7-22,24-25,44-55,57-90,92-98,176-177,209
+apps/chrome-extension/browser-page-waits.js
+  s_08bbfd293d324f::t_70effc4471e875 233-235
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_92505f45aaaa99 31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "2097b3d49798d4d1201c53a69dd6024ee5dac424",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
