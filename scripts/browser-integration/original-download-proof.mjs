@@ -19,6 +19,59 @@ function installTrace(chrome, target) {
 }
 const readTrace = worker => worker.evaluate("({events:__originalDownloadTrace.events,overflow:__originalDownloadTrace.overflow})");
 
+// A normal-start browser may use the user's existing Downloads directory.
+// Require an independently supplied root and retain the exact opened identity;
+// never derive the expected directory from the path returned by the product.
+export async function openOriginalDownloadFile(downloadRoot, deliveredPath) {
+  assert.ok(path.isAbsolute(downloadRoot) && path.isAbsolute(deliveredPath), "Original download root and path must be absolute");
+  const within = (root, file) => {
+    const relative = path.relative(root, file);
+    assert.ok(relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative), "Native path must remain in the independently identified download directory");
+  };
+  within(downloadRoot, deliveredPath);
+  const before = await fs.lstat(deliveredPath, { bigint: true });
+  assert.ok(before.isFile() && !before.isSymbolicLink(), "Original download must be a regular file, not a symbolic link");
+  assert.ok(before.size < 65536n, "Original fixture file exceeds its expected size bound");
+  const root = await fs.realpath(downloadRoot), realPath = await fs.realpath(deliveredPath);
+  within(root, realPath);
+  const identity = value => ({ dev: String(value.dev), ino: String(value.ino), size: Number(value.size), mtimeNs: String(value.mtimeNs), realPath });
+  const original = identity(before), handle = await fs.open(deliveredPath, "r");
+  try {
+    const opened = await handle.stat({ bigint: true }), after = await fs.lstat(deliveredPath, { bigint: true });
+    assert.ok(opened.isFile() && after.isFile() && !after.isSymbolicLink(), "Original download changed file type while opening");
+    assert.deepEqual(identity(opened), original, "Original download identity changed while opening");
+    assert.deepEqual(identity(after), original, "Original download path changed while opening");
+    assert.equal(await fs.realpath(deliveredPath), realPath, "Original download canonical path changed while opening");
+    return { handle, identity: original };
+  } catch (error) { await handle.close(); throw error; }
+}
+
+// A product path is not proof that a file belongs to this fixture. Do not put
+// its contents in an artifact (or an assertion diff) until all bytes match.
+export async function readOriginalDownloadProof(downloadRoot, deliveredPath, expected) {
+  const expectedBytes = Buffer.from(expected.base64, "base64");
+  assert.ok(expectedBytes.length > 0 && expectedBytes.length < 65536, "Expected fixture content exceeds its size bound");
+  const { handle, identity } = await openOriginalDownloadFile(downloadRoot, deliveredPath);
+  try {
+    // The file can grow after stat. Read at most the hard bound, including one
+    // extra byte beyond the largest accepted file, instead of using readFile.
+    const buffer = Buffer.alloc(65536); let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    assert.ok(length < buffer.length, "Original fixture file exceeds its expected size bound");
+    const bytes = buffer.subarray(0, length);
+    assert.ok(bytes.equals(expectedBytes), "Original download bytes do not match this fixture");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    assert.ok(sha256 === expected.sha256, "Original download digest does not match this fixture");
+    const newline = bytes.indexOf(10);
+    assert.ok(newline >= 0, "Verified fixture content has no analysis line");
+    return { path: deliveredPath, identity, bytes: bytes.length, sha256, base64: bytes.toString("base64"), analysis: JSON.parse(bytes.subarray(0, newline).toString("utf8")) };
+  } finally { await handle.close(); }
+}
+
 export async function checkOriginalDownloadProof({ owners, worker, native, fixture, fixtureURL, downloadRoot, until, behavior, product = false, callers }) {
   if (callers) {
     assert.equal(product, true);
@@ -169,19 +222,10 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
               if (item.pageBegin.source.sessionId) assert.equal(item.pageBegin.source.sessionId, attached.sessionId);
             }
             const deliveredPath = product ? item.productPath : item.native.filePath;
-            const relative = path.relative(downloadRoot, deliveredPath);
-            assert.ok(relative && !relative.startsWith("..") && !path.isAbsolute(relative), "Native path must remain in the isolated download directory");
-            const handle = await fs.open(deliveredPath, "r");
-            try {
-              const stat = await handle.stat(); assert.ok(stat.isFile() && stat.size < 65536);
-              const bytes = await handle.readFile();
-              const sha256 = createHash("sha256").update(bytes).digest("hex");
-              item.file = { path: deliveredPath, bytes: bytes.length, sha256, base64: bytes.toString("base64"), analysis: JSON.parse(bytes.subarray(0, bytes.indexOf(10)).toString("utf8")) };
-              assert.deepEqual(bytes, Buffer.from(record.expected.base64, "base64")); assert.equal(sha256, record.expected.sha256);
-              assert.equal(item.file.analysis.key, item.key); assert.equal(item.file.analysis.nonce, record.nonce);
-              if (caller) for (const field of ["bytes", "sha256", "base64", "analysis"]) assert.deepEqual(item.caller.file[field], item.file[field]);
-              if (behavior === "allowAndName") assert.equal(path.basename(deliveredPath), item.downloadId);
-            } finally { await handle.close(); }
+            item.file = await readOriginalDownloadProof(downloadRoot, deliveredPath, record.expected);
+            assert.equal(item.file.analysis.key, item.key); assert.equal(item.file.analysis.nonce, record.nonce);
+            if (caller) for (const field of ["bytes", "sha256", "base64", "analysis"]) assert.deepEqual(item.caller.file[field], item.file[field]);
+            if (behavior === "allowAndName") assert.equal(path.basename(deliveredPath), item.downloadId);
             await until(() => detail.notifications[item.ownerIndex].some(event => event.id === item.downloadId && event.status === "complete"), "owner completed notification");
             for (const [index, notifications] of detail.notifications.entries()) {
               if (index !== item.ownerIndex) assert.ok(notifications.every(event => event.id !== item.downloadId));
@@ -219,6 +263,8 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
     assert.equal(new Set(detail.cases.map(item => item.file.sha256)).size, expectedFiles);
     if (product) {
       const original = detail.cases[0];
+      const reopened = await readOriginalDownloadProof(downloadRoot, original.productPath, fixture.stats(original.key).expected);
+      assert.deepEqual(reopened.identity, original.file.identity, "Original file changed before missing-file negative check");
       await fs.unlink(original.productPath);
       await assert.rejects(owners[original.ownerIndex].client.downloadPath(original.downloadId), /OBU_NATIVE_DOWNLOAD_FILE_UNAVAILABLE/);
       detail.missingFileRejected = true;

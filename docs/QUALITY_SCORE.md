@@ -11,6 +11,20 @@
 
 ## 当前评分
 
+当前会话自动发现补 IPv6-only loopback：原TCP拒绝才同端口回退，授权拒绝等
+不触发重连，原身份和期限保持；Go518 pass/27既有skip，vet/跨编译通过。
+`m0BgyU`五入口2/2 actualexit0，30原文件5200B与13415ms零focus/activation
+已核实。普通启动Edge fixture两轮bootstrap失败保留，第二轮定位到误认外部
+输入法daemon为测试进程；按实际可执行文件角色与精确身份修正，未知browser
+helper仍阻断，外部进程不终止。第三轮`5klS04`原browser/host exit0、普通
+参数重启及清理通过，停在人工扩展安装/授权之前，未发起业务；STOPPED exit0
+不等于验收通过。P01–P15未完成。见[普通启动验收](references/normal-browser-downloads.md)。
+随后确认该新profile受到Windows自动登录/同步影响，新增只读白名单检查，
+拒绝污染且对日志脱敏；终态v3被明确拒绝，不是新实机通过。文件证据/清理
+复用有界读取；修复后`aa3Fjb`五入口2/2、30文件5200B、14813ms零focus。
+最终integration Node1332 pass/1既有Windows symlink skip，0fail/cancel，
+actualexit0；runner68/68和normal proof36/36。不能代替普通授权/业务闭环。
+
 原文件下载新增准备确认：五入口通过`requirePath`在一次性导出前固定原绑定/
 generation/root target，准备中断线不能ready，ready后断线撤销旧waiter；
 显式重绑仅服务新等待。Node2605/2605、JS158、Python122、Go SDK111与

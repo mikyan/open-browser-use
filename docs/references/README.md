@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Ordinary-start Edge downloads](normal-browser-downloads.md)：独立正常启动、
+  人工授权、真实 Native Messaging 与原文件业务验收的执行和证据边界。
 - [Hover delivery](hover-delivery.md)：原目标悬停事件确认、菜单及目标变化语义、
   已确认持输入兼容、原attachment错误恢复与真实验收边界。
 - [Screenshot completion](screenshot-completion.md)：截图调用超时与实际原生完成

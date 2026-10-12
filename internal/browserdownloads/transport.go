@@ -3,6 +3,7 @@ package browserdownloads
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,25 @@ import (
 )
 
 const commandTimeout = 10 * time.Second
+
+// DialOptions permits a discovered port file's address-family fallback only.
+// Explicit endpoints keep their original single-address behavior.
+type DialOptions struct {
+	LoopbackFallback bool
+}
+
+func ValidateDialOptions(endpoint string, options DialOptions) error {
+	if err := ValidateURL(endpoint); err != nil {
+		return err
+	}
+	if options.LoopbackFallback {
+		u, _ := url.Parse(endpoint)
+		if u.Scheme != "ws" || u.Hostname() != "127.0.0.1" {
+			return failure("URL", "discovered loopback fallback requires ws://127.0.0.1 and the original Browser endpoint")
+		}
+	}
+	return nil
+}
 
 func failure(code, message string) error {
 	return fmt.Errorf("OBU_NATIVE_DOWNLOAD_%s: %s", code, message)
@@ -99,13 +119,34 @@ type transport struct {
 }
 
 func dialTransport(ctx context.Context, endpoint string, event func(string, json.RawMessage) error, onTerminal func()) (*transport, error) {
-	if err := ValidateURL(endpoint); err != nil {
+	return dialTransportWithOptions(ctx, endpoint, event, onTerminal, DialOptions{})
+}
+
+func dialTransportWithOptions(ctx context.Context, endpoint string, event func(string, json.RawMessage) error, onTerminal func(), options DialOptions) (*transport, error) {
+	if err := ValidateDialOptions(endpoint, options); err != nil {
 		return nil, err
 	}
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	httpTransport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{}).DialContext, TLSHandshakeTimeout: commandTimeout}
+	dial := (&net.Dialer{}).DialContext
+	if options.LoopbackFallback {
+		u, _ := url.Parse(endpoint)
+		nativeDial := dial
+		dial = func(dialCtx context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != u.Host {
+				return nil, failure("URL", "discovered Browser dial changed its original endpoint")
+			}
+			// net/http detaches DialContext from the request deadline for pooled
+			// connections. This one-attempt transport must retain setup's budget.
+			bounded, cancel := context.WithCancel(ctx)
+			stop := context.AfterFunc(dialCtx, cancel)
+			defer stop()
+			defer cancel()
+			return dialDiscoveredLoopback(bounded, address, nativeDial)
+		}
+	}
+	httpTransport := &http.Transport{Proxy: nil, DialContext: dial, TLSHandshakeTimeout: commandTimeout}
 	client := &http.Client{Transport: httpTransport, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return failure("URL", "Browser endpoint redirects are forbidden")
 	}}
@@ -124,6 +165,44 @@ func dialTransport(ctx context.Context, endpoint string, event func(string, json
 	t := &transport{conn: conn, pending: make(map[int64]pendingCommand), done: make(chan struct{}), readerDone: make(chan struct{}), event: event, onTerminal: onTerminal}
 	go t.readLoop()
 	return t, nil
+}
+
+// No HTTP bytes have been sent at this boundary. Only an exact TCP refusal
+// permits the other loopback family, at the same port and original deadline.
+// Once TCP succeeds, approval/Upgrade/CDP/identity failures are terminal.
+func dialDiscoveredLoopback(ctx context.Context, address string, dial func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	conn, firstErr := dial(ctx, "tcp4", address)
+	if err := contextError(ctx); err != nil {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		return nil, err
+	}
+	if firstErr == nil {
+		return conn, nil
+	}
+	var op *net.OpError
+	if !errors.As(firstErr, &op) || op.Op != "dial" || !errors.Is(firstErr, connectionRefused) {
+		return nil, firstErr
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || host != "127.0.0.1" {
+		return nil, failure("URL", "discovered Browser fallback changed its original IPv4 address")
+	}
+	conn, err = dial(ctx, "tcp6", net.JoinHostPort("::1", port))
+	if expired := contextError(ctx); expired != nil {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		return nil, expired
+	}
+	if err != nil {
+		return nil, fmt.Errorf("IPv4 loopback refused (%v); same-port IPv6 loopback failed: %w", firstErr, err)
+	}
+	return conn, nil
 }
 
 func (t *transport) terminal(err error) {

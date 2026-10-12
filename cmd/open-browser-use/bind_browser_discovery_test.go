@@ -135,7 +135,7 @@ func TestBindBrowserAutoPublicCLIUsesOnlySelectedRootAndNativeEndpoint(t *testin
 				}
 				params, ok := request["params"].(map[string]any)
 				budget, budgetOK := params["timeoutMs"].(float64)
-				if !ok || !budgetOK || request["method"] != "host.bindBrowser" || len(params) != 3 || params["cdpURL"] != bindingTestURL || params["exclusive"] != true || budget < 58000 || budget > 60000 {
+				if !ok || !budgetOK || request["method"] != "host.bindBrowser" || len(params) != 4 || params["loopbackFallback"] != true || params["cdpURL"] != bindingTestURL || params["exclusive"] != true || budget < 58000 || budget > 60000 {
 					completed <- fmt.Errorf("wrong bind request/scope/budget: %v", request)
 					return
 				}

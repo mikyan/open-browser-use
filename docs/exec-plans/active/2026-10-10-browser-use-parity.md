@@ -21,6 +21,21 @@
 
 ## 当前并行切片
 
+2026-10-12 正在补[普通启动 Edge 原文件闭环](2026-10-12-normal-browser-downloads.md)。
+已修自动发现对 IPv6-only listener 的失败：只在首次 TCP 原生拒绝后尝试同端口
+IPv6，授权/Upgrade/身份失败不回退，原总期限不变。Go518 pass/27既有skip，
+vet和Linux/macOS测试二进制交叉编译通过；`m0BgyU`五入口2/2 actualexit0，
+30原文件5200B、13415ms零focus/activation/许可。普通启动两次bootstrap
+失败保留；第二轮定位外部输入法daemon错误归属并修正。第三轮`5klS04`
+bootstrap原browser/host exit0，实际普通参数重启后等待手工安装扩展/授权；
+为修复验收日志问题主动STOPPED，actualexit0且原进程/注册/descriptor清理
+完成，未连接或执行下载业务。正常停止不等于业务通过。
+新fixture不能替代实际授权/业务验收，P01–P15继续开放，旧preview不变。
+终态v3新profile随后查明受Windows自动登录/同步影响；新增账户白名单拒绝
+和日志脱敏，未更改日常策略或普通启动参数。修复后`aa3Fjb`真实五入口2/2、
+30文件5200B、14813ms零focus；最终integration Node1332pass/1既有skip。
+普通Edge后续验收须使用账户隔离的OS环境，不能靠新建目录假定无登录。
+
 2026-10-12 已完成[原文件下载准备确认](../completed/2026-10-12-download-path-readiness.md)：
 五入口requirePath固定原Browser绑定/root target并沿用原预算；准备中断线、
 ready后失效及重绑不复活通过。Node2605/2605，专项`99xibC`3/3、五入口

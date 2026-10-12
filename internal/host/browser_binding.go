@@ -59,13 +59,13 @@ type browserBinding struct {
 	current    *boundBrowser
 	writes     chan struct{}
 	rejections chan struct{}
-	dial       func(context.Context, string, browserdownloads.Identity) (pageDownloadManager, error)
+	dial       func(context.Context, string, browserdownloads.Identity, browserdownloads.DialOptions) (pageDownloadManager, error)
 }
 
 func newBrowserBinding(r *Relay) *browserBinding {
 	return &browserBinding{relay: r, done: make(chan struct{}), closeDone: make(chan struct{}), writes: make(chan struct{}, maxPageDownloadPending), rejections: make(chan struct{}, 8),
-		dial: func(ctx context.Context, url string, identity browserdownloads.Identity) (pageDownloadManager, error) {
-			return browserdownloads.Dial(ctx, url, identity)
+		dial: func(ctx context.Context, url string, identity browserdownloads.Identity, options browserdownloads.DialOptions) (pageDownloadManager, error) {
+			return browserdownloads.DialWithOptions(ctx, url, identity, options)
 		}}
 }
 
@@ -134,15 +134,27 @@ func (b *browserBinding) handleClient(client *clientConn, payload []byte, receiv
 		return true
 	}
 	var params struct {
-		CDPURL    string `json:"cdpURL"`
-		Exclusive bool   `json:"exclusive"`
-		TimeoutMS int64  `json:"timeoutMs"`
+		CDPURL           string          `json:"cdpURL"`
+		Exclusive        bool            `json:"exclusive"`
+		TimeoutMS        int64           `json:"timeoutMs"`
+		LoopbackFallback json.RawMessage `json:"loopbackFallback"`
 	}
 	if strictDecode(message["params"], &params) != nil || !params.Exclusive || params.TimeoutMS < 1 || params.TimeoutMS > 120000 {
 		reject(bindingError("INVALID", "require cdpURL, exclusive:true and timeoutMs from 1 to 120000"))
 		return true
 	}
-	if err := browserdownloads.ValidateURL(params.CDPURL); err != nil {
+	options := browserdownloads.DialOptions{}
+	if len(params.LoopbackFallback) != 0 {
+		switch string(bytes.TrimSpace(params.LoopbackFallback)) {
+		case "true":
+			options.LoopbackFallback = true
+		case "false":
+		default:
+			reject(bindingError("INVALID", "loopbackFallback must be a boolean"))
+			return true
+		}
+	}
+	if err := browserdownloads.ValidateDialOptions(params.CDPURL, options); err != nil {
 		reject(err)
 		return true
 	}
@@ -178,7 +190,7 @@ func (b *browserBinding) handleClient(client *clientConn, payload []byte, receiv
 		}
 	}()
 	go func() {
-		result, err := b.bind(attempt, params.CDPURL)
+		result, err := b.bind(attempt, params.CDPURL, options)
 		cancel()
 		b.mu.Lock()
 		if b.attempt == attempt {
@@ -194,7 +206,7 @@ func (b *browserBinding) handleClient(client *clientConn, payload []byte, receiv
 	return true
 }
 
-func (b *browserBinding) bind(a *browserBindAttempt, url string) (map[string]any, error) {
+func (b *browserBinding) bind(a *browserBindAttempt, url string, options browserdownloads.DialOptions) (map[string]any, error) {
 	if err := b.send(a.ctx, map[string]any{"type": "challenge", "requestId": a.requestID, "nonce": a.nonce}, nil); err != nil {
 		return nil, err
 	}
@@ -209,7 +221,7 @@ func (b *browserBinding) bind(a *browserBindAttempt, url string) (map[string]any
 	if identity.Nonce != a.nonce || !boundedText(identity.ExtensionID) || !boundedText(identity.ExtensionInstanceID) || !boundedText(identity.WorkerBootID) || !boundedText(identity.PortID) {
 		return nil, bindingError("IDENTITY", "extension challenge returned an invalid identity")
 	}
-	manager, err := b.dial(a.ctx, url, identity)
+	manager, err := b.dial(a.ctx, url, identity, options)
 	if err != nil {
 		return nil, err
 	}

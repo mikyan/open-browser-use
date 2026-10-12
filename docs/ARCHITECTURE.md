@@ -41,6 +41,8 @@ debugger、history 和 tab groups。
   CLI显式`bind-browser --auto-connect --browser chrome|edge`只读选定根目录的
   `DevToolsActivePort`定位候选，仍经同Native Port挑战；授权等待与后续setup
   共享原总期限，每条CDP仍最多10秒。见[当前会话连接](references/current-session-connection.md)。
+  自动发现仅在原IPv4 TCP连接被拒绝且尚未发送HTTP时，允许同端口IPv6回退；
+  授权、Upgrade或身份失败不重试，显式URL保持单地址，原期限与挑战不变。
   原文件等待可要求`requirePath:true`，经`downloadWaitPathVersion:1`协商，
   在准备阶段固定原Native Port/generation/page target；缺绑定或中途更换
   不能返回ready。原绑定通知会撤销required waiter，显式重绑只服务新等待；

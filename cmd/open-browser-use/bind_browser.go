@@ -75,7 +75,11 @@ func newBindBrowserCommand() *cobra.Command {
 				return errors.New("bind-browser deadline expired before submission")
 			}
 			id := fmt.Sprintf("bind-browser:%d", time.Now().UnixNano())
-			if err := wire.WriteJSON(conn, map[string]any{"jsonrpc": "2.0", "id": id, "method": "host.bindBrowser", "params": map[string]any{"cdpURL": cdpURL, "exclusive": true, "timeoutMs": remaining}}); err != nil {
+			params := map[string]any{"cdpURL": cdpURL, "exclusive": true, "timeoutMs": remaining}
+			if autoConnect {
+				params["loopbackFallback"] = true
+			}
+			if err := wire.WriteJSON(conn, map[string]any{"jsonrpc": "2.0", "id": id, "method": "host.bindBrowser", "params": params}); err != nil {
 				return err
 			}
 			response, err := readResponseForID(conn, id)

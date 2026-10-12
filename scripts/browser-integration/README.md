@@ -302,6 +302,19 @@ of zero activation/focus. `bindingCapabilities` preserves the actual before/afte
 evidence capture. Browser-first teardown retains its original host shutdown
 warning; it is outside focus coverage and does not prove the reset ACK.
 
+For the separate Windows ordinary-start Edge fixture, use
+`normal-browser-downloads-proof.mjs` with explicit `OBU_TEST_CHROMIUM_BINARY`
+and `OBU_TEST_HOST_BINARY`. It creates a private bootstrap installation, verifies
+real shutdown, restarts without debugging flags and emits a manual `HANDOFF`.
+Only a human enables remote debugging and approves each connection; enter `bind`
+or `stop` on stdin. No hook or incomplete authorization cannot report task PASS.
+The three-JS-owner original-file proof and independent focus observation begin
+after authorization. See [the workflow and evidence boundary](../../docs/references/normal-browser-downloads.md).
+Run it in an account-isolated Windows user or VM: a fresh Edge profile directory
+can still implicitly sign in through the OS. Profile-account checks reject
+observed account/sync sessions; they do not prevent OS sign-in at startup.
+Do not modify daily-browser policies to make this fixture pass.
+
 Set `OBU_TEST_ORIGINAL_DOWNLOADS=default` or `allowAndName`, plus the usual
 `OBU_TEST_HOST_BINARY` and optional `OBU_TEST_CHROMIUM_BINARY`, then run
 `node scripts/browser-integration/run.mjs`. Do not combine this mode with other

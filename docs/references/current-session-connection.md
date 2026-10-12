@@ -56,6 +56,17 @@ installation instance, worker boot and port identity before configuring download
 Multiple matching workers remain ambiguous and are rejected. Discovery performs
 no HTTP `/json/version` probe, port scan, History read or filename matching.
 
+The browser may listen on IPv6 loopback when IPv4 is unavailable. Auto-connect
+first dials `127.0.0.1` and permits a sequential `::1` attempt at the same port
+only after a native TCP connection-refused error, before sending any HTTP bytes.
+The original browser path, identity challenge and setup deadline remain unchanged.
+Once TCP connects, denial, redirect, failed Upgrade, disconnect or an identity
+mismatch ends the attempt; none permits an address-family retry. Explicit
+`--cdp-url` mode retains its exact-address behavior. The private host request's
+strict boolean `loopbackFallback` is omitted outside auto-connect; this requires
+the matching development host, not the published preview host. There is no DNS
+resolution, parallel address race, root change or port scan.
+
 One original deadline covers discovery, local IPC, browser approval, identity
 and setup. Auto-connect defaults to 60 seconds; explicit URL mode retains
 10 seconds. `--timeout` accepts 1 ms through 120 seconds. The Browser handshake
@@ -72,6 +83,32 @@ the handle until it actually returns. This is a bound on pending work, not a
 promise to forcibly cancel filesystem I/O. No late result can submit a binding.
 
 ## Verification boundary
+
+The separate [ordinary-start Edge fixture](normal-browser-downloads.md) preserves
+bootstrap, user authorization and subsequent task evidence as distinct phases.
+Its existence does not prove those phases passed on a real browser.
+
+The IPv6-only native peer failed on the original IPv4-only implementation and
+passes with the same-port fallback. The three affected Go packages pass 518
+tests including subtests, with 27 existing Windows platform/permission skips;
+vet and Linux amd64/macOS arm64 test-binary compilation pass. Dual-stack peers
+verify zero IPv6 requests after an IPv4 denial, redirect, malformed Upgrade,
+reset or identity mismatch. These are real socket peers, not browser UI tests.
+
+The matching host's five-entry `m0BgyU` regression passes 2/2 with actual process
+exit 0, 30 original files/5200 bytes, six groups of five ready waiters and
+13415 ms with zero activation/focus events or allowances. Independent audit
+rereads 29 remaining files/5030 bytes; the first 170-byte file was removed by
+the successful missing-file negative. Source/runtime hashes remain unchanged
+through the run. This remains launch-flag Chromium with the Native Port adapter;
+the retained browser-first teardown warning is not a reset acknowledgement.
+After the file-proof privacy fix, `aa3Fjb` repeats 2/2 with actual exit 0,
+30 original files/5200 bytes, 15 POSTs and 14813 ms without activation/focus or
+allowances. Independent rereads verify 29 remaining files/5030 bytes and the
+intentional missing first file; the host exits 0 and frozen hashes match.
+The shared verifier now validates file bytes before recording them; the separate
+five-entry caller transcripts remain limited to isolated fixture directories.
+This is the same Chromium/adapter boundary, not normal Edge authorization.
 
 Native HTTP/WebSocket tests cover an actual 11-second Upgrade response, denial,
 cancellation and a late successful handshake. The old ten-second setup rejected

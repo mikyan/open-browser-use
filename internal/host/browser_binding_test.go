@@ -97,7 +97,9 @@ func newBindingFixture(t *testing.T, dial func(context.Context, string, browserd
 	dir := shortSocketDir(t)
 	endpoint := transport.NewEndpoint(dir, filepath.Base(dir))
 	r := NewRelay(Config{SocketDir: dir, SocketPath: endpoint}, hostInput, output)
-	r.browserBinding.dial = dial
+	r.browserBinding.dial = func(ctx context.Context, endpoint string, identity browserdownloads.Identity, _ browserdownloads.DialOptions) (pageDownloadManager, error) {
+		return dial(ctx, endpoint, identity)
+	}
 	f := &bindingFixture{relay: r, native: extensionOutput, events: make(chan map[string]any, 512), endpoint: endpoint}
 	ctx, cancel := context.WithCancel(context.Background())
 	ended := make(chan error, 1)
@@ -290,6 +292,83 @@ func TestBrowserBindingRejectsInvalidLocalRequestsAndPrivateSpoof(t *testing.T) 
 	case message := <-f.events:
 		t.Fatalf("invalid request reached native port: %v", message)
 	default:
+	}
+}
+
+func TestBrowserBindingLoopbackFallbackStrictPrivateOption(t *testing.T) {
+	for _, value := range []any{nil, "true", 1, []any{}, map[string]any{}} {
+		t.Run(fmt.Sprintf("invalid-%T", value), func(t *testing.T) {
+			f := newBindingFixture(t, func(context.Context, string, browserdownloads.Identity) (pageDownloadManager, error) {
+				t.Error("invalid option reached Browser dial")
+				return nil, errors.New("unexpected dial")
+			}, nil)
+			c := f.client(t)
+			r := bindingRequest("invalid-option", 1000)
+			r["params"].(map[string]any)["loopbackFallback"] = value
+			bindingWrite(t, c, r)
+			if result := bindingRead(t, c); result["error"] == nil {
+				t.Fatal(result)
+			}
+			select {
+			case event := <-f.events:
+				t.Fatal("invalid option sent native challenge", event)
+			default:
+			}
+		})
+	}
+	for _, endpoint := range []string{"ws://[::1]:9222/devtools/browser/id", "ws://127.0.0.2:9222/devtools/browser/id", "wss://127.0.0.1:9222/devtools/browser/id"} {
+		t.Run(endpoint, func(t *testing.T) {
+			f := newBindingFixture(t, func(context.Context, string, browserdownloads.Identity) (pageDownloadManager, error) {
+				t.Error("invalid fallback endpoint reached Browser dial")
+				return nil, errors.New("unexpected dial")
+			}, nil)
+			c := f.client(t)
+			r := bindingRequest("invalid-endpoint", 1000)
+			params := r["params"].(map[string]any)
+			params["loopbackFallback"], params["cdpURL"] = true, endpoint
+			bindingWrite(t, c, r)
+			if result := bindingRead(t, c); result["error"] == nil {
+				t.Fatal(result)
+			}
+			select {
+			case event := <-f.events:
+				t.Fatal("invalid endpoint sent native challenge", event)
+			default:
+			}
+		})
+	}
+	for _, value := range []any{"omit", false, true} {
+		t.Run(fmt.Sprintf("valid-%v", value), func(t *testing.T) {
+			m := newBindingFake("same-generation")
+			f := newBindingFixture(t, nil, nil)
+			calls := 0
+			f.relay.browserBinding.dial = func(ctx context.Context, endpoint string, identity browserdownloads.Identity, options browserdownloads.DialOptions) (pageDownloadManager, error) {
+				calls++
+				if options.LoopbackFallback != (value == true) || identity.PortID != "port-original" || endpoint != "ws://127.0.0.1:9222/devtools/browser/original" {
+					t.Error("option replaced identity or candidate", options, identity, endpoint)
+				}
+				if _, ok := ctx.Deadline(); !ok {
+					t.Error("setup lost deadline")
+				}
+				return m, nil
+			}
+			c := f.client(t)
+			r := bindingRequest("valid-option", 1000)
+			if value != "omit" {
+				r["params"].(map[string]any)["loopbackFallback"] = value
+			}
+			bindingWrite(t, c, r)
+			f.answer(t, f.next(t, "challenge"))
+			ready := f.next(t, "ready")
+			if result := bindingRead(t, c); result["error"] != nil || ready["available"] != true || calls != 1 {
+				t.Fatal(result, ready, calls)
+			}
+			select {
+			case event := <-f.events:
+				t.Fatal("option caused additional native request", event)
+			default:
+			}
+		})
 	}
 }
 

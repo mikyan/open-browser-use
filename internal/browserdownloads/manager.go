@@ -82,7 +82,11 @@ type Manager struct {
 // Dial's context bounds setup only. A successful Manager lives until Close or
 // its original transport fails; canceling the setup caller does not retire it.
 func Dial(ctx context.Context, endpoint string, identity Identity) (*Manager, error) {
-	if err := ValidateURL(endpoint); err != nil {
+	return DialWithOptions(ctx, endpoint, identity, DialOptions{})
+}
+
+func DialWithOptions(ctx context.Context, endpoint string, identity Identity, options DialOptions) (*Manager, error) {
+	if err := ValidateDialOptions(endpoint, options); err != nil {
 		return nil, err
 	}
 	if err := validateIdentity(identity); err != nil {
@@ -95,7 +99,7 @@ func Dial(ctx context.Context, endpoint string, identity Identity) (*Manager, er
 		return nil, err
 	}
 	m := &Manager{generation: hex.EncodeToString(random[:]), records: make(map[string]*downloadRecord), revocations: make(map[string]struct{}), changed: make(chan struct{})}
-	t, err := dialTransport(setup, endpoint, m.event, m.invalidate)
+	t, err := dialTransportWithOptions(setup, endpoint, m.event, m.invalidate, options)
 	if err != nil {
 		return nil, err
 	}

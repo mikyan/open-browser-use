@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,9 +48,13 @@ func newPeer(t *testing.T, contextID string, hook func(*browserPeer, nativeReque
 }
 
 func newPeerWithHandshake(t *testing.T, contextID string, hook func(*browserPeer, nativeRequest) bool, beforeUpgrade func(http.ResponseWriter, *http.Request) bool) *browserPeer {
+	return newPeerWithListener(t, contextID, hook, beforeUpgrade, nil)
+}
+
+func newPeerWithListener(t *testing.T, contextID string, hook func(*browserPeer, nativeRequest) bool, beforeUpgrade func(http.ResponseWriter, *http.Request) bool, listener net.Listener) *browserPeer {
 	t.Helper()
 	p := &browserPeer{t: t, contextID: contextID, identity: testIdentity, connected: make(chan struct{}), done: make(chan struct{}), hook: hook}
-	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p.server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if beforeUpgrade != nil && !beforeUpgrade(w, r) {
 			return
 		}
@@ -106,6 +111,11 @@ func newPeerWithHandshake(t *testing.T, contextID string, hook func(*browserPeer
 			}
 		}
 	}))
+	if listener != nil {
+		_ = p.server.Listener.Close()
+		p.server.Listener = listener
+	}
+	p.server.Start()
 	t.Cleanup(func() {
 		p.mu.Lock()
 		c := p.conn
