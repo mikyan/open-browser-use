@@ -102,6 +102,9 @@ func dialTransport(ctx context.Context, endpoint string, event func(string, json
 	if err := ValidateURL(endpoint); err != nil {
 		return nil, err
 	}
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	httpTransport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{}).DialContext, TLSHandshakeTimeout: commandTimeout}
 	client := &http.Client{Transport: httpTransport, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return failure("URL", "Browser endpoint redirects are forbidden")
@@ -109,6 +112,12 @@ func dialTransport(ctx context.Context, endpoint string, event func(string, json
 	conn, _, err := websocket.Dial(ctx, endpoint, &websocket.DialOptions{HTTPClient: client, CompressionMode: websocket.CompressionDisabled})
 	httpTransport.CloseIdleConnections()
 	if err != nil {
+		return nil, err
+	}
+	// A completed HTTP handshake is not permission to use an expired setup.
+	// Check before publishing the transport or starting its independent reader.
+	if err := contextError(ctx); err != nil {
+		_ = conn.CloseNow()
 		return nil, err
 	}
 	conn.SetReadLimit(1 << 20)

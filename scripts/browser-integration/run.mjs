@@ -78,11 +78,12 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
-if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry"].includes(originalDownloadBehavior))
-  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, or unset");
-const fiveEntryDownloads = originalDownloadBehavior === "five-entry";
+if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry", "auto-connect"].includes(originalDownloadBehavior))
+  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, auto-connect, or unset");
+const autoConnectDownloads = originalDownloadBehavior === "auto-connect";
+const fiveEntryDownloads = originalDownloadBehavior === "five-entry" || autoConnectDownloads;
 const productDownloads = originalDownloadBehavior === "product" || fiveEntryDownloads;
-const originalDownloadTestName = fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
+const originalDownloadTestName = autoConnectDownloads ? "five-entry-original-download-auto-connect" : fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
 if (fiveEntryDownloads && !process.env.OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY)
   throw new Error("Set OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY for five-entry original downloads");
 if (originalDownloadBehavior && ["OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
@@ -645,16 +646,30 @@ try {
       detail.identity = { pid: chrome.pid, profile, activePort, browserVersion, extensionId, worker: workerTargets[0], targets };
       if (productDownloads) {
         const before = await browser.client.getInfo();
+        detail.bindingCapabilities = { before };
         assert.equal(before.metadata.pageDownloads.available, false);
         detail.bindingProcess = {};
-        detail.binding = JSON.parse(await subprocess(executable, ["bind-browser", "--socket", endpoint, "--cdp-url", url.href, "--exclusive", "--timeout", "20s"], { processEvidence: detail.bindingProcess }));
+        detail.connectionMode = autoConnectDownloads ? {
+          discovery: "production DevToolsActivePort read from explicit isolated user-data root",
+          browser: "chrome", userDataDir: path.resolve(profile),
+          boundary: "Isolated launch-flag Chromium; does not validate normal-start browser approval, default user-data discovery, or Edge runtime",
+        } : { discovery: "explicit Browser WebSocket URL" };
+        const bindingArgs = ["bind-browser", "--socket", endpoint,
+          ...(autoConnectDownloads ? ["--auto-connect", "--browser", "chrome", "--user-data-dir", path.resolve(profile)] : ["--cdp-url", url.href]),
+          "--exclusive", "--timeout", autoConnectDownloads ? "60s" : "20s"];
+        detail.binding = JSON.parse(await runOriginalDownloadProcess({ command: executable, args: bindingArgs,
+          detail: detail.bindingProcess, timeoutMs: autoConnectDownloads ? 65000 : 25000 }));
+        assert.equal(detail.bindingProcess.closeObserved, true);
+        assert.equal(detail.bindingProcess.exitCode, 0);
         assert.equal(detail.binding.result.bound, true);
         const after = await browser.client.getInfo();
+        detail.bindingCapabilities.after = after;
         assert.equal(after.metadata.pageDownloads.available, true);
         assert.equal(after.metadata.pageDownloads.generation, detail.binding.result.generation);
         detail.bindingProof = await worker.evaluate("globalThis.__obuNativeDownloadBinding");
         for (const key of ["extensionId", "extensionInstanceId", "workerBootId", "portId"]) assert.equal(detail.bindingProof[key], detail.binding.result[key]);
         sourceIdentity.testHooks.push("production original downloads: explicit bind-browser to exact owned isolated Browser root; no independent Browser download observer/configuration; passive Page trace and returned product path byte inspection");
+        if (autoConnectDownloads) sourceIdentity.testHooks.push("auto-connect: production CLI reads actual isolated DevToolsActivePort; no cdp-url passed; launch-flag Chromium only, not normal-start permission UI or Edge/default profile acceptance");
       } else {
         await native.start({ behavior: originalDownloadBehavior, ...(originalDownloadBehavior === "allowAndName" ? { downloadPath: path.join(runDir, "downloads") } : {}) });
         sourceIdentity.testHooks.push("original download proof: real Browser root connection changes only fresh isolated profile download behavior/events; passive Page trace, exact GUID/frame merge and native filePath reads; no product fallback or directory delta");

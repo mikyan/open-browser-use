@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+当前会话发现已接入生产CLI，选定Chrome/Edge根目录只读端口文件，随后仍核
+原Native Port/worker身份。原10秒授权等待截断已修，真实11秒握手与拒绝/
+取消/迟到连接通过；单条CDP仍10秒。隔离`h9Udpf`2/2、30原文件/5200B和
+12853ms零focus/activation，手动`ZwGUxs`2/2、18原文件兼容通过。
+WindowsGo654pass/27skip、Node68、WSL binding23pass/0skip、vet及交叉编译通过。
+这不代表正常启动人工授权、Edge/defaultroot实际连接已验；拆除shutdown
+警告保留，不冒称reset ACK；未重跑125基线，preview未改。见
+[当前会话连接](references/current-session-connection.md)。
+
 正式原文件五入口正例现已通过`Fb9uuB`2/2、actualexit0：30文件/5200B，
 6组都先收到5个ready再释放点击，原字节/GUID/来源/通知逐项核对；14000ms
 零focus/activation，零豁免。修复复制后Python路径、gate期间子进程退出与

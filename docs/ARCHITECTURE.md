@@ -27,6 +27,9 @@ debugger、history 和 tab groups。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。
+  CLI显式`bind-browser --auto-connect --browser chrome|edge`只读选定根目录的
+  `DevToolsActivePort`定位候选，仍经同Native Port挑战；授权等待与后续setup
+  共享原总期限，每条CDP仍最多10秒。见[当前会话连接](references/current-session-connection.md)。
 - `internal/transport/`：Unix socket 与 Windows 当前用户 named pipe 的平台边界。
 - `internal/wire/`：Open Browser Use native frame codec。
 - `packages/browser-client-rewrite/`：当前 Browser Use client 的可读重写

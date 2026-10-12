@@ -139,6 +139,8 @@ go build -o dist/ ./cmd/open-browser-use
 需要读取网页原始 POST/Blob 下载时，开发分支提供可选的
 [原生浏览器绑定](docs/references/original-page-download-delivery.md)。它要求明确
 授权的 Browser 连接；普通扩展安装和已发布预览包不会自动启用。
+开发版支持显式 URL 或[选择 Chrome/Edge 后发现端口](docs/references/current-session-connection.md)，
+启用调试和浏览器授权仍由用户完成。
 按实际加载的扩展 ID 注册这个 CLI 作为 native host，Windows Edge 的命令见
 [本地注册说明](docs/references/edge-installation.md)。
 

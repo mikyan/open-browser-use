@@ -36,6 +36,8 @@
   按任务等待下载和当前本地路径查找限制。
 - [Original page download delivery](original-page-download-delivery.md)：当前Codex
   原POST/Blob对照、正式Host绑定与同GUID路径/取消，以及普通安装和验收边界。
+- [Current session connection](current-session-connection.md)：显式Chrome/Edge端口
+  文件发现、原连接身份与授权总期限，以及真实浏览器授权尚待验收的范围。
 - [Locator file uploads](locator-file-upload.md)：隐藏file input的直接路径上传、
   与chooser共用的节点锁、目录完成及五入口验收边界。
 - [Network waits](network-waits-design.md)：已实现的两阶段 request/response

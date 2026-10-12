@@ -216,7 +216,46 @@ worker nonce/instance/boot/port challenge继续决定是否允许配置下载。
 CLI的总deadline应包含文件读取与授权等待；当前Manager把整个Dial截为10秒，
 需要拆分授权握手总预算与后续每条CDP命令10秒上限，不能仅把CLI提示改成60秒。
 
-此入口尚未实现。先验无调试启动参数的隔离profile，再验拒绝/批准超时、错误
-profile、多profile同ID worker、关闭授权与实际断连。授权UI可能前台出现，
-必须与批准后的后台工作分段记录，不宣称全流程零焦点或普通安装已完成。
-完整P01–P15和原计划其余负例保持开放。
+本片正在实现该入口并补真实原生HTTP/IPC测试。Manager握手已改用原caller
+deadline（最大120秒，无deadline仍10秒），每条CDP继续最多10秒；旧源码对
+11秒真实HTTP Upgrade等待确实失败，新实现通过。CLI发现与真实五入口验收
+继续推进，不能以单测代表普通浏览器授权已完成。
+
+原生授权窗口由Chromium自身激活，computer-use规则禁止代用户操作权限
+请求。因此正常启动、用户手动批准的验收单独保留；不写pref或改工具绕过。
+先用现有隔离launch-flag Chromium验证实际端口文件→生产CLI→原worker
+挑战→原文件交付，明确不是无调试启动参数的授权UI证明。真实拒绝/批准
+超时、错误profile、多profile同ID worker、关闭授权及实际断连仍需补验。
+授权与批准后后台工作必须分段记录；完整P01–P15和其余负例保持开放。
+
+## Current-session discovery implementation and acceptance
+
+前一目标轮已产生生产实现及真实HTTP反例，安装问答本身只交付安装说明；
+本轮重新核工作区、完成CLI、集成和真实浏览器验证，属于progress。显式
+`--auto-connect --browser chrome|edge`可读默认或指定绝对user-data根目录，
+普通文件/4096B/两行/端口/路径校验后仍走原nonce挑战；无探活HTTP、端口
+扫描、History或自动替换profile。Windows UNC/device拒绝；文件读取总预算
+到期即拒绝迟到结果，最多一个尚未退出的reader，不冒称内核读可强制取消。
+
+自动默认60秒、手动10秒、显式最大120秒，原总期限覆盖发现/IPC/授权/身份。
+真实11秒握手旧实现10秒失败、新实现成功，每条CDP仍10秒；403、取消、
+迟到握手、原总预算不续期和未知结果终态经原生peer测试。原1秒detach/
+retirement清理预算保留，不借它继续setup。
+
+最终隔离Chromium `h9Udpf`2/2 actualexit0：生产CLI仅获root未获URL，真实
+端口文件发现、原Native Port/worker挑战、capability前后响应和generation均
+保留；五入口30原文件/5200B、6组all-ready、原字节/来源/通知及JS生命周期
+通过，12853ms零activation/focus/豁免。`YRvEbg`是未保存前后capability的
+此前通过版；手动URL `ZwGUxs`2/2、18文件/3120B、9381ms零focus/activation。
+拆除先关browser导致host记录原连接已断的shutdown警告，保留且不宣称reset
+ACK已核。任务回收、实际host exit0和拆除界限分别记录。
+
+Windows全Go654pass/27skip（另8无测试package），Node68/68；CLI287pass/
+24skip，最终binding21pass/1权限skip，WSL实际Unix socket/FIFO/symlink23/23。
+Linux/macOS测试二进制交叉编译及vet通过，61源/10bin冻结。此轮未重跑无绑定
+125基线；没有修改扩展、SDK或旧preview三ZIP。
+
+本片验证launch-flag隔离Chromium的生产发现，不等于正常启动的人工授权、
+Edge实际授权或默认日常profile安装已完成。下一步继续原计划的未owned用户
+下载、实际Browser断连/失败文件和多profile授权；具体契约及范围见
+[当前会话连接](../../references/current-session-connection.md)。完整目标保持active。

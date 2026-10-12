@@ -47,6 +47,25 @@ CLI/MCP action-budget correction. The final host's ordinary unbound suite
 Final harness checks pass Node 673, Python 8 and Go 15 including subtests;
 these process/unit tests do not replace the browser runs.
 
+`OBU_TEST_ORIGINAL_DOWNLOADS=auto-connect` runs the same five-entry checks using
+`bind-browser --auto-connect --browser chrome --user-data-dir <isolated-root>`.
+No `--cdp-url` is supplied to the CLI; it must read the real browser-written
+`DevToolsActivePort`. The exact Native Host endpoint and `--exclusive` remain
+required. Binding uses a 60-second original budget and a 65-second external
+process guard that observes actual close before returning. The raw CLI args,
+stdout, stderr, exit and close are retained in `bindingProcess`.
+
+This still uses the runner's isolated launch-flag Chromium and independent
+observer. It tests production discovery, identity and file delivery, not
+normal-start browser permission UI, default user-data discovery or Edge runtime.
+The mandatory raw-navigation control, all-ready barrier, byte/source checks,
+held-transfer cases and zero additional focus allowances are unchanged.
+Final `h9Udpf` passes 2/2, actual exit 0, with 30 files/5200 bytes and 12853 ms
+of zero activation/focus. `bindingCapabilities` preserves the actual before/after
+`getInfo` responses. Earlier `YRvEbg` and manual-URL `ZwGUxs` pass but predate that
+evidence capture. Browser-first teardown retains its original host shutdown
+warning; it is outside focus coverage and does not prove the reset ACK.
+
 Set `OBU_TEST_ORIGINAL_DOWNLOADS=default` or `allowAndName`, plus the usual
 `OBU_TEST_HOST_BINARY` and optional `OBU_TEST_CHROMIUM_BINARY`, then run
 `node scripts/browser-integration/run.mjs`. Do not combine this mode with other

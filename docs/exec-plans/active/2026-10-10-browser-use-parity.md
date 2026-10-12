@@ -2713,3 +2713,18 @@ Node673、Python8、Go15全过。14000ms零activation/focus、无新增豁免。
 此前其余四入口的正例缺口已补，未owned下载、Browser断连/危险文件、现有
 profile授权和跨平台仍开放。下一实际产品方向为官方Chrome/Edge当前会话
 opt-in连接，详见[原文件计划](2026-10-12-original-page-downloads.md)。
+
+### P10/P15：显式当前会话发现与授权预算
+
+生产CLI新增选定Chrome/Edge的端口文件发现，保留exact host/worker身份和
+exclusive，授权等待使用原总deadline；修复原10秒截断，真实11秒握手通过，
+每条CDP仍限10秒。最终隔离`h9Udpf`2/2、30原文件/5200B、6组all-ready，
+12853ms零focus/activation；手动`ZwGUxs`2/2、18文件/3120B兼容通过。
+保存前后capability、实际CLI args/close和原generation；未改变焦点判定。
+WindowsGo654pass/27skip、Node68、WSL binding23pass/0skip、vet及Linux/macOS
+交叉编译通过。普通125基线本轮未重跑，preview不变。
+
+浏览器先关闭的拆除顺序有原连接shutdown警告，不能宣称reset ACK；普通启动
+人工授权、Edge/defaultroot真实连接、未owned下载和实际断线仍待验。用户
+权限UI不自动操作；本片没有缩小P01–P15成功条件。详见
+[当前会话连接](../../references/current-session-connection.md)。

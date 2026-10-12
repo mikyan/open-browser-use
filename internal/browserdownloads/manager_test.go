@@ -43,9 +43,16 @@ type browserPeer struct {
 }
 
 func newPeer(t *testing.T, contextID string, hook func(*browserPeer, nativeRequest) bool) *browserPeer {
+	return newPeerWithHandshake(t, contextID, hook, nil)
+}
+
+func newPeerWithHandshake(t *testing.T, contextID string, hook func(*browserPeer, nativeRequest) bool, beforeUpgrade func(http.ResponseWriter, *http.Request) bool) *browserPeer {
 	t.Helper()
 	p := &browserPeer{t: t, contextID: contextID, identity: testIdentity, connected: make(chan struct{}), done: make(chan struct{}), hook: hook}
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if beforeUpgrade != nil && !beforeUpgrade(w, r) {
+			return
+		}
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return

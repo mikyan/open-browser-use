@@ -48,6 +48,19 @@ type downloadRecord struct {
 const recordLimit = 128
 const revocationLimit = 4096
 const unclaimedTTL = time.Minute
+const maximumSetupTimeout = 120 * time.Second
+
+// A Browser may hold the HTTP Upgrade response while its user approves this
+// exact connection. An explicit caller deadline covers that wait and all setup
+// commands together; it is never restarted after the handshake. Direct callers
+// without a deadline retain the original ten-second default.
+func setupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	limit := commandTimeout
+	if _, bounded := ctx.Deadline(); bounded {
+		limit = maximumSetupTimeout
+	}
+	return context.WithTimeout(ctx, limit)
+}
 
 type Manager struct {
 	transport  *transport
@@ -75,7 +88,7 @@ func Dial(ctx context.Context, endpoint string, identity Identity) (*Manager, er
 	if err := validateIdentity(identity); err != nil {
 		return nil, err
 	}
-	setup, cancel := context.WithTimeout(ctx, commandTimeout)
+	setup, cancel := setupContext(ctx)
 	defer cancel()
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {

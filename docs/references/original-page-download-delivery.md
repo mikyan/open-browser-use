@@ -9,13 +9,16 @@ file delivery are separate requirements.
 
 ## Explicit binding and original ownership
 
-The caller must already have an authorized exact loopback Browser WebSocket
-and the exact native host endpoint. This command does not find or launch a
-browser, enable remote debugging, or choose a profile:
+The caller must select the exact native host endpoint and an authorized
+loopback Browser connection. Explicit URL mode does not discover an endpoint:
 
 ```text
 open-browser-use bind-browser --socket <exact-host-endpoint> --cdp-url <authorized-browser-websocket> --exclusive
 ```
+
+The optional [current-session discovery mode](current-session-connection.md)
+reads a selected Chrome/Edge root's `DevToolsActivePort`. It does not launch a
+browser, enable debugging, approve its prompt or substitute for identity checks.
 
 `--exclusive` acknowledges exclusive control over that context's CDP download
 behavior. The host sets `default` with events enabled; it does not edit browser

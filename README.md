@@ -159,8 +159,10 @@ host for the loaded extension's actual ID. For Windows Edge, follow the
 
 For original page-triggered POST/Blob download paths, this branch adds an optional
 [native Browser binding](docs/references/original-page-download-delivery.md).
-It requires a specified Browser root endpoint and exclusive download control;
-the CLI does not enable remote debugging or discover an endpoint automatically.
+It requires an authorized Browser root connection and exclusive download control.
+Use an explicit URL or [opt-in Chrome/Edge discovery](docs/references/current-session-connection.md)
+from a selected user-data root; the CLI does not enable remote debugging or approve
+the browser's permission prompt.
 Ordinary extension-only installations and the published preview retain their
 explicit unavailable errors for Page GUID paths.
 

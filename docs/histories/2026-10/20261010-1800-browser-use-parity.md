@@ -1914,6 +1914,31 @@ host的VCS构建metadata变化导致二进制SHA不同，明确记录而非伪�
 继续开放。补充官方Chrome144+与Edge inspect-page opt-in研究；只读当前会话
 端口文件的方案尚未实现，授权UI与后续后台焦点需要分段验证。
 
+### 当前会话端口发现与授权等待
+
+新增显式auto-connect入口，只读指定Chrome/Edge根目录的有界普通端口文件；
+仍要求exact host、原worker nonce/instance/boot/port和exclusive。发现不是
+身份凭据，不扫描、不读History、不修改用户调试设置。总期限覆盖发现、IPC、
+授权和setup；自动默认60秒、手动10秒、最大120秒，每条CDP仍限10秒。
+取消或迟到文件/dial/ACK不提交成功，不重试；单个pending reader有界，保留
+内核文件读取不能强制取消的限制。
+
+旧源码真实11秒HTTP Upgrade在10秒拒绝，新源码成功；84项native peer测试
+覆盖403/取消/迟到连接/总预算/10秒CDP终态。Windows全Go654pass/27skip，
+CLI287pass/24skip、最终binding21pass/1权限skip；WSL真实Unix socket及FIFO/
+symlink23/23，Linux/macOS交叉编译、vet、Node68通过。61构建输入/10bin冻结。
+
+最终`h9Udpf`2/2 actualexit0走生产CLI端口文件发现，保留前后capability与
+原generation；五入口30原文件/5200B、6组all-ready及原归属/字节核验通过，
+12853ms零focus/activation、无新豁免。早版`YRvEbg`未保存前后capability响应，
+其局限保留；手动URL兼容`ZwGUxs`2/2、18文件/3120B、9381ms零focus。
+拆除先关browser，host实际exit0但记录原连接shutdown警告，不能作为reset
+ACK或无错误原生清理的证明。实际任务回收与拆除范围分开记录。
+
+本片仅验launch-flag隔离Chromium和测试Native Port桥接，正常启动人工授权、
+Edge/defaultroot真实入口、多profile/断线/未owned下载仍开放。未重跑普通
+125基线、未改SDK/扩展或旧preview、未提PR；完整P01–P15继续active。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1934,4 +1959,5 @@ host的VCS构建metadata变化导致二进制SHA不同，明确记录而非伪�
 - `docs/exec-plans/completed/2026-10-12-sdk-connection-identity.md`
 - `docs/references/sdk-connection-identity.md`
 - `docs/references/original-page-download-delivery.md`
+- `docs/references/current-session-connection.md`
 - `docs/exec-plans/active/2026-10-12-original-page-downloads.md`
