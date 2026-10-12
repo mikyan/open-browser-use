@@ -89,6 +89,15 @@ The status is `{state, inputBlocked, revision, cleanupComplete, error?, inputRec
 `state` is `running`, `pausing`, `paused`, or `error`. The UI labels `error` as
 Failed and permits Retry pause, never Resume, until cleanup succeeds.
 
+Explicit Pause/Retry also restarts settled failed created-page cleanup after
+the global input fence is set, before capturing cancellation drains. Automatic
+failure-triggered Pause does not restart it. If a failed end left a session
+closing, explicit bootstrap retries only that session's failed cleanup under
+its existing ending fence; a concurrent bootstrap may still report
+`closing:true`. No in-flight cleanup, admission or input is replayed. The
+source-navigation/child-closure recovery cases and evidence boundaries are in
+[created-page recovery](created-page-waits.md#explicit-recovery-after-navigation-or-child-closure).
+
 Pause derives tab cleanup authority from verified control records, not from
 the tab IDs submitted in queued requests. A readiness or data-operation
 reservation is not permission to detach its source. Network, navigation,

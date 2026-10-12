@@ -21,6 +21,13 @@
 
 ## 当前并行切片
 
+2026-10-12 补齐导航/child关闭后清理失败的显式恢复：同session closing
+bootstrap与全局Retry Pause均纳入已有屏障，自动事件不重试。最终12例在
+旧源2通过/10失败，相关137/137及全Node2238/2238通过；在途共享及foreign
+隔离不变。完整普通`B5TASC`125/125、actualexit0，保持原名称顺序及已有
+12activation/4controlfocus许可。浏览器storage失败与原生开页focus仍是未完成项，见
+[恢复契约](../../references/created-page-waits.md#explicit-recovery-after-navigation-or-child-closure)。
+
 2026-10-12 修复host断开后显式bootstrap只重复旧清理错误的恢复缺口。
 同7例旧源4失败、新源7通过；全部Node2226/2226。真实launcher`9QWc6h`
 的同worker matched未交付child撤权与fresh来源可用成立，原清理完成余18558ms。

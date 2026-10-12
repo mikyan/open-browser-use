@@ -317,6 +317,56 @@ focus allowances. It checks the production fix without substituting for the
 failed native created-page scene. Full focus/layout and lifecycle requirements
 remain open; published preview archives are unchanged.
 
+## Explicit recovery after page events
+
+The host-loss checkpoint is committed as `f3672b7` with its original native
+failure and ordinary 125-case pass retained. The next backend counterexamples
+reproduce a separate user-visible recovery trap: source navigation or child
+closure invalidates a matched waiter, transient storage failure prevents exact
+claim retirement, then ending the turn or pausing invalidates the old scope.
+After storage recovers, both same-session bootstrap and Retry Pause still drain
+the old rejection; the old handle can no longer request cancellation. All four
+original combinations failed on the `f3672b7` source.
+
+Retry only settled failed cleanup in an explicit recovery entry. Same-session
+bootstrap must stay under the closing/ending-session fence and cannot retry a
+foreign task's cleanup. Pause must block input synchronously before starting
+global retries and capture their new drain. Internal automatic pause signals
+must not authorize retries. Preserve concurrent `closing:true` responses and
+in-flight cleanup sharing, and keep failure blocking if the new attempt fails.
+Tests must retain native page state, admission count and no-input/no-adoption
+replay evidence. Run relevant unit suites and the unchanged full ordinary
+browser matrix after the production source freezes; browser storage-failure
+injection is a separate unverified boundary until actually exercised.
+
+The final twelve backend cases yield 2 passes/10 failures with the prior two
+production files and pass with the fix. Focused regressions pass 137/137 and
+all JavaScript suites pass 2238/2238 without skips/cancellations. Source review
+also narrows the focus investigation: createTarget's ShowInactive is local to
+its creation navigation, and focus emulation or preparation userGesture flags
+cannot override the later native navigation decision. No new focus experiment
+or passing browser result is inferred from this review.
+
+The later ordinary full regression `B5TASC` passes 125/125 with actual exit 0.
+Case names/order match `h6a5W4`; 242,478 ms continuous observer coverage and
+sixty original snapshots preserve exactly the existing twelve activation/four
+control-popup focus allowances. The original sentinel remains active, source
+and staged builds match, and exact private process inventories are empty after
+teardown. This uses the loopback Native Port adapter and does not establish
+real-browser storage-failure recovery. Published preview archives are unchanged.
+
+Next, exercise source navigation/child closure × session bootstrap/Retry Pause
+in the isolated native launcher. Claim removal rewrites the auxiliary snapshot
+through `chrome.storage.session.set`, not `storage.remove`. A private worker
+hook can add an over-quota test value only to deletion of the exact claim,
+retaining the actual native rejection until the first public transition fails;
+then remove the fault and recover through SDK beginTurn or popup Retry pause.
+Verify the unchanged host/worker identity, retained quarantine, absent test key,
+old-scope denial, fresh-scope usability and no adoption/input replay. Count all
+native rejections, keep the original deadline and the original child, and
+preserve the existing focus failure without restoration or new allowances.
+This remains a proposed fault-injection test, not completed browser evidence.
+
 ## Relevant implementation
 
 - `apps/chrome-extension/background.js`, `auxiliary-tab-ownership.js`

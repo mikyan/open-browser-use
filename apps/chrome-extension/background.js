@@ -857,7 +857,7 @@ class BrowserBackend {
         this.controlEpochs.set(source.tabId, (this.controlEpochs.get(source.tabId) ?? 0) + 1);
         this.browserEngine?.forget(source.tabId);
         try { this.releaseEngineAttachment(source.tabId); }
-        catch (error) { this.pauseReleaseFailures.set(source.tabId, error); void this.pauseAutomation().catch(() => {}); }
+        catch (error) { this.pauseReleaseFailures.set(source.tabId, error); void this.pauseAutomation({ retryPageCleanup: false }).catch(() => {}); }
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
@@ -1164,7 +1164,7 @@ class BrowserBackend {
       this.pauseReleaseFailures.set(tabId, error);
       // Auxiliary claims already retain a durable quarantined ownership lock
       // and retry through their existing cleanup path.
-      if (!this.auxiliaryTabs.entry(tabId)) void this.pauseAutomation().catch(() => {});
+      if (!this.auxiliaryTabs.entry(tabId)) void this.pauseAutomation({ retryPageCleanup: false }).catch(() => {});
     });
   }
 
@@ -1244,7 +1244,7 @@ class BrowserBackend {
     this.cancelTabTransfers(tabId, new Error("OBU_SITE_ACCESS_DENIED: document access was revoked"));
     void this.detachTab(tabId).catch(error => {
       this.pauseReleaseFailures.set(tabId, error);
-      void this.pauseAutomation().catch(() => {});
+      void this.pauseAutomation({ retryPageCleanup: false }).catch(() => {});
     });
   }
 
@@ -1353,12 +1353,17 @@ class BrowserBackend {
     return { tabIds: snapshot.tabIds, pending: snapshot.pending, releases };
   }
 
-  pauseAutomation() {
+  pauseAutomation({ retryPageCleanup = true } = {}) {
     const deadline = this.automationDeadline();
     this.automationControl.block();
+    // Explicit Pause/Retry may retry settled failed cleanup, after fencing
+    // input and before cancellation captures the old rejected drain promise.
+    const pageCleanup = retryPageCleanup ? this.pageWaits.retryFailedCleanup() : null;
+    pageCleanup?.catch(() => {});
     // Cancel known engine work synchronously, before a slow storage write can
     // allow an already-running locator wait to deliver its first input.
     const cancelled = this.cancelGlobalControl();
+    if (pageCleanup) cancelled.releases.push(pageCleanup);
     const operation = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause(cancelled, deadline));
     this.automationTransitions = operation;
     return deadline.within(() => operation).catch(error => {
@@ -4348,7 +4353,7 @@ class BrowserBackend {
     }
     const record = this.controlLedger.records.get(params.session_id);
     if (record?.status === "closing" && !this.endingSessions.has(params.session_id)) {
-      await this.recoverEndedSession(params.session_id, record);
+      await this.recoverEndedSession(params.session_id, record, { retryPageCleanup: true });
     }
     if (!record) await this.releaseRecoveredCreatedPages(params.session_id);
     return this.controlLedger.bootstrap(params.session_id);
@@ -4521,11 +4526,12 @@ class BrowserBackend {
     }
   }
 
-  async recoverEndedSession(sessionId, record) {
+  async recoverEndedSession(sessionId, record, { retryPageCleanup = false } = {}) {
     if (this.endingSessions.has(sessionId)) return;
     const recovery = {};
     this.endingSessions.set(sessionId, recovery);
     try {
+      if (retryPageCleanup) await this.pageWaits.retryFailedCleanup(sessionId);
       await this.releaseSessionControl(sessionId);
       await this.clearSessionActivity(sessionId);
       await this.controlLedger.finishEnd(record);

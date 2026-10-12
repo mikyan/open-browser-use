@@ -2103,6 +2103,27 @@ activation无新豁免。此正常清理场景不代表实机失败retry，旧pr
 元数据及扩展字节核对通过，确切隔离进程清单为空。普通模式无独立Chromium
 graceful-close/exitcode工件；不扩大为该关闭保证。
 
+### 导航和关页后的显式清理恢复
+
+真实Backend反例发现：source导航或child关闭后，删除新页claim失败会保留
+旧cleanup拒绝；随后turnEnded/Pause撤销旧scope，旧cancel不可用，而bootstrap/
+Retry Pause又只读取旧错误。现已在closing会话屏障内按session重试，显式
+Pause先阻断输入、再重启已结算失败清理并捕获新drain；三个自动故障暂停
+入口不授权重试。原pending/显式retry并发共享，持续失败保持阻断，无输入
+或adoption重放。最终12例旧源2通过/10失败，修复后相关137/137、全Node
+2238/2238，零skip/cancel；这些使用模拟Chrome/存储故障，不冒充实机故障恢复。
+
+固定Chromium156源码与官方API复核未找到可用于后续原生Ctrl-click的持久
+不激活开关。createTarget ShowInactive仅用于自身导航，focus emulation和
+准备Runtime手势不覆盖原生press及OpenURLFromTab行为；旧Codex扩展同样优先
+现有focused窗口里的inactive tab。这些是源码边界，未解决原生开页focus，
+也未新增或扩大浏览器通过结论。
+
+随后完整普通`B5TASC`125/125、actualexit0，原用例名称顺序及已有12activation/
+4controlfocus许可不变；242478ms连续observer和60份原快照经独立审计，sentinel
+仍在原窗口active。源码/stage/复用二进制核对通过，确切私有进程清单为空；
+该loopback adapter回归不代替实机storage故障或失败focus场景，旧preview不变。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

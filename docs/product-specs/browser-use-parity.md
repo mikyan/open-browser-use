@@ -42,6 +42,14 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+显式恢复已补齐导航/关页后失败清理：closing会话bootstrap只重试自身，
+Retry Pause在全局阻断后重试，自动故障暂停保持不重试；并发pending共享，
+失败保持隔离且不重放输入/adoption。最终12后端例旧源2通过/10失败，修复后
+相关137/137、全部Node2238/2238通过；真实storage失败恢复和原生开页focus
+尚未实机通过。完整普通`B5TASC`125/125、actualexit0，保持原125名称顺序与
+已有12activation/4controlfocus许可，不替代故障专项；旧preview不变。
+见[恢复边界](../references/created-page-waits.md#explicit-recovery-after-navigation-or-child-closure)。
+
 Native host显式恢复现在可重试已结算的失败新页清理；同7后端例旧3通过/4失败，
 修复后7通过，全部Node2226/2226。真实launcher`9QWc6h`验证同worker、不同
 host/pipe，matched未交付child原期限内撤权，原网页/窗口位置保留，旧权限

@@ -79,6 +79,14 @@ that failed cleanup before admitting a new turn. Repeated disconnect signals
 and overlapping bootstraps do not duplicate an in-flight cleanup or replay
 adoption or input.
 
+The same explicit retry is available after navigation/closure cleanup failed
+and a subsequent end operation left the session closing: bootstrap retries
+only that session's settled failed records under its existing recovery fence.
+Explicit Pause/Retry retries all settled failed records after blocking input,
+before capturing their cancellation drains. Automatic pause signals do not
+authorize retries. Pending cleanup is shared; repeated failures keep control
+blocked, and concurrent bootstrap retains its existing `closing:true` response.
+
 The global pause snapshot lists only source tabs bound to verified control,
 not unvalidated reservations or candidate IDs awaiting admission. Only the
 auxiliary registry contributes admitted child ownership.
@@ -270,6 +278,26 @@ timing, but remains an inference rather than an instrumented native stack.
 Adoption happens too late to prevent it. Restoring focus, substituting a
 `tabs.create` child, or adding an allowance would not fix this requirement.
 
+Further API/source review found no applicable persistent activation suppression
+in the inspected interfaces. Chrome's [Target handler](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/devtools/protocol/target_handler.cc#L52)
+sets ShowInactive for its own explicit creation; later native navigation builds
+new NavigateParams. [Focus emulation](https://github.com/chromium/chromium/blob/156.0.8078.4/content/browser/devtools/protocol/emulation_handler.cc#L1042)
+changes renderer focus/rendering behavior, not that navigation decision.
+[Input.dispatchMouseEvent](https://raw.githubusercontent.com/ChromeDevTools/devtools-protocol/master/pdl/domains/Input.pdl)
+has no userGesture/noActivate parameter, and the [native press handler](https://github.com/chromium/chromium/blob/156.0.8078.4/third_party/blink/renderer/core/input/event_handler.cc#L930)
+grants interaction activation independently of preparation Runtime calls.
+Removing a preparation call's userGesture flag therefore has no established
+fix mechanism. Expiring the gesture is not a general solution either: the
+[popup blocker](https://github.com/chromium/chromium/blob/156.0.8078.4/components/blocked_content/popup_blocker.cc)
+also checks background-tab navigation without a gesture.
+
+The saved Codex 1.1.4 extension source (`formatted/background.js`, lines
+1388–1420 under `codex-chrome-extension-1.1.4`) similarly creates inactive tabs
+in an existing focused normal window, falling back to an unfocused window.
+That historical implementation is not current-product background-window
+acceptance evidence. This source review adds no browser pass or native stack
+trace, and the focus requirement stays open.
+
 In final run `n7WyEq`, both root business branches execute before the unchanged
 strict finalization focus assertion. The cancellation branch is freshly observed
 as matched, valid, undelivered and with about 19.4 seconds remaining. Cancel
@@ -433,6 +461,35 @@ reused host/helper inputs and build metadata match the frozen checkpoint.
 Its replacement host exits 0 and the exact private profile/executable process
 inventory is empty. The ordinary runner has no separate Chromium graceful-close
 acknowledgement/exit-code artifact; process absence is not that stronger claim.
+
+## Explicit recovery after navigation or child closure
+
+When automatic page invalidation failed to delete its new child admission,
+ending the session or pausing made the old cancellation handle unusable. Even
+after the storage fault disappeared, a new turn or Retry Pause drained the
+same rejected cleanup Promise indefinitely. The new explicit recovery paths
+retry that settled failure before capturing their new drain, retaining the
+session or global input fence described above.
+
+Twelve backend cases run the actual production registries with simulated Chrome
+events and transient storage rejection. The same final cases yield **2 passes
+and 10 failures** on the prior production source. The fixed focused suite passes
+**137/137**, and all JavaScript suites pass **2238/2238** without skips or
+cancellations. Coverage includes source navigation, child closure, foreign-session
+isolation, original/retried pending cleanup, repeated failure, automatic recovery
+without retry, retained child state and absence of adoption/input replay. This
+does not establish real-browser storage-failure recovery or fix native popup
+focus; those requirements remain open.
+
+The frozen production fix also passes the complete ordinary browser regression
+`B5TASC`: **125/125, actual exit 0**, with the same case names/order as `h6a5W4`.
+Its 242,478 ms continuous observer retains the original twelve activation and
+four control-popup focus allowances; sixty snapshots preserve the final event
+history and the sentinel remains active in its original window. Source/staged
+extension and reused binaries match their manifests, and exact private process
+inventories are empty after teardown. This run uses the existing loopback
+Native Port adapter; it does not inject storage faults or replace the failed
+native created-page focus scenes. Published preview archives are unchanged.
 
 ## Earlier native feasibility evidence
 

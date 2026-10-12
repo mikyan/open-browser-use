@@ -230,8 +230,9 @@ export class BrowserPageWaits {
   invalidateAttachedTab(tabId, error) { return this.invalidate(record => record.scope && (record.params.tabId === tabId || record.candidate?.tabId === tabId), error); }
   invalidateSession(sessionId, error) { return this.invalidate(record => record.params.session_id === sessionId, error); }
   invalidateAll(error) { return this.invalidate(() => true, error); }
-  retryFailedCleanup() {
-    const records = [...this.records.values()].filter(record => record.invalid && record.cleanupSettled && record.cleanupError && !record.pending.size);
+  retryFailedCleanup(sessionId = null) {
+    const records = [...this.records.values()].filter(record => (sessionId === null || record.params.session_id === sessionId) &&
+      record.invalid && record.cleanupSettled && record.cleanupError && !record.pending.size);
     for (const record of records) this.startCleanup(record, true);
     return Promise.all(records.map(record => this.drain(record)));
   }

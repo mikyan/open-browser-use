@@ -28,6 +28,8 @@ debugger、history 和 tab groups。
   Native host 断开后的显式 bootstrap 同样重试已失败且已结算的新页清理，
   在恢复屏障内等待完成；在途清理共享，旧输入与接管不重放。Host 丢失时，
   已交付子页仍保留成员归属，不能等同于 worker 替换后的隔离撤权。
+  导航/关页后的失败清理也可由显式会话恢复或 Retry Pause 重试；前者仅限
+  本会话，后者先全局阻断再等待新清理。自动故障暂停不触发重试。
 - `cmd/open-browser-use/`：Go native messaging host 和 CLI 主入口。二进制
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。

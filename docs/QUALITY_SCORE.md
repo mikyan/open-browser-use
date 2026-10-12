@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+修复导航/关页清理失败后，结束任务或Pause使旧handle失效而显式恢复卡住的
+缺口。session bootstrap仅重试本会话，Retry Pause先阻断再重试，自动故障
+暂停不重试；原pending共享，持续失败继续阻断。最终12例旧源2通过/10失败，
+相关137/137及全部Node2238/2238通过。真实浏览器storage失败注入和原生开页
+focus仍待解决；完整普通`B5TASC`125/125、actualexit0，原名称顺序及既有
+12activation/4controlfocus许可不变，不替代故障专项。
+见[显式恢复](references/created-page-waits.md#explicit-recovery-after-navigation-or-child-closure)。
+
 修复 host 断开后显式恢复反复等待旧清理错误的问题；同7例旧源3通过/4失败，
 修复后7通过，全部Node2226/2226。真实Native Messaging专项`9QWc6h`验证
 同worker下matched未交付child及时撤权、旧连接/权限拒绝与fresh源页可用，
