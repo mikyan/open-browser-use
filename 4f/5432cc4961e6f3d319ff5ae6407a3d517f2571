@@ -1,0 +1,58 @@
+scripts/browser-integration/created-page-provenance.test.mjs
+  s_08bbfd293d324f::t_00922b6657b0c8 1-111
+docs/exec-plans/active/2026-10-12-created-page-waits.md
+  s_08bbfd293d324f::t_716c1e9b06eaca 98-101
+  s_08bbfd293d324f::t_b806ef1f7c8e87 37,92-97,102-112
+  s_08bbfd293d324f::t_1b44e1ab8cb569 1-36,38-62,86-91,113-119
+  s_08bbfd293d324f::t_a014e56a56567b 83-84
+  s_08bbfd293d324f::t_a4a44f6a4f0ef6 63-82,85
+scripts/browser-integration/created-page-fixture.test.mjs
+  s_08bbfd293d324f::t_31d24b673af533 1-100
+docs/references/README.md
+  s_08bbfd293d324f::t_b806ef1f7c8e87 73-74
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_716c1e9b06eaca 41-44,60-63
+  s_08bbfd293d324f::t_b806ef1f7c8e87 1-40,45-59,64-91
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_a3cc2bbfa83897 16-17,87-91,316,337,479-483,648,1233-1237,2869
+  s_08bbfd293d324f::t_76766f1ed649b6 18,425,484
+  s_08bbfd293d324f::t_09f6bac454842c 160-161,576-578,2811-2814,2817-2829,2831-2832,2836,2851
+scripts/browser-integration/created-page-fixture.mjs
+  s_08bbfd293d324f::t_df813a806f850d 1-85
+scripts/browser-integration/created-page-provenance.mjs
+  s_08bbfd293d324f::t_37b748186f0dce 6-10,30,159-161,204
+  s_08bbfd293d324f::t_dc911fd912f15d 1-5,11-29,31-83,86-93,101-102,104-146,148-158,162-168,170-172,174-192,199-203,205-211
+  s_08bbfd293d324f::t_d7044beb0d9fb9 84-85,94-100,103,147,169,173,193-198
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_65125ea41f63e2 2746-2762
+scripts/browser-integration/fixture-listener.mjs
+  s_08bbfd293d324f::t_76766f1ed649b6 1-34
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_5b46bee7af19b3 3-38
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_65125ea41f63e2 14-20
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_65125ea41f63e2 1966-1980,2003-2004
+scripts/browser-integration/fixture-listener.test.mjs
+  s_08bbfd293d324f::t_e3aa326f77f55c 17-20
+  s_08bbfd293d324f::t_cf71161b7c294f 4,13-14
+  s_08bbfd293d324f::t_76766f1ed649b6 1-3,5-12,15-16,21-50
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_29c5813c397b99 288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "4f5432cc4961e6f3d319ff5ae6407a3d517f2571",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
