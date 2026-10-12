@@ -6,6 +6,7 @@ import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserFileChooserWaits } from "./browser-file-chooser-waits.js";
 import { DirectoryUploadRegistry } from "./browser-directory-upload.js";
 import { BrowserDownloadWaits } from "./browser-download-waits.js";
+import { BrowserPageWaits } from "./browser-page-waits.js";
 import { BrowserDownloads, downloadDeadline } from "./browser-downloads.js";
 import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "./browser-media-source.js";
 import { MediaContextLifetimes } from "./browser-media-lifetime.js";
@@ -84,6 +85,7 @@ const PUBLIC_BROWSER_METHODS = new Set([
   "armNavigationWait", "collectNavigationWait", "cancelNavigationWait",
   "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait",
   "armDownloadWait", "collectDownloadWait", "cancelDownloadWait",
+  "armPageWait", "collectPageWait", "cancelPageWait",
   "readClipboard", "writeClipboard", "exportPage", "turnEnded", "executeUnhandledCommand"
 ]);
 
@@ -746,6 +748,7 @@ class BrowserBackend {
     this.browserEngine = browserEngine;
     this.controlEpochs = new Map();
     this.controlReleases = new Map();
+    this.pageWaitNativeReleases = new Map();
     this.coldAttachmentResets = new Set();
     this.attachedTabs = new Set();
     this.attachmentEpochs = new Map();
@@ -790,6 +793,24 @@ class BrowserBackend {
       }
     });
     this.downloadWaiters = this.downloadWaits.byTab;
+    this.pageWaits = new BrowserPageWaits({
+      assertScope: scope => {
+        this.assertControlOpen();
+        this.assertTransferScope(scope);
+        if (scope.controlRevision !== this.automationControl.revision)
+          throw new Error("OBU_PAGE_WAIT_EXPIRED: automation control changed");
+      },
+      validateScope: async (scope, record) => {
+        await this.validateTransferScope(scope);
+        this.pageWaits.check(record);
+        await this.assertSiteTab(scope.tabId);
+        this.pageWaits.check(record);
+        if (record.pageResult) await this.validateCreatedPage(record);
+      },
+      snapshotFrames: scope => chrome.webNavigation.getAllFrames({ tabId: scope.tabId }),
+      adopt: (scope, event, record) => this.adoptCreatedPage(scope, event, record),
+      release: record => record.pageAdmission ? this.releaseAuxiliaryClaim(record.pageAdmission, { pageWaitRelease: record }) : Promise.resolve()
+    });
     this.downloadChangeListeners = new Set();
     this.cursorArrivalWaitersByKey = new Map();
     this.fileChoosersById = new Map();
@@ -829,6 +850,7 @@ class BrowserBackend {
         this.navigationWaits.invalidateTab(source.tabId);
         void this.fileChooserWaits.invalidateTab(source.tabId).catch(() => {});
         void this.downloadWaits.invalidateTab(source.tabId).catch(() => {});
+        void this.pageWaits.invalidateTab(source.tabId).catch(() => {});
         void this.directDownloads.invalidateTab(source.tabId);
         void this.pageExports.invalidateTab(source.tabId).catch(() => {});
         void this.clipboard.invalidateTab(source.tabId).catch(() => {});
@@ -850,6 +872,7 @@ class BrowserBackend {
       this.navigationWaits.invalidateTab(tabId);
       void this.fileChooserWaits.invalidateTab(tabId).catch(() => {});
       void this.downloadWaits.invalidateTab(tabId).catch(() => {});
+      void this.pageWaits.invalidateTab(tabId).catch(() => {});
       void this.directDownloads.invalidateTab(tabId);
       void this.pageExports.invalidateTab(tabId).catch(() => {});
       void this.clipboard.invalidateTab(tabId).catch(() => {});
@@ -877,16 +900,17 @@ class BrowserBackend {
         void this.clipboard.invalidateTab(tabId).catch(() => {});
         this.invalidateAuxiliaryTab(tabId);
       }
-      if (change.pinned === true && ["ordinary", "background-window"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) this.invalidateAuxiliaryTab(tabId);
+      if (change.pinned === true && ["ordinary", "background-window", "created-page"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
     chrome.tabs?.onActivated?.addListener(info => this.observeCreationChange(info.tabId, "activated", info));
+    chrome.webNavigation?.onCreatedNavigationTarget?.addListener(details => this.pageWaits.observe(details));
     chrome.tabs?.onMoved?.addListener(tabId => {
       this.observeCreationChange(tabId, "moved");
       const record = this.auxiliaryTabs.owner(tabId);
-      if (["ordinary", "background-window"].includes(record?.kind)) this.invalidateAuxiliaryTab(tabId);
+      if (["ordinary", "background-window", "created-page"].includes(record?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
-    chrome.tabs?.onDetached?.addListener(tabId => this.observeCreationChange(tabId, "detached"));
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => this.observeCreationChange(removed, "replaced"));
+    chrome.tabs?.onDetached?.addListener(tabId => { this.observeCreationChange(tabId, "detached"); void this.pageWaits.invalidateTab(tabId).catch(() => {}); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.observeCreationChange(removed, "replaced"); void this.pageWaits.invalidateTab(removed).catch(() => {}); });
     chrome.tabs?.onRemoved?.addListener(tabId => this.observeCreationChange(tabId, "removed"));
     chrome.windows?.onFocusChanged?.addListener(windowId => {
       if (!Number.isSafeInteger(windowId) || windowId < 0) return;
@@ -903,6 +927,7 @@ class BrowserBackend {
     chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.revokeMovedTab(removed); this.networkWaits.invalidateTab(removed); this.navigationWaits.invalidateTab(removed); this.cancelTabTransfers(removed, new Error("OBU_TRANSFER_CANCELLED: tab replaced")); void this.directDownloads.invalidateTab(removed); void this.pageExports.invalidateTab(removed).catch(() => {}); void this.clipboard.invalidateTab(removed).catch(() => {}); this.invalidateAuxiliaryTab(removed); });
     for (const [event, phase] of [["onBeforeNavigate", "pending"], ["onCommitted", "committed"], ["onErrorOccurred", "error"], ["onHistoryStateUpdated", "committed"], ["onReferenceFragmentUpdated", "committed"]]) {
       chrome.webNavigation?.[event]?.addListener(details => {
+        this.pageWaits.navigation(event, details);
         if (details.frameId === 0) void this.fileChooserWaits.invalidateAttachedTab(details.tabId).catch(() => {});
         this.invalidatePageExportDocument(details.tabId);
         this.onSiteNavigation(details, phase);
@@ -961,6 +986,19 @@ class BrowserBackend {
         this[method] = params => this.startFileChooserWait(params, { legacy: method === "waitForFileChooser" });
       } else if (["armDownloadWait", "waitForDownload"].includes(method)) {
         this[method] = params => this.startDownloadWait(params, { legacy: method === "waitForDownload" });
+      } else if (method === "armPageWait") {
+        this[method] = params => this.startPageWait(params);
+      } else if (["collectPageWait", "cancelPageWait"].includes(method)) {
+        this[method] = params => {
+          if (method === "collectPageWait") {
+            let record;
+            try { record = this.pageWaits.lookup(params); } catch (error) { return Promise.reject(error); }
+            return Promise.race([this.runControlledRequest(() => handler(params)), record.cancellation.promise]);
+          }
+          try { this.pageWaits.validateHandle(params); } catch (error) { return Promise.reject(error); }
+          return withTimeout(10000, () => this.runControlledRequest(() => handler(params)),
+            () => new Error("OBU_PAGE_WAIT_CLEANUP_TIMEOUT: created-page authorization is still pending"));
+        };
       } else if (["collectFileChooserWait", "cancelFileChooserWait", "collectDownloadWait", "cancelDownloadWait"].includes(method)) {
         this[method] = params => {
           const downloads = method === "collectDownloadWait" || method === "cancelDownloadWait";
@@ -1267,6 +1305,7 @@ class BrowserBackend {
     const navigation = this.navigationWaits.controlSnapshot();
     const chooser = this.fileChooserWaits.controlSnapshot();
     const downloadWaits = this.downloadWaits.controlSnapshot();
+    const pages = this.pageWaits.controlSnapshot();
     const auxiliary = this.auxiliaryTabs.controlSnapshot();
     const downloads = this.directDownloads.controlSnapshot();
     const exports = this.pageExports.controlSnapshot();
@@ -1274,9 +1313,9 @@ class BrowserBackend {
     const broker = this.clipboardBroker.controlSnapshot();
     const lifetime = this.browserLifetime.controlSnapshot();
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.fileChooserSetupsByTabId.keys(), ...this.fileChooserWaitersByTabId.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
-    for (const tabId of downloadWaits.tabIds) tabIds.add(tabId);
+    for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
@@ -1291,7 +1330,7 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -1453,6 +1492,7 @@ class BrowserBackend {
         fileChooserDirectoryVersion: 1,
         backgroundWindowVersion: 1,
         downloadWaitVersion: 1,
+        pageWaitVersion: 1,
         auxiliaryTabsVersion: 1,
         directDownloadsVersion: 1,
         pageDownloads: this.nativePageDownloads?.()?.status() ?? { version: 1, available: false, reason: "Browser connection is not bound" },
@@ -1900,6 +1940,12 @@ class BrowserBackend {
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     await this.resetClaimedColdAttachment(tab, check);
     check();
+    if (reservation.kind === "created-page" && this.auxiliaryTabs.owner(tabId) === reservation) {
+      const live = await this.liveAuxiliaryTab(reservation, { strict: true }); check();
+      if (!live) throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: native child moved before explicit claim");
+      await this.setSessionActiveTab(session.sessionId, tab.id, check); check();
+      return { ...toBrowserTab(live), active: true };
+    }
     if (window.type === "popup") {
       const validate = async () => {
         const live = await chrome.tabs.get(tabId);
@@ -2047,8 +2093,8 @@ class BrowserBackend {
       if (status !== "handoff" && status !== "deliverable") {
         throw new Error(`finalizeTabs received invalid status ${String(status)}`);
       }
-      if (status === "deliverable" && this.auxiliaryTabs.owner(tabId)?.kind === "popup") {
-        throw new Error("OBU_AUXILIARY_DELIVERABLE_UNSUPPORTED: use handoff to preserve the popup window");
+      if (status === "deliverable" && ["popup", "created-page"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) {
+        throw new Error("OBU_AUXILIARY_DELIVERABLE_UNSUPPORTED: use handoff to preserve the native window");
       }
       keep.set(tabId, status);
     }
@@ -2075,11 +2121,11 @@ class BrowserBackend {
         }
         if (keptStatus === "deliverable") {
           deliverableTabs.push(tab.id);
-          if (["ordinary", "background-window"].includes(explicit?.kind)) ordinaryToRelease.push(explicit);
+          if (["ordinary", "background-window", "created-page"].includes(explicit?.kind)) ordinaryToRelease.push(explicit);
           continue;
         }
         const auxiliary = this.auxiliaryTabs.owner(tab.id);
-        if (auxiliary?.session_id === session.sessionId && auxiliary.kind === "popup") {
+        if (auxiliary?.session_id === session.sessionId && ["popup", "created-page"].includes(auxiliary.kind)) {
           auxiliaryToRelease.push(auxiliary);
         } else if ((auxiliary?.origin ?? sessionState.tabOrigins[String(tab.id)]) === "agent") {
           agentTabsToClose.push(tab.id);
@@ -2373,7 +2419,9 @@ class BrowserBackend {
   }
 
   captureNavigationSetups(params) {
-    return [...this.navigationSetups].filter(([record]) => {
+    const pages = [...this.pageWaits.byTab.values()].filter(record => ["reserved", "arming"].includes(record.state))
+      .map(record => [record, record.ready.promise]);
+    return [...this.navigationSetups, ...pages].filter(([record]) => {
       const scope = record.params;
       return scope.session_id === params?.session_id && scope.turn_id === params?.turn_id &&
         (params?.tabId === undefined || scope.tabId === params.tabId) &&
@@ -2582,7 +2630,7 @@ class BrowserBackend {
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
-      const releases = [this.fileChooserWaits.invalidateAttachedTab(tabId), this.downloadWaits.invalidateAttachedTab(tabId), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
+      const releases = [this.fileChooserWaits.invalidateAttachedTab(tabId), this.downloadWaits.invalidateAttachedTab(tabId), this.pageWaits.invalidateAttachedTab(tabId), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
         this.pageExports.invalidateAttachedTab(tabId), this.clipboard.invalidateAttachedTab(tabId)];
       const results = await Promise.allSettled(releases);
       const failure = results.find(result => result.status === "rejected");
@@ -2636,7 +2684,10 @@ class BrowserBackend {
     this.navigationWaits.invalidateAttachedTab(tabId);
     this.directoryUploads.invalidate({ tabId, attachment: this.attachmentEpochs.get(tabId) }, new Error("OBU_TRANSFER_CANCELLED: browser attachment changed"));
     this.fileInputDocumentsByTabId.delete(tabId);
-    void this.directDownloads.invalidateAttachedTab(tabId);
+    // detachTab already owns this exact native cleanup attempt. Its engine
+    // hook and final attachment release must not start untracked retries of a
+    // rejected download cancellation after that attempt's barrier resolves.
+    if (!this.pageWaitNativeReleases.has(tabId)) void this.directDownloads.invalidateAttachedTab(tabId);
     void this.pageExports.invalidateAttachedTab(tabId).catch(() => {});
     void this.clipboard.invalidateAttachedTab(tabId).catch(() => {});
     this.inputTracker.forget(tabId, this.attachmentEpochs.get(tabId));
@@ -3224,6 +3275,8 @@ class BrowserBackend {
     else void this.fileChooserWaits.invalidateTab(tabId, error).catch(() => {});
     if (attachedOnly) void this.downloadWaits.invalidateAttachedTab(tabId, error).catch(() => {});
     else void this.downloadWaits.invalidateTab(tabId, error).catch(() => {});
+    if (attachedOnly) void this.pageWaits.invalidateAttachedTab(tabId, error).catch(() => {});
+    else void this.pageWaits.invalidateTab(tabId, error).catch(() => {});
     for (const [id, record] of this.downloadsById) if (record.scope.tabId === tabId) this.retirePageDownload(id);
     for (const [id, chooser] of this.fileChoosersById) if (chooser.scope.tabId === tabId) this.fileChoosersById.delete(id);
   }
@@ -3403,6 +3456,105 @@ class BrowserBackend {
     }
   }
 
+  async startPageWait(params) {
+    const record = this.pageWaits.reserve(params);
+    try {
+      return await this.pageWaits.within(record, () => this.runControlledRequest(() => {
+        this.assertSiteMethod("armPageWait", record.params);
+        return BrowserBackend.prototype.armPageWait.call(this, record.params, record);
+      }));
+    } catch (error) { this.pageWaits.fail(record, error); throw error; }
+  }
+
+  async armPageWait(params, record) {
+    const check = () => this.pageWaits.check(record);
+    await this.pageWaits.within(record, () => this.controlReleases.get(params.tabId));
+    // The registry's monotonic deadline remains authoritative across the
+    // existing attachment adapter's wall-clock budget and every late ACK.
+    const deadline = Date.now() + Math.max(1, Math.floor(record.deadlineAt - this.pageWaits.now()));
+    await this.pageWaits.within(record, () => this.prepareTransferAttachment(params, deadline, {
+      check, preservePageWait: record,
+      onAttachStarted: (cancel, actual) => { record.cancelAdmission = cancel; this.pageWaits.track(record, actual); }
+    }));
+    check();
+    const scope = await this.pageWaits.within(record, () => this.transferScope(params, "armPageWait", deadline));
+    check();
+    this.pageWaits.bind(record, { ...scope, controlRevision: this.automationControl.revision });
+    return this.pageWaits.arm(record);
+  }
+
+  async collectPageWait(params) {
+    const record = this.pageWaits.lookup(params);
+    await this.pageWaits.within(record, () => this.requireSessionTab(params, "collectPageWait"));
+    return this.pageWaits.collect(params);
+  }
+
+  async cancelPageWait(params) {
+    await this.requireSession(params);
+    return this.pageWaits.cancel(params);
+  }
+
+  async validateCreatedPage(record) {
+    const expected = record.pageResult;
+    const check = () => this.pageWaits.check(record);
+    check();
+    const tab = await chrome.tabs.get(expected.tabId); check();
+    assertControllableTab(tab);
+    if (tab.windowId !== expected.windowId || tab.groupId !== expected.groupId || tab.pinned)
+      throw new Error("OBU_PAGE_WAIT_EXPIRED: native child moved or became pinned");
+    const proof = await this.assertSiteTab(tab.id, { allowBlank: true }); check();
+    this.assertSiteProof(proof);
+    const auxiliary = this.auxiliaryTabs.entry(tab.id);
+    if (expected.claim ? this.auxiliaryTabs.owner(tab.id) !== expected.claim : auxiliary !== undefined)
+      throw new Error("OBU_PAGE_WAIT_EXPIRED: native child ownership changed");
+    const tabs = await this.getSessionTabs(record.params.session_id, { strict: true }); check();
+    if (!tabs.some(value => value.id === tab.id)) throw new Error("OBU_PAGE_WAIT_EXPIRED: native child is no longer owned");
+    return tab;
+  }
+
+  async adoptCreatedPage(scope, event, record) {
+    return this.runSessionMutation(scope, () => this.admitSessionMembership(scope.session_id, async () => {
+      const check = () => this.pageWaits.check(record);
+      check();
+      await this.auxiliaryTabs.ready; check();
+      const tab = await chrome.tabs.get(event.tabId); check();
+      assertControllableTab(tab);
+      this.siteAccess.assertUrl(event.url, { allowBlank: true });
+      if (tab.pinned) throw new Error("OBU_PAGE_WAIT_EXPIRED: native child became pinned");
+      const proof = await this.assertSiteTab(tab.id, { allowBlank: true }); check(); this.assertSiteProof(proof);
+      const window = await chrome.windows.get(tab.windowId); check();
+      if (!["normal", "popup"].includes(window.type)) throw new Error("OBU_PAGE_WAIT_FAILED: unsupported native child window");
+      const state = await this.store.getSession(scope.session_id); check();
+      let claim = this.auxiliaryTabs.entry(tab.id);
+      if (claim && (this.auxiliaryTabs.owner(tab.id) !== claim || claim.session_id !== scope.session_id))
+        throw new Error("OBU_PAGE_WAIT_EXPIRED: native child has another or pending owner");
+      if (tab.groupId !== -1) {
+        if (claim || tab.groupId !== state.chromeGroupId)
+          throw new Error("OBU_PAGE_WAIT_EXPIRED: native child belongs to another group");
+      } else if (!claim) {
+        // A separate kind preserves the grouped source and original native
+        // window; ordinary fallback claims intentionally switch group mode.
+        claim = this.auxiliaryTabs.reserve({ ...scope, tabId: tab.id });
+        record.pageAdmission = claim;
+        const validate = async () => {
+          check();
+          const live = await chrome.tabs.get(tab.id); check();
+          assertControllableTab(live);
+          if (live.windowId !== tab.windowId || live.groupId !== -1 || live.pinned)
+            throw new Error("OBU_PAGE_WAIT_EXPIRED: native child moved during adoption");
+          const currentProof = await this.assertSiteTab(tab.id, { allowBlank: true }); check(); this.assertSiteProof(currentProof);
+          await this.validateTransferScope(scope); check();
+        };
+        await this.auxiliaryTabs.commit(claim, { windowId: tab.windowId, kind: "created-page",
+          control_epoch: scope.control_epoch, controlRevision: scope.controlRevision, check, validate });
+        check();
+      }
+      record.pageResult = { tabId: tab.id, windowId: tab.windowId, groupId: tab.groupId, claim };
+      await this.validateCreatedPage(record); check();
+      return { tabId: tab.id };
+    }));
+  }
+
   waitForDownload(params) { return this.startDownloadWait(params, { legacy: true }); }
 
   async startDownloadWait(params, { legacy = false } = {}) {
@@ -3526,7 +3678,7 @@ class BrowserBackend {
     if (!tab || this.auxiliaryTabs.entry(params.tabId) !== claim) throw unowned();
     if (claim && claim.windowId !== null) {
       if (claim.session_id !== params.session_id || this.auxiliaryTabs.owner(params.tabId) !== claim) throw unowned();
-      if (tab.windowId !== claim.windowId || tab.groupId !== -1 || (["ordinary", "background-window"].includes(claim.kind) && tab.pinned)) {
+      if (tab.windowId !== claim.windowId || tab.groupId !== -1 || (["ordinary", "background-window", "created-page"].includes(claim.kind) && tab.pinned)) {
         // Never await cleanup from inside an export scope check: detach must
         // drain this same native flow. Quarantine synchronously and reject so
         // that flow can unwind, then let its exact cleanup finish independently.
@@ -4057,7 +4209,7 @@ class BrowserBackend {
       return null;
     }
     if (this.auxiliaryTabs.owner(record.tabId) !== record) return null;
-    if (tab.windowId !== record.windowId || tab.groupId !== -1 || (["ordinary", "background-window"].includes(record.kind) && tab.pinned)) {
+    if (tab.windowId !== record.windowId || tab.groupId !== -1 || (["ordinary", "background-window", "created-page"].includes(record.kind) && tab.pinned)) {
       await this.releaseAuxiliaryClaim(record);
       return null;
     }
@@ -4074,7 +4226,7 @@ class BrowserBackend {
       void this.releaseAuxiliaryClaim(record).catch(() => {});
   }
 
-  releaseAuxiliaryClaim(record, { destroyed = false, disposition = false } = {}) {
+  releaseAuxiliaryClaim(record, { destroyed = false, disposition = false, pageWaitRelease = null } = {}) {
     if (this.auxiliaryTabs.entry(record.tabId) !== record) return Promise.resolve();
     const creation = this.creationTransactions.get(record);
     if (creation?.finished && creation.cleanupFailed) {
@@ -4139,7 +4291,19 @@ class BrowserBackend {
     // Revoke old engine/input admission immediately, before queued storage
     // work. A surviving foreign attachment must never be torn down by this ID.
     const controlsTab = owner ? owner.session_id === record.session_id : record.windowId !== null;
-    const cleanup = destroyed || !controlsTab ? Promise.resolve() : this.detachTab(record.tabId);
+    let cleanup = Promise.resolve();
+    if (!destroyed && controlsTab) {
+      const existingNative = pageWaitRelease && this.pageWaitNativeReleases.get(record.tabId);
+      if (existingNative) cleanup = existingNative;
+      else {
+        const fullRelease = this.detachTab(record.tabId, { releasePageWait: pageWaitRelease });
+        fullRelease.catch(() => {});
+        // A created-page rollback is itself part of the page wait's drain.
+        // Await all actual non-page-wait cleanup, not the aggregate containing
+        // that same rollback. The full barrier remains in controlReleases.
+        cleanup = record.kind === "created-page" ? this.pageWaitNativeReleases.get(record.tabId) : fullRelease;
+      }
+    }
     cleanup.catch(() => {});
     const release = this.auxiliaryTabs.remove(record, { cleanup: () => cleanup });
     this.auxiliaryReleases.set(record, release);
@@ -4210,6 +4374,7 @@ class BrowserBackend {
     for (const marker of this.freshBlankTabs.values()) if (marker.session_id === sessionId) this.retireFreshBlankTab(marker);
     const choosersReleased = this.fileChooserWaits.invalidateSession(sessionId);
     const downloadWaitsReleased = this.downloadWaits.invalidateSession(sessionId);
+    const pageWaitsReleased = this.pageWaits.invalidateSession(sessionId);
     const downloadsReleased = this.directDownloads.invalidateSession(sessionId);
     const exportsReleased = this.pageExports.invalidateSession(sessionId);
     exportsReleased.catch(() => {});
@@ -4237,7 +4402,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([choosersReleased, downloadWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -4251,6 +4416,7 @@ class BrowserBackend {
       this.directoryUploads.cancelWhere(record => record.scope.session_id === params.session_id, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
       void this.fileChooserWaits.invalidateSession(params.session_id).catch(() => {});
       void this.downloadWaits.invalidateSession(params.session_id).catch(() => {});
+      void this.pageWaits.invalidateSession(params.session_id).catch(() => {});
       void this.directDownloads.invalidateSession(params.session_id);
       void this.pageExports.invalidateSession(params.session_id).catch(() => {});
       void this.clipboard.invalidateSession(params.session_id).catch(() => {});
@@ -4449,7 +4615,7 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
+  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preservePageWait = null, releasePageWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
@@ -4468,22 +4634,30 @@ class BrowserBackend {
     const clipboardReleased = this.clipboard.invalidateTab(tabId, preserveClipboardRecord);
     const choosersReleased = this.fileChooserWaits.invalidateTab(tabId, undefined, preserveChooserRecord);
     const downloadWaitsReleased = this.downloadWaits.invalidateTab(tabId, undefined, preserveDownloadWait);
+    const pageWaitsReleased = this.pageWaits.invalidateTab(tabId, undefined, preservePageWait, releasePageWait);
     // A repeated explicit detach must also cancel a reservation intentionally
     // preserved by an earlier owner migration. Reuse the actual native release,
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousRelease]).then(results => {
+    const previousNative = this.pageWaitNativeReleases.get(tabId);
+    const nativeRelease = Promise.allSettled([choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
     });
-    const release = Promise.allSettled([downloadsReleased, nativeRelease]).then(results => {
+    const nativePhase = Promise.allSettled([downloadsReleased, nativeRelease]).then(results => {
+      const failure = results.find(result => result.status === "rejected");
+      if (failure) throw failure.reason;
+    });
+    this.pageWaitNativeReleases.set(tabId, nativePhase);
+    const release = Promise.allSettled([pageWaitsReleased, nativePhase, previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
     });
     this.controlReleases.set(tabId, release);
     const cleanup = () => {
       if (this.controlReleases.get(tabId) === release) this.controlReleases.delete(tabId);
+      if (this.pageWaitNativeReleases.get(tabId) === nativePhase) this.pageWaitNativeReleases.delete(tabId);
     };
     release.then(cleanup, cleanup);
     return release;

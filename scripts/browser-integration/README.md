@@ -2,7 +2,24 @@
 
 ## Native created-page provenance
 
-`OBU_TEST_CREATED_PAGES=provenance` is a separate headed feasibility mode for
+`OBU_TEST_CREATED_PAGES=ready` runs the public JavaScript `expectPage` workflow:
+two concurrent owners, root/existing OOPIF/future OOPIF, one original Control-click
+per source, the returned typed child and one business POST. A separate passive
+native observer verifies its identity. Dynamic frames are inserted after the
+ready ACK. It does not use `claimUserTab` or synthesize child tabs. Five-entry
+real-browser and lifecycle acceptance remain separate open work.
+
+`python-created-page-checks.py` and `go-created-page-checks/` prepare the next
+typed caller acceptance. They accept one JSON request on stdin with fixed source
+scope/tab, fixture key/owner/variant, and a local ready/release gate. Neither
+receives an expected child ID nor calls `claimUserTab`. A single original 20s
+budget covers setup, readiness, the trusted trigger and the returned child's
+business submission. Their stage/cleanup output is checked by
+`test_created_page_callers.py` over real local IPC with a fake browser. Those
+checks do not constitute real Python/Go browser acceptance; runner integration
+and CLI/MCP caller coverage remain pending.
+
+`OBU_TEST_CREATED_PAGES=provenance` remains a separate headed feasibility mode for
 the [created-page readiness plan](../../docs/exec-plans/active/2026-10-12-created-page-waits.md).
 It selects only the existing raw-navigation control and
 `js-created-page-provenance`. Other opt-in modes and `OBU_TEST_CASES` must be

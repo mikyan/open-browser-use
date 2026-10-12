@@ -11,10 +11,19 @@
 
 ## 当前评分
 
+正式新页等待已接三SDK/CLI/MCP，能力门禁为pageWaitVersion1；独立frame文档
+台账、原monotonic期限及原scope返回Tab已实现。隔离JS`T7Nh7G`2/2 actualexit0，
+双任务×三布局返回六原生child并提交六POST/1160B，未来iframe在ready后加入；
+3360ms零focus/activation/豁免。全部child继承原组，未owned真实首次接纳、
+五入口实机全流程及worker/host丢失仍待验。扩展/build/fixture1109通过，
+SDK JS153/Python118/Go204零skip，CLI347pass/24既有skip；清理环及多余download
+取消失败原证据保留，定向回归与全量单位测试修复通过。普通125浏览器基线
+未重跑，preview未更新。见[新页等待](references/created-page-waits.md)。
+
 新页来源可行性`FjJons`2/2 actualexit0，双JS任务×三布局产生六原生后台子页，
 六独立原HTML nonce/六POST共1160B；外来任务拒绝，3454ms零激活/focus/豁免。
 所有子页已继承原任务group，显式claim不算未owned页首次授权；正式新页
-ready/collect接口尚未实现。16定向测试通过；首6697受限端口失败保留，HTTP
+ready/collect接口在该可行性片尚未实现。16定向测试通过；首6697受限端口失败保留，HTTP
 fixture改用有界动态端口绑定，未改浏览器策略或生产。12页/监听/浏览器host
 回收已核，旧preview不变、125基线未重跑。见[新页证据](references/created-page-waits.md)。
 

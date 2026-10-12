@@ -9,8 +9,8 @@ const scope = browser => {
   assert.ok(Number.isSafeInteger(value.control_epoch) && value.control_epoch >= 1, "Original production control epoch must be present"); return value;
 };
 
-// This is only a passive test observer. Production does not expose a ready
-// created-page waiter yet. Its sequence numbers belong to this one worker;
+// This is only a passive test observer, independent of the product waiter.
+// Its sequence numbers belong to this one worker;
 // native event timeStamp is preserved, never compared to another process clock.
 export function installCreatedPageObserver(chrome, target) {
   if (target.__createdPageProvenance) throw new Error("Created page observer already installed");
@@ -85,9 +85,9 @@ export async function createdPageAction(deadline, operation, now = () => perform
   assert.ok(now() < deadline, "Original created page deadline expired at ACK"); return result;
 }
 
-export async function checkCreatedPageProvenance({ connectBrowser, getWorker, fixtureURL, server, until, saveDetail = async () => {}, detail = {} }) {
-  const owners = [], sources = new Map(); let installed = false, failure;
-  Object.assign(detail, { feasibilityOnly: true, boundary: "Passive native created-target event followed by existing explicit claimUserTab; no product expectPage/ready API. getAllFrames before/after is observational document continuity, not atomic event-document binding.", cases: [], groups: [], cleanup: [] });
+export async function checkCreatedPageProvenance({ connectBrowser, getWorker, fixtureURL, server, until, saveDetail = async () => {}, detail = {}, productReady = false }) {
+  const owners = [], sources = new Map(), pageWaits = new Map(), pageDeadlines = new Map(); let installed = false, failure;
+  Object.assign(detail, { feasibilityOnly: !productReady, boundary: productReady ? "Public JS expectPage readiness, original trusted Control-click, result Tab and follow-up business action; passive native events independently verify returned identity. Document continuity is observational, not atomic event-document binding." : "Passive native created-target event followed by existing explicit claimUserTab; no product expectPage/ready API. getAllFrames before/after is observational document continuity, not atomic event-document binding.", cases: [], groups: [], cleanup: [] });
   const worker = () => getWorker(), evaluate = expression => worker().evaluate(expression);
   const frames = tabId => evaluate(`chrome.webNavigation.getAllFrames({tabId:${tabId}})`);
   const trace = () => evaluate(`${traceName}.snapshot()`);
@@ -115,7 +115,17 @@ export async function checkCreatedPageProvenance({ connectBrowser, getWorker, fi
         item.createdTab = await evaluate(`chrome.tabs.get(${tab.id})`); assert.equal(item.createdTab.active, false);
         item.observerReady = await evaluate(`${traceName}.register(${tab.id})`);
         await browser.cdp.navigate(tab.id, item.sourceURL);
-        const prepareDeadline = performance.now() + 15000;
+        let prepareDeadline = performance.now() + 15000;
+        const arm = async () => {
+          await readState(tab, prepareDeadline);
+          const startedAt = Date.now(), deadline = performance.now() + 20000;
+          pageDeadlines.set(tab.id, deadline);
+          const waiter = await tab.expectPage({ timeoutMs: 20000 }); pageWaits.set(tab.id, waiter);
+          assert.ok(performance.now() < deadline, "Original created page deadline expired at ready ACK");
+          prepareDeadline = Math.min(prepareDeadline, deadline);
+          item.productReady = { waiterId: waiter.waiterId, remainingMs: waiter.remainingMs, startedAt, acknowledgedAt: Date.now(), timeoutMs: 20000 };
+        };
+        if (productReady && variant === "dynamic-oopif") await arm();
         if (variant === "dynamic-oopif") await createdPageAction(prepareDeadline, options => tab.getByRole("button", { name: "Add source frame", exact: true }).click(options));
         const target = variant === "root" ? tab : tab.frameLocator("#created-page-frame");
         item.sourceBefore = await readState(target, prepareDeadline); assert.equal(item.sourceBefore.clicks.length, 0);
@@ -133,17 +143,23 @@ export async function checkCreatedPageProvenance({ connectBrowser, getWorker, fi
           const matches = item.renderer.targets.filter(native => native.url === expectedSourceURL && item.renderer.attachments.some(attachment => attachment.targetId === native.id && attachment.type === 'iframe' && attachment.sessionId));
           assert.equal(matches.length, 1, "Exact original OOPIF renderer attachment"); item.rendererTarget = matches[0];
         }
+        if (productReady && variant !== "dynamic-oopif") await arm();
         group.push({ browser, tab, target, item }); groupDetail.ready.push({ tabId: tab.id, scope: item.scope, at: Date.now() });
       }
       groupDetail.releasedAt = Date.now();
       // Drain both actual click promises even on failure. Never replay a link
       // click, infer a child from a URL inventory, or simulate window.open.
       const results = await Promise.allSettled(group.map(async ({ browser, target, item }) => {
-        const deadline = performance.now() + 20000; item.startedAt = Date.now();
+        const deadline = productReady ? pageDeadlines.get(item.tabId) : performance.now() + 20000; item.startedAt = Date.now();
         try {
           item.stage = "original-ctrl-click";
           await createdPageAction(deadline, options => target.getByRole("link", { name: "Open original child", exact: true }).click({ ...options, modifiers: ["Control"] }));
           item.clickAcknowledgedAt = Date.now(); item.stage = "native-created-target";
+          let childTab;
+          if (productReady) {
+            childTab = await pageWaits.get(item.tabId).result();
+            item.productResult = { tabId: childTab.id, acknowledgedAt: Date.now() };
+          }
           await wait(async () => { const observed = await trace(); assert.equal(observed.overflow, false); return observed.events.some(event => event.details.sourceTabId === item.tabId); }, "exact source created target", deadline);
           const observed = await trace(); assert.equal(observed.overflow, false);
           item.events = observed.events.filter(event => event.details.sourceTabId === item.tabId);
@@ -155,11 +171,12 @@ export async function checkCreatedPageProvenance({ connectBrowser, getWorker, fi
           item.stage = "foreign-rejection";
           try { await createdPageAction(deadline, options => owners[1 - item.ownerIndex].tab(item.childId).domSnapshot(options)); throw new Error("Foreign child access unexpectedly succeeded"); }
           catch (error) { assert.match(String(error), ownershipError); item.foreignError = String(error); }
-          item.stage = "existing-explicit-claim"; assert.ok(performance.now() < deadline);
-          item.claim = await createdPageAction(deadline, options => browser.client.request("claimUserTab", { tabId: item.childId }, options));
+          item.stage = productReady ? "public-page-result" : "existing-explicit-claim"; assert.ok(performance.now() < deadline);
+          if (productReady) assert.equal(childTab.id, item.childId, "Public result matches independent original native source event");
+          else item.claim = await createdPageAction(deadline, options => browser.client.request("claimUserTab", { tabId: item.childId }, options));
           assert.ok(performance.now() < deadline, "Original created page deadline expired at claim ACK");
           item.scopeAfterClaim = scope(browser); assert.deepEqual(item.scopeAfterClaim, item.scope);
-          const childTab = browser.tab(item.childId); item.childBefore = await readState(childTab, deadline);
+          childTab ??= browser.tab(item.childId); item.childBefore = await readState(childTab, deadline);
           item.childFramesBefore = await frames(item.childId); const roots = item.childFramesBefore.filter(frame => frame.frameId === 0);
           assert.equal(roots.length, 1); item.childFrame = roots[0]; assert.ok(item.childFrame.documentId); assert.equal(item.childFrame.url, item.childURL);
           item.stage = "child-business-action";
@@ -196,6 +213,7 @@ export async function checkCreatedPageProvenance({ connectBrowser, getWorker, fi
       if (!failure) { assert.equal(detail.trace.overflow, false); assert.equal(detail.trace.events.length, 6); assert.deepEqual(detail.trace.events, checked.events, "No late additional created-target events"); }
       return { closed: true, listenerPresent: false };
     });
+    for (const [tabId, waiter] of pageWaits) await cleanup("cancel-page-wait", tabId, () => waiter.cancel());
     for (const browser of owners) await cleanup("formal-finalize", browser.client.sessionId, () => browser.client.finalizeTabs([]));
     // claimUserTab can preserve these children as user-origin tabs. Explicit
     // removal here is test cleanup, not a product automatic-close guarantee.

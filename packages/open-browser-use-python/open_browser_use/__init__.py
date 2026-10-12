@@ -1,3 +1,4 @@
+from ._page_waits import OpenBrowserUsePageWait
 from ._clipboard import ClipboardEntry, ClipboardItem, OpenBrowserUseClipboard
 from ._download_waits import OpenBrowserUseDownloadWait
 from ._downloads import OpenBrowserUseDownload
@@ -18,6 +19,7 @@ from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResul
 from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait
 
 __all__ = [
+    "OpenBrowserUsePageWait",
     "FileChooserWaitResult", "OpenBrowserUseFileChooserWait",
     "ClipboardEntry", "ClipboardItem", "OpenBrowserUseClipboard",
     "ExportFormat",

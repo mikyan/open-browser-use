@@ -1,11 +1,76 @@
-# Created pages: native provenance and pending public readiness
+# Created pages: readiness and native provenance
 
 An Agent needs to prepare for a page opened by its current task, trigger the
 original action once, and continue on the corresponding child. Production
-currently has explicit creation and `claimUserTab`, but no public created-page
-ready/collect/cancel interface. This reference records the first native route
-verification; the [implementation plan](../exec-plans/active/2026-10-12-created-page-waits.md)
-remains active.
+now adds scoped `armPageWait`, `collectPageWait` and `cancelPageWait` alongside
+explicit creation and `claimUserTab`. The implementation and earlier native
+feasibility evidence are recorded separately below; the
+[implementation plan](../exec-plans/active/2026-10-12-created-page-waits.md) remains active.
+
+## Public contract
+
+`getInfo.metadata.pageWaitVersion === 1` is required. JavaScript exposes
+`tab.expectPage({timeoutMs})`, Python `tab.expect_page(timeout_ms=...)`, and Go
+`tab.ExpectPage(...)`. Their result method returns a normal typed Tab bound to
+the original connection, session, turn and epoch. Changing the parent control
+scope invalidates that returned handle; it cannot silently rebind to a new turn.
+
+```js
+const pending = await tab.expectPage({ timeoutMs: 10000 });
+try {
+  await tab.getByRole("link", { name: "Open report" }).click({ modifiers: ["Control"] });
+  const report = await pending.result();
+  await report.getByRole("button", { name: "Export" }).click();
+} finally {
+  await pending.cancel();
+}
+```
+
+CLI and MCP use their existing `call` interface with these same wire methods:
+
+| Method | Fields in addition to session/turn/control epoch | Result |
+| --- | --- | --- |
+| `armPageWait` | Source `tabId`, optional `timeoutMs` | `{waiterId, remainingMs}` |
+| `collectPageWait` | Original source `tabId`, `waiterId` | `{tabId}` of the exact child |
+| `cancelPageWait` | Original source `tabId`, `waiterId` | `{}` after actual cleanup |
+
+Timeout defaults to 10 seconds and accepts integral 1–120000 ms. One waiter per
+source makes overlap deterministic; global and per-session capacity are bounded.
+The original monotonic deadline covers readiness, candidate validation, adoption
+and collection. There is no additional selected-result grace period. A failed
+or unknown reply never causes automatic trigger replay.
+
+Readiness pins the root document using a dedicated versioned webNavigation
+frame ledger, independent of website-restriction mode. The first eligible native
+created-target event is locked before asynchronous validation. Frames created
+after readiness may join the original root. Navigation of an admitted frame
+excludes it and its descendants; root navigation invalidates the wait. Live frame
+snapshots are checked again before adoption and collection. The native event does
+not carry an atomic source-document identity or prove unique click causality.
+
+Adoption checks site policy, original source authority, exact child window and
+competing ownership. Inherited task-group membership stays in place. An ungrouped
+child receives a distinct `created-page` auxiliary record, so a grouped source
+is not switched into ungrouped compatibility mode. No child is moved, activated
+or attached by adoption. Cancellation revokes only this wait's new admission;
+it does not close a child or revoke a pre-existing owner. Native popup creation
+itself can still activate the foreground; this API does not prevent that.
+
+Cancellation tracks actual pending native/storage work. Failed cleanup retains
+its reverse lock; another explicit `cancelPageWait` may retry only a cleanup
+attempt that actually settled and failed, never an in-flight operation or the
+original adoption. Auxiliary storage version 4 reads older versions and saves
+the new kind. After worker restart all persisted `created-page` records are
+quarantined for exact cleanup, including previously delivered pages, rather than
+reconstructing authorization from child IDs. Real worker/host-loss acceptance
+remains part of the open plan.
+
+The global pause snapshot lists only source tabs bound to verified control,
+not unvalidated reservations or candidate IDs awaiting admission. Only the
+auxiliary registry contributes admitted child ownership.
+Candidate IDs still participate in exact invalidation and the barrier still
+tracks actual setup/adoption work. Pending attachments have their own backend
+control records; excluding unowned IDs does not discard these barriers.
 
 ## Native relationship
 
@@ -16,14 +81,63 @@ native event timestamps must not be directly compared with extension wall
 time. Subsequent document reads are evidence of the document observed then,
 not an atomic document identity attached to the original event.
 
-The intended public contract is the first eligible native child observed after
+The public contract is the first eligible native child observed after
 readiness within the original controlled source/root-document lifetime. It
 does not promise unique click causality. Future frames need explicit bounded
 admission beneath the same root; navigation, replacement, cancellation and
-scope invalidation must not silently select a replacement candidate. Public
-adoption and cancellation semantics have not yet been implemented or tested.
+scope invalidation must not silently select a replacement candidate.
 
-## Real browser evidence
+## Production readiness evidence
+
+Final isolated Windows Chromium `T7Nh7G` completed **2/2, actual exit 0**, including
+the public JS `expectPage` workflow. Two tasks each used root, existing OOPIF
+and future OOPIF sources to create six identical-URL native children. The
+future frame was inserted after ready. Each returned typed Tab completed one
+original trusted business submission: six POSTs totaling **1,160 bytes** with
+six distinct original child-document nonces. There is no explicit claim in
+this mode; an independent native observer joins the returned IDs to original
+source tab/frame events. All six children inherited the task group, so this
+does not establish first-time unowned-child adoption.
+
+The **3,360 ms** action interval recorded zero tab activation, window focus
+events or allowances. Twenty-four cleanup entries succeeded, including six
+wait cancellations, two finalizations, exact twelve-tab absence and listener
+removal. Original Browser.close returned `{}` and the child actually exited 0.
+The fixture uses the existing test Native Port adapter and an isolated profile;
+it does not establish normal-profile installation or whole-OS focus behavior.
+
+Extension/build/fixture tests pass **1109/1109**. Complete SDK suites pass JS
+153, Python 118 and Go 204 with no skips, plus Go vet. CLI/MCP package tests have
+347 passes and 24 existing platform/permission skips. The host was freshly
+built from the current frozen Go inputs; the three published preview archives
+remain unchanged. The default 125-case browser baseline was not rerun.
+
+The preceding successful `8oY0FF` (2/2, 3,450 ms without recorded focus events)
+is retained as evidence for its earlier source. A subsequent gated-candidate
+regression failed against that registry because it included an unadmitted child
+in the global detach set. A second backend reproduction showed that an unbound
+source reservation could also issue detach for an unowned tab during Pause.
+The final bound-source-only fix passes 31 focused tests and a public Pause
+regression that drains actual setup without touching that unowned tab.
+`T7Nh7G` and the 1109-test suite above use that final implementation. Earlier
+`4CJEGW` and `OuXNJi` successful runs and audits retain their own source identity.
+The final JS harness also retains its pre-arm 20-second budget through dynamic
+frame preparation, trigger and business receipt, with no reset at trigger time.
+
+Typed Python/Go acceptance callers and their ready/release gates are prepared.
+Their five test methods cover 16 fake-browser IPC scenarios plus three input
+type negatives; Go build/vet pass. These are not real page acceptance, and the
+five-entry runner and CLI/MCP caller integration remain open.
+
+Preserved failures include the first cleanup regression (110/111), its exact
+focused reproduction, and a hung auxiliary-release lifecycle test that was
+terminated after confirming its real process remained live. Fixes separate
+actual native cleanup from waiter rollback and prevent native-detach callbacks
+from retrying a failed download cancellation outside the tracked barrier.
+Subsequent exact lifecycle and full extension tests pass; no sleeps or relaxed
+assertions were used to turn the failures green.
+
+## Earlier native feasibility evidence
 
 Windows isolated Chromium run `FjJons` completed **2/2, actual exit 0**: the
 existing raw-navigation control and the new provenance workflow. Two JS owners
@@ -82,10 +196,10 @@ listening handler; the corrected test compares with a normal successful bind.
 
 ## Remaining work
 
-Implement the public waiter and in-place child authorization, then verify the
-same workflow through JS, Python, Go, CLI and MCP. Add overlapping/unrelated
-creation, source/frame navigation, child movement/closure, cancellation,
-deadline, pause and worker/host-loss cases. Ordinary window.open foreground
+Complete five-entry real-browser verification and unowned-child adoption, then
+extend overlapping/unrelated creation, source/frame navigation, child movement/
+closure, cancellation, deadline, pause and worker/host-loss browser cases beyond
+the deterministic unit coverage. Ordinary window.open foreground
 behavior, other browsers/platforms, drag guard recovery, and the complete
 P01–P15 objective remain open. This successful provenance proof does not close
 those requirements.

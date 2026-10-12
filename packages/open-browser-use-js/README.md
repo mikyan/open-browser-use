@@ -7,6 +7,16 @@ the extension's Playwright engine.
 
 ## Prerequisites
 
+### Native new pages (development version)
+
+`await tab.expectPage({timeoutMs: 10000})` establishes readiness before your
+trigger. After clicking, `await pending.result()` returns the first eligible
+native child as a typed Tab; `await pending.cancel()` cleans up the wait without
+closing that child. The returned Tab stays bound to its original connection and
+control scope; begin a new turn explicitly and obtain new handles after a scope
+change. Requires `getInfo.metadata.pageWaitVersion === 1`.
+See [the contract and example](../../docs/references/created-page-waits.md).
+
 Locator composition uses the same tab and client, including separately created
 handles for that tab ID:
 

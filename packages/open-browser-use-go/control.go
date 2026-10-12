@@ -41,7 +41,7 @@ func controlDiscoveryMethod(method string) bool {
 
 func (c *Client) observeControlSupport(info any) error {
 	version := 0
-	var downloadWaitVersion, fileChooserVersion, networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion any
+	var pageWaitVersion, downloadWaitVersion, fileChooserVersion, networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion any
 	if object, ok := info.(map[string]any); ok {
 		if metadata, ok := object["metadata"].(map[string]any); ok {
 			directDownloadsVersion = metadata["directDownloadsVersion"]
@@ -50,6 +50,7 @@ func (c *Client) observeControlSupport(info any) error {
 			clipboardVersion = metadata["clipboardVersion"]
 			networkVersion = metadata["networkWaitVersion"]
 			navigationVersion = metadata["navigationWaitVersion"]
+			pageWaitVersion = metadata["pageWaitVersion"]
 			downloadWaitVersion = metadata["downloadWaitVersion"]
 			fileChooserVersion = metadata["fileChooserWaitVersion"]
 			if advertised, exists := metadata["turnLifecycleVersion"]; exists {
@@ -68,6 +69,7 @@ func (c *Client) observeControlSupport(info any) error {
 	c.clipboardKnown, c.clipboardVersion = true, clipboardVersion
 	c.networkWaitKnown, c.networkWaitVersion = true, networkVersion
 	c.navigationWaitKnown, c.navigationWaitVersion = true, navigationVersion
+	c.pageWaitKnown, c.pageWaitVersion = true, pageWaitVersion
 	c.downloadWaitKnown, c.downloadWaitVersion = true, downloadWaitVersion
 	c.fileChooserWaitKnown, c.fileChooserWaitVersion = true, fileChooserVersion
 	if c.control.version != 1 {
@@ -102,6 +104,9 @@ func validateControlState(value any) (int64, string, error) {
 // It never replays an earlier request. Call it after inspecting a stale-epoch
 // error or an uncertain end result before submitting new work.
 func (c *Client) BeginTurn() (any, error) {
+	if c.scopeParent != nil {
+		return nil, errors.New("OBU_STALE_CONTROL_EPOCH: begin a turn on the original client, then create new handles")
+	}
 	deadline := time.Now().Add(c.options.Timeout)
 	if err := c.mu.lockUntil(deadline); err != nil {
 		return nil, err

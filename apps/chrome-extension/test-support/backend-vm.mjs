@@ -6,6 +6,7 @@ import { BrowserLifetime } from "../browser-lifetime.js";
 import { BrowserNavigationWaits } from "../browser-navigation-waits.js";
 import { BrowserFileChooserWaits } from "../browser-file-chooser-waits.js";
 import { DirectoryUploadRegistry } from "../browser-directory-upload.js";
+import { BrowserPageWaits } from "../browser-page-waits.js";
 import { BrowserDownloadWaits } from "../browser-download-waits.js";
 import { BrowserDownloads, downloadDeadline } from "../browser-downloads.js";
 import { validateMediaDownload, MEDIA_CANCEL_FUNCTION } from "../browser-media-source.js";
@@ -56,6 +57,7 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { BrowserPageWaits } from "./browser-page-waits.js";', "")
   .replace('import { NativePageDownloads } from "./native-page-downloads.js";', "")
   .replace('import { BrowserLifetime } from "./browser-lifetime.js";', "")
   .replace('import { BrowserClipboard } from "./browser-clipboard.js";', "")
@@ -76,7 +78,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

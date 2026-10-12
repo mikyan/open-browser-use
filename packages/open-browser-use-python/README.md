@@ -20,6 +20,14 @@ open-browser-use info
 
 ## Usage
 
+For native new pages in the development version, call
+`pending = tab.expect_page(timeout_ms=10000)` before the trigger, then
+`child = pending.result()` and operate on the returned typed Tab. Use
+`pending.cancel()` in `finally`; cancelling the wait does not close the child.
+The returned handle remains bound to the original connection, turn and epoch.
+This requires `getInfo.metadata.pageWaitVersion == 1`; see the
+[contract and lifecycle limits](../../docs/references/created-page-waits.md).
+
 Locators support bounded composition through the extension's native engine:
 
 ```py

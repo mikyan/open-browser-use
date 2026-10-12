@@ -1,3 +1,5 @@
+import { OpenBrowserUsePageWait, type OpenBrowserUsePageWaitOptions } from "./page-waits.js";
+export { OpenBrowserUsePageWait, type OpenBrowserUsePageWaitOptions } from "./page-waits.js";
 import { OpenBrowserUseDownloadWait, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
 export { OpenBrowserUseDownloadWait, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
 import { OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
@@ -188,6 +190,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
     })[];
 };
 declare const downloadSymbol: unique symbol;
+declare const pageWaitSymbol: unique symbol;
 declare const downloadWaitSymbol: unique symbol;
 declare const navigationWaitSymbol: unique symbol;
 declare const networkWaitSymbol: unique symbol;
@@ -214,6 +217,7 @@ export declare class OpenBrowserUseClient {
     [downloadSymbol](tabId: number, method: "downloadURL" | "downloadMedia" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload>;
     [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     [navigationWaitSymbol](tabId: number, params: BrowserUseRequestParams): Promise<OpenBrowserUseNavigationWait>;
+    [pageWaitSymbol](tabId: number, options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;
     [downloadWaitSymbol](tabId: number, options?: OpenBrowserUseDownloadWaitOptions): Promise<OpenBrowserUseDownloadWait>;
     [fileChooserWaitSymbol](tabId: number, options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
     getControlState(): Promise<JsonValue>;
@@ -278,6 +282,7 @@ export declare class OpenBrowserUseTab {
     exportPDF(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     exportMHTML(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     waitForDownload(options?: OpenBrowserUseDownloadOptions): Promise<OpenBrowserUseDownload>;
+    expectPage(options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;
     expectDownload(options?: OpenBrowserUseDownloadWaitOptions): Promise<OpenBrowserUseDownloadWait>;
     expectFileChooser(options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
@@ -395,6 +400,7 @@ export declare class OpenBrowserUseLocator {
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    expectPage(options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;
     expectDownload(options?: OpenBrowserUseDownloadWaitOptions): Promise<OpenBrowserUseDownloadWait>;
     expectFileChooser(options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
     expectResponse(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;

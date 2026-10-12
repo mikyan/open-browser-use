@@ -20,6 +20,9 @@ debugger、history 和 tab groups。
 
 - `apps/chrome-extension/`：Open Browser Use MV3 Chrome extension，包含
   readable service worker、cursor content script 和 popup。
+  新页等待由独立 `browser-page-waits.js` 与 `browser-page-frames.js` 管理原期限、
+  原生来源事件及 frame/document 生命周期，backend 只接纳确切子页且保留原窗口。
+  接口和归属边界见[新页等待](references/created-page-waits.md)。
 - `cmd/open-browser-use/`：Go native messaging host 和 CLI 主入口。二进制
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。

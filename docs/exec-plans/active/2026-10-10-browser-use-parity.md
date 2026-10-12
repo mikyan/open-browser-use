@@ -2760,3 +2760,16 @@ fixture现在先有界绑定动态loopback端口，没有关闭浏览器安全�
 [分片计划](2026-10-12-created-page-waits.md)及[证据](../../references/created-page-waits.md)。
 guard跨worker恢复仅新增源码边界审查，未据此撤掉持久输入门禁；完整
 P01–P15和原文件计划继续active。
+
+### P08/P12：正式新页等待生产接入
+
+三SDK、CLI/MCP已实现pageWaitVersion1协议和原scope typedTab接续。独立
+webNavigation台账、原monotonic deadline、确切child原窗口接納与v4恢复隔离
+落地。JS真实`T7Nh7G`2/2 actualexit0，六child/六POST1160B、3360ms零
+focus/activation/豁免；future iframe在ready后创建。全部child原生继承group，
+不算未owned接纳验收；其他四入口实机与worker/host丢失负例继续推进。
+
+扩展/build/fixture1109、三SDK153/118/204均全pass零skip，CLI347pass/24
+既有skip，Go vet通过。原cleanup循环与屏障外重复download cancel失败保留，
+新精确ACK回归通过。默认125浏览器基线未重跑、旧preview不变，未建PR。
+见[完整分片计划](2026-10-12-created-page-waits.md)。

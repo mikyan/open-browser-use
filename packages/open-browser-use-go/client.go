@@ -50,7 +50,10 @@ type notificationSubscription struct {
 }
 
 type Client struct {
-	options Options
+	options         Options
+	scopeParent     *Client
+	boundScope      Params
+	boundGeneration uint64
 
 	mu                     requestLock
 	conn                   net.Conn
@@ -66,6 +69,8 @@ type Client struct {
 	clipboardVersion       any
 	pageExportKnown        bool
 	pageExportVersion      any
+	pageWaitKnown          bool
+	pageWaitVersion        any
 	downloadWaitKnown      bool
 	downloadWaitVersion    any
 	fileChooserWaitKnown   bool
@@ -93,12 +98,21 @@ func NewClient(options Options) *Client {
 }
 
 func (c *Client) Connect() error {
+	if c.scopeParent != nil {
+		if err := c.checkBoundScope(); err != nil {
+			return err
+		}
+		return c.scopeParent.Connect()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.connectLocked()
 }
 
 func (c *Client) Close() error {
+	if c.scopeParent != nil {
+		return c.scopeParent.Close()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.closeLocked()
@@ -116,6 +130,9 @@ func (c *Client) closeLocked() error {
 }
 
 func (c *Client) OnNotification(handler NotificationHandler) func() {
+	if c.scopeParent != nil {
+		return c.scopeParent.OnNotification(handler)
+	}
 	c.notificationMu.Lock()
 	c.nextHandlerID++
 	id := c.nextHandlerID
@@ -155,6 +172,25 @@ func (c *Client) requestWithPreparation(method string, params Params, timeout ti
 // Multi-stage helpers hold one request gate, captured turn and original deadline.
 // Every stage sends that binding; no subsequent stage adopts a newer turn.
 func (c *Client) requestInScope(method string, params Params, timeout time.Duration, execute func(Params, time.Time) (any, error)) (any, error) {
+	if c.scopeParent != nil {
+		if err := c.checkBoundScope(); err != nil {
+			return nil, err
+		}
+		return c.scopeParent.requestInScope(method, scopedParams(c.boundScope, params), timeout, func(p Params, d time.Time) (any, error) {
+			if err := c.checkBoundScope(); err != nil {
+				return nil, err
+			}
+			value, err := execute(p, d)
+			if err != nil {
+				return nil, err
+			}
+			if err = c.checkBoundScope(); err != nil {
+				return nil, err
+			}
+			return value, nil
+		})
+	}
+
 	if method == "browserAction" && params["action"] == "setInputFiles" {
 		if err := validateLocatorUploadInput(params); err != nil {
 			return nil, err
@@ -205,6 +241,20 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 	merged := Params{"session_id": c.options.SessionID, "turn_id": control.turnID}
 	for key, value := range frozenParams {
 		merged[key] = value
+	}
+	if isPageWaitMethod(method) {
+		if err := ValidatePageWaitParams(method, merged); err != nil {
+			return nil, err
+		}
+	}
+	if method == "armPageWait" {
+		requested := float64(10000)
+		if value, ok := merged["timeoutMs"].(float64); ok {
+			requested = value
+		}
+		if limit := submittedAt.Add(time.Duration(requested * float64(time.Millisecond))); limit.Before(deadline) {
+			deadline = limit
+		}
 	}
 	if isDownloadWaitMethod(method) {
 		if err := ValidateDownloadWaitParams(method, merged); err != nil {
@@ -325,6 +375,29 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 		c.controlMu.Unlock()
 		if !supported {
 			return nil, errors.New("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1")
+		}
+	}
+	if isPageWaitMethod(method) {
+		c.controlMu.Lock()
+		known := c.pageWaitKnown
+		c.controlMu.Unlock()
+		if !known {
+			info, err := c.requestLocked("getInfo", scopedParams(merged, nil), deadline)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.observeControlSupport(info); err != nil {
+				return nil, err
+			}
+		}
+		c.controlMu.Lock()
+		supported := c.pageWaitVersion == float64(1)
+		c.controlMu.Unlock()
+		if !supported {
+			return nil, errors.New("OBU_PAGE_WAIT_UNSUPPORTED: extension does not advertise pageWaitVersion 1")
+		}
+		if _, valid := pageEpoch(merged["control_epoch"]); !valid {
+			return nil, errors.New("page waits require an explicit control epoch")
 		}
 	}
 	if isDownloadWaitMethod(method) {
@@ -475,6 +548,12 @@ func scopedParams(metadata Params, params Params) Params {
 // requestLocked performs one wire exchange under c.mu. Discovery shares the
 // original request deadline, and no failing operation is replayed.
 func (c *Client) requestLocked(method string, merged Params, deadline time.Time, responseReserve ...time.Duration) (any, error) {
+	if c.scopeParent != nil {
+		if err := c.checkBoundScope(); err != nil {
+			return nil, err
+		}
+		return c.scopeParent.requestLocked(method, scopedParams(c.boundScope, merged), deadline, responseReserve...)
+	}
 	if c.disconnected {
 		return nil, ErrBrowserDisconnected
 	}
@@ -489,6 +568,25 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 		return nil, fmt.Errorf("%s deadline expired during discovery or connection; request was not sent", method)
 	}
 	sentReadyBudget := float64(10000)
+	if method == "armPageWait" {
+		if v, exists := merged["timeoutMs"]; exists {
+			switch n := v.(type) {
+			case float64:
+				sentReadyBudget = n
+			case int64:
+				sentReadyBudget = float64(n)
+			case int:
+				sentReadyBudget = float64(n)
+			}
+		}
+		available := time.Until(deadline).Milliseconds()
+		if available < 1 {
+			return nil, os.ErrDeadlineExceeded
+		}
+		sentReadyBudget = math.Min(sentReadyBudget, float64(available))
+		merged = scopedParams(merged, merged)
+		merged["timeoutMs"] = sentReadyBudget
+	}
 	if method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || (method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "armDownloadWait") || isDownloadOperation(method) || method == "exportPage" || isClipboardMethod(method) {
 		requested := int64(10000)
 		valid := true
@@ -582,6 +680,17 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 			if isDownloadWaitMethod(method) {
 				if err := ValidateDownloadWaitResult(method, response.Result, sentReadyBudget); err != nil {
 					return nil, err
+				}
+			}
+			if isPageWaitMethod(method) {
+				if !time.Now().Before(deadline) {
+					return nil, os.ErrDeadlineExceeded
+				}
+				if err := ValidatePageWaitResult(method, response.Result, sentReadyBudget); err != nil {
+					return nil, err
+				}
+				if method == "collectPageWait" && response.Result.(map[string]any)["tabId"] == merged["tabId"] {
+					return nil, errors.New("invalid page wait result: child equals source")
 				}
 			}
 			return response.Result, nil

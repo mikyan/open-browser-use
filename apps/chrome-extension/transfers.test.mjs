@@ -408,6 +408,37 @@ test('detach failure keeps its real cleanup barrier until delayed native detach 
   assert.equal(backend.directDownloads.records.size,0);
 });
 
+test('native detach hooks cannot start an untracked third download cancellation after two explicit failures', {timeout:2000}, async t => {
+  const {backend,direct,chrome}=await directEnvironment(),nativeGate=deferred(),retryGate=deferred(),cancels=[];
+  t.after(()=>{nativeGate.resolve();retryGate.resolve();});
+  await backend.downloadURL(direct);
+  let phase='two explicit failures';
+  chrome.downloads.cancel=async()=>{
+    const call={number:cancels.length+1,phase,ack:false};cancels.push(call);
+    if(call.number<=2)throw new Error('explicit cancel failed');
+    await retryGate.promise;call.ack=true;
+  };
+  chrome.debugger.detach=async()=>nativeGate.promise;
+  const first=backend.detachTab(7),firstRejected=assert.rejects(first,/explicit cancel failed/);
+  await tick();assert.equal(cancels.length,1);assert.equal(backend.controlReleases.get(7),first);
+  const second=backend.detachTab(7),secondRejected=assert.rejects(second,/explicit cancel failed/);
+  await tick();assert.equal(cancels.length,2);assert.equal(backend.controlReleases.get(7),second);
+  // Both actual native hooks run after this gate. Without the production
+  // guard they start a third cancellation whose ACK is still held, while the
+  // two explicit detach barriers finish without retaining that native work.
+  nativeGate.resolve();await firstRejected;await secondRejected;await tick();
+  assert.equal(cancels.length,2,'native detach hooks must not authorize a third cancellation');
+  assert.equal(backend.controlReleases.has(7),false);assert.equal(backend.pageWaitNativeReleases.has(7),false);
+  phase='explicit retry';let retrySettled=false;
+  const retry=backend.detachTab(7);retry.then(()=>{retrySettled=true;},()=>{retrySettled=true;});
+  await tick();assert.equal(cancels.length,3);assert.equal(cancels[2].phase,'explicit retry');assert.equal(cancels[2].ack,false);
+  assert.equal(retrySettled,false);assert.equal(backend.controlReleases.get(7),retry);
+  await tick();assert.equal(cancels.length,3,'a pending explicit retry cannot create another native cancel');
+  retryGate.resolve();await retry;await tick();
+  assert.equal(cancels[2].ack,true);assert.equal(cancels.length,3);assert.equal(backend.directDownloads.records.size,0);
+  assert.equal(backend.controlReleases.has(7),false);assert.equal(backend.pageWaitNativeReleases.has(7),false);
+});
+
 test('Pause does not report cleanup complete while a native direct start is still unresolved', async () => {
   const {backend,direct,chrome,native}=await directEnvironment(),gate=deferred();
   backend.automationCleanupTimeoutMs=25;

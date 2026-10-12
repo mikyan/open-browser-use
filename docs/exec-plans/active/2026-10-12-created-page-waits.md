@@ -14,11 +14,11 @@ original browser 3/3 and Node 79/79 evidence. Installation instructions do not
 establish any new Browser Use capability. This plan is an additional slice;
 it does not close the active original-file plan or the full P01–P15 objective.
 
-## Existing boundary
+## Boundary before this slice
 
 The production CRX patch disables implicit opener attachment. `getTabs` returns
 owned pages; a caller can explicitly `claimUserTab`, but there is no scoped
-arm/collect/cancel created-page wait or typed `expectPage` interface. The current
+arm/collect/cancel created-page wait or typed `expectPage` interface. The earlier
 child authorization fixture creates its tab using `chrome.tabs.create`, so it
 cannot prove browser-created page provenance or an end-to-end page-triggered
 continuation workflow. Renderer `window.open` can still activate the foreground.
@@ -40,18 +40,22 @@ or claim an atomic source-document relationship from a later snapshot.
   source frame/document observations, child document bytes/nonce, one follow-up
   business POST and exact tab cleanup. A passive fixture observer followed by
   explicit public claim is feasibility evidence, not the missing product API.
-- [ ] Introduce bounded scoped ready/collect/cancel registration. Readiness
+- [x] Introduce bounded scoped ready/collect/cancel registration. Readiness
   means the listener and original source authority are established before the
   trigger can run. Keep one original timeout, finite retention, deterministic
   overlap policy, first matching native child and explicit stale-handle errors.
-- [ ] Adopt only the exact native child within original source/turn authority;
+- [x] Implement adoption of only the exact native child within original source/turn authority;
   validate site policy and competing ownership, and retain its native window.
   Do not infer ownership from URL, filename, tab order, window focus or timing.
   Interrupted adoption must not leave an unauthorized debugger attachment or
-  delete a user-controlled page.
-- [ ] Expose the same workflow through JS/Python/Go SDKs, CLI and MCP with
-  capability negotiation. Each caller performs ready, one trigger, collection
-  and a useful action on the returned page.
+  delete a user-controlled page. Inherited group membership has real JS evidence;
+  first admission of an unowned native child still needs browser acceptance.
+- [x] Expose the workflow through JS/Python/Go SDKs, CLI and MCP with capability
+  negotiation and original-scope returned Tab handles.
+- [ ] Complete five-entry browser acceptance: each caller performs ready, one
+  trigger, collection and a useful action on the returned page. The initial
+  JS six-child workflow is implemented; typed Python/Go callers and fake-browser
+  IPC checks are prepared, but runner integration and CLI/MCP callers remain open.
 - [ ] Verify same-URL concurrent tasks, unrelated children, source/frame
   navigation, closed/moved child, cancellation, timeout, paused/ended turns,
   worker/host loss and late completion. No replayed click or automatic recovery.
@@ -60,9 +64,9 @@ or claim an atomic source-document relationship from a later snapshot.
   Record failures as failures; do not compensate with focus restoration or
   call a narrow launch-flag run normal-user-profile or cross-platform coverage.
 
-## Proposed production contract
+## Production contract
 
-`tab.expectPage` should observe the first eligible native created-target event
+`tab.expectPage` observes the first eligible native created-target event
 from the original controlled tab, including its frames. It must not promise
 that the adjacent click uniquely caused that event. Allow one waiter per source
 tab to make overlap deterministic. Pin the root document at readiness and use
@@ -78,8 +82,8 @@ copy navigation waits' extra selected-result validation budget into this path.
 Reuse auxiliary ownership reservations and live validation without using the
 about:blank creation checker or moving a new page to another native window.
 Cancellation retires the observer/unfinished authorization; it does not close
-an already opened page. These are design constraints awaiting implementation
-and real lifecycle tests, not statements of current product behavior.
+an already opened page. Real lifecycle acceptance remains open beyond the
+implemented deterministic registry and backend tests.
 
 ## Related unresolved risk
 
@@ -108,8 +112,56 @@ The earlier `8SGEVN` failed before any HTTP request on browser-restricted port
 before startup, with bounded bind-conflict retries and no browser policy
 override. That failure and an initial listener-test assertion failure remain
 unchanged. See [the native evidence reference](../../references/created-page-waits.md).
-Production API implementation is the next step; this plan and the full goal
-remain active.
+Production API implementation follows below; this plan and the full goal remain active.
+
+## Production implementation checkpoint
+
+The three wire methods use `getInfo.metadata.pageWaitVersion = 1`. A dedicated
+bounded frame ledger is active even when site policy is unrestricted. The
+registry uses one monotonic deadline and tracks actual unresolved setup/adoption
+promises separately from cancellation races. Exact native child adoption never
+moves or attaches the child. New ungrouped membership uses auxiliary storage v4
+`created-page`, preserving a grouped source; all such persisted records are
+quarantined after worker restart before recovery cleanup.
+
+The JS, Python and Go SDKs return typed Tabs pinned to the original connection,
+session, turn, epoch and local control revision. CLI/MCP negotiate and validate
+the same wire contract. Full SDK tests are JS 153, Python 118, Go 204, all pass
+without skips; Go vet passes. The CLI package has 347 pass/24 existing platform
+or permission skips. Extension/build/fixture tests pass 1109/1109.
+
+Two cleanup defects found during integration are fixed with preserved failures:
+consumption must not be followed by another old-record validity check, and
+auxiliary rollback must await the actual detach phase rather than an aggregate
+that contains its own rollback. Native detach hooks also no longer launch an
+untracked extra download cancellation after explicit attempts failed. Exact
+failure/retry ACK tests cover those paths. Browser evidence is summarized in
+[the reference](../../references/created-page-waits.md).
+
+The final registry snapshot excludes unbound source reservations and unadmitted candidate IDs from global
+detach authority while retaining actual pending work and exact invalidation.
+A gated regression failed before the fix and the focused suite passes 31/31.
+Final isolated JS run `T7Nh7G` passes 2/2 with six native children, six POSTs
+totaling 1,160 bytes and a 3,360 ms interval without focus events or allowances.
+The earlier `8oY0FF` and its source-specific audit remain preserved.
+
+## Next acceptance slice
+
+The next real-browser matrix will use five independent callers across root,
+existing OOPIF and future OOPIF, producing 15 same-URL native children. Each
+caller must publish readiness before the first gate; after dynamic frame
+insertion, a second prepared gate lets the passive observer record original
+frame/document/OOPIF evidence before any Control-click. All stages use one
+original budget. Capture actual native bridge request/response scope rather
+than treating helper input as proof of transmitted scope. Keep the current
+six-child JS artifacts separate. The bounded observer must allow 15 sources;
+the existing 16-case fixture capacity means lifecycle negatives use a separate
+run. CLI/MCP still need caller adapters and remaining-budget propagation.
+
+Real lifecycle work includes unrelated/competing children, source/frame
+navigation, candidate close/move, cancellation and late completion, pause and
+turn changes, worker/host loss, and genuine first admission of an unowned native
+child. SDK stale-handle unit tests do not replace those browser checks.
 
 ## Relevant implementation
 

@@ -85,8 +85,8 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const createdPageProof = process.env.OBU_TEST_CREATED_PAGES;
-if (createdPageProof !== undefined && createdPageProof !== "provenance")
-  throw new Error("OBU_TEST_CREATED_PAGES must be provenance or unset");
+if (createdPageProof !== undefined && !["provenance", "ready"].includes(createdPageProof))
+  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready or unset");
 if (createdPageProof && ["OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
   throw new Error("Created page provenance is a separate headed mode");
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
@@ -477,7 +477,7 @@ try {
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   if (createdPageProof) {
-    sourceIdentity.testHooks.push("created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
+    sourceIdentity.testHooks.push(createdPageProof === "ready" ? "created page readiness: public JS expectPage and result Tab, passive native event observer independently verifies exact original child identity; original Control-click, no synthesized child, explicit claim, focus restoration or replay" : "created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
     for (const name of ["created-page-fixture.mjs", "created-page-provenance.mjs"])
       sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   }
@@ -645,7 +645,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
-    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance"].includes(name)) return;
+    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
@@ -1230,7 +1230,8 @@ try {
     if (failure) throw failure;
     return detail;
   });
-  if (createdPageProof) await test("js-created-page-provenance", async () => checkCreatedPageProvenance({
+  if (createdPageProof) await test(createdPageProof === "ready" ? "js-created-page-ready" : "js-created-page-provenance", async () => checkCreatedPageProvenance({
+    productReady: createdPageProof === "ready",
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, server: createdPageFixtures, until,
     saveDetail: detail => fs.writeFile(path.join(runDir, "created-page-provenance.json"), JSON.stringify(detail, null, 2))

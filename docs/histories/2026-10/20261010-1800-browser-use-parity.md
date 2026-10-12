@@ -1978,6 +1978,34 @@ webNavigation source/child事件、原HTML nonce、可信点击与后续POST；�
 复用host的61源manifest核对一致，未重跑125基线。后续正式五入口新页等待、
 scope/文档生命周期与普通window.open前台行为仍在新active plan中开放。
 
+#### 正式新页等待与原生接续（2026-10-12）
+
+可行性片已提交`4f5432c`。正式新增arm/collect/cancelPageWait及独立原生frame/
+document台账，scope与原期限贯穿监听、验证和接续。原组继承与无组子页原
+窗口均保留，新created-page辅助归属使用v4存储，worker恢复先隔离清理。
+三SDK返回固定原连接/turn/epoch的typedTab，CLI/MCP同能力门禁、严格参数与
+回包；不按URL/opener猜来源，不重放触发，不关闭取消等待后的子页。
+
+实机`T7Nh7G`2/2 actualexit0，双任务×三布局六原生child由正式expectPage
+返回，六原HTML nonce/POST共1160B；动态iframe在ready后创建。3360ms零
+focus/activation/豁免，24清理项通过与browser实际exit0。该轮全部child已
+继承group，未owned首次接纳与其他四入口实机还未证明。
+
+扩展/build/fixture1109/1106；SDK JS153、Python118、Go204，均零skip及
+actualexit0，Go vet过。CLI347pass/24既有平台权限skip。保留首110/111
+清理回归失败及实际挂住的辅助撤销测试：修复collect消费后误check、外部
+detach/aux回滚相互等待，以及native detach钩子在原屏障外多发下载cancel。
+新增真实未settle ACK与显式cleanup retry回归，无自动重发或放宽断言。
+全局暂停快照另改为只含已绑定控制的来源页，未验证source与未接纳candidate
+均不进入detach权限集；原候选失效与真实pending屏障保留。实际后端Pause
+回归确认未owned页不被detach且等待原setup真实结束。旧源码定向失败及
+先前8oY0FF、4CJEGW和OuXNJi各自成功证据均保留。测试脚本也收紧为arm前
+原20秒预算贯穿动态frame准备、触发及提交，未在trigger重新给预算。
+Python/Go实机caller已准备，16个fake-browser IPC场景与3个类型负例通过，
+尚未接入五入口实机编排。
+host从当前冻结源新编译，旧preview不改，125普通浏览器基线未重跑。
+完整五入口/生命周期、普通window.open前台行为与P01–P15继续开放。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

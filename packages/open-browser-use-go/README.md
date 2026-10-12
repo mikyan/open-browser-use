@@ -1,5 +1,13 @@
 # Open Browser Use Go SDK
 
+The development version adds `tab.ExpectPage(obu.PageWaitOptions{Timeout: 10 * time.Second})`.
+Wait for its ready return before triggering the source action, then call
+`pending.Result()` to obtain the exact native child as a typed `*Tab` and defer
+`pending.Cancel()` for cleanup. Cancellation does not close the child. Its Tab
+is bound to the original connection, turn and control epoch, and cannot silently
+follow a new parent turn. Requires `getInfo.metadata.pageWaitVersion == 1`;
+see [created-page waits](../../docs/references/created-page-waits.md).
+
 Locator composition uses the same client and tab ID and retains native strict
 matching:
 

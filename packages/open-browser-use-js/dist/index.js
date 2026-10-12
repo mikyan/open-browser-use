@@ -1,4 +1,6 @@
 var _a;
+import { OpenBrowserUsePageWait, pageWaitMethods, pageWaitParams, pageWaitTimeout, pageWaitAck, pageWaitCancelled, pageWaitResult, assertPageWaitDeadline } from "./page-waits.js";
+export { OpenBrowserUsePageWait } from "./page-waits.js";
 import { locatorUploadParams, requireLocatorUpload } from "./locator-upload.js";
 import { OpenBrowserUseDownloadWait, downloadWaitMethods, downloadWaitParams, downloadWaitTimeout, downloadWaitAck, downloadWaitCancelled, assertDownloadWaitDeadline } from "./download-waits.js";
 export { OpenBrowserUseDownloadWait } from "./download-waits.js";
@@ -25,6 +27,7 @@ const eventWaitMethods = new Set(["waitForFileChooser", "waitForDownload", "armD
 const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "cancelNetworkWait"]);
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
+const pageWaitSymbol = Symbol("pageWait");
 const downloadWaitSymbol = Symbol("downloadWait");
 const navigationWaitSymbol = Symbol("navigationWait");
 const networkWaitSymbol = Symbol("networkWait");
@@ -46,6 +49,10 @@ export class OpenBrowserUseClient {
     #networkWaitVersion = undefined;
     #fileChooserWaitVersion = undefined;
     #downloadWaitVersion = undefined;
+    #pageWaitVersion = undefined;
+    #scopeParent = null;
+    #boundScope = {};
+    #boundRevision = 0;
     #socket = null;
     #connecting = null;
     #connectedOnce = false;
@@ -65,6 +72,11 @@ export class OpenBrowserUseClient {
     get controlEpoch() { return this.#control?.controlEpoch ?? null; }
     async connect() {
         this.#assertNotDisconnected();
+        if (this.#scopeParent) {
+            await this.#scopeParent.connect();
+            this.#assertNotDisconnected();
+            return this;
+        }
         if (this.#connecting) {
             await this.#connecting;
             this.#assertNotDisconnected();
@@ -121,15 +133,27 @@ export class OpenBrowserUseClient {
         return this;
     }
     close() {
+        if (this.#scopeParent) {
+            this.#scopeParent.close();
+            return;
+        }
         this.#disconnected = true;
         if (this.#socket)
             this.#disconnect(this.#socket, new Error("Open Browser Use client closed"));
     }
     #assertNotDisconnected() {
+        if (this.#scopeParent) {
+            const parent = this.#scopeParent;
+            parent.#assertNotDisconnected();
+            if (parent.#controlRevision !== this.#boundRevision || parent.sessionId !== this.#boundScope.session_id || parent.#turnId !== this.#boundScope.turn_id || parent.#control?.controlEpoch !== this.#boundScope.control_epoch)
+                throw new Error("OBU_STALE_CONTROL_EPOCH: created page belongs to an earlier control scope");
+        }
         if (this.#disconnected)
             throw new Error("OBU_SDK_BROWSER_DISCONNECTED: Browser connection is closed. Create a new client and explicitly begin a new turn.");
     }
     onNotification(handler) {
+        if (this.#scopeParent)
+            return this.#scopeParent.onNotification(handler);
         this.#notificationHandlers.add(handler);
         return () => {
             this.#notificationHandlers.delete(handler);
@@ -140,6 +164,13 @@ export class OpenBrowserUseClient {
     }
     async #request(method, params, options, capture) {
         this.#assertNotDisconnected();
+        if (this.#scopeParent) {
+            const result = await this.#scopeParent.#request(method, { ...params, ...this.#boundScope }, options, capture);
+            this.#assertNotDisconnected();
+            return result;
+        }
+        if (pageWaitMethods.has(method))
+            pageWaitParams(method, params);
         const locatorUpload = method === "browserAction" && params.action === "setInputFiles";
         if (locatorUpload)
             locatorUploadParams(params);
@@ -164,8 +195,12 @@ export class OpenBrowserUseClient {
             if (typeof requested === "number" && Number.isFinite(requested) && requested >= 1 && requested <= 120_000)
                 deadline = Math.min(deadline, submittedAt + requested + 1000);
         }
-        const monotonicDeadline = locatorUpload ? submittedMonotonic + (deadline - submittedAt) : undefined;
+        if (method === "armPageWait")
+            deadline = Math.min(deadline, submittedAt + pageWaitTimeout({ timeoutMs: captured.timeoutMs }));
+        const monotonicDeadline = options.monotonicDeadline ?? (locatorUpload || pageWaitMethods.has(method) ? submittedMonotonic + (deadline - submittedAt) : undefined);
         const merged = { session_id: this.sessionId, turn_id: turnId, ...captured };
+        if (pageWaitMethods.has(method))
+            pageWaitParams(method, merged);
         if (downloadWaitMethods.has(method))
             downloadWaitParams(method, merged);
         if (controlExemptMethods.has(method))
@@ -200,6 +235,14 @@ export class OpenBrowserUseClient {
                 throw new Error("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1");
             if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
                 throw new Error("File chooser waits require an explicit control epoch");
+        }
+        if (pageWaitMethods.has(method)) {
+            if (this.#pageWaitVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline, 0, undefined, monotonicDeadline);
+            if (this.#pageWaitVersion !== 1)
+                throw new Error("OBU_PAGE_WAIT_UNSUPPORTED: extension does not advertise pageWaitVersion 1");
+            if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
+                throw new Error("Page waits require an explicit control epoch");
         }
         if (downloadWaitMethods.has(method)) {
             if (this.#downloadWaitVersion === undefined)
@@ -296,6 +339,30 @@ export class OpenBrowserUseClient {
         const captured = { ...binding, tabId, waiterId: ack.waiterId };
         return new OpenBrowserUseNavigationWait(ack, (method, timeout) => this.request(method, captured, { timeoutMs: timeout }));
     }
+    async [pageWaitSymbol](tabId, options = {}) {
+        this.#assertNotDisconnected();
+        const timeoutMs = pageWaitTimeout(options), deadline = performance.now() + timeoutMs;
+        let origin = this;
+        while (origin.#scopeParent)
+            origin = origin.#scopeParent;
+        const revision = origin.#controlRevision;
+        let binding = {};
+        const value = await this.#request("armPageWait", { tabId, timeoutMs }, { timeoutMs, monotonicDeadline: deadline }, metadata => { binding = metadata; });
+        const ack = pageWaitAck(value, timeoutMs), expires = Math.min(deadline, performance.now() + ack.remainingMs);
+        const remaining = Math.min(ack.remainingMs, assertPageWaitDeadline(expires));
+        const waiter = { ...binding, tabId, waiterId: ack.waiterId };
+        return new OpenBrowserUsePageWait({ ...ack, remainingMs: remaining }, expires, (method, budget, monotonicDeadline) => origin.#request(method, waiter, { timeoutMs: budget, monotonicDeadline }), id => {
+            if (id === tabId)
+                throw new Error("Invalid page wait result: child equals source");
+            const view = new OpenBrowserUseClient({ socketPath: origin.socketPath, sessionId: origin.sessionId, turnId: binding.turn_id, timeoutMs: origin.timeoutMs });
+            view.#scopeParent = origin;
+            view.#boundScope = binding;
+            view.#boundRevision = revision;
+            view.#control = { controlEpoch: binding.control_epoch, closing: false, nextTurnId: binding.turn_id };
+            view.#assertNotDisconnected();
+            return new OpenBrowserUseBrowser({ client: view }).tab(id);
+        });
+    }
     async [downloadWaitSymbol](tabId, options = {}) {
         const timeoutMs = downloadWaitTimeout(options), deadline = Date.now() + timeoutMs;
         let binding;
@@ -319,6 +386,8 @@ export class OpenBrowserUseClient {
     getControlState() { return this.request("getControlState"); }
     async beginTurn(turnId) {
         this.#assertNotDisconnected();
+        if (this.#scopeParent)
+            throw new Error("OBU_STALE_CONTROL_EPOCH: begin a turn on the original client, then create new handles");
         if (turnId !== undefined && !turnId.trim())
             throw new Error("beginTurn requires a non-empty turn ID");
         const revision = ++this.#controlRevision;
@@ -389,6 +458,12 @@ export class OpenBrowserUseClient {
         return parseControlState(await this.#sendRequest("getControlState", params, deadline, 0, undefined, monotonicDeadline));
     }
     async #sendRequest(method, params, deadline, reservedResponseMs = 0, startBefore, monotonicDeadline) {
+        if (this.#scopeParent) {
+            this.#assertNotDisconnected();
+            const result = await this.#scopeParent.#sendRequest(method, { ...params, ...this.#boundScope }, deadline, reservedResponseMs, startBefore, monotonicDeadline);
+            this.#assertNotDisconnected();
+            return result;
+        }
         await beforeDeadline(this.connect(), deadline, method, monotonicDeadline);
         this.#assertNotDisconnected();
         const socket = this.#socket;
@@ -407,6 +482,13 @@ export class OpenBrowserUseClient {
             const available = Math.floor(method === "armDownloadWait" && startBefore !== undefined ? Math.min(remaining - 1000, startBefore - Date.now()) : remaining - 1000);
             if (available < 1)
                 throw new Error(`Open Browser Use request timed out before ${method} could start`);
+            params = { ...params, timeoutMs: Math.min(requested, available) };
+        }
+        if (method === "armPageWait") {
+            const requested = pageWaitTimeout({ timeoutMs: params.timeoutMs });
+            const available = Math.floor(requestRemaining(deadline, monotonicDeadline));
+            if (available < 1)
+                throw new Error("Open Browser Use page wait timed out before arm");
             params = { ...params, timeoutMs: Math.min(requested, available) };
         }
         const id = String(this.#nextId++);
@@ -441,6 +523,16 @@ export class OpenBrowserUseClient {
             this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
         }
         const result = await promise;
+        if (pageWaitMethods.has(method) && requestRemaining(deadline, monotonicDeadline) <= 0)
+            throw new Error("Open Browser Use page wait timed out");
+        if (method === "getInfo")
+            this.#pageWaitVersion = isObject(result) && isObject(result.metadata) ? result.metadata.pageWaitVersion ?? null : null;
+        if (method === "armPageWait")
+            return pageWaitAck(result, params.timeoutMs);
+        if (method === "collectPageWait" && pageWaitResult(result) === params.tabId)
+            throw new Error("Invalid page wait result: child equals source");
+        if (method === "cancelPageWait")
+            pageWaitCancelled(result);
         if (method === "getInfo")
             this.#mediaDownloadsVersion = isObject(result) && isObject(result.metadata) ? result.metadata.mediaDownloadsVersion ?? null : null;
         if (method === "getInfo")
@@ -739,6 +831,9 @@ export class OpenBrowserUseTab {
     waitForDownload(options = {}) {
         return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });
     }
+    expectPage(options = {}) {
+        return this.browser.client[pageWaitSymbol](this.id, options);
+    }
     expectDownload(options = {}) {
         return this.browser.client[downloadWaitSymbol](this.id, options);
     }
@@ -925,6 +1020,7 @@ export class OpenBrowserUseLocator {
 _a = OpenBrowserUseLocator;
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match, options = {}) { return this.tab.expectRequest(match, options); }
+    expectPage(options = {}) { return this.tab.expectPage(options); }
     expectDownload(options = {}) { return this.tab.expectDownload(options); }
     expectFileChooser(options = {}) { return this.tab.expectFileChooser(options); }
     expectResponse(match, options = {}) { return this.tab.expectResponse(match, options); }

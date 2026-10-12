@@ -23,6 +23,8 @@ const productionFiles = [
   "browser-directory-upload.js",
   "browser-file-input.js",
   "browser-download-waits.js",
+  "browser-page-waits.js",
+  "browser-page-frames.js",
   "browser-media-source.js",
   "browser-media-lifetime.js",
   "browser-diagnostic-fence.js",

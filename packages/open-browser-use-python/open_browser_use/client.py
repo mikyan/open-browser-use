@@ -10,6 +10,7 @@ from typing import Any, Callable, Literal
 from ._locator_upload import locator_upload_params, require_locator_upload
 
 from ._clipboard import CLIPBOARD_METHODS, OpenBrowserUseClipboard, clipboard_params, clipboard_timeout, validate_clipboard_result
+from ._page_waits import PAGE_WAIT_METHODS, OpenBrowserUsePageWait, page_wait_params, page_wait_timeout, page_wait_ack, page_wait_cancelled, page_wait_remaining, page_wait_result
 from ._download_waits import DOWNLOAD_WAIT_METHODS, OpenBrowserUseDownloadWait, download_wait_params, download_wait_timeout, download_wait_ack, download_wait_cancelled, download_wait_remaining
 from ._downloads import OpenBrowserUseDownload, download_id, download_params, download_timeout
 from ._page_exports import ExportFormat, PDFOptions, PageExport, export_params, export_timeout, validate_export
@@ -49,6 +50,11 @@ class OpenBrowserUseClient:
         self.browser_engine: JsonObject | None = None
         self._lifecycle_version: int | None = None
         self._control_epoch: int | None = None
+        self._control_revision = 0
+        self._scope_parent: OpenBrowserUseClient | None = None
+        self._bound_scope: JsonObject = {}
+        self._bound_revision = 0
+        self._page_wait_version: Any = None
         self._direct_downloads_version: Any = None
         self._media_downloads_version: Any = None
         self._page_export_version: Any = None
@@ -63,6 +69,10 @@ class OpenBrowserUseClient:
 
     def _connect(self, timeout: float) -> "OpenBrowserUseClient":
         self._require_connection_identity()
+        if self._scope_parent is not None:
+            self._scope_parent._connect(timeout)
+            self._require_connection_identity()
+            return self
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("timeout must be a positive finite number")
         if self._socket is None:
@@ -76,6 +86,9 @@ class OpenBrowserUseClient:
         return self
 
     def close(self) -> None:
+        if self._scope_parent is not None:
+            self._scope_parent.close()
+            return
         # A client and all handles it created belong to one actual connection.
         # Close is terminal even before connect; only an unsuccessful first
         # connect_transport call may be retried on this instance.
@@ -85,10 +98,18 @@ class OpenBrowserUseClient:
             connection.close()
 
     def _require_connection_identity(self) -> None:
+        if self._scope_parent is not None:
+            parent = self._scope_parent
+            parent._require_connection_identity()
+            if (parent._control_revision != self._bound_revision or parent.session_id != self._bound_scope["session_id"]
+                    or parent.turn_id != self._bound_scope["turn_id"] or parent._control_epoch != self._bound_scope["control_epoch"]):
+                raise RuntimeError("OBU_STALE_CONTROL_EPOCH: created page belongs to an earlier control scope")
         if self._disconnected:
             raise RuntimeError("OBU_SDK_BROWSER_DISCONNECTED: browser connection ended; create a new client and new handles")
 
     def on_notification(self, handler: NotificationHandler) -> Callable[[], None]:
+        if self._scope_parent is not None:
+            return self._scope_parent.on_notification(handler)
         self._notification_handlers.append(handler)
 
         def remove() -> None:
@@ -104,6 +125,12 @@ class OpenBrowserUseClient:
                  prepare: Callable[[JsonObject, float], None] | None = None,
                  execute: Callable[[JsonObject, float], Any] | None = None) -> Any:
         self._require_connection_identity()
+        if self._scope_parent is not None:
+            result = self._scope_parent._request(method, {**(params or {}), **self._bound_scope}, timeout=timeout, prepare=prepare, execute=execute)
+            self._require_connection_identity()
+            return result
+        if method in PAGE_WAIT_METHODS:
+            page_wait_params(method, params or {})
         locator_upload = method == "browserAction" and params is not None and params.get("action") == "setInputFiles"
         if locator_upload:
             locator_upload_params(params)
@@ -122,6 +149,8 @@ class OpenBrowserUseClient:
         # discovery request so an end response cannot rebind older work.
         session_id, turn_id, epoch = self.session_id, self.turn_id, self._control_epoch
         merged_params: JsonObject = {"session_id": session_id, "turn_id": turn_id, **copy.deepcopy(params or {})}
+        if method in PAGE_WAIT_METHODS:
+            page_wait_params(method, merged_params)
         if locator_upload:
             locator_upload_params(merged_params)
         if method in DOWNLOAD_WAIT_METHODS:
@@ -130,6 +159,8 @@ class OpenBrowserUseClient:
             requested = merged_params.get("timeoutMs", 10000)
             if type(requested) in (int, float) and math.isfinite(requested) and 1 <= requested <= 120000:
                 deadline = min(deadline, submitted_at + requested / 1000 + 1)
+        if method == "armPageWait":
+            deadline = min(deadline, submitted_at + page_wait_timeout(merged_params.get("timeoutMs")) / 1000)
         manual_epoch = "control_epoch" in merged_params
         protected = method not in CONTROL_DISCOVERY_METHODS
         if protected and not manual_epoch:
@@ -162,6 +193,13 @@ class OpenBrowserUseClient:
                 raise RuntimeError("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1")
             if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
                 raise RuntimeError("File chooser waits require an explicit control epoch")
+        if method in PAGE_WAIT_METHODS:
+            if self._page_wait_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._page_wait_version) is not int or self._page_wait_version != 1:
+                raise RuntimeError("OBU_PAGE_WAIT_UNSUPPORTED: extension does not advertise pageWaitVersion 1")
+            if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
+                raise RuntimeError("Page waits require an explicit control epoch")
         if method in DOWNLOAD_WAIT_METHODS:
             if self._download_wait_version is None:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
@@ -211,6 +249,7 @@ class OpenBrowserUseClient:
             if next_epoch <= epoch:
                 raise RuntimeError("End response did not advance the control epoch; explicitly begin a new turn")
             self._control_epoch, self.turn_id = next_epoch, next_turn
+            self._control_revision += 1
         return result
 
     def _observe_control_support(self, info: Any) -> None:
@@ -231,6 +270,7 @@ class OpenBrowserUseClient:
         self._download_wait_version = metadata.get("downloadWaitVersion", 0) if isinstance(metadata, dict) else 0
         if self._download_wait_version is None:
             self._download_wait_version = 0
+        self._page_wait_version = metadata.get("pageWaitVersion", 0) if isinstance(metadata, dict) else 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
         if version is not None and (type(version) is not int or version != 1):
             raise RuntimeError(f"Unsupported turn lifecycle version: {version!r}; update the SDK")
@@ -255,7 +295,10 @@ class OpenBrowserUseClient:
 
     def begin_turn(self) -> Any:
         """Recover control state on this connection; never reconnect or replay."""
+        if self._scope_parent is not None:
+            raise RuntimeError("OBU_STALE_CONTROL_EPOCH: begin a turn on the original client, then create new handles")
         state = self.request("getControlState")
+        self._control_revision += 1
         epoch, turn_id = self._validate_control_state(state)
         self._lifecycle_version, self._control_epoch, self.turn_id = 1, epoch, turn_id
         return state
@@ -263,6 +306,10 @@ class OpenBrowserUseClient:
     def _wire_request(self, method: str, merged_params: JsonObject, deadline: float, *, response_reserve: float = 0,
                       start_before: float | None = None) -> Any:
         self._require_connection_identity()
+        if self._scope_parent is not None:
+            result = self._scope_parent._wire_request(method, {**merged_params, **self._bound_scope}, deadline, response_reserve=response_reserve, start_before=start_before)
+            self._require_connection_identity()
+            return result
         self._connect(remaining_time(deadline))
         if self._socket is None:
             raise RuntimeError("Open Browser Use socket is not connected")
@@ -291,6 +338,12 @@ class OpenBrowserUseClient:
                 if available_ms < 1:
                     raise TimeoutError(f"{method} deadline expired during discovery or connection; request was not sent")
                 merged_params = {**merged_params, "timeoutMs": min(requested, available_ms)}
+        if method == "armPageWait":
+            requested = page_wait_timeout(merged_params.get("timeoutMs"))
+            available_ms = math.floor(remaining_time(deadline) * 1000)
+            if available_ms < 1:
+                raise TimeoutError("Page wait deadline expired; request was not sent")
+            merged_params = {**merged_params, "timeoutMs": min(requested, available_ms)}
         request = {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -301,7 +354,7 @@ class OpenBrowserUseClient:
         # healthy connection. Only native I/O and wire failures below do so.
         frame = encode_frame(request)
         if start_before is not None:
-            (download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
+            (page_wait_remaining if method in PAGE_WAIT_METHODS else download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
         wire_timeout = remaining_time(deadline)
         try:
             self._socket.settimeout(wire_timeout)
@@ -327,6 +380,15 @@ class OpenBrowserUseClient:
             message = response["error"].get("message", "Open Browser Use request failed")
             raise RuntimeError(message)
         result = response.get("result")
+        if method in PAGE_WAIT_METHODS:
+            page_wait_remaining(deadline)
+            if method == "armPageWait":
+                page_wait_ack(result, merged_params["timeoutMs"])
+            elif method == "collectPageWait":
+                if page_wait_result(result) == merged_params["tabId"]:
+                    raise RuntimeError("Invalid page wait result: child equals source")
+            else:
+                page_wait_cancelled(result)
         if method == "armDownloadWait":
             download_wait_ack(result, merged_params["timeoutMs"])
         elif method == "collectDownloadWait":
@@ -340,6 +402,40 @@ class OpenBrowserUseClient:
         elif method == "cancelFileChooserWait":
             file_chooser_cancelled(result)
         return result
+
+    def _expect_page(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
+        timeout = page_wait_timeout(timeout_ms)
+        expires = time.monotonic() + timeout / 1000
+        origin = self
+        while origin._scope_parent is not None:
+            origin = origin._scope_parent
+        revision = origin._control_revision
+
+        def arm(metadata: JsonObject, deadline: float) -> OpenBrowserUsePageWait:
+            binding = {key: metadata[key] for key in ("session_id", "turn_id", "control_epoch")}
+            ack = self._wire_request("armPageWait", metadata, min(deadline, expires), start_before=expires)
+            waiter_id, remaining = page_wait_ack(ack, timeout)
+            original_deadline = min(expires, time.monotonic() + remaining / 1000)
+            remaining = min(remaining, page_wait_remaining(original_deadline) * 1000)
+            captured = {**binding, "tabId": tab_id, "waiterId": waiter_id}
+
+            def call(method: str, budget: float, start_before: float | None) -> Any:
+                return origin._request(method, captured, timeout=budget,
+                    execute=lambda params, read_deadline: origin._wire_request(method, params,
+                        min(read_deadline, start_before) if start_before is not None else read_deadline, start_before=start_before))
+
+            def page(identifier: int) -> OpenBrowserUseTab:
+                if identifier == tab_id:
+                    raise RuntimeError("Invalid page wait result: child equals source")
+                view = OpenBrowserUseClient(origin.socket_path, origin.session_id, binding["turn_id"], origin.timeout)
+                view._scope_parent, view._bound_scope, view._bound_revision = origin, binding, revision
+                view._control_epoch, view._lifecycle_version = binding["control_epoch"], 1
+                view._require_connection_identity()
+                return OpenBrowserUseBrowser(view).tab(identifier)
+
+            return OpenBrowserUsePageWait(waiter_id, remaining, original_deadline, call, page)
+
+        return self._request("armPageWait", {"tabId": tab_id, "timeoutMs": timeout}, timeout=timeout / 1000, execute=arm)
 
     def _expect_download(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
         timeout = download_wait_timeout(timeout_ms)
@@ -644,6 +740,9 @@ class OpenBrowserUseTab(LocatorFactory):
     def wait_for_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
         return self.browser.client._download(self.id, "waitForDownload", {"timeoutMs": download_timeout(timeout_ms)})
 
+    def expect_page(self, *, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
+        return self.browser.client._expect_page(self.id, timeout_ms)
+
     def expect_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
         return self.browser.client._expect_download(self.id, timeout_ms)
 
@@ -755,6 +854,9 @@ class OpenBrowserUseTab(LocatorFactory):
 
 
 class OpenBrowserUseTabPlaywright(LocatorFactory):
+    def expect_page(self, *, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
+        return self.tab.expect_page(timeout_ms=timeout_ms)
+
     def expect_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownloadWait:
         return self.tab.expect_download(timeout_ms=timeout_ms)
 

@@ -39,6 +39,7 @@ type cliControlSnapshot struct {
 	networkWaitSupported     bool
 	navigationWaitSupported  bool
 	downloadWaitSupported    bool
+	pageWaitSupported        bool
 	fileChooserWaitSupported bool
 	directDownloadsSupported bool
 	mediaDownloadsSupported  bool
@@ -147,6 +148,11 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, err
 		}
 	}
+	if cliPageWaitMethod(method) {
+		if err := obu.ValidatePageWaitParams(method, obu.Params(params)); err != nil {
+			return nil, err
+		}
+	}
 	_, manual := params["control_epoch"]
 	if manual {
 		if _, ok := cliEpoch(params["control_epoch"]); !ok {
@@ -155,7 +161,20 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	} else if !cliControlExempt(method) && (params["session_id"] != captured.session || params["turn_id"] != captured.turn) {
 		return nil, errors.New("use a separate client or explicit control_epoch when overriding session_id or turn_id")
 	}
-	timer := time.NewTimer(time.Until(deadline))
+	// The transport's response reserve does not extend the page observation.
+	// This deadline already includes initial negotiation and MCP queue time.
+	var pageWaitDeadline time.Time
+	if method == "armPageWait" {
+		pageWaitDeadline = deadline.Add(-time.Second)
+		if !time.Now().Before(pageWaitDeadline) {
+			return nil, errors.New("OBU_PAGE_WAIT_TIMEOUT: original page wait deadline expired before connecting")
+		}
+	}
+	connectionDeadline := deadline
+	if !pageWaitDeadline.IsZero() {
+		connectionDeadline = pageWaitDeadline
+	}
+	timer := time.NewTimer(time.Until(connectionDeadline))
 	defer timer.Stop()
 	select {
 	case control.gate <- struct{}{}:
@@ -171,12 +190,12 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	if remaining <= 0 {
 		return nil, errors.New("request timed out before connecting")
 	}
-	conn, err := dialCLIControl(options, deadline)
+	conn, err := dialCLIControl(options, connectionDeadline)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(deadline); err != nil {
+	if err := conn.SetDeadline(connectionDeadline); err != nil {
 		return nil, err
 	}
 	if !manual && !cliControlExempt(method) {
@@ -286,6 +305,31 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, errors.New("OBU_DOWNLOAD_WAIT_UNSUPPORTED: extension requires downloadWaitVersion 1")
 		}
 	}
+	if cliPageWaitMethod(method) {
+		if manual {
+			infoResponse, err := sendCLIRequest(conn, "cli-page-wait-info", "getInfo", map[string]any{})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(infoResponse)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.pageWaitSupported = metadata["pageWaitVersion"] == float64(1)
+		}
+		if !captured.pageWaitSupported {
+			return nil, errors.New("OBU_PAGE_WAIT_UNSUPPORTED: extension requires pageWaitVersion 1")
+		}
+		validEpoch := captured.version == 1 && captured.epoch > 0
+		if manual {
+			epoch, ok := cliEpoch(params["control_epoch"])
+			validEpoch = ok && epoch > 0
+		}
+		if !validEpoch {
+			return nil, errors.New("page waits require an explicit positive control_epoch")
+		}
+	}
 	if method == "downloadURL" || method == "cancelDownload" {
 		if manual {
 			infoResponse, err := sendCLIRequest(conn, "cli-download-info", "getInfo", map[string]any{})
@@ -373,6 +417,22 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 			return nil, err
 		}
 	}
+	if cliPageWaitMethod(method) && response["error"] == nil {
+		budget, _ := params["timeoutMs"].(float64)
+		if err := obu.ValidatePageWaitResult(method, response["result"], budget); err != nil {
+			return nil, err
+		}
+		result := response["result"].(map[string]any)
+		if method == "armPageWait" {
+			remaining := float64(time.Until(pageWaitDeadline)) / float64(time.Millisecond)
+			if remaining <= 0 {
+				return nil, errors.New("OBU_PAGE_WAIT_TIMEOUT: original page wait deadline expired at acknowledgement")
+			}
+			result["remainingMs"] = math.Min(result["remainingMs"].(float64), remaining)
+		} else if method == "collectPageWait" && result["tabId"] == params["tabId"] {
+			return nil, errors.New("invalid page wait result: child tab matches its source")
+		}
+	}
 	if cliClipboardMethod(method) && response["error"] == nil {
 		value, err := obu.ValidateClipboardResult(method, response["result"], int(params["maxBytes"].(float64)))
 		if err != nil {
@@ -418,8 +478,12 @@ func cliDownloadWaitMethod(method string) bool {
 	return method == "armDownloadWait" || method == "collectDownloadWait" || method == "cancelDownloadWait"
 }
 
+func cliPageWaitMethod(method string) bool {
+	return method == "armPageWait" || method == "collectPageWait" || method == "cancelPageWait"
+}
+
 func cliActionBudget(method string) bool {
-	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "armDownloadWait" || method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
+	return method == "browserAction" || method == "waitForFileChooser" || method == "waitForDownload" || method == "armNetworkWait" || method == "armNavigationWait" || method == "armFileChooserWait" || method == "armDownloadWait" || method == "armPageWait" || method == "downloadURL" || method == "downloadMedia" || method == "downloadPath" || method == "cancelDownload" || method == "exportPage" || cliClipboardMethod(method)
 }
 
 func boundCLIActionDeadline(method string, params map[string]any, deadline time.Time) error {
@@ -482,6 +546,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	captured.navigationWaitSupported = metadata["navigationWaitVersion"] == float64(1)
 	captured.fileChooserWaitSupported = metadata["fileChooserWaitVersion"] == float64(1)
 	captured.downloadWaitSupported = metadata["downloadWaitVersion"] == float64(1)
+	captured.pageWaitSupported = metadata["pageWaitVersion"] == float64(1)
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	captured.mediaDownloadsSupported = metadata["mediaDownloadsVersion"] == float64(1)
 	captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)
