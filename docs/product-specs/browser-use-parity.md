@@ -42,6 +42,15 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+Created-page idle/orphan重启恢复缺口已修；旧源同11例4通过/7失败，新源11通过。
+真实worker专项`MIrY1h`验证matched/collected/ended-idle三root child旧权限
+撤销、原文档保留及fresh来源可用，持续storage可见原claim隔离→删除；
+并非host重启。专项仍actualexit1，原生开页5次focus和失败清理事件无新豁免。
+Node2206/2206，15项清理通过；完整普通`EIJz4r`125/125 actualexit0，
+242172ms仅原12activation/4controlfocus允许事件，原125名称顺序保持。
+这不替代失败专项；OOPIF、host丢失及全面后台体验继续开放，
+旧preview未更新，见[恢复范围](../references/created-page-waits.md#created-page-worker-recovery)。
+
 未owned新页`n7WyEq` **1/2、actual exit1**：root两个原生child首次接管、
 matched取消与失败清理后的持久撤权成立，但原Control-click仍激活背景源
 窗口。诊断把focus定位在原mouseReleased请求之后、adoption之前，ACK先后不固定，

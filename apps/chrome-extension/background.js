@@ -4344,6 +4344,7 @@ class BrowserBackend {
     if (record?.status === "closing" && !this.endingSessions.has(params.session_id)) {
       await this.recoverEndedSession(params.session_id, record);
     }
+    if (!record) await this.releaseRecoveredCreatedPages(params.session_id);
     return this.controlLedger.bootstrap(params.session_id);
   }
 
@@ -4487,15 +4488,30 @@ class BrowserBackend {
     }
     const recovering = [];
     for (const [sessionId, record] of this.controlLedger.records) {
-      if (record.status === "active") this.controlLedger.invalidate(record, "worker-restart");
+      // Handoff/end can leave a created-page claim in an idle session. Its
+      // worker-bound authority was quarantined on load; use the same closing
+      // barrier so failed exact cleanup can be retried by explicit bootstrap.
+      const idleCreatedPage = record.status === "idle" && this.auxiliaryTabs.entries(sessionId)
+        .some(claim => claim.kind === "created-page" && claim.phase === "quarantined");
+      if (record.status === "active" || idleCreatedPage) this.controlLedger.invalidate(record, "worker-restart");
       if (record.status === "closing") recovering.push([sessionId, record]);
     }
-    if (!recovering.length) return;
-    await this.controlLedger.save();
+    if (recovering.length) await this.controlLedger.save();
     for (const [sessionId, record] of recovering) {
       // Leave a failed release fenced. Explicit bootstrap may retry cleanup;
       // unrelated sessions must still be able to recover.
       await this.recoverEndedSession(sessionId, record).catch(() => {});
+    }
+    // Idle ledger eviction does not erase auxiliary identities. Retire those
+    // exact quarantines without recreating control records or evicting others.
+    const orphaned = new Set(this.auxiliaryTabs.entries().filter(claim => claim.kind === "created-page" &&
+      claim.phase === "quarantined" && !this.controlLedger.records.has(claim.session_id)).map(claim => claim.session_id));
+    for (const sessionId of orphaned) await this.releaseRecoveredCreatedPages(sessionId).catch(() => {});
+  }
+
+  async releaseRecoveredCreatedPages(sessionId) {
+    for (const claim of this.auxiliaryTabs.entries(sessionId)) {
+      if (claim.kind === "created-page" && claim.phase === "quarantined") await this.releaseAuxiliaryClaim(claim);
     }
   }
 

@@ -229,6 +229,46 @@ different deployment/session boundary and cannot substitute for existing-profile
 background-window behavior. Do not rerun the same failed scene merely to seek
 a green result.
 
+## Worker restart recovery checkpoint
+
+Exercise three genuinely unowned root children separately: one remains
+matched and undelivered, one is collected and actually attached, and one is
+collected then ended through public turnEnded before
+the real extension worker is stopped and started. Retain pre-stop native
+documents, durable `created-page` records and original scope. After restart,
+test old requests/handles before explicitly refreshing control, then verify
+fresh access still cannot inherit the children while the original committed
+background-window sources remain available. A stale-epoch error alone is
+insufficient: inspect current/durable ownership, native debugger state and
+original child documents before fixture cleanup.
+
+The existing background-window focus failure remains part of this run's
+overall result. Do not restore focus, approve its events or represent a
+successful authority sub-check as no-focus acceptance. Group-inherited children
+are not substitutes: that membership is intentionally recoverable and would
+exercise a different ownership contract. Preserve the original pre-restart
+observations and separate worker/Port generations; do not concatenate their
+sequence numbers into one invented stream.
+
+The real `MIrY1h` run completes this lifecycle sub-check: all three original
+claims pass committed → quarantine → removal in a persistent storage observer,
+old authority fails before explicit new turns, original documents remain, and
+fresh sources support read/rearm/cancel while children remain unowned. Host and
+endpoint are unchanged, so this is worker replacement, not host loss. Actual
+exit remains 1 due to native window focus and failed-run cleanup activation;
+no new event allowance is added. Fifteen cleanup steps and browser/host exits
+complete. Full native calls during startup are outside the two worker observers.
+
+The probe exposed a production idle/orphan recovery gap. Recovery now moves
+idle created-page quarantines through the closing barrier and retires claims
+whose idle ledger was evicted. Explicit bootstrap retries failed exact cleanup
+before creating new control. Old source yields 4/11 and fixed source 11/11 on
+the same deterministic cases; all JavaScript suites pass 2206/2206. Focus and
+remaining lifecycle gates stay open. Ordinary regression `EIJz4r` passes all
+125 cases in their previous order, actual exit 0, with only the existing twelve
+activation and four control-popup focus allowances over 242172 ms. This does
+not replace the failed opt-in scene. See the [recovery evidence](../../references/created-page-waits.md#created-page-worker-recovery).
+
 ## Relevant implementation
 
 - `apps/chrome-extension/background.js`, `auxiliary-tab-ownership.js`

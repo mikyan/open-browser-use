@@ -2061,6 +2061,26 @@ native控制观察器。原Promise/参数/错误保持，观察器只加入隔�
 21项清理及browser/host实际exit0，Node111/111零skip/cancel。生产/SDK/
 host及旧preview未改；OOPIF、正常finalize和全六例未通过，不记整体成功。
 
+### 新页 idle 与 orphan 恢复
+
+生产恢复此前只处理active/closing ledger，公开turnEnded/handoff留下的
+created-page会在worker加载时隔离，却缺少idle清理；idle ledger淘汰还会
+留下无record的隔离记录。现在idle沿用closing屏障，orphan按确切claim清理，
+失败保留隔离且显式bootstrap在建新控制记录前重试。未恢复旧权限或关闭原页。
+同11后端场景旧源4通过/7失败，修复后全过；Node2206/2206零skip/cancel。
+
+真实worker专项`MIrY1h`验证matched/collected/ended-idle三个原生未owned子页。
+原worker target实际替换，host/endpoint不变；持续storage observer交付三原claim
+committed→quarantined→removed。旧scope探测全部先于fresh begin，源页可读/
+重臂/取消而child仍拒绝；六原文档保持，零child输入/POST。两个worker的原
+RPC分别71/71与52/52，startup native调用不在两observer覆盖范围内。
+专项仍actualexit1：原开页5focus及失败清理3activation/2focus保留，无新豁免；
+15项清理及browser/host实际exit0。host-loss/其他布局/完整生命周期继续开放，
+旧preview不变。独立专项审计545项通过但保留失败结论；完整普通`EIJz4r`
+125/125、actualexit0，原125名称顺序和12activation/4controlfocus豁免保持，
+242172ms原sentinel选择保持、高1222→1165。八Go helper/host原输入与二进制
+哈希重验，生产扩展从本次修复重新构建；普通回归不替代新页失败专项。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

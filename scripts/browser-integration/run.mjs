@@ -88,8 +88,8 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const createdPageProof = process.env.OBU_TEST_CREATED_PAGES;
-if (createdPageProof !== undefined && !["provenance", "ready", "five-entry", "unowned"].includes(createdPageProof))
-  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready, five-entry, unowned or unset");
+if (createdPageProof !== undefined && !["provenance", "ready", "five-entry", "unowned", "worker-restart"].includes(createdPageProof))
+  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready, five-entry, unowned, worker-restart or unset");
 if (createdPageProof === "five-entry" && !process.env.OBU_TEST_GO_CREATED_PAGE_BINARY)
   throw new Error("Set OBU_TEST_GO_CREATED_PAGE_BINARY for five-entry created pages");
 if (createdPageProof && ["OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
@@ -439,7 +439,7 @@ try {
   // The optional clipboard fixture can hold an actual scope check. Expose the
   // instance only in this isolated staged build, never in a production package.
   const clipboardTestHook = memoryClipboard ? "\nglobalThis.__integrationClipboardBackend = backend;\n" : "";
-  const createdPageTestHook = createdPageProof === "unowned" ? "\nglobalThis.__integrationBackend = backend;\n" : "";
+  const createdPageTestHook = ["unowned", "worker-restart"].includes(createdPageProof) ? "\nglobalThis.__integrationBackend = backend;\n" : "";
   // Preserve the original release failure before a subsequent Pause clears it.
   // This staged-only observer returns the exact production promise and does
   // not change synchronous ordering, admission, or cleanup outcomes.
@@ -483,6 +483,8 @@ try {
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   if (createdPageProof) {
+    if (createdPageProof === "worker-restart") sourceIdentity.testHooks.push("created page worker restart: three natural unowned root children in matched/collected/ended-idle states; original adoption and pre/post-worker native control/RPC observers; persistent session-storage onChanged observer; real ServiceWorker stop/start, same host and explicit client beginTurn. Existing focus failures are retained through lifecycle observation and fail the final unchanged ledger gate; no added focus allowance, child replacement or input replay");
+    else
     sourceIdentity.testHooks.push(createdPageProof === "unowned" ? "created page unowned: staged backend reference and bounded passive original adoption/tabs.get/storage/auxiliary ACK observers; natural public backgroundWindow sources, exact creation and finalization successor activation allowances; matched cancellation and collected finalization; no synthetic child, ungrouping, explicit claim, focus restoration or replay" : createdPageProof === "five-entry" ? "created page five-entry: JS/Python/Go/CLI/MCP, two all-caller barriers, bounded passive native event and actual native RPC observers; same original workflow deadline; no synthetic child, explicit claim, focus restoration or replay" : createdPageProof === "ready" ? "created page readiness: public JS expectPage and result Tab, passive native event observer independently verifies exact original child identity; original Control-click, no synthesized child, explicit claim, focus restoration or replay" : "created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
     for (const name of ["created-page-fixture.mjs", "created-page-provenance.mjs"])
       sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -1288,14 +1290,15 @@ try {
       fixtureURL, server: createdPageFixtures, saveDetail: value => fs.writeFile(path.join(runDir, "created-page-five-entry.json"), JSON.stringify(value, null, 2))
     });
   });
-  if (createdPageProof === "unowned") await test("js-created-page-unowned", async () => {
-    for (const name of ["created-page-unowned.mjs", "created-page-unowned-wire.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "created-page-wire.mjs"])
+  if (["unowned", "worker-restart"].includes(createdPageProof)) await test("js-created-page-unowned", async () => {
+    for (const name of ["created-page-unowned.mjs", "created-page-unowned-wire.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "created-page-wire.mjs", "created-page-worker-restart.mjs"])
       sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
     return checkCreatedPageUnowned({
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: suffix, turnId: "created-unowned-original", timeoutMs: 20000 }),
       getWorker: () => worker, recorderFor: backgroundWindowRecorder, readNative: readBackgroundWindowState, readFocus: readFocusLedger,
       focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents,
       connectionState: () => ({ generation: nativeBridge.current.record.generation, hostPid: nativeBridge.host.pid, endpoint: nativeBridge.endpoint }),
+      ...(createdPageProof === "worker-restart" ? { restartWorker: restartObservedWorker, persistentEvaluate: expression => focusObserver.evaluate(expression) } : {}),
       fixtureURL, server: createdPageFixtures, saveDetail: value => fs.writeFile(path.join(runDir, "created-page-unowned.json"), JSON.stringify(value, null, 2))
     });
   });
@@ -2662,8 +2665,16 @@ try {
     return traceFocus;
   }
   async function restartObservedWorker() {
+      const focusFailures = [];
+      const verifyFocus = (snapshot, phase) => {
+        try { focusLedger.assertAllowed(snapshot, allowedPopupActivations, allowedWindowFocusEvents); }
+        catch (error) {
+          if (createdPageProof !== "worker-restart") throw error;
+          focusFailures.push({ phase, error: error.stack ?? String(error), snapshot });
+        }
+      };
       const before = await readFocusLedger();
-      focusLedger.assertAllowed(before, allowedPopupActivations, allowedWindowFocusEvents);
+      verifyFocus(before, "before-worker-restart");
       const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
       const oldTarget = targets.find(target => target.type === "service_worker" && target.url === `chrome-extension://${extensionId}/background.js`);
       await focusObserver.call("ServiceWorker.enable");
@@ -2676,11 +2687,12 @@ try {
       worker = await workerConnection(restarted.webSocketDebuggerUrl);
       await until(() => nativeBridge.socket !== priorSocket && nativeBridge.socket?.readyState === WebSocket.OPEN, "paused restarted native adapter");
       const after = await readFocusLedger();
-      focusLedger.assertAllowed(after, allowedPopupActivations, allowedWindowFocusEvents);
+      verifyFocus(after, "after-worker-restart");
       // Only derive a report of this interval. Never overwrite, concatenate or
       // deduplicate the authoritative observer's full delivery history.
       const delta = after.events.slice(before.events.length);
       return { oldTarget: oldTarget.id, restartedTarget: restarted.id, observerIdentity: after.identity,
+        focusFailures,
         beforeSequence: before.events.length, afterSequence: after.events.length,
         activeEvents: delta.filter(event => event.kind === "activation").map(event => event.value),
         windowFocusEvents: delta.filter(event => event.kind === "focus").map(event => event.value) };

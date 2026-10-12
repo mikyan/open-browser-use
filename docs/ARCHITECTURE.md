@@ -23,6 +23,8 @@ debugger、history 和 tab groups。
   新页等待由独立 `browser-page-waits.js` 与 `browser-page-frames.js` 管理原期限、
   原生来源事件及 frame/document 生命周期，backend 只接纳确切子页且保留原窗口。
   接口和归属边界见[新页等待](references/created-page-waits.md)。
+  Worker 恢复撤销 created-page 旧权限；idle 会话沿用 closing 清理屏障，
+  已被 ledger 淘汰的隔离记录按确切 claim 清理，失败由显式 bootstrap 重试。
 - `cmd/open-browser-use/`：Go native messaging host 和 CLI 主入口。二进制
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。

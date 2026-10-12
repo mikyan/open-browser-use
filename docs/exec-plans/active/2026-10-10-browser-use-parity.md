@@ -21,6 +21,13 @@
 
 ## 当前并行切片
 
+2026-10-12 修复新页idle/orphan重启清理：任务结束或idle ledger淘汰后，
+原created-page隔离记录仍须精确撤权并支持失败重试。旧源11例7失败，修复
+11/11；Node2206/2206，完整普通`EIJz4r`125/125 actualexit0，原名称顺序及
+12activation/4controlfocus豁免保持。真实`MIrY1h`三root状态跨worker生命周期成立，
+host保持；原开页focus使专项仍actualexit1，不扩写为后台体验通过。
+详细证据与后续矩阵见[新页恢复](../../references/created-page-waits.md#created-page-worker-recovery)。
+
 2026-10-12 未owned新页专项保留真实失败：`n7WyEq`1/2、actualexit1。
 root首次接管、matched取消和失败清理持久撤权已得到原生/实际RPC证据；
 Control-click在mouseReleased请求后激活背景源窗口，早于adoption，不能以

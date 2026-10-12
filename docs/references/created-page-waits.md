@@ -62,8 +62,13 @@ attempt that actually settled and failed, never an in-flight operation or the
 original adoption. Auxiliary storage version 4 reads older versions and saves
 the new kind. After worker restart all persisted `created-page` records are
 quarantined for exact cleanup, including previously delivered pages, rather than
-reconstructing authorization from child IDs. Real worker/host-loss acceptance
-remains part of the open plan.
+reconstructing authorization from child IDs. Idle sessions enter the existing
+closing barrier when they retain such a quarantine. Created-page claims whose
+idle control record was evicted are also retired without recreating that record;
+failed cleanup retains quarantine and explicit same-session bootstrap retries
+it before creating new control. Original background-window source claims remain
+recoverable. Real root-worker evidence is below; host loss and the wider
+lifecycle matrix remain open.
 
 The global pause snapshot lists only source tabs bound to verified control,
 not unvalidated reservations or candidate IDs awaiting admission. Only the
@@ -291,6 +296,63 @@ that failed draft is retained, and the corrected report follows v3's original
 sequence rather than changing the run. Full acceptance still requires the
 unreached layouts, normal finalization and remaining lifecycle failures.
 
+## Created-page worker recovery
+
+The production recovery path previously handled active/closing control records
+only. A delivered child could survive public turn end or handoff with an idle
+record, then remain quarantined indefinitely after worker replacement. Idle
+ledger eviction could leave the same quarantine without any control record.
+Eleven deterministic backend cases run against the old production source yield
+four passes and seven failures; the fixed source passes all eleven. Native
+cleanup and storage-removal failures stay fenced and can be explicitly retried.
+Existing blocked-input and foreign-owner protections remain in place; the
+foreign-owner fixture does not certify a real third-party debugger session.
+
+`OBU_TEST_CREATED_PAGES=worker-restart` checks three natural unowned root children:
+one collected and attached, one matched but undelivered, and one collected then
+ended through public `turnEnded()`. Isolated Chromium `MIrY1h` replaces the real
+worker target while retaining the same host process, endpoint and generation.
+The persistent extension-page storage observer records all three original claims
+changing committed → quarantined → removed. These are original `onChanged`
+deliveries, not the original `storage.set()` Promise acknowledgements.
+
+All three original source and child documents survive. Old-scope requests are
+tested before any explicit new turn; collection reports EXPIRED and cancel/
+attachment report STALE. The idle typed handle was already invalidated by turn
+end and is not separate evidence of worker loss. Fresh turns retain only the
+original sources, reject child attachment, and can read/rearm/cancel on those
+sources. No child input or business POST is sent. Two collected-child nonces are
+joined to original server HTML bytes; the undelivered child's nonce is not read.
+
+Pre/post-worker RPC streams remain separate, with 71/71 and 52/52 request/reply
+pairs. Their 213 and 63 native calls include six and nine rejected settlements;
+they are not all successful calls. Native observers are stopped before restart and reinstalled after worker
+reconnection; they do not cover every native call during startup recovery.
+Storage and focus observation remain continuous. The original 20-second action
+budget is not renewed. A separate 30-second restart/observation budget checks
+before and after helper calls; internal restart waits retain their own bounds,
+so this is not a strict per-RPC launch cutoff or native cancellation guarantee.
+
+The lifecycle sub-check passes, but the run has actual exit 1. Five business
+focus events from native child creation remain failures; failure cleanup adds
+three child-successor activations and two focus events without new allowances.
+All fifteen cleanup steps succeed, six fixture tabs and three source windows
+are absent, observer listeners are removed, and browser/host actually exit 0.
+This does not close background-window focus, host-loss, OOPIF or full lifecycle
+acceptance. All relevant JavaScript suites pass 2206/2206 with no skips or
+cancellations. Published preview archives are unchanged.
+
+The independent audit checks 545 conditions against the original artifacts and
+retains that failed overall result. Ordinary regression `EIJz4r` separately
+passes **125/125, actual exit 0**, preserving the previous names and order.
+Its 242172 ms observer interval has only the existing twelve activation and four
+control-popup focus allowances. The selected sentinel identity remains the same;
+its height changes from 1222 to 1165. The eight Go helpers and native host are
+reused only after checking their build inputs and binary hashes; the production
+extension is freshly staged from this fix. This ordinary pass cannot replace
+the failed opt-in background-window scene or certify orphan/failure-retry paths
+in a real browser.
+
 ## Earlier native feasibility evidence
 
 Windows isolated Chromium run `FjJons` completed **2/2, actual exit 0**: the
@@ -350,7 +412,7 @@ listening handler; the corrected test compares with a normal successful bind.
 
 ## Remaining work
 
-Complete unowned-child adoption and extend overlapping/unrelated creation,
+Complete the unowned-child layout/focus matrix and extend overlapping/unrelated creation,
 source/frame navigation, child movement/
 closure, cancellation, deadline, pause and worker/host-loss browser cases beyond
 the deterministic unit coverage. Ordinary window.open foreground

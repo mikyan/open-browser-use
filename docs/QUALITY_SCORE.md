@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+修复 created-page 在 idle/已淘汰 ledger 后的重启清理缺口；同11后端用例旧源
+4通过/7失败，修复后11通过。隔离`MIrY1h`三种root状态的真实worker替换、
+原claim隔离→删除、旧权限拒绝及fresh来源可用已验；host未重启。原文档保留，
+零child输入/POST；15清理项和browser/host实际exit0。专项仍因5业务focus与
+失败清理事件actualexit1，无新豁免。Node2206/2206；完整普通`EIJz4r`125/125、
+actualexit0，原名称顺序不变，242172ms仅原12activation/4controlfocus允许事件。
+旧preview不变；完整生命周期和P01–P15未完成。见[重启恢复](references/created-page-waits.md#created-page-worker-recovery)。
+
 未owned新页专项`n7WyEq` **1/2、actualexit1**，之前`ozpg7l`/`7GbZtP`同样失败。
 两个root原生child首次辅助接管、matched取消与失败清理后的持久撤权已验；
 原鼠标释放请求后发生窗口focus，早于adoption，但与ACK先后不固定。188调用未见显式

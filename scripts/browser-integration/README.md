@@ -2,6 +2,27 @@
 
 ## Native created-page provenance
 
+`OBU_TEST_CREATED_PAGES=worker-restart` uses the same prerequisites and three
+natural unowned root children: collected/attached, matched/undelivered, and
+collected then publicly ended/idle. It replaces the real service worker target,
+keeps the same host and endpoint, tests all old scopes before explicit new turns,
+and verifies original documents, durable authority removal and usable sources.
+A persistent extension-page storage observer follows the original claims through
+quarantine and deletion. Its events are delivery evidence, not storage Promise
+ACKs. Worker-native and RPC streams are retained separately before and after
+replacement; startup recovery is outside those native observers.
+
+Run `node scripts/browser-integration/run.mjs` with this mode set. Results stay
+in `created-page-unowned.json`, including `workerRestart`, both worker streams,
+the continuous storage chain and actual cleanup. The original 20s action budget
+is followed by a separate 30s restart/observation budget. Checks surround helper
+calls; internal restart RPC waits retain their own bounds and are not cancelled.
+`MIrY1h` verifies all three lifecycle paths but exits 1 because original child
+creation changes window focus. Focus errors are retained while observing
+recovery, then fail the unchanged final gate. Failure cleanup has no new focus
+or successor-activation allowance. This is neither host-loss acceptance nor a
+passed background-window scene. See [worker recovery](../../docs/references/created-page-waits.md#created-page-worker-recovery).
+
 `OBU_TEST_CREATED_PAGES=unowned` uses public `newTab({backgroundWindow:true})`
 sources and natural Control-click children. Two independent owners exercise
 root, existing OOPIF and future OOPIF. One owner collects and submits a child

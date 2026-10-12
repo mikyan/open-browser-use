@@ -6,6 +6,7 @@ import { installCreatedPageWireObserver } from "./created-page-wire.mjs";
 import { assertCreatedPageUnownedWire } from "./created-page-unowned-wire.mjs";
 import { installCreatedPageNativeControlObserver } from "./created-page-native-control.mjs";
 import { checkBackgroundWindowSuccessor } from "./background-window-fixture.mjs";
+import { checkCreatedPageWorkerRestart } from "./created-page-worker-restart.mjs";
 
 const scopeOf = browser => ({ session_id: browser.client.sessionId, turn_id: browser.client.turnId, control_epoch: browser.client.controlEpoch });
 const errorText = error => error?.stack ?? String(error);
@@ -26,10 +27,14 @@ export function assertCreatedPageRevoked({ snapshot, item, tabs }) {
 }
 
 export async function checkCreatedPageUnowned({ connectBrowser, getWorker, recorderFor, readNative, readFocus, focusLedger,
-  allowedActivations, allowedFocus, connectionState, fixtureURL, server, saveDetail = async () => {}, detail = {} }) {
+  allowedActivations, allowedFocus, connectionState, fixtureURL, server, restartWorker, persistentEvaluate,
+  saveDetail = async () => {}, detail = {} }) {
   const owners = [], sources = new Map(), waits = new Map();
+  const variants = restartWorker ? ["root"] : ["root", "oopif", "dynamic-oopif"];
+  const outcomes = restartWorker ? ["collect-restart", "matched-restart", "idle-restart"] : ["collect-finalize", "cancel-matched"];
   let nativeInstalled = false, wireInstalled = false, adoptionInstalled = false, nativeControlInstalled = false, failure;
   Object.assign(detail, { boundary: "Natural Control-click children of public backgroundWindow sources; passive original adoption/Chrome acknowledgements. Matched cancellation and collected finalization preserve the child but retire authority. Native source/document reads are observational, not atomic event-document binding. Exact background creation and successor activation allowances are recorded; no focus restoration.", cases: [], groups: [], cleanup: [] });
+  if (restartWorker) detail.boundary = "Three natural unowned root children, matched/collected/ended-idle before real worker restart; original child and source documents, persistent storage transitions, old and explicit fresh scope probes. Lifecycle results are separate from the unchanged final focus gate; no input replay, child replacement or focus allowance.";
   const evaluate = expression => getWorker().evaluate(expression);
   const frames = tabId => evaluate(`chrome.webNavigation.getAllFrames({tabId:${tabId}})`);
   const read = async (target, deadline, selector = "#state") => {
@@ -90,18 +95,18 @@ export async function checkCreatedPageUnowned({ connectBrowser, getWorker, recor
     return result;
   };
   try {
-    for (const variant of ["root", "oopif", "dynamic-oopif"])
-      for (const outcome of ["collect-finalize", "cancel-matched"]) owners.push(await connectBrowser(`created-unowned-${variant}-${outcome}`));
+    for (const variant of variants)
+      for (const outcome of outcomes) owners.push(await connectBrowser(`created-unowned-${variant}-${outcome}`));
     detail.connectionBefore = connectionState();
     detail.nativeControlObserver = await evaluate(`(${installCreatedPageNativeControlObserver.toString()})(chrome,globalThis)`); nativeControlInstalled = true;
     detail.nativeObserver = await evaluate(`(${installCreatedPageObserver.toString()})(chrome,globalThis)`); nativeInstalled = true;
     const options = { sessions: owners.map(browser => browser.client.sessionId) };
     detail.adoptionObserver = await evaluate(`(${installCreatedPageAdoptionObserver.toString()})(__integrationBackend,chrome,globalThis,${JSON.stringify(options)})`); adoptionInstalled = true;
     detail.wireObserver = await evaluate(`(${installCreatedPageWireObserver.toString()})(chrome,globalThis,${JSON.stringify({ ...options, generation: detail.connectionBefore.generation })})`); wireInstalled = true;
-    for (const [variantIndex, variant] of ["root", "oopif", "dynamic-oopif"].entries()) {
+    for (const [variantIndex, variant] of variants.entries()) {
       const group = []; detail.groups.push({ variant, items: [] }); const groupDetail = detail.groups.at(-1);
-      for (const [offset, outcome] of ["collect-finalize", "cancel-matched"].entries()) {
-        const browser = owners[variantIndex * 2 + offset], record = server.createCase({ owner: `${variant}-${outcome}`, variant });
+      for (const [offset, outcome] of outcomes.entries()) {
+        const browser = owners[variantIndex * outcomes.length + offset], record = server.createCase({ owner: `${variant}-${outcome}`, variant });
         // Establish the public scope before recording window creation.
         await browser.client.getInfo(); await browser.client.beginTurn(`unowned-${variant}-${outcome}`);
         const recorder = recorderFor(browser), tab = await recorder.createTab();
@@ -167,8 +172,50 @@ export async function checkCreatedPageUnowned({ connectBrowser, getWorker, recor
         item.childFramesBefore = await waitFor(async () => { const value = await frames(item.childId); return value.some(frame => frame.frameId === 0 && frame.url === item.childURL && frame.documentId) ? value : null; }, deadline, "Original native child document not committed");
         item.childFrame = item.childFramesBefore.find(frame => frame.frameId === 0); assert.ok(item.childFrame?.documentId);
       }
-      assert.notEqual(group[0].item.childId, group[1].item.childId);
-      for (const [index, { browser, item }] of group.entries()) item.foreignAttach = await rejected(() => group[1-index].browser.client.request("attach", { tabId: item.childId }, { timeoutMs: 2000 }), unowned);
+      assert.equal(new Set(group.map(({ item }) => item.childId)).size, group.length);
+      for (const [index, { item }] of group.entries()) item.foreignAttach = await rejected(() => group[(index + 1) % group.length].browser.client.request("attach", { tabId: item.childId }, { timeoutMs: 2000 }), unowned);
+      if (restartWorker) {
+        detail.workerRestart = {};
+        await checkCreatedPageWorkerRestart({ group, waiters: waits, deadline, evaluate, frames, ownership,
+          restartWorker, persistentEvaluate, readSource: read, detail: detail.workerRestart,
+          onBeforeRestart: async () => {
+            detail.adoption = await evaluate("__createdPageAdoption.stop()"); adoptionInstalled = false;
+            detail.adoptionChecks = assertCreatedPageAdoption({ snapshot: detail.adoption, items: detail.cases.map(item => ({ ...item, sessionId: item.scope.session_id, turnId: item.scope.turn_id, controlEpoch: item.scope.control_epoch })) });
+            detail.wire = await evaluate("__createdPageWire.stop()"); wireInstalled = false;
+            detail.trace = await evaluate("__createdPageProvenance.stop()"); nativeInstalled = false;
+            detail.nativeControl = await evaluate("__createdPageNativeControl.stop()"); nativeControlInstalled = false;
+            detail.beforeRestartObservers = { wire: detail.wire, nativeControl: detail.nativeControl };
+            for (const snapshot of [detail.wire, detail.nativeControl]) {
+              assert.equal(snapshot.closed, true); assert.equal(snapshot.restored, true);
+              assert.equal(snapshot.overflow, false); assert.deepEqual(snapshot.errors, []);
+            }
+            assert.deepEqual(detail.wire.pendingIds, []); assert.deepEqual(detail.nativeControl.pendingOperations, []);
+            assert.equal(detail.nativeControl.listenersRemoved, true); assert.equal(detail.trace.listenerPresent, false);
+          },
+          onAfterRestart: async () => {
+            detail.connectionAfterRestart = connectionState(); assert.deepEqual(detail.connectionAfterRestart, detail.connectionBefore);
+            detail.restartedWireObserver = await evaluate(`(${installCreatedPageWireObserver.toString()})(chrome,globalThis,${JSON.stringify({ ...options, generation: detail.connectionAfterRestart.generation })})`); wireInstalled = true;
+            detail.restartedNativeControlObserver = await evaluate(`(${installCreatedPageNativeControlObserver.toString()})(chrome,globalThis)`); nativeControlInstalled = true;
+          }
+        });
+        const stats = server.allStats();
+        assert.equal(stats.children.length, 3); assert.equal(stats.children.flatMap(child => child.posts).length, 0);
+        for (const { item } of group) {
+          const nonce = item.workerRestart?.childBefore?.documentNonce;
+          if (nonce) {
+            const matches = stats.children.filter(child => child.nonce === nonce); assert.equal(matches.length, 1);
+            item.restartChildHTML = matches[0];
+            const bytes = Buffer.from(matches[0].html.base64, "base64");
+            assert.equal(bytes.length, matches[0].html.bytes); assert.equal(createHash("sha256").update(bytes).digest("hex"), matches[0].html.sha256);
+            assert.ok(bytes.includes(Buffer.from(nonce)));
+          }
+        }
+        groupDetail.finishedAt = Date.now();
+        // Lifecycle evidence never waives a focus failure from native creation
+        // or restart. Preserve the full persistent ledger as the final gate.
+        focusLedger.assertAllowed(await readFocus(), allowedActivations, allowedFocus);
+        break;
+      }
       for (const { browser, item } of group) {
         const waiter = waits.get(item.key);
         if (item.outcome === "collect-finalize") {
@@ -217,6 +264,7 @@ export async function checkCreatedPageUnowned({ connectBrowser, getWorker, recor
       }
       groupDetail.finishedAt = Date.now();
     }
+    if (!restartWorker) {
     detail.adoption = await evaluate("__createdPageAdoption.stop()");
     detail.adoptionChecks = assertCreatedPageAdoption({ snapshot: detail.adoption, items: detail.cases.map(item => ({ ...item, sessionId: item.scope.session_id, turnId: item.scope.turn_id, controlEpoch: item.scope.control_epoch })) });
     detail.wire = await evaluate("__createdPageWire.stop()");
@@ -225,6 +273,7 @@ export async function checkCreatedPageUnowned({ connectBrowser, getWorker, recor
     detail.connectionAfter = connectionState(); assert.deepEqual(detail.connectionAfter, detail.connectionBefore);
     const stats = server.allStats(); assert.equal(stats.children.length, 6); assert.equal(stats.children.flatMap(child => child.posts).length, 3);
     assert.equal(stats.children.filter(child => child.posts.length === 0).length, 3);
+    }
   } catch (error) { failure = error; detail.error = errorText(error); }
   finally {
     const cleanup = async (kind, identity, operation) => {
