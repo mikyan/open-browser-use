@@ -269,6 +269,54 @@ remaining lifecycle gates stay open. Ordinary regression `EIJz4r` passes all
 activation and four control-popup focus allowances over 242172 ms. This does
 not replace the failed opt-in scene. See the [recovery evidence](../../references/created-page-waits.md#created-page-worker-recovery).
 
+## Native host disconnect work
+
+The previous checkpoint is verified progress (production fix, real worker
+replacement, ordinary 125-case regression and pushed commit `619bf9f`). The next
+scene uses the browser's real Native Messaging launcher rather than the test
+WebSocket Port adapter. Keep the worker target/context alive, match one natural
+unowned root child without collecting it, then terminate the exact private host
+after verifying executable, process creation time and browser ancestry.
+
+Observe the original wait's connection-lost error and exact admission cleanup
+while its original deadline is still live, before waiting for automatic host
+reconnection. A delayed observation after the original timeout is insufficient.
+Retain source/child documents, old endpoint unavailability and the replacement
+host identity. Explicit fresh control must not inherit the cancelled child;
+the source must remain usable. Existing native popup focus failures still fail
+the overall scene, and no replacement child or compensating focus is permitted.
+
+Source audit found a separate reproducible failure: a settled failed page-wait
+cleanup can leave native recovery repeatedly draining the same rejected Promise
+even after the obstruction is removed. Backend counterexamples precede a minimal
+explicit-bootstrap retry. Only failed, settled cleanup may retry under the
+already-established native recovery fence; no adoption, input or in-flight
+cleanup is restarted. Delivered committed pages have a different host-loss
+contract from worker replacement and are not silently reclassified by this fix.
+
+The real Native Messaging run `9QWc6h` now verifies this matched-undelivered
+checkpoint with the same worker target/context/boot and a different host PID
+and named pipe. Original cleanup completes with 18558 ms still remaining;
+old scope and socket access fail, fresh source read/rearm/cancel succeeds, and
+the child remains unowned. Both original documents and source/child native
+window/group/pinned fields are retained. This is normal successful cleanup,
+not a real-browser injection of the settled failure/retry case. That fix has
+seven backend tests: old source passes three and fails four, fixed source
+passes seven. All JavaScript suites pass 2226/2226 without skips/cancellations.
+
+Overall `9QWc6h` remains actual exit 1: one business focus, two cleanup focus
+events and one child-successor activation are not newly allowed. Eleven helper
+cleanup steps pass, the browser exits 0, exact private browser/host processes
+are absent and the owned temporary registry leaf is removed. The force-killed
+host's stale descriptor is retained in the private fixture directory; do not
+claim an empty descriptor inventory or a successful no-focus scene.
+
+The subsequent complete ordinary regression `h6a5W4` passes 125/125, actual exit
+0, with the same names/order and existing twelve activation/four control-popup
+focus allowances. It checks the production fix without substituting for the
+failed native created-page scene. Full focus/layout and lifecycle requirements
+remain open; published preview archives are unchanged.
+
 ## Relevant implementation
 
 - `apps/chrome-extension/background.js`, `auxiliary-tab-ownership.js`

@@ -25,6 +25,9 @@ debugger、history 和 tab groups。
   接口和归属边界见[新页等待](references/created-page-waits.md)。
   Worker 恢复撤销 created-page 旧权限；idle 会话沿用 closing 清理屏障，
   已被 ledger 淘汰的隔离记录按确切 claim 清理，失败由显式 bootstrap 重试。
+  Native host 断开后的显式 bootstrap 同样重试已失败且已结算的新页清理，
+  在恢复屏障内等待完成；在途清理共享，旧输入与接管不重放。Host 丢失时，
+  已交付子页仍保留成员归属，不能等同于 worker 替换后的隔离撤权。
 - `cmd/open-browser-use/`：Go native messaging host 和 CLI 主入口。二进制
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。

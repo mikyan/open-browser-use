@@ -42,6 +42,16 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+Native host显式恢复现在可重试已结算的失败新页清理；同7后端例旧3通过/4失败，
+修复后7通过，全部Node2226/2226。真实launcher`9QWc6h`验证同worker、不同
+host/pipe，matched未交付child原期限内撤权，原网页/窗口位置保留，旧权限
+拒绝和fresh来源可用。正常清理成功不等于实机失败retry已验；已交付child
+的host-loss成员保留契约也不同于worker替换。整体actualexit1，原生开页与
+清理的focus/activation失败不豁免；旧preview未更新，完整后台体验继续开放。
+另外完整普通`h6a5W4`125/125 actualexit0，保留原case名称顺序及已有
+12activation/4controlfocus允许事件，不替代上述失败专项。
+见[host断线证据](../references/created-page-waits.md#created-page-native-host-loss)。
+
 Created-page idle/orphan重启恢复缺口已修；旧源同11例4通过/7失败，新源11通过。
 真实worker专项`MIrY1h`验证matched/collected/ended-idle三root child旧权限
 撤销、原文档保留及fresh来源可用，持续storage可见原claim隔离→删除；

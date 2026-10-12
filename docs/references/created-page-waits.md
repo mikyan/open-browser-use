@@ -67,8 +67,17 @@ closing barrier when they retain such a quarantine. Created-page claims whose
 idle control record was evicted are also retired without recreating that record;
 failed cleanup retains quarantine and explicit same-session bootstrap retries
 it before creating new control. Original background-window source claims remain
-recoverable. Real root-worker evidence is below; host loss and the wider
-lifecycle matrix remain open.
+recoverable. Real root-worker and host-disconnect evidence is below; the wider
+lifecycle matrix remains open.
+
+Host disconnect in a surviving worker has a different contract from worker
+replacement. It invalidates an undelivered waiter and releases that wait's new
+child admission. A previously delivered child's committed membership survives,
+but its old control epoch and attachment do not. If undelivered cleanup settles
+with an error, ordinary work remains fenced; explicit control bootstrap retries
+that failed cleanup before admitting a new turn. Repeated disconnect signals
+and overlapping bootstraps do not duplicate an in-flight cleanup or replay
+adoption or input.
 
 The global pause snapshot lists only source tabs bound to verified control,
 not unvalidated reservations or candidate IDs awaiting admission. Only the
@@ -338,9 +347,10 @@ focus events from native child creation remain failures; failure cleanup adds
 three child-successor activations and two focus events without new allowances.
 All fifteen cleanup steps succeed, six fixture tabs and three source windows
 are absent, observer listeners are removed, and browser/host actually exit 0.
-This does not close background-window focus, host-loss, OOPIF or full lifecycle
-acceptance. All relevant JavaScript suites pass 2206/2206 with no skips or
-cancellations. Published preview archives are unchanged.
+This does not establish host-loss recovery, covered separately below, or close
+background-window focus, OOPIF or full lifecycle acceptance. All relevant
+JavaScript suites pass 2206/2206 with no skips or cancellations. Published
+preview archives are unchanged.
 
 The independent audit checks 545 conditions against the original artifacts and
 retains that failed overall result. Ordinary regression `EIJz4r` separately
@@ -352,6 +362,77 @@ reused only after checking their build inputs and binary hashes; the production
 extension is freshly staged from this fix. This ordinary pass cannot replace
 the failed opt-in background-window scene or certify orphan/failure-retry paths
 in a real browser.
+
+## Created-page native host loss
+
+A settled failed page-wait cleanup previously left native recovery repeatedly
+draining the same rejected Promise, even after the original obstruction was
+removed. Explicit bootstrap now establishes the native recovery fence, restarts
+only settled failed page cleanup, and joins its actual drain before allowing
+new control. Seven backend cases using simulated Chrome callbacks yield three
+passes and four failures against the old source, then seven passes with the fix.
+They cover native detach and storage deletion failures, repeated failures and
+overlapping bootstrap calls. These are deterministic failure-retry evidence,
+not real native-process termination.
+
+`OBU_TEST_NATIVE_MODE=created-page-host-loss` uses the separate real Native
+Messaging runner. Isolated Chromium `native-lifecycle-9QWc6h` matches one natural
+Control-click child of a public background-window source, leaves it undelivered,
+then terminates the exact private browser-launched host. The runner verifies
+the host executable and browser ancestry, then rechecks creation identity while
+holding the actual process handle. No WebSocket Native Port adapter is used.
+
+The same browser, worker target/context, worker boot and browser incarnation
+survive; the replacement host has a different PID and named pipe. Passive
+observation sees the original `OBU_NATIVE_CONNECTION_LOST` invalidation and
+exact child admission cleanup with **18,558 ms remaining** on its original
+20-second budget. This evidence is collected before the harness observes the
+replacement endpoint or opens its fresh SDK connection. The transport reconnects
+automatically: that observation order does not prove cleanup preceded the actual
+native reconnect. The old SDK rejects use and its old endpoint is unavailable.
+
+Before explicit bootstrap, old-scope attachment and cancellation return STALE;
+collection retains CONNECTION_LOST. The fresh scope enumerates the original
+source, rejects child attachment, and can read, re-arm and cancel on the source.
+Both original document IDs/URLs and their native window/group/pinned positions
+remain intact. The child auxiliary entry, owner and persisted record are absent,
+with no debugger attachment. No child attachment, Runtime command, input or POST
+is sent. The undelivered child's document nonce is not read, so its single server
+GET is not claimed as a nonce-joined document proof.
+
+The lifecycle sub-check is true, but **the complete run fails, actual exit 1**.
+Its ledger retains one business window-focus event, two cleanup window-focus
+events and one cleanup child-successor activation. Only the original source-tab
+creation activation has an existing allowance; no new focus or successor
+allowance is added. All 82 observed native calls remain visible: 76 fulfill and
+six reject. They are not an all-successful native command stream.
+
+All eleven cleanup entries succeed. Exact fixture tabs and their window are
+absent, passive observers are restored, the browser exits 0, observed private
+browser/host processes are gone, and the ownership-fenced registration leaf is
+removed. Forced termination leaves the old host descriptor in the private
+artifact directory; this is not a claim that all descriptors were removed.
+The detailed record is `native-created-page-loss-detail.json`, alongside
+`native-created-page-host-loss.json`, `created-page-server.json` and `results.json`
+in the run directory; the launch log's recorded exit is also 1.
+
+All relevant Node suites pass **2226/2226**, with no skips or cancellations.
+The real scene exercises successful cleanup after actual host loss; it does not
+establish real-browser failure-retry, delivered-child recovery, other layouts or
+full lifecycle acceptance. Separately, the fixed production source passes the
+complete ordinary suite `h6a5W4`: **125/125, actual exit 0**, with the same case
+names/order as `EIJz4r` and only the existing twelve activation and four control
+popup focus allowances over 237041 ms of continuous observer coverage. The
+selected sentinel retains its identity and selection;
+its height changes from 1222 to 1165. This ordinary pass does not replace the
+failed native created-page scene. The published preview archives remain unchanged.
+
+Independent artifact audits retain the native scene's failed overall result
+and the ordinary run's pass. The ordinary run's complete extension bytes and
+reused host/helper inputs and build metadata match the frozen checkpoint.
+Its replacement host exits 0 and the exact private profile/executable process
+inventory is empty. The ordinary runner has no separate Chromium graceful-close
+acknowledgement/exit-code artifact; process absence is not that stronger claim.
 
 ## Earlier native feasibility evidence
 

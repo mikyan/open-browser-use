@@ -21,6 +21,15 @@
 
 ## 当前并行切片
 
+2026-10-12 修复host断开后显式bootstrap只重复旧清理错误的恢复缺口。
+同7例旧源4失败、新源7通过；全部Node2226/2226。真实launcher`9QWc6h`
+的同worker matched未交付child撤权与fresh来源可用成立，原清理完成余18558ms。
+原生开页仍抢focus，整体actualexit1；未把正常清理扩写为实机失败重试。
+已交付child在host丢失后保留成员归属，另有确定性覆盖；全生命周期和后台
+体验保持未完成。完整普通`h6a5W4`125/125、actualexit0，原名称顺序与已有
+12activation/4controlfocus允许事件保持；不代替失败专项。
+详见[host断线](../../references/created-page-waits.md#created-page-native-host-loss)。
+
 2026-10-12 修复新页idle/orphan重启清理：任务结束或idle ledger淘汰后，
 原created-page隔离记录仍须精确撤权并支持失败重试。旧源11例7失败，修复
 11/11；Node2206/2206，完整普通`EIJz4r`125/125 actualexit0，原名称顺序及

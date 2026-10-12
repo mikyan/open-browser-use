@@ -2,6 +2,10 @@
 
 ## Native created-page provenance
 
+For real native-host termination with a surviving worker, use the separate
+`OBU_TEST_NATIVE_MODE=created-page-host-loss` mode of `native-lifecycle.mjs`
+[described below](#created-page-host-loss-mode). It is not a `run.mjs` mode.
+
 `OBU_TEST_CREATED_PAGES=worker-restart` uses the same prerequisites and three
 natural unowned root children: collected/attached, matched/undelivered, and
 collected then publicly ended/idle. It replaces the real service worker target,
@@ -856,10 +860,10 @@ or parent-transform projection. See the
 ## Real Windows native launcher lifecycle
 
 `native-lifecycle.mjs` tests the browser's actual `connectNative` launcher with
-an isolated profile and a unique temporary native-host registration. It covers
-host termination with held input and a pending action, native Port EOF during
-an actual extension reload, and reload while globally paused. The normal
-adapter suite below remains a separate regression requirement.
+an isolated profile and a unique temporary native-host registration. Its default
+`acceptance` mode covers host termination with held input and a pending action,
+native Port EOF during an actual extension reload, and reload while globally
+paused. The normal adapter suite below remains a separate regression requirement.
 
 Build the current host and set explicit browser paths before invoking it:
 
@@ -921,12 +925,17 @@ It records only ID/location/state/type, never account details or other extension
 contents. Any unexpected entry fails the run. Artifact construction also records
 focus, windows and the sentinel around each step without granting new allowances.
 
-Only the staged worker's unique native-host constant, public unpacked key and
-passive lifecycle listener differ from production. `connectNative` itself is
-unchanged. The independent companion observer survives extension reload and
-retains every activation/focus event; only explicit real Pause/Resume popup
-openings may receive exact focus allowances. Setup and final teardown are
-outside the measured interval.
+The default acceptance and idle modes change only the staged worker's unique
+native-host constant, public unpacked key and passive lifecycle listener.
+The created-page mode additionally exposes a staged backend reference for
+bounded original adoption/cleanup observation; production sources do not gain
+that reference. `connectNative` itself is unchanged in every mode. The independent
+companion observer survives extension reload and retains every activation/focus
+event. The original acceptance cases permit only exact explicit Pause/Resume
+popup focus allowances. The created-page mode adds no window-focus allowance;
+its source creation has the existing exact sole-tab activation allowance.
+Setup and final browser teardown are outside the measured interval; created-page
+fixture cleanup remains inside it.
 
 Before terminating a native host, the runner verifies its executable, creation
 time and live ancestry under the private browser, then retains the exact process
@@ -952,6 +961,54 @@ This suite does not certify signed extension updates, whole-browser restart,
 packed-extension alarm wakeup timing, other operating systems, or all browser
 brands. Deterministic scheduling tests separately reproduce the packed alarm's
 30-second minimum and heartbeat replacement race.
+
+### Created-page host loss mode
+
+Keep the same matching host/browser prerequisites above and select this separate
+one-case mode; the default three acceptance cases remain unchanged:
+
+```powershell
+$env:OBU_TEST_NATIVE_MODE = 'created-page-host-loss'
+node scripts/browser-integration/native-lifecycle.mjs
+```
+
+The runner creates one public background-window source and opens its original
+natural Control-click child. It observes the actual first unowned admission and
+matched, undelivered waiter, then kills only the identity-checked private native
+host. The worker stays alive. Passive wrappers retain original call arguments,
+Promise outcomes, exact claim identity and cleanup, without manufacturing a
+child, returning replacement promises, replaying input or restoring focus.
+The original 20-second deadline is not reset. Cleanup must be observed while
+that deadline remains live, before waiting for the replacement endpoint and
+opening a fresh SDK connection; this is not a claim that cleanup precedes the
+transport's independent automatic reconnect.
+
+The old SDK/epoch must reject; fresh explicit control must retain a usable source
+and deny the cancelled child. Native frame/document IDs and both pages' original
+window/group/pinned identities are checked again after recovery and source
+re-arm/cancel. No child DOM read, attachment or input is performed. The server
+must retain exactly one child and no business POST. Fixture tabs are removed
+only after these observations, with exact ID/URL checks and absence verification.
+
+This mode keeps the existing isolated profile, full extension inventories,
+random ownership-fenced HKCU registration and exact process teardown rules. The
+HTTP fixture binds loopback directly in the dynamic/private port range through
+`listenFixture`; browser port restrictions are not disabled. Its only additional
+staging exception is the backend reference described above. Evidence goes to
+`native-created-page-loss-detail.json`, `native-created-page-host-loss.json`,
+`created-page-server.json` and `results.json` in the unique native-lifecycle run
+directory.
+
+Run `native-lifecycle-9QWc6h` verifies this normal-cleanup lifecycle sub-check with
+18,558 ms remaining at the original cleanup acknowledgement, but **exits 1**:
+one business focus event and cleanup's two focus events/one successor activation
+fail the unchanged global gate. Only source creation's original activation is
+allowed. The 82 native calls include 76 fulfilled and six rejected outcomes;
+all eleven cleanup entries and process/registration teardown complete. The forced
+old-host descriptor remains in the private artifact directory. Do not interpret
+`lifecycleVerified:true` as overall acceptance or as real-browser validation of
+the separately unit-tested failed-cleanup retry fix. See
+[native host-loss evidence](../../docs/references/created-page-waits.md#created-page-native-host-loss).
 
 ### Recorded acceptance and remaining Edge focus issue
 

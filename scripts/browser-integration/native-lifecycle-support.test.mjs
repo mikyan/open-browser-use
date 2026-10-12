@@ -59,3 +59,17 @@ test("profile isolation inventories all states and only explicitly marked compon
   assert.throws(() => assertFixtureExtensionInventory([...fixtures, fixtures[0]], ["fixture", "observer"]), /duplicate/);
   assert.deepEqual(assertFixtureExtensionInventory([], []), { fixture: [], components: [] });
 });
+
+test("created-page native loss requires its exact scene, cleanup and unchanged focus gate", () => {
+  assert.equal(resolveNativeLifecycleMode("created-page-host-loss"), "created-page-host-loss");
+  const report = { mode: "created-page-host-loss", records: [{ name: "native-created-page-host-loss", passed: true }],
+    focus: { finalValidation: "passed" }, registrationCleanup: { removed: true }, nativeCleanup: {},
+    browserProcessesGone: {}, finalExtensionInventory: { passed: true }, extensionInventories: [{ passed: true }] };
+  assert.deepEqual(nativeLifecycleOutcome(report), { passed: true, exitCode: 0 });
+  for (const patch of [{ records: [] }, { records: [...report.records, ...report.records] },
+    { records: nativeLifecycleCases.map(name => ({ name, passed: true })) },
+    { records: [{ name: "native-created-page-host-loss", passed: false, detail: { lifecycleVerified: true } }] },
+    { focus: { finalValidation: "failed" } }, { registrationCleanup: { removed: false } },
+    { nativeCleanupError: "still running" }, { browserProcessCleanupError: "still running" }])
+    assert.deepEqual(nativeLifecycleOutcome({ ...report, ...patch }), { passed: false, exitCode: 1 });
+});

@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+修复 host 断开后显式恢复反复等待旧清理错误的问题；同7例旧源3通过/4失败，
+修复后7通过，全部Node2226/2226。真实Native Messaging专项`9QWc6h`验证
+同worker下matched未交付child及时撤权、旧连接/权限拒绝与fresh源页可用，
+原清理完成仍余18558ms。此场景未注入清理失败，不代替retry实机验证。
+原网页及窗口/组/pinned保持，11清理项通过；业务focus和清理activation/focus
+仍使整体actualexit1，无新豁免。完整后台体验未达标，旧preview未变。
+完整普通`h6a5W4`125/125、actualexit0，原125名称顺序与12activation/
+4controlfocus允许事件保持；不替代失败专项。
+见[host断线范围](references/created-page-waits.md#created-page-native-host-loss)。
+
 修复 created-page 在 idle/已淘汰 ledger 后的重启清理缺口；同11后端用例旧源
 4通过/7失败，修复后11通过。隔离`MIrY1h`三种root状态的真实worker替换、
 原claim隔离→删除、旧权限拒绝及fresh来源可用已验；host未重启。原文档保留，

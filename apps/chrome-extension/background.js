@@ -1089,12 +1089,18 @@ class BrowserBackend {
     return this.startNativeRecovery();
   }
 
-  startNativeRecovery() {
+  startNativeRecovery({ retryPageCleanup = false } = {}) {
     const recovery = { error: null, pending: true };
     // This assignment blocks every ordinary admission and CRX command before
     // cancellation, storage, or native cleanup reaches its first await.
     this.nativeRecovery = recovery;
+    // Only explicit bootstrap retries a cleanup attempt that actually failed.
+    // Restart it before invalidation captures its drain; an in-flight attempt
+    // remains unchanged, and no candidate adoption or original action replays.
+    const pageCleanup = retryPageCleanup ? this.pageWaits.retryFailedCleanup() : null;
+    pageCleanup?.catch(() => {});
     const cancelled = this.cancelGlobalControl(new Error("OBU_NATIVE_CONNECTION_LOST: native host disconnected"));
+    if (pageCleanup) cancelled.releases.push(pageCleanup);
     // A bootstrap may itself await this recovery. Its durability writes are
     // joined by invalidateAll below; awaiting its RPC here would self-deadlock.
     cancelled.pending = cancelled.pending.filter(pending => !this.controlBootstrapRequests.has(pending));
@@ -4336,7 +4342,7 @@ class BrowserBackend {
     await this.controlReady;
     this.automationControl.assertOpen();
     if (this.nativeRecovery) {
-      const recovery = this.nativeRecovery.pending ? this.nativeRecovery.promise : this.startNativeRecovery();
+      const recovery = this.nativeRecovery.pending ? this.nativeRecovery.promise : this.startNativeRecovery({ retryPageCleanup: true });
       await withTimeout(this.automationCleanupTimeoutMs, () => recovery,
         () => new Error("OBU_NATIVE_RECOVERY_PENDING: native control cleanup is still pending; no browser action was replayed"));
     }

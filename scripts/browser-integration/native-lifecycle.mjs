@@ -16,7 +16,11 @@ import { FocusLedger, focusArrays, focusSnapshotExpression, readFocusEvidence } 
 import { stageReloadObserver, reloadLifecycleRecorderSource, reloadLifecycleSnapshotExpression } from "./extension-reload-support.mjs";
 import { assertNoNewFocusEvents, assertSamePopupDocument, popupUIReflectsStatus, restartFixtureHTML } from "./browser-restart-support.mjs";
 import { checkNativeHostRestart, lifecycleRecoveryFixture } from "./lifecycle-recovery-fixture.mjs";
-import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, nativeRegistrationSource, nativeTerminateSource, nativeWatchSource, resolveNativeLifecycleMode } from "./native-lifecycle-support.mjs";
+import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeCreatedPageCases, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, nativeRegistrationSource, nativeTerminateSource, nativeWatchSource, resolveNativeLifecycleMode } from "./native-lifecycle-support.mjs";
+import { createCreatedPageFixtures } from "./created-page-fixture.mjs";
+import { createBackgroundWindowRecorder } from "./background-window-fixture.mjs";
+import { checkNativeCreatedPageHostLoss } from "./native-created-page-loss.mjs";
+import { listenFixture } from "./fixture-listener.mjs";
 
 const mode = resolveNativeLifecycleMode(process.env.OBU_TEST_NATIVE_MODE);
 assert.equal(process.platform, "win32", "Real native lifecycle registration currently supports Windows only");
@@ -36,7 +40,7 @@ await fs.copyFile(sourceHost, host); await fs.cp(path.join(repo, "packages/open-
 const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(jsSnapshot, "index.js")));
 const nativeName = `com.openbrowseruse.lifecycle.n${randomBytes(12).toString("hex")}`;
 const records = [], hostGenerations = [], clients = new Set(), witnesses = [], browserLogs = [], diagnostics = [];
-const report = { scope: "Windows real browser native launcher, host termination and same-version unpacked runtime.reload; no native Port adapter; not signed update, full browser restart, other platforms or user profile", mode, runDir, browserName, profile, nativeName, expectedCases: mode === "acceptance" ? nativeLifecycleCases : [], records, hostGenerations, witnesses, diagnostics, startedAt: Date.now(), focus: { allowedActivations: [], allowedFocus: [] }, ...(mode === "idle-diagnostic" && { diagnostic: { complete: false, durationMs: nativeIdleDurationMs, samples: [], scope: "read-only idle post-install control; no SDK calls, browser actions, host termination or runtime.reload during observation; not lifecycle acceptance" } }) };
+const report = { scope: "Windows real browser native launcher, host termination and same-version unpacked runtime.reload; no native Port adapter; not signed update, full browser restart, other platforms or user profile", mode, runDir, browserName, profile, nativeName, expectedCases: mode === "acceptance" ? nativeLifecycleCases : mode === "created-page-host-loss" ? nativeCreatedPageCases : [], records, hostGenerations, witnesses, diagnostics, startedAt: Date.now(), focus: { allowedActivations: [], allowedFocus: [] }, ...(mode === "idle-diagnostic" && { diagnostic: { complete: false, durationMs: nativeIdleDurationMs, samples: [], scope: "read-only idle post-install control; no SDK calls, browser actions, host termination or runtime.reload during observation; not lifecycle acceptance" } }) };
 const hash = data => createHash("sha256").update(data).digest("hex"), delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const subprocessChildren = new Set();
 const save = (name, value) => fs.writeFile(path.join(runDir, name), JSON.stringify(value, null, 2));
@@ -83,7 +87,9 @@ async function cdp(url) {
 
 let child, childExit, control, worker, workerTarget, observer, observerTarget, companion, extensionId, endpoint, nativeExecutable, debugPort, fixtureURL, settingsManager, settingsManagerTarget, registryAttempted = false;
 const ledger = new FocusLedger(), endpointFile = path.join(temporary, "open-browser-use/active.json"), registryScript = path.join(runDir, "registry.ps1");
+const createdPages = createCreatedPageFixtures();
 const server = createServer((request, response) => {
+  if (createdPages.handle(request, response)) return;
   const url = new URL(request.url, "http://localhost"); response.setHeader("Cache-Control", "no-store");
   if (url.pathname === "/witness") { witnesses.push({ at: Date.now(), method: request.method, marker: url.searchParams.get("marker"), kind: url.searchParams.get("kind") }); response.end("ok"); return; }
   response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(url.pathname === "/lifecycle-recovery" ? lifecycleRecoveryFixture() : restartFixtureHTML(url));
@@ -282,10 +288,10 @@ async function pageState(tabId) {
   assert.equal(values.length, 1); assert.equal(values[0].frameId, 0); assert.equal(typeof values[0].documentId, "string"); return { ...values[0].result, documentId: values[0].documentId };
 }
 async function tabIdentity(tabId) { const tab = await worker.evaluate(`chrome.tabs.get(${tabId})`); const group = await worker.evaluate(`chrome.tabGroups.get(${tab.groupId})`); return { id: tab.id, url: tab.url, windowId: tab.windowId, groupId: tab.groupId, groupTitle: group.title, groupColor: group.color }; }
-async function runtimeIdentity() {
+async function runtimeIdentity({ checkFocus = true } = {}) {
   const lifecycle = await worker.evaluate(reloadLifecycleSnapshotExpression), contexts = await worker.evaluate("chrome.runtime.getContexts({contextTypes:['BACKGROUND']})"), marker = await worker.evaluate("chrome.storage.session.get('OPEN_BROWSER_USE_BROWSER_LIFETIME').then(value=>value.OPEN_BROWSER_USE_BROWSER_LIFETIME)");
   assert.equal(contexts.length, 1); assert.equal(lifecycle.overflow, false);
-  return { at: Date.now(), browserPid: child.pid, browserId: report.browserId, extensionId, extensionInstanceId: endpoint.info.metadata.extensionInstanceId, workerTarget, contextId: contexts[0].contextId, incarnation: marker.incarnation, lifecycle, host: endpoint, observerTarget, focus: await assertFocus() };
+  return { at: Date.now(), browserPid: child.pid, browserId: report.browserId, extensionId, extensionInstanceId: endpoint.info.metadata.extensionInstanceId, workerTarget, contextId: contexts[0].contextId, incarnation: marker.incarnation, lifecycle, host: endpoint, observerTarget, focus: await (checkFocus ? assertFocus() : focus()) };
 }
 async function reload(detail) {
   detail.before = await runtimeIdentity(); const targetStart = control.events.length;
@@ -378,16 +384,24 @@ try {
   report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).trim(), host: hash(await fs.readFile(host)), browser: hash(await fs.readFile(binary)), jsSDK: await hashes(jsSnapshot), harness: hash(await fs.readFile(fileURLToPath(import.meta.url))), support: hash(await fs.readFile(path.join(repo, "scripts/browser-integration/native-lifecycle-support.mjs"))) };
   report.sourceIdentity.dependencies = {};
   for (const name of ["lifecycle-recovery-fixture.mjs", "extension-reload-support.mjs", "browser-restart-support.mjs", "focus-ledger.mjs", "browser-startup.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
+  for (const name of ["native-created-page-loss.mjs", "created-page-fixture.mjs", "created-page-provenance.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "background-window-fixture.mjs", "fixture-listener.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
   report.sourceIdentity.buildScript = hash(await fs.readFile(path.join(repo, "scripts/build-chrome-extension.mjs")));
   await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
   const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), original = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
   assert.equal(background.split(original).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
-  await fs.writeFile(backgroundFile, reloadLifecycleRecorderSource + background.replace(original, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`));
+  let stagedBackground = background.replace(original, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`);
+  if (mode === "created-page-host-loss") {
+    const anchor = "const backend = new BrowserBackend({ webMcpGate });";
+    assert.equal(stagedBackground.split(anchor).length, 2);
+    stagedBackground = stagedBackground.replace(anchor, anchor + "\nglobalThis.__integrationBackend = backend;");
+  }
+  await fs.writeFile(backgroundFile, reloadLifecycleRecorderSource + stagedBackground);
   const manifestFile = path.join(extension, "manifest.json"), manifest = JSON.parse(await fs.readFile(manifestFile, "utf8")), cli = await fs.readFile(path.join(repo, "cmd/open-browser-use/main.go"), "utf8");
   const key = manifest.key ?? cli.match(/const betaExtensionPublicKey = "([^"]+)"/)?.[1]; assert.ok(key); manifest.key = key;
   extensionId = hash(Buffer.from(key, "base64")).slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(97 + parseInt(value, 16))); await fs.writeFile(manifestFile, JSON.stringify(manifest, null, 2));
   report.extensionId = extensionId; report.stagedExtensionHashes = await hashes(extension);
   report.stagingExceptions = ["unique native host-name constant", "public unpacked extension key", "passive native lifecycle listener only; production connectNative unchanged"];
+  if (mode === "created-page-host-loss") report.stagingExceptions.push("backend reference for bounded original page-wait/admission/cleanup observation; no Native Port adapter, manufactured child, focus restoration or replay");
   assert.deepEqual(Object.keys(report.productionExtensionHashes).filter(name => report.productionExtensionHashes[name] !== report.stagedExtensionHashes[name]).sort(), ["background.js", "manifest.json"]);
   companion = await stageReloadObserver({ directory: path.join(runDir, "observer-extension") }); report.observer = companion;
   const manifestPath = path.join(runDir, "native-host.json"); await subprocess(host, ["install-manifest", "--browser", browserName, "--extension-id", extensionId, "--path", host, "--output", manifestPath], { env });
@@ -397,7 +411,7 @@ try {
   await fs.writeFile(registryScript, nativeRegistrationSource); await fs.writeFile(path.join(runDir, "terminate-native.ps1"), nativeTerminateSource); await fs.writeFile(path.join(runDir, "watch-native.ps1"), nativeWatchSource);
   await save("registration.json", { Name: nativeName, Browser: browserName, Manifest: manifestPath, Owner: randomBytes(16).toString("hex") }); registryAttempted = true;
   report.registration = JSON.parse(await subprocess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", registryScript, "create"]));
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); fixtureURL = `http://127.0.0.1:${server.address().port}/`;
+  await listenFixture(server); fixtureURL = `http://127.0.0.1:${server.address().port}/`;
   const startup = browserStartupOptions([`--user-data-dir=${profile}`, "--remote-debugging-port=0", "--enable-unsafe-extension-debugging", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-background-networking", "--site-per-process", "--no-sandbox", "--enable-logging=stderr", "about:blank"], resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG)); report.startup = startup;
   report.environmentIsolation = { flags: ["--disable-sync", "--disable-background-networking"], scope: "same explicit private-profile test policy for Chrome and Edge; not a product configuration change", inventory: "complete extensions-manager list including disabled and terminated, projected to id/location/state/type only; setup and each case boundaries", allowedComponents: "only entries explicitly reported by the API with location COMPONENT", upstreamComponentVisibility: "ShouldDisplayInExtensionSettings normally hides component extensions, themes and non-unpacked hosted apps; no show-component-extension-options flag", primarySources: ["https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/extensions/api/developer_private/extension_info_generator.cc", "https://raw.githubusercontent.com/chromium/chromium/main/extensions/browser/ui_util.cc"] };
   child = spawn(binary, startup.args, { env, windowsHide: startup.windowsHide, stdio: ["ignore", "ignore", "pipe"] }); report.browserPid = child.pid;
@@ -410,12 +424,30 @@ try {
   observerTarget = (await control.call("Target.createTarget", { url: companion.url, background: true })).targetId;
   observer = await cdp((await until(async () => (await targets()).find(value => value.id === observerTarget), "independent observer target")).webSocketDebuggerUrl);
   await until(() => observer.evaluate("globalThis.__integrationFocusLedger?.snapshot().ready"), "independent observer initialized");
-  const firstFocus = mode === "acceptance" ? await assertFocus() : await focus();
-  if (mode === "acceptance") assert.deepEqual(firstFocus.events, []);
+  const firstFocus = mode !== "idle-diagnostic" ? await assertFocus() : await focus();
+  if (mode !== "idle-diagnostic") assert.deepEqual(firstFocus.events, []);
   report.focus.coverageStartedAt = firstFocus.at;
   console.log("HARNESS", JSON.stringify({ runDir, mode, browserName, browserPid: child.pid, hostPid: endpoint.pid }));
 
   if (mode === "idle-diagnostic") await observeIdle();
+  else if (mode === "created-page-host-loss") {
+    await runCase("native-created-page-host-loss", async detail => {
+      const readNative = () => worker.evaluate("(async()=>{const requestedAt=Date.now();const [tabs,windows,targets]=await Promise.all([chrome.tabs.query({}),chrome.windows.getAll({populate:false}),chrome.debugger.getTargets()]);return{requestedAt,completedAt:Date.now(),tabs,windows,targets}})()");
+      await checkNativeCreatedPageHostLoss({ connect, worker, fixtureURL, server: createdPages, detail,
+        recorderFor: browser => createBackgroundWindowRecorder({ browser, readNative, readFocus: focus, focusLedger: ledger,
+          allowedActivations: report.focus.allowedActivations, allowedFocus: report.focus.allowedFocus }),
+        identity: () => runtimeIdentity({ checkFocus: false }), readFocus: focus,
+        terminateHost: async () => {
+          const previous = endpoint, identity = await processIdentity(previous);
+          const identityFile = path.join(runDir, "created-page-kill-identity.json"); await fs.writeFile(identityFile, JSON.stringify(identity.process));
+          const killed = JSON.parse(await subprocess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(runDir, "terminate-native.ps1"), identityFile]));
+          return { previous, identity, killed };
+        },
+        reconnectHost: async previous => ({ old: await waitOldHostGone(previous, { cleanEOF: false }), next: await waitHost(previous, "created-page automatic native reconnect") }),
+        saveDetail: value => save("native-created-page-loss-detail.json", value)
+      });
+    });
+  }
   else {
   if (!await runCase("native-host-exit", async detail => {
     detail.before = await runtimeIdentity();
@@ -512,6 +544,7 @@ finally {
   if (registryAttempted && !subprocessChildren.size) { try { report.registrationCleanup = JSON.parse(await subprocess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", registryScript, "cleanup"])); } catch (error) { report.registrationCleanupError = error.message; } }
   else if (registryAttempted) report.registrationCleanupError = "A fixture helper remains live; registry cleanup withheld to avoid a late create/cleanup race";
   server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));
+  if (mode === "created-page-host-loss") await save("created-page-server.json", createdPages.allStats());
   await fs.writeFile(path.join(runDir, "browser.log"), browserLogs.join(""));
   for (const name of ["chrome_debug.log", "debug.log"]) { try { await fs.copyFile(path.join(profile, name), path.join(runDir, name)); } catch (error) { if (error.code !== "ENOENT") diagnostics.push({ phase: "log copy", error: error.message }); } }
   const outcome = nativeLifecycleOutcome(report); report.passed = outcome.passed; report.exitCode = outcome.exitCode;

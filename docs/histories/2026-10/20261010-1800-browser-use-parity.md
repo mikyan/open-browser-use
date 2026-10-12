@@ -2081,6 +2081,28 @@ RPC分别71/71与52/52，startup native调用不在两observer覆盖范围内。
 242172ms原sentinel选择保持、高1222→1165。八Go helper/host原输入与二进制
 哈希重验，生产扩展从本次修复重新构建；普通回归不替代新页失败专项。
 
+### Native host 断开后的新页清理恢复
+
+显式bootstrap此前只反复等待第一次失败的新页清理Promise。现在先建立native
+恢复屏障，再重试已失败且已结算的清理，并等待其真正完成；在途清理和并发
+bootstrap共享原任务，不重放adoption或输入。七后端用例旧源3通过/4失败，
+修复后7通过；还明确已交付child在host丢失后保留成员归属、旧控制失效。
+全部Node2226/2226，零skip/cancel。
+
+新增真实Native Messaging模式`created-page-host-loss`，保留实际connectNative、
+精确进程身份终止、同worker/不同host验证及全局focus门。`9QWc6h`原生root
+matched未交付child在原期限内撤权，清理完成余18558ms；旧socket/scope拒绝，
+fresh来源可读/重臂/取消，双原文档及窗口/组/pinned保持，child无attach/输入/
+Runtime读取/POST。82原native调用为76fulfilled/6rejected，并非全成功。
+11项清理通过，browser实际exit0，原私有进程和临时注册回收；强杀旧host的
+stale descriptor保留。整体仍actualexit1：1业务focus、2清理focus和1清理
+activation无新豁免。此正常清理场景不代表实机失败retry，旧preview保持不变。
+修复后的完整普通`h6a5W4`另有125/125、actualexit0，保持原125名称顺序与
+已有12activation/4controlfocus允许事件，不把普通通过当作专项后台体验通过。
+237041ms连续observer覆盖，sentinel身份/选择保持；构建源、复用host/helper
+元数据及扩展字节核对通过，确切隔离进程清单为空。普通模式无独立Chromium
+graceful-close/exitcode工件；不扩大为该关闭保证。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
