@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ type input struct {
 	Key          string    `json:"key"`
 	Owner        string    `json:"owner"`
 	ReadyGate    readyGate `json:"readyGate"`
+	PreparedGate readyGate `json:"preparedGate"`
 }
 
 func repositoryTmp() (string, error) {
@@ -86,24 +88,47 @@ func validateGate(gate readyGate) error {
 	return nil
 }
 
-func awaitReadyGate(gate readyGate, detail map[string]any, deadline time.Time) error {
+func publishGateRecord(path string, encoded []byte, deadline time.Time) (err error) {
+	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".pending-*")
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, os.Remove(file.Name())) }()
+	_, writeErr := file.Write(append(encoded, '\n'))
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return err
+	}
 	if !time.Now().Before(deadline) {
-		return errors.New("ready gate deadline expired before publication")
+		return errors.New("gate deadline expired before publication")
+	}
+	// Publish a fully closed same-directory file without replacing any target.
+	return os.Link(file.Name(), path)
+}
+
+func awaitReadyGate(gate readyGate, detail map[string]any, deadline time.Time, prepared bool) error {
+	label := "ready"
+	if prepared {
+		label = "prepared"
+	}
+	if !time.Now().Before(deadline) {
+		return fmt.Errorf("%s gate deadline expired before publication", label)
 	}
 	record := map[string]any{"token": gate.Token}
-	for _, key := range []string{"waiterId", "remainingMs", "readyAt", "scope", "tabId"} {
+	keys := []string{"waiterId", "remainingMs", "readyAt", "scope", "tabId"}
+	if prepared {
+		detail["preparedAt"] = time.Now().UnixMilli()
+		detail["preparedRemainingMs"] = float64(time.Until(deadline)) / float64(time.Millisecond)
+		record["remainingMs"] = detail["preparedRemainingMs"]
+		keys = []string{"waiterId", "scope", "tabId", "key", "owner", "variant", "sourceBefore", "preparedAt"}
+	}
+	for _, key := range keys {
 		record[key] = detail[key]
 	}
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(gate.ReadyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	_, writeErr := file.Write(append(encoded, '\n'))
-	if err := errors.Join(writeErr, file.Close()); err != nil {
+	if err := publishGateRecord(gate.ReadyPath, encoded, deadline); err != nil {
 		return err
 	}
 	for time.Now().Before(deadline) {
@@ -116,7 +141,7 @@ func awaitReadyGate(gate readyGate, detail map[string]any, deadline time.Time) e
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return errors.New("ready gate release is not a regular file")
+			return fmt.Errorf("%s gate release is not a regular file", label)
 		}
 		release, err := os.Open(gate.ReleasePath)
 		if err != nil {
@@ -124,22 +149,26 @@ func awaitReadyGate(gate readyGate, detail map[string]any, deadline time.Time) e
 		}
 		opened, statErr := release.Stat()
 		if statErr != nil || !opened.Mode().IsRegular() {
-			return errors.Join(errors.New("ready gate release changed type"), statErr, release.Close())
+			return errors.Join(fmt.Errorf("%s gate release changed type", label), statErr, release.Close())
 		}
 		content, readErr := io.ReadAll(io.LimitReader(release, 257))
 		if err := errors.Join(readErr, release.Close()); err != nil {
 			return err
 		}
 		if string(content) != gate.Token {
-			return errors.New("ready gate release token mismatch")
+			return fmt.Errorf("%s gate release token mismatch", label)
 		}
 		if !time.Now().Before(deadline) {
-			return errors.New("ready gate deadline expired before release")
+			return fmt.Errorf("%s gate deadline expired before release", label)
 		}
-		detail["releaseObservedAt"] = time.Now().UnixMilli()
+		field := "releaseObservedAt"
+		if prepared {
+			field = "preparedReleaseObservedAt"
+		}
+		detail[field] = time.Now().UnixMilli()
 		return nil
 	}
-	return errors.New("ready gate deadline expired; no created-page input submitted")
+	return fmt.Errorf("%s gate deadline expired; no created-page input submitted", label)
 }
 
 func remainingActionTimeout(deadline time.Time) (time.Duration, error) {
@@ -153,10 +182,10 @@ func remainingActionTimeout(deadline time.Time) (time.Duration, error) {
 func parseInput(raw []byte) (input, error) {
 	var c input
 	var fields map[string]json.RawMessage
-	if len(raw) > fileLimit || json.Unmarshal(raw, &fields) != nil || len(fields) != 9 {
+	if len(raw) > fileLimit || json.Unmarshal(raw, &fields) != nil || len(fields) != 10 {
 		return c, errors.New("invalid helper input fields or size")
 	}
-	for _, key := range []string{"socketPath", "sessionId", "turnId", "controlEpoch", "tabId", "variant", "key", "owner", "readyGate"} {
+	for _, key := range []string{"socketPath", "sessionId", "turnId", "controlEpoch", "tabId", "variant", "key", "owner", "readyGate", "preparedGate"} {
 		if value, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return c, fmt.Errorf("missing input %s", key)
 		}
@@ -164,12 +193,29 @@ func parseInput(raw []byte) (input, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return c, err
 	}
-	var gateFields map[string]json.RawMessage
-	if json.Unmarshal(fields["readyGate"], &gateFields) != nil || len(gateFields) != 3 || gateFields["readyPath"] == nil || gateFields["releasePath"] == nil || gateFields["token"] == nil {
-		return c, errors.New("invalid readyGate fields")
-	}
-	if err := validateGate(c.ReadyGate); err != nil {
-		return c, err
+	paths := map[string]bool{}
+	for name, gate := range map[string]readyGate{"readyGate": c.ReadyGate, "preparedGate": c.PreparedGate} {
+		var gateFields map[string]json.RawMessage
+		if json.Unmarshal(fields[name], &gateFields) != nil || len(gateFields) != 3 || gateFields["readyPath"] == nil || gateFields["releasePath"] == nil || gateFields["token"] == nil {
+			return c, fmt.Errorf("invalid %s fields", name)
+		}
+		if err := validateGate(gate); err != nil {
+			return c, err
+		}
+		for _, path := range []string{gate.ReadyPath, gate.ReleasePath} {
+			parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+			if err != nil {
+				return c, err
+			}
+			canonical := filepath.Join(parent, filepath.Base(path))
+			if runtime.GOOS == "windows" {
+				canonical = strings.ToLower(canonical)
+			}
+			if paths[canonical] {
+				return c, errors.New("both gates must use four distinct file paths")
+			}
+			paths[canonical] = true
+		}
 	}
 	for _, value := range []string{c.SocketPath, c.SessionID, c.TurnID, c.Key, c.Owner} {
 		if value == "" || len(value) > 4096 {
@@ -334,19 +380,29 @@ func run(raw []byte) (detail map[string]any) {
 		return err
 	}
 	readState := func(locator *obu.Locator) (map[string]any, error) {
-		var text *string
-		err := action(func(opts obu.BrowserActionOptions) (e error) { text, e = locator.TextContent(opts); return e })
-		if err != nil {
-			return nil, err
+		for {
+			var text *string
+			err := action(func(opts obu.BrowserActionOptions) (e error) { text, e = locator.TextContent(opts); return e })
+			if err != nil {
+				return nil, err
+			}
+			if text == nil || len(*text) > 65536 {
+				return nil, errors.New("missing or oversized document state")
+			}
+			if *text == "" {
+				remaining, err := budget()
+				if err != nil {
+					return nil, err
+				}
+				time.Sleep(min(25*time.Millisecond, remaining))
+				continue
+			}
+			var state map[string]any
+			if json.Unmarshal([]byte(*text), &state) != nil || state == nil {
+				return nil, errors.New("invalid document state")
+			}
+			return state, nil
 		}
-		if text == nil || len(*text) > 65536 {
-			return nil, errors.New("missing or oversized document state")
-		}
-		var state map[string]any
-		if json.Unmarshal([]byte(*text), &state) != nil || state == nil {
-			return nil, errors.New("invalid document state")
-		}
-		return state, nil
 	}
 	read := func(name string, locator *obu.Locator, check func(map[string]any) error) error {
 		return stage(name, false, func() error {
@@ -383,7 +439,7 @@ func run(raw []byte) (detail map[string]any) {
 	if ackDeadline := time.Now().Add(time.Duration(wait.RemainingMS * float64(time.Millisecond))); ackDeadline.Before(deadline) {
 		deadline = ackDeadline
 	}
-	if stage("gate", false, func() error { return awaitReadyGate(c.ReadyGate, detail, deadline) }) != nil {
+	if stage("gate", false, func() error { return awaitReadyGate(c.ReadyGate, detail, deadline, false) }) != nil {
 		return
 	}
 	if c.Variant == "dynamic-oopif" && stage("addFrame", false, func() error {
@@ -397,6 +453,9 @@ func run(raw []byte) (detail map[string]any) {
 		button, state = frame.Locator("#open-child"), frame.Locator("#state")
 	}
 	if read("sourceBefore", state, func(v map[string]any) error { return checkSource(v, c, false) }) != nil {
+		return
+	}
+	if stage("preparedGate", false, func() error { return awaitReadyGate(c.PreparedGate, detail, deadline, true) }) != nil {
 		return
 	}
 	detail["triggerAt"] = time.Now().UnixMilli()

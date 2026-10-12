@@ -15,6 +15,8 @@ import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
 import { createDragCommitFixtures, checkDragCommit } from "./drag-commit-fixture.mjs";
 import { createCreatedPageFixtures } from "./created-page-fixture.mjs";
 import { checkCreatedPageProvenance } from "./created-page-provenance.mjs";
+import { checkCreatedPageFiveEntry, readCreatedPageGate, withinCreatedPageBudget } from "./created-page-five-entry.mjs";
+import { runCreatedPageCaller } from "./created-page-callers.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 import { createSDKConnectionFixtures, checkSDKConnections, sdkConnectionKinds } from "./sdk-connection-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
@@ -85,8 +87,10 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const createdPageProof = process.env.OBU_TEST_CREATED_PAGES;
-if (createdPageProof !== undefined && !["provenance", "ready"].includes(createdPageProof))
-  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready or unset");
+if (createdPageProof !== undefined && !["provenance", "ready", "five-entry"].includes(createdPageProof))
+  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready, five-entry or unset");
+if (createdPageProof === "five-entry" && !process.env.OBU_TEST_GO_CREATED_PAGE_BINARY)
+  throw new Error("Set OBU_TEST_GO_CREATED_PAGE_BINARY for five-entry created pages");
 if (createdPageProof && ["OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
   throw new Error("Created page provenance is a separate headed mode");
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
@@ -477,7 +481,7 @@ try {
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   if (createdPageProof) {
-    sourceIdentity.testHooks.push(createdPageProof === "ready" ? "created page readiness: public JS expectPage and result Tab, passive native event observer independently verifies exact original child identity; original Control-click, no synthesized child, explicit claim, focus restoration or replay" : "created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
+    sourceIdentity.testHooks.push(createdPageProof === "five-entry" ? "created page five-entry: JS/Python/Go/CLI/MCP, two all-caller barriers, bounded passive native event and actual native RPC observers; same original workflow deadline; no synthetic child, explicit claim, focus restoration or replay" : createdPageProof === "ready" ? "created page readiness: public JS expectPage and result Tab, passive native event observer independently verifies exact original child identity; original Control-click, no synthesized child, explicit claim, focus restoration or replay" : "created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
     for (const name of ["created-page-fixture.mjs", "created-page-provenance.mjs"])
       sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   }
@@ -645,7 +649,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
-    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready"].includes(name)) return;
+    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
@@ -1230,7 +1234,59 @@ try {
     if (failure) throw failure;
     return detail;
   });
-  if (createdPageProof) await test(createdPageProof === "ready" ? "js-created-page-ready" : "js-created-page-provenance", async () => checkCreatedPageProvenance({
+  if (createdPageProof === "five-entry") await test("five-entry-created-page-ready", async () => {
+    const pythonCaller = path.join(runDir, "python-created-page-checks.py"), goCaller = path.join(runDir, process.platform === "win32" ? "go-created-page-checks.exe" : "go-created-page-checks");
+    const gateDirectory = path.join(runDir, "created-page-gates"); await fs.mkdir(gateDirectory);
+    await fs.copyFile(path.join(directory, "python-created-page-checks.py"), pythonCaller, fsConstants.COPYFILE_EXCL);
+    await fs.copyFile(process.env.OBU_TEST_GO_CREATED_PAGE_BINARY, goCaller, fsConstants.COPYFILE_EXCL);
+    const detail = { callers: { pythonSHA256: createHash("sha256").update(await fs.readFile(pythonCaller)).digest("hex"), goBinarySHA256: createHash("sha256").update(await fs.readFile(goCaller)).digest("hex") } };
+    for (const name of ["created-page-five-entry.mjs", "created-page-callers.mjs", "created-page-wire.mjs", "python-created-page-checks.py", "go-created-page-checks/main.go", "original-download-callers.mjs"])
+      sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+    const callExternal = async (kind, { scope, afterReady, afterPrepared, ...input }) => {
+      const params = { socketPath: endpoint, sessionId: scope.session_id, turnId: scope.turn_id, controlEpoch: scope.control_epoch, ...input };
+      const evidence = { kind, input: params }, artifact = path.join(runDir, `created-page-caller-${kind}-${input.key}.json`);
+      try {
+        if (kind === "cli" || kind === "mcp") {
+          evidence.result = await runCreatedPageCaller({ ...params, kind, executable, afterReady, afterPrepared });
+        } else {
+          evidence.process = {};
+          for (const name of ["readyGate", "preparedGate"]) params[name] = {
+            readyPath: path.join(gateDirectory, `${input.key}.${name}.json`), releasePath: path.join(gateDirectory, `${input.key}.${name}.release`), token: randomUUID()
+          };
+          const deadline = performance.now() + 20000;
+          const child = runOriginalDownloadProcess({ command: kind === "python" ? process.env.OBU_TEST_PYTHON || "python" : goCaller,
+            args: kind === "python" ? [pythonCaller] : [], input: JSON.stringify(params), timeoutMs: 35000, detail: evidence.process,
+            env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+          child.catch(() => {});
+          try {
+            for (const [name, callback] of [["readyGate", afterReady], ["preparedGate", afterPrepared]]) {
+              const gate = params[name];
+              const ready = await readCreatedPageGate({ path: gate.readyPath, token: gate.token, child, deadline }); evidence[name] = { record: ready };
+              await withinCreatedPageBudget(deadline, () => Promise.race([callback(ready), child.then(() => { throw new Error("Typed created-page caller exited during gate"); })]));
+              const temporary = gate.releasePath + ".pending";
+              await fs.writeFile(temporary, gate.token, { flag: "wx" });
+              try { await fs.link(temporary, gate.releasePath); } finally { await fs.unlink(temporary); }
+              evidence[name].releasePublishedAt = Date.now();
+            }
+            evidence.result = JSON.parse(await child);
+          } catch (error) {
+            try { await child; } catch (childError) { evidence.childError = childError.stack; }
+            if (evidence.process.stdout) try { evidence.partial = JSON.parse(evidence.process.stdout); } catch {}
+            error.createdPageCallerDetail ??= evidence.partial; throw error;
+          }
+        }
+        assert.equal(evidence.result.caller, kind); return evidence.result;
+      } catch (error) { evidence.error = error.stack; evidence.partial ??= error.createdPageCallerDetail; throw error; }
+      finally { await fs.writeFile(artifact, JSON.stringify(evidence, null, 2), { flag: "wx" }); }
+    };
+    return checkCreatedPageFiveEntry({ detail, callExternal,
+      connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: suffix, turnId: "created-five-original", timeoutMs: 20000 }),
+      connectCaller: scope => connectOpenBrowserUse({ socketPath: endpoint, sessionId: scope.session_id, turnId: scope.turn_id, timeoutMs: 20000 }),
+      getWorker: () => worker, connectionState: () => ({ generation: nativeBridge.current.record.generation, hostPid: nativeBridge.host.pid, endpoint: nativeBridge.endpoint }),
+      fixtureURL, server: createdPageFixtures, saveDetail: value => fs.writeFile(path.join(runDir, "created-page-five-entry.json"), JSON.stringify(value, null, 2))
+    });
+  });
+  if (createdPageProof && createdPageProof !== "five-entry") await test(createdPageProof === "ready" ? "js-created-page-ready" : "js-created-page-provenance", async () => checkCreatedPageProvenance({
     productReady: createdPageProof === "ready",
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, server: createdPageFixtures, until,

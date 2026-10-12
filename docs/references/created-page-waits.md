@@ -155,6 +155,64 @@ from retrying a failed download cancellation outside the tracked barrier.
 Subsequent exact lifecycle and full extension tests pass; no sleeps or relaxed
 assertions were used to turn the failures green.
 
+## Five-entry browser acceptance
+
+Windows isolated Chromium `AGsTeb` passes **2/2, actual exit 0**: raw navigation
+and the opt-in five-entry ready workflow. JS, Python, Go, CLI and MCP each
+complete root, existing OOPIF and future OOPIF, for **15 same-URL native children
+and 15 unique business POSTs totaling 2,933 bytes**. The current product APIs are
+used throughout. No caller receives a guessed child ID/nonce or explicitly
+claims, synthesizes or replays a child-opening action.
+
+Two barriers per group enforce all-five readiness before dynamic Add and all-five
+source preparation before Control-click. The caller's original 20s monotonic
+budget covers both gates, returned child and useful submission; cleanup has a
+separate bounded allowance. Empty fixture state is retryable; malformed nonempty
+state and actual RPC failures terminate without input replay. Python/Go gate
+files use complete, closed temporary files and atomic no-replace publication.
+
+The passive native event observer independently joins source/frame to returned
+child. The passive native adapter hook retains **429 requests and 429 matching
+ACKs**, with original scope and 15 exact arm/collect/cancel chains. Across each
+five-member group, actual sequence numbers establish all ready ACKs before the
+first Add/trigger and all source state ACKs before the first trigger. Original
+HTML nonces, trusted DOM click records and POST request/response bytes provide
+separate identity and business evidence. These are parsed RPC JSON records,
+not raw transport frames. The hook's generation label is separately checked
+against the original host PID, endpoint and bridge generation.
+
+All 15 children have the original source group. This is inherited ownership,
+not a successful real test of first unowned-child admission. Source native
+frame/document observations surround the trigger; child native frames are read
+after business completion. Neither replaces atomic event/document identity.
+Foreign-owner denial remains covered by the earlier six-child JS workflow;
+this matrix does not repeat that negative test.
+
+The **7,888 ms** action interval has zero activation/focus events and zero
+allowances. Sentinel tab/window identity and selection remain unchanged; its
+viewport height changes from 1222 to 1165, so geometry is not claimed unchanged.
+Thirty exact fixture tabs are absent after cleanup, both passive observers are
+removed/restored, and all 60 external caller processes actually close (51 CLI,
+three MCP, three Python and three Go). Browser.close
+returns `{}`, followed by actual browser and host exit 0. Startup/teardown and
+whole-OS focus are outside the action ledger; the established isolated Native
+Port adapter is used, not an installed normal-user-profile connection.
+
+Focused Node suites total **106/106**, zero skips/cancellations; typed caller IPC
+has **nine methods covering 32 real Windows named-pipe scenarios** against a fake
+browser. Real CLI/MCP executables additionally exercise public parsing over that
+IPC. Go helper vet/build pass, with current source and binary manifests. Production
+extension/host/SDK inputs and the published preview archives are unchanged;
+the prior ordinary 125-case baseline is not rerun for this harness-only change.
+
+An independent raw-artifact audit passes 1,877 checks without importing the
+production verifier. It also confirms all 15 native opener IDs differ from the
+actual source IDs; opener metadata is not used for the relationship. The final
+audit retains its earlier script KeyError and schema-assumption failures (gate
+field placement, zero-based HTTP sequence, source-frame versus all-document
+lists, additional cleanup fields and staged production paths). Those corrections
+use the original records; no browser evidence or success condition is rewritten.
+
 ## Earlier native feasibility evidence
 
 Windows isolated Chromium run `FjJons` completed **2/2, actual exit 0**: the
@@ -214,8 +272,8 @@ listening handler; the corrected test compares with a normal successful bind.
 
 ## Remaining work
 
-Complete five-entry real-browser verification and unowned-child adoption, then
-extend overlapping/unrelated creation, source/frame navigation, child movement/
+Complete unowned-child adoption and extend overlapping/unrelated creation,
+source/frame navigation, child movement/
 closure, cancellation, deadline, pause and worker/host-loss browser cases beyond
 the deterministic unit coverage. Ordinary window.open foreground
 behavior, other browsers/platforms, drag guard recovery, and the complete

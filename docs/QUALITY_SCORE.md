@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+新页五入口`AGsTeb`2/2 actualexit0：五caller×三布局15child、15唯一POST/
+2933B，原scope与15arm/collect/cancel由429原request/429ACK独立核对。
+双全组门禁在实际wire序号上成立；7888ms零focus/activation/豁免，sentinel
+选择保持但高度1222→1165。30页、两observer、外部caller进程、浏览器/host
+实际清理通过。Node106/106、typed IPC九方法/32场景、Go vet/build通过。
+全部child继承原组，未owned首次adoption与完整生命周期仍待验；普通125
+基线未重跑，生产/SDK与旧preview未改。见[新页等待](references/created-page-waits.md)。
+
 共享Pause权限修复后的完整隔离浏览器`eRYJ16`125/125、actualexit0；243654ms
 只有既有12activation/4controlfocus允许事件，无新豁免。七条等待/数据入口
 不再把未验证预约的tabId作为detach权限，真实pending保持；14旧源码反例

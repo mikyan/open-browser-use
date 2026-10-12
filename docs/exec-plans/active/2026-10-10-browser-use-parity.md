@@ -2785,3 +2785,18 @@ focus/activation/豁免；future iframe在ready后创建。全部child原生继�
 普通完整`eRYJ16`125/125 actualexit0；243654ms仅既有12activation/4controlfocus
 允许事件，无新豁免。八Go caller从当前源编译；host输入仍全同，preview不改。
 完整五入口及新页生命周期仍按原计划开放。
+
+### P08/P12/P15：正式新页五入口接续
+
+JS/Python/Go/CLI/MCP五caller现已各自跑通root/既有/未来OOPIF的真实新页
+接续。`AGsTeb`2/2 actualexit0，15原生同URL child及15唯一POST/2933B；
+两道全组gate均消耗原20s预算，独立429request/429ACK证明全部ready先于
+最早Add/trigger、全部原source读取完成先于最早trigger，15次精确cancel。
+7888ms零activation/focus/豁免，sentinel选择不变但高度1222→1165；30页、
+两observer、外部进程以及Browser.close原ACK和browser/host actualexit0齐全。
+Node106/106、typed真实IPC九方法/32场景通过，Go helper重新构建和输入核验。
+生产与SDK无改动，普通125基线未重跑，旧preview保留、未建PR。
+
+全部child仍继承原group；未owned首次接纳、相关生命周期负例、普通popup
+前台行为及完整P01–P15继续开放。下一步按[新页计划](2026-10-12-created-page-waits.md)
+验证自然产生的未owned子页及实际撤销/中断边界，不用单测代替实机证据。

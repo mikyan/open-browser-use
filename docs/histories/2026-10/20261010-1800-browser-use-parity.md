@@ -2022,6 +2022,29 @@ scope贡献来源ID；后台chooser及export/clipboard的原始ID回填一并移
 当前八Go caller重新编译，host106输入仍一致，发布过的preview未改。
 这些反例证明实际后端向Chrome替身发出的调用，不冒称真实用户页面受损。
 
+### 正式新页五入口接续验收
+
+补齐JS/Python/Go/CLI/MCP的原生新页完整流程，统一原20秒monotonic预算与
+ready/prepared两道全组门禁。Python/Go使用原子且不覆盖的本地gate发布，
+只对空状态等待，格式错误/RPC失败立即停止；CLI/MCP保留实际进程退出与
+关闭，失败只清理原waiter，不补发click。新增独立有界native RPC观察器，
+按原scope/handle/child及消息序号验证15流程，不用调用器输入代替实际wire。
+
+真实隔离`AGsTeb`2/2 actualexit0，五caller×root/既有/未来OOPIF产生15个
+同URL原生child、15唯一POST共2933B。429原request/429ACK核对15个
+arm/collect/cancel、一次触发/提交及两道gate；原HTML nonce、可信DOM事件
+及原请求/响应字节联接保留。7888ms零activation/focus/豁免；sentinel选择
+保持，高1222→1165，不宣称几何不变。30页、两observer和外部进程清理
+完成，Browser.close原ACK、浏览器/host实际exit0保留。
+
+Node106/106零skip/cancel、typed IPC九方法/32真实Windows pipe场景通过；
+Go helper重新构建并核来源，host106既有输入未变。生产/SDK与三个旧preview
+归档未改，普通125基线未重跑。全部child继承原group，本片不代替未owned
+首次接纳、外国owner负例、完整生命周期或整个Codex对齐验收；相关计划仍active。
+独立原始产物审计1877项通过，确认60外部process实际关闭与全部opener/source
+不同；审计脚本最初字段/序号/产物路径假设导致的失败原样保留，最终读取原
+gate/wire/served bytes修正，未修改实跑证据或放宽验收条件。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

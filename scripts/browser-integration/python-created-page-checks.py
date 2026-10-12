@@ -11,7 +11,7 @@ from open_browser_use import OpenBrowserUseBrowser, OpenBrowserUseClient
 
 
 MAX_FILE_BYTES = 65536
-FIELDS = {"socketPath", "sessionId", "turnId", "controlEpoch", "tabId", "variant", "key", "owner", "readyGate"}
+FIELDS = {"socketPath", "sessionId", "turnId", "controlEpoch", "tabId", "variant", "key", "owner", "readyGate", "preparedGate"}
 
 
 def repository_tmp():
@@ -41,12 +41,43 @@ def validate_gate(gate):
     require(parents[0] == parents[1] and Path(gate["readyPath"]) != Path(gate["releasePath"]), "Ready gate paths must be distinct files in the same run directory")
 
 
-def await_ready_gate(gate, detail, deadline):
-    require(time.monotonic() < deadline, "Ready gate deadline expired before publication")
-    record = {key: detail[key] for key in ("waiterId", "remainingMs", "readyAt", "scope", "tabId")}
+def publish_gate_record(path, record, deadline):
+    target = Path(path)
+    temporary = target.with_name(target.name + ".pending-" + uuid.uuid4().hex)
+    created, failure = False, None
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as output:
+            created = True
+            output.write(json.dumps(record, ensure_ascii=False) + "\n")
+        require(time.monotonic() < deadline, "Gate deadline expired before publication")
+        # A same-directory hard link atomically publishes the closed file and
+        # refuses to replace an existing target on Windows and Unix.
+        os.link(temporary, target)
+    except Exception as error:
+        failure = error
+        raise
+    finally:
+        if created:
+            try:
+                temporary.unlink()
+            except OSError as error:
+                if failure is None:
+                    raise
+                failure.add_note(f"Gate temporary-file cleanup failed: {error}")
+
+
+def await_ready_gate(gate, detail, deadline, prepared=False):
+    label = "Prepared" if prepared else "Ready"
+    require(time.monotonic() < deadline, f"{label} gate deadline expired before publication")
+    if prepared:
+        detail["preparedAt"] = time.time_ns() // 1000000
+        detail["preparedRemainingMs"] = (deadline - time.monotonic()) * 1000
+        record = {key: detail[key] for key in ("waiterId", "scope", "tabId", "key", "owner", "variant", "sourceBefore", "preparedAt")}
+        record["remainingMs"] = detail["preparedRemainingMs"]
+    else:
+        record = {key: detail[key] for key in ("waiterId", "remainingMs", "readyAt", "scope", "tabId")}
     record["token"] = gate["token"]
-    with Path(gate["readyPath"]).open("x", encoding="utf-8", newline="\n") as ready:
-        ready.write(json.dumps(record, ensure_ascii=False) + "\n")
+    publish_gate_record(gate["readyPath"], record, deadline)
     token = gate["token"].encode("utf-8")
     while time.monotonic() < deadline:
         try:
@@ -54,17 +85,17 @@ def await_ready_gate(gate, detail, deadline):
         except FileNotFoundError:
             time.sleep(min(0.025, max(0, deadline - time.monotonic())))
             continue
-        require(stat.S_ISREG(info.st_mode), "Ready gate release is not a regular file")
+        require(stat.S_ISREG(info.st_mode), f"{label} gate release is not a regular file")
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(gate["releasePath"], flags)
         with os.fdopen(descriptor, "rb") as release:
-            require(stat.S_ISREG(os.fstat(release.fileno()).st_mode), "Ready gate release changed type")
+            require(stat.S_ISREG(os.fstat(release.fileno()).st_mode), f"{label} gate release changed type")
             content = release.read(257)
-        require(content == token, "Ready gate release token mismatch")
-        require(time.monotonic() < deadline, "Ready gate deadline expired before release")
-        detail["releaseObservedAt"] = time.time_ns() // 1000000
+        require(content == token, f"{label} gate release token mismatch")
+        require(time.monotonic() < deadline, f"{label} gate deadline expired before release")
+        detail["preparedReleaseObservedAt" if prepared else "releaseObservedAt"] = time.time_ns() // 1000000
         return
-    raise TimeoutError("Ready gate deadline expired; no created-page input submitted")
+    raise TimeoutError(f"{label} gate deadline expired; no created-page input submitted")
 
 
 def remaining_action_timeout(deadline):
@@ -87,6 +118,10 @@ def validate_input(value):
     require(type(value["tabId"]) is int and 0 <= value["tabId"] <= 9007199254740991, "Invalid tabId")
     require(value["variant"] in ("root", "oopif", "dynamic-oopif"), "Invalid variant")
     validate_gate(value["readyGate"])
+    validate_gate(value["preparedGate"])
+    paths = [os.path.normcase(str(Path(value[gate][field]).resolve()))
+             for gate in ("readyGate", "preparedGate") for field in ("readyPath", "releasePath")]
+    require(len(set(paths)) == 4, "Both gates must use four distinct file paths")
     return value
 
 
@@ -170,9 +205,12 @@ def run(config):
         return value
 
     def read_state(target):
-        raw = action(lambda timeout: target.locator("#state").text_content(timeout_ms=timeout))
-        require(isinstance(raw, str) and len(raw.encode("utf-8")) <= 65536, "Invalid or oversized document state")
-        return state_text(raw)
+        while True:
+            raw = action(lambda timeout: target.locator("#state").text_content(timeout_ms=timeout))
+            require(isinstance(raw, str) and len(raw.encode("utf-8")) <= 65536, "Invalid or oversized document state")
+            if raw != "":
+                return state_text(raw)
+            time.sleep(min(.025, budget()))
 
     try:
         stage("input", lambda: validate_input(config))
@@ -196,6 +234,7 @@ def run(config):
             stage("addFrame", lambda: action(lambda timeout: tab.locator("#add-frame").click(timeout_ms=timeout)))
         target = tab if config["variant"] == "root" else tab.frame_locator("#created-page-frame")
         detail["sourceBefore"] = stage("sourceBefore", lambda: check_source(read_state(target), config))
+        stage("preparedGate", lambda: await_ready_gate(config["preparedGate"], detail, deadline, prepared=True))
         detail["triggerAt"] = now()
         stage("trigger", lambda: action(lambda timeout: target.locator("#open-child").click(timeout_ms=timeout, modifiers=["Control"])))
         child = stage("collect", wait.result)

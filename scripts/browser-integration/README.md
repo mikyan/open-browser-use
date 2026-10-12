@@ -6,18 +6,38 @@
 two concurrent owners, root/existing OOPIF/future OOPIF, one original Control-click
 per source, the returned typed child and one business POST. A separate passive
 native observer verifies its identity. Dynamic frames are inserted after the
-ready ACK. It does not use `claimUserTab` or synthesize child tabs. Five-entry
-real-browser and lifecycle acceptance remain separate open work.
+ready ACK. It does not use `claimUserTab` or synthesize child tabs.
 
-`python-created-page-checks.py` and `go-created-page-checks/` prepare the next
-typed caller acceptance. They accept one JSON request on stdin with fixed source
-scope/tab, fixture key/owner/variant, and a local ready/release gate. Neither
-receives an expected child ID nor calls `claimUserTab`. A single original 20s
-budget covers setup, readiness, the trusted trigger and the returned child's
-business submission. Their stage/cleanup output is checked by
-`test_created_page_callers.py` over real local IPC with a fake browser. Those
-checks do not constitute real Python/Go browser acceptance; runner integration
-and CLI/MCP caller coverage remain pending.
+`OBU_TEST_CREATED_PAGES=five-entry` runs JS, Python, Go, CLI and MCP as five
+independent owners across the same three layouts: 15 same-URL native children.
+Each group waits for all five ready ACKs, then all five prepared source reads
+and independent original native frame/OOPIF observations, before releasing the
+original clicks. The original 20s workflow budget covers both gates, preparation,
+collection and useful child submission. Cancellation and process closure have
+separate bounded cleanup; they cannot replay the business action.
+
+Build `scripts/browser-integration/go-created-page-checks/` and set
+`OBU_TEST_GO_CREATED_PAGE_BINARY` to that matching executable. Set
+`OBU_TEST_PYTHON` when the Python executable is not on PATH. The runner snapshots
+the typed SDKs, callers and Go binary. Python/Go stdin contains only original
+scope/source tab, fixture key/owner/variant and required `readyGate` and
+`preparedGate` objects. Each gate uses fresh local `readyPath`, `releasePath`
+and `token`; the four files must be distinct. Gate files are atomically published
+without replacement. Callers never receive an expected child ID, URL or nonce.
+
+`created-page-five-entry.json`, per-caller evidence and `created-page-server.json`
+retain native source events, parsed Native RPC request/response JSON, original
+HTML/POST bytes, stage budgets and actual child-process closure. The wire hook
+is passive and bounded; its generation label is checked against the real host
+PID/endpoint/generation separately. It is not raw transport-byte capture.
+Source document observations surround the trigger; native child frame IDs are
+observed after business completion. Neither is atomic event/document identity.
+
+`created-page-five-entry.test.mjs`, `created-page-callers.test.mjs`,
+`created-page-wire.test.mjs` and `test_created_page_callers.py` cover barrier
+failure, malformed/expired acknowledgements, original deadlines, empty-state
+readiness and cleanup. Their fake-browser IPC tests do not replace the browser
+matrix. Unowned-child first admission and lifecycle negatives remain separate.
 
 `OBU_TEST_CREATED_PAGES=provenance` remains a separate headed feasibility mode for
 the [created-page readiness plan](../../docs/exec-plans/active/2026-10-12-created-page-waits.md).
@@ -50,8 +70,8 @@ No synthetic child creation or focus restoration replaces native link behavior.
 Test cleanup identifies exact child IDs, removes the precise passive listener,
 and records `Browser.close` acknowledgement and actual process close in
 `created-page-browser-close.json`. Only the isolated test profile is used;
-normal `window.open`, other operating systems, public ready waits and more
-lifecycle cases remain separate requirements.
+normal `window.open`, other operating systems and more lifecycle cases remain
+separate requirements. The public ready workflows above use separate modes.
 
 ## Original page download transport proof
 

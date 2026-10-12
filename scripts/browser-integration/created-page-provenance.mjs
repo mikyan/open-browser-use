@@ -12,7 +12,8 @@ const scope = browser => {
 // This is only a passive test observer, independent of the product waiter.
 // Its sequence numbers belong to this one worker;
 // native event timeStamp is preserved, never compared to another process clock.
-export function installCreatedPageObserver(chrome, target) {
+export function installCreatedPageObserver(chrome, target, { maxSources = 6 } = {}) {
+  if (!Number.isSafeInteger(maxSources) || maxSources < 1 || maxSources > 16) throw new Error("Invalid created page observer capacity");
   if (target.__createdPageProvenance) throw new Error("Created page observer already installed");
   const allowed = new Set(), events = [], state = { sequence: 0, overflow: false, closed: false };
   const listener = details => {
@@ -24,7 +25,7 @@ export function installCreatedPageObserver(chrome, target) {
   const snapshot = () => ({ ...state, sourceTabIds: [...allowed], events: structuredClone(events) });
   target.__createdPageProvenance = {
     register(tabId) {
-      if (state.closed || !Number.isSafeInteger(tabId) || tabId < 0 || allowed.size >= 6 || allowed.has(tabId)) throw new Error("Invalid created page source registration");
+      if (state.closed || !Number.isSafeInteger(tabId) || tabId < 0 || allowed.size >= maxSources || allowed.has(tabId)) throw new Error("Invalid created page source registration");
       allowed.add(tabId); return { tabId, readySequence: state.sequence, registeredAt: Date.now() };
     }, snapshot,
     stop() { if (!state.closed) { chrome.webNavigation.onCreatedNavigationTarget.removeListener(listener); state.closed = true; } return { ...snapshot(), listenerPresent: chrome.webNavigation.onCreatedNavigationTarget.hasListener(listener) }; }
