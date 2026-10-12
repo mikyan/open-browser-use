@@ -45,8 +45,12 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 显式恢复已补齐导航/关页后失败清理：closing会话bootstrap只重试自身，
 Retry Pause在全局阻断后重试，自动故障暂停保持不重试；并发pending共享，
 失败保持隔离且不重放输入/adoption。最终12后端例旧源2通过/10失败，修复后
-相关137/137、全部Node2238/2238通过；真实storage失败恢复和原生开页focus
-尚未实机通过。完整普通`B5TASC`125/125、actualexit0，保持原125名称顺序与
+相关137/137、全部Node2238/2238通过。后续四场真实native专项用精确参数注入
+触发Chrome quota拒绝，4/4恢复成立，每场3拒绝/1成功删除；同host/worker、
+原期限与旧权限拒绝保持，定向Node146/146。四场仍actualexit1，原生开页与
+清理focus/activation没有豁免；自然故障与完整后台体验未完成。见
+[原生恢复](../references/created-page-waits.md#native-quota-failure-recovery)。
+此前完整普通`B5TASC`125/125、actualexit0，保持原125名称顺序与
 已有12activation/4controlfocus许可，不替代故障专项；旧preview不变。
 见[恢复边界](../references/created-page-waits.md#explicit-recovery-after-navigation-or-child-closure)。
 

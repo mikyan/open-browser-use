@@ -478,8 +478,8 @@ and 10 failures** on the prior production source. The fixed focused suite passes
 cancellations. Coverage includes source navigation, child closure, foreign-session
 isolation, original/retried pending cleanup, repeated failure, automatic recovery
 without retry, retained child state and absence of adoption/input replay. This
-does not establish real-browser storage-failure recovery or fix native popup
-focus; those requirements remain open.
+does not by itself establish real-browser storage-failure recovery or fix native
+popup focus. The targeted native recovery evidence below has a separate scope.
 
 The frozen production fix also passes the complete ordinary browser regression
 `B5TASC`: **125/125, actual exit 0**, with the same case names/order as `h6a5W4`.
@@ -490,6 +490,75 @@ extension and reused binaries match their manifests, and exact private process
 inventories are empty after teardown. This run uses the existing loopback
 Native Port adapter; it does not inject storage faults or replace the failed
 native created-page focus scenes. Published preview archives are unchanged.
+
+### Native quota-failure recovery
+
+The real Windows Chromium 156 native launcher now exercises each combination
+in its own isolated browser, using the production fix from `2097b3d` unchanged:
+
+| Run | Original page event | Public recovery | Recovery verified | Runner exit |
+| --- | --- | --- | --- | --- |
+| `CxXan4` | Source navigation | Same-session beginTurn | Yes | 1 |
+| `jEHwoF` | Child closure | Same-session beginTurn | Yes | 1 |
+| `DxTviV` | Source navigation | Retry pause, then Resume control | Yes | 1 |
+| `itXMS9` | Child closure | Retry pause, then Resume control | Yes | 1 |
+
+Claim removal rewrites an auxiliary snapshot through `chrome.storage.session.set`.
+A private worker wrapper matches the exact original waiter, claim and incarnation,
+adds a random test value of `QUOTA_BYTES + 1024`, invokes the saved native method
+and returns its original Promise. Each scene records three actual native quota
+rejections, then exactly one successful unpadded deletion after disabling the
+fault. The failed writes preserve the quarantined claim and never persist the
+test key. This is deliberate argument fault injection, not a naturally occurring
+storage or disk failure; unrelated writes and production sources are unchanged.
+
+The original natural Control-click child remains matched and undelivered.
+The first settled failure is observed with 19.028–19.080 seconds remaining on
+its original 20-second deadline. Public ending/Pause and an explicit retry both
+fail while the fault remains enabled. Recovery then uses a separate bounded
+30-second transition budget without extending the original waiter. The same
+live host PID, process creation time, browser ancestry, endpoint, worker and
+observer identities hold before and after recovery. Old getTabs/cancel authority
+is rejected; collect retains its original source-changed/expired error instead
+of acquiring a new scope. A fresh turn can read the source and arm/cancel a new
+wait, while the original child gains no authority. Navigation preserves that
+child's original document; a closed child remains absent. There is no child
+attachment/input or adoption replay.
+
+The pause scenes use one real popup document throughout: Failed → Failed →
+Paused → Running, with matching DOM state and saved screenshots. Each button's
+original context/document identity, label, action, enabled state and recovery
+deadline are checked inside the same browser evaluation before calling its DOM
+click handler. Delayed lookup or a replacement popup rejects before clicking.
+This is not physical
+mouse input. The popup opens only in the already-focused exact private source
+or sentinel window; the test does not restore focus. Original unwanted events
+remain in the strict focus ledger, with zero additional focus allowances.
+
+All four runners still exit **1** because native opening and cleanup change
+window focus or tab activation. Recovery success is not no-focus acceptance.
+All 13/14 helper cleanup steps complete, each browser exits 0, and exact private
+host/browser processes, native endpoint descriptors and temporary registrations
+are absent after teardown. Independent artifact audits verify these recovery,
+identity, action and cleanup records while retaining the overall failures.
+The final focused Node suite passes **146/146**, with no skips or cancellations.
+The previous full Node 2238 and ordinary browser 125 results were not rerun for
+this harness-only slice. Production inputs and published preview archives are
+unchanged; broader layouts, platforms and no-focus behavior remain open.
+
+Two initial attempts remain failures: `jegs7C` stopped because its test wrongly
+required stale/expired instead of the retained source-changed collect error;
+`yg1DL6` could not open the popup in an inactive sentinel window and did not
+complete formal finalization. Their artifacts are preserved separately from
+the corrected runs. The latter's exact fixture/process/registration cleanup
+still completed; it does not count as recovered lifecycle evidence.
+
+The earlier popup runs `DEc8wj`/`Sg0Coj` also verified recovery, but their driver
+checked document identity before button polling and after clicking, leaving a
+possible replacement between those checks. The final two runs above add the
+same-evaluation identity check, tested against replaced/missing/ambiguous
+contexts, delayed lookup and changed button/document state. Earlier artifacts
+are retained with that narrower evidence boundary.
 
 ## Earlier native feasibility evidence
 

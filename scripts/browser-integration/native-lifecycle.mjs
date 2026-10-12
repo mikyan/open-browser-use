@@ -16,13 +16,15 @@ import { FocusLedger, focusArrays, focusSnapshotExpression, readFocusEvidence } 
 import { stageReloadObserver, reloadLifecycleRecorderSource, reloadLifecycleSnapshotExpression } from "./extension-reload-support.mjs";
 import { assertNoNewFocusEvents, assertSamePopupDocument, popupUIReflectsStatus, restartFixtureHTML } from "./browser-restart-support.mjs";
 import { checkNativeHostRestart, lifecycleRecoveryFixture } from "./lifecycle-recovery-fixture.mjs";
-import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeCreatedPageCases, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, nativeRegistrationSource, nativeTerminateSource, nativeWatchSource, resolveNativeLifecycleMode } from "./native-lifecycle-support.mjs";
+import { assertFixtureExtensionInventory, assertNativeProcessIdentity, nativeCreatedPageCases, nativeIdleDurationMs, nativeLifecycleCases, nativeLifecycleOutcome, nativeRegistrationSource, nativeTerminateSource, nativeWatchSource, resolveNativeLifecycleMode, resolveNativeCleanupScenario, selectCleanupPopupWindow, clickCleanupPopup } from "./native-lifecycle-support.mjs";
 import { createCreatedPageFixtures } from "./created-page-fixture.mjs";
 import { createBackgroundWindowRecorder } from "./background-window-fixture.mjs";
 import { checkNativeCreatedPageHostLoss } from "./native-created-page-loss.mjs";
+import { checkNativeCreatedPageCleanup } from "./native-created-page-cleanup.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 
 const mode = resolveNativeLifecycleMode(process.env.OBU_TEST_NATIVE_MODE);
+const cleanupScenario = resolveNativeCleanupScenario(mode, process.env.OBU_TEST_NATIVE_CHANGE, process.env.OBU_TEST_NATIVE_RECOVERY);
 assert.equal(process.platform, "win32", "Real native lifecycle registration currently supports Windows only");
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const browserName = process.env.OBU_TEST_NATIVE_BROWSER ?? "chrome";
@@ -41,6 +43,8 @@ const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(jsSnapsho
 const nativeName = `com.openbrowseruse.lifecycle.n${randomBytes(12).toString("hex")}`;
 const records = [], hostGenerations = [], clients = new Set(), witnesses = [], browserLogs = [], diagnostics = [];
 const report = { scope: "Windows real browser native launcher, host termination and same-version unpacked runtime.reload; no native Port adapter; not signed update, full browser restart, other platforms or user profile", mode, runDir, browserName, profile, nativeName, expectedCases: mode === "acceptance" ? nativeLifecycleCases : mode === "created-page-host-loss" ? nativeCreatedPageCases : [], records, hostGenerations, witnesses, diagnostics, startedAt: Date.now(), focus: { allowedActivations: [], allowedFocus: [] }, ...(mode === "idle-diagnostic" && { diagnostic: { complete: false, durationMs: nativeIdleDurationMs, samples: [], scope: "read-only idle post-install control; no SDK calls, browser actions, host termination or runtime.reload during observation; not lifecycle acceptance" } }) };
+if (cleanupScenario) Object.assign(report, { cleanupScenario, expectedCases: [cleanupScenario.name],
+  scope: "Windows real native launcher; exact created-page cleanup receives deliberate native Chrome quota rejection, followed by public recovery; unchanged host/worker, no Native Port adapter or natural storage-failure claim" });
 const hash = data => createHash("sha256").update(data).digest("hex"), delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const subprocessChildren = new Set();
 const save = (name, value) => fs.writeFile(path.join(runDir, name), JSON.stringify(value, null, 2));
@@ -293,6 +297,15 @@ async function runtimeIdentity({ checkFocus = true } = {}) {
   assert.equal(contexts.length, 1); assert.equal(lifecycle.overflow, false);
   return { at: Date.now(), browserPid: child.pid, browserId: report.browserId, extensionId, extensionInstanceId: endpoint.info.metadata.extensionInstanceId, workerTarget, contextId: contexts[0].contextId, incarnation: marker.incarnation, lifecycle, host: endpoint, observerTarget, focus: await (checkFocus ? assertFocus() : focus()) };
 }
+async function cleanupRuntimeIdentity() {
+  const [runtime, hostProcess, activeEndpoint, connectedStatus] = await Promise.all([
+    runtimeIdentity({ checkFocus: false }), processIdentity(endpoint),
+    fs.readFile(endpointFile, "utf8").then(JSON.parse), nativeStatus()
+  ]);
+  for (const key of ["pid", "socketPath", "startedAt"]) assert.equal(activeEndpoint[key], endpoint[key], `Live native endpoint changed ${key}`);
+  assert.equal(connectedStatus?.state, "connected"); assert.equal(connectedStatus.hostName, nativeName);
+  return { ...runtime, hostProcess, activeEndpoint, connectedStatus };
+}
 async function reload(detail) {
   detail.before = await runtimeIdentity(); const targetStart = control.events.length;
   const exitObserver = await observeEOF(detail.before.host); detail.exitObserverReady = exitObserver.ready;
@@ -313,12 +326,20 @@ async function reload(detail) {
 }
 
 let popupSequence = 0;
-async function openPopup() {
-  const before = await assertFocus(); await worker.evaluate(`chrome.action.openPopup({windowId:${report.sentinel.windowId}})`);
+async function openPopup({ deferFocusFailure = false } = {}) {
+  let windowId = report.sentinel.windowId, windowSelection;
+  if (deferFocusFailure) {
+    const windows = await worker.evaluate("chrome.windows.getAll({populate:false})");
+    windowId = selectCleanupPopupWindow(windows, { sentinelWindowId: report.sentinel.windowId, sourceWindowId: records.at(-1)?.detail.item?.createdTab?.windowId });
+    windowSelection = { windows, windowId, reason: "already focused exact private window; no focus mutation" };
+  }
+  const before = await (deferFocusFailure ? focus() : assertFocus()); await worker.evaluate(`chrome.action.openPopup({windowId:${windowId}})`);
   const url = `chrome-extension://${extensionId}/popup.html`, contexts = await until(async () => { const value = await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})"); return value.some(item => item.documentUrl === url) && value; }, "real action popup");
-  const after = await focus(); report.focus.allowedFocus.push(...ledger.allowActionPopup(before, after, { windowId: report.sentinel.windowId, popupURL: url, reason: "explicit test Pause/Resume action popup", popupContexts: contexts.map(value => ({ type: value.contextType, documentUrl: value.documentUrl, documentId: value.documentId })) }));
+  const after = await focus();
+  try { report.focus.allowedFocus.push(...ledger.allowActionPopup(before, after, { windowId, popupURL: url, reason: "explicit test Pause/Resume action popup", popupContexts: contexts.map(value => ({ type: value.contextType, documentUrl: value.documentUrl, documentId: value.documentId })) })); }
+  catch (error) { if (!deferFocusFailure) throw error; diagnostics.push({ phase: "cleanup popup focus attribution", error: error.stack, before, after }); }
   const target = await until(async () => (await targets()).find(value => value.url === url), "real popup target"), popup = await cdp(target.webSocketDebuggerUrl), original = contexts.find(value => value.documentUrl === url);
-  assertSamePopupDocument(original, contexts); return { popup, original, afterOpen: after, targetId: target.id };
+  assertSamePopupDocument(original, contexts); return { popup, original, afterOpen: after, targetId: target.id, windowSelection };
 }
 async function popupStatus(session, { action, state } = {}) {
   assertSamePopupDocument(session.original, await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})")); assertNoNewFocusEvents(session.afterOpen, await assertFocus());
@@ -336,9 +357,65 @@ async function popupStatus(session, { action, state } = {}) {
   assertSamePopupDocument(session.original, await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})")); assertNoNewFocusEvents(session.afterOpen, await assertFocus());
   return { ...status, ui, context: session.original, screenshot: { file, bytes: bytes.length, sha256: hash(bytes), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) } };
 }
-async function closePopup(session) {
+async function closePopup(session, { deferFocusFailure = false } = {}) {
   try { await session.popup.evaluate("window.close()"); } catch (error) { diagnostics.push({ phase: "popup close reply", error: error.message }); } finally { session.popup.close(); }
-  await until(async () => !(await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})")).some(value => value.documentId === session.original.documentId), "original popup closed"); assertNoNewFocusEvents(session.afterOpen, await assertFocus());
+  await until(async () => !(await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})")).some(value => value.documentId === session.original.documentId), "original popup closed");
+  if (!deferFocusFailure) assertNoNewFocusEvents(session.afterOpen, await assertFocus());
+  else { const after = await focus(); try { assertNoNewFocusEvents(session.afterOpen, after); } catch (error) { diagnostics.push({ phase: "cleanup popup close focus", error: error.stack, after }); } }
+}
+
+// Only the cleanup diagnostic uses this driver. Existing focus errors remain in
+// the continuous ledger and the final acceptance gate; they do not truncate
+// collection of the independent recovery result. Mutations use the real popup
+// DOM handler, not a direct worker PAUSE/RESUME invocation or OS mouse input.
+function cleanupPopupDriver() {
+  let session;
+  const actions = [];
+  return async ({ action = "status", state, timeoutMs = 10000 } = {}) => {
+    assert.ok(["pause", "retry", "resume", "status", "close"].includes(action));
+    assert.ok(Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30000);
+    const deadline = performance.now() + timeoutMs;
+    const remaining = () => { const value = Math.floor(deadline - performance.now()); assert.ok(value > 0, "Cleanup popup action exceeded its original budget"); return value; };
+    const poll = (operation, label) => until(operation, label, remaining());
+    if (action === "close") {
+      if (session) { const original = session; session = null; await closePopup(original, { deferFocusFailure: true }); }
+      return { closed: true, actions };
+    }
+    session ??= await openPopup({ deferFocusFailure: true });
+    const entry = { action, startedAt: Date.now(), targetId: session.targetId, context: session.original, windowSelection: session.windowSelection };
+    actions.push(entry);
+    try {
+      assertSamePopupDocument(session.original, await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})"));
+      const read = async () => { const value = await session.popup.evaluate("chrome.runtime.sendMessage({type:'GET_AUTOMATION_CONTROL_STATUS'})"); assert.equal(value.ok, true); return value.status; };
+      const readUI = () => session.popup.evaluate("(()=>{const b=document.querySelector('#automation-toggle');return{state:document.querySelector('#automation-status-pill')?.dataset.state,label:document.querySelector('#automation-status-label')?.textContent.trim(),buttonText:b?.textContent.trim(),buttonDisabled:b?.disabled,action:b?.dataset.action,message:document.querySelector('#automation-message')?.textContent.trim(),hint:document.querySelector('#automation-hint')?.textContent.trim()}})()");
+      entry.before = await read(); entry.focusBefore = await focus();
+      if (action !== "status") {
+        const expected = { pause: "Pause all agents", retry: "Retry pause", resume: "Resume control" }[action];
+        entry.beforeUI = await poll(async () => { const value = await readUI(); return value.buttonText === expected && value.buttonDisabled === false && value; }, `cleanup popup ${expected}`);
+        assert.equal(entry.beforeUI.action, action === "resume" ? "resume" : "pause");
+        const click = { expiresAt: Date.now() + remaining(), label: expected, action: entry.beforeUI.action };
+        entry.clickDeadlineAt = click.expiresAt;
+        entry.clickRequestedAt = Date.now();
+        entry.clickAck = await session.popup.evaluate(`(${clickCleanupPopup.toString()})(${JSON.stringify(click)},${JSON.stringify(session.original)})`);
+        entry.clickedAt = entry.clickAck.clickedAt;
+        assert.ok(entry.clickedAt < click.expiresAt);
+      }
+      const terminal = state ?? { pause: "error", retry: "paused", resume: "running" }[action];
+      const status = await poll(async () => { const value = await read(); return (!terminal || value.state === terminal) &&
+        (action === "status" || value.revision > entry.before.revision) && (value.state !== "paused" || value.cleanupComplete) && value; }, `cleanup popup terminal ${terminal ?? "status"}`);
+      entry.status = status;
+      entry.ui = await poll(async () => { const value = await readUI(); return popupUIReflectsStatus(status, value) && value; }, "cleanup popup terminal rendering");
+      const bytes = Buffer.from((await session.popup.call("Page.captureScreenshot", { format: "png" })).data, "base64");
+      assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      const file = `popup-${++popupSequence}-cleanup-${status.state}.png`; await fs.writeFile(path.join(runDir, file), bytes);
+      entry.screenshot = { file, bytes: bytes.length, sha256: hash(bytes), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+      assertSamePopupDocument(session.original, await worker.evaluate("chrome.runtime.getContexts({contextTypes:['POPUP']})"));
+      entry.focusAfter = await focus();
+      try { assertNoNewFocusEvents(session.afterOpen, entry.focusAfter); } catch (error) { entry.focusError = error.stack; }
+      return { ...status, ui: entry.ui, context: entry.context, screenshot: entry.screenshot, focus: entry.focusAfter, actions };
+    } catch (error) { entry.error = error.stack; throw error; }
+    finally { entry.completedAt = Date.now(); await save("cleanup-popup.json", actions); }
+  };
 }
 
 async function artifacts(tag) {
@@ -368,9 +445,13 @@ async function explicitRecovery(value, detail) {
   detail.witnesses = witnesses.filter(item => item.marker === marker); assert.deepEqual(detail.witnesses.map(item => ({ method: item.method, kind: item.kind })), [{ method: "POST", kind: "explicit" }]);
   assert.deepEqual(await pageState(value.output.id), value.outputPage); assert.deepEqual(await tabIdentity(value.output.id), value.outputIdentity);
 }
-async function runCase(name, action) {
+async function runCase(name, action, { deferInitialFocusFailure = false } = {}) {
   const record = { name, passed: false, startedAt: Date.now(), detail: {} }; records.push(record);
-  try { record.inventoryBefore = await extensionInventory(`${name}-before`); await assertFocus(); await action(record.detail); await assertFocus(); record.passed = true; }
+  try {
+    record.inventoryBefore = await extensionInventory(`${name}-before`);
+    try { await assertFocus(); } catch (error) { if (!deferInitialFocusFailure) throw error; record.initialFocusError = error.stack; }
+    await action(record.detail); await assertFocus(); record.passed = !record.initialFocusError;
+  }
   catch (error) { record.error = error.stack; console.error("FAIL", name, error.message); }
   finally {
     try { record.inventoryAfter = await extensionInventory(`${name}-after`); await assertFocus(); } catch (error) { record.passed = false; record.finalInventoryOrFocusError = error.stack; console.error("FAIL", name, error.message); }
@@ -384,13 +465,13 @@ try {
   report.sourceIdentity = { gitHead: (await subprocess("git", ["rev-parse", "HEAD"], { cwd: repo })).trim(), dirty: !!(await subprocess("git", ["status", "--porcelain"], { cwd: repo })).trim(), host: hash(await fs.readFile(host)), browser: hash(await fs.readFile(binary)), jsSDK: await hashes(jsSnapshot), harness: hash(await fs.readFile(fileURLToPath(import.meta.url))), support: hash(await fs.readFile(path.join(repo, "scripts/browser-integration/native-lifecycle-support.mjs"))) };
   report.sourceIdentity.dependencies = {};
   for (const name of ["lifecycle-recovery-fixture.mjs", "extension-reload-support.mjs", "browser-restart-support.mjs", "focus-ledger.mjs", "browser-startup.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
-  for (const name of ["native-created-page-loss.mjs", "created-page-fixture.mjs", "created-page-provenance.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "background-window-fixture.mjs", "fixture-listener.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
+  for (const name of ["native-created-page-loss.mjs", "native-created-page-cleanup.mjs", "created-page-cleanup-fault.mjs", "created-page-fixture.mjs", "created-page-provenance.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "background-window-fixture.mjs", "fixture-listener.mjs"]) report.sourceIdentity.dependencies[name] = hash(await fs.readFile(path.join(repo, "scripts/browser-integration", name)));
   report.sourceIdentity.buildScript = hash(await fs.readFile(path.join(repo, "scripts/build-chrome-extension.mjs")));
   await buildChromeExtension(extension); report.productionExtensionHashes = await hashes(extension);
   const backgroundFile = path.join(extension, "background.js"), background = await fs.readFile(backgroundFile, "utf8"), original = 'const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";';
   assert.equal(background.split(original).length, 2); assert.equal(background.split("chrome.runtime.connectNative(this.hostName)").length, 2);
   let stagedBackground = background.replace(original, `const NATIVE_HOST_NAME = ${JSON.stringify(nativeName)};`);
-  if (mode === "created-page-host-loss") {
+  if (mode === "created-page-host-loss" || cleanupScenario) {
     const anchor = "const backend = new BrowserBackend({ webMcpGate });";
     assert.equal(stagedBackground.split(anchor).length, 2);
     stagedBackground = stagedBackground.replace(anchor, anchor + "\nglobalThis.__integrationBackend = backend;");
@@ -402,6 +483,7 @@ try {
   report.extensionId = extensionId; report.stagedExtensionHashes = await hashes(extension);
   report.stagingExceptions = ["unique native host-name constant", "public unpacked extension key", "passive native lifecycle listener only; production connectNative unchanged"];
   if (mode === "created-page-host-loss") report.stagingExceptions.push("backend reference for bounded original page-wait/admission/cleanup observation; no Native Port adapter, manufactured child, focus restoration or replay");
+  if (cleanupScenario) report.stagingExceptions.push("backend reference for bounded original cleanup observation and exact-claim quota fault injection; original native storage Promise/rejection, no Native Port adapter, replacement child or focus restoration");
   assert.deepEqual(Object.keys(report.productionExtensionHashes).filter(name => report.productionExtensionHashes[name] !== report.stagedExtensionHashes[name]).sort(), ["background.js", "manifest.json"]);
   companion = await stageReloadObserver({ directory: path.join(runDir, "observer-extension") }); report.observer = companion;
   const manifestPath = path.join(runDir, "native-host.json"); await subprocess(host, ["install-manifest", "--browser", browserName, "--extension-id", extensionId, "--path", host, "--output", manifestPath], { env });
@@ -430,6 +512,24 @@ try {
   console.log("HARNESS", JSON.stringify({ runDir, mode, browserName, browserPid: child.pid, hostPid: endpoint.pid }));
 
   if (mode === "idle-diagnostic") await observeIdle();
+  else if (cleanupScenario) {
+    const popupControl = cleanupPopupDriver();
+    await runCase(cleanupScenario.name, async detail => {
+      const readNative = () => worker.evaluate("(async()=>{const requestedAt=Date.now();const [tabs,windows,targets]=await Promise.all([chrome.tabs.query({}),chrome.windows.getAll({populate:false}),chrome.debugger.getTargets()]);return{requestedAt,completedAt:Date.now(),tabs,windows,targets}})()");
+      let sceneFailure;
+      try {
+        await checkNativeCreatedPageCleanup({ connect, worker, fixtureURL, server: createdPages, detail,
+          change: cleanupScenario.change, recovery: cleanupScenario.recovery, popupControl,
+          recorderFor: browser => createBackgroundWindowRecorder({ browser, readNative, readFocus: focus, focusLedger: ledger,
+            allowedActivations: report.focus.allowedActivations, allowedFocus: report.focus.allowedFocus }),
+          identity: cleanupRuntimeIdentity, readFocus: focus,
+          saveDetail: value => save("native-created-page-cleanup-detail.json", value)
+        });
+      } catch (error) { sceneFailure = error; }
+      finally { try { detail.popupCleanup = await popupControl({ action: "close" }); } catch (error) { detail.popupCleanupError = error.stack; sceneFailure ??= error; } }
+      if (sceneFailure) throw sceneFailure;
+    }, { deferInitialFocusFailure: true });
+  }
   else if (mode === "created-page-host-loss") {
     await runCase("native-created-page-host-loss", async detail => {
       const readNative = () => worker.evaluate("(async()=>{const requestedAt=Date.now();const [tabs,windows,targets]=await Promise.all([chrome.tabs.query({}),chrome.windows.getAll({populate:false}),chrome.debugger.getTargets()]);return{requestedAt,completedAt:Date.now(),tabs,windows,targets}})()");
@@ -544,7 +644,7 @@ finally {
   if (registryAttempted && !subprocessChildren.size) { try { report.registrationCleanup = JSON.parse(await subprocess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", registryScript, "cleanup"])); } catch (error) { report.registrationCleanupError = error.message; } }
   else if (registryAttempted) report.registrationCleanupError = "A fixture helper remains live; registry cleanup withheld to avoid a late create/cleanup race";
   server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));
-  if (mode === "created-page-host-loss") await save("created-page-server.json", createdPages.allStats());
+  if (mode === "created-page-host-loss" || cleanupScenario) await save("created-page-server.json", createdPages.allStats());
   await fs.writeFile(path.join(runDir, "browser.log"), browserLogs.join(""));
   for (const name of ["chrome_debug.log", "debug.log"]) { try { await fs.copyFile(path.join(profile, name), path.join(runDir, name)); } catch (error) { if (error.code !== "ENOENT") diagnostics.push({ phase: "log copy", error: error.message }); } }
   const outcome = nativeLifecycleOutcome(report); report.passed = outcome.passed; report.exitCode = outcome.exitCode;

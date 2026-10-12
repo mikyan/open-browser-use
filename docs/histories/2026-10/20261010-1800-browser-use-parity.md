@@ -2124,6 +2124,33 @@ Pause先阻断输入、再重启已结算失败清理并捕获新drain；三个�
 仍在原窗口active。源码/stage/复用二进制核对通过，确切私有进程清单为空；
 该loopback adapter回归不代替实机storage故障或失败focus场景，旧preview不变。
 
+### 导航与关页清理的原生 quota 恢复验收
+
+新增独立native launcher模式与严格两轴selector，保留原生host连接。私有
+worker包装器仅对原waiter/claim/incarnation的删除snapshot加入超quota随机
+测试值，返回原始storage.set Promise，保留真实Chrome拒绝和成功ACK。
+场景在故障仍存在时先证明公开结束/Pause及再试持续失败，再关闭注入，
+经同session beginTurn或同真实popup的Retry pause/Resume恢复。测试不重放
+输入/adoption，不延长原waiter期限，也不替换child。
+
+四场`CxXan4`/`jEHwoF`/`DxTviV`/`itXMS9`均恢复成立：各3次quota拒绝与
+1次成功删除，首失败仍余19.028–19.080秒；同live host/CIM创建时间/祖先链、
+endpoint和worker不变，旧scope拒绝、新scope源页读取/重臂/取消成功而child
+无继承权限。导航保留原child文档，关闭保持缺失；13/14项清理、browser
+实际exit0及精确进程/endpoint/注册移除通过。独立审计逐一核对原生与清理
+证据；这些是证据一致性检查，四场整体仍因原focus/activation实际
+exit1。未新增focus许可，popup只在已经聚焦的精确私有窗口打开，DOM handler
+点击不冒充硬件鼠标输入。已目视核对Failed、Paused、Running真实截图。
+
+首次`jegs7C`误把collect保留的SOURCE_CHANGED当成不合法错误；`yg1DL6`
+在inactive sentinel打开popup被Chrome拒绝且formal-finalize失败。修正测试
+契约/入口后复验，旧失败记录保留。复审还发现旧popup driver在等待按钮和
+点击间未复核document；`DEc8wj`/`Sg0Coj`保留该边界。最终driver在同次evaluate
+核原context/document，迟到lookup和替换/缺失/歧义context在点击前拒绝，两场
+暂停专项重新运行。最终定向Node146/146零skip/cancel；生产
+源/构建及三个已发布preview保持原字节，未重跑此前全Node2238或普通125。
+此片证明定向参数注入的恢复，不证明自然storage故障或不抢focus已完成。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

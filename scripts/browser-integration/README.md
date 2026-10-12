@@ -1010,6 +1010,54 @@ old-host descriptor remains in the private artifact directory. Do not interpret
 the separately unit-tested failed-cleanup retry fix. See
 [native host-loss evidence](../../docs/references/created-page-waits.md#created-page-native-host-loss).
 
+### Created-page cleanup fault mode
+
+With the same Windows native-launcher prerequisites, run one explicitly selected
+scenario per isolated browser. Both selectors are required; they are rejected
+in other modes before a profile or registry entry is created:
+
+```powershell
+$env:OBU_TEST_NATIVE_MODE = 'created-page-cleanup'
+$env:OBU_TEST_NATIVE_CHANGE = 'source-navigation' # or 'child-close'
+$env:OBU_TEST_NATIVE_RECOVERY = 'session-bootstrap' # or 'retry-pause'
+node scripts/browser-integration/native-lifecycle.mjs
+```
+
+The original natural Control-click child remains matched and undelivered. A
+private worker wrapper targets only deletion of its exact auxiliary claim via
+`chrome.storage.session.set`, appends an over-quota test value and returns the
+original native Promise. Chrome must reject the write and leave both the old
+claim and absence of the test key observable. This is deliberate argument fault
+injection, not a spontaneous storage or disk failure. Other writes remain intact.
+
+After real source navigation or child closure, public turnEnded/Pause must fail
+and repeated explicit recovery must remain fenced while the fault is enabled.
+Disabling it then permits SDK beginTurn or the original real popup's Retry pause
+and Resume control buttons. Popup clicks use its DOM event handler, not the OS
+mouse or a hardware-trust claim. Host/worker identity, original waiter deadline,
+original page documents/positions, stale-scope denial, fresh-source usability,
+zero input/adoption replay and exact cleanup are checked. Child closure must
+stay closed; navigation must retain the original child document.
+
+The diagnostic popup opens in the one already-focused exact private source or
+sentinel window, without changing focus. Original popup context/document,
+button state and the remaining original recovery deadline are checked in the
+same evaluation before each DOM click; replacement or delayed lookup rejects.
+An earlier native focus failure may be retained while gathering recovery
+evidence; it still fails the final acceptance gate.
+
+`native-created-page-cleanup-detail.json`, `cleanup-popup.json` (when used),
+`created-page-server.json` and `results.json` retain the evidence. The unchanged
+focus gate determines overall acceptance; `recoveryVerified:true` alone cannot
+make a run pass. No focus restoration or additional business-event allowance is
+introduced, and original failures remain in the continuous observer.
+
+The four recorded combinations `CxXan4`, `jEHwoF`, `DxTviV` and `itXMS9` each
+verify recovery with three native quota rejections and one successful deletion,
+but all retain **actual exit 1** due to strict focus/activation failures. Initial
+failed attempts remain preserved. See [native quota recovery evidence](../../docs/references/created-page-waits.md#native-quota-failure-recovery)
+for identities, deadlines, cleanup, test scope and remaining requirements.
+
 ### Recorded acceptance and remaining Edge focus issue
 
 Final Chrome 156 run `native-lifecycle-dnAdTC` passed **3/3** with the final

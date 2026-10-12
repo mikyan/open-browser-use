@@ -355,17 +355,35 @@ and staged builds match, and exact private process inventories are empty after
 teardown. This uses the loopback Native Port adapter and does not establish
 real-browser storage-failure recovery. Published preview archives are unchanged.
 
-Next, exercise source navigation/child closure × session bootstrap/Retry Pause
-in the isolated native launcher. Claim removal rewrites the auxiliary snapshot
-through `chrome.storage.session.set`, not `storage.remove`. A private worker
-hook can add an over-quota test value only to deletion of the exact claim,
-retaining the actual native rejection until the first public transition fails;
-then remove the fault and recover through SDK beginTurn or popup Retry pause.
-Verify the unchanged host/worker identity, retained quarantine, absent test key,
-old-scope denial, fresh-scope usability and no adoption/input replay. Count all
-native rejections, keep the original deadline and the original child, and
-preserve the existing focus failure without restoration or new allowances.
-This remains a proposed fault-injection test, not completed browser evidence.
+The isolated native launcher now verifies all four recovery combinations:
+`CxXan4`/`jEHwoF` use session bootstrap after navigation/closure, and
+`DxTviV`/`itXMS9` use real-popup Retry pause and Resume control. A private worker
+wrapper adds an oversized test value only to exact-claim deletion through
+`chrome.storage.session.set` and returns the original native Promise. Each run
+retains three native quota rejections and one subsequent successful deletion.
+This is deliberate argument fault injection, not spontaneous storage failure.
+Original deadlines, same live host/worker identity, quarantined claim retention,
+absent test key, old-authority denial and fresh-source usability all hold.
+
+Recovery is verified in 4/4, but all four runners retain actual exit 1 because
+of original native focus/activation failures. The popup uses the already-focused
+exact private window and original DOM handlers, without focus restoration or
+new business allowances. All 13/14 cleanup steps, browser exit 0 and exact
+process/endpoint/registration absence are independently checked. Final focused
+Node tests pass 146/146, including replacement-popup and delayed-context
+counterexamples for the same-evaluation click guard. Earlier popup runs
+`DEc8wj`/`Sg0Coj` are retained with their prior document-check gap.
+Initial collect-expectation failure `jegs7C` and inactive
+popup failure `yg1DL6` remain preserved, not counted as complete recovery.
+Production and preview bytes are unchanged; prior full Node/ordinary browser
+runs were not repeated for this harness-only change. See the
+[native recovery evidence](../../references/created-page-waits.md#native-quota-failure-recovery).
+
+Next, keep the no-focus failure visible while extending the original unowned
+child workflow across layouts and lifecycle transitions. Before any native
+focus experiment, establish that it preserves the original trusted page action,
+actual source relationship and child identity; substituting another tab or
+restoring focus after activation does not satisfy the product requirement.
 
 ## Relevant implementation
 

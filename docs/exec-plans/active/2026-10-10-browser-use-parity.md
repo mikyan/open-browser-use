@@ -25,7 +25,11 @@
 bootstrap与全局Retry Pause均纳入已有屏障，自动事件不重试。最终12例在
 旧源2通过/10失败，相关137/137及全Node2238/2238通过；在途共享及foreign
 隔离不变。完整普通`B5TASC`125/125、actualexit0，保持原名称顺序及已有
-12activation/4controlfocus许可。浏览器storage失败与原生开页focus仍是未完成项，见
+12activation/4controlfocus许可。后续`CxXan4`/`jEHwoF`/`DxTviV`/`itXMS9`已验
+定向quota参数注入后的四种原生恢复，每场3拒绝/1成功删除；同host/worker、
+原期限与旧scope拒绝保持，定向Node146通过。四场仍因focus/activation
+actualexit1，无新增豁免；主动quota注入不代替自然故障或完整后台体验。
+生产与旧preview未改，详细边界见
 [恢复契约](../../references/created-page-waits.md#explicit-recovery-after-navigation-or-child-closure)。
 
 2026-10-12 修复host断开后显式bootstrap只重复旧清理错误的恢复缺口。

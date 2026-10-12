@@ -5,11 +5,61 @@ export const nativeLifecycleCases = Object.freeze(["native-host-exit", "native-e
 export const nativeCreatedPageCases = Object.freeze(["native-created-page-host-loss"]);
 export const nativeIdleDurationMs = 10000;
 export function resolveNativeLifecycleMode(value = "acceptance") {
-  assert.ok(["acceptance", "idle-diagnostic", "created-page-host-loss"].includes(value), `Unknown OBU_TEST_NATIVE_MODE: ${value}`);
+  assert.ok(["acceptance", "idle-diagnostic", "created-page-host-loss", "created-page-cleanup"].includes(value), `Unknown OBU_TEST_NATIVE_MODE: ${value}`);
   return value;
+}
+export function resolveNativeCleanupScenario(mode, change, recovery) {
+  resolveNativeLifecycleMode(mode);
+  if (mode !== "created-page-cleanup") {
+    assert.equal(change, undefined, "OBU_TEST_NATIVE_CHANGE requires created-page-cleanup mode");
+    assert.equal(recovery, undefined, "OBU_TEST_NATIVE_RECOVERY requires created-page-cleanup mode");
+    return null;
+  }
+  assert.ok(["source-navigation", "child-close"].includes(change), `Unknown OBU_TEST_NATIVE_CHANGE: ${change}`);
+  assert.ok(["session-bootstrap", "retry-pause"].includes(recovery), `Unknown OBU_TEST_NATIVE_RECOVERY: ${recovery}`);
+  return { change, recovery, name: `native-created-page-cleanup-${change}-${recovery}` };
 }
 export function allNativeLifecycleCasesPassed(records, expected = nativeLifecycleCases) {
   return records.length === expected.length && expected.every(name => records.filter(value => value.name === name && value.passed === true).length === 1);
+}
+export function selectCleanupPopupWindow(windows, { sentinelWindowId, sourceWindowId }) {
+  assert.ok(Array.isArray(windows));
+  const focused = windows.filter(window => window.focused === true);
+  assert.equal(focused.length, 1, "Cleanup popup requires one already focused private window");
+  const window = focused[0];
+  assert.equal(window.type, "normal"); assert.ok(Number.isSafeInteger(window.id));
+  assert.ok([sentinelWindowId, sourceWindowId].includes(window.id), "Focused window is not an exact fixture window");
+  return window.id;
+}
+
+// Serialized into the real popup. Keep every check inside this function so a
+// delayed context lookup cannot dispatch a click into a replacement document.
+export async function clickCleanupPopup(expected, originalContext) {
+  const fields = ["contextType", "contextId", "documentId", "documentUrl", "tabId"];
+  if (!expected || !Number.isFinite(expected.expiresAt) ||
+      !(expected.action === "pause" && ["Pause all agents", "Retry pause"].includes(expected.label) ||
+        expected.action === "resume" && expected.label === "Resume control"))
+    throw Error("Invalid cleanup popup click expectation");
+  if (originalContext?.contextType !== "POPUP" || !Number.isSafeInteger(originalContext.tabId) ||
+      ["contextId", "documentId", "documentUrl"].some(field => typeof originalContext[field] !== "string" || !originalContext[field]))
+    throw Error("Invalid original cleanup popup context");
+  const expiresAt = expected.expiresAt, label = expected.label, action = expected.action;
+  const original = Object.fromEntries(fields.map(field => [field, originalContext[field]])), originalDocument = document;
+  if (Date.now() >= expiresAt) throw Error("Cleanup popup click deadline expired");
+  const contexts = await chrome.runtime.getContexts({ contextTypes: ["POPUP"] });
+  if (!Array.isArray(contexts) || contexts.length !== 1 ||
+      fields.some(field => contexts[0]?.[field] !== original[field]))
+    throw Error("Original cleanup popup context changed before click");
+  if (document !== originalDocument || document.URL !== original.documentUrl)
+    throw Error("Original cleanup popup document changed before click");
+  if (Date.now() >= expiresAt) throw Error("Cleanup popup click deadline expired");
+  const button = document.querySelector("#automation-toggle");
+  if (!button || button.disabled !== false || button.textContent?.trim() !== label || button.dataset?.action !== action)
+    throw Error("Cleanup popup button changed before click");
+  const clickedAt = Date.now();
+  if (clickedAt >= expiresAt) throw Error("Cleanup popup click deadline expired");
+  button.click();
+  return { clickedAt, label, action, context: original };
 }
 
 // A diagnostic may collect an unwanted focus event successfully. Keep that
@@ -21,8 +71,11 @@ export function nativeLifecycleOutcome(report) {
     !report.browserProcessCleanupError && !!report.browserProcessesGone && !report.helperCleanupError &&
     report.finalExtensionInventory?.passed === true && report.extensionInventories?.every(value => value.passed === true);
   if (mode !== "idle-diagnostic") {
-    const expected = mode === "created-page-host-loss" ? nativeCreatedPageCases : nativeLifecycleCases;
-    const passed = !!complete && allNativeLifecycleCasesPassed(report.records, expected) && report.focus.finalValidation === "passed";
+    const scenario = mode === "created-page-cleanup" ? resolveNativeCleanupScenario(mode, report.cleanupScenario?.change, report.cleanupScenario?.recovery) : null;
+    const expected = scenario ? [scenario.name] : mode === "created-page-host-loss" ? nativeCreatedPageCases : nativeLifecycleCases;
+    const verified = !scenario || report.cleanupScenario.name === scenario.name && report.records.every(record =>
+      record.detail?.change === scenario.change && record.detail?.recovery === scenario.recovery && record.detail?.recoveryVerified === true);
+    const passed = !!complete && verified && allNativeLifecycleCasesPassed(report.records, expected) && report.focus.finalValidation === "passed";
     return { passed, exitCode: passed ? 0 : 1 };
   }
   const diagnostic = report.diagnostic;
