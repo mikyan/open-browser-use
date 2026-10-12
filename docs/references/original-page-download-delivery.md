@@ -59,6 +59,43 @@ explicitly; they do not broaden ownership or replay work.
 
 ## Product integration evidence
 
+Final five-entry run `Fb9uuB` passed 2/2 with actual exit 0. JS, CLI, MCP,
+Python and Go each delivered six original files across root/OOPIF/dynamic OOPIF
+and POST/Blob: 30 distinct files, 5200 bytes. Each of the six groups records all
+five arm acknowledgements before release and every trigger after release.
+Callers obtain and read their own public path; parent-side JS independently
+checks the original bytes, SHA256, nonce, Page GUID/source and owner notifications.
+The fixture records 15 one-use POSTs, 15 immediately revoked Blobs and no
+replacement GET. The 14000 ms continuous focus interval contains no activation
+or focus events and uses no allowances.
+
+Readiness is bounded by the original waiter deadline. Each subsequent click
+uses the remaining monotonic budget, including after dynamic frame creation.
+Typed-process or MCP exit while waiting rejects the shared barrier; cleanup
+waits for actual child close and does not start a replacement process. Review
+also caught Python's copied-helper path resolution and fixed it before this
+run. Focused harness tests pass Node 673/673, Python 8/8 and Go 15/15 including
+subtests, without skips. These unit/process checks are separate from browser
+acceptance. The earlier `2O6wkV` proves positive delivery only, because its five
+waiters were not simultaneously ready; `EKpLO0` passed after the barrier fix but
+precedes the final CLI/MCP action-budget correction. Both records are retained.
+
+Foreign GUID path/cancel rejection and the two held-transfer lifecycle cases
+still run through the parent JS clients; they are not negative tests through
+all five external interfaces. Native Port transport uses the existing isolated
+loopback adapter. These results do not prove unowned user-download handling,
+real Browser-root disconnection during delivery or ordinary profile setup.
+
+The final production host source also passed the ordinary unbound full suite
+`U32iKd`: 125/125, actual exit 0, with unchanged case names/order. Its 238890 ms
+focus interval contains only the existing 12 activation and four control-popup
+focus allowances. This is a separate full-suite run, not a claim that every
+case ran with Browser downloads bound. The v3 build records 58 Go/module inputs
+and ten binaries. Production extension/host/SDK sources remain at `6300413`;
+the new binary includes different VCS build metadata from pre-commit `M8DwSY`,
+so it is not described as byte-identical to that earlier host. Published preview
+ZIPs remain unchanged.
+
 Final repaired Windows Chromium run `M8DwSY` passed 2/2 with actual exit 0.
 Its freshly built host includes the non-evicting revocation ledger and both
 wall-clock deadline fixes. The complete build manifest covers 57 production
@@ -199,8 +236,8 @@ proof's configuration is confined to its own isolated profile. It does not
 authorize changing a user's existing browser configuration.
 
 Binding, original claims, path/cancel and invalidation now have production code
-and focused acceptance above. Full file workflows through Python, Go, CLI and
-MCP, an unowned user-download comparison, real Browser connection loss during
+and focused five-entry positive acceptance above. An unowned user-download
+comparison, real Browser connection loss during
 delivery, dangerous/failed downloads and current-user-profile authorization still
 need acceptance. Windows and Linux native WebSocket unit tests do not substitute
 for those browser workflows or macOS/other browser coverage.
@@ -210,3 +247,31 @@ must continue reporting that the capability is unavailable. An explicitly
 authorized current-browser connection and a host-created profile have different
 installation, login and permission properties; a successful isolated transport
 does not complete existing-profile support or the full Browser Use parity goal.
+
+## Existing-profile installation research
+
+The public [downloads API](https://developer.chrome.com/docs/extensions/reference/api/downloads)
+exposes numeric download IDs and filenames, but no Page GUID or source-tab key.
+The [extension debugger's allowed domains](https://developer.chrome.com/docs/extensions/reference/api/debugger#restricted-domains)
+exclude Browser. Matching the next global download by URL, filename or time
+would therefore weaken the existing ownership contract.
+
+Chromium's [Page handler](https://github.com/chromium/chromium/blob/main/content/browser/devtools/protocol/page_handler.cc)
+and [download history writer](https://github.com/chromium/chromium/blob/main/chrome/browser/download/download_history.cc)
+do use the same DownloadItem GUID. This makes History an exact-key candidate,
+but not an implemented live path source: the [database defaults](https://github.com/chromium/chromium/blob/main/sql/database.h)
+use exclusive locking, [History writes](https://github.com/chromium/chromium/blob/main/components/history/core/browser/history_backend.cc)
+can be asynchronous, and transient/off-the-record downloads
+need not be persisted. The existing instance-ID profile scan also does not
+authenticate a live Native Port's database. No live History fallback, database
+copy, lock bypass or user-browser shutdown was added.
+
+Chrome documents an [explicit current-session connection flow](https://developer.chrome.com/blog/chrome-devtools-mcp-debug-your-browser-session)
+for Chrome 144+: enable remote debugging in the inspect page and approve the
+connection prompt. This is a candidate for reusing an existing signed-in
+profile, with additional authorization steps. Microsoft also documents an
+[Edge current-instance opt-in](https://learn.microsoft.com/en-us/microsoft-edge/web-platform/devtools-mcp-server#auto-connect-to-a-running-edge-instance)
+through `edge://inspect`, followed by auto-connect using that Edge user-data
+directory's `DevToolsActivePort`. These are supported upstream connection flows,
+not our product's runtime acceptance. Current-profile connection, permission,
+download permissions and focus still need testing in each browser.

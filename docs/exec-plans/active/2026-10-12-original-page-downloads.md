@@ -168,3 +168,55 @@ wait在ready时保存原Port及generation，Page归属校验后才claim；path/c
 没有收窄原计划成功条件。下一步先验Python/Go/CLI/MCP同原文件任务、未owned
 用户下载隔离、真实root断线和失败下载，再解决普通现有profile的安装/授权
 体验。所有未取得的范围仍保持开放，旧preview三ZIP不替换。
+
+## Five-entry positive acceptance
+
+前轮完成正式绑定、修复和实机验收并推送`6300413`，属于progress；本轮从
+干净工作区继续。保持原JS三owner专项与未绑定125基线不变，新增独立
+`five-entry`模式：JS/CLI/MCP/Python/Go各一个owner，三布局×POST/Blob共30
+原文件，沿用同URL/同名fixture、原Page来源与完整字节判定。CLI/MCP必须
+走真实子进程；Python/Go必须用正式typed ready/result/path且固定原epoch。
+每个caller保留scope、逐阶段时间、原输出/错误、精确文件与实际进程close。
+父进程再独立核文件字节、nonce与服务端原响应；不能用JS替另四入口操作。
+
+并行研究普通安装的精确原文件路径来源，只读官方接口/Chromium实现与
+现有参考代码。没有实际profile身份和原GUID证据，不允许以全局下载队列、
+URL/文件名/时间相似代替归属。既有用户profile和未知下载数据本轮不读取。
+
+最近的安装问答不计能力开发进展；本轮重新核工作树，完成正式五入口原文件
+正例及最终host完整回归，属于progress。首次`2O6wkV`2/2得到30文件/5200B，
+但没有保证全部waiter先ready，因此只保留为交付正例，不称并发验收。
+新增6组all-ready barrier后，审查修复Python复制位置、动态Add后原预算、
+typed/MCP在gate期间实际退出与CLI/MCP每次动作剩余预算；旧源码确定性失败
+保留。`EKpLO0`2/2先通过门禁，随后预算修复后最终`Fb9uuB`2/2 actualexit0。
+30份原文件/5200B、15一次性POST和15revoke Blob、原Page/GUID/字节/通知均核；
+14000ms零activation/focus与零豁免。foreign path/cancel拒绝和两held生命周期
+仍由parent JS检查，不冒充五入口全部负例，也没有未owned用户下载对照。
+
+最终Node脚手架673/673、Python helper8/8、Go helper15/15（含子测试）全过，
+无skip。58 Go/module输入与10bin冻结；生产扩展/Host/SDK相对`6300413`未变。
+新host普通未绑定完整`U32iKd`125/125 actualexit0，case名称/顺序不变；
+238890ms只含原12activation/4controlpopup focus允许项。Host重编译的VCS
+metadata与M8不同，不能称二进制逐字节相同，57既有构建输入相同另行核验。
+已发布三ZIP未替换。当前只完成该正例片段；原计划其余生命周期、授权、平台
+和完整P01–P15继续active。
+
+## Next: current-session connection
+
+官方实现提供了普通现有profile的候选路径：Chrome144+和Edge均可由用户在
+inspect页启用remote debugging，再从指定user-data根目录的`DevToolsActivePort`
+直接连接Browser WebSocket。Chrome approval-only模式的HTTP discovery可返回
+404，不能先用`/json/version`探活来判不可用。来源与区别见
+[原文件交付](../../references/original-page-download-delivery.md#existing-profile-installation-research)。
+
+下一生产切片可增加显式auto-connect发现入口，仍要求exact Native Host
+socket与exclusive，不以目录名证明profile身份：端口文件只负责定位，实际
+worker nonce/instance/boot/port challenge继续决定是否允许配置下载。只读
+用户选定根目录的有界两行文件，不扫描端口、History或自动换profile。
+CLI的总deadline应包含文件读取与授权等待；当前Manager把整个Dial截为10秒，
+需要拆分授权握手总预算与后续每条CDP命令10秒上限，不能仅把CLI提示改成60秒。
+
+此入口尚未实现。先验无调试启动参数的隔离profile，再验拒绝/批准超时、错误
+profile、多profile同ID worker、关闭授权与实际断连。授权UI可能前台出现，
+必须与批准后的后台工作分段记录，不宣称全流程零焦点或普通安装已完成。
+完整P01–P15和原计划其余负例保持开放。

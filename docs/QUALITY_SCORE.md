@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+正式原文件五入口正例现已通过`Fb9uuB`2/2、actualexit0：30文件/5200B，
+6组都先收到5个ready再释放点击，原字节/GUID/来源/通知逐项核对；14000ms
+零focus/activation，零豁免。修复复制后Python路径、gate期间子进程退出与
+迟到Add ACK后点击预算的测试缺口；Node673、Python8、Go15检查全过。
+最终生产host源码的未绑定完整`U32iKd`125/125，238890ms仅原12activation/
+4controlfocus允许事件。外国GUID与两生命周期仍为parent JS负例，未owned
+用户下载、root断连/危险下载、现有profile授权仍开放。生产源码及preview
+未变，此片增加验收证据；完整范围见下面的原文件交付参考。
+
 原文件交付已有可选的正式Host/CLI绑定与扩展私有通路。最终修复后的
 Windows Chromium `M8DwSY` 2/2、actualexit0，JS接口取得18份POST/Blob
 原文件共3120B，root/OOPIF/动态OOPIF、同名三任务归属与通知隔离通过。
@@ -20,7 +29,7 @@ Windows Chromium `M8DwSY` 2/2、actualexit0，JS接口取得18份POST/Blob
 skip，native包Windows69/Linux70零skip，vet通过。先前checkpoint的完整
 `bi7ASp`125/125覆盖普通未绑定路线，不冒充最终bound修复后的完整套件。
 旧preview未变；普通扩展安装尚不可交付Page GUID路径，未owned用户下载、
-正式五入口、连接丢失/危险下载、当前用户profile授权及跨平台仍待验。详见
+各入口完整负例、连接丢失/危险下载、当前用户profile授权及跨平台仍待验。详见
 [原文件交付](references/original-page-download-delivery.md)。
 
 最新SDK连接分片通过完整`yVGT4D` **125/125、actual exit0**，旧122项名称/

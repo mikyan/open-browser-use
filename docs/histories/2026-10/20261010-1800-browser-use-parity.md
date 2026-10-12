@@ -1893,6 +1893,27 @@ pnpm包通过，CLI以原flags等价编译六平台并用原Windows launcher输�
 未owned用户下载、真实连接丢失/危险下载、当前profile授权与更多平台继续
 在原计划中开放；没有宣称P01–P15完整对齐，也未提PR或替换旧发布包。
 
+### 原文件五入口同步验收
+
+新增独立five-entry模式，以真实CLI/MCP子进程及typed Python/Go API完成原
+ready→click→result→path→read。父JS只建页与独立核原字节/nonce/Page来源。
+首次`2O6wkV`30正例通过但未同步ready，保留局限；修复后`EKpLO0`通过，
+再收紧动作预算后最终`Fb9uuB`2/2 actualexit0：30文件/5200B，6组五个ready
+先于所有trigger，15POST+15revoke Blob，14000ms零focus/activation与零豁免。
+foreign path/cancel和两held生命周期由parent JS完成，不扩写为五入口负例。
+
+审查修复Python复制目录识别、dynamic Add后期限、typed/MCP gate期间退出，
+以及CLI/MCP点击使用超过剩余预算；过期不再输入，不重开子进程或重放下载。
+旧源码失败反例保留，最终Node673、Python8、Go15（含子测试）通过且无skip。
+最后完整`U32iKd`125/125、actualexit0，名称/顺序保持；238890ms仅既有
+12activation/4controlfocus。58 Go/module输入/10bin冻结；57原输入与M8相同，
+host的VCS构建metadata变化导致二进制SHA不同，明确记录而非伪称同一产物。
+
+生产源码相对`6300413`未变，已发布preview三ZIP未替换。普通安装仍缺原文件
+路径，未owned用户下载、实际root断线/危险下载、当前profile授权及平台验收
+继续开放。补充官方Chrome144+与Edge inspect-page opt-in研究；只读当前会话
+端口文件的方案尚未实现，授权UI与后续后台焦点需要分段验证。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

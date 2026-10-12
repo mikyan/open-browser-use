@@ -2700,3 +2700,16 @@ native包另有Windows69/Linux70全过。未绑定完整`bi7ASp`125/125属于此
 checkpoint，不能当作最终修复后的全量证据。公司安装preview未替换。
 原文件计划继续active：其余四入口、未owned用户下载、真实连接丢失/危险
 下载、现有用户profile及跨平台需补证；整体P01–P15未完成。
+
+### P10/P15：原文件五入口同步验收
+
+最终`Fb9uuB`2/2、actualexit0完成JS/CLI/MCP/Python/Go×三布局×POST/Blob，
+30份原文件5200B；6组均先收到5个ready才释放单次点击，保留原GUID/字节/
+来源/通知核验。门禁期间进程退出及动作剩余预算、Python复制目录已修复；
+Node673、Python8、Go15全过。14000ms零activation/focus、无新增豁免。
+普通未绑定完整`U32iKd`125/125复核最终生产host，238890ms沿用原12activation/
+4controlfocus；case顺序未变。生产及旧preview不变，不把此测试片段当作
+普通安装原文件路径已可用。foreign请求及两held生命周期仍为JS负例。
+此前其余四入口的正例缺口已补，未owned下载、Browser断连/危险文件、现有
+profile授权和跨平台仍开放。下一实际产品方向为官方Chrome/Edge当前会话
+opt-in连接，详见[原文件计划](2026-10-12-original-page-downloads.md)。

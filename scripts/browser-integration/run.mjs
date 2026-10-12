@@ -55,6 +55,7 @@ import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-w
 import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs";
 import { connectOriginalDownloadObserver } from "./original-download-observer.mjs";
 import { checkOriginalDownloadProof, checkProductDownloadLifecycle } from "./original-download-proof.mjs";
+import { runOriginalDownloadCaller, runOriginalDownloadProcess } from "./original-download-callers.mjs";
 import { createSnapshotGeometryFixture, checkGeometryCaller, checkGeometryPhase, checkGeometryLimits, resolveGeometryDPR } from "./snapshot-geometry-fixture.mjs";
 import { chooserDiagnosticMode, chooserDiagnosticCases, chooserPointerContextCases, chooserPointerContextKeys, chooserPointerGoContextKeys, chooserPointerAllContextKeys, chooserPointerAllContextArtifacts, chooserPointerAllContextSummary, createChooserDiagnostic, chooserPointerDiagnosticSummary, chooserPointerContextSummary, chooserPointerGoContextSummary } from "./chooser-ready-diagnostic.mjs";
 import { mcpBindingEnabled, mcpBindingCases, createMCPBindingFixture, checkMCPConnectionBinding, checkMCPBindingSelection } from "./mcp-binding-fixture.mjs";
@@ -77,9 +78,13 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
-if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product"].includes(originalDownloadBehavior))
-  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, or unset");
-const productDownloads = originalDownloadBehavior === "product";
+if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry"].includes(originalDownloadBehavior))
+  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, or unset");
+const fiveEntryDownloads = originalDownloadBehavior === "five-entry";
+const productDownloads = originalDownloadBehavior === "product" || fiveEntryDownloads;
+const originalDownloadTestName = fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
+if (fiveEntryDownloads && !process.env.OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY)
+  throw new Error("Set OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY for five-entry original downloads");
 if (originalDownloadBehavior && ["OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
   throw new Error("Original download proof is a separate headed mode");
 const mcpBinding = mcpBindingEnabled(process.env);
@@ -604,7 +609,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
-    if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== "js-original-download-native-proof") return;
+    if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
     if (mcpBinding && !mcpBindingCases.includes(name)) return;
@@ -623,7 +628,7 @@ try {
     }
     else { records.push({ name, passed: true, elapsedMs: Date.now() - start, detail }); console.log("PASS", name); }
   }
-  if (originalDownloadBehavior) await test("js-original-download-native-proof", async () => {
+  if (originalDownloadBehavior) await test(originalDownloadTestName, async () => {
     const owners = [], detail = { boundary: productDownloads ? "Production CLI binding and SDK original paths" : "Native transport feasibility proof, not a public path implementation" };
     let native, failure;
     try {
@@ -654,8 +659,57 @@ try {
         await native.start({ behavior: originalDownloadBehavior, ...(originalDownloadBehavior === "allowAndName" ? { downloadPath: path.join(runDir, "downloads") } : {}) });
         sourceIdentity.testHooks.push("original download proof: real Browser root connection changes only fresh isolated profile download behavior/events; passive Page trace, exact GUID/frame merge and native filePath reads; no product fallback or directory delta");
       }
-      for (let index = 0; index < 3; index++) owners.push(await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `original-download-${index}`, turnId: "native-proof", timeoutMs: 20000 }));
-      Object.assign(detail, await checkOriginalDownloadProof({ owners, worker, native, fixture: originalDownloadFixtures, fixtureURL, downloadRoot: path.join(runDir, "downloads"), until, behavior: productDownloads ? "default" : originalDownloadBehavior, product: productDownloads }));
+      let callers;
+      const kinds = fiveEntryDownloads ? ["js", "cli", "mcp", "python", "go"] : ["js", "js", "js"];
+      for (let index = 0; index < kinds.length; index++) owners.push(await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `original-download-${index}`, turnId: "native-proof", timeoutMs: 20000 }));
+      if (fiveEntryDownloads) {
+        const pythonCaller = path.join(runDir, "python-original-download-checks.py");
+        const goCaller = path.join(runDir, process.platform === "win32" ? "go-original-download-checks.exe" : "go-original-download-checks");
+        const readyDirectory = path.join(runDir, "original-gates"); await fs.mkdir(readyDirectory);
+        await fs.copyFile(path.join(directory, "python-original-download-checks.py"), pythonCaller, fsConstants.COPYFILE_EXCL);
+        await fs.copyFile(process.env.OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY, goCaller, fsConstants.COPYFILE_EXCL);
+        detail.callers = { kinds, pythonSHA256: createHash("sha256").update(await fs.readFile(pythonCaller)).digest("hex"), goBinarySHA256: createHash("sha256").update(await fs.readFile(goCaller)).digest("hex") };
+        for (const name of ["original-download-callers.mjs", "python-original-download-checks.py", "go-original-download-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+        callers = kinds.map(kind => kind === "js" ? null : async ({ scope, afterReady, ...input }) => {
+          const params = { socketPath: endpoint, sessionId: scope.session_id, turnId: scope.turn_id, controlEpoch: scope.control_epoch, ...input };
+          const evidence = { kind, input: params }, artifact = path.join(runDir, `original-caller-${kind}-${input.key}.json`);
+          try {
+            if (kind === "cli" || kind === "mcp") {
+              evidence.result = await runOriginalDownloadCaller({ ...params, downloadKind: input.kind, kind, executable, afterReady });
+            } else {
+              evidence.process = {};
+              const readyPath = path.join(readyDirectory, `${input.key}.ready.json`), releasePath = path.join(readyDirectory, `${input.key}.release`);
+              params.readyGate = { readyPath, releasePath, token: randomUUID() };
+              const child = runOriginalDownloadProcess({ command: kind === "python" ? process.env.OBU_TEST_PYTHON || "python" : goCaller,
+                args: kind === "python" ? [pythonCaller] : [], input: JSON.stringify(params), timeoutMs: 45000, detail: evidence.process,
+                env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+              let ready, observing = true;
+              try {
+                await Promise.race([
+                  until(async () => { if (!observing) return true; ready = JSON.parse(await fs.readFile(readyPath, "utf8")); return true; }, "typed original-download ready receipt", 15000),
+                  child.then(() => { throw new Error("Typed caller exited before all-ready release"); })
+                ]).finally(() => { observing = false; });
+                assert.equal(ready.token, params.readyGate.token);
+                evidence.ready = ready;
+                await Promise.race([
+                  afterReady(ready),
+                  child.then(() => { throw new Error("Typed caller exited during all-ready barrier"); })
+                ]);
+                const temporary = releasePath + ".pending";
+                await fs.writeFile(temporary, params.readyGate.token, { flag: "wx" });
+                await fs.rename(temporary, releasePath); evidence.releasePublishedAt = Date.now();
+                evidence.result = JSON.parse(await child);
+              } catch (error) {
+                try { await child; } catch (childError) { evidence.childError = childError.stack; }
+                throw error;
+              }
+            }
+            assert.equal(evidence.result.caller, kind); return evidence.result;
+          } catch (error) { evidence.error = error.stack; evidence.partial = error.originalDownloadCallerDetail ?? error.originalDownloadDetail; error.originalDownloadDetail = evidence; throw error; }
+          finally { await fs.writeFile(artifact, JSON.stringify(evidence, null, 2), { flag: "wx" }); }
+        });
+      }
+      Object.assign(detail, await checkOriginalDownloadProof({ owners, worker, native, fixture: originalDownloadFixtures, fixtureURL, downloadRoot: path.join(runDir, "downloads"), until, behavior: productDownloads ? "default" : originalDownloadBehavior, product: productDownloads, callers }));
       if (productDownloads) await checkProductDownloadLifecycle({ owner: owners[0], fixture: downloadWaitFixtures, fixtureURL, until, detail });
     } catch (error) { failure = error; Object.assign(detail, error.originalDownloadDetail ?? {}, { error: error.stack, ...(error.observerSnapshot ? { observerFailure: error.observerSnapshot } : {}) }); }
     finally {

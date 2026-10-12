@@ -4,8 +4,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { downloadScope } from "./download-waits-fixture.mjs";
 
-// A proof for a future native transport, not a product download-path fallback.
-// The only file lookup below is the completed Browser event's exact filePath.
+// Feasibility mode reads the original native event path; product modes read only
+// paths returned by their public entry point. Neither mode guesses a filename.
 function installTrace(chrome, target) {
   if (target.__originalDownloadTrace) throw new Error("Original download trace already exists");
   const trace = { events: [], overflow: false };
@@ -19,8 +19,13 @@ function installTrace(chrome, target) {
 }
 const readTrace = worker => worker.evaluate("({events:__originalDownloadTrace.events,overflow:__originalDownloadTrace.overflow})");
 
-export async function checkOriginalDownloadProof({ owners, worker, native, fixture, fixtureURL, downloadRoot, until, behavior, product = false }) {
-  const detail = { behavior, boundary: product ? "Public SDK path through explicitly bound production host; fresh isolated profile" : "Harness-only native Browser connection in a fresh isolated profile; SDK path remains unavailable", cases: [], notifications: owners.map(() => []) };
+export async function checkOriginalDownloadProof({ owners, worker, native, fixture, fixtureURL, downloadRoot, until, behavior, product = false, callers }) {
+  if (callers) {
+    assert.equal(product, true);
+    assert.equal(callers.length, owners.length);
+  } else assert.equal(owners.length, 3);
+  const expectedFiles = owners.length * 6;
+  const detail = { behavior, boundary: product ? `${callers ? "Five public SDK/CLI/MCP entry points" : "Public JS SDK paths"} through explicitly bound production host; fresh isolated profile` : "Harness-only native Browser connection in a fresh isolated profile; SDK path remains unavailable", cases: [], groups: [], notifications: owners.map(() => []) };
   const unsubscribes = owners.map((owner, index) => owner.client.onNotification(event => {
     if (event.method === "onDownloadChange") detail.notifications[index].push(structuredClone(event.params));
   }));
@@ -37,6 +42,33 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
     for (const variant of ["root", "oopif", "dynamic-oopif"]) {
       for (const kind of ["post", "blob"]) {
         const group = [];
+        const readiness = { variant, kind, ready: [] }; detail.groups.push(readiness);
+        const waiting = new Map(); let gateError;
+        const rejectGate = error => {
+          gateError ??= error;
+          readiness.error ??= String(error);
+          for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(gateError); }
+          waiting.clear();
+        };
+        const afterReady = (item, ack) => new Promise((resolve, reject) => {
+          try {
+            if (gateError) throw gateError;
+            assert.equal(ack.tabId, item.tabId); assert.deepEqual(ack.scope, item.scope);
+            assert.ok(ack.waiterId && Number.isFinite(ack.readyAt) && ack.remainingMs > 0 && ack.remainingMs <= 15000);
+            assert.ok(!readiness.ready.some(entry => entry.ownerIndex === item.ownerIndex));
+            const remaining = ack.readyAt + ack.remainingMs - Date.now();
+            assert.ok(remaining > 0, "Original wait expired before all callers were ready");
+            readiness.ready.push({ ownerIndex: item.ownerIndex, ...ack, observedAt: Date.now() });
+            const timer = setTimeout(() => rejectGate(new Error("Original wait expired at all-ready barrier")), remaining);
+            waiting.set(item.ownerIndex, { resolve, reject, timer });
+            if (waiting.size === owners.length) {
+              readiness.releasedAt = Date.now();
+              for (const entry of readiness.ready) assert.ok(readiness.releasedAt < entry.readyAt + entry.remainingMs);
+              for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.resolve(); }
+              waiting.clear();
+            }
+          } catch (error) { rejectGate(error); reject(error); }
+        });
         // The third connection is an unrelated task using the identical URL and
         // suggested filename. Its events must never reach the first two owners.
         for (const [index, owner] of owners.entries()) {
@@ -45,21 +77,53 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
           const item = { key: record.key, ownerIndex: index, kind, variant, tabId: tab.id, scope: downloadScope(owner) };
           detail.cases.push(item);
           // Arm before a dynamic child exists, as in the public ready contract.
-          const waiter = await tab.expectDownload({ timeoutMs: 15000 }); item.waiterId = waiter.waiterId; item.readyAt = Date.now();
-          const cleanup = { item, waiter, attempted: false }; waiters.push(cleanup);
-          if (variant === "dynamic-oopif") await tab.getByRole("button", { name: "Add download frame", exact: true }).click();
+          const caller = callers?.[index];
+          let waiter, cleanup, waitDeadline;
+          if (!caller) {
+            const armStarted = performance.now();
+            waiter = await tab.expectDownload({ timeoutMs: 15000 }); item.waiterId = waiter.waiterId; item.readyAt = Date.now();
+            waitDeadline = Math.min(armStarted + 15000, performance.now() + waiter.remainingMs);
+            cleanup = { item, waiter, attempted: false }; waiters.push(cleanup);
+            if (!callers && variant === "dynamic-oopif") await tab.getByRole("button", { name: "Add download frame", exact: true }).click();
+          }
           const target = variant === "root" ? tab : tab.frameLocator("#download-frame");
-          group.push({ item, record, tab, target, waiter, cleanup });
+          group.push({ item, record, tab, target, waiter, cleanup, caller, waitDeadline });
         }
         // Observe every settled attempt before proceeding, including a failed
         // click. No replay or second download request is used to repair failure.
-        const settled = await Promise.allSettled(group.map(async ({ item, record, tab, target, waiter, cleanup }) => {
+        const settled = await Promise.allSettled(group.map(async ({ item, record, tab, target, waiter, cleanup, caller, waitDeadline }) => {
           try {
-            item.triggerAt = Date.now();
-            await target.getByRole("button", { name: "Download original report", exact: true }).click({ timeoutMs: 5000 });
-            const download = await waiter.result(); item.downloadId = download.downloadId; item.collectedAt = Date.now();
-            try { item.productPath = await download.path({ timeoutMs: product ? 10000 : 1000 }); }
-            catch (error) { item.productPathError = String(error); }
+            if (caller) {
+              item.caller = await caller({ tabId: item.tabId, scope: item.scope, variant, kind, key: item.key, afterReady: ack => afterReady(item, ack) });
+              assert.equal(item.caller.ok, true);
+              assert.deepEqual(item.caller.scope, item.scope);
+              assert.equal(item.caller.tabId, item.tabId);
+              assert.equal(item.caller.variant, variant);
+              assert.equal(item.caller.kind, kind);
+              assert.equal(item.caller.key, item.key);
+              assert.ok(item.caller.remainingMs > 0 && item.caller.remainingMs <= 15000);
+              for (const key of ["waiterId", "readyAt", "triggerAt", "downloadId", "collectedAt", "productPath"]) item[key] = item.caller[key];
+              assert.ok(typeof item.waiterId === "string" && item.waiterId);
+              assert.ok(Number.isFinite(item.readyAt) && item.triggerAt >= item.readyAt && item.collectedAt >= item.triggerAt);
+              assert.equal(item.caller.waitCleanup.ok, true);
+            } else {
+              const clickOptions = () => {
+                if (!callers) return { timeoutMs: 5000 };
+                const remaining = Math.floor(waitDeadline - performance.now());
+                assert.ok(remaining > 0, "Original download wait expired before click");
+                return { timeoutMs: Math.min(5000, remaining) };
+              };
+              if (callers) {
+                await afterReady(item, { tabId: item.tabId, scope: item.scope, waiterId: item.waiterId, remainingMs: waiter.remainingMs, readyAt: item.readyAt });
+                if (variant === "dynamic-oopif") await tab.getByRole("button", { name: "Add download frame", exact: true }).click(clickOptions());
+              }
+              const options = clickOptions();
+              item.triggerAt = Date.now();
+              await target.getByRole("button", { name: "Download original report", exact: true }).click(options);
+              const download = await waiter.result(); item.downloadId = download.downloadId; item.collectedAt = Date.now();
+              try { item.productPath = await download.path({ timeoutMs: product ? 10000 : 1000 }); }
+              catch (error) { item.productPathError = String(error); }
+            }
             if (product) {
               assert.equal(item.productPathError, undefined);
               assert.equal(typeof item.productPath, "string");
@@ -115,6 +179,7 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
               item.file = { path: deliveredPath, bytes: bytes.length, sha256, base64: bytes.toString("base64"), analysis: JSON.parse(bytes.subarray(0, bytes.indexOf(10)).toString("utf8")) };
               assert.deepEqual(bytes, Buffer.from(record.expected.base64, "base64")); assert.equal(sha256, record.expected.sha256);
               assert.equal(item.file.analysis.key, item.key); assert.equal(item.file.analysis.nonce, record.nonce);
+              if (caller) for (const field of ["bytes", "sha256", "base64", "analysis"]) assert.deepEqual(item.caller.file[field], item.file[field]);
               if (behavior === "allowAndName") assert.equal(path.basename(deliveredPath), item.downloadId);
             } finally { await handle.close(); }
             await until(() => detail.notifications[item.ownerIndex].some(event => event.id === item.downloadId && event.status === "complete"), "owner completed notification");
@@ -133,11 +198,16 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
               assert.equal(posts[0].fields.documentToken, item.page.documentToken); assert.equal(posts[0].fields.trusted, "true");
               assert.equal(posts[0].fields.buttonCount, "1"); assert.equal(posts[0].response.sha256, item.file.sha256);
             }
-          } catch (error) { item.error = error.stack; throw error; }
-          finally { try { await cancelWait(cleanup); } catch (error) { if (!item.error) throw error; } }
+          } catch (error) { rejectGate(error); item.error = error.stack; item.callerFailure = error.originalDownloadDetail; throw error; }
+          finally { if (cleanup) try { await cancelWait(cleanup); } catch (error) { if (!item.error) throw error; } }
         }));
         const errors = settled.filter(result => result.status === "rejected").map(result => result.reason);
         if (errors.length) throw new AggregateError(errors, errors.map(error => error.message).join("; "));
+        if (callers) {
+          assert.equal(readiness.ready.length, owners.length);
+          assert.ok(Math.max(...readiness.ready.map(entry => entry.observedAt)) <= readiness.releasedAt);
+          assert.ok(Math.min(...group.map(({ item }) => item.triggerAt)) >= readiness.releasedAt);
+        }
         for (const { item } of group) for (const [index, owner] of owners.entries()) if (index !== item.ownerIndex) {
           await assert.rejects(owner.client.downloadPath(item.downloadId), /Unknown or unowned download id/);
           if (product) await assert.rejects(owner.client.request("cancelDownload", { downloadId: item.downloadId }), /unknown or unowned/i);
@@ -145,8 +215,8 @@ export async function checkOriginalDownloadProof({ owners, worker, native, fixtu
       }
     }
     assert.equal(fixture.allStats().requests.filter(hit => hit.url === "/report" && hit.method !== "POST").length, 0);
-    assert.equal(new Set(detail.cases.map(item => item.downloadId)).size, 18);
-    assert.equal(new Set(detail.cases.map(item => item.file.sha256)).size, 18);
+    assert.equal(new Set(detail.cases.map(item => item.downloadId)).size, expectedFiles);
+    assert.equal(new Set(detail.cases.map(item => item.file.sha256)).size, expectedFiles);
     if (product) {
       const original = detail.cases[0];
       await fs.unlink(original.productPath);

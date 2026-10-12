@@ -7,8 +7,45 @@ CLI and JS SDK paths with a newly built matching host. It binds only the test's
 exact isolated Browser endpoint, waits for the CLI's actual exit, and verifies
 18 original POST/Blob files, foreign GUID rejection, missing-file failure and
 two held-transfer cancel/revocation cases. It does not create a second Browser
-download observer. Other SDK/CLI/MCP complete file workflows remain separate
-acceptance work; this mode is not the full regression suite.
+download observer. This mode is not the full regression suite.
+
+For the five public entry points, build
+`go build -o <go-caller> ./scripts/browser-integration/go-original-download-checks`,
+set `OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY=<go-caller>` and
+`OBU_TEST_ORIGINAL_DOWNLOADS=five-entry`, and run the same runner with the matching
+host. `OBU_TEST_PYTHON` optionally selects the Python executable. This separate
+headed mode requests 30 original files: JS/CLI/MCP/Python/Go × root/OOPIF/dynamic
+OOPIF × POST/Blob. Every group waits for all five original arm acknowledgements
+before releasing any click. Typed callers exchange bounded ready/release files
+in the isolated run directory; CLI/MCP use an awaited callback. The barrier
+retains each original wait deadline, observes external-process failure and
+checks readiness/release/trigger ordering in the recorded evidence. Each caller
+then performs its own single click, collects
+the GUID, requests the original path and reads its bytes. Parent-side JS creates
+and navigates the fixture tabs, then independently verifies original file bytes,
+Page source and ownership; it does not perform the other callers' download steps.
+Typed Python/Go callers verify the original epoch before and after their SDK's
+normal handshake. CLI/MCP pass the original scope explicitly.
+
+`original-caller-*.json` preserves request/response or typed stages, file bytes,
+errors, cleanup and actual child-process close. A timed-out child is terminated
+and its close is observed before the caller returns; no trigger is replayed.
+The test retains the original missing-file/foreign-GUID checks, both held-transfer
+lifecycle cases and the mandatory raw-navigation control. It adds no focus
+allowance and does not validate ordinary extension-only installation.
+Foreign path/cancel rejection is checked by the parent JS owner clients;
+held-transfer lifecycle cases also use JS. They are not independent negative
+tests through all five entry points. The earlier `2O6wkV` run proved 30 original
+files/5200 bytes, but its callers did not all arm before the first trigger, so
+it is retained only as positive delivery evidence.
+
+Final `Fb9uuB` passes 2/2, actual exit 0: 30 files/5200 bytes, all six groups
+ready before release/trigger, with 14000 ms of zero activation/focus events and
+no allowances. `EKpLO0` is an earlier passing checkpoint before the final
+CLI/MCP action-budget correction. The final host's ordinary unbound suite
+`U32iKd` passes 125/125 with its existing case order and focus allowances.
+Final harness checks pass Node 673, Python 8 and Go 15 including subtests;
+these process/unit tests do not replace the browser runs.
 
 Set `OBU_TEST_ORIGINAL_DOWNLOADS=default` or `allowAndName`, plus the usual
 `OBU_TEST_HOST_BINARY` and optional `OBU_TEST_CHROMIUM_BINARY`, then run
