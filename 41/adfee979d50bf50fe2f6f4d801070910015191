@@ -1,0 +1,73 @@
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_cff1f559365f27 2716-2730
+docs/exec-plans/active/2026-10-12-original-page-downloads.md
+  s_08bbfd293d324f::t_2d3c36267a4134 219-229
+  s_08bbfd293d324f::t_cff1f559365f27 230-261
+docs/references/original-page-download-delivery.md
+  s_08bbfd293d324f::t_9bf4a6d3e1fd79 12-13,19-21
+  s_08bbfd293d324f::t_2b963711d31a02 22
+internal/browserdownloads/handshake_test.go
+  s_08bbfd293d324f::t_fd68df6252ba44 5,54-204
+  s_08bbfd293d324f::t_ecb3d74bdd408b 1-4,6-53,205
+  s_08bbfd293d324f::t_66c65e6c833100 206-238
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_9bf4a6d3e1fd79 30-32
+README.md
+  s_08bbfd293d324f::t_9bf4a6d3e1fd79 162-165
+cmd/open-browser-use/bind_browser_discovery.go
+  s_08bbfd293d324f::t_95cd96d9a1a6c1 1-73,75-153
+  s_08bbfd293d324f::t_bb45f1eff9fa43 74
+internal/browserdownloads/manager_test.go
+  s_08bbfd293d324f::t_ecb3d74bdd408b 46-49,53-55
+docs/references/current-session-connection.md
+  s_08bbfd293d324f::t_1a7cd64be2e781 56-58
+  s_08bbfd293d324f::t_cff1f559365f27 82-109
+  s_08bbfd293d324f::t_9bf4a6d3e1fd79 1-55,59-81
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_1c87de66e7507a 81-84,86,652-663,672
+  s_08bbfd293d324f::t_a2a52fd5ccb515 649,666
+internal/browserdownloads/transport.go
+  s_08bbfd293d324f::t_3fb5bc55fab428 105-107,117-122
+cmd/open-browser-use/bind_browser_discovery_unix_test.go
+  s_08bbfd293d324f::t_a55d0344bfaa7e 1-27
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_2d3c36267a4134 50-62,68
+  s_08bbfd293d324f::t_cff1f559365f27 63-67
+internal/browserdownloads/manager.go
+  s_08bbfd293d324f::t_3fb5bc55fab428 51-63,91
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_cff1f559365f27 1917-1941,1962
+cmd/open-browser-use/bind_browser_discovery_windows.go
+  s_08bbfd293d324f::t_95cd96d9a1a6c1 1-28
+cmd/open-browser-use/bind_browser_discovery_unix.go
+  s_08bbfd293d324f::t_95cd96d9a1a6c1 1-17
+cmd/open-browser-use/bind_browser.go
+  s_08bbfd293d324f::t_bb45f1eff9fa43 133,140
+  s_08bbfd293d324f::t_95cd96d9a1a6c1 4,7,17-18,21,26-34,38-55,59-60,65-66,70-72,82-84,100-102,107-109,111-112,117-132,134-139,141-161
+README.zh-CN.md
+  s_08bbfd293d324f::t_9bf4a6d3e1fd79 142-143
+docs/references/README.md
+  s_08bbfd293d324f::t_9bf4a6d3e1fd79 39-40
+cmd/open-browser-use/bind_browser_discovery_test.go
+  s_08bbfd293d324f::t_819d91faf08103 142-143,159,161,180,363-366,371-373,380-382,408-411,413-420,424-429
+  s_08bbfd293d324f::t_a55d0344bfaa7e 1-95,100-124,129-131,136-138,141,148,153-155,160,168,181-198,206,210-211,215-216,220-228,235-239,244-245,257-258,265-272,276-279,284,288-290,294,298-308,317-318,368,430
+  s_08bbfd293d324f::t_b4f2bb49651f93 96-99,125-128,132-135,139-140,144-147,149-152,156-158,162-167,169-179,199-205,207-209,212-214,217-219,229-234,240-243,246-256,259-264,273-275,280-283,285-287,291-293,295-297,309-316,319-362,367,369-370,374-379,383-407,412,421-423
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_cff1f559365f27 14-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "41adfee979d50bf50fe2f6f4d801070910015191",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
