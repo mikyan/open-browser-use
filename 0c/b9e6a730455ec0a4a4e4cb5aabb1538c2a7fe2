@@ -1,0 +1,79 @@
+scripts/browser-integration/created-page-popup-source.mjs
+  s_08bbfd293d324f::t_728b0fd61a20de 59,64-70,72,277,279-280,321-322
+  s_08bbfd293d324f::t_faa806c99d441a 60-63,71,73-74,150,152,168-180,194,262-264,268-269,275-276,278,281,317-320,323-324
+  s_08bbfd293d324f::t_d447910d76db2c 272
+  s_08bbfd293d324f::t_4830342549c498 325
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_faa806c99d441a 92-93,443,488,658,1307,1313-1314
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_dad0f98cce7d56 7
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_d56abb71cccbfc 14-22,27-28
+docs/references/popup-ownership-design.md
+  s_08bbfd293d324f::t_6f09db55ec6fcd 208-218
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_6f09db55ec6fcd 346-348
+  s_08bbfd293d324f::t_52bbaa12500336 30-31
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d56abb71cccbfc 45-53,58-59
+  s_08bbfd293d324f::t_c12d5ffd97a748 360
+apps/chrome-extension/auxiliary-delivery-backend.test.mjs
+  s_08bbfd293d324f::t_0131f98d232318 16-27,29,99
+  s_08bbfd293d324f::t_eb101e9e1a3cb3 1-5,8-15,28,30-45,89-95,217,467-481
+  s_08bbfd293d324f::t_bf254340c31b30 65-87,277-334,336-419
+  s_08bbfd293d324f::t_54feebfa9c248f 236-276,335,420
+  s_08bbfd293d324f::t_38c3242e46bfd0 6-7,46-64,88,96-98,100-216,218-235,421-466
+scripts/browser-integration/created-page-popup-source.test.mjs
+  s_08bbfd293d324f::t_728b0fd61a20de 68-69,77-82
+  s_08bbfd293d324f::t_a7e12d3b655166 8
+  s_08bbfd293d324f::t_d447910d76db2c 66-67,70-76,83-88
+apps/chrome-extension/auxiliary-ownership-backend.test.mjs
+  s_08bbfd293d324f::t_5c637535a3e18b 125,127-136
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_d5dd71ab66b848 123-125
+  s_08bbfd293d324f::t_99bb6b805e729e 132-143
+docs/exec-plans/active/2026-10-12-created-page-waits.md
+  s_08bbfd293d324f::t_8b7d1998a0faab 457-469
+  s_08bbfd293d324f::t_690c0a31f3d245 434,470-498
+  s_08bbfd293d324f::t_52967e9dbe8a1e 499
+scripts/browser-integration/popup-fixture.mjs
+  s_08bbfd293d324f::t_d447910d76db2c 146-147,149,160-170
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_48f9c34c92445b 55,288-289,307,336,339-374,4604
+  s_08bbfd293d324f::t_2acd3c58d6625f 2183,2344,2347-2353,2355-2356,4564,4600,4603,4608-4616
+  s_08bbfd293d324f::t_d01eeedfc3ee42 4498,4593
+  s_08bbfd293d324f::t_9844c82efe8f22 2345-2346,4497,4605-4606
+  s_08bbfd293d324f::t_c2aafaa9438909 310,2233-2267,2269-2292,2294-2305,2307-2310,2312-2315,2317-2320,2322-2343
+  s_08bbfd293d324f::t_2f076c928abe9f 718,910-911,935-937,959,964-965,1081,1563,1964-1969
+  s_08bbfd293d324f::t_5e2bfd645282d4 2144-2182,2184-2195,2221-2222,2224-2232,2357-2361
+  s_08bbfd293d324f::t_6d175d452859f6 414,417,469,488,491,496,719-720
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_e4c38acb518867 2181
+  s_08bbfd293d324f::t_690c0a31f3d245 2173-2180,2182-2198
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_6f09db55ec6fcd 77-78
+  s_08bbfd293d324f::t_f7f5d6922c2e0c 64-65,76,99-125
+  s_08bbfd293d324f::t_d56abb71cccbfc 126-158,161-167,170
+  s_08bbfd293d324f::t_e4c38acb518867 159-160,168-169
+  s_08bbfd293d324f::t_97d0193af6db71 171
+docs/references/ungrouped-task-tabs.md
+  s_08bbfd293d324f::t_a457ecd619d276 74-77
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_690c0a31f3d245 2842-2859
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "0cb9e6a730455ec0a4a4e4cb5aabb1538c2a7fe2",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
