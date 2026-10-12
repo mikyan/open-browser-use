@@ -1,0 +1,59 @@
+docs/references/original-page-download-delivery.md
+  s_08bbfd293d324f::t_6ab95a5248338c 1-113
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_b347ac964e871a 14-22
+docs/references/README.md
+  s_08bbfd293d324f::t_08e5e205328153 37-38
+scripts/browser-integration/original-download-server.mjs
+  s_08bbfd293d324f::t_4f132ac35bb466 1-107,109-116
+  s_08bbfd293d324f::t_108b1fcc324ba3 108
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_b347ac964e871a 1831-1854,1874-1875
+scripts/browser-integration/original-download-proof.mjs
+  s_08bbfd293d324f::t_5e976cb96723a9 27-33,49,52,56,128,148,151-153,156-161
+  s_08bbfd293d324f::t_26c9aa6781ad43 74
+  s_08bbfd293d324f::t_70818f34529474 1-26,34-48,50-51,53-55,57-73,75-127,129-139,147,149-150,154-155,162-164
+  s_08bbfd293d324f::t_db5f9ecc20e429 140-146
+scripts/browser-integration/original-download-fixture.mjs
+  s_08bbfd293d324f::t_78321e5781a34d 1-14,16-109
+  s_08bbfd293d324f::t_092914dc26fa3b 15
+scripts/browser-integration/original-download-fixture.test.mjs
+  s_08bbfd293d324f::t_092914dc26fa3b 4-8,12,59,150-184,186-204
+  s_08bbfd293d324f::t_108b1fcc324ba3 185
+  s_08bbfd293d324f::t_c19f6287030797 1-3,9-11,13-58,60-149,205
+scripts/browser-integration/original-download-observer.mjs
+  s_08bbfd293d324f::t_616c9bc405b63b 1-163
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_6ab95a5248338c 3-26
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_4bcde29226e2c8 55-57,79-83,306,311,493-494,606,625-643,645-661
+  s_08bbfd293d324f::t_5e976cb96723a9 644
+scripts/browser-integration/original-download-observer.test.mjs
+  s_08bbfd293d324f::t_616c9bc405b63b 1-110,159-191
+  s_08bbfd293d324f::t_85740e657bc4bb 111-158
+docs/references/file-transfers.md
+  s_08bbfd293d324f::t_6ab95a5248338c 202-205,241-244
+  s_08bbfd293d324f::t_ac79399a8a7eb6 245
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_b347ac964e871a 2664-2687
+docs/exec-plans/active/2026-10-12-original-page-downloads.md
+  s_08bbfd293d324f::t_a2377f3a8508cb 25-26
+  s_08bbfd293d324f::t_08e5e205328153 109-129
+  s_08bbfd293d324f::t_6ab95a5248338c 10-11,47,49,76-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "53210d2a4e05068f04327d99a6188ebd8d3148c9",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
