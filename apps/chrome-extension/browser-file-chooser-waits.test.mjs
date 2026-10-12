@@ -59,7 +59,9 @@ test("ready waits for every real enable, retains original remaining budget, and 
   const gate = deferred(), f = fixture({ send: async (_scope, session, enabled) => { if (session === "child" && enabled) await gate.promise; } });
   const record = f.reserve(); let acknowledged = false;
   const arming = f.registry.arm(record, [undefined, "child"]).then(value => { acknowledged = true; return value; });
-  await f.advance(35); assert.equal(acknowledged, false); gate.resolve();
+  await f.advance(35); assert.equal(acknowledged, false);
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, [7]);
+  assert.ok(f.registry.controlSnapshot().pending.length > 0); gate.resolve();
   const ack = await arming; assert.equal(ack.remainingMs, 65);
   const handle = { ...params, waiterId: ack.waiterId };
   const collect = f.registry.collect(handle);

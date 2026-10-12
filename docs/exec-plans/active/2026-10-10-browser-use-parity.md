@@ -2773,3 +2773,15 @@ focus/activation/豁免；future iframe在ready后创建。全部child原生继�
 既有skip，Go vet通过。原cleanup循环与屏障外重复download cancel失败保留，
 新精确ACK回归通过。默认125浏览器基线未重跑、旧preview不变，未建PR。
 见[完整分片计划](2026-10-12-created-page-waits.md)。
+
+### P13/P14：Pause 清理权限与预约身份分离
+
+新页功能已提交并推送`4ad66a0`。后续独立审查复现七条既有等待/数据入口在
+尚未绑定来源权限时把请求tabId加入全局detach集合。已仅过滤tabIds，保留
+所有实际pending与engine/input/attachment记录；chooser原始setup keys也
+改用已绑定registry来源。14个旧源码反例全失败，修复后14/14及定向161项
+通过。全量首次1122/1123暴露旧未绑定ID断言，保留原期限/容量/迟到attach
+检查后最终1123/1123通过。真实新页回归`BQyEWc`2/2，3561ms零focus事件。
+普通完整`eRYJ16`125/125 actualexit0；243654ms仅既有12activation/4controlfocus
+允许事件，无新豁免。八Go caller从当前源编译；host输入仍全同，preview不改。
+完整五入口及新页生命周期仍按原计划开放。

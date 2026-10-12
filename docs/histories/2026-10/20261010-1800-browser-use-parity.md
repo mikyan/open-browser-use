@@ -2006,6 +2006,22 @@ Python/Go实机caller已准备，16个fake-browser IPC场景与3个类型负例�
 host从当前冻结源新编译，旧preview不改，125普通浏览器基线未重跑。
 完整五入口/生命周期、普通window.open前台行为与P01–P15继续开放。
 
+#### 全局 Pause 清理权限（2026-10-12）
+
+新页功能已提交并推送`4ad66a0`。后续审查在network/navigation/chooser/
+download wait、direct download、page export和clipboard七条公开入口
+复现同类未授权来源detach调用。预约不再提供tab清理权限，只有绑定后的
+scope贡献来源ID；后台chooser及export/clipboard的原始ID回填一并移除。
+所有实际pending、原生attachment、输入及清理屏障保留。
+
+14个后端反例在旧源码全部失败，修复后全部通过；定向161项通过。全量首次
+1122/1123的旧未绑定ID断言失败保留，更新权限断言同时保留原期限、容量和
+禁止迟到attach验证后，1123/1123零skip/cancel通过。新的隔离新页回归
+`BQyEWc`2/2，六子页/六POST1160B与3561ms零focus通过；普通完整`eRYJ16`
+125/125 actualexit0，243654ms仅既有12activation/4controlfocus允许事件。
+当前八Go caller重新编译，host106输入仍一致，发布过的preview未改。
+这些反例证明实际后端向Chrome替身发出的调用，不冒称真实用户页面受损。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

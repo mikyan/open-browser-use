@@ -368,5 +368,5 @@ export class BrowserDownloads {
   invalidateAttachedTab(tabId) { return this.invalidate(record => record.params.tabId === tabId && !!record.scope); }
   invalidateSession(sessionId) { return this.invalidate(record => record.params.session_id === sessionId); }
   invalidateAll() { return this.invalidate(() => true); }
-  controlSnapshot() { return { tabIds: [...new Set([...this.records.values()].map(record => record.params.tabId))], pending: [...this.operations] }; }
+  controlSnapshot() { return { tabIds: [...new Set([...this.records.values()].filter(record => record.scope).map(record => record.params.tabId))], pending: [...this.operations] }; }
 }

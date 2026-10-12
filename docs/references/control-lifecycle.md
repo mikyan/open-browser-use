@@ -89,6 +89,44 @@ The status is `{state, inputBlocked, revision, cleanupComplete, error?, inputRec
 `state` is `running`, `pausing`, `paused`, or `error`. The UI labels `error` as
 Failed and permits Retry pause, never Resume, until cleanup succeeds.
 
+Pause derives tab cleanup authority from verified control records, not from
+the tab IDs submitted in queued requests. A readiness or data-operation
+reservation is not permission to detach its source. Network, navigation,
+chooser, download and created-page waits, direct downloads, page exports and
+clipboard helpers only contribute sources after their control scope is bound.
+Chooser setup maps and outstanding export/clipboard operations cannot add
+unbound IDs back to the detach set. Real pending attachments remain covered by
+the engine, input and attachment registries.
+
+Filtering these tab IDs does not remove the corresponding pending promises.
+Pause still invalidates reservations and waits for actual work and cleanup;
+an early cancellation reply is not evidence that native work has finished.
+
+The 2026-10-12 authority regression covers seven public entry points at both
+synchronous reservation and a held original ownership-query response. Before
+the fix, all fourteen cases issued a native detach call for an unowned tab with
+no prior attach. After the fix all fourteen pass, preserving that tab and
+waiting for the held response before Pause completes. These are production
+backend calls against Chrome test doubles, not evidence of harm in a real
+profile. Existing bound-source and native-ACK assertions remain in the module
+tests. Extension/build/fixture checks pass 1123/1123. The first full run's one
+failure was an obsolete unbound-ID expectation; its deadline, capacity and
+no-late-attach checks were preserved while updating the authority assertion.
+
+Isolated Chromium regression `eRYJ16` passes the ordinary **125/125** cases,
+actual runner exit 0. The **243,654 ms** continuous focus record retains only
+the existing twelve activation and four control-popup focus allowances. New
+page readiness separately passes `BQyEWc` (2/2, six original children and six
+business POSTs, 3,561 ms without recorded focus changes). The full run uses
+eight freshly built Go callers and the same verified native host; published
+preview archives are unchanged. Normal-profile installation, other platforms
+and new-page lifecycle/five-entry acceptance are not established by these runs.
+The ordinary suite ends with a browser kill request, not a captured Browser.close
+acknowledgement. A subsequent exact-profile process inventory finds no remaining
+browser process; the separate readiness run has the explicit close receipt.
+The full suite intentionally terminates its first host for the restart test;
+the replacement host exits 0.
+
 `inputRecovery` is optional guidance derived from the currently recovered input
 risks. It is also included in `getInfo.metadata.automationControl`. It contains
 only one of these shapes, with no tab IDs, page details, input values or journal

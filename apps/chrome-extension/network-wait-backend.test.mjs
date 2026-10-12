@@ -102,7 +102,10 @@ test("entry deadline and capacity reservation precede a delayed controlReady and
   try {
     const pending = f.arm({ timeoutMs: 20 });
     assert.equal(f.backend.networkWaits.records.size, 1);
-    assert.deepEqual([...f.backend.globalControlSnapshot().tabIds], [7]);
+    assert.equal([...f.backend.networkWaits.records.values()][0].scope, undefined);
+    const snapshot = f.backend.globalControlSnapshot();
+    assert.deepEqual([...snapshot.tabIds], []);
+    assert.ok(snapshot.pending.length > 0);
     await assert.rejects(pending, /OBU_NETWORK_WAIT_TIMEOUT/);
     assert.equal(f.backend.networkWaits.records.size, 0);
     gate.resolve();

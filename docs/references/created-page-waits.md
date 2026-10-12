@@ -89,7 +89,8 @@ scope invalidation must not silently select a replacement candidate.
 
 ## Production readiness evidence
 
-Final isolated Windows Chromium `T7Nh7G` completed **2/2, actual exit 0**, including
+Feature-commit run `T7Nh7G` in isolated Windows Chromium completed
+**2/2, actual exit 0**, including
 the public JS `expectPage` workflow. Two tasks each used root, existing OOPIF
 and future OOPIF sources to create six identical-URL native children. The
 future frame was inserted after ready. Each returned typed Tab completed one
@@ -110,7 +111,8 @@ Extension/build/fixture tests pass **1109/1109**. Complete SDK suites pass JS
 153, Python 118 and Go 204 with no skips, plus Go vet. CLI/MCP package tests have
 347 passes and 24 existing platform/permission skips. The host was freshly
 built from the current frozen Go inputs; the three published preview archives
-remain unchanged. The default 125-case browser baseline was not rerun.
+remain unchanged. The default 125-case browser baseline was not rerun for that
+feature commit; the later shared-Pause regression is recorded below.
 
 The preceding successful `8oY0FF` (2/2, 3,450 ms without recorded focus events)
 is retained as evidence for its earlier source. A subsequent gated-candidate
@@ -128,6 +130,22 @@ Typed Python/Go acceptance callers and their ready/release gates are prepared.
 Their five test methods cover 16 fake-browser IPC scenarios plus three input
 type negatives; Go build/vet pass. These are not real page acceptance, and the
 five-entry runner and CLI/MCP caller integration remain open.
+
+After the shared Pause authority fix, isolated regression `BQyEWc` again
+completed **2/2, actual exit 0**, with six original children, six unique POSTs
+(1,160 bytes) and a **3,561 ms** interval with no recorded activation/focus
+events or allowances. All six children still inherited their source group.
+Independent review verifies the eight changed production files, full original
+budgets, exact cleanup and browser/host terminal receipts; this does not extend
+the proof to unowned adoption or the other four callers. The shared authority
+regressions and their evidence limits are described in
+[control lifecycle](control-lifecycle.md#user-pause-and-resume).
+
+The shared fix also passes the ordinary headed **125/125** suite `eRYJ16`,
+actual exit 0, using the current eight Go caller binaries and unchanged fresh
+host. Its **243,654 ms** focus interval has the existing twelve activation and
+four control-popup focus allowances, with no additions; it is not a zero-focus
+claim. This baseline does not include the opt-in created-page five-entry matrix.
 
 Preserved failures include the first cleanup regression (110/111), its exact
 focused reproduction, and a hung auxiliary-release lifecycle test that was

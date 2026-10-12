@@ -66,9 +66,11 @@ test("legacy direct reservation binds once to the actual admitted epoch", async 
 
 test("ready waits for native listener registration and releases before navigation completion", async t => {
   const f = fixture(t), native = observer({ ready: false }), record = f.registry.reserve(params());
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, []);
   let acknowledged = false;
   const arming = f.registry.arm(record, native, f.scope, async () => {}).then(result => { acknowledged = true; return result; });
   await nextTurn(); assert.equal(acknowledged, false);
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, [42]);
   native.register(); const ready = await arming;
   assert.equal(ready.waiterId, record.waiterId); assert.equal(ready.remainingMs, 1000); assert.equal(record.state, "pending");
   let collected = false;

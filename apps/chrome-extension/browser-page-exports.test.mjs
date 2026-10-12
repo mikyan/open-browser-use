@@ -189,7 +189,7 @@ test("admission pending promises remain visible after an unbound reservation is 
   const result = f.registry.within(record, async () => { entered.resolve(); await admission.promise; f.registry.check(record); });
   const rejected = assert.rejects(result, /OBU_EXPORT_CANCELLED/); await entered.promise;
   await f.registry.cancel(record); await rejected;
-  assert.ok(f.registry.controlSnapshot().pending.length); assert.deepEqual(f.registry.controlSnapshot().tabIds, [7]);
+  assert.ok(f.registry.controlSnapshot().pending.length); assert.deepEqual(f.registry.controlSnapshot().tabIds, []);
   admission.resolve(); await tick(); assert.equal(f.registry.controlSnapshot().pending.length, 0); assert.equal(f.calls.length, 0);
 });
 

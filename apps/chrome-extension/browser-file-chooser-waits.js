@@ -254,5 +254,5 @@ export class BrowserFileChooserWaits {
   invalidateAttachedTab(tabId, error) { return this.invalidate(record => record.params.tabId === tabId && record.scope, error); }
   invalidateSession(sessionId, error) { return this.invalidate(record => record.params.session_id === sessionId, error); }
   invalidateAll(error) { return this.invalidate(() => true, error); }
-  controlSnapshot() { return { tabIds: [...this.byTab.keys()], pending: [...this.operations] }; }
+  controlSnapshot() { return { tabIds: [...this.byTab.values()].filter(record => record.scope).map(record => record.params.tabId), pending: [...this.operations] }; }
 }

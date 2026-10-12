@@ -48,6 +48,7 @@ test("late start ID after timeout is tracked and canceled exactly, never publish
   await assert.rejects(env.launch(request({ timeoutMs: 15 })), /OBU_DOWNLOAD_TIMEOUT/);
   assert.equal(env.registry.records.size, 1);
   assert.ok(env.registry.controlSnapshot().pending.length > 0);
+  assert.deepEqual(env.registry.controlSnapshot().tabIds, [7]);
   gate.resolve(53);
   await env.registry.invalidateAll();
   assert.deepEqual(env.calls, [["cancel", 53]]);

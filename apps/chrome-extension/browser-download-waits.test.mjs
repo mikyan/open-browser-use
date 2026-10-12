@@ -39,7 +39,9 @@ test("readiness waits for root and known children using the original remaining b
   const gate = deferred(), f = fixture({ send: async (_scope, session) => { if (session === "child") await gate.promise; } });
   const record = f.reserve(); let ready = false;
   const arming = f.registry.arm(record, [undefined, "child"]).then(ack => { ready = true; return ack; });
-  await f.advance(35); assert.equal(ready, false); gate.resolve();
+  await f.advance(35); assert.equal(ready, false);
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, [7]);
+  assert.ok(f.registry.controlSnapshot().pending.length > 0); gate.resolve();
   const ack = await arming; assert.equal(ack.remainingMs, 65);
   await f.registry.cancel({ ...params, waiterId: ack.waiterId });
 });

@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+共享Pause权限修复后的完整隔离浏览器`eRYJ16`125/125、actualexit0；243654ms
+只有既有12activation/4controlfocus允许事件，无新豁免。七条等待/数据入口
+不再把未验证预约的tabId作为detach权限，真实pending保持；14旧源码反例
+全失败、修复后全过。扩展/build/fixture1123/1123，首次旧未绑定ID断言失败
+保留且只修权限预期，未放宽原期限与迟到操作检查。新页专项`BQyEWc`2/2、
+六POST1160B与3561ms零focus通过；Go客户端从当前源重新构建，旧preview
+不变。五入口新页、未owned首次接纳与完整P01–P15仍未完成。见
+[控制生命周期](references/control-lifecycle.md)。
+
 正式新页等待已接三SDK/CLI/MCP，能力门禁为pageWaitVersion1；独立frame文档
 台账、原monotonic期限及原scope返回Tab已实现。隔离JS`T7Nh7G`2/2 actualexit0，
 双任务×三布局返回六原生child并提交六POST/1160B，未来iframe在ready后加入；

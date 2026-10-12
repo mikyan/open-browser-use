@@ -309,5 +309,7 @@ export class BrowserClipboard {
   invalidateAttachment(tabId, attachment, error) { return this.invalidate(record => record.params.tabId === tabId && !!record.scope && record.scope.attachment === attachment, error); }
   invalidateSession(sessionId, error) { return this.invalidate(record => record.params.session_id === sessionId, error); }
   invalidateAll(error) { return this.invalidate(() => true, error); }
-  controlSnapshot() { return { tabIds: new Set([...this.records].map(record => record.params.tabId).concat([...this.operations.values()])), pending: [...this.operations.keys()] }; }
+  // pendingCount retains every record with actual work; its raw requested tab
+  // ID becomes cleanup authority only after the original scope is bound.
+  controlSnapshot() { return { tabIds: new Set([...this.records].filter(record => record.scope).map(record => record.params.tabId)), pending: [...this.operations.keys()] }; }
 }

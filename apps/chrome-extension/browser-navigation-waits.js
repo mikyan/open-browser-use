@@ -236,5 +236,5 @@ export class BrowserNavigationWaits {
   invalidateAttachedTab(tabId) { for (const record of this.records.values()) if (record.params.tabId === tabId && record.scope) this.remove(record); }
   invalidateSession(sessionId) { for (const record of this.records.values()) if (record.params.session_id === sessionId) this.remove(record); }
   invalidateAll() { for (const record of this.records.values()) this.remove(record); }
-  controlSnapshot() { return { tabIds: [...new Set([...this.records.values()].map(record => record.params.tabId))], pending: [...this.operations, ...[...this.records.values()].map(record => record.completion.promise)] }; }
+  controlSnapshot() { return { tabIds: [...new Set([...this.records.values()].filter(record => record.scope).map(record => record.params.tabId))], pending: [...this.operations, ...[...this.records.values()].map(record => record.completion.promise)] }; }
 }

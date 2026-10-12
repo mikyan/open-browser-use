@@ -197,6 +197,7 @@ test("tab, session and global admission limits include retained terminal records
 test("unbound reservations survive raw-to-engine migration, but full invalidation cancels setup and pending collects", async t => {
   const f = fixture(t);
   const bound = await f.arm();
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, [42]);
   const reserved = f.registry.reserve(params());
   f.registry.invalidateAttachedTab(42);
   assert.equal(f.registry.records.has(bound.record.waiterId), false);
@@ -205,6 +206,7 @@ test("unbound reservations survive raw-to-engine migration, but full invalidatio
   const operation = f.registry.within(reserved, async () => { await gate.promise; f.registry.check(reserved); late = true; });
   const rejected = assert.rejects(operation, /EXPIRED/);
   const snapshot = f.registry.controlSnapshot();
+  assert.deepEqual(snapshot.tabIds, []);
   f.registry.invalidateAll(); await rejected;
   await Promise.allSettled(snapshot.pending);
   gate.resolve(); await nextTurn(); assert.equal(late, false);
