@@ -1,0 +1,74 @@
+scripts/browser-integration/created-page-callers.mjs
+  s_08bbfd293d324f::t_5cb847556711fb 186
+  s_08bbfd293d324f::t_9530dbfb3d69a0 1-147,150-152,154-182,184-185,188-194,198,200-220
+  s_08bbfd293d324f::t_c29cb2b84561c1 148,153,183,187,195-197,199
+  s_08bbfd293d324f::t_0da8f2190afe08 149
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_357a4f1a1459cb 18-19,90-93,484,652,1237-1289
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_0ee5ad397b8d55 73-74
+  s_08bbfd293d324f::t_ae8c5d678e2336 9,11-40
+docs/exec-plans/active/2026-10-12-created-page-waits.md
+  s_08bbfd293d324f::t_0ee5ad397b8d55 55-59,149-174
+  s_08bbfd293d324f::t_2b3276671c0290 181-200
+scripts/browser-integration/python-created-page-checks.py
+  s_08bbfd293d324f::t_56a22b75fc3f89 14,69-78,88,92,94-96,98,121-124,208-213,237
+  s_08bbfd293d324f::t_aee5c665b2baa5 44-68,80
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_da0e50248001e0 45-53,305
+scripts/browser-integration/created-page-wire.mjs
+  s_08bbfd293d324f::t_a1990875ddaa5e 1-82,84-145,147-161,182-213,225-226,228-229,239-240
+  s_08bbfd293d324f::t_44cd5b546bf515 83,146,162-181,214-224,227,230-238
+scripts/browser-integration/created-page-callers.test.mjs
+  s_08bbfd293d324f::t_9921bf2d150b27 1-145,153-178
+  s_08bbfd293d324f::t_0da8f2190afe08 146-152
+scripts/browser-integration/test_created_page_callers.py
+  s_08bbfd293d324f::t_45e47906b542a0 41-71
+  s_08bbfd293d324f::t_750742e3cfe837 82,84,86,92-96,98-123,147,160-161,194-203,235-236,238,243-250,252-263,277-280,291-293
+  s_08bbfd293d324f::t_aee5c665b2baa5 27-40,97,233
+  s_08bbfd293d324f::t_79b3250d9ea7b8 294-295
+scripts/browser-integration/created-page-provenance.mjs
+  s_08bbfd293d324f::t_18475745f2b29b 15-16,28
+scripts/browser-integration/go-created-page-checks/main.go
+  s_08bbfd293d324f::t_56a22b75fc3f89 14,39,108-114,117-124,144,152,159,162,164-168,171,185,188,196-218,383,386-388,442,458,460
+  s_08bbfd293d324f::t_aee5c665b2baa5 91-100,102-107,131,384-385,389-404
+  s_08bbfd293d324f::t_e7fc500b070b1c 459
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_d339d11718eea8 195-196,207-214
+  s_08bbfd293d324f::t_0ee5ad397b8d55 158-194,197-206,215,275-276
+scripts/browser-integration/created-page-five-entry.test.mjs
+  s_08bbfd293d324f::t_3266fa24bf0ce8 1-2,4-53,64-88
+  s_08bbfd293d324f::t_bbc051c601dee6 3,54-63
+scripts/browser-integration/created-page-five-entry.mjs
+  s_08bbfd293d324f::t_bbc051c601dee6 45,66-76,172,177
+  s_08bbfd293d324f::t_18475745f2b29b 1-44,46-50,52-65,77-102,105-171,173-176,178-222,224-252
+  s_08bbfd293d324f::t_357a4f1a1459cb 51,223
+  s_08bbfd293d324f::t_67121cf018e0d9 103-104
+scripts/browser-integration/created-page-wire.test.mjs
+  s_08bbfd293d324f::t_47c7180c3bca7c 91-115,184-185
+  s_08bbfd293d324f::t_e7fb66b5fc82f8 143-172
+  s_08bbfd293d324f::t_6689f9240154eb 1-90,116-142,173-183,186-236
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_d339d11718eea8 2044-2046
+  s_08bbfd293d324f::t_da0e50248001e0 2025-2043,2047
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_da0e50248001e0 14-21
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_da0e50248001e0 2788-2802
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "35a560549b5a35e42873c946c8961057d28571fa",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
