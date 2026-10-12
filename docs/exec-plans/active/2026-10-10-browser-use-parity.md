@@ -21,6 +21,12 @@
 
 ## 当前并行切片
 
+2026-10-12 未owned新页专项保留真实失败：`n7WyEq`1/2、actualexit1。
+root首次接管、matched取消和失败清理持久撤权已得到原生/实际RPC证据；
+Control-click在mouseReleased请求后激活背景源窗口，早于adoption，不能以
+修复接管或允许focus事件来关闭缺口。Node111通过，旧preview和生产未改。
+三布局全流程与生命周期继续开放，详见[当前新页计划](2026-10-12-created-page-waits.md)。
+
 - [x] 核对上游 v1.0.0、官方能力说明和当前源码。
 - [x] 合入上游，保留已实现光标反馈。
 - [x] Windows named-pipe transport：host/CLI/Go/Node/Python，Unix 保持 AF_UNIX；descriptor discovery 与保守 stale 清理。

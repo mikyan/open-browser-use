@@ -2045,6 +2045,22 @@ Go helper重新构建并核来源，host106既有输入未变。生产/SDK与三
 不同；审计脚本最初字段/序号/产物路径假设导致的失败原样保留，最终读取原
 gate/wire/served bytes修正，未修改实跑证据或放宽验收条件。
 
+### 未归属原生子页接纳与窗口焦点诊断
+
+增加公开backgroundWindow来源的未owned专项、有界原adoption/storage ACK及
+native控制观察器。原Promise/参数/错误保持，观察器只加入隔离测试扩展。
+新增matched取消、旧collect/attach拒绝、重臂取消及失败正式清理后的持久
+撤权、fresh scope拒绝与原child文档保留检查。焦点失败仍立即终止该组后的
+流程，清理不因已发生的焦点断言跳过实际finalize，也不恢复焦点或扩大豁免。
+
+`ozpg7l`、`7GbZtP`、最终`n7WyEq`均actualexit1，root双child自然首次接纳、
+一POST197B成立，但原Control-click会激活其源窗口。最后一轮80原RPC请求/
+回复、188原生调用证明取消与失败清理撤权；11次already-detached拒绝保留。
+窗口focus晚于原mouseReleased发送、早于adoption，ACK先后不固定；无捕获到的
+显式激活命令，同版本Chromium源码存在对应Show/Activate路径，仍只作推断。
+21项清理及browser/host实际exit0，Node111/111零skip/cancel。生产/SDK/
+host及旧preview未改；OOPIF、正常finalize和全六例未通过，不记整体成功。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

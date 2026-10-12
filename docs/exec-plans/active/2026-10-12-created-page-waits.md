@@ -198,6 +198,37 @@ user-origin child without closing it), and worker restart (persisted
 created-page authority is quarantined and a new client cannot inherit it).
 These are concrete next browser checks, not completed source-review evidence.
 
+## Unowned admission checkpoint: focus failure retained
+
+`OBU_TEST_CREATED_PAGES=unowned` is implemented with original auxiliary/storage,
+native control and parsed RPC observers. `ozpg7l`, `7GbZtP` and final `n7WyEq`
+all return actual exit 1: natural Control-click creates two inactive ungrouped
+children but activates their background source windows. The same-worker native
+trace places focus after mouse release dispatch and before adoption, without a
+captured explicit activation command. Both v2 focus events precede the release
+ACK; one v3 event follows it, so this ACK ordering is not invariant. Version-matched
+Chromium source has a show-window path for this navigation; no extension-level
+repair preserving the original trusted child has been established.
+
+Final `n7WyEq` adds positive first-adoption, matched-cancellation and failed-run
+cleanup retirement evidence for two root children. It preserves the original
+focus assertion, does not start the OOPIF layouts, and does not mark either item
+successful. Cancellation proves expired collection, denied attachment and
+source rearm; actual cleanup proves empty durable/current authority and denied
+fresh-turn access while retaining original child documents. The 80 request/ACK
+pairs and 188 original native calls are retained; repeated detach rejections
+remain errors in the trace. Focused Node checks are 111/111. The existing preview
+and production code remain unchanged; the full six-case and lifecycle gates
+stay open. See [the evidence reference](../../references/created-page-waits.md#unowned-adoption-and-background-window-focus-failure).
+
+Next work must address the native window activation constraint without focus
+restoration or manufactured children, while extending the other lifecycle
+negatives. `Target.createTarget` background/focus options concern explicit
+creation, not later native children. A separate headless backend would be a
+different deployment/session boundary and cannot substitute for existing-profile
+background-window behavior. Do not rerun the same failed scene merely to seek
+a green result.
+
 ## Relevant implementation
 
 - `apps/chrome-extension/background.js`, `auxiliary-tab-ownership.js`

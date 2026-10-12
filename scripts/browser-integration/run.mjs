@@ -17,6 +17,7 @@ import { createCreatedPageFixtures } from "./created-page-fixture.mjs";
 import { checkCreatedPageProvenance } from "./created-page-provenance.mjs";
 import { checkCreatedPageFiveEntry, readCreatedPageGate, withinCreatedPageBudget } from "./created-page-five-entry.mjs";
 import { runCreatedPageCaller } from "./created-page-callers.mjs";
+import { checkCreatedPageUnowned } from "./created-page-unowned.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 import { createSDKConnectionFixtures, checkSDKConnections, sdkConnectionKinds } from "./sdk-connection-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
@@ -87,8 +88,8 @@ const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIA
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const createdPageProof = process.env.OBU_TEST_CREATED_PAGES;
-if (createdPageProof !== undefined && !["provenance", "ready", "five-entry"].includes(createdPageProof))
-  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready, five-entry or unset");
+if (createdPageProof !== undefined && !["provenance", "ready", "five-entry", "unowned"].includes(createdPageProof))
+  throw new Error("OBU_TEST_CREATED_PAGES must be provenance, ready, five-entry, unowned or unset");
 if (createdPageProof === "five-entry" && !process.env.OBU_TEST_GO_CREATED_PAGE_BINARY)
   throw new Error("Set OBU_TEST_GO_CREATED_PAGE_BINARY for five-entry created pages");
 if (createdPageProof && ["OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
@@ -438,6 +439,7 @@ try {
   // The optional clipboard fixture can hold an actual scope check. Expose the
   // instance only in this isolated staged build, never in a production package.
   const clipboardTestHook = memoryClipboard ? "\nglobalThis.__integrationClipboardBackend = backend;\n" : "";
+  const createdPageTestHook = createdPageProof === "unowned" ? "\nglobalThis.__integrationBackend = backend;\n" : "";
   // Preserve the original release failure before a subsequent Pause clears it.
   // This staged-only observer returns the exact production promise and does
   // not change synchronous ordering, admission, or cleanup outcomes.
@@ -450,7 +452,7 @@ try {
       return pause.apply(this,args);
     };
   }\n`;
-  await fs.writeFile(backgroundFile, nativeAdapterSource(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook + recoveryAuditHook);
+  await fs.writeFile(backgroundFile, nativeAdapterSource(websocketURL) + background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook + recoveryAuditHook + createdPageTestHook);
   const manifestFile = path.join(extension, "manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestFile, "utf8"));
   manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replace("connect-src 'self'", `connect-src 'self' ${websocketURL}`);
@@ -481,7 +483,7 @@ try {
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
   if (createdPageProof) {
-    sourceIdentity.testHooks.push(createdPageProof === "five-entry" ? "created page five-entry: JS/Python/Go/CLI/MCP, two all-caller barriers, bounded passive native event and actual native RPC observers; same original workflow deadline; no synthetic child, explicit claim, focus restoration or replay" : createdPageProof === "ready" ? "created page readiness: public JS expectPage and result Tab, passive native event observer independently verifies exact original child identity; original Control-click, no synthesized child, explicit claim, focus restoration or replay" : "created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
+    sourceIdentity.testHooks.push(createdPageProof === "unowned" ? "created page unowned: staged backend reference and bounded passive original adoption/tabs.get/storage/auxiliary ACK observers; natural public backgroundWindow sources, exact creation and finalization successor activation allowances; matched cancellation and collected finalization; no synthetic child, ungrouping, explicit claim, focus restoration or replay" : createdPageProof === "five-entry" ? "created page five-entry: JS/Python/Go/CLI/MCP, two all-caller barriers, bounded passive native event and actual native RPC observers; same original workflow deadline; no synthetic child, explicit claim, focus restoration or replay" : createdPageProof === "ready" ? "created page readiness: public JS expectPage and result Tab, passive native event observer independently verifies exact original child identity; original Control-click, no synthesized child, explicit claim, focus restoration or replay" : "created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
     for (const name of ["created-page-fixture.mjs", "created-page-provenance.mjs"])
       sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   }
@@ -649,7 +651,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
-    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready"].includes(name)) return;
+    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready", "js-created-page-unowned"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
@@ -1286,7 +1288,18 @@ try {
       fixtureURL, server: createdPageFixtures, saveDetail: value => fs.writeFile(path.join(runDir, "created-page-five-entry.json"), JSON.stringify(value, null, 2))
     });
   });
-  if (createdPageProof && createdPageProof !== "five-entry") await test(createdPageProof === "ready" ? "js-created-page-ready" : "js-created-page-provenance", async () => checkCreatedPageProvenance({
+  if (createdPageProof === "unowned") await test("js-created-page-unowned", async () => {
+    for (const name of ["created-page-unowned.mjs", "created-page-unowned-wire.mjs", "created-page-adoption-observer.mjs", "created-page-native-control.mjs", "created-page-wire.mjs"])
+      sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+    return checkCreatedPageUnowned({
+      connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: suffix, turnId: "created-unowned-original", timeoutMs: 20000 }),
+      getWorker: () => worker, recorderFor: backgroundWindowRecorder, readNative: readBackgroundWindowState, readFocus: readFocusLedger,
+      focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents,
+      connectionState: () => ({ generation: nativeBridge.current.record.generation, hostPid: nativeBridge.host.pid, endpoint: nativeBridge.endpoint }),
+      fixtureURL, server: createdPageFixtures, saveDetail: value => fs.writeFile(path.join(runDir, "created-page-unowned.json"), JSON.stringify(value, null, 2))
+    });
+  });
+  if (["provenance", "ready"].includes(createdPageProof)) await test(createdPageProof === "ready" ? "js-created-page-ready" : "js-created-page-provenance", async () => checkCreatedPageProvenance({
     productReady: createdPageProof === "ready",
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, server: createdPageFixtures, until,

@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+未owned新页专项`n7WyEq` **1/2、actualexit1**，之前`ozpg7l`/`7GbZtP`同样失败。
+两个root原生child首次辅助接管、matched取消与失败清理后的持久撤权已验；
+原鼠标释放请求后发生窗口focus，早于adoption，但与ACK先后不固定。188调用未见显式
+激活，含11个already-detached拒绝，不算全成功。80原request/ACK、两旧child
+新turn拒绝与21项清理成立；Node111/111。三业务focus、两清理focus全部保留，
+零新增focus豁免；OOPIF/full matrix与正常finalize未过，生产及旧preview未改。
+见[未owned新页失败](references/created-page-waits.md#unowned-adoption-and-background-window-focus-failure)。
+
 新页五入口`AGsTeb`2/2 actualexit0：五caller×三布局15child、15唯一POST/
 2933B，原scope与15arm/collect/cancel由429原request/429ACK独立核对。
 双全组门禁在实际wire序号上成立；7888ms零focus/activation/豁免，sentinel

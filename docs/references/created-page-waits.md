@@ -213,6 +213,84 @@ field placement, zero-based HTTP sequence, source-frame versus all-document
 lists, additional cleanup fields and staged production paths). Those corrections
 use the original records; no browser evidence or success condition is rewritten.
 
+## Unowned adoption and background-window focus failure
+
+The opt-in `unowned` mode uses the public `newTab({backgroundWindow:true})`
+source, without ungrouping, synthesizing a child or explicitly claiming it.
+The two root children in `ozpg7l`, `7GbZtP` and `n7WyEq` had no auxiliary owner
+or reservation at adoption entry, and the original native tab ACK had group
+`-1`. Original reserve, storage-write and commit acknowledgements establish
+first adoption under the source's session/turn/epoch. Both child tabs stayed
+inactive in their original windows at admission.
+
+**All three runs fail, actual exit 1.** The source windows gain focus during
+the original Control-click, before adoption starts. Each run completes only
+the root group, with two natural child GETs and one unique business POST of
+197 bytes (143-byte response). Existing/future OOPIF and the full six-case
+matrix are not reached. The successful five-entry grouped-source matrix above
+does not establish that a separate background window will remain unfocused.
+
+The second run adds a bounded, staged-only observer around original Chrome
+control calls. Its 405 rows contain 195 calls, including 176 CDP commands, and
+15 native events. For both original mouse releases, the child-created event,
+window-focus event and created-navigation event occur after dispatch and before
+the original command ACK. No `Page.bringToFront`, `Target.activateTarget`,
+`windows.update` or `tabs.update` occurs in that observer's captured calls.
+The final run has 391 rows / 188 calls (169 CDP), with 177 fulfilled and 11
+rejected calls. Its collected-child release ACK precedes child creation/focus;
+the cancelled-child release ACK follows them. Both focus changes are after
+the original release dispatch and before adoption, but ACK-relative order is
+not stable across runs. The rejections are explicit already-
+detached debugger errors. Do not describe all native commands as successful.
+CRX preparation still sends `Runtime.callFunctionOn` with `userGesture:true`,
+and focus emulation is enabled. Absence of an explicit activation call does not
+prove absence of outside input or identify a native call stack.
+
+The installed Chromium version is 156.0.8078.4. Its
+[OpenURLFromTab](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc)
+selects the show-window action for a user gesture, including background-tab
+navigation. The [navigation window shower](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/chrome/browser/ui/navigator/browser_navigator.cc)
+then calls Show, and a visible [BrowserView](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/chrome/browser/ui/views/frame/browser_view.cc)
+activates its widget. This version-matched source chain explains the observed
+timing, but remains an inference rather than an instrumented native stack.
+Adoption happens too late to prevent it. Restoring focus, substituting a
+`tabs.create` child, or adding an allowance would not fix this requirement.
+
+In final run `n7WyEq`, both root business branches execute before the unchanged
+strict finalization focus assertion. The cancellation branch is freshly observed
+as matched, valid, undelivered and with about 19.4 seconds remaining. Cancel
+removes its auxiliary entry, reverse owner and stored record without closing or
+attaching the child; old collection fails, attachment is denied, a repeated
+cancel succeeds, and an explicit new wait can be armed and cancelled. The
+collected child's delivered-wait cancellation leaves its ownership unchanged.
+
+The focus assertion then fails. Failure cleanup performs actual formal
+finalization, and separately verifies both original child documents remain,
+sources close, auxiliary entry/owner/storage disappear, debugger attachments
+are absent, and explicit fresh turns enumerate no pages and cannot attach the
+old children. These are observations after failed-run cleanup, not successful
+normal finalization or overall acceptance. The original wire ledger retains
+80 requests and 80 responses, including cleanup. No browser action is sent to
+the cancelled child. Its nonce is never read, so the remaining child GET is
+not claimed as an independently nonce-joined identity proof.
+
+All 21 cleanup actions complete; four exact fixture tabs and two windows are
+absent, observers are restored, and browser/host actually exit 0 after the
+original Browser.close ACK. The focus ledger retains three business focus
+changes, two cleanup focus changes and four activations; only the two initial
+source-tab activations have existing allowances. Zero focus allowances are
+added. Final focused Node tests pass 111/111, without skips or cancellations.
+Production extension, host, SDK and published preview archives are unchanged;
+the ordinary 125-case suite is not repeated for this test-only slice.
+
+Independent failed-run audits check 884, 1,324 and finally 1,502 conditions
+against the three original artifact sets; their successful audits explicitly
+retain the browser failures. The final audit records 59 original Runtime calls
+with user gestures. Its first draft incorrectly reused v2's release-ACK order;
+that failed draft is retained, and the corrected report follows v3's original
+sequence rather than changing the run. Full acceptance still requires the
+unreached layouts, normal finalization and remaining lifecycle failures.
+
 ## Earlier native feasibility evidence
 
 Windows isolated Chromium run `FjJons` completed **2/2, actual exit 0**: the

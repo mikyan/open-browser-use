@@ -2,6 +2,46 @@
 
 ## Native created-page provenance
 
+`OBU_TEST_CREATED_PAGES=unowned` uses public `newTab({backgroundWindow:true})`
+sources and natural Control-click children. Two independent owners exercise
+root, existing OOPIF and future OOPIF. One owner collects and submits a child
+form before finalization; the other cancels after matching but before collection,
+checks expired collection and denied attachment, then re-arms and cancels to
+verify the source reverse lock was released. Both paths retain the native child
+and revoke its auxiliary ownership, storage record and debugger attachment.
+The fixture removes these exact retained pages only after verifying that result.
+
+The current real-browser result is **failed**: `n7WyEq` (and earlier `ozpg7l`,
+`7GbZtP`) stops in the root group because natural Control-click activates the
+background source windows. Both root children were genuinely unowned before
+adoption; the final run additionally verifies matched cancellation and authority
+release after failure cleanup. It does not pass normal finalization, OOPIF or
+the complete six-case matrix. See [evidence and focus diagnosis](../../docs/references/created-page-waits.md#unowned-adoption-and-background-window-focus-failure).
+
+This mode uses the usual host/browser prerequisites and does not need the Go
+five-entry helper. Run `node scripts/browser-integration/run.mjs` with the mode
+set. `created-page-unowned.json` retains the original adoption/storage/native RPC
+acknowledgements, source documents, lifecycle checks and cleanup; the shared
+server and focus artifacts remain authoritative. The staged backend reference
+and bounded passive wrappers are never added to the production extension.
+`created-page-native-control.mjs` records original debugger command parameters,
+selected tab/window control calls, their original Promise settlements and native
+creation/activation/focus events in one sequence. It issues no native queries or
+focus restoration; Runtime arguments can contain fixture script text. Both
+business outcomes run before the first strict finalization focus assertion. An
+assertion failure still stops the matrix; actual finalization in `finally` may
+be observed under a separate 20s budget without changing that failed result.
+Underlying SDK/worker RPCs retain their own 20s bounds; expiration prevents the
+next observation, not an already-dispatched native operation. The wire observer
+remains active through failed-run cleanup so those ACKs are separately visible.
+Wrappers return the original promises without gates, synthetic child creation,
+ungrouping, explicit claim or input replay. They can affect scheduling and do not
+establish atomic native-event/document binding. Exact background-window initial
+tab and natural successor activations use the existing focus-accounting rules;
+there is no window-focus allowance or restoration. Worker restart, cancellation
+during unresolved adoption, other callers' lifecycle paths and ordinary popup
+focus remain separate coverage requirements.
+
 `OBU_TEST_CREATED_PAGES=ready` runs the public JavaScript `expectPage` workflow:
 two concurrent owners, root/existing OOPIF/future OOPIF, one original Control-click
 per source, the returned typed child and one business POST. A separate passive

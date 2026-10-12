@@ -42,6 +42,13 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+未owned新页`n7WyEq` **1/2、actual exit1**：root两个原生child首次接管、
+matched取消与失败清理后的持久撤权成立，但原Control-click仍激活背景源
+窗口。诊断把focus定位在原mouseReleased请求之后、adoption之前，ACK先后不固定，
+并无捕获到的显式激活命令；同版本Chromium源码支持原生导航路径的解释。
+80请求/回复、21项清理及Node111/111保留；OOPIF、正常finalize/full matrix
+仍未过，不放宽focus豁免、不更新旧preview。见[新页失败边界](../references/created-page-waits.md#unowned-adoption-and-background-window-focus-failure)。
+
 新页五入口专项`AGsTeb` **2/2、actual exit0**：JS/Python/Go/CLI/MCP各自覆盖
 root/既有OOPIF/未来OOPIF，15原生同URL child与15唯一POST/2933B正确。
 独立wire记录429原请求及429唯一ACK，15arm/collect/cancel与两道全组门禁
