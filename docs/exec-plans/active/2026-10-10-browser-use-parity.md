@@ -2743,3 +2743,20 @@ nonce/generation，旧句柄path/cancel仍拒绝，仅新下载可交付原文�
 警告保留，未宣称reset ACK。生产与preview未改、125基线未重跑；普通
 现有profile授权、五入口全负例、危险文件与其他平台仍开放。具体证据见
 [原文件交付](../../references/original-page-download-delivery.md#unowned-downloads-and-browser-connection-loss)。
+
+### P08/P12：原生新页来源与后续任务
+
+前轮下载隔离已提交推送`06ca074`，本轮继续真实能力缺口。新增独立来源
+fixture与opt-in检查，最终`FjJons`2/2 actualexit0，两个JS任务×三布局各一次
+Control-click打开同URL的六child，六原文档nonce与六POST共1160B正确；
+foreign访问拒绝。3454ms零activation/focus/豁免，12原页面、listener及
+浏览器/host实际退出都核实。子页均原生继承owner组，未证明未ownedadoption。
+来源用原webNavigation事件，不凭openerTabId、URL或时间选页；事件无documentId，
+前后文档观察不冒充原子归属。16定向测试通过，125基线未重跑、preview未改。
+
+首`8SGEVN`因OS分配6697受限端口而在HTTP前失败，记录保留；共享HTTP
+fixture现在先有界绑定动态loopback端口，没有关闭浏览器安全策略。正式
+新页ready/collect/cancel与五入口及生命周期是下一步，详见
+[分片计划](2026-10-12-created-page-waits.md)及[证据](../../references/created-page-waits.md)。
+guard跨worker恢复仅新增源码边界审查，未据此撤掉持久输入门禁；完整
+P01–P15和原文件计划继续active。

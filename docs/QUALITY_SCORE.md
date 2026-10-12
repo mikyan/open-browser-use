@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+新页来源可行性`FjJons`2/2 actualexit0，双JS任务×三布局产生六原生后台子页，
+六独立原HTML nonce/六POST共1160B；外来任务拒绝，3454ms零激活/focus/豁免。
+所有子页已继承原任务group，显式claim不算未owned页首次授权；正式新页
+ready/collect接口尚未实现。16定向测试通过；首6697受限端口失败保留，HTTP
+fixture改用有界动态端口绑定，未改浏览器策略或生产。12页/监听/浏览器host
+回收已核，旧preview不变、125基线未重跑。见[新页证据](references/created-page-waits.md)。
+
 原文件负例最终隔离`AtJMQl`3/3 actualexit0，Node79/79零skip/cancel。JS验证
 合成未owned页的path/cancel拒绝、HTTP中断、原Browser流在private path在途
 后切断、Native Port/普通操作保持健康、旧句柄断开及显式重绑后仍拒绝，新

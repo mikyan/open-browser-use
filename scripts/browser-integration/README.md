@@ -1,5 +1,41 @@
 # Browser integration acceptance
 
+## Native created-page provenance
+
+`OBU_TEST_CREATED_PAGES=provenance` is a separate headed feasibility mode for
+the [created-page readiness plan](../../docs/exec-plans/active/2026-10-12-created-page-waits.md).
+It selects only the existing raw-navigation control and
+`js-created-page-provenance`. Other opt-in modes and `OBU_TEST_CASES` must be
+unset; invalid combinations fail before filesystem setup or browser launch.
+
+```powershell
+$env:OBU_TEST_HOST_BINARY = '<matching built host>'
+$env:OBU_TEST_CREATED_PAGES = 'provenance'
+node scripts/browser-integration/run.mjs
+```
+
+Two independent JS owners open the same child URL from root, existing OOPIF and
+newly inserted OOPIF links using one original Control-click. A bounded passive
+worker observer retains the original `onCreatedNavigationTarget` events. The
+source tab/frame and returned child ID provide the relationship; URL, tab order
+and wall-clock proximity are not used to select a child. Source document reads
+before and after the action are recorded separately: the native creation event
+does not contain a source document ID or prove action causality.
+
+The test then uses the existing explicit `claimUserTab` and performs one useful
+submission on each child. Original server HTML, document nonce and POST bytes
+are preserved in `created-page-provenance.json` and `created-page-server.json`.
+Native group inheritance is observed without ungrouping to manufacture a
+pre-claim denial. This is not a product `expectPage`/arm/collect API acceptance.
+
+The existing continuous focus ledger admits no new activation/focus allowances.
+No synthetic child creation or focus restoration replaces native link behavior.
+Test cleanup identifies exact child IDs, removes the precise passive listener,
+and records `Browser.close` acknowledgement and actual process close in
+`created-page-browser-close.json`. Only the isolated test profile is used;
+normal `window.open`, other operating systems, public ready waits and more
+lifecycle cases remain separate requirements.
+
 ## Original page download transport proof
 
 `OBU_TEST_ORIGINAL_DOWNLOADS=product` exercises the production `bind-browser`

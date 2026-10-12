@@ -13,6 +13,9 @@ import WebSocket, { WebSocketServer } from "ws";
 import { buildChromeExtension } from "../build-chrome-extension.mjs";
 import { actionsFixture, checkExtendedActions } from "./actions-fixture.mjs";
 import { createDragCommitFixtures, checkDragCommit } from "./drag-commit-fixture.mjs";
+import { createCreatedPageFixtures } from "./created-page-fixture.mjs";
+import { checkCreatedPageProvenance } from "./created-page-provenance.mjs";
+import { listenFixture } from "./fixture-listener.mjs";
 import { createSDKConnectionFixtures, checkSDKConnections, sdkConnectionKinds } from "./sdk-connection-fixture.mjs";
 import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs";
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
@@ -81,6 +84,11 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
+const createdPageProof = process.env.OBU_TEST_CREATED_PAGES;
+if (createdPageProof !== undefined && createdPageProof !== "provenance")
+  throw new Error("OBU_TEST_CREATED_PAGES must be provenance or unset");
+if (createdPageProof && ["OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
+  throw new Error("Created page provenance is a separate headed mode");
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
 if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry", "auto-connect", "negative"].includes(originalDownloadBehavior))
   throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, auto-connect, negative, or unset");
@@ -149,6 +157,8 @@ async function readWindowFocusState(label) {
 const browserLog = [];
 const negativeBrowserLifecycle = {};
 let negativeBrowserClosed;
+const createdPageBrowserLifecycle = {};
+let createdPageBrowserClosed;
 const hostLog = [];
 const nativeFrameStats = { frames: 0, maxFrameBytes: 0, starts: 0, chunks: 0, commits: 0 };
 let bridgeClosing = false, bridgeFailure;
@@ -303,6 +313,7 @@ const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
 const boundingGeometryFixtures = createBoundingGeometryFixtures();
 const dragCommitFixtures = createDragCommitFixtures();
+const createdPageFixtures = createCreatedPageFixtures();
 const sdkConnectionFixtures = createSDKConnectionFixtures();
 const directUploads = createDirectLocatorUploadFixtures();
 const directDownloads = createDirectDownloadFixtures();
@@ -323,6 +334,7 @@ const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
+  if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -410,8 +422,7 @@ const ws = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 let nativeBridge, chrome, worker, browser, sentinel, activeEvents = [], windowFocusEvents = [];
 try {
   await build({ entryPoints: [path.join(directory, "react-app.jsx")], outfile: path.join(runDir, "fixture.js"), bundle: true, format: "iife", platform: "browser" });
-  await new Promise(resolve => http.listen(0, resolve));
-  httpPort = http.address().port;
+  httpPort = await listenFixture(http);
   if (!ws.address()) await new Promise(resolve => ws.once("listening", resolve));
   const websocketURL = `ws://127.0.0.1:${ws.address().port}`;
   await buildChromeExtension(extension);
@@ -465,6 +476,12 @@ try {
     }
   };
   if (chooserAllPointers) sourceIdentity.testHooks.push("chooser pointer-all-context diagnostic: original 13-case order; passive pointer/mouse HTML for exactly 18 chooser keys and this run's three registered directory-upload keys; six other context cases explicitly uninstrumented; chooser ledger is non-enumerable so existing submission success reads retain original data; no new success browser request, input retry, native wrapper or deadline change; failure-only exact documentId read within original 3-second budget, external callers require actual close; recorder may affect scheduling");
+  if (createdPageProof) {
+    sourceIdentity.testHooks.push("created page provenance: bounded passive webNavigation.onCreatedNavigationTarget observer, exact source and child document observations; original public Control-click and explicit claimUserTab, no product ready/collect API, synthesized child creation, focus restoration or input replay");
+    for (const name of ["created-page-fixture.mjs", "created-page-provenance.mjs"])
+      sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  }
+  sourceIdentity.sha256.fixtureListener = createHash("sha256").update(await fs.readFile(path.join(directory, "fixture-listener.mjs"))).digest("hex");
   sourceIdentity.sha256.actionsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "actions-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.dragCommitFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "drag-commit-fixture.mjs"))).digest("hex");
   for (const name of ["sdk-connection-fixture.mjs", "sdk-connection-js.mjs", "sdk-connection-python.py", "go-sdk-connection-checks/main.go"])
@@ -556,6 +573,9 @@ try {
   if (negativeDownloads) negativeBrowserClosed = new Promise(resolve => chrome.once("close", (code, signal) => {
     Object.assign(negativeBrowserLifecycle, { closeObserved: true, closedAt: Date.now(), code, signal }); resolve();
   }));
+  if (createdPageProof) createdPageBrowserClosed = new Promise(resolve => chrome.once("close", (code, signal) => {
+    Object.assign(createdPageBrowserLifecycle, { closeObserved: true, closedAt: Date.now(), code, signal }); resolve();
+  }));
   chrome.stderr.on("data", data => browserLog.push(data.toString()));
   chrome.on("exit", (code, signal) => browserLog.push(`Browser exited: ${code} ${signal}\n`));
   const debugPort = await until(async () => (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0], "Chromium debug port");
@@ -625,6 +645,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
     if (downloadDiagnostic && !downloadDiagnosticCases.includes(name)) return;
@@ -1209,6 +1230,11 @@ try {
     if (failure) throw failure;
     return detail;
   });
+  if (createdPageProof) await test("js-created-page-provenance", async () => checkCreatedPageProvenance({
+    connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
+    getWorker: () => worker, fixtureURL, server: createdPageFixtures, until,
+    saveDetail: detail => fs.writeFile(path.join(runDir, "created-page-provenance.json"), JSON.stringify(detail, null, 2))
+  }));
   await test("js-child-tab-attachment-authorization", async () => checkChildTabAuthorization({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, assert, until,
@@ -2782,20 +2808,32 @@ try {
     try { await observerBrowserControl?.call("Target.closeTarget", { targetId: observerTargetId }); }
     catch (error) { hostLog.push(`Focus observer teardown: ${error.message}\n`); }
   }
-  if (negativeDownloads && observerBrowserControl && chrome && chrome.exitCode === null) {
+  if (createdPageProof || (negativeDownloads && observerBrowserControl && chrome && chrome.exitCode === null)) {
+    const lifecycle = createdPageProof ? createdPageBrowserLifecycle : negativeBrowserLifecycle;
+    const closed = createdPageProof ? createdPageBrowserClosed : negativeBrowserClosed;
+    const closeName = createdPageProof ? "created-page-browser-close" : "negative-browser-close";
     let closeTimer;
     try {
-      negativeBrowserLifecycle.closeRequestedAt = Date.now();
-      negativeBrowserLifecycle.closeResponse = await observerBrowserControl.call("Browser.close");
-      await Promise.race([negativeBrowserClosed, new Promise((_, reject) => { closeTimer = setTimeout(() => reject(new Error("Isolated negative browser did not actually close")), 5000); })]);
-      assert.equal(negativeBrowserLifecycle.code, 0);
+      if (createdPageProof) {
+        assert.ok(observerBrowserControl && chrome && closed, "Created-page browser close requires the original browser connection and child process");
+        assert.equal(chrome.exitCode, null, "Created-page browser exited before Browser.close");
+      }
+      lifecycle.closeRequestedAt = Date.now();
+      lifecycle.closeResponse = await observerBrowserControl.call("Browser.close");
+      if (createdPageProof) assert.deepEqual(lifecycle.closeResponse, {}, "Original Browser.close ACK required");
+      await Promise.race([closed, new Promise((_, reject) => { closeTimer = setTimeout(() => reject(new Error(createdPageProof ? "Isolated created-page browser did not actually close" : "Isolated negative browser did not actually close")), 5000); })]);
+      assert.equal(lifecycle.code, 0);
+      if (createdPageProof) {
+        assert.equal(lifecycle.closeObserved, true);
+        assert.equal(lifecycle.signal, null);
+      }
     } catch (error) {
-      negativeBrowserLifecycle.error = error.stack;
-      records.push({ name: "negative-browser-close", passed: false, error: error.stack });
+      lifecycle.error = error.stack;
+      records.push({ name: closeName, passed: false, error: error.stack });
     } finally { clearTimeout(closeTimer); }
   }
   focusObserver?.close(); observerBrowserControl?.close();
-  if (worker) { if (!negativeDownloads) try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
+  if (worker) { if (!negativeDownloads && !createdPageProof) try { await worker.evaluate("chrome.windows.getAll().then(windows=>Promise.all(windows.map(window=>chrome.windows.remove(window.id))))"); } catch {} worker.close(); }
   if (chrome && chrome.exitCode === null) chrome.kill();
   try { await nativeBridge?.close(); }
   catch (error) { records.push({ name: "native-host-cleanup", passed: false, error: error.stack ?? String(error) }); }
@@ -2810,6 +2848,7 @@ try {
   await new Promise(resolve => http.close(resolve));
   if (negativeDownloads) await fs.writeFile(path.join(runDir, "original-download-negative-server.json"), JSON.stringify(originalDownloadNegativeFixtures.allStats(), null, 2));
   if (negativeDownloads) await fs.writeFile(path.join(runDir, "original-download-negative-browser-close.json"), JSON.stringify(negativeBrowserLifecycle, null, 2));
+  if (createdPageProof) await fs.writeFile(path.join(runDir, "created-page-browser-close.json"), JSON.stringify(createdPageBrowserLifecycle, null, 2));
   if (negativeDownloads) {
     const validation = { evidence: "original-download-negative-network-provenance.json", passed: false };
     try {
@@ -2827,6 +2866,7 @@ try {
     console.log(validation.passed ? "PASS" : "FAIL", "js-original-download-network-provenance", validation.error ?? "");
   }
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
+  if (createdPageProof) await fs.writeFile(path.join(runDir, "created-page-server.json"), JSON.stringify(createdPageFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
   let chooserDiagnosticResult;
   if (chooserAllPointers) {

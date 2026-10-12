@@ -70,6 +70,8 @@
   浏览器连接、后台通知消费、超时与断线恢复边界，以及不跨实例重放的验证。
 - [Popup ownership design](popup-ownership-design.md)：跨窗口移组造成渲染停滞的
   正负对照，以及已实现并验收的独立窗口归属与回收；原生创建焦点仍有缺口。
+- [Created-page provenance](created-page-waits.md)：同网址双任务原生后台子页的
+  来源事件、实际文档与提交证据，以及尚待实现的正式新页准备/收集接口。
 - [Ungrouped task tabs](ungrouped-task-tabs.md)：短命原生标签组的兼容接纳、
   新建页事务、显式普通页归属和交付/回收边界。
 - [Background task windows](background-windows.md)：显式不聚焦窗口、混合任务归属、

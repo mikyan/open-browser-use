@@ -1963,6 +1963,21 @@ ACK及browser/host exit0均记录；两relay断开cleanup警告保留，非reset
 不变、未提PR。普通现有profile授权、五入口全负例、危险文件、自然网络
 故障及跨平台与完整P01–P15保持未完成。
 
+#### 原生后台新页来源可行性（2026-10-12）
+
+新增两JS任务×root/既有及动态OOPIF的同URL原生Control-click流程，保留原
+webNavigation source/child事件、原HTML nonce、可信点击与后续POST；只用
+现有显式claim接续，不冒称新增正式expectPage。最终`FjJons`2/2 actualexit0，
+六child/六POST1160B、外来任务拒绝，3454ms零激活/focus/豁免。全部child
+此前已继承任务组，未owned首次授权仍未验；原openerTabId不作来源凭据。
+12页/原listener清理与browser/host实际exit0保留，16定向测试通过。
+
+首`8SGEVN`在HTTP前因6697受限端口失败；新增共享fixture listener在浏览器
+启动前直接绑定loopback动态端口，有限重试bind冲突，不改浏览器端口策略。
+初版Node监听器数断言错误及实机失败均保留。生产源码与旧preview不变，
+复用host的61源manifest核对一致，未重跑125基线。后续正式五入口新页等待、
+scope/文档生命周期与普通window.open前台行为仍在新active plan中开放。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`
@@ -1985,3 +2000,5 @@ ACK及browser/host exit0均记录；两relay断开cleanup警告保留，非reset
 - `docs/references/original-page-download-delivery.md`
 - `docs/references/current-session-connection.md`
 - `docs/exec-plans/active/2026-10-12-original-page-downloads.md`
+- `docs/exec-plans/active/2026-10-12-created-page-waits.md`
+- `docs/references/created-page-waits.md`
