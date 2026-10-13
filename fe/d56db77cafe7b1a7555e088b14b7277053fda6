@@ -1,0 +1,177 @@
+docs/references/network-waits-design.md
+  s_08bbfd293d324f::t_1fe68f055ce81a 48-51
+packages/open-browser-use-js/README.md
+  s_08bbfd293d324f::t_803d4685a7af54 10-16
+apps/chrome-extension/response-body-engine.test.mjs
+  s_08bbfd293d324f::t_1d0bcb9620a0f6 82,126-153
+  s_08bbfd293d324f::t_f49b02a69ed1c7 157-173
+  s_08bbfd293d324f::t_8f0e8ae9996e71 1-81,83-125,154-156,174-192
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_0cb9366d588330 11,64,142-144,168-169,259-263,274-275,288,811-815,943-946
+cmd/open-browser-use/mcp_connection.go
+  s_08bbfd293d324f::t_637e407e49a8af 246
+packages/open-browser-use-go/browser_action.go
+  s_08bbfd293d324f::t_91b28d52100020 79-81
+scripts/browser-integration/response-body-fixture.test.mjs
+  s_08bbfd293d324f::t_808198d731fed4 1-4,6,8-12,14-67,69-71,78-82,118-141,143-165
+  s_08bbfd293d324f::t_3253c8e1d488f3 7,13
+  s_08bbfd293d324f::t_a5af6b3751d04a 68,72-77,166-177,180-186,188-192
+  s_08bbfd293d324f::t_23c3e16174192e 5,93-94,97-117,178-179,193-200
+  s_08bbfd293d324f::t_aa146691d10404 83-92,95-96,142,187
+packages/open-browser-use-go/README.md
+  s_08bbfd293d324f::t_803d4685a7af54 3-9
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_a7527ccc0e0e4f 16,34,128,139
+  s_08bbfd293d324f::t_b1c1770db96041 158
+packages/open-browser-use-python/open_browser_use/_response_body.py
+  s_08bbfd293d324f::t_e97adcc9d4cf79 71-73
+  s_08bbfd293d324f::t_0cb9366d588330 1-70,74-75
+apps/chrome-extension/browser-diagnostics.js
+  s_08bbfd293d324f::t_236065a8cfdbd9 2-4,18,86-94,97-99,104-130,147
+  s_08bbfd293d324f::t_e377f566bb3368 47-49
+cmd/open-browser-use/response_body_test.go
+  s_08bbfd293d324f::t_7fe07ee3f882ad 1-3,10-11,38-39,49-50,95-96,132-133,175-176,193
+  s_08bbfd293d324f::t_e97adcc9d4cf79 4-9,12-37,40-48,51-94,97-131,134-174,177-192
+packages/open-browser-use-go/response_body_test.go
+  s_08bbfd293d324f::t_2c886947326546 4-10,12-23,25-60,63-82,85-97,100-132,135-168,171-199
+  s_08bbfd293d324f::t_637e407e49a8af 1-3,11,24,61-62,83-84,98-99,133-134,169-170,200
+scripts/patch-response-body.test.mjs
+  s_08bbfd293d324f::t_7617081a58852e 78,122-144
+  s_08bbfd293d324f::t_0733b97b3d3d48 148,192-198
+  s_08bbfd293d324f::t_b70ccb1858d1f0 1-77,79-121,145-147,149-191,199
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_fbd49f112bc741 24-29
+  s_08bbfd293d324f::t_d374612d976ac9 30,35-37
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_bc72ea240360c4 17-19,26-27
+  s_08bbfd293d324f::t_fbd49f112bc741 14-16,20-22
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_0764ce54cb2c93 23-26
+scripts/browser-integration/response-body-fixture.mjs
+  s_08bbfd293d324f::t_a5af6b3751d04a 97-99,101,103,113,130-131
+  s_08bbfd293d324f::t_c668292c693214 106-107,145,148-151,177,179,190,219,256,299
+  s_08bbfd293d324f::t_8cea4818d6cabc 390
+  s_08bbfd293d324f::t_916e7bd44410f5 313,421-424
+  s_08bbfd293d324f::t_b26151aafbc7a9 115,289,300-303,332-333,414
+  s_08bbfd293d324f::t_7fcfbaf33ccfbc 236-255,257-265,267-270,279-280
+  s_08bbfd293d324f::t_4def311a79a751 143-144,146-147,152-168,192-195,266,271-278,396
+  s_08bbfd293d324f::t_b86f01ef513cf4 178,308-312,314-331,334-389,391-395,397-413,415-417
+  s_08bbfd293d324f::t_9ec7b9d19882c6 1-96,100,102,104-105,108-112,114,116-129,132-142,169-176,180-189,191,196-218,220-235,281-288,290-298,304-307,418-420,425
+packages/open-browser-use-go/response_body.go
+  s_08bbfd293d324f::t_2c886947326546 19-20,39,51,119
+  s_08bbfd293d324f::t_9c4ca370731bf8 1-3,9-13,23-25,31-32,62,77-79,139-140
+  s_08bbfd293d324f::t_e97adcc9d4cf79 4-8,14-18,21-22,26-30,33-38,40-50,52-61,63-76,80-118,120-138,141-191
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_fbd49f112bc741 52-56,59
+  s_08bbfd293d324f::t_bc72ea240360c4 57-58,442
+packages/open-browser-use-js/src/response-body.ts
+  s_08bbfd293d324f::t_f00bae4c448d21 1-41,45-47
+  s_08bbfd293d324f::t_e97adcc9d4cf79 42-44
+scripts/browser-integration/response-body-checks.py
+  s_08bbfd293d324f::t_e61349cb5cd943 1-26
+cmd/open-browser-use/response_body.go
+  s_08bbfd293d324f::t_1f8af7302719e0 1-54
+  s_08bbfd293d324f::t_19f5ee79ab2e7b 55-118
+docs/references/browser-action-protocol.md
+  s_08bbfd293d324f::t_0764ce54cb2c93 31-36
+scripts/patch-response-body.mjs
+  s_08bbfd293d324f::t_585063c7c1e7ee 1-25,27-37,39-46,50-66,68-86,88-92,94-95
+  s_08bbfd293d324f::t_0733b97b3d3d48 26,47-49,67
+  s_08bbfd293d324f::t_7617081a58852e 38,87,93
+packages/open-browser-use-python/open_browser_use/__init__.py
+  s_08bbfd293d324f::t_0cb9366d588330 2,24
+docs/references/original-response-bodies.md
+  s_08bbfd293d324f::t_0764ce54cb2c93 1-59,66-94
+  s_08bbfd293d324f::t_368e493208bb39 95-102,105-112
+  s_08bbfd293d324f::t_bc72ea240360c4 103-104,113-120
+  s_08bbfd293d324f::t_e6688c687b3e6a 60-65
+docs/references/README.md
+  s_08bbfd293d324f::t_803d4685a7af54 57-58
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_e45b52d53a3b89 72-73,204-207,563,578,586
+  s_08bbfd293d324f::t_505779a03811b2 208-209,244-248,561-562,564-577,579-580,585,587-589,731
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_fbd49f112bc741 7
+  s_08bbfd293d324f::t_47a7ef2ca9b28f 8
+packages/open-browser-use-js/test/response-body.test.mjs
+  s_08bbfd293d324f::t_9702be322801b5 1-97
+packages/open-browser-use-python/README.md
+  s_08bbfd293d324f::t_803d4685a7af54 23-28
+apps/chrome-extension/browser-diagnostics.test.mjs
+  s_08bbfd293d324f::t_cb98da3ce2af0c 5,142-158
+  s_08bbfd293d324f::t_30f68facb20c42 96-117,119-133,135,137-141,159
+  s_08bbfd293d324f::t_e377f566bb3368 118,134,136
+scripts/browser-integration/go-response-body-checks/main.go
+  s_08bbfd293d324f::t_e61349cb5cd943 1-45
+  s_08bbfd293d324f::t_1e1c4cd1346dc2 46-67
+docs/histories/2026-10/20261014-0059-original-response-bodies.md
+  s_08bbfd293d324f::t_b51a8f13e5aa7e 1-61,82-93
+  s_08bbfd293d324f::t_368e493208bb39 62,64-68
+  s_08bbfd293d324f::t_bc72ea240360c4 63,69-81
+packages/open-browser-use-python/test_response_body.py
+  s_08bbfd293d324f::t_8db45dbd627eba 61,66
+  s_08bbfd293d324f::t_9702be322801b5 3,75-85
+  s_08bbfd293d324f::t_4bf645a8bfba31 1-2,4-60,62-65,67-74,86-88
+apps/chrome-extension/site-access-backend.test.mjs
+  s_08bbfd293d324f::t_b1c1770db96041 161
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_43761454b1d98c 61-62,333,382,545-546,2038-2087,3232,3259
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_9ef9d4d7333c83 1250,1596,2555
+apps/chrome-extension/browser-response-body.js
+  s_08bbfd293d324f::t_236065a8cfdbd9 1-45,47,49-65,67,69-74,80,82-92
+  s_08bbfd293d324f::t_e3033163c12f37 46,48,66,68,75-79,81
+scripts/browser-integration/response-body-callers.mjs
+  s_08bbfd293d324f::t_e61349cb5cd943 1-23,25-27,29-45
+  s_08bbfd293d324f::t_8cea4818d6cabc 24
+  s_08bbfd293d324f::t_c668292c693214 28
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_9856dc42f4cdef 6-7,92,148,273-274,288,295,354-357,601,609-610,933-936,1149
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_0764ce54cb2c93 3-21
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_1d0bcb9620a0f6 567-569,634
+  s_08bbfd293d324f::t_935be6abbf8c31 581,585,599-603
+  s_08bbfd293d324f::t_9ef9d4d7333c83 6,12,36,134,334,570-580,582-584,586-598,604-633,635-645,648,852-853,903,909
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_91b28d52100020 49,118-123,254-270,476-480,607,642
+apps/chrome-extension/browser-response-body.test.mjs
+  s_08bbfd293d324f::t_30f68facb20c42 1-14,16-103,105,109,138
+  s_08bbfd293d324f::t_e3033163c12f37 15,104,106-108,110-137
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_d46cf732009b1c 110,1220-1224,1922-1927,2182-2186
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_f46fdd5965f815 237,491,517-518
+docs/exec-plans/active/2026-10-13-initial-keyboard-delivery.md
+  s_08bbfd293d324f::t_393e7b52dc0e56 87-100
+docs/references/keyboard-chords.md
+  s_08bbfd293d324f::t_acc246ca808a79 151-159
+packages/open-browser-use-go/control.go
+  s_08bbfd293d324f::t_500ae228dc21fd 44,50,72
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_2a924834580939 5-6,106,292,414
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_372e78ffe08736 7,51,184-186,205-206,216,307-312,573,582-585,903-906,1103
+packages/open-browser-use-js/dist/response-body.d.ts
+  s_08bbfd293d324f::t_1703562fcf1bc9 1-23
+packages/open-browser-use-js/dist/response-body.js
+  s_08bbfd293d324f::t_7ea690bb8b25ab 1-42
+docs/exec-plans/completed/2026-10-14-original-response-body.md
+  s_08bbfd293d324f::t_1a2d53cf61e652 1-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "fed56db77cafe7b1a7555e088b14b7277053fda6",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
