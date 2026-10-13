@@ -364,9 +364,9 @@ func mcpTools() []mcpTool {
 				"file_chooser_id": stringSchema("File chooser id returned by wait_file_chooser."),
 				"files": map[string]any{
 					"type":        "array",
-					"description": "Local file paths to set.",
+					"description": "Local file paths to set; an explicit empty array clears the intercepted file input.",
 					"items":       map[string]any{"type": "string"},
-					"minItems":    1,
+					"minItems":    0,
 				},
 			}, []string{"file_chooser_id", "files"}),
 		},
@@ -738,8 +738,11 @@ func (server *mcpServer) runSetFileChooserFilesTool(arguments map[string]any) (a
 	if err != nil {
 		return nil, err
 	}
-	args := append([]string{fileChooserID}, files...)
-	response, _, err := server.runner.runSetFileChooserFilesAction(args)
+	params, err := fileChooserFilesParams(fileChooserID, files)
+	if err != nil {
+		return nil, err
+	}
+	response, _, err := server.runner.invoke("setFileChooserFiles", params)
 	return response, err
 }
 
@@ -872,9 +875,6 @@ func requiredStringArrayArg(arguments map[string]any, name string) ([]string, er
 			return nil, fmt.Errorf("%s must contain only non-empty strings", name)
 		}
 		out = append(out, value)
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s must contain at least one file", name)
 	}
 	return out, nil
 }

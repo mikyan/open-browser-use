@@ -301,6 +301,8 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   `finalize-tabs`、`name-session`、`cdp`、`move-mouse`、
   `wait-file-chooser`、`set-file-chooser-files`、`turn-ended`、`begin-turn`、
   `control-state`、`profiles`。
+  文件选择器便捷入口以CLI/计划`--clear`或MCP显式`files: []`表达清空，
+  与遗漏文件参数区分；沿用原chooser归属及一次提交，不重解释MCP路径为CLI选项。
 - Multi-browser / multi-profile 支持：`open-browser-use profiles` 扫描 Chrome
   Stable、Chrome Beta、Edge Stable、平台支持的 Brave/Opera/Vivaldi 和 BitBrowser
   user-data roots，在每个 profile 目录中

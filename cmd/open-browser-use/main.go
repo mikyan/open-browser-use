@@ -1464,28 +1464,21 @@ func newWaitFileChooserCommand() *cobra.Command {
 
 func newSetFileChooserFilesCommand() *cobra.Command {
 	var options socketOptions
-	var fileChooserID string
-	var files []string
+	var selection fileChooserSelection
 	cmd := &cobra.Command{
 		Use:   "set-file-chooser-files",
 		Short: "Set files for an intercepted browser file chooser",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if fileChooserID == "" {
-				return errors.New("set-file-chooser-files requires --file-chooser-id")
+		RunE: func(command *cobra.Command, _ []string) error {
+			params, err := selection.params(command.Flags().Changed("file"))
+			if err != nil {
+				return err
 			}
-			if len(files) == 0 {
-				return errors.New("set-file-chooser-files requires at least one --file")
-			}
-			return invokeAndWrite(options, "setFileChooserFiles", map[string]any{
-				"fileChooserId": fileChooserID,
-				"files":         files,
-			})
+			return invokeAndWrite(options, "setFileChooserFiles", params)
 		},
 	}
 	addSocketFlags(cmd, &options)
-	cmd.Flags().StringVar(&fileChooserID, "file-chooser-id", "", "file chooser id returned by wait-file-chooser")
-	cmd.Flags().StringSliceVar(&files, "file", nil, "file path to set; repeat or comma-separate for multiple files")
+	selection.addFlags(cmd)
 	return cmd
 }
 
@@ -2128,21 +2121,11 @@ func (runner *actionRunner) runWaitFileChooserAction(args []string) (map[string]
 }
 
 func (runner *actionRunner) runSetFileChooserFilesAction(args []string) (map[string]any, int, error) {
-	fileChooserID := stringFlagOrPositional(args, "--file-chooser-id", 0)
-	if fileChooserID == "" {
-		return nil, 0, errors.New("set-file-chooser-files requires file chooser id")
+	params, err := buildSetFileChooserFilesCommand(args)
+	if err != nil {
+		return nil, 0, err
 	}
-	files := positionalArgs(args)
-	if stringFlag(args, "--file-chooser-id") == "" && len(files) > 0 {
-		files = files[1:]
-	}
-	if len(files) == 0 {
-		return nil, 0, errors.New("set-file-chooser-files requires at least one file")
-	}
-	return runner.invoke("setFileChooserFiles", map[string]any{
-		"fileChooserId": fileChooserID,
-		"files":         files,
-	})
+	return runner.invoke("setFileChooserFiles", params)
 }
 
 func (runner *actionRunner) runFinalizeTabsAction(args []string) (map[string]any, int, error) {

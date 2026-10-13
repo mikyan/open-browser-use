@@ -36,6 +36,17 @@ notifications. Those notifications are programmatic, not trusted user input.
 Chrome's native empty file list alone behaves like cancelling selection and can
 retain previously selected files, so it is not used to claim a successful clear.
 
+CLI callers explicitly clear with
+`open-browser-use set-file-chooser-files --file-chooser-id <id> --clear`.
+The action-plan form also accepts `set-file-chooser-files <id> --clear`.
+`--clear` is mutually exclusive with file paths; omitting both is an error.
+For action-plan uploads, use either positional paths or repeated `--file` flags;
+mixing those path forms is rejected to preserve file order.
+The MCP `set_file_chooser_files` tool accepts `{file_chooser_id: id, files: []}`;
+the `files` field remains required, and `null` is invalid. Nonempty arrays still
+select files. Both convenience entries use the existing chooser ownership and
+single-submission checks below, with no generic-call workaround required.
+
 A delivered chooser permits one submission. The backend claims it before any
 native preparation or write can yield; a concurrent call fails with
 `OBU_FILE_CHOOSER_CONSUMED`, or an unknown-chooser error if it has already retired.
@@ -331,6 +342,30 @@ new one. Raw CDP requires an explicit new `attach` in that case. This prevents
 retained transfer/diagnostic state from crossing the owner boundary.
 
 ## Verification and remaining scope
+
+The convenience acceptance entries use the named command/tool for both upload
+and clear; generic wait/click/collect/cancel calls remain unchanged. Final focused
+Chromium `IlKHn0` passes 5/5 with six root/OOPIF/dynamic-OOPIF workflows, 12 exact
+POSTs/4954 bytes and 194 original file bytes. Exact-document reads confirm all
+six FileLists are empty; six tabs/four child targets are gone after finalization.
+The 10938ms focus ledger has zero activation/focus/allowances. This isolated
+loopback test does not replace ordinary native installation acceptance. The
+earlier `en3ccC` fixture assertion failure is retained in the execution history.
+
+Complete Chromium `7LDGsE` passes 132/132, actual exit 0, with the original 130
+names/order retained. The same six convenience workflows again produce 12 exact
+POSTs/4954 bytes and 194 original file bytes, empty original FileLists and exact
+tab/target cleanup. Source/runtime hashes are unchanged during the run. Its
+362296ms focus ledger has only the existing 12 attributed activations and four
+control-window focus events. The intentional host-restart case retains exact
+old/successor identities; the successor exits 0 and all connections close.
+Go tests pass 803 test/subtests with 27 existing Windows platform/permission
+skips; integration scripts pass 1383 with one existing Windows symlink skip.
+The first full `Fg2gSR` remains 128/132, actual exit 1: original persisted state
+proved idle-session eviction after the fixture bootstrapped too early following
+global Pause. The default ordered suite now explicitly resumes immediately
+before its shared navigation case, without catching/replaying a rejected action
+or changing production capacity. These results do not complete P10 or P01–P15.
 
 `node --test apps/chrome-extension/transfers.test.mjs` covers identical-URL
 cross-session downloads, stale history, chooser routing/clearing, end/detach,

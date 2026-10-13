@@ -1,5 +1,24 @@
 # Browser integration acceptance
 
+## CLI/MCP chooser convenience clearing
+
+`cli-file-chooser-convenience-clear` and `mcp-file-chooser-convenience-clear`
+exercise the named setter command/tool for upload and explicit clearing. The
+existing generic-call chooser entries remain separate. Root, existing OOPIF and
+dynamic OOPIF workflows retain original POST/file-byte checks, record exact
+convenience arguments and process completion, and read the original document's
+actual empty FileList after clear. Other wait/trigger operations still use the
+generic interface. Select the new entries with
+`OBU_TEST_CASES=^(cli|mcp)-file-chooser-convenience-clear$`; the mandatory
+raw-navigation control remains. These isolated loopback runs do not replace
+ordinary native installation acceptance.
+
+In the default ordered suite, global-Pause helpers mark the shared main client
+for an explicit new turn in the following shared navigation case. Bootstrapping
+earlier leaves an idle ledger entry that unrelated cases can legitimately evict
+at the existing 64-session bound. A custom case selection must retain its shared
+page setup dependencies. The runner does not catch a stale action and retry it.
+
 ## Keyboard chord validation and recovery
 
 `js-keyboard-chord` adds nine scenarios; select it using

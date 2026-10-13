@@ -52,6 +52,7 @@ import { checkResearchTabDisposition } from "./research-workflow-evidence.mjs";
 import { createBackgroundParallelFixture, checkBackgroundParallelWorkflow } from "./background-parallel-workflow.mjs";
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
+import { checkChooserConvenience } from "./chooser-convenience-fixture.mjs";
 import { checkChooserSubmission } from "./chooser-submission-fixture.mjs";
 import { observeChooserCallerFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
 import { createDirectoryUploadFixtures, prepareDirectoryFiles, checkDirectoryUpload, checkInactiveDirectoryRejection, checkInactiveDirectoryCancellation } from "./directory-upload-fixture.mjs";
@@ -522,6 +523,7 @@ try {
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
   for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-failure-observation.mjs", "directory-upload-fixture.mjs", "directory-world-fixture.mjs", "background-window-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  sourceIdentity.sha256["chooser-convenience-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-convenience-fixture.mjs"))).digest("hex");
   for (const file of (await fs.readdir(path.join(directory, "go-chooser-waits-checks"))).filter(name => name.endsWith(".go")).sort()) {
     const name = `go-chooser-waits-checks/${file}`;
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -654,6 +656,7 @@ try {
   console.log("HARNESS", JSON.stringify({ endpoint, fixtureURL, runDir, sentinelId: sentinel.id }));
   browser = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-browser-integration", turnId: "acceptance", timeoutMs: 15000 });
   const tab = await browser.newTab();
+  let mainBrowserResumeRequired = false;
   async function activeInvariant() {
     const active = await focusObserver.evaluate(`chrome.tabs.query({active:true,windowId:${sentinel.windowId}})`);
     assert.equal(active[0]?.id, sentinel.id, "Agent action changed the active tab");
@@ -1044,6 +1047,29 @@ try {
         ...(foreign ? [{ name: "foreign-close", run: () => foreign.close() }] : [])
       ], save: value => fs.writeFile(artifact, JSON.stringify(value, null, 2)) });
     }
+  });
+  for (const kind of ["cli", "mcp"]) await test(`${kind}-file-chooser-convenience-clear`, async () => {
+    sourceIdentity.testHooks.push(`${kind} chooser convenience: named setter command/tool for original upload and explicit clear; root, existing OOPIF and dynamic OOPIF; retain exact caller arguments/results/process close and original FileList/POST evidence. Other wait/trigger operations use the existing generic interface. No raw setter fallback, input replay or additional focus allowance.`);
+    const sessionId = `${kind}-convenience-chooser-ready`;
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 });
+    const detail = {}; let failure;
+    try {
+      await checkChooserConvenience({ kind, owner, executable, endpoint, fixtureURL,
+        files: await getChooserFiles(), server: chooserFixtures, worker, until,
+        subprocess, withMCPClient, detail });
+    } catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize", run: async () => {
+        detail.finalize = await owner.client.finalizeTabs([]);
+        const tabIds = (detail.variants ?? []).map(item => item.tabId).filter(Number.isSafeInteger);
+        const targetIds = (detail.variants ?? []).flatMap(item => (item.frames?.targets ?? []).map(target => target.id));
+        detail.cleanup = await worker.evaluate(`(async()=>({tabIds:${JSON.stringify(tabIds)},targetIds:${JSON.stringify(targetIds)},tabs:(await chrome.tabs.query({})).filter(tab=>${JSON.stringify(tabIds)}.includes(tab.id)),targets:(await chrome.debugger.getTargets()).filter(target=>${JSON.stringify(tabIds)}.includes(target.tabId)||${JSON.stringify(targetIds)}.includes(target.id))}))()`);
+        assert.deepEqual(detail.cleanup.tabs, []); assert.deepEqual(detail.cleanup.targets, []);
+      } },
+      { name: "owner-close", run: () => owner.close() }
+    ], save: value => fs.writeFile(path.join(runDir, `chooser-convenience-${kind}.json`), JSON.stringify(value, null, 2)) });
+    if (failure) throw failure;
+    return detail;
   });
   for (const kind of ["cli", "mcp"]) await test(`${kind}-file-chooser-ready-two-connections`, async () => {
     const sessionId = `${kind}-chooser-ready`, owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "chooser-ready", timeoutMs: 15000 });
@@ -1694,9 +1720,9 @@ try {
       saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
       saveDetail: detail => fs.writeFile(path.join(runDir, "screenshot-native-drain.json"), JSON.stringify(detail, null, 2))
     });
-    // Global Pause revokes every old scope. Later ordinary cases deliberately
-    // enter a new turn after the helper's verified explicit Resume.
-    await browser.client.beginTurn();
+    // Pause revokes the shared scope. Resume it when the shared page is next
+    // used; unrelated cases can legitimately evict idle ledger records.
+    mainBrowserResumeRequired = true;
     return detail;
   });
   await test("js-screencast-concurrency", async () => {
@@ -1762,7 +1788,7 @@ try {
     const detail = {}; let failure;
     try {
       await checkHoverPause({ browser: owner, worker, fixtureURL, server: hoverDeliveryFixtures, rpcRelay: hoverRPCRelay, until, detail });
-      await browser.client.beginTurn();
+      mainBrowserResumeRequired = true;
     } catch (error) { failure = error; }
     await finishChooserCase({ detail, originalError: failure, cleanup: [
       { name: "finalize-hover-pause-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
@@ -1910,10 +1936,17 @@ try {
     return detail;
   });
   await test("js-navigation", async () => {
+    let resumed;
+    if (mainBrowserResumeRequired) {
+      const previousEpoch = browser.client.controlEpoch;
+      resumed = { previousEpoch, control: await browser.client.beginTurn() };
+      mainBrowserResumeRequired = false;
+    }
     await tab.goto(fixtureURL + "?navigated=1");
     await tab.waitForURL(fixtureURL + "?navigated=1");
     await tab.waitForLoadState();
     assert.equal(await tab.getByLabel("Controlled name").inputValue(), "");
+    return { ...(resumed ? { resumedAfterGlobalPause: resumed } : {}) };
   });
   for (const kind of ["cli", "mcp"]) await test(`${kind}-network-waits-cold-arm`, async () => {
     const sessionId = `${kind}-network-integration`;

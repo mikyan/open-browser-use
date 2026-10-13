@@ -49,6 +49,16 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P10文件选择器便捷入口现支持CLI/计划`--clear`及MCP必填空数组，原chooser
+一次提交/归属/期限不变，MCP路径不再经过CLI选项重解释。Go803 test/subtest
+pass/27既有Windows skip，integration Node1383 pass/1既有skip，actualexit0。
+专项`IlKHn0`5/5和完整`7LDGsE`132/132通过，旧130名称顺序保留；六真实
+便捷流程12POST/4954B、194文件字节及原FileList0/清理均核验。专项零focus，
+完整362296ms仅原12activation/4controlfocus许可。默认套件显式恢复移到实际
+共享导航前，原lazy epoch和64会话空闲回收导致的两轮fixture失败仍保留。
+程序化clear事件不称可信输入；普通安装与完整P01–P15仍开放，见
+[文件入口验收](../references/file-transfers.md#verification-and-remaining-scope)。
+
 P06/P13组合键新增完整预校验和原action/attachment/deadline输入门禁。
 INVALID/未开始REJECTED保留已有输入；开始后UNCONFIRMED清理原附件，
 不重放且不释放继任。Node2874 pass/1既有Windows skip；专项`l3BraN`

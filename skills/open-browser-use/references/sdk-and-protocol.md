@@ -624,6 +624,17 @@ open-browser-use set-file-chooser-files --file-chooser-id <id> --file /absolute/
 
 Use repeated `--file` values or comma-separated paths for multiple files.
 
+To clear an intercepted input, use an explicit clear operation:
+
+```sh
+open-browser-use set-file-chooser-files --file-chooser-id <id> --clear
+```
+
+Use either `--clear` or file paths. The MCP `set_file_chooser_files` tool uses
+`{"file_chooser_id":"<id>","files":[]}` to clear; `files` must be supplied.
+After the reply, verify the page's file selection or upload receipt. Clear emits
+programmatic input/change notifications; it does not imply a trusted user event.
+
 Register the waiter before triggering input. In JavaScript, start both without
 waiting for the chooser result before the click:
 

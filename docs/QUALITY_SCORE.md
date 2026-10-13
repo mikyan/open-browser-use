@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+CLI/计划文件选择器新增显式`--clear`，MCP接受必填的`files: []`；保留字面路径，
+拒绝遗漏、null及会改变顺序的混合参数。Go803 test/subtest pass、27既有Windows
+平台/权限skip，Node integration1383 pass/1既有symlink skip，actualexit0。
+专项`IlKHn0`5/5、完整`7LDGsE`132/132 actualexit0，旧130名称/顺序保留；
+六真实便捷流程12POST/4954B、194文件字节、六原文档空FileList及精确清理通过。
+专项10938ms零focus/activation；完整362296ms仅原12activation/4controlfocus。
+两轮fixture失败保留：lazy epoch采样及原64会话空闲回收；默认套件改在实际复用
+主页面前显式恢复，不重放失败动作。原生安装和完整矩阵仍开放，旧preview未变。
+见[文件入口验收](references/file-transfers.md#verification-and-remaining-scope)。
+
 组合键现以固定parser完整校验，INVALID零输入且保留既有持键；部分执行的
 UNCONFIRMED清理原attachment，原期限及继任隔离保持。Node2874 pass/
 1既有Windows symlink skip、actualexit0。专项`l3BraN`9/9，完整`BGZwxy`
