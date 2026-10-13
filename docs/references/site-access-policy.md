@@ -181,7 +181,14 @@ In either restricted mode:
   subscription acknowledgement, and delivery rechecks authority after cleanup.
   Cancellation drains the exact owned wait without reading a newly denied site.
   Unproven worker or document sources fail closed. See [network waits](network-waits-design.md).
-- Arbitrary public CDP, clipboard, WebMCP, network diagnostics, file choosers,
+- Diagnostics preserve their ordinary API and event kinds. Network entries use
+  the original Request proof; console/errors use the original native execution
+  context and document. Unproven worker/Log events and retired document entries
+  are omitted and counted in `dropped`, together with existing buffer loss.
+  Retained body references share the original response's proof; delivery checks
+  it again after asynchronous permission reads. A current allowed URL cannot
+  authorize old or third-party content. See [original bodies](original-response-bodies.md).
+- Arbitrary public CDP, clipboard, WebMCP, file choosers,
   direct downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
   notifications are suppressed. These channels can refer to origins outside the
   live document tree and have not been certified for this restricted mode.

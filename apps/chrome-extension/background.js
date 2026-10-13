@@ -1187,8 +1187,11 @@ class BrowserBackend {
     // remains unchanged, and no candidate adoption or original action replays.
     const pageCleanup = retryPageCleanup ? this.pageWaits.retryFailedCleanup() : null;
     pageCleanup?.catch(() => {});
+    const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
+    diagnosticCleanup?.catch(() => {});
     const cancelled = this.cancelGlobalControl(new Error("OBU_NATIVE_CONNECTION_LOST: native host disconnected"));
     if (pageCleanup) cancelled.releases.push(pageCleanup);
+    if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     // A bootstrap may itself await this recovery. Its durability writes are
     // joined by invalidateAll below; awaiting its RPC here would self-deadlock.
     cancelled.pending = cancelled.pending.filter(pending => !this.controlBootstrapRequests.has(pending));
@@ -1263,7 +1266,7 @@ class BrowserBackend {
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
     const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard",
       "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
-    if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && ["diagnostics", "responseBody"].includes(params?.action)) || (method === "exportPage" && params?.format === "mhtml"))
+    if (method === "downloadMedia" || unsupported.includes(method) || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
 
@@ -1516,7 +1519,7 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [networksReleased, this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [networksReleased, this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -1538,10 +1541,13 @@ class BrowserBackend {
     // input and before cancellation captures the old rejected drain promise.
     const pageCleanup = retryPageCleanup ? this.pageWaits.retryFailedCleanup() : null;
     pageCleanup?.catch(() => {});
+    const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
+    diagnosticCleanup?.catch(() => {});
     // Cancel known engine work synchronously, before a slow storage write can
     // allow an already-running locator wait to deliver its first input.
     const cancelled = this.cancelGlobalControl();
     if (pageCleanup) cancelled.releases.push(pageCleanup);
+    if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     const operation = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause(cancelled, deadline));
     this.automationTransitions = operation;
     return deadline.within(() => operation).catch(error => {
@@ -2575,10 +2581,26 @@ class BrowserBackend {
     };
     this.browserEngine = createBrowserActionEngine({
       restrictedSelectors: () => this.siteAccess.restricted,
+      captureDiagnosticAuthority: params => {
+        const scope = { ...this.attachmentOwners.get(params.tabId) };
+        const policy = this.siteAccess.status();
+        const check = proof => {
+          this.assertControlOpen(); this.assertTransferScope(scope); this.siteAccess.assertReady();
+          if (policy.generation !== this.siteAccess.generation || policy.revision !== this.siteAccess.status().revision)
+            throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original diagnostic permissions changed");
+          if (proof) {
+            proof.check();
+            for (const url of proof.urls) this.siteAccess.assertUrl(url);
+          }
+        };
+        check();
+        return { restricted: this.siteAccess.restricted, check };
+      },
       prepareFileInput: options => this.prepareLocatorFileInput(options),
       authorize: async (params) => {
-        await this.requireSessionTab(params, "browserAction");
+        const proof = await this.requireSessionTab(params, "browserAction");
         this.rememberAttachmentOwner(params, params.tabId);
+        return () => this.assertSiteProof(proof);
       },
       onBeforeAttach: (tabId, admission) => this.prepareEngineAttachment(tabId, admission),
       onAttached: (tabId) => this.registerEngineAttachment(tabId),
@@ -2692,6 +2714,9 @@ class BrowserBackend {
       throw error;
     }
     this.assertSiteProof(await this.assertSiteTab(tabId));
+    // The last permission read may itself await native frame inspection. Keep
+    // the exact selected event/body proof through that await, not a new capture.
+    engine.assertDiagnosticResult?.(result);
     return result;
   }
 
@@ -3237,6 +3262,11 @@ class BrowserBackend {
   async detach(params) {
     await this.requireSessionTab(params, "detach");
     const tabId = requireTabId(params, "detach");
+    const attachment = this.attachmentEpochs.get(tabId), owner = this.attachmentOwners.get(tabId);
+    await this.browserEngine?.drainDiagnosticCleanup?.({ sessionId: params.session_id, tabId, retryFailed: true });
+    await this.requireSessionTabOwnership(params, "detach");
+    if (this.attachmentEpochs.get(tabId) !== attachment || this.attachmentOwners.get(tabId) !== owner)
+      throw new Error("OBU_TRANSFER_CANCELLED: original detach attachment changed during diagnostic cleanup");
     await this.detachTab(tabId);
   }
 
@@ -5015,7 +5045,9 @@ class BrowserBackend {
     }
   }
 
-  async releaseSessionControl(sessionId) {
+  async releaseSessionControl(sessionId, { retryDiagnosticCleanup = false } = {}) {
+    const diagnosticsReleased = this.browserEngine?.drainDiagnosticCleanup?.({ sessionId, retryFailed: retryDiagnosticCleanup }) ?? Promise.resolve();
+    diagnosticsReleased.catch(() => {});
     this.directoryUploads.cancelWhere(record => record.scope.session_id === sessionId, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
     for (const marker of this.freshBlankTabs.values()) if (marker.session_id === sessionId) this.retireFreshBlankTab(marker);
     const choosersReleased = this.fileChooserWaits.invalidateSession(sessionId);
@@ -5049,7 +5081,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -5072,7 +5104,7 @@ class BrowserBackend {
       this.navigationWaits.invalidateSession(params.session_id);
       this.auxiliaryTabs.cancelPending(params.session_id);
       const record = await this.controlLedger.beginEnd(params);
-      const release = this.releaseSessionControl(params.session_id);
+      const release = this.releaseSessionControl(params.session_id, { retryDiagnosticCleanup: true });
       release.catch(() => {});
       // Cancel engine waits before draining finite Chrome state mutations. A raw
       // attach/create/claim already accepted must settle before the final detach
@@ -5194,7 +5226,7 @@ class BrowserBackend {
     this.endingSessions.set(sessionId, recovery);
     try {
       if (retryPageCleanup) await this.pageWaits.retryFailedCleanup(sessionId);
-      await this.releaseSessionControl(sessionId);
+      await this.releaseSessionControl(sessionId, { retryDiagnosticCleanup: retryPageCleanup });
       await this.clearSessionActivity(sessionId);
       await this.controlLedger.finishEnd(record);
     } finally {
@@ -5226,9 +5258,11 @@ class BrowserBackend {
     const tabId = await this.requireSessionTabOwnership(params, command);
     // Cancellation reveals no page content and must drain the original wait
     // even when that site's permission can no longer be inspected.
-    if (!["detach", "cancelDialog", "cancelNetworkWait"].includes(command)) await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
+    let proof;
+    if (!["detach", "cancelDialog", "cancelNetworkWait"].includes(command)) proof = await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
     if (command !== "detach") this.assertAttachmentAdmission(tabId);
     this.controlLedger.assertCurrent(params);
+    return proof;
   }
 
   async withLogicalActive(sessionId, tabs) {

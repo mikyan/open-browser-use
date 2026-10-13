@@ -12,6 +12,16 @@
 
 ## Baseline sources
 
+P11/P14 受限网站诊断和原正文专项 `gapwcs` 8/8 actual exit 0：五入口×三布局
+及九边界、22原POST/17,316B、17原native正文读取，16返回原字节、一次原ACK
+后超时。原console/error context和network request/document证明、策略、清理
+均独立核验；24,354ms零activation，只有原两次popup focus。Node3363 pass/
+1既有Windows skip。未知来源继续排除，原生读取不重取URL，正文失效不能由
+同网址新文档恢复；普通Edge与整体持平未完成，见[正文契约](../references/original-response-bodies.md)。
+完整 `Q6zSPw` 169/169 actual exit0，旧163名称/顺序完整保留；502,193ms仅
+原12activation/4control-focus许可。原业务字节、无重取、源码/运行时/构建
+及精确清理均独立核验，既有预览ZIP未变。
+
 P11/P14 受限网站网络等待通过 `mYijy5` 8/8 actual exit 0：五入口×三布局
 15原POST/11,842B及13边界九原POST/7,919B，原请求/文档/redirect、策略和
 实际订阅清理均独立核验。22,970ms零activation，仅原两次设置popup focus；

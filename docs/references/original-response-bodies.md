@@ -48,8 +48,11 @@ The existing Page and capture must belong to the caller's original control
 scope. Reading a stale reference never attaches a new Page. Diagnostics keep
 bounded metadata and original Response objects, not cached body copies. An
 evicted record, detached capture, ended turn, Pause or replaced native session
-revokes the read. Normal navigation alone does not clear diagnostics history;
-Chromium may nevertheless discard the old native body buffer.
+revokes the read. In unrestricted mode, normal navigation alone does not clear
+diagnostics history; Chromium may nevertheless discard the old native body
+buffer. Restricted captures additionally require the original request document
+and policy to remain valid. A same-URL replacement cannot inherit an old body
+reference, and collecting diagnostics removes invalid retained entries.
 
 Reading waits for the original response to finish. It waits for earlier page
 work without extending the action queue, so another explicit action can release
@@ -87,13 +90,37 @@ native allocation: the native API returns the whole body atomically.
 `FAILED` and `CAPACITY` distinguish invalid input, lost identity, deadline,
 size, discarded native content, transfer/validation failure and outstanding
 work. SDK capability negotiation can return `OBU_RESPONSE_BODY_UNSUPPORTED`.
-Website-restricted mode rejects this data channel with
-`OBU_SITE_ACCESS_UNSUPPORTED`.
+Website-restricted mode uses the same API and body limits. The original native
+request, document, ancestors, loader, redirect chain and policy identity must
+remain authorized before dispatch and after the actual read. Complete active
+document-tree checks still apply. Unknown provenance or a retired document can
+reject the read even when the current page URL is allowed. No response URL is
+retrieved again to repair that rejection.
 
 No interception, response modification or streaming/SSE body API is implied.
 Ordinary installed Edge acceptance and overall Browser Use parity remain open.
 
 ## Verification
+
+Restricted-website run `gapwcs` passes 8/8, actual exit 0. Five public entries
+cover fifteen layouts; nine additional cases cover redirects, failed transfers,
+same-URL replacement, denied sources/children and policy revocation. The original
+ledgers retain 22 POSTs/17,316 bytes and seventeen native body reads: sixteen
+return the original bytes, while one actual native ACK is held until its caller
+times out. Pause stays incomplete until that same operation settles. Independent
+review verifies original event/context/document identity, bounded exclusions,
+policy restoration and exact cleanup. The 24,354ms focus ledger has zero tab
+activation and only the two existing settings-popup focus allowances. Node
+tests pass 3363 with one existing Windows symlink-privilege skip. Unproven worker
+and Log provenance stays excluded; this does not complete ordinary Edge or the
+broader capability comparison.
+
+Complete restricted-diagnostics regression `Q6zSPw` passes 169/169, actual exit
+0, preserving the prior 163 names and relative order. The same original business
+and response bytes, no-refetch checks, source/runtime/build identities and exact
+cleanup pass independent review. Its 502,193ms focus ledger uses only the existing
+twelve activation/four control-focus allowances. The deliberate host restart is
+accounted for separately; the final host exits normally and no run process remains.
 
 Final isolated Chromium run `dx9EXR` passes 7/7 with actual exit 0. Fifteen
 layouts perform 60 public body reads, matching 3,579 original response bytes,

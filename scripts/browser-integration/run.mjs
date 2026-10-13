@@ -37,6 +37,7 @@ import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-lay
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createRestrictedNetworkFixtures, checkRestrictedNetworkCaller, checkRestrictedNetworkPolicy, checkRestrictedNetworkBoundaries, runRestrictedNetworkWireCaller } from "./site-access-network-fixture.mjs";
+import { createRestrictedDiagnosticsFixtures, checkRestrictedDiagnosticsCaller, checkRestrictedDiagnosticsPolicy, checkRestrictedDiagnosticsBoundaries, runRestrictedDiagnosticsWireCaller } from "./site-access-diagnostics-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
 import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
@@ -384,9 +385,14 @@ const restrictedNetworkKinds = ["js", "cli", "mcp", "python", "go"];
 const restrictedNetworkNames = [...restrictedNetworkKinds.map(kind => `${kind}-restricted-network-waits`), "js-restricted-network-boundaries"];
 const restrictedNetworksEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
   !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry && restrictedNetworkNames.some(restrictedDialogSelected);
+const restrictedDiagnosticsFixtures = createRestrictedDiagnosticsFixtures();
+const restrictedDiagnosticsKinds = ["js", "cli", "mcp", "python", "go"];
+const restrictedDiagnosticsNames = [...restrictedDiagnosticsKinds.map(kind => `${kind}-restricted-diagnostics`), "js-restricted-diagnostics-boundaries"];
+const restrictedDiagnosticsEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
+  !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry && restrictedDiagnosticsNames.some(restrictedDialogSelected);
 const restrictedDialogsEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
   !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry && restrictedDialogNames.some(restrictedDialogSelected);
-const siteAccessTraceEnabled = (restrictedDialogsEnabled || restrictedNetworksEnabled) && process.env.OBU_TEST_SITE_ACCESS_TRACE === "1";
+const siteAccessTraceEnabled = (restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled) && process.env.OBU_TEST_SITE_ACCESS_TRACE === "1";
 const siteAccessStartupProbe = {
   markerKey: `__OBU_TEST_SITE_STARTUP_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
   nonce: randomUUID().replaceAll("-", "")
@@ -405,6 +411,7 @@ let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (restrictedDialogFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (restrictedNetworkFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (restrictedDiagnosticsFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (siteAccessSubmissions.handle(request, response)) return;
   if (siteAccessStartupFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (topLayerFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -615,6 +622,7 @@ try {
   sourceIdentity.sha256.siteAccessFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessStartupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-startup-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessInvalidFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-invalid-fixture.mjs"))).digest("hex");
+  for (const name of ["site-access-diagnostics-fixture.mjs", "site-access-diagnostics-checks.py", "go-site-access-diagnostics-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.siteAccessDialogFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-dialog-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.frameObserver = createHash("sha256").update(await fs.readFile(path.join(directory, "frame-observer.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessDiagnostics = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-diagnostics.mjs"))).digest("hex");
@@ -3323,9 +3331,10 @@ try {
       }
     }
   });
-  let startupFromPopup, invalidFromPopup, restrictedPolicyFromPopup, restrictedNetworkPolicyFromPopup;
+  let startupFromPopup, invalidFromPopup, restrictedPolicyFromPopup, restrictedNetworkPolicyFromPopup, restrictedDiagnosticsPolicyFromPopup;
   const restrictedFromPopup = new Map();
   const restrictedNetworkFromPopup = new Map();
+  const restrictedDiagnosticsFromPopup = new Map();
   const siteAccessPopupSelected = !process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-user-site-access-popup");
   const startupSharesPopup = siteAccessStartupEnabled &&
     siteAccessPopupSelected;
@@ -3528,9 +3537,159 @@ try {
       }
     }
   }
+  async function runRestrictedDiagnosticsCase(kind, policy) {
+    const sessionId = `${kind}-restricted-diagnostics`;
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "restricted-diagnostics", timeoutMs: 15000 });
+    const detail = { sitePolicy: structuredClone(policy), processes: [], calls: [] }; let failure;
+    const invoke = tool => async (method, params) => {
+      const call = { method, params: structuredClone(params), startedAt: Date.now() }; detail.calls.push(call);
+      let response;
+      if (kind === "cli") {
+        const argv = ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"];
+        call.argv = argv; const evidence = { command: path.resolve(executable), argv }; detail.processes.push(evidence);
+        let stdout;
+        try {
+          stdout = await subprocess(evidence.command, argv, { processEvidence: evidence });
+          response = JSON.parse(stdout);
+        } catch (error) {
+          for (const [stream, value] of [["stdout", stdout ?? error.stdout], ["stderr", error.stderr]]) if (typeof value === "string") {
+            const artifact = `restricted-diagnostics-cli-call-${detail.calls.length}-${stream}-failed.txt`;
+            try {
+              await fs.writeFile(path.join(runDir, artifact), value, { flag: "wx" });
+              call[`${stream}Failure`] = { artifact, bytes: Buffer.byteLength(value), sha256: createHash("sha256").update(value).digest("hex") };
+            } catch (saveError) { (call.evidenceErrors ??= []).push(String(saveError)); }
+          }
+          throw error;
+        }
+      } else {
+        call.tool = "call"; call.arguments = { method, params };
+        const result = await tool("call", call.arguments); call.toolResult = result;
+        assert.equal(result.isError, false, JSON.stringify(result)); response = result.structuredContent;
+      }
+      call.response = response; call.completedAt = Date.now();
+      assert.equal(response.error, undefined, JSON.stringify(response)); assert.ok(Object.hasOwn(response, "result"));
+      return response.result;
+    };
+    const external = async (config, item) => {
+      const prefix = `restricted-diagnostics-${kind}-${item.layout}`;
+      const configFile = path.join(runDir, `${prefix}-config.json`), output = path.join(runDir, `${prefix}-caller.json`);
+      const source = path.join(directory, kind === "python" ? "site-access-diagnostics-checks.py" : "go-site-access-diagnostics-checks/main.go");
+      const frozen = path.join(runDir, `${prefix}-source.${kind === "python" ? "py" : "go"}`);
+      await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+      await fs.writeFile(configFile, JSON.stringify(config), { flag: "wx" });
+      const proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") }; item.callerProof = proof;
+      let command = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, configFile, output];
+      if (kind === "go") {
+        assert.ok(process.env.OBU_TEST_GO_SITE_DIAGNOSTICS_BINARY, "Set OBU_TEST_GO_SITE_DIAGNOSTICS_BINARY for typed restricted diagnostics");
+        command = path.join(runDir, `${prefix}-client${process.platform === "win32" ? ".exe" : ""}`);
+        await fs.copyFile(process.env.OBU_TEST_GO_SITE_DIAGNOSTICS_BINARY, command, fsConstants.COPYFILE_EXCL);
+        proof.binarySHA256 = createHash("sha256").update(await fs.readFile(command)).digest("hex");
+        args = [endpoint, configFile, output];
+      }
+      const evidence = { command, argv: args }; detail.processes.push(evidence);
+      try {
+        const stdout = await subprocess(command, args, { timeoutMs: 60000, processEvidence: evidence,
+          env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+        proof.stdoutFile = `${prefix}-stdout.txt`; proof.stdoutSHA256 = createHash("sha256").update(stdout).digest("hex");
+        await fs.writeFile(path.join(runDir, proof.stdoutFile), stdout, { flag: "wx" });
+        const result = JSON.parse(stdout); assert.deepEqual(result, JSON.parse(await fs.readFile(output, "utf8")));
+        assert.equal(evidence.closeObserved, true); assert.equal(evidence.exitCode, 0); assert.equal(evidence.signal, null);
+        return result;
+      } catch (error) {
+        for (const stream of ["stdout", "stderr"]) if (typeof error[stream] === "string") {
+          const name = `${prefix}-${stream}-failed.txt`;
+          await fs.writeFile(path.join(runDir, name), error[stream], { flag: "wx" });
+          proof[`${stream}Failure`] = { artifact: name, bytes: Buffer.byteLength(error[stream]), sha256: createHash("sha256").update(error[stream]).digest("hex") };
+        }
+        try { item.callerResult = JSON.parse(await fs.readFile(output, "utf8")); }
+        catch (readError) { item.partialReadError = String(readError); }
+        throw error;
+      }
+    };
+    const run = tool => checkRestrictedDiagnosticsCaller({ kind, browser: owner, fixtureURL, fixtures: restrictedDiagnosticsFixtures,
+      getWorker: () => worker, until, detail,
+      ...(["python", "go"].includes(kind) ? { caller: external } : ["cli", "mcp"].includes(kind) ? {
+        caller: (config, item) => runRestrictedDiagnosticsWireCaller(invoke(tool), config, item.callerResult)
+      } : {}) });
+    try {
+      sourceIdentity.testHooks.push(`${kind} restricted diagnostics and original body: original console/error/network evidence and one trusted Save in root/existing/dynamic OOPIF, exact original response bytes, no refetch, input replay, popup or focus allowance`);
+      if (kind === "mcp") {
+        const evidence = {}; detail.processes.push(evidence);
+        await withMCPClient(executable, endpoint, sessionId, (_call, tool) => run(tool), evidence);
+      } else await run();
+      for (const evidence of detail.processes) {
+        assert.equal(evidence.closeObserved, true); assert.equal(evidence.exitCode, 0); assert.equal(evidence.signal, null);
+        assert.equal(evidence.terminationRequestedAt, undefined); assert.equal(evidence.spawnError, undefined);
+      }
+    } catch (error) { failure = error; detail.error = error?.stack ?? String(error); }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "server-evidence", run: () => { for (const item of detail.variants ?? []) item.server = restrictedDiagnosticsFixtures.stats(item.key); } },
+      { name: "child-target-evidence", run: async () => {
+        const ids = (detail.variants ?? []).map(item => item.tabId).filter(Number.isSafeInteger);
+        const targets = await worker.evaluate(`globalThis.__integrationFrames.filter(row=>${JSON.stringify(ids)}.includes(row.tabId)).map(row=>row.targetId)`);
+        assert.ok(Array.isArray(targets));
+        detail.cleanupScope = { tabIds: ids, childTargetIds: targets };
+      } },
+      { name: "finalize", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "verify-tab-cleanup", run: async () => {
+        assert.ok(detail.cleanupScope, "Original child-target evidence must exist before cleanup verification");
+        const { tabIds: ids, childTargetIds: targets } = detail.cleanupScope;
+        detail.cleanup = await worker.evaluate(`(async()=>({tabs:(await chrome.tabs.query({})).filter(tab=>${JSON.stringify(ids)}.includes(tab.id)),targets:(await chrome.debugger.getTargets()).filter(target=>${JSON.stringify(ids)}.includes(target.tabId)||${JSON.stringify(targets)}.includes(target.id))}))()`);
+        assert.deepEqual(detail.cleanup.tabs, []); assert.deepEqual(detail.cleanup.targets, []);
+      } },
+      { name: "owner-close", run: () => owner.close() }
+    ], save: value => fs.writeFile(path.join(runDir, `restricted-diagnostics-${kind}.json`), JSON.stringify(value, null, 2)) });
+    if (failure) throw failure;
+    return detail;
+  }
+  async function recordDiagnosticsFromPopup(popup) {
+    let siteAccessTrace;
+    const record = async (name, run) => {
+      const started = Date.now(); let result;
+      try { result = { detail: await run() }; } catch (error) { result = { error }; }
+      restrictedDiagnosticsFromPopup.set(name, { ...result, elapsedMs: Date.now() - started });
+    };
+    try {
+      if (siteAccessTraceEnabled) siteAccessTrace = { installation: await worker.evaluate(`(${installSiteAccessDiagnostics.toString()})(__integrationBackend,chrome,globalThis)`) };
+      const detail = await checkRestrictedDiagnosticsPolicy({ popup, fixtureURL, until,
+        runAllowed: async policy => {
+          for (const kind of restrictedDiagnosticsKinds) {
+            const name = `${kind}-restricted-diagnostics`; if (!restrictedDialogSelected(name)) continue;
+            await record(name, async () => {
+              const before = await popup.evaluate("chrome.runtime.sendMessage({type:'GET_SITE_ACCESS_POLICY'})");
+              assert.equal(before.ok, true); assert.deepEqual(before.policy, policy);
+              const value = await runRestrictedDiagnosticsCase(kind, policy);
+              assert.deepEqual(await popup.evaluate("chrome.runtime.sendMessage({type:'GET_SITE_ACCESS_POLICY'})"), before);
+              return value;
+            });
+          }
+        },
+        runBoundaries: restrictedDialogSelected("js-restricted-diagnostics-boundaries") ? controls => record("js-restricted-diagnostics-boundaries", () => checkRestrictedDiagnosticsBoundaries({
+          connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "restricted-diagnostics-boundaries", timeoutMs: 15000 }),
+          getWorker: () => worker, fixtureURL, fixtures: restrictedDiagnosticsFixtures, controls, until,
+          saveDetail: value => fs.writeFile(path.join(runDir, "restricted-diagnostics-boundaries.json"), JSON.stringify(value, null, 2))
+        })) : undefined,
+        saveDetail: value => fs.writeFile(path.join(runDir, "restricted-diagnostics-policy.json"), JSON.stringify(value, null, 2))
+      });
+      restrictedDiagnosticsPolicyFromPopup = { detail };
+    } catch (error) { restrictedDiagnosticsPolicyFromPopup = { error }; }
+    finally {
+      if (siteAccessTrace) {
+        try {
+          siteAccessTrace.evidence = await worker.evaluate("globalThis.__siteAccessDiagnostics.stop()");
+          const evidence = siteAccessTrace.evidence;
+          assert.equal(evidence.overflow, false); assert.equal(evidence.droppedRecords, 0); assert.equal(evidence.pending, 0); assert.deepEqual(evidence.errors, []);
+          assert.equal(evidence.restored, true); assert.equal(evidence.apiRemoved, true);
+        } catch (error) { siteAccessTrace.error = error?.stack ?? String(error); restrictedDiagnosticsPolicyFromPopup ??= {}; restrictedDiagnosticsPolicyFromPopup.error ??= error; }
+        try { await fs.writeFile(path.join(runDir, "site-access-restricted-diagnostics-trace.json"), JSON.stringify(siteAccessTrace, null, 2)); }
+        catch (error) { restrictedDiagnosticsPolicyFromPopup ??= {}; restrictedDiagnosticsPolicyFromPopup.error ??= error; }
+      }
+    }
+  }
   async function recordFollowingRestrictedPopup(popup) {
     if (restrictedDialogsEnabled) await recordRestrictedFromPopup(popup);
     if (restrictedNetworksEnabled && !restrictedPolicyFromPopup?.error) await recordNetworkFromPopup(popup);
+    if (restrictedDiagnosticsEnabled && !restrictedPolicyFromPopup?.error && !restrictedNetworkPolicyFromPopup?.error) await recordDiagnosticsFromPopup(popup);
   }
   async function recordFollowingStartupPopup(popup) {
     if (siteAccessInvalidEnabled) await recordInvalidFromPopup(popup);
@@ -3543,7 +3702,7 @@ try {
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       assert, until, traceFocus, restartWorker: restartObservedWorker,
       submissions: siteAccessSubmissions,
-      afterRestore: startupSharesPopup || (siteAccessInvalidEnabled && siteAccessPopupSelected) || restrictedDialogsEnabled || restrictedNetworksEnabled ? async popup => {
+      afterRestore: startupSharesPopup || (siteAccessInvalidEnabled && siteAccessPopupSelected) || restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled ? async popup => {
         if (startupSharesPopup) {
           const start = Date.now();
           try { startupFromPopup = { detail: await runSiteAccessStartup(popup) }; }
@@ -3573,7 +3732,7 @@ try {
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       until, traceFocus, restartWorker: restartObservedWorker, fixtures: siteAccessStartupFixtures, ...siteAccessStartupProbe, existingPopup,
-      afterRestore: !existingPopup && (siteAccessInvalidEnabled || restrictedDialogsEnabled || restrictedNetworksEnabled) ? recordFollowingStartupPopup : undefined,
+      afterRestore: !existingPopup && (siteAccessInvalidEnabled || restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled) ? recordFollowingStartupPopup : undefined,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-startup.json"), JSON.stringify(detail, null, 2)),
       connectPage: async url => {
         const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "website recovery popup target");
@@ -3602,7 +3761,7 @@ try {
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       until, traceFocus, restartWorker: restartObservedWorker, fixtures: siteAccessStartupFixtures, ...siteAccessInvalidProbe, existingPopup,
-      afterRestore: !existingPopup && (restrictedDialogsEnabled || restrictedNetworksEnabled) ? recordFollowingRestrictedPopup : undefined,
+      afterRestore: !existingPopup && (restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled) ? recordFollowingRestrictedPopup : undefined,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-invalid.json"), JSON.stringify(detail, null, 2)),
       connectPage: async url => {
         const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "invalid website settings popup target");
@@ -3634,6 +3793,13 @@ try {
     if (restrictedNetworkPolicyFromPopup?.error) throw restrictedNetworkPolicyFromPopup.error;
     assert.ok(result, "Select an existing website-settings popup case with restricted network waits; no extra popup is opened or replayed");
     return { ...result.detail, workflowElapsedMs: result.elapsedMs, policyRestored: restrictedNetworkPolicyFromPopup.detail.restored };
+  });
+  for (const name of restrictedDiagnosticsNames) await test(name, async () => {
+    const result = restrictedDiagnosticsFromPopup.get(name);
+    if (result?.error) throw result.error;
+    if (restrictedDiagnosticsPolicyFromPopup?.error) throw restrictedDiagnosticsPolicyFromPopup.error;
+    assert.ok(result, "Select an existing website-settings popup case with restricted diagnostics; no extra popup is opened or replayed");
+    return { ...result.detail, workflowElapsedMs: result.elapsedMs, policyRestored: restrictedDiagnosticsPolicyFromPopup.detail.restored };
   });
   await test("js-owned-tab-revocation", () => checkOwnedTabRevocation({
     connect: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
@@ -3755,6 +3921,7 @@ try {
   await new Promise(resolve => ws.close(resolve));
   networkFixtures.close();
   restrictedNetworkFixtures.close();
+  restrictedDiagnosticsFixtures.close();
   responseBodyFixtures.close();
   navigationFixtures.close();
   directDownloads.close();
@@ -3783,6 +3950,7 @@ try {
   }
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "restricted-network-server.json"), JSON.stringify(restrictedNetworkFixtures.allStats(), null, 2));
+  await fs.writeFile(path.join(runDir, "restricted-diagnostics-server.json"), JSON.stringify(restrictedDiagnosticsFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "response-body-server.json"), JSON.stringify(responseBodyFixtures.allStats(), null, 2));
   if (createdPageProof) await fs.writeFile(path.join(runDir, "created-page-server.json"), JSON.stringify(createdPageFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));

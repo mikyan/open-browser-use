@@ -25,6 +25,14 @@
 
 ## 当前并行切片
 
+2026-10-14 [受限网站诊断及原响应正文](../completed/2026-10-14-restricted-diagnostics.md)
+完成本片：正式API支持原console/error/network来源与原POST正文，固定原文档/
+策略证明，实际订阅清理失败不可冒充成功。专项 `gapwcs` 8/8、完整 `Q6zSPw`
+169/169 actual exit0；旧163名称/顺序保持，Node3363 pass/1既有Windows skip。
+五入口×三布局及九边界共22原POST/17,316B、17原native读取/16正文返回，独立
+核验无重取与精确清理；完整502,193ms仅原12activation/4control-focus许可。
+普通Edge授权、未知来源与完整能力矩阵仍开放，旧预览ZIP保持不变。
+
 2026-10-14 [受限网站请求／响应等待](../completed/2026-10-14-restricted-network-waits.md)
 分片完成：允许网站可用三条网络等待接口，保留原生Request产生时的文档／frame／
 redirect权限证明及真实订阅清理ACK。完整 `EiU6cQ` 163/163 actual exit 0，旧157

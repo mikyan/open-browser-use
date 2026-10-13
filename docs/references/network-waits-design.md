@@ -254,6 +254,7 @@ sandbox 或浏览器组合。完整 redirect 链至多 100 条、原祖先至多
 | 路径 | 职责 |
 | --- | --- |
 | `apps/chrome-extension/browser-network-waits.js` | 有限匹配、容量预留、事件选择、scope 复核、终态、TTL 与清理 |
+| `apps/chrome-extension/browser-page-subscriptions.js` | diagnostics 与网络等待共用的精确 Page/event 订阅队列和实际 dispatcher ACK |
 | `apps/chrome-extension/browser-action-engine.js` | `withPage` 短 setup 队列与真实 CRX Page；长监听/collect 不占动作队列 |
 | `apps/chrome-extension/background.js` | RPC allowlist、capability、controlReady 前预留、ownership/attachment 与 Pause/end 清理 |
 | `scripts/patch-network-wait-proof.mjs` | pinned native event 到原 server Request 的私有 WeakMap 来源证明；不读取正文或重取网络 |

@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
 import { SITE_ACCESS_POLICY_KEY, SiteAccessPolicy } from "./site-access-policy.js";
+import { EventEmitter } from "node:events";
+import { BrowserActionEngine } from "./browser-action-engine.js";
+import { BrowserDiagnostics } from "./browser-diagnostics.js";
 
 const input = (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "");
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))
@@ -157,11 +160,98 @@ test("restricted unsafe channels fail before native commands or page messages ex
     ["executeCdp", { target: { tabId: 7 }, method: "Runtime.evaluate", commandParams: { expression: "sensitive()" } }],
     ["moveMouse", { x: 1, y: 2, waitForArrival: false }],
     ["readClipboardText", {}], ["writeClipboardText", { text: "sensitive" }],
-    ["webmcp_list_tools", {}], ["browserAction", { action: "diagnostics" }],
-    ["browserAction", { action: "responseBody", args: { captureId: "capture", requestId: "request-1" } }]
+    ["webmcp_list_tools", {}]
   ]) await assert.rejects(f.backend[method]({ ...f.params, ...extra }), /OBU_SITE_ACCESS_UNSUPPORTED/);
   assert.equal(f.calls.slice(before).some(([name]) => ["command", "message", "attach-start"].includes(name)), false);
   assert.equal(f.backend.networkWaits.records.size, 0);
+});
+
+test("restricted diagnostics and original response bodies reach the proven engine only after the complete allowed tree", async t => {
+  const dispatched = [];
+  const engine = { dispatch: async params => { dispatched.push(clone(params)); return { value: { proven: params.action } }; }, forget() {}, releaseControl() {} };
+  const f = await fixture(t, { policy: policyState(), createBrowserActionEngine: () => engine });
+  for (const action of ["diagnostics", "responseBody"]) {
+    const params = { ...f.params, action, ...(action === "responseBody" ? { args: { captureId: "original", requestId: "diag-request-1" } } : {}) };
+    const result = await f.backend.browserAction(params);
+    assert.equal(result.value.proven, action);
+  }
+  assert.deepEqual(dispatched.map(row => row.action), ["diagnostics", "responseBody"]);
+  f.frames.get(7).push(frame("https://denied.test/embed", 2, 0));
+  await assert.rejects(f.backend.browserAction({ ...f.params, action: "diagnostics" }), /OBU_SITE_ACCESS_DENIED/);
+  assert.equal(dispatched.length, 2, "blocked document tree must never reach the diagnostic engine");
+});
+
+test("the backend rechecks the exact selected diagnostic envelope after its final native tree read", async t => {
+  for (const action of ["diagnostics", "responseBody"]) {
+    const selected = { value: { original: true } }; let finalRead = false, valid = true, guarded = 0;
+    const engine = { dispatch: async () => { finalRead = true; return selected; },
+      assertDiagnosticResult(result) { assert.equal(result, selected); guarded++; if (!valid) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original selected source ended"); },
+      forget() {}, releaseControl() {} };
+    const f = await fixture(t, { policy: policyState(), createBrowserActionEngine: () => engine });
+    f.hooks.frames = async () => { if (finalRead) valid = false; };
+    await assert.rejects(f.backend.browserAction({ ...f.params, action, ...(action === "responseBody" ? { args: { captureId: "original", requestId: "diag-request-1" } } : {}) }), /original selected source ended/);
+    assert.equal(guarded, 1);
+  }
+});
+
+test("diagnostic capture authority fixes the original policy generation, epoch and attachment", async t => {
+  let hooks;
+  const f = await fixture(t, { policy: policyState(), createBrowserActionEngine: options => { hooks = options; return {}; } });
+  await f.backend.attach(f.params); await f.backend.getBrowserEngine();
+  const authority = hooks.captureDiagnosticAuthority(f.params);
+  assert.equal(authority.restricted, true);
+  authority.check({ urls: ["https://allowed.test/api"], check() {} });
+  assert.throws(() => authority.check({ urls: ["https://denied.test/private"], check() {} }), /OBU_SITE_ACCESS_DENIED/);
+  const originalPolicy = f.backend.siteAccess;
+  f.backend.siteAccess = new SiteAccessPolicy({ storage: f.chrome.storage.local }); await f.backend.siteAccess.ready;
+  assert.equal(f.backend.siteAccess.status().revision, originalPolicy.status().revision);
+  assert.throws(() => authority.check(), /original diagnostic permissions changed/);
+  f.backend.siteAccess = originalPolicy;
+  f.backend.attachmentEpochs.set(7, {});
+  assert.throws(() => authority.check(), /OBU_TRANSFER_CANCELLED/);
+});
+
+test("Pause retains a forgotten Page cleanup failure as a release and explicitly retries only that original filter", async t => {
+  const f = await fixture(t), engine = new BrowserActionEngine(), page = new EventEmitter(), held = f.gate();
+  let fail = true, disabled = 0, closeCount = 0;
+  page._channel = { updateSubscription: async params => {
+    if (params.event === "request" && !params.enabled) {
+      disabled++; if (fail) { await held.promise; throw new Error("native dispatcher rejection"); }
+    }
+  } };
+  const diagnostics = new BrowserDiagnostics(page); await diagnostics.ready;
+  const original = Promise.resolve({ page, diagnostics, app: { detach: async () => { closeCount++; } } });
+  engine.pages.set(42, original); engine.diagnosticOwners.set(original, "task");
+  f.backend.browserEngine = engine; engine.forget(42);
+  const paused = f.backend.pauseAutomation(), rejected = assert.rejects(paused, /OBU_AUTOMATION_PAUSE_FAILED.*OBU_DIAGNOSTICS_CLEANUP_FAILED/);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(disabled, 1); assert.equal(f.backend.automationControl.cleanupComplete, false);
+  assert.equal(f.backend.globalControlSnapshot().tabIds.has(42), false);
+  held.resolve(); await rejected;
+  assert.equal(f.backend.automationControl.cleanupComplete, false); assert.equal(engine.diagnosticCleanups.size, 1);
+  await assert.rejects(f.backend.resumeAutomation(f.backend.automationControl.revision), /PAUSE_INCOMPLETE/);
+  await assert.rejects(f.backend.pauseAutomation({ retryPageCleanup: false }), /OBU_DIAGNOSTICS_CLEANUP_FAILED/);
+  assert.equal(disabled, 1, "automatic recovery reports the existing failure without another native command");
+  fail = false; const retried = await f.backend.pauseAutomation();
+  assert.equal(retried.cleanupComplete, true); assert.equal(disabled, 2); assert.equal(closeCount, 0);
+  assert.equal(engine.diagnosticCleanups.size, 0);
+  assert.equal(f.calls.some(([name, tabId]) => name === "detach" && tabId === 42), false);
+});
+
+test("an explicit detach cannot follow its delayed original diagnostic cleanup onto a successor attachment", async t => {
+  const f = await fixture(t), ack = f.gate(), entered = f.gate();
+  await f.backend.attach(f.params);
+  const original = f.backend.attachmentEpochs.get(7); let detached = 0;
+  f.backend.browserEngine = { async drainDiagnosticCleanup(options) {
+    assert.equal(options.sessionId, "task"); assert.equal(options.tabId, 7); assert.equal(options.retryFailed, true);
+    entered.resolve(); await ack.promise;
+  }, async detach() { detached++; } };
+  const pending = f.backend.detach(f.params), failed = assert.rejects(pending, /OBU_TRANSFER_CANCELLED.*original detach attachment/);
+  await entered.promise;
+  const successor = {}; f.backend.attachmentEpochs.set(7, successor);
+  ack.resolve(); await failed;
+  assert.notEqual(successor, original); assert.equal(f.backend.attachmentEpochs.get(7), successor); assert.equal(detached, 0);
+  assert.equal(f.calls.filter(([name]) => name === "detach").length, 0);
 });
 
 test("restricted tab and history discovery filters denied current and pending URLs", async t => {

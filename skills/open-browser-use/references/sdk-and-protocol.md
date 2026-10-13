@@ -484,7 +484,9 @@ and browser endpoint; retain `--control-epoch` when known. MCP exposes
 The protocol also accepts `beforeunload`, but Chromium's native UI can activate
 the task tab before the decision is handled. Treat that as an unresolved
 background limitation; do not use it in a workflow requiring uninterrupted user
-focus. Website-restricted mode does not expose these dialog operations.
+focus. Restricted websites support these operations when the complete document
+tree and the original native dialog emitter are allowed. Permission or document
+changes can expire the decision; keep the original handle and control scope.
 
 ## Navigation waits
 

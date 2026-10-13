@@ -157,3 +157,141 @@ test("same-ordinal network wait IDs cannot be used as diagnostic response IDs", 
     assert.equal(diagnostics.response({ captureId: snapshot.captureId, requestId: observed.requestId }).response, value);
   } finally { waits.invalidateAll(); diagnostics.dispose(); }
 });
+
+test("restricted diagnostics admit each proven event kind and count unknown native sources without reading their text", async () => {
+  const page = new EventEmitter(), proofs = new WeakMap(), seen = [];
+  const capture = new BrowserDiagnostics(page, { captureProof(kind, value) {
+    seen.push([kind, value]);
+    const proof = proofs.get(value);
+    if (!proof) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original native source is unknown");
+    proof.check(); return proof;
+  } });
+  const proof = { check() {}, urls: ["https://fixture/"], frameUrl: "https://fixture/original" };
+  const req = request(), response = { request: () => req, status: () => 503, statusText: () => "Unavailable" };
+  const console = log("original context"), exception = new Error("original exception");
+  for (const value of [req, response, console, exception]) proofs.set(value, proof);
+  let disposed = 0, read = 0;
+  const unknown = { type: () => "warning", text() { read++; return "private worker text"; }, location: () => ({ url: "https://fixture/forged.js", lineNumber: 1, columnNumber: 1 }),
+    args: () => [{ dispose: async () => { disposed++; } }] };
+  for (const [kind, value] of [["console", console], ["pageerror", exception], ["request", req], ["response", response], ["requestfinished", req], ["requestfailed", req], ["console", unknown]]) page.emit(kind, value);
+  await Promise.resolve();
+  const result = capture.snapshot();
+  assert.deepEqual(result.entries.map(row => row.kind), ["console", "pageerror", "request", "response", "requestfinished", "requestfailed"]);
+  assert.equal(seen.length, 7); assert.equal(result.dropped, 1); assert.equal(read, 0); assert.equal(disposed, 1);
+  assert.equal(JSON.stringify(result).includes("private worker"), false);
+  assert.equal(result.entries[2].frameUrl, proof.frameUrl, "use original event proof, not mutable Request.frame().url()");
+  assert.deepEqual(Object.keys(result).sort(), ["captureId", "startedAt", "entries", "cursor", "dropped"].sort());
+});
+
+test("retained diagnostics recheck their original document and cannot regain authority from the same URL", () => {
+  const page = new EventEmitter(), original = {}, state = { document: original };
+  const capture = new BrowserDiagnostics(page, { captureProof() {
+    const document = state.document;
+    return { urls: ["https://fixture/"], check() { if (state.document !== document) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original document ended"); } };
+  } });
+  page.emit("console", log("old document")); page.emit("pageerror", new Error("old error"));
+  state.document = {};
+  page.emit("console", log("new document"));
+  const result = capture.snapshot({ limit: 1 });
+  assert.deepEqual(result.entries.map(row => row.text), ["new document"]); assert.equal(result.dropped, 2);
+  assert.equal(result.cursor.sequence, 3);
+  assert.equal(capture.snapshot({ after: result.cursor }).dropped, 2, "each removed original event is counted once");
+  assert.equal(capture.entries.length, 1);
+});
+
+test("original response proof fences an already borrowed body reference and releases it on revoked collection", () => {
+  const page = new EventEmitter(); let valid = true, invalidated = 0;
+  const capture = new BrowserDiagnostics(page, { captureProof() { return { urls: ["https://fixture/"],
+    check() { if (!valid) throw new Error("OBU_SITE_ACCESS_DENIED: original request permission ended"); } }; } });
+  const req = request(), response = { request: () => req, status: () => 200, statusText: () => "OK" };
+  page.emit("response", response);
+  const reference = capture.response({ captureId: capture.captureId, requestId: "diag-request-1" });
+  reference.onInvalidated(() => { invalidated++; }); reference.check(); valid = false;
+  assert.throws(reference.check, /OBU_SITE_ACCESS_DENIED/);
+  assert.deepEqual(capture.snapshot().entries, []);
+  assert.equal(capture.snapshot().dropped, 1); assert.equal(invalidated, 1); assert.equal(capture.responses.size, 0);
+  assert.throws(() => capture.response({ captureId: capture.captureId, requestId: reference.requestId }), /EXPIRED/);
+});
+
+test("denied first response cannot acquire a body reference through a later same-URL allowed response", () => {
+  const page = new EventEmitter(), first = request(), second = request();
+  const capture = new BrowserDiagnostics(page, { captureProof(kind, value) {
+    const req = kind === "response" ? value.request() : value;
+    if (req === first) throw new Error("OBU_SITE_ACCESS_DENIED: original request source denied");
+    return { urls: ["https://fixture/"], check() {} };
+  } });
+  const response = req => ({ request: () => req, status: () => 200, statusText: () => "OK" });
+  const denied = response(first), allowed = response(second);
+  page.emit("response", denied); page.emit("response", allowed);
+  const result = capture.snapshot(); assert.equal(result.dropped, 1); assert.equal(result.entries.length, 1);
+  const reference = capture.response({ captureId: result.captureId, requestId: result.entries[0].requestId });
+  assert.equal(reference.response, allowed); assert.notEqual(reference.response, denied);
+  assert.equal(capture.responses.size, 1);
+});
+
+test("an unusable restricted proof fails closed and never becomes a legacy unverified record", () => {
+  for (const proof of [null, undefined, {}, { check: 1 }, { check() { throw new Error("OBU_SITE_ACCESS_UNVERIFIED"); } }]) {
+    const page = new EventEmitter(), capture = new BrowserDiagnostics(page, { captureProof: () => proof });
+    page.emit("console", log("unverified"));
+    assert.deepEqual(capture.snapshot().entries, []); assert.equal(capture.snapshot().dropped, 1);
+  }
+});
+
+test("snapshot final publication checks the original selected proofs after an intervening authorization await", async () => {
+  const page = new EventEmitter(); let original = true;
+  const capture = new BrowserDiagnostics(page, { captureProof() { const selected = original; return {
+    check() { if (!original || selected !== original) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: selected original document ended"); }
+  }; } });
+  page.emit("console", log("original result"));
+  const value = capture.snapshot();
+  await Promise.resolve(); original = false;
+  assert.equal(typeof capture.checkSnapshot, "function", "engine needs a private final guard, not replacement snapshot data");
+  assert.throws(() => capture.checkSnapshot(value), /OBU_SITE_ACCESS_UNVERIFIED/);
+  assert.equal(value.entries[0].text, "original result", "failed publication must not silently select a new result");
+  assert.equal(Object.keys(value).includes("proof"), false);
+});
+
+const deferredAck = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
+const microtasks = async () => { for (let index = 0; index < 12; index++) await Promise.resolve(); };
+
+test("diagnostic ready and dispose wait for real PageDispatcher subscription acknowledgments", async () => {
+  const page = new EventEmitter(), enable = deferredAck(), disable = deferredAck(), calls = [];
+  page._channel = { updateSubscription(params) {
+    calls.push({ ...params });
+    if (params.event === "request") return params.enabled ? enable.promise : disable.promise;
+    return Promise.resolve();
+  } };
+  const capture = new BrowserDiagnostics(page);
+  let ready = false, disposed = false, cleanup;
+  try {
+    assert.equal(typeof capture.ready?.then, "function", "page.on alone does not acknowledge server filtering");
+    const registration = capture.ready.then(() => { ready = true; }, () => {});
+    await microtasks(); assert.equal(ready, false);
+    assert.deepEqual(calls.map(row => row.event).sort(), ["console", "request", "response", "requestFinished", "requestFailed"].sort());
+    cleanup = capture.dispose(); assert.equal(typeof cleanup?.then, "function"); cleanup.then(() => { disposed = true; });
+    await microtasks(); assert.equal(disposed, false);
+    assert.equal(calls.filter(row => row.event === "request").length, 1, "unsubscribe cannot overtake original enable ACK");
+    enable.resolve(); await registration; await microtasks();
+    assert.equal(disposed, false, "actual disable ACK still owns cleanup");
+    assert.deepEqual(calls.filter(row => row.event === "request"), [{ event: "request", enabled: true }, { event: "request", enabled: false }]);
+    disable.resolve(); await cleanup; assert.equal(disposed, true);
+  } finally { enable.resolve(); disable.resolve(); await Promise.allSettled([capture.ready, cleanup, capture.dispose()]); }
+});
+
+test("diagnostics and network waits share the same Page event queue and cannot disable each other's listeners", async () => {
+  const page = new EventEmitter(), held = deferredAck(), calls = [], waits = new BrowserNetworkWaits();
+  page._channel = { updateSubscription(params) { calls.push({ ...params }); return params.event === "request" && calls.filter(row => row.event === "request").length === 1 ? held.promise : Promise.resolve(); } };
+  const capture = new BrowserDiagnostics(page);
+  const params = { session_id: "owner", turn_id: "turn", control_epoch: 1, tabId: 42, event: "request", match: { url: "https://fixture/api" }, timeoutMs: 1000 };
+  const record = waits.reserve(params); let armed, cleanup;
+  try {
+    assert.equal(typeof capture.ready?.then, "function"); capture.ready.catch(() => {});
+    await microtasks();
+    armed = waits.arm(record, page, { ...params, attachment: 1 }, async () => {}); armed.catch(() => {});
+    await microtasks(); assert.equal(calls.filter(row => row.event === "request").length, 1, "second module must not use a separate subscription queue");
+    cleanup = capture.dispose(); await microtasks(); held.resolve(); await armed; await cleanup;
+    assert.ok(calls.filter(row => row.event === "request").every(row => row.enabled), "remaining waiter keeps the native filter enabled");
+    await waits.cancel({ session_id: params.session_id, turn_id: params.turn_id, control_epoch: params.control_epoch, tabId: params.tabId, waiterId: record.waiterId });
+    assert.deepEqual(calls.filter(row => row.event === "request").at(-1), { event: "request", enabled: false });
+  } finally { held.resolve(); await Promise.allSettled([armed, cleanup, capture.dispose(), waits.invalidateAll()]); }
+});

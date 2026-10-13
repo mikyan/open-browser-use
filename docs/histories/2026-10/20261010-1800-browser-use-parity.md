@@ -2217,6 +2217,36 @@ observerReady漏记录、超时可能冒充断连成功两项fixture缺口；第
 frozen源/host与SDK构建输入核同，三旧preview不变；普通125未重跑。normal
 源与其他应用前台、未ACK存储和完整P01–P15仍开放。
 
+### 受限网站诊断与原响应正文
+
+允许网站现在可沿用 diagnostics 和 responseBody 正式接口。网络绑定原native
+Request的来源证明；console/error在原Runtime回调捕获execution context和
+文档，通过私有对象身份桥传递。未知worker/Log来源排除并使用原dropped计数，
+不按source URL猜来源。采集时剔除失效旧记录及正文引用，同网址新文档不能
+继承；原策略及选中事件证明跨engine/backend最后异步权限检查保留至返回。
+
+诊断与网络等待共用精确Page/event订阅队列，五个真实dispatcher ACK后ready，
+pageerror没有订阅位。Pause和结束追踪原Page实际取消监听；清理失败不能
+被吞掉，自动路径不重发，显式清理可重试已结算失败。新增等待后的detach
+复核原owner/token，不能误伤继任。原正文至多一次原native读取，绝不重取URL。
+
+旧源真实 `QJiP8w` 2/3 actual exit1，在允许页第一次diagnostics即UNSUPPORTED，
+尚无业务POST。修复专项 `gapwcs` 8/8 actual exit0：五入口×三布局和九边界
+共22原POST/17,316B、17原native读取，16返回正文、另一次原ACK后受控延迟
+最终超时。24,354ms零activation、仅原两次popup focus；原来源、策略恢复、
+清理、host EOF0和exact-run进程为空均独立核验。审计器第一版把MCP成功的
+`isError:false`误投影成undefined，原失败版保留，修正版通过，非产品失败。
+
+最终定向283/283；全Node初轮仅一个旧network mock缺新增reader，生产门禁
+正确拒绝。只补明确拒绝未知来源的mock后，Node3363 pass/1既有Windows skip。
+生产及真实fixture未改，13个Go产物及143构建输入固定。旧预览ZIP保持原hash，
+普通Edge授权与完整能力矩阵继续开放，不创建PR。
+
+完整 `Q6zSPw` 169/169 actual exit0，旧163名称和顺序保持；502,193ms仅原
+12activation/4control-focus许可。独立核验原22POST/17,316B、17原读取/
+16正文、无API重取、全部构建及源/runtime身份、restart原host与继任EOF0、
+exact-run进程为空。后续只同步文档，生产与runner均未再改。
+
 ### 📁 Files Modified
 
 - `internal/transport/`, `internal/host/`, `cmd/open-browser-use/`

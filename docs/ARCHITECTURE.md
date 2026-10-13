@@ -486,6 +486,14 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   pinned Chromium 的 [Runtime 时钟](https://chromium.googlesource.com/chromium/src/+/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/inspector/thread_debugger_common_impl.cc#682)
   与 [Performance 偏移](https://chromium.googlesource.com/chromium/src/+/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/core/timing/performance.cc#303)
   分别是这一限制的来源；时间戳不是原生 replay 标记。
+  受限网站的记录另绑定原始来源：网络沿用原 native Request 证明，console
+  和 pageerror 在原 Runtime 回调捕获 execution context、文档与祖先，并通过
+  私有对象身份桥传到客户端。缺少来源的 worker/Log 记录不返回，计入 dropped；
+  采集时重新核验每条记录，同网址的新文档不能继承旧日志或正文引用。
+  原策略与来源证明跨 engine 和 backend 最后一次异步权限检查保留至返回。
+  diagnostics 与 network waits 共用精确 Page/event 订阅队列；console、request、
+  response、requestFinished、requestFailed 的真实 dispatcher ACK 完成后才 ready，
+  pageerror 无订阅位。移除监听后的实际 ACK 仍计入 Pause/结束清理。
 - `armNetworkWait` / `collectNetworkWait` / `cancelNetworkWait` 通过真实 Page
   request/response 事件提供先监听、后触发的有限等待。短注册阶段共享 tab
   队列，ready 后监听与读取不占动作队列；不查询 diagnostics 历史。记录在

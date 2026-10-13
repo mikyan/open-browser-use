@@ -1,5 +1,6 @@
 // Ready-first waits over real Playwright Page events. This registry never
 // scans diagnostics history, reads headers/bodies, or invokes page JavaScript.
+import { updatePageSubscription } from "./browser-page-subscriptions.js";
 const encoder = new TextEncoder();
 const MAX_RESULT_BYTES = 16 * 1024;
 const scopeFields = ["session_id", "turn_id", "control_epoch", "tabId"];
@@ -80,7 +81,6 @@ export class BrowserNetworkWaits {
     this.records = new Map();
     this.operations = new Set();
     this.requestStates = new WeakMap();
-    this.subscriptionQueues = new WeakMap();
     this.cleanups = new Set();
   }
 
@@ -134,20 +134,8 @@ export class BrowserNetworkWaits {
   }
 
   subscription(record) {
-    if (!record.page?._channel?.updateSubscription) return Promise.resolve();
-    let queues = this.subscriptionQueues.get(record.page);
-    if (!queues) this.subscriptionQueues.set(record.page, queues = new Map());
-    const event = record.params.event;
-    const actual = (queues.get(event) ?? Promise.resolve()).catch(() => {}).then(() => {
-      if (record.pageClosed || record.page.isClosed?.()) return;
-      // This is the server-local PageDispatcher filter ACK, not Network.enable.
-      // Read the live listener count at dispatch so a delayed old cleanup never
-      // disables another wait or a diagnostics listener added in the meantime.
-      return record.page._channel.updateSubscription({ event, enabled: record.page.listenerCount(event) > 0 });
-    });
-    queues.set(event, actual);
-    actual.finally(() => { if (queues.get(event) === actual) queues.delete(event); }).catch(() => {});
-    return this.track(actual);
+    if (record.pageClosed) return Promise.resolve();
+    return this.track(updatePageSubscription(record.page, record.params.event));
   }
 
   cleanupListeners(record, retry = false) {

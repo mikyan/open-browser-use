@@ -205,9 +205,27 @@ automation commands, not all page activity.
 Use `tab.diagnostics()` (Go: `tab.Diagnostics()`) or `browserAction` with
 `action: "diagnostics"` to inspect console messages, page errors and network
 summaries. Keep the returned `cursor` and pass it as `after` when reading the next
-page; `limit` accepts 1 through 200. Check `dropped` for bounded-buffer loss.
+page; `limit` accepts 1 through 200. Check `dropped` for omitted entries.
 Capture starts at the first engine action, so earlier activity is unavailable.
 Headers and bodies are not included. Detach or ownership changes expire the
 capture; after `OBU_DIAGNOSTICS_EXPIRED`, begin a fresh read without the old cursor.
 Use these observations to choose the next action rather than blindly retrying
 the failed input.
+
+On restricted websites, use the same API. The complete active document tree
+must be allowed. Each returned event retains its original document authority;
+unknown worker/Log sources and entries from replaced documents are omitted and
+counted in `dropped`, alongside buffer loss. This counter does not explain each
+omission. Read fresh observations after navigation; a same-URL replacement does
+not grant access to the old document's records.
+
+To inspect an original HTTP response body, check
+`getInfo.metadata.responseBodyVersion === 1`. Read diagnostics before the
+authorized page trigger, perform it once, then find its new `response` entry by
+the observed URL/method/status. Pass its capture's `captureId` and that entry's
+`requestId` to `tab.responseBody(reference, {maxBytes, timeoutMs})`. Decode the
+returned base64 `data` and check `byteLength`. The default limit is 1 MiB and
+the maximum is 8 MiB. Network-wait IDs and native CDP IDs are not body references.
+An expired or denied reference cannot be repaired by fetching the URL or
+replaying the trigger. Python uses `tab.response_body`, Go `tab.ResponseBody`,
+CLI `response-body`, and MCP `response_body`; retain the original control scope.

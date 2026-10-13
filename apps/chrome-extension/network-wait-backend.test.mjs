@@ -57,6 +57,9 @@ async function fixture(t, { restricted = false } = {}) {
     async detach(tabId) { pages.get(tabId)?.emit("close"); pages.delete(tabId); calls.push(["engine-detach", tabId]); }
   };
   const runtime = { crx: { start: async () => app }, setOpenBrowserUseCommandObserver() {}, setOpenBrowserUseEventFilter() {}, setOpenBrowserUseInputHooks() {},
+    captureOpenBrowserUseDiagnosticSource() {
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: fixture does not provide original console or error sources");
+    },
     captureOpenBrowserUseNetworkWaitRequest(request) {
       if (request.unproven) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original request source unavailable");
       const document = hooks.document;

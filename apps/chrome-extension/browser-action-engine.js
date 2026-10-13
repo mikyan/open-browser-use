@@ -309,7 +309,7 @@ async function execute(page, params, resolveRef, selectedTarget) {
 }
 
 export class BrowserActionEngine {
-  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, restrictedSelectors = () => false, prepareFileInput, inputHooks } = {}) {
+  constructor({ loadRuntime = () => { throw new Error("BrowserActionEngine requires its statically bundled Playwright runtime"); }, onBeforeAttach = () => {}, onAttached = () => {}, onDetached = () => {}, onCommand = () => {}, isInternalEvent = () => false, aroundAction = ({ run }) => run(), authorize = () => {}, restrictedSelectors = () => false, captureDiagnosticAuthority, prepareFileInput, inputHooks } = {}) {
     this.loadRuntime = loadRuntime;
     this.onBeforeAttach = onBeforeAttach;
     this.onAttached = onAttached;
@@ -319,6 +319,10 @@ export class BrowserActionEngine {
     this.aroundAction = aroundAction;
     this.authorize = authorize;
     this.restrictedSelectors = restrictedSelectors;
+    this.captureDiagnosticAuthority = captureDiagnosticAuthority;
+    this.diagnosticResults = new WeakMap();
+    this.diagnosticCleanups = new Map();
+    this.diagnosticOwners = new WeakMap();
     this.inputHooks = inputHooks;
     this.prepareFileInput = prepareFileInput;
     this.pages = new Map();
@@ -564,6 +568,32 @@ export class BrowserActionEngine {
     return check;
   }
 
+  assertDiagnosticResult(result) { this.diagnosticResults.get(result)?.(); }
+
+  retireDiagnostics(tabId, pending, retryFailed = false) {
+    if (!pending) return Promise.resolve();
+    const previous = this.diagnosticCleanups.get(pending);
+    if (previous && (!previous.error || !retryFailed)) return previous.promise;
+    const record = { tabId, sessionId: this.diagnosticOwners.get(pending), promise: pending.then(entry => entry.diagnostics?.dispose(), () => {}) };
+    this.diagnosticCleanups.set(pending, record);
+    record.promise.then(() => {
+      if (this.diagnosticCleanups.get(pending) === record) this.diagnosticCleanups.delete(pending);
+    }, error => { record.error = error; });
+    return record.promise;
+  }
+
+  // A retired subscription grants no authority to detach a current tab. These
+  // exact-Page resources nevertheless have a fallible release, separate from
+  // cancelled action promises. Only an explicit cleanup attempt retries a
+  // settled failure; a pending native command is always joined unchanged.
+  async drainDiagnosticCleanup({ sessionId, tabId, retryFailed = false } = {}) {
+    const selected = [...this.diagnosticCleanups.entries()].filter(([, record]) =>
+      (sessionId === undefined || record.sessionId === sessionId) && (tabId === undefined || record.tabId === tabId));
+    const outcomes = await Promise.allSettled(selected.map(([pending, record]) => this.retireDiagnostics(record.tabId, pending, retryFailed)));
+    const failure = outcomes.find(result => result.status === "rejected");
+    if (failure) throw failure.reason;
+  }
+
   // Await preceding Page work without extending its action queue. A later
   // explicit action may finish this response. Late native reads retain their
   // reservation, but never confer additional authority to detach a tab.
@@ -576,7 +606,7 @@ export class BrowserActionEngine {
       throw new Error("OBU_RESPONSE_BODY_CAPACITY: pending original response reads must settle first");
     const generation = this.generations.get(params.tabId) ?? 0;
     const deadlineAt = performance.now() + params.timeoutMs, controller = new AbortController();
-    let complete, rejectStopped, reference, entry;
+    let complete, rejectStopped, reference, entry, siteCheck;
     const record = { tabId: params.tabId, admitted: false, controller, preparing: true,
       operationPending: true, nativePending: false, checksPending: 0, publicDone: false,
       done: new Promise(resolve => { complete = resolve; }) };
@@ -586,19 +616,20 @@ export class BrowserActionEngine {
         this.responseReads.delete(record); complete();
       }
     };
-    const checkSync = () => {
+    const checkSync = (checkTree = false) => {
       controller.signal.throwIfAborted();
       if (performance.now() >= deadlineAt) throw timeout();
       if (this.pages.get(params.tabId) !== attachment || (this.generations.get(params.tabId) ?? 0) !== generation) throw expired();
-      if (this.restrictedSelectors()) throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: response bodies are unavailable with website restrictions");
+      entry?.diagnosticsAuthority?.check();
+      if (checkTree) siteCheck?.();
       if (reference) {
         if (entry.diagnosticsOwner !== JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id])) throw expired();
         reference.check();
       }
     };
     const check = async () => {
-      checkSync(); record.checksPending++;
-      try { await this.authorize(params); checkSync(); }
+      checkSync(false); record.checksPending++;
+      try { const proofCheck = await this.authorize(params); siteCheck = typeof proofCheck === "function" ? proofCheck : undefined; checkSync(true); }
       finally { record.checksPending--; finish(); }
     };
     const stopped = new Promise((_, reject) => { rejectStopped = reject; });
@@ -609,6 +640,8 @@ export class BrowserActionEngine {
     const preparation = previous.catch(() => {}).then(async () => {
       await check(); entry = await attachment; await check();
       if (!entry.diagnostics || entry.diagnosticsOwner !== JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id])) throw expired();
+      if (this.restrictedSelectors() && !entry.diagnosticsRestricted)
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original response has no restricted source proof");
       reference = entry.diagnostics.response(params.args);
       record.admitted = true;
       const runtime = await this.runtime(); await check();
@@ -624,16 +657,18 @@ export class BrowserActionEngine {
       const native = await preparation;
       await check();
       const readNative = { finished: native.finished, read: guard => {
-        checkSync(); record.nativePending = true;
+        checkSync(true); record.nativePending = true;
         let actual;
-        try { actual = Promise.resolve(native.read(() => { checkSync(); guard(); })); }
+        try { actual = Promise.resolve(native.read(() => { checkSync(true); guard(); })); }
         catch (error) { record.nativePending = false; finish(); throw error; }
         actual.then(() => { record.nativePending = false; finish(); }, () => { record.nativePending = false; finish(); });
         return actual;
       } };
       const value = await readResponseBody({ reference, readNative, check, checkSync, signal: controller.signal, deadlineAt, maxBytes: params.args.maxBytes });
       await check();
-      return { value, engine: BROWSER_ENGINE_INFO };
+      const result = { value, engine: BROWSER_ENGINE_INFO };
+      this.diagnosticResults.set(result, () => checkSync(false));
+      return result;
     })();
     operation.finally(() => { record.operationPending = false; finish(); }).catch(() => {});
     try { return await Promise.race([operation, stopped]); }
@@ -696,9 +731,31 @@ export class BrowserActionEngine {
         throw new Error("OBU_DIAGNOSTICS_OWNER_CHANGED: previous capture was released; submit a new authorized action");
       }
       if (!entry.diagnostics) {
+        const runtime = await this.runtime(); await check();
+        const attachment = this.pages.get(params.tabId);
+        const authority = this.captureDiagnosticAuthority?.(params);
+        if (this.restrictedSelectors() && (!authority?.restricted || typeof runtime.captureOpenBrowserUseDiagnosticSource !== "function" || typeof runtime.captureOpenBrowserUseNetworkWaitRequest !== "function"))
+          throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original diagnostic source reader is unavailable");
+        const checkCapture = () => {
+          if (this.pages.get(params.tabId) !== attachment || (this.generations.get(params.tabId) ?? 0) !== generation)
+            throw new Error("OBU_DIAGNOSTICS_EXPIRED: original capture attachment ended");
+          authority?.check();
+        };
         entry.diagnosticsOwner = diagnosticsOwner;
-        entry.diagnostics = new BrowserDiagnostics(page);
+        this.diagnosticOwners.set(attachment, params.session_id);
+        entry.diagnosticsRestricted = authority?.restricted === true;
+        entry.diagnosticsAuthority = { check: checkCapture };
+        entry.diagnostics = new BrowserDiagnostics(page, { captureProof: authority?.restricted ? (kind, value) => {
+          checkCapture();
+          const proof = ["console", "pageerror"].includes(kind)
+            ? runtime.captureOpenBrowserUseDiagnosticSource(kind, value, page)
+            : runtime.captureOpenBrowserUseNetworkWaitRequest(kind === "response" ? value.request() : value, page);
+          if (!proof || typeof proof.check !== "function" || !Array.isArray(proof.urls))
+            throw new Error("OBU_SITE_ACCESS_UNVERIFIED: diagnostic source could not be identified");
+          return { frameUrl: proof.frameUrl, check: () => { checkCapture(); authority.check(proof); } };
+        } : undefined });
       }
+      await entry.diagnostics.ready; await check(); entry.diagnosticsAuthority?.check();
       entry.observation ??= new BrowserObservation(page);
       phase = "running";
       this.active.set(params.tabId, { session_id: params.session_id, turn_id: params.turn_id });
@@ -793,7 +850,12 @@ export class BrowserActionEngine {
           ? this.aroundAction({ params, timeoutMs: Math.max(1, deadlineAt - performance.now()), run })
           : run());
         await check();
-        return { value: value ?? null, engine: BROWSER_ENGINE_INFO };
+        const result = { value: value ?? null, engine: BROWSER_ENGINE_INFO };
+        if (params.action === "diagnostics") {
+          const guard = () => { checkTime(); entry.diagnosticsAuthority?.check(); entry.diagnostics.checkSnapshot(value); };
+          guard(); this.diagnosticResults.set(result, guard);
+        }
+        return result;
       } catch (error) {
         if (params.action === "setInputFiles" && error?.mediaCleanupFailed && typeof error.retryMediaCleanup === "function")
           this.fileInputCleanups.set(params.tabId, { entry, retry: error.retryMediaCleanup });
@@ -869,6 +931,7 @@ export class BrowserActionEngine {
           await cleanup.retry();
           if (this.fileInputCleanups.get(tabId) === cleanup) this.fileInputCleanups.delete(tabId);
         }
+        await this.drainDiagnosticCleanup({ tabId });
         let entry;
         try { entry = await pending; }
         catch (error) {
@@ -879,14 +942,14 @@ export class BrowserActionEngine {
           return;
         }
         if (entry) {
-          entry.diagnostics?.dispose();
+          await this.retireDiagnostics(tabId, pending);
           entry.observation?.dispose();
           await entry.app.detach(tabId);
           await this.onDetached(tabId);
         }
       }
       finally {
-        if (!this.fileInputCleanups.has(tabId) && this.pages.get(tabId) === pending) this.pages.delete(tabId);
+        if (!this.fileInputCleanups.has(tabId) && !this.diagnosticCleanups.has(pending) && this.pages.get(tabId) === pending) this.pages.delete(tabId);
       }
     })();
     this.releases.set(tabId, release);
@@ -900,14 +963,16 @@ export class BrowserActionEngine {
   controlSnapshot() {
     return {
       tabIds: [...new Set([...this.pages.keys(), ...this.releases.keys(), ...this.queues.keys(), ...this.fileInputCleanups.keys()])],
-      pending: [...new Set([...this.pages.values(), ...this.releases.values(), ...this.queues.values(), ...[...this.responseReads].map(read => read.done)])]
+      pending: [...new Set([...this.pages.values(), ...this.releases.values(), ...this.queues.values(), ...[...this.responseReads].map(read => read.done), ...[...this.diagnosticCleanups.values()].map(record => record.promise)])]
     };
   }
 
   // Browser-initiated detach must invalidate queued operations as well.
   forget(tabId) {
     this.invalidate(tabId);
-    this.pages.get(tabId)?.then(entry => { entry.diagnostics?.dispose(); entry.observation?.dispose(); }).catch(() => {});
+    const pending = this.pages.get(tabId);
+    this.retireDiagnostics(tabId, pending).catch(() => {});
+    pending?.then(entry => entry.observation?.dispose()).catch(() => {});
     this.pages.delete(tabId);
   }
 }

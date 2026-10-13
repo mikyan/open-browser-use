@@ -146,6 +146,17 @@ returned metadata, not traffic initiated by the page.
 Pending and retained waits have fixed capacity, deadlines and terminal expiry;
 see [network waits](references/network-waits-design.md).
 
+Restricted diagnostics retain original event provenance rather than trusting a
+console source URL or the current tab URL. Console/errors require the original
+native execution context and document; network entries and body references use
+the original request, ancestor and redirect proof. Unknown sources are omitted
+and counted in `dropped`. A policy change or replacement document revokes old
+authority. Final checks cover asynchronous permission reads before returning
+metadata or original response bytes. Body reads never refetch a URL, and pending
+native reads and subscription cleanup remain tracked after caller timeout.
+See [website access](references/site-access-policy.md) and
+[original response bodies](references/original-response-bodies.md).
+
 - Never commit credentials, cookies, API keys, browser profile data, native host manifests with private machine-specific paths, or captured user data.
 - Keep examples synthetic and minimal.
 - Redact local usernames, home directories, tokens, session IDs, and private browsing history from docs, history entries, release notes, and issue reports.

@@ -120,9 +120,9 @@ test("authorization is checked again after headers finish and before any native 
   assert.equal(f.calls.length, 0); assert.equal(f.engine.responseReads.size, 0);
 });
 
-test("website restrictions refuse the body channel before binding native objects", async () => {
+test("website restrictions refuse a legacy capture without original source proofs before binding native objects", async () => {
   const f = fixture({ restricted: () => true }), source = f.add();
-  await assert.rejects(source.read(), /OBU_SITE_ACCESS_UNSUPPORTED/);
+  await assert.rejects(source.read(), /OBU_SITE_ACCESS_UNVERIFIED/);
   assert.equal(f.calls.length, 0); assert.equal(f.engine.responseReads.size, 0);
 });
 

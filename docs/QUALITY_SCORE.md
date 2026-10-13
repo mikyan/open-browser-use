@@ -11,6 +11,17 @@
 
 ## 当前评分
 
+受限网站诊断和原正文读取通过专项 `gapwcs` 8/8 actual exit 0：五入口×三布局
+及九边界共22原POST/17,316B、17原native正文读取；16返回原字节，另一次原ACK
+后受控延迟最终超时。原request/context/document、策略与清理独立核验。
+24,354ms零activation，仅原两次popup focus。Node3363 pass/1既有Windows skip。
+共享订阅ready/清理等待真实ACK；自动失败不重发，明确清理可重试原Page资源，
+迟到ACK不能detach继任。来源不明的worker/Log记录仍排除，普通Edge及完整
+能力对照继续开放，见[正文契约](references/original-response-bodies.md)。
+完整 `Q6zSPw` 169/169 actual exit0，旧163名称/顺序保持；502,193ms仅原
+12activation/4control-focus许可，原业务字节、无重取、源码/运行时/构建和
+精确清理均独立核验。该结果不改变普通安装或整体持平的开放状态。
+
 受限网站的请求/响应等待已通过专项 `mYijy5` 8/8 actual exit 0：五入口×三布局
 15 原 POST/11,842B，13 边界另九原 POST/7,919B，原请求/文档/redirect及清理
 独立核验。22,970ms零activation、仅原两次设置popup focus。真实订阅/退订ACK
