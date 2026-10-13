@@ -99,6 +99,31 @@ undo a native command already sent.
 
 ## Fidelity and limits
 
+Agent cursor, click rings and target outlines are excluded from print layout by
+a print-only rule owned by the feedback root. Screen feedback remains enabled.
+Printing may resize the document and clear the old target rectangle; a later
+hover computes a fresh outline. This does not remove feedback markup from
+MHTML, which retains the browser's page serialization.
+
+The unchanged production baseline `run-vNvX0d` reproduced the leak: both PDF
+variants contained two image resources; with backgrounds enabled, each page
+also contained 21,992 colored feedback pixels. The initial fixture failure
+`run-MDNXm6` remains recorded separately (extra pagination and an incorrect
+expectation that a pre-resize outline must persist).
+
+After the scoped CSS fix, `run-4A9CWZ` passed 3/3 and related regression
+`run-h0x9xz` passed 8/8, both actual exit 0. Ordinary and strict-CSP pages each
+produced two PDFs, with backgrounds enabled/disabled: all eight rendered pages
+had zero image resources and zero colored pixels, correct page geometry and
+original business text. Screen captures retained feedback before printing and
+after a separate subsequent hover. The strict-CSP page also proved its own
+unapproved inline style was blocked. The 10,369 ms regression observer interval
+had zero activation/window-focus events or allowances; startup/teardown are
+outside that interval. Cursor/pointer module tests passed 26/26 and the PDF
+oracle passed five tests. This focused regression does not replace the complete
+parity matrix or ordinary installed-browser acceptance. Commands and artifact
+checks are documented in the [integration guide](../../scripts/browser-integration/README.md#agent-feedback-during-pdf-export).
+
 MHTML captures the browser's serialized page, resources and frames; it is not a
 guarantee that interactive applications will work offline. Chrome returns its
 snapshot as one string, so the returned artifact limit is not a browser heap or

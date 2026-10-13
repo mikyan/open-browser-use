@@ -1,5 +1,25 @@
 # Browser integration acceptance
 
+## Agent feedback during PDF export
+
+`OBU_TEST_CASES=^js-cursor-print-exclusion(-csp)?$` selects public fill, click, hover and
+PDF export of a two-page report, alongside mandatory raw navigation. It uses
+the regular isolated host/browser setup and additionally requires `pypdf` and
+Pillow in `OBU_TEST_PYTHON` (or `python`), plus Poppler's `pdftoppm` on PATH.
+The checker renders retained PDF bytes and verifies page count, receipt text,
+grayscale business content and absence of the cursor image. Screenshots before
+and after printing must still show colored target feedback. No focus allowance
+or printing/input override is added. This is PDF acceptance; MHTML preserves
+serialized page markup and is not sanitized by this check.
+
+To inspect retained evidence again, run
+`python scripts/browser-integration/cursor-print-artifacts.py RUN_DIRECTORY`.
+This rewrites only derived verification images/report, never the input PDF or
+screen captures. The `-csp` case additionally proves page inline styles without
+the fixture nonce are blocked while the extension's print exclusion remains
+effective. A failed verification remains a failure even when the browser
+successfully returned export bytes.
+
 ## Original response body reads
 
 `OBU_TEST_CASES=^(js|python|go|cli|mcp|edges)-original-response-body$` selects

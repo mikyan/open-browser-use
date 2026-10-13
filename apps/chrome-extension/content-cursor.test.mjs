@@ -182,6 +182,47 @@ test("moving the AI cursor outlines the interactive ancestor without changing pa
   page.hide();
 });
 
+test("print exclusion is scoped to the feedback root and leaves screen and page styling intact", () => {
+  const page = createPage({ reducedMotion: true });
+  const pageStyle = page.add("style"); pageStyle.textContent = "@media print { button { color: black; } }";
+  const button = page.add("button"); button.style.display = "inline-block"; page.hit(button);
+  page.move({ animateMovement: false }); page.click();
+  const root = page.document.getElementById("open-browser-use-cursor-root");
+  const styles = findAll(root, node => node.tagName === "STYLE");
+  assert.equal(styles.length, 1, "The created renderer must carry its print exclusion");
+  // This VM checks the actual DOM-authored CSS contract, not CSS layout. The
+  // browser integration separately renders the original exported PDF pixels.
+  assert.match(styles[0].textContent, /^\s*@media\s+print\s*\{\s*#open-browser-use-cursor-root\s*\{\s*display\s*:\s*none\s*!important\s*;?\s*\}\s*\}\s*$/);
+  assert.equal(styles[0].parentElement, root);
+  assert.notEqual(root.style.display, "none");
+  assert.equal(page.elements("browser-agent-cursor")[0].style.opacity, "1");
+  assert.equal(page.elements("browser-agent-target")[0].style.display, "block");
+  assert.equal(page.elements("browser-agent-click").length, 1);
+  assert.equal(pageStyle.textContent, "@media print { button { color: black; } }");
+  assert.deepEqual(button.style, { display: "inline-block" });
+  const before = JSON.stringify(page.sent), timers = page.timers.size;
+  page.emit("beforeprint"); page.emit("afterprint");
+  assert.equal(JSON.stringify(page.sent), before, "Printing does not ask for browser control or input");
+  assert.equal(page.timers.size, timers);
+  assert.equal(page.elements("browser-agent-target")[0].style.display, "block");
+  page.hide();
+});
+
+test("print stylesheet shares renderer lifetime without accumulating across moves and turns", () => {
+  const page = createPage({ reducedMotion: true }); page.move();
+  const root = page.document.getElementById("open-browser-use-cursor-root");
+  const stylesheet = findAll(root, node => node.tagName === "STYLE")[0]; assert.ok(stylesheet);
+  page.move({ moveSequence: 2 }); page.hide(); page.move({ turnId: "next", moveSequence: 3 });
+  assert.deepEqual(findAll(root, node => node.tagName === "STYLE"), [stylesheet]);
+  page.emit("pagehide"); assert.equal(root.isConnected, false); assert.equal(stylesheet.isConnected, false);
+  page.move({ turnId: "restored", moveSequence: 4 });
+  const restored = page.document.getElementById("open-browser-use-cursor-root");
+  assert.notEqual(restored, root);
+  const styles = findAll(restored, node => node.tagName === "STYLE"); assert.equal(styles.length, 1);
+  assert.equal(styles[0].textContent, stylesheet.textContent);
+  page.hide(); assert.equal(page.timers.size, 0); assert.equal(page.frames.size, 0);
+});
+
 test("hit testing ignores overlay nodes and highlights an iframe without entering it", () => {
   const page = createPage();
   const frame = page.add("iframe");

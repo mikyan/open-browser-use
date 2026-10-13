@@ -462,6 +462,11 @@ function createCursorRenderer(root, { assetUrl, onArrived }) {
 
 function createCursorParts(root, assetUrl) {
   root.replaceChildren();
+  // Feedback remains visible on screen, but is not part of the page's printed
+  // content. Keep this rule scoped to and owned by the renderer's lifetime.
+  const printStyle = document.createElement("style");
+  printStyle.textContent = `@media print { #${ROOT_ID} { display: none !important; } }`;
+  root.appendChild(printStyle);
   root.style.inset = "0";
   root.style.overflow = "hidden";
   root.style.pointerEvents = "none";

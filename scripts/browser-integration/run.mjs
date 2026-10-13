@@ -27,6 +27,7 @@ import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
 import { createSiteAccessSubmissions } from "./site-access-save-retry.mjs";
 import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
+import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
 import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
@@ -408,6 +409,8 @@ const http = createServer(async (request, response) => {
     const fixture = pageExportFixture(route, httpPort);
     response.setHeader("Content-Type", fixture.type); response.end(fixture.body); return;
   }
+  if (route === "/cursor-print") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(cursorPrintHTML()); return; }
+  if (route === "/cursor-print-csp") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(cursorPrintHTML({ strictCSP: true })); return; }
   if (["/ai-snapshot", "/ai-snapshot-leaf", "/ai-snapshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(aiSnapshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams)); return; }
   if (route === "/popup-child-authorization") { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(popupFixture(httpPort)); return; }
   if (["/element-screenshots", "/element-screenshot-leaf", "/element-screenshot-nested"].includes(route)) { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(elementScreenshotFixture(route, httpPort, new URL(request.url, "http://localhost").searchParams.get("replacement"))); return; }
@@ -558,6 +561,8 @@ try {
   for (const name of ["site-access-save-retry.mjs", "site-access-save-fault.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.pageExportsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "page-exports-fixture.mjs"))).digest("hex");
+  for (const name of ["cursor-print-fixture.mjs", "cursor-print-artifacts.py"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.clipboardFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.memoryClipboardGuard = createHash("sha256").update(await fs.readFile(path.join(directory, "memory-clipboard.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardCallers = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-callers.mjs"))).digest("hex");
@@ -1735,6 +1740,17 @@ try {
         saveArtifact: async (name, data) => { await fs.writeFile(path.join(runDir, name), data); return name; },
         saveDetail: detail => fs.writeFile(path.join(runDir, "page-exports-js.json"), JSON.stringify(detail, null, 2)) });
     } finally { await owner.client.finalizeTabs([]); await foreign.client.finalizeTabs([]); owner.close(); foreign.close(); }
+  });
+  for (const strictCSP of [false, true]) await test(`js-cursor-print-exclusion${strictCSP ? "-csp" : ""}`, async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-cursor-print-exclusion${strictCSP ? "-csp" : ""}`, timeoutMs: 15000 });
+    const artifactDir = strictCSP ? path.join(runDir, "cursor-print-csp") : runDir;
+    if (strictCSP) await fs.mkdir(artifactDir);
+    try {
+      return await checkCursorPrint({ browser: owner, fixtureURL, strictCSP,
+        saveArtifact: (name, data) => fs.writeFile(path.join(artifactDir, name), data, { flag: "wx" }),
+        saveDetail: detail => fs.writeFile(path.join(artifactDir, "cursor-print.json"), JSON.stringify(detail, null, 2)),
+        verifyArtifacts: async () => JSON.parse(await subprocess(process.env.OBU_TEST_PYTHON || "python", [path.join(directory, "cursor-print-artifacts.py"), artifactDir])) });
+    } finally { await owner.client.finalizeTabs([]); owner.close(); }
   });
   await test("js-page-exports-lifecycle", async () => {
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-page-exports-lifecycle", timeoutMs: 15000 });

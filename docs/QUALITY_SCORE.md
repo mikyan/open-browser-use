@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+AI 光标、点击圈和目标框现仅在屏幕显示，不再进入 PDF 打印布局。保留原
+实机红例 `vNvX0d`；修复专项 `4A9CWZ` 3/3、相关回归 `h0x9xz` 8/8 均
+actual exit 0，普通/严格 CSP 页四份 PDF 的八页原始渲染与前后反馈核验通过。
+相关回归 10,369ms 零 activation/focus/许可；模块 26/26、PDF oracle 5/5。
+打印尺寸变化可清除旧框，下一次悬停重新定位；MHTML 不做清洗。没有重跑全套，
+普通安装与完整持平仍开放，见[页面导出](references/page-exports.md#fidelity-and-limits)。
+
 原诊断响应正文已接入 JS/Python/Go/CLI/MCP，保留原 POST 与最终 native
 session，禁止 URL 重取；异步授权、队列外等待、撤权和实际在途清理均有覆盖。
 最终专项 `dx9EXR` 7/7、actual exit 0，五入口共 60 次原正文读取，含三布局与

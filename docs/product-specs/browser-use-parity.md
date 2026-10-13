@@ -12,6 +12,11 @@
 
 ## Baseline sources
 
+P10/P12 的 PDF 反馈污染已保留原实机红例并修复：普通/严格 CSP 页专项
+`4A9CWZ` 3/3、相关回归 `h0x9xz` 8/8 均 actual exit 0，原报告八页核验
+无光标图像或彩色反馈，后续悬停仍可见，10,369ms 零前台事件/许可。
+本片仅打印样式，不替代完整矩阵或普通安装，见[页面导出](../references/page-exports.md#fidelity-and-limits)。
+
 原地交付的真实native中断矩阵已补齐两个after-ACK边界：四场各三布局，
 全部actualexit0，12原POST/2680B及原期限后的无重放观察；hostloss部分归属
 保留与worker重建撤权、marker回滚/非授权保留分别验收。Node1129/1129，
