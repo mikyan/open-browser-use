@@ -1,0 +1,58 @@
+docs/references/keyboard-chords.md
+  s_08bbfd293d324f::t_8ef4ae0500452c 141-150
+  s_08bbfd293d324f::t_b8152d8ebae115 109-140
+docs/exec-plans/active/2026-10-13-initial-keyboard-delivery.md
+  s_08bbfd293d324f::t_1e6798e06b32b9 1-20,26-29,33-37,43-46,54
+  s_08bbfd293d324f::t_32102d75bd81e8 21-25,38-42
+  s_08bbfd293d324f::t_7c2d5d32d9f756 30-32,47-50
+  s_08bbfd293d324f::t_2ea431803ea5c3 53,55-56
+  s_08bbfd293d324f::t_8ef4ae0500452c 51-52,57-86
+scripts/browser-integration/keyboard-chord-fixture.test.mjs
+  s_08bbfd293d324f::t_8d18ffa9cef092 8-9,50,53-57,64-66,72-73,222,229,240
+  s_08bbfd293d324f::t_f7d83fb76dd96c 58,219-221,226-228,230,239,241-259
+  s_08bbfd293d324f::t_c6bb0c25a54273 15,18-19,27,29-31,42-43,70-71,85,89,104
+  s_08bbfd293d324f::t_1a875f6bdd6c51 148
+  s_08bbfd293d324f::t_0df4e5cfb8856b 108-147,149-170,214-215
+  s_08bbfd293d324f::t_2d2ba52ac7626f 48-49,171-213
+scripts/browser-integration/keyboard-input-trace.mjs
+  s_08bbfd293d324f::t_878c34febb6ee3 24,31-34,36-37,39
+  s_08bbfd293d324f::t_9ed52da6ed41e2 43-47,76,158,180,185-189
+  s_08bbfd293d324f::t_5235224ef910d0 1-23,25-30,35,38,40-42,48-75,77-157,159-179,181-184,190-192
+docs/histories/2026-10/20261014-0016-initial-keyboard-diagnostics.md
+  s_08bbfd293d324f::t_2ea431803ea5c3 1-56
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_8ef4ae0500452c 24-30,35-36
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_a3fc314bd7f0f7 7
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_9af179671e21d6 28,530,1822-1831,1833-1834,1836
+  s_08bbfd293d324f::t_20838af068f2b8 1832,1835
+scripts/browser-integration/keyboard-chord-fixture.mjs
+  s_08bbfd293d324f::t_28d3a6354dc437 27-28,30-46,49-52,54-56,59,64-73,82-86,94,201-202,205-207,209-216,218-219,228-229,231-232,246,261
+  s_08bbfd293d324f::t_f7d83fb76dd96c 29,146
+  s_08bbfd293d324f::t_317c3d99a87db0 354,402,404,424-426
+  s_08bbfd293d324f::t_313dbf685bd3a8 273-274,276-277,284-304,335,344,357-373,401,403,411-415
+scripts/browser-integration/keyboard-input-trace.test.mjs
+  s_08bbfd293d324f::t_0141bd7180df53 1-23,25-29,33-75,78-92,118-125,127-129,131-187,195-233
+  s_08bbfd293d324f::t_9ed52da6ed41e2 76-77,126,130
+  s_08bbfd293d324f::t_878c34febb6ee3 24,30-32,93-101,103-112,114-117,188-194
+  s_08bbfd293d324f::t_7aec6c5fa44224 102,113
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_8ef4ae0500452c 14-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "a3f47fe0ffc9a46849d3e990d1ed414a0a5f9a76",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
