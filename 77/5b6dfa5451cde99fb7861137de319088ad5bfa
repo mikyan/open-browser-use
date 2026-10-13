@@ -1,0 +1,48 @@
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_439c936f4e5da6 15-19
+scripts/browser-integration/cursor-print-artifacts.py
+  s_08bbfd293d324f::t_cfc8e41378bef1 1-29,34-35,37-167,169-178,180-196
+  s_08bbfd293d324f::t_0783db68a0036c 30-33,36,168,179
+scripts/browser-integration/cursor-print-fixture.mjs
+  s_08bbfd293d324f::t_6b21917db57f42 13-14,89-94
+  s_08bbfd293d324f::t_a827b508383435 1-5,7,10-12,15-26,35-53,56,58-63,68-88,95-100
+  s_08bbfd293d324f::t_bf91100709405f 6,8-9,27-34,54-55,57,64-67
+scripts/browser-integration/cursor-print-artifacts_test.py
+  s_08bbfd293d324f::t_0783db68a0036c 1-107
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_bf91100709405f 413,1744-1747,1749-1752
+  s_08bbfd293d324f::t_a827b508383435 30,412,564-565,1748,1753
+  s_08bbfd293d324f::t_c7ee37ab606490 1754
+apps/chrome-extension/content-cursor.js
+  s_08bbfd293d324f::t_80b4b23c56c98a 465-469
+docs/references/page-exports.md
+  s_08bbfd293d324f::t_b81c144288f48b 102-126
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_b81c144288f48b 14-20
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_439c936f4e5da6 19-20
+  s_08bbfd293d324f::t_d88a7b758cb127 3-4,6-17,21-22
+  s_08bbfd293d324f::t_b81c144288f48b 5,18
+docs/exec-plans/completed/2026-10-14-cursor-print-exclusion.md
+  s_08bbfd293d324f::t_b81c144288f48b 1-35
+apps/chrome-extension/content-cursor.test.mjs
+  s_08bbfd293d324f::t_f03e39923acfaa 185-225
+docs/histories/2026-10/20261014-0134-cursor-print-exclusion.md
+  s_08bbfd293d324f::t_b81c144288f48b 1-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "775b6dfa5451cde99fb7861137de319088ad5bfa",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
