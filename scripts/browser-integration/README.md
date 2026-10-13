@@ -1,5 +1,25 @@
 # Browser integration acceptance
 
+## Keyboard chord validation and recovery
+
+`js-keyboard-chord` adds nine scenarios; select it using
+`OBU_TEST_CASES=^js-keyboard-chord$` with the usual host/browser prerequisites.
+The raw-navigation control still runs. Root and actual OOPIF keyboard/locator
+press must reject an invalid chord with no native Input or new DOM key events,
+then accept a separate valid `a` and submit exactly one original POST. Root
+cases cover literal `+`/`Shift++`, raw-CDP pre-held Shift (distinct from
+Playwright's internal held state), and partial failure on each public entry.
+
+Partial failure sends the original Control down once, waits for its real ACK,
+and rejects only that returned delivery Promise. Both facts are retained in the
+same worker sequence, followed by original keyup cleanup, terminal error and
+explicit recovery on the same document. Negative phases observe through the
+original deadline plus 250ms. `keyboard-chord.json` and its server artifact keep
+original document/node identities, RPC/native records and exact POST bytes.
+No additional focus allowance is granted; controlled rejection is not a natural
+browser fault or native installation acceptance. See the
+[keyboard contract](../../docs/references/keyboard-chords.md).
+
 ## Fill delivery
 
 The ordinary suite includes `js-fill-delivery`; select it with

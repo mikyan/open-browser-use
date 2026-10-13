@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+组合键现以固定parser完整校验，INVALID零输入且保留既有持键；部分执行的
+UNCONFIRMED清理原attachment，原期限及继任隔离保持。Node2874 pass/
+1既有Windows symlink skip、actualexit0。专项`l3BraN`9/9，完整`BGZwxy`
+130/130 actualexit0，旧129名称/顺序与源/运行时哈希保留。九键盘场各轮
+9POST/36074B，五invalid零Input、两受控partial及显式恢复通过；专项
+74999ms零focus/activation，完整350576ms仅原12activation/4controlfocus
+许可。无效键名内的错误码不再触发错误清理，旧红例保留。P12、普通安装和
+完整P01–P15仍开放，旧preview未改。见[组合键边界](references/keyboard-chords.md)。
+
 普通fill的原生文本分支新增原编辑宿主可信input确认，ACK单独不能报告成功；
 页面取消/受控丢失投递明确失败且不重放。保留格式化、原生删除内部span、
 Delete及setter边界，原attachment清理不影响继任。Node2800 pass/1既有

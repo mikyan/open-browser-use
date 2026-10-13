@@ -77,6 +77,22 @@ export class NativeInputTracker {
     return this.beginPointerAction(tabId, token, check);
   }
 
+  beginKeyboardPress(tabId, token, check = () => {}) {
+    if (typeof check !== "function") throw new TypeError("Keyboard authority check must be a function");
+    const record = this.assertSend(tabId, token);
+    // Unlike fill, a chord retains upstream semantics for acknowledged held
+    // keys/buttons. Unknown outcomes, pending intent and another guarded
+    // action are never permission to reuse that state.
+    if (record.pointerGuard || record.inflight.size || record.error || record.release ||
+        record.cleanups.size || record.cleanupInflight.size ||
+        [...this.durability.values()].some(value => value.record === record) ||
+        [...record.states.values()].some(state => state.dragging || state.intercepting ||
+          state.dragInterceptionUsed || state.touch || state.emulated ||
+          [...state.buttons.values(), ...state.keys.values()].some(hold => !confirmedHolds.has(hold))))
+      throw new Error("OBU_KEYBOARD_PRESS_REJECTED: keyboard press requires confirmed native input");
+    return this.createPointerTicket(tabId, token, record, check);
+  }
+
   beginHoverAction(tabId, token, check = () => {}) {
     if (typeof check !== "function") throw new TypeError("Pointer authority check must be a function");
     const record = this.assertSend(tabId, token);
@@ -103,6 +119,10 @@ export class NativeInputTracker {
         [...this.durability.values()].some(value => value.record === record)) {
       throw new Error("OBU_POINTER_ACTION_BUSY: pointer action requires idle, confirmed input");
     }
+    return this.createPointerTicket(tabId, token, record, check);
+  }
+
+  createPointerTicket(tabId, token, record, check) {
     const guard = { tracker: this, tabId, token, record, check, closed: false, error: null };
     const ticket = Object.freeze({
       check: () => { this.checkPointerAction(tabId, token, ticket); },

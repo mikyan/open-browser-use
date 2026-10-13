@@ -49,6 +49,15 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P06/P13组合键新增完整预校验和原action/attachment/deadline输入门禁。
+INVALID/未开始REJECTED保留已有输入；开始后UNCONFIRMED清理原附件，
+不重放且不释放继任。Node2874 pass/1既有Windows skip；专项`l3BraN`
+9/9和完整`BGZwxy`130/130 actualexit0，旧129名称/顺序保持。九键盘场
+覆盖root/OOPIF两入口、加号、独立raw持键及两受控partial，9POST/36074B
+和32原生命令独立核验。专项74999ms零focus；完整350576ms仅原12activation/
+4controlfocus许可。原生ACK不等同所有键盘DOM投递，受控失败不等于自然
+故障或普通安装验收；P12和完整矩阵仍开放，见[组合键](../references/keyboard-chords.md)。
+
 P06/P13普通fill现同时要求原生命令完成和原编辑宿主可信input；取消或受控
 丢失投递不可重试，页面格式化及原生编辑移除内部span保留事件时语义。
 原空值Delete与setter分别验收，独占输入与原attachment清理不释放继任。

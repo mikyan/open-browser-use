@@ -15,6 +15,8 @@ export const BROWSER_ENGINE_INFO = Object.freeze({
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 120_000;
+const keyboardPressActions = new Set(["press", "keyboard.press", "keyboard.type", "pressSequentially"]);
+const attachmentBoundInputActions = new Set(["fill", ...keyboardPressActions]);
 export const LOCATOR_LIMITS = Object.freeze({ maxSteps: 32, maxTotalSteps: 128, maxDepth: 8 });
 // Hidden cross-process frame hit-test surfaces need a committed compositor frame
 // just like screenshots do. Hold the backend's rendering lease across the real
@@ -320,6 +322,9 @@ export class BrowserActionEngine {
     this.queues = new Map();
     this.generations = new Map();
     this.active = new Map();
+    // Private admission is not cursor/command metadata. Native input captures
+    // one action's synchronous deadline and attachment check, never a successor.
+    this.keyboardAdmissions = new Map();
     this.apps = new Map();
     this.releases = new Map();
     this.fileInputCleanups = new Map();
@@ -543,6 +548,18 @@ export class BrowserActionEngine {
     return current;
   }
 
+  captureKeyboardPress(tabId) {
+    const admission = this.keyboardAdmissions.get(tabId);
+    if (!admission) throw new Error("OBU_KEYBOARD_PRESS_REJECTED: no original keyboard action is active");
+    const check = () => {
+      if (this.keyboardAdmissions.get(tabId) !== admission)
+        throw new Error("OBU_KEYBOARD_PRESS_REJECTED: original keyboard action ended");
+      admission.check();
+    };
+    check();
+    return check;
+  }
+
   async dispatch(request) {
     const params = validateBrowserAction(request);
     const generation = this.generations.get(params.tabId) ?? 0;
@@ -551,11 +568,11 @@ export class BrowserActionEngine {
     let phase = "queued";
     let release;
     let timer;
-    let fillAttachment;
-    // Fill owns renderer receipt resources on one attachment. A late result or
-    // deadline from that fill cannot release an explicitly attached successor.
-    const canReleaseAttachment = () => params.action !== "fill" || (fillAttachment
-      ? this.pages.get(params.tabId) === fillAttachment
+    let actionAttachment, keyboardAdmission;
+    // Guarded input owns native state on one attachment. Its late error or
+    // deadline must never release an explicitly attached successor.
+    const canReleaseAttachment = () => !attachmentBoundInputActions.has(params.action) || (actionAttachment
+      ? this.pages.get(params.tabId) === actionAttachment
       : (this.generations.get(params.tabId) ?? 0) === generation);
     const timeoutError = () => new Error(`Browser action timed out after ${params.timeoutMs}ms`);
     const checkTime = () => { if (expired || performance.now() >= deadlineAt) { expired = true; throw timeoutError(); } };
@@ -588,7 +605,7 @@ export class BrowserActionEngine {
       });
       const { page } = entry;
       await check();
-      if (params.action === "fill") fillAttachment = this.pages.get(params.tabId);
+      if (attachmentBoundInputActions.has(params.action)) actionAttachment = this.pages.get(params.tabId);
       const diagnosticsOwner = JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id]);
       if (entry.diagnosticsOwner && entry.diagnosticsOwner !== diagnosticsOwner) {
         await this.detach(params.tabId);
@@ -601,6 +618,14 @@ export class BrowserActionEngine {
       entry.observation ??= new BrowserObservation(page);
       phase = "running";
       this.active.set(params.tabId, { session_id: params.session_id, turn_id: params.turn_id });
+      if (keyboardPressActions.has(params.action)) {
+        keyboardAdmission = { check: () => {
+          checkTime();
+          if ((this.generations.get(params.tabId) ?? 0) !== generation || this.pages.get(params.tabId) !== actionAttachment)
+            throw new Error("OBU_KEYBOARD_PRESS_REJECTED: original keyboard attachment changed");
+        } };
+        this.keyboardAdmissions.set(params.tabId, keyboardAdmission);
+      }
       try {
         const run = async () => {
           await check();
@@ -692,10 +717,16 @@ export class BrowserActionEngine {
         // Guarded input can fail after a native command whose completion is
         // unknown. Release through the attachment tracker before admitting a
         // later action, even if Playwright serialized it as a plain Error.
-        if (!release && canReleaseAttachment() && (error?.name === "TimeoutError" || error?.mediaCleanupFailed || /OBU_(?:POINTER|FILL)_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
+        // The first keyboard classification is the wrapper's own. An invalid
+        // key name or nested cause may itself contain cleanup-looking text.
+        const keyboardFailure = keyboardPressActions.has(params.action)
+          ? /OBU_KEYBOARD_PRESS_(INVALID|REJECTED|UNCONFIRMED):/.exec(error?.message ?? "")?.[1] : undefined;
+        if (!release && canReleaseAttachment() && !["INVALID", "REJECTED"].includes(keyboardFailure) &&
+            (error?.name === "TimeoutError" || error?.mediaCleanupFailed || keyboardFailure === "UNCONFIRMED" || /OBU_(?:POINTER|FILL)_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
         if (release) await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
         throw error;
       } finally {
+        if (this.keyboardAdmissions.get(params.tabId) === keyboardAdmission) this.keyboardAdmissions.delete(params.tabId);
         this.active.delete(params.tabId);
         phase = "finished";
       }
@@ -734,6 +765,7 @@ export class BrowserActionEngine {
   // by pending media, export, clipboard, or held-input cleanup.
   invalidate(tabId) {
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
+    this.keyboardAdmissions.delete(tabId);
     this.active.delete(tabId);
   }
 
@@ -789,6 +821,7 @@ export class BrowserActionEngine {
   // Browser-initiated detach must invalidate queued operations as well.
   forget(tabId) {
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
+    this.keyboardAdmissions.delete(tabId);
     this.active.delete(tabId);
     this.pages.get(tabId)?.then(entry => { entry.diagnostics?.dispose(); entry.observation?.dispose(); }).catch(() => {});
     this.pages.delete(tabId);

@@ -524,6 +524,9 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   assert.match(runtimeChunk, /openBrowserUseInputHooks\?\.beginFillAction/);
   assert.match(runtimeChunk, /async function obuRunFill\(/);
   assert.match(runtimeChunk, /prepareOpenBrowserUseFill/);
+  assert.match(runtimeChunk, /_validateOpenBrowserUsePress/);
+  assert.match(runtimeChunk, /openBrowserUseInputHooks\?\.beginKeyboardPress/);
+  assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /Keyboard.press validates every token/);
   assert.equal(JSON.parse(await fs.readFile(path.join(vendor, "version.json"), "utf8")).playwrightVersion, "1.53.0");
   const entry = await fs.readFile(path.join(vendor, "index.mjs"), "utf8");
   assert.match(entry, /assertOpenBrowserUseSelector/);

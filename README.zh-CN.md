@@ -155,6 +155,8 @@ go build -o dist/ ./cmd/open-browser-use
 [悬停投递契约](docs/references/hover-delivery.md)。
 文本 fill 同时确认原生命令完成和原编辑宿主收到可信输入；页面取消或未送达
 会明确报错，正常页面格式化仍有效。见[填入文本契约](docs/references/fill-delivery.md)。
+组合键会在输入前完整校验；按键执行中途失败时，先清理原附件的输入状态再
+允许后续操作。见[组合键契约](docs/references/keyboard-chords.md)。
 
 JS、Python、Go SDK 提供语义定位与自动等待，CLI/MCP 共用
 [浏览器动作协议](docs/references/browser-action-protocol.md)。

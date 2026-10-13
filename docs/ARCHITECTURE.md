@@ -219,6 +219,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   span不抹去事件事实。Runtime句柄和晚ACK沿原attachment清理，不释放继任；
   setter类型保留原语义，原已空清空有独立无操作判据。见
   [fill投递契约](references/fill-delivery.md)。
+  keyboard/locator press在任何down前按固定键盘表校验完整组合键，locator
+  同样先校验再focus。独立私有action admission固定原期限、代次和Page
+  attachment，确认预持输入可进入，未知/在途输入拒绝；每次native发送
+  在持久化等待后复核。INVALID/REJECTED不释放预持状态，已开始后的
+  UNCONFIRMED沿原attachment释放，不补发按键；同路径覆盖type内部press，
+  fill Delete沿用原票。见[组合键契约](references/keyboard-chords.md)。
   显式 position 对单一已解析 HTML CSS box 使用原生 padding quad 与 fractional
   padding 尺寸投影，叶元素几何也加入 click 指纹；普通无 position 点击不增加
   这些读取。非替换inline/SVG/fragment 的旧约定与 OOPIF 原生量化边界见

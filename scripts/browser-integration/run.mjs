@@ -80,6 +80,7 @@ import { checkScreenshotDrain } from "./screenshot-drain-fixture.mjs";
 import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
 import { createHoverDeliveryFixtures, createHoverRPCRelay, checkHoverDelivery, checkHoverPause } from "./hover-delivery-fixture.mjs";
 import { createFillDeliveryFixtures, checkFillDelivery } from "./fill-delivery-fixture.mjs";
+import { createKeyboardChordFixtures, checkKeyboardChords } from "./keyboard-chord-fixture.mjs";
 import { createTransformedPointerFixtures, checkTransformedPointer } from "./transformed-pointer-fixture.mjs";
 import { createElementPositionFixtures, checkElementPosition } from "./element-position-fixture.mjs";
 import { createDirectLocatorUploadFixtures, prepareDirectLocatorUploadFiles } from "./direct-locator-upload-fixture.mjs";
@@ -322,6 +323,7 @@ const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const hoverDeliveryFixtures = createHoverDeliveryFixtures();
 const hoverRPCRelay = createHoverRPCRelay();
 const fillDeliveryFixtures = createFillDeliveryFixtures();
+const keyboardChordFixtures = createKeyboardChordFixtures();
 const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
 const boundingGeometryFixtures = createBoundingGeometryFixtures();
@@ -353,6 +355,7 @@ const http = createServer(async (request, response) => {
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (hoverDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (fillDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (keyboardChordFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (boundingGeometryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -510,9 +513,10 @@ try {
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
   sourceIdentity.sha256.hoverDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "hover-delivery-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.fillDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "fill-delivery-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.keyboardChordFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "keyboard-chord-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
-  for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs", "patch-fill-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
+  for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs", "patch-fill-delivery.mjs", "patch-keyboard-press.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
   for (const name of ["direct-locator-upload-fixture.mjs", "direct-locator-upload-callers.mjs", "direct-locator-upload-native.mjs", "direct-locator-upload-checks.py", "go-direct-locator-upload-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
@@ -1703,6 +1707,22 @@ try {
       saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
       saveDetail: detail => fs.writeFile(path.join(runDir, "screencast-concurrency.json"), JSON.stringify(detail, null, 2))
     });
+  });
+  await test("js-keyboard-chord", async () => {
+    sourceIdentity.testHooks.push("keyboard chord: public keyboard/locator press in root and OOPIF; invalid keys must produce no native Input or document key events before an explicit valid follow-up and exact original POST. Literal plus syntax and separately identified raw-CDP held Shift are covered. Partial-failure controls reject delivery of a real first Control-down ACK, retaining both the native settlement and controlled rejection, then verify original attachment release and no replay beyond the original deadline. No focus allowance or system input.");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-keyboard-chord", turnId: "keyboard-chord", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkKeyboardChords({ browser: owner, worker, fixtureURL, server: keyboardChordFixtures, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-keyboard-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-keyboard-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "keyboard-chord-server.json"), JSON.stringify(keyboardChordFixtures.allStats(), null, 2));
+      await fs.writeFile(path.join(runDir, "keyboard-chord.json"), JSON.stringify(value, null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
   });
   await test("js-fill-delivery", async () => {
     sourceIdentity.testHooks.push("fill delivery: original public locator fill in root, existing OOPIF and dynamic OOPIF; same-worker original browserAction request/reply and native input/ACK recorded. Normal and synchronously transformed text require original business POST; cancelled beforeinput and exact-tab synthetic insertText ACK/drop require terminal rejection, zero replay and no Submit/POST. No implicit click, synthetic DOM input or additional focus allowance; controlled ACK/drop is not a natural browser routing failure");

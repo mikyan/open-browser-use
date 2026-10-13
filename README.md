@@ -186,6 +186,9 @@ See the [hover delivery contract](docs/references/hover-delivery.md).
 Text fill also confirms trusted input at the original editing host after the
 native command completes. Cancelled or missing delivery fails explicitly;
 page formatting remains valid. See the [fill contract](docs/references/fill-delivery.md).
+Keyboard chords are validated before input; a partially failed press releases
+its original attachment's input before later actions. See the
+[keyboard contract](docs/references/keyboard-chords.md).
 
 JavaScript, Python, and Go SDKs expose semantic locators and automatic waits; all
 clients can use the shared [browser action protocol](docs/references/browser-action-protocol.md).

@@ -194,6 +194,55 @@ async function pointerHookFixture(t) {
       () => f.chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", params), ticket) };
 }
 
+test("backend keyboard admission captures original action authority and permits confirmed held Control", async t => {
+  const f = await pointerHookFixture(t); let expired = false, captures = 0;
+  const original = new Error("original keyboard action ended");
+  f.backend.browserEngine.captureKeyboardPress = tabId => {
+    assert.equal(tabId, 7); captures++;
+    return () => { if (expired) throw original; };
+  };
+  await f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Control", code: "ControlLeft" }, async () => ({}));
+  const ticket = f.pointerHooks.beginKeyboardPress(f.target, () => {});
+  assert.equal(captures, 1); ticket.check();
+  f.backend.browserEngine.captureKeyboardPress = () => () => {};
+  const params = { type: "rawKeyDown", key: "a", code: "KeyA", modifiers: 2 };
+  await f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", params,
+    () => f.chrome.debugger.sendCommand(f.target, "Input.dispatchKeyEvent", params), ticket);
+  expired = true;
+  assert.throws(() => ticket.check(), error => error === original);
+  assert.throws(() => f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", params, () => assert.fail("old action cannot send"), ticket), error => error === original);
+  ticket.close();
+  assert.equal(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").length, 1);
+});
+
+test("backend keyboard preserves original engine deadline through durable storage before native dispatch", async t => {
+  const f = await pointerHookFixture(t), gate = f.gate(); let expired = false, storing = false;
+  const original = new Error("original engine keyboard deadline");
+  f.backend.browserEngine.captureKeyboardPress = () => () => { if (expired) throw original; };
+  const ticket = f.pointerHooks.beginKeyboardPress(f.target, () => {});
+  f.hooks.write = async (area, values) => { if (area === "local" && values[RISKS]?.risks.length) { storing = true; await gate.promise; } };
+  try {
+    const params = { type: "rawKeyDown", key: "Control", code: "ControlLeft" };
+    const sending = f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", params,
+      () => f.chrome.debugger.sendCommand(f.target, "Input.dispatchKeyEvent", params), ticket);
+    const rejected = assert.rejects(sending, error => error === original);
+    await until(() => storing, "keyboard durable intent"); expired = true; gate.resolve(); await rejected;
+    assert.equal(f.calls.some(([method]) => method === "Input.dispatchKeyEvent"), false);
+  } finally { gate.resolve(); ticket.close(); }
+});
+
+test("backend keyboard rejects absent action admission and later Pause before native input", async t => {
+  const f = await pointerHookFixture(t);
+  f.backend.browserEngine.captureKeyboardPress = () => { throw new Error("OBU_KEYBOARD_PRESS_REJECTED: no action"); };
+  assert.throws(() => f.pointerHooks.beginKeyboardPress(f.target, () => {}), /OBU_KEYBOARD_PRESS_REJECTED/);
+  f.backend.browserEngine.captureKeyboardPress = () => () => {};
+  const ticket = f.pointerHooks.beginKeyboardPress(f.target, () => {});
+  f.backend.automationControl.block();
+  assert.throws(() => ticket.check(), /AUTOMATION_PAUSED/);
+  assert.throws(() => f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA" }, () => assert.fail("paused native key"), ticket), /AUTOMATION_PAUSED/);
+  ticket.close();
+});
+
 test("backend fill rejects pre-held Control, then forwards an idle ticket through original native input", async t => {
   const f = await pointerHookFixture(t);
   const key = type => f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type, key: "Control", code: "ControlLeft" }, async () => ({}));

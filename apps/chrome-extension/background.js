@@ -2438,13 +2438,16 @@ class BrowserBackend {
     const beginPointerAction = (target, check, kind = "pointer") => {
       this.assertControlOpen();
       const token = this.attachmentEpochs.get(target.tabId);
+      const actionCheck = kind === "keyboard" ? this.browserEngine.captureKeyboardPress(target.tabId) : undefined;
       const assertCurrent = () => {
         this.assertControlOpen();
         this.assertAttachmentAdmission(target.tabId, token);
+        actionCheck?.();
         check();
       };
       assertCurrent();
       if (kind === "fill") return this.inputTracker.beginFillAction(target.tabId, token, assertCurrent);
+      if (kind === "keyboard") return this.inputTracker.beginKeyboardPress(target.tabId, token, assertCurrent);
       return kind === "hover" ? this.inputTracker.beginHoverAction(target.tabId, token, assertCurrent) :
         this.inputTracker.beginPointerAction(target.tabId, token, assertCurrent);
     };
@@ -2465,6 +2468,7 @@ class BrowserBackend {
         beginPointerAction: (target, check) => beginPointerAction(target, check),
         beginHoverAction: (target, check) => beginPointerAction(target, check, "hover"),
         beginFillAction: (target, check) => beginPointerAction(target, check, "fill"),
+        beginKeyboardPress: (target, check) => beginPointerAction(target, check, "keyboard"),
         send: (target, method, params, operation, pointerGuard) => {
           this.assertControlOpen();
           const token = this.attachmentEpochs.get(target.tabId);

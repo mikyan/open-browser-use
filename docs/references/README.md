@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Keyboard chords](keyboard-chords.md)：完整键名校验、预持输入及部分原生失败
+  的原动作期限和附件清理边界。
 - [Fill delivery](fill-delivery.md)：原编辑宿主输入回执、setter 与格式化语义、
   原租约清理和禁止提交后重放的边界。
 - [Ordinary-start Edge downloads](normal-browser-downloads.md)：独立正常启动、
