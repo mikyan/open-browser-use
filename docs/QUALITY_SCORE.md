@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+受限网站的请求/响应等待已通过专项 `mYijy5` 8/8 actual exit 0：五入口×三布局
+15 原 POST/11,842B，13 边界另九原 POST/7,919B，原请求/文档/redirect及清理
+独立核验。22,970ms零activation、仅原两次设置popup focus。真实订阅/退订ACK
+与原权限绑定；新建空白页在原期限内先等准备再验全树。Node3319 pass/1既有
+Windows skip。导航无响应仅证明原超时，未冒称原生取消；旧失败、普通Edge和
+完整能力矩阵继续保留。完整 `EiU6cQ` 163/163通过，旧157顺序保持，476,719ms
+仅原12 activation/4 control-focus。之后仅runner失败取证/清理步骤调整，最终
+专项 `5SV1It` 8/8通过，20,993ms零activation、原两次popup focus；两轮各自
+版本的产物及清理均独立核验，见[网络等待](references/network-waits-design.md)。
+
 同文档根节点重建后的反馈丢失已有真实红绿证据：旧源 `bxYaz2` 三原提交成功，
 两个根重建场光标/目标框像素为零；修复 `RttFgP` 2/2 actual exit 0，三原
 POST/13,147B、图层归属及像素核验通过，结束567ms仍无残留。4574ms零焦点/

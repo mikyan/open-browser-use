@@ -158,8 +158,7 @@ test("restricted unsafe channels fail before native commands or page messages ex
     ["moveMouse", { x: 1, y: 2, waitForArrival: false }],
     ["readClipboardText", {}], ["writeClipboardText", { text: "sensitive" }],
     ["webmcp_list_tools", {}], ["browserAction", { action: "diagnostics" }],
-    ["browserAction", { action: "responseBody", args: { captureId: "capture", requestId: "request-1" } }],
-    ["armNetworkWait", { event: "request", match: { url: "https://allowed.test/x" }, timeoutMs: 1000 }]
+    ["browserAction", { action: "responseBody", args: { captureId: "capture", requestId: "request-1" } }]
   ]) await assert.rejects(f.backend[method]({ ...f.params, ...extra }), /OBU_SITE_ACCESS_UNSUPPORTED/);
   assert.equal(f.calls.slice(before).some(([name]) => ["command", "message", "attach-start"].includes(name)), false);
   assert.equal(f.backend.networkWaits.records.size, 0);

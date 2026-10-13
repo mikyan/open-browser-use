@@ -150,6 +150,12 @@ In either restricted mode:
   are checked before dispatch. Each CRX native command and returned browser action
   rechecks document permission; a generation/revision/navigation proof prevents a stale
   asynchronous inspection from authorizing the next command.
+- The first `goto` of an exact newly created blank tab waits for its existing
+  readiness gate before inspecting the document tree. The original action
+  deadline, owner/turn/epoch, creation marker, location and control revision
+  still gate the wait. This grants no reads or input to arbitrary blank or
+  unknown pages; a complete blank tab with an invalid or empty frame snapshot
+  is still refused. The complete policy check follows readiness before attach.
 - If an allowed frame commits during an otherwise valid inspection, only the
   read-only tab/frame snapshot is repeated, at most eight times within the same
   original 1,000ms deadline. Policy changes, real revocation and invalid or denied
@@ -167,7 +173,15 @@ In either restricted mode:
   native dispatch and after actual cleanup before returning content. Opaque
   or unproven inherited emitters fail closed. Cancellation can drain its exact
   owned subscription without a new site inspection. See [native dialogs](native-dialogs.md).
-- Arbitrary public CDP, clipboard, WebMCP, network waits/diagnostics, file choosers,
+- Request/response waits bind the original native request, frame/document,
+  attachment, policy generation/revision and complete redirect ancestry.
+  Allowed current documents alone cannot authorize an old or third-party request.
+  A navigation may commit its own original loader; same-URL replacement cannot
+  inherit a fetch result. Ready and cleanup await the actual PageDispatcher
+  subscription acknowledgement, and delivery rechecks authority after cleanup.
+  Cancellation drains the exact owned wait without reading a newly denied site.
+  Unproven worker or document sources fail closed. See [network waits](network-waits-design.md).
+- Arbitrary public CDP, clipboard, WebMCP, network diagnostics, file choosers,
   direct downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
   notifications are suppressed. These channels can refer to origins outside the
   live document tree and have not been certified for this restricted mode.

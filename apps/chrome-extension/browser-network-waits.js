@@ -47,7 +47,8 @@ function shortText(value, budget) {
 
 function describe(record, value, request, url, method) {
   const result = { event: record.params.event, requestId: record.requestState.id(request), url, method, resourceType: request.resourceType() };
-  try { result.frameUrl = request.frame().url(); } catch {} // A service-worker Request may have no Frame.
+  if (record.candidate) result.frameUrl = record.candidate.frameUrl;
+  else try { result.frameUrl = request.frame().url(); } catch {} // Unrestricted worker requests may have no Frame.
   const previous = request.redirectedFrom();
   if (previous) result.redirectedFrom = record.requestState.id(previous);
   if (result.event === "response") {
@@ -79,6 +80,8 @@ export class BrowserNetworkWaits {
     this.records = new Map();
     this.operations = new Set();
     this.requestStates = new WeakMap();
+    this.subscriptionQueues = new WeakMap();
+    this.cleanups = new Set();
   }
 
   reserve(request, { deadlineAt } = {}) {
@@ -87,7 +90,7 @@ export class BrowserNetworkWaits {
     deadlineAt ??= now + params.timeoutMs;
     if (!Number.isFinite(deadlineAt) || deadlineAt <= now) throw timedOut();
     deadlineAt = Math.min(deadlineAt, now + params.timeoutMs);
-    const records = [...this.records.values()];
+    const records = [...new Set([...this.records.values(), ...this.cleanups])];
     if (records.length >= this.maxTotal || records.filter(record => record.params.tabId === params.tabId).length >= this.maxPerTab || records.filter(record => record.params.session_id === params.session_id).length >= this.maxPerSession)
       throw new Error("OBU_NETWORK_WAIT_LIMIT: network wait capacity reached");
     const completion = deferred(), cancellation = deferred(), disposed = deferred();
@@ -130,8 +133,41 @@ export class BrowserNetworkWaits {
     return this.track(running);
   }
 
-  cleanupListeners(record) {
-    for (const remove of record.listeners.splice(0)) remove();
+  subscription(record) {
+    if (!record.page?._channel?.updateSubscription) return Promise.resolve();
+    let queues = this.subscriptionQueues.get(record.page);
+    if (!queues) this.subscriptionQueues.set(record.page, queues = new Map());
+    const event = record.params.event;
+    const actual = (queues.get(event) ?? Promise.resolve()).catch(() => {}).then(() => {
+      if (record.pageClosed || record.page.isClosed?.()) return;
+      // This is the server-local PageDispatcher filter ACK, not Network.enable.
+      // Read the live listener count at dispatch so a delayed old cleanup never
+      // disables another wait or a diagnostics listener added in the meantime.
+      return record.page._channel.updateSubscription({ event, enabled: record.page.listenerCount(event) > 0 });
+    });
+    queues.set(event, actual);
+    actual.finally(() => { if (queues.get(event) === actual) queues.delete(event); }).catch(() => {});
+    return this.track(actual);
+  }
+
+  cleanupListeners(record, retry = false) {
+    const removed = record.listeners.splice(0);
+    for (const remove of removed) remove();
+    if (record.cleanup && !(retry && record.cleanupError)) return record.cleanup;
+    if (!removed.length && !record.cleanup) return Promise.resolve();
+    if (!record.page?._channel?.updateSubscription) return record.cleanup = Promise.resolve();
+    this.cleanups.add(record);
+    const actual = this.subscription(record).catch(reason => {
+      if (!record.pageClosed && !record.page?.isClosed?.()) throw reason;
+    });
+    record.cleanup = this.track(actual.then(() => {
+      record.cleanupError = undefined; this.cleanups.delete(record);
+    }, () => {
+      record.cleanupError = new Error("OBU_NETWORK_WAIT_FAILED: original network subscription cleanup is unconfirmed");
+      throw record.cleanupError;
+    }));
+    record.cleanup.catch(() => {});
+    return record.cleanup;
   }
 
   finish(record, state, value) {
@@ -148,29 +184,31 @@ export class BrowserNetworkWaits {
     record.timer = this.setTimer(() => this.remove(record), this.ttlMs);
   }
 
-  remove(record) {
-    if (this.records.get(record.waiterId) !== record) return;
+  remove(record, retry = false) {
+    if (this.records.get(record.waiterId) !== record) return this.cleanupListeners(record, retry);
     this.records.delete(record.waiterId);
-    this.cleanupListeners(record);
+    const cleanup = this.cleanupListeners(record, retry);
     record.removeClose?.();
     record.removeClose = undefined;
     this.clearTimer(record.timer);
     record.cancellation.resolve(expired());
     record.disposed.resolve(expired());
     record.completion.resolve();
+    return cleanup;
   }
 
   fail(record, error) {
     if (!record.ready) this.remove(record);
-    else this.finish(record, "failed", new Error("OBU_NETWORK_WAIT_FAILED: " + shortText(String(error?.message ?? error), 2048)));
+    else this.finish(record, "failed", /^OBU_SITE_ACCESS_/.test(error?.message ?? "") ? error : new Error("OBU_NETWORK_WAIT_FAILED: " + shortText(String(error?.message ?? error), 2048)));
   }
 
-  async arm(record, page, scope, validateScope) {
+  async arm(record, page, scope, validateScope, { assertScope = () => {}, captureCandidate } = {}) {
     this.check(record);
     if (record.state !== "reserved" || !sameScope(record.params, scope) || typeof validateScope !== "function") throw new Error("Invalid network wait registration scope");
     record.state = "arming";
     record.scope = Object.freeze({ ...scope });
     record.validateScope = validateScope;
+    Object.assign(record, { page, assertScope, captureCandidate });
     try { await this.within(record, () => validateScope(record.scope)); }
     catch (error) { this.remove(record); throw error; }
     let state = this.requestStates.get(page);
@@ -181,15 +219,17 @@ export class BrowserNetworkWaits {
     }
     record.requestState = state;
     const listener = value => this.observe(record, value);
-    const closed = () => this.remove(record);
+    const closed = () => { record.pageClosed = true; this.remove(record); };
     try {
       page.on(record.params.event, listener);
       record.listeners.push(() => page.off(record.params.event, listener));
       page.on("close", closed);
       record.removeClose = () => page.off("close", closed);
       record.state = "pending";
+      record.enabled = this.subscription(record);
+      await this.within(record, () => record.enabled);
       await this.within(record, () => validateScope(record.scope));
-      this.check(record);
+      this.check(record); record.assertScope(record.scope);
       record.ready = true;
       return { waiterId: record.waiterId, remainingMs: Math.max(1, Math.min(record.params.timeoutMs, Math.ceil(record.deadlineAt - this.now()))) };
     } catch (error) { this.remove(record); throw error; }
@@ -210,11 +250,18 @@ export class BrowserNetworkWaits {
       record.validationDeadlineAt = this.now() + 10000;
       this.clearTimer(record.timer);
       record.timer = this.setTimer(() => this.finish(record, "failed", new Error("OBU_NETWORK_WAIT_FAILED: event scope validation timed out")), 10000);
+      record.candidate = record.captureCandidate?.(request, value);
       this.cleanupListeners(record);
       const result = describe(record, value, request, url, method);
       this.within(record, () => record.validateScope(record.scope), { selectedEvent: true }).then(() => {
+        record.assertScope(record.scope);
         this.finish(record, "matched", result);
-      }, () => { if (!["timed-out", "failed"].includes(record.state)) this.remove(record); });
+      }).catch(error => {
+        if (!["timed-out", "failed"].includes(record.state)) {
+          if (/^OBU_SITE_ACCESS_/.test(error?.message ?? "")) this.fail(record, error);
+          else this.remove(record);
+        }
+      });
     } catch (error) { this.fail(record, error); }
   }
 
@@ -225,16 +272,20 @@ export class BrowserNetworkWaits {
     return record;
   }
 
-  validateResultScope(record) {
+  validateResultScope(record, includeCleanup = false) {
     return this.track((async () => {
       if (this.records.get(record.waiterId) !== record || !record.ready) throw expired();
       let timer;
       const terminal = ["matched", "timed-out", "failed"].includes(record.state);
       const deadline = new Promise((_, reject) => { timer = this.setTimer(() => reject(new Error("OBU_NETWORK_WAIT_FAILED: result scope validation timed out")), 10000); });
       try {
-        await Promise.race([Promise.resolve().then(() => record.validateScope(record.scope)), record.disposed.promise.then(error => { throw error; }), deadline,
+        await Promise.race([Promise.resolve().then(async () => {
+          await record.validateScope(record.scope);
+          if (includeCleanup) await record.cleanup;
+        }), record.disposed.promise.then(error => { throw error; }), deadline,
           ...(!terminal ? [record.cancelled.then(error => { throw error; })] : [])]);
         if (this.records.get(record.waiterId) !== record) throw expired();
+        record.assertScope(record.scope);
       } catch (error) { if (!["timed-out", "failed"].includes(record.state)) this.remove(record); throw error; }
       finally { this.clearTimer(timer); }
     })());
@@ -245,23 +296,27 @@ export class BrowserNetworkWaits {
     await this.validateResultScope(record);
     await record.completion.promise;
     if (this.records.get(record.waiterId) !== record) throw expired();
-    await this.validateResultScope(record);
+    await this.validateResultScope(record, true);
     if (record.state !== "matched") throw record.error ?? expired();
+    record.assertScope(record.scope);
     return structuredClone(record.value);
   })()); }
 
   async cancel(params) {
     handleParams(params);
-    const record = this.records.get(params.waiterId);
+    const record = this.records.get(params.waiterId) ?? [...this.cleanups].find(value => value.waiterId === params.waiterId);
     if (!record || !sameScope(record.params, params)) return {};
-    await this.validateResultScope(record);
-    this.remove(record);
+    await this.remove(record, true);
     return {};
   }
 
-  invalidateTab(tabId) { for (const record of this.records.values()) if (record.params.tabId === tabId) this.remove(record); }
-  invalidateAttachedTab(tabId) { for (const record of this.records.values()) if (record.params.tabId === tabId && record.scope) this.remove(record); }
-  invalidateSession(sessionId) { for (const record of this.records.values()) if (record.params.session_id === sessionId) this.remove(record); }
-  invalidateAll() { for (const record of this.records.values()) this.remove(record); }
-  controlSnapshot() { return { tabIds: [...new Set([...this.records.values()].filter(record => record.scope).map(record => record.params.tabId))], pending: [...this.operations, ...[...this.records.values()].map(record => record.completion.promise)] }; }
+  invalidateWhere(predicate) {
+    const cleanup = Promise.all([...new Set([...this.records.values(), ...this.cleanups])].filter(predicate).map(record => this.remove(record, true))).then(() => {});
+    cleanup.catch(() => {}); return cleanup;
+  }
+  invalidateTab(tabId) { return this.invalidateWhere(record => record.params.tabId === tabId); }
+  invalidateAttachedTab(tabId) { return this.invalidateWhere(record => record.params.tabId === tabId && record.scope); }
+  invalidateSession(sessionId) { return this.invalidateWhere(record => record.params.session_id === sessionId); }
+  invalidateAll() { return this.invalidateWhere(() => true); }
+  controlSnapshot() { return { tabIds: [...new Set([...this.records.values(), ...this.cleanups].filter(record => record.scope).map(record => record.params.tabId))], pending: [...this.operations, ...[...this.records.values()].map(record => record.completion.promise)] }; }
 }

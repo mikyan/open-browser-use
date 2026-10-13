@@ -50,6 +50,124 @@ test("default timers keep the browser global receiver instead of using the regis
   } finally { registry.invalidateAll(); }
 });
 
+test("ready waits for the actual ordered subscription ACK rather than EventEmitter registration", async t => {
+  const f = fixture(t), gate = deferred(); let settled = false;
+  f.page._channel = { updateSubscription: ({ enabled }) => enabled ? gate.promise : Promise.resolve() };
+  const pending = f.arm().then(value => { settled = true; return value; });
+  await nextTurn();
+  try { assert.equal(settled, false); }
+  finally { gate.resolve(); await pending; }
+});
+
+test("selected result waits for actual unsubscribe ACK and rechecks original authority afterwards", async t => {
+  const f = fixture(t), gate = deferred(); let revoked = false, settled = false;
+  f.page._channel = { updateSubscription: ({ enabled }) => enabled ? Promise.resolve() : gate.promise };
+  const record = f.registry.reserve(params());
+  await f.registry.arm(record, f.page, f.scope, async () => {}, {
+    assertScope() { if (revoked) throw new Error("OBU_SITE_ACCESS_DENIED: original authority revoked"); }
+  });
+  f.page.emit("response", response());
+  const collecting = f.registry.collect(f.handle(record)).then(value => { settled = true; return value; });
+  collecting.catch(() => {});
+  await nextTurn();
+  try { assert.equal(settled, false); revoked = true; gate.resolve(); await assert.rejects(collecting, /OBU_SITE_ACCESS_DENIED/); }
+  finally { gate.resolve(); await collecting.catch(() => {}); }
+});
+
+test("the first candidate is captured synchronously and cannot borrow a later emitter document", async t => {
+  const f = fixture(t), gate = deferred(); let selected = false, current = "original", captures = 0;
+  const record = f.registry.reserve(params());
+  await f.registry.arm(record, f.page, f.scope, async () => { if (selected) await gate.promise; }, {
+    captureCandidate(req) {
+      captures++; selected = true; const original = current;
+      return { frameUrl: "https://example.test/original", check() { assert.equal(current, original, "OBU_SITE_ACCESS_UNVERIFIED: original document changed"); } };
+    },
+    assertScope() { record.candidate?.check(); }
+  });
+  f.page.emit("response", response(request(), { statusText: () => "original" }));
+  current = "successor";
+  f.page.emit("response", response(request(), { statusText: () => "later" }));
+  gate.resolve(); await nextTurn();
+  assert.equal(captures, 1);
+  await assert.rejects(f.registry.collect(f.handle(record)), /OBU_SITE_ACCESS_UNVERIFIED/);
+});
+
+test("two cancels join the same pending cleanup and only explicit settled failure may retry", async t => {
+  const f = fixture(t), gate = deferred(); let disabled = 0, firstDone = false, secondDone = false;
+  f.page._channel = { async updateSubscription({ enabled }) { if (!enabled) { disabled++; await gate.promise; } } };
+  const { record } = await f.arm();
+  const first = f.registry.cancel(f.handle(record)).then(() => { firstDone = true; });
+  const second = f.registry.cancel(f.handle(record)).then(() => { secondDone = true; });
+  await nextTurn();
+  try {
+    assert.equal(firstDone, false); assert.equal(secondDone, false); assert.equal(disabled, 1);
+    assert.deepEqual(f.registry.controlSnapshot().tabIds, [42]);
+  } finally { gate.resolve(); await Promise.all([first, second]); }
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, []);
+  let fail = true;
+  f.page._channel.updateSubscription = async ({ enabled }) => { if (!enabled) { disabled++; if (fail) throw Error("local server ACK rejected"); } };
+  const next = await f.arm();
+  await assert.rejects(f.registry.cancel(f.handle(next.record)), /cleanup is unconfirmed/);
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, [42]); fail = false;
+  await f.registry.cancel(f.handle(next.record)); assert.deepEqual(f.registry.controlSnapshot().tabIds, []);
+  assert.equal(disabled, 3);
+});
+
+test("delayed cleanup preserves newer wait and diagnostics listeners in actual dispatch order", async t => {
+  const f = fixture(t), gate = deferred(), sent = []; let first = true;
+  f.page._channel = { async updateSubscription({ enabled }) { sent.push(enabled); if (first) { first = false; await gate.promise; } } };
+  const arming = f.arm(); await nextTurn();
+  const original = [...f.registry.records.values()][0];
+  const cancelled = f.registry.cancel(f.handle(original));
+  const diagnostic = () => {}; f.page.on("response", diagnostic);
+  const successor = f.arm();
+  const originalFailure = assert.rejects(arming, /EXPIRED/);
+  gate.resolve(); await originalFailure; await cancelled;
+  const next = await successor;
+  assert.deepEqual(sent, [true, true, true]);
+  await f.registry.cancel(f.handle(next.record)); assert.equal(sent.at(-1), true);
+  assert.equal(f.page.listenerCount("response"), 1); f.page.off("response", diagnostic);
+});
+
+test("late actual enable ACK stays in the cleanup drain after the original arm deadline", async t => {
+  const f = fixture(t), gate = deferred(), sent = [];
+  f.page._channel = { async updateSubscription({ enabled }) { sent.push(enabled); if (enabled) await gate.promise; } };
+  const arming = assert.rejects(f.arm({ timeoutMs: 10 }), /TIMEOUT/);
+  await nextTurn(); await f.advance(10); await arming;
+  assert.equal(f.registry.records.size, 0); assert.deepEqual(f.registry.controlSnapshot().tabIds, [42]);
+  let drained = false;
+  const released = f.registry.invalidateAll().then(() => { drained = true; }); await nextTurn();
+  assert.equal(drained, false);
+  gate.resolve(); await released; assert.deepEqual(sent, [true, false]);
+  assert.deepEqual(f.registry.controlSnapshot().tabIds, []);
+});
+
+test("old Page cleanup cannot update a successor Page on the same tab", async t => {
+  const f = fixture(t), gate = deferred(), oldCalls = [], nextCalls = [];
+  f.page._channel = { async updateSubscription({ enabled }) { oldCalls.push(enabled); if (!enabled) await gate.promise; } };
+  const old = await f.arm(), cancelled = f.registry.cancel(f.handle(old.record));
+  const nextPage = new EventEmitter(); nextPage._channel = { async updateSubscription({ enabled }) { nextCalls.push(enabled); } };
+  const nextRecord = f.registry.reserve(params());
+  await f.registry.arm(nextRecord, nextPage, { ...f.scope, attachment: 8 }, async () => {});
+  await nextTurn(); assert.deepEqual(nextCalls, [true]);
+  gate.resolve(); await cancelled; assert.deepEqual(oldCalls, [true, false]); assert.deepEqual(nextCalls, [true]);
+  nextPage.emit("response", response()); assert.equal((await f.registry.collect(f.handle(nextRecord))).status, 200);
+});
+
+test("first denied candidate is terminal and cannot expose or replace it with later allowed metadata", async t => {
+  const f = fixture(t), record = f.registry.reserve(params({ match: { url: "/api", urlMatch: "contains" } }));
+  let captures = 0;
+  await f.registry.arm(record, f.page, f.scope, async () => {}, { captureCandidate() {
+    captures++; throw new Error("OBU_SITE_ACCESS_DENIED: original source origin denied");
+  } });
+  f.page.emit("response", response(request({ url: () => "https://denied.test/api?secret" })));
+  f.page.emit("response", response());
+  await assert.rejects(f.registry.collect(f.handle(record)), error => {
+    assert.match(error.message, /^OBU_SITE_ACCESS_DENIED:/); assert.equal(error.message.includes("secret"), false); return true;
+  });
+  assert.equal(captures, 1); assert.equal(record.value, undefined);
+});
+
 test("strict params and UTF-8 budgets fail synchronously before reserving capacity", t => {
   const f = fixture(t);
   for (const bad of [

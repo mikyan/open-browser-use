@@ -494,6 +494,11 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   URL、method 与 response status；结果只含有界元数据。冷 raw→CRX 迁移保留
   未绑定的预留，控制结束、暂停、页面转交或 detach 清除旧等待。三个 SDK
   和 CLI/MCP 通过 `networkWaitVersion=1` 协商，旧扩展明确失败，不重放请求。
+  受限网站通过构建补丁的 WeakMap 保存原 native event 到 server Request 的
+  frame/document/loader/redirect 来源；原策略代号固定，普通导航可提交原
+  loader，fetch 不能沿用新文档权限。注册及清理等待真实 PageDispatcher
+  subscription ACK，按原 Page/event 串行；原 Promise 在超时/删除后继续
+  计入控制清理，交付在清理 ACK 后再次同步核验原权限。
   详见 [network waits](references/network-waits-design.md)。
 - `armNavigationWait` / `collectNavigationWait` / `cancelNavigationWait` 同样提供
   ready handle，但条件由 pinned Playwright 的原生 URL/glob 与 lifecycle 等待

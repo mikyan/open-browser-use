@@ -25,6 +25,14 @@
 
 ## 当前并行切片
 
+2026-10-14 [受限网站请求／响应等待](../completed/2026-10-14-restricted-network-waits.md)
+分片完成：允许网站可用三条网络等待接口，保留原生Request产生时的文档／frame／
+redirect权限证明及真实订阅清理ACK。完整 `EiU6cQ` 163/163 actual exit 0，旧157
+顺序不变，476,719ms仅原12 activation/4 control-focus许可。之后仅runner的失败
+取证及清理步骤调整，最终专项 `5SV1It` 8/8通过，24原POST/19,761B，20,993ms
+零activation、原两次popup focus；Node3319 pass/1既有skip。两轮产物与清理均
+独立核验，完整运行归属其原runner版本。普通Edge授权及整体能力矩阵继续开放。
+
 2026-10-14 [同文档DOM重建反馈](../completed/2026-10-14-dom-rebuild-feedback.md)已完成，保留
 真实旧源 `bxYaz2` 两根重建场零像素红例及body-only对照；修复专项 `RttFgP`
 2/2 actual exit0，三原POST/13,147B、原图层归属与像素通过，结束567ms无残留，

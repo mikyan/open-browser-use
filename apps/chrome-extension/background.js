@@ -1261,7 +1261,7 @@ class BrowserBackend {
     if (!this.siteAccess.restricted) return;
     // These channels can expose origins other than the tab's live documents.
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
-    const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
+    const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard",
       "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
     if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && ["diagnostics", "responseBody"].includes(params?.action)) || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
@@ -1506,7 +1506,7 @@ class BrowserBackend {
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
     for (const marker of this.freshBlankTabs.values()) this.retireFreshBlankTab(marker);
     const snapshot = this.globalControlSnapshot();
-    this.networkWaits.invalidateAll();
+    const networksReleased = this.networkWaits.invalidateAll();
     void this.dialogs.invalidateAll().catch(() => {});
     this.navigationWaits.invalidateAll();
     this.directoryUploads.cancelWhere(() => true, error);
@@ -1516,7 +1516,7 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [networksReleased, this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -2655,6 +2655,20 @@ class BrowserBackend {
     let epoch = this.controlEpochs.get(tabId) ?? 0;
     await this.controlReleases.get(tabId)?.catch(() => {});
     remaining();
+    if (params.action === "goto" && this.siteAccess.restricted && this.freshBlankTabs.has(tabId)) {
+      // A newly created blank may not have a committed document yet. Only its
+      // exact creation marker can wait before inspecting the complete tree;
+      // ownership and the original action budget still gate every native read.
+      await this.waitForFreshBlankTab(tabId, {
+        params, remainingMs: remaining,
+        timeoutError: () => new Error("Browser action timed out during fresh page admission"),
+        check: async () => {
+          await this.requireSessionTabOwnership(params, "browserAction");
+          this.assertAttachmentAdmission(tabId);
+        }
+      });
+      remaining();
+    }
     await this.requireSessionTab(params, "browserAction");
     remaining();
     if (await this.releasePreviousAttachmentOwner(params, tabId, remaining)) epoch = this.controlEpochs.get(tabId) ?? 0;
@@ -2855,6 +2869,12 @@ class BrowserBackend {
   async armNetworkWait(params, record) {
     const check = () => this.networkWaits.check(record);
     check();
+    const policy = this.siteAccess.status();
+    const assertPolicy = () => {
+      this.siteAccess.assertReady();
+      if (policy.generation !== this.siteAccess.generation || policy.revision !== this.siteAccess.status().revision)
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original network permissions changed");
+    };
     const tabId = requireTabId(params, "armNetworkWait");
     await this.controlReleases.get(tabId)?.catch(() => {});
     check();
@@ -2872,8 +2892,37 @@ class BrowserBackend {
       check();
       this.rememberAttachmentOwner(params, tabId);
       const scope = { ...this.attachmentOwners.get(tabId) };
-      this.assertTransferScope(scope);
-      return this.networkWaits.arm(record, page, scope, value => this.validateTransferScope(value));
+      this.assertTransferScope(scope); assertPolicy();
+      const capture = this.siteAccess.restricted ? (await engine.runtime()).captureOpenBrowserUseNetworkWaitRequest : null;
+      if (this.siteAccess.restricted && typeof capture !== "function")
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original network document reader is unavailable");
+      let siteProof;
+      const assertCandidate = () => {
+        if (!record.candidate) return;
+        record.candidate.check();
+        for (const url of record.candidate.urls) this.siteAccess.assertUrl(url);
+      };
+      const assertScope = value => {
+        this.assertControlOpen(); this.assertTransferScope(value); assertPolicy();
+        assertCandidate(); this.assertSiteProof(siteProof);
+      };
+      return this.networkWaits.arm(record, page, scope, async value => {
+        this.assertControlOpen(); this.assertTransferScope(value); assertPolicy(); assertCandidate();
+        await this.validateTransferScope(value);
+        const proof = await this.assertSiteTab(value.tabId);
+        this.assertControlOpen(); this.assertTransferScope(value); assertPolicy(); assertCandidate(); this.assertSiteProof(proof);
+        // Refresh only the complete allowed-tree snapshot. The same original
+        // request proof must survive: navigation may commit its own loader, or
+        // an unrelated allowed frame may change without replacing the emitter.
+        // Collection still checks this latest snapshot after the cleanup ACK.
+        siteProof = proof;
+      }, { assertScope, captureCandidate: capture ? request => {
+        assertPolicy(); this.assertTransferScope(scope);
+        const proof = capture(request, page);
+        proof.check();
+        for (const url of proof.urls) this.siteAccess.assertUrl(url);
+        return proof;
+      } : undefined });
     });
   }
 
@@ -4980,7 +5029,7 @@ class BrowserBackend {
     clipboardReleased.catch(() => {});
     const brokerReleased = this.clipboardBroker.waitForSession(sessionId);
     brokerReleased.catch(() => {});
-    this.networkWaits.invalidateSession(sessionId);
+    const networksReleased = this.networkWaits.invalidateSession(sessionId);
     this.navigationWaits.invalidateSession(sessionId);
     this.auxiliaryTabs.cancelPending(sessionId);
     // An inventory failure is not proof that control was released. Keep the
@@ -5000,7 +5049,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -5160,7 +5209,7 @@ class BrowserBackend {
     await this.store.save();
   }
 
-  async requireSessionTab(params, command) {
+  async requireSessionTabOwnership(params, command) {
     const session = await this.requireSession(params);
     const tabId = requireTabId(params, command);
     const tabs = await this.getSessionTabs(session.sessionId);
@@ -5169,9 +5218,15 @@ class BrowserBackend {
       throw new Error(`Tab ${tabId} is not part of browser session ${session.sessionId}`);
     }
     assertControllableTab(tab);
+    this.controlLedger.assertCurrent(params);
+    return tabId;
+  }
+
+  async requireSessionTab(params, command) {
+    const tabId = await this.requireSessionTabOwnership(params, command);
     // Cancellation reveals no page content and must drain the original wait
     // even when that site's permission can no longer be inspected.
-    if (command !== "detach" && command !== "cancelDialog") await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
+    if (!["detach", "cancelDialog", "cancelNetworkWait"].includes(command)) await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
     if (command !== "detach") this.assertAttachmentAdmission(tabId);
     this.controlLedger.assertCurrent(params);
   }
@@ -5265,8 +5320,7 @@ class BrowserBackend {
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
     this.browserEngine?.invalidate?.(tabId);
-    if (preserveNetworkArming) this.networkWaits.invalidateAttachedTab(tabId);
-    else this.networkWaits.invalidateTab(tabId);
+    const networksReleased = preserveNetworkArming ? this.networkWaits.invalidateAttachedTab(tabId) : this.networkWaits.invalidateTab(tabId);
     if (preserveNavigationArming) this.navigationWaits.invalidateAttachedTab(tabId);
     else this.navigationWaits.invalidateTab(tabId);
     this.controlEpochs.set(tabId, (this.controlEpochs.get(tabId) ?? 0) + 1);
@@ -5286,7 +5340,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);

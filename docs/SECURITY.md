@@ -135,6 +135,14 @@ detach and restart invalidate the handle. IDs are routing references rather than
 credentials. Matchers accept finite literal URL/method/status fields, and results
 contain bounded metadata without headers or bodies. URLs can still contain private
 query values, so treat these results as page data and redact before sharing.
+Restricted website waits additionally bind original native request/document/
+loader and ancestor identities, the complete redirect chain and the original
+policy generation/revision. A live allowed URL cannot authorize a response from
+a replaced document or denied request origin. Unproven emitters fail closed.
+Ready and cancellation await the actual server-local event-filter acknowledgement;
+delivery rechecks original authority after cleanup. The real cleanup stays tracked
+after a caller times out or the public record is removed. These checks constrain
+returned metadata, not traffic initiated by the page.
 Pending and retained waits have fixed capacity, deadlines and terminal expiry;
 see [network waits](references/network-waits-design.md).
 

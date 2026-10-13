@@ -323,7 +323,10 @@ function blankAdmission(f, tabId, timeoutMs = 1000) {
 function actionEngine(f, t) {
   const previous = globalThis.chrome; globalThis.chrome = f.chrome;
   t.after(() => { globalThis.chrome = previous; });
-  const page = { on() {}, off() {}, locator: () => ({ count: async () => { f.calls.push(["page-count"]); return 1; } }) };
+  let currentURL = "about:blank";
+  const page = { on() {}, off() {}, locator: () => ({ count: async () => { f.calls.push(["page-count"]); return 1; } }),
+    async goto(url) { f.calls.push(["page-goto", url]); currentURL = url; f.hooks.navigated?.(url); return { status: () => 200 }; },
+    url: () => currentURL };
   const app = {
     async attach(id) { await f.chrome.debugger.attach({ tabId: id }); return page; },
     async detach(id) { await f.chrome.debugger.detach({ tabId: id }); }
@@ -336,6 +339,93 @@ function actionEngine(f, t) {
   f.backend.browserEngine = engine;
   return engine;
 }
+
+async function restrictedFresh(t, { dissolve = false } = {}) {
+  const f = await ordinary(t, { dissolve });
+  f.chrome.webNavigation = { async getAllFrames({ tabId }) {
+    const tab = f.tabs.get(tabId);
+    f.calls.push(["site-frames", tabId, tab?.url]);
+    return tab?.url ? [{ frameId: 0, parentFrameId: -1, url: tab.url, documentId: `doc-${tabId}`,
+      documentLifecycle: "active", errorOccurred: false }] : [];
+  } };
+  await f.backend.siteAccess.replace({ mode: "allow", origins: ["https://fixture.test"] }, 0, f.backend.siteAccess.generation);
+  f.hooks.created = tab => Object.assign(tab, { url: "", pendingUrl: "about:blank", status: "loading" });
+  const tab = await f.create(); actionEngine(f, t);
+  const live = f.tabs.get(tab.id), marker = f.backend.freshBlankTabs.get(tab.id);
+  f.hooks.navigated = url => Object.assign(live, { url, pendingUrl: undefined, status: "complete" });
+  const ready = () => Object.assign(live, { url: "about:blank", pendingUrl: undefined, status: "complete" });
+  const goto = extra => f.backend.browserAction({ ...f.scope(tab.id), action: "goto", args: { url: "https://fixture.test/next" }, timeoutMs: 1000, ...extra });
+  f.calls.length = 0;
+  return { ...f, tab, live, marker, ready, goto };
+}
+
+for (const dissolve of [false, true]) test(`restricted fresh ${dissolve ? "ordinary" : "grouped"} goto waits before complete website inspection`, async t => {
+  const f = await restrictedFresh(t, { dissolve }), held = f.gate(); let entering = false, settled = false;
+  const wait = f.backend.waitForFreshBlankTab.bind(f.backend);
+  f.backend.waitForFreshBlankTab = (...args) => { entering = true; return wait(...args); };
+  f.hooks.getTab = async () => { if (entering) { await held.promise; f.ready(); delete f.hooks.getTab; } };
+  const action = f.goto().finally(() => { settled = true; }); action.catch(() => {});
+  await until(() => entering || settled, "fresh gate or original rejection");
+  assert.equal(entering, true, "the exact fresh-creation gate must precede an incomplete blank site snapshot");
+  assert.equal(settled, false);
+  assert.equal(f.calls.some(([name]) => name === "site-frames" || name === "attach-start" || name === "page-goto"), false);
+  held.resolve(); assert.equal((await action).value.status, 200);
+  assert.equal(f.backend.freshBlankTabs.has(f.tab.id), false);
+  const frames = f.calls.findIndex(([name]) => name === "site-frames"), attach = f.calls.findIndex(([name]) => name === "attach-start");
+  assert.ok(frames >= 0 && attach > frames);
+  assert.equal(f.calls.filter(([name]) => name === "page-goto").length, 1);
+  assert.ok(f.calls.filter(([name]) => name === "site-frames").every(([, , url]) => Boolean(url)));
+});
+
+test("restricted fresh goto rejects foreign scope before document reads or attachment", async t => {
+  const f = await restrictedFresh(t);
+  await assert.rejects(f.goto({ session_id: f.foreign.session_id, turn_id: f.foreign.turn_id, control_epoch: f.foreign.control_epoch }), /not part of browser session|CREATION_REVOKED/);
+  assert.equal(f.calls.some(([name]) => ["site-frames", "attach-start", "page-goto"].includes(name)), false);
+  assert.equal(f.backend.freshBlankTabs.get(f.tab.id), f.marker);
+});
+
+for (const change of ["epoch", "group", "pause"]) test(`restricted fresh goto cannot continue after ${change} changes during its original read`, async t => {
+  const f = await restrictedFresh(t), held = f.gate(); let entering = false, settled = false;
+  const wait = f.backend.waitForFreshBlankTab.bind(f.backend);
+  f.backend.waitForFreshBlankTab = (...args) => { entering = true; return wait(...args); };
+  f.hooks.getTab = async () => { if (entering) await held.promise; };
+  const action = f.goto().finally(() => { settled = true; }); action.catch(() => {});
+  await until(() => entering || settled, "fresh gate or original rejection"); assert.equal(entering, true);
+  if (change === "epoch") f.backend.controlLedger.invalidate(f.backend.controlLedger.records.get("task"), "fixture changed");
+  if (change === "group") { f.live.groupId = 20; f.chrome.tabs.onUpdated.emit(f.tab.id, { groupId: 20 }); }
+  if (change === "pause") f.backend.automationControl.block();
+  f.ready(); held.resolve();
+  await assert.rejects(action, /STALE_CONTROL_EPOCH|CREATION_REVOKED|not part of browser session|AUTOMATION_PAUSED/);
+  assert.equal(f.calls.some(([name]) => ["site-frames", "attach-start", "page-goto"].includes(name)), false);
+});
+
+test("restricted fresh goto deadline rejects a held native read and prevents late attachment", async t => {
+  const f = await restrictedFresh(t), held = f.gate(); let entering = false, settled = false;
+  const wait = f.backend.waitForFreshBlankTab.bind(f.backend);
+  f.backend.waitForFreshBlankTab = (...args) => { entering = true; return wait(...args); };
+  f.hooks.getTab = async () => { if (entering) await held.promise; };
+  const action = f.goto({ timeoutMs: 30 }).finally(() => { settled = true; }); action.catch(() => {});
+  await until(() => entering || settled, "fresh gate or original rejection"); assert.equal(entering, true);
+  await assert.rejects(action, /timed out/i);
+  const reads = f.calls.length; f.ready(); held.resolve(); await tick(); await tick();
+  assert.equal(f.calls.length, reads); assert.equal(f.backend.freshBlankTabs.get(f.tab.id), f.marker);
+  assert.equal(f.calls.some(([name]) => ["site-frames", "attach-start", "page-goto"].includes(name)), false);
+});
+
+test("restricted goto without the exact fresh marker still rejects an unknown document", async t => {
+  const f = await restrictedFresh(t); f.backend.retireFreshBlankTab(f.marker);
+  await assert.rejects(f.goto(), /OBU_SITE_ACCESS_UNVERIFIED/);
+  assert.equal(f.calls.filter(([name]) => name === "site-frames").length, 1);
+  assert.equal(f.calls.some(([name]) => name === "attach-start" || name === "page-goto"), false);
+});
+
+test("fresh blank readiness never authorizes an empty native frame snapshot", async t => {
+  const f = await restrictedFresh(t); f.ready();
+  let reads = 0; f.chrome.webNavigation.getAllFrames = async () => { reads++; return []; };
+  await assert.rejects(f.goto(), /OBU_SITE_ACCESS_UNVERIFIED/);
+  assert.equal(reads, 1);
+  assert.equal(f.calls.some(([name]) => name === "attach-start" || name === "page-goto"), false);
+});
 
 for (const dissolve of [true, false]) test(`fresh ${dissolve ? "ordinary" : "grouped"} creation waits for committed blank and consumes only its exact marker`, async t => {
   const f = await ordinary(t, { dissolve }), tab = await f.create(), live = f.tabs.get(tab.id);

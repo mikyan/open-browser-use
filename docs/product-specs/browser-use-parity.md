@@ -12,6 +12,17 @@
 
 ## Baseline sources
 
+P11/P14 受限网站网络等待通过 `mYijy5` 8/8 actual exit 0：五入口×三布局
+15原POST/11,842B及13边界九原POST/7,919B，原请求/文档/redirect、策略和
+实际订阅清理均独立核验。22,970ms零activation，仅原两次设置popup focus；
+Node3319 pass/1既有skip。新建blank准备先于完整权限检查，原scope/deadline
+不变；旧失败保留，不把导航无响应超时称为原生取消或权限拒绝。更广worker、
+平台和完整同组比较继续开放。完整 `EiU6cQ` 163/163通过，旧157顺序保持，
+476,719ms仅原12 activation/4 control-focus；之后仅runner失败取证/清理步骤
+调整，最终专项 `5SV1It` 8/8通过，24原POST/19,761B，20,993ms零activation、
+原两次popup focus。两轮各自版本的产物及清理独立核验；完整运行不归因于
+后续runner版本，见[网络等待契约](../references/network-waits-design.md)。
+
 P12 的同文档根重建反馈恢复已取得真实红绿证据：旧源 `bxYaz2` 两个根重建
 场失去全部cursor/outline像素，body-only对照正常，三原提交保持。修复
 `RttFgP` 2/2 actual exit 0，三原POST/13,147B、原图层/文档身份和像素通过，

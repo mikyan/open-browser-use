@@ -1,5 +1,49 @@
 # Browser integration acceptance
 
+## Request and response waits on restricted websites
+
+The five `*-restricted-network-waits` cases exercise JS, CLI, MCP, Python and
+Go under a saved allow list, across root, existing OOPIF and dynamic OOPIF
+documents. Each entry registers request and response waits before its own
+public input, submits the original form once, collects original metadata,
+reads the retained result again and cancels both handles. Exact original POST
+bytes, document/node identities, page receipts and passive native event
+records independently verify the workflow. Public request IDs are not native
+CDP request IDs and are never correlated by comparing those strings.
+
+Keep the regular host/browser/Python prerequisites and build the typed Go
+helper from `scripts/browser-integration/go-site-access-network-checks`, setting
+`OBU_TEST_GO_SITE_NETWORK_BINARY` to that executable. The helper receives its
+original scope from the parent and cannot silently renew an expired epoch.
+
+```powershell
+$env:OBU_TEST_CASES = '^(js-user-site-access-popup|(js|cli|mcp|python|go)-restricted-network-waits|js-restricted-network-boundaries)$'
+node scripts/browser-integration/run.mjs
+```
+
+The selected existing website-settings workflow provides the real action
+popup. The network fixture borrows it, explicitly saves/pauses/resumes, and
+restores the original policy in cleanup. It never opens a replacement popup,
+adds a focus permission, refetches a response or retries the original input.
+Preserve partial caller output and original server/native ledgers on failure.
+The separate boundary case distinguishes allowed responses from stale or
+denied metadata; website permission is not a firewall for page fetches.
+Its thirteen cases include error statuses, two explicit submissions to one URL,
+allowed and denied redirect ancestry, a response armed after its original
+request, normal document navigation, navigation with no original fetch response, retained old
+documents, cancellation, policy changes and existing/future denied frames.
+The no-response case requires the original server connection closed before
+headers, no original native response/completion, a new committed document and
+the original timeout. It does not claim a native cancellation event or an old
+response rejected by permission checks. Independent worker coverage is not claimed.
+Child-target evidence, finalization and tab cleanup are independent cleanup
+steps, so an evidence-read failure still permits finalization. CLI nonzero and
+invalid-JSON results preserve original stdout/stderr artifacts and hashes.
+The existing generic subprocess timeout does not guarantee terminal-close or
+stream capture; successful-run evidence must not be extrapolated to it.
+Completed acceptance and remaining broader limits are recorded in the
+[execution plan](../../docs/exec-plans/completed/2026-10-14-restricted-network-waits.md).
+
 ## Agent feedback after DOM replacement
 
 `OBU_TEST_CASES=^js-dom-rebuild-feedback$` selects three same-document application
