@@ -26,7 +26,7 @@
 2. [x] 保留可重现红例，确定参数错误/部分提交的错误与清理边界。
 3. [x] 实现及单元覆盖有效语法、零输入失败、预持键、native失败/晚ACK/继任。
 4. [x] 真实浏览器root/OOPIF及键盘/locator入口验证原事件、后续输入和业务提交。
-5. [ ] 完整相关回归、独立证据审计、文档/history同步，提交并推送fork。
+5. [x] 完整相关回归、独立证据审计、文档/history同步，提交并推送fork。
 
 ## 进度与决定
 
@@ -51,5 +51,8 @@
   350576ms仅原12activation/4controlfocus许可；原host按既有restart场故意
   终止，确切继任exit0、全部连接关闭。root和独立backend复审均通过；后者
   逐核原字节/事件、372源/运行时身份、focus许可和实际进程清理，无阻挡。
-  文档、仓库卫生、Action固定SHA及diff检查通过，待提交推送。
+  文档、仓库卫生、Action固定SHA及diff检查通过。
   完整P01–P15、P12及普通Edge人工验收仍未完成。
+- 2026-10-13：实现及完整证据提交`49b63ea`已推送用户fork的
+  `codex/browser-use-parity`，远端完整SHA复核一致。本分片完成并归档；
+  总目标保持active，不创建PR、不替换已交付preview。
