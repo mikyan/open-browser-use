@@ -1,0 +1,111 @@
+docs/references/README.md
+  s_08bbfd293d324f::t_97a00a90c222ad 19-20
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_aa318d0a70e4cb 82,324,355,512,515,1707-1721
+  s_08bbfd293d324f::t_767fbd29c79715 1722
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_3058967924d8b8 2438,2447-2448,2466-2467
+docs/histories/2026-10/20261013-2055-fill-delivery.md
+  s_08bbfd293d324f::t_40433ae2c47715 50-56
+  s_08bbfd293d324f::t_6b878427042683 1-49,57-71
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_bb67b4d5268695 522-526
+README.zh-CN.md
+  s_08bbfd293d324f::t_b59928a5c72835 156-157
+scripts/browser-integration/fill-delivery-fixture.mjs
+  s_08bbfd293d324f::t_243f76bbae6a64 176,181
+  s_08bbfd293d324f::t_a1785c84332409 25-26,314-315,328-333,341,346-347,378,410-412
+  s_08bbfd293d324f::t_bfc8cf7af6ad67 41,60-66,279-282
+  s_08bbfd293d324f::t_f7819ff3b29aa8 269-278,288-289
+  s_08bbfd293d324f::t_6c5242cb9f1b32 11-12,15,23-24,27-28,34-35,44-50,75,83,92-94,97,145,216-232,239-240,247,264-266,268,283-287,290-295,307,357,367,371
+  s_08bbfd293d324f::t_39b974d8625b32 36-39,85-86,250-256,262
+  s_08bbfd293d324f::t_7b15f26a0ad874 316-327,334-340,342-345,348-350,354,409,413
+  s_08bbfd293d324f::t_5ea6f18bb14ad0 389-390
+  s_08bbfd293d324f::t_d5a3a78a98a9f5 1-10,13-14,16-22,29-33,40,42-43,51-59,67-74,76-82,84,87-91,95-96,98-144,146-149,156-175,177-179,182-211,215,233-238,241-246,248-249,263,267,296-306,308-313,351-353,355-356,358-366,368-370,372-377,379-383,385-388,391-408,414-435
+  s_08bbfd293d324f::t_57ca8c889b64a6 257-261
+  s_08bbfd293d324f::t_ec862cef05557f 150-155,180,212-214,384
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_ae2827820ea19c 3-17,22-28
+  s_08bbfd293d324f::t_b59928a5c72835 18-21
+docs/references/fill-delivery.md
+  s_08bbfd293d324f::t_40433ae2c47715 93-103
+  s_08bbfd293d324f::t_d4bfa70c8c7078 77-78
+  s_08bbfd293d324f::t_b59928a5c72835 3,9-10,15-16,23-24,29-32,50-52,70-71,75-76,79-92
+  s_08bbfd293d324f::t_ae2827820ea19c 67-69,72
+  s_08bbfd293d324f::t_97a00a90c222ad 1-2,4-8,11-14,17-22,25-28,33-49,53-66,73-74
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_86c0092b018593 557-559
+  s_08bbfd293d324f::t_e5ab51480c5bcd 554,591,695,706,719
+  s_08bbfd293d324f::t_bc606b20aa76ac 555-556,692
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_1b88990b086a1c 14,125
+  s_08bbfd293d324f::t_bb67b4d5268695 153
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_b59928a5c72835 216-221
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_40433ae2c47715 14-22
+README.md
+  s_08bbfd293d324f::t_b59928a5c72835 186-188
+scripts/patch-fill-delivery.test.mjs
+  s_08bbfd293d324f::t_8b1622fcfa9b91 1-6,10-15,21-46,377
+  s_08bbfd293d324f::t_aef76cf0c393b4 7-9,16-20,47-49,51-73,75-116,118-200,206-233,244-250,264-333,357-376
+  s_08bbfd293d324f::t_c0f96b6df91211 234-243
+  s_08bbfd293d324f::t_7516eed7b0b8a1 50,74,117,201-205
+  s_08bbfd293d324f::t_bb87e911507827 251-263,334-356
+apps/chrome-extension/browser-lifetime-backend.test.mjs
+  s_08bbfd293d324f::t_7690f1c66f12ab 197-243
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_40433ae2c47715 52-60
+scripts/browser-integration/fill-delivery-fixture.test.mjs
+  s_08bbfd293d324f::t_75cdb9fdf4be60 7,25-29,39,58,64-65,67-71,82,105-108,110-125
+  s_08bbfd293d324f::t_7b15f26a0ad874 8,245-255,259-273
+  s_08bbfd293d324f::t_84fdc421c9265f 109
+  s_08bbfd293d324f::t_57ca8c889b64a6 154-159
+  s_08bbfd293d324f::t_f7819ff3b29aa8 72-77,80,126-140
+  s_08bbfd293d324f::t_bfc8cf7af6ad67 21-23,46,59-62,66,164-172
+  s_08bbfd293d324f::t_acb650143cec6e 256-258,274-298
+  s_08bbfd293d324f::t_5ea6f18bb14ad0 1-6,9-20,24,30-36,38,42,44,47-57,63,81,83-104,173-244,299
+  s_08bbfd293d324f::t_23accde9f3a180 37,40-41,43,45,78-79,141-153,160-163
+scripts/patch-fill-delivery.mjs
+  s_08bbfd293d324f::t_1b88990b086a1c 112-131,144-145,148-149,152-156,159-160,229-230,245
+  s_08bbfd293d324f::t_0c3fc5d0bdafba 1-44,49-81,86-111,132-143,146-147,150-151,157-158,161-228,231-244,246-287
+  s_08bbfd293d324f::t_c0f96b6df91211 82-85
+  s_08bbfd293d324f::t_7516eed7b0b8a1 45-48
+docs/exec-plans/active/2026-10-12-fill-delivery.md
+  s_08bbfd293d324f::t_d4628c50792e1a 1-34,38,41-52
+  s_08bbfd293d324f::t_d4bfa70c8c7078 37,59-65
+  s_08bbfd293d324f::t_40433ae2c47715 39-40,66-71
+  s_08bbfd293d324f::t_fcf3b12c7296b8 35-36,53-58
+docs/references/vivaldi-input-diagnostic.md
+  s_08bbfd293d324f::t_b59928a5c72835 10,15-18
+  s_08bbfd293d324f::t_5c69a41ddbeac3 19
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_97a00a90c222ad 7
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_7690f1c66f12ab 20-41
+  s_08bbfd293d324f::t_a64716235c23f7 42-61
+  s_08bbfd293d324f::t_bc606b20aa76ac 62-81
+  s_08bbfd293d324f::t_2804cc0803faa5 82-104
+apps/chrome-extension/native-fill-admission.test.mjs
+  s_08bbfd293d324f::t_ba70f96222b52d 115
+  s_08bbfd293d324f::t_9ca577308f6ccb 1-41,43-45,48-114,116-117
+  s_08bbfd293d324f::t_96aa273db1599d 42,46-47
+apps/chrome-extension/browser-input-adapter.js
+  s_08bbfd293d324f::t_3058967924d8b8 68-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "dea4798aa0ca2820ec9822cc0fa8aef825e7a8db",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
