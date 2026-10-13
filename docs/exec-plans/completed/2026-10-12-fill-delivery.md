@@ -37,7 +37,7 @@ contenteditable 的事件目标可能是原 locator 的 editing host；必须明
 4. [x] 真实 Chromium 主文档/已有与动态 OOPIF：正常与变换后原 POST，
    beforeinput 取消和受控 ACK/drop 明确失败且零后续提交；维持原焦点门禁。
 5. [x] 检查生产输入回归、证据完整性、文档/history。
-6. [ ] 提交并推送 fork。
+6. [x] 提交并推送 fork。
 
 所有测试必须读取同一进程的真实退出结果；观察超时不重启测试。
 跨进程 wall-clock 只作诊断，原命令/回复和宿主事件提供因果证据。
@@ -69,3 +69,6 @@ contenteditable 的事件目标可能是原 locator 的 editing host；必须明
   4controlfocus许可；原host按既有重启对照终止，继任EOF0。独立审计修正
   专项EOF条件误用于全套的问题，以原restart的精确PID/endpoint关联核验。
   文档/仓库卫生/Action固定检查通过，旧preview三ZIP哈希不变。
+- 2026-10-13：实现与证据已以`dea4798`推送用户fork的
+  `codex/browser-use-parity`，未创建PR。此fill切片完成；完整P01–P15目标
+  仍在进行，普通Edge人工验收与P12未解决，无效组合键缺陷保留下一切片。
