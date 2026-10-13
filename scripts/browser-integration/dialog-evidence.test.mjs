@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { checkDialogEvidence } from "./dialog-evidence.mjs";
 import { dialogCases, dialogLayouts, dialogMessage } from "./dialog-fixture.mjs";
 
-function fixture(lifecycle = false, beforeunload = false) {
+function fixture(lifecycle = false, beforeunload = false, keyPrefix = "test") {
   const detail = { caller: "test", variants: [], nativeEvidence: { events: [], commands: [], overflow: false } };
+  if (keyPrefix !== "test") detail.keyPrefix = keyPrefix;
   let sequence = 0;
   const native = (item, document, decision) => {
     const target = { tabId: item.tabId }, frameId = `native-frame-${item.tabId}`;
@@ -22,7 +23,7 @@ function fixture(lifecycle = false, beforeunload = false) {
     item.server.posts.push({ method: "POST", path: "/native-dialogs/result?" + new URLSearchParams({ key: item.key }), bodyBase64: bytes.toString("base64"), bytes: bytes.length, value });
   };
   for (const [index, layout] of (lifecycle ? ["root"] : dialogLayouts).entries()) {
-    const key = lifecycle ? "js-dialog-lifecycle" : `test-dialogs-${layout}`;
+    const key = lifecycle ? "js-dialog-lifecycle" : `${keyPrefix}-dialogs-${layout}`;
     const document = { token: `original-${layout}`, href: `http://${layout === "root" ? "127.0.0.1" : "localhost"}:1234/native-dialogs${layout === "root" ? "" : "/frame"}?key=${key}&layout=${layout}`, layout, controls: true };
     const item = { key, layout, tabId: 7 + index, decisions: [], server: { documents: [document], posts: [] } }; detail.variants.push(item);
     if (layout !== "root") {
@@ -63,6 +64,14 @@ test("original 3-layout transactions bind native target/ACK/closed to exact SDK 
   assert.equal(proof.transactions.filter(item => item.role === "unmatched-default").length, 3);
   assert.equal(proof.transactions.filter(item => item.role === "unarmed-default").length, 3);
   assert.ok(value.nativeEvidence.commands.every((command, index) => command.settledAt > value.nativeEvidence.events[index * 2 + 1].at), "Closed-before-ACK must remain valid");
+});
+test("an explicit key prefix isolates new caller receipts without weakening original native identity", () => {
+  const value = fixture(false, false, "restricted-test");
+  assert.equal(checkDialogEvidence(value).commandCount, 24);
+  assert.ok(value.variants.every(item => item.key.startsWith("restricted-test-dialogs-")));
+  for (const mutate of [v => { delete v.keyPrefix; }, v => { v.keyPrefix = "other"; }, v => { v.variants[0].server.posts[0].value.key = "test-dialogs-root"; }, v => { v.nativeEvidence.commands[0].params.accept = false; }]) {
+    const changed = structuredClone(value); mutate(changed); assert.throws(() => checkDialogEvidence(changed));
+  }
 });
 test("same-count target/session substitution and a second response to the original opening are rejected", () => {
   rejects(value => { value.nativeEvidence.commands[0].target.tabId = 8; });

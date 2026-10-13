@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
 import { BrowserActionEngine } from "./browser-action-engine.js";
+import { SITE_ACCESS_POLICY_KEY, SiteAccessPolicy } from "./site-access-policy.js";
 
 const input = (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "");
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8"))
@@ -15,9 +16,13 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const url = "https://fixture.test/api";
 const event = () => { const listeners = []; return { addListener: fn => listeners.push(fn), emit: (...args) => listeners.forEach(fn => fn(...args)) }; };
 const nativeRequest = () => ({ url: () => url, method: () => "POST", resourceType: () => "fetch", frame: () => ({ url: () => "https://fixture.test" }), redirectedFrom: () => null });
+const frame = (url = "https://fixture.test", frameId = 0, parentFrameId = -1) => ({ url, frameId, parentFrameId,
+  documentId: `document-${frameId}`, documentLifecycle: "active", errorOccurred: false });
 
-async function fixture(t) {
+async function fixture(t, { restricted = false, origins = ["https://fixture.test"] } = {}) {
   const storage = {}, calls = [], tabs = new Map([[7, { id: 7, groupId: 10, windowId: 1, url: "https://fixture.test" }]]), pages = new Map();
+  if (restricted) storage[SITE_ACCESS_POLICY_KEY] = { version: 1, revision: 1, mode: "allow", origins };
+  const frames = new Map([[7, [frame()]]]), gates = [];
   const hooks = {}; let engineOptions;
   const chrome = {
     storage: { local: {
@@ -34,6 +39,8 @@ async function fixture(t) {
       async query(filter) { await hooks.query?.(); return [...tabs.values()].filter(tab => filter?.groupId === undefined || tab.groupId === filter.groupId); },
       async sendMessage() { return {}; }
     },
+    webNavigation: { onBeforeNavigate: event(), onCommitted: event(), onErrorOccurred: event(), onHistoryStateUpdated: event(), onReferenceFragmentUpdated: event(),
+      async getAllFrames({ tabId }) { await hooks.frames?.(tabId); return structuredClone(frames.get(tabId)); } },
     tabGroups: { async update() {} },
     runtime: { id: "fixture", getURL: path => `chrome-extension://fixture/${path}`, getManifest: () => ({ version: "test" }) }
   };
@@ -70,7 +77,8 @@ async function fixture(t) {
   const params = { session_id: "task", turn_id: "turn", control_epoch: current.controlEpoch, tabId: 7 };
   const otherParams = { session_id: "other", turn_id: "other-turn", control_epoch: other.controlEpoch, tabId: 7 };
   t.after(async () => {
-    hooks.query = hooks.attach = hooks.write = hooks.native = hooks.subscription = hooks.clientReply = undefined;
+    for (const gate of gates) gate.resolve();
+    for (const key of Object.keys(hooks)) delete hooks[key];
     for (const dialogs of backend.nativeDialogs.values()) for (const proof of dialogs.values()) proof.open = false;
     await backend.dialogs?.invalidateAll();
     await Promise.allSettled([...backend.browserEngine?.pages.keys() ?? []].map(id => backend.browserEngine.detach(id)));
@@ -84,15 +92,27 @@ async function fixture(t) {
     actual.catch(() => {});
     return hooks.clientReply ? hooks.clientReply(actual) : actual;
   };
-  const open = (type = "confirm", message = "Proceed?", target = { tabId: 7 }) => {
-    backend.handleCdpEvent(target, "Page.javascriptDialogOpening", { type, message, defaultPrompt: "default" });
+  const open = (type = "confirm", message = "Proceed?", target = { tabId: 7 }, native = {}) => {
+    backend.handleCdpEvent(target, "Page.javascriptDialogOpening", { type, message, defaultPrompt: "default", url: "https://fixture.test", frameId: "root", ...native });
     const dialog = { type: () => type, message: () => message, defaultValue: () => "default",
       accept: promptText => send(target, { accept: true, promptText }), dismiss: () => send(target, { accept: false }) };
     if (!pages.get(7).emit("dialog", dialog)) void (type === "beforeunload" ? dialog.accept() : dialog.dismiss()).catch(() => {});
     return dialog;
   };
-  return { backend, chrome, pages, tabs, calls, hooks, params, otherParams, arm, handle, open, send };
+  return { backend, chrome, pages, tabs, frames, calls, hooks, params, otherParams, arm, handle, open, send,
+    gate() { const gate = deferred(); gates.push(gate); return gate; } };
 }
+
+test("restricted allowed native dialog prepares and returns its one original decision", async t => {
+  const f = await fixture(t, { restricted: true });
+  const ready = await f.arm();
+  assert.ok(ready.remainingMs > 0 && ready.remainingMs <= 1000);
+  f.open();
+  const result = await f.backend.collectDialog(f.handle(ready));
+  assert.equal(result.accepted, true);
+  assert.equal(result.message, "Proceed?");
+  assert.equal(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").length, 1);
+});
 
 test("native dialog arm exposes readiness and confirms exactly one native decision", async t => {
   const f = await fixture(t);
@@ -207,4 +227,196 @@ test("foreign scopes cannot collect/cancel and ordinary beforeunload decision su
   f.backend.handleCdpEvent({ tabId: 7 }, "Page.frameRequestedNavigation", { frameId: "root" });
   f.open("beforeunload");
   assert.equal((await f.backend.collectDialog(f.handle(ready))).accepted, false);
+});
+
+test("restricted dialog refuses a denied active iframe before attaching or subscribing", async t => {
+  const f = await fixture(t, { restricted: true });
+  f.frames.get(7).push(frame("https://denied.test/private", 2, 0));
+  await assert.rejects(f.arm(), /OBU_SITE_ACCESS_DENIED/);
+  assert.equal(f.calls.some(([name]) => ["raw-attach", "engine-attach", "subscription", "Page.handleJavaScriptDialog"].includes(name)), false);
+});
+
+test("restricted dialog cannot become ready after policy changes during the actual subscription ACK", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate();
+  f.hooks.subscription = ({ enabled }) => { if (enabled) { entered.resolve(); return gate.promise; } };
+  const outcome = f.arm().then(value => ({ value }), error => ({ error }));
+  await entered.promise;
+  // Isolate the final permission fence: the policy stays allowing this URL,
+  // but this original subscription must not silently adopt its new revision.
+  await f.backend.siteAccess.replace({ mode: "allow", origins: ["https://fixture.test"] }, 1, f.backend.siteAccess.generation);
+  gate.resolve();
+  assert.match((await outcome).error?.message ?? "unexpected ready", /OBU_SITE_ACCESS_|OBU_DIALOG_EXPIRED/);
+  assert.equal(f.calls.some(([name]) => name === "Page.handleJavaScriptDialog"), false);
+});
+
+test("trusted policy change waits for the original dialog subscription before saving and never publishes ready", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate();
+  f.hooks.subscription = ({ enabled }) => { if (enabled) { entered.resolve(); return gate.promise; } };
+  const outcome = f.arm().then(value => ({ value }), error => ({ error }));
+  await entered.promise;
+  let writes = 0, saved = false;
+  f.hooks.write = value => { if (Object.hasOwn(value, SITE_ACCESS_POLICY_KEY)) writes++; };
+  const saving = f.backend.setSiteAccessPolicy({ mode: "allow", origins: ["https://fixture.test"] }, 1,
+    f.backend.siteAccess.generation).then(value => { saved = true; return value; });
+  await tick();
+  assert.equal(saved, false); assert.equal(writes, 0);
+  assert.equal(f.backend.automationControl.inputBlocked, true);
+  gate.resolve(); await saving;
+  assert.ok((await outcome).error);
+  assert.equal(writes, 1);
+  assert.equal(f.backend.automationControl.status().state, "paused");
+  assert.equal(f.calls.some(([name]) => name === "Page.handleJavaScriptDialog"), false);
+});
+
+test("restricted subscription cannot adopt a fresh policy generation with the same stored revision and settings", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate();
+  f.hooks.subscription = ({ enabled }) => { if (enabled) { entered.resolve(); return gate.promise; } };
+  const outcome = f.arm().then(value => ({ value }), error => ({ error }));
+  await entered.promise;
+  const previous = f.backend.siteAccess;
+  // This isolates generation ABA using the actual policy reader, without
+  // claiming a worker restart or changing any durable policy fields.
+  const restored = new SiteAccessPolicy({ storage: previous.storage });
+  await restored.ready;
+  assert.equal(restored.status().revision, previous.status().revision);
+  assert.notEqual(restored.generation, previous.generation);
+  f.backend.siteAccess = restored;
+  gate.resolve();
+  assert.match((await outcome).error?.message ?? "unexpected ready", /OBU_SITE_ACCESS_UNVERIFIED/);
+  assert.equal(f.calls.some(([name]) => name === "Page.handleJavaScriptDialog"), false);
+});
+
+test("restricted dialog cancellation releases its own listener even when live site inspection is no longer available", async t => {
+  const f = await fixture(t, { restricted: true }), ready = await f.arm(), entered = f.gate(), gate = f.gate();
+  f.frames.get(7).push(frame("https://denied.test/private", 2, 0));
+  let inspections = 0;
+  f.hooks.frames = () => { inspections++; throw new Error("revoked document inspection must not be required for cleanup"); };
+  f.hooks.subscription = ({ enabled }) => { if (!enabled) { entered.resolve(); return gate.promise; } };
+  let cancelled = false;
+  const cancelling = f.backend.cancelDialog(f.handle(ready)).then(() => { cancelled = true; });
+  await entered.promise; await tick();
+  assert.equal(cancelled, false);
+  assert.equal(f.backend.dialogs.byTab.size, 1);
+  gate.resolve(); await cancelling;
+  assert.equal(inspections, 0);
+  assert.equal(f.pages.get(7).listenerCount("dialog"), 0);
+  assert.equal(f.backend.dialogs.byTab.size, 0);
+  assert.deepEqual(f.calls.filter(([name]) => name === "subscription").map(value => value[1]), [true, false]);
+  assert.equal(f.calls.some(([name]) => name === "Page.handleJavaScriptDialog"), false);
+});
+
+test("restricted dialog cannot become ready after its same-URL root document is replaced during subscription ACK", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate();
+  f.hooks.subscription = ({ enabled }) => { if (enabled) { entered.resolve(); return gate.promise; } };
+  const outcome = f.arm().then(value => ({ value }), error => ({ error }));
+  await entered.promise;
+  f.frames.get(7)[0].documentId = "replacement-document";
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 0, url: "https://fixture.test", documentId: "replacement-document" });
+  f.backend.handleCdpEvent({ tabId: 7 }, "Page.frameNavigated", { frame: { id: "root", url: "https://fixture.test" } });
+  gate.resolve();
+  assert.match((await outcome).error?.message ?? "unexpected ready", /OBU_DIALOG_EXPIRED|OBU_SITE_ACCESS_/);
+  assert.equal(f.calls.some(([name]) => name === "Page.handleJavaScriptDialog"), false);
+});
+
+test("restricted selected dialog cannot borrow an allowed tree for a forbidden or unknown original emitter", async t => {
+  for (const [label, native] of [
+    ["denied HTTP origin", { url: "https://denied.test/removed-emitter" }],
+    ["opaque data", { url: "data:text/html,private" }],
+    ["opaque blob", { url: "blob:https://fixture.test/original" }],
+    ["unproven blank inheritance", { url: "about:blank" }],
+    ["unproven srcdoc inheritance", { url: "about:srcdoc" }],
+    ["missing URL", { url: undefined }],
+    ["missing native frame identity", { frameId: undefined }]
+  ]) await t.test(label, async t => {
+    const f = await fixture(t, { restricted: true }), ready = await f.arm({ type: "prompt", promptText: "authorized reply" });
+    f.open("prompt", "forbidden native message", { tabId: 7 }, native);
+    await assert.rejects(f.backend.collectDialog(f.handle(ready)), error => {
+      assert.match(error.message, /OBU_SITE_ACCESS_|OBU_DIALOG_/);
+      assert.equal(error.message.includes("forbidden native message"), false);
+      return true;
+    });
+    assert.deepEqual(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").map(value => value[2]), [{ accept: false }]);
+  });
+});
+
+test("restricted ready policy can inspect a newly allowed OOPIF and answer its root-routed dialog", async t => {
+  const f = await fixture(t, { restricted: true, origins: ["https://fixture.test", "https://child.fixture.test"] }), ready = await f.arm();
+  f.frames.get(7).push(frame("https://child.fixture.test/new-frame", 2, 0));
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 2, url: "https://child.fixture.test/new-frame", documentId: "document-2" });
+  f.backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", {
+    sessionId: "child-session", targetInfo: { targetId: "native-child", type: "iframe", url: "https://child.fixture.test/new-frame" }
+  });
+  f.backend.handleCdpEvent({ tabId: 7, sessionId: "child-session" }, "Page.frameNavigated", { frame: { id: "native-child", url: "https://child.fixture.test/new-frame" } });
+  f.open("confirm", "New child?", { tabId: 7 }, { frameId: "native-child", url: "https://child.fixture.test/new-frame" });
+  assert.equal((await f.backend.collectDialog(f.handle(ready))).message, "New child?");
+  assert.deepEqual(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").map(value => value[2].accept), [true]);
+});
+
+test("restricted root-routed child decision cannot survive native frame navigation or removal", async t => {
+  for (const mutation of ["navigate", "remove", "detach"]) await t.test(mutation, async t => {
+    const f = await fixture(t, { restricted: true }), ready = await f.arm(), entered = f.gate(), gate = f.gate();
+    f.frames.get(7).push(frame("https://fixture.test/child", 2, 0));
+    f.backend.handleCdpEvent({ tabId: 7 }, "Target.attachedToTarget", {
+      sessionId: "child-session", targetInfo: { targetId: "native-child", type: "iframe", url: "https://fixture.test/child" }
+    });
+    f.hooks.query = () => { entered.resolve(); return gate.promise; };
+    f.open("confirm", "Old child?", { tabId: 7 }, { frameId: "native-child", url: "https://fixture.test/child" });
+    await entered.promise;
+    if (mutation === "navigate") f.backend.handleCdpEvent({ tabId: 7, sessionId: "child-session" }, "Page.frameNavigated", {
+      frame: { id: "native-child", url: "https://fixture.test/replacement" }
+    });
+    else if (mutation === "remove") f.backend.handleCdpEvent({ tabId: 7 }, "Page.frameDetached", { frameId: "native-child", reason: "remove" });
+    else f.backend.handleCdpEvent({ tabId: 7 }, "Target.detachedFromTarget", { sessionId: "child-session" });
+    f.hooks.query = undefined; gate.resolve();
+    await assert.rejects(f.backend.collectDialog(f.handle(ready)), /OBU_DIALOG_EXPIRED|OBU_SITE_ACCESS_/);
+    assert.equal(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").length, 0, "neither explicit nor default may affect a replacement dialog");
+  });
+});
+
+test("restricted native ACK stays in Pause drain after the client reply rejects early", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate(), ready = await f.arm();
+  f.hooks.native = (_target, method) => { if (method === "Page.handleJavaScriptDialog") { entered.resolve(); return gate.promise; } };
+  f.hooks.clientReply = () => Promise.reject(new Error("client channel closed early"));
+  const outcome = f.backend.collectDialog(f.handle(ready)).then(value => ({ value }), error => ({ error }));
+  f.open(); await entered.promise;
+  let paused = false;
+  const pausing = f.backend.pauseAutomation().then(() => { paused = true; });
+  await tick(); await tick();
+  assert.equal(paused, false);
+  assert.equal(f.backend.nativeDialogOperations.size, 1);
+  assert.equal(f.calls.some(([name]) => ["detach", "engine-detach"].includes(name)), false);
+  gate.resolve(); await pausing;
+  assert.ok((await outcome).error, "withdrawn dialog data must not be returned");
+  assert.equal(f.backend.nativeDialogOperations.size, 0);
+  assert.equal(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").length, 1);
+  assert.equal(f.backend.automationControl.status().state, "paused");
+});
+
+test("restricted collection rechecks permission after actual subscription cleanup ACK", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate(), ready = await f.arm();
+  f.hooks.subscription = ({ enabled }) => { if (!enabled) { entered.resolve(); return gate.promise; } };
+  const outcome = f.backend.collectDialog(f.handle(ready)).then(value => ({ value }), error => ({ error }));
+  f.open("confirm", "original private message"); await entered.promise;
+  await tick();
+  await f.backend.siteAccess.replace({ mode: "allow", origins: ["https://fixture.test"] }, 1, f.backend.siteAccess.generation);
+  gate.resolve();
+  assert.match((await outcome).error?.message ?? "unexpected old dialog result", /OBU_SITE_ACCESS_|OBU_DIALOG_EXPIRED/);
+  assert.equal(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").length, 1);
+});
+
+test("restricted matched result retains its original child identity after a later root dialog replaces the native map entry", async t => {
+  const f = await fixture(t, { restricted: true }), entered = f.gate(), gate = f.gate(), ready = await f.arm();
+  f.frames.get(7).push(frame("https://fixture.test/child", 2, 0));
+  f.hooks.subscription = ({ enabled }) => { if (!enabled) { entered.resolve(); return gate.promise; } };
+  const outcome = f.backend.collectDialog(f.handle(ready)).then(value => ({ value }), error => ({ error }));
+  f.open("confirm", "old child message", { tabId: 7 }, { frameId: "native-child", url: "https://fixture.test/child" });
+  await entered.promise; await tick();
+  assert.equal(f.backend.dialogs.records.get(ready.dialogId).state, "matched");
+  f.backend.handleCdpEvent({ tabId: 7 }, "Page.javascriptDialogClosed", { frameId: "native-child" });
+  f.open("alert", "unrelated root dialog"); await tick();
+  f.backend.handleCdpEvent({ tabId: 7 }, "Page.frameDetached", { frameId: "native-child", reason: "remove" });
+  f.frames.set(7, [frame()]);
+  gate.resolve();
+  assert.match((await outcome).error?.message ?? "unexpected old child result", /OBU_SITE_ACCESS_|OBU_DIALOG_EXPIRED/);
+  assert.deepEqual(f.calls.filter(([name]) => name === "Page.handleJavaScriptDialog").map(value => value[2].accept), [true, false]);
 });

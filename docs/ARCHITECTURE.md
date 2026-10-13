@@ -34,7 +34,11 @@ debugger、history 和 tab groups。
   popup 明确选择新权限后替换，保持暂停；运行时代号与 revision 共同约束
   保存、重试及文档证明，持久 v1 格式不变。契约及待验收范围见[网站权限](references/site-access-policy.md)。
   原生弹窗由 `browser-dialogs.js` 管理一次性决策，注册及处理均等待真实回执；
-  backend 保留原 attachment 的在途响应直到清理确认。五入口使用同一协议，
+  backend 保留原 attachment 的在途响应直到清理确认。受限网站也可使用三条
+  弹窗接口，决策绑定原生 emitter URL/frame、原文档与原策略代号；异步清理
+  后再次验证原权限才交付。允许的 frame 在权限读取期间提交时，仅在原一秒
+  期限内最多读取八次完整快照，拒绝或撤权立即失败，实际输入不重放。
+  五入口使用同一协议，
   `beforeunload` 的浏览器原生激活仍是后台限制，见[原生弹窗](references/native-dialogs.md)。
   新页等待由独立 `browser-page-waits.js` 与 `browser-page-frames.js` 管理原期限、
   原生来源事件及 frame/document 生命周期，backend 只接纳确切子页且保留原窗口。

@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+受限网站现支持原生 alert/confirm/prompt 决策，固定原 emitter、文档及策略，
+收集在实际清理完成后再验原权限。允许的 iframe 在权限检查期间提交不再误撤权；
+只重读完整允许快照，沿用原一秒期限且上限八次，绝不重放输入。专项 `cin0qm`
+10/10 actual exit 0，五入口×三布局 105 原 POST/26,592B、120 原生响应独立
+核验；37,425ms 无 activation，仅原两次 popup focus。Node 3251 pass/1 既有
+Windows symlink skip，原失败和诊断保留。完整 `BNmZJb` 156/156 actual exit 0，
+旧150名称/顺序保持；466,299ms仅原12 activation/4 control-focus许可，源码、
+运行时、构建及清理均独立核验。普通 Edge 和
+`beforeunload` 后台限制继续开放，见[原生弹窗](references/native-dialogs.md)。
+
 已补网站权限损坏记录的显式替换：用户独立选择新权限，原生保存后仍暂停；
 运行时代号与 revision 防止旧请求和旧文档证明复用。专项 `cnAeAG` 4/4
 actual exit 0，原 get/set ACK、唯一 1047B trusted POST、旧任务拒绝及原

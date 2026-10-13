@@ -53,7 +53,7 @@ export function checkSiteAccessInvalidNative(snapshot, malformed, replacement, {
 }
 
 export async function checkSiteAccessInvalidReplacement({ connectBrowser, getWorker, connectPage, popupURL, windowId, fixtureURL,
-  restartWorker, capture, saveDetail, until, traceFocus, fixtures, markerKey, nonce, existingPopup }) {
+  restartWorker, capture, saveDetail, until, traceFocus, fixtures, markerKey, nonce, existingPopup, afterRestore }) {
   const detail = { popupOwnership: existingPopup ? "borrowed" : "owned", boundary: "Actual malformed policy setup and actual worker restart; native successful read/unique replacement write observed without fault injection. Explicit popup replacement stays paused; no corruption fallback or browser action replay." };
   const browser = await connectBrowser("site-access-invalid"), key = `startup-${randomBytes(16).toString("hex")}`, url = new URL("/site-access-startup/page", fixtureURL); url.searchParams.set("key", key);
   let popup = existingPopup, tab, failure, armed = false, safeToRestore = true;
@@ -127,6 +127,7 @@ export async function checkSiteAccessInvalidReplacement({ connectBrowser, getWor
       }
     } catch (error) { detail.restoreError = errorText(error); failure ??= error; }
     if (tab) try { await getWorker().evaluate(`chrome.tabs.remove(${tab.id})`); } catch (error) { detail.tabCleanupError = errorText(error); failure ??= error; }
+    if (!failure && afterRestore) try { await afterRestore(popup); } catch (error) { detail.afterRestoreError = errorText(error); failure ??= error; }
     if (popup && !existingPopup) try { await traceFocus("invalid-popup:before-close"); try { await popup.evaluate("window.close()"); } catch {} popup.close(); await traceFocus("invalid-popup:after-close"); } catch (error) { detail.popupCleanupError = errorText(error); failure ??= error; }
     try { browser.close(); } catch (error) { detail.connectionCleanupError = errorText(error); failure ??= error; }
     if (failure) detail.error = errorText(failure); try { await saveDetail(detail); } catch (error) { failure ??= error; }

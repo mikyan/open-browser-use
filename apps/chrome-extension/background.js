@@ -762,6 +762,7 @@ class BrowserBackend {
     this.networkWaits = new BrowserNetworkWaits();
     this.dialogs = new BrowserDialogs();
     this.nativeDialogs = new Map(); this.dialogResponses = new Map(); this.dialogResponseQueues = new Map();
+    this.dialogFrameTargetsByTabId = new Map();
     this.nativeDialogOperations = new Set();
     this.navigationWaits = new BrowserNavigationWaits();
     this.directDownloads = new BrowserDownloads({ downloads: chrome.downloads, extensionId: chrome.runtime?.id,
@@ -1260,7 +1261,7 @@ class BrowserBackend {
     if (!this.siteAccess.restricted) return;
     // These channels can expose origins other than the tab's live documents.
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
-    const unsupported = ["armDialog", "collectDialog", "cancelDialog", "executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
+    const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
       "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
     if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && ["diagnostics", "responseBody"].includes(params?.action)) || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
@@ -1401,25 +1402,49 @@ class BrowserBackend {
   async assertSiteTab(tabId, { recover = false, allowBlank = false } = {}) {
     this.siteAccess.assertReady();
     if (!this.siteAccess.restricted) return;
-    if (!recover && this.siteRevokedTabs.has(tabId)) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
+    const wasRevoked = this.siteRevokedTabs.has(tabId);
+    if (!recover && wasRevoked) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
     const revision = this.siteAccess.status().revision;
     const generation = this.siteAccess.generation;
-    const version = this.siteNavigationVersions.get(tabId) ?? 0;
-    for (const [frameId, url] of this.sitePendingFrames.get(tabId) ?? []) {
-      if (frameId !== 0 && ["about:blank", "about:srcdoc"].includes(url)) continue;
-      this.siteAccess.assertUrl(url, { allowBlank: frameId === 0 && allowBlank });
-    }
-    try {
-      const [tab, frames] = await withTimeout(1000, () => Promise.all([
-        chrome.tabs.get(tabId), chrome.webNavigation.getAllFrames({ tabId })
-      ]), () => new Error("OBU_SITE_ACCESS_UNVERIFIED: document inspection timed out"));
-      assertSiteAccessFrames(this.siteAccess, tab, frames);
-      if (!allowBlank && tab.url === "about:blank") throw new Error("OBU_SITE_ACCESS_UNVERIFIED: blank documents are available only for navigation to an allowed website");
+    const deadlineAt = performance.now() + 1000;
+    let expired = false;
+    const timeout = () => { expired = true; return new Error("OBU_SITE_ACCESS_UNVERIFIED: document inspection timed out"); };
+    const current = () => {
+      if (expired || performance.now() >= deadlineAt) throw timeout();
       this.siteAccess.assertReady();
-      if (generation !== this.siteAccess.generation || revision !== this.siteAccess.status().revision || version !== (this.siteNavigationVersions.get(tabId) ?? 0))
-        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: documents changed during permission inspection");
-      if (recover) this.siteRevokedTabs.delete(tabId);
-      return { tabId, generation, revision, version, documentId: frames.find(frame => frame.frameId === 0)?.documentId };
+      if (generation !== this.siteAccess.generation || revision !== this.siteAccess.status().revision)
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: permissions changed during document inspection");
+      if (this.siteRevokedTabs.has(tabId) && !wasRevoked)
+        throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
+    };
+    try {
+      return await withTimeout(1000, async () => {
+        // An allowed frame may commit while Chrome answers these independent
+        // reads. Reinspect only a valid but changed snapshot, never an input.
+        // One original deadline and a read cap also bound synchronous churn.
+        for (let attempt = 0; attempt < 8; attempt++) {
+          current();
+          const version = this.siteNavigationVersions.get(tabId) ?? 0;
+          for (const [frameId, url] of this.sitePendingFrames.get(tabId) ?? []) {
+            if (frameId !== 0 && ["about:blank", "about:srcdoc"].includes(url)) continue;
+            this.siteAccess.assertUrl(url, { allowBlank: frameId === 0 && allowBlank });
+          }
+          const [tab, frames] = await Promise.all([chrome.tabs.get(tabId), chrome.webNavigation.getAllFrames({ tabId })]);
+          current();
+          assertSiteAccessFrames(this.siteAccess, tab, frames);
+          if (!allowBlank && tab.url === "about:blank") throw new Error("OBU_SITE_ACCESS_UNVERIFIED: blank documents are available only for navigation to an allowed website");
+          if (version !== (this.siteNavigationVersions.get(tabId) ?? 0)) {
+            // Existing revoked control retains its explicit single-snapshot
+            // recovery boundary; it cannot migrate through another navigation.
+            if (wasRevoked) break;
+            continue;
+          }
+          current();
+          if (recover) this.siteRevokedTabs.delete(tabId);
+          return { tabId, generation, revision, version, documentId: frames.find(frame => frame.frameId === 0)?.documentId };
+        }
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: documents did not stabilize during permission inspection");
+      }, timeout);
     } catch (error) {
       this.revokeSiteTab(tabId);
       if (/^OBU_SITE_ACCESS_/.test(error?.message)) throw error;
@@ -2670,10 +2695,36 @@ class BrowserBackend {
       check(); await checkPage(); check();
       this.rememberAttachmentOwner(params, params.tabId);
       const scope = { ...this.attachmentOwners.get(params.tabId) };
+      const policy = this.siteAccess.status();
+      let siteProof, selectedDocument;
+      const assertPolicy = () => {
+        this.siteAccess.assertReady();
+        if (policy.generation !== this.siteAccess.generation || policy.revision !== this.siteAccess.status().revision)
+          throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original dialog permissions changed");
+      };
+      const assertScope = value => {
+        this.assertControlOpen(); this.assertTransferScope(value); assertPolicy(); this.assertSiteProof(siteProof);
+        if (selectedDocument && this.siteAccess.restricted) {
+          this.siteAccess.assertUrl(selectedDocument.url);
+          if (typeof selectedDocument.frameId !== "string" || !selectedDocument.frameId || !selectedDocument.documentValid ||
+              selectedDocument.documentRevision !== (this.exportDocumentRevisions.get(value.tabId) ?? 0))
+            throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original dialog document changed or could not be identified");
+        }
+      };
       return this.dialogs.arm(record, page, scope, {
-        validateScope: value => this.validateTransferScope(value),
-        assertScope: value => { this.assertControlOpen(); this.assertTransferScope(value); },
-        prepareResponse: (value, dialog) => this.prepareDialogResponse(value, dialog)
+        validateScope: async value => {
+          // Pending waits may admit a newly allowed frame. A completed result
+          // must never refresh its authority onto a successor document.
+          assertPolicy();
+          if (record.state === "matched") assertScope(value);
+          await this.validateTransferScope(value);
+          const proof = await this.assertSiteTab(value.tabId);
+          this.assertTransferScope(value); assertPolicy(); this.assertSiteProof(proof);
+          if (record.state === "matched") assertScope(value);
+          siteProof = proof;
+        },
+        assertScope,
+        prepareResponse: (value, dialog) => this.prepareDialogResponse(value, dialog, proof => { selectedDocument = proof; })
       });
     });
   }
@@ -2688,12 +2739,12 @@ class BrowserBackend {
     return this.dialogs.cancel(params);
   }
 
-  prepareDialogResponse(scope, dialog) {
+  prepareDialogResponse(scope, dialog, onSelected) {
     // Native dialogs have no CDP dialog ID. Preserve each open target's exact
     // generation at delivery, and bind the one selected by CRX at native send.
     const proof = new Map(this.nativeDialogs.get(scope.tabId) ?? []);
     return (decision, check) => {
-      const ticket = { scope, proof, decision, check, pending: new Set(), sent: false, fallback: false };
+      const ticket = { scope, proof, decision, check, onSelected, pending: new Set(), sent: false, fallback: false };
       const previous = this.dialogResponseQueues.get(scope.tabId) ?? Promise.resolve();
       const actual = previous.catch(() => {}).then(async () => {
         this.dialogResponses.set(scope.tabId, ticket);
@@ -2742,7 +2793,10 @@ class BrowserBackend {
     if (!original || !proof?.open || current !== proof || proof.attachment !== ticket.scope.attachment || ticket.sent)
       throw new Error("OBU_DIALOG_EXPIRED: original native dialog is no longer open");
     let command = params;
-    try { ticket.check?.(); }
+    try {
+      if (ticket.check) ticket.onSelected?.(proof);
+      ticket.check?.();
+    }
     catch (reason) {
       ticket.fallback = true; ticket.error = reason;
       command = { accept: proof.type === "beforeunload" };
@@ -3098,6 +3152,7 @@ class BrowserBackend {
     this.networkWaits.invalidateAttachedTab(tabId);
     void this.dialogs.invalidateAttachedTab(tabId).catch(() => {});
     this.nativeDialogs.delete(tabId);
+    this.dialogFrameTargetsByTabId.delete(tabId);
     this.navigationWaits.invalidateAttachedTab(tabId);
     this.directoryUploads.invalidate({ tabId, attachment: this.attachmentEpochs.get(tabId) }, new Error("OBU_TRANSFER_CANCELLED: browser attachment changed"));
     this.fileInputDocumentsByTabId.delete(tabId);
@@ -4419,22 +4474,39 @@ class BrowserBackend {
     if (!Number.isInteger(tabId) || (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId))) return;
     if (["Page.frameNavigated", "Page.documentOpened"].includes(method) && !params.frame?.parentId) {
       if (!source.sessionId) void this.dialogs.documentChanged(tabId).catch(() => {});
-      const open = this.nativeDialogs.get(tabId)?.get(source.sessionId ?? "");
-      if (open) open.open = false;
+    }
+    if (["Page.frameNavigated", "Page.documentOpened", "Page.frameDetached"].includes(method)) {
+      const frameId = params.frameId ?? params.frame?.id;
+      const wholeTab = method !== "Page.frameDetached" && !source.sessionId && !params.frame?.parentId;
+      for (const [key, dialog] of this.nativeDialogs.get(tabId) ?? []) {
+        // OOPIF dialog events can be delivered through the root CDP session.
+        // Match the browser-issued emitter frame, not just source.sessionId.
+        if (wholeTab || (typeof frameId === "string" && dialog.frameId === frameId) ||
+            (frameId === undefined && key === (source.sessionId ?? ""))) {
+          dialog.open = false; dialog.documentValid = false;
+        }
+      }
     }
     if (method === "Page.javascriptDialogOpening") {
       let dialogs = this.nativeDialogs.get(tabId);
       if (!dialogs) this.nativeDialogs.set(tabId, dialogs = new Map());
       const key = source.sessionId ?? "";
       const previous = dialogs.get(key); if (previous) previous.open = false;
-      dialogs.set(key, { attachment: this.attachmentEpochs.get(tabId), type: params.type, open: true });
+      dialogs.set(key, { attachment: this.attachmentEpochs.get(tabId), type: params.type, open: true,
+        url: params.url, frameId: params.frameId, documentValid: true,
+        documentRevision: this.exportDocumentRevisions.get(tabId) ?? 0 });
     } else if (method === "Page.javascriptDialogClosed") {
       const dialog = this.nativeDialogs.get(tabId)?.get(source.sessionId ?? "");
       if (dialog) dialog.open = false;
     } else if (method === "Target.detachedFromTarget") {
-      const dialog = this.nativeDialogs.get(tabId)?.get(params.sessionId);
-      if (dialog) dialog.open = false;
+      const frameId = this.dialogFrameTargetsByTabId.get(tabId)?.get(params.sessionId) ?? params.targetId;
+      for (const [key, dialog] of this.nativeDialogs.get(tabId) ?? []) {
+        if (key === params.sessionId || (typeof frameId === "string" && dialog.frameId === frameId)) {
+          dialog.open = false; dialog.documentValid = false;
+        }
+      }
       this.nativeDialogs.get(tabId)?.delete(params.sessionId);
+      this.dialogFrameTargetsByTabId.get(tabId)?.delete(params.sessionId);
     }
     if (["Page.frameNavigated", "Page.documentOpened", "Page.frameAttached", "Page.frameDetached"].includes(method) ||
         (method === "Target.attachedToTarget" && params.targetInfo?.type === "iframe") ||
@@ -4451,6 +4523,10 @@ class BrowserBackend {
     if (method === "Target.attachedToTarget" && typeof params.sessionId === "string" && params.targetInfo?.type === "iframe") {
       const sessions = this.childSessionsByTabId.get(tabId) ?? new Set();
       sessions.add(params.sessionId); this.childSessionsByTabId.set(tabId, sessions);
+      if (typeof params.targetInfo.targetId === "string") {
+        const frames = this.dialogFrameTargetsByTabId.get(tabId) ?? new Map();
+        frames.set(params.sessionId, params.targetInfo.targetId); this.dialogFrameTargetsByTabId.set(tabId, frames);
+      }
       const frame = joining && chooserWait.newFrames.get(params.targetInfo.targetId);
       if (frame && !frame.navigated && !frame.childSessionId && frame.parentSessionId === source.sessionId && frame.parentFrameId === params.targetInfo.parentFrameId)
         frame.childSessionId = params.sessionId;
@@ -5093,7 +5169,9 @@ class BrowserBackend {
       throw new Error(`Tab ${tabId} is not part of browser session ${session.sessionId}`);
     }
     assertControllableTab(tab);
-    if (command !== "detach") await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
+    // Cancellation reveals no page content and must drain the original wait
+    // even when that site's permission can no longer be inspected.
+    if (command !== "detach" && command !== "cancelDialog") await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
     if (command !== "detach") this.assertAttachmentAdmission(tabId);
     this.controlLedger.assertCurrent(params);
   }

@@ -25,6 +25,15 @@
 
 ## 当前并行切片
 
+2026-10-14 [受限网站原生弹窗](../completed/2026-10-14-restricted-native-dialogs.md)已完成
+实现和专项 `cin0qm` 10/10 actual exit 0：五入口×三布局 105 原 POST/26,592B、
+120 原生响应，原策略、emitter 与文档身份、cleanup 均独立核验。37,425ms
+仅原两次 popup focus、零 activation。允许 iframe 提交的权限竞态采用原期限
+内最多八次只读检查修复，不重放输入；Node 3251 pass/1 既有 skip。完整
+`BNmZJb` 156/156 actual exit 0，旧150名称/顺序保持，466,299ms仅原12
+activation/4 control-focus许可，源码/运行时及原host清理独立核验。普通 Edge
+人工授权、beforeunload 后台限制和整体目标仍开放。
+
 2026-10-14 已完成[损坏网站权限的显式替换](../completed/2026-10-14-invalid-site-policy-replacement.md)：
 可信 popup 独立选择权限，真实写入后保持暂停；运行时代号防止旧窗口和文档证明
 跨替换复用，持久 v1 不变。专项 `cnAeAG` 4/4 actual exit 0，原损坏记录读取、

@@ -132,7 +132,7 @@ export function checkDialogEvidence(detail, { lifecycle = false, beforeunload = 
     expected.forEach((value, index) => proof.push(matchNative(transactions[index], value, item, document)));
   } else {
     for (const item of detail.variants) {
-      assert.equal(item.key, `${detail.caller}-dialogs-${item.layout}`);
+      assert.equal(item.key, `${detail.keyPrefix ?? detail.caller}-dialogs-${item.layout}`);
       const document = documentFor(item.server, item.layout), expected = [];
       assert.equal(item.decisions.length, dialogCases.length); assert.equal(item.server.posts.length, dialogCases.length + 1);
       for (const [index, selected] of dialogCases.entries()) {

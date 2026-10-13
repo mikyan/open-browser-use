@@ -150,11 +150,23 @@ In either restricted mode:
   are checked before dispatch. Each CRX native command and returned browser action
   rechecks document permission; a generation/revision/navigation proof prevents a stale
   asynchronous inspection from authorizing the next command.
+- If an allowed frame commits during an otherwise valid inspection, only the
+  read-only tab/frame snapshot is repeated, at most eight times within the same
+  original 1,000ms deadline. Policy changes, real revocation and invalid or denied
+  snapshots are never retried. Late reads cannot publish a proof or clear revoked
+  control after timeout. Input is not replayed. Recovery of already-revoked control
+  still requires one stable snapshot.
 - Existing semantic locators, snapshots, screenshots and navigation browser
   actions remain available. The native selector parser rejects custom engines,
   React/Vue object traversal and unknown internal control commands; ordinary
   text/CSS/XPath literals keep their native meaning. Capture refs retain their
   existing lifetime checks.
+- Native dialog decisions check the complete frame tree and the original
+  browser-issued emitter URL/frame identity. Policy generation and revision
+  remain fixed throughout the wait; selected document authority is checked at
+  native dispatch and after actual cleanup before returning content. Opaque
+  or unproven inherited emitters fail closed. Cancellation can drain its exact
+  owned subscription without a new site inspection. See [native dialogs](native-dialogs.md).
 - Arbitrary public CDP, clipboard, WebMCP, network waits/diagnostics, file choosers,
   direct downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
   notifications are suppressed. These channels can refer to origins outside the
@@ -245,6 +257,17 @@ source/runtime drift, retaining the previous 149 case names and order. The
 444,495 ms observer interval retains only the existing 12 exact activations and
 four control-popup focus allowances. Ordinary installation and overall parity
 remain separate acceptance work.
+
+Restricted native-dialog acceptance is recorded in the
+[dialog contract](native-dialogs.md#verification) and
+[completed plan](../exec-plans/completed/2026-10-14-restricted-native-dialogs.md).
+Focused `cin0qm` passes 10/10 and complete `BNmZJb` passes 156/156 with actual
+exit 0, unchanged source/runtime identities and no new focus allowance. The
+real allowed-child commit race is retained as a failing passive diagnostic;
+its fix is bounded read-only reinspection, never input replay. Actual policy
+confirmation/readback and Pause/Resume are checked, without a separate
+storage.set call-count observer. Ordinary installed-browser acceptance remains
+open, and beforeunload's native activation is not resolved by this slice.
 
 Primary API references checked for this implementation:
 

@@ -172,7 +172,7 @@ export class BrowserDialogs {
     record.responses.add(actual);
     actual.finally(() => record.responses.delete(actual)).catch(() => {});
     actual.catch(reason => {
-      this.fail(record, /^OBU_DIALOG_/.test(reason?.message ?? "") ? reason : error("FAILED", "native dialog decision failed"));
+      this.fail(record, /^OBU_(?:DIALOG|SITE_ACCESS)_/.test(reason?.message ?? "") ? reason : error("FAILED", "native dialog decision failed"));
     });
   }
   lookup(params) {
@@ -189,6 +189,10 @@ export class BrowserDialogs {
     if (record.invalid || this.records.get(record.dialogId) !== record) throw record.error ?? expired();
     record.assertScope(record.scope);
     await record.cleanup;
+    // The native unsubscribe ACK can outlive the original authority. Recheck
+    // that same record/proof synchronously; a fresh read cannot reauthorize it.
+    if (record.invalid || this.records.get(record.dialogId) !== record) throw record.error ?? expired();
+    record.assertScope(record.scope);
     return structuredClone(record.value);
   }
   invalidate(record, reason = expired(), retry = true) {

@@ -6,13 +6,15 @@ from urllib.parse import urlencode, urlsplit
 from open_browser_use import connect_open_browser_use
 
 
-def run(endpoint, base, prefix, cases):
+def run(endpoint, base, prefix, cases, key_prefix="python"):
     assert urlsplit(base).hostname in {"127.0.0.1", "localhost"}
     browser = connect_open_browser_use(endpoint, session_id=prefix, turn_id="dialog-decisions", timeout=15)
     detail = {"caller": "python", "variants": [], "passed": False}
+    if key_prefix != "python":
+        detail["keyPrefix"] = key_prefix
     try:
         for layout in ["root", "oopif", "dynamic-oopif"]:
-            key = "python-dialogs-" + layout
+            key = key_prefix + "-dialogs-" + layout
             tab = browser.new_tab()
             item = {"key": key, "layout": layout, "tabId": tab.id, "decisions": []}
             detail["variants"].append(item)
@@ -52,10 +54,12 @@ def run(endpoint, base, prefix, cases):
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
-    endpoint, base, prefix, config, output = sys.argv[1:]
+    endpoint, base, prefix, config, output = sys.argv[1:6]
+    assert len(sys.argv) in {6, 7}
+    key_prefix = sys.argv[6] if len(sys.argv) == 7 else "python"
     failure = None
     try:
-        result = run(endpoint, base, prefix, json.loads(Path(config).read_text(encoding="utf-8")))
+        result = run(endpoint, base, prefix, json.loads(Path(config).read_text(encoding="utf-8")), key_prefix)
     except Exception as error:
         failure = error
         result = {**getattr(error, "dialog_detail", {}), "error": str(error)}

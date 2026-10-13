@@ -121,10 +121,11 @@ async function withDialogCleanup(wait, record, run, extra = []) {
   return value;
 }
 
-export async function checkDialogWorkflow({ browser, fixtureURL, server, until, worker, makeDialog = (tab, decision, options) => tab.expectDialog(decision, options), caller = "js", detail = {} }) {
+export async function checkDialogWorkflow({ browser, fixtureURL, server, until, worker, makeDialog = (tab, decision, options) => tab.expectDialog(decision, options), caller = "js", keyPrefix = caller, detail = {} }) {
   detail.caller = caller; detail.variants = []; detail.passed = false;
+  if (keyPrefix !== caller) detail.keyPrefix = keyPrefix;
   for (const layout of dialogLayouts) {
-    const key = `${caller}-dialogs-${layout}`, item = { key, layout, decisions: [] }; detail.variants.push(item);
+    const key = `${keyPrefix}-dialogs-${layout}`, item = { key, layout, decisions: [] }; detail.variants.push(item);
     const { tab, target } = await prepareDialogTab({ browser, fixtureURL, key, layout }); item.tabId = tab.id;
     for (const [index, selected] of dialogCases.entries()) {
       const { button, action, answer } = selected, decision = { ...selected.decision, message: dialogMessage(key, selected.decision.type) };
@@ -160,12 +161,13 @@ export async function checkDialogWorkflow({ browser, fixtureURL, server, until, 
   detail.passed = true; return detail;
 }
 
-export async function checkExternalDialogWorkflow({ detail, kind, server, until, worker }) {
+export async function checkExternalDialogWorkflow({ detail, kind, keyPrefix = kind, server, until, worker }) {
   assert.equal(detail.caller, kind); assert.equal(detail.passed, true); assert.equal(detail.variants.length, 3);
+  assert.equal(detail.keyPrefix ?? kind, keyPrefix);
   assert.deepEqual(detail.variants.map(item => item.layout), dialogLayouts);
   assert.equal(new Set(detail.variants.map(item => item.tabId)).size, 3);
   for (const item of detail.variants) {
-    assert.equal(item.key, `${kind}-dialogs-${item.layout}`); assert.equal(item.decisions.length, dialogCases.length);
+    assert.equal(item.key, `${keyPrefix}-dialogs-${item.layout}`); assert.equal(item.decisions.length, dialogCases.length);
     await until(() => server.stats(item.key).posts.length === 7, "Original external dialog receipts");
     item.server = server.stats(item.key);
     const documents = item.server.documents.filter(document => document.controls); assert.equal(documents.length, 1);

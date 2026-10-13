@@ -18,7 +18,7 @@ const config = (mode = "allow", origins = ["https://allowed.test"]) => ({ mode, 
 const policyState = (mode = "allow", origins = ["https://allowed.test"]) => ({ version: 1, revision: 1, mode, origins });
 const frame = (url = "https://allowed.test/page", frameId = 0, parentFrameId = -1) => ({ frameId, parentFrameId, url, errorOccurred: false, documentLifecycle: "active" });
 
-async function fixture(t, { policy, createBrowserActionEngine, automationCleanupTimeoutMs } = {}) {
+async function fixture(t, { policy, createBrowserActionEngine, automationCleanupTimeoutMs, clock = performance } = {}) {
   const state = policy === undefined ? {} : { [SITE_ACCESS_POLICY_KEY]: clone(policy) };
   const calls = [], hooks = {}, attached = new Set(), gates = [];
   const tabs = new Map([[7, { id: 7, groupId: 10, windowId: 1, url: "https://allowed.test/page", title: "Allowed", active: false }],
@@ -50,7 +50,7 @@ async function fixture(t, { policy, createBrowserActionEngine, automationCleanup
     runtime: { id: "fixture", getURL: path => `chrome-extension://fixture/${path}`, getManifest: () => ({ version: "test" }),
       async getContexts() { return [{ contextType: "POPUP", documentUrl: "chrome-extension://fixture/popup.html", documentId: "live-popup" }]; } }
   };
-  const context = { chrome, crypto, Date, URL, setTimeout, clearTimeout, createBrowserActionEngine };
+  const context = { chrome, crypto, Date, URL, setTimeout, clearTimeout, performance: clock, createBrowserActionEngine };
   const Backend = vm.runInNewContext(`${code}\nBrowserBackend`, context);
   const backend = new Backend({ automationCleanupTimeoutMs }); await backend.controlReady;
   const session = await backend.store.getSession("task"); session.chromeGroupId = 10; session.tabOrigins = { 7: "agent", 8: "user" }; await backend.store.save();
@@ -251,6 +251,130 @@ test("native dispatch rejects a navigation-version change in the microtask after
   assert.equal(delivered, false);
   assert.equal(f.backend.siteRevokedTabs.has(7), false);
   assert.equal(f.attached.has(7), true);
+});
+
+async function permissionFixture(t, options = {}) {
+  let inputHooks;
+  const engine = { async detach() {}, controlSnapshot: () => ({ tabIds: [], pending: [] }), pages: new Map(), queues: new Map() };
+  const f = await fixture(t, { policy: policyState(), ...options, createBrowserActionEngine: value => { inputHooks = value.inputHooks; return engine; } });
+  await f.backend.attach(f.params); await f.backend.getBrowserEngine();
+  const originalToken = f.backend.attachmentEpochs.get(7), sends = [];
+  return { ...f, originalToken, sends, send: () => inputHooks.send({ tabId: 7 }, "Input.dispatchMouseEvent",
+    { type: "mouseMoved", button: "none", buttons: 0, x: 1, y: 2 }, async () => { sends.push("original move"); return { original: true }; }) };
+}
+
+test("permission inspection re-reads an allowed child commit without replaying input or detaching its original attachment", async t => {
+  const f = await permissionFixture(t), entered = f.gate(), reading = f.gate();
+  f.chrome.webNavigation.onBeforeNavigate.emit({ tabId: 7, frameId: 2, url: "https://allowed.test/child" });
+  let reads = 0;
+  f.hooks.frames = async () => { if (++reads === 1) { entered.resolve(); await reading.promise; } };
+  const command = f.send(); command.catch(() => {}); await entered.promise;
+  f.frames.set(7, [frame(), frame("https://allowed.test/child", 2, 0)]);
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 2, url: "https://allowed.test/child" });
+  assert.equal(f.backend.siteRevokedTabs.has(7), false); assert.equal(f.sends.length, 0);
+  reading.resolve(); assert.deepEqual(await command, { original: true });
+  assert.equal(reads, 2); assert.deepEqual(f.sends, ["original move"]);
+  assert.equal(f.backend.attachmentEpochs.get(7), f.originalToken);
+  assert.equal(f.attached.has(7), true); assert.equal(f.calls.some(([kind]) => kind === "detach"), false);
+});
+
+test("permission inspection never retries a denied navigation event or replays the blocked native input", async t => {
+  const f = await permissionFixture(t), entered = f.gate(), reading = f.gate(), completion = f.gate();
+  let reads = 0, cancelled = false;
+  const record = f.backend.navigationWaits.reserve({ ...f.params, event: "url", url: "https://allowed.test/next", timeoutMs: 1000 });
+  await f.backend.navigationWaits.arm(record, { ready: Promise.resolve(), result: completion.promise,
+    cancel(error) { cancelled = true; completion.reject(error); } }, f.backend.attachmentOwners.get(7), scope => f.backend.validateTransferScope(scope));
+  f.hooks.frames = async () => { reads++; entered.resolve(); await reading.promise; };
+  const rejected = assert.rejects(f.send(), /OBU_SITE_ACCESS_DENIED|OBU_SITE_ACCESS_UNVERIFIED|OBU_INPUT_/);
+  await entered.promise;
+  f.chrome.webNavigation.onBeforeNavigate.emit({ tabId: 7, frameId: 2, url: "https://denied.test/child" });
+  assert.equal(cancelled, true, "Native navigation observation must revoke existing waits synchronously");
+  assert.equal(f.backend.siteRevokedTabs.has(7), true); assert.equal(f.sends.length, 0);
+  // Even an allowed inventory cannot erase the observed denied navigation.
+  reading.resolve(); await rejected; await Promise.allSettled([...f.backend.controlReleases.values()]);
+  assert.equal(reads, 1); assert.equal(f.sends.length, 0); assert.equal(f.attached.has(7), false);
+});
+
+test("permission inspection never refreshes its original policy revision or generation during a read", async t => {
+  for (const change of ["revision", "generation"]) await t.test(change, async t => {
+    const f = await permissionFixture(t), entered = f.gate(), reading = f.gate();
+    let reads = 0;
+    f.hooks.frames = async () => { reads++; entered.resolve(); await reading.promise; };
+    const rejected = assert.rejects(f.send(), /OBU_SITE_ACCESS_UNVERIFIED|OBU_INPUT_/);
+    await entered.promise;
+    if (change === "revision") await f.backend.siteAccess.replace(config(), 1, f.backend.siteAccess.generation);
+    else {
+      // Read the unchanged durable v1 policy through a new real policy object:
+      // revision/content stay equal, but the original runtime identity cannot.
+      const restored = new SiteAccessPolicy({ storage: f.backend.siteAccess.storage });
+      await restored.ready; f.backend.siteAccess = restored;
+    }
+    reading.resolve(); await rejected;
+    assert.equal(reads, 1); assert.equal(f.sends.length, 0);
+  });
+});
+
+test("permission inspection bounds continuous allowed navigation to eight reads and never sends input", async t => {
+  const f = await permissionFixture(t); let reads = 0;
+  f.hooks.frames = async () => {
+    reads++;
+    f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 2, url: `https://allowed.test/child-${reads}` });
+  };
+  await assert.rejects(f.send(), /OBU_SITE_ACCESS_UNVERIFIED/);
+  assert.equal(reads, 8); assert.equal(f.sends.length, 0); assert.equal(f.backend.siteRevokedTabs.has(7), true);
+});
+
+test("permission inspection keeps one original 1000ms monotonic deadline across allowed read retries", async t => {
+  let now = 0;
+  const f = await permissionFixture(t, { clock: { now: () => now } }); let reads = 0;
+  f.hooks.frames = async () => {
+    reads++; now += 500;
+    f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 2, url: `https://allowed.test/child-${reads}` });
+  };
+  await assert.rejects(f.send(), /OBU_SITE_ACCESS_UNVERIFIED/);
+  assert.equal(reads, 2, "A new permission snapshot must not create a fresh 1000ms budget");
+  assert.equal(now, 1000); assert.equal(f.sends.length, 0); assert.equal(f.backend.siteRevokedTabs.has(7), true);
+});
+
+test("permission inspection cannot continue or clear revocation after its real timeout and late native read ACK", async t => {
+  const f = await permissionFixture(t), entered = f.gate(), reading = f.gate(); let reads = 0;
+  f.hooks.frames = async () => { reads++; entered.resolve(); await reading.promise; };
+  const pending = f.backend.assertSiteTab(7, { recover: true });
+  const rejected = assert.rejects(pending, /OBU_SITE_ACCESS_UNVERIFIED.*timed out/);
+  await entered.promise; await rejected;
+  assert.equal(f.backend.siteRevokedTabs.has(7), true);
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 2, url: "https://allowed.test/late-child" });
+  reading.resolve(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 1); assert.equal(f.backend.siteRevokedTabs.has(7), true); assert.equal(f.sends.length, 0);
+});
+
+test("permission recovery cannot use a retry to cross existing or newly observed revocation", async t => {
+  for (const existing of [true, false]) await t.test(existing ? "already revoked" : "revoked during read", async t => {
+    const f = await permissionFixture(t), entered = f.gate(), reading = f.gate(); let reads = 0;
+    if (existing) { f.backend.revokeSiteTab(7); await Promise.allSettled([...f.backend.controlReleases.values()]); }
+    f.hooks.frames = async () => { reads++; entered.resolve(); await reading.promise; };
+    const rejected = assert.rejects(f.backend.assertSiteTab(7, { recover: true }), /OBU_SITE_ACCESS_UNVERIFIED|OBU_SITE_ACCESS_DENIED/);
+    await entered.promise;
+    f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 2, url: existing ? "https://allowed.test/child" : "https://denied.test/child" });
+    reading.resolve(); await rejected;
+    assert.equal(reads, 1); assert.equal(f.backend.siteRevokedTabs.has(7), true); assert.equal(f.sends.length, 0);
+  });
+});
+
+test("permission inspection rejects malformed, opaque or denied snapshots without retry even when the navigation version changed", async t => {
+  for (const [name, frames] of [
+    ["missing inventory", null], ["missing root", [frame("https://allowed.test/child", 2, 0)]],
+    ["opaque child", [frame(), frame("data:text/html,private", 2, 0)]],
+    ["denied child", [frame(), frame("https://denied.test/child", 2, 0)]]
+  ]) await t.test(name, async t => {
+    const f = await permissionFixture(t); let reads = 0;
+    f.hooks.frames = async () => {
+      reads++; f.frames.set(7, frames);
+      f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 3, url: "https://allowed.test/other" });
+    };
+    await assert.rejects(f.send(), /OBU_SITE_ACCESS_UNVERIFIED|OBU_SITE_ACCESS_DENIED/);
+    assert.equal(reads, 1); assert.equal(f.sends.length, 0); assert.equal(f.backend.siteRevokedTabs.has(7), true);
+  });
 });
 
 test("only a live action popup may change policy, with exact document identity when supplied", async t => {

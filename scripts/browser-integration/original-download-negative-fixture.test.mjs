@@ -4,6 +4,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { Script, createContext } from "node:vm";
 import test from "node:test";
 import { createOriginalDownloadNegativeFixtures } from "./original-download-negative-fixture.mjs";
+import { listenFixture } from "./fixture-listener.mjs";
 
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const bodyFor = (item, extra = {}) => new URLSearchParams({ key: item.key, nonce: item.nonce, documentToken: "test-document", trusted: "true", buttonCount: "1", ...extra }).toString();
@@ -12,7 +13,7 @@ const post = body => ({ method: "POST", headers: { "Content-Type": "application/
 async function serve(t) {
   const fixture = createOriginalDownloadNegativeFixtures();
   const server = createServer((req, res) => { if (!fixture.handle(req, res)) { res.writeHead(404); res.end("outside fixture"); } });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  await listenFixture(server);
   t.after(async () => { fixture.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   return { fixture, base: `http://127.0.0.1:${server.address().port}` };
 }

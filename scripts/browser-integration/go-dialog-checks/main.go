@@ -17,8 +17,11 @@ type dialogCase struct {
 	Decision obu.DialogDecision `json:"decision"`
 }
 
-func run(endpoint, base, prefix string, cases []dialogCase) (result map[string]any, err error) {
+func run(endpoint, base, prefix string, cases []dialogCase, keyPrefix string) (result map[string]any, err error) {
 	result = map[string]any{"caller": "go", "variants": []map[string]any{}, "passed": false}
+	if keyPrefix != "go" {
+		result["keyPrefix"] = keyPrefix
+	}
 	defer func() {
 		if err != nil {
 			result["error"] = err.Error()
@@ -35,7 +38,7 @@ func run(endpoint, base, prefix string, cases []dialogCase) (result map[string]a
 	defer func() { err = errors.Join(err, browser.Close()) }()
 	variants := []map[string]any{}
 	for _, layout := range []string{"root", "oopif", "dynamic-oopif"} {
-		key := "go-dialogs-" + layout
+		key := keyPrefix + "-dialogs-" + layout
 		tab, createErr := browser.NewTab()
 		if createErr != nil {
 			return result, createErr
@@ -94,8 +97,8 @@ func run(endpoint, base, prefix string, cases []dialogCase) (result map[string]a
 }
 
 func main() {
-	if len(os.Args) != 6 {
-		panic("usage: dialog-checks endpoint baseURL prefix config output")
+	if len(os.Args) != 6 && len(os.Args) != 7 {
+		panic("usage: dialog-checks endpoint baseURL prefix config output [keyPrefix]")
 	}
 	data, err := os.ReadFile(os.Args[4])
 	if err != nil {
@@ -105,7 +108,11 @@ func main() {
 	if err = json.Unmarshal(data, &cases); err != nil {
 		panic(err)
 	}
-	result, runErr := run(os.Args[1], os.Args[2], os.Args[3], cases)
+	keyPrefix := "go"
+	if len(os.Args) == 7 {
+		keyPrefix = os.Args[6]
+	}
+	result, runErr := run(os.Args[1], os.Args[2], os.Args[3], cases, keyPrefix)
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		panic(err)

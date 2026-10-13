@@ -42,6 +42,29 @@ navigation succeeded. In particular, dismissing `beforeunload` means staying on
 the page: the decision can succeed while the attempted navigation reports that
 it was cancelled. Do not change the decision to make that navigation succeed.
 
+## Restricted websites
+
+Native dialog decisions are available in both allow-list and block-list modes.
+The owned tab's complete live frame tree must be permitted before subscription,
+after the actual subscription ACK, at selection and before result delivery.
+An allowed dynamic frame may join a pending wait; the original policy generation
+and revision never change with it. Completed results cannot adopt a later page.
+
+The selected dialog additionally requires its browser-issued opening URL to be
+an allowed HTTP(S) URL and its CDP emitter frame to be identified. The current
+root URL alone does not authorize a dialog from an earlier or removed child.
+Unknown, opaque, `about:blank` and `about:srcdoc` emitters are refused because
+their inherited origin is not proven by this event. Frame/document changes
+invalidate the selected document even after a later dialog replaces the native
+event map entry. Ordinary dialog closure is distinct from document invalidation.
+
+Final synchronous checks precede native dispatch and follow the actual cleanup
+ACK. A withdrawn decision can only use the existing stock default on that same
+still-open original dialog; it cannot return the rejected dialog's content.
+Cancellation still validates the original ownership and control scope, but
+does not require another website inspection to release its subscription.
+These checks do not remove the existing `beforeunload` focus limitation.
+
 ## JavaScript
 
 Assume `tab` is a managed Tab on the current client. The Page must have a Rename
@@ -305,6 +328,21 @@ to fail on the observed activation path. It is not counted as a passing default
 test or granted a focus allowance.
 
 ## Verification
+
+Restricted website acceptance `cin0qm` passes 10/10; complete `BNmZJb` passes
+156/156, both with actual exit 0. In each run, the five entry points across
+three layouts retain 105 original POSTs/26,592 bytes and 120 original native
+responses. Independent review checks original URL/frame/document identity,
+raw bytes, native ACKs, durable policy, actual Pause/Resume, denied existing and
+dynamic frames, old-policy rejection and cleanup. It does not independently
+count every storage.set call. The focused 37,425ms interval has no activation
+and only two existing popup-focus events; the full 466,299ms interval retains
+only the original 12 exact activations/four control-popup focus events, with
+all previous 150 case names/order unchanged. Source/runtime/build identities
+match and exact-run processes are zero. Node groups pass 3251 tests with one
+existing Windows symlink privilege skip; final affected fixtures pass 38/38.
+Original failures and the real allowed-frame race diagnostic remain recorded
+in the [restricted-dialog plan](../exec-plans/completed/2026-10-14-restricted-native-dialogs.md).
 
 The accepted ordinary workflow covers all five entry points across root,
 existing OOPIF and dynamically created OOPIF documents. Each layout verifies

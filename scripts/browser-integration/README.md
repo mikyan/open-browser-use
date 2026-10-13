@@ -1,5 +1,39 @@
 # Browser integration acceptance
 
+## Native dialogs on restricted websites
+
+The default suite adds five `*-restricted-native-dialog-decisions` cases
+(`js`, `cli`, `mcp`, `python`, `go`) and
+`js-restricted-native-dialog-boundaries`. They reuse the original native-dialog
+workflow and its actual response/POST oracle under an explicit website allow
+list, across root, existing OOPIF and dynamic OOPIF documents. Keep the normal
+host/browser/Python prerequisites and point `OBU_TEST_GO_DIALOG_BINARY` at a
+current build of `scripts/browser-integration/go-dialog-checks`.
+
+Focused runs must include an existing website-settings popup provider. The
+following selection includes worker recovery and all six new cases, plus the
+mandatory raw-navigation control:
+
+```powershell
+$env:OBU_TEST_CASES = '^(js-user-site-access-popup|js-site-access-startup-recovery|js-site-access-invalid-replacement|(js|cli|mcp|python|go)-restricted-native-dialog-decisions|js-restricted-native-dialog-boundaries)$'
+node scripts/browser-integration/run.mjs
+```
+
+The fixture borrows the existing popup, verifies durable v1, actual Pause and
+explicit Resume, and restores the original policy in cleanup. Missing popup
+setup fails; it does not open another popup or replay a failed trigger. The
+boundary case checks denied existing/dynamic frames and policy revocation,
+with zero forbidden dialog responses or POSTs. Existing focus allowances do
+not expand. Worker frame observers retain original native event history and
+must be reinstalled after the original native connection becomes ready.
+
+`OBU_TEST_SITE_ACCESS_TRACE=1` enables optional bounded diagnostics around the
+original permission reads and native events. It is off by default, issues no
+additional reads or actions, and records restoration, overflow and pending
+calls. It is diagnostic evidence, not a replacement for the strict native
+dialog and business-result checks. See the
+[dialog contract](../../docs/references/native-dialogs.md).
+
 ## Agent feedback over HTML top layers
 
 `OBU_TEST_CASES=^js-top-layer-feedback$` selects original public input on outer

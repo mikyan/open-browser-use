@@ -160,3 +160,75 @@ test("confirmed original Page close retires its subscription even if disable ACK
   await f.registry.cancel(f.handle);
   assert.equal(f.registry.byTab.size, 0);
 });
+
+for (const authority of ["scope", "policy"]) test(`collect rejects ${authority} revoked during the actual unsubscribe ACK without refreshing authority`, async t => {
+  const f = fixture(t), gate = deferred(), validated = deferred();
+  await f.arm();
+  f.hooks.subscription = ({ enabled }) => enabled ? undefined : gate.promise;
+  f.open(); await tick();
+  assert.equal(f.record.state, "matched");
+  let reads = 0, revoked = false;
+  const failure = new Error(authority === "policy" ? "OBU_SITE_ACCESS_UNVERIFIED: original policy changed" : "OBU_TRANSFER_CANCELLED: original attachment changed");
+  f.hooks.validate = () => { reads += 1; validated.resolve(); };
+  f.hooks.assert = () => { if (revoked) throw failure; };
+  let settled = false;
+  const collecting = f.registry.collect(f.handle).finally(() => { settled = true; });
+  const rejected = assert.rejects(collecting, reason => reason === failure);
+  await validated.promise; await tick();
+  assert.equal(settled, false);
+  assert.ok(f.registry.controlSnapshot().pending.length > 0);
+  revoked = true; gate.resolve();
+  await rejected;
+  assert.equal(reads, 1, "the cleanup fence must not replace the original proof with a fresh async read");
+  assert.equal(f.calls.filter(([kind]) => kind === "response").length, 1);
+  assert.deepEqual(f.calls.filter(([kind]) => kind === "subscription"), [["subscription", true], ["subscription", false]]);
+});
+
+test("cancel during unsubscribe cannot publish a previously matched result", async t => {
+  const f = fixture(t), gate = deferred(), validated = deferred();
+  await f.arm(); f.hooks.subscription = ({ enabled }) => enabled ? undefined : gate.promise;
+  f.open(); await tick();
+  f.hooks.validate = () => validated.resolve();
+  const collecting = f.registry.collect(f.handle);
+  const rejected = assert.rejects(collecting, /OBU_DIALOG_EXPIRED/);
+  await validated.promise; await tick();
+  const cancellation = f.registry.cancel(f.handle);
+  await tick(); assert.equal(f.record.invalid, true);
+  gate.resolve(); await cancellation; await rejected;
+  assert.equal(f.calls.filter(([kind]) => kind === "response").length, 1);
+});
+
+test("retirement during unsubscribe cannot return a record removed at its actual cleanup ACK", async t => {
+  let now = 0;
+  const f = fixture(t, {}, { now: () => now, ttlMs: 5 }), gate = deferred(), validated = deferred();
+  await f.arm(); f.hooks.subscription = ({ enabled }) => enabled ? undefined : gate.promise;
+  f.open(); await tick();
+  f.hooks.validate = () => validated.resolve();
+  const collecting = f.registry.collect(f.handle);
+  const rejected = assert.rejects(collecting, /OBU_DIALOG_EXPIRED/);
+  await validated.promise; await tick();
+  now = 10; gate.resolve(); await rejected;
+  assert.equal(f.registry.records.has(f.record.dialogId), false);
+  assert.equal(f.registry.byTab.size, 0);
+});
+
+test("selected website denial remains classified after exactly one original stock fallback", async t => {
+  const f = fixture(t, { type: "prompt", promptText: "chosen" });
+  await f.arm();
+  const failure = new Error("OBU_SITE_ACCESS_DENIED: original document is not authorized");
+  f.hooks.validate = () => { throw failure; };
+  f.open("prompt", "forbidden native message", "forbidden native default");
+  await assert.rejects(f.registry.collect(f.handle), reason => reason === failure && !reason.message.includes("forbidden"));
+  assert.deepEqual(f.calls.filter(([kind]) => kind === "response"), [["response", { accept: false }]]);
+  assert.equal(f.record.value, undefined);
+  assert.equal(f.page.listenerCount("dialog"), 0);
+});
+
+test("unknown native failures remain generic and do not expose native dialog contents", async t => {
+  const f = fixture(t); await f.arm();
+  f.hooks.native = () => { throw new Error("forbidden response transport detail"); };
+  f.open("confirm", "forbidden native message");
+  await assert.rejects(f.registry.collect(f.handle), reason => /^OBU_DIALOG_FAILED:/.test(reason.message) && !reason.message.includes("forbidden"));
+  assert.equal(f.record.value, undefined);
+  assert.equal(f.calls.filter(([kind]) => kind === "response").length, 1);
+});
