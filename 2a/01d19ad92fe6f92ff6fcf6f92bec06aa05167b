@@ -1,0 +1,67 @@
+scripts/browser-integration/top-layer-feedback-fixture.mjs
+  s_08bbfd293d324f::t_a2587932218e04 1-14,16-22,25-26,28-34,39-116,118-126,128-129,131-138,141-143,145,147-154,156-161,163,165-169,171-172,177-181
+  s_08bbfd293d324f::t_88fc344f00376a 139,176
+  s_08bbfd293d324f::t_5720dbd367d0a2 173-175
+  s_08bbfd293d324f::t_be722fa42879c5 35-37,170
+  s_08bbfd293d324f::t_9741f57e801e6f 15,23-24,27,38,117,127,130,140,144,146,155,162,164
+docs/references/page-exports.md
+  s_08bbfd293d324f::t_4aa41697a199c9 103-105
+docs/histories/2026-10/20261014-0207-top-layer-feedback.md
+  s_08bbfd293d324f::t_76a4c3f0586227 41-44
+  s_08bbfd293d324f::t_788545e0762d2a 1-40,45-55
+apps/chrome-extension/content-cursor.test.mjs
+  s_08bbfd293d324f::t_6b9b185f085023 345-347,485,491
+  s_08bbfd293d324f::t_5e4cf29cd2923f 8,14-16,34,37-62,78,106-109,160-162,197-199,202-276
+  s_08bbfd293d324f::t_bd283829d2dbb8 277
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_7f58211c50d242 3-18
+docs/references/README.md
+  s_08bbfd293d324f::t_4aa41697a199c9 19-21
+apps/chrome-extension/content-cursor.js
+  s_08bbfd293d324f::t_6161f903bb423d 77,103,131,166,377-378,385,393,396,481-513,544-545
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_4ad9aa4d7473ee 1721-1723,1726,1730-1731,1742
+  s_08bbfd293d324f::t_7f670c947dd146 1714,1717-1720,1724-1725,1727-1729,1732-1741,1743-1746
+  s_08bbfd293d324f::t_f02b1bbd920c4e 1695,1700
+  s_08bbfd293d324f::t_61a09cda326662 31,366,569,1708-1709,1711,1713
+  s_08bbfd293d324f::t_9963ea989eae91 1710,1712,1715-1716,1747-1753
+  s_08bbfd293d324f::t_1432a1b499aa43 370
+  s_08bbfd293d324f::t_55d2478c85e933 1696
+  s_08bbfd293d324f::t_200bc5e3b448d0 1754
+docs/exec-plans/completed/2026-10-14-top-layer-feedback.md
+  s_08bbfd293d324f::t_76a4c3f0586227 1-60
+docs/FRONTEND.md
+  s_08bbfd293d324f::t_7f58211c50d242 27-33
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_92cf0345b4e759 15-19,22-23
+  s_08bbfd293d324f::t_76a4c3f0586227 20-21
+scripts/browser-integration/cursor-print-fixture.mjs
+  s_08bbfd293d324f::t_f02b1bbd920c4e 45-47,70
+docs/references/top-layer-feedback.md
+  s_08bbfd293d324f::t_76a4c3f0586227 55-61
+  s_08bbfd293d324f::t_7f58211c50d242 1-47,62-72
+  s_08bbfd293d324f::t_92cf0345b4e759 48-54
+scripts/browser-integration/top-layer-feedback-fixture.test.mjs
+  s_08bbfd293d324f::t_1b18a6d852d38e 1-61,63,65-82,86-109,131-135,149-158
+  s_08bbfd293d324f::t_1db47d2e7cf278 62,64,83-85,136-148
+  s_08bbfd293d324f::t_804aad9de78a5c 110-130
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_76a4c3f0586227 20-22,29
+  s_08bbfd293d324f::t_92cf0345b4e759 14-19,23-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "2a01d19ad92fe6f92ff6fcf6f92bec06aa05167b",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
