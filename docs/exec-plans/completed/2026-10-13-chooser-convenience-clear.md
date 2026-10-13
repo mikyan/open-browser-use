@@ -23,7 +23,7 @@ push the verified change to the user fork.
 2. [x] Retain failing tests, add CLI explicit `--clear` and MCP explicit `files: []`.
 3. [x] Verify real CLI/MCP upload then clear in root, OOPIF and dynamic OOPIF.
 4. [x] Run appropriate regressions, independently audit original evidence.
-5. [ ] Update usage/history, commit, push and archive this slice.
+5. [x] Update usage/history, commit, push and archive this slice.
 
 ## Decisions and progress
 
@@ -80,3 +80,7 @@ push the verified change to the user fork.
   exact cleanup and focus attribution match. No private test process remains.
   The ordinary runner does not separately record Chromium's actual exit code;
   verified wrapper/host exit codes do not imply a Chromium exit-code claim.
+- Delivery: implementation and verification committed as `ec36c9a` and pushed
+  to the user fork's `codex/browser-use-parity` branch; remote SHA verified.
+  This slice is complete. The complete parity objective remains active, with
+  ordinary Edge manual acceptance deferred and delivered preview ZIPs unchanged.
