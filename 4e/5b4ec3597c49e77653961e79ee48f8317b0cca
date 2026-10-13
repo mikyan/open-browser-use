@@ -1,0 +1,174 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_95d261d6ba9da9 14-18
+apps/chrome-extension/dialog-backend.test.mjs
+  s_08bbfd293d324f::t_d6c0b910b7c25a 1-121,124-205,207-210
+  s_08bbfd293d324f::t_e275b4e1302534 122-123,206
+docs/histories/2026-10/20261013-2300-native-dialog-decisions.md
+  s_08bbfd293d324f::t_95d261d6ba9da9 61-67,74
+  s_08bbfd293d324f::t_71b4f71dd2ee41 68-73,75
+  s_08bbfd293d324f::t_643731bcee8eea 1-60,76-84
+scripts/browser-integration/dialog-fixture.mjs
+  s_08bbfd293d324f::t_fc01ff4f387293 1-5,14-112,124-128,131-132,134-142,144-154,158-160,189
+  s_08bbfd293d324f::t_9dc224fd5470b1 190,236-260
+  s_08bbfd293d324f::t_a0c1ddcf5fa046 6-13,129-130,161-183,187-188
+  s_08bbfd293d324f::t_11f6fbbab54563 113-123,133,143,207
+  s_08bbfd293d324f::t_221145bd4deb45 155-157,184-186
+  s_08bbfd293d324f::t_c1428318068da6 191,210-224
+  s_08bbfd293d324f::t_3fb71ebc1b15b4 192-206,208-209,225-227,229-235
+  s_08bbfd293d324f::t_95dbfa32d23a75 228
+docs/references/README.md
+  s_08bbfd293d324f::t_3e5785fae17065 19-20
+packages/open-browser-use-js/src/index.ts
+  s_08bbfd293d324f::t_6c7c86a34580d0 1-2,127,153,268,287,289,292,315-319,408-427,564,591,599-603,928-931,1134
+cmd/open-browser-use/control.go
+  s_08bbfd293d324f::t_b7a6b82e5da057 43,112-116,163-167,179,182-184,352-376,464-475
+  s_08bbfd293d324f::t_6261afbfe4d6cc 476-477,544,578,609
+packages/open-browser-use-go/dialog_transport_test.go
+  s_08bbfd293d324f::t_44a56a2c4fd5d9 1-3,12-13,52-54,106-108,135-137,189-191,238-239,258
+  s_08bbfd293d324f::t_c637e0ea17968c 4
+  s_08bbfd293d324f::t_09381d56476074 17-28
+  s_08bbfd293d324f::t_b7a6b82e5da057 5-11,14-16,29-51,55-105,109-134,138-188,192-237,240-257
+  s_08bbfd293d324f::t_892fece3ebc3cb 259-310
+cmd/open-browser-use/dialog_transport_test.go
+  s_08bbfd293d324f::t_f6965c1c8d174f 4-9,12-21,24-50,52-91,93-124,127-164,167-197
+  s_08bbfd293d324f::t_e3acb6fc655841 1-3,10-11,22-23,51,92,125-126,165-166,198-199
+  s_08bbfd293d324f::t_38f4d3c3556e58 200-229
+skills/open-browser-use/references/sdk-and-protocol.md
+  s_08bbfd293d324f::t_6572f75d3f2aa4 249-251,368,387,460-487
+  s_08bbfd293d324f::t_1707bd4bcf645b 488
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_95d261d6ba9da9 52-57
+cmd/open-browser-use/dialog.go
+  s_08bbfd293d324f::t_9a291ef56c9e2f 1-3,9-10
+  s_08bbfd293d324f::t_1aa5978f26412f 4,7-8,11-17,20-43,50-78,82-149,151
+  s_08bbfd293d324f::t_b7a6b82e5da057 5-6,18-19,44-49,79-81,150
+scripts/browser-integration/dialog-evidence.test.mjs
+  s_08bbfd293d324f::t_d447b6ae8dab42 10,13,17,28-31,98,101-121
+  s_08bbfd293d324f::t_9422b9a3a0cf96 1-5,7-9,11-12,14-16,18-27,32-33,39-40,43-57,59-71,79-97,99-100,122-137,145,155
+  s_08bbfd293d324f::t_a74e65c2cc8559 6,34-38,41-42,58,138-144,146-154
+  s_08bbfd293d324f::t_19aa63ef45aaad 72-78
+scripts/browser-integration/go-dialog-checks/main.go
+  s_08bbfd293d324f::t_8b81dec1f035e2 1-67
+  s_08bbfd293d324f::t_d92a0a7d4c5a31 68-128
+packages/open-browser-use-python/open_browser_use/_dialogs.py
+  s_08bbfd293d324f::t_cfc87c6fbbb708 5,10,13-15,17,22-23
+  s_08bbfd293d324f::t_6c7c86a34580d0 83,86,97-100
+  s_08bbfd293d324f::t_7d4dc3ffe2297c 1-4,6-9,11-12,16,18-21,24-82,84-85,87-96,101-109
+packages/open-browser-use-python/test_dialogs.py
+  s_08bbfd293d324f::t_cfc87c6fbbb708 1-193
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_c1176f145d4fa7 7
+scripts/browser-integration/dialog-fixture.test.mjs
+  s_08bbfd293d324f::t_9dc224fd5470b1 1-47
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_c1176f145d4fa7 23-25
+packages/open-browser-use-python/open_browser_use/client.py
+  s_08bbfd293d324f::t_6c7c86a34580d0 13,59,135-136,157-158,169,203-209,292,360,376,402-409,433-466,806-808,923-925
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_62230a46fc11dd 759,1249,2521,2662,2681-2682,2687-2694,2698-2720,2970,4342-4343,5120,5196
+  s_08bbfd293d324f::t_5fd559a8e7be3e 1398,1401,2695-2697
+  s_08bbfd293d324f::t_6c2f08edbc6046 1316
+  s_08bbfd293d324f::t_559f988435a9ef 5,87,757-758,906,931,957,1108-1113,1248,1385,1408,1579,2492-2493,2581-2630,2639-2661,2663-2679,2683-2686,2721-2722,3021-3022,4347-4360,4821,4849,4868,5094,5107
+  s_08bbfd293d324f::t_d9e3a2a7e68b68 2631-2638,2680,4344-4346
+packages/open-browser-use-js/src/dialogs.ts
+  s_08bbfd293d324f::t_ce7b3182c3727d 1-47,49-56,60-64
+  s_08bbfd293d324f::t_6c7c86a34580d0 48,57-59
+apps/chrome-extension/browser-dialogs.test.mjs
+  s_08bbfd293d324f::t_5b70bfc16b6012 1-129
+  s_08bbfd293d324f::t_594e0c9559e550 130-148
+  s_08bbfd293d324f::t_9389924190915b 149-162
+cmd/open-browser-use/dialog_test.go
+  s_08bbfd293d324f::t_4ba3cf747553c3 1-7
+  s_08bbfd293d324f::t_2208677cd1cef3 8-17
+skills/open-browser-use/SKILL.md
+  s_08bbfd293d324f::t_6572f75d3f2aa4 24
+docs/references/native-dialogs.md
+  s_08bbfd293d324f::t_3e5785fae17065 1-2,7-76,80-109,112-268,339-342
+  s_08bbfd293d324f::t_97ce64ddb11fd3 269-306
+  s_08bbfd293d324f::t_3b9f6da90014d9 77-79,110-111
+  s_08bbfd293d324f::t_95d261d6ba9da9 3-6,307-338
+apps/chrome-extension/browser-dialogs.js
+  s_08bbfd293d324f::t_d29233c716c909 74-75,77,211-215
+  s_08bbfd293d324f::t_05a4683e1e7ce1 1-50,52-71,73,78-85,90-104,106,112-117,119-145,147-167,177-198,201-203,216-222,224-227
+  s_08bbfd293d324f::t_d9e3a2a7e68b68 72,76,105,107-111,146,174-176,200,204-210,223
+  s_08bbfd293d324f::t_4e573b1728916a 86-89
+  s_08bbfd293d324f::t_ce0d5d96e85549 168-171,199
+  s_08bbfd293d324f::t_a24c63e8b0b7cc 118
+  s_08bbfd293d324f::t_2f20fb97a1ab4f 51,172-173
+packages/open-browser-use-js/test/dialogs.test.mjs
+  s_08bbfd293d324f::t_cb9d2d7374b07e 46
+  s_08bbfd293d324f::t_01b66ba7aad83c 1-45,47-149
+packages/open-browser-use-go/dialog.go
+  s_08bbfd293d324f::t_e3acb6fc655841 4-9,15-20,22-26,32-52,57-65,70-218,220-270,272-280
+  s_08bbfd293d324f::t_d60a70ef1fb106 1-3,10-13,21,27-31,53-56,66-69,219,271
+  s_08bbfd293d324f::t_9a291ef56c9e2f 14
+scripts/browser-integration/dialog-evidence.mjs
+  s_08bbfd293d324f::t_a74e65c2cc8559 108,117-123,128
+  s_08bbfd293d324f::t_9422b9a3a0cf96 1-74,92-101,103-107,109-116,124-127,129-154,156
+  s_08bbfd293d324f::t_d447b6ae8dab42 75-91,102,155
+docs/exec-plans/active/2026-10-13-native-dialog-decisions.md
+  s_08bbfd293d324f::t_58b6ceecd229b0 39-40,56-72
+  s_08bbfd293d324f::t_5ceb307437cde3 1-38,42-55
+  s_08bbfd293d324f::t_71b4f71dd2ee41 97-100
+  s_08bbfd293d324f::t_95d261d6ba9da9 41,92-96
+  s_08bbfd293d324f::t_c1176f145d4fa7 73-91
+scripts/browser-integration/dialog-checks.py
+  s_08bbfd293d324f::t_11f6fbbab54563 26,32-35,37-42
+  s_08bbfd293d324f::t_8b81dec1f035e2 1-25,27-31,36,43-68
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_c1428318068da6 98-100,961-962,1001
+  s_08bbfd293d324f::t_711b179d43acc3 58,328,374,949-950,952-953,955-958,989-991,998,1003-1005,1009-1012
+  s_08bbfd293d324f::t_a0c1ddcf5fa046 954,964-978,985-988,992-995,997
+  s_08bbfd293d324f::t_f549585c0b53b1 57,535,996,999-1000,1002
+  s_08bbfd293d324f::t_615afb6ed98b2f 959
+  s_08bbfd293d324f::t_084c69fecc73da 979-984,1006-1008
+  s_08bbfd293d324f::t_3fb71ebc1b15b4 56,951,960,963
+  s_08bbfd293d324f::t_f5399376e58581 1013
+packages/open-browser-use-go/dialog_test.go
+  s_08bbfd293d324f::t_4ba3cf747553c3 1-3,9-11,36
+  s_08bbfd293d324f::t_b7a6b82e5da057 4-8,12-35
+scripts/browser-integration/dialog-callers.mjs
+  s_08bbfd293d324f::t_615afb6ed98b2f 4,34
+  s_08bbfd293d324f::t_711b179d43acc3 1-3,5-6,9-11,13-33,37,39-55
+  s_08bbfd293d324f::t_11f6fbbab54563 7-8,12,35-36,38
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_fb60e26edf1e1d 5,61,83
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_4efb32ab699e9f 110-112,1210,1916-1921,2162
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_fe2d96b3af29f1 237,491,517-518
+cmd/open-browser-use/mcp_connection.go
+  s_08bbfd293d324f::t_68fca1979f7f68 246
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_87a5dc136ad1f6 72-73,207-211,258-263,416-438,611,693,725-732
+packages/open-browser-use-go/control.go
+  s_08bbfd293d324f::t_8d6727e2ff0d9a 44,54,75
+packages/open-browser-use-js/dist/dialogs.d.ts
+  s_08bbfd293d324f::t_297a17586dcd93 1-44
+packages/open-browser-use-js/dist/dialogs.js
+  s_08bbfd293d324f::t_520e4fce49334b 1-81
+packages/open-browser-use-js/dist/index.d.ts
+  s_08bbfd293d324f::t_56fae7a695778b 1-2,196,223-226,292,411
+packages/open-browser-use-js/dist/index.js
+  s_08bbfd293d324f::t_441ffc411127d9 2-3,33,57,179-180,205-206,209,213-214,250-257,363-383,530,560,569-580,891-893,1083
+packages/open-browser-use-python/open_browser_use/__init__.py
+  s_08bbfd293d324f::t_57ccfeb919cefa 1,23
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_c62148590365a9 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "4e5b4ec3597c49e77653961e79ee48f8317b0cca",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
