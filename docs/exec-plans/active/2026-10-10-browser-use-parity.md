@@ -7,6 +7,12 @@
 
 ## 当前基线
 
+- 受限网站原生文件选择器已通过专项 `btlfEb` 8/8 actual exit0，五入口×三
+  布局与六边界共31原POST/12,779B，原文件、节点及实际清理独立核验。
+  34,925ms零activation、原两次popup focus；当前Node各组3400pass/1既有skip。
+  完整 `mAKsEd` 175/175 actual exit0，旧169名称/顺序保持；529,321ms仅原
+  12activation/4control-focus许可，业务字节/源码/清理独立核验。普通Edge与
+  整体持平仍开放，见[本片计划](../completed/2026-10-14-restricted-file-chooser.md)。
 - 根 CSS zoom 的可视坐标修复已获真实红绿证据，专项 `pm3Zkp` 2/2、
   Node 3151 pass/1 既有 skip。原输入与页面样式不改，完整 `AMMJED` 149/149
   actual exit 0，旧 148 顺序及原焦点许可保持；
@@ -24,6 +30,13 @@
 5. 多平台、重复任务与 Codex 同组任务对比，逐项完成证据审计。
 
 ## 当前并行切片
+
+2026-10-14 [受限网站原生文件选择器](../completed/2026-10-14-restricted-file-chooser.md)
+完成本片：固定原事件、frame/document/node 和策略，上传及显式清空经五入口、
+三布局实测。Pause/end/detach 和引擎释放等待原在途文件操作，不重放输入。
+专项 `btlfEb` 8/8、完整 `mAKsEd` 175/175 actual exit0，Node当前各组3400pass/
+1既有Windows skip。两轮各31原POST/12,779B及精确清理独立核验，完整529,321ms
+仅原12activation/4control-focus许可；既有安装包和普通Edge待验状态保持。
 
 2026-10-14 [受限网站诊断及原响应正文](../completed/2026-10-14-restricted-diagnostics.md)
 完成本片：正式API支持原console/error/network来源与原POST正文，固定原文档/

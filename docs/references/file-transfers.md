@@ -14,6 +14,11 @@ inputs. It shares the same exact-node submission registry and directory/clear
 semantics below, without opening a chooser. Keep the chooser flow for page
 workflows where an authorized click exposes the input through a chooser event.
 
+The development chooser API also works on permitted websites in allow-list and
+block-list modes. Original event/document proof, final permission checks and
+actual native-operation draining are described in
+[restricted file choosers](restricted-file-chooser.md).
+
 `waitForFileChooser({tabId})` establishes the same Playwright CRX attachment used
 by browser actions, then enables native chooser interception. A following
 same-session action waits for that setup acknowledgement before input. This makes

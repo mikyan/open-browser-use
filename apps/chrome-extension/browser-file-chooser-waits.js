@@ -21,11 +21,11 @@ function validate(params, extra, legacy = false) {
 }
 
 export class BrowserFileChooserWaits {
-  constructor({ send, assertScope, validateScope, targetAlive, discard, now = () => Date.now(),
+  constructor({ send, assertScope, validateScope, assertResult = () => {}, targetAlive, discard, now = () => Date.now(),
     // Browser timers require their global receiver, not this registry instance.
     setTimer = (callback, delay) => globalThis.setTimeout(callback, delay), clearTimer = id => globalThis.clearTimeout(id),
     maxTotal = 128, cleanupTimeoutMs = 10000 } = {}) {
-    Object.assign(this, { send, assertScope, validateScope, targetAlive, discard, now, setTimer, clearTimer, maxTotal, cleanupTimeoutMs });
+    Object.assign(this, { send, assertScope, validateScope, assertResult, targetAlive, discard, now, setTimer, clearTimer, maxTotal, cleanupTimeoutMs });
     this.records = new Map();
     this.byTab = new Map();
     this.operations = new Set();
@@ -116,6 +116,9 @@ export class BrowserFileChooserWaits {
         const targets = [...record.targets.values()];
         await Promise.all(targets.map(target => target.enable));
         this.check(record);
+        await this.validateScope(record.scope, record);
+        this.check(record);
+        this.assertResult(record.scope, record);
         if (targets.length === record.targets.size) break;
       }
       if (record.state === "arming") record.state = "pending";
@@ -140,6 +143,9 @@ export class BrowserFileChooserWaits {
           this.check(record);
           await this.cleanup(record);
           this.check(record);
+          await this.validateScope(record.scope, record);
+          this.check(record);
+          this.assertResult(record.scope, record);
           record.state = "matched";
           record.completion.resolve();
         });
@@ -215,10 +221,12 @@ export class BrowserFileChooserWaits {
       await record.completion.promise;
       await this.validateScope(record.scope, record);
       this.check(record);
+      this.assertResult(record.scope, record);
       // No await after ownership verification before consuming this result.
       return { ...record.result };
     }).then(result => {
       this.check(record);
+      this.assertResult(record.scope, record);
       record.delivered = true;
       this.retire(record);
       return result;

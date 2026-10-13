@@ -93,6 +93,7 @@ export class DirectoryUploadRegistry {
     Object.assign(this, { send, checkCurrent, canCleanup, now, setTimer, clearTimer, maxTotal });
     this.records = new Map();
     this.operations = new Set();
+    this.operationRecords = new Map();
     this.attachments = new WeakMap();
     this.nextAttachment = 0;
   }
@@ -125,10 +126,27 @@ export class DirectoryUploadRegistry {
     return record;
   }
 
-  track(operation) {
+  track(operation, record) {
     this.operations.add(operation);
-    operation.then(() => this.operations.delete(operation), () => this.operations.delete(operation));
+    this.operationRecords.set(operation, record);
+    const settled = () => { this.operations.delete(operation); this.operationRecords.delete(operation); };
+    operation.then(settled, settled);
     return operation;
+  }
+
+  async drain(predicate = () => true) {
+    // Resource identity survives node retirement, caller timeout and document
+    // destruction. It confers no authority to detach a replacement attachment.
+    const records = new Set([...this.records.values(), ...this.operationRecords.values()].filter(record => record && predicate(record)));
+    for (;;) {
+      const pending = [...this.operationRecords].filter(([, record]) => records.has(record)).map(([operation]) => operation);
+      await Promise.allSettled(pending);
+      for (const record of records) await this.cleanup(record);
+      if ([...this.operationRecords.values()].some(record => records.has(record))) continue;
+      if ([...records].some(record => !record.retired && !record.cleanupDone))
+        throw new Error("OBU_DIRECTORY_UPLOAD_CLEANUP_FAILED: original file input cleanup is unconfirmed");
+      return;
+    }
   }
 
   check(record) {
@@ -148,7 +166,7 @@ export class DirectoryUploadRegistry {
     let operation;
     try { operation = Promise.resolve(this.send(this.target(record), method, params)); }
     catch (error) { operation = Promise.reject(error); }
-    return this.track(operation);
+    return this.track(operation, record);
   }
 
   async within(record, operation) {
@@ -264,8 +282,8 @@ export class DirectoryUploadRegistry {
       record.dispatched = true;
       // There is no await between the final admission check and the original
       // ordinary mutation. It retains its own native ACK and navigation rules.
-      try { record.native = this.track(Promise.resolve(operation())); }
-      catch (error) { record.native = this.track(Promise.reject(error)); }
+      try { record.native = this.track(Promise.resolve(operation()), record); }
+      catch (error) { record.native = this.track(Promise.reject(error), record); }
       this.observeNative(record);
       const result = await this.within(record, () => record.native);
       await this.within(record, () => record.validate());
@@ -323,7 +341,7 @@ export class DirectoryUploadRegistry {
       }
       record.cleanupDone = true;
     })();
-    record.cleanupPromise = this.track(operation);
+    record.cleanupPromise = this.track(operation, record);
     operation.then(() => { record.cleanupPromise = null; this.reconcile(record); }, error => {
       record.cleanupPromise = null; record.cleanupError = error; this.cancel(record, error);
     });

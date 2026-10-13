@@ -1194,12 +1194,16 @@ for (const files of [["fixture.bin"], []]) {
       const env = await selectedChooserEnvironment();
       const held = holdChooserCommand(env, files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn");
       const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(files))]);
+      let ending;
       try {
         await held.entered.promise;
         if (invalidation === "navigation") {
           env.backend.handleCdpEvent({ tabId: 7 }, "Page.frameNavigated", { frame: { id: "root-frame", url: "https://fixture.test/next" } });
         } else if (invalidation === "turn end") {
-          await env.backend.turnEnded(env.scope);
+          let ended = false;
+          ending = env.backend.turnEnded(env.scope).then(value => { ended = true; return value; });
+          ending.catch(() => {});
+          await tick(); assert.equal(ended, false, "turn end must wait for the original native write ACK");
         } else if (invalidation === "live ownership transfer") {
           // A fresh inventory must catch an ownership change even when its
           // Chrome event has not yet arrived at the service worker.
@@ -1208,6 +1212,7 @@ for (const files of [["fixture.bin"], []]) {
           await replaceChooserAttachment(env);
         }
       } finally { held.gate.resolve(); }
+      await ending;
       const [outcome] = await result;
       assert.equal(outcome.status, invalidation === "navigation" ? "fulfilled" : "rejected",
         "input/change navigation is allowed, but an ACK cannot restore revoked attachment or tab ownership");
@@ -1341,7 +1346,8 @@ for (const files of [["fixture.bin"], []]) {
     const env = await selectedChooserEnvironment();
     const held = holdChooserCommand(env, files.length ? "DOM.setFileInputFiles" : "Runtime.callFunctionOn");
     const detachGate = deferred(), detachEntered = deferred(), detach = env.chrome.debugger.detach;
-    env.chrome.debugger.detach = async target => { detachEntered.resolve(); await detachGate.promise; return detach(target); };
+    let detachStarted = false;
+    env.chrome.debugger.detach = async target => { detachStarted = true; detachEntered.resolve(); await detachGate.promise; return detach(target); };
     const token = env.backend.attachmentEpochs.get(7);
     const result = Promise.allSettled([env.backend.setFileChooserFiles(env.setParams(files))]);
     let release;
@@ -1351,12 +1357,13 @@ for (const files of [["fixture.bin"], []]) {
       env.backend.revokeMovedTab(7, 20);
       release = env.backend.controlReleases.get(7);
       env.tabs.get(7).groupId = 10;
-      await detachEntered.promise;
+      await tick(); assert.equal(detachStarted, false, "native detach cannot overtake the original file write");
       assert.equal(env.backend.attachedTabs.has(7), true);
       assert.equal(env.backend.attachmentEpochs.get(7), token);
       assert.equal(env.backend.revokedAttachmentTokens.has(token), true);
       held.gate.resolve();
       const [outcome] = await result;
+      await detachEntered.promise;
       assert.equal(outcome.status, "rejected");
       assert.match(outcome.reason.message, /CONTROL_REVOKED|TRANSFER_CANCELLED/);
       assert.equal(env.backend.fileChoosersById.has(env.chooser.fileChooserId), false);

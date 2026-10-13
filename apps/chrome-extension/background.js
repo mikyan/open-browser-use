@@ -891,9 +891,10 @@ class BrowserBackend {
     });
     this.fileChooserWaits = new BrowserFileChooserWaits({
       send: (scope, sessionId, enabled) => chrome.debugger.sendCommand({ tabId: scope.tabId, ...(sessionId ? { sessionId } : {}) }, "Page.setInterceptFileChooserDialog", { enabled }),
-      assertScope: scope => this.assertTransferScope(scope),
+      assertScope: scope => this.assertFileChooserScope(scope),
+      assertResult: scope => { this.assertFileChooserScope(scope); this.assertSiteProof(scope.fileChooserAccess?.siteProof); },
       validateScope: async (scope, record) => {
-        await this.validateTransferScope(scope);
+        await this.validateFileChooserScope(scope);
         if (record.selectedDocumentEpoch !== undefined && record.selectedDocumentEpoch !== (this.documentEpochs.get(scope.tabId) ?? 0))
           throw new Error("OBU_FILE_CHOOSER_WAIT_EXPIRED: chooser document changed");
         if (record.result && !this.fileChoosersById.has(record.result.fileChooserId))
@@ -1265,7 +1266,7 @@ class BrowserBackend {
     // These channels can expose origins other than the tab's live documents.
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
     const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard",
-      "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
+      "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
     if (method === "downloadMedia" || unsupported.includes(method) || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
@@ -1503,7 +1504,8 @@ class BrowserBackend {
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...dialogs.tabIds, ...[...this.nativeDialogOperations].map(value => value.tabId), ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    const fileInputPending = [...this.directoryUploads.operations];
+    return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
@@ -1519,7 +1521,7 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [networksReleased, this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [networksReleased, this.directoryUploads.drain(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -3894,14 +3896,81 @@ class BrowserBackend {
 
   async armFileChooserWait(params, record) {
     const check = () => this.fileChooserWaits.check(record);
+    // The decision belongs to this arm, not to a later chooser event or read.
+    const policy = this.siteAccess.status();
+    const access = { policy, candidate: null, siteProof: null };
     await this.fileChooserWaits.within(record, () => this.controlReleases.get(params.tabId));
     await this.prepareTransferAttachment(params, record.deadlineAt, { check, preserveChooserRecord: record,
       onAttachStarted: cancel => { record.cancelAdmission = cancel; } });
     check();
     const scope = await this.transferScope(params, "armFileChooserWait", record.deadlineAt);
     check();
+    scope.fileChooserAccess = access;
     this.fileChooserWaits.bind(record, scope);
     return this.fileChooserWaits.arm(record, [undefined, ...this.childSessionsByTabId.get(params.tabId) ?? []]);
+  }
+
+  assertFileChooserScope(scope, { document = true } = {}) {
+    this.assertControlOpen(); this.assertTransferScope(scope);
+    const access = scope.fileChooserAccess;
+    if (!access) return;
+    this.siteAccess.assertReady();
+    if (access.policy.generation !== this.siteAccess.generation || access.policy.revision !== this.siteAccess.status().revision)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser permissions changed");
+    const owner = this.attachmentOwners.get(scope.tabId);
+    if (!owner || ["session_id", "turn_id", "control_epoch", "attachment"].some(key => owner[key] !== scope[key]))
+      throw new Error("OBU_FILE_CHOOSER_WAIT_EXPIRED: original chooser owner changed");
+    const candidate = access.candidate;
+    if (document && candidate && this.siteAccess.restricted) {
+      if (this.fileInputDocumentsByTabId.get(scope.tabId)?.get(candidate.frameId) !== candidate.documentToken ||
+          candidate.documentRevision !== (this.exportDocumentRevisions.get(scope.tabId) ?? 0) ||
+          (candidate.target.sessionId !== undefined && !this.childSessionsByTabId.get(scope.tabId)?.has(candidate.target.sessionId)))
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser document changed");
+      if (candidate.url !== undefined) this.siteAccess.assertUrl(candidate.url);
+    }
+  }
+
+  async validateFileChooserScope(scope, { document = true } = {}) {
+    this.assertFileChooserScope(scope, { document });
+    await this.validateTransferScope(scope);
+    const proof = await this.assertSiteTab(scope.tabId);
+    this.assertFileChooserScope(scope, { document }); this.assertSiteProof(proof);
+    if (scope.fileChooserAccess) scope.fileChooserAccess.siteProof = proof;
+  }
+
+  async proveFileChooserSource(scope, candidate) {
+    this.assertFileChooserScope(scope);
+    const pending = chrome.debugger.sendCommand(candidate.target, "Page.getFrameTree", {});
+    // Reading the original native frame cannot be replaced by a later frame
+    // with the same URL. Keep the actual Promise tracked after caller timeout.
+    const { frameTree } = await this.fileChooserWaits.track(pending);
+    this.assertFileChooserScope(scope);
+    const seen = new Set(); let sourcePath;
+    const visit = (tree, path) => {
+      const frame = tree?.frame;
+      if (!frame || typeof frame.id !== "string" || !frame.id || typeof frame.url !== "string" ||
+          seen.has(frame.id) || seen.size >= 1024)
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser frame tree is unavailable");
+      seen.add(frame.id);
+      const next = [...path, frame];
+      if (frame.id === candidate.frameId) sourcePath = next;
+      if (tree.childFrames !== undefined && !Array.isArray(tree.childFrames))
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser frame tree is malformed");
+      for (const child of tree.childFrames ?? []) visit(child, next);
+    };
+    visit(frameTree, []);
+    if (!sourcePath) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser emitter is unavailable");
+    let url;
+    for (const frame of sourcePath) {
+      // A local blank/srcdoc child inherits only a proven native ancestor.
+      // An opaque root with no ancestor is deliberately not guessed from tab URL.
+      if (["about:blank", "about:srcdoc"].includes(frame.url)) continue;
+      this.siteAccess.assertUrl(frame.url); url = frame.url;
+    }
+    if (!url) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser origin is unavailable");
+    candidate.url = url;
+    candidate.loaderId = sourcePath.at(-1).loaderId;
+    this.assertFileChooserScope(scope);
   }
 
   async collectFileChooserWait(params) {
@@ -3932,18 +4001,21 @@ class BrowserBackend {
     if (typeof params.fileChooserId !== "string" || !params.fileChooserId) throw new Error("setFileChooserFiles requires fileChooserId");
     const chooser = this.fileChoosersById.get(params.fileChooserId);
     if (!chooser || chooser.scope.session_id !== params.session_id) throw new Error("Unknown or unowned file chooser id");
-    this.assertTransferScope(chooser.scope);
+    this.assertFileChooserScope(chooser.scope);
     await this.requireSessionTab({ ...params, tabId: chooser.scope.tabId }, "setFileChooserFiles");
+    await this.withinTransferDeadline(deadlineAt, () => this.validateFileChooserScope(chooser.scope));
     if (!Array.isArray(params.files) || params.files.some(file => typeof file !== "string" || !file)) throw new Error("setFileChooserFiles requires an array of non-empty file paths");
     if (!chooser.isMultiple && params.files.length > 1) throw new Error("File chooser does not accept multiple files");
     const checkAuthority = () => {
       this.assertControlOpen();
       this.assertAttachmentAdmission(chooser.scope.tabId, chooser.scope.attachment);
-      this.assertTransferScope(chooser.scope);
+      this.assertFileChooserScope(chooser.scope, { document: false });
     };
     const check = () => {
       if (Date.now() >= deadlineAt) throw new Error("OBU_DIRECTORY_UPLOAD_TIMEOUT: original file submission deadline expired");
       checkAuthority();
+      this.assertFileChooserScope(chooser.scope);
+      this.assertSiteProof(chooser.scope.fileChooserAccess?.siteProof);
       if (this.fileChoosersById.get(params.fileChooserId) !== chooser) throw new Error("File chooser became stale");
     };
     checkAuthority();
@@ -3956,7 +4028,13 @@ class BrowserBackend {
       const documents = this.fileInputDocumentsByTabId.get(chooser.scope.tabId) ?? new Map();
       if (!documents.has(chooser.frameId)) documents.set(chooser.frameId, {});
       this.fileInputDocumentsByTabId.set(chooser.scope.tabId, documents);
-      return await this.submitFileInput({ chooser, files: params.files, deadlineAt, check, checkAuthority, documentToken: documents.get(chooser.frameId) });
+      return await this.submitFileInput({ chooser, files: params.files, deadlineAt, check, checkAuthority,
+        validateAuthority: async () => {
+          await this.validateFileChooserScope(chooser.scope, { document: false });
+          const proof = chooser.scope.fileChooserAccess?.siteProof;
+          return () => this.assertSiteProof(proof);
+        },
+        documentToken: chooser.scope.fileChooserAccess?.candidate?.documentToken ?? documents.get(chooser.frameId) });
     } finally {
       if (this.fileChoosersById.get(params.fileChooserId) === chooser) this.fileChoosersById.delete(params.fileChooserId);
     }
@@ -4003,14 +4081,14 @@ class BrowserBackend {
     } };
   }
 
-  async submitFileInput({ chooser, files, deadlineAt, check, checkAuthority, documentToken }) {
+  async submitFileInput({ chooser, files, deadlineAt, check, checkAuthority, validateAuthority, documentToken }) {
     let submission;
     try {
       submission = this.directoryUploads.reserve({
         identity: { tabId: chooser.scope.tabId, attachment: chooser.scope.attachment, ...chooser.target,
           frameId: chooser.frameId, backendNodeId: chooser.backendNodeId, documentToken },
         scope: chooser.scope, deadlineAt, check,
-        validate: async () => { checkAuthority(); await this.validateTransferScope(chooser.scope); checkAuthority(); }
+        validate: async () => { checkAuthority(); await this.validateTransferScope(chooser.scope); const confirm = await validateAuthority?.(); checkAuthority(); confirm?.(); }
       });
       const input = await this.directoryUploads.prepare(submission);
       check();
@@ -4040,7 +4118,9 @@ class BrowserBackend {
       // need not survive an acknowledged write, but its authority must.
       checkAuthority();
       await this.validateTransferScope(chooser.scope);
+      const confirm = await validateAuthority?.();
       checkAuthority();
+      confirm?.();
     } catch (error) {
       if (submission) this.directoryUploads.cancelWhere(record => record === submission, error);
       throw error;
@@ -4680,11 +4760,30 @@ class BrowserBackend {
       const waiter = this.fileChooserWaitersByTabId.get(tabId);
       const documentEpoch = this.documentEpochs.get(tabId);
       if (waiter && ["arming", "pending"].includes(waiter.state)) waiter.selectedDocumentEpoch = documentEpoch ?? 0;
-      this.fileChooserWaits.observe(waiter, source.sessionId, check => {
+      // Capture at the original event, before permission inspection or any
+      // native source read can yield. Later events cannot replace this choice.
+      if (waiter?.scope?.fileChooserAccess && !waiter.invalid && ["arming", "pending"].includes(waiter.state) &&
+          waiter.targets.has(source.sessionId) && this.fileChooserWaits.targetAlive(waiter.scope, source.sessionId)) {
+        const documents = this.fileInputDocumentsByTabId.get(tabId) ?? new Map();
+        if (!documents.has(params.frameId)) documents.set(params.frameId, {});
+        this.fileInputDocumentsByTabId.set(tabId, documents);
+        waiter.scope.fileChooserAccess.candidate = {
+          target: Object.freeze({ tabId, ...(source.sessionId ? { sessionId: source.sessionId } : {}) }),
+          frameId: params.frameId, backendNodeId: params.backendNodeId, documentToken: documents.get(params.frameId),
+          documentRevision: this.exportDocumentRevisions.get(tabId) ?? 0
+        };
+      }
+      this.fileChooserWaits.observe(waiter, source.sessionId, async check => {
         check();
         if (this.fileChooserWaitersByTabId.get(tabId) !== waiter || this.documentEpochs.get(tabId) !== documentEpoch) throw new Error("File chooser became stale");
         if (source.sessionId && !this.childSessionsByTabId.get(tabId)?.has(source.sessionId)) throw new Error("Unowned file chooser child session");
         if (!Number.isInteger(params.backendNodeId)) throw new Error("File chooser event did not include backendNodeId");
+        if (this.siteAccess.restricted) {
+          const candidate = waiter.scope.fileChooserAccess?.candidate;
+          if (!candidate || typeof candidate.frameId !== "string" || !candidate.frameId || candidate.backendNodeId !== params.backendNodeId)
+            throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original file chooser identity is unavailable");
+          await this.proveFileChooserSource(waiter.scope, candidate); check();
+        }
         if (this.fileChoosersById.size >= 128) throw new Error("File chooser capacity reached");
         const fileChooserId = crypto.randomUUID(), isMultiple = params.mode === "selectMultiple";
         this.fileChoosersById.set(fileChooserId, { scope: waiter.scope, target: { tabId, ...(source.sessionId ? { sessionId: source.sessionId } : {}) },
@@ -5049,6 +5148,8 @@ class BrowserBackend {
     const diagnosticsReleased = this.browserEngine?.drainDiagnosticCleanup?.({ sessionId, retryFailed: retryDiagnosticCleanup }) ?? Promise.resolve();
     diagnosticsReleased.catch(() => {});
     this.directoryUploads.cancelWhere(record => record.scope.session_id === sessionId, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
+    const fileInputsReleased = this.directoryUploads.drain(record => record.scope.session_id === sessionId);
+    fileInputsReleased.catch(() => {});
     for (const marker of this.freshBlankTabs.values()) if (marker.session_id === sessionId) this.retireFreshBlankTab(marker);
     const choosersReleased = this.fileChooserWaits.invalidateSession(sessionId);
     const downloadWaitsReleased = this.downloadWaits.invalidateSession(sessionId);
@@ -5081,7 +5182,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([fileInputsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -5259,7 +5360,7 @@ class BrowserBackend {
     // Cancellation reveals no page content and must drain the original wait
     // even when that site's permission can no longer be inspected.
     let proof;
-    if (!["detach", "cancelDialog", "cancelNetworkWait"].includes(command)) proof = await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
+    if (!["detach", "cancelDialog", "cancelNetworkWait", "cancelFileChooserWait"].includes(command)) proof = await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
     if (command !== "detach") this.assertAttachmentAdmission(tabId);
     this.controlLedger.assertCurrent(params);
     return proof;
@@ -5353,6 +5454,8 @@ class BrowserBackend {
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
+    const fileInputsReleased = this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === attachment);
+    fileInputsReleased.catch(() => {});
     this.browserEngine?.invalidate?.(tabId);
     const networksReleased = preserveNetworkArming ? this.networkWaits.invalidateAttachedTab(tabId) : this.networkWaits.invalidateTab(tabId);
     if (preserveNavigationArming) this.navigationWaits.invalidateAttachedTab(tabId);
@@ -5374,7 +5477,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([fileInputsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
@@ -5407,6 +5510,7 @@ class BrowserBackend {
     // input, contexts and remote handles no longer exist. A late Playwright
     // detach rejection is then expected; an error string alone proves nothing.
     if (destroyed()) return;
+    assertOriginal();
     this.clearPointerFeedback(tabId);
     this.externalScreencastTabs.delete(tabId);
     let engineError;
@@ -5447,10 +5551,12 @@ class BrowserBackend {
       isCurrent,
       release: async () => {
         if (!isCurrent()) return;
+        this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId && record.identity.attachment === token,
+          new Error("OBU_TRANSFER_CANCELLED: original file input attachment is being released"));
         // CRX also detaches on action timeout. Its captured release hook must
         // close exports on this exact attachment before native detach, without
         // cancelling an unbound reservation or a later attachment's work.
-        const releases = [this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
+        const releases = [this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === token), this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
           this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
         const results = await Promise.allSettled(releases);
         const failure = results.find(result => result.status === "rejected");

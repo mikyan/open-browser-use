@@ -74,6 +74,11 @@ ordinary submission. A timeout is not proof that an already submitted mutation
 did nothing. Inspect the resulting page before deciding on a new upload; the
 SDK and extension do not replay it automatically.
 
+The shared registry retains the actual pending native operations after that
+timeout. Pause, session end, backend detach and the engine's original release
+hook wait for those operations and their cleanup. See the
+[restricted chooser drain contract](restricted-file-chooser.md#actual-upload-cleanup).
+
 The existing legacy control protocol remains valid when the wire epoch is
 omitted: admission captures the current ledger epoch synchronously and keeps
 that original scope. It does not adopt a successor turn. Unconfirmed utility

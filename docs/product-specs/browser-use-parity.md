@@ -12,6 +12,16 @@
 
 ## Baseline sources
 
+P10/P14 受限网站原生 chooser 专项 `btlfEb` 8/8 actual exit0：五入口×三
+布局和六边界31原POST/12,779B，15原上传/15显式清空及一次延迟ACK上传，
+原节点、文件字节、策略与实际清理独立核验。34,925ms零activation，原两次
+popup focus。各组当前Node合计3400pass/1既有Windows skip；完整 `mAKsEd`
+175/175 actual exit0，旧169名称/顺序保持，529,321ms仅原12activation/
+4control-focus许可；原业务字节、源码/构建和精确清理均独立核验。
+当前Codex IAB同组有限对照保留root上传成功、清空拒绝及既有
+跨域等待超时，dynamic因未在原期限内点击而排除；无性能或完整持平结论。
+契约及边界见[受限文件选择器](../references/restricted-file-chooser.md)。
+
 P11/P14 受限网站诊断和原正文专项 `gapwcs` 8/8 actual exit 0：五入口×三布局
 及九边界、22原POST/17,316B、17原native正文读取，16返回原字节、一次原ACK
 后超时。原console/error context和network request/document证明、策略、清理

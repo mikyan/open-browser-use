@@ -188,7 +188,12 @@ In either restricted mode:
   Retained body references share the original response's proof; delivery checks
   it again after asynchronous permission reads. A current allowed URL cannot
   authorize old or third-party content. See [original bodies](original-response-bodies.md).
-- Arbitrary public CDP, clipboard, WebMCP, file choosers,
+- Native file choosers fix the original attachment, frame, document, node and
+  policy identity. Ready/collection wait for actual interception ACKs; submission
+  rechecks the original authority and allowed tree. Cancellation drains only the
+  owned wait without inspecting a newly denied site. See
+  [restricted file choosers](restricted-file-chooser.md).
+- Arbitrary public CDP, clipboard, WebMCP,
   direct downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
   notifications are suppressed. These channels can refer to origins outside the
   live document tree and have not been certified for this restricted mode.

@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Restricted file choosers](restricted-file-chooser.md)：允许网站上的原生上传、
+  原文档与节点归属、真实操作清理及当前 Codex IAB 的有限对照。
 - [DOM rebuild feedback](dom-rebuild-feedback.md)：同文档根节点重建后的光标、
   目标框与点击圈恢复，原图层归属、迟到动画及隐藏清理边界。
 - [Zoom feedback](zoom-feedback.md)：根 CSS 缩放下的光标、目标框及点击圈

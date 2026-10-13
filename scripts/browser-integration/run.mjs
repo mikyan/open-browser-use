@@ -38,6 +38,7 @@ import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-f
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createRestrictedNetworkFixtures, checkRestrictedNetworkCaller, checkRestrictedNetworkPolicy, checkRestrictedNetworkBoundaries, runRestrictedNetworkWireCaller } from "./site-access-network-fixture.mjs";
 import { createRestrictedDiagnosticsFixtures, checkRestrictedDiagnosticsCaller, checkRestrictedDiagnosticsPolicy, checkRestrictedDiagnosticsBoundaries, runRestrictedDiagnosticsWireCaller } from "./site-access-diagnostics-fixture.mjs";
+import { checkRestrictedChooserCaller, checkRestrictedChooserPolicy, checkRestrictedChooserBoundaries, runRestrictedChooserWireCaller } from "./restricted-chooser-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
 import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
@@ -390,9 +391,13 @@ const restrictedDiagnosticsKinds = ["js", "cli", "mcp", "python", "go"];
 const restrictedDiagnosticsNames = [...restrictedDiagnosticsKinds.map(kind => `${kind}-restricted-diagnostics`), "js-restricted-diagnostics-boundaries"];
 const restrictedDiagnosticsEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
   !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry && restrictedDiagnosticsNames.some(restrictedDialogSelected);
+const restrictedChooserKinds = ["js", "cli", "mcp", "python", "go"];
+const restrictedChooserNames = [...restrictedChooserKinds.map(kind => `${kind}-restricted-chooser`), "js-restricted-chooser-boundaries"];
+const restrictedChooserEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
+  !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry && restrictedChooserNames.some(restrictedDialogSelected);
 const restrictedDialogsEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
   !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry && restrictedDialogNames.some(restrictedDialogSelected);
-const siteAccessTraceEnabled = (restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled) && process.env.OBU_TEST_SITE_ACCESS_TRACE === "1";
+const siteAccessTraceEnabled = (restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled || restrictedChooserEnabled) && process.env.OBU_TEST_SITE_ACCESS_TRACE === "1";
 const siteAccessStartupProbe = {
   markerKey: `__OBU_TEST_SITE_STARTUP_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
   nonce: randomUUID().replaceAll("-", "")
@@ -3331,10 +3336,11 @@ try {
       }
     }
   });
-  let startupFromPopup, invalidFromPopup, restrictedPolicyFromPopup, restrictedNetworkPolicyFromPopup, restrictedDiagnosticsPolicyFromPopup;
+  let startupFromPopup, invalidFromPopup, restrictedPolicyFromPopup, restrictedNetworkPolicyFromPopup, restrictedDiagnosticsPolicyFromPopup, restrictedChooserPolicyFromPopup;
   const restrictedFromPopup = new Map();
   const restrictedNetworkFromPopup = new Map();
   const restrictedDiagnosticsFromPopup = new Map();
+  const restrictedChooserFromPopup = new Map();
   const siteAccessPopupSelected = !process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-user-site-access-popup");
   const startupSharesPopup = siteAccessStartupEnabled &&
     siteAccessPopupSelected;
@@ -3686,10 +3692,163 @@ try {
       }
     }
   }
+  async function runRestrictedChooserCase(kind, policy) {
+    const sessionId = `${kind}-restricted-chooser`;
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "restricted-chooser", timeoutMs: 15000 });
+    const detail = { sitePolicy: structuredClone(policy), processes: [], calls: [] }; let failure;
+    const invoke = tool => async (method, params) => {
+      const call = { method, params: structuredClone(params), startedAt: Date.now() }; detail.calls.push(call);
+      let response;
+      if (kind === "cli") {
+        const argv = ["call", "--socket", endpoint, "--session-id", sessionId, "--method", method, "--params", JSON.stringify(params), "--timeout", "15s"];
+        call.argv = argv; const evidence = { command: path.resolve(executable), argv }; detail.processes.push(evidence);
+        let stdout;
+        try {
+          stdout = await subprocess(evidence.command, argv, { processEvidence: evidence });
+          response = JSON.parse(stdout);
+        } catch (error) {
+          for (const [stream, value] of [["stdout", stdout ?? error.stdout], ["stderr", error.stderr]]) if (typeof value === "string") {
+            const artifact = `restricted-chooser-cli-call-${detail.calls.length}-${stream}-failed.txt`;
+            try {
+              await fs.writeFile(path.join(runDir, artifact), value, { flag: "wx" });
+              call[`${stream}Failure`] = { artifact, bytes: Buffer.byteLength(value), sha256: createHash("sha256").update(value).digest("hex") };
+            } catch (saveError) { (call.evidenceErrors ??= []).push(String(saveError)); }
+          }
+          throw error;
+        }
+      } else {
+        call.tool = "call"; call.arguments = { method, params };
+        const result = await tool("call", call.arguments); call.toolResult = result;
+        assert.equal(result.isError, false, JSON.stringify(result)); response = result.structuredContent;
+      }
+      call.response = response; call.completedAt = Date.now();
+      assert.equal(response.error, undefined, JSON.stringify(response)); assert.ok(Object.hasOwn(response, "result"));
+      return response.result;
+    };
+    const external = async (config, item) => {
+      const prefix = `restricted-chooser-${kind}-${item.layout}`;
+      const configFile = path.join(runDir, `${prefix}-config.json`), output = path.join(runDir, `${prefix}-caller.json`);
+      const source = path.join(directory, kind === "python" ? "restricted-chooser-checks.py" : "go-restricted-chooser-checks/main.go");
+      const frozen = path.join(runDir, `${prefix}-source.${kind === "python" ? "py" : "go"}`);
+      await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+      await fs.writeFile(configFile, JSON.stringify(config), { flag: "wx" });
+      const proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") }; item.callerProof = proof;
+      let command = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, configFile, output];
+      if (kind === "go") {
+        assert.ok(process.env.OBU_TEST_GO_SITE_CHOOSER_BINARY, "Set OBU_TEST_GO_SITE_CHOOSER_BINARY for typed restricted diagnostics");
+        command = path.join(runDir, `${prefix}-client${process.platform === "win32" ? ".exe" : ""}`);
+        await fs.copyFile(process.env.OBU_TEST_GO_SITE_CHOOSER_BINARY, command, fsConstants.COPYFILE_EXCL);
+        proof.binarySHA256 = createHash("sha256").update(await fs.readFile(command)).digest("hex");
+        args = [endpoint, configFile, output];
+      }
+      const evidence = { command, argv: args }; detail.processes.push(evidence);
+      try {
+        const stdout = await subprocess(command, args, { timeoutMs: 60000, processEvidence: evidence,
+          env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+        proof.stdoutFile = `${prefix}-stdout.txt`; proof.stdoutSHA256 = createHash("sha256").update(stdout).digest("hex");
+        await fs.writeFile(path.join(runDir, proof.stdoutFile), stdout, { flag: "wx" });
+        const result = JSON.parse(stdout); assert.deepEqual(result, JSON.parse(await fs.readFile(output, "utf8")));
+        assert.equal(evidence.closeObserved, true); assert.equal(evidence.exitCode, 0); assert.equal(evidence.signal, null);
+        return result;
+      } catch (error) {
+        for (const stream of ["stdout", "stderr"]) if (typeof error[stream] === "string") {
+          const name = `${prefix}-${stream}-failed.txt`;
+          try {
+            await fs.writeFile(path.join(runDir, name), error[stream], { flag: "wx" });
+            proof[`${stream}Failure`] = { artifact: name, bytes: Buffer.byteLength(error[stream]), sha256: createHash("sha256").update(error[stream]).digest("hex") };
+          } catch (saveError) { (proof.evidenceErrors ??= []).push({ artifact: name, error: String(saveError) }); }
+        }
+        try { item.callerResult = JSON.parse(await fs.readFile(output, "utf8")); }
+        catch (readError) { item.partialReadError = String(readError); }
+        throw error;
+      }
+    };
+    const files = await getChooserFiles();
+    const run = tool => checkRestrictedChooserCaller({ kind, browser: owner, fixtureURL, fixtures: chooserFixtures, files,
+      getWorker: () => worker, until, detail,
+      ...(["python", "go"].includes(kind) ? { caller: external } : ["cli", "mcp"].includes(kind) ? {
+        caller: (config, item) => runRestrictedChooserWireCaller(invoke(tool), config, item.callerResult)
+      } : {}) });
+    try {
+      sourceIdentity.testHooks.push(`${kind} restricted native chooser: original chooser/node/document and real upload/clear bytes in root/existing/dynamic OOPIF, no input replay, extra popup or focus allowance`);
+      if (kind === "mcp") {
+        const evidence = {}; detail.processes.push(evidence);
+        await withMCPClient(executable, endpoint, sessionId, (_call, tool) => run(tool), evidence);
+      } else await run();
+      for (const evidence of detail.processes) {
+        assert.equal(evidence.closeObserved, true); assert.equal(evidence.exitCode, 0); assert.equal(evidence.signal, null);
+        assert.equal(evidence.terminationRequestedAt, undefined); assert.equal(evidence.spawnError, undefined);
+      }
+    } catch (error) { failure = error; detail.error = error?.stack ?? String(error); }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "server-evidence", run: () => { for (const item of detail.variants ?? []) item.server = chooserFixtures.stats(item.key); } },
+      { name: "child-target-evidence", run: async () => {
+        const ids = (detail.variants ?? []).map(item => item.tabId).filter(Number.isSafeInteger);
+        const targets = await worker.evaluate(`globalThis.__integrationFrames.filter(row=>${JSON.stringify(ids)}.includes(row.tabId)).map(row=>row.targetId)`);
+        assert.ok(Array.isArray(targets));
+        detail.cleanupScope = { tabIds: ids, childTargetIds: targets };
+      } },
+      { name: "finalize", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "verify-tab-cleanup", run: async () => {
+        assert.ok(detail.cleanupScope, "Original child-target evidence must exist before cleanup verification");
+        const { tabIds: ids, childTargetIds: targets } = detail.cleanupScope;
+        detail.cleanup = await worker.evaluate(`(async()=>({tabs:(await chrome.tabs.query({})).filter(tab=>${JSON.stringify(ids)}.includes(tab.id)),targets:(await chrome.debugger.getTargets()).filter(target=>${JSON.stringify(ids)}.includes(target.tabId)||${JSON.stringify(targets)}.includes(target.id))}))()`);
+        assert.deepEqual(detail.cleanup.tabs, []); assert.deepEqual(detail.cleanup.targets, []);
+      } },
+      { name: "owner-close", run: () => owner.close() }
+    ], save: value => fs.writeFile(path.join(runDir, `restricted-chooser-${kind}.json`), JSON.stringify(value, null, 2)) });
+    if (failure) throw failure;
+    return detail;
+  }
+  async function recordChooserFromPopup(popup) {
+    let siteAccessTrace;
+    const record = async (name, run) => {
+      const started = Date.now(); let result;
+      try { result = { detail: await run() }; } catch (error) { result = { error }; }
+      restrictedChooserFromPopup.set(name, { ...result, elapsedMs: Date.now() - started });
+    };
+    try {
+      if (siteAccessTraceEnabled) siteAccessTrace = { installation: await worker.evaluate(`(${installSiteAccessDiagnostics.toString()})(__integrationBackend,chrome,globalThis)`) };
+      const detail = await checkRestrictedChooserPolicy({ popup, fixtureURL, until,
+        runAllowed: async policy => {
+          for (const kind of restrictedChooserKinds) {
+            const name = `${kind}-restricted-chooser`; if (!restrictedDialogSelected(name)) continue;
+            await record(name, async () => {
+              const before = await popup.evaluate("chrome.runtime.sendMessage({type:'GET_SITE_ACCESS_POLICY'})");
+              assert.equal(before.ok, true); assert.deepEqual(before.policy, policy);
+              const value = await runRestrictedChooserCase(kind, policy);
+              assert.deepEqual(await popup.evaluate("chrome.runtime.sendMessage({type:'GET_SITE_ACCESS_POLICY'})"), before);
+              return value;
+            });
+          }
+        },
+        runBoundaries: restrictedDialogSelected("js-restricted-chooser-boundaries") ? controls => record("js-restricted-chooser-boundaries", async () => checkRestrictedChooserBoundaries({
+          connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "restricted-chooser-boundaries", timeoutMs: 15000 }),
+          getWorker: () => worker, fixtureURL, fixtures: chooserFixtures, files: await getChooserFiles(), controls, until,
+          saveDetail: value => fs.writeFile(path.join(runDir, "restricted-chooser-boundaries.json"), JSON.stringify(value, null, 2))
+        })) : undefined,
+        saveDetail: value => fs.writeFile(path.join(runDir, "restricted-chooser-policy.json"), JSON.stringify(value, null, 2))
+      });
+      restrictedChooserPolicyFromPopup = { detail };
+    } catch (error) { restrictedChooserPolicyFromPopup = { error }; }
+    finally {
+      if (siteAccessTrace) {
+        try {
+          siteAccessTrace.evidence = await worker.evaluate("globalThis.__siteAccessDiagnostics.stop()");
+          const evidence = siteAccessTrace.evidence;
+          assert.equal(evidence.overflow, false); assert.equal(evidence.droppedRecords, 0); assert.equal(evidence.pending, 0); assert.deepEqual(evidence.errors, []);
+          assert.equal(evidence.restored, true); assert.equal(evidence.apiRemoved, true);
+        } catch (error) { siteAccessTrace.error = error?.stack ?? String(error); restrictedChooserPolicyFromPopup ??= {}; restrictedChooserPolicyFromPopup.error ??= error; }
+        try { await fs.writeFile(path.join(runDir, "site-access-restricted-chooser-trace.json"), JSON.stringify(siteAccessTrace, null, 2)); }
+        catch (error) { restrictedChooserPolicyFromPopup ??= {}; restrictedChooserPolicyFromPopup.error ??= error; }
+      }
+    }
+  }
   async function recordFollowingRestrictedPopup(popup) {
     if (restrictedDialogsEnabled) await recordRestrictedFromPopup(popup);
     if (restrictedNetworksEnabled && !restrictedPolicyFromPopup?.error) await recordNetworkFromPopup(popup);
     if (restrictedDiagnosticsEnabled && !restrictedPolicyFromPopup?.error && !restrictedNetworkPolicyFromPopup?.error) await recordDiagnosticsFromPopup(popup);
+    if (restrictedChooserEnabled && !restrictedPolicyFromPopup?.error && !restrictedNetworkPolicyFromPopup?.error && !restrictedDiagnosticsPolicyFromPopup?.error) await recordChooserFromPopup(popup);
   }
   async function recordFollowingStartupPopup(popup) {
     if (siteAccessInvalidEnabled) await recordInvalidFromPopup(popup);
@@ -3702,7 +3861,7 @@ try {
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       assert, until, traceFocus, restartWorker: restartObservedWorker,
       submissions: siteAccessSubmissions,
-      afterRestore: startupSharesPopup || (siteAccessInvalidEnabled && siteAccessPopupSelected) || restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled ? async popup => {
+      afterRestore: startupSharesPopup || (siteAccessInvalidEnabled && siteAccessPopupSelected) || restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled || restrictedChooserEnabled ? async popup => {
         if (startupSharesPopup) {
           const start = Date.now();
           try { startupFromPopup = { detail: await runSiteAccessStartup(popup) }; }
@@ -3732,7 +3891,7 @@ try {
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       until, traceFocus, restartWorker: restartObservedWorker, fixtures: siteAccessStartupFixtures, ...siteAccessStartupProbe, existingPopup,
-      afterRestore: !existingPopup && (siteAccessInvalidEnabled || restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled) ? recordFollowingStartupPopup : undefined,
+      afterRestore: !existingPopup && (siteAccessInvalidEnabled || restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled || restrictedChooserEnabled) ? recordFollowingStartupPopup : undefined,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-startup.json"), JSON.stringify(detail, null, 2)),
       connectPage: async url => {
         const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "website recovery popup target");
@@ -3761,7 +3920,7 @@ try {
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       until, traceFocus, restartWorker: restartObservedWorker, fixtures: siteAccessStartupFixtures, ...siteAccessInvalidProbe, existingPopup,
-      afterRestore: !existingPopup && (restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled) ? recordFollowingRestrictedPopup : undefined,
+      afterRestore: !existingPopup && (restrictedDialogsEnabled || restrictedNetworksEnabled || restrictedDiagnosticsEnabled || restrictedChooserEnabled) ? recordFollowingRestrictedPopup : undefined,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-invalid.json"), JSON.stringify(detail, null, 2)),
       connectPage: async url => {
         const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "invalid website settings popup target");
@@ -3800,6 +3959,13 @@ try {
     if (restrictedDiagnosticsPolicyFromPopup?.error) throw restrictedDiagnosticsPolicyFromPopup.error;
     assert.ok(result, "Select an existing website-settings popup case with restricted diagnostics; no extra popup is opened or replayed");
     return { ...result.detail, workflowElapsedMs: result.elapsedMs, policyRestored: restrictedDiagnosticsPolicyFromPopup.detail.restored };
+  });
+  for (const name of restrictedChooserNames) await test(name, async () => {
+    const result = restrictedChooserFromPopup.get(name);
+    if (result?.error) throw result.error;
+    if (restrictedChooserPolicyFromPopup?.error) throw restrictedChooserPolicyFromPopup.error;
+    assert.ok(result, "Select an existing website-settings popup case with restricted native chooser; no extra popup is opened or replayed");
+    return { ...result.detail, workflowElapsedMs: result.elapsedMs, policyRestored: restrictedChooserPolicyFromPopup.detail.restored };
   });
   await test("js-owned-tab-revocation", () => checkOwnedTabRevocation({
     connect: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),

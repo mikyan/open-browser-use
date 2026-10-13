@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+受限网站原生文件选择器专项 `btlfEb` 8/8 actual exit0，五入口×三布局与六
+边界共31原POST/12,779B；15次原上传、15次显式清空及一次延迟ACK上传，
+原文件、节点/文档/session、实际清理均独立核验。34,925ms零activation，
+仅原两次popup focus。完整Node3398pass/1既有skip；仅修fixture断言后重跑
+受影响整组1598pass/1skip，合计当前各组3400pass/1skip。Pause/end/detach
+及引擎释放等待原文件操作；普通安装与整体持平继续开放，见
+[受限文件选择器](references/restricted-file-chooser.md)。完整 `mAKsEd` 175/175
+actual exit0，旧169名称/顺序保持；529,321ms仅原12activation/4control-focus
+许可。31原POST字节、源码/构建身份及精确清理均独立核验，旧预览ZIP未变。
+
 受限网站诊断和原正文读取通过专项 `gapwcs` 8/8 actual exit 0：五入口×三布局
 及九边界共22原POST/17,316B、17原native正文读取；16返回原字节，另一次原ACK
 后受控延迟最终超时。原request/context/document、策略与清理独立核验。

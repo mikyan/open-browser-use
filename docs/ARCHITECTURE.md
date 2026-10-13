@@ -29,6 +29,10 @@ debugger、history 和 tab groups。
   期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
   原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。
   五入口共享协议及实际在途清理，见[原响应正文](references/original-response-bodies.md)。
+  受限网站的原生文件选择器固定原 frame/document/node 与 arm 时策略；真实
+  拦截及清理 ACK 后复核权限。共享文件输入注册表保留原 native 操作直到
+  结算，Pause/end/detach 与引擎释放 hook 均等待同一资源，见
+  [受限文件选择器](references/restricted-file-chooser.md)。
   网站策略真实保存失败后，由可信 popup 明确重试原候选；backend 复用暂停、
   清理与 revision 检查，实际未结算写不能重试，成功仍暂停。启动读取失败
   使用独立的显式只读恢复：原失败 ID 经校验、实际 Pause/drain 完成后才重新
