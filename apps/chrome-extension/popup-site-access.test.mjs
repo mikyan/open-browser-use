@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createSiteAccessControl } from "./popup-site-access.js";
 
-const policy = (revision = 1, mode = "all", origins = []) => ({ version: 1, revision, mode, origins, ready: true });
+const policy = (revision = 1, mode = "all", origins = [], generation = "policy-generation-1") => ({ version: 1, generation, revision, mode, origins, ready: true });
 function fixture() {
   const requests = [], views = [], applied = [], settled = [];
   const control = createSiteAccessControl({
@@ -36,7 +36,7 @@ test("apply captures the displayed revision, trims lines and waits for confirmed
   const f = fixture(); await load(f, policy(4));
   edit(f, " https://EXAMPLE.com/ \n\n http://localhost:3000 \n");
   const save = f.control.apply();
-  assert.deepEqual(f.requests[1].message, { type: "SET_SITE_ACCESS_POLICY", expectedRevision: 4,
+  assert.deepEqual(f.requests[1].message, { type: "SET_SITE_ACCESS_POLICY", expectedRevision: 4, expectedGeneration: "policy-generation-1",
     policy: { mode: "allow", origins: ["https://EXAMPLE.com/", "http://localhost:3000"] } });
   assert.equal(f.view().label, "Saving"); assert.equal(f.view().editingDisabled, true);
   assert.doesNotMatch(f.view().message, /Settings saved/);
@@ -157,7 +157,7 @@ test("reopened popup reviews the failed candidate as not saved and retries only 
   assert.doesNotMatch(f.view().message, /Saved settings loaded|Settings saved/);
   assert.equal(f.requests.length, 1); assert.equal(f.applied.length, 0);
   const retry = f.control.retry();
-  assert.deepEqual(f.requests[1].message, { type: "RETRY_SITE_ACCESS_POLICY", expectedRevision: 7 });
+  assert.deepEqual(f.requests[1].message, { type: "RETRY_SITE_ACCESS_POLICY", expectedRevision: 7, expectedGeneration: "policy-generation-1" });
   assert.equal(f.view().retryDisabled, true); assert.equal(f.view().reloadDisabled, true);
   await f.control.retry(); await f.control.apply(); await f.control.refresh(); await f.control.reload();
   assert.equal(f.requests.length, 2);
@@ -440,7 +440,7 @@ test("unknown policy preserves a draft internally and only explicit reload disca
 
 test("the popup binds read recovery to its dedicated button and refreshes automation only after settlement", async () => {
   const html = readFileSync(new URL("./popup.html", import.meta.url), "utf8");
-  assert.match(html, /<option value="" disabled selected>Saved settings not loaded<\/option>/);
+  assert.match(html, /<option id="site-access-mode-placeholder" value="" disabled selected>Saved settings not loaded<\/option>/);
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     value: "", textContent: "", dataset: {}, disabled: false, hidden: false, listeners: {},
     addEventListener(type, callback) { this.listeners[type] = callback; }
@@ -535,4 +535,172 @@ test("same-revision recovered settings require explicit review before applying a
   edit(f, "https://after-review.example"); const save = f.control.apply();
   assert.equal(f.requests[4].message.expectedRevision, 9);
   f.respond(4, policy(10, "allow", ["https://after-review.example"])); await save;
+});
+
+test("only an identified settled invalid record opens a separate unselected replacement draft", async () => {
+  for (const value of [policy(), unreadPolicy(), { ...unreadPolicy("invalid"), recovery: { state: "invalid" } },
+    { ...unreadPolicy(), recovery: { state: "pending" } }, { ...unreadPolicy("invalid"), generation: "" }]) {
+    const f = fixture(); await load(f, value); f.control.reviewReplacement();
+    assert.equal(f.view().replacementActive, false); await f.control.replace(); assert.equal(f.requests.length, 1);
+  }
+  const f = fixture(); await load(f, unreadPolicy("invalid")); f.control.reviewReplacement();
+  assert.equal(f.view().replacementActive, true); assert.equal(f.view().label, "Unavailable");
+  assert.equal(f.view().mode, ""); assert.equal(f.view().originsText, ""); assert.equal(f.view().replaceDisabled, true);
+  assert.equal(f.view().editingDisabled, false); assert.equal(f.requests.length, 1);
+  await f.control.replace(); assert.equal(f.requests.length, 1); assert.match(f.view().replacementEffect, /Choose/);
+});
+
+test("replacement explicitly selects permissions, sends the original recovery id once and keeps control paused", async () => {
+  for (const [mode, originsText, origins, effect] of [["all", "", [], /all websites/], ["allow", "", [], /no websites/], ["block", "", [], /all websites/], ["allow", "https://only.example", ["https://only.example"], /listed/]]) {
+    const f = fixture(); await load(f, unreadPolicy("invalid", "bad-record"));
+    f.control.reviewReplacement(); edit(f, originsText, mode); assert.equal(f.view().replaceDisabled, false); assert.match(f.view().replacementEffect, effect);
+    const attempt = f.control.replace();
+    assert.deepEqual(f.requests[1].message, { type: "REPLACE_INVALID_SITE_ACCESS_POLICY", expectedRecoveryId: "bad-record", policy: { mode, origins } });
+    assert.equal(f.view().pending, "replace"); assert.equal(f.view().replaceDisabled, true); assert.equal(f.view().editingDisabled, true);
+    await f.control.replace(); await f.control.apply(); await f.control.retry(); await f.control.recover(); await f.control.reload(); f.control.cancelReplacement();
+    assert.equal(f.requests.length, 2); assert.equal(f.settled.length, 0);
+    f.respond(1, { ...policy(1, mode, origins, "replacement-generation"), stored: true }); await attempt;
+    assert.equal(f.view().label, "Saved"); assert.equal(f.view().replacementActive, false); assert.equal(f.applied.length, 1);
+    assert.equal(f.settled.length, 1); assert.match(f.view().message, /saved.*paused/);
+    assert.equal(f.requests.some(item => /RESUME/.test(item.message.type)), false);
+  }
+});
+
+test("canceling replacement preserves the independent ordinary dirty draft", async () => {
+  const f = fixture(); await load(f, policy(9)); edit(f, " https://ordinary.example/ ");
+  const poll = f.control.refresh(); f.respond(1, unreadPolicy("invalid")); await poll;
+  f.control.reviewReplacement(); assert.equal(f.view().mode, ""); edit(f, "https://replacement.example", "block");
+  f.control.cancelReplacement(); assert.equal(f.view().replacementActive, false); assert.equal(f.requests.length, 2);
+  const recover = f.control.recover(); f.respond(2, policy(1, "block", ["https://saved.example"], "repaired-generation")); await recover;
+  assert.equal(f.view().mode, "allow"); assert.equal(f.view().originsText, " https://ordinary.example/ ");
+  assert.equal(f.view().dirty, true); assert.equal(f.view().applyDisabled, true);
+});
+
+test("successful replacement preserves an ordinary dirty draft and requires review of the new generation", async () => {
+  const f = fixture(); await load(f, policy(9)); edit(f, " https://ordinary.example/ ");
+  const invalid = f.control.refresh(); f.respond(1, unreadPolicy("invalid")); await invalid;
+  f.control.reviewReplacement(); edit(f, "https://replacement.example", "block");
+  const attempt = f.control.replace(); f.respond(2, { ...policy(1, "block", ["https://replacement.example"], "replacement-generation"), stored: true }); await attempt;
+  assert.equal(f.view().replacementActive, false); assert.equal(f.view().label, "Changed");
+  assert.equal(f.view().mode, "allow"); assert.equal(f.view().originsText, " https://ordinary.example/ ");
+  assert.equal(f.view().dirty, true); assert.equal(f.view().conflict, true); assert.equal(f.view().applyDisabled, true);
+  assert.equal(f.applied.length, 1); await f.control.apply(); assert.equal(f.requests.length, 3);
+  const review = f.control.reload(); f.respond(3, policy(1, "block", ["https://replacement.example"], "replacement-generation")); await review;
+  assert.equal(f.view().mode, "block"); assert.equal(f.view().dirty, false); assert.equal(f.view().conflict, false);
+});
+
+test("a changed recovery id or generation revokes replacement review while preserving its draft", async () => {
+  for (const value of [unreadPolicy("invalid", "new-id"), { ...unreadPolicy("invalid"), generation: "new-generation" }, unreadPolicy(), policy(1, "block", [], "new-generation")]) {
+    const f = fixture(); await load(f, unreadPolicy("invalid")); f.control.reviewReplacement(); edit(f, "https://draft.example");
+    const poll = f.control.refresh(); f.respond(1, value); await poll;
+    assert.equal(f.view().replacementActive, true); assert.equal(f.view().originsText, "https://draft.example");
+    assert.equal(f.view().replaceDisabled, true); await f.control.replace(); assert.equal(f.requests.length, 2);
+    if (value.recovery?.state === "invalid") {
+      f.control.reviewReplacement(); assert.equal(f.view().replaceDisabled, false);
+      const attempt = f.control.replace(); assert.equal(f.requests[2].message.expectedRecoveryId, value.recovery.id);
+      f.requests[2].reject(Error("stop")); await attempt;
+    }
+  }
+});
+
+test("a lost replacement reply uses a fresh GET to confirm a new generation and never resends", async () => {
+  const f = fixture(); await load(f, unreadPolicy("invalid")); f.control.reviewReplacement(); edit(f);
+  const stale = f.control.refresh(), attempt = f.control.replace(); f.requests[2].reject(Error("Reply lost")); await attempt;
+  assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().replaceDisabled, true);
+  await f.control.replace(); assert.equal(f.requests.length, 3);
+  const verify = f.control.refresh(); f.respond(3, { ...policy(1, "allow", ["https://example.com"], "new-generation"), stored: true }); await verify;
+  assert.equal(f.view().replacementActive, false); assert.equal(f.view().label, "Saved"); assert.equal(f.applied.length, 0);
+  assert.doesNotMatch(f.view().message, /remain paused|saved and agents paused/);
+  f.respond(1, unreadPolicy("invalid")); await stale;
+  assert.equal(f.view().label, "Saved"); assert.equal(f.view().replaceReviewVisible, false);
+  assert.equal(f.requests.filter(item => item.message.type === "REPLACE_INVALID_SITE_ACCESS_POLICY").length, 1);
+});
+
+test("replacement write failure is reviewed before an exact frozen-candidate generation retry", async () => {
+  const f = fixture(); await load(f, unreadPolicy("invalid")); f.control.reviewReplacement(); edit(f, " https://EXAMPLE.com/ ");
+  const attempt = f.control.replace(); f.requests[1].resolve({ ok: false, error: "Actual write rejected" }); await attempt;
+  const candidate = { ...failedPolicy(1), generation: "replacement-generation" };
+  const check = f.control.refresh(); f.respond(2, candidate); await check;
+  assert.equal(f.view().replacementActive, false); assert.equal(f.view().label, "Not saved"); assert.equal(f.view().retryDisabled, true);
+  await f.control.replace(); await f.control.retry(); await f.control.apply(); assert.equal(f.requests.length, 3);
+  const review = f.control.reload(); f.respond(3, candidate); await review; assert.equal(f.view().retryDisabled, false);
+  const retry = f.control.retry(); assert.deepEqual(f.requests[4].message, { type: "RETRY_SITE_ACCESS_POLICY", expectedGeneration: "replacement-generation", expectedRevision: 1 });
+  f.respond(4, policy(2, "allow", ["https://example.com"], "replacement-generation")); await retry;
+  assert.equal(f.view().label, "Saved"); assert.equal(f.applied.length, 1);
+});
+
+test("new generation lower revisions are authoritative but old drafts and asynchronous replies cannot overwrite them", async () => {
+  const f = fixture(); await load(f, policy(50)); edit(f, "https://old-draft.example");
+  const old = f.control.refresh(), newer = f.control.refresh(); f.respond(2, policy(1, "block", [], "new-generation")); await newer;
+  assert.equal(f.view().revision, 1); assert.equal(f.view().conflict, true); assert.equal(f.view().applyDisabled, true);
+  f.respond(1, policy(51)); await old; assert.equal(f.view().revision, 1);
+  const review = f.control.reload(); f.respond(3, policy(1, "block", [], "new-generation")); await review;
+  edit(f); const save = f.control.apply(); assert.equal(f.requests[4].message.expectedGeneration, "new-generation");
+  assert.equal(f.requests[4].message.expectedRevision, 1); f.respond(4, policy(2, "allow", ["https://example.com"], "new-generation")); await save;
+  assert.equal(f.view().label, "Saved");
+});
+
+test("missing or invalid generations never enable policy actions", async () => {
+  for (const generation of [undefined, "", 1, "x".repeat(129)]) for (const value of [policy(), failedPolicy(), unreadPolicy("invalid")]) {
+    const f = fixture(); await load(f, { ...value, generation });
+    assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().editingDisabled, true);
+    f.control.reviewReplacement(); await f.control.apply(); await f.control.retry(); await f.control.replace();
+    assert.equal(f.requests.length, 1); assert.equal(f.view().replacementActive, false);
+  }
+});
+
+test("replacement success requires a new generation, first revision and confirmed storage", async () => {
+  for (const value of [policy(1, "allow", ["https://example.com"]), { ...policy(2, "allow", ["https://example.com"], "new-generation"), stored: true },
+    policy(1, "allow", ["https://example.com"], "new-generation"), { ...policy(1, "all", [], "new-generation"), stored: true }]) {
+    const f = fixture(); await load(f, unreadPolicy("invalid")); f.control.reviewReplacement(); edit(f);
+    const attempt = f.control.replace(); f.respond(1, value); await attempt;
+    assert.equal(f.view().label, "Unavailable"); assert.equal(f.applied.length, 0); assert.equal(f.view().replaceDisabled, true);
+  }
+});
+
+test("the popup's replacement controls submit only the explicitly selected independent permissions", async () => {
+  const html = readFileSync(new URL("./popup.html", import.meta.url), "utf8");
+  const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
+    value: "", textContent: "", dataset: {}, disabled: false, hidden: false, listeners: {},
+    addEventListener(type, callback) { this.listeners[type] = callback; }
+  }]));
+  const requests = []; let refreshes = 0;
+  const context = { URL, createSiteAccessControl,
+    document: { getElementById: id => { assert.ok(elements.has(id), `Missing popup element ${id}`); return elements.get(id); } },
+    chromeApi: { runtime: { sendMessage: message => new Promise(resolve => requests.push({ message, resolve })) } },
+    automationControl: { refresh() { refreshes++; } }
+  };
+  const source = readFileSync(new URL("./popup.js", import.meta.url), "utf8");
+  vm.runInNewContext(`${source.slice(source.indexOf("const siteAccessMode ="), source.indexOf("\nrenderExtensionVersion();"))}\nglobalThis.control=siteAccessControl;`, context);
+  const load = context.control.refresh(); requests[0].resolve({ ok: true, policy: unreadPolicy("invalid") }); await load;
+  const element = id => elements.get(`site-access-${id}`);
+  assert.equal(element("replace-review").hidden, false); element("replace-review").listeners.click();
+  assert.equal(element("mode").value, ""); assert.equal(element("replace").disabled, true);
+  assert.equal(element("status").textContent, "Unavailable"); assert.equal(element("apply").hidden, true);
+  element("mode").value = "allow"; element("mode").listeners.change();
+  assert.match(element("replace-effect").textContent, /no websites/);
+  element("origins").value = "https://only.example"; element("origins").listeners.input();
+  assert.match(element("replace-effect").textContent, /only the listed origins/); assert.equal(element("replace").disabled, false);
+  element("replace").listeners.click();
+  assert.deepEqual(JSON.parse(JSON.stringify(requests[1].message)), { type: "REPLACE_INVALID_SITE_ACCESS_POLICY", expectedRecoveryId: "read-attempt-1", policy: { mode: "allow", origins: ["https://only.example"] } });
+  assert.equal(element("replace").disabled, true); assert.equal(refreshes, 0);
+  requests[1].resolve({ ok: true, policy: { ...policy(1, "allow", ["https://only.example"], "replacement-generation"), stored: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(element("status").textContent, "Saved"); assert.equal(element("replace").hidden, true);
+  assert.equal(element("replace-effect").hidden, true); assert.equal(refreshes, 1); assert.equal(requests.length, 2);
+});
+
+test("replacement validation and cancellation cannot consume an id or discard an ordinary draft", async () => {
+  const f = fixture(); await load(f, unreadPolicy("invalid")); f.control.reviewReplacement();
+  edit(f, Array.from({ length: 101 }, (_, index) => `https://site${index}.example`).join("\n"));
+  await f.control.replace(); assert.equal(f.requests.length, 1); assert.match(f.view().error, /100 origins/);
+  f.control.cancelReplacement(); assert.equal(f.view().replacementActive, false);
+  f.control.reviewReplacement(); assert.equal(f.view().mode, ""); assert.equal(f.view().replaceDisabled, true);
+  edit(f, "https://example.com/path"); const attempt = f.control.replace();
+  f.requests[1].resolve({ ok: false, error: "Origin must not contain a path" }); await attempt;
+  assert.equal(f.view().originsText, "https://example.com/path"); assert.equal(f.view().replaceDisabled, true);
+  const check = f.control.refresh(); f.respond(2, unreadPolicy("invalid")); await check;
+  assert.equal(f.view().replaceDisabled, true, "Even the same id needs explicit review after an unconfirmed attempt");
+  f.control.reviewReplacement(); edit(f); assert.equal(f.view().replaceDisabled, false);
+  assert.equal(f.requests.filter(item => item.message.type === "REPLACE_INVALID_SITE_ACCESS_POLICY").length, 1);
 });

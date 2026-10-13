@@ -324,3 +324,4 @@ dd {
 .site-access-details summary { cursor: pointer; color: #354f70; }
 .site-access-details p { margin-top: 7px; }
 #site-access-error { overflow-wrap: anywhere; }
+.replacement-effect { border-left: 3px solid #d97706; padding-left: 8px; color: #75430c; }

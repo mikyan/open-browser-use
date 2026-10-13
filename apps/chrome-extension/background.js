@@ -709,7 +709,12 @@ class BrowserBackend {
     this.prepareSiteStorageAccess();
     this.siteAccess = new SiteAccessPolicy({ storage: {
       get: async key => { await this.siteStorageAccess.promise; return chrome.storage.local.get(key); },
-      set: async value => { await this.siteStorageAccess.promise; return chrome.storage.local.set(value); }
+      // A valid read (including a confirmed corrupt record) has already waited
+      // for trusted setup. Keep the deadline check and native write adjacent.
+      set: value => {
+        if (!this.siteStorageAccess.ready) throw new Error("OBU_SITE_ACCESS_UNAVAILABLE: trusted website storage is not ready");
+        return chrome.storage.local.set(value);
+      }
     } });
     this.siteNavigationVersions = new Map();
     this.sitePendingFrames = new Map();
@@ -1265,11 +1270,11 @@ class BrowserBackend {
     // Only construction and explicit read recovery call this method. An
     // unresolved access-level operation remains the original single flight.
     if (this.siteStorageAccess && !this.siteStorageAccess.failed) return;
-    const attempt = { failed: false };
+    const attempt = { failed: false, ready: false };
     this.siteStorageAccess = attempt;
     try { attempt.promise = Promise.resolve(chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" })); }
     catch (error) { attempt.promise = Promise.reject(error); }
-    attempt.promise.catch(() => { attempt.failed = true; });
+    attempt.promise.then(() => { attempt.ready = true; }, () => { attempt.failed = true; });
   }
 
   async getSiteAccessPolicy() {
@@ -1310,18 +1315,28 @@ class BrowserBackend {
     });
   }
 
-  setSiteAccessPolicy(config, expectedRevision) {
+  replaceInvalidSiteAccessPolicy(config, expectedRecoveryId) {
+    const normalized = normalizeSiteAccessPolicy(config);
+    if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
+    if (this.controlStartupState !== "ready")
+      throw new Error("OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE: browser control startup must finish before replacing website settings");
+    this.siteAccess.assertInvalidReplacement(expectedRecoveryId);
+    return this.changeSiteAccessPolicy(beforeWrite => this.siteAccess.replaceInvalid(normalized, expectedRecoveryId, { beforeWrite }));
+  }
+
+  setSiteAccessPolicy(config, expectedRevision, expectedGeneration) {
     const normalized = normalizeSiteAccessPolicy(config);
     if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
     if (this.siteAccess.status().retryable)
       throw new Error("OBU_SITE_ACCESS_RETRY_REQUIRED: review and retry the failed website policy before changing settings");
-    return this.changeSiteAccessPolicy(() => this.siteAccess.replace(normalized, expectedRevision));
+    this.siteAccess.assertGeneration(expectedGeneration);
+    return this.changeSiteAccessPolicy(beforeWrite => this.siteAccess.replace(normalized, expectedRevision, expectedGeneration, { beforeWrite }));
   }
 
-  retrySiteAccessPolicy(expectedRevision) {
+  retrySiteAccessPolicy(expectedRevision, expectedGeneration) {
     if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
-    this.siteAccess.assertRetryable(expectedRevision);
-    return this.changeSiteAccessPolicy(() => this.siteAccess.retry(expectedRevision));
+    this.siteAccess.assertRetryable(expectedRevision, expectedGeneration);
+    return this.changeSiteAccessPolicy(beforeWrite => this.siteAccess.retry(expectedRevision, expectedGeneration, { beforeWrite }));
   }
 
   changeSiteAccessPolicy(operationAfterPause) {
@@ -1330,14 +1345,17 @@ class BrowserBackend {
     if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
     const token = {};
     this.sitePolicyUpdate = token;
+    const beforeWrite = () => {
+      if (this.sitePolicyUpdate !== token || Date.now() >= deadlineAt) throw timeout();
+    };
     // Pause fences input synchronously and drains native work before a policy
     // can be replaced or reread. Neither operation resumes retired tasks.
     const paused = this.pauseAutomation();
     const operation = (async () => {
       try {
         await paused;
-        if (Date.now() >= deadlineAt) throw timeout();
-        return await operationAfterPause();
+        beforeWrite();
+        return await operationAfterPause(beforeWrite);
       } finally {
         if (this.sitePolicyUpdate === token) this.sitePolicyUpdate = null;
       }
@@ -1385,6 +1403,7 @@ class BrowserBackend {
     if (!this.siteAccess.restricted) return;
     if (!recover && this.siteRevokedTabs.has(tabId)) throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
     const revision = this.siteAccess.status().revision;
+    const generation = this.siteAccess.generation;
     const version = this.siteNavigationVersions.get(tabId) ?? 0;
     for (const [frameId, url] of this.sitePendingFrames.get(tabId) ?? []) {
       if (frameId !== 0 && ["about:blank", "about:srcdoc"].includes(url)) continue;
@@ -1397,10 +1416,10 @@ class BrowserBackend {
       assertSiteAccessFrames(this.siteAccess, tab, frames);
       if (!allowBlank && tab.url === "about:blank") throw new Error("OBU_SITE_ACCESS_UNVERIFIED: blank documents are available only for navigation to an allowed website");
       this.siteAccess.assertReady();
-      if (revision !== this.siteAccess.status().revision || version !== (this.siteNavigationVersions.get(tabId) ?? 0))
+      if (generation !== this.siteAccess.generation || revision !== this.siteAccess.status().revision || version !== (this.siteNavigationVersions.get(tabId) ?? 0))
         throw new Error("OBU_SITE_ACCESS_UNVERIFIED: documents changed during permission inspection");
       if (recover) this.siteRevokedTabs.delete(tabId);
-      return { tabId, revision, version, documentId: frames.find(frame => frame.frameId === 0)?.documentId };
+      return { tabId, generation, revision, version, documentId: frames.find(frame => frame.frameId === 0)?.documentId };
     } catch (error) {
       this.revokeSiteTab(tabId);
       if (/^OBU_SITE_ACCESS_/.test(error?.message)) throw error;
@@ -1411,7 +1430,7 @@ class BrowserBackend {
   assertSiteProof(proof) {
     this.siteAccess.assertReady();
     if (!proof && !this.siteAccess.restricted) return;
-    if (!proof || this.siteRevokedTabs.has(proof.tabId) || proof.revision !== this.siteAccess.status().revision || proof.version !== (this.siteNavigationVersions.get(proof.tabId) ?? 0))
+    if (!proof || this.siteRevokedTabs.has(proof.tabId) || proof.generation !== this.siteAccess.generation || proof.revision !== this.siteAccess.status().revision || proof.version !== (this.siteNavigationVersions.get(proof.tabId) ?? 0))
       throw new Error("OBU_SITE_ACCESS_UNVERIFIED: document permission changed before the browser command");
   }
 
@@ -5729,15 +5748,26 @@ async function handleSiteAccessMessage(message, sender) {
     return backend.recoverSiteAccessPolicy(message.expectedRecoveryId);
   }
   if (message.type === "RETRY_SITE_ACCESS_POLICY") {
-    if (Object.keys(message).length !== 2 || !Object.hasOwn(message, "expectedRevision") ||
+    if (Object.keys(message).length !== 3 || !Object.hasOwn(message, "expectedRevision") ||
+        typeof message.expectedGeneration !== "string" || !message.expectedGeneration || message.expectedGeneration.length > 128 ||
         !Number.isSafeInteger(message.expectedRevision) || message.expectedRevision < 0)
-      throw new Error("OBU_SITE_ACCESS_INVALID: retry requires only the reviewed failed revision");
-    return backend.retrySiteAccessPolicy(message.expectedRevision);
+      throw new Error("OBU_SITE_ACCESS_INVALID: retry requires only the reviewed failed generation and revision");
+    return backend.retrySiteAccessPolicy(message.expectedRevision, message.expectedGeneration);
   }
-  return backend.setSiteAccessPolicy(message.policy, message.expectedRevision);
+  if (message.type === "REPLACE_INVALID_SITE_ACCESS_POLICY") {
+    if (Object.keys(message).length !== 3 || !Object.hasOwn(message, "policy") ||
+        typeof message.expectedRecoveryId !== "string" || !message.expectedRecoveryId || message.expectedRecoveryId.length > 128)
+      throw new Error("OBU_SITE_ACCESS_INVALID: replacement requires explicit settings and the observed invalid read ID");
+    return backend.replaceInvalidSiteAccessPolicy(message.policy, message.expectedRecoveryId);
+  }
+  if (message.type !== "SET_SITE_ACCESS_POLICY" || Object.keys(message).length !== 4 || !Object.hasOwn(message, "policy") ||
+      !Number.isSafeInteger(message.expectedRevision) || message.expectedRevision < 0 ||
+      typeof message.expectedGeneration !== "string" || !message.expectedGeneration || message.expectedGeneration.length > 128)
+    throw new Error("OBU_SITE_ACCESS_INVALID: save requires settings and their reviewed generation and revision");
+  return backend.setSiteAccessPolicy(message.policy, message.expectedRevision, message.expectedGeneration);
 }
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY", "RETRY_SITE_ACCESS_POLICY", "RECOVER_SITE_ACCESS_POLICY"].includes(message?.type)) {
+  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY", "RETRY_SITE_ACCESS_POLICY", "RECOVER_SITE_ACCESS_POLICY", "REPLACE_INVALID_SITE_ACCESS_POLICY"].includes(message?.type)) {
     void handleSiteAccessMessage(message, sender).then(policy => sendResponse({ ok: true, policy }), error => sendResponse({ ok: false, error: String(error?.message ?? error) }));
     return true;
   }

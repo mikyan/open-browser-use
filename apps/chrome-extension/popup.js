@@ -44,6 +44,9 @@ const siteAccessApply = document.getElementById("site-access-apply");
 const siteAccessRetry = document.getElementById("site-access-retry");
 const siteAccessRecover = document.getElementById("site-access-recover");
 const siteAccessReload = document.getElementById("site-access-reload");
+const siteAccessReplaceReview = document.getElementById("site-access-replace-review");
+const siteAccessReplace = document.getElementById("site-access-replace");
+const siteAccessReplaceCancel = document.getElementById("site-access-replace-cancel");
 const siteAccessControl = createSiteAccessControl({
   sendMessage: message => {
     if (!chromeApi?.runtime?.sendMessage) throw new Error("Extension control is unavailable.");
@@ -55,21 +58,33 @@ const siteAccessControl = createSiteAccessControl({
     status.textContent = view.label;
     status.dataset.revision = view.revision === null ? "" : String(view.revision);
     if (siteAccessMode.value !== view.mode) siteAccessMode.value = view.mode;
+    document.getElementById("site-access-mode-placeholder").textContent = view.modePlaceholder;
     if (siteAccessOrigins.value !== view.originsText) siteAccessOrigins.value = view.originsText;
     siteAccessMode.disabled = view.editingDisabled;
     siteAccessOrigins.disabled = view.editingDisabled;
     document.getElementById("site-access-list").hidden = !view.listVisible;
     document.getElementById("site-access-message").textContent = view.message;
     siteAccessApply.textContent = view.applyText;
+    siteAccessApply.hidden = view.replacementActive;
     siteAccessApply.disabled = view.applyDisabled;
     siteAccessRetry.hidden = !view.retryVisible;
     siteAccessRetry.textContent = view.retryText;
     siteAccessRetry.disabled = view.retryDisabled;
-    siteAccessRecover.hidden = !view.recoverVisible;
+    siteAccessRecover.hidden = view.replacementActive || !view.recoverVisible;
     siteAccessRecover.textContent = view.recoverText;
     siteAccessRecover.disabled = view.recoverDisabled;
     siteAccessReload.textContent = view.reloadText;
     siteAccessReload.disabled = view.reloadDisabled;
+    siteAccessReplaceReview.hidden = !view.replaceReviewVisible;
+    siteAccessReplaceReview.disabled = view.replaceReviewDisabled;
+    siteAccessReplace.hidden = !view.replacementActive;
+    siteAccessReplace.disabled = view.replaceDisabled;
+    siteAccessReplace.textContent = view.replaceText;
+    siteAccessReplaceCancel.hidden = !view.replacementActive;
+    siteAccessReplaceCancel.disabled = view.replaceCancelDisabled;
+    const effect = document.getElementById("site-access-replace-effect");
+    effect.hidden = !view.replacementActive;
+    effect.textContent = view.replacementEffect;
     const error = document.getElementById("site-access-error");
     error.hidden = !view.error;
     error.textContent = view.error;
@@ -82,6 +97,9 @@ siteAccessApply.addEventListener("click", () => { void siteAccessControl.apply()
 siteAccessRetry.addEventListener("click", () => { void siteAccessControl.retry(); });
 siteAccessRecover.addEventListener("click", () => { void siteAccessControl.recover(); });
 siteAccessReload.addEventListener("click", () => { void siteAccessControl.reload(); });
+siteAccessReplaceReview.addEventListener("click", () => siteAccessControl.reviewReplacement());
+siteAccessReplaceCancel.addEventListener("click", () => siteAccessControl.cancelReplacement());
+siteAccessReplace.addEventListener("click", () => { void siteAccessControl.replace(); });
 
 renderExtensionVersion();
 renderInstallCommands();

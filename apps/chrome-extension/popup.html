@@ -38,7 +38,7 @@
         </div>
         <label class="setting-label" for="site-access-mode">Allow agents to use</label>
         <select id="site-access-mode" disabled>
-          <option value="" disabled selected>Saved settings not loaded</option>
+          <option id="site-access-mode-placeholder" value="" disabled selected>Saved settings not loaded</option>
           <option value="all">All websites</option>
           <option value="allow">Only listed origins</option>
           <option value="block">Block listed origins</option>
@@ -49,9 +49,13 @@
           <p class="control-hint" id="site-access-origin-help">Matches the exact scheme, host and port. A blocked embedded site blocks the whole tab. An empty “Only listed” list allows no websites.</p>
         </div>
         <p class="control-hint" id="site-access-message" role="status">Checking saved settings…</p>
+        <p class="control-hint replacement-effect" id="site-access-replace-effect" role="status" hidden></p>
         <button class="control-button" id="site-access-apply" type="button" disabled>Apply and pause agents</button>
         <button class="control-button" id="site-access-retry" type="button" hidden disabled>Retry save and keep paused</button>
         <button class="control-button" id="site-access-recover" type="button" hidden disabled>Read settings again and keep paused</button>
+        <button class="secondary-button" id="site-access-replace-review" type="button" hidden disabled>Choose replacement settings</button>
+        <button class="control-button" id="site-access-replace" type="button" hidden disabled>Replace and keep paused</button>
+        <button class="secondary-button" id="site-access-replace-cancel" type="button" hidden>Cancel replacement</button>
         <button class="secondary-button" id="site-access-reload" type="button">Check saved settings</button>
         <p class="error-message" id="site-access-error" role="alert" hidden></p>
         <details class="site-access-details">

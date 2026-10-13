@@ -120,7 +120,7 @@ export function checkSiteAccessStartupSubmission(record, document, expectedValue
 }
 
 export async function checkSiteAccessStartupRecovery({ connectBrowser, getWorker, connectPage, popupURL, windowId, fixtureURL,
-  restartWorker, capture, saveDetail, until, traceFocus, fixtures, markerKey, nonce, existingPopup }) {
+  restartWorker, capture, saveDetail, until, traceFocus, fixtures, markerKey, nonce, existingPopup, afterRestore }) {
   const detail = { boundary: "Controlled startup delivery failure after successful original native get; explicit read-only recovery, not corruption replacement.",
     popupOwnership: existingPopup ? "borrowed" : "owned" };
   const browser = await connectBrowser("site-access-startup"), key = `startup-${randomBytes(16).toString("hex")}`, url = new URL("/site-access-startup/page", fixtureURL); url.searchParams.set("key", key);
@@ -152,6 +152,7 @@ export async function checkSiteAccessStartupRecovery({ connectBrowser, getWorker
     detail.restart = await restartWorker(popup);
     detail.failed = await until(async () => { const status = await readPolicy(); return status.recovery?.state === "read-error" && status.recovery.id ? status : false; }, "initial policy delivery failure");
     assert.equal(detail.failed.ready, false); assert.equal(detail.failed.retryable, undefined); assert.equal(detail.failed.stored, undefined);
+    assert.equal(typeof detail.failed.generation, "string"); assert.notEqual(detail.failed.generation, detail.restrictive.generation);
     detail.nativeFailure = await getWorker().evaluate("__siteAccessStartupProbe.snapshot()"); checkSiteAccessStartupNative(detail.nativeFailure, expected);
     assert.equal(detail.nativeFailure.nonce, nonce); assert.equal(detail.nativeFailure.markerKey, markerKey); assert.equal(detail.nativeFailure.extensionId, new URL(popupURL).hostname);
     assert.deepEqual(detail.nativeFailure.consumedMarker, { version: 1, nonce, armed: true });
@@ -166,7 +167,8 @@ export async function checkSiteAccessStartupRecovery({ connectBrowser, getWorker
     detail.failedView = await view(); await capture("site-access-startup-unavailable", popup);
     await popup.evaluate("document.querySelector('#site-access-recover').click()");
     detail.recovered = await until(async () => { const status = await readPolicy(); return status.ready ? status : false; }, "explicit read-only policy recovery", 15000);
-    assert.deepEqual(detail.recovered, { ...expected, ready: true, stored: true });
+    assert.equal(typeof detail.recovered.generation, "string"); assert.notEqual(detail.recovered.generation, detail.failed.generation);
+    assert.deepEqual(detail.recovered, { ...expected, ready: true, stored: true, generation: detail.recovered.generation });
     detail.staleRecovery = await popup.evaluate(`chrome.runtime.sendMessage({type:'RECOVER_SITE_ACCESS_POLICY',expectedRecoveryId:${JSON.stringify(detail.failed.recovery.id)}})`); assert.equal(detail.staleRecovery.ok, false);
     assert.match(detail.staleRecovery.error, /OBU_SITE_ACCESS_RECOVERY_(?:UNAVAILABLE|CONFLICT)/);
     detail.nativeRecovered = await getWorker().evaluate("__siteAccessStartupProbe.snapshot()"); checkSiteAccessStartupNative(detail.nativeRecovered, expected, { recovered: true });
@@ -202,6 +204,7 @@ export async function checkSiteAccessStartupRecovery({ connectBrowser, getWorker
       }
     } catch (error) { detail.restoreError = errorText(error); failure ??= error; }
     if (allowed) try { await getWorker().evaluate(`chrome.tabs.remove(${allowed.id})`); } catch (error) { detail.tabCleanupError = errorText(error); failure ??= error; }
+    if (!failure && popup && afterRestore) try { await afterRestore(popup); } catch (error) { failure ??= error; }
     if (popup && !existingPopup) try { await traceFocus("startup-popup:before-close"); try { await popup.evaluate("window.close()"); } catch {} popup.close(); await traceFocus("startup-popup:after-close"); }
     catch (error) { detail.popupCleanupError = errorText(error); failure ??= error; }
     try { browser.close(); } catch (error) { detail.connectionCleanupError = errorText(error); failure ??= error; } if (failure) detail.error = errorText(failure);

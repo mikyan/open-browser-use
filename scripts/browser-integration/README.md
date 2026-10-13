@@ -1790,6 +1790,24 @@ When the existing website-policy case also runs, recovery borrows its still-open
 popup after restoration and records the original result separately. It does not
 close/reopen the popup, refocus its window, or replay the recovery workflow.
 
+`js-site-access-invalid-replacement` writes an actual malformed policy into the
+isolated profile and restarts the worker. Its one-use staged observer returns
+every original native Promise unchanged: acceptance requires one fulfilled
+read of that malformed value and one fulfilled write of the explicitly chosen
+replacement. The actual popup starts a separate draft with no selected mode;
+the fixture chooses an exact allowed origin, reviews its effect, then clicks
+Replace and keep paused. It checks the new generation, persisted v1 revision 1
+(without persisted generation), stale recovery-ID rejection with no new write,
+and paused control. Only explicit Resume/new-turn permits one trusted original
+form POST, with raw bytes, document/node identity and receipt retained.
+When another website-settings case runs, this case borrows its still-open
+popup and records its own result without reopening, refocusing or replaying.
+The standalone filter is `OBU_TEST_CASES='^js-site-access-invalid-replacement$'`.
+Failure-only private-profile restoration is recorded separately after native
+operations settle; it is not evidence of successful user replacement. Existing
+Save/Retry requests now bind the actual policy generation and revision, and
+worker-restart checks distinguish generation rotation from durable v1 policy.
+
 The page-export cases call the public JS, Python, Go, CLI and MCP APIs and retain
 `page-export-{js,python,go,cli,mcp}.{pdf,mhtml}` with byte lengths and SHA-256
 digests. They verify PDF signatures and final markers, MHTML resource/frame

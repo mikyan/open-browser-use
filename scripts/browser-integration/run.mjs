@@ -26,6 +26,7 @@ import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
 import { createSiteAccessSubmissions } from "./site-access-save-retry.mjs";
 import { siteAccessStartupPrefix, createSiteAccessStartupFixtures, checkSiteAccessStartupRecovery } from "./site-access-startup-fixture.mjs";
+import { siteAccessInvalidPrefix, checkSiteAccessInvalidReplacement } from "./site-access-invalid-fixture.mjs";
 import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
@@ -375,6 +376,13 @@ const siteAccessStartupProbe = {
 const siteAccessStartupEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
   !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry &&
   (!process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-site-access-startup-recovery"));
+const siteAccessInvalidProbe = {
+  markerKey: `__OBU_TEST_SITE_INVALID_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
+  nonce: randomUUID().replaceAll("-", "")
+};
+const siteAccessInvalidEnabled = !createdPageProof && !originalDownloadBehavior && !goChooserDiagnostic &&
+  !downloadDiagnostic && !mcpBinding && !chooserDiagnostic && !snapshotGeometry &&
+  (!process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-site-access-invalid-replacement"));
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (siteAccessSubmissions.handle(request, response)) return;
@@ -504,14 +512,15 @@ try {
     };
   }\n`;
   let stagedBackground = background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook + recoveryAuditHook + createdPageTestHook;
-  if (siteAccessStartupEnabled) {
+  if (siteAccessStartupEnabled || siteAccessInvalidEnabled) {
     // Chromium service workers prohibit top-level await. Preserve static
     // imports and stage only this test's initialization behind the probe.
     const boundary = stagedBackground.indexOf("const NATIVE_HOST_NAME =");
     assert.ok(boundary > 0);
     const imports = stagedBackground.slice(0, boundary);
     assert.equal(imports.replace(/^import [^\n]+;\r?\n/gm, "").trim(), "");
-    stagedBackground = imports + "\nvoid (async () => {\n" + siteAccessStartupPrefix(siteAccessStartupProbe) + stagedBackground.slice(boundary) + "\n})().catch(error => { console.error('Startup recovery fixture initialization failed', error); throw error; });\n";
+    const prefix = (siteAccessStartupEnabled ? siteAccessStartupPrefix(siteAccessStartupProbe) : "") + (siteAccessInvalidEnabled ? siteAccessInvalidPrefix(siteAccessInvalidProbe) : "");
+    stagedBackground = imports + "\nvoid (async () => {\n" + prefix + stagedBackground.slice(boundary) + "\n})().catch(error => { console.error('Startup recovery fixture initialization failed', error); throw error; });\n";
   }
   await fs.writeFile(backgroundFile, nativeAdapterSource(websocketURL) + stagedBackground);
   const manifestFile = path.join(extension, "manifest.json");
@@ -584,7 +593,9 @@ try {
   sourceIdentity.sha256.pauseFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pause-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.siteAccessStartupFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-startup-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.siteAccessInvalidFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "site-access-invalid-fixture.mjs"))).digest("hex");
   if (siteAccessStartupEnabled) sourceIdentity.testHooks.push("website settings startup recovery: staged-only session nonce arms the next actual worker startup; the first original native policy get fulfills and only its derived delivery Promise rejects. Explicit popup read recovery retains the second original native Promise, exact stored policy/revision, zero policy writes, durable Pause and old-scope rejection. After explicit Resume/new turn, one original trusted form submission retains raw bytes, document/node identity and receipt. No natural native storage rejection claim, input replay or additional focus allowance.");
+  if (siteAccessInvalidEnabled) sourceIdentity.testHooks.push("invalid website settings replacement: actual malformed storage record and actual worker restart; one-shot staged observer returns every exact native get/set Promise unchanged and retains original fulfillment. Same real popup selects a separate restrictive draft, replaces once and remains paused; generation/revision/durable v1 and stale-ID rejection are checked before explicit Resume/new turn and one original trusted POST. Failure-only private-profile cleanup is recorded separately; no input replay or new focus allowance.");
   sourceIdentity.testHooks.push("website settings fixture: targeted private-profile storage.local quota argument fault; original native Promise and rejection retained, explicit popup retry after disabling the fault");
   for (const name of ["site-access-save-retry.mjs", "site-access-save-fault.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -3227,9 +3238,16 @@ try {
       }
     }
   });
-  let startupFromPopup;
+  let startupFromPopup, invalidFromPopup;
+  const siteAccessPopupSelected = !process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-user-site-access-popup");
   const startupSharesPopup = siteAccessStartupEnabled &&
-    (!process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-user-site-access-popup"));
+    siteAccessPopupSelected;
+  const invalidSharesPopup = siteAccessInvalidEnabled && (siteAccessPopupSelected || siteAccessStartupEnabled);
+  async function recordInvalidFromPopup(popup) {
+    const start = Date.now();
+    try { invalidFromPopup = { detail: await runSiteAccessInvalid(popup) }; } catch (error) { invalidFromPopup = { error }; }
+    invalidFromPopup.elapsedMs = Date.now() - start;
+  }
   await test("js-user-site-access-popup", async () => {
     const traceFocus = createPopupFocusTrace("site-access", "intentional harness chrome.action.openPopup for the user's website access settings");
     return checkSiteAccess({
@@ -3237,11 +3255,14 @@ try {
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       assert, until, traceFocus, restartWorker: restartObservedWorker,
       submissions: siteAccessSubmissions,
-      afterRestore: startupSharesPopup ? async popup => {
-        const start = Date.now();
-        try { startupFromPopup = { detail: await runSiteAccessStartup(popup) }; }
-        catch (error) { startupFromPopup = { error }; }
-        startupFromPopup.elapsedMs = Date.now() - start;
+      afterRestore: startupSharesPopup || (siteAccessInvalidEnabled && siteAccessPopupSelected) ? async popup => {
+        if (startupSharesPopup) {
+          const start = Date.now();
+          try { startupFromPopup = { detail: await runSiteAccessStartup(popup) }; }
+          catch (error) { startupFromPopup = { error }; }
+          startupFromPopup.elapsedMs = Date.now() - start;
+        }
+        if (siteAccessInvalidEnabled && !startupFromPopup?.error) await recordInvalidFromPopup(popup);
       } : undefined,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-control.json"), JSON.stringify(detail, null, 2)),
       saveArtifact: async (name, data) => { await fs.writeFile(path.join(runDir, name), data); return { artifact: name, bytes: data.length, sha256: createHash("sha256").update(data).digest("hex") }; },
@@ -3264,6 +3285,7 @@ try {
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
       getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
       until, traceFocus, restartWorker: restartObservedWorker, fixtures: siteAccessStartupFixtures, ...siteAccessStartupProbe, existingPopup,
+      afterRestore: !existingPopup && siteAccessInvalidEnabled ? recordInvalidFromPopup : undefined,
       saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-startup.json"), JSON.stringify(detail, null, 2)),
       connectPage: async url => {
         const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "website recovery popup target");
@@ -3284,6 +3306,31 @@ try {
     assert.ok(startupFromPopup, "Website settings workflow did not reach its restored live popup");
     if (startupFromPopup.error) throw startupFromPopup.error;
     return { ...startupFromPopup.detail, workflowElapsedMs: startupFromPopup.elapsedMs };
+  });
+  async function runSiteAccessInvalid(existingPopup) {
+    assert.equal(siteAccessInvalidEnabled, true);
+    const traceFocus = createPopupFocusTrace("site-access-invalid", "intentional harness chrome.action.openPopup for invalid website settings replacement");
+    return checkSiteAccessInvalidReplacement({
+      connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
+      getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
+      until, traceFocus, restartWorker: restartObservedWorker, fixtures: siteAccessStartupFixtures, ...siteAccessInvalidProbe, existingPopup,
+      saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-invalid.json"), JSON.stringify(detail, null, 2)),
+      connectPage: async url => {
+        const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "invalid website settings popup target");
+        return workerConnection(target.webSocketDebuggerUrl);
+      },
+      capture: async (name, source) => {
+        const data = (await source.call("Page.captureScreenshot", { format: "png" })).data;
+        const { bytes, width, height } = pngDimensions(data); await fs.writeFile(path.join(runDir, `${name}.png`), bytes);
+        return { width, height, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+      }
+    });
+  }
+  await test("js-site-access-invalid-replacement", async () => {
+    if (!invalidSharesPopup) return runSiteAccessInvalid();
+    assert.ok(invalidFromPopup, "Previous website settings workflow did not reach its restored live popup for invalid replacement");
+    if (invalidFromPopup.error) throw invalidFromPopup.error;
+    return { ...invalidFromPopup.detail, workflowElapsedMs: invalidFromPopup.elapsedMs };
   });
   await test("js-owned-tab-revocation", () => checkOwnedTabRevocation({
     connect: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),

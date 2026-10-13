@@ -25,6 +25,14 @@
 
 ## 当前并行切片
 
+2026-10-14 已完成[损坏网站权限的显式替换](../completed/2026-10-14-invalid-site-policy-replacement.md)：
+可信 popup 独立选择权限，真实写入后保持暂停；运行时代号防止旧窗口和文档证明
+跨替换复用，持久 v1 不变。专项 `cnAeAG` 4/4 actual exit 0，原损坏记录读取、
+唯一替换写入、旧 ID/epoch 拒绝和显式恢复后的原页面提交通过；复用原 popup。
+Node 3187 pass/1 既有 Windows symlink skip。完整 `k3A9Lo` 150/150 actual exit 0，
+旧149名称顺序保持，444495ms仅原12 activation/4 control-focus许可，无源码/运行时漂移。
+普通 Edge 人工授权与完整能力矩阵继续开放。
+
 2026-10-14 [权限启动读取恢复](../completed/2026-10-14-site-access-startup-recovery.md)已接入真实
 popup 的显式只读入口，保持暂停与旧任务失效；实际清理、核心 startup、
 pending、丢失回复和旧草稿冲突有反例。专项 `yU2VGw` 2/2、相关 `GT3npA`

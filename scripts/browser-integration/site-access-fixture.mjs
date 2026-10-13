@@ -68,17 +68,19 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     forgedTab = await getWorker().evaluate(`chrome.tabs.create({url:${JSON.stringify(popupURL)},active:false})`);
     forgedPage = await connectPage(popupURL);
     await until(() => forgedPage.evaluate('typeof chrome.runtime?.sendMessage==="function"'), "ordinary extension page loaded");
-    const setter = { type: "SET_SITE_ACCESS_POLICY", policy: { mode: "block", origins: [allowedOrigin] }, expectedRevision: 0 };
+    const sourcePolicy = await getWorker().evaluate("__integrationBackend.getSiteAccessPolicy()");
+    assert.equal(typeof sourcePolicy.generation, "string");
+    const setter = { type: "SET_SITE_ACCESS_POLICY", policy: { mode: "block", origins: [allowedOrigin] }, expectedRevision: sourcePolicy.revision, expectedGeneration: sourcePolicy.generation };
     detail.forgedPage = await forgedPage.evaluate(`chrome.runtime.sendMessage(${JSON.stringify(setter)})`);
     assert.equal(detail.forgedPage.ok, false); assert.match(detail.forgedPage.error, /OBU_CONTROL_FORBIDDEN/);
-    detail.forgedRetry = await forgedPage.evaluate("chrome.runtime.sendMessage({type:'RETRY_SITE_ACCESS_POLICY',expectedRevision:0})");
+    detail.forgedRetry = await forgedPage.evaluate(`chrome.runtime.sendMessage(${JSON.stringify({ type: "RETRY_SITE_ACCESS_POLICY", expectedRevision: sourcePolicy.revision, expectedGeneration: sourcePolicy.generation })})`);
     assert.equal(detail.forgedRetry.ok, false); assert.match(detail.forgedRetry.error, /OBU_CONTROL_FORBIDDEN/);
     forgedPage.close(); forgedPage = null;
     await getWorker().evaluate(`chrome.tabs.remove(${forgedTab.id})`); forgedTab = null;
     detail.forgedContent = await getWorker().evaluate(`chrome.scripting.executeScript({target:{tabId:${allowed.id}},world:'ISOLATED',func:async(message)=>chrome.runtime.sendMessage(message),args:[${JSON.stringify({ ...setter, sender: { id: "forged-extension-id", url: popupURL } })}]}).then(results=>results[0].result)`);
     assert.equal(detail.forgedContent.ok, false); assert.match(detail.forgedContent.error, /OBU_CONTROL_FORBIDDEN/);
     await assert.rejects(browser.client.request("setSiteAccessPolicy", setter), /unknown|unsupported|not.*allowed|method.*found|No handler registered/i);
-    await assert.rejects(browser.client.request("retrySiteAccessPolicy", { expectedRevision: 0 }), /unknown|unsupported|not.*allowed|method.*found|No handler registered/i);
+    await assert.rejects(browser.client.request("retrySiteAccessPolicy", { expectedRevision: sourcePolicy.revision, expectedGeneration: sourcePolicy.generation }), /unknown|unsupported|not.*allowed|method.*found|No handler registered/i);
 
     detail.stage = "open actual action popup";
     await allowed.domSnapshot();
@@ -142,7 +144,8 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     detail.stage = "persist policy through worker restart";
     detail.restart = await restartWorker(popup);
     detail.afterRestart = await readPolicy();
-    assert.deepEqual(detail.afterRestart, detail.allow);
+    assert.equal(typeof detail.afterRestart.generation, "string"); assert.notEqual(detail.afterRestart.generation, detail.allow.generation);
+    assert.deepEqual({ ...detail.afterRestart, generation: detail.allow.generation }, detail.allow);
     await assert.rejects(allowed.domSnapshot(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
     await browser.client.beginTurn();
     await denied("blockedAfterRestart", allowed.goto(blockedURL));
@@ -176,7 +179,7 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
         if (primaryError) {
           const state = await readPolicy();
           if (state.retryable === true) {
-            detail.cleanupRetry = await popup.evaluate(`chrome.runtime.sendMessage({type:'RETRY_SITE_ACCESS_POLICY',expectedRevision:${state.revision}})`);
+            detail.cleanupRetry = await popup.evaluate(`chrome.runtime.sendMessage(${JSON.stringify({ type: "RETRY_SITE_ACCESS_POLICY", expectedRevision: state.revision, expectedGeneration: state.generation })})`);
             assert.equal(detail.cleanupRetry.ok, true, "private fixture cleanup retry failed");
           }
         }

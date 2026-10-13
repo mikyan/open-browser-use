@@ -10,6 +10,10 @@ const revision = value => Number.isSafeInteger(value) && value >= 0;
 const invalid = () => new Error("OBU_SITE_ACCESS_INVALID: expected a mode and at most 100 exact HTTP(S) origins");
 const unavailable = () => new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings are not ready");
 const stateInvalid = () => new Error("OBU_SITE_ACCESS_STATE_INVALID: persisted website access settings are invalid");
+const writeCheck = value => {
+  if (value !== undefined && typeof value !== "function") throw new Error("OBU_SITE_ACCESS_INVALID: beforeWrite must be a synchronous function");
+  return value;
+};
 
 function normalizeOrigin(value) {
   // URL parsing alone accepts whitespace, backslashes, credentials and several
@@ -41,6 +45,7 @@ export class SiteAccessPolicy {
   #pendingWrites = 0;
   #recovery = null;
   #stored = false;
+  #generation = crypto.randomUUID();
 
   constructor({ storage } = {}) {
     if (!storage || typeof storage.get !== "function" || typeof storage.set !== "function")
@@ -63,9 +68,11 @@ export class SiteAccessPolicy {
       let result;
       try { result = await this.storage.get(SITE_ACCESS_POLICY_KEY); }
       catch (cause) { this.#readFailed("read-error", cause); }
+      // A malformed API response does not establish that a saved record is
+      // corrupt, and must never authorize overwriting unknown settings.
+      if (!object(result)) this.#readFailed("read-error");
       let next, present;
       try {
-        if (!object(result)) throw stateInvalid();
         const value = result[SITE_ACCESS_POLICY_KEY];
         present = value !== undefined;
         if (present) {
@@ -78,6 +85,7 @@ export class SiteAccessPolicy {
         }
       } catch { this.#readFailed("invalid"); }
       this.value = next;
+      this.#generation = crypto.randomUUID();
       this.#stored = present;
       this.#recovery = null;
       this.loaded = true;
@@ -113,13 +121,41 @@ export class SiteAccessPolicy {
     return this.#startLoad();
   }
 
+  assertInvalidReplacement(expectedRecoveryId) {
+    this.assertRecovery(expectedRecoveryId);
+    if (this.#recovery.state !== "invalid")
+      throw new Error("OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE: only a confirmed invalid saved policy can be replaced");
+  }
+
+  replaceInvalid(config, expectedRecoveryId, { beforeWrite } = {}) {
+    const candidate = normalizeSiteAccessPolicy(config);
+    writeCheck(beforeWrite);
+    this.assertInvalidReplacement(expectedRecoveryId);
+    // Consume before queueing: reread and replacement share this one authority.
+    const reservation = { state: "pending" };
+    this.#recovery = reservation;
+    this.#generation = crypto.randomUUID();
+    this.error = undefined;
+    const operation = this.#queueReplace(candidate, this.value.revision, this.#generation, { beforeWrite, reservation });
+    this.ready = operation;
+    operation.catch(() => {});
+    return operation;
+  }
+
   status() {
-    return { ...this.value, origins: [...this.value.origins], ready: this.loaded, ...(this.loaded ? { stored: this.#stored } : {}),
+    return { ...this.value, generation: this.#generation, origins: [...this.value.origins], ready: this.loaded, ...(this.loaded ? { stored: this.#stored } : {}),
       ...(this.error ? { error: this.error } : {}), ...(this.#recovery ? { recovery: { ...this.#recovery } } : {}),
       ...(this.#failedWrite === this.value && this.#pendingWrites === 0 ? { retryable: true } : {}) };
   }
 
   get restricted() { return !this.loaded || this.value.mode !== "all"; }
+
+  get generation() { return this.#generation; }
+
+  assertGeneration(expectedGeneration) {
+    if (typeof expectedGeneration !== "string" || expectedGeneration !== this.#generation)
+      throw new Error("OBU_SITE_ACCESS_GENERATION_CONFLICT: review the current website access settings before saving");
+  }
 
   assertReady() { if (!this.loaded) throw unavailable(); }
 
@@ -142,48 +178,79 @@ export class SiteAccessPolicy {
     if (!this.allowsUrl(value, options)) throw new Error("OBU_SITE_ACCESS_DENIED: website access is not allowed by the current user policy");
   }
 
-  async replace(config, expectedRevision) {
+  async replace(config, expectedRevision, expectedGeneration, { beforeWrite } = {}) {
     // Copy and validate before queueing so a caller cannot mutate its request
     // while another persistent write is pending. CAS itself runs in the queue.
     const candidate = normalizeSiteAccessPolicy(config);
     if (!revision(expectedRevision)) throw new Error("OBU_SITE_ACCESS_REVISION_CONFLICT: refresh website access settings before saving");
-    return this.#queueReplace(candidate, expectedRevision);
+    this.assertGeneration(expectedGeneration);
+    writeCheck(beforeWrite);
+    return this.#queueReplace(candidate, expectedRevision, expectedGeneration, { beforeWrite });
   }
 
-  assertRetryable(expectedRevision) {
+  assertRetryable(expectedRevision, expectedGeneration) {
+    this.assertGeneration(expectedGeneration);
     if (!revision(expectedRevision) || expectedRevision !== this.value.revision)
       throw new Error("OBU_SITE_ACCESS_REVISION_CONFLICT: review the failed website access settings before retrying");
     if (this.#failedWrite !== this.value || this.#pendingWrites !== 0)
       throw new Error("OBU_SITE_ACCESS_RETRY_UNAVAILABLE: there is no settled failed website policy write to retry");
   }
 
-  async retry(expectedRevision) {
-    this.assertRetryable(expectedRevision);
+  async retry(expectedRevision, expectedGeneration, { beforeWrite } = {}) {
+    this.assertRetryable(expectedRevision, expectedGeneration);
+    writeCheck(beforeWrite);
     const failed = this.#failedWrite;
     // The caller selects only the reviewed revision, never replacement values.
     // Keep its identity until the serialized write rechecks the original CAS.
-    return this.#queueReplace({ mode: failed.mode, origins: [...failed.origins] }, expectedRevision, failed);
+    return this.#queueReplace({ mode: failed.mode, origins: [...failed.origins] }, expectedRevision, expectedGeneration, { beforeWrite, failed });
   }
 
-  #queueReplace(candidate, expectedRevision, failed) {
+  #queueReplace(candidate, expectedRevision, expectedGeneration, { beforeWrite, failed, reservation }) {
+    const readiness = this.ready;
     this.#pendingWrites++;
     const operation = this.writes.catch(() => {}).then(async () => {
-      await this.ready;
+      // Invalid replacement and exact failed-write retry have their own
+      // authority. Neither can wait on the original rejected startup/read.
+      if (!failed && !reservation) await readiness;
+      this.assertGeneration(expectedGeneration);
       if (expectedRevision !== this.value.revision)
         throw new Error("OBU_SITE_ACCESS_REVISION_CONFLICT: refresh website access settings before saving");
       if (failed && this.#failedWrite !== failed)
         throw new Error("OBU_SITE_ACCESS_RETRY_UNAVAILABLE: the failed website policy write was superseded");
-      if (this.value.revision === Number.MAX_SAFE_INTEGER)
+      if (reservation && this.#recovery !== reservation)
+        throw new Error("OBU_SITE_ACCESS_RECOVERY_CONFLICT: the invalid website policy was superseded");
+      if (!failed && !reservation) this.assertReady();
+      if (!reservation && this.value.revision === Number.MAX_SAFE_INTEGER)
         throw new Error("OBU_SITE_ACCESS_REVISION_EXHAUSTED: website access revision cannot wrap");
-      this.value = Object.freeze({ version: 1, revision: this.value.revision + 1, mode: candidate.mode, origins: Object.freeze([...candidate.origins]) });
+      const next = Object.freeze({ version: 1, revision: reservation ? 1 : this.value.revision + 1, mode: candidate.mode, origins: Object.freeze([...candidate.origins]) });
+      // This check is deliberately outside the native-write catch. An expired
+      // admission made no storage attempt and cannot manufacture retry rights.
+      try {
+        const checked = beforeWrite?.();
+        if (checked && typeof checked.then === "function") {
+          Promise.resolve(checked).catch(() => {});
+          throw new Error("OBU_SITE_ACCESS_INVALID: beforeWrite must finish synchronously");
+        }
+      } catch (error) {
+        if (reservation && this.#recovery === reservation) {
+          this.#recovery = { state: "invalid", id: crypto.randomUUID() };
+          this.error = stateInvalid().message;
+        }
+        throw error;
+      }
+      this.value = next;
       this.loaded = false;
       this.error = undefined;
       this.#failedWrite = null;
+      this.#recovery = null;
       try {
         // Never share mutable objects with the asynchronous storage adapter.
         await this.storage.set({ [SITE_ACCESS_POLICY_KEY]: { ...this.value, origins: [...this.value.origins] } });
         this.#stored = true;
         this.loaded = true;
+        // A successful repair/retry also unblocks ordinary future saves. This
+        // points at the real operation; no queued operation awaits itself.
+        this.ready = operation;
       } catch (error) {
         const failure = new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings could not be saved", { cause: error });
         this.error = failure.message;

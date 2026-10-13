@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+已补网站权限损坏记录的显式替换：用户独立选择新权限，原生保存后仍暂停；
+运行时代号与 revision 防止旧请求和旧文档证明复用。专项 `cnAeAG` 4/4
+actual exit 0，原 get/set ACK、唯一 1047B trusted POST、旧任务拒绝及原
+13,298ms 焦点账本独立核验；Node 3187 pass/1 既有 skip。完整 `k3A9Lo`
+150/150 actual exit 0，旧149顺序保持，444495ms仅原12 activation/4 control-focus
+许可，无源码/运行时漂移。普通安装和完整持平继续开放，见[网站权限](references/site-access-policy.md)。
+
 根 CSS zoom 导致的 AI 光标、目标框与点击圈二次缩放已修复，实际输入坐标
 和原页面样式保持不变。旧源 `Ku2blX` 四次原提交成功但三场反馈错位，
 正文缩放对照正常；修复专项 `pm3Zkp` 2/2 actual exit 0，四场 PNG/几何/
@@ -30,7 +37,7 @@
 均保留，修正只在 fixture。最终完整 `O0mB6k` 148/148 actual exit 0，旧 147
 名称顺序保持，430,422ms 仅原 12 activation/4 control-focus 许可，无源码
 或运行时漂移。Node 最终 3137 pass/1 个既有 Windows symlink skip。
-普通安装与损坏记录替换仍开放，
+该读取恢复分片之外的普通安装继续开放；损坏记录替换进展见上，
 见[网站权限](references/site-access-policy.md)。
 
 HTML 模态框、嵌套模态框和手动/自动 popover 上方的 AI 光标与目标框已修复。

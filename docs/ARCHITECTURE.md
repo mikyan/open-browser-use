@@ -30,8 +30,9 @@ debugger、history 和 tab groups。
   清理与 revision 检查，实际未结算写不能重试，成功仍暂停。启动读取失败
   使用独立的显式只读恢复：原失败 ID 经校验、实际 Pause/drain 完成后才重新
   读取，GET 不重读，未结算操作和核心 startup 失败不授予恢复权限。有效原
-  revision 保留且不写策略；确认缺失显示兼容 Default，损坏记录不重置，
-  成功仍暂停。契约及待验收范围见[网站权限](references/site-access-policy.md)。
+  revision 保留且不写策略；确认缺失显示兼容 Default。确认损坏的记录可由
+  popup 明确选择新权限后替换，保持暂停；运行时代号与 revision 共同约束
+  保存、重试及文档证明，持久 v1 格式不变。契约及待验收范围见[网站权限](references/site-access-policy.md)。
   原生弹窗由 `browser-dialogs.js` 管理一次性决策，注册及处理均等待真实回执；
   backend 保留原 attachment 的在途响应直到清理确认。五入口使用同一协议，
   `beforeunload` 的浏览器原生激活仍是后台限制，见[原生弹窗](references/native-dialogs.md)。

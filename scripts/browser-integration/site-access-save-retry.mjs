@@ -74,15 +74,15 @@ export async function checkSiteAccessSaveRetry({ browser, allowed, popup, getWor
     await popup.evaluate("document.querySelector('#site-access-retry').click()");
     await until(async () => { const value = await view(); return value.label === "Saved" && value.revision === before.revision + 2; }, "explicit policy retry", 15000);
     detail.confirmed = await readPolicy();
-    assert.deepEqual(detail.confirmed, { version: 1, revision: before.revision + 2, mode: "block", origins: [blockedOrigin], ready: true, stored: true });
+    assert.deepEqual(detail.confirmed, { version: 1, revision: before.revision + 2, mode: "block", origins: [blockedOrigin], ready: true, stored: true, generation: before.generation });
     detail.durableAfterRetry = await getWorker().evaluate(`chrome.storage.local.get(${JSON.stringify([key, testKey])})`);
-    const { ready, stored, ...confirmedSaved } = detail.confirmed;
+    const { ready, stored, generation, ...confirmedSaved } = detail.confirmed;
     assert.deepEqual(detail.durableAfterRetry, { [key]: confirmedSaved });
     detail.pausedAfterRetry = await popup.evaluate("chrome.runtime.sendMessage({type:'GET_AUTOMATION_CONTROL_STATUS'})");
     assert.equal(detail.pausedAfterRetry.status.state, "paused"); assert.equal(detail.pausedAfterRetry.status.inputBlocked, true);
     assert.equal(detail.pausedAfterRetry.status.cleanupComplete, true);
     await capture("site-access-save-retried-paused", popup);
-    detail.staleRetry = await popup.evaluate(`chrome.runtime.sendMessage({type:'RETRY_SITE_ACCESS_POLICY',expectedRevision:${before.revision + 1}})`);
+    detail.staleRetry = await popup.evaluate(`chrome.runtime.sendMessage(${JSON.stringify({ type: "RETRY_SITE_ACCESS_POLICY", expectedRevision: before.revision + 1, expectedGeneration: detail.confirmed.generation })})`);
     assert.equal(detail.staleRetry.ok, false);
     assert.equal((await getWorker().evaluate("__siteAccessSaveFault.snapshot()")).attempts, 2, "stale retry wrote again");
     assert.equal(submissions.stats().length, 0, "save retried browser work");

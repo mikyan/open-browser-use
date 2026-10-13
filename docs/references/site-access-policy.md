@@ -31,11 +31,13 @@ startup checks; it does not prove the outcome of an unresolved write.
 
 Only the live extension action popup can change settings. Content scripts,
 ordinary tabs displaying popup.html and public RPC method names cannot use the
-setter, retry or read-recovery endpoint. The sender must have the extension ID and exact popup URL, no tab sender,
+setter, retry, read-recovery or invalid-replacement endpoint. The sender must have the extension ID and exact popup URL, no tab sender,
 and a matching live `POPUP` context; if Chrome supplies a document ID it must
 match too. Tested Chromium popup senders may omit that optional ID. Storage is
 restricted to trusted extension contexts. Saves advance the durable revision;
-stale drafts cannot overwrite a newer confirmed revision. Startup and failed
+trusted saves and retries also require the current worker-local generation, so
+stale drafts cannot overwrite a newer confirmed revision or a replacement in a
+new generation. The generation is not persisted in the v1 record. Startup and failed
 reads are closed until the state is known, not implicitly allow-all.
 
 ## Startup read recovery
@@ -56,8 +58,8 @@ a new ID. Status exposes the following read states separately from failed-write
 | State | Meaning | Recovery action |
 | --- | --- | --- |
 | `recovery: {state: "pending"}` | Original access setup or read is still unresolved | No ID, no retry |
-| `recovery: {state: "read-error", id}` | The actual read path rejected | One explicit reread of the current failure |
-| `recovery: {state: "invalid", id}` | The read completed but the stored value is invalid | Reread only; no reset or replacement |
+| `recovery: {state: "read-error", id}` | The actual read path rejected or returned an invalid response envelope | One explicit reread of the current failure |
+| `recovery: {state: "invalid", id}` | The read completed with an invalid saved record | Explicit reread or reviewed replacement |
 | `ready: true`, no `recovery` | A valid saved record or confirmed absence was read | Ordinary review and editing |
 
 The backend withholds recovery IDs while another policy transition is active or
@@ -89,19 +91,44 @@ all websites at revision zero, labeled **Default** with **No saved settings**.
 It does not create a saved record. Invalid or unreadable data is never converted
 to that default.
 
-Corrupt records remain blocked unless an external repair makes a later explicit
-read valid. This action does not delete, reset or replace corrupt data, and it
-does not provide an external-storage compare-and-swap or policy-generation
-repair protocol. An explicit successful recovery, or a subsequent fresh status
-check confirming its lost reply, may establish a lower read revision after a
-worker change, external repair or confirmed removal. Ordinary GET replies
-retain their revision and request-order checks. Dirty popup drafts are preserved;
-a changed revision or policy contents requires review before a later save.
+The reread action does not delete, reset or replace corrupt data. A successful
+read rotates the runtime generation and may establish a lower revision after an
+external repair or confirmed removal. Worker construction also creates a new
+generation. Status responses preserve request ordering, and revision ordering
+applies within a generation. Dirty drafts are preserved; changed generation,
+revision or policy contents requires review before a later save. These checks
+do not provide an atomic compare-and-swap against external storage changes.
 
 A failed or lost recovery reply requires checking current status before another
 attempt. There is no automatic resend. A current settled failure may then offer
 its observed ID again; a completed read or an unresolved operation grants no
 new recovery action.
+
+## Replacing a corrupt record
+
+After a completed read confirms a corrupt saved record, choose **Choose
+replacement settings**. This opens a separate local draft with no mode selected.
+Choose the desired mode and exact origins, review the displayed permission
+effect, then choose **Replace and keep paused**. Cancel restores the ordinary
+draft; starting replacement never copies an unknown value or silently selects
+All websites. Unreadable storage, pending operations and independent control
+startup failure cannot authorize this action.
+
+The trusted popup sends `REPLACE_INVALID_SITE_ACCESS_POLICY` with the explicit
+policy and the observed `expectedRecoveryId`. Reread and replacement share one
+single-use failure ID. Replacement pauses and drains control, rotates the runtime
+generation, and saves a v1 record at revision one. The original deadline is checked
+immediately before native storage dispatch. A late dispatched write stays tracked
+until real settlement; it cannot be canceled, replayed or treated as saved early.
+A real rejection exposes only the frozen candidate for explicit review and retry.
+Success leaves agents paused and old task epochs invalid.
+
+Ordinary `SET_SITE_ACCESS_POLICY` and `RETRY_SITE_ACCESS_POLICY` require both
+`expectedGeneration` and `expectedRevision`. The worker checks generation before
+Pause and checks the pair again in the storage queue. A lost popup reply requires
+a fresh status check; it never triggers another replacement or Resume. The v1
+durable format remains exactly version, revision, mode and origins, allowing a
+new worker to read it while issuing a fresh generation to its own popup.
 
 ## Restricted document control
 
@@ -121,7 +148,7 @@ In either restricted mode:
 - Navigation events revoke control on a denied destination and cancel engine
   waits, transfer state and the debugger attachment. Explicit `goto` destinations
   are checked before dispatch. Each CRX native command and returned browser action
-  rechecks document permission; a revision/navigation proof prevents a stale
+  rechecks document permission; a generation/revision/navigation proof prevents a stale
   asynchronous inspection from authorizing the next command.
 - Existing semantic locators, snapshots, screenshots and navigation browser
   actions remain available. The native selector parser rejects custom engines,
@@ -199,6 +226,24 @@ or runtime drift, preserving the previous 147 case names and order. Its
 430,422 ms focus interval contains only the original 12 exact sole-tab
 activations and four intentional control-popup focus events; the borrowed
 recovery popup adds none. Ordinary installation and full capability parity
+remain separate acceptance work.
+
+Invalid replacement has separate native evidence: focused `cnAeAG` passes 4/4
+with actual exit 0 and unchanged source/runtime hashes. The fixture writes an
+explicitly malformed private-profile record and restarts the worker. A transparent
+observer retains the original successful native read, one replacement write and
+its actual ACK without changing arguments or Promises. The borrowed popup starts
+with no selected mode, chooses a restrictive allow list, persists exact v1, rejects
+the old failure ID and remains paused. Explicit Resume/new-turn then makes one
+trusted original form POST, retaining document/node identity and raw receipt
+bytes. This is controlled corrupt-data setup, not a claim of spontaneous browser
+corruption. Policy/GUI/backend tests also cover unknown reads, core startup,
+late Pause/write settlement, deadline before dispatch, generation ABA and ordinary
+draft preservation. Node checks pass 3,187 with one existing Windows symlink
+privilege skip. Complete `k3A9Lo` passes 150/150 with actual exit 0 and no
+source/runtime drift, retaining the previous 149 case names and order. The
+444,495 ms observer interval retains only the existing 12 exact activations and
+four control-popup focus allowances. Ordinary installation and overall parity
 remain separate acceptance work.
 
 Primary API references checked for this implementation:
