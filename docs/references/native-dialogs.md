@@ -336,7 +336,7 @@ ordinary Edge installation/authorization acceptance or resolve beforeunload's
 native UI activation. Existing preview ZIPs remain unchanged.
 
 Implementation, evidence and remaining boundaries are tracked in the
-[execution plan](../exec-plans/active/2026-10-13-native-dialog-decisions.md).
+[execution plan](../exec-plans/completed/2026-10-13-native-dialog-decisions.md).
 Related contracts: [control lifecycle](control-lifecycle.md),
 [SDK connection identity](sdk-connection-identity.md), and
 [navigation waits](navigation-waits.md).

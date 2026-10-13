@@ -39,7 +39,7 @@ isolated browser tests; never operate the system mouse or daily browser profile.
 2. [x] Implement the extension protocol and lifecycle tests, retaining red evidence.
 3. [x] Add typed public SDK and CLI/MCP entry points with transport tests.
 4. [x] Verify ordinary dialog decisions, original business results, lifecycle and focus; retain beforeunload's failed background acceptance separately.
-5. [ ] Independent review, relevant regression checks, usage/history, commit/push.
+5. [x] Independent review, relevant regression checks, usage/history, commit/push.
 
 ## Evidence and design notes
 
@@ -98,3 +98,12 @@ isolated browser tests; never operate the system mouse or daily browser profile.
   native transactions, receipts, original helper stdout, 16 task tabs/ten child
   target removals, and both runs' original focus histories. Full regression's
   132 previous case names/order and allowance causes are preserved.
+
+## Delivery and remaining goal
+
+Implementation `4e5b4ec3597c49e77653961e79ee48f8317b0cca` was pushed to the
+user fork's `codex/browser-use-parity` branch and its remote SHA verified.
+This closes the ordinary-dialog implementation slice. Beforeunload background
+activation remains in the P12 debt tracker, ordinary Edge manual acceptance is
+deferred, and the complete Browser Use parity goal remains active. The delivered
+preview ZIP hashes are unchanged; no PR or new preview package was created.
