@@ -37,6 +37,9 @@ export function normalizeSiteAccessPolicy(config) {
 }
 
 export class SiteAccessPolicy {
+  #failedWrite = null;
+  #pendingWrites = 0;
+
   constructor({ storage } = {}) {
     if (!storage || typeof storage.get !== "function" || typeof storage.set !== "function")
       throw new TypeError("SiteAccessPolicy requires a storage.local adapter");
@@ -73,7 +76,8 @@ export class SiteAccessPolicy {
   }
 
   status() {
-    return { ...this.value, origins: [...this.value.origins], ready: this.loaded, ...(this.error ? { error: this.error } : {}) };
+    return { ...this.value, origins: [...this.value.origins], ready: this.loaded, ...(this.error ? { error: this.error } : {}),
+      ...(this.#failedWrite === this.value && this.#pendingWrites === 0 ? { retryable: true } : {}) };
   }
 
   get restricted() { return !this.loaded || this.value.mode !== "all"; }
@@ -104,15 +108,38 @@ export class SiteAccessPolicy {
     // while another persistent write is pending. CAS itself runs in the queue.
     const candidate = normalizeSiteAccessPolicy(config);
     if (!revision(expectedRevision)) throw new Error("OBU_SITE_ACCESS_REVISION_CONFLICT: refresh website access settings before saving");
+    return this.#queueReplace(candidate, expectedRevision);
+  }
+
+  assertRetryable(expectedRevision) {
+    if (!revision(expectedRevision) || expectedRevision !== this.value.revision)
+      throw new Error("OBU_SITE_ACCESS_REVISION_CONFLICT: review the failed website access settings before retrying");
+    if (this.#failedWrite !== this.value || this.#pendingWrites !== 0)
+      throw new Error("OBU_SITE_ACCESS_RETRY_UNAVAILABLE: there is no settled failed website policy write to retry");
+  }
+
+  async retry(expectedRevision) {
+    this.assertRetryable(expectedRevision);
+    const failed = this.#failedWrite;
+    // The caller selects only the reviewed revision, never replacement values.
+    // Keep its identity until the serialized write rechecks the original CAS.
+    return this.#queueReplace({ mode: failed.mode, origins: [...failed.origins] }, expectedRevision, failed);
+  }
+
+  #queueReplace(candidate, expectedRevision, failed) {
+    this.#pendingWrites++;
     const operation = this.writes.catch(() => {}).then(async () => {
       await this.ready;
       if (expectedRevision !== this.value.revision)
         throw new Error("OBU_SITE_ACCESS_REVISION_CONFLICT: refresh website access settings before saving");
+      if (failed && this.#failedWrite !== failed)
+        throw new Error("OBU_SITE_ACCESS_RETRY_UNAVAILABLE: the failed website policy write was superseded");
       if (this.value.revision === Number.MAX_SAFE_INTEGER)
         throw new Error("OBU_SITE_ACCESS_REVISION_EXHAUSTED: website access revision cannot wrap");
-      this.value = { version: 1, revision: this.value.revision + 1, ...candidate };
+      this.value = Object.freeze({ version: 1, revision: this.value.revision + 1, mode: candidate.mode, origins: Object.freeze([...candidate.origins]) });
       this.loaded = false;
       this.error = undefined;
+      this.#failedWrite = null;
       try {
         // Never share mutable objects with the asynchronous storage adapter.
         await this.storage.set({ [SITE_ACCESS_POLICY_KEY]: { ...this.value, origins: [...this.value.origins] } });
@@ -120,10 +147,13 @@ export class SiteAccessPolicy {
       } catch (error) {
         const failure = new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings could not be saved", { cause: error });
         this.error = failure.message;
+        // Only the real storage operation's rejection grants retry authority.
+        // Timeout of an outer observer never reaches this branch by itself.
+        this.#failedWrite = this.value;
         throw failure;
       }
       return this.status();
-    });
+    }).finally(() => { this.#pendingWrites--; });
     this.writes = operation;
     return operation;
   }

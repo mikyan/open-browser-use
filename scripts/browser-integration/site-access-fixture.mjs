@@ -1,21 +1,26 @@
+import { checkSiteAccessSaveRetry } from "./site-access-save-retry.mjs";
+
 export function siteAccessFixture(route, port, query) {
   if (route === "/site-access-child") return '<!doctype html><meta charset="utf-8"><p>Blocked embedded content</p>';
   const frame = query.has("mixed") ? `<iframe src="http://localhost:${port}/site-access-child"></iframe>` : "";
   return `<!doctype html><meta charset="utf-8"><title>Website access fixture</title>
     <style>body{font:16px sans-serif;margin:30px}input,button{padding:12px;margin:10px}iframe{width:400px;height:100px}</style>
     <h1>Website access fixture</h1><label>Allowed field<input id="allowed-field"></label>
-    <button id="allowed-click">Allowed action</button><output id="trusted-click"></output>${frame}
-    <script>document.querySelector('#allowed-click').onclick=event=>document.querySelector('#trusted-click').textContent=String(event.isTrusted);</script>`;
+    <button id="allowed-click">Allowed action</button><output id="trusted-click"></output>
+    <button id="submit-allowed">Submit allowed value</button><output id="submission-status"></output>${frame}
+    <script>document.querySelector('#allowed-click').onclick=event=>document.querySelector('#trusted-click').textContent=String(event.isTrusted);
+    document.querySelector('#submit-allowed').onclick=async event=>{const response=await fetch('/site-access-submit',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({value:document.querySelector('#allowed-field').value,trusted:event.isTrusted})});
+      if(response.ok)document.querySelector('#submission-status').textContent='saved';};</script>`;
 }
-
 export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, popupURL, windowId,
-  fixtureURL, restartWorker, capture, saveArtifact, saveDetail, assert, until, traceFocus }) {
+  fixtureURL, restartWorker, capture, saveArtifact, saveDetail, assert, until, traceFocus, submissions }) {
   const browser = await connectBrowser("site-access");
   const allowedOrigin = new URL(fixtureURL).origin;
   const blockedOrigin = allowedOrigin.replace("127.0.0.1", "localhost");
   const allowedURL = `${allowedOrigin}/site-access`, blockedURL = `${blockedOrigin}/site-access`;
   const detail = { allowedOrigin, blockedOrigin, denied: {} };
-  let popup, forgedPage, forgedTab, unownedBlockedTab, pending;
+  let popup, forgedPage, forgedTab, unownedBlockedTab, pending, primaryError, restoreError;
   const policyError = /OBU_SITE_ACCESS_(?:DENIED|UNVERIFIED|UNSUPPORTED)/;
   const view = () => popup.evaluate(`({mode:document.querySelector('#site-access-mode').value,text:document.querySelector('#site-access-origins').value,
     status:document.querySelector('#site-access-status').textContent,revision:Number(document.querySelector('#site-access-status').dataset.revision),
@@ -66,11 +71,14 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     const setter = { type: "SET_SITE_ACCESS_POLICY", policy: { mode: "block", origins: [allowedOrigin] }, expectedRevision: 0 };
     detail.forgedPage = await forgedPage.evaluate(`chrome.runtime.sendMessage(${JSON.stringify(setter)})`);
     assert.equal(detail.forgedPage.ok, false); assert.match(detail.forgedPage.error, /OBU_CONTROL_FORBIDDEN/);
+    detail.forgedRetry = await forgedPage.evaluate("chrome.runtime.sendMessage({type:'RETRY_SITE_ACCESS_POLICY',expectedRevision:0})");
+    assert.equal(detail.forgedRetry.ok, false); assert.match(detail.forgedRetry.error, /OBU_CONTROL_FORBIDDEN/);
     forgedPage.close(); forgedPage = null;
     await getWorker().evaluate(`chrome.tabs.remove(${forgedTab.id})`); forgedTab = null;
     detail.forgedContent = await getWorker().evaluate(`chrome.scripting.executeScript({target:{tabId:${allowed.id}},world:'ISOLATED',func:async(message)=>chrome.runtime.sendMessage(message),args:[${JSON.stringify({ ...setter, sender: { id: "forged-extension-id", url: popupURL } })}]}).then(results=>results[0].result)`);
     assert.equal(detail.forgedContent.ok, false); assert.match(detail.forgedContent.error, /OBU_CONTROL_FORBIDDEN/);
     await assert.rejects(browser.client.request("setSiteAccessPolicy", setter), /unknown|unsupported|not.*allowed|method.*found|No handler registered/i);
+    await assert.rejects(browser.client.request("retrySiteAccessPolicy", { expectedRevision: 0 }), /unknown|unsupported|not.*allowed|method.*found|No handler registered/i);
 
     detail.stage = "open actual action popup";
     await allowed.domSnapshot();
@@ -140,6 +148,11 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     await denied("blockedAfterRestart", allowed.goto(blockedURL));
     assert.equal(await allowed.getByLabel("Allowed field").inputValue(), "permitted 中文");
 
+    detail.stage = "explicit retry after native policy save rejection";
+    detail.saveRetry = {};
+    await checkSiteAccessSaveRetry({ browser, allowed, popup, getWorker, blockedOrigin, readPolicy,
+      resume, capture, assert, until, submissions, detail: detail.saveRetry });
+
     detail.stage = "exercise block-list mode";
     detail.block = await apply("block", [blockedOrigin]);
     await capture("site-access-block-listed", popup);
@@ -150,16 +163,27 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     detail.stage = "complete";
     return detail;
   } catch (error) {
+    primaryError = error;
     detail.error = error.stack;
     if (popup) try { detail.failedView = await view(); await capture("site-access-failure", popup); } catch {}
     throw error;
   } finally {
     if (popup) {
       try {
+        // A failed assertion may leave a settled failed candidate. Restore the
+        // private fixture through the same explicit popup retry before changing
+        // back to all sites, and keep this separate from successful verification.
+        if (primaryError) {
+          const state = await readPolicy();
+          if (state.retryable === true) {
+            detail.cleanupRetry = await popup.evaluate(`chrome.runtime.sendMessage({type:'RETRY_SITE_ACCESS_POLICY',expectedRevision:${state.revision}})`);
+            assert.equal(detail.cleanupRetry.ok, true, "private fixture cleanup retry failed");
+          }
+        }
         detail.restored = await apply("all", []);
         await resume(); await browser.client.beginTurn();
         await browser.client.finalizeTabs([]);
-      } catch (error) { detail.restoreError = error.stack; }
+      } catch (error) { restoreError = error; detail.restoreError = error.stack; }
       await traceFocus("site-access:before-close");
       try { await popup.evaluate("window.close()"); } catch {} popup.close();
       await traceFocus("site-access:after-close");
@@ -168,6 +192,6 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     browser.close(); forgedPage?.close();
     for (const tab of [forgedTab, unownedBlockedTab]) if (tab) await getWorker().evaluate(`chrome.tabs.remove(${tab.id})`).catch(() => {});
     await saveDetail(detail);
-    if (detail.restoreError) throw new Error(`Website access fixture failed to restore all-sites mode: ${detail.restoreError}`);
+    if (restoreError) throw new AggregateError([...(primaryError ? [primaryError] : []), restoreError], "Website access fixture verification/restoration failed");
   }
 }

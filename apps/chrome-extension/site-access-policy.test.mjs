@@ -114,3 +114,55 @@ test("invalid requests and revision exhaustion do not mutate or write", async ()
   await assert.rejects(policy.replace(config(), Number.MAX_SAFE_INTEGER), /OBU_SITE_ACCESS_REVISION_EXHAUSTED/);
   assert.equal(adapter.writes.length, 0); assert.equal(policy.status().ready, true);
 });
+
+test("retry metadata exists only after an actual write rejection and retries the exact copied candidate", async () => {
+  const adapter = storage(stored()), save = deferred(), entered = deferred();
+  const write = adapter.set; adapter.set = value => { entered.resolve(); return save.promise; };
+  const policy = new SiteAccessPolicy({ storage: adapter }); await policy.ready;
+  assert.equal(policy.status().retryable, undefined);
+  const replacing = policy.replace(config("block", ["HTTPS://EXAMPLE.COM:443/"]), 4);
+  const rejected = assert.rejects(replacing, /OBU_SITE_ACCESS_UNAVAILABLE/);
+  await entered.promise; assert.equal(policy.status().retryable, undefined);
+  save.reject(new Error("controlled actual adapter rejection")); await rejected;
+  const failed = policy.status(); assert.equal(failed.ready, false); assert.equal(failed.retryable, true);
+  assert.equal(failed.revision, 5); assert.deepEqual(failed.origins, ["https://example.com"]);
+  failed.origins[0] = "https://mutated.example";
+  adapter.set = write;
+  const retried = policy.retry(5); assert.equal(policy.status().retryable, undefined);
+  const confirmed = await retried;
+  assert.deepEqual(confirmed, { ...stored(6, "block"), ready: true }); assert.equal(policy.status().retryable, undefined);
+  assert.deepEqual(adapter.writes, [{ [SITE_ACCESS_POLICY_KEY]: stored(6, "block") }]);
+  await assert.rejects(policy.retry(5), /OBU_SITE_ACCESS_REVISION_CONFLICT/);
+  await assert.rejects(policy.retry(6), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
+  assert.equal(adapter.writes.length, 1);
+});
+
+test("pending or concurrent retries never start a second write, and another rejection retains the new failed revision", async () => {
+  const adapter = storage(stored()); adapter.set = async () => { throw new Error("first failure"); };
+  const policy = new SiteAccessPolicy({ storage: adapter }); await policy.ready;
+  await assert.rejects(policy.replace(config("allow", ["https://original.example"]), 4));
+  const entered = deferred(), pending = deferred(); let calls = 0;
+  adapter.set = value => { calls++; assert.deepEqual(value[SITE_ACCESS_POLICY_KEY], stored(6, "allow", ["https://original.example"])); entered.resolve(); return pending.promise; };
+  const retry = policy.retry(5), rejected = assert.rejects(retry, /OBU_SITE_ACCESS_UNAVAILABLE/);
+  await assert.rejects(policy.retry(5), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE|OBU_SITE_ACCESS_REVISION_CONFLICT/);
+  await entered.promise; assert.equal(policy.status().retryable, undefined); assert.equal(calls, 1);
+  pending.reject(new Error("second failure")); await rejected;
+  assert.equal(policy.status().retryable, true); assert.equal(policy.status().revision, 6);
+  assert.deepEqual(policy.status().origins, ["https://original.example"]);
+});
+
+test("startup, validation, CAS and revision exhaustion cannot manufacture retry authority", async () => {
+  for (const adapter of [storage(null), { get: async () => { throw new Error("read failure"); }, set: async () => assert.fail("must not write") }]) {
+    const policy = new SiteAccessPolicy({ storage: adapter }); await assert.rejects(policy.ready);
+    assert.equal(policy.status().retryable, undefined);
+    await assert.rejects(policy.retry(policy.status().revision), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
+  }
+  const adapter = storage(stored()), policy = new SiteAccessPolicy({ storage: adapter }); await policy.ready;
+  await assert.rejects(policy.replace({ mode: "invalid", origins: [] }, 4));
+  await assert.rejects(policy.replace(config(), 3), /OBU_SITE_ACCESS_REVISION_CONFLICT/);
+  assert.equal(policy.status().retryable, undefined); await assert.rejects(policy.retry(4), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
+  assert.equal(adapter.writes.length, 0);
+  const exhausted = new SiteAccessPolicy({ storage: storage(stored(Number.MAX_SAFE_INTEGER)) }); await exhausted.ready;
+  await assert.rejects(exhausted.replace(config(), Number.MAX_SAFE_INTEGER), /OBU_SITE_ACCESS_REVISION_EXHAUSTED/);
+  assert.equal(exhausted.status().retryable, undefined);
+});

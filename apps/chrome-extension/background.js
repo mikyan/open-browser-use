@@ -1262,13 +1262,30 @@ class BrowserBackend {
       return { ...this.siteAccess.status(), ready: false,
         error: "OBU_SITE_ACCESS_UNAVAILABLE: website access settings did not finish loading" };
     }
-    return this.siteAccess.status();
+    const status = this.siteAccess.status();
+    // The pause/drain or real write may still be pending after the UI deadline.
+    // A failed candidate is actionable only after that exact transition ends.
+    if (this.sitePolicyUpdate) delete status.retryable;
+    return status;
   }
 
   setSiteAccessPolicy(config, expectedRevision) {
+    const normalized = normalizeSiteAccessPolicy(config);
+    if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
+    if (this.siteAccess.status().retryable)
+      throw new Error("OBU_SITE_ACCESS_RETRY_REQUIRED: review and retry the failed website policy before changing settings");
+    return this.changeSiteAccessPolicy(() => this.siteAccess.replace(normalized, expectedRevision));
+  }
+
+  retrySiteAccessPolicy(expectedRevision) {
+    if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
+    this.siteAccess.assertRetryable(expectedRevision);
+    return this.changeSiteAccessPolicy(() => this.siteAccess.retry(expectedRevision));
+  }
+
+  changeSiteAccessPolicy(write) {
     const deadlineAt = Date.now() + this.automationCleanupTimeoutMs;
     const timeout = () => new Error("OBU_SITE_ACCESS_UNAVAILABLE: website policy change is unconfirmed; automation remains paused");
-    const normalized = normalizeSiteAccessPolicy(config);
     if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
     const token = {};
     this.sitePolicyUpdate = token;
@@ -1279,7 +1296,7 @@ class BrowserBackend {
       try {
         await paused;
         if (Date.now() >= deadlineAt) throw timeout();
-        return await this.siteAccess.replace(normalized, expectedRevision);
+        return await write();
       } finally {
         if (this.sitePolicyUpdate === token) this.sitePolicyUpdate = null;
       }
@@ -5650,10 +5667,16 @@ async function handleSiteAccessMessage(message, sender) {
   const contexts = await chrome.runtime.getContexts({ contextTypes: ["POPUP"], ...(typeof sender.documentId === "string" ? { documentIds: [sender.documentId] } : {}) });
   if (!contexts.some(context => context.contextType === "POPUP" && (sender.documentId === undefined || context.documentId === sender.documentId) && context.documentUrl === sender.url))
     throw new Error("OBU_CONTROL_FORBIDDEN: the sending popup is no longer open");
+  if (message.type === "RETRY_SITE_ACCESS_POLICY") {
+    if (Object.keys(message).length !== 2 || !Object.hasOwn(message, "expectedRevision") ||
+        !Number.isSafeInteger(message.expectedRevision) || message.expectedRevision < 0)
+      throw new Error("OBU_SITE_ACCESS_INVALID: retry requires only the reviewed failed revision");
+    return backend.retrySiteAccessPolicy(message.expectedRevision);
+  }
   return backend.setSiteAccessPolicy(message.policy, message.expectedRevision);
 }
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY"].includes(message?.type)) {
+  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY", "RETRY_SITE_ACCESS_POLICY"].includes(message?.type)) {
     void handleSiteAccessMessage(message, sender).then(policy => sendResponse({ ok: true, policy }), error => sendResponse({ ok: false, error: String(error?.message ?? error) }));
     return true;
   }

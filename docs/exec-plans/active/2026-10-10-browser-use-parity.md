@@ -21,6 +21,14 @@
 
 ## 当前并行切片
 
+2026-10-13 已完成[网站策略保存失败重试](../completed/2026-10-13-site-access-save-retry.md)：
+真实 popup 审阅原失败候选，显式重试、原生存储确认后仍保持暂停。专项 `Y4Qq0W`
+2/2、Node 2939 pass/1 既有 Windows symlink skip、actual exit 0。完整 `bDKdec`
+137/138、actual exit 1；权限重试通过，但首场键盘准备 End 的原文档缺 keydown，
+此动作在 native probe 安装前。下一优先项是补齐该原准备动作的 native/page
+观测，查明发送/ACK/路由，不重放或放宽断言。原焦点许可未变，旧 preview 未改。
+启动读取/损坏策略及未结算写不在本次恢复范围；整体目标继续。
+
 2026-10-12 正在补[普通启动 Edge 原文件闭环](2026-10-12-normal-browser-downloads.md)。
 已修自动发现对 IPv6-only listener 的失败：只在首次 TCP 原生拒绝后尝试同端口
 IPv6，授权/Upgrade/身份失败不回退，原总期限不变。Go518 pass/27既有skip，

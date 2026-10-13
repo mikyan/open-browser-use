@@ -20,6 +20,9 @@ debugger、history 和 tab groups。
 
 - `apps/chrome-extension/`：Open Browser Use MV3 Chrome extension，包含
   readable service worker、cursor content script 和 popup。
+  网站策略真实保存失败后，由可信 popup 明确重试原候选；backend 复用暂停、
+  清理与 revision 检查，实际未结算写不能重试，成功仍暂停。启动读取失败
+  不属于此恢复入口，见[网站权限](references/site-access-policy.md)。
   原生弹窗由 `browser-dialogs.js` 管理一次性决策，注册及处理均等待真实回执；
   backend 保留原 attachment 的在途响应直到清理确认。五入口使用同一协议，
   `beforeunload` 的浏览器原生激活仍是后台限制，见[原生弹窗](references/native-dialogs.md)。

@@ -41,13 +41,14 @@ automationButton.addEventListener("click", () => { void automationControl.activa
 const siteAccessMode = document.getElementById("site-access-mode");
 const siteAccessOrigins = document.getElementById("site-access-origins");
 const siteAccessApply = document.getElementById("site-access-apply");
+const siteAccessRetry = document.getElementById("site-access-retry");
 const siteAccessReload = document.getElementById("site-access-reload");
 const siteAccessControl = createSiteAccessControl({
   sendMessage: message => {
     if (!chromeApi?.runtime?.sendMessage) throw new Error("Extension control is unavailable.");
     return chromeApi.runtime.sendMessage(message);
   },
-  onApplied: () => { void automationControl.refresh(); },
+  onSettled: () => { void automationControl.refresh(); },
   render: view => {
     const status = document.getElementById("site-access-status");
     status.textContent = view.label;
@@ -60,6 +61,9 @@ const siteAccessControl = createSiteAccessControl({
     document.getElementById("site-access-message").textContent = view.message;
     siteAccessApply.textContent = view.applyText;
     siteAccessApply.disabled = view.applyDisabled;
+    siteAccessRetry.hidden = !view.retryVisible;
+    siteAccessRetry.textContent = view.retryText;
+    siteAccessRetry.disabled = view.retryDisabled;
     siteAccessReload.textContent = view.reloadText;
     siteAccessReload.disabled = view.reloadDisabled;
     const error = document.getElementById("site-access-error");
@@ -71,6 +75,7 @@ const editSiteAccess = () => siteAccessControl.edit({ mode: siteAccessMode.value
 siteAccessMode.addEventListener("change", editSiteAccess);
 siteAccessOrigins.addEventListener("input", editSiteAccess);
 siteAccessApply.addEventListener("click", () => { void siteAccessControl.apply(); });
+siteAccessRetry.addEventListener("click", () => { void siteAccessControl.retry(); });
 siteAccessReload.addEventListener("click", () => { void siteAccessControl.reload(); });
 
 renderExtensionVersion();

@@ -14,14 +14,24 @@ a new agent turn; saving or resuming never replays earlier work. A failed cleanu
 does not install new settings. An unconfirmed/failed settings write blocks access
 and cannot be treated as a successful save. An unresolved native storage call
 still has the existing unknown-write limitation, rather than an invented rollback.
-The popup currently requires confirmed readable settings before another Apply;
-it has no dedicated repair workflow for a failed persistent write. Reloading the
-extension restores the last durable settings and the durable paused state, which
-must be reviewed before resuming. An unresolved write is not proof of its outcome.
+After the actual storage write rejects, the popup offers **Review unsaved
+settings** and **Retry save and keep paused**. The displayed candidate is labeled
+**Not saved**. Retry saves exactly that candidate at the next revision; it cannot
+submit a different draft. Existing drafts are preserved until explicit review.
+A newly opened popup can display the failed candidate directly for review.
+Both successful and failed save attempts refresh the automation status display.
+
+Only a settled write failure enables retry. A pending write, observer timeout,
+failed startup read or corrupt persisted state cannot grant retry authority.
+Concurrent changes remain busy until the actual operation settles; a late success
+does not resume agents. Stale or repeated retry requests cannot write again.
+Startup/corrupt-state recovery still needs separate work. Reloading the extension
+restores its last durable settings and paused state, which must be reviewed before
+resuming; it does not prove the outcome of an unresolved write.
 
 Only the live extension action popup can change settings. Content scripts,
 ordinary tabs displaying popup.html and public RPC method names cannot use the
-setter. The sender must have the extension ID and exact popup URL, no tab sender,
+setter or retry endpoint. The sender must have the extension ID and exact popup URL, no tab sender,
 and a matching live `POPUP` context; if Chrome supplies a document ID it must
 match too. Tested Chromium popup senders may omit that optional ID. Storage is
 restricted to trusted extension contexts. Settings have a durable monotonic
@@ -87,6 +97,16 @@ during input. The real-browser fixture uses an isolated profile and controlled
 origins with the production extension, public SDK calls and an actual action
 popup; its evidence is recorded in the active parity plan and acceptance results.
 It does not replace all browser/platform installation or full Codex comparisons.
+
+The save-retry fixture also targets one private-profile `storage.local.set` with
+an oversized test argument. It preserves the original native Promise and verifies
+the browser's quota rejection and unchanged durable value. Disabling this
+controlled fault and clicking Retry must produce a second, successful native
+write of the same candidate, with a new revision and paused control. Explicit
+Resume/new-turn then submits exactly one trusted action from the original page.
+This is controlled native failure injection, not evidence of a spontaneous quota
+failure. Pending/late-settlement races are separately covered by deterministic
+backend tests, not claimed as native failures.
 
 Primary API references checked for this implementation:
 

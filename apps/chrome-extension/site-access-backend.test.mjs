@@ -267,3 +267,96 @@ test("only a live action popup may change policy, with exact document identity w
   const result = await invoke({ type: "SET_SITE_ACCESS_POLICY", policy: config(), expectedRevision: 0 }, { ...sender, documentId: undefined });
   assert.equal(result.mode, "allow"); assert.equal(f.backend.automationControl.inputBlocked, true);
 });
+
+test("settled policy failure exposes an exact candidate retry that remains paused and rejects ordinary SET", async t => {
+  const f = await fixture(t); await f.backend.attach(f.params);
+  f.hooks.write = async value => { if (value[SITE_ACCESS_POLICY_KEY]) throw new Error("controlled quota"); };
+  await assert.rejects(f.backend.setSiteAccessPolicy(config("block", ["https://denied.test"]), 0), /OBU_SITE_ACCESS_UNAVAILABLE/);
+  const failure = await f.backend.getSiteAccessPolicy();
+  assert.equal(failure.retryable, true); assert.equal(failure.ready, false); assert.equal(failure.revision, 1);
+  assert.equal(f.attached.size, 0); assert.equal(f.state[AUTOMATION_KEY].paused, true);
+  const before = f.calls.length;
+  assert.throws(() => f.backend.setSiteAccessPolicy(config("all", []), 1), /OBU_SITE_ACCESS_RETRY_REQUIRED/);
+  assert.throws(() => f.backend.retrySiteAccessPolicy(0), /OBU_SITE_ACCESS_REVISION_CONFLICT/);
+  assert.equal(f.calls.length, before, "Rejected requests must not begin another Pause or persistent write");
+  failure.origins[0] = "https://mutated.test"; delete f.hooks.write;
+  const confirmed = await f.backend.retrySiteAccessPolicy(1);
+  assert.equal(confirmed.ready, true); assert.equal(confirmed.retryable, undefined); assert.equal(confirmed.revision, 2);
+  assert.equal(confirmed.mode, "block"); assert.deepEqual(Array.from(confirmed.origins), ["https://denied.test"]);
+  assert.deepEqual(f.state[SITE_ACCESS_POLICY_KEY], { version: 1, revision: 2, mode: "block", origins: ["https://denied.test"] });
+  assert.equal(f.state[AUTOMATION_KEY].paused, true); assert.equal(f.backend.automationControl.inputBlocked, true);
+  assert.throws(() => f.backend.retrySiteAccessPolicy(1), /OBU_SITE_ACCESS_REVISION_CONFLICT/);
+  assert.throws(() => f.backend.retrySiteAccessPolicy(2), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
+  const paused = await f.backend.getAutomationControlStatus(); await f.backend.resumeAutomation(paused.revision);
+  await assert.rejects(f.backend.attach(f.params), /OBU_STALE_CONTROL_EPOCH/);
+});
+
+test("retry holds the original update token through timeout and concurrent calls until real write settlement", async t => {
+  for (const fail of [false, true]) {
+    const f = await fixture(t, { automationCleanupTimeoutMs: 25 });
+    f.hooks.write = async value => { if (value[SITE_ACCESS_POLICY_KEY]) throw new Error("first failure"); };
+    await assert.rejects(f.backend.setSiteAccessPolicy(config(), 0), /OBU_SITE_ACCESS_UNAVAILABLE/);
+    assert.equal((await f.backend.getSiteAccessPolicy()).retryable, true);
+    const entered = f.gate(), writing = f.gate(); let policyWrites = 0;
+    f.hooks.write = async value => { if (value[SITE_ACCESS_POLICY_KEY]) { policyWrites++; entered.resolve(); await writing.promise; if (fail) throw new Error("late actual failure"); } };
+    const retry = f.backend.retrySiteAccessPolicy(1), rejected = assert.rejects(retry, /OBU_SITE_ACCESS_UNAVAILABLE.*unconfirmed/);
+    assert.equal((await f.backend.getSiteAccessPolicy()).retryable, undefined);
+    assert.throws(() => f.backend.retrySiteAccessPolicy(1), /OBU_SITE_ACCESS_BUSY/);
+    await entered.promise; await rejected;
+    const token = f.backend.sitePolicyUpdate; assert.ok(token); assert.equal(policyWrites, 1);
+    assert.equal((await f.backend.getSiteAccessPolicy()).retryable, undefined);
+    assert.throws(() => f.backend.retrySiteAccessPolicy(2), /OBU_SITE_ACCESS_BUSY/);
+    assert.throws(() => f.backend.setSiteAccessPolicy(config("all", []), 2), /OBU_SITE_ACCESS_BUSY/);
+    const paused = await f.backend.getAutomationControlStatus();
+    await assert.rejects(f.backend.resumeAutomation(paused.revision), /OBU_SITE_ACCESS_BUSY|OBU_SITE_ACCESS_UNAVAILABLE/);
+    assert.equal(f.backend.sitePolicyUpdate, token);
+    writing.resolve(); await f.backend.siteAccess.writes.catch(() => {}); await Promise.resolve(); await Promise.resolve();
+    assert.equal(f.backend.sitePolicyUpdate, null); assert.equal(policyWrites, 1);
+    const settled = await f.backend.getSiteAccessPolicy();
+    assert.equal(settled.revision, 2); assert.equal(settled.ready, !fail); assert.equal(settled.retryable, fail ? true : undefined);
+    assert.equal(f.backend.automationControl.inputBlocked, true); assert.equal(f.state[AUTOMATION_KEY].paused, true);
+  }
+});
+
+test("retry authority stays private to a live popup and its exact failed revision", async t => {
+  const f = await fixture(t), invoke = vm.runInNewContext(`${popupCode}\nhandleSiteAccessMessage`, { ...f.context, backend: f.backend });
+  f.hooks.write = async value => { if (value[SITE_ACCESS_POLICY_KEY]) throw new Error("failed write"); };
+  await assert.rejects(f.backend.setSiteAccessPolicy(config(), 0)); delete f.hooks.write;
+  const sender = { id: "fixture", url: "chrome-extension://fixture/popup.html", documentId: "live-popup" };
+  const retry = { type: "RETRY_SITE_ACCESS_POLICY", expectedRevision: 1 }, before = f.calls.length;
+  for (const bad of [{ ...sender, id: "other" }, { ...sender, url: "https://allowed.test" }, { ...sender, tab: { id: 7 } }, { ...sender, documentId: "old-popup" }])
+    await assert.rejects(invoke(retry, bad), /OBU_CONTROL_FORBIDDEN/);
+  for (const extra of [{ policy: config("all", []) }, { candidate: config() }, { extra: true }])
+    await assert.rejects(invoke({ ...retry, ...extra }, sender), /OBU_SITE_ACCESS_INVALID/);
+  await assert.rejects(invoke({ type: retry.type }, sender), /OBU_SITE_ACCESS_INVALID|OBU_SITE_ACCESS_REVISION_CONFLICT/);
+  assert.equal(f.calls.length, before); assert.equal((await f.backend.getSiteAccessPolicy()).retryable, true);
+  const result = await invoke(retry, { ...sender, documentId: undefined });
+  assert.equal(result.revision, 2); assert.equal(result.mode, "allow"); assert.equal(f.backend.automationControl.inputBlocked, true);
+});
+
+test("failed retry Pause never writes policy and keeps the original candidate available for another explicit retry", async t => {
+  const f = await fixture(t);
+  f.hooks.write = async value => { if (value[SITE_ACCESS_POLICY_KEY]) throw new Error("first policy failure"); };
+  await assert.rejects(f.backend.setSiteAccessPolicy(config(), 0));
+  const original = await f.backend.getSiteAccessPolicy(); let policyWrites = 0;
+  f.hooks.write = async value => { if (value[SITE_ACCESS_POLICY_KEY]) policyWrites++; if (value[AUTOMATION_KEY]) throw new Error("Pause persistence failed"); };
+  await assert.rejects(f.backend.retrySiteAccessPolicy(1), /OBU_AUTOMATION_PAUSE_FAILED/);
+  assert.equal(policyWrites, 0); assert.equal(f.backend.sitePolicyUpdate, null);
+  assert.deepEqual(await f.backend.getSiteAccessPolicy(), original);
+  assert.equal(f.backend.automationControl.inputBlocked, true);
+  delete f.hooks.write; const result = await f.backend.retrySiteAccessPolicy(1);
+  assert.equal(result.ready, true); assert.equal(result.revision, 2); assert.equal(f.state[AUTOMATION_KEY].paused, true);
+});
+
+test("startup read failure or corrupt state has no backend retry path and does not write defaults", async t => {
+  for (const corrupt of [false, true]) {
+    const f = await fixture(t);
+    if (corrupt) f.state[SITE_ACCESS_POLICY_KEY] = null;
+    else f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw new Error("startup read failure"); };
+    const restarted = new f.Backend(); await assert.rejects(restarted.controlReady, /OBU_SITE_ACCESS_/);
+    const status = await restarted.getSiteAccessPolicy(); assert.equal(status.ready, false); assert.equal(status.retryable, undefined);
+    const before = f.calls.length;
+    assert.throws(() => restarted.retrySiteAccessPolicy(status.revision), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
+    assert.equal(f.calls.length, before); assert.equal(restarted.sitePolicyUpdate, null);
+  }
+});

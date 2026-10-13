@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+网站策略已结算保存失败可从真实 popup 审阅并重试原候选，保持暂停与版本检查。
+最终专项 `Y4Qq0W` 2/2、Node 2939 pass/1 既有 Windows symlink skip，actual exit 0。
+完整 `bDKdec` 137/138、actual exit 1：本次权限重试通过，但首场键盘准备 End
+缺少页面 keydown，保留原失败并优先诊断，不宣称整体回归通过。原生焦点账本
+仅沿用原 12 activation/4 control-focus 许可。见[网站权限](references/site-access-policy.md)
+及[剩余债务](exec-plans/tech-debt-tracker.md)。旧 preview 保持不变。
+
 原生 alert/confirm/prompt 新增一次性明确决策，五入口×三布局已真实验收；
 完整 `uZgxYp` 138/138，后续加强原输出/子目标清理证据的专项 `oYbXyC`
 7/7，均 actual exit 0。`beforeunload` 原生 UI 激活任务页仍使后台验收失败，
