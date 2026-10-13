@@ -21,12 +21,19 @@
 
 ## 当前并行切片
 
+2026-10-14 [首次键盘输入诊断](2026-10-13-initial-keyboard-delivery.md)已保留导航前
+setup native 请求/回执、原页面被动时序和可选原生 input trace。定向64/64；
+预声明 `UplYfR` 2/2、截图前置 `5eI49Q` 5/5 均 actual exit 0，无焦点事件或
+新增许可。两轮各九次 End down/up 完整，trace 无 Input Suppressed；没有复现
+旧缺失，生产输入逻辑未改。旧失败继续开放，下次有独立需要的完整回归启用
+该诊断，按原命令/文档/trace 证据再决定修复，不为取绿重复或重放按键。
+
 2026-10-13 已完成[网站策略保存失败重试](../completed/2026-10-13-site-access-save-retry.md)：
 真实 popup 审阅原失败候选，显式重试、原生存储确认后仍保持暂停。专项 `Y4Qq0W`
 2/2、Node 2939 pass/1 既有 Windows symlink skip、actual exit 0。完整 `bDKdec`
 137/138、actual exit 1；权限重试通过，但首场键盘准备 End 的原文档缺 keydown，
-此动作在 native probe 安装前。下一优先项是补齐该原准备动作的 native/page
-观测，查明发送/ACK/路由，不重放或放宽断言。原焦点许可未变，旧 preview 未改。
+此动作在当时 native probe 安装前，不能确认发送/ACK/路由；后续诊断见上。
+原焦点许可未变，旧 preview 未改。
 启动读取/损坏策略及未结算写不在本次恢复范围；整体目标继续。
 
 2026-10-12 正在补[普通启动 Edge 原文件闭环](2026-10-12-normal-browser-downloads.md)。

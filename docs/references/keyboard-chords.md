@@ -106,3 +106,45 @@ added. The native-host restart test intentionally terminates its original host;
 the exact successor exits 0, and all native connections close. These controlled
 loopback runs do not replace ordinary native installation or broader platform
 acceptance. Delivered preview packages are unchanged.
+
+## Initial-key delivery investigation
+
+Later full run `bDKdec` failed the first setup `locator.press("End")`: the
+original document recorded its trusted keyup but no keydown, including in the
+later business POST. The full result is 137/138, actual exit 1. The old native
+probe started after setup, so it cannot establish whether down was submitted,
+acknowledged or routed elsewhere. Keep this failure separate from the earlier
+successful invalid-chord and partial-failure acceptance.
+
+The diagnostic probe now starts on the blank tab before the original navigation.
+A separate setup phase retains the one original End request and native down/up
+settlements. A bounded passive head ledger records key/focus ordering against
+the original bottom listener-install marker. It cannot supply events missing
+from the original strict ledger. There is no extra readiness read, wait, click
+or replay before End; nevertheless the added instrumentation can alter timing.
+A successful instrumented run alone does not resolve the original failure.
+
+Set `OBU_TEST_KEYBOARD_INPUT_TRACE=1` to also capture a bounded browser-native
+`input` trace for the keyboard entry. The runner saves the original stream as
+`keyboard-input-trace.json`, plus completion, limits, cleanup and clock metadata
+in `keyboard-input-trace-metadata.json`. Failure retains available original
+bytes. These browser-wide events require separate process/widget correlation;
+an `Input Suppressed` event alone is not attribution to the tested document.
+
+The pinned Chromium implementation can acknowledge unqueued keyboard input or
+an input result without confirming DOM delivery. Its renderer also suppresses
+non-moving input while main-frame updates or commits are deferred; the
+`HasNotPainted` bit is masked out of that decision. These are diagnostic
+candidates, not established causes of `bDKdec`. See the pinned
+[input handler](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/content/browser/devtools/protocol/input_handler.cc)
+and [renderer input manager](https://github.com/chromium/chromium/blob/f842f52ef39fd97b449eb27cff414bf05a98ddce/third_party/blink/renderer/platform/widget/input/widget_input_handler_manager.cc).
+
+Diagnostic tests pass 64/64, actual exit 0. Keyboard-only `UplYfR` passed 2/2;
+the predeclared screenshot-context `5eI49Q` passed 5/5, both actual exit 0 with
+unchanged source/runtime inputs. Each records nine complete original End
+down/up pairs and nine original business POSTs (100,836 and 100,985 bytes).
+Each trace retains both native markers and 50 keyboard-forward events, with
+zero `Input Suppressed` events, no native data loss and an acknowledged close.
+Their 19,923ms and 65,518ms focus ledgers contain zero activation, focus changes
+or allowances. The old missing-down failure did not recur; its cause and a
+production remedy remain open in the [active plan](../exec-plans/active/2026-10-13-initial-keyboard-delivery.md).

@@ -24,18 +24,52 @@ export function keyboardChordURLs(base, key) {
 
 // Passive evidence in the original document; no page script focuses, types,
 // changes the input value or synthesizes the events being tested.
+export function installKeyboardChordEarlyEvidence(doc, key) {
+  const view = doc.defaultView, early = globalThis.keyboardChordEarlyEvidence = {
+    key, documentToken: crypto.randomUUID(), timeOrigin: performance.timeOrigin, events: [], overflow: false
+  };
+  const snapshot = target => ({ readyState: doc.readyState, documentHasFocus: doc.hasFocus(),
+    activeElementId: doc.activeElement?.id ?? "", targetId: target?.id ?? "", targetNode: target?.nodeName ?? "",
+    targetToken: target?.dataset?.token ?? null });
+  const append = value => {
+    if (early.events.length >= 64) { early.overflow = true; return; }
+    early.events.push({ sequence: early.events.length + 1, at: performance.now(), ...value });
+  };
+  const record = source => event => append({ kind: "event", source, type: event.type, trusted: event.isTrusted,
+    key: event.key ?? null, code: event.code ?? null, ...snapshot(event.target) });
+  for (const type of ["keydown", "keyup", "focus", "blur", "focusin", "focusout"])
+    doc.addEventListener(type, record("document"), { capture: true, passive: true });
+  for (const type of ["focus", "blur"]) view.addEventListener(type, event => {
+    if (event.target === view) record("window")(event);
+  }, { capture: true, passive: true });
+  globalThis.keyboardChordMarkListenersInstalled = () => append({ kind: "listeners-installed", ...snapshot(doc.querySelector("#chord-target")) });
+}
 export function installKeyboardChordEvidence(doc, spec, key) {
   const node = doc.querySelector("#chord-target"), form = doc.querySelector("#chord-form");
-  const evidence = globalThis.keyboardChordEvidence = { key, caseName: spec.name, documentToken: crypto.randomUUID(),
-    nodeToken: node?.dataset.token ?? null, events: [], overflow: false, submits: 0, errors: [] };
+  const early = globalThis.keyboardChordEarlyEvidence;
+  const evidence = globalThis.keyboardChordEvidence = { key, caseName: spec.name, documentToken: early.documentToken,
+    nodeToken: node?.dataset.token ?? null, events: [], focusEvents: [], early, overflow: false, submits: 0, errors: [], listenersReady: false };
+  let order = 0;
   globalThis.keyboardChordOriginalState = () => ({ value: node?.value ?? null,
-    originalNodePresent: Boolean(node?.isConnected && doc.querySelector("#chord-target") === node), activeOriginalNode: Boolean(node && doc.activeElement === node) });
+    originalNodePresent: Boolean(node?.isConnected && doc.querySelector("#chord-target") === node), activeOriginalNode: Boolean(node && doc.activeElement === node),
+    documentHasFocus: doc.hasFocus(), visibilityState: doc.visibilityState,
+    activeElement: { id: doc.activeElement?.id ?? "", nodeName: doc.activeElement?.nodeName ?? "", originalNode: Boolean(node && doc.activeElement === node) } });
   for (const type of ["keydown", "keyup", "beforeinput", "input", "change", "pointerdown", "pointerup", "click"]) doc.addEventListener(type, event => {
     if (evidence.events.length >= 128) { evidence.overflow = true; return; }
-    evidence.events.push({ sequence: evidence.events.length + 1, type, trusted: event.isTrusted, originalNode: event.target === node,
+    evidence.events.push({ sequence: evidence.events.length + 1, order: ++order, at: performance.now(), type, trusted: event.isTrusted, originalNode: event.target === node,
       nodeToken: event.target === node ? evidence.nodeToken : null, targetId: event.target?.id ?? "", key: event.key ?? null,
       code: event.code ?? null, ctrl: event.ctrlKey ?? false, shift: event.shiftKey ?? false, alt: event.altKey ?? false, meta: event.metaKey ?? false,
       data: event.data ?? null, inputType: event.inputType ?? null, value: node?.value ?? null });
+  }, { capture: true, passive: true });
+  const focus = source => event => {
+    if (evidence.focusEvents.length >= 32) { evidence.overflow = true; return; }
+    evidence.focusEvents.push({ sequence: evidence.focusEvents.length + 1, order: ++order, at: performance.now(), source,
+      type: event.type, trusted: event.isTrusted, targetId: event.target?.id ?? "", originalNode: event.target === node,
+      relatedTargetId: event.relatedTarget?.id ?? "", state: globalThis.keyboardChordOriginalState() });
+  };
+  for (const type of ["focus", "blur", "focusin", "focusout"]) doc.addEventListener(type, focus("document"), { capture: true, passive: true });
+  for (const type of ["focus", "blur"]) doc.defaultView.addEventListener(type, event => {
+    if (event.target === doc.defaultView) focus("window")(event);
   }, { capture: true, passive: true });
   form?.addEventListener("submit", event => {
     event.preventDefault(); evidence.submits++;
@@ -45,6 +79,11 @@ export function installKeyboardChordEvidence(doc, spec, key) {
       .then(response => { if (!response.ok) throw Error(`Keyboard receipt HTTP ${response.status}`); return response.json(); })
       .then(receipt => { evidence.receipt = receipt; }).catch(error => evidence.errors.push(String(error)));
   });
+  evidence.listenersReady = true;
+  // This snapshot is taken by the original bottom script, not by a readiness
+  // RPC before End. The head ledger can expose input that preceded this point.
+  evidence.listenerInstallation = { at: performance.now(), state: globalThis.keyboardChordOriginalState() };
+  globalThis.keyboardChordMarkListenersInstalled();
 }
 export function readKeyboardChordEvidence() {
   return { href: location.href, evidence: globalThis.keyboardChordEvidence, state: globalThis.keyboardChordOriginalState() };
@@ -52,7 +91,7 @@ export function readKeyboardChordEvidence() {
 export function keyboardChordHTML(url) {
   const key = url.searchParams.get("key"), spec = specFor(key), urls = keyboardChordURLs(url, key);
   assert.ok([`${route}page`, `${route}frame`].includes(url.pathname));
-  return `<!doctype html><meta charset="utf-8"><title>Keyboard chord ${key}</title>
+  return `<!doctype html><meta charset="utf-8"><title>Keyboard chord ${key}</title><script>(${installKeyboardChordEarlyEvidence.toString()})(document,${JSON.stringify(key)});</script>
 <style>body{margin:20px;font:16px sans-serif}input{width:430px;padding:12px}button{padding:14px;margin:20px}iframe{width:650px;height:340px;border:3px solid #246}</style><h1>Original keyboard chord fixture</h1>
 ${spec.layout === "root" || url.pathname === `${route}frame` ? `<form id="chord-form"><label for="chord-target">Original chord note</label><input id="chord-target" data-token="${key}-node" value=""><button id="submit-note">Submit original chord note</button></form>` : `<iframe id="chord-frame" src="${urls.target}"></iframe>`}
 <script>(${installKeyboardChordEvidence.toString()})(document,${JSON.stringify(spec)},${JSON.stringify(key)});</script>`;
@@ -104,7 +143,7 @@ export function installKeyboardChordProbe(api, target, options) {
   const append = row => {
     if (records.length >= 256) { overflow = true; return; }
     const copy = structuredClone(row); if (JSON.stringify(copy).length > 16384) { overflow = true; return; }
-    records.push({ sequence: ++sequence, phase, ...copy });
+    records.push({ sequence: ++sequence, phase, at: Date.now(), ...copy });
   };
   const safely = fn => { try { fn(); } catch { if (errors.length < 8) errors.push("Keyboard probe recording error"); } };
   function wrapper(...args) {
@@ -159,22 +198,25 @@ export function installKeyboardChordProbe(api, target, options) {
 }
 
 const phasesFor = spec => spec.effect === "plus" ? ["plus", "shift-plus"] : spec.effect === "raw-held-invalid" ? ["raw-hold", "invalid", "raw-release", "recovery"] : [spec.effect, "recovery"];
-const keyForPhase = name => ({ invalid: invalidKeyboardChord, partial: "Control+a", recovery: "a", plus: "+", "shift-plus": "Shift++" })[name];
-const expectedCalls = name => ({ invalid: [], partial: [["Control", "down", 2], ["Control", "up", 0]], recovery: [["a", "down", 0], ["a", "up", 0]],
+const keyForPhase = name => ({ setup: "End", invalid: invalidKeyboardChord, partial: "Control+a", recovery: "a", plus: "+", "shift-plus": "Shift++" })[name];
+const expectedCalls = name => ({ setup: [["End", "down", 0], ["End", "up", 0]], invalid: [], partial: [["Control", "down", 2], ["Control", "up", 0]], recovery: [["a", "down", 0], ["a", "up", 0]],
   plus: [["+", "down", 0], ["+", "up", 0]], "shift-plus": [["Shift", "down", 8], ["+", "down", 8], ["+", "up", 8], ["Shift", "up", 0]],
   "raw-hold": [["Shift", "down", 8]], "raw-release": [["Shift", "up", 0]] })[name];
-export function checkKeyboardChordTrace(item) {
-  const { spec, probe } = item, names = phasesFor(spec);
+export function checkKeyboardChordTrace(item, { setupOnly = false } = {}) {
+  const { spec, probe } = item, names = ["setup", ...(setupOnly ? [] : phasesFor(spec))];
+  const records = setupOnly ? probe.records.filter(row => row.phase === "setup") : probe.records;
   assert.equal(probe.version, 1); assert.equal(probe.id, item.id); assert.equal(probe.tabId, item.tabId); assert.deepEqual(probe.scope, item.scope);
-  assert.equal(probe.restored, true); assert.equal(probe.pending, 0); assert.equal(probe.overflow, false); assert.deepEqual(probe.errors, []);
-  assert.equal(probe.failAfterControlACK, spec.effect === "partial"); assert.equal(probe.injected, spec.effect === "partial");
-  assert.ok(probe.records.every((row, index) => row.sequence === index + 1));
-  assert.ok(probe.records.every(row => names.includes(row.phase)), "Every observation belongs to an explicit original phase");
-  assert.deepEqual(probe.records.filter(row => row.kind === "phase").map(row => row.phase), names);
-  assert.deepEqual(item.phases.map(value => value.name), names);
+  assert.equal(probe.restored, true); assert.equal(probe.overflow, false); assert.deepEqual(probe.errors, []);
+  assert.equal(probe.failAfterControlACK, spec.effect === "partial");
+  if (!setupOnly) { assert.equal(probe.pending, 0); assert.equal(probe.injected, spec.effect === "partial"); }
+  assert.ok(records.every((row, index) => row.sequence === index + 1));
+  assert.ok(records.every(row => names.includes(row.phase)), "Every observation belongs to an explicit original phase");
+  assert.deepEqual(records.filter(row => row.kind === "phase").map(row => row.phase), names);
+  const phases = [item.setup, ...(setupOnly ? [] : item.phases)];
+  assert.deepEqual(phases.map(value => value.name), names);
   let nativeDispatches = 0;
-  for (const phase of item.phases) {
-    const rows = probe.records.filter(row => row.phase === phase.name), marker = rows[0];
+  for (const phase of phases) {
+    const rows = records.filter(row => row.phase === phase.name), marker = rows[0];
     assert.equal(marker.kind, "phase"); assert.equal(rows.filter(row => row.kind === "phase").length, 1);
     assert.ok(rows.every((row, index) => row.sequence === marker.sequence + index), "No late native work crosses into another phase");
     const raw = phase.name.startsWith("raw-"), calls = rows.filter(row => row.kind === "invoke"), requests = rows.filter(row => row.kind === "request"), responses = rows.filter(row => row.kind === "response");
@@ -183,10 +225,11 @@ export function checkKeyboardChordTrace(item) {
     if (!raw) {
       [request] = requests; [response] = responses; const p = request.message.params;
       for (const [key, value] of Object.entries(item.scope)) assert.equal(p[key], value);
-      assert.equal(p.tabId, item.tabId); assert.equal(p.action, spec.api === "keyboard" ? "keyboard.press" : "press");
+      const keyboard = phase.name !== "setup" && spec.api === "keyboard";
+      assert.equal(p.tabId, item.tabId); assert.equal(p.action, keyboard ? "keyboard.press" : "press");
       assert.deepEqual(p.args, { key: keyForPhase(phase.name) });
-      assert.deepEqual(p.locator ?? [], spec.api === "keyboard" ? [] : [...(spec.layout === "root" ? [] : [{ kind: "frame", selector: "#chord-frame" }]), { kind: "label", value: "Original chord note", exact: true }]);
-      assert.ok(Number.isSafeInteger(p.timeoutMs) && p.timeoutMs > 0 && p.timeoutMs <= item.timeoutMs);
+      assert.deepEqual(p.locator ?? [], keyboard ? [] : [...(spec.layout === "root" ? [] : [{ kind: "frame", selector: "#chord-frame" }]), { kind: "label", value: "Original chord note", exact: true }]);
+      assert.ok(Number.isSafeInteger(p.timeoutMs) && p.timeoutMs > 0 && p.timeoutMs <= (phase.name === "setup" ? item.setup.timeoutMs : item.timeoutMs));
       assert.equal(response.message.id, request.message.id); assert.ok(response.sequence > request.sequence);
       if (["invalid", "partial"].includes(phase.name)) {
         assert.equal(phase.outcome.ok, false); assert.equal(response.message.error?.message, phase.outcome.errorMessage);
@@ -200,7 +243,7 @@ export function checkKeyboardChordTrace(item) {
       const [key, direction, modifiers] = expected[index]; nativeDispatches++;
       assert.equal(call.source.tabId, item.tabId); assert.equal(call.method, "Input.dispatchKeyEvent");
       assert.equal(call.params.key, key); assert.equal(call.params.modifiers ?? 0, modifiers);
-      assert.equal(call.params.code, key === "Control" ? "ControlLeft" : key === "Shift" ? "ShiftLeft" : key === "a" ? "KeyA" : "Equal");
+      assert.equal(call.params.code, key === "End" ? "End" : key === "Control" ? "ControlLeft" : key === "Shift" ? "ShiftLeft" : key === "a" ? "KeyA" : "Equal");
       if (direction === "down") assert.ok(["keyDown", "rawKeyDown"].includes(call.params.type)); else assert.equal(call.params.type, "keyUp");
       if (key === "a" && direction === "down" || key === "+" && direction === "down") assert.equal(call.params.text, key);
       assert.equal(call.selected, phase.name === "partial" && index === 0);
@@ -215,7 +258,7 @@ export function checkKeyboardChordTrace(item) {
     }
     assert.equal(rows.length, 1 + (raw ? 0 : 2) + calls.length * 2 + rejections.length, "No duplicate request, ACK or hidden extra input");
   }
-  return { phases: names.length, nativeDispatches, controlledRejections: spec.effect === "partial" ? 1 : 0, invalidDispatches: 0 };
+  return { phases: names.length, nativeDispatches, controlledRejections: !setupOnly && spec.effect === "partial" ? 1 : 0, invalidDispatches: 0 };
 }
 
 function originalDocument(item, values) {
@@ -227,16 +270,38 @@ function assertSameDocument(original, current) {
   assert.equal(current.result.state.originalNodePresent, true); assert.equal(current.result.evidence.overflow, false); assert.deepEqual(current.result.evidence.errors, []);
   assert.ok(current.result.evidence.events.every((event, index) => event.sequence === index + 1 && event.trusted === true));
   assert.deepEqual(current.result.evidence.events.slice(0, original.result.evidence.events.length), original.result.evidence.events);
+  assert.deepEqual(current.result.evidence.focusEvents.slice(0, original.result.evidence.focusEvents.length), original.result.evidence.focusEvents);
+  assert.deepEqual(current.result.evidence.early.events.slice(0, original.result.evidence.early.events.length), original.result.evidence.early.events);
 }
-export function checkKeyboardChordDocuments(item) {
-  const original = originalDocument(item, item.before), expectedValue = item.spec.effect === "plus" ? "++" : "a";
-  assert.deepEqual(item.phases.map(phase => phase.name), phasesFor(item.spec));
+function checkSetupDocument(item) {
+  const original = originalDocument(item, item.before), evidence = original.result.evidence;
   assert.equal(original.result.evidence.key, item.key); assert.equal(original.result.evidence.caseName, item.spec.name); assert.equal(original.result.evidence.nodeToken, `${item.key}-node`);
   assert.ok(original.result.evidence.documentToken); assert.ok(original.documentId); assert.ok(Number.isSafeInteger(original.frameId));
   assert.equal(original.result.state.value, ""); assert.equal(original.result.state.originalNodePresent, true); assert.equal(original.result.state.activeOriginalNode, true);
   const initialKeys = original.result.evidence.events.filter(event => event.originalNode && ["keydown", "keyup"].includes(event.type));
   assert.deepEqual(initialKeys.map(event => [event.type, event.key]), [["keydown", "End"], ["keyup", "End"]]);
   assert.equal(original.result.evidence.events.length, 2); assert.ok(initialKeys.every(event => !event.ctrl && !event.shift && !event.alt && !event.meta));
+  assert.equal(evidence.listenersReady, true); assert.equal(evidence.listenerInstallation.state.originalNodePresent, true);
+  assert.equal(evidence.listenerInstallation.state.value, "");
+  assert.equal(evidence.early.key, item.key); assert.equal(evidence.early.documentToken, evidence.documentToken); assert.equal(evidence.early.overflow, false);
+  const early = evidence.early.events, markers = early.filter(row => row.kind === "listeners-installed"), keys = early.filter(row => ["keydown", "keyup"].includes(row.type));
+  assert.ok(early.every((row, index) => row.sequence === index + 1 && Number.isFinite(row.at) && (index === 0 || row.at >= early[index - 1].at)));
+  assert.equal(markers.length, 1); assert.deepEqual(keys.map(row => [row.type, row.key]), [["keydown", "End"], ["keyup", "End"]]);
+  assert.ok(keys.every(row => row.trusted && row.targetId === "chord-target" && row.targetToken === evidence.nodeToken));
+  assert.ok(markers[0].sequence < keys[0].sequence); assert.ok(evidence.listenerInstallation.at <= markers[0].at);
+  for (const [index, event] of initialKeys.entries()) assert.ok(keys[index].at <= event.at && markers[0].at <= event.at);
+  const ordered = [...evidence.events, ...evidence.focusEvents].sort((left, right) => left.order - right.order);
+  assert.ok(ordered.every((row, index) => row.order === index + 1 && Number.isFinite(row.at) && (index === 0 || row.at >= ordered[index - 1].at)));
+  assert.ok(evidence.focusEvents.every((row, index) => row.sequence === index + 1 && row.trusted === true));
+  return original;
+}
+export function checkKeyboardChordSetup(item) {
+  const trace = checkKeyboardChordTrace(item, { setupOnly: true }), original = checkSetupDocument(item);
+  return { ...trace, documentId: original.documentId, documentToken: original.result.evidence.documentToken, nodeToken: original.result.evidence.nodeToken };
+}
+export function checkKeyboardChordDocuments(item) {
+  const original = checkSetupDocument(item), expectedValue = item.spec.effect === "plus" ? "++" : "a";
+  assert.deepEqual(item.phases.map(phase => phase.name), phasesFor(item.spec));
   let before = original;
   for (const phase of item.phases) {
     const after = originalDocument(item, phase.after); assertSameDocument(before, after); assertSameDocument(original, after);
@@ -267,6 +332,7 @@ export function checkKeyboardChordDocuments(item) {
   assert.equal(post.value.evidence.submits, 1); assert.equal(post.receipt.index, 1); assert.equal(post.receipt.bodySHA256, post.bodySHA256);
   for (const field of ["key", "caseName", "documentToken", "nodeToken", "overflow"]) assert.equal(post.value.evidence[field], final.result.evidence[field]);
   assert.deepEqual(post.value.evidence.events, final.result.evidence.events); assert.deepEqual(post.value.evidence.errors, []);
+  assert.deepEqual(post.value.evidence.focusEvents, final.result.evidence.focusEvents); assert.deepEqual(post.value.evidence.early, final.result.evidence.early);
   return { posts: 1, value: expectedValue, bytes: bytes.length, sha256: post.bodySHA256 };
 }
 
@@ -275,7 +341,7 @@ async function bounded(operation, label, timeoutMs = 7000) {
   finally { clearTimeout(timer); }
 }
 export async function checkKeyboardChords({ browser, worker, fixtureURL, server, until, detail = {} }) {
-  Object.assign(detail, { passed: false, cases: [], cleanupErrors: [], boundary: "Invalid keys send zero native input. Partial cases reject after one original Control down real ACK; not a natural native failure. Raw-CDP held Shift tests native ledger preservation, not Playwright internal held state. Explicit recovery is a separate user API call on the same document. No new focus allowance." });
+  Object.assign(detail, { passed: false, cases: [], cleanupErrors: [], boundary: "Invalid keys send zero native input. Partial cases reject after one original Control down real ACK; not a natural native failure. Raw-CDP held Shift tests native ledger preservation, not Playwright internal held state. Explicit recovery is a separate user API call on the same document. No new focus allowance. The probe is installed on the blank tab before navigation; passive head recording changes instrumentation timing. There is no new pre-End readiness read or wait. A passing diagnostic run does not repair or reinterpret the original missing-End-down failure." });
   const tabs = []; let primary;
   const native = tabId => bounded(worker.evaluate(`(async()=>{const tab=await chrome.tabs.get(${tabId}),frames=await chrome.webNavigation.getAllFrames({tabId:${tabId}}),oopifs=(globalThis.__integrationFrames??[]).filter(v=>v.tabId===${tabId}),ids=new Set(oopifs.map(v=>v.targetId)),targets=(await chrome.debugger.getTargets()).filter(v=>v.tabId===${tabId}||ids.has(v.id));return{tab,frames,oopifs,targets}})()`), "native identities");
   const read = (tabId, documents) => bounded(worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId},documentIds:${JSON.stringify(documents.map(frame => frame.documentId))}},world:'MAIN',func:${readKeyboardChordEvidence.toString()}})`), "original documents");
@@ -284,20 +350,27 @@ export async function checkKeyboardChords({ browser, worker, fixtureURL, server,
       const id = randomUUID(), key = `chord-${id.replaceAll("-", "")}-${spec.name}`, urls = keyboardChordURLs(fixtureURL, key);
       const item = { id, key, spec, url: urls.root, targetURL: urls.target, timeoutMs: 2000, passed: false, phases: [] }; detail.cases.push(item);
       const tab = await browser.newTab(); tabs.push(tab); item.tabId = tab.id;
-      await browser.cdp.navigate(tab.id, urls.root); assert.equal(await tab.locator("h1").textContent({ timeoutMs: 5000 }), "Original keyboard chord fixture");
       const frame = spec.layout === "root" ? tab : tab.frameLocator("#chord-frame"), locator = frame.getByLabel("Original chord note", { exact: true });
-      assert.equal(await frame.locator("#submit-note").textContent({ timeoutMs: 5000 }), "Submit original chord note");
-      // The public End key focuses the original empty input without typing. Its
-      // actual trusted prefix remains in the evidence and outside the probe.
-      await locator.press("End", { timeoutMs: 5000 }); item.nativeBefore = await native(tab.id);
-      const documents = item.nativeBefore.frames.filter(value => value.url === urls.root || value.url === urls.target);
-      assert.equal(documents.length, spec.layout === "root" ? 1 : 2);
-      assert.ok(documents.every(value => value.documentId && value.documentLifecycle === "active" && value.errorOccurred === false));
-      if (spec.layout === "oopif") item.rendererBefore = checkFillOOPIF(item.nativeBefore, { tabId: tab.id, rootURL: urls.root, targetURL: urls.target, expectedAttached: true });
-      item.before = await read(tab.id, documents); item.scope = chooserScope(browser); let installed = false, failure;
+      item.scope = chooserScope(browser); item.setup = { name: "setup", timeoutMs: 5000 }; let installed = false, failure, setupFailure, documents;
       try {
         installed = true;
-        item.installation = await bounded(worker.evaluate(`(${installKeyboardChordProbe.toString()})(chrome,globalThis,${JSON.stringify({ id, tabId: tab.id, scope: item.scope, failAfterControlACK: spec.effect === "partial" })})`), "probe install");
+        item.installation = await bounded(worker.evaluate(`(()=>{(${installKeyboardChordProbe.toString()})(chrome,globalThis,${JSON.stringify({ id, tabId: tab.id, scope: item.scope, failAfterControlACK: spec.effect === "partial" })});return globalThis.__obuKeyboardChordProbe.setPhase('setup')})()`), "probe install before navigation");
+        await browser.cdp.navigate(tab.id, urls.root); assert.equal(await tab.locator("h1").textContent({ timeoutMs: 5000 }), "Original keyboard chord fixture");
+        assert.equal(await frame.locator("#submit-note").textContent({ timeoutMs: 5000 }), "Submit original chord note");
+        // Exactly the original public End action and budget. No observation
+        // roundtrip or readiness guard is inserted immediately before it.
+        item.setup.startedAt = Date.now();
+        item.setup.outcome = await locator.press("End", { timeoutMs: 5000 }).then(() => ({ ok: true, settledAt: Date.now() }), error => {
+          failure = error; return { ok: false, errorMessage: String(error?.message ?? error), error: errorText(error), settledAt: Date.now() };
+        });
+        if (failure) throw failure;
+        item.nativeBefore = await native(tab.id);
+        documents = item.nativeBefore.frames.filter(value => value.url === urls.root || value.url === urls.target);
+        assert.equal(documents.length, spec.layout === "root" ? 1 : 2);
+        assert.ok(documents.every(value => value.documentId && value.documentLifecycle === "active" && value.errorOccurred === false));
+        if (spec.layout === "oopif") item.rendererBefore = checkFillOOPIF(item.nativeBefore, { tabId: tab.id, rootURL: urls.root, targetURL: urls.target, expectedAttached: true });
+        item.before = await read(tab.id, documents);
+        item.setup.listenerInstallation = originalDocument(item, item.before).result.evidence.listenerInstallation;
         for (const name of phasesFor(spec)) {
           const phase = { name, startedAt: Date.now() }; item.phases.push(phase);
           await bounded(worker.evaluate(`globalThis.__obuKeyboardChordProbe.setPhase(${JSON.stringify(name)})`), "phase start");
@@ -325,13 +398,21 @@ export async function checkKeyboardChords({ browser, worker, fixtureURL, server,
         if (installed) try { item.probe = await bounded(worker.evaluate(`(()=>{const p=globalThis.__obuKeyboardChordProbe;if(!p||p.id!==${JSON.stringify(id)})throw Error('Original keyboard probe missing');return p.restore()})()`), "probe restore"); }
         catch (error) { item.restoreError = errorText(error); detail.cleanupErrors.push({ stage: "probe-restore", error: item.restoreError }); failure ??= error; }
       }
+      if (item.probe) try { item.setup.nativeProof = checkKeyboardChordTrace(item, { setupOnly: true }); }
+      catch (error) { item.setup.nativeProofError = errorText(error); setupFailure ??= error; }
+      if (item.before) try { item.setup.proof = checkKeyboardChordSetup(item); }
+      catch (error) { item.setup.proofError = errorText(error); setupFailure ??= error; }
       if (!failure) try {
         item.traceProof = checkKeyboardChordTrace(item);
         await frame.getByRole("button", { name: "Submit original chord note", exact: true }).click({ timeoutMs: 5000 }); item.submit = { ok: true };
         await until(() => server.stats(key).posts[0]?.receipt, "one original keyboard chord POST", 5000);
       } catch (error) { failure = error; item.submit ??= { ok: false, error: errorText(error) }; }
       try {
-        item.nativeAfter = await native(tab.id); item.after = await read(tab.id, documents); item.server = server.stats(key); assert.deepEqual(chooserScope(browser), item.scope);
+        item.nativeAfter = await native(tab.id);
+        documents ??= item.nativeAfter.frames.filter(value => value.url === urls.root || value.url === urls.target);
+        item.after = await read(tab.id, documents); item.server = server.stats(key); assert.deepEqual(chooserScope(browser), item.scope);
+        if (!item.before) item.setup.afterFailure = item.after;
+        if (!item.nativeBefore) throw failure ?? Error("Original keyboard setup did not finish");
         for (const field of ["id", "windowId", "groupId", "pinned"]) assert.equal(item.nativeAfter.tab[field], item.nativeBefore.tab[field]);
         assert.equal(item.nativeAfter.tab.active, false); assert.equal(item.nativeAfter.tab.url, urls.root);
         for (const value of [item.before, ...item.phases.map(phase => phase.after).filter(Boolean), item.after]) {
@@ -340,6 +421,9 @@ export async function checkKeyboardChords({ browser, worker, fixtureURL, server,
         }
         if (!failure) item.documentProof = checkKeyboardChordDocuments(item);
       } catch (error) { item.evidenceError = errorText(error); failure ??= error; }
+      // Preserve the original submit/receipt path for a missing setup DOM
+      // event. Diagnostic setup checks must not suppress that later evidence.
+      failure ??= setupFailure;
       if (failure) throw failure; item.passed = true;
     }
     detail.passed = true;

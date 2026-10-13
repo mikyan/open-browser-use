@@ -11,6 +11,12 @@
 
 ## 当前评分
 
+首次键盘输入诊断已前移到导航前，并保留一次原 End、真实 native 回执及页面
+事件顺序；64/64 定向测试通过。两次预声明隔离验收 `UplYfR` 2/2、`5eI49Q`
+5/5 均 actual exit 0、零 activation/focus/许可，trace 无输入抑制记录。
+旧 `bDKdec` 缺 down 未复现，生产输入代码未改，仍不宣称已修复或完整回归通过。
+见[键盘诊断](references/keyboard-chords.md#initial-key-delivery-investigation)。
+
 网站策略已结算保存失败可从真实 popup 审阅并重试原候选，保持暂停与版本检查。
 最终专项 `Y4Qq0W` 2/2、Node 2939 pass/1 既有 Windows symlink skip，actual exit 0。
 完整 `bDKdec` 137/138、actual exit 1：本次权限重试通过，但首场键盘准备 End

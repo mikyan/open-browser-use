@@ -25,6 +25,7 @@ import { diagnosticsFixture, checkDiagnostics } from "./diagnostics-fixture.mjs"
 import { pauseFixture, checkGlobalPause } from "./pause-fixture.mjs";
 import { siteAccessFixture, checkSiteAccess } from "./site-access-fixture.mjs";
 import { createSiteAccessSubmissions } from "./site-access-save-retry.mjs";
+import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
@@ -526,6 +527,7 @@ try {
   sourceIdentity.sha256.hoverDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "hover-delivery-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.fillDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "fill-delivery-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.keyboardChordFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "keyboard-chord-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.keyboardInputTrace = createHash("sha256").update(await fs.readFile(path.join(directory, "keyboard-input-trace.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
   for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs", "patch-fill-delivery.mjs", "patch-keyboard-press.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
@@ -1817,9 +1819,21 @@ try {
   await test("js-keyboard-chord", async () => {
     sourceIdentity.testHooks.push("keyboard chord: public keyboard/locator press in root and OOPIF; invalid keys must produce no native Input or document key events before an explicit valid follow-up and exact original POST. Literal plus syntax and separately identified raw-CDP held Shift are covered. Partial-failure controls reject delivery of a real first Control-down ACK, retaining both the native settlement and controlled rejection, then verify original attachment release and no replay beyond the original deadline. No focus allowance or system input.");
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-keyboard-chord", turnId: "keyboard-chord", timeoutMs: 20000 });
-    const detail = {}; let failure;
-    try { await checkKeyboardChords({ browser: owner, worker, fixtureURL, server: keyboardChordFixtures, until, detail }); }
-    catch (error) { failure = error; }
+    const detail = {}; let failure, inputTrace;
+    try {
+      if (process.env.OBU_TEST_KEYBOARD_INPUT_TRACE === "1") {
+        sourceIdentity.testHooks.push("keyboard input diagnostic: bounded browser-native input trace with original stream bytes and clock-sync markers; passive head key/focus ledger and pre-navigation setup command probe; no extra readiness wait before End, no production change or claim that a passing diagnostic fixes prior missing input");
+        inputTrace = await startKeyboardInputTrace({ connection: observerBrowserControl,
+          saveArtifact: async (name, bytes) => { await fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }); return { artifact: name, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }; },
+          saveDetail: value => fs.writeFile(path.join(runDir, "keyboard-input-trace-metadata.json"), JSON.stringify(value, null, 2)) });
+      }
+      await checkKeyboardChords({ browser: owner, worker, fixtureURL, server: keyboardChordFixtures, until, detail });
+    }
+    catch (error) { failure = error; if (error.keyboardInputTrace) detail.inputTrace = error.keyboardInputTrace; }
+    finally {
+      if (inputTrace) try { detail.inputTrace = await inputTrace.stop(); }
+      catch (error) { detail.traceError = error.stack ?? String(error); if (error.keyboardInputTrace) detail.inputTrace = error.keyboardInputTrace; failure ??= error; }
+    }
     await finishChooserCase({ detail, originalError: failure, cleanup: [
       { name: "finalize-keyboard-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
       { name: "close-keyboard-client", run: () => owner.close() }
