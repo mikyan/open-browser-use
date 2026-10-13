@@ -1,0 +1,78 @@
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_2ff5b53601a22f 437
+scripts/browser-integration/site-access-fixture.mjs
+  s_08bbfd293d324f::t_24aa350d440206 1-2
+  s_08bbfd293d324f::t_24143463a37998 9-14,17,74-75,81,151-155
+  s_08bbfd293d324f::t_e36b76259adfce 23,166,173-182,186,195
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_f2d9fa7f9e441b 24-31
+apps/chrome-extension/popup-site-access.test.mjs
+  s_08bbfd293d324f::t_54d7159e6c4edb 162,209,222-223,225-227,229-237
+  s_08bbfd293d324f::t_b0011d3b5a3e25 240-256
+  s_08bbfd293d324f::t_53027e4d857b33 20-22,148-161,163-208,210-221,224,228,238-239,257-265
+  s_08bbfd293d324f::t_4b89520e78a99e 7,10-11,14,266-295
+apps/chrome-extension/site-access-policy.js
+  s_08bbfd293d324f::t_45b54f5d645684 40-42,79-80,111-130,135-136,139,142,150-152,156
+apps/chrome-extension/popup-site-access.js
+  s_08bbfd293d324f::t_3da5306cbcecb7 88-89
+  s_08bbfd293d324f::t_c015b609287b27 28,157,190
+  s_08bbfd293d324f::t_f8e78c1ff83101 10-12,17-18,29,35-36,41-43,46,49-51,53-57,63,66-69,72,75,100,130,146-147,158-184,195
+  s_08bbfd293d324f::t_93e4c98060d7af 185-189
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_45b54f5d645684 1265-1269,1273-1286,1299,5670-5675,5679
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_f2d9fa7f9e441b 14-20
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_fa9ebceeeb7128 23-25
+apps/chrome-extension/popup.js
+  s_08bbfd293d324f::t_f8e78c1ff83101 44,64-66,78
+  s_08bbfd293d324f::t_c015b609287b27 51
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_24143463a37998 27,359,362,550-551,3028
+  s_08bbfd293d324f::t_b56acc636ee24e 549
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_fa9ebceeeb7128 11
+  s_08bbfd293d324f::t_f2d9fa7f9e441b 7
+apps/chrome-extension/popup.html
+  s_08bbfd293d324f::t_f8e78c1ff83101 52
+apps/chrome-extension/site-access-policy.test.mjs
+  s_08bbfd293d324f::t_aaf44a67dca46c 133
+  s_08bbfd293d324f::t_0308edb1722d47 117-132,134-168
+docs/histories/2026-10/20261013-2346-site-access-save-retry.md
+  s_08bbfd293d324f::t_730b93b273a5f1 49-52
+  s_08bbfd293d324f::t_f2d9fa7f9e441b 1-48,53-62
+scripts/browser-integration/site-access-save-retry.mjs
+  s_08bbfd293d324f::t_b56acc636ee24e 69
+  s_08bbfd293d324f::t_afbe2ae27b300a 1-32,34-42,45-68,70-99,103,113,115-120
+  s_08bbfd293d324f::t_5a70b9ed903a08 33,43-44,101-102,104-112,114
+  s_08bbfd293d324f::t_4ffdff811f68e9 100
+scripts/browser-integration/site-access-save-fault.mjs
+  s_08bbfd293d324f::t_afbe2ae27b300a 1-72
+docs/exec-plans/completed/2026-10-13-site-access-save-retry.md
+  s_08bbfd293d324f::t_f2d9fa7f9e441b 1-69
+  s_08bbfd293d324f::t_730b93b273a5f1 70-72
+docs/references/site-access-policy.md
+  s_08bbfd293d324f::t_fa9ebceeeb7128 17-30,34,101-109
+  s_08bbfd293d324f::t_b9c5c710c0d670 110
+scripts/browser-integration/site-access-save-fault.test.mjs
+  s_08bbfd293d324f::t_f1c3d6a656b4ea 1-58
+apps/chrome-extension/site-access-backend.test.mjs
+  s_08bbfd293d324f::t_c5e9a7b010b9f4 336-362
+  s_08bbfd293d324f::t_aaf44a67dca46c 270-335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "082b2bbf3ec3d1ba37afd79889e342cac5091945",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
