@@ -1,0 +1,118 @@
+docs/references/original-response-bodies.md
+  s_08bbfd293d324f::t_9a2098e72b659b 105-117
+  s_08bbfd293d324f::t_2369079d6e7484 51-55,93-98
+  s_08bbfd293d324f::t_eae3f60fe526d6 118-124
+scripts/patch-diagnostic-proof.mjs
+  s_08bbfd293d324f::t_e195e72d22c359 1-85,91-110
+  s_08bbfd293d324f::t_fc2e8d509e849b 86-90
+apps/chrome-extension/browser-network-waits.js
+  s_08bbfd293d324f::t_2d01f4c0f43db7 3,137-138
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_93511d42d7db7b 609,624,631,643-644,670,746
+  s_08bbfd293d324f::t_049586bbca954e 325,573,576-577,585-588,592-596,745
+  s_08bbfd293d324f::t_4115ce07265cc8 312,322-324,571-572,574-575,578-584,623,669,671,734-743,747-756,758,853-858,952,966,973-975
+  s_08bbfd293d324f::t_ecd604da4ba5a7 589-591,934,945
+  s_08bbfd293d324f::t_71890287d63211 619,632,660,662
+apps/chrome-extension/browser-page-subscriptions.js
+  s_08bbfd293d324f::t_2d01f4c0f43db7 1-22
+apps/chrome-extension/network-wait-backend.test.mjs
+  s_08bbfd293d324f::t_b242be0314c87f 60-62
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_eae3f60fe526d6 21-23
+  s_08bbfd293d324f::t_9a2098e72b659b 14-20,24
+apps/chrome-extension/response-body-engine.test.mjs
+  s_08bbfd293d324f::t_68f132b58e8658 123,125
+scripts/patch-diagnostic-proof.test.mjs
+  s_08bbfd293d324f::t_f3d2787d96eebe 1-49,51-108,110-151
+  s_08bbfd293d324f::t_36d8ffaeb8ab4f 50,109
+scripts/browser-integration/site-access-diagnostics-checks.py
+  s_08bbfd293d324f::t_ebfa50b89f63b6 36-37
+  s_08bbfd293d324f::t_948912d004d799 1-35,38-78
+skills/open-browser-use/references/sdk-and-protocol.md
+  s_08bbfd293d324f::t_2369079d6e7484 487-489
+docs/references/site-access-policy.md
+  s_08bbfd293d324f::t_2369079d6e7484 184-191
+docs/SECURITY.md
+  s_08bbfd293d324f::t_b01e2745b402ce 149-159
+apps/chrome-extension/browser-diagnostics.js
+  s_08bbfd293d324f::t_2d01f4c0f43db7 5,11-14,45,48-58,70-74,97-98,112,115,140,156-161,164,169-175,179-192
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_eae3f60fe526d6 28-34
+  s_08bbfd293d324f::t_541e45ae384a58 35
+scripts/browser-integration/go-site-access-diagnostics-checks/main.go
+  s_08bbfd293d324f::t_ebfa50b89f63b6 60-62
+  s_08bbfd293d324f::t_948912d004d799 1-59,63-83
+  s_08bbfd293d324f::t_f9eb2af4a6eb0c 84-182
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_b155de92f98868 489-496
+scripts/browser-integration/site-access-diagnostics-fixture.mjs
+  s_08bbfd293d324f::t_75882c9b59ead1 311-312,343,353,361,431-434
+  s_08bbfd293d324f::t_42963d96748913 13,15,17,42-45,48-50,52-53,61-69,79-83
+  s_08bbfd293d324f::t_9e8d13a0933e84 302-308
+  s_08bbfd293d324f::t_faa7ff0af4a3e7 363-364
+  s_08bbfd293d324f::t_e0284cd678db21 1-12,14,16,18-41,46-47,51,54-60,70-78,84-109,112-166,170-175,185-213,216-256
+  s_08bbfd293d324f::t_69162445f9397a 168-169,176-184,214-215
+  s_08bbfd293d324f::t_ebfa50b89f63b6 110-111,167
+  s_08bbfd293d324f::t_5c8add1e25e15e 329
+  s_08bbfd293d324f::t_2bf2c9a731fc7a 257,446
+  s_08bbfd293d324f::t_fe81d88fe0630a 258-301,309-310,313-328,330-342,344-352,354-360,362,365-430,435-445
+apps/chrome-extension/site-access-backend.test.mjs
+  s_08bbfd293d324f::t_1427ec1114d611 6-8,182-204,208,210-232,235-238
+  s_08bbfd293d324f::t_ecd604da4ba5a7 233-234
+  s_08bbfd293d324f::t_71890287d63211 241-256
+  s_08bbfd293d324f::t_93511d42d7db7b 163
+  s_08bbfd293d324f::t_92c7b886dfc7a7 205-207,209
+  s_08bbfd293d324f::t_2e2d22deaf56fe 169-181,239-240
+docs/references/network-waits-design.md
+  s_08bbfd293d324f::t_b01e2745b402ce 257
+skills/open-browser-use/references/browser-actions.md
+  s_08bbfd293d324f::t_2369079d6e7484 208,214-231
+docs/histories/2026-10/20261010-1800-browser-use-parity.md
+  s_08bbfd293d324f::t_9a2098e72b659b 2220-2244
+  s_08bbfd293d324f::t_eae3f60fe526d6 2245-2249
+docs/exec-plans/completed/2026-10-14-restricted-diagnostics.md
+  s_08bbfd293d324f::t_eae3f60fe526d6 1-118
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_9a2098e72b659b 15-20,24
+  s_08bbfd293d324f::t_eae3f60fe526d6 21-23
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_93511d42d7db7b 2601,2603,5261-5262,5265
+  s_08bbfd293d324f::t_4115ce07265cc8 1269,2584-2598,2717-2719
+  s_08bbfd293d324f::t_ecd604da4ba5a7 1190-1191,1194,1544,3266,5048-5049,5107,5229
+  s_08bbfd293d324f::t_049586bbca954e 1522,1545,1550,5050,5084
+  s_08bbfd293d324f::t_71890287d63211 3265,3267-3269
+apps/chrome-extension/browser-diagnostics.test.mjs
+  s_08bbfd293d324f::t_c44fab76789105 160-238
+  s_08bbfd293d324f::t_7a2deb17f839fb 239-297
+scripts/browser-integration/site-access-diagnostics-fixture.test.mjs
+  s_08bbfd293d324f::t_faa7ff0af4a3e7 7,108-111,117-131,133-140,142-152,154-167,169-184
+  s_08bbfd293d324f::t_69162445f9397a 62-70
+  s_08bbfd293d324f::t_17609102d2b08c 112-116,132,141,153,168
+  s_08bbfd293d324f::t_2bf2c9a731fc7a 1-6,8-61,71-107,185
+apps/chrome-extension/browser-page-subscriptions.test.mjs
+  s_08bbfd293d324f::t_68f132b58e8658 1-39
+apps/chrome-extension/browser-diagnostic-engine.test.mjs
+  s_08bbfd293d324f::t_ecd604da4ba5a7 128-132
+  s_08bbfd293d324f::t_68f132b58e8658 1-77,96-127,133-144
+  s_08bbfd293d324f::t_71890287d63211 78-95
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_d2b68a33f92c4d 40,388-392,395,414,625,3334,3337,3540-3688,3692,3705,3735,3764,3797-3803,3924,3953
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_ede7b5ab3f4378 18,36,131,142,145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "88ad04d7f175da3e1a8e33c97461e7221d784cf2",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
