@@ -69,6 +69,8 @@ type Client struct {
 	clipboardVersion        any
 	pageExportKnown         bool
 	pageExportVersion       any
+	dialogKnown             bool
+	dialogVersion           any
 	pageWaitKnown           bool
 	pageWaitVersion         any
 	downloadWaitKnown       bool
@@ -202,6 +204,11 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, err
 		}
 	}
+	if isDialogMethod(method) {
+		if err := ValidateDialogInputUnicode(params); err != nil {
+			return nil, err
+		}
+	}
 	if timeout <= 0 {
 		return nil, errors.New("request timeout must be positive")
 	}
@@ -248,7 +255,12 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, err
 		}
 	}
-	if method == "armPageWait" {
+	if isDialogMethod(method) {
+		if err := ValidateDialogParams(method, merged); err != nil {
+			return nil, err
+		}
+	}
+	if method == "armPageWait" || method == "armDialog" {
 		requested := float64(10000)
 		if value, ok := merged["timeoutMs"].(float64); ok {
 			requested = value
@@ -399,6 +411,29 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 		}
 		if _, valid := pageEpoch(merged["control_epoch"]); !valid {
 			return nil, errors.New("page waits require an explicit control epoch")
+		}
+	}
+	if isDialogMethod(method) {
+		c.controlMu.Lock()
+		known := c.dialogKnown
+		c.controlMu.Unlock()
+		if !known {
+			info, err := c.requestLocked("getInfo", scopedParams(merged, nil), deadline)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.observeControlSupport(info); err != nil {
+				return nil, err
+			}
+		}
+		c.controlMu.Lock()
+		supported := c.dialogVersion == float64(1)
+		c.controlMu.Unlock()
+		if !supported {
+			return nil, errors.New("OBU_DIALOG_UNSUPPORTED: extension does not advertise dialogVersion 1")
+		}
+		if _, valid := pageEpoch(merged["control_epoch"]); !valid {
+			return nil, errors.New("dialogs require an explicit control epoch")
 		}
 	}
 	if isDownloadWaitMethod(method) {
@@ -573,7 +608,7 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 		return nil, fmt.Errorf("%s deadline expired during discovery or connection; request was not sent", method)
 	}
 	sentReadyBudget := float64(10000)
-	if method == "armPageWait" {
+	if method == "armPageWait" || method == "armDialog" {
 		if v, exists := merged["timeoutMs"]; exists {
 			switch n := v.(type) {
 			case float64:
@@ -655,7 +690,7 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 	}
 	for {
 		var response rpcMessage
-		if isClipboardMethod(method) {
+		if isClipboardMethod(method) || isDialogMethod(method) {
 			var raw json.RawMessage
 			if err := wire.ReadJSON(c.conn, &raw); err != nil {
 				return nil, err
@@ -684,6 +719,14 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 			}
 			if isDownloadWaitMethod(method) {
 				if err := ValidateDownloadWaitResult(method, response.Result, sentReadyBudget); err != nil {
+					return nil, err
+				}
+			}
+			if isDialogMethod(method) {
+				if !time.Now().Before(deadline) {
+					return nil, os.ErrDeadlineExceeded
+				}
+				if err := ValidateDialogResult(method, response.Result, sentReadyBudget); err != nil {
 					return nil, err
 				}
 			}

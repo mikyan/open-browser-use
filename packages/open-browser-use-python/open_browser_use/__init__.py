@@ -1,3 +1,4 @@
+from ._dialogs import DialogType, DialogDecision, DialogResult, OpenBrowserUseDialogWait
 from ._page_waits import OpenBrowserUsePageWait
 from ._clipboard import ClipboardEntry, ClipboardItem, OpenBrowserUseClipboard
 from ._download_waits import OpenBrowserUseDownloadWait
@@ -19,6 +20,7 @@ from ._network_waits import NetworkWaitEvent, NetworkWaitMatch, NetworkWaitResul
 from ._navigation_waits import NavigationLoadState, NavigationWaitUntil, OpenBrowserUseNavigationWait
 
 __all__ = [
+    "DialogType", "DialogDecision", "DialogResult", "OpenBrowserUseDialogWait",
     "OpenBrowserUsePageWait",
     "FileChooserWaitResult", "OpenBrowserUseFileChooserWait",
     "ClipboardEntry", "ClipboardItem", "OpenBrowserUseClipboard",

@@ -34,7 +34,7 @@ const productionFiles = [
   "browser-snapshot-geometry.js",
   "browser-clipboard.js", "clipboard-broker.js", "clipboard-offscreen.html", "clipboard-offscreen.js",
   "site-access-policy.js", "site-access-frames.js", "popup-site-access.js",
-  "manifest.json", "background.js", "native-message-receiver.js", "auxiliary-tab-ownership.js", "browser-action-engine.js", "browser-downloads.js", "browser-page-exports.js", "browser-network-waits.js", "browser-navigation-waits.js", "browser-observation.js", "browser-ai-snapshot.js", "browser-diagnostics.js", "browser-frame-adapter.js", "browser-input-adapter.js", "browser-runtime.js", "content-cursor.js", "content-webmcp-main.js", "content-webmcp-bridge.js",
+  "manifest.json", "background.js", "native-message-receiver.js", "auxiliary-tab-ownership.js", "browser-action-engine.js", "browser-downloads.js", "browser-page-exports.js", "browser-network-waits.js", "browser-dialogs.js", "browser-navigation-waits.js", "browser-observation.js", "browser-ai-snapshot.js", "browser-diagnostics.js", "browser-frame-adapter.js", "browser-input-adapter.js", "browser-runtime.js", "content-cursor.js", "content-webmcp-main.js", "content-webmcp-bridge.js",
   "icons/icon-16.png", "icons/icon-32.png", "icons/icon-48.png", "icons/icon-128.png", "images/cursor-chat.png", "popup.css", "popup.html", "popup.js", "popup-control.js"
 ];
 const sendExpression = "return await chrome.debugger.sendCommand(debuggee, method, commandParams);";

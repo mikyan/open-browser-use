@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Native JavaScript dialogs](native-dialogs.md)：显式决定、订阅准备与原生 ACK、
+  五个公开入口的原 scope 示例，以及取消和失败不重放的边界。
 - [Keyboard chords](keyboard-chords.md)：完整键名校验、预持输入及部分原生失败
   的原动作期限和附件清理边界。
 - [Fill delivery](fill-delivery.md)：原编辑宿主输入回执、setter 与格式化语义、

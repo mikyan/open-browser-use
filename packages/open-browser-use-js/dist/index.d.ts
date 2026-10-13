@@ -1,3 +1,5 @@
+import { OpenBrowserUseDialogWait, type OpenBrowserUseDialogDecision, type OpenBrowserUseDialogOptions } from "./dialogs.js";
+export { OpenBrowserUseDialogWait, type OpenBrowserUseDialogDecision, type OpenBrowserUseDialogOptions, type OpenBrowserUseDialogResult, type OpenBrowserUseDialogType } from "./dialogs.js";
 import { OpenBrowserUsePageWait, type OpenBrowserUsePageWaitOptions } from "./page-waits.js";
 export { OpenBrowserUsePageWait, type OpenBrowserUsePageWaitOptions } from "./page-waits.js";
 import { OpenBrowserUseDownloadWait, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
@@ -191,6 +193,7 @@ export type OpenBrowserUseDiagnosticsSnapshot = {
 };
 declare const downloadSymbol: unique symbol;
 declare const pageWaitSymbol: unique symbol;
+declare const dialogSymbol: unique symbol;
 declare const downloadWaitSymbol: unique symbol;
 declare const navigationWaitSymbol: unique symbol;
 declare const networkWaitSymbol: unique symbol;
@@ -217,6 +220,10 @@ export declare class OpenBrowserUseClient {
     [downloadSymbol](tabId: number, method: "downloadURL" | "downloadMedia" | "waitForDownload", params: BrowserUseRequestParams): Promise<OpenBrowserUseDownload>;
     [networkWaitSymbol](tabId: number, event: OpenBrowserUseNetworkWaitEvent, match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     [navigationWaitSymbol](tabId: number, params: BrowserUseRequestParams): Promise<OpenBrowserUseNavigationWait>;
+    armDialog(tabId: number, decision: OpenBrowserUseDialogDecision, options?: OpenBrowserUseDialogOptions): Promise<JsonValue>;
+    collectDialog(tabId: number, dialogId: string): Promise<JsonValue>;
+    cancelDialog(tabId: number, dialogId: string): Promise<JsonValue>;
+    [dialogSymbol](tabId: number, decision: OpenBrowserUseDialogDecision, options?: OpenBrowserUseDialogOptions): Promise<OpenBrowserUseDialogWait>;
     [pageWaitSymbol](tabId: number, options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;
     [downloadWaitSymbol](tabId: number, options?: OpenBrowserUseDownloadWaitOptions): Promise<OpenBrowserUseDownloadWait>;
     [fileChooserWaitSymbol](tabId: number, options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
@@ -282,6 +289,7 @@ export declare class OpenBrowserUseTab {
     exportPDF(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     exportMHTML(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     waitForDownload(options?: OpenBrowserUseDownloadOptions): Promise<OpenBrowserUseDownload>;
+    expectDialog(decision: OpenBrowserUseDialogDecision, options?: OpenBrowserUseDialogOptions): Promise<OpenBrowserUseDialogWait>;
     expectPage(options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;
     expectDownload(options?: OpenBrowserUseDownloadWaitOptions): Promise<OpenBrowserUseDownloadWait>;
     expectFileChooser(options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;
@@ -400,6 +408,7 @@ export declare class OpenBrowserUseLocator {
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
+    expectDialog(decision: OpenBrowserUseDialogDecision, options?: OpenBrowserUseDialogOptions): Promise<OpenBrowserUseDialogWait>;
     expectPage(options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;
     expectDownload(options?: OpenBrowserUseDownloadWaitOptions): Promise<OpenBrowserUseDownloadWait>;
     expectFileChooser(options?: OpenBrowserUseFileChooserWaitOptions): Promise<OpenBrowserUseFileChooserWait>;

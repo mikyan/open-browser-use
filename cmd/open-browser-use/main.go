@@ -107,6 +107,9 @@ func newRootCommand() *cobra.Command {
 		newNameSessionCommand(),
 		newCdpCommand(),
 		newMoveMouseCommand(),
+		newDialogCommand("arm-dialog", "armDialog"),
+		newDialogCommand("collect-dialog", "collectDialog"),
+		newDialogCommand("cancel-dialog", "cancelDialog"),
 		newWaitFileChooserCommand(),
 		newSetFileChooserFilesCommand(),
 		newSimpleRPCCommand("turn-ended", "turnEnded", "End the current browser turn"),
@@ -1204,7 +1207,7 @@ func newCallCommand() *cobra.Command {
 			if method == "" {
 				return errors.New("call requires --method")
 			}
-			if cliClipboardMethod(method) {
+			if cliClipboardMethod(method) || cliDialogMethod(method) {
 				if err := validateClipboardJSONUnicode([]byte(params)); err != nil {
 					return err
 				}
@@ -1910,6 +1913,12 @@ func (runner *actionRunner) runAction(action string, args []string) (map[string]
 		return runner.runHistoryAction(args)
 	case "move-mouse":
 		return runner.runMoveMouseAction(args)
+	case "arm-dialog", "collect-dialog", "cancel-dialog":
+		method, params, err := buildDialogCommand(action, args)
+		if err != nil {
+			return nil, 0, err
+		}
+		return runner.invoke(method, params)
 	case "wait-file-chooser":
 		return runner.runWaitFileChooserAction(args)
 	case "set-file-chooser-files":
@@ -2150,7 +2159,7 @@ func (runner *actionRunner) runCallAction(args []string) (map[string]any, int, e
 		paramsJSON = "{}"
 	}
 	var params map[string]any
-	if cliClipboardMethod(method) {
+	if cliClipboardMethod(method) || cliDialogMethod(method) {
 		if err := validateClipboardJSONUnicode([]byte(paramsJSON)); err != nil {
 			return nil, 0, err
 		}

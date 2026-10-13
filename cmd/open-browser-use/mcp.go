@@ -234,7 +234,7 @@ func mcpErrorResponse(id any, code int, message string) map[string]any {
 }
 
 func mcpTools() []mcpTool {
-	return append(clipboardTools(), []mcpTool{
+	return append(append(clipboardTools(), dialogTools()...), []mcpTool{
 		pageExportTool(),
 		{
 			Name:        "ping",
@@ -488,7 +488,7 @@ func (server *mcpServer) callTool(params json.RawMessage) (map[string]any, error
 	if request.Arguments == nil {
 		request.Arguments = map[string]any{}
 	}
-	if strings.Contains(request.Name, "clipboard") || (request.Name == "call" && cliClipboardMethod(fmt.Sprint(request.Arguments["method"]))) {
+	if strings.Contains(request.Name, "clipboard") || dialogToolName(request.Name) || (request.Name == "call" && (cliClipboardMethod(fmt.Sprint(request.Arguments["method"])) || cliDialogMethod(fmt.Sprint(request.Arguments["method"])))) {
 		if err := validateClipboardJSONUnicode(params); err != nil {
 			return mcpToolErrorResult(err.Error()), nil
 		}
@@ -514,6 +514,8 @@ func (server *mcpServer) callTool(params json.RawMessage) (map[string]any, error
 
 func (server *mcpServer) runTool(name string, arguments map[string]any) (any, error) {
 	switch name {
+	case "arm_dialog", "collect_dialog", "cancel_dialog":
+		return server.runDialogTool(name, arguments)
 	case "read_clipboard_text", "write_clipboard_text", "read_clipboard", "write_clipboard":
 		return server.runClipboardTool(name, arguments)
 	case "export_page":

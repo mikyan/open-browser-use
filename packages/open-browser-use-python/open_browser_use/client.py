@@ -10,6 +10,7 @@ from typing import Any, Callable, Literal
 from ._locator_upload import locator_upload_params, require_locator_upload
 
 from ._clipboard import CLIPBOARD_METHODS, OpenBrowserUseClipboard, clipboard_params, clipboard_timeout, validate_clipboard_result
+from ._dialogs import DIALOG_METHODS, DialogDecision, OpenBrowserUseDialogWait, dialog_decision, dialog_params, dialog_ack, dialog_result, dialog_cancelled
 from ._page_waits import PAGE_WAIT_METHODS, OpenBrowserUsePageWait, page_wait_params, page_wait_timeout, page_wait_ack, page_wait_cancelled, page_wait_remaining, page_wait_result
 from ._download_waits import DOWNLOAD_WAIT_METHODS, OpenBrowserUseDownloadWait, download_wait_params, download_wait_timeout, download_wait_ack, download_wait_cancelled, download_wait_remaining
 from ._downloads import OpenBrowserUseDownload, download_id, download_params, download_timeout
@@ -55,6 +56,7 @@ class OpenBrowserUseClient:
         self._bound_scope: JsonObject = {}
         self._bound_revision = 0
         self._page_wait_version: Any = None
+        self._dialog_version: Any = None
         self._direct_downloads_version: Any = None
         self._media_downloads_version: Any = None
         self._page_export_version: Any = None
@@ -130,6 +132,8 @@ class OpenBrowserUseClient:
             result = self._scope_parent._request(method, {**(params or {}), **self._bound_scope}, timeout=timeout, prepare=prepare, execute=execute)
             self._require_connection_identity()
             return result
+        if method in DIALOG_METHODS:
+            dialog_params(method, params or {})
         if method in PAGE_WAIT_METHODS:
             page_wait_params(method, params or {})
         locator_upload = method == "browserAction" and params is not None and params.get("action") == "setInputFiles"
@@ -150,6 +154,8 @@ class OpenBrowserUseClient:
         # discovery request so an end response cannot rebind older work.
         session_id, turn_id, epoch = self.session_id, self.turn_id, self._control_epoch
         merged_params: JsonObject = {"session_id": session_id, "turn_id": turn_id, **copy.deepcopy(params or {})}
+        if method in DIALOG_METHODS:
+            dialog_params(method, merged_params)
         if method in PAGE_WAIT_METHODS:
             page_wait_params(method, merged_params)
         if locator_upload:
@@ -160,7 +166,7 @@ class OpenBrowserUseClient:
             requested = merged_params.get("timeoutMs", 10000)
             if type(requested) in (int, float) and math.isfinite(requested) and 1 <= requested <= 120000:
                 deadline = min(deadline, submitted_at + requested / 1000 + 1)
-        if method == "armPageWait":
+        if method in ("armPageWait", "armDialog"):
             deadline = min(deadline, submitted_at + page_wait_timeout(merged_params.get("timeoutMs")) / 1000)
         manual_epoch = "control_epoch" in merged_params
         protected = method not in CONTROL_DISCOVERY_METHODS
@@ -194,6 +200,13 @@ class OpenBrowserUseClient:
                 raise RuntimeError("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1")
             if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
                 raise RuntimeError("File chooser waits require an explicit control epoch")
+        if method in DIALOG_METHODS:
+            if self._dialog_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
+            if type(self._dialog_version) is not int or self._dialog_version != 1:
+                raise RuntimeError("OBU_DIALOG_UNSUPPORTED: extension does not advertise dialogVersion 1")
+            if type(merged_params.get("control_epoch")) is not int or not 1 <= merged_params["control_epoch"] <= 9007199254740991:
+                raise RuntimeError("Dialog decisions require an explicit control epoch")
         if method in PAGE_WAIT_METHODS:
             if self._page_wait_version is None:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
@@ -276,6 +289,7 @@ class OpenBrowserUseClient:
         if self._download_wait_version is None:
             self._download_wait_version = 0
         self._page_wait_version = metadata.get("pageWaitVersion", 0) if isinstance(metadata, dict) else 0
+        self._dialog_version = metadata.get("dialogVersion", 0) if isinstance(metadata, dict) else 0
         version = metadata.get("turnLifecycleVersion") if isinstance(metadata, dict) else None
         if version is not None and (type(version) is not int or version != 1):
             raise RuntimeError(f"Unsupported turn lifecycle version: {version!r}; update the SDK")
@@ -343,7 +357,7 @@ class OpenBrowserUseClient:
                 if available_ms < 1:
                     raise TimeoutError(f"{method} deadline expired during discovery or connection; request was not sent")
                 merged_params = {**merged_params, "timeoutMs": min(requested, available_ms)}
-        if method == "armPageWait":
+        if method in ("armPageWait", "armDialog"):
             requested = page_wait_timeout(merged_params.get("timeoutMs"))
             available_ms = math.floor(remaining_time(deadline) * 1000)
             if available_ms < 1:
@@ -359,7 +373,7 @@ class OpenBrowserUseClient:
         # healthy connection. Only native I/O and wire failures below do so.
         frame = encode_frame(request)
         if start_before is not None:
-            (page_wait_remaining if method in PAGE_WAIT_METHODS else download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
+            (page_wait_remaining if method in PAGE_WAIT_METHODS or method in DIALOG_METHODS else download_wait_remaining if method in DOWNLOAD_WAIT_METHODS else file_chooser_remaining)(start_before)
         wire_timeout = remaining_time(deadline)
         try:
             self._socket.settimeout(wire_timeout)
@@ -385,6 +399,14 @@ class OpenBrowserUseClient:
             message = response["error"].get("message", "Open Browser Use request failed")
             raise RuntimeError(message)
         result = response.get("result")
+        if method in DIALOG_METHODS:
+            page_wait_remaining(deadline)
+            if method == "armDialog":
+                dialog_ack(result, merged_params["timeoutMs"])
+            elif method == "collectDialog":
+                dialog_result(result)
+            else:
+                dialog_cancelled(result)
         if method in PAGE_WAIT_METHODS:
             page_wait_remaining(deadline)
             if method == "armPageWait":
@@ -407,6 +429,40 @@ class OpenBrowserUseClient:
         elif method == "cancelFileChooserWait":
             file_chooser_cancelled(result)
         return result
+
+    def arm_dialog(self, tab_id: int, decision: DialogDecision, *, timeout_ms: int | None = None) -> Any:
+        dialog_decision(decision)
+        timeout = page_wait_timeout(timeout_ms)
+        return self.request("armDialog", {"tabId": tab_id, **decision, "timeoutMs": timeout}, timeout=timeout / 1000)
+
+    def collect_dialog(self, tab_id: int, dialog_id: str) -> Any:
+        return self.request("collectDialog", {"tabId": tab_id, "dialogId": dialog_id})
+
+    def cancel_dialog(self, tab_id: int, dialog_id: str) -> Any:
+        return self.request("cancelDialog", {"tabId": tab_id, "dialogId": dialog_id})
+
+    def _expect_dialog(self, tab_id: int, decision: DialogDecision, timeout_ms: int | None = None) -> OpenBrowserUseDialogWait:
+        dialog_decision(decision)
+        original_decision = dict(decision)
+        timeout = page_wait_timeout(timeout_ms)
+        expires = time.monotonic() + timeout / 1000
+        origin = self
+        while origin._scope_parent is not None:
+            origin = origin._scope_parent
+
+        def arm(metadata: JsonObject, deadline: float) -> OpenBrowserUseDialogWait:
+            binding = {key: metadata[key] for key in ("session_id", "turn_id", "control_epoch")}
+            ack = self._wire_request("armDialog", metadata, min(deadline, expires), start_before=expires)
+            dialog_id, remaining = dialog_ack(ack, timeout)
+            original_deadline = min(expires, time.monotonic() + remaining / 1000)
+            remaining = min(remaining, page_wait_remaining(original_deadline) * 1000)
+            captured = {**binding, "tabId": tab_id, "dialogId": dialog_id}
+            def call(method: str, budget: float, start_before: float | None) -> Any:
+                return origin._request(method, captured, timeout=budget,
+                    execute=lambda params, read_deadline: origin._wire_request(method, params,
+                        min(read_deadline, start_before) if start_before is not None else read_deadline, start_before=start_before))
+            return OpenBrowserUseDialogWait(dialog_id, remaining, original_deadline, call, original_decision)
+        return self._request("armDialog", {"tabId": tab_id, **decision, "timeoutMs": timeout}, timeout=timeout / 1000, execute=arm)
 
     def _expect_page(self, tab_id: int, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
         timeout = page_wait_timeout(timeout_ms)
@@ -747,6 +803,9 @@ class OpenBrowserUseTab(LocatorFactory):
     def wait_for_download(self, *, timeout_ms: int | None = None) -> OpenBrowserUseDownload:
         return self.browser.client._download(self.id, "waitForDownload", {"timeoutMs": download_timeout(timeout_ms)})
 
+    def expect_dialog(self, decision: DialogDecision, *, timeout_ms: int | None = None) -> OpenBrowserUseDialogWait:
+        return self.browser.client._expect_dialog(self.id, decision, timeout_ms)
+
     def expect_page(self, *, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
         return self.browser.client._expect_page(self.id, timeout_ms)
 
@@ -861,6 +920,9 @@ class OpenBrowserUseTab(LocatorFactory):
 
 
 class OpenBrowserUseTabPlaywright(LocatorFactory):
+    def expect_dialog(self, decision: DialogDecision, *, timeout_ms: int | None = None) -> OpenBrowserUseDialogWait:
+        return self.tab.expect_dialog(decision, timeout_ms=timeout_ms)
+
     def expect_page(self, *, timeout_ms: int | None = None) -> OpenBrowserUsePageWait:
         return self.tab.expect_page(timeout_ms=timeout_ms)
 

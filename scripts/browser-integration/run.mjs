@@ -53,6 +53,9 @@ import { createBackgroundParallelFixture, checkBackgroundParallelWorkflow } from
 import { createChooserWaitFixtures, prepareChooserFiles, checkChooserReady, checkChooserLifecycle, chooserExpired, chooserFrameEvidence } from "./chooser-waits-fixture.mjs";
 import { checkChooserWireCaller, checkChooserCallerResult } from "./chooser-waits-callers.mjs";
 import { checkChooserConvenience } from "./chooser-convenience-fixture.mjs";
+import { createDialogFixtures, checkDialogWorkflow, checkExternalDialogWorkflow, checkDialogLifecycle, installDialogEvidence, dialogCases } from "./dialog-fixture.mjs";
+import { checkDialogEvidence } from "./dialog-evidence.mjs";
+import { dialogCaller, checkDialogCallerProcesses } from "./dialog-callers.mjs";
 import { checkChooserSubmission } from "./chooser-submission-fixture.mjs";
 import { observeChooserCallerFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
 import { createDirectoryUploadFixtures, prepareDirectoryFiles, checkDirectoryUpload, checkInactiveDirectoryRejection, checkInactiveDirectoryCancellation } from "./directory-upload-fixture.mjs";
@@ -92,6 +95,9 @@ import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const dialogBeforeUnload = process.env.OBU_TEST_DIALOG_BEFOREUNLOAD === "1";
+if (process.env.OBU_TEST_DIALOG_BEFOREUNLOAD !== undefined && !dialogBeforeUnload)
+  throw new Error("OBU_TEST_DIALOG_BEFOREUNLOAD must be 1 when set");
 const goChooserDiagnostic = goChooserDiagnosticEnabled(process.env);
 const downloadDiagnostic = downloadDiagnosticEnabled(process.env);
 const createdPageProof = process.env.OBU_TEST_CREATED_PAGES;
@@ -319,6 +325,7 @@ async function workerConnection(url) {
 }
 
 const networkFixtures = createNetworkWaitFixtures();
+const dialogFixtures = createDialogFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const hoverDeliveryFixtures = createHoverDeliveryFixtures();
@@ -364,6 +371,7 @@ const http = createServer(async (request, response) => {
   if (sdkConnectionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
+  if (dialogFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
   if (mediaDownloads.handle(request, response, httpPort)) return;
@@ -524,6 +532,7 @@ try {
   sourceIdentity.sha256.lifecycleRecoveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "lifecycle-recovery-fixture.mjs"))).digest("hex");
   for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-failure-observation.mjs", "directory-upload-fixture.mjs", "directory-world-fixture.mjs", "background-window-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256["chooser-convenience-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-convenience-fixture.mjs"))).digest("hex");
+  for (const name of ["dialog-fixture.mjs", "dialog-evidence.mjs", "dialog-callers.mjs", "dialog-checks.py", "go-dialog-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   for (const file of (await fs.readdir(path.join(directory, "go-chooser-waits-checks"))).filter(name => name.endsWith(".go")).sort()) {
     const name = `go-chooser-waits-checks/${file}`;
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -936,6 +945,71 @@ try {
       await fs.writeFile(path.join(runDir, `download-ready-${kind}.json`), JSON.stringify(detail, null, 2));
       try { await owner.client.finalizeTabs([]); if (foreign) await foreign.client.finalizeTabs([]); } finally { owner.close(); trigger?.close(); foreign?.close(); }
     }
+    if (failure) throw failure;
+    return detail;
+  });
+  for (const kind of ["js", "cli", "mcp", "python", "go", "lifecycle"]) await test(`${kind}-native-dialog-decisions`, async () => {
+    const sessionId = `${kind}-native-dialog-decisions`;
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId: "dialog-decisions", timeoutMs: 15000 });
+    const detail = { processes: [] }; let failure, finishEvidence, callerOutput;
+    try {
+      sourceIdentity.testHooks.push(`${kind} native dialogs: real alert/confirm/prompt in root/existing/dynamic OOPIF, exact original HTTP bytes and passive native events/command settlement; original native Promise returned; no focus allowance or input replay`);
+      finishEvidence = await installDialogEvidence(worker);
+      const run = tool => checkDialogWorkflow({ browser: owner, fixtureURL, server: dialogFixtures, until, worker, caller: kind, detail,
+        ...(kind !== "js" ? { makeDialog: dialogCaller({ kind, sessionId, client: owner.client, endpoint, executable, subprocess, tool, detail }) } : {}) });
+      if (kind === "lifecycle") {
+        if (dialogBeforeUnload) sourceIdentity.testHooks.push("Explicit native beforeunload diagnostic: real cancelled navigation and dialog response; known Chromium native UI tab activation remains a focus failure, with no allowance or restoration");
+        await checkDialogLifecycle({ browser: owner, fixtureURL, server: dialogFixtures, until, beforeunload: dialogBeforeUnload, detail });
+      } else if (["python", "go"].includes(kind)) {
+        const source = path.join(directory, kind === "python" ? "dialog-checks.py" : "go-dialog-checks/main.go");
+        const frozen = path.join(runDir, kind === "python" ? "dialog-checks.py" : "dialog-checks.go");
+        await fs.copyFile(source, frozen, fsConstants.COPYFILE_EXCL);
+        const config = path.join(runDir, `${kind}-dialog-cases.json`), output = path.join(runDir, `${kind}-dialog-caller.json`);
+        callerOutput = output; await fs.writeFile(config, JSON.stringify(dialogCases), { flag: "wx" });
+        let command = process.env.OBU_TEST_PYTHON || "python", args = [frozen, endpoint, fixtureURL, sessionId, config, output];
+        detail.proof = { sourceSHA256: createHash("sha256").update(await fs.readFile(frozen)).digest("hex") };
+        if (kind === "go") {
+          assert.ok(process.env.OBU_TEST_GO_DIALOG_BINARY, "Set OBU_TEST_GO_DIALOG_BINARY for typed Go dialog decisions");
+          command = path.join(runDir, process.platform === "win32" ? "go-dialog-client.exe" : "go-dialog-client");
+          await fs.copyFile(process.env.OBU_TEST_GO_DIALOG_BINARY, command, fsConstants.COPYFILE_EXCL);
+          detail.proof.binarySHA256 = createHash("sha256").update(await fs.readFile(command)).digest("hex");
+          args = [endpoint, fixtureURL, sessionId, config, output];
+        }
+        const evidence = { command, argv: args }; detail.processes.push(evidence);
+        const stdout = await subprocess(command, args, { timeoutMs: 120000, processEvidence: evidence,
+          env: { ...process.env, PYTHONPATH: path.dirname(pythonSnapshot), PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+        const stdoutFile = `${kind}-dialog-stdout.txt`;
+        await fs.writeFile(path.join(runDir, stdoutFile), stdout, { flag: "wx" });
+        Object.assign(detail.proof, { stdoutFile, stdoutUTF8SHA256: createHash("sha256").update(stdout).digest("hex") });
+        const result = JSON.parse(stdout);
+        assert.deepEqual(result, JSON.parse(await fs.readFile(output, "utf8"))); Object.assign(detail, result);
+        await checkExternalDialogWorkflow({ detail, kind, server: dialogFixtures, until, worker });
+        assert.equal(evidence.closeObserved, true); assert.equal(evidence.exitCode, 0); assert.equal(evidence.signal, null);
+      } else if (kind === "mcp") {
+        const process = {}; detail.processes.push(process);
+        await withMCPClient(executable, endpoint, sessionId, (_call, tool) => run(tool), process);
+      } else await run();
+      if (["cli", "mcp"].includes(kind)) checkDialogCallerProcesses(detail);
+    } catch (error) {
+      failure = error;
+      if (callerOutput) try { Object.assign(detail, JSON.parse(await fs.readFile(callerOutput, "utf8"))); } catch (readError) { detail.partialReadError = String(readError); }
+      detail.error = error?.stack ?? String(error);
+    }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "native-evidence", run: async () => {
+        if (finishEvidence) detail.nativeEvidence = await finishEvidence();
+        if (!failure) detail.nativeProof = checkDialogEvidence(detail, { lifecycle: kind === "lifecycle", beforeunload: dialogBeforeUnload });
+      } },
+      { name: "finalize", run: async () => {
+        detail.finalize = await owner.client.finalizeTabs([]);
+        const ids = (detail.variants ?? []).map(item => item.tabId).filter(Number.isSafeInteger);
+        const childTargetIds = [...new Set((detail.variants ?? []).flatMap(item => item.oopifTargets ?? []).map(target => target.targetId))];
+        detail.cleanupScope = { tabIds: ids, childTargetIds };
+        detail.cleanup = await worker.evaluate(`(async()=>({tabs:(await chrome.tabs.query({})).filter(tab=>${JSON.stringify(ids)}.includes(tab.id)),targets:(await chrome.debugger.getTargets()).filter(target=>${JSON.stringify(ids)}.includes(target.tabId)||${JSON.stringify(childTargetIds)}.includes(target.id))}))()`);
+        assert.deepEqual(detail.cleanup.tabs, []); assert.deepEqual(detail.cleanup.targets, []);
+      } },
+      { name: "owner-close", run: () => owner.close() }
+    ], save: value => fs.writeFile(path.join(runDir, `native-dialogs-${kind}.json`), JSON.stringify(value, null, 2)) });
     if (failure) throw failure;
     return detail;
   });

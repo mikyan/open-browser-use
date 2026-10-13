@@ -1,4 +1,6 @@
 var _a;
+import { OpenBrowserUseDialogWait, dialogMethods, dialogParams, dialogTimeout, dialogDecision, dialogAck, dialogResult, dialogCancelled } from "./dialogs.js";
+export { OpenBrowserUseDialogWait } from "./dialogs.js";
 import { OpenBrowserUsePageWait, pageWaitMethods, pageWaitParams, pageWaitTimeout, pageWaitAck, pageWaitCancelled, pageWaitResult, assertPageWaitDeadline } from "./page-waits.js";
 export { OpenBrowserUsePageWait } from "./page-waits.js";
 import { locatorUploadParams, requireLocatorUpload } from "./locator-upload.js";
@@ -28,6 +30,7 @@ const networkWaitMethods = new Set(["armNetworkWait", "collectNetworkWait", "can
 const navigationWaitMethods = new Set(["armNavigationWait", "collectNavigationWait", "cancelNavigationWait"]);
 const downloadSymbol = Symbol("download");
 const pageWaitSymbol = Symbol("pageWait");
+const dialogSymbol = Symbol("dialog");
 const downloadWaitSymbol = Symbol("downloadWait");
 const navigationWaitSymbol = Symbol("navigationWait");
 const networkWaitSymbol = Symbol("networkWait");
@@ -51,6 +54,7 @@ export class OpenBrowserUseClient {
     #downloadWaitVersion = undefined;
     #downloadWaitPathVersion = undefined;
     #pageWaitVersion = undefined;
+    #dialogVersion = undefined;
     #scopeParent = null;
     #boundScope = {};
     #boundRevision = 0;
@@ -172,6 +176,8 @@ export class OpenBrowserUseClient {
         }
         if (pageWaitMethods.has(method))
             pageWaitParams(method, params);
+        if (dialogMethods.has(method))
+            dialogParams(method, params);
         const locatorUpload = method === "browserAction" && params.action === "setInputFiles";
         if (locatorUpload)
             locatorUploadParams(params);
@@ -196,12 +202,16 @@ export class OpenBrowserUseClient {
             if (typeof requested === "number" && Number.isFinite(requested) && requested >= 1 && requested <= 120_000)
                 deadline = Math.min(deadline, submittedAt + requested + 1000);
         }
+        if (method === "armDialog")
+            deadline = Math.min(deadline, submittedAt + dialogTimeout({ timeoutMs: captured.timeoutMs }));
         if (method === "armPageWait")
             deadline = Math.min(deadline, submittedAt + pageWaitTimeout({ timeoutMs: captured.timeoutMs }));
-        const monotonicDeadline = options.monotonicDeadline ?? (locatorUpload || pageWaitMethods.has(method) ? submittedMonotonic + (deadline - submittedAt) : undefined);
+        const monotonicDeadline = options.monotonicDeadline ?? (locatorUpload || pageWaitMethods.has(method) || dialogMethods.has(method) ? submittedMonotonic + (deadline - submittedAt) : undefined);
         const merged = { session_id: this.sessionId, turn_id: turnId, ...captured };
         if (pageWaitMethods.has(method))
             pageWaitParams(method, merged);
+        if (dialogMethods.has(method))
+            dialogParams(method, merged);
         if (downloadWaitMethods.has(method))
             downloadWaitParams(method, merged);
         if (controlExemptMethods.has(method))
@@ -236,6 +246,14 @@ export class OpenBrowserUseClient {
                 throw new Error("OBU_FILE_CHOOSER_WAIT_UNSUPPORTED: extension does not advertise fileChooserWaitVersion 1");
             if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
                 throw new Error("File chooser waits require an explicit control epoch");
+        }
+        if (dialogMethods.has(method)) {
+            if (this.#dialogVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline, 0, undefined, monotonicDeadline);
+            if (this.#dialogVersion !== 1)
+                throw new Error("OBU_DIALOG_UNSUPPORTED: extension does not advertise dialogVersion 1");
+            if (!Number.isSafeInteger(merged.control_epoch) || merged.control_epoch < 1)
+                throw new Error("Dialog decisions require an explicit control epoch");
         }
         if (pageWaitMethods.has(method)) {
             if (this.#pageWaitVersion === undefined)
@@ -341,6 +359,27 @@ export class OpenBrowserUseClient {
         const ack = navigationWaitAck(value, timeoutMs);
         const captured = { ...binding, tabId, waiterId: ack.waiterId };
         return new OpenBrowserUseNavigationWait(ack, (method, timeout) => this.request(method, captured, { timeoutMs: timeout }));
+    }
+    armDialog(tabId, decision, options = {}) {
+        dialogDecision(decision);
+        const timeoutMs = dialogTimeout(options);
+        return this.request("armDialog", { tabId, ...decision, timeoutMs }, { timeoutMs });
+    }
+    collectDialog(tabId, dialogId) { return this.request("collectDialog", { tabId, dialogId }); }
+    cancelDialog(tabId, dialogId) { return this.request("cancelDialog", { tabId, dialogId }); }
+    async [dialogSymbol](tabId, decision, options = {}) {
+        dialogDecision(decision);
+        const timeoutMs = dialogTimeout(options), deadline = performance.now() + timeoutMs;
+        const originalDecision = { ...decision };
+        let binding = {};
+        const value = await this.#request("armDialog", { tabId, ...decision, timeoutMs }, { timeoutMs, monotonicDeadline: deadline }, metadata => { binding = metadata; });
+        const ack = dialogAck(value, timeoutMs), expires = Math.min(deadline, performance.now() + ack.remainingMs);
+        const remainingMs = Math.min(ack.remainingMs, assertPageWaitDeadline(expires));
+        const captured = { ...binding, tabId, dialogId: ack.dialogId };
+        let origin = this;
+        while (origin.#scopeParent)
+            origin = origin.#scopeParent;
+        return new OpenBrowserUseDialogWait({ ...ack, remainingMs }, expires, (method, budget, monotonicDeadline) => origin.#request(method, captured, { timeoutMs: budget, monotonicDeadline }), originalDecision);
     }
     async [pageWaitSymbol](tabId, options = {}) {
         this.#assertNotDisconnected();
@@ -488,7 +527,7 @@ export class OpenBrowserUseClient {
                 throw new Error(`Open Browser Use request timed out before ${method} could start`);
             params = { ...params, timeoutMs: Math.min(requested, available) };
         }
-        if (method === "armPageWait") {
+        if (method === "armPageWait" || method === "armDialog") {
             const requested = pageWaitTimeout({ timeoutMs: params.timeoutMs });
             const available = Math.floor(requestRemaining(deadline, monotonicDeadline));
             if (available < 1)
@@ -518,7 +557,7 @@ export class OpenBrowserUseClient {
                 this.#pending.delete(id);
                 reject(new Error(`Open Browser Use request timed out: ${method}`));
             }, Math.max(1, requestRemaining(deadline, monotonicDeadline)));
-            this.#pending.set(id, { resolve, reject, timeout, strictUTF8: clipboardMethods.has(method) });
+            this.#pending.set(id, { resolve, reject, timeout, strictUTF8: clipboardMethods.has(method) || dialogMethods.has(method) });
         });
         try {
             socket.write(payload);
@@ -527,6 +566,18 @@ export class OpenBrowserUseClient {
             this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
         }
         const result = await promise;
+        if (dialogMethods.has(method) && requestRemaining(deadline, monotonicDeadline) <= 0)
+            throw new Error("Open Browser Use dialog decision timed out");
+        if (method === "getInfo")
+            this.#dialogVersion = isObject(result) && isObject(result.metadata) ? result.metadata.dialogVersion ?? null : null;
+        if (method === "armDialog")
+            return dialogAck(result, params.timeoutMs);
+        if (method === "collectDialog") {
+            dialogResult(result);
+            return result;
+        }
+        if (method === "cancelDialog")
+            dialogCancelled(result);
         if (pageWaitMethods.has(method) && requestRemaining(deadline, monotonicDeadline) <= 0)
             throw new Error("Open Browser Use page wait timed out");
         if (method === "getInfo")
@@ -837,6 +888,9 @@ export class OpenBrowserUseTab {
     waitForDownload(options = {}) {
         return this.browser.client[downloadSymbol](this.id, "waitForDownload", { timeoutMs: downloadTimeout(options) });
     }
+    expectDialog(decision, options = {}) {
+        return this.browser.client[dialogSymbol](this.id, decision, options);
+    }
     expectPage(options = {}) {
         return this.browser.client[pageWaitSymbol](this.id, options);
     }
@@ -1026,6 +1080,7 @@ export class OpenBrowserUseLocator {
 _a = OpenBrowserUseLocator;
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
     expectRequest(match, options = {}) { return this.tab.expectRequest(match, options); }
+    expectDialog(decision, options = {}) { return this.tab.expectDialog(decision, options); }
     expectPage(options = {}) { return this.tab.expectPage(options); }
     expectDownload(options = {}) { return this.tab.expectDownload(options); }
     expectFileChooser(options = {}) { return this.tab.expectFileChooser(options); }

@@ -49,6 +49,12 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P06/P13 新增原生弹窗明确决策：普通 alert/confirm/prompt 已通过五入口×
+root/OOPIF/dynamic-OOPIF 的真实结果与原生 ACK 验证。完整默认套件138/138、
+加强清理证据后的专项7/7均 actual exit 0，未增加焦点许可。`beforeunload`
+虽成功拒绝离页，但浏览器原生 UI 激活任务标签，仍为 P12 未解决项；显式
+诊断保留严格失败门禁，不能算入后台通过。见[原生弹窗](../references/native-dialogs.md)。
+
 P10文件选择器便捷入口现支持CLI/计划`--clear`及MCP必填空数组，原chooser
 一次提交/归属/期限不变，MCP路径不再经过CLI选项重解释。Go803 test/subtest
 pass/27既有Windows skip，integration Node1383 pass/1既有skip，actualexit0。

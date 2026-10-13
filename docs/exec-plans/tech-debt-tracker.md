@@ -4,6 +4,7 @@
 
 | 日期 | 区域 | 债务描述 | 为什么会存在 | 计划中的后续动作 |
 | --- | --- | --- | --- | --- |
+| 2026-10-13 | Native beforeunload / P12 | 离页确认的明确拒绝及原生 ACK 成功，但 Chromium 在创建原生界面时激活任务标签；严格后台验收失败。 | 浏览器的 app-modal 创建路径调用 ActivateContents；扩展收到事件后处理不能可靠地抢先阻止该原生选择。 | 保留真实失败和显式诊断，不恢复焦点或增加许可。寻找原生拦截能力前，不能宣称 beforeunload 无打断；普通 alert/confirm/prompt 分别验收。见[原生弹窗后台限制](../references/native-dialogs.md#known-background-gap)。 |
 | 2026-10-11 | Opera / Vivaldi background actions | 实际 native launcher 与 profile 发现可用，但 Opera newTab 报组不存在；Vivaldi fill 返回成功却无输入事件且提交为空，另一次 goto 超时。 | 品牌 UI、原生 tab group 和输入 widget 路由尚未完成兼容诊断，不能用 Chromium 内核相同推断后台操作一致。 | 对实际原生命令与生命周期做有界诊断，区分创建/分组/attach/navigation 和输入焦点；不激活任务页、不静默重试副作用，也不放宽可信输入或焦点断言。见 [品牌验收](../references/chromium-browser-installation.md)。 |
 | 2026-10-11 | Page export native cleanup | 外部 debugger detach 后无法对旧 attachment 的 PDF stream 证明关闭；记录保持 cleanup-failed，重新 attach 不会修复旧句柄。MHTML 原生生成整体字符串。 | 不可把断开连接/worker 重启冒充实际 IO.close；Chrome snapshot 无分块输出接口。 | 明确浏览器销毁后资源释放的可验证保证与恢复流程；继续区分返回字节上限和原生内存上限，详见 [page exports](../references/page-exports.md)。 |
 | 2026-10-11 | Restricted website mode | 核心文档动作与 popup 设置已真实验收；任意 CDP、网络诊断、剪贴板、文件传输和独立 cursor 入口仍禁用。策略保存失败后 UI 保持 Unavailable，当前没有专用 repair 流程。 | 页面与网络数据来源不是同一权限边界；未知持久写不能假装已回滚。 | 对各数据入口单独设计和验收来源约束；增加可信 UI 的明确重读/修复流程，保留 paused 与 revision 防重放。完整重启与更多平台仍待验收。 |

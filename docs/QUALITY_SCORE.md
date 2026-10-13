@@ -11,6 +11,11 @@
 
 ## 当前评分
 
+原生 alert/confirm/prompt 新增一次性明确决策，五入口×三布局已真实验收；
+完整 `uZgxYp` 138/138，后续加强原输出/子目标清理证据的专项 `oYbXyC`
+7/7，均 actual exit 0。`beforeunload` 原生 UI 激活任务页仍使后台验收失败，
+保留原红例和严格诊断。完整矩阵与普通安装继续开放，见[原生弹窗](references/native-dialogs.md)。
+
 CLI/计划文件选择器新增显式`--clear`，MCP接受必填的`files: []`；保留字面路径，
 拒绝遗漏、null及会改变顺序的混合参数。Go803 test/subtest pass、27既有Windows
 平台/权限skip，Node integration1383 pass/1既有symlink skip，actualexit0。

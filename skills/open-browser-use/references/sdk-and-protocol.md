@@ -246,6 +246,9 @@ Common Browser Use JSON-RPC methods:
 - `armNetworkWait`
 - `collectNetworkWait`
 - `cancelNetworkWait`
+- `armDialog`
+- `collectDialog`
+- `cancelDialog`
 - `readClipboardText`
 - `writeClipboardText`
 - `readClipboard`
@@ -362,6 +365,7 @@ with `#`, shell-like quotes, shared session/turn, and a default tab set by
 `wait-load`, `page-info`, `cdp`, `move-mouse`, `wait-file-chooser`,
 `set-file-chooser-files`, `finalize-tabs`, `turn-ended`, `begin-turn`,
 `control-state`, and `call`.
+Dialog action plans also accept `arm-dialog`, `collect-dialog`, and `cancel-dialog`.
 
 ## MCP Server
 
@@ -380,6 +384,7 @@ mirror the CLI action surface:
 - `ping`, `info`, `tabs`, `user_tabs`, `history`
 - `open_tab`, `claim_tab`, `navigate`, `wait_load`, `page_info`
 - `cdp`, `move_mouse`, `wait_file_chooser`, `set_file_chooser_files`
+- `arm_dialog`, `collect_dialog`, `cancel_dialog`
 - `name_session`, `finalize_tabs`, `turn_ended`, `begin_turn`, `control_state`, `call`, `run_action_plan`
 
 Pass `--socket` or `--socket-dir` in the MCP `args` only when the runtime needs
@@ -451,6 +456,35 @@ without closing or moving the window.
 Treat finalization as the last Open Browser Use browser action of the turn. If
 more browser work is needed, do it before finalizing, then finalize once with
 the final tab disposition.
+
+## Native JavaScript Dialogs
+
+For `alert`, `confirm` or `prompt`, check `info.metadata.dialogVersion === 1`.
+Prepare a one-shot decision with JS `tab.expectDialog({type:"confirm", accept:true,
+message:"Continue?"}, {timeoutMs:10000})`, Python
+`tab.expect_dialog({"type":"confirm", "accept":True, "message":"Continue?"}, timeout_ms=10000)`,
+or Go `tab.ExpectDialog(obu.DialogDecision{Type:"confirm", Accept:true})`.
+Await readiness, trigger the original action once, then collect with
+`result()` / `Result()`. Cancel in cleanup even when the trigger fails, preserving
+both the original failure and any cancellation error. Verify the page's resulting
+state separately from the native response acknowledgement.
+
+Omitting `message` matches any message of that type; an empty string matches only
+empty text. Only an accepted prompt permits `promptText`, whose omitted value
+means an empty reply. The original deadline, connection, session, turn and epoch
+remain fixed. Expiry or cancellation cannot undo an already sent response and
+does not authorize replaying the trigger. One decision may be live per tab.
+
+CLI uses `arm-dialog --tab-id <id> --type confirm --accept=true --turn-id <turn>`,
+then `collect-dialog` / `cancel-dialog --tab-id <id> --dialog-id <returned-id>`.
+All three standalone commands require the same original `--turn-id`, task session,
+and browser endpoint; retain `--control-epoch` when known. MCP exposes
+`arm_dialog`, `collect_dialog`, `cancel_dialog` with `tab_id` and `dialog_id` fields.
+
+The protocol also accepts `beforeunload`, but Chromium's native UI can activate
+the task tab before the decision is handled. Treat that as an unresolved
+background limitation; do not use it in a workflow requiring uninterrupted user
+focus. Website-restricted mode does not expose these dialog operations.
 
 ## Navigation waits
 

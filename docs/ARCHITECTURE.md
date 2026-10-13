@@ -20,6 +20,9 @@ debugger、history 和 tab groups。
 
 - `apps/chrome-extension/`：Open Browser Use MV3 Chrome extension，包含
   readable service worker、cursor content script 和 popup。
+  原生弹窗由 `browser-dialogs.js` 管理一次性决策，注册及处理均等待真实回执；
+  backend 保留原 attachment 的在途响应直到清理确认。五入口使用同一协议，
+  `beforeunload` 的浏览器原生激活仍是后台限制，见[原生弹窗](references/native-dialogs.md)。
   新页等待由独立 `browser-page-waits.js` 与 `browser-page-frames.js` 管理原期限、
   原生来源事件及 frame/document 生命周期，backend 只接纳确切子页且保留原窗口。
   接口和归属边界见[新页等待](references/created-page-waits.md)。

@@ -2,6 +2,7 @@ import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
+import { BrowserDialogs } from "./browser-dialogs.js";
 import { BrowserNavigationWaits } from "./browser-navigation-waits.js";
 import { BrowserFileChooserWaits } from "./browser-file-chooser-waits.js";
 import { DirectoryUploadRegistry } from "./browser-directory-upload.js";
@@ -83,6 +84,7 @@ const PUBLIC_BROWSER_METHODS = new Set([
   "attach", "detach", "executeCdp", "browserAction", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool",
   "waitForFileChooser", "setFileChooserFiles", "waitForDownload", "downloadURL", "downloadMedia", "downloadPath", "cancelDownload", "readClipboardText", "writeClipboardText",
   "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
+  "armDialog", "collectDialog", "cancelDialog",
   "armNavigationWait", "collectNavigationWait", "cancelNavigationWait",
   "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait",
   "armDownloadWait", "collectDownloadWait", "cancelDownloadWait",
@@ -752,6 +754,9 @@ class BrowserBackend {
       released: clearInput, onDestroyed: clearInput
     });
     this.networkWaits = new BrowserNetworkWaits();
+    this.dialogs = new BrowserDialogs();
+    this.nativeDialogs = new Map(); this.dialogResponses = new Map(); this.dialogResponseQueues = new Map();
+    this.nativeDialogOperations = new Set();
     this.navigationWaits = new BrowserNavigationWaits();
     this.directDownloads = new BrowserDownloads({ downloads: chrome.downloads, extensionId: chrome.runtime?.id,
       validateScope: scope => this.validateDirectDownloadScope(scope), assertScope: scope => this.assertDirectDownloadScope(scope) });
@@ -898,6 +903,7 @@ class BrowserBackend {
       if (typeof source.tabId === "number") {
         if (reason === "target_closed") this.markAttachmentDestroyed(source.tabId);
         this.networkWaits.invalidateTab(source.tabId);
+        void this.dialogs.invalidateTab(source.tabId).catch(() => {}); this.nativeDialogs.delete(source.tabId);
         this.navigationWaits.invalidateTab(source.tabId);
         void this.fileChooserWaits.invalidateTab(source.tabId).catch(() => {});
         void this.downloadWaits.invalidateTab(source.tabId).catch(() => {});
@@ -922,6 +928,7 @@ class BrowserBackend {
       this.sitePendingFrames.delete(tabId);
       this.siteRevokedTabs.delete(tabId);
       this.networkWaits.invalidateTab(tabId);
+      void this.dialogs.invalidateTab(tabId).catch(() => {});
       this.navigationWaits.invalidateTab(tabId);
       void this.fileChooserWaits.invalidateTab(tabId).catch(() => {});
       void this.downloadWaits.invalidateTab(tabId).catch(() => {});
@@ -947,6 +954,7 @@ class BrowserBackend {
         this.onSiteNavigation({ tabId, frameId: 0, url: change.url }, "updated");
       }
       if (Object.hasOwn(change, "groupId")) this.networkWaits.invalidateTab(tabId);
+      if (Object.hasOwn(change, "groupId")) void this.dialogs.invalidateTab(tabId).catch(() => {});
       if (Object.hasOwn(change, "groupId")) this.navigationWaits.invalidateTab(tabId);
       if (Object.hasOwn(change, "groupId") && !(change.groupId === -1 && this.auxiliaryTabs.owner(tabId)?.kind === "background-window")) {
         this.revokeMovedTab(tabId, change.groupId);
@@ -1097,6 +1105,12 @@ class BrowserBackend {
             throw error;
           }
         };
+      } else if (method === "armDialog") {
+        this[method] = async params => {
+          const record = this.dialogs.reserve(params);
+          try { return await this.dialogs.within(record, () => this.runControlledRequest(() => handler(record.params, record))); }
+          catch (error) { this.dialogs.fail(record, error); throw error; }
+        };
       } else if (method === "armNetworkWait") {
         this[method] = async params => {
           // Reserve before controlReady or any other await. Setup and the event
@@ -1231,7 +1245,8 @@ class BrowserBackend {
     if (!this.siteAccess.restricted) return;
     // These channels can expose origins other than the tab's live documents.
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
-    const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait", "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
+    const unsupported = ["armDialog", "collectDialog", "cancelDialog", "executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
+      "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
     if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && params?.action === "diagnostics") || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
@@ -1298,6 +1313,7 @@ class BrowserBackend {
     if (this.siteRevokedTabs.has(tabId)) return;
     this.siteRevokedTabs.add(tabId);
     this.networkWaits.invalidateTab(tabId);
+    void this.dialogs.invalidateTab(tabId).catch(() => {});
     this.navigationWaits.invalidateTab(tabId);
     this.cancelTabTransfers(tabId, new Error("OBU_SITE_ACCESS_DENIED: document access was revoked"));
     void this.detachTab(tabId).catch(error => {
@@ -1366,6 +1382,7 @@ class BrowserBackend {
     const engine = this.browserEngine?.controlSnapshot?.() ?? { tabIds: [...this.browserEngine?.pages?.keys?.() ?? [], ...this.browserEngine?.queues?.keys?.() ?? [], ...this.browserEngine?.releases?.keys?.() ?? []], pending: [] };
     const input = this.inputTracker.controlSnapshot();
     const network = this.networkWaits.controlSnapshot();
+    const dialogs = this.dialogs.controlSnapshot();
     const navigation = this.navigationWaits.controlSnapshot();
     const chooser = this.fileChooserWaits.controlSnapshot();
     const downloadWaits = this.downloadWaits.controlSnapshot();
@@ -1378,16 +1395,17 @@ class BrowserBackend {
     const lifetime = this.browserLifetime.controlSnapshot();
     // Readiness reservations may precede ownership validation. Only admitted
     // chooser scopes, not the raw setup/waiter IDs, confer detach authority.
-    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
+    const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...dialogs.tabIds, ...[...this.nativeDialogOperations].map(value => value.tabId), ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
     for (const marker of this.freshBlankTabs.values()) this.retireFreshBlankTab(marker);
     const snapshot = this.globalControlSnapshot();
     this.networkWaits.invalidateAll();
+    void this.dialogs.invalidateAll().catch(() => {});
     this.navigationWaits.invalidateAll();
     this.directoryUploads.cancelWhere(() => true, error);
     this.auxiliaryTabs.cancelPending();
@@ -1558,6 +1576,7 @@ class BrowserBackend {
         browserActionProtocolVersion: 1,
         turnLifecycleVersion: 1,
         networkWaitVersion: 1,
+        dialogVersion: 1,
         navigationWaitVersion: 1,
         fileChooserWaitVersion: 1,
         fileChooserDirectoryVersion: 1,
@@ -2470,6 +2489,8 @@ class BrowserBackend {
         beginFillAction: (target, check) => beginPointerAction(target, check, "fill"),
         beginKeyboardPress: (target, check) => beginPointerAction(target, check, "keyboard"),
         send: (target, method, params, operation, pointerGuard) => {
+          if (method === "Page.handleJavaScriptDialog" && this.dialogResponses.has(target.tabId))
+            return this.sendDialogResponse(target, params, operation);
           this.assertControlOpen();
           const token = this.attachmentEpochs.get(target.tabId);
           this.assertAttachmentAdmission(target.tabId, token);
@@ -2497,6 +2518,7 @@ class BrowserBackend {
             check();
             return operation();
           }));
+          if (method === "Page.handleJavaScriptDialog") return send(() => this.trackNativeDialogResponse(target, token, operation));
           if (method.startsWith("Input.") && (this.fileChooserWaitersByTabId.has(target.tabId) || this.downloadWaits.byTab.has(target.tabId)))
             return this.waitForTransferTargets(target.tabId).then(() => send());
           return send();
@@ -2554,6 +2576,148 @@ class BrowserBackend {
     }
     this.assertSiteProof(await this.assertSiteTab(tabId));
     return result;
+  }
+
+  async armDialog(params, record) {
+    const check = () => this.dialogs.check(record);
+    check();
+    await this.controlReleases.get(params.tabId)?.catch(() => {});
+    check(); await this.requireSessionTab(params, "armDialog"); check();
+    await this.releasePreviousAttachmentOwner(params, params.tabId, check, { preserveDialogRecord: record });
+    check();
+    const engine = await this.getBrowserEngine();
+    return engine.withPage(params, { deadlineAt: record.deadlineAt, isolateTimeout: true,
+      timeoutError: () => new Error("OBU_DIALOG_TIMEOUT: original dialog setup deadline expired"),
+      expiredError: () => new Error("OBU_DIALOG_EXPIRED: original dialog attachment changed") }, async ({ page, check: checkPage }) => {
+      check(); await checkPage(); check();
+      this.rememberAttachmentOwner(params, params.tabId);
+      const scope = { ...this.attachmentOwners.get(params.tabId) };
+      return this.dialogs.arm(record, page, scope, {
+        validateScope: value => this.validateTransferScope(value),
+        assertScope: value => { this.assertControlOpen(); this.assertTransferScope(value); },
+        prepareResponse: (value, dialog) => this.prepareDialogResponse(value, dialog)
+      });
+    });
+  }
+
+  async collectDialog(params) {
+    await this.requireSessionTab(params, "collectDialog");
+    return this.dialogs.collect(params);
+  }
+
+  async cancelDialog(params) {
+    await this.requireSessionTab(params, "cancelDialog");
+    return this.dialogs.cancel(params);
+  }
+
+  prepareDialogResponse(scope, dialog) {
+    // Native dialogs have no CDP dialog ID. Preserve each open target's exact
+    // generation at delivery, and bind the one selected by CRX at native send.
+    const proof = new Map(this.nativeDialogs.get(scope.tabId) ?? []);
+    return (decision, check) => {
+      const ticket = { scope, proof, decision, check, pending: new Set(), sent: false, fallback: false };
+      const previous = this.dialogResponseQueues.get(scope.tabId) ?? Promise.resolve();
+      const actual = previous.catch(() => {}).then(async () => {
+        this.dialogResponses.set(scope.tabId, ticket);
+        let failure;
+        try {
+          try {
+            if (decision.accept) await dialog.accept(decision.promptText);
+            else await dialog.dismiss();
+          } catch (reason) { failure = reason; }
+          // CRSession/channel close can reject before chrome.debugger does.
+          // Never release the queue or Pause barrier based on that early race.
+          const outcomes = await Promise.allSettled([...ticket.pending]);
+          const nativeFailure = outcomes.find(value => value.status === "rejected")?.reason;
+          if (nativeFailure && ticket.submittedProof) {
+            const reason = new Error("OBU_DIALOG_FAILED: native dialog response failed; original cleanup is unconfirmed");
+            reason.dialogCleanupRequired = true;
+            reason.dialogCleanupComplete = () => !ticket.submittedProof.open || this.destroyedAttachmentTokens.has(scope.attachment);
+            throw reason;
+          }
+          failure ??= nativeFailure;
+          if (failure) throw failure;
+          if (!ticket.sent) throw new Error("OBU_DIALOG_FAILED: native dialog response was not dispatched");
+          return { fallback: ticket.fallback, error: ticket.error };
+        } finally {
+          if (this.dialogResponses.get(scope.tabId) === ticket) this.dialogResponses.delete(scope.tabId);
+        }
+      });
+      this.dialogResponseQueues.set(scope.tabId, actual);
+      actual.finally(() => { if (this.dialogResponseQueues.get(scope.tabId) === actual) this.dialogResponseQueues.delete(scope.tabId); }).catch(() => {});
+      return actual;
+    };
+  }
+
+  sendDialogResponse(target, params, operation) {
+    const ticket = this.dialogResponses.get(target.tabId);
+    const key = target.sessionId ?? "";
+    const proof = ticket.proof.get(key);
+    const current = this.nativeDialogs.get(target.tabId)?.get(key);
+    const original = this.attachmentEpochs.get(target.tabId) === ticket.scope.attachment;
+    // A later stock default may arrive while the first native ACK is pending.
+    // It is not allowed to borrow the old ticket or its decision.
+    if (ticket.sent && current !== proof) {
+      this.assertControlOpen(); this.assertAttachmentAdmission(target.tabId, this.attachmentEpochs.get(target.tabId));
+      return this.trackNativeDialogResponse(target, this.attachmentEpochs.get(target.tabId), operation);
+    }
+    if (!original || !proof?.open || current !== proof || proof.attachment !== ticket.scope.attachment || ticket.sent)
+      throw new Error("OBU_DIALOG_EXPIRED: original native dialog is no longer open");
+    let command = params;
+    try { ticket.check?.(); }
+    catch (reason) {
+      ticket.fallback = true; ticket.error = reason;
+      command = { accept: proof.type === "beforeunload" };
+    }
+    ticket.sent = true;
+    const actual = Promise.resolve().then(() => {
+      // No asynchronous permission lookup or rebind between this final fence
+      // and Chrome. Native closed/replaced events revoke a queued response.
+      if (this.attachmentEpochs.get(target.tabId) !== ticket.scope.attachment || !proof.open || this.nativeDialogs.get(target.tabId)?.get(key) !== proof)
+        throw new Error("OBU_DIALOG_EXPIRED: original native dialog changed before dispatch");
+      try { ticket.check?.(); }
+      catch (reason) { ticket.fallback = true; ticket.error = reason; command = { accept: proof.type === "beforeunload" }; }
+      ticket.submittedProof = proof;
+      return this.trackNativeDialogResponse(target, ticket.scope.attachment, () =>
+        ticket.fallback ? chrome.debugger.sendCommand({ ...target }, "Page.handleJavaScriptDialog", command) : operation());
+    });
+    ticket.pending.add(actual);
+    actual.catch(() => {});
+    return actual;
+  }
+
+  trackNativeDialogResponse(target, attachment, operation) {
+    // Include upstream automatic responses too. A client channel may reject
+    // early, but the native command stays attached to its original token.
+    const record = { tabId: target.tabId, attachment,
+      proof: this.nativeDialogs.get(target.tabId)?.get(target.sessionId ?? "") };
+    this.nativeDialogOperations.add(record);
+    let native;
+    try { native = operation(); } catch (reason) { native = Promise.reject(reason); }
+    record.promise = Promise.resolve(native).then(value => {
+      this.nativeDialogOperations.delete(record);
+      return value;
+    }, reason => {
+      record.error = reason;
+      if (record.proof?.open === false || this.destroyedAttachmentTokens.has(attachment)) this.nativeDialogOperations.delete(record);
+      throw reason;
+    });
+    record.promise.catch(() => {});
+    return record.promise;
+  }
+
+  async drainNativeDialogResponses(tabId, attachment) {
+    // Stop only after the real responses end, including a stock response that
+    // arrived while another response ACK was still pending. No response replay.
+    while (true) {
+      const records = [...this.nativeDialogOperations].filter(value => value.tabId === tabId && value.attachment === attachment);
+      if (!records.length) return;
+      await Promise.allSettled(records.map(value => value.promise));
+      for (const record of records) {
+        if (!record.error || record.proof?.open === false || this.destroyedAttachmentTokens.has(attachment)) this.nativeDialogOperations.delete(record);
+        else throw new Error("OBU_DIALOG_FAILED: original native dialog cleanup is unconfirmed");
+      }
+    }
   }
 
   async armNetworkWait(params, record) {
@@ -2803,7 +2967,7 @@ class BrowserBackend {
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
-      const releases = [this.fileChooserWaits.invalidateAttachedTab(tabId), this.downloadWaits.invalidateAttachedTab(tabId), this.pageWaits.invalidateAttachedTab(tabId), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
+      const releases = [this.dialogs.invalidateAttachedTab(tabId), this.drainNativeDialogResponses(tabId, this.attachmentEpochs.get(tabId)), this.fileChooserWaits.invalidateAttachedTab(tabId), this.downloadWaits.invalidateAttachedTab(tabId), this.pageWaits.invalidateAttachedTab(tabId), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
         this.pageExports.invalidateAttachedTab(tabId), this.clipboard.invalidateAttachedTab(tabId)];
       const results = await Promise.allSettled(releases);
       const failure = results.find(result => result.status === "rejected");
@@ -2854,6 +3018,8 @@ class BrowserBackend {
     // Release only waits bound to the retiring Page here. External detach,
     // explicit cancellation and ownership events also retire unbound setups.
     this.networkWaits.invalidateAttachedTab(tabId);
+    void this.dialogs.invalidateAttachedTab(tabId).catch(() => {});
+    this.nativeDialogs.delete(tabId);
     this.navigationWaits.invalidateAttachedTab(tabId);
     this.directoryUploads.invalidate({ tabId, attachment: this.attachmentEpochs.get(tabId) }, new Error("OBU_TRANSFER_CANCELLED: browser attachment changed"));
     this.fileInputDocumentsByTabId.delete(tabId);
@@ -4173,6 +4339,25 @@ class BrowserBackend {
   handleCdpEvent(source, method, params = {}) {
     const tabId = source?.tabId;
     if (!Number.isInteger(tabId) || (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId))) return;
+    if (["Page.frameNavigated", "Page.documentOpened"].includes(method) && !params.frame?.parentId) {
+      if (!source.sessionId) void this.dialogs.documentChanged(tabId).catch(() => {});
+      const open = this.nativeDialogs.get(tabId)?.get(source.sessionId ?? "");
+      if (open) open.open = false;
+    }
+    if (method === "Page.javascriptDialogOpening") {
+      let dialogs = this.nativeDialogs.get(tabId);
+      if (!dialogs) this.nativeDialogs.set(tabId, dialogs = new Map());
+      const key = source.sessionId ?? "";
+      const previous = dialogs.get(key); if (previous) previous.open = false;
+      dialogs.set(key, { attachment: this.attachmentEpochs.get(tabId), type: params.type, open: true });
+    } else if (method === "Page.javascriptDialogClosed") {
+      const dialog = this.nativeDialogs.get(tabId)?.get(source.sessionId ?? "");
+      if (dialog) dialog.open = false;
+    } else if (method === "Target.detachedFromTarget") {
+      const dialog = this.nativeDialogs.get(tabId)?.get(params.sessionId);
+      if (dialog) dialog.open = false;
+      this.nativeDialogs.get(tabId)?.delete(params.sessionId);
+    }
     if (["Page.frameNavigated", "Page.documentOpened", "Page.frameAttached", "Page.frameDetached"].includes(method) ||
         (method === "Target.attachedToTarget" && params.targetInfo?.type === "iframe") ||
         (method === "Target.detachedFromTarget" && this.childSessionsByTabId.get(tabId)?.has(params.sessionId)))
@@ -4633,6 +4818,7 @@ class BrowserBackend {
     const choosersReleased = this.fileChooserWaits.invalidateSession(sessionId);
     const downloadWaitsReleased = this.downloadWaits.invalidateSession(sessionId);
     const pageWaitsReleased = this.pageWaits.invalidateSession(sessionId);
+    const dialogsReleased = this.dialogs.invalidateSession(sessionId); dialogsReleased.catch(() => {});
     const downloadsReleased = this.directDownloads.invalidateSession(sessionId);
     const exportsReleased = this.pageExports.invalidateSession(sessionId);
     exportsReleased.catch(() => {});
@@ -4660,7 +4846,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -4679,6 +4865,7 @@ class BrowserBackend {
       void this.pageExports.invalidateSession(params.session_id).catch(() => {});
       void this.clipboard.invalidateSession(params.session_id).catch(() => {});
       this.networkWaits.invalidateSession(params.session_id);
+      void this.dialogs.invalidateSession(params.session_id).catch(() => {});
       this.navigationWaits.invalidateSession(params.session_id);
       this.auxiliaryTabs.cancelPending(params.session_id);
       const record = await this.controlLedger.beginEnd(params);
@@ -4904,7 +5091,7 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId, { preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preservePageWait = null, releasePageWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
+  detachTab(tabId, { preserveDialogRecord = null, preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preservePageWait = null, releasePageWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
@@ -4917,6 +5104,7 @@ class BrowserBackend {
     // Input release may fail and deliberately retain the native attachment.
     // End the rendering lease immediately even in that case.
     this.internalScreencasts.get(tabId)?.cancel?.();
+    const dialogsReleased = this.dialogs.invalidateTab(tabId, preserveDialogRecord);
     const downloadsReleased = this.directDownloads.invalidateTab(tabId, preserveDirectRecord);
     const mediaReleased = this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload);
     const exportsReleased = this.pageExports.invalidateTab(tabId, preserveExportRecord);
@@ -4929,7 +5117,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
@@ -5005,7 +5193,7 @@ class BrowserBackend {
         // CRX also detaches on action timeout. Its captured release hook must
         // close exports on this exact attachment before native detach, without
         // cancelling an unbound reservation or a later attachment's work.
-        const releases = [this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
+        const releases = [this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
           this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
         const results = await Promise.allSettled(releases);
         const failure = results.find(result => result.status === "rejected");
