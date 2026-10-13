@@ -1,0 +1,19 @@
+docs/exec-plans/completed/2026-10-13-keyboard-chord.md
+  s_08bbfd293d324f::t_82a282f58babd4 29,54,56-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "171d18a44e2d33e18289160f939287b58d772d1d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
