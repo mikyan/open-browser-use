@@ -20,6 +20,12 @@ open-browser-use info
 
 ## Usage
 
+The development version exposes
+`tab.response_body(capture_id=..., request_id=..., max_bytes=..., timeout_ms=...)`
+for an original diagnostics response, returning canonical base64 and the exact
+decoded length without refetching. Requires `responseBodyVersion: 1`;
+see [the contract](../../docs/references/original-response-bodies.md).
+
 For native new pages in the development version, call
 `pending = tab.expect_page(timeout_ms=10000)` before the trigger, then
 `child = pending.result()` and operate on the returned typed Tab. Use

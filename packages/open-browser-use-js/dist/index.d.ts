@@ -2,6 +2,8 @@ import { OpenBrowserUseDialogWait, type OpenBrowserUseDialogDecision, type OpenB
 export { OpenBrowserUseDialogWait, type OpenBrowserUseDialogDecision, type OpenBrowserUseDialogOptions, type OpenBrowserUseDialogResult, type OpenBrowserUseDialogType } from "./dialogs.js";
 import { OpenBrowserUsePageWait, type OpenBrowserUsePageWaitOptions } from "./page-waits.js";
 export { OpenBrowserUsePageWait, type OpenBrowserUsePageWaitOptions } from "./page-waits.js";
+import { type OpenBrowserUseResponseBodyRef, type OpenBrowserUseResponseBodyOptions, type OpenBrowserUseResponseBody } from "./response-body.js";
+export type { OpenBrowserUseResponseBodyRef, OpenBrowserUseResponseBodyOptions, OpenBrowserUseResponseBody } from "./response-body.js";
 import { OpenBrowserUseDownloadWait, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
 export { OpenBrowserUseDownloadWait, type OpenBrowserUseDownloadWaitOptions } from "./download-waits.js";
 import { OpenBrowserUseClipboard, type OpenBrowserUseClipboardOptions } from "./clipboard.js";
@@ -101,6 +103,7 @@ export type OpenBrowserUseEngineInfo = {
         captureRefs: 1;
         snapshotBoxes?: 1;
         locatorFileUpload?: 1;
+        responseBody?: 1;
     };
     snapshotLimits?: OpenBrowserUseAISnapshotLimits;
 };
@@ -286,6 +289,7 @@ export declare class OpenBrowserUseTab {
     engineInfo(): Promise<OpenBrowserUseEngineInfo>;
     downloadURL(url: string, options?: OpenBrowserUseDownloadURLOptions): Promise<OpenBrowserUseDownload>;
     exportPage(format: OpenBrowserUseExportFormat, options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
+    responseBody(ref: OpenBrowserUseResponseBodyRef, options?: OpenBrowserUseResponseBodyOptions): Promise<OpenBrowserUseResponseBody>;
     exportPDF(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     exportMHTML(options?: OpenBrowserUseExportOptions): Promise<OpenBrowserUsePageExport>;
     waitForDownload(options?: OpenBrowserUseDownloadOptions): Promise<OpenBrowserUseDownload>;
@@ -407,6 +411,7 @@ export declare class OpenBrowserUseLocator {
     screenshot(options?: OpenBrowserUseActionOptions): Promise<OpenBrowserUseScreenshot>;
 }
 export declare class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+    responseBody(ref: OpenBrowserUseResponseBodyRef, options?: OpenBrowserUseResponseBodyOptions): Promise<OpenBrowserUseResponseBody>;
     expectRequest(match: OpenBrowserUseNetworkWaitMatch, options?: OpenBrowserUseNetworkWaitOptions): Promise<OpenBrowserUseNetworkWait>;
     expectDialog(decision: OpenBrowserUseDialogDecision, options?: OpenBrowserUseDialogOptions): Promise<OpenBrowserUseDialogWait>;
     expectPage(options?: OpenBrowserUsePageWaitOptions): Promise<OpenBrowserUsePageWait>;

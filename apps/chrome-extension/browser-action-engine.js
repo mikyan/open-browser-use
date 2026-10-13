@@ -3,12 +3,13 @@
 import { BrowserDiagnostics } from "./browser-diagnostics.js";
 import { AI_SNAPSHOT_LIMITS, BrowserObservation, isAIRef, snapshotLimits } from "./browser-observation.js";
 import { validateFileInputPaths } from "./browser-file-input.js";
+import { readResponseBody, validateResponseBodyArgs } from "./browser-response-body.js";
 export const BROWSER_ENGINE_INFO = Object.freeze({
   name: "playwright-crx",
   version: "0.15.0",
   playwrightVersion: "1.53.0",
   protocolVersion: 1,
-  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1, snapshotBoxes: 1, locatorFileUpload: 1 }),
+  capabilities: Object.freeze({ snapshotAI: 1, captureRefs: 1, snapshotBoxes: 1, locatorFileUpload: 1, responseBody: 1 }),
   snapshotLimits: AI_SNAPSHOT_LIMITS,
   limitations: ["AI snapshots use OBU capture-scoped refs and frame-local CSS boxes, not the later Playwright snapshot API or top-frame hit-test coordinates", "Closed shadow roots are unsupported", "Incognito engine attachment is not yet supported"]
 });
@@ -32,6 +33,7 @@ const locatorActions = new Set([
 ]);
 const actionArguments = {
   engineInfo: [], snapshot: [], snapshotAI: [...Object.keys(AI_SNAPSHOT_LIMITS), "boxes"], diagnostics: ["after", "limit"],
+  responseBody: ["captureId", "requestId", "maxBytes"],
   click: ["button", "clickCount", "delay", "modifiers", "position", "force"],
   dblclick: ["button", "delay", "modifiers", "position", "force"],
   hover: ["modifiers", "position", "force"],
@@ -129,6 +131,7 @@ export function validateBrowserAction(params) {
       if (!Number.isSafeInteger(args.after.sequence) || args.after.sequence < 0) throw new Error("diagnostics sequence must be a nonnegative safe integer");
     }
   }
+  if (params.action === "responseBody") Object.assign(args, validateResponseBodyArgs(args));
   if (args.clip !== undefined) {
     keys(args.clip, ["x", "y", "width", "height"], "clip");
     for (const key of ["x", "y"]) finite(args.clip[key], `clip.${key}`);
@@ -328,6 +331,7 @@ export class BrowserActionEngine {
     this.apps = new Map();
     this.releases = new Map();
     this.fileInputCleanups = new Map();
+    this.responseReads = new Set();
   }
 
   async runtime() {
@@ -560,8 +564,88 @@ export class BrowserActionEngine {
     return check;
   }
 
+  // Await preceding Page work without extending its action queue. A later
+  // explicit action may finish this response. Late native reads retain their
+  // reservation, but never confer additional authority to detach a tab.
+  async responseBody(params) {
+    const attachment = this.pages.get(params.tabId);
+    const expired = () => new Error("OBU_RESPONSE_BODY_EXPIRED: original response attachment or capture ended");
+    const timeout = () => new Error("OBU_RESPONSE_BODY_TIMEOUT: original response body deadline expired");
+    if (!attachment) throw expired();
+    if (this.responseReads.size >= 8 || [...this.responseReads].filter(read => read.tabId === params.tabId).length >= 2)
+      throw new Error("OBU_RESPONSE_BODY_CAPACITY: pending original response reads must settle first");
+    const generation = this.generations.get(params.tabId) ?? 0;
+    const deadlineAt = performance.now() + params.timeoutMs, controller = new AbortController();
+    let complete, rejectStopped, reference, entry;
+    const record = { tabId: params.tabId, admitted: false, controller, preparing: true,
+      operationPending: true, nativePending: false, checksPending: 0, publicDone: false,
+      done: new Promise(resolve => { complete = resolve; }) };
+    this.responseReads.add(record);
+    const finish = () => {
+      if (record.publicDone && !record.preparing && !record.operationPending && !record.nativePending && !record.checksPending) {
+        this.responseReads.delete(record); complete();
+      }
+    };
+    const checkSync = () => {
+      controller.signal.throwIfAborted();
+      if (performance.now() >= deadlineAt) throw timeout();
+      if (this.pages.get(params.tabId) !== attachment || (this.generations.get(params.tabId) ?? 0) !== generation) throw expired();
+      if (this.restrictedSelectors()) throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: response bodies are unavailable with website restrictions");
+      if (reference) {
+        if (entry.diagnosticsOwner !== JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id])) throw expired();
+        reference.check();
+      }
+    };
+    const check = async () => {
+      checkSync(); record.checksPending++;
+      try { await this.authorize(params); checkSync(); }
+      finally { record.checksPending--; finish(); }
+    };
+    const stopped = new Promise((_, reject) => { rejectStopped = reject; });
+    const aborted = () => rejectStopped(controller.signal.reason);
+    controller.signal.addEventListener("abort", aborted, { once: true });
+    const timer = setTimeout(() => controller.abort(timeout()), Math.max(0, deadlineAt - performance.now()));
+    const previous = this.queues.get(params.tabId) ?? Promise.resolve();
+    const preparation = previous.catch(() => {}).then(async () => {
+      await check(); entry = await attachment; await check();
+      if (!entry.diagnostics || entry.diagnosticsOwner !== JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id])) throw expired();
+      reference = entry.diagnostics.response(params.args);
+      record.admitted = true;
+      const runtime = await this.runtime(); await check();
+      if (typeof runtime.createOpenBrowserUseResponseBodyRead !== "function")
+        throw new Error("OBU_RESPONSE_BODY_UNAVAILABLE: original native response reader is unavailable");
+      return runtime.createOpenBrowserUseResponseBodyRead(reference.response);
+    });
+    preparation.finally(() => {
+      record.preparing = false;
+      finish();
+    }).catch(() => {});
+    const operation = (async () => {
+      const native = await preparation;
+      await check();
+      const readNative = { finished: native.finished, read: guard => {
+        checkSync(); record.nativePending = true;
+        let actual;
+        try { actual = Promise.resolve(native.read(() => { checkSync(); guard(); })); }
+        catch (error) { record.nativePending = false; finish(); throw error; }
+        actual.then(() => { record.nativePending = false; finish(); }, () => { record.nativePending = false; finish(); });
+        return actual;
+      } };
+      const value = await readResponseBody({ reference, readNative, check, checkSync, signal: controller.signal, deadlineAt, maxBytes: params.args.maxBytes });
+      await check();
+      return { value, engine: BROWSER_ENGINE_INFO };
+    })();
+    operation.finally(() => { record.operationPending = false; finish(); }).catch(() => {});
+    try { return await Promise.race([operation, stopped]); }
+    finally {
+      clearTimeout(timer); controller.signal.removeEventListener("abort", aborted);
+      record.publicDone = true; finish();
+    }
+  }
+
   async dispatch(request) {
     const params = validateBrowserAction(request);
+    if (params.action === "responseBody") return this.responseBody(params);
     const generation = this.generations.get(params.tabId) ?? 0;
     const deadlineAt = performance.now() + params.timeoutMs;
     let expired = false;
@@ -765,6 +849,8 @@ export class BrowserActionEngine {
   // by pending media, export, clipboard, or held-input cleanup.
   invalidate(tabId) {
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
+    for (const read of this.responseReads) if (read.tabId === tabId)
+      read.controller.abort(new Error("OBU_RESPONSE_BODY_EXPIRED: original tab control ended"));
     this.keyboardAdmissions.delete(tabId);
     this.active.delete(tabId);
   }
@@ -814,15 +900,13 @@ export class BrowserActionEngine {
   controlSnapshot() {
     return {
       tabIds: [...new Set([...this.pages.keys(), ...this.releases.keys(), ...this.queues.keys(), ...this.fileInputCleanups.keys()])],
-      pending: [...new Set([...this.pages.values(), ...this.releases.values(), ...this.queues.values()])]
+      pending: [...new Set([...this.pages.values(), ...this.releases.values(), ...this.queues.values(), ...[...this.responseReads].map(read => read.done)])]
     };
   }
 
   // Browser-initiated detach must invalidate queued operations as well.
   forget(tabId) {
-    this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
-    this.keyboardAdmissions.delete(tabId);
-    this.active.delete(tabId);
+    this.invalidate(tabId);
     this.pages.get(tabId)?.then(entry => { entry.diagnostics?.dispose(); entry.observation?.dispose(); }).catch(() => {});
     this.pages.delete(tabId);
   }

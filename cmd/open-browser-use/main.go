@@ -107,6 +107,7 @@ func newRootCommand() *cobra.Command {
 		newNameSessionCommand(),
 		newCdpCommand(),
 		newMoveMouseCommand(),
+		newResponseBodyCommand(),
 		newDialogCommand("arm-dialog", "armDialog"),
 		newDialogCommand("collect-dialog", "collectDialog"),
 		newDialogCommand("cancel-dialog", "cancelDialog"),
@@ -1216,6 +1217,11 @@ func newCallCommand() *cobra.Command {
 			if err := json.Unmarshal([]byte(params), &paramValue); err != nil {
 				return err
 			}
+			if cliResponseBody(method, paramValue) {
+				if err := validateClipboardJSONUnicode([]byte(params)); err != nil {
+					return err
+				}
+			}
 			return invokeAndWrite(options, method, paramValue)
 		},
 	}
@@ -1913,6 +1919,12 @@ func (runner *actionRunner) runAction(action string, args []string) (map[string]
 		return runner.runHistoryAction(args)
 	case "move-mouse":
 		return runner.runMoveMouseAction(args)
+	case "response-body":
+		method, params, err := buildResponseBodyCommand(args)
+		if err != nil {
+			return nil, 0, err
+		}
+		return runner.invoke(method, params)
 	case "arm-dialog", "collect-dialog", "cancel-dialog":
 		method, params, err := buildDialogCommand(action, args)
 		if err != nil {
@@ -2166,6 +2178,11 @@ func (runner *actionRunner) runCallAction(args []string) (map[string]any, int, e
 	}
 	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
 		return nil, 0, fmt.Errorf("call params must be a JSON object: %w", err)
+	}
+	if cliResponseBody(method, params) {
+		if err := validateClipboardJSONUnicode([]byte(paramsJSON)); err != nil {
+			return nil, 0, err
+		}
 	}
 	return runner.invoke(method, params)
 }

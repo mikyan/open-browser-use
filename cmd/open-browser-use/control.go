@@ -46,6 +46,7 @@ type cliControlSnapshot struct {
 	directDownloadsSupported  bool
 	mediaDownloadsSupported   bool
 	pageExportSupported       bool
+	responseBodySupported     bool
 	clipboardSupported        bool
 }
 
@@ -111,6 +112,12 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	}
 	if cliDialogMethod(method) {
 		if err := obu.ValidateDialogInputUnicode(obu.Params(params)); err != nil {
+			return nil, err
+		}
+	}
+	responseBody := cliResponseBody(method, params)
+	if responseBody {
+		if err := obu.ValidateResponseBodyParams(obu.Params(params)); err != nil {
 			return nil, err
 		}
 	}
@@ -242,6 +249,23 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 		metadata, _ := info["metadata"].(map[string]any)
 		if metadata["backgroundWindowVersion"] != float64(1) {
 			return nil, errors.New("OBU_BACKGROUND_WINDOW_UNSUPPORTED: extension does not advertise backgroundWindowVersion 1")
+		}
+	}
+	if responseBody {
+		if manual {
+			response, err := sendCLIRequest(conn, "cli-response-body-info", "getInfo", map[string]any{"session_id": params["session_id"], "turn_id": params["turn_id"]})
+			if err != nil {
+				return nil, err
+			}
+			info, err := cliResult(response)
+			if err != nil {
+				return nil, err
+			}
+			metadata, _ := info["metadata"].(map[string]any)
+			captured.responseBodySupported = metadata["responseBodyVersion"] == float64(1)
+		}
+		if !captured.responseBodySupported {
+			return nil, errors.New("OBU_RESPONSE_BODY_UNSUPPORTED: extension requires responseBodyVersion 1")
 		}
 	}
 	if cliNetworkWaitMethod(method) {
@@ -449,6 +473,11 @@ func (control *cliControl) invoke(options socketOptions, method string, params m
 	if err != nil {
 		return nil, err
 	}
+	if responseBody && response["error"] == nil {
+		if err := obu.ValidateResponseBodyEnvelope(response["result"], obu.Params(params)); err != nil {
+			return nil, err
+		}
+	}
 	if cliFileChooserWaitMethod(method) && response["error"] == nil {
 		budget, _ := params["timeoutMs"].(float64)
 		if err := obu.ValidateFileChooserWaitResult(method, response["result"], budget); err != nil {
@@ -575,7 +604,7 @@ func sendCLIRequest(conn net.Conn, id, method string, params map[string]any) (ma
 	if err := wire.WriteJSON(conn, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
-	return readResponseForID(conn, id, cliClipboardMethod(method) || cliDialogMethod(method))
+	return readResponseForID(conn, id, cliClipboardMethod(method) || cliDialogMethod(method) || cliResponseBody(method, params))
 }
 
 func cliResult(response map[string]any) (map[string]any, error) {
@@ -610,6 +639,7 @@ func negotiateCLIControl(conn net.Conn, captured cliControlSnapshot) (cliControl
 	captured.directDownloadsSupported = metadata["directDownloadsVersion"] == float64(1)
 	captured.mediaDownloadsSupported = metadata["mediaDownloadsVersion"] == float64(1)
 	captured.pageExportSupported = metadata["pageExportVersion"] == float64(1)
+	captured.responseBodySupported = metadata["responseBodyVersion"] == float64(1)
 	captured.clipboardSupported = metadata["clipboardVersion"] == float64(1)
 	version, exists := metadata["turnLifecycleVersion"]
 	if !exists {

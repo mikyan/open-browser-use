@@ -1,5 +1,24 @@
 # Browser integration acceptance
 
+## Original response body reads
+
+`OBU_TEST_CASES=^(js|python|go|cli|mcp|edges)-original-response-body$` selects
+five public body-reader entry points and lifecycle edges, alongside mandatory
+raw navigation. Set `OBU_TEST_GO_RESPONSE_BODY_BINARY` to a current build of
+`scripts/browser-integration/go-response-body-checks`; retain the regular host,
+Python and browser prerequisites. Setup, trusted triggers and cleanup use JS;
+the selected language/CLI/MCP performs the twelve original body reads across
+root, existing OOPIF and dynamic OOPIF. MCP and external readers use the same
+original session, turn and epoch as their trigger owner.
+
+Independent server bytes and bounded native/RPC records check binary, UTF-8,
+empty and error-status responses, no refetch, response gates, same-URL POST
+identity, redirects, failure, limits and stale captures. The Pause edge delays
+publication of one real native ACK and retains its original Promise/value;
+it does not simulate pending network I/O or manufacture success. Evidence
+records exact process close, probe restoration, tab/target cleanup and strict
+focus accounting. It does not replace ordinary installed-browser acceptance.
+
 ## CLI/MCP chooser convenience clearing
 
 `cli-file-chooser-convenience-clear` and `mcp-file-chooser-convenience-clear`

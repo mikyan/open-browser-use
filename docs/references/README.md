@@ -54,6 +54,8 @@
   与chooser共用的节点锁、目录完成及五入口验收边界。
 - [Network waits](network-waits-design.md)：已实现的两阶段 request/response
   等待契约，说明 ready/trigger/collect、同步入口、deadline、资源上限与控制权隔离。
+- [Original response bodies](original-response-bodies.md)：原诊断响应的五入口
+  正文读取、禁止 URL 重取、跨进程身份、有界并发与取消后的实际清理。
 - [Navigation waits](navigation-waits.md)：URL/loadstate 的原生等待语义、独立
   注册/完成阶段、同步客户端 ready handle、取消与控制权边界。
 - [Website access settings](site-access-policy.md)：popup 独占的持久 origin

@@ -1247,7 +1247,7 @@ class BrowserBackend {
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
     const unsupported = ["armDialog", "collectDialog", "cancelDialog", "executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard", "armNetworkWait", "collectNetworkWait", "cancelNetworkWait",
       "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "waitForFileChooser", "setFileChooserFiles", "armFileChooserWait", "collectFileChooserWait", "cancelFileChooserWait", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
-    if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && params?.action === "diagnostics") || (method === "exportPage" && params?.format === "mhtml"))
+    if (method === "downloadMedia" || unsupported.includes(method) || (method === "browserAction" && ["diagnostics", "responseBody"].includes(params?.action)) || (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
 
@@ -1593,6 +1593,7 @@ class BrowserBackend {
         browserActionProtocolVersion: 1,
         turnLifecycleVersion: 1,
         networkWaitVersion: 1,
+        responseBodyVersion: 1,
         dialogVersion: 1,
         navigationWaitVersion: 1,
         fileChooserWaitVersion: 1,
@@ -2551,7 +2552,7 @@ class BrowserBackend {
   }
 
   async browserAction(params) {
-    if (params.action === "setInputFiles") params = validateBrowserAction(params);
+    if (["setInputFiles", "responseBody"].includes(params.action)) params = validateBrowserAction(params);
     const startedAt = Date.now();
     const timeoutMs = params.timeoutMs ?? DEFAULT_CDP_TIMEOUT_MS;
     if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) throw new Error("timeoutMs must be between 1 and 120000");

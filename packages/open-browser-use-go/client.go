@@ -69,6 +69,8 @@ type Client struct {
 	clipboardVersion        any
 	pageExportKnown         bool
 	pageExportVersion       any
+	responseBodyKnown       bool
+	responseBodyVersion     any
 	dialogKnown             bool
 	dialogVersion           any
 	pageWaitKnown           bool
@@ -199,6 +201,12 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, err
 		}
 	}
+	responseBody := method == "browserAction" && params["action"] == "responseBody"
+	if responseBody {
+		if err := ValidateResponseBodyParams(params); err != nil {
+			return nil, err
+		}
+	}
 	if method == "createTab" {
 		if err := ValidateCreateTabParams(params); err != nil {
 			return nil, err
@@ -230,6 +238,11 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 	locatorUpload := method == "browserAction" && frozenParams["action"] == "setInputFiles"
 	if locatorUpload {
 		if err := validateLocatorUploadParams(frozenParams); err != nil {
+			return nil, err
+		}
+	}
+	if responseBody {
+		if err := ValidateResponseBodyParams(frozenParams); err != nil {
 			return nil, err
 		}
 	}
@@ -545,9 +558,34 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, err
 		}
 	}
+	if responseBody {
+		c.controlMu.Lock()
+		known := c.responseBodyKnown
+		c.controlMu.Unlock()
+		if !known {
+			info, err := c.requestLocked("getInfo", scopedParams(merged, nil), deadline)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.observeControlSupport(info); err != nil {
+				return nil, err
+			}
+		}
+		c.controlMu.Lock()
+		supported := c.responseBodyVersion == float64(1)
+		c.controlMu.Unlock()
+		if !supported {
+			return nil, errors.New("OBU_RESPONSE_BODY_UNSUPPORTED: extension does not advertise responseBodyVersion 1")
+		}
+	}
 	result, err := execute(merged, deadline)
 	if err != nil {
 		return nil, err
+	}
+	if responseBody {
+		if err := ValidateResponseBodyEnvelope(result, merged); err != nil {
+			return nil, err
+		}
 	}
 	if method == "getInfo" {
 		if err := c.observeControlSupport(result); err != nil {
@@ -690,7 +728,7 @@ func (c *Client) requestLocked(method string, merged Params, deadline time.Time,
 	}
 	for {
 		var response rpcMessage
-		if isClipboardMethod(method) || isDialogMethod(method) {
+		if isClipboardMethod(method) || isDialogMethod(method) || (method == "browserAction" && merged["action"] == "responseBody") {
 			var raw json.RawMessage
 			if err := wire.ReadJSON(c.conn, &raw); err != nil {
 				return nil, err

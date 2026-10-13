@@ -148,3 +148,12 @@ zero `Input Suppressed` events, no native data loss and an acknowledged close.
 Their 19,923ms and 65,518ms focus ledgers contain zero activation, focus changes
 or allowances. The old missing-down failure did not recur; its cause and a
 production remedy remain open in the [active plan](../exec-plans/active/2026-10-13-initial-keyboard-delivery.md).
+
+The later independently required response-body full regression `tRDnRM` also
+passes 144/144, actual exit 0. With unchanged diagnostic source, all nine End
+pairs, 50 original key commands/ACKs and nine unique POSTs (101,053 bytes) are
+verified. Its original trace has both markers, 50 keyboard forwards, no Input
+Suppressed, no loss, EOF and acknowledged close. Exact integer flow IDs are
+preserved as decimal strings rather than rounded JS Numbers; empty forwarding
+event arguments do not allow per-command routing claims from counts alone.
+The old sporadic failure still has no established cause or production fix.

@@ -84,3 +84,17 @@ on the next independently required full regression. If it recurs, correlate
 the original setup native commands, head/bottom order and native input flow
 before deciding whether a rendering lease or focus-routing change is justified.
 Do not repeat the suite solely to obtain a green result or replay failed input.
+
+## Full regression checkpoint
+
+The independently required response-body regression `tRDnRM` passes 144/144,
+actual exit 0, with all previous 138 case names/order preserved. The original
+keyboard diagnostic source is unchanged. Nine End down/up pairs and 18 setup
+plus 32 business native calls/ACKs accompany nine unique trusted POSTs,
+101,053 bytes. Original trace bytes, both markers, 50 keyboard forwards, zero
+Input Suppressed, no loss, EOF and actual close are independently checked.
+Exact integer IDs are retained without lossy JavaScript-number joins.
+
+The longer full prefix also does not reproduce the old missing down under
+instrumentation. This adds context evidence, not a production fix. Keep the
+original failure open; do not repeat solely to obtain green results.

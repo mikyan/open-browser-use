@@ -58,6 +58,8 @@ import { checkChooserConvenience } from "./chooser-convenience-fixture.mjs";
 import { createDialogFixtures, checkDialogWorkflow, checkExternalDialogWorkflow, checkDialogLifecycle, installDialogEvidence, dialogCases } from "./dialog-fixture.mjs";
 import { checkDialogEvidence } from "./dialog-evidence.mjs";
 import { dialogCaller, checkDialogCallerProcesses } from "./dialog-callers.mjs";
+import { createResponseBodyFixtures, checkResponseBodyMatrix, checkResponseBodyEdges } from "./response-body-fixture.mjs";
+import { createResponseBodyCaller, checkResponseBodyCallers } from "./response-body-callers.mjs";
 import { checkChooserSubmission } from "./chooser-submission-fixture.mjs";
 import { observeChooserCallerFailure, finishChooserCase } from "./chooser-failure-observation.mjs";
 import { createDirectoryUploadFixtures, prepareDirectoryFiles, checkDirectoryUpload, checkInactiveDirectoryRejection, checkInactiveDirectoryCancellation } from "./directory-upload-fixture.mjs";
@@ -328,6 +330,7 @@ async function workerConnection(url) {
 
 const networkFixtures = createNetworkWaitFixtures();
 const dialogFixtures = createDialogFixtures();
+const responseBodyFixtures = createResponseBodyFixtures();
 const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const hoverDeliveryFixtures = createHoverDeliveryFixtures();
@@ -376,6 +379,7 @@ const http = createServer(async (request, response) => {
   if (directUploads.handle(request, response, httpPort)) return;
   if (networkFixtures.handle(request, response, httpPort)) return;
   if (dialogFixtures.handle(request, response, httpPort)) return;
+  if (responseBodyFixtures.handle(request, response, httpPort)) return;
   if (navigationFixtures.handle(request, response)) return;
   if (directDownloads.handle(request, response)) return;
   if (mediaDownloads.handle(request, response, httpPort)) return;
@@ -538,6 +542,8 @@ try {
   for (const name of ["chooser-waits-fixture.mjs", "chooser-submission-fixture.mjs", "chooser-failure-observation.mjs", "directory-upload-fixture.mjs", "directory-world-fixture.mjs", "background-window-fixture.mjs", "chooser-waits-callers.mjs", "chooser-waits-checks.py", "go-chooser-waits-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256["chooser-convenience-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "chooser-convenience-fixture.mjs"))).digest("hex");
   for (const name of ["dialog-fixture.mjs", "dialog-evidence.mjs", "dialog-callers.mjs", "dialog-checks.py", "go-dialog-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  for (const name of ["response-body-fixture.mjs", "response-body-callers.mjs", "response-body-checks.py", "go-response-body-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  sourceIdentity.sha256["patch-response-body.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", "patch-response-body.mjs"))).digest("hex");
   for (const file of (await fs.readdir(path.join(directory, "go-chooser-waits-checks"))).filter(name => name.endsWith(".go")).sort()) {
     const name = `go-chooser-waits-checks/${file}`;
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -2029,6 +2035,56 @@ try {
     if (failure) throw failure;
     return detail;
   });
+  for (const kind of ["js", "python", "go", "cli", "mcp", "edges"]) await test(`${kind}-original-response-body`, async () => {
+    const sessionId = `${kind}-original-response-body`, detail = {};
+    let owner, failure;
+    const run = async (tool, turnId = "response-body") => {
+      owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId, turnId, timeoutMs: 15000 });
+      sourceIdentity.testHooks.push(`${kind} original response bodies: JS-owned trusted triggers and cleanup, public body reader, bounded original HTTP/native/RPC ledger; original native promise, no focus allowance or request replay`);
+      if (kind === "edges") return checkResponseBodyEdges({ browser: owner, worker, fixtureURL, server: responseBodyFixtures, until, detail });
+      let readBody;
+      if (kind !== "js") {
+        let pythonScript, goExecutable;
+        if (kind === "python") {
+          pythonScript = path.join(runDir, "response-body-checks.py");
+          await fs.copyFile(path.join(directory, "response-body-checks.py"), pythonScript, fsConstants.COPYFILE_EXCL);
+        }
+        if (kind === "go") {
+          assert.ok(process.env.OBU_TEST_GO_RESPONSE_BODY_BINARY, "Set OBU_TEST_GO_RESPONSE_BODY_BINARY for typed Go original bodies");
+          goExecutable = path.join(runDir, process.platform === "win32" ? "go-response-body-client.exe" : "go-response-body-client");
+          await fs.copyFile(process.env.OBU_TEST_GO_RESPONSE_BODY_BINARY, goExecutable, fsConstants.COPYFILE_EXCL);
+          detail.binarySHA256 = createHash("sha256").update(await fs.readFile(goExecutable)).digest("hex");
+        }
+        readBody = createResponseBodyCaller({ kind, browser: owner, endpoint, executable, python: process.env.OBU_TEST_PYTHON || "python",
+          pythonScript, pythonPath: path.dirname(pythonSnapshot), goExecutable, subprocess, tool, detail });
+      }
+      await checkResponseBodyMatrix({ browser: owner, worker, fixtureURL, server: responseBodyFixtures, until, readBody, entry: kind, detail });
+      if (kind !== "js") checkResponseBodyCallers(detail, kind);
+    };
+    try {
+      if (kind === "mcp") {
+        const process = {}; detail.mcpProcess = process;
+        await withMCPClient(executable, endpoint, sessionId, async (_call, tool) => {
+          const begin = await tool("begin_turn", {});
+          assert.equal(begin.isError, false, JSON.stringify(begin));
+          const state = begin.structuredContent.result;
+          assert.ok(state.nextTurnId && Number.isSafeInteger(state.controlEpoch)); detail.mcpInitialScope = state;
+          await run(tool, state.nextTurnId);
+        }, process);
+        assert.equal(process.closeObserved, true); assert.equal(process.exitCode, 0); assert.equal(process.signal, null);
+        assert.equal(process.terminationRequestedAt, undefined); assert.equal(process.spawnError, undefined);
+      } else await run();
+    } catch (error) { failure = error; detail.error = error.stack ?? String(error); }
+    finally {
+      if (detail.globalPauseExercised) mainBrowserResumeRequired = true;
+      try { if (owner) detail.finalize = await owner.client.finalizeTabs([]); }
+      catch (error) { detail.finalizeError = error.stack; failure ??= error; }
+      finally { owner?.close(); }
+      await fs.writeFile(path.join(runDir, `response-body-${kind}.json`), JSON.stringify(detail, null, 2));
+    }
+    if (failure) throw failure;
+    return { evidence: `response-body-${kind}.json`, cases: detail.cases.length };
+  });
   await test("js-navigation", async () => {
     let resumed;
     if (mainBrowserResumeRequired) {
@@ -3173,6 +3229,7 @@ try {
   for (const client of ws.clients) client.terminate();
   await new Promise(resolve => ws.close(resolve));
   networkFixtures.close();
+  responseBodyFixtures.close();
   navigationFixtures.close();
   directDownloads.close();
   downloadWaitFixtures.close();
@@ -3199,6 +3256,7 @@ try {
     console.log(validation.passed ? "PASS" : "FAIL", "js-original-download-network-provenance", validation.error ?? "");
   }
   await fs.writeFile(path.join(runDir, "network-server.json"), JSON.stringify(networkFixtures.allStats(), null, 2));
+  await fs.writeFile(path.join(runDir, "response-body-server.json"), JSON.stringify(responseBodyFixtures.allStats(), null, 2));
   if (createdPageProof) await fs.writeFile(path.join(runDir, "created-page-server.json"), JSON.stringify(createdPageFixtures.allStats(), null, 2));
   await fs.writeFile(path.join(runDir, "navigation-server.json"), JSON.stringify(navigationFixtures.allStats(), null, 2));
   let chooserDiagnosticResult;

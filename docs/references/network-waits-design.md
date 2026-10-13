@@ -45,6 +45,10 @@ collect 返回普通对象，没有 `{value, engine}` 包装：
 
 `frameUrl`、`redirectedFrom` 和 `truncated` 可选，response 有 `status` 及原生
 `statusText`（允许空字符串）。元数据整体最多 16 KiB；截断会标记 `truncated:true`。
+
+网络等待的 requestId 与 diagnostics 的 requestId 属于不同命名空间，不能
+互换。读取原响应正文时，使用诊断 captureId 及该 capture 的 response 条目；
+见[原响应正文](original-response-bodies.md)。
 匹配始终使用截断前的原生 URL/method。requestId 仅在原 attachment 内关联，不能
 当作跨 Page、诊断 capture 或 worker 重启的全局 ID。redirect 产生新 Request，
 `redirectedFrom` 可关联前一请求。

@@ -20,6 +20,10 @@ debugger、history 和 tab groups。
 
 - `apps/chrome-extension/`：Open Browser Use MV3 Chrome extension，包含
   readable service worker、cursor content script 和 popup。
+  原响应正文由诊断 capture 保留原 Response，`browser-response-body.js` 管理
+  期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
+  原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。
+  五入口共享协议及实际在途清理，见[原响应正文](references/original-response-bodies.md)。
   网站策略真实保存失败后，由可信 popup 明确重试原候选；backend 复用暂停、
   清理与 revision 检查，实际未结算写不能重试，成功仍暂停。启动读取失败
   不属于此恢复入口，见[网站权限](references/site-access-policy.md)。

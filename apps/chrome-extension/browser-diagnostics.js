@@ -1,5 +1,7 @@
 // Record real Playwright Page events. No page scripts, remote argument expansion,
-// response bodies, request headers, or process-wide event history are involved.
+// request headers, or process-wide event history are involved. Response objects
+// are retained only while their own metadata entry is retained; bodies are read
+// separately, explicitly, and are never stored in this log.
 const encoder = new TextEncoder();
 const MAX_ENTRIES = 500;
 const MAX_BYTES = 1024 * 1024;
@@ -13,6 +15,7 @@ export class BrowserDiagnostics {
     this.bytes = 0;
     this.entries = [];
     this.requestIds = new WeakMap();
+    this.responses = new Map();
     this.nextRequestId = 0;
     this.listeners = [];
     this.disposed = false;
@@ -41,7 +44,9 @@ export class BrowserDiagnostics {
   }
 
   requestId(request) {
-    if (!this.requestIds.has(request)) this.requestIds.set(request, `request-${++this.nextRequestId}`);
+    // Network waits have their own request-N identity space. Keeping this
+    // namespace distinct prevents an unrelated wait ID from selecting a body.
+    if (!this.requestIds.has(request)) this.requestIds.set(request, `diag-request-${++this.nextRequestId}`);
     return this.requestIds.get(request);
   }
 
@@ -78,12 +83,49 @@ export class BrowserDiagnostics {
       } else if (kind === "requestfailed") entry.failure = text(request.failure()?.errorText);
     }
     const bytes = encoder.encode(JSON.stringify(entry)).byteLength;
-    this.entries.push({ entry, bytes });
+    let response;
+    if (kind === "response") {
+      // The reference is the exact event object, not a URL/native-ID lookup.
+      // A duplicate event must not revive an earlier retained reference.
+      this.invalidateResponse(this.responses.get(entry.requestId));
+      response = { entry, value, listeners: new Set(), valid: true };
+      this.responses.set(entry.requestId, response);
+    }
+    this.entries.push({ entry, bytes, response });
     this.bytes += bytes;
     while (this.entries.length > this.maxEntries || this.bytes > this.maxBytes) {
-      this.bytes -= this.entries.shift().bytes;
+      const removed = this.entries.shift();
+      this.bytes -= removed.bytes;
+      this.invalidateResponse(removed.response);
       this.dropped++;
     }
+  }
+
+  invalidateResponse(record) {
+    if (!record?.valid) return;
+    record.valid = false;
+    if (this.responses.get(record.entry.requestId) === record) this.responses.delete(record.entry.requestId);
+    const error = new Error("OBU_RESPONSE_BODY_EXPIRED: original diagnostic response is no longer retained");
+    for (const callback of record.listeners) { try { callback(error); } catch {} }
+    record.listeners.clear();
+    record.value = undefined;
+  }
+
+  response({ captureId, requestId } = {}) {
+    const record = this.responses.get(requestId);
+    const check = () => {
+      if (this.disposed || captureId !== this.captureId || !record?.valid || this.responses.get(requestId) !== record)
+        throw new Error("OBU_RESPONSE_BODY_EXPIRED: original diagnostic response is no longer retained");
+    };
+    check();
+    return Object.freeze({ captureId, requestId, response: record.value, check,
+      onInvalidated: callback => {
+        if (typeof callback !== "function") throw new Error("Invalid response invalidation callback");
+        try { check(); } catch (error) { callback(error); return () => {}; }
+        record.listeners.add(callback);
+        return () => record.listeners.delete(callback);
+      }
+    });
   }
 
   snapshot({ after, limit = 100 } = {}) {
@@ -102,6 +144,7 @@ export class BrowserDiagnostics {
     if (this.disposed) return;
     this.disposed = true;
     for (const remove of this.listeners.splice(0)) remove();
+    for (const response of this.responses.values()) this.invalidateResponse(response);
     this.entries = [];
     this.bytes = 0;
     this.requestIds = new WeakMap();

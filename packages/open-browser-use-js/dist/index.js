@@ -4,6 +4,7 @@ export { OpenBrowserUseDialogWait } from "./dialogs.js";
 import { OpenBrowserUsePageWait, pageWaitMethods, pageWaitParams, pageWaitTimeout, pageWaitAck, pageWaitCancelled, pageWaitResult, assertPageWaitDeadline } from "./page-waits.js";
 export { OpenBrowserUsePageWait } from "./page-waits.js";
 import { locatorUploadParams, requireLocatorUpload } from "./locator-upload.js";
+import { responseBodyParams, responseBodyRequest, validateResponseBodyEnvelope } from "./response-body.js";
 import { OpenBrowserUseDownloadWait, downloadWaitMethods, downloadWaitParams, downloadWaitTimeout, downloadWaitAck, downloadWaitCancelled, assertDownloadWaitDeadline } from "./download-waits.js";
 export { OpenBrowserUseDownloadWait } from "./download-waits.js";
 import { clipboardMethods, clipboardParams, validateClipboardResult, OpenBrowserUseClipboard } from "./clipboard.js";
@@ -47,6 +48,7 @@ export class OpenBrowserUseClient {
     #directDownloadsVersion = undefined;
     #mediaDownloadsVersion = undefined;
     #pageExportVersion = undefined;
+    #responseBodyVersion = undefined;
     #clipboardVersion = undefined;
     #navigationWaitVersion = undefined;
     #networkWaitVersion = undefined;
@@ -179,6 +181,9 @@ export class OpenBrowserUseClient {
         if (dialogMethods.has(method))
             dialogParams(method, params);
         const locatorUpload = method === "browserAction" && params.action === "setInputFiles";
+        const responseBody = method === "browserAction" && params.action === "responseBody";
+        if (responseBody)
+            responseBodyRequest(params);
         if (locatorUpload)
             locatorUploadParams(params);
         if (method === "createTab" && Object.hasOwn(params, "backgroundWindow") && typeof params.backgroundWindow !== "boolean")
@@ -197,6 +202,8 @@ export class OpenBrowserUseClient {
         const captured = JSON.parse(JSON.stringify(params));
         if (locatorUpload)
             locatorUploadParams(captured);
+        if (responseBody)
+            responseBodyRequest(captured);
         if (method === "browserAction" || eventWaitMethods.has(method)) {
             const requested = captured.timeoutMs ?? 10_000;
             if (typeof requested === "number" && Number.isFinite(requested) && requested >= 1 && requested <= 120_000)
@@ -206,7 +213,7 @@ export class OpenBrowserUseClient {
             deadline = Math.min(deadline, submittedAt + dialogTimeout({ timeoutMs: captured.timeoutMs }));
         if (method === "armPageWait")
             deadline = Math.min(deadline, submittedAt + pageWaitTimeout({ timeoutMs: captured.timeoutMs }));
-        const monotonicDeadline = options.monotonicDeadline ?? (locatorUpload || pageWaitMethods.has(method) || dialogMethods.has(method) ? submittedMonotonic + (deadline - submittedAt) : undefined);
+        const monotonicDeadline = options.monotonicDeadline ?? (responseBody || locatorUpload || pageWaitMethods.has(method) || dialogMethods.has(method) ? submittedMonotonic + (deadline - submittedAt) : undefined);
         const merged = { session_id: this.sessionId, turn_id: turnId, ...captured };
         if (pageWaitMethods.has(method))
             pageWaitParams(method, merged);
@@ -296,6 +303,12 @@ export class OpenBrowserUseClient {
                 await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline);
             if (this.#pageExportVersion !== 1)
                 throw new Error("OBU_PAGE_EXPORT_UNSUPPORTED: extension does not advertise pageExportVersion 1");
+        }
+        if (responseBody) {
+            if (this.#responseBodyVersion === undefined)
+                await this.#sendRequest("getInfo", { session_id: merged.session_id, turn_id: merged.turn_id }, deadline, 0, undefined, monotonicDeadline);
+            if (this.#responseBodyVersion !== 1)
+                throw new Error("OBU_RESPONSE_BODY_UNSUPPORTED: extension does not advertise responseBodyVersion 1");
         }
         if (clipboardMethods.has(method)) {
             if (this.#clipboardVersion === undefined)
@@ -557,7 +570,7 @@ export class OpenBrowserUseClient {
                 this.#pending.delete(id);
                 reject(new Error(`Open Browser Use request timed out: ${method}`));
             }, Math.max(1, requestRemaining(deadline, monotonicDeadline)));
-            this.#pending.set(id, { resolve, reject, timeout, strictUTF8: clipboardMethods.has(method) || dialogMethods.has(method) });
+            this.#pending.set(id, { resolve, reject, timeout, strictUTF8: clipboardMethods.has(method) || dialogMethods.has(method) || (method === "browserAction" && params.action === "responseBody") });
         });
         try {
             socket.write(payload);
@@ -566,6 +579,10 @@ export class OpenBrowserUseClient {
             this.#disconnect(socket, error instanceof Error ? error : new Error(String(error)));
         }
         const result = await promise;
+        if (method === "getInfo")
+            this.#responseBodyVersion = isObject(result) && isObject(result.metadata) ? result.metadata.responseBodyVersion ?? null : null;
+        if (method === "browserAction" && params.action === "responseBody")
+            validateResponseBodyEnvelope(result, params);
         if (dialogMethods.has(method) && requestRemaining(deadline, monotonicDeadline) <= 0)
             throw new Error("Open Browser Use dialog decision timed out");
         if (method === "getInfo")
@@ -883,6 +900,10 @@ export class OpenBrowserUseTab {
         const value = await this.browser.client.request("exportPage", { ...params, tabId: this.id }, { timeoutMs: params.timeoutMs + 1000 });
         return validatePageExport(value, format, params.maxBytes);
     }
+    async responseBody(ref, options = {}) {
+        const params = responseBodyParams(ref, options);
+        return (await this.browser.client.browserAction(this.id, "responseBody", params)).value;
+    }
     exportPDF(options = {}) { return this.exportPage("pdf", options); }
     exportMHTML(options = {}) { return this.exportPage("mhtml", options); }
     waitForDownload(options = {}) {
@@ -1079,6 +1100,7 @@ export class OpenBrowserUseLocator {
 }
 _a = OpenBrowserUseLocator;
 export class OpenBrowserUseTabPlaywright extends OpenBrowserUseLocator {
+    responseBody(ref, options = {}) { return this.tab.responseBody(ref, options); }
     expectRequest(match, options = {}) { return this.tab.expectRequest(match, options); }
     expectDialog(decision, options = {}) { return this.tab.expectDialog(decision, options); }
     expectPage(options = {}) { return this.tab.expectPage(options); }

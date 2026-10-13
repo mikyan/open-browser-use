@@ -1,5 +1,12 @@
 # Open Browser Use Go SDK
 
+Read an original diagnostics response in the development version with
+`tab.ResponseBody(obu.ResponseBodyRef{CaptureID: ..., RequestID: ...},
+obu.ResponseBodyOptions{MaxBytes: ..., Timeout: 10 * time.Second})`.
+The result contains canonical base64 and an exact decoded length, without URL
+refetch. Requires `responseBodyVersion: 1`;
+see [original response bodies](../../docs/references/original-response-bodies.md).
+
 The development version adds `tab.ExpectPage(obu.PageWaitOptions{Timeout: 10 * time.Second})`.
 Wait for its ready return before triggering the source action, then call
 `pending.Result()` to obtain the exact native child as a typed `*Tab` and defer

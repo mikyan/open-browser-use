@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 from ._locator_upload import locator_upload_params, require_locator_upload
+from ._response_body import ResponseBody, response_body_params, response_body_request, validate_response_body_envelope
 
 from ._clipboard import CLIPBOARD_METHODS, OpenBrowserUseClipboard, clipboard_params, clipboard_timeout, validate_clipboard_result
 from ._dialogs import DIALOG_METHODS, DialogDecision, OpenBrowserUseDialogWait, dialog_decision, dialog_params, dialog_ack, dialog_result, dialog_cancelled
@@ -60,6 +61,7 @@ class OpenBrowserUseClient:
         self._direct_downloads_version: Any = None
         self._media_downloads_version: Any = None
         self._page_export_version: Any = None
+        self._response_body_version: Any = None
         self._clipboard_version: Any = None
         self._navigation_wait_version: Any = None
         self._network_wait_version: Any = None
@@ -137,6 +139,9 @@ class OpenBrowserUseClient:
         if method in PAGE_WAIT_METHODS:
             page_wait_params(method, params or {})
         locator_upload = method == "browserAction" and params is not None and params.get("action") == "setInputFiles"
+        response_body = method == "browserAction" and params is not None and params.get("action") == "responseBody"
+        if response_body:
+            response_body_request(params)
         if locator_upload:
             locator_upload_params(params)
         if method in FILE_CHOOSER_WAIT_METHODS:
@@ -160,6 +165,8 @@ class OpenBrowserUseClient:
             page_wait_params(method, merged_params)
         if locator_upload:
             locator_upload_params(merged_params)
+        if response_body:
+            response_body_request(merged_params)
         if method in DOWNLOAD_WAIT_METHODS:
             download_wait_params(method, merged_params)
         if method in BOUNDED_WAIT_METHODS:
@@ -249,6 +256,11 @@ class OpenBrowserUseClient:
                 self._observe_control_support(self._wire_request("getInfo", {"session_id": session_id, "turn_id": turn_id}, deadline))
             if type(self._clipboard_version) is not int or self._clipboard_version != 1:
                 raise RuntimeError("OBU_CLIPBOARD_UNSUPPORTED: extension does not advertise clipboardVersion 1")
+        if response_body:
+            if self._response_body_version is None:
+                self._observe_control_support(self._wire_request("getInfo", {"session_id": merged_params["session_id"], "turn_id": merged_params["turn_id"]}, deadline))
+            if type(self._response_body_version) is not int or self._response_body_version != 1:
+                raise RuntimeError("OBU_RESPONSE_BODY_UNSUPPORTED: extension does not advertise responseBodyVersion 1")
         if locator_upload:
             engine_params = {key: merged_params[key] for key in ("session_id", "turn_id", "control_epoch", "tabId") if key in merged_params}
             engine_params.update(action="engineInfo", timeoutMs=merged_params.get("timeoutMs", 10000))
@@ -259,6 +271,8 @@ class OpenBrowserUseClient:
                   else execute(merged_params, deadline))
         if method == "getInfo":
             self._observe_control_support(result)
+        if response_body:
+            validate_response_body_envelope(result, merged_params)
         if (method in {"turnEnded", "finalizeTabs"} and not manual_epoch
                 and self._lifecycle_version == 1 and self._control_epoch == epoch
                 and self.session_id == session_id and self.turn_id == turn_id):
@@ -271,6 +285,7 @@ class OpenBrowserUseClient:
 
     def _observe_control_support(self, info: Any) -> None:
         metadata = info.get("metadata", {}) if isinstance(info, dict) else {}
+        self._response_body_version = metadata.get("responseBodyVersion", 0) if isinstance(metadata, dict) else 0
         self._media_downloads_version = metadata.get("mediaDownloadsVersion", 0) if isinstance(metadata, dict) else 0
         self._direct_downloads_version = metadata.get("directDownloadsVersion", 0) if isinstance(metadata, dict) else 0
         self._clipboard_version = (metadata.get("clipboardVersion", 0) if isinstance(metadata, dict) else 0)
@@ -793,6 +808,11 @@ class OpenBrowserUseTab(LocatorFactory):
         value = self.browser.client.request("exportPage", {**params, "tabId": self.id}, timeout=params["timeoutMs"] / 1000 + 1)
         return validate_export(value, format, params["maxBytes"])
 
+    def response_body(self, *, capture_id: str, request_id: str, max_bytes: int | None = None,
+                      timeout_ms: int | None = None) -> ResponseBody:
+        params = response_body_params(capture_id, request_id, max_bytes, timeout_ms)
+        return self.action("responseBody", args=params["args"], timeout_ms=params["timeoutMs"])
+
     def export_pdf(self, *, max_bytes: int | None = None, timeout_ms: int | None = None,
                    pdf: PDFOptions | None = None) -> PageExport:
         return self.export_page("pdf", max_bytes=max_bytes, timeout_ms=timeout_ms, pdf=pdf)
@@ -920,6 +940,10 @@ class OpenBrowserUseTab(LocatorFactory):
 
 
 class OpenBrowserUseTabPlaywright(LocatorFactory):
+    def response_body(self, *, capture_id: str, request_id: str, max_bytes: int | None = None,
+                      timeout_ms: int | None = None) -> ResponseBody:
+        return self.tab.response_body(capture_id=capture_id, request_id=request_id, max_bytes=max_bytes, timeout_ms=timeout_ms)
+
     def expect_dialog(self, decision: DialogDecision, *, timeout_ms: int | None = None) -> OpenBrowserUseDialogWait:
         return self.tab.expect_dialog(decision, timeout_ms=timeout_ms)
 

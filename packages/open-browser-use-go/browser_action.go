@@ -76,6 +76,9 @@ func (c *Client) BrowserAction(tabID int, action string, options BrowserActionOp
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
+	if action == "responseBody" && timeout%time.Millisecond != 0 {
+		return BrowserActionResult{}, responseBodyInvalid()
+	}
 	if timeout < time.Millisecond || timeout > 120*time.Second {
 		return BrowserActionResult{}, errors.New("browser action timeout must be between 1ms and 120s")
 	}

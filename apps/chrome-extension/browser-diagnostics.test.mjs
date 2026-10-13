@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import { BrowserDiagnostics } from "./browser-diagnostics.js";
+import { BrowserNetworkWaits } from "./browser-network-waits.js";
 
 const log = text => ({ type: () => "log", text: () => text, location: () => ({ url: "https://fixture/", lineNumber: 4, columnNumber: 2 }) });
 function request(url = "https://fixture/api", from = null) {
@@ -91,4 +92,68 @@ test("console argument handles are released without evaluation, including on col
   await Promise.resolve();
   assert.equal(disposed, 4);
   assert.equal(capture.snapshot().entries.length, 1);
+});
+
+test("body references bind exact response entries, not same-URL requests or caller-mutated snapshots", () => {
+  const page = new EventEmitter(), capture = new BrowserDiagnostics(page);
+  const first = request(), second = request();
+  const response = value => ({ request: () => value, status: () => 200, statusText: () => "OK" });
+  const a = response(first), b = response(second);
+  page.emit("request", first); page.emit("response", a);
+  page.emit("request", second); page.emit("response", b);
+  const snapshot = capture.snapshot(), entries = snapshot.entries.filter(value => value.kind === "response");
+  const ref = capture.response({ captureId: snapshot.captureId, requestId: entries[0].requestId });
+  assert.equal(ref.response, a);
+  assert.equal(capture.response({ captureId: snapshot.captureId, requestId: entries[1].requestId }).response, b);
+  entries[0].requestId = entries[1].requestId;
+  assert.equal(ref.response, a); ref.check();
+  assert.throws(() => capture.response({ captureId: "foreign", requestId: ref.requestId }), /RESPONSE_BODY_EXPIRED/);
+  assert.throws(() => capture.response({ captureId: snapshot.captureId, requestId: "request-300" }), /RESPONSE_BODY_EXPIRED/);
+});
+
+test("evicting a response invalidates it promptly even if its later finished entry is still retained", () => {
+  const page = new EventEmitter(), capture = new BrowserDiagnostics(page, { maxEntries: 2 });
+  const original = request(), value = { request: () => original, status: () => 200, statusText: () => "OK" };
+  page.emit("response", value);
+  const reference = capture.response({ captureId: capture.captureId, requestId: "diag-request-1" });
+  const errors = [];
+  reference.onInvalidated(error => { errors.push(error.message); throw new Error("observer cannot break collector"); });
+  let unsubscribed = 0; reference.onInvalidated(() => { unsubscribed++; })();
+  page.emit("requestfinished", original); page.emit("console", log("evict response only"));
+  assert.equal(capture.responses.size, 0); assert.equal(errors.length, 1); assert.equal(unsubscribed, 0);
+  assert.equal(capture.snapshot().entries[0].kind, "requestfinished");
+  assert.throws(reference.check, /RESPONSE_BODY_EXPIRED/);
+  let immediate = 0; reference.onInvalidated(() => { immediate++; }); assert.equal(immediate, 1);
+  capture.dispose(); assert.equal(errors.length, 1);
+});
+
+test("duplicate response events and disposal do not revive old references or leak retained objects", () => {
+  const page = new EventEmitter(), capture = new BrowserDiagnostics(page, { maxEntries: 2 });
+  const original = request(), value = { request: () => original, status: () => 200, statusText: () => "OK" };
+  page.emit("response", value);
+  const first = capture.response({ captureId: capture.captureId, requestId: "diag-request-1" });
+  page.emit("response", value);
+  const second = capture.response({ captureId: capture.captureId, requestId: "diag-request-1" });
+  assert.throws(first.check, /EXPIRED/); second.check();
+  page.emit("console", log("evict old duplicate")); second.check();
+  let disposed = 0; second.onInvalidated(() => { disposed++; });
+  capture.dispose(); assert.equal(disposed, 1); assert.equal(capture.responses.size, 0);
+  assert.throws(second.check, /EXPIRED/);
+});
+
+test("same-ordinal network wait IDs cannot be used as diagnostic response IDs", async () => {
+  const page = new EventEmitter(), diagnostics = new BrowserDiagnostics(page), waits = new BrowserNetworkWaits();
+  const params = { session_id: "owner", turn_id: "turn", control_epoch: 1, tabId: 42, event: "response", match: { url: "https://fixture/api" }, timeoutMs: 1000 };
+  const record = waits.reserve(params);
+  try {
+    await waits.arm(record, page, { ...params, attachment: 1 }, async () => {});
+    const original = request(), value = { request: () => original, status: () => 200, statusText: () => "OK" };
+    page.emit("response", value);
+    const waited = await waits.collect({ session_id: "owner", turn_id: "turn", control_epoch: 1, tabId: 42, waiterId: record.waiterId });
+    const snapshot = diagnostics.snapshot(), observed = snapshot.entries[0];
+    assert.equal(waited.requestId, "request-1", "network-wait namespace and version remain unchanged");
+    assert.notEqual(observed.requestId, waited.requestId, "both are ordinal one, but only one is a diagnostics ID");
+    assert.throws(() => diagnostics.response({ captureId: snapshot.captureId, requestId: waited.requestId }), /RESPONSE_BODY_EXPIRED/);
+    assert.equal(diagnostics.response({ captureId: snapshot.captureId, requestId: observed.requestId }).response, value);
+  } finally { waits.invalidateAll(); diagnostics.dispose(); }
 });

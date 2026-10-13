@@ -243,7 +243,7 @@ func (peer *mcpBoundConn) request(originalID, method string, params map[string]a
 	if !time.Now().Before(deadline) {
 		return nil, errors.New("MCP browser response timed out; operation outcome is unknown and was not replayed")
 	}
-	if cliClipboardMethod(method) || cliDialogMethod(method) {
+	if cliClipboardMethod(method) || cliDialogMethod(method) || cliResponseBody(method, params) {
 		if err := validateClipboardJSONUnicode(response); err != nil {
 			return nil, err
 		}

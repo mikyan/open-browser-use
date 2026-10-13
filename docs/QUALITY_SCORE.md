@@ -11,10 +11,20 @@
 
 ## 当前评分
 
+原诊断响应正文已接入 JS/Python/Go/CLI/MCP，保留原 POST 与最终 native
+session，禁止 URL 重取；异步授权、队列外等待、撤权和实际在途清理均有覆盖。
+最终专项 `dx9EXR` 7/7、actual exit 0，五入口共 60 次原正文读取，含三布局与
+15 个空响应；另有五个生命周期边界。完整 `tRDnRM` 144/144、actual exit 0，
+旧 138 名称顺序保留，419,725ms 仅原 12 activation/4 control-focus 许可。
+此前 fixture 类型/错误码/顺序失败保留。
+正文上限不是 Chrome 内存上限，普通安装及完整 P01–P15 未完成；见
+[原响应正文](references/original-response-bodies.md)。
+
 首次键盘输入诊断已前移到导航前，并保留一次原 End、真实 native 回执及页面
 事件顺序；64/64 定向测试通过。两次预声明隔离验收 `UplYfR` 2/2、`5eI49Q`
 5/5 均 actual exit 0、零 activation/focus/许可，trace 无输入抑制记录。
-旧 `bDKdec` 缺 down 未复现，生产输入代码未改，仍不宣称已修复或完整回归通过。
+旧 `bDKdec` 缺 down 未复现，生产输入代码未改。随后正文功能所需完整回归
+`tRDnRM` 144/144 也未复现；九 End 与原生 trace 完整，仍不宣称旧偶发已修复。
 见[键盘诊断](references/keyboard-chords.md#initial-key-delivery-investigation)。
 
 网站策略已结算保存失败可从真实 popup 审阅并重试原候选，保持暂停与版本检查。

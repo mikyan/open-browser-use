@@ -21,12 +21,20 @@
 
 ## 当前并行切片
 
+2026-10-14 [原响应正文](../completed/2026-10-14-original-response-body.md)已完成五入口实现与
+专项 `dx9EXR` 7/7、actual exit 0：15 布局共 60 次原 POST body 读取，另含
+gate/身份/redirect/failure/限额/旧引用/迟到 native ACK 及 Pause。上游空正文
+重取 fallback 和原诊断/等待 ID 碰撞均有原红例；完整 `tRDnRM` 144/144、
+actual exit 0，旧 138 名称顺序保留、未新增焦点许可。byte cap
+不限制 Chromium 原生分配，普通安装与整体矩阵继续开放，旧 preview 未替换。
+
 2026-10-14 [首次键盘输入诊断](2026-10-13-initial-keyboard-delivery.md)已保留导航前
 setup native 请求/回执、原页面被动时序和可选原生 input trace。定向64/64；
 预声明 `UplYfR` 2/2、截图前置 `5eI49Q` 5/5 均 actual exit 0，无焦点事件或
 新增许可。两轮各九次 End down/up 完整，trace 无 Input Suppressed；没有复现
-旧缺失，生产输入逻辑未改。旧失败继续开放，下次有独立需要的完整回归启用
-该诊断，按原命令/文档/trace 证据再决定修复，不为取绿重复或重放按键。
+旧缺失，生产输入逻辑未改。随后正文功能所需完整 `tRDnRM` 144/144 同样
+未复现；九 End/50 原生键命令和 trace 完整，九唯一 POST 101,053B。旧失败
+继续开放，后续若复现按原命令/文档/trace 再决定修复，不为取绿重复或重放。
 
 2026-10-13 已完成[网站策略保存失败重试](../completed/2026-10-13-site-access-save-retry.md)：
 真实 popup 审阅原失败候选，显式重试、原生存储确认后仍保持暂停。专项 `Y4Qq0W`

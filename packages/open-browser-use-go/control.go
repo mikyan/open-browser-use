@@ -41,12 +41,13 @@ func controlDiscoveryMethod(method string) bool {
 
 func (c *Client) observeControlSupport(info any) error {
 	version := 0
-	var dialogVersion, pageWaitVersion, downloadWaitVersion, downloadWaitPathVersion, fileChooserVersion, networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion any
+	var dialogVersion, pageWaitVersion, downloadWaitVersion, downloadWaitPathVersion, fileChooserVersion, networkVersion, navigationVersion, directDownloadsVersion, mediaDownloadsVersion, pageExportVersion, clipboardVersion, responseBodyVersion any
 	if object, ok := info.(map[string]any); ok {
 		if metadata, ok := object["metadata"].(map[string]any); ok {
 			directDownloadsVersion = metadata["directDownloadsVersion"]
 			mediaDownloadsVersion = metadata["mediaDownloadsVersion"]
 			pageExportVersion = metadata["pageExportVersion"]
+			responseBodyVersion = metadata["responseBodyVersion"]
 			clipboardVersion = metadata["clipboardVersion"]
 			networkVersion = metadata["networkWaitVersion"]
 			navigationVersion = metadata["navigationWaitVersion"]
@@ -68,6 +69,7 @@ func (c *Client) observeControlSupport(info any) error {
 	c.directDownloadsKnown, c.directDownloadsVersion = true, directDownloadsVersion
 	c.mediaDownloadsKnown, c.mediaDownloadsVersion = true, mediaDownloadsVersion
 	c.pageExportKnown, c.pageExportVersion = true, pageExportVersion
+	c.responseBodyKnown, c.responseBodyVersion = true, responseBodyVersion
 	c.clipboardKnown, c.clipboardVersion = true, clipboardVersion
 	c.networkWaitKnown, c.networkWaitVersion = true, networkVersion
 	c.navigationWaitKnown, c.navigationWaitVersion = true, navigationVersion

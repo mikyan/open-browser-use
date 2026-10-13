@@ -28,6 +28,12 @@ and limitations; it does not claim parity with current Playwright or Codex.
 
 ## Locator descriptors
 
+`responseBody` is a page-level read with no locator, using
+`args: {captureId, requestId, maxBytes?}` from diagnostics. It waits outside the
+page action queue and returns original bytes as canonical base64. Capability,
+identity, cancellation and size boundaries are specified in
+[original response bodies](original-response-bodies.md).
+
 `locator` is an ordered array (at most 32 steps), not executable code:
 
 | kind | Fields | Actual Playwright method |

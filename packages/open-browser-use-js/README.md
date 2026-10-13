@@ -7,6 +7,13 @@ the extension's Playwright engine.
 
 ## Prerequisites
 
+The development version also exposes
+`await tab.responseBody({captureId, requestId}, {maxBytes, timeoutMs})` for an
+original diagnostics response. It returns canonical base64 and the decoded
+byte count without refetching the URL. Requires `responseBodyVersion: 1`;
+see [original response bodies](../../docs/references/original-response-bodies.md)
+for reference lifetime, limits and concurrency.
+
 ### Native new pages (development version)
 
 `await tab.expectPage({timeoutMs: 10000})` establishes readiness before your
