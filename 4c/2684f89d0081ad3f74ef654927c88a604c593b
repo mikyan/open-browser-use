@@ -1,0 +1,63 @@
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_a23d3aa5fde5c4 1818-1827
+  s_08bbfd293d324f::t_237fe9767b0e86 1816,1828
+  s_08bbfd293d324f::t_6b73a6dc8ca070 1817
+docs/exec-plans/completed/2026-10-14-zoom-feedback.md
+  s_08bbfd293d324f::t_370274002d76f4 1-70
+docs/references/zoom-feedback.md
+  s_08bbfd293d324f::t_161fe3c659e08b 1-55,77-88
+  s_08bbfd293d324f::t_370274002d76f4 68-76
+  s_08bbfd293d324f::t_237fe9767b0e86 56-67
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_df9c50cf068821 1809,1811,1813
+  s_08bbfd293d324f::t_ee35e317b66777 1803-1804
+  s_08bbfd293d324f::t_d75a95350720ba 1810
+  s_08bbfd293d324f::t_71c3bca25b6213 33,369,383,595,1781-1802,1805-1808,1812,1814-1815
+  s_08bbfd293d324f::t_e053cbcca61d4d 1816-1824
+scripts/browser-integration/zoom-feedback-fixture.mjs
+  s_08bbfd293d324f::t_1192707d7ac8a6 1-4,6-12,14,16-30,33-54,58-63,65-70,72-73,77-87,89-100,111-136,138-145,148-161,167-179,181-192
+  s_08bbfd293d324f::t_0d2605da3e4b17 5,13,15,31,55-57,64,71,74-76,88,101-103,105-106,108-110,137,146,162-166,180
+  s_08bbfd293d324f::t_a99d947c38e083 32,104,107,147
+docs/references/top-layer-feedback.md
+  s_08bbfd293d324f::t_a23d3aa5fde5c4 10-11
+scripts/browser-integration/zoom-feedback-fixture.test.mjs
+  s_08bbfd293d324f::t_b6b865fde0e25c 1-127
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_370274002d76f4 18-20
+  s_08bbfd293d324f::t_b087cfa263264a 15-17,21-22
+apps/chrome-extension/content-cursor.js
+  s_08bbfd293d324f::t_1fbc762e29752f 238-259,522-528
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_b087cfa263264a 14-17,20-22
+  s_08bbfd293d324f::t_370274002d76f4 18-19
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_a23d3aa5fde5c4 23-24
+docs/references/README.md
+  s_08bbfd293d324f::t_a23d3aa5fde5c4 19-20
+apps/chrome-extension/content-cursor.test.mjs
+  s_08bbfd293d324f::t_0dc99e20276ff2 422-423
+  s_08bbfd293d324f::t_65c9095227973b 8,17-19,113-131,135,147-150,187
+  s_08bbfd293d324f::t_8251018a507397 305-421,424-435
+docs/histories/2026-10/20261014-0321-zoom-feedback.md
+  s_08bbfd293d324f::t_370274002d76f4 39-43
+  s_08bbfd293d324f::t_b087cfa263264a 1-38,44-51
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_370274002d76f4 11-13
+  s_08bbfd293d324f::t_b087cfa263264a 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "4c2684f89d0081ad3f74ef654927c88a604c593b",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
