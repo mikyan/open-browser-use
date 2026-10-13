@@ -1,0 +1,115 @@
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_26f23dcf2d8cc9 497-501
+apps/chrome-extension/site-access-backend.test.mjs
+  s_08bbfd293d324f::t_69eb75217a7e8b 161
+scripts/browser-integration/site-access-network-checks.py
+  s_08bbfd293d324f::t_6e4b55ae281889 1-75
+scripts/patch-network-wait-proof.mjs
+  s_08bbfd293d324f::t_15b292ddbc492b 5,8-10,14,34,37-38,41,49-50,52-57,78,98-102,104-105,107,116,118,122
+  s_08bbfd293d324f::t_707c505a777179 1-4,6-7,11-13,15-33,35-36,39-40,42-48,51,58-77,79-97,103,106,108-115,117,119-121,123-124
+apps/chrome-extension/ordinary-ownership-backend.test.mjs
+  s_08bbfd293d324f::t_2d34cfde3abd10 326-329,343-365,367-421
+  s_08bbfd293d324f::t_6fbf281095d5ec 366
+  s_08bbfd293d324f::t_c28505b148cb4d 422-429
+apps/chrome-extension/network-wait-backend.test.mjs
+  s_08bbfd293d324f::t_5e0a3fbe57c782 7,20,22,39,49,85,111-129
+  s_08bbfd293d324f::t_3b1005a83e2710 40,151-179,182-183
+  s_08bbfd293d324f::t_53ae7ebbb0825f 132-150,180-181,184-207
+  s_08bbfd293d324f::t_093e58a3eabc1e 18,59-66
+  s_08bbfd293d324f::t_ec7dac76163f8d 130,208-220
+  s_08bbfd293d324f::t_962169b96cd427 131
+docs/references/network-waits-design.md
+  s_08bbfd293d324f::t_26f23dcf2d8cc9 16-17,191,219-234,239-251,259
+  s_08bbfd293d324f::t_14589ab50d686d 320-333
+  s_08bbfd293d324f::t_a1ad9bbc4b75c1 293-319
+  s_08bbfd293d324f::t_bab4235074a26e 197-199,235-238
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_58fae85d8f253e 39,382-386,407,635-636,3326,3328
+  s_08bbfd293d324f::t_2953a4e5dd2f0f 634
+  s_08bbfd293d324f::t_b1fda7ab697867 3382-3391,3406-3440,3446-3453,3455-3468,3470,3473,3479-3487,3489-3494,3496-3517,3530-3534,3537,3546,3576,3605,3631-3637,3757,3785
+  s_08bbfd293d324f::t_63ee1b016aea3c 239,3441-3445
+  s_08bbfd293d324f::t_8c98bffe973896 3392-3405,3469,3474-3478
+  s_08bbfd293d324f::t_f050f9c605e96c 3454
+  s_08bbfd293d324f::t_5c39c3d1022e15 389,621,3471-3472,3488,3495,3518-3529
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_a6d6f2eccf0698 1264,1509,1519,2872-2877,2895-2909,2911-2912,2918-2925,5032,5052,5229,5323,5343
+  s_08bbfd293d324f::t_31ec15dd386ca4 2658-2671,5212,5221-5226
+  s_08bbfd293d324f::t_e3889c22e6673a 2910,2913-2917
+apps/chrome-extension/browser-network-waits.test.mjs
+  s_08bbfd293d324f::t_aa671c3c6801ac 53-94
+  s_08bbfd293d324f::t_a0c5bd806f6fef 95-144,157-170
+  s_08bbfd293d324f::t_2ad0188a20b205 145-156
+scripts/browser-integration/site-access-network-fixture.mjs
+  s_08bbfd293d324f::t_6d0747eceab3c2 95,98,212,263-264,291-292,300-305,319-333,337-339,341-344,350,357,360,410-414
+  s_08bbfd293d324f::t_4f5a4ce094fe31 9,218,241,293-296,376,429,435,442
+  s_08bbfd293d324f::t_81e94d34c24070 46-48,209-210
+  s_08bbfd293d324f::t_ce09ce53590c0d 45,50,65,68-69,81-82,105
+  s_08bbfd293d324f::t_ed11e9ebfbeef7 139
+  s_08bbfd293d324f::t_357cc1c61ae62d 1-8,10-44,49,51-64,66-67,70-80,83-94,96-97,99-104,106-138,140-208,457
+  s_08bbfd293d324f::t_87ecdfa5498fe3 246,262,265-268,270-290,361,416-418
+  s_08bbfd293d324f::t_4ac703c2acc279 219,225,316
+  s_08bbfd293d324f::t_453be278dab687 269,317-318
+  s_08bbfd293d324f::t_8530d92c37660a 340,348
+  s_08bbfd293d324f::t_52013caac30cb1 452
+  s_08bbfd293d324f::t_675652c2d0965b 243-245,334-336
+  s_08bbfd293d324f::t_f718063b5fd730 211,213-217,220-224,226-240,242,247-261,297-299,306-315,345-347,349,351-356,358-359,362-375,377-409,415,419-428,430-434,436-441,443-451,453-456
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_a1ad9bbc4b75c1 15-19,25
+  s_08bbfd293d324f::t_14589ab50d686d 20-24
+scripts/browser-integration/go-site-access-network-checks/main.go
+  s_08bbfd293d324f::t_6e4b55ae281889 1-84
+  s_08bbfd293d324f::t_7d4d281a74d2c5 85-142
+docs/SECURITY.md
+  s_08bbfd293d324f::t_26f23dcf2d8cc9 138-145
+docs/histories/2026-10/20261014-0604-restricted-network-waits.md
+  s_08bbfd293d324f::t_14589ab50d686d 1-85
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_908b9503d948d6 35
+  s_08bbfd293d324f::t_14589ab50d686d 28-34
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_152039c5e2fc8d 3-30,46
+  s_08bbfd293d324f::t_de3149c27efd8b 33,35-38
+  s_08bbfd293d324f::t_14589ab50d686d 39-45
+  s_08bbfd293d324f::t_eeb165f5e452b8 31-32,34
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_2953a4e5dd2f0f 17,129,140
+scripts/patch-network-wait-proof.test.mjs
+  s_08bbfd293d324f::t_080927bbdbf33a 1-29,31-138
+  s_08bbfd293d324f::t_d430acca327555 30
+scripts/browser-integration/site-access-network-fixture.test.mjs
+  s_08bbfd293d324f::t_c396b1ed29bfb9 108,115
+  s_08bbfd293d324f::t_1e61cd1b1e7451 213-214,216,218-219,223-225
+  s_08bbfd293d324f::t_331af46992424c 8,45,97-107,109-114,116-146,197-212,215,217,220-222
+  s_08bbfd293d324f::t_81e94d34c24070 63-70
+  s_08bbfd293d324f::t_61d77e9d712c70 1-7,9-44,46-62,71-96,226
+  s_08bbfd293d324f::t_59877262e39743 151,174-196
+  s_08bbfd293d324f::t_e31a74934cac28 147-150,152-173
+docs/references/site-access-policy.md
+  s_08bbfd293d324f::t_26f23dcf2d8cc9 176-184
+  s_08bbfd293d324f::t_543cdaabb17689 153-158
+docs/exec-plans/completed/2026-10-14-restricted-network-waits.md
+  s_08bbfd293d324f::t_14589ab50d686d 1-172
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_a1ad9bbc4b75c1 14-18,23
+  s_08bbfd293d324f::t_14589ab50d686d 19-22
+apps/chrome-extension/browser-network-waits.js
+  s_08bbfd293d324f::t_32d2714154ea76 307
+  s_08bbfd293d324f::t_b18bedde462a01 50-51,83-84,93,136-157,159-170,187-188,190,197,202,205,211,222,229-230,232,253,257,259-264,275,282-285,288,299,301,309,313-321
+  s_08bbfd293d324f::t_d59d9eb17cbf74 158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "195ee0dd8981e3ab5a7dd86aadf3b4eb45f98f18",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
