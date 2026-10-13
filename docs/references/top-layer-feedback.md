@@ -7,6 +7,8 @@ frames, scrolling and resizing do not repeatedly raise it.
 
 The host remains `aria-hidden`; neither host nor layer has autofocus, tabindex,
 or delegated focus. The layer and backdrop do not intercept pointer input.
+The owned host also compensates root CSS zoom on actual feedback updates;
+see [zoom geometry and its evidence](zoom-feedback.md).
 Native toggle events stay inside the shadow tree, so document/window capture
 listeners do not receive agent popover events. Page elements and their layers
 are never moved, closed or reopened to display feedback.

@@ -20,6 +20,8 @@ debugger、history 和 tab groups。
 
 - `apps/chrome-extension/`：Open Browser Use MV3 Chrome extension，包含
   readable service worker、cursor content script 和 popup。
+  可视反馈共享自有 Shadow DOM/top-layer；实际反馈时抵消根 CSS zoom，保持
+  原生输入与 viewport 坐标不变，见[缩放反馈](references/zoom-feedback.md)。
   原响应正文由诊断 capture 保留原 Response，`browser-response-body.js` 管理
   期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
   原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。

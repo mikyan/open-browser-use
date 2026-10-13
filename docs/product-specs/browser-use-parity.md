@@ -12,6 +12,14 @@
 
 ## Baseline sources
 
+P12 根 CSS zoom 反馈错位已有真实红绿证据：旧源 `Ku2blX` 保留四原 POST，
+三根缩放场错位而正文对照正确；修复 `pm3Zkp` 2/2 actual exit 0，四原 PNG/
+提交及点击圈原几何通过，3382ms 零 activation/focus/许可。下一实际反馈
+重采样缩放，不宣称静止页面持续刷新。完整 `AMMJED` 149/149 actual exit 0，
+旧 148 名称顺序保持、428874ms 仅原 12 activation/4 control-focus 许可、
+源码/运行时无漂移；Node 3151 pass/1 既有 skip。完整 P12 仍开放，见
+[缩放反馈](../references/zoom-feedback.md)。
+
 P14 的网站权限读取恢复已接入可信 popup：实际 Pause/drain 后重读，保留原
 设置与 revision、不写策略、成功仍暂停。未知、损坏和确认缺失分开显示，
 旧任务及旧回复保持失效；启动等待自环、丢失恢复回复和同版本内容冲突均有

@@ -235,6 +235,28 @@ function readViewportSize() {
   };
 }
 
+function readRootZoomCompensation() {
+  const inverse = (zoom) => {
+    const value = 1 / zoom;
+    return Number.isFinite(zoom) && zoom > 0 && Number.isFinite(value) && value > 0 ? value : null;
+  };
+  // The owned host is a direct child of html. Read that uncompensated ancestor,
+  // never the host or a hidden popover (whose currentCSSZoom can report 1).
+  try {
+    const value = inverse(document.documentElement.currentCSSZoom);
+    if (value !== null) return value;
+  } catch {}
+  try {
+    const zoom = window.getComputedStyle?.(document.documentElement)?.zoom;
+    const value = typeof zoom === "string" && zoom.endsWith("%")
+      ? Number(zoom.slice(0, -1)) / 100
+      : Number(zoom);
+    return inverse(value) ?? 1;
+  } catch {
+    return 1;
+  }
+}
+
 function notifyCursorArrived(moveSequence) {
   if (
     typeof latestState.sessionId !== "string" ||
@@ -497,6 +519,13 @@ function createCursorParts(root, assetUrl) {
   const hasPopover = typeof layer.showPopover === "function" && typeof layer.hidePopover === "function";
   if (hasPopover) layer.setAttribute("popover", "manual");
   const setVisible = (visible) => {
+    if (visible) {
+      // Cursor messages, hit tests, and target rects already use viewport CSS
+      // coordinates. Cancel only the root CSS zoom on our own rendering tree;
+      // page zoom, business subtree zoom, and native input remain unchanged.
+      const zoom = String(readRootZoomCompensation());
+      if (root.style.zoom !== zoom) root.style.zoom = zoom;
+    }
     // Do not override the UA's closed-popover display rule when showing. The
     // explicit hidden rule also removes pixels if a native hide throws.
     layer.style.display = visible ? "" : "none";

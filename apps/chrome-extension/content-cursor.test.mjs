@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const source = await readFile(new URL("./content-cursor.js", import.meta.url), "utf8");
 
-function createPage({ reducedMotion = false, popoverAPI = true } = {}) {
+function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = true } = {}) {
   const timers = new Map();
   const frames = new Map();
   const listeners = new Map();
@@ -14,6 +14,9 @@ function createPage({ reducedMotion = false, popoverAPI = true } = {}) {
   const popoverCalls = [];
   const topLayer = [];
   const popoverFailures = new Map();
+  const zoomReads = [];
+  const computedStyleReads = [];
+  const hitTests = [];
   let nextTimer = 1;
   let timestamp = 0;
   let onMessage;
@@ -107,10 +110,29 @@ function createPage({ reducedMotion = false, popoverAPI = true } = {}) {
     Element.prototype.showPopover = undefined;
     Element.prototype.hidePopover = undefined;
   }
+  // Model only CSS zoom's multiplicative flat-tree units. Browser tests cover
+  // actual top-layer layout, screenshots, and original native input delivery.
+  const zoomFactor = (value) => {
+    const parsed = typeof value === "string" && value.endsWith("%") ? Number(value.slice(0, -1)) / 100 : Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  };
+  const effectiveZoom = (element) => {
+    if (!element) return 1;
+    return zoomFactor(element.style.zoom) * effectiveZoom(element.parentElement ?? element.host);
+  };
+  if (cssZoomAPI) Object.defineProperty(Element.prototype, "currentCSSZoom", {
+    get() {
+      zoomReads.push(this);
+      for (let node = this; node; node = node.parentElement ?? node.host) {
+        if (node.style.display === "none") return 1;
+      }
+      return effectiveZoom(this);
+    }
+  });
   const document = {
     createElement: (tagName) => new Element(tagName),
     getElementById: (id) => findAll(document.documentElement, (element) => element.id === id)[0] ?? null,
-    elementsFromPoint: () => hitElements
+    elementsFromPoint: (x, y) => { hitTests.push({ x, y }); return hitElements; }
   };
   document.documentElement = new Element("html");
   document.body = document.documentElement.appendChild(new Element("body"));
@@ -122,6 +144,10 @@ function createPage({ reducedMotion = false, popoverAPI = true } = {}) {
   const window = {
     innerWidth: 1000,
     innerHeight: 800,
+    getComputedStyle: (element) => {
+      computedStyleReads.push(element);
+      return { zoom: element.style.zoom ?? "1" };
+    },
     addEventListener: addListener,
     visualViewport: { width: 1000, height: 800, addEventListener: addListener },
     matchMedia: () => ({ matches: reducedMotion }),
@@ -158,6 +184,7 @@ function createPage({ reducedMotion = false, popoverAPI = true } = {}) {
   vm.runInContext(source, context);
   const page = {
     document, timers, frames, animations, sent, popoverCalls, topLayer,
+    effectiveZoom, zoomReads, computedStyleReads, hitTests,
     failPopover: (method) => popoverFailures.set(method, new Error(`Native ${method} failed`)),
     elements: (testId) => findAll(document.documentElement, (element) => element.dataset.testid === testId, true),
     add: (tagName, parent = document.body) => parent.appendChild(document.createElement(tagName)),
@@ -273,6 +300,137 @@ test("native popover exceptions are best effort and later feedback can recover",
   page.failPopover("hide"); page.hide(); assert.equal(layer.style.display, "none", "Even a failed hide cannot leave visible feedback");
   page.move({ moveSequence: 3 }); assert.equal(layer.matches(":popover-open"), true); assert.notEqual(layer.style.display, "none");
   page.hide(); assert.equal(layer.matches(":popover-open"), false);
+});
+
+function assertViewportFeedback(page, point, rect) {
+  const [cursor] = page.elements("browser-agent-cursor");
+  const match = /^translate3d\(([-\d.]+)px, ([-\d.]+)px, 0\)/.exec(cursor.style.transform);
+  assert.ok(match);
+  const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 0.000001, `${label}: ${actual} !== ${expected}`);
+  near((Number(match[1]) + 12) * page.effectiveZoom(cursor), point.x, "Viewport cursor center x");
+  near((Number(match[2]) + 12) * page.effectiveZoom(cursor), point.y, "Viewport cursor center y");
+  near(Number.parseFloat(cursor.style.width) * page.effectiveZoom(cursor), 24, "Viewport cursor size");
+  const [outline] = page.elements("browser-agent-target");
+  assert.equal(outline.style.display, "block");
+  for (const key of ["left", "top", "width", "height"]) {
+    near(Number.parseFloat(outline.style[key]) * page.effectiveZoom(outline), rect[key], `Viewport outline ${key}`);
+  }
+  const ring = page.elements("browser-agent-click").at(-1);
+  if (ring) {
+    near(Number.parseFloat(ring.style.left) * page.effectiveZoom(ring), point.x, "Viewport click center x");
+    near(Number.parseFloat(ring.style.top) * page.effectiveZoom(ring), point.y, "Viewport click center y");
+    near(Number.parseFloat(ring.style.width) * page.effectiveZoom(ring), 28, "Viewport click size");
+  }
+}
+
+test("root CSS zoom does not rescale viewport cursor, target, or original click coordinates", () => {
+  for (const zoom of [1.5, 0.75]) {
+    const page = createPage({ reducedMotion: true });
+    page.document.documentElement.style.zoom = String(zoom);
+    const button = page.add("button");
+    button.rect = { left: 180, top: 100, width: 160, height: 50 };
+    page.hit(button);
+    const point = { x: 260, y: 125 };
+    page.move({ ...point, animateMovement: false }); page.click(point);
+    assertViewportFeedback(page, point, button.rect);
+    assert.deepEqual(page.hitTests, [point, point], "Hit testing keeps the original viewport coordinates");
+    assert.deepEqual(page.document.documentElement.style, { zoom: String(zoom) });
+    assert.deepEqual(button.style, {}, "Business element styles remain untouched");
+    assert.equal(page.sent.some(message => /INPUT|MOUSE|CLICK/.test(message.type)), false);
+    page.hide();
+  }
+});
+
+test("dynamic root zoom is re-read for visible feedback without inverse-zoom oscillation", () => {
+  const page = createPage({ reducedMotion: true });
+  const button = page.add("button"); page.hit(button);
+  const point = { x: 40, y: 30 };
+  for (const zoom of [1.5, 1.5, 0.75, 0.75, 1, 1]) {
+    page.document.documentElement.style.zoom = String(zoom);
+    page.move({ ...point, animateMovement: false });
+    assertViewportFeedback(page, point, button.rect);
+  }
+  assert.ok(page.zoomReads.length > 0);
+  assert.ok(page.zoomReads.every(element => element === page.document.documentElement), "Never measure an already compensated or hidden owned layer");
+  page.hide();
+});
+
+test("a click after a root zoom change refreshes all existing feedback at the original point", () => {
+  const page = createPage({ reducedMotion: true });
+  const button = page.add("button"); page.hit(button);
+  const point = { x: 40, y: 30 };
+  page.move({ ...point, animateMovement: false });
+  page.document.documentElement.style.zoom = "2";
+  page.click(point);
+  assertViewportFeedback(page, point, button.rect);
+  page.hide();
+});
+
+test("business subtree zoom is already represented by its viewport rect and is not canceled", () => {
+  const page = createPage({ reducedMotion: true });
+  page.document.documentElement.style.zoom = "1.5";
+  page.document.body.style.zoom = "2";
+  const button = page.add("button"); button.style.zoom = "0.5";
+  button.rect = { left: 210, top: 90, width: 120, height: 60 };
+  page.hit(button);
+  const point = { x: 250, y: 120 };
+  page.move({ ...point, animateMovement: false }); page.click(point);
+  assertViewportFeedback(page, point, button.rect);
+  assert.deepEqual(page.document.body.style, { zoom: "2" });
+  assert.deepEqual(button.style, { zoom: "0.5" });
+  assert.ok([...page.zoomReads, ...page.computedStyleReads].every(element => element === page.document.documentElement));
+  page.hide();
+});
+
+test("the root computed zoom fallback works without currentCSSZoom or native popovers", () => {
+  for (const popoverAPI of [true, false]) {
+    const page = createPage({ reducedMotion: true, cssZoomAPI: false, popoverAPI });
+    const button = page.add("button"); page.hit(button);
+    const point = { x: 40, y: 30 };
+    for (const zoom of ["150%", "0.75", "1"]) {
+      page.document.documentElement.style.zoom = zoom;
+      page.move({ ...point, animateMovement: false }); page.click(point);
+      assertViewportFeedback(page, point, button.rect);
+    }
+    assert.ok(page.computedStyleReads.length > 0);
+    assert.ok(page.computedStyleReads.every(element => element === page.document.documentElement));
+    page.hide();
+  }
+});
+
+test("missing or invalid zoom values retain finite ordinary feedback", () => {
+  for (const zoom of [undefined, "normal", "0", "-1", "Infinity", "bad"]) {
+    const page = createPage({ reducedMotion: true, cssZoomAPI: false });
+    page.document.documentElement.style.zoom = zoom;
+    const button = page.add("button"); page.hit(button);
+    const point = { x: 40, y: 30 };
+    page.move({ ...point, animateMovement: false }); page.click(point);
+    assertViewportFeedback(page, point, button.rect);
+    page.hide();
+  }
+});
+
+test("zoom refresh never schedules polling, reopens hidden feedback, or repeats layout reads from animation frames", () => {
+  const page = createPage(); const button = page.add("button"); page.hit(button);
+  page.document.documentElement.style.zoom = "1.5";
+  page.move({ animateMovement: false });
+  page.move({ x: 200, y: 300, moveSequence: 2 });
+  const before = page.zoomReads.length + page.computedStyleReads.length;
+  assert.ok(before > 0);
+  for (const [id, frame] of [...page.frames]) { page.frames.delete(id); frame(20); }
+  assert.equal(page.zoomReads.length + page.computedStyleReads.length, before);
+  assert.equal(page.timers.size, page.frames.size, "Only the existing per-frame fallback timer, no zoom polling");
+  assert.ok([...page.timers.values()].every(timer => timer.due === 1000 / 60));
+  page.hide(); const calls = page.popoverCalls.length;
+  page.document.documentElement.style.zoom = "0.75";
+  page.emit("resize"); page.emit("scroll"); page.click();
+  assert.equal(page.popoverCalls.length, calls);
+  assert.equal(page.frames.size, 0); assert.equal(page.timers.size, 0);
+  page.move({ x: 40, y: 30, animateMovement: false });
+  assertViewportFeedback(page, { x: 40, y: 30 }, button.rect);
+  page.emit("pagehide"); page.emit("resize"); page.click();
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  assert.equal(page.frames.size, 0); assert.equal(page.timers.size, 0);
 });
 
 test("moving the AI cursor outlines the interactive ancestor without changing page elements", () => {

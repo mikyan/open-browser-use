@@ -7,6 +7,10 @@
 
 ## 当前基线
 
+- 根 CSS zoom 的可视坐标修复已获真实红绿证据，专项 `pm3Zkp` 2/2、
+  Node 3151 pass/1 既有 skip。原输入与页面样式不改，完整 `AMMJED` 149/149
+  actual exit 0，旧 148 顺序及原焦点许可保持；
+  详见[缩放分片](../completed/2026-10-14-zoom-feedback.md)。不据此关闭 P12 或完整矩阵。
 - 分支 `codex/browser-use-parity`，已将 upstream v1.0.0 合入现有光标反馈实现。
 - 不创建或重开 PR；本地开发提交保留在本项目。
 - 初始审计发现私有 rewrite 未接入正式入口、Windows SDK 通信不兼容及 targetId 越过任务归属；下文记录修复与剩余缺口。

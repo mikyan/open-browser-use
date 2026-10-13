@@ -30,6 +30,7 @@ import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
+import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
 import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
@@ -365,6 +366,7 @@ const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
 const siteAccessSubmissions = createSiteAccessSubmissions();
 const topLayerFeedbackFixtures = createTopLayerFeedbackFixtures();
+const zoomFeedbackFixtures = createZoomFeedbackFixtures();
 const siteAccessStartupFixtures = createSiteAccessStartupFixtures();
 const siteAccessStartupProbe = {
   markerKey: `__OBU_TEST_SITE_STARTUP_${randomUUID().replaceAll("-", "").slice(0, 16)}`,
@@ -378,6 +380,7 @@ const http = createServer(async (request, response) => {
   if (siteAccessSubmissions.handle(request, response)) return;
   if (siteAccessStartupFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (topLayerFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (zoomFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -589,6 +592,7 @@ try {
   for (const name of ["cursor-print-fixture.mjs", "cursor-print-artifacts.py"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.topLayerFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "top-layer-feedback-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.zoomFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "zoom-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.memoryClipboardGuard = createHash("sha256").update(await fs.readFile(path.join(directory, "memory-clipboard.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardCallers = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-callers.mjs"))).digest("hex");
@@ -1765,6 +1769,50 @@ try {
               assert.deepEqual(after[index][key], before[index][key], `Turn end changed business ${key}`);
           }
           detail.endCleanup = { before, after };
+        } });
+    } catch (error) { failure = error; }
+    finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+    }
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-zoom-feedback", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-zoom-feedback", timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      detail = await checkZoomFeedback({ browser: owner, fixtureURL, fixtures: zoomFeedbackFixtures,
+        saveArtifact: (name, data) => fs.writeFile(path.join(runDir, name), data, { flag: "wx" }),
+        saveDetail: value => fs.writeFile(path.join(runDir, "zoom-feedback.json"), JSON.stringify(value, null, 2)),
+        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
+        checkEnd: async value => {
+          const read = async () => {
+            const rows = [];
+            for (const tabId of value.tabIds) {
+              const result = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},world:'MAIN',func:()=>{
+                const host=document.getElementById('open-browser-use-cursor-root'),tree=host?.shadowRoot??host;
+                const cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]');
+                return {state:window.zoomFeedbackState(),openAgentLayers:tree?.querySelectorAll(':popover-open').length??0,
+                  opacity:cursor?getComputedStyle(cursor).opacity:null,rings:tree?.querySelectorAll('[data-testid="browser-agent-click"]').length??0};
+              }})`);
+              assert.equal(result.length, 1); rows.push({ tabId, ...result[0].result });
+            }
+            return rows;
+          };
+          const before = await read(); assert.equal(before.length, value.tabIds.length);
+          assert.ok(before.length > 0 && before.every(row => row.openAgentLayers === 1));
+          await owner.client.turnEnded();
+          const after = await until(async () => { const rows = await read(); return rows.every(row => row.openAgentLayers === 0 && row.opacity === "0" && row.rings === 0) ? rows : false; }, "zoom feedback ends without reviving effects", 5000);
+          for (let index = 0; index < before.length; index++) {
+            assert.equal(after[index].tabId, before[index].tabId);
+            assert.ok(before[index].state && after[index].state);
+            for (const key of ["documentToken", "nodeToken", "value", "activeElement", "selection", "events", "focus", "zoom", "rootZoom", "bodyZoom", "zoomScope", "changes", "errors", "receipt"]) {
+              assert.ok(Object.hasOwn(before[index].state, key) && Object.hasOwn(after[index].state, key), `Missing original zoom state ${key}`);
+              assert.deepEqual(after[index].state[key], before[index].state[key], `Turn end changed zoom business ${key}`);
+            }
+          }
+          value.endCleanup = { before, after };
         } });
     } catch (error) { failure = error; }
     finally {

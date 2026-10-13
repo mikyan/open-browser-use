@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Zoom feedback](zoom-feedback.md)：根 CSS 缩放下的光标、目标框及点击圈
+  对齐，原表单/像素证据、正文缩放对照和动态刷新边界。
 - [Top-layer feedback](top-layer-feedback.md)：HTML 模态框与 popover 上方的
   光标/目标反馈、Shadow DOM 事件隔离、原提交与像素证据及正常结束清理。
 

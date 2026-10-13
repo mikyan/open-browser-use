@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+根 CSS zoom 导致的 AI 光标、目标框与点击圈二次缩放已修复，实际输入坐标
+和原页面样式保持不变。旧源 `Ku2blX` 四次原提交成功但三场反馈错位，
+正文缩放对照正常；修复专项 `pm3Zkp` 2/2 actual exit 0，四场 PNG/几何/
+原提交与结束清理通过。Node 3151 pass/1 既有 Windows symlink skip。
+完整 `AMMJED` 149/149 actual exit 0，保留旧 148 名称顺序，428874ms
+仅原 12 activation/4 control-focus 许可，无源码/运行时漂移。
+动态缩放在下一次实际反馈更新；普通安装和全屏等范围继续开放，见
+[缩放反馈](references/zoom-feedback.md)。
+
 网站权限启动读取失败现可从真实 popup 明确重读，保持原 revision、不写策略，
 恢复后仍暂停；核心控制失败、在途操作及未确认清理不授予恢复权限。
 拆开输入启动与读取恢复的等待，避免未绑定请求和启动 Pause 循环等待；

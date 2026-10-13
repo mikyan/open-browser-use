@@ -1813,6 +1813,19 @@ Select the affected public callers and policy check with
 `OBU_TEST_CASES='page-exports|python-public-sdk|go-public-sdk|user-site-access'`
 (eight cases including the mandatory raw prerequisite when Go is configured).
 
+## CSS zoom feedback
+
+`OBU_TEST_CASES=^js-zoom-feedback$` runs the zoom-feedback workflow plus mandatory
+raw navigation. Three original pages cover root zoom 1.5, the same document
+changing to 0.75 through its trusted button, independent root 0.75 and body-only
+1.5. It retains four original POSTs, four viewport PNGs, document/node identity,
+focus/selection and original ring rectangles. Waiting uses model coordinates,
+so the misplaced baseline still records its original business result before
+failing. Ring geometry is passive transient DOM evidence, not a claim of ring
+pixels throughout the animation. Turn end and native exact-tab cleanup cannot
+reopen an SDK turn. No new focus allowance is added. Results and remaining scope
+are in [zoom feedback](../../docs/references/zoom-feedback.md).
+
 ## Prerequisites and invocation
 
 Use a desktop session with Node.js 22+, Python 3.10+, the repository's Go
