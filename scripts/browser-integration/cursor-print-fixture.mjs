@@ -42,9 +42,9 @@ export function cursorPrintHTML({ strictCSP = false } = {}) {
 }
 
 const feedbackState = `(()=>{
-  const root=document.querySelector('#open-browser-use-cursor-root');
-  const cursor=root?.querySelector('[data-testid="browser-agent-cursor"]');
-  const target=root?.querySelector('[data-testid="browser-agent-target"]');
+  const root=document.querySelector('#open-browser-use-cursor-root'),tree=root?.shadowRoot??root;
+  const cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]');
+  const target=tree?.querySelector('[data-testid="browser-agent-target"]');
   const visible=element=>!!element&&getComputedStyle(element).display!=='none'&&getComputedStyle(element).visibility!=='hidden'&&Number(getComputedStyle(element).opacity)>0;
   return {root:visible(root),cursor:visible(cursor),target:visible(target),
     imageLoaded:!!cursor?.querySelector('img')?.naturalWidth,
@@ -67,7 +67,7 @@ export async function checkCursorPrint({ browser, fixtureURL, strictCSP = false,
     }
     // Wait for the existing cursor image, without creating/moving/hiding any
     // feedback or changing its animation/printing behavior in the fixture.
-    assert.equal(await tab.evaluate(`Promise.all([document.fonts.ready,...[...document.images].map(image=>image.decode())]).then(()=>true)`, { awaitPromise: true }), true);
+    assert.equal(await tab.evaluate(`(()=>{const root=document.querySelector('#open-browser-use-cursor-root'),tree=root?.shadowRoot??root;return Promise.all([document.fonts.ready,...[...document.images,...(tree?.querySelectorAll('img')??[])].map(image=>image.decode())]).then(()=>true)})()`, { awaitPromise: true }), true);
     const capture = async name => {
       const state = await tab.evaluate(feedbackState);
       detail.feedback[name] = state;

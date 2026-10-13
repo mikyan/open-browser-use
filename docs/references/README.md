@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Top-layer feedback](top-layer-feedback.md)：HTML 模态框与 popover 上方的
+  光标/目标反馈、Shadow DOM 事件隔离、原提交与像素证据及正常结束清理。
+
 - [Native JavaScript dialogs](native-dialogs.md)：显式决定、订阅准备与原生 ACK、
   五个公开入口的原 scope 示例，以及取消和失败不重放的边界。
 - [Keyboard chords](keyboard-chords.md)：完整键名校验、预持输入及部分原生失败

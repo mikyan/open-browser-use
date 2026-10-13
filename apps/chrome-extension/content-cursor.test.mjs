@@ -5,12 +5,15 @@ import vm from "node:vm";
 
 const source = await readFile(new URL("./content-cursor.js", import.meta.url), "utf8");
 
-function createPage({ reducedMotion = false } = {}) {
+function createPage({ reducedMotion = false, popoverAPI = true } = {}) {
   const timers = new Map();
   const frames = new Map();
   const listeners = new Map();
   const animations = [];
   const sent = [];
+  const popoverCalls = [];
+  const topLayer = [];
+  const popoverFailures = new Map();
   let nextTimer = 1;
   let timestamp = 0;
   let onMessage;
@@ -28,9 +31,35 @@ function createPage({ reducedMotion = false } = {}) {
       this.rect = { left: 10, top: 20, width: 80, height: 40 };
     }
     get isConnected() {
-      return this === document.documentElement || this.parentElement?.isConnected === true;
+      return this === document.documentElement || this.host?.isConnected === true || this.parentElement?.isConnected === true;
     }
     setAttribute(name, value) { this.attributes.set(name, value); }
+    attachShadow(options) {
+      assert.equal(this.shadowRoot, undefined);
+      const shadow = new Element("#shadow-root");
+      shadow.host = this;
+      shadow.options = options;
+      this.shadowRoot = shadow;
+      return shadow;
+    }
+    getRootNode() { return this.parentElement?.getRootNode() ?? this; }
+    matches(selector) {
+      assert.equal(selector, ":popover-open");
+      return topLayer.includes(this);
+    }
+    showPopover(...args) {
+      popoverCalls.push({ method: "show", element: this, args, root: this.getRootNode() });
+      if (popoverFailures.has("show")) { const error = popoverFailures.get("show"); popoverFailures.delete("show"); throw error; }
+      assert.equal(this.isConnected, true);
+      assert.equal(this.attributes.get("popover"), "manual");
+      if (!topLayer.includes(this)) topLayer.push(this);
+    }
+    hidePopover(...args) {
+      popoverCalls.push({ method: "hide", element: this, args, root: this.getRootNode() });
+      if (popoverFailures.has("hide")) { const error = popoverFailures.get("hide"); popoverFailures.delete("hide"); throw error; }
+      const index = topLayer.indexOf(this);
+      if (index !== -1) topLayer.splice(index, 1);
+    }
     appendChild(child) {
       child.remove();
       child.parentElement = this;
@@ -46,6 +75,7 @@ function createPage({ reducedMotion = false } = {}) {
         children.splice(children.indexOf(this), 1);
         this.parentElement = null;
       }
+      for (let index = topLayer.length - 1; index >= 0; index--) if (!topLayer[index].isConnected) topLayer.splice(index, 1);
     }
     contains(element) {
       return this === element || this.children.some((child) => child.contains(element));
@@ -72,6 +102,10 @@ function createPage({ reducedMotion = false } = {}) {
       return animation;
     }
     focus() { throw new Error("Overlay must not focus the page"); }
+  }
+  if (!popoverAPI) {
+    Element.prototype.showPopover = undefined;
+    Element.prototype.hidePopover = undefined;
   }
   const document = {
     createElement: (tagName) => new Element(tagName),
@@ -123,8 +157,9 @@ function createPage({ reducedMotion = false } = {}) {
   });
   vm.runInContext(source, context);
   const page = {
-    document, timers, frames, animations, sent,
-    elements: (testId) => findAll(document.documentElement, (element) => element.dataset.testid === testId),
+    document, timers, frames, animations, sent, popoverCalls, topLayer,
+    failPopover: (method) => popoverFailures.set(method, new Error(`Native ${method} failed`)),
+    elements: (testId) => findAll(document.documentElement, (element) => element.dataset.testid === testId, true),
     add: (tagName, parent = document.body) => parent.appendChild(document.createElement(tagName)),
     hit: (...elements) => { hitElements = elements; },
     send: (message) => {
@@ -159,9 +194,86 @@ function createPage({ reducedMotion = false } = {}) {
   return page;
 }
 
-function findAll(element, predicate) {
-  return [element, ...element.children.flatMap((child) => findAll(child, () => true))].filter(predicate);
+function findAll(element, predicate, includeShadow = false) {
+  const children = [...element.children, ...(includeShadow && element.shadowRoot ? [element.shadowRoot] : [])];
+  return [element, ...children.flatMap((child) => findAll(child, () => true, includeShadow))].filter(predicate);
 }
+
+// The VM models native popover calls and membership, not browser rendering or
+// event propagation. Real screenshots and page capture listeners cover those.
+test("feedback lives in a non-focusable shadow-owned manual popover", () => {
+  const page = createPage({ reducedMotion: true });
+  page.move(); page.click();
+  const host = page.document.getElementById("open-browser-use-cursor-root");
+  const [layer] = page.elements("browser-agent-layer");
+  assert.ok(host.shadowRoot); assert.deepEqual({ ...host.shadowRoot.options }, { mode: "open" });
+  assert.equal(layer.getRootNode(), host.shadowRoot);
+  assert.equal(layer.attributes.get("popover"), "manual");
+  assert.equal(host.attributes.get("aria-hidden"), "true");
+  for (const node of findAll(host, () => true, true)) {
+    assert.equal(node.attributes.has("tabindex"), false);
+    assert.equal(node.attributes.has("autofocus"), false);
+  }
+  for (const name of ["browser-agent-cursor", "browser-agent-target", "browser-agent-click"]) {
+    assert.equal(page.elements(name)[0].getRootNode(), host.shadowRoot);
+  }
+  assert.equal(layer.style.margin, "0"); assert.equal(layer.style.padding, "0"); assert.equal(layer.style.border, "0");
+  assert.equal(layer.style.width, "auto"); assert.equal(layer.style.height, "auto");
+  assert.equal(layer.style.background, "transparent"); assert.equal(layer.style.pointerEvents, "none");
+  assert.notEqual(layer.style.all, "initial"); assert.notEqual(layer.style.display, "block");
+  assert.ok(findAll(host.shadowRoot, node => node.tagName === "STYLE").some(node => /::backdrop\s*\{[^}]*display:\s*none/.test(node.textContent)));
+  assert.ok(page.popoverCalls.length > 0);
+  for (const call of page.popoverCalls) { assert.equal(call.root, host.shadowRoot); assert.deepEqual(call.args, []); }
+  page.hide();
+});
+
+test("only new visible feedback raises the layer above later application UI", () => {
+  const page = createPage(); page.move({ animateMovement: false });
+  const [layer] = page.elements("browser-agent-layer"), dialog = page.add("dialog");
+  page.topLayer.push(dialog);
+  page.move({ x: 600, y: 400, moveSequence: 2 });
+  assert.equal(page.topLayer.at(-1), layer); assert.equal(page.topLayer.includes(dialog), true);
+  const calls = page.popoverCalls.length;
+  for (const [id, frame] of [...page.frames]) { page.frames.delete(id); frame(20); }
+  assert.equal(page.popoverCalls.length, calls, "Animation must not reorder the top layer");
+  page.topLayer.push(page.add("section"));
+  page.click(); assert.equal(page.topLayer.at(-1), layer);
+  page.emit("scroll"); page.emit("resize");
+  assert.equal(page.popoverCalls.length, calls + 2, "Passive viewport events do not reopen the layer");
+  page.hide();
+});
+
+test("hidden and destroyed feedback closes its original native layer", () => {
+  const page = createPage(); page.hide(); assert.equal(page.popoverCalls.length, 0);
+  page.move(); page.click(); const [layer] = page.elements("browser-agent-layer");
+  const host = page.document.getElementById("open-browser-use-cursor-root");
+  page.hide(); assert.equal(layer.matches(":popover-open"), false); assert.equal(layer.style.display, "none");
+  assert.equal(page.frames.size, 0); assert.equal(page.timers.size, 0);
+  const count = page.popoverCalls.length; page.hide(); assert.equal(page.popoverCalls.length, count);
+  page.move({ turnId: "next" }); assert.equal(layer.matches(":popover-open"), true); assert.notEqual(layer.style.display, "none");
+  page.emit("pagehide"); assert.equal(host.isConnected, false); assert.equal(layer.isConnected, false); assert.equal(page.topLayer.includes(layer), false);
+  page.move(); assert.notEqual(page.elements("browser-agent-layer")[0], layer); page.hide();
+});
+
+test("missing native popover APIs retain ordinary cursor and outline feedback", () => {
+  const page = createPage({ reducedMotion: true, popoverAPI: false }); page.hit(page.add("button"));
+  page.move(); page.click();
+  const [layer] = page.elements("browser-agent-layer");
+  assert.equal(layer.attributes.has("popover"), false); assert.equal(page.popoverCalls.length, 0);
+  assert.equal(page.elements("browser-agent-cursor")[0].style.opacity, "1");
+  assert.equal(page.elements("browser-agent-target")[0].style.display, "block");
+  assert.equal(page.elements("browser-agent-click").length, 1);
+  page.hide(); assert.equal(layer.style.display, "none");
+});
+
+test("native popover exceptions are best effort and later feedback can recover", () => {
+  const page = createPage({ reducedMotion: true }); page.failPopover("show"); page.move();
+  const [layer] = page.elements("browser-agent-layer"); assert.equal(layer.matches(":popover-open"), false);
+  page.move({ moveSequence: 2 }); assert.equal(layer.matches(":popover-open"), true);
+  page.failPopover("hide"); page.hide(); assert.equal(layer.style.display, "none", "Even a failed hide cannot leave visible feedback");
+  page.move({ moveSequence: 3 }); assert.equal(layer.matches(":popover-open"), true); assert.notEqual(layer.style.display, "none");
+  page.hide(); assert.equal(layer.matches(":popover-open"), false);
+});
 
 test("moving the AI cursor outlines the interactive ancestor without changing page elements", () => {
   const page = createPage();
@@ -230,7 +342,9 @@ test("hit testing ignores overlay nodes and highlights an iframe without enterin
   Object.defineProperty(frame, "contentDocument", { get() { throw new Error("Must not enter child frames"); } });
   page.move();
   const [cursor] = page.elements("browser-agent-cursor");
-  page.hit(cursor, frame);
+  // Document hit testing retargets a shadow descendant to its host. Exclude
+  // both that host and any directly reported feedback descendant.
+  page.hit(page.document.getElementById("open-browser-use-cursor-root"), cursor, frame);
   page.move({ x: 90, y: 80, moveSequence: 2 });
   const [outline] = page.elements("browser-agent-target");
   assert.equal(outline.style.left, "15px");
@@ -368,11 +482,13 @@ test("scroll, resize, and pagehide never leave stale markers or click timers", (
 test("wrong-session, old-turn, non-press, and invalid point events create no markers", () => {
   const page = createPage();
   page.move();
+  const calls = page.popoverCalls.length;
   for (const override of [
     { sessionId: "other" }, { turnId: "old" }, { eventType: "mouseReleased" },
     { x: NaN }, { x: Infinity }, { x: -1 }, { y: 800 }, { x: "40" }
   ]) page.click(override);
   assert.equal(page.elements("browser-agent-click").length, 0);
+  assert.equal(page.popoverCalls.length, calls, "Rejected feedback cannot reorder application layers");
   page.hide();
 });
 

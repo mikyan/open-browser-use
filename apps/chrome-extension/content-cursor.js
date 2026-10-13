@@ -74,7 +74,7 @@ function ensureCursorRenderer() {
     assetUrl: chrome.runtime.getURL("images/cursor-chat.png"),
     onArrived: notifyCursorArrived
   });
-  interactionFeedback = createInteractionFeedback(root);
+  interactionFeedback = createInteractionFeedback(cursorRenderer.layer, root, cursorRenderer.raise);
   return cursorRenderer;
 }
 
@@ -100,7 +100,7 @@ function renderState(state) {
   });
 }
 
-function createInteractionFeedback(root) {
+function createInteractionFeedback(root, host, raise) {
   const interactiveSelector = [
     "button", "a[href]", "input", "textarea", "select", "summary",
     '[contenteditable]:not([contenteditable="false"])',
@@ -128,7 +128,7 @@ function createInteractionFeedback(root) {
     if (!validPoint(x, y)) return;
     // Hit-test only this document. An iframe is highlighted as a frame; no
     // coordinates or page state are read from its child document.
-    let hit = document.elementsFromPoint(x, y).find((element) => !root.contains(element));
+    let hit = document.elementsFromPoint(x, y).find((element) => !host.contains(element) && !root.contains(element));
     // Web Components expose their host to document hit testing. Descend only
     // through open shadow roots, keeping closed roots and frames opaque.
     while (hit?.shadowRoot) {
@@ -163,6 +163,7 @@ function createInteractionFeedback(root) {
     highlight,
     click: (x, y) => {
       if (!validPoint(x, y)) return;
+      raise();
       highlight(x, y);
       // Each click owns its effect, so a second click never restarts cursor
       // travel or leaves the first click's timer behind.
@@ -373,13 +374,15 @@ function createCursorRenderer(root, { assetUrl, onArrived }) {
   };
 
   return {
+    layer: parts.layer,
+    raise: () => parts.setVisible(true),
     destroy: () => {
       destroyed = true;
       if (frameId != null) {
         cancelCursorFrame(frameId);
         frameId = null;
       }
-      parts.layer.remove();
+      root.remove();
     },
     setState: (state) => {
       if (state.isVisible === false || state.cursor?.visible === false) {
@@ -387,8 +390,10 @@ function createCursorRenderer(root, { assetUrl, onArrived }) {
         frameId = null;
         model = null;
         parts.cursor.style.opacity = "0";
+        parts.setVisible(false);
         return;
       }
+      parts.setVisible(true);
       const turnKey = state.turnKey ?? "";
       const hasCursor = state.cursor != null;
       const point = normalizePoint({
@@ -473,6 +478,39 @@ function createCursorParts(root, assetUrl) {
   root.style.position = "fixed";
   root.style.zIndex = "2147483647";
 
+  // Native popover toggle events stay inside this shadow tree. A light-DOM
+  // popover would expose them to application capture listeners and policies.
+  const shadow = root.shadowRoot ?? root.attachShadow({ mode: "open" });
+  shadow.replaceChildren();
+  const layer = document.createElement("div");
+  layer.dataset.testid = "browser-agent-layer";
+  Object.assign(layer.style, {
+    position: "fixed", inset: "0", overflow: "hidden", pointerEvents: "none",
+    width: "auto", height: "auto", margin: "0", padding: "0", border: "0",
+    background: "transparent", boxShadow: "none", zIndex: "2147483647",
+    transition: "none", animation: "none"
+  });
+  const layerStyle = document.createElement("style");
+  layerStyle.textContent = '[data-testid="browser-agent-layer"]::backdrop { display: none; }';
+  shadow.appendChild(layerStyle);
+  shadow.appendChild(layer);
+  const hasPopover = typeof layer.showPopover === "function" && typeof layer.hidePopover === "function";
+  if (hasPopover) layer.setAttribute("popover", "manual");
+  const setVisible = (visible) => {
+    // Do not override the UA's closed-popover display rule when showing. The
+    // explicit hidden rule also removes pixels if a native hide throws.
+    layer.style.display = visible ? "" : "none";
+    if (!hasPopover) return;
+    try {
+      if (layer.matches(":popover-open")) layer.hidePopover();
+      // Reopen only for actual feedback, never from animation frames. This
+      // places it above application dialogs opened since the previous update.
+      if (visible && layer.isConnected) layer.showPopover();
+    } catch {
+      // Feedback is best effort; a later message can retry native presentation.
+    }
+  };
+
   const cursor = document.createElement("div");
   cursor.dataset.testid = "browser-agent-cursor";
   cursor.id = "open-browser-use-cursor";
@@ -503,8 +541,8 @@ function createCursorParts(root, assetUrl) {
 
   assetWrap.appendChild(image);
   cursor.appendChild(assetWrap);
-  root.appendChild(cursor);
-  return { cursor, layer: root };
+  layer.appendChild(cursor);
+  return { cursor, layer, setVisible };
 }
 
 function createCursorModel(point, visible) {

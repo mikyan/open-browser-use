@@ -1,5 +1,21 @@
 # Browser integration acceptance
 
+## Agent feedback over HTML top layers
+
+`OBU_TEST_CASES=^js-top-layer-feedback$` selects original public input on outer
+and nested modal dialogs and simultaneous manual/auto business popovers, plus
+mandatory raw navigation. Three retained screenshots separately verify cursor
+and outline pixels inside the opaque panel; three original form POSTs verify
+exact bytes, document/node identity and trusted events. Focus, selection and
+business layer/toggle histories must remain intact. Turn-end observations are
+read-only and cleanup removes exact fixture tabs without a new SDK turn.
+
+The fixture saves its server ledger before cleanup, including after failures.
+Its unit tests are `node --test scripts/browser-integration/top-layer-feedback-fixture.test.mjs`.
+Related regressions should include existing pointer feedback and ordinary/CSP
+PDF exclusions. See the [renderer contract](../../docs/references/top-layer-feedback.md)
+for the supported scope and native presentation failure limits.
+
 ## Agent feedback during PDF export
 
 `OBU_TEST_CASES=^js-cursor-print-exclusion(-csp)?$` selects public fill, click, hover and

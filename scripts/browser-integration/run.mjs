@@ -28,6 +28,7 @@ import { createSiteAccessSubmissions } from "./site-access-save-retry.mjs";
 import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
+import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
 import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
@@ -362,9 +363,11 @@ const originalDownloadNegativeFixtures = createOriginalDownloadNegativeFixtures(
 const snapshotGeometryFixtures = createSnapshotGeometryFixture();
 const mcpBindingFixture = createMCPBindingFixture();
 const siteAccessSubmissions = createSiteAccessSubmissions();
+const topLayerFeedbackFixtures = createTopLayerFeedbackFixtures();
 let httpPort, actionVisits = 0;
 const http = createServer(async (request, response) => {
   if (siteAccessSubmissions.handle(request, response)) return;
+  if (topLayerFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -563,6 +566,7 @@ try {
   sourceIdentity.sha256.pageExportsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "page-exports-fixture.mjs"))).digest("hex");
   for (const name of ["cursor-print-fixture.mjs", "cursor-print-artifacts.py"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  sourceIdentity.sha256.topLayerFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "top-layer-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.memoryClipboardGuard = createHash("sha256").update(await fs.readFile(path.join(directory, "memory-clipboard.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardCallers = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-callers.mjs"))).digest("hex");
@@ -1688,17 +1692,65 @@ try {
     }
   });
   await test("js-pointer-feedback-and-raw-cdp-coexistence", async () => {
-    await tab.evaluate(`globalThis.__integrationClicks=[];new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.dataset?.testid==='browser-agent-click')globalThis.__integrationClicks.push({x:parseFloat(node.style.left),y:parseFloat(node.style.top)});}).observe(document.documentElement,{childList:true,subtree:true})`);
+    await tab.getByRole("button", { name: "Engine action", exact: true }).hover();
+    await tab.evaluate(`(()=>{globalThis.__integrationClicks=[];const root=document.querySelector('#open-browser-use-cursor-root');new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.dataset?.testid==='browser-agent-click')globalThis.__integrationClicks.push({x:parseFloat(node.style.left),y:parseFloat(node.style.top)});}).observe(root.shadowRoot??root,{childList:true,subtree:true})})()`);
     const expected = await tab.getByRole("button", { name: "Engine action", exact: true }).boundingBox();
     await tab.getByRole("button", { name: "Engine action", exact: true }).click();
     assert.equal(await tab.locator("#engine-result").textContent(), "1");
-    const pointer = await tab.evaluate(`(()=>{const root=document.querySelector('#open-browser-use-cursor-root'); const cursor=root?.querySelector('[data-testid="browser-agent-cursor"]'); const target=root?.querySelector('[data-testid="browser-agent-target"]'); return {root:!!root,cursor:!!cursor,cursorVisible:cursor&&getComputedStyle(cursor).visibility!=="hidden"&&getComputedStyle(cursor).display!=="none",targetDisplay:target&&getComputedStyle(target).display,clicks:globalThis.__integrationClicks};})()`);
+    const pointer = await tab.evaluate(`(()=>{const root=document.querySelector('#open-browser-use-cursor-root'),tree=root?.shadowRoot??root; const cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]'); const target=tree?.querySelector('[data-testid="browser-agent-target"]'); return {root:!!root,cursor:!!cursor,cursorVisible:cursor&&getComputedStyle(cursor).visibility!=="hidden"&&getComputedStyle(cursor).display!=="none",targetDisplay:target&&getComputedStyle(target).display,clicks:globalThis.__integrationClicks};})()`);
     assert.ok(pointer.root && pointer.cursor && pointer.cursorVisible, JSON.stringify(pointer));
     assert.equal(pointer.targetDisplay, "block", "The clicked element is not highlighted");
     assert.ok(pointer.clicks.some(point => Math.abs(point.x - expected.x - expected.width / 2) <= 2 && Math.abs(point.y - expected.y - expected.height / 2) <= 2), "No click feedback at the dispatched position");
     assert.equal(await tab.evaluate("document.title"), "OBU SDK fixture");
     await tab.getByRole("button", { name: "ARIA named action", exact: true }).hover();
     return pointer;
+  });
+  await test("js-top-layer-feedback", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-top-layer-feedback", timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      detail = await checkTopLayerFeedback({ browser: owner, fixtureURL, fixtures: topLayerFeedbackFixtures,
+        saveArtifact: (name, data) => fs.writeFile(path.join(runDir, name), data, { flag: "wx" }),
+        saveDetail: detail => fs.writeFile(path.join(runDir, "top-layer-feedback.json"), JSON.stringify(detail, null, 2)),
+        // Cleanup after turnEnded must not implicitly attach a new SDK turn.
+        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
+        checkEnd: async detail => {
+          const read = async () => {
+            const values = [];
+            for (const tabId of detail.tabIds) {
+              const page = detail.pages.find(value => value.tabId === tabId);
+              const stage = detail.states.filter(value => value.key === page.key).at(-1).stage;
+              const rows = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},world:'MAIN',args:[${JSON.stringify(stage)}],func:stage=>{
+                const host=document.getElementById('open-browser-use-cursor-root'),tree=host?.shadowRoot??host;
+                const cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]');
+                const state=window.topLayerState(stage);
+                return {host:!!host,openAgentLayers:tree?.querySelectorAll(':popover-open').length??0,
+                  opacity:cursor?getComputedStyle(cursor).opacity:null,rings:tree?.querySelectorAll('[data-testid="browser-agent-click"]').length??0,
+                  activeElement:document.activeElement?.id??'',dialogs:[...document.querySelectorAll('dialog[open]')].map(node=>node.id),
+                  popovers:[...document.querySelectorAll('[popover]:popover-open')].map(node=>node.id),
+                  business:{focus:state.focus,selection:state.selection,toggles:state.toggles,capturedToggles:state.capturedToggles,events:state.events}};
+              }})`);
+              assert.equal(rows.length, 1); values.push({ tabId, ...rows[0].result });
+            }
+            return values;
+          };
+          const before = await read(); assert.equal(before.length, 2);
+          assert.ok(before.every(value => value.host && value.openAgentLayers === 1));
+          await owner.client.turnEnded();
+          const after = await until(async () => { const values = await read(); return values.every(value => value.openAgentLayers === 0 && value.opacity === "0" && value.rings === 0) ? values : false; }, "original feedback layers close after turn end", 5000);
+          for (let index = 0; index < before.length; index++) {
+            for (const key of ["tabId", "activeElement", "dialogs", "popovers", "business"])
+              assert.deepEqual(after[index][key], before[index][key], `Turn end changed business ${key}`);
+          }
+          detail.endCleanup = { before, after };
+        } });
+    } catch (error) { failure = error; }
+    finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+    }
+    if (failure) throw failure;
+    return detail;
   });
   await test("js-mouse-and-keyboard", async () => {
     const input = tab.getByLabel("Controlled name");

@@ -11,11 +11,22 @@
 
 ## 当前评分
 
+HTML 模态框、嵌套模态框和手动/自动 popover 上方的 AI 光标与目标框已修复。
+保留原实机 `FYfrul` 三次业务成功但反馈像素均为零的红例；Shadow DOM 内
+手动 popover 修复后 `kVaOVU` 2/2、相关 `gTjanh` 9/9 均 actual exit 0。
+三张原截图分别核对光标/边框，三个原 POST 与焦点/选区/弹窗事件账本保持，
+结束后自有层 open 0、光标 opacity 0、点击圈 0。相关回归 14,003ms 无
+activation/focus/许可；普通/CSP 八页 PDF 独立复核仍无反馈污染。
+Node CI 3092 pass、1 个既有 Windows symlink skip。完整 `7uoTMN` 147/147、
+actual exit 0，原 144 名称顺序保留；424,958ms 仅原 12 activation/4
+control-focus 许可，无新增许可，源码/运行时无漂移。
+普通安装、全屏、原生 UI 和完整持平仍开放，见[弹窗反馈](references/top-layer-feedback.md)。
+
 AI 光标、点击圈和目标框现仅在屏幕显示，不再进入 PDF 打印布局。保留原
 实机红例 `vNvX0d`；修复专项 `4A9CWZ` 3/3、相关回归 `h0x9xz` 8/8 均
 actual exit 0，普通/严格 CSP 页四份 PDF 的八页原始渲染与前后反馈核验通过。
 相关回归 10,369ms 零 activation/focus/许可；模块 26/26、PDF oracle 5/5。
-打印尺寸变化可清除旧框，下一次悬停重新定位；MHTML 不做清洗。没有重跑全套，
+打印尺寸变化可清除旧框，下一次悬停重新定位；MHTML 不做清洗。该次为定向回归，
 普通安装与完整持平仍开放，见[页面导出](references/page-exports.md#fidelity-and-limits)。
 
 原诊断响应正文已接入 JS/Python/Go/CLI/MCP，保留原 POST 与最终 native

@@ -12,6 +12,15 @@
 
 ## Baseline sources
 
+P12 的 HTML 顶层遮挡已保留原截图/提交红例并修复：`FYfrul` 三次原表单
+提交成功但光标/边框像素皆为零；Shadow DOM 内手动 popover 后，专项
+`kVaOVU` 2/2、相关 `gTjanh` 9/9 均 actual exit 0。焦点、选区和业务弹窗
+账本保持，结束后自有层关闭，普通/CSP PDF 仍无污染。相关回归 14,003ms
+零前台事件/许可；Node CI 3092 pass/1 既有 Windows symlink skip。
+完整 `7uoTMN` 147/147 actual exit 0，保留旧 144 名称顺序，424,958ms
+只有原 12 activation/4 control-focus 许可；无新增许可或源码/运行时漂移。
+该片不证明全屏、原生 UI 或普通安装，见[弹窗反馈](../references/top-layer-feedback.md)。
+
 P10/P12 的 PDF 反馈污染已保留原实机红例并修复：普通/严格 CSP 页专项
 `4A9CWZ` 3/3、相关回归 `h0x9xz` 8/8 均 actual exit 0，原报告八页核验
 无光标图像或彩色反馈，后续悬停仍可见，10,369ms 零前台事件/许可。

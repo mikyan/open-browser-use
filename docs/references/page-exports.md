@@ -100,7 +100,9 @@ undo a native command already sent.
 ## Fidelity and limits
 
 Agent cursor, click rings and target outlines are excluded from print layout by
-a print-only rule owned by the feedback root. Screen feedback remains enabled.
+a print-only rule owned by the feedback root, including the manual popover in
+its shadow tree. Screen feedback remains enabled; see
+[HTML top-layer feedback](top-layer-feedback.md) for the renderer boundary.
 Printing may resize the document and clear the old target rectangle; a later
 hover computes a fresh outline. This does not remove feedback markup from
 MHTML, which retains the browser's page serialization.
