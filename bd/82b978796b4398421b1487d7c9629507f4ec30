@@ -1,0 +1,19 @@
+docs/exec-plans/completed/2026-10-13-chooser-convenience-clear.md
+  s_08bbfd293d324f::t_7d497f77db73f4 26,83-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "bd82b978796b4398421b1487d7c9629507f4ec30",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
