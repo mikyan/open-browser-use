@@ -17,6 +17,91 @@ test("uncertain guarded click failure releases its attachment once without retry
   assert.equal(engine.pages.size, 0);
 });
 
+test("unconfirmed fill delivery releases the original attachment without repeating text", async () => {
+  let fills = 0;
+  const original = new Error("OBU_FILL_DELIVERY_UNCONFIRMED: original input receipt was absent");
+  const f = fixture({ fill: async () => { fills++; throw original; } });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.dispatch(request("fill", { locator, args: { value: "one submission" } })), error => error === original);
+  assert.equal(fills, 1);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+  assert.equal(engine.pages.size, 0);
+});
+
+test("fill cleanup failure preserves both the original delivery error and failed release", async () => {
+  const original = new Error("OBU_FILL_DELIVERY_UNCONFIRMED: original native completion was unknown");
+  const cleanup = new Error("original renderer release failed");
+  const f = fixture({ fill: async () => { throw original; } });
+  let attempts = 0;
+  f.app.detach = async () => { attempts++; throw cleanup; };
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  await assert.rejects(engine.dispatch(request("fill", { locator, args: { value: "text" } })), error => error === original && error.cleanupError === cleanup);
+  assert.equal(attempts, 1);
+});
+
+test("a late fill failure cannot detach an explicitly attached successor", async () => {
+  let rejectFill, entered;
+  const entering = new Promise(resolve => { entered = resolve; });
+  const original = new Error("OBU_FILL_DELIVERY_UNCONFIRMED: old native completion");
+  const f = fixture({ fill: () => { entered(); return new Promise((_, reject) => { rejectFill = reject; }); } });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const filling = engine.dispatch(request("fill", { locator, args: { value: "old" } }));
+  const rejected = assert.rejects(filling, error => error === original);
+  await entering;
+  const previous = engine.pages.get(42);
+  engine.forget(42);
+  await engine.attach(42);
+  const successor = engine.pages.get(42);
+  assert.notEqual(successor, previous);
+  rejectFill(original); await rejected;
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 0);
+  assert.equal(engine.pages.get(42), successor);
+  await engine.detach(42);
+});
+
+test("an old fill deadline cannot detach its successor while original work remains pending", async () => {
+  let resolveFill, entered;
+  const entering = new Promise(resolve => { entered = resolve; });
+  const f = fixture({ fill: () => { entered(); return new Promise(resolve => { resolveFill = resolve; }); } });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  const filling = engine.dispatch(request("fill", { locator, args: { value: "old" }, timeoutMs: 25 }));
+  const rejected = assert.rejects(filling, /Browser action timed out after 25ms/);
+  await entering;
+  const actual = engine.queues.get(42);
+  engine.forget(42); await engine.attach(42);
+  const successor = engine.pages.get(42);
+  await rejected;
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 0);
+  assert.equal(engine.pages.get(42), successor);
+  assert.ok(engine.controlSnapshot().pending.includes(actual));
+  resolveFill(); await actual.catch(() => {});
+  assert.equal(engine.pages.get(42), successor);
+  await engine.detach(42);
+});
+
+test("a fill deadline during cold attachment cannot release a replacement generation", async () => {
+  let finishRead, entered, reads = 0;
+  const entering = new Promise(resolve => { entered = resolve; });
+  const f = fixture({ fill: async () => assert.fail("expired cold fill must not execute") });
+  const engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+  globalThis.chrome.tabs.get = async () => {
+    if (++reads === 1) { entered(); await new Promise(resolve => { finishRead = resolve; }); }
+    return { incognito: false };
+  };
+  const filling = engine.dispatch(request("fill", { locator, args: { value: "old" }, timeoutMs: 25 }));
+  const rejected = assert.rejects(filling, /Browser action timed out after 25ms/);
+  await entering;
+  const actual = engine.queues.get(42);
+  engine.forget(42); await engine.attach(42);
+  const successor = engine.pages.get(42);
+  await rejected;
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 0);
+  assert.equal(engine.pages.get(42), successor);
+  finishRead(); await actual.catch(() => {});
+  assert.equal(engine.pages.get(42), successor);
+  await engine.detach(42);
+});
+
 const refLocator = capture => [{ kind: "ref", captureId: capture.captureId, ref: "e1" }];
 function aiFixture(methods) {
   const f = fixture(methods);

@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+普通fill的原生文本分支新增原编辑宿主可信input确认，ACK单独不能报告成功；
+页面取消/受控丢失投递明确失败且不重放。保留格式化、原生删除内部span、
+Delete及setter边界，原attachment清理不影响继任。Node2800 pass/1既有
+Windows symlink skip、actualexit0。最终专项`qyho7y`2/2含17场、11原POST/
+33416B，六失败零提交，20157ms零activation/focus；完整`c4vgmp`129/129、
+actualexit0保留旧128顺序，328568ms仅原12activation/4controlfocus许可。
+四轮fixture失败保留；原生安装、Vivaldi路由和P12仍开放，旧preview不变。
+见[文本投递证据](references/fill-delivery.md)。
+
 当前会话自动发现补 IPv6-only loopback：原TCP拒绝才同端口回退，授权拒绝等
 不触发重连，原身份和期限保持；Go518 pass/27既有skip，vet/跨编译通过。
 `m0BgyU`五入口2/2 actualexit0，30原文件5200B与13415ms零focus/activation

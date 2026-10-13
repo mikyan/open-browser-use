@@ -183,6 +183,9 @@ Ordinary locator hover on idle input confirms that the original target received
 the move before reporting success. It preserves menus and target changes caused
 by that hover; force/trial and already-held input keep their existing behavior.
 See the [hover delivery contract](docs/references/hover-delivery.md).
+Text fill also confirms trusted input at the original editing host after the
+native command completes. Cancelled or missing delivery fails explicitly;
+page formatting remains valid. See the [fill contract](docs/references/fill-delivery.md).
 
 JavaScript, Python, and Go SDKs expose semantic locators and automatic waits; all
 clients can use the shared [browser action protocol](docs/references/browser-action-protocol.md).

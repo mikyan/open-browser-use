@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Fill delivery](fill-delivery.md)：原编辑宿主输入回执、setter 与格式化语义、
+  原租约清理和禁止提交后重放的边界。
 - [Ordinary-start Edge downloads](normal-browser-downloads.md)：独立正常启动、
   人工授权、真实 Native Messaging 与原文件业务验收的执行和证据边界。
 - [Hover delivery](hover-delivery.md)：原目标悬停事件确认、菜单及目标变化语义、

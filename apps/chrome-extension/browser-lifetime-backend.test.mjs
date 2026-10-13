@@ -194,6 +194,53 @@ async function pointerHookFixture(t) {
       () => f.chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", params), ticket) };
 }
 
+test("backend fill rejects pre-held Control, then forwards an idle ticket through original native input", async t => {
+  const f = await pointerHookFixture(t);
+  const key = type => f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type, key: "Control", code: "ControlLeft" }, async () => ({}));
+  await key("rawKeyDown");
+  assert.throws(() => f.pointerHooks.beginFillAction(f.target, () => {}), /OBU_FILL_ACTION_BUSY/);
+  await key("keyUp");
+  const ticket = f.pointerHooks.beginFillAction(f.target, () => {});
+  const params = { text: "one fill" };
+  try {
+    await f.pointerHooks.send(f.target, "Input.insertText", params,
+      () => f.chrome.debugger.sendCommand(f.target, "Input.insertText", params), ticket);
+    ticket.check();
+    assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
+    await f.backend.executeCdp({ ...f.params, target: f.target, method: "Input.insertText", commandParams: { text: "foreign" } });
+    assert.throws(() => ticket.check(), /POINTER_ACTION_INVALIDATED/);
+  } finally { ticket.close(); }
+});
+
+test("backend fill refuses expired admission and observes Pause before any new native input", async t => {
+  const f = await pointerHookFixture(t), expired = Object.freeze(new Error("original fill deadline"));
+  assert.throws(() => f.pointerHooks.beginFillAction(f.target, () => { throw expired; }), error => error === expired);
+  const ticket = f.pointerHooks.beginFillAction(f.target, () => {});
+  try {
+    f.backend.automationControl.block();
+    assert.throws(() => ticket.check(), /AUTOMATION_PAUSED/);
+    assert.throws(() => f.pointerHooks.beginFillAction(f.target, () => {}), /AUTOMATION_PAUSED/);
+    assert.throws(() => f.pointerHooks.send(f.target, "Input.insertText", { text: "late" }, () => assert.fail("late native input"), ticket), /AUTOMATION_PAUSED/);
+  } finally { ticket.close(); }
+});
+
+test("backend fill cannot send after a durable journal ACK crosses its original deadline", async t => {
+  const f = await pointerHookFixture(t), gate = f.gate(), original = Object.freeze(new Error("original fill expired"));
+  let expired = false, storing = false;
+  const ticket = f.pointerHooks.beginFillAction(f.target, () => { if (expired) throw original; });
+  f.hooks.write = async (area, values) => {
+    if (area === "local" && values[RISKS]?.risks.length) { storing = true; await gate.promise; }
+  };
+  try {
+    const params = { text: "late text" };
+    const sending = f.pointerHooks.send(f.target, "Input.insertText", params,
+      () => f.chrome.debugger.sendCommand(f.target, "Input.insertText", params), ticket);
+    const rejected = assert.rejects(sending, error => error === original);
+    await until(() => storing, "fill durable intent"); expired = true; gate.resolve(); await rejected;
+    assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+  } finally { ticket.close(); }
+});
+
 test("backend hover admission preserves confirmed pre-held keys and forwards an idle ticket", async t => {
   const f = await pointerHookFixture(t);
   const key = type => f.pointerHooks.send(f.target, "Input.dispatchKeyEvent", { type, key: "Shift", code: "ShiftLeft" }, async () => ({}));

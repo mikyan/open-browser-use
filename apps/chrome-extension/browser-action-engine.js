@@ -551,6 +551,12 @@ export class BrowserActionEngine {
     let phase = "queued";
     let release;
     let timer;
+    let fillAttachment;
+    // Fill owns renderer receipt resources on one attachment. A late result or
+    // deadline from that fill cannot release an explicitly attached successor.
+    const canReleaseAttachment = () => params.action !== "fill" || (fillAttachment
+      ? this.pages.get(params.tabId) === fillAttachment
+      : (this.generations.get(params.tabId) ?? 0) === generation);
     const timeoutError = () => new Error(`Browser action timed out after ${params.timeoutMs}ms`);
     const checkTime = () => { if (expired || performance.now() >= deadlineAt) { expired = true; throw timeoutError(); } };
     const check = async () => {
@@ -582,6 +588,7 @@ export class BrowserActionEngine {
       });
       const { page } = entry;
       await check();
+      if (params.action === "fill") fillAttachment = this.pages.get(params.tabId);
       const diagnosticsOwner = JSON.stringify([params.session_id, params.control_epoch ?? params.turn_id]);
       if (entry.diagnosticsOwner && entry.diagnosticsOwner !== diagnosticsOwner) {
         await this.detach(params.tabId);
@@ -682,10 +689,10 @@ export class BrowserActionEngine {
         if (params.action === "setInputFiles" && error?.mediaCleanupFailed && typeof error.retryMediaCleanup === "function")
           this.fileInputCleanups.set(params.tabId, { entry, retry: error.retryMediaCleanup });
         // Also release if Playwright's own deadline wins just before ours.
-        // Guarded clicks can fail after a native press whose completion is
+        // Guarded input can fail after a native command whose completion is
         // unknown. Release through the attachment tracker before admitting a
         // later action, even if Playwright serialized it as a plain Error.
-        if (!release && (error?.name === "TimeoutError" || error?.mediaCleanupFailed || /OBU_POINTER_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
+        if (!release && canReleaseAttachment() && (error?.name === "TimeoutError" || error?.mediaCleanupFailed || /OBU_(?:POINTER|FILL)_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
         if (release) await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
         throw error;
       } finally {
@@ -696,7 +703,7 @@ export class BrowserActionEngine {
     const deadline = new Promise((_, reject) => {
       timer = setTimeout(() => {
         expired = true;
-        if (phase === "queued" || phase === "finished") { reject(timeoutError()); return; }
+        if (phase === "queued" || phase === "finished" || !canReleaseAttachment()) { reject(timeoutError()); return; }
         release = this.detach(params.tabId);
         // An in-flight attachment cannot execute input after the generation
         // check. Keep its cleanup barrier, but do not make the RPC unbounded.
@@ -709,7 +716,7 @@ export class BrowserActionEngine {
     try { return await Promise.race([current, deadline]); }
     catch (error) {
       if (expired) {
-        if (!release && phase !== "queued" && phase !== "finished") release = this.detach(params.tabId);
+        if (!release && phase !== "queued" && phase !== "finished" && canReleaseAttachment()) release = this.detach(params.tabId);
         if (release) {
           if (phase === "running" || phase === "finished") await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
           else release.catch(() => {});

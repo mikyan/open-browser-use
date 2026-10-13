@@ -79,6 +79,7 @@ import { screencastConcurrencyHTML, installScreencastConcurrencyProbe, checkScre
 import { checkScreenshotDrain } from "./screenshot-drain-fixture.mjs";
 import { createPointerDeliveryFixtures, checkPointerDelivery, checkCountedPointerDelivery } from "./pointer-delivery-cases.mjs";
 import { createHoverDeliveryFixtures, createHoverRPCRelay, checkHoverDelivery, checkHoverPause } from "./hover-delivery-fixture.mjs";
+import { createFillDeliveryFixtures, checkFillDelivery } from "./fill-delivery-fixture.mjs";
 import { createTransformedPointerFixtures, checkTransformedPointer } from "./transformed-pointer-fixture.mjs";
 import { createElementPositionFixtures, checkElementPosition } from "./element-position-fixture.mjs";
 import { createDirectLocatorUploadFixtures, prepareDirectLocatorUploadFiles } from "./direct-locator-upload-fixture.mjs";
@@ -320,6 +321,7 @@ const navigationFixtures = createNavigationWaitFixtures();
 const pointerDeliveryFixtures = createPointerDeliveryFixtures();
 const hoverDeliveryFixtures = createHoverDeliveryFixtures();
 const hoverRPCRelay = createHoverRPCRelay();
+const fillDeliveryFixtures = createFillDeliveryFixtures();
 const transformedPointerFixtures = createTransformedPointerFixtures();
 const elementPositionFixtures = createElementPositionFixtures();
 const boundingGeometryFixtures = createBoundingGeometryFixtures();
@@ -350,6 +352,7 @@ const http = createServer(async (request, response) => {
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
   if (pointerDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (hoverDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (fillDeliveryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (transformedPointerFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (elementPositionFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (boundingGeometryFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
@@ -506,9 +509,10 @@ try {
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.pointerDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "pointer-delivery-cases.mjs"))).digest("hex");
   sourceIdentity.sha256.hoverDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "hover-delivery-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.fillDeliveryFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "fill-delivery-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.transformedPointerFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "transformed-pointer-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.elementPositionFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "element-position-fixture.mjs"))).digest("hex");
-  for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
+  for (const name of ["build-chrome-extension.mjs", "patch-frame-geometry.mjs", "patch-pointer-delivery.mjs", "patch-drag-delivery.mjs", "patch-fill-delivery.mjs"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", name))).digest("hex");
   for (const name of ["direct-locator-upload-fixture.mjs", "direct-locator-upload-callers.mjs", "direct-locator-upload-native.mjs", "direct-locator-upload-checks.py", "go-direct-locator-upload-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.focusLedger = createHash("sha256").update(await fs.readFile(path.join(directory, "focus-ledger.mjs"))).digest("hex");
   sourceIdentity.sha256.nativeHostBridge = createHash("sha256").update(await fs.readFile(path.join(directory, "native-host-bridge.mjs"))).digest("hex");
@@ -1699,6 +1703,22 @@ try {
       saveScreenshot: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
       saveDetail: detail => fs.writeFile(path.join(runDir, "screencast-concurrency.json"), JSON.stringify(detail, null, 2))
     });
+  });
+  await test("js-fill-delivery", async () => {
+    sourceIdentity.testHooks.push("fill delivery: original public locator fill in root, existing OOPIF and dynamic OOPIF; same-worker original browserAction request/reply and native input/ACK recorded. Normal and synchronously transformed text require original business POST; cancelled beforeinput and exact-tab synthetic insertText ACK/drop require terminal rejection, zero replay and no Submit/POST. No implicit click, synthetic DOM input or additional focus allowance; controlled ACK/drop is not a natural browser routing failure");
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-fill-delivery", turnId: "fill-delivery", timeoutMs: 20000 });
+    const detail = {}; let failure;
+    try { await checkFillDelivery({ browser: owner, worker, fixtureURL, server: fillDeliveryFixtures, until, detail }); }
+    catch (error) { failure = error; }
+    await finishChooserCase({ detail, originalError: failure, cleanup: [
+      { name: "finalize-fill-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "close-fill-client", run: () => owner.close() }
+    ], save: async value => {
+      await fs.writeFile(path.join(runDir, "fill-delivery-server.json"), JSON.stringify(fillDeliveryFixtures.allStats(), null, 2));
+      await fs.writeFile(path.join(runDir, "fill-delivery.json"), JSON.stringify(value, null, 2));
+    } });
+    if (failure) throw failure;
+    return detail;
   });
   await test("js-hover-delivery", async () => {
     sourceIdentity.testHooks.push("hover delivery: exact-tab original native input recorder; selected root moves deliberately dropped with synthetic ACK, real document nonce/event-time ledgers and single POST receipts checked independently. No simulated DOM event, changed deadline, child direct input or focus allowance; controlled missing delivery is not a natural Chromium failure");

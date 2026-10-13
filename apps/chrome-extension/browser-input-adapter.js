@@ -65,6 +65,18 @@ export class NativeInputTracker {
     return record;
   }
 
+  beginFillAction(tabId, token, check = () => {}) {
+    const record = this.assertSend(tabId, token);
+    // A fill can use Delete to clear text. Even confirmed pre-held modifiers
+    // can change that command's meaning, so it has no legacy held-input path.
+    // Reuse the exact ticket and resource cleanup machinery used by pointers.
+    if (record.pointerGuard || record.inflight.size || record.error || record.release || this.hasHeld(record) ||
+        [...this.durability.values()].some(value => value.record === record) ||
+        [...record.states.values()].some(state => state.dragInterceptionUsed))
+      throw new Error("OBU_FILL_ACTION_BUSY: fill requires idle, confirmed input");
+    return this.beginPointerAction(tabId, token, check);
+  }
+
   beginHoverAction(tabId, token, check = () => {}) {
     if (typeof check !== "function") throw new TypeError("Pointer authority check must be a function");
     const record = this.assertSend(tabId, token);

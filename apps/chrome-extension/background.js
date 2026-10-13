@@ -2435,7 +2435,7 @@ class BrowserBackend {
 
   async getBrowserEngine() {
     if (this.browserEngine) return this.browserEngine;
-    const beginPointerAction = (target, check, hover = false) => {
+    const beginPointerAction = (target, check, kind = "pointer") => {
       this.assertControlOpen();
       const token = this.attachmentEpochs.get(target.tabId);
       const assertCurrent = () => {
@@ -2444,7 +2444,8 @@ class BrowserBackend {
         check();
       };
       assertCurrent();
-      return hover ? this.inputTracker.beginHoverAction(target.tabId, token, assertCurrent) :
+      if (kind === "fill") return this.inputTracker.beginFillAction(target.tabId, token, assertCurrent);
+      return kind === "hover" ? this.inputTracker.beginHoverAction(target.tabId, token, assertCurrent) :
         this.inputTracker.beginPointerAction(target.tabId, token, assertCurrent);
     };
     this.browserEngine = createBrowserActionEngine({
@@ -2462,7 +2463,8 @@ class BrowserBackend {
       inputHooks: {
         prepareMediaCleanup: (target, contextId) => this.prepareMediaCleanup(target, contextId),
         beginPointerAction: (target, check) => beginPointerAction(target, check),
-        beginHoverAction: (target, check) => beginPointerAction(target, check, true),
+        beginHoverAction: (target, check) => beginPointerAction(target, check, "hover"),
+        beginFillAction: (target, check) => beginPointerAction(target, check, "fill"),
         send: (target, method, params, operation, pointerGuard) => {
           this.assertControlOpen();
           const token = this.attachmentEpochs.get(target.tabId);

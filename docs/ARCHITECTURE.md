@@ -213,6 +213,12 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   实际原生输入失败保留原attachment错误，直到显式释放完成；已确认销毁的旧
   attachment迟到错误不污染继任。force/trial仍用旧行为，原listener stop保持
   upstream best effort。见[悬停投递](references/hover-delivery.md)。
+  普通fill的needsinput分支采用独占空闲输入ticket，在原utility context固定
+  已解析节点与editing host；选择完成后arm可信input回执，原生命令ACK和
+  事件都确认才成功。取消/丢失投递不可重试，格式化或原生移除选中的内部
+  span不抹去事件事实。Runtime句柄和晚ACK沿原attachment清理，不释放继任；
+  setter类型保留原语义，原已空清空有独立无操作判据。见
+  [fill投递契约](references/fill-delivery.md)。
   显式 position 对单一已解析 HTML CSS box 使用原生 padding quad 与 fractional
   padding 尺寸投影，叶元素几何也加入 click 指纹；普通无 position 点击不增加
   这些读取。非替换inline/SVG/fragment 的旧约定与 OOPIF 原生量化边界见

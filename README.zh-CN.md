@@ -153,6 +153,8 @@ go build -o dist/ ./cmd/open-browser-use
 输入空闲时，普通定位器悬停会确认原目标实际收到移动后才报告成功，允许悬停
 打开菜单或改变目标。force/trial 与已持有输入沿用原行为；具体范围见
 [悬停投递契约](docs/references/hover-delivery.md)。
+文本 fill 同时确认原生命令完成和原编辑宿主收到可信输入；页面取消或未送达
+会明确报错，正常页面格式化仍有效。见[填入文本契约](docs/references/fill-delivery.md)。
 
 JS、Python、Go SDK 提供语义定位与自动等待，CLI/MCP 共用
 [浏览器动作协议](docs/references/browser-action-protocol.md)。

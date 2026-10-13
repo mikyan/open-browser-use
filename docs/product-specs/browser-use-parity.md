@@ -49,6 +49,15 @@ CUA accessibility 入口另有数字索引。它不构成 Codex extension 或完
 
 ## Acceptance matrix
 
+P06/P13普通fill现同时要求原生命令完成和原编辑宿主可信input；取消或受控
+丢失投递不可重试，页面格式化及原生编辑移除内部span保留事件时语义。
+原空值Delete与setter分别验收，独占输入与原attachment清理不释放继任。
+Node2800 pass/1既有Windows skip，专项`qyho7y`2/2含17内部场、11原POST/
+33416B及六失败零提交、20157ms零focus；最终完整`c4vgmp`129/129 actualexit0，
+保留旧128名称顺序，328568ms仅原12activation/4controlfocus许可。该证据
+使用隔离loopback Native Port adapter，不能代替普通安装或Vivaldi原生路由
+修复；完整矩阵仍开放，见[fill投递](../references/fill-delivery.md)。
+
 P10/P13/P15新增原文件准备确认：`requirePath`要求原Native Port/Browser
 generation和root target在准备完成时仍有效，全部child Page.enable结算后
 复核；断线及重绑不复活旧waiter。专项`99xibC`3/3通过，四页零业务触发、

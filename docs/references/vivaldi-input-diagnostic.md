@@ -7,10 +7,15 @@
 
 ## 直接证据与候选机制
 
-当前 CRX 对普通 text input 先选择并聚焦元素，收到 `needsinput` 后走
+这些历史运行所用的 CRX 对普通 text input 先选择并聚焦元素，收到 `needsinput` 后走
 keyboard.insertText；生产 input adapter 在发送前保存输入风险并重新检查
 权限和截止时间，随后调用原 chrome.debugger.sendCommand。调用 ACK 后
 没有实际 DOM 值核验。诊断因此必须同时观察原生命令与页面状态。
+
+后续开发分支已加入[fill 投递确认](fill-delivery.md)：普通文本输入同时要求
+原编辑宿主可信 input 与原生命令完成，未确认时明确失败。格式化后的最终值
+不作为投递判据，不隐式添加 click，也未修复这里记录的 Vivaldi widget 路由。
+下列旧运行保留原行为、证据和结论，不作为新实现的品牌验收。
 
 固定上游 revision `9007248033443cbe529d18cf911d6954f5ce4f49` 的
 [InputHandler](https://chromium.googlesource.com/chromium/src/+/9007248033443cbe529d18cf911d6954f5ce4f49/content/browser/devtools/protocol/input_handler.cc)

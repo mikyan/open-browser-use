@@ -1,5 +1,31 @@
 # Browser integration acceptance
 
+## Fill delivery
+
+The ordinary suite includes `js-fill-delivery`; select it with
+`OBU_TEST_CASES=^js-fill-delivery$` and the usual host/browser prerequisites.
+The mandatory raw-navigation control also runs. Seventeen internal scenarios
+retain `fill-delivery.json` and `fill-delivery-server.json` with original
+documents, node identities, native input/ACK, wire request/reply and POST bytes.
+
+Root, existing OOPIF and dynamic OOPIF each cover normal text, synchronous page
+formatting, cancelled `beforeinput` and an exact-tab controlled `insertText`
+drop with a synthetic ACK. Negative cases stop before Submit and keep observing
+through the original deadline plus 250ms, requiring no later replay or POST.
+Five root compatibility cases cover textarea, a nested contenteditable range,
+Delete clearing, already-empty clearing and the original date setter.
+The date setter retains its synthetic DOM events and requires zero native Input.
+Multiline textarea checks the exact single native command and complete ordered
+DOM input fragments. Nested editable input retains the original editing host
+and event-time range identity even when native editing removes its selected span;
+a replacement host or same-ID replacement span cannot satisfy that identity.
+
+The observer preserves other native calls and original Promises; its worker
+sequence establishes RPC/native ordering without comparing cross-process clocks.
+This controlled missing delivery is not a natural Vivaldi failure, a native
+installation acceptance, or authentication of a DOM event to a CDP request.
+No focus allowance is added. See the [fill contract](../../docs/references/fill-delivery.md).
+
 ## Hover delivery and recovery
 
 The ordinary suite includes `js-hover-delivery` and `js-hover-native-pause`.
