@@ -1,0 +1,80 @@
+scripts/patch-keyboard-press.mjs
+  s_08bbfd293d324f::t_a5b1e1fc9d2840 52-55
+  s_08bbfd293d324f::t_807cab0c728802 1-51,56-114
+README.zh-CN.md
+  s_08bbfd293d324f::t_e45bc984da523f 158-159
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_9443127e8b2c11 83,326,358,516,519,1711-1725
+  s_08bbfd293d324f::t_1b728ba388d3f5 1726
+README.md
+  s_08bbfd293d324f::t_e45bc984da523f 189-191
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_f183d7ab256091 14-22
+scripts/browser-integration/keyboard-chord-fixture.test.mjs
+  s_08bbfd293d324f::t_ddf6a59303ce62 1-189
+apps/chrome-extension/native-keyboard-admission.test.mjs
+  s_08bbfd293d324f::t_8a4eff0f9e2660 1-70
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_e45bc984da523f 3-22
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_f183d7ab256091 52-60
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_4277aa570a0444 720-725
+  s_08bbfd293d324f::t_7b1c07857c907a 18-19,325-327,551-562,571-575,608,621-628,729,768,824
+docs/references/keyboard-chords.md
+  s_08bbfd293d324f::t_7102f5ae89737c 1-2,5-11,16-53,55-62
+  s_08bbfd293d324f::t_e45bc984da523f 3-4,12-15,54,63-98
+  s_08bbfd293d324f::t_f183d7ab256091 99-108
+docs/references/README.md
+  s_08bbfd293d324f::t_ecb5be72623cbe 19-20
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_cbd9dec28a6c93 155
+  s_08bbfd293d324f::t_807cab0c728802 15,126
+apps/chrome-extension/browser-input-adapter.js
+  s_08bbfd293d324f::t_7b1c07857c907a 80-95,122-125
+apps/chrome-extension/keyboard-action-engine.test.mjs
+  s_08bbfd293d324f::t_1df3856fc3357c 23-26,95-97
+  s_08bbfd293d324f::t_ccf3985cf3814e 1-22,27-94,98-110
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_cbd9dec28a6c93 527-529
+scripts/patch-keyboard-press.test.mjs
+  s_08bbfd293d324f::t_cf70487db2cfec 1-8,11-17,21-46,270
+  s_08bbfd293d324f::t_fd5b049add6a6b 9-10,18-20,47-48,50-61,63-66,69-84,86-133,149-269
+  s_08bbfd293d324f::t_cbd9dec28a6c93 49,62,67-68,85,134-148
+scripts/browser-integration/keyboard-chord-fixture.mjs
+  s_08bbfd293d324f::t_d2dccd1b694490 139,172,179,233-235,239,250,268
+  s_08bbfd293d324f::t_6228906a151c76 1-138,140-171,173-178,180-232,236-238,240-249,251-267,269-358
+apps/chrome-extension/browser-lifetime-backend.test.mjs
+  s_08bbfd293d324f::t_108618d99cb9ff 197-245
+docs/histories/2026-10/20261013-2125-keyboard-chords.md
+  s_08bbfd293d324f::t_b267699b9116dd 59-61
+  s_08bbfd293d324f::t_ec31094a2a0e9d 1-51,62-77
+  s_08bbfd293d324f::t_f183d7ab256091 52-58
+docs/exec-plans/active/2026-10-13-keyboard-chord.md
+  s_08bbfd293d324f::t_f183d7ab256091 47-51,55
+  s_08bbfd293d324f::t_38067d10275492 1-25,29-38
+  s_08bbfd293d324f::t_b267699b9116dd 52-54
+  s_08bbfd293d324f::t_e45bc984da523f 26-28,39-46
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_7b1c07857c907a 2441,2445,2450,2471
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_e45bc984da523f 222-227
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_f183d7ab256091 14-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "49b63eaff84300cf2d89712a0131e2b4ea984c17",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
