@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+同文档根节点重建后的反馈丢失已有真实红绿证据：旧源 `bxYaz2` 三原提交成功，
+两个根重建场光标/目标框像素为零；修复 `RttFgP` 2/2 actual exit 0，三原
+POST/13,147B、图层归属及像素核验通过，结束567ms仍无残留。4574ms零焦点/
+activation；相关 `ppBrxc` 11/11通过。Node 3270 pass/1既有Windows skip。
+下一有效反馈才恢复，隐藏、空根与页面同ID冲突不创建；旧动画不报告到达。
+完整 `uLJcAS` 157/157 actual exit 0，原156名称/顺序保持；三原POST/13,039B、
+原PNG与574ms结束清理独立核验。460,718ms仅原12 activation/4 control-focus
+许可，源码/运行时/构建及进程清理通过。普通安装及P12完整范围继续开放，
+见[重建反馈](references/dom-rebuild-feedback.md)。
+
 受限网站现支持原生 alert/confirm/prompt 决策，固定原 emitter、文档及策略，
 收集在实际清理完成后再验原权限。允许的 iframe 在权限检查期间提交不再误撤权；
 只重读完整允许快照，沿用原一秒期限且上限八次，绝不重放输入。专项 `cin0qm`

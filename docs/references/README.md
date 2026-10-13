@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [DOM rebuild feedback](dom-rebuild-feedback.md)：同文档根节点重建后的光标、
+  目标框与点击圈恢复，原图层归属、迟到动画及隐藏清理边界。
 - [Zoom feedback](zoom-feedback.md)：根 CSS 缩放下的光标、目标框及点击圈
   对齐，原表单/像素证据、正文缩放对照和动态刷新边界。
 - [Top-layer feedback](top-layer-feedback.md)：HTML 模态框与 popover 上方的

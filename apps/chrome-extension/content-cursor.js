@@ -49,8 +49,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       latestState.isVisible &&
       latestState.cursor?.visible !== false &&
       message.sessionId === latestState.sessionId &&
-      (latestState.turnId === null || message.turnId === latestState.turnId)
+      (latestState.turnId === null || message.turnId === latestState.turnId) &&
+      isViewportPoint(message.x, message.y)
     ) {
+      // The page can rebuild between move feedback and the original press.
+      // Only an accepted press may recover its still-visible owned feedback.
+      if (!cursorRenderer?.isCurrent()) renderState(latestState);
       interactionFeedback?.click(message.x, message.y);
     }
     sendResponse({ ok: true });
@@ -59,30 +63,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
+function retireCursorRenderer(renderer = cursorRenderer) {
+  if (!renderer || renderer !== cursorRenderer) return;
+  interactionFeedback?.clear();
+  interactionFeedback = null;
+  cursorRenderer = null;
+  feedbackTurnKey = null;
+  renderer.destroy();
+}
+
 function ensureCursorRenderer() {
-  if (cursorRenderer) {
-    return cursorRenderer;
-  }
-  let root = document.getElementById(ROOT_ID);
-  if (!root) {
-    root = document.createElement("div");
-    root.id = ROOT_ID;
-    root.setAttribute("aria-hidden", "true");
-    document.documentElement.appendChild(root);
-  }
-  cursorRenderer = createCursorRenderer(root, {
+  if (cursorRenderer?.isCurrent()) return cursorRenderer;
+  retireCursorRenderer();
+  // Never adopt an application node with our ID, or construct page-owned html
+  // while its root is temporarily absent. A later visible update may recover.
+  if (!document.documentElement || document.getElementById(ROOT_ID)) return null;
+  const root = document.createElement("div");
+  root.id = ROOT_ID;
+  root.setAttribute("aria-hidden", "true");
+  document.documentElement.appendChild(root);
+  const renderer = createCursorRenderer(root, {
     assetUrl: chrome.runtime.getURL("images/cursor-chat.png"),
-    onArrived: notifyCursorArrived
+    onArrived: notifyCursorArrived,
+    onDisconnected: () => retireCursorRenderer(renderer)
   });
+  cursorRenderer = renderer;
   interactionFeedback = createInteractionFeedback(cursorRenderer.layer, root, cursorRenderer.raise);
   return cursorRenderer;
 }
 
 function renderState(state) {
-  const renderer = ensureCursorRenderer();
   const cursor = normalizeCursor(state.cursor);
-  const viewportSize = readViewportSize();
   const visible = state.isVisible === true && cursor?.visible !== false;
+  if (cursorRenderer && !cursorRenderer.isCurrent()) retireCursorRenderer();
+  const renderer = visible ? ensureCursorRenderer() : cursorRenderer;
+  if (!renderer) return;
+  const viewportSize = readViewportSize();
   const turnKey = typeof state.sessionId === "string" ? `${state.sessionId}:${state.turnId ?? ""}` : null;
   if (feedbackTurnKey !== turnKey) interactionFeedback.clear();
   feedbackTurnKey = turnKey;
@@ -119,13 +135,9 @@ function createInteractionFeedback(root, host, raise) {
   root.appendChild(outline);
   const rings = new Map();
 
-  const validPoint = (x, y) => {
-    const { width, height } = readViewportSize();
-    return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x < width && y < height;
-  };
   const highlight = (x, y) => {
     outline.style.display = "none";
-    if (!validPoint(x, y)) return;
+    if (!isViewportPoint(x, y)) return;
     // Hit-test only this document. An iframe is highlighted as a frame; no
     // coordinates or page state are read from its child document.
     let hit = document.elementsFromPoint(x, y).find((element) => !host.contains(element) && !root.contains(element));
@@ -162,7 +174,7 @@ function createInteractionFeedback(root, host, raise) {
     clear,
     highlight,
     click: (x, y) => {
-      if (!validPoint(x, y)) return;
+      if (!isViewportPoint(x, y)) return;
       raise();
       highlight(x, y);
       // Each click owns its effect, so a second click never restarts cursor
@@ -235,6 +247,11 @@ function readViewportSize() {
   };
 }
 
+function isViewportPoint(x, y) {
+  const { width, height } = readViewportSize();
+  return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x < width && y < height;
+}
+
 function readRootZoomCompensation() {
   const inverse = (zoom) => {
     const value = 1 / zoom;
@@ -296,10 +313,7 @@ window.visualViewport?.addEventListener("scroll", clearInteractionFeedback);
 window.addEventListener("pagehide", () => {
   stateRevision += 1;
   latestState = normalizeState(null);
-  interactionFeedback?.clear();
-  interactionFeedback = null;
-  cursorRenderer?.destroy();
-  cursorRenderer = null;
+  retireCursorRenderer();
 });
 refreshCursorState();
 
@@ -344,7 +358,7 @@ const ROTATION_SPRING = { dampingFraction: 0.9, response: 0.12 };
 const SCOOT_ROTATION_SPRING = { dampingFraction: 0.82, response: 0.055 };
 const SCOOT_STRETCH_SPRING = { dampingFraction: 0.86, response: 0.12 };
 
-function createCursorRenderer(root, { assetUrl, onArrived }) {
+function createCursorRenderer(root, { assetUrl, onArrived, onDisconnected }) {
   const parts = createCursorParts(root, assetUrl);
   let frameId = null;
   let previousTimestamp = now();
@@ -357,8 +371,17 @@ function createCursorRenderer(root, { assetUrl, onArrived }) {
   let forceFirstFrame = false;
   let destroyed = false;
 
+  const isCurrent = () => !destroyed && root.isConnected && root.parentElement === document.documentElement &&
+    root.shadowRoot === parts.shadow && parts.layer.parentNode === parts.shadow && parts.cursor.parentElement === parts.layer;
+  const checkCurrent = () => {
+    if (isCurrent()) return true;
+    if (!destroyed) onDisconnected?.();
+    return false;
+  };
+
   const reportArrival = () => {
     if (
+      !checkCurrent() ||
       activeMoveSequence == null ||
       activeArrivalKey == null ||
       reportedArrivalKey === activeArrivalKey
@@ -375,6 +398,7 @@ function createCursorRenderer(root, { assetUrl, onArrived }) {
     }
     frameId = requestCursorFrame((timestamp) => {
       frameId = null;
+      if (!checkCurrent()) return;
       const current = model;
       if (!current) {
         return;
@@ -397,16 +421,25 @@ function createCursorRenderer(root, { assetUrl, onArrived }) {
 
   return {
     layer: parts.layer,
-    raise: () => parts.setVisible(true),
+    isCurrent,
+    raise: () => { if (checkCurrent()) parts.setVisible(true); },
     destroy: () => {
       destroyed = true;
+      model = null;
+      activeMoveSequence = null;
+      activeArrivalKey = null;
+      reportedArrivalKey = null;
       if (frameId != null) {
         cancelCursorFrame(frameId);
         frameId = null;
       }
+      // The owned layer may have been moved into another connected shadow.
+      // Remove only our retained nodes, never a same-ID application replacement.
+      parts.layer.remove();
       root.remove();
     },
     setState: (state) => {
+      if (!checkCurrent()) return;
       if (state.isVisible === false || state.cursor?.visible === false) {
         if (frameId != null) cancelCursorFrame(frameId);
         frameId = null;
@@ -571,7 +604,7 @@ function createCursorParts(root, assetUrl) {
   assetWrap.appendChild(image);
   cursor.appendChild(assetWrap);
   layer.appendChild(cursor);
-  return { cursor, layer, setVisible };
+  return { cursor, layer, shadow, setVisible };
 }
 
 function createCursorModel(point, visible) {

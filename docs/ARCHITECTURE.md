@@ -22,6 +22,9 @@ debugger、history 和 tab groups。
   readable service worker、cursor content script 和 popup。
   可视反馈共享自有 Shadow DOM/top-layer；实际反馈时抵消根 CSS zoom，保持
   原生输入与 viewport 坐标不变，见[缩放反馈](references/zoom-feedback.md)。
+  页面同文档重建根节点后，下一可见反馈退休旧 renderer 并重建自有层；
+  原 host/shadow/layer/cursor 归属和迟到动画检查防止脱离页面后误报到达。
+  隐藏/结束不重建，不接管页面同 ID 节点，见[重建反馈](references/dom-rebuild-feedback.md)。
   原响应正文由诊断 capture 保留原 Response，`browser-response-body.js` 管理
   期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
   原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。

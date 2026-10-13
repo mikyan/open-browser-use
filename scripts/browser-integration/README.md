@@ -1,5 +1,22 @@
 # Browser integration acceptance
 
+## Agent feedback after DOM replacement
+
+`OBU_TEST_CASES=^js-dom-rebuild-feedback$` selects three same-document application
+rebuilds plus mandatory raw navigation. It uses the regular isolated
+host/browser prerequisites. One public trusted action replaces root children,
+the entire root, or body children as a control. The original page keeps
+document/window and old/new node identities, passive feedback references,
+original screenshots and one trusted form POST per layout.
+
+A detached old model may satisfy the diagnostic position wait so that an
+old-source failure still retains all three screenshots and original receipts.
+Only connected ownership, geometry and actual PNG pixels can pass visibility.
+Ring geometry is transient passive evidence, not ring screenshot proof. Turn
+end is checked without a new SDK turn, including a second hidden observation
+beyond the ring lifetime. No feedback DOM is repaired by the fixture and no
+input is replayed. See the [lifetime contract](../../docs/references/dom-rebuild-feedback.md).
+
 ## Native dialogs on restricted websites
 
 The default suite adds five `*-restricted-native-dialog-decisions` cases

@@ -9,6 +9,9 @@ The host remains `aria-hidden`; neither host nor layer has autofocus, tabindex,
 or delegated focus. The layer and backdrop do not intercept pointer input.
 The owned host also compensates root CSS zoom on actual feedback updates;
 see [zoom geometry and its evidence](zoom-feedback.md).
+Same-document root replacement retires disconnected feedback and recovers on
+the next visible update; [renderer lifetime](dom-rebuild-feedback.md) describes
+ownership, old callbacks and the page-node collision boundary.
 Native toggle events stay inside the shadow tree, so document/window capture
 listeners do not receive agent popover events. Page elements and their layers
 are never moved, closed or reopened to display feedback.

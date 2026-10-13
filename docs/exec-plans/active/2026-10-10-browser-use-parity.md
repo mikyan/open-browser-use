@@ -25,6 +25,14 @@
 
 ## 当前并行切片
 
+2026-10-14 [同文档DOM重建反馈](../completed/2026-10-14-dom-rebuild-feedback.md)已完成，保留
+真实旧源 `bxYaz2` 两根重建场零像素红例及body-only对照；修复专项 `RttFgP`
+2/2 actual exit0，三原POST/13,147B、原图层归属与像素通过，结束567ms无残留，
+4574ms零focus/activation。相关 `ppBrxc` 11/11、Node3270 pass/1既有skip。
+完整 `uLJcAS` 157/157 actual exit0，原156名称/顺序保持；三原POST/13,039B、
+原PNG与574ms结束清理独立核验。460,718ms仅原12 activation/4 control-focus
+许可，源码/运行时/构建及精确进程清理通过；普通Edge人工授权和整体目标仍开放。
+
 2026-10-14 [受限网站原生弹窗](../completed/2026-10-14-restricted-native-dialogs.md)已完成
 实现和专项 `cin0qm` 10/10 actual exit 0：五入口×三布局 105 原 POST/26,592B、
 120 原生响应，原策略、emitter 与文档身份、cleanup 均独立核验。37,425ms

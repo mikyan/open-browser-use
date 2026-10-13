@@ -30,12 +30,13 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
       this.dataset = {};
       this.attributes = new Map();
       this.children = [];
-      this.parentElement = null;
+      this.parentNode = null;
       this.rect = { left: 10, top: 20, width: 80, height: 40 };
     }
     get isConnected() {
-      return this === document.documentElement || this.host?.isConnected === true || this.parentElement?.isConnected === true;
+      return this === document.documentElement || this.host?.isConnected === true || this.parentNode?.isConnected === true;
     }
+    get parentElement() { return this.parentNode?.tagName === "#SHADOW-ROOT" ? null : this.parentNode; }
     setAttribute(name, value) { this.attributes.set(name, value); }
     attachShadow(options) {
       assert.equal(this.shadowRoot, undefined);
@@ -45,7 +46,7 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
       this.shadowRoot = shadow;
       return shadow;
     }
-    getRootNode() { return this.parentElement?.getRootNode() ?? this; }
+    getRootNode() { return this.parentNode?.getRootNode() ?? this; }
     matches(selector) {
       assert.equal(selector, ":popover-open");
       return topLayer.includes(this);
@@ -65,18 +66,19 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
     }
     appendChild(child) {
       child.remove();
-      child.parentElement = this;
+      child.parentNode = this;
       this.children.push(child);
       return child;
     }
-    replaceChildren() {
+    replaceChildren(...children) {
       for (const child of [...this.children]) child.remove();
+      for (const child of children) this.appendChild(child);
     }
     remove() {
-      if (this.parentElement) {
-        const children = this.parentElement.children;
+      if (this.parentNode) {
+        const children = this.parentNode.children;
         children.splice(children.indexOf(this), 1);
-        this.parentElement = null;
+        this.parentNode = null;
       }
       for (let index = topLayer.length - 1; index >= 0; index--) if (!topLayer[index].isConnected) topLayer.splice(index, 1);
     }
@@ -118,12 +120,12 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
   };
   const effectiveZoom = (element) => {
     if (!element) return 1;
-    return zoomFactor(element.style.zoom) * effectiveZoom(element.parentElement ?? element.host);
+    return zoomFactor(element.style.zoom) * effectiveZoom(element.parentNode ?? element.host);
   };
   if (cssZoomAPI) Object.defineProperty(Element.prototype, "currentCSSZoom", {
     get() {
       zoomReads.push(this);
-      for (let node = this; node; node = node.parentElement ?? node.host) {
+      for (let node = this; node; node = node.parentNode ?? node.host) {
         if (node.style.display === "none") return 1;
       }
       return effectiveZoom(this);
@@ -131,7 +133,7 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
   });
   const document = {
     createElement: (tagName) => new Element(tagName),
-    getElementById: (id) => findAll(document.documentElement, (element) => element.id === id)[0] ?? null,
+    getElementById: (id) => document.documentElement ? findAll(document.documentElement, (element) => element.id === id)[0] ?? null : null,
     elementsFromPoint: (x, y) => { hitTests.push({ x, y }); return hitElements; }
   };
   document.documentElement = new Element("html");
@@ -186,7 +188,7 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
     document, timers, frames, animations, sent, popoverCalls, topLayer,
     effectiveZoom, zoomReads, computedStyleReads, hitTests,
     failPopover: (method) => popoverFailures.set(method, new Error(`Native ${method} failed`)),
-    elements: (testId) => findAll(document.documentElement, (element) => element.dataset.testid === testId, true),
+    elements: (testId) => document.documentElement ? findAll(document.documentElement, (element) => element.dataset.testid === testId, true) : [],
     add: (tagName, parent = document.body) => parent.appendChild(document.createElement(tagName)),
     hit: (...elements) => { hitElements = elements; },
     send: (message) => {
@@ -235,6 +237,8 @@ test("feedback lives in a non-focusable shadow-owned manual popover", () => {
   const [layer] = page.elements("browser-agent-layer");
   assert.ok(host.shadowRoot); assert.deepEqual({ ...host.shadowRoot.options }, { mode: "open" });
   assert.equal(layer.getRootNode(), host.shadowRoot);
+  assert.equal(layer.parentElement, null, "Native ShadowRoot is a parent Node, not a parent Element");
+  assert.equal(layer.parentNode, host.shadowRoot);
   assert.equal(layer.attributes.get("popover"), "manual");
   assert.equal(host.attributes.get("aria-hidden"), "true");
   for (const node of findAll(host, () => true, true)) {
@@ -660,6 +664,179 @@ test("a late initial state response cannot revive a finalized overlay", async ()
   assert.equal(page.timers.size, 0);
   page.click();
   assert.equal(page.elements("browser-agent-click").length, 0);
+});
+
+// These models exercise same-document DOM ownership/lifetime, not rendering.
+// The browser fixture independently proves pixels and original trusted input.
+function replaceApplicationDom(page, kind) {
+  const document = page.document, previousRoot = document.documentElement;
+  const head = document.createElement("head"), body = document.createElement("body");
+  if (kind === "children") previousRoot.replaceChildren(head, body);
+  else if (kind === "documentElement") {
+    document.documentElement = document.createElement("html");
+    document.documentElement.appendChild(head); document.documentElement.appendChild(body);
+    previousRoot.remove(); // Also models native top-layer removal on detach.
+  } else if (kind === "body") {
+    document.body.remove(); document.documentElement.appendChild(body);
+  } else throw Error("Unknown application rebuild");
+  document.body = body;
+  const button = page.add("button"); button.textContent = "Original application submit";
+  button.rect = { left: 180, top: 120, width: 100, height: 40 }; page.hit(button);
+  return button;
+}
+
+for (const kind of ["children", "documentElement"]) test(`next visible update recovers feedback after same-document ${kind} replacement and retires the old effects`, () => {
+  const page = createPage(); page.hit(page.add("button"));
+  page.move({ animateMovement: false }); page.click();
+  const oldHost = page.document.getElementById("open-browser-use-cursor-root"), [oldLayer] = page.elements("browser-agent-layer");
+  const oldRings = page.elements("browser-agent-click"), oldAnimations = [...page.animations];
+  const button = replaceApplicationDom(page, kind), point = { x: 220, y: 140 };
+  assert.equal(oldHost.isConnected, false); assert.equal(oldLayer.isConnected, false);
+  assert.equal(page.elements("browser-agent-layer").length, 0);
+  page.move({ ...point, moveSequence: 2, animateMovement: false });
+  const host = page.document.getElementById("open-browser-use-cursor-root"), layers = page.elements("browser-agent-layer");
+  assert.ok(host?.isConnected, "A new authorized update must render in the current document root");
+  assert.notEqual(host, oldHost); assert.equal(layers.length, 1); assert.notEqual(layers[0], oldLayer);
+  assert.equal(layers[0].matches(":popover-open"), true); assert.equal(page.topLayer.includes(oldLayer), false);
+  assert.equal(oldRings.every(ring => ring.parentElement === null), true);
+  assert.equal(oldAnimations.every(animation => animation.canceled), true);
+  assertViewportFeedback(page, point, button.rect);
+  assert.equal(findAll(host, node => node.tagName === "STYLE").length, 1, "Recovery preserves exactly one owned print exclusion");
+  page.click(point); assert.equal(page.elements("browser-agent-click").length, 1);
+  page.hide(); assert.equal(page.timers.size, 0); assert.equal(page.frames.size, 0);
+});
+
+test("body-only rebuild keeps the same connected feedback owner without duplicate layers or styles", () => {
+  const page = createPage({ reducedMotion: true }); page.move();
+  const host = page.document.getElementById("open-browser-use-cursor-root"), [layer] = page.elements("browser-agent-layer");
+  const button = replaceApplicationDom(page, "body"), point = { x: 220, y: 140 };
+  page.move({ ...point, moveSequence: 2 }); page.click(point);
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), host);
+  assert.deepEqual(page.elements("browser-agent-layer"), [layer]);
+  assert.equal(findAll(host, node => node.tagName === "STYLE").length, 1);
+  assertViewportFeedback(page, point, button.rect); page.hide();
+});
+
+test("a detached animation retires without claiming arrival, recreating a host or leaving effect timers", () => {
+  const page = createPage(); page.move({ animateMovement: false });
+  page.move({ x: 60, moveSequence: 2 }); page.click();
+  const animations = [...page.animations]; assert.ok(page.frames.size > 0); assert.ok(page.timers.size > 0);
+  replaceApplicationDom(page, "children"); page.advance(3000);
+  assert.equal(page.sent.some(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED" && message.moveSequence === 2), false,
+    "A model settling in a detached tree is not visible cursor arrival");
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  assert.equal(page.frames.size, 0); assert.equal(page.timers.size, 0);
+  assert.equal(animations.every(animation => animation.canceled), true);
+});
+
+test("a retained old animation callback cannot report arrival or disturb its recovered successor", () => {
+  const page = createPage(); page.move({ animateMovement: false }); page.move({ x: 60, moveSequence: 2 });
+  const callbacks = [...page.frames.values()]; assert.ok(callbacks.length);
+  replaceApplicationDom(page, "children"); page.move({ x: 220, y: 140, moveSequence: 3, animateMovement: false });
+  const [successor] = page.elements("browser-agent-layer");
+  for (const callback of callbacks) callback(3000);
+  assert.equal(page.sent.some(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED" && message.moveSequence === 2), false);
+  assert.equal(page.sent.filter(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED" && message.moveSequence === 3).length, 1);
+  assert.ok(successor?.isConnected); assert.equal(successor.matches(":popover-open"), true);
+  assert.deepEqual(page.elements("browser-agent-layer"), [successor]); page.hide();
+});
+
+test("the next authorized press can recover between cursor feedback and native press, but rejected presses cannot", () => {
+  const page = createPage({ reducedMotion: true }); page.move(); replaceApplicationDom(page, "children");
+  for (const extra of [{ sessionId: "foreign" }, { turnId: "old" }, { eventType: "mouseReleased" }, { x: NaN }, { y: -1 }]) page.click(extra);
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  page.click({ x: 220, y: 140 });
+  assert.ok(page.document.getElementById("open-browser-use-cursor-root")?.isConnected);
+  assert.equal(page.elements("browser-agent-click").length, 1);
+  assert.equal(page.elements("browser-agent-target")[0].style.left, "180px");
+  assert.equal(page.topLayer.length, 1); page.hide();
+});
+
+test("detached hide, turn end and pagehide reject stale bootstrap resurrection without creating a replacement root", async () => {
+  for (const close of [page => page.hide(), page => page.send({ type: "OPEN_BROWSER_USE_CURSOR_STATE", state: { isVisible: false, sessionId: "test-session", turnId: "ended" } }), page => page.emit("pagehide")]) {
+    const page = createPage(); page.move({ animateMovement: false }); page.click();
+    replaceApplicationDom(page, "documentElement"); close(page);
+    page.initialState({ isVisible: true, sessionId: "test-session", turnId: "test-turn", cursor: { x: 40, y: 30 } });
+    await Promise.resolve(); page.emit("resize"); page.emit("scroll"); page.click(); page.advance(1000);
+    assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+    assert.equal(page.topLayer.length, 0); assert.equal(page.timers.size, 0); assert.equal(page.frames.size, 0);
+    assert.equal(page.animations.every(animation => animation.canceled), true);
+  }
+});
+
+test("cold hidden messages and an initially invisible bootstrap allocate no renderer", async () => {
+  for (const bootstrap of [false, true]) {
+    const page = createPage();
+    if (bootstrap) { page.initialState({ isVisible: false }); await Promise.resolve(); }
+    else page.hide();
+    page.emit("resize"); page.emit("scroll"); page.click();
+    assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+    assert.equal(page.elements("browser-agent-layer").length, 0); assert.equal(page.popoverCalls.length, 0);
+    assert.equal(page.frames.size, 0); assert.equal(page.timers.size, 0);
+    assert.equal(page.sent.some(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED"), false);
+  }
+});
+
+test("a connected layer transplanted into another shadow root is not the original renderer owner", () => {
+  const page = createPage({ reducedMotion: true }); page.move();
+  const oldHost = page.document.getElementById("open-browser-use-cursor-root"), [oldLayer] = page.elements("browser-agent-layer");
+  const applicationHost = page.add("application-view"), applicationShadow = applicationHost.attachShadow({ mode: "open" });
+  const sentinel = page.add("span", applicationShadow); sentinel.textContent = "Application content";
+  applicationShadow.appendChild(oldLayer); assert.equal(oldLayer.isConnected, true);
+  page.move({ moveSequence: 2 });
+  assert.equal(sentinel.parentNode, applicationShadow); assert.equal(sentinel.textContent, "Application content");
+  assert.equal(applicationHost.isConnected, true); assert.equal(oldLayer.isConnected, false);
+  const [layer] = page.elements("browser-agent-layer"); assert.ok(layer?.isConnected); assert.notEqual(layer, oldLayer);
+  assert.notEqual(page.document.getElementById("open-browser-use-cursor-root"), oldHost);
+  assert.equal(layer.matches(":popover-open"), true); page.hide();
+});
+
+test("a connected host moved under business zoom is retired instead of borrowing its new parent's coordinates", () => {
+  const page = createPage({ reducedMotion: true }); page.move();
+  const oldHost = page.document.getElementById("open-browser-use-cursor-root");
+  page.document.body.style.zoom = "2"; page.document.body.appendChild(oldHost);
+  assert.equal(oldHost.isConnected, true);
+  const button = page.add("button"), point = { x: 40, y: 30 }; page.hit(button);
+  page.move({ ...point, moveSequence: 2 });
+  const host = page.document.getElementById("open-browser-use-cursor-root");
+  assert.notEqual(host, oldHost); assert.equal(host.parentElement, page.document.documentElement);
+  assert.equal(oldHost.isConnected, false); assert.equal(button.parentElement, page.document.body);
+  assert.equal(page.document.body.style.zoom, "2"); assertViewportFeedback(page, point, button.rect); page.hide();
+});
+
+test("a same-ID application replacement is preserved instead of being adopted or cleared during recovery", () => {
+  const page = createPage({ reducedMotion: true }); page.move(); replaceApplicationDom(page, "children");
+  const applicationHost = page.document.documentElement.appendChild(page.document.createElement("section"));
+  applicationHost.id = "open-browser-use-cursor-root";
+  const sentinel = page.add("button", applicationHost); sentinel.textContent = "Do not replace my form";
+  page.move({ moveSequence: 2 });
+  assert.equal(applicationHost.isConnected, true); assert.equal(sentinel.parentElement, applicationHost);
+  assert.equal(sentinel.textContent, "Do not replace my form"); assert.equal(applicationHost.shadowRoot, undefined);
+  assert.equal(findAll(applicationHost, node => node.tagName === "STYLE", true).length, 0);
+  assert.equal(page.sent.some(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED" && message.moveSequence === 2), false);
+  assert.equal(page.elements("browser-agent-layer").length, 0);
+  page.hide(); page.emit("pagehide"); assert.equal(applicationHost.isConnected, true);
+  assert.equal(sentinel.parentElement, applicationHost);
+  applicationHost.remove(); page.emit("resize"); page.emit("scroll");
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  page.move({ moveSequence: 3 });
+  assert.ok(page.document.getElementById("open-browser-use-cursor-root")?.isConnected);
+  assert.equal(page.elements("browser-agent-layer").length, 1);
+  assert.equal(page.sent.filter(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED" && message.moveSequence === 3).length, 1);
+  page.hide();
+});
+
+test("temporarily absent documentElement never creates page DOM or breaks message acknowledgement", () => {
+  const page = createPage({ reducedMotion: true }), previous = page.document.documentElement;
+  page.document.documentElement = null; page.document.body = null; previous.remove();
+  assert.doesNotThrow(() => page.move()); assert.doesNotThrow(() => page.hide());
+  assert.equal(page.document.documentElement, null); assert.equal(page.timers.size, 0); assert.equal(page.frames.size, 0);
+  const replacement = page.document.createElement("html"), body = page.document.createElement("body");
+  replacement.appendChild(body); page.document.documentElement = replacement; page.document.body = body;
+  page.move({ moveSequence: 2 });
+  assert.ok(page.document.getElementById("open-browser-use-cursor-root")?.isConnected);
+  assert.equal(page.sent.filter(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED" && message.moveSequence === 1).length, 0);
+  page.hide();
 });
 
 function documentStyle(page, id) {

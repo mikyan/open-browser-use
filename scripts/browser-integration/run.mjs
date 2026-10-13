@@ -35,6 +35,7 @@ import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageEx
 import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
+import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createMediaDownloadFixtures, checkMediaDownloads, verifyMediaFile, mediaPNG } from "./media-downloads-fixture.mjs";
 import { createEmbeddedMediaFixtures, prepareEmbeddedMediaTab, checkEmbeddedMedia, checkEmbeddedMediaNegative, verifyEmbeddedMediaFile, readMediaFrameEvidence } from "./media-embedded-fixture.mjs";
 import { mediaAssetIdentity } from "./media-fixture-assets.mjs";
@@ -371,6 +372,7 @@ const mcpBindingFixture = createMCPBindingFixture();
 const siteAccessSubmissions = createSiteAccessSubmissions();
 const topLayerFeedbackFixtures = createTopLayerFeedbackFixtures();
 const zoomFeedbackFixtures = createZoomFeedbackFixtures();
+const domRebuildFeedbackFixtures = createDOMRebuildFeedbackFixtures();
 const siteAccessStartupFixtures = createSiteAccessStartupFixtures();
 const restrictedDialogFixtures = createRestrictedDialogFixtures();
 const restrictedDialogKinds = ["js", "cli", "mcp", "python", "go"];
@@ -400,6 +402,7 @@ const http = createServer(async (request, response) => {
   if (siteAccessStartupFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (topLayerFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (zoomFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (domRebuildFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -620,6 +623,7 @@ try {
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.topLayerFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "top-layer-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.zoomFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "zoom-feedback-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.domRebuildFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "dom-rebuild-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.memoryClipboardGuard = createHash("sha256").update(await fs.readFile(path.join(directory, "memory-clipboard.mjs"))).digest("hex");
   sourceIdentity.sha256.clipboardCallers = createHash("sha256").update(await fs.readFile(path.join(directory, "clipboard-callers.mjs"))).digest("hex");
@@ -1844,6 +1848,55 @@ try {
             }
           }
           value.endCleanup = { before, after };
+        } });
+    } catch (error) { failure = error; }
+    finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+    }
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-dom-rebuild-feedback", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-dom-rebuild-feedback", timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      sourceIdentity.testHooks.push("DOM rebuild feedback: original application rebuilds html children, documentElement, or body children on one trusted public trigger. Passive retained node/feedback references, original screenshots and exact original POST bytes; detached old model position is diagnostic only. No feedback repair, input replay or focus allowance in the fixture.");
+      detail = await checkDOMRebuildFeedback({ browser: owner, fixtureURL, fixtures: domRebuildFeedbackFixtures,
+        saveArtifact: (name, data) => fs.writeFile(path.join(runDir, name), data, { flag: "wx" }),
+        saveDetail: value => fs.writeFile(path.join(runDir, "dom-rebuild-feedback.json"), JSON.stringify(value, null, 2)),
+        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
+        checkEnd: async value => {
+          const read = async () => {
+            const rows = [];
+            for (const tabId of value.tabIds) {
+              const result = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},world:'MAIN',func:()=>{
+                const host=document.getElementById('open-browser-use-cursor-root'),tree=host?.shadowRoot;
+                const cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]');
+                return {state:window.domRebuildFeedbackState(),openAgentLayers:tree?.querySelectorAll(':popover-open').length??0,
+                  opacity:cursor?getComputedStyle(cursor).opacity:null,rings:tree?.querySelectorAll('[data-testid="browser-agent-click"]').length??0};
+              }})`);
+              assert.equal(result.length, 1); rows.push({ tabId, ...result[0].result });
+            }
+            return rows;
+          };
+          const before = await read(); assert.equal(before.length, value.tabIds.length);
+          assert.ok(before.length > 0 && before.every(row => row.openAgentLayers === 1));
+          await owner.client.turnEnded();
+          const closed = await until(async () => { const rows = await read(); return rows.every(row => row.openAgentLayers === 0 && row.opacity === "0" && row.rings === 0) ? rows : false; }, "rebuilt feedback ends without reviving effects", 5000);
+          const hiddenAt = Date.now();
+          await new Promise(resolve => setTimeout(resolve, 550));
+          const after = await read();
+          for (const rows of [closed, after]) for (let index = 0; index < before.length; index++) {
+            assert.equal(rows[index].tabId, before[index].tabId);
+            assert.equal(rows[index].openAgentLayers, 0); assert.equal(rows[index].opacity, "0"); assert.equal(rows[index].rings, 0);
+            assert.ok(before[index].state && rows[index].state);
+            for (const key of ["key", "stage", "documentToken", "windowToken", "href", "sameDocument", "sameWindow", "rebuilt", "htmlSame", "bodySame", "oldHTMLConnected", "oldBodyConnected", "oldNodes", "nodes", "value", "nodeToken", "activeElement", "selection", "events", "focus", "changes", "errors", "overflow", "receipt"]) {
+              assert.ok(Object.hasOwn(before[index].state, key) && Object.hasOwn(rows[index].state, key), `Missing original rebuild state ${key}`);
+              assert.deepEqual(rows[index].state[key], before[index].state[key], `Turn end changed rebuild business ${key}`);
+            }
+          }
+          value.endCleanup = { before, closed, after, hiddenObservedMs: Date.now() - hiddenAt };
         } });
     } catch (error) { failure = error; }
     finally {
