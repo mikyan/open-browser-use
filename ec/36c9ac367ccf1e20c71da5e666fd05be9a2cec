@@ -1,0 +1,72 @@
+docs/exec-plans/active/2026-10-13-chooser-convenience-clear.md
+  s_08bbfd293d324f::t_e43571dba7f20a 23-24,42-57
+  s_08bbfd293d324f::t_bc62ff7e17cf5e 25,78-82
+  s_08bbfd293d324f::t_2bf7f60dd4c96e 1-22,26-41
+  s_08bbfd293d324f::t_6fa7225d5a3382 58-68
+  s_08bbfd293d324f::t_96ed2cb298fcd0 69-77
+scripts/browser-integration/chooser-convenience-fixture.test.mjs
+  s_08bbfd293d324f::t_0dbf85e43cef4e 1-5,7-107,128
+  s_08bbfd293d324f::t_585e1e335474e0 6,108-127
+cmd/open-browser-use/file_chooser_files_test.go
+  s_08bbfd293d324f::t_0e157269c4b0cd 91-92,132
+  s_08bbfd293d324f::t_4901d2b47dee91 133-135
+  s_08bbfd293d324f::t_1407436f9b6165 1-90,93-131,136-235
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_77b3a89a00128f 17-19
+skills/open-browser-use/references/sdk-and-protocol.md
+  s_08bbfd293d324f::t_150c5e952aa31f 627-637
+cmd/open-browser-use/file_chooser_files.go
+  s_08bbfd293d324f::t_0e157269c4b0cd 1-64,68-70
+  s_08bbfd293d324f::t_4901d2b47dee91 65-67
+cmd/open-browser-use/mcp.go
+  s_08bbfd293d324f::t_0e157269c4b0cd 367,369,741-745
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_6fa7225d5a3382 21
+  s_08bbfd293d324f::t_150c5e952aa31f 3-15
+  s_08bbfd293d324f::t_dd6e16abe5f565 16-20
+docs/references/file-transfers.md
+  s_08bbfd293d324f::t_24836387e28362 43-44
+  s_08bbfd293d324f::t_96ed2cb298fcd0 355-369
+  s_08bbfd293d324f::t_150c5e952aa31f 39-42,45-49
+  s_08bbfd293d324f::t_e49642853f77f8 346-353
+  s_08bbfd293d324f::t_4c00a2e2bc1f32 354
+docs/histories/2026-10/20261013-2145-chooser-convenience-clear.md
+  s_08bbfd293d324f::t_96ed2cb298fcd0 55-61,66-67
+  s_08bbfd293d324f::t_e43571dba7f20a 35-47
+  s_08bbfd293d324f::t_1642d58d2d7d7e 1-34,68-73
+  s_08bbfd293d324f::t_bc62ff7e17cf5e 62-65
+  s_08bbfd293d324f::t_6fa7225d5a3382 48-54
+scripts/browser-integration/chooser-convenience-fixture.mjs
+  s_08bbfd293d324f::t_585e1e335474e0 84-100,105,116-117
+  s_08bbfd293d324f::t_0dbf85e43cef4e 44,53
+  s_08bbfd293d324f::t_fe4633b183b714 1-43,45-52,54-83,101-104,106-115,118-132
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_150c5e952aa31f 304-305
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_96ed2cb298fcd0 52-61
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_7ea27f91c0906d 55,526,1051-1061,1069-1072
+  s_08bbfd293d324f::t_108ce15f4b30e6 659,1723-1725,1791,1939-1944,1949
+  s_08bbfd293d324f::t_01bc025f8f58aa 1062-1068
+  s_08bbfd293d324f::t_9c5a6e721774e9 1073
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_96ed2cb298fcd0 14-23
+cmd/open-browser-use/main.go
+  s_08bbfd293d324f::t_0e157269c4b0cd 1467,1472-1475,1477,1481,2124-2126,2128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "ec36c9ac367ccf1e20c71da5e666fd05be9a2cec",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
