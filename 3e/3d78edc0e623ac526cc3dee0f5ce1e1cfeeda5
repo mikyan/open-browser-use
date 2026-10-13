@@ -1,0 +1,79 @@
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_d121d1120e210a 712-717,1273,1277,1318-1327,1332-1333,1336,1338-1339,1348-1350,1357-1358,1406,1419,1422,1433,5751-5752,5754-5755,5757-5767,5770
+apps/chrome-extension/popup.js
+  s_08bbfd293d324f::t_6fda5a43ec4df4 47-49,61,68,73,78-87,100-102
+apps/chrome-extension/popup-site-access.js
+  s_08bbfd293d324f::t_82e2ba47d8f49c 2,9,22,31,41-50,53-54,57-62,80-83,88,90-91,94-96,100-101,104-113
+  s_08bbfd293d324f::t_15a26327fc07c6 370
+  s_08bbfd293d324f::t_f06a0c2bf4092d 119-120,132,137-138,140-141,151-153,160,163,171,175-176,183,185-186,195-197,206,211,220,222,243,253,257-258,266,271,288,290,300,306
+  s_08bbfd293d324f::t_6ba77310607da1 320-369,371-382,384
+  s_08bbfd293d324f::t_c27bf75fa076a8 93
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_b1ea3728ecb917 15-20
+  s_08bbfd293d324f::t_597d51b2ba778e 21,38,484
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_71ae6e40b1e834 29,379-385,515,522-523,596,598,3241-3242,3244-3250,3258-3265,3288,3310-3333
+  s_08bbfd293d324f::t_6e4bcd399c2047 3334
+apps/chrome-extension/site-access-policy.js
+  s_08bbfd293d324f::t_6d6167016e4bfc 13-16,48,71-73,88,124-144,146,153-159,181,186-188,191-192,199-201,205,208-209,212-215,220-223,225-241,245,251-253
+scripts/browser-integration/site-access-invalid-fixture.mjs
+  s_08bbfd293d324f::t_89402f25758060 1-89,91-135
+  s_08bbfd293d324f::t_71ae6e40b1e834 90
+docs/histories/2026-10/20261014-0355-invalid-site-policy-replacement.md
+  s_08bbfd293d324f::t_1243d0c78ff4bc 1-62
+  s_08bbfd293d324f::t_29d2a69b98dc22 63-66
+apps/chrome-extension/popup-site-access.test.mjs
+  s_08bbfd293d324f::t_b96d5ed7edfccf 660-706
+  s_08bbfd293d324f::t_d6b8c21d17f83e 579-591
+  s_08bbfd293d324f::t_47c127d436b36b 539-578,592-659
+  s_08bbfd293d324f::t_ef36b34743b8b3 7,39,160
+  s_08bbfd293d324f::t_6fda5a43ec4df4 443
+apps/chrome-extension/site-access-policy.test.mjs
+  s_08bbfd293d324f::t_fa29ea2878b897 13,36,78-79,90,101,104-105,108-109,114-116,125,133,135,137-138,145,148-149,160,163-165,168,191,195,250,258,262-264,274-277,279,296,305-450
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_4ab23d0c980364 28-33
+  s_08bbfd293d324f::t_b7366acf783646 34-35
+scripts/browser-integration/site-access-fixture.mjs
+  s_08bbfd293d324f::t_d2939c0b188e87 71-73,76,83,147-148,182
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_b1ea3728ecb917 14-19
+  s_08bbfd293d324f::t_e96ed720a63d5a 20,40
+apps/chrome-extension/popup.css
+  s_08bbfd293d324f::t_6fda5a43ec4df4 327
+scripts/browser-integration/site-access-save-retry.mjs
+  s_08bbfd293d324f::t_d2939c0b188e87 77,79,85
+scripts/browser-integration/site-access-invalid-fixture.test.mjs
+  s_08bbfd293d324f::t_d7457c989ab752 1-81
+scripts/browser-integration/site-access-startup-fixture.mjs
+  s_08bbfd293d324f::t_d2939c0b188e87 155,170-171
+  s_08bbfd293d324f::t_71ae6e40b1e834 123,207
+docs/references/site-access-policy.md
+  s_08bbfd293d324f::t_ea7822c8817da4 34,38-40,61-62,94-100,107-132,151
+  s_08bbfd293d324f::t_398e3b5a3f359a 231-248
+apps/chrome-extension/site-access-backend.test.mjs
+  s_08bbfd293d324f::t_8c117529362e28 5,71,89,99,126,260,264,268,275,280-281,284,289-290,299,303,305,309-310,325,327,341,344,348,352,362,635-796
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_7dafd4221ced5f 1793-1810
+apps/chrome-extension/popup.html
+  s_08bbfd293d324f::t_6fda5a43ec4df4 41,52,56-58
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_3b000c45fe90b0 33-35
+docs/exec-plans/completed/2026-10-14-invalid-site-policy-replacement.md
+  s_08bbfd293d324f::t_03c92f3690836e 1-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "3e3d78edc0e623ac526cc3dee0f5ce1e1cfeeda5",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
