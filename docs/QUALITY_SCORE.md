@@ -11,6 +11,19 @@
 
 ## 当前评分
 
+网站权限启动读取失败现可从真实 popup 明确重读，保持原 revision、不写策略，
+恢复后仍暂停；核心控制失败、在途操作及未确认清理不授予恢复权限。
+拆开输入启动与读取恢复的等待，避免未绑定请求和启动 Pause 循环等待；
+未知设置不再显示为默认已保存，丢失回复和同版本内容变化有反例覆盖。
+专项 `yU2VGw` 2/2、相关 `GT3npA` 8/8 actual exit 0。原生读取成功后注入
+派生交付失败，不能称自然 storage 故障；相关验收复用原控制 popup，不增加
+焦点例外。首轮完整 `8Fe9ev` 146/148 的截图预算断言和第三次开弹窗失败
+均保留，修正只在 fixture。最终完整 `O0mB6k` 148/148 actual exit 0，旧 147
+名称顺序保持，430,422ms 仅原 12 activation/4 control-focus 许可，无源码
+或运行时漂移。Node 最终 3137 pass/1 个既有 Windows symlink skip。
+普通安装与损坏记录替换仍开放，
+见[网站权限](references/site-access-policy.md)。
+
 HTML 模态框、嵌套模态框和手动/自动 popover 上方的 AI 光标与目标框已修复。
 保留原实机 `FYfrul` 三次业务成功但反馈像素均为零的红例；Shadow DOM 内
 手动 popover 修复后 `kVaOVU` 2/2、相关 `gTjanh` 9/9 均 actual exit 0。

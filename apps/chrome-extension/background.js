@@ -705,10 +705,11 @@ class BrowserBackend {
   constructor({ webMcpGate = null, browserEngine = null, automationCleanupTimeoutMs = AUTOMATION_CLEANUP_TIMEOUT_MS } = {}) {
     this.automationCleanupTimeoutMs = automationCleanupTimeoutMs;
     this.automationControl = new AutomationControlGate();
-    const trustedStorage = chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" }) ?? Promise.resolve();
+    this.siteStorageAccess = null;
+    this.prepareSiteStorageAccess();
     this.siteAccess = new SiteAccessPolicy({ storage: {
-      get: async key => { await trustedStorage; return chrome.storage.local.get(key); },
-      set: async value => { await trustedStorage; return chrome.storage.local.set(value); }
+      get: async key => { await this.siteStorageAccess.promise; return chrome.storage.local.get(key); },
+      set: async value => { await this.siteStorageAccess.promise; return chrome.storage.local.set(value); }
     } });
     this.siteNavigationVersions = new Map();
     this.sitePendingFrames = new Map();
@@ -998,8 +999,17 @@ class BrowserBackend {
         this.onSiteNavigation(details, phase);
       });
     }
+    this.controlStartupState = "pending";
     this.controlReady = this.recoverControlState();
-    this.controlReady.catch(error => this.automationControl.fail(error));
+    this.siteRecoveryReady = this.controlReady.then(async () => {
+      // Pending admissions may themselves await controlReady. Let them leave
+      // that barrier before waiting for the actual startup Pause to drain.
+      await this.siteStartupPause;
+      this.controlStartupState = this.automationControl.loadError ? "failed" : "ready";
+    }, error => {
+      this.controlStartupState = "failed";
+      this.automationControl.fail(error);
+    });
     for (const method of PUBLIC_BROWSER_METHODS) {
       if (["ping", "getInfo"].includes(method) || typeof this[method] !== "function") continue;
       const original = this[method].bind(this);
@@ -1251,7 +1261,19 @@ class BrowserBackend {
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
 
+  prepareSiteStorageAccess() {
+    // Only construction and explicit read recovery call this method. An
+    // unresolved access-level operation remains the original single flight.
+    if (this.siteStorageAccess && !this.siteStorageAccess.failed) return;
+    const attempt = { failed: false };
+    this.siteStorageAccess = attempt;
+    try { attempt.promise = Promise.resolve(chrome.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" })); }
+    catch (error) { attempt.promise = Promise.reject(error); }
+    attempt.promise.catch(() => { attempt.failed = true; });
+  }
+
   async getSiteAccessPolicy() {
+    let timedOut = false;
     try {
       await withTimeout(this.automationCleanupTimeoutMs, () => this.siteAccess.ready.catch(() => {}),
         () => new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings did not finish loading"));
@@ -1259,14 +1281,33 @@ class BrowserBackend {
       // Status must remain available even when the native read never settles.
       // A late valid read may still finish normal startup; this response does
       // not pretend the settings were loaded or change the global pause state.
-      return { ...this.siteAccess.status(), ready: false,
-        error: "OBU_SITE_ACCESS_UNAVAILABLE: website access settings did not finish loading" };
+      timedOut = true;
     }
     const status = this.siteAccess.status();
+    if (timedOut) {
+      status.ready = false;
+      status.error = "OBU_SITE_ACCESS_UNAVAILABLE: website access settings did not finish loading";
+    }
     // The pause/drain or real write may still be pending after the UI deadline.
     // A failed candidate is actionable only after that exact transition ends.
     if (this.sitePolicyUpdate) delete status.retryable;
+    if (status.recovery && (this.sitePolicyUpdate || this.controlStartupState !== "ready")) {
+      status.recovery = { state: status.recovery.state };
+    }
     return status;
+  }
+
+  recoverSiteAccessPolicy(expectedRecoveryId) {
+    if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
+    if (this.controlStartupState !== "ready")
+      throw new Error("OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE: browser control startup must finish before reading website settings again");
+    this.siteAccess.assertRecovery(expectedRecoveryId);
+    return this.changeSiteAccessPolicy(() => {
+      // Preparation does not await: retryLoad immediately consumes the ID and
+      // owns any pending/rejected access setup as part of this actual read.
+      this.prepareSiteStorageAccess();
+      return this.siteAccess.retryLoad(expectedRecoveryId);
+    });
   }
 
   setSiteAccessPolicy(config, expectedRevision) {
@@ -1283,26 +1324,26 @@ class BrowserBackend {
     return this.changeSiteAccessPolicy(() => this.siteAccess.retry(expectedRevision));
   }
 
-  changeSiteAccessPolicy(write) {
+  changeSiteAccessPolicy(operationAfterPause) {
     const deadlineAt = Date.now() + this.automationCleanupTimeoutMs;
     const timeout = () => new Error("OBU_SITE_ACCESS_UNAVAILABLE: website policy change is unconfirmed; automation remains paused");
     if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: a website policy change is already pending");
     const token = {};
     this.sitePolicyUpdate = token;
     // Pause fences input synchronously and drains native work before a policy
-    // can be replaced. Saving never resumes or replays the retired tasks.
+    // can be replaced or reread. Neither operation resumes retired tasks.
     const paused = this.pauseAutomation();
     const operation = (async () => {
       try {
         await paused;
         if (Date.now() >= deadlineAt) throw timeout();
-        return await write();
+        return await operationAfterPause();
       } finally {
         if (this.sitePolicyUpdate === token) this.sitePolicyUpdate = null;
       }
     })();
     // Keep the real operation/token alive after an outer deadline. Storage
-    // writes cannot be canceled; Resume stays fenced until its actual result.
+    // operations cannot be canceled; Resume stays fenced until actual result.
     return withTimeout(Math.max(1, deadlineAt - Date.now()), () => operation, timeout);
   }
 
@@ -4929,7 +4970,11 @@ class BrowserBackend {
   }
 
   async recoverControlState() {
-    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready, this.siteAccess.ready]);
+    let siteFailure;
+    // Only this policy's failure has a read-recovery path. Other startup
+    // stores retain their original errors and all lifecycle recovery below.
+    await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready,
+      this.siteAccess.ready.catch(error => { siteFailure = error; })]);
     // The journal has already durably imported legacy Pause IDs. They cannot be
     // rebound to numbers in a replacement browser and must not enter detach.
     this.automationControl.recoveredPendingTabs.clear();
@@ -4950,6 +4995,15 @@ class BrowserBackend {
       this.automationControl.fail(error);
       await this.controlLedger.invalidateAll();
       await this.automationControl.persist(true);
+      return;
+    }
+    if (siteFailure) {
+      // A blocked flag alone is not a completed Pause. Run the actual durable
+      // drain and epoch retirement; a failed cleanup stays available for an
+      // explicit retry and cannot authorize the subsequent policy read.
+      // Keep read-recovery authority behind the real Pause, but do not make
+      // controlReady wait for admissions that are waiting on controlReady.
+      this.siteStartupPause = this.pauseAutomation({ retryPageCleanup: false }).catch(() => {});
       return;
     }
     if (this.automationControl.inputBlocked) {
@@ -5668,6 +5722,12 @@ async function handleSiteAccessMessage(message, sender) {
   const contexts = await chrome.runtime.getContexts({ contextTypes: ["POPUP"], ...(typeof sender.documentId === "string" ? { documentIds: [sender.documentId] } : {}) });
   if (!contexts.some(context => context.contextType === "POPUP" && (sender.documentId === undefined || context.documentId === sender.documentId) && context.documentUrl === sender.url))
     throw new Error("OBU_CONTROL_FORBIDDEN: the sending popup is no longer open");
+  if (message.type === "RECOVER_SITE_ACCESS_POLICY") {
+    if (Object.keys(message).length !== 2 || !Object.hasOwn(message, "expectedRecoveryId") ||
+        typeof message.expectedRecoveryId !== "string" || !message.expectedRecoveryId || message.expectedRecoveryId.length > 128)
+      throw new Error("OBU_SITE_ACCESS_INVALID: recovery requires only the observed failed read ID");
+    return backend.recoverSiteAccessPolicy(message.expectedRecoveryId);
+  }
   if (message.type === "RETRY_SITE_ACCESS_POLICY") {
     if (Object.keys(message).length !== 2 || !Object.hasOwn(message, "expectedRevision") ||
         !Number.isSafeInteger(message.expectedRevision) || message.expectedRevision < 0)
@@ -5677,7 +5737,7 @@ async function handleSiteAccessMessage(message, sender) {
   return backend.setSiteAccessPolicy(message.policy, message.expectedRevision);
 }
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY", "RETRY_SITE_ACCESS_POLICY"].includes(message?.type)) {
+  if (["GET_SITE_ACCESS_POLICY", "SET_SITE_ACCESS_POLICY", "RETRY_SITE_ACCESS_POLICY", "RECOVER_SITE_ACCESS_POLICY"].includes(message?.type)) {
     void handleSiteAccessMessage(message, sender).then(policy => sendResponse({ ok: true, policy }), error => sendResponse({ ok: false, error: String(error?.message ?? error) }));
     return true;
   }

@@ -187,6 +187,40 @@ test("SDK deadline followed by a later worker timeout cannot masquerade as the o
   }
 });
 
+test("only high-level screenshot accepts an integer remaining wire budget within the original 1000ms", () => {
+  for (const api of ["raw", "high-level"]) {
+    const p = evidence({ pause: true, api }); p.released = false;
+    const request = p.records.find(r => r.kind === "request"), reply = p.records.find(r => r.kind === "response");
+    const caller = { ok: false, error: "Browser action timed out", settledAt: reply.at + 1 };
+    for (const timeoutMs of [1, 999, 1000]) {
+      request.timeoutMs = timeoutMs;
+      if (api === "raw" && timeoutMs !== 1000) assert.throws(() => assertOriginalScreenshotTimeout(p, caller, api));
+      else assert.equal(assertOriginalScreenshotTimeout(p, caller, api).requestedTimeoutMs, timeoutMs);
+    }
+    for (const timeoutMs of [0, -1, 0.5, 999.5, NaN, Infinity, "999", true, undefined, 1001]) {
+      request.timeoutMs = timeoutMs; assert.throws(() => assertOriginalScreenshotTimeout(p, caller, api));
+    }
+  }
+});
+
+test("reduced high-level budget still requires the original held native capture and timely wire timeout", () => {
+  const original = evidence({ pause: true, api: "high-level" }); original.released = false;
+  original.records.find(r => r.kind === "request").timeoutMs = 999;
+  const caller = { ok: false, error: "Browser action timed out", settledAt: original.records.find(r => r.kind === "response").at + 1 };
+  assertOriginalScreenshotTimeout(original, caller, "high-level");
+  assertScreenshotDrainEvidence(original, { pause: true, api: "high-level" });
+  for (const mutate of [p => { p.records = p.records.filter(r => r.kind !== "response"); },
+    p => { p.records.find(r => r.kind === "response").at = caller.settledAt + 1; },
+    p => { p.records.find(r => r.kind === "response").ok = true; }, p => { p.released = true; }]) {
+    const changed = structuredClone(original); mutate(changed); assert.throws(() => assertOriginalScreenshotTimeout(changed, caller, "high-level"));
+  }
+  for (const mutate of [p => { p.records.find(r => r.kind === "response").sequence = 999; },
+    p => { p.records = p.records.filter(r => r.kind !== "capture-held"); },
+    p => { const capture = p.records.find(r => r.kind === "send" && r.method === "Page.captureScreenshot"); p.records = p.records.filter(r => !(r.kind === "native-settled" && r.sendSequence === capture.sequence)); }]) {
+    const changed = structuredClone(original); mutate(changed); assert.throws(() => assertScreenshotDrainEvidence(changed, { pause: true, api: "high-level" }));
+  }
+});
+
 for (const [name, change] of [
   ["second native capture", p => p.records.push({ ...p.records.find(r => r.kind === "send" && r.method === "Page.captureScreenshot"), sequence: 100 })],
   ["SDK-only timeout without original wire reply", p => { p.records = p.records.filter(r => r.kind !== "response"); }],

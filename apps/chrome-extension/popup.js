@@ -42,6 +42,7 @@ const siteAccessMode = document.getElementById("site-access-mode");
 const siteAccessOrigins = document.getElementById("site-access-origins");
 const siteAccessApply = document.getElementById("site-access-apply");
 const siteAccessRetry = document.getElementById("site-access-retry");
+const siteAccessRecover = document.getElementById("site-access-recover");
 const siteAccessReload = document.getElementById("site-access-reload");
 const siteAccessControl = createSiteAccessControl({
   sendMessage: message => {
@@ -64,6 +65,9 @@ const siteAccessControl = createSiteAccessControl({
     siteAccessRetry.hidden = !view.retryVisible;
     siteAccessRetry.textContent = view.retryText;
     siteAccessRetry.disabled = view.retryDisabled;
+    siteAccessRecover.hidden = !view.recoverVisible;
+    siteAccessRecover.textContent = view.recoverText;
+    siteAccessRecover.disabled = view.recoverDisabled;
     siteAccessReload.textContent = view.reloadText;
     siteAccessReload.disabled = view.reloadDisabled;
     const error = document.getElementById("site-access-error");
@@ -76,6 +80,7 @@ siteAccessMode.addEventListener("change", editSiteAccess);
 siteAccessOrigins.addEventListener("input", editSiteAccess);
 siteAccessApply.addEventListener("click", () => { void siteAccessControl.apply(); });
 siteAccessRetry.addEventListener("click", () => { void siteAccessControl.retry(); });
+siteAccessRecover.addEventListener("click", () => { void siteAccessControl.recover(); });
 siteAccessReload.addEventListener("click", () => { void siteAccessControl.reload(); });
 
 renderExtensionVersion();

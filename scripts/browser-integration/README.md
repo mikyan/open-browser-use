@@ -1771,6 +1771,25 @@ websites through the popup before cleanup. Raw events are preserved for both
 intentional popup opens; no page actions receive a focus exception. Policy
 semantics and limitations are in [website access settings](../../docs/references/site-access-policy.md).
 
+`js-site-access-startup-recovery` saves a restrictive policy in that real popup,
+then restarts the actual service worker. A one-use private-session marker arms
+a staged-only observer before production initialization: the original native
+policy read fulfills, but its derived delivery rejects once. Static imports
+remain outside a test-only async initialization wrapper because Chromium
+service workers prohibit top-level await. This is a controlled delivery failure,
+not a natural native storage rejection. The second read returns the original
+native Promise; both values, zero policy writes, durable Pause, stale scopes,
+and the original document/node and single trusted POST receipt are verified.
+Explicit Resume/new-turn is required before that form submission. The fixture
+restores the original native methods and records subsequent settings cleanup
+separately. Its popup opening uses the existing exact-context focus matcher;
+page actions gain no exception. Select it with
+`OBU_TEST_CASES='^js-site-access-startup-recovery$'` (plus the mandatory raw
+navigation prerequisite), or run it as part of the default complete suite.
+When the existing website-policy case also runs, recovery borrows its still-open
+popup after restoration and records the original result separately. It does not
+close/reopen the popup, refocus its window, or replay the recovery workflow.
+
 The page-export cases call the public JS, Python, Go, CLI and MCP APIs and retain
 `page-export-{js,python,go,cli,mcp}.{pdf,mhtml}` with byte lengths and SHA-256
 digests. They verify PDF signatures and final markers, MHTML resource/frame

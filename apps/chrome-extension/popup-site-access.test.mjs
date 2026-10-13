@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import { createSiteAccessControl } from "./popup-site-access.js";
 
 const policy = (revision = 1, mode = "all", origins = []) => ({ version: 1, revision, mode, origins, ready: true });
@@ -292,4 +294,245 @@ test("read failures, blocked actions and local validation do not report a settle
   edit(g, Array.from({ length: 101 }, (_, i) => `https://site${i}.example`).join("\n"));
   await g.control.apply();
   assert.equal(g.requests.length, 1); assert.equal(g.settled.length, 0); assert.equal(g.applied.length, 0);
+});
+
+const unreadPolicy = (state = "read-error", id = "read-attempt-1") => ({
+  ...policy(0), ready: false, error: state === "invalid" ? "Stored settings are invalid" : "Saved settings could not be read",
+  recovery: { state, ...(id === undefined ? {} : { id }) }
+});
+
+test("unknown and invalid saved settings never display the initial allow-all value", async () => {
+  const f = fixture();
+  assert.equal(f.view().mode, ""); assert.equal(f.view().listVisible, false);
+  await load(f, unreadPolicy("invalid"));
+  assert.equal(f.view().mode, ""); assert.equal(f.view().revision, null);
+  assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().editingDisabled, true);
+  assert.equal(f.view().applyDisabled, true); assert.equal(f.view().retryVisible, false);
+  assert.equal(f.view().recoverVisible, true); assert.equal(f.view().recoverDisabled, false);
+  assert.match(f.view().message, /invalid/i); assert.doesNotMatch(f.view().message, /Saved settings loaded|default applies/);
+  await f.control.apply(); await f.control.retry();
+  assert.equal(f.requests.length, 1);
+});
+
+test("a pending native read or unavailable startup gate cannot be recovered by the popup", async () => {
+  for (const value of [
+    { ...unreadPolicy(), recovery: { state: "pending" } },
+    { ...unreadPolicy(), recovery: { state: "read-error" } },
+    { ...unreadPolicy("invalid"), recovery: { state: "invalid" } }
+  ]) {
+    const f = fixture(); await load(f, value);
+    assert.equal(f.view().recoverDisabled, true); assert.equal(f.view().mode, "");
+    assert.equal(f.view().editingDisabled, true); assert.equal(f.view().applyDisabled, true);
+    await f.control.recover(); assert.equal(f.requests.length, 1);
+    const poll = f.control.refresh(); f.respond(1, value); await poll;
+    assert.deepEqual(f.requests.map(item => item.message.type), ["GET_SITE_ACCESS_POLICY", "GET_SITE_ACCESS_POLICY"]);
+    assert.equal(f.settled.length, 0);
+  }
+});
+
+test("explicit read recovery uses only the original id and confirms loaded settings without saving or resuming", async () => {
+  const f = fixture(); await load(f, unreadPolicy());
+  const recover = f.control.recover();
+  assert.deepEqual(f.requests[1].message, { type: "RECOVER_SITE_ACCESS_POLICY", expectedRecoveryId: "read-attempt-1" });
+  assert.equal(f.view().pending, "recover"); assert.equal(f.view().recoverDisabled, true);
+  assert.equal(f.view().reloadDisabled, true); assert.equal(f.view().editingDisabled, true);
+  assert.match(f.view().message, /Reading saved settings/);
+  await f.control.recover(); await f.control.refresh(); await f.control.reload(); await f.control.apply(); await f.control.retry();
+  edit(f); assert.equal(f.requests.length, 2);
+  f.respond(1, { ...policy(8, "allow", ["https://only.example"]), stored: true }); await recover;
+  assert.equal(f.view().mode, "allow"); assert.equal(f.view().revision, 8);
+  assert.equal(f.view().originsText, "https://only.example"); assert.equal(f.view().recoverVisible, false);
+  assert.match(f.view().message, /reloaded.*remain paused/); assert.doesNotMatch(f.view().message, /Settings saved and/);
+  assert.equal(f.applied.length, 0); assert.deepEqual(f.settled, [{ pending: null, label: "Saved" }]);
+  assert.deepEqual(f.requests.map(item => item.message.type), ["GET_SITE_ACCESS_POLICY", "RECOVER_SITE_ACCESS_POLICY"]);
+});
+
+test("confirmed missing storage is Default, not Saved, including recovery", async () => {
+  for (const recovery of [false, true]) {
+    const f = fixture(), absent = { ...policy(0), stored: false };
+    await load(f, recovery ? unreadPolicy() : absent);
+    if (recovery) { const attempt = f.control.recover(); f.respond(1, absent); await attempt; }
+    assert.equal(f.view().label, "Default"); assert.equal(f.view().mode, "all");
+    assert.match(f.view().message, /No saved settings/); assert.match(f.view().message, /default/i);
+    assert.equal(/remain paused/.test(f.view().message), recovery);
+    assert.equal(f.applied.length, 0); assert.equal(f.view().editingDisabled, false);
+    assert.equal(f.requests.some(item => /SET_SITE|RETRY_SITE|RESUME/.test(item.message.type)), false);
+  }
+});
+
+test("repeated actual read rejection offers only the new failure id and never falls back to allow-all", async () => {
+  const f = fixture(); await load(f, unreadPolicy());
+  const attempt = f.control.recover();
+  f.respond(1, unreadPolicy("invalid", "read-attempt-2"), { ok: false, error: "Stored settings are invalid" }); await attempt;
+  assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().mode, "");
+  assert.equal(f.view().recoverDisabled, false); assert.equal(f.applied.length, 0);
+  assert.equal(f.requests.length, 2); assert.equal(f.settled.length, 1);
+  const again = f.control.recover();
+  assert.deepEqual(f.requests[2].message, { type: "RECOVER_SITE_ACCESS_POLICY", expectedRecoveryId: "read-attempt-2" });
+  f.respond(2, policy(5, "block", ["https://blocked.example"])); await again;
+  assert.equal(f.view().mode, "block"); assert.equal(f.applied.length, 0);
+});
+
+test("a lost recovery reply requires a new status check and never reuses its unconfirmed id", async () => {
+  const f = fixture(); await load(f, unreadPolicy());
+  const attempt = f.control.recover(); f.requests[1].reject(new Error("Worker disconnected")); await attempt;
+  assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().recoverDisabled, true);
+  assert.doesNotMatch(f.view().message, /remain paused/);
+  await f.control.recover(); assert.equal(f.requests.length, 2); assert.equal(f.settled.length, 1);
+  const verify = f.control.refresh(); f.respond(2, unreadPolicy("read-error", "read-attempt-2")); await verify;
+  assert.equal(f.view().recoverDisabled, false);
+  const again = f.control.recover(); assert.equal(f.requests[3].message.expectedRecoveryId, "read-attempt-2");
+  f.respond(3, policy(3)); await again;
+  assert.equal(f.applied.length, 0);
+});
+
+test("older polls cannot resurrect a recovery id after success or replace the latest failure", async () => {
+  const f = fixture(); await load(f, unreadPolicy());
+  const old = f.control.refresh(), newer = f.control.refresh();
+  f.respond(2, unreadPolicy("invalid", "latest")); await newer;
+  f.respond(1, unreadPolicy("read-error", "old")); await old;
+  const stale = f.control.refresh(), recover = f.control.recover();
+  assert.equal(f.requests[4].message.expectedRecoveryId, "latest");
+  f.respond(4, policy(4)); await recover;
+  f.respond(3, unreadPolicy("read-error", "stale")); await stale;
+  assert.equal(f.view().label, "Saved"); assert.equal(f.view().recoverVisible, false);
+  await f.control.recover(); assert.equal(f.requests.length, 5);
+});
+
+test("malformed recovery states cannot enable recovery, editing or a save", async () => {
+  for (const value of [
+    { ...unreadPolicy(), ready: true }, { ...unreadPolicy(), retryable: true },
+    { ...unreadPolicy(), recovery: { state: "pending", id: "not-settled" } },
+    { ...unreadPolicy(), recovery: { state: "read-error", id: "" } },
+    { ...unreadPolicy(), recovery: { state: "read-error", id: 4 } },
+    { ...unreadPolicy(), recovery: { state: "read-error", id: "x".repeat(129) } },
+    { ...unreadPolicy(), recovery: { state: "unknown", id: "untrusted" } },
+    { ...policy(), stored: "false" }, { ...policy(9, "allow", ["https://example.com"]), stored: false }
+  ]) {
+    const f = fixture(); await load(f, value);
+    assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().recoverDisabled, true);
+    assert.equal(f.view().editingDisabled, true); assert.equal(f.view().applyDisabled, true);
+    await f.control.recover(); await f.control.apply(); assert.equal(f.requests.length, 1);
+  }
+});
+
+test("an unconfirmed successful recovery reply is not a save or another automatic read", async () => {
+  for (const value of [unreadPolicy("pending", undefined), failedPolicy(2), { ...policy(), recovery: { state: "read-error", id: "wrong" } }]) {
+    const f = fixture(); await load(f, unreadPolicy());
+    const attempt = f.control.recover(); f.respond(1, value); await attempt;
+    assert.equal(f.view().label, "Unavailable"); assert.equal(f.view().recoverDisabled, true);
+    assert.equal(f.applied.length, 0); assert.equal(f.settled.length, 1);
+    await f.control.recover(); assert.equal(f.requests.length, 2);
+  }
+});
+
+test("unknown policy preserves a draft internally and only explicit reload discards it", async () => {
+  const f = fixture(); await load(f, policy(3)); edit(f, " https://draft.example/ ");
+  const poll = f.control.refresh(); f.respond(1, unreadPolicy()); await poll;
+  assert.equal(f.view().mode, ""); assert.equal(f.view().listVisible, false);
+  assert.equal(f.view().editingDisabled, true); assert.equal(f.view().dirty, true);
+  const recover = f.control.recover(); f.respond(2, policy(4, "block", ["https://saved.example"])); await recover;
+  assert.equal(f.view().mode, "allow"); assert.equal(f.view().originsText, " https://draft.example/ ");
+  assert.equal(f.view().dirty, true); assert.equal(f.view().conflict, true);
+  const reload = f.control.reload(); f.respond(3, policy(4, "block", ["https://saved.example"])); await reload;
+  assert.equal(f.view().mode, "block"); assert.equal(f.view().dirty, false);
+});
+
+test("the popup binds read recovery to its dedicated button and refreshes automation only after settlement", async () => {
+  const html = readFileSync(new URL("./popup.html", import.meta.url), "utf8");
+  assert.match(html, /<option value="" disabled selected>Saved settings not loaded<\/option>/);
+  const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
+    value: "", textContent: "", dataset: {}, disabled: false, hidden: false, listeners: {},
+    addEventListener(type, callback) { this.listeners[type] = callback; }
+  }]));
+  const requests = []; let refreshes = 0;
+  const context = {
+    document: { getElementById: id => { assert.ok(elements.has(id), `Missing popup element ${id}`); return elements.get(id); } },
+    chromeApi: { runtime: { sendMessage: message => new Promise((resolve, reject) => requests.push({ message, resolve, reject })) } },
+    automationControl: { refresh: () => { refreshes++; } }, createSiteAccessControl
+  };
+  const source = readFileSync(new URL("./popup.js", import.meta.url), "utf8");
+  const block = source.slice(source.indexOf("const siteAccessMode ="), source.indexOf("\nrenderExtensionVersion();"));
+  assert.ok(block.length > 1000);
+  vm.runInNewContext(`${block}\nglobalThis.control = siteAccessControl;`, context);
+  const initial = context.control.refresh(); requests[0].resolve({ ok: true, policy: unreadPolicy() }); await initial;
+  const button = elements.get("site-access-recover");
+  assert.equal(button.hidden, false); assert.equal(button.disabled, false);
+  assert.equal(elements.get("site-access-mode").value, "");
+  button.listeners.click();
+  assert.equal(requests[1].message.type, "RECOVER_SITE_ACCESS_POLICY");
+  assert.equal(requests[1].message.expectedRecoveryId, "read-attempt-1");
+  assert.equal(button.disabled, true); assert.equal(refreshes, 0);
+  requests[1].resolve({ ok: true, policy: { ...policy(8, "allow", ["https://only.example"]), stored: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(button.hidden, true); assert.equal(elements.get("site-access-mode").value, "allow");
+  assert.equal(elements.get("site-access-status").textContent, "Saved");
+  assert.equal(refreshes, 1); assert.equal(requests.length, 2);
+});
+
+test("explicit recovery accepts a new worker's lower saved revision or confirmed absence", async () => {
+  for (const recovered of [policy(3, "block", ["https://repaired.example"]), { ...policy(0), stored: false }]) {
+    const f = fixture(); await load(f, policy(4, "allow", ["https://old.example"]));
+    const failed = f.control.refresh(); f.respond(1, unreadPolicy("read-error", "new-worker-read")); await failed;
+    const old = f.control.refresh(), recover = f.control.recover();
+    f.respond(3, recovered); await recover;
+    assert.equal(f.view().revision, recovered.revision);
+    assert.equal(f.view().mode, recovered.mode);
+    assert.equal(f.view().label, recovered.stored === false ? "Default" : "Saved");
+    assert.equal(f.view().error, ""); assert.equal(f.applied.length, 0);
+    f.respond(2, policy(9, "allow", ["https://stale.example"])); await old;
+    assert.equal(f.view().revision, recovered.revision, "the old poll must not replace the explicit read authority");
+    if (recovered.revision > 0) {
+      const regressed = f.control.refresh(); f.respond(4, policy(2)); await regressed;
+      assert.equal(f.view().revision, recovered.revision, "ordinary GET replies still cannot lower the new authority");
+    }
+  }
+});
+
+test("cross-worker recovery retains a dirty draft and requires review before saving against a lower revision", async () => {
+  const f = fixture(); await load(f, policy(8)); edit(f, " https://draft.example/ ");
+  const failed = f.control.refresh(); f.respond(1, unreadPolicy("invalid", "repaired-worker")); await failed;
+  const recover = f.control.recover(); f.respond(2, policy(2, "block", ["https://saved.example"])); await recover;
+  assert.equal(f.view().revision, 2); assert.equal(f.view().mode, "allow");
+  assert.equal(f.view().originsText, " https://draft.example/ "); assert.equal(f.view().dirty, true);
+  assert.equal(f.view().conflict, true); assert.equal(f.view().applyDisabled, true);
+  await f.control.apply(); assert.equal(f.requests.length, 3);
+  const review = f.control.reload(); f.respond(3, policy(2, "block", ["https://saved.example"])); await review;
+  assert.equal(f.view().dirty, false); assert.equal(f.view().mode, "block"); assert.equal(f.view().conflict, false);
+  assert.equal(f.applied.length, 0);
+});
+
+test("after a lost explicit recovery reply a fresh status check can confirm its new read authority", async () => {
+  for (const method of ["refresh", "reload"]) {
+    const f = fixture(); await load(f, policy(9, "allow", ["https://old.example"]));
+    const failed = f.control.refresh(); f.respond(1, unreadPolicy("read-error", "new-worker")); await failed;
+    const old = f.control.refresh(), recover = f.control.recover();
+    f.requests[3].reject(new Error("Recovery reply lost")); await recover;
+    const verified = f.control[method](); f.respond(4, policy(3, "block", ["https://recovered.example"])); await verified;
+    assert.equal(f.view().revision, 3); assert.equal(f.view().mode, "block");
+    assert.equal(f.view().label, "Saved"); assert.equal(f.view().error, "");
+    assert.equal(f.view().recoverVisible, false); assert.equal(f.applied.length, 0);
+    assert.doesNotMatch(f.view().message, /remain paused/, "a lost reply must not claim the transition's cleanup acknowledgment");
+    f.respond(2, policy(10, "allow", ["https://stale.example"])); await old;
+    assert.equal(f.view().revision, 3, "pre-recovery polls are still fenced");
+    const lower = f.control.refresh(); f.respond(5, policy(2)); await lower;
+    assert.equal(f.view().revision, 3, "the recovered authority exception is consumed once");
+    assert.equal(f.requests.filter(item => item.message.type === "RECOVER_SITE_ACCESS_POLICY").length, 1);
+  }
+});
+
+test("same-revision recovered settings require explicit review before applying an old dirty draft", async () => {
+  const f = fixture(); await load(f, policy(9, "allow", ["https://old.example"]));
+  edit(f, " https://draft.example/ ");
+  const failed = f.control.refresh(); f.respond(1, unreadPolicy("invalid", "repaired-worker")); await failed;
+  const recover = f.control.recover(); f.respond(2, policy(9, "block", ["https://new.example"])); await recover;
+  assert.equal(f.view().revision, 9); assert.equal(f.view().originsText, " https://draft.example/ ");
+  assert.equal(f.view().dirty, true); assert.equal(f.view().conflict, true);
+  assert.equal(f.view().applyDisabled, true);
+  await f.control.apply(); assert.equal(f.requests.length, 3, "direct controller calls must also enforce review");
+  const review = f.control.reload(); f.respond(3, policy(9, "block", ["https://new.example"])); await review;
+  assert.equal(f.view().mode, "block"); assert.equal(f.view().dirty, false); assert.equal(f.view().conflict, false);
+  edit(f, "https://after-review.example"); const save = f.control.apply();
+  assert.equal(f.requests[4].message.expectedRevision, 9);
+  f.respond(4, policy(10, "allow", ["https://after-review.example"])); await save;
 });

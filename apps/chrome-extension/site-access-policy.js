@@ -39,6 +39,8 @@ export function normalizeSiteAccessPolicy(config) {
 export class SiteAccessPolicy {
   #failedWrite = null;
   #pendingWrites = 0;
+  #recovery = null;
+  #stored = false;
 
   constructor({ storage } = {}) {
     if (!storage || typeof storage.get !== "function" || typeof storage.set !== "function")
@@ -48,35 +50,72 @@ export class SiteAccessPolicy {
     this.loaded = false;
     this.error = undefined;
     this.writes = Promise.resolve();
-    this.ready = this.load();
-    // Reading status is safe even when nobody is currently awaiting startup.
-    this.ready.catch(() => {});
+    this.#startLoad();
   }
 
-  async load() {
-    try {
-      const stored = await this.storage.get(SITE_ACCESS_POLICY_KEY);
-      if (!object(stored)) throw stateInvalid();
-      const value = stored[SITE_ACCESS_POLICY_KEY];
-      if (value !== undefined) {
-        if (!exactKeys(value, ["version", "revision", "mode", "origins"]) || value.version !== 1 || !revision(value.revision)) throw stateInvalid();
-        let config;
-        try { config = normalizeSiteAccessPolicy({ mode: value.mode, origins: value.origins }); }
-        catch { throw stateInvalid(); }
-        this.value = { version: 1, revision: value.revision, ...config };
-      }
+  #startLoad() {
+    // Reserve before calling the adapter, including adapters which throw
+    // synchronously. An observer timeout cannot grant another read attempt.
+    this.#recovery = { state: "pending" };
+    this.loaded = false;
+    this.error = undefined;
+    const operation = (async () => {
+      let result;
+      try { result = await this.storage.get(SITE_ACCESS_POLICY_KEY); }
+      catch (cause) { this.#readFailed("read-error", cause); }
+      let next, present;
+      try {
+        if (!object(result)) throw stateInvalid();
+        const value = result[SITE_ACCESS_POLICY_KEY];
+        present = value !== undefined;
+        if (present) {
+          if (!exactKeys(value, ["version", "revision", "mode", "origins"]) || value.version !== 1 || !revision(value.revision)) throw stateInvalid();
+          next = { version: 1, revision: value.revision, ...normalizeSiteAccessPolicy({ mode: value.mode, origins: value.origins }) };
+        } else {
+          // Confirmed absence follows fresh-start compatibility. This read is
+          // not a reset/write or CAS against external storage modifications.
+          next = { version: 1, revision: 0, mode: "all", origins: [] };
+        }
+      } catch { this.#readFailed("invalid"); }
+      this.value = next;
+      this.#stored = present;
+      this.#recovery = null;
       this.loaded = true;
-    } catch (error) {
-      const failure = error?.message?.startsWith("OBU_SITE_ACCESS_STATE_INVALID:") ? stateInvalid()
-        : new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings could not be loaded", { cause: error });
-      this.loaded = false;
-      this.error = failure.message;
-      throw failure;
-    }
+      this.error = undefined;
+      return this.status();
+    })();
+    this.ready = operation;
+    // Reading status is safe even when nobody is currently awaiting startup.
+    operation.catch(() => {});
+    return operation;
+  }
+
+  #readFailed(state, cause) {
+    const failure = state === "invalid" ? stateInvalid()
+      : new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings could not be loaded", { cause });
+    this.loaded = false;
+    this.error = failure.message;
+    this.#recovery = { state, id: crypto.randomUUID() };
+    throw failure;
+  }
+
+  assertRecovery(expectedRecoveryId) {
+    if (this.loaded || this.#pendingWrites !== 0 || this.#failedWrite || !this.#recovery?.id)
+      throw new Error("OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE: there is no settled website policy read to recover");
+    if (typeof expectedRecoveryId !== "string" || expectedRecoveryId !== this.#recovery.id)
+      throw new Error("OBU_SITE_ACCESS_RECOVERY_CONFLICT: refresh website access settings before reloading");
+  }
+
+  retryLoad(expectedRecoveryId) {
+    this.assertRecovery(expectedRecoveryId);
+    // Keep this method synchronous through reservation and return the actual
+    // new ready promise. The backend owns trusted admission and Pause/drain.
+    return this.#startLoad();
   }
 
   status() {
-    return { ...this.value, origins: [...this.value.origins], ready: this.loaded, ...(this.error ? { error: this.error } : {}),
+    return { ...this.value, origins: [...this.value.origins], ready: this.loaded, ...(this.loaded ? { stored: this.#stored } : {}),
+      ...(this.error ? { error: this.error } : {}), ...(this.#recovery ? { recovery: { ...this.#recovery } } : {}),
       ...(this.#failedWrite === this.value && this.#pendingWrites === 0 ? { retryable: true } : {}) };
   }
 
@@ -143,6 +182,7 @@ export class SiteAccessPolicy {
       try {
         // Never share mutable objects with the asynchronous storage adapter.
         await this.storage.set({ [SITE_ACCESS_POLICY_KEY]: { ...this.value, origins: [...this.value.origins] } });
+        this.#stored = true;
         this.loaded = true;
       } catch (error) {
         const failure = new Error("OBU_SITE_ACCESS_UNAVAILABLE: website access settings could not be saved", { cause: error });

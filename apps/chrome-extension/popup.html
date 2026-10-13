@@ -38,6 +38,7 @@
         </div>
         <label class="setting-label" for="site-access-mode">Allow agents to use</label>
         <select id="site-access-mode" disabled>
+          <option value="" disabled selected>Saved settings not loaded</option>
           <option value="all">All websites</option>
           <option value="allow">Only listed origins</option>
           <option value="block">Block listed origins</option>
@@ -50,6 +51,7 @@
         <p class="control-hint" id="site-access-message" role="status">Checking saved settings…</p>
         <button class="control-button" id="site-access-apply" type="button" disabled>Apply and pause agents</button>
         <button class="control-button" id="site-access-retry" type="button" hidden disabled>Retry save and keep paused</button>
+        <button class="control-button" id="site-access-recover" type="button" hidden disabled>Read settings again and keep paused</button>
         <button class="secondary-button" id="site-access-reload" type="button">Check saved settings</button>
         <p class="error-message" id="site-access-error" role="alert" hidden></p>
         <details class="site-access-details">

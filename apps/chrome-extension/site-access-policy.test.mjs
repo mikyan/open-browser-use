@@ -32,7 +32,7 @@ test("configuration shape and capacity are strict", () => {
 
 test("startup rejects admission until storage resolves and preserves missing-key compatibility", async () => {
   const read = deferred(), policy = new SiteAccessPolicy({ storage: { get: () => read.promise, set: async () => {} } });
-  assert.deepEqual(policy.status(), { version: 1, revision: 0, mode: "all", origins: [], ready: false });
+  assert.deepEqual(policy.status(), { version: 1, revision: 0, mode: "all", origins: [], ready: false, recovery: { state: "pending" } });
   assert.equal(policy.restricted, true); assert.equal(policy.allowsUrl("https://example.com"), false);
   assert.throws(() => policy.assertReady(), /OBU_SITE_ACCESS_UNAVAILABLE/);
   read.resolve({}); await policy.ready;
@@ -130,7 +130,7 @@ test("retry metadata exists only after an actual write rejection and retries the
   adapter.set = write;
   const retried = policy.retry(5); assert.equal(policy.status().retryable, undefined);
   const confirmed = await retried;
-  assert.deepEqual(confirmed, { ...stored(6, "block"), ready: true }); assert.equal(policy.status().retryable, undefined);
+  assert.deepEqual(confirmed, { ...stored(6, "block"), ready: true, stored: true }); assert.equal(policy.status().retryable, undefined);
   assert.deepEqual(adapter.writes, [{ [SITE_ACCESS_POLICY_KEY]: stored(6, "block") }]);
   await assert.rejects(policy.retry(5), /OBU_SITE_ACCESS_REVISION_CONFLICT/);
   await assert.rejects(policy.retry(6), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
@@ -165,4 +165,136 @@ test("startup, validation, CAS and revision exhaustion cannot manufacture retry 
   const exhausted = new SiteAccessPolicy({ storage: storage(stored(Number.MAX_SAFE_INTEGER)) }); await exhausted.ready;
   await assert.rejects(exhausted.replace(config(), Number.MAX_SAFE_INTEGER), /OBU_SITE_ACCESS_REVISION_EXHAUSTED/);
   assert.equal(exhausted.status().retryable, undefined);
+});
+
+test("explicit read recovery replaces the rejected ready promise and preserves the persisted revision", async () => {
+  let reads = 0;
+  const adapter = storage(stored(8));
+  const read = adapter.get;
+  adapter.get = key => {
+    assert.equal(key, SITE_ACCESS_POLICY_KEY);
+    if (++reads === 1) throw new Error("private adapter detail");
+    return read();
+  };
+  const policy = new SiteAccessPolicy({ storage: adapter }), originalReady = policy.ready;
+  await assert.rejects(originalReady, /OBU_SITE_ACCESS_UNAVAILABLE/);
+  const failed = policy.status();
+  assert.equal(failed.recovery?.state, "read-error");
+  assert.match(failed.recovery.id, /^[0-9a-f-]{36}$/);
+  assert.equal(failed.stored, undefined);
+  assert.equal(JSON.stringify(failed).includes("private adapter detail"), false);
+  policy.assertRecovery(failed.recovery.id);
+  const retry = policy.retryLoad(failed.recovery.id);
+  assert.equal(retry, policy.ready); assert.notEqual(retry, originalReady);
+  assert.deepEqual(await retry, { ...stored(8), ready: true, stored: true });
+  assert.equal(policy.status().error, undefined); assert.equal(policy.status().recovery, undefined);
+  assert.equal(adapter.writes.length, 0); assert.equal(reads, 2);
+  // A successful reread must also repair the promise awaited by later writes.
+  await policy.replace(config("block"), 8);
+  assert.equal(policy.status().revision, 9); assert.equal(adapter.writes.length, 1);
+});
+
+test("pending reads reserve recovery synchronously and an observer timeout grants no second read", async () => {
+  const first = deferred(), next = deferred(); let reads = 0;
+  const policy = new SiteAccessPolicy({ storage: {
+    get() { return ++reads === 1 ? first.promise : next.promise; }, set: async () => assert.fail("read recovery cannot write"),
+  } });
+  assert.deepEqual(policy.status().recovery, { state: "pending" });
+  assert.throws(() => policy.retryLoad("not-a-settled-id"), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  first.reject(new Error("first read rejected")); await assert.rejects(policy.ready);
+  const id = policy.status().recovery.id;
+  const retry = policy.retryLoad(id); let settled = false; retry.finally(() => { settled = true; });
+  assert.equal(retry, policy.ready); assert.deepEqual(policy.status().recovery, { state: "pending" });
+  assert.throws(() => policy.assertRecovery(id), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  assert.throws(() => policy.retryLoad(id), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  assert.equal(await Promise.race([retry.then(() => "read"), Promise.resolve("observer ended")]), "observer ended");
+  assert.equal(settled, false); assert.equal(reads, 2); assert.equal(policy.restricted, true);
+  next.resolve({ [SITE_ACCESS_POLICY_KEY]: stored(19, "block") }); await retry;
+  assert.equal(settled, true); assert.equal(policy.status().revision, 19);
+});
+
+test("each settled read failure has a fresh exact recovery identity, isolated from other instances", async () => {
+  let reads = 0;
+  const adapter = { get: async () => { reads++; throw new Error("private read details"); }, set: async () => assert.fail("must not write") };
+  const policy = new SiteAccessPolicy({ storage: adapter }); await assert.rejects(policy.ready);
+  const first = policy.status().recovery.id;
+  for (const id of [undefined, null, 1, {}, "", "private invalid id", "x".repeat(2048)]) {
+    assert.throws(() => policy.retryLoad(id), error => /^OBU_SITE_ACCESS_RECOVERY_CONFLICT:/.test(error.message) && !error.message.includes("private"));
+  }
+  assert.equal(reads, 1);
+  const copied = policy.status(); copied.recovery.id = "changed";
+  await assert.rejects(policy.retryLoad(first), /OBU_SITE_ACCESS_UNAVAILABLE/);
+  const second = policy.status().recovery.id;
+  assert.notEqual(second, first); assert.notEqual(second, "changed");
+  assert.throws(() => policy.retryLoad(first), /OBU_SITE_ACCESS_RECOVERY_CONFLICT/);
+  const other = new SiteAccessPolicy({ storage: adapter }); await assert.rejects(other.ready);
+  assert.notEqual(other.status().recovery.id, second);
+  assert.throws(() => other.retryLoad(second), /OBU_SITE_ACCESS_RECOVERY_CONFLICT/);
+  assert.equal(reads, 3);
+});
+
+test("corrupt persisted policy requires a valid reread and never resets or writes the original revision", async () => {
+  let current = { ...stored(27), origins: ["https://private.example/path"] }, reads = 0, writes = 0;
+  const policy = new SiteAccessPolicy({ storage: {
+    async get() { reads++; return { [SITE_ACCESS_POLICY_KEY]: structuredClone(current) }; }, async set() { writes++; },
+  } });
+  await assert.rejects(policy.ready, /OBU_SITE_ACCESS_STATE_INVALID/);
+  const first = policy.status().recovery;
+  assert.equal(first.state, "invalid"); assert.equal(JSON.stringify(policy.status()).includes("private"), false);
+  await assert.rejects(policy.retryLoad(first.id), /OBU_SITE_ACCESS_STATE_INVALID/);
+  assert.equal(policy.status().recovery.state, "invalid"); assert.notEqual(policy.status().recovery.id, first.id);
+  assert.equal(policy.allowsUrl("https://example.com"), false);
+  current = stored(27, "allow", ["HTTPS://EXAMPLE.COM:443/"]);
+  assert.deepEqual(await policy.retryLoad(policy.status().recovery.id), { ...stored(27), ready: true, stored: true });
+  assert.equal(reads, 3); assert.equal(writes, 0);
+});
+
+test("only a successful storage object with no value is known absence, including an explicit recovery", async () => {
+  for (const absent of [{}, { [SITE_ACCESS_POLICY_KEY]: undefined }]) {
+    let result = null, writes = 0;
+    const policy = new SiteAccessPolicy({ storage: { get: async () => result, set: async () => { writes++; } } });
+    await assert.rejects(policy.ready, /OBU_SITE_ACCESS_STATE_INVALID/);
+    result = absent;
+    const recovered = await policy.retryLoad(policy.status().recovery.id);
+    const fresh = new SiteAccessPolicy({ storage: { get: async () => absent, set: async () => {} } }); await fresh.ready;
+    assert.deepEqual(recovered, { version: 1, revision: 0, mode: "all", origins: [], ready: true, stored: false });
+    assert.deepEqual(recovered, fresh.status()); assert.equal(writes, 0);
+    await policy.replace(config("allow"), 0);
+    assert.equal(policy.status().stored, true); assert.equal(writes, 1);
+  }
+  const saved = new SiteAccessPolicy({ storage: storage(stored(0, "all", [])) }); await saved.ready;
+  assert.equal(saved.status().stored, true);
+});
+
+test("malformed read results and rejected reads cannot masquerade as absent storage", async () => {
+  for (const result of [undefined, null, [], "", 0, { [SITE_ACCESS_POLICY_KEY]: null }, { [SITE_ACCESS_POLICY_KEY]: {} }]) {
+    const policy = new SiteAccessPolicy({ storage: { get: async () => result, set: async () => assert.fail("must not write") } });
+    await assert.rejects(policy.ready, /OBU_SITE_ACCESS_STATE_INVALID/);
+    assert.equal(policy.status().recovery.state, "invalid"); assert.equal(policy.status().stored, undefined);
+    assert.equal(policy.loaded, false); assert.equal(policy.allowsUrl("https://example.com"), false);
+    await assert.rejects(policy.retryLoad(policy.status().recovery.id), /OBU_SITE_ACCESS_STATE_INVALID/);
+  }
+  // Storage error text is untrusted; it cannot select the validation category.
+  const policy = new SiteAccessPolicy({ storage: {
+    get: async () => { throw new Error("OBU_SITE_ACCESS_STATE_INVALID: private adapter detail"); }, set: async () => {},
+  } });
+  await assert.rejects(policy.ready, /OBU_SITE_ACCESS_UNAVAILABLE/);
+  assert.equal(policy.status().recovery.state, "read-error");
+});
+
+test("failed writes, pending writes, and ready settings never grant read recovery authority", async () => {
+  let reads = 0;
+  const entered = deferred(), save = deferred(), adapter = storage(stored()), read = adapter.get;
+  adapter.get = () => { reads++; return read(); };
+  adapter.set = () => { entered.resolve(); return save.promise; };
+  const policy = new SiteAccessPolicy({ storage: adapter }); await policy.ready;
+  assert.throws(() => policy.retryLoad("invented"), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  const replacing = policy.replace(config("block"), 4), rejected = assert.rejects(replacing);
+  await entered.promise;
+  assert.equal(policy.status().recovery, undefined);
+  assert.throws(() => policy.retryLoad("invented"), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  save.reject(new Error("actual save rejection")); await rejected;
+  assert.equal(policy.status().retryable, true); assert.equal(policy.status().recovery, undefined);
+  assert.throws(() => policy.retryLoad("invented"), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  assert.equal(reads, 1); assert.equal(policy.status().revision, 5);
 });

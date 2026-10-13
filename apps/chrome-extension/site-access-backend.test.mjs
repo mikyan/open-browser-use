@@ -27,9 +27,9 @@ async function fixture(t, { policy, createBrowserActionEngine, automationCleanup
   const getTab = id => { if (!tabs.has(id)) throw new Error(`No tab with id: ${id}`); return tabs.get(id); };
   const chrome = {
     storage: { local: {
-      async get(key) { await hooks.read?.(key); return Object.hasOwn(state, key) ? { [key]: clone(state[key]) } : {}; },
+      async get(key) { calls.push(["storage.get", key]); await hooks.read?.(key); return Object.hasOwn(state, key) ? { [key]: clone(state[key]) } : {}; },
       async set(value) { await hooks.write?.(value); Object.assign(state, clone(value)); calls.push(["storage.set", Object.keys(value)[0]]); },
-      async setAccessLevel(value) { calls.push(["storage.access", clone(value)]); }
+      async setAccessLevel(value) { calls.push(["storage.access", clone(value)]); await hooks.access?.(value); }
     } },
     debugger: { onDetach: event(), onEvent: event(),
       async attach({ tabId }) { calls.push(["attach-start", tabId]); await hooks.attach?.(tabId); getTab(tabId); attached.add(tabId); calls.push(["attach", tabId]); },
@@ -349,15 +349,286 @@ test("failed retry Pause never writes policy and keeps the original candidate av
   assert.equal(result.ready, true); assert.equal(result.revision, 2); assert.equal(f.state[AUTOMATION_KEY].paused, true);
 });
 
-test("startup read failure or corrupt state has no backend retry path and does not write defaults", async t => {
+test("startup read failure or corrupt state permits only read recovery, never default writes or save retry", async t => {
   for (const corrupt of [false, true]) {
     const f = await fixture(t);
     if (corrupt) f.state[SITE_ACCESS_POLICY_KEY] = null;
     else f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw new Error("startup read failure"); };
-    const restarted = new f.Backend(); await assert.rejects(restarted.controlReady, /OBU_SITE_ACCESS_/);
+    const restarted = new f.Backend(); await restarted.controlReady; await restarted.siteRecoveryReady;
     const status = await restarted.getSiteAccessPolicy(); assert.equal(status.ready, false); assert.equal(status.retryable, undefined);
+    assert.equal(status.recovery.state, corrupt ? "invalid" : "read-error"); assert.equal(typeof status.recovery.id, "string");
+    assert.equal((await restarted.getAutomationControlStatus()).state, "paused");
     const before = f.calls.length;
     assert.throws(() => restarted.retrySiteAccessPolicy(status.revision), /OBU_SITE_ACCESS_RETRY_UNAVAILABLE/);
     assert.equal(f.calls.length, before); assert.equal(restarted.sitePolicyUpdate, null);
   }
+});
+
+test("explicit startup recovery preserves the original policy, durably pauses and requires a new epoch", async t => {
+  const f = await fixture(t); await f.backend.attach(f.params);
+  f.state[SITE_ACCESS_POLICY_KEY] = { ...policyState(), revision: 8 };
+  f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw Error("initial read failed"); };
+  const backend = new f.Backend(); await backend.controlReady; await backend.siteRecoveryReady;
+  const original = clone(f.state[SITE_ACCESS_POLICY_KEY]), failed = await backend.getSiteAccessPolicy();
+  assert.equal(failed.recovery.state, "read-error");
+  const before = f.calls.length;
+  for (let index = 0; index < 3; index++) assert.deepEqual(await backend.getSiteAccessPolicy(), failed);
+  assert.equal(f.calls.length, before, "Status reads cannot perform another native read");
+  assert.throws(() => backend.recoverSiteAccessPolicy("stale"), /OBU_SITE_ACCESS_RECOVERY_CONFLICT/);
+  delete f.hooks.read;
+  const recovering = backend.recoverSiteAccessPolicy(failed.recovery.id);
+  assert.equal(backend.automationControl.inputBlocked, true);
+  assert.throws(() => backend.recoverSiteAccessPolicy(failed.recovery.id), /OBU_SITE_ACCESS_BUSY/);
+  const result = await recovering;
+  assert.equal(result.ready, true); assert.equal(result.revision, 8); assert.equal(result.mode, "allow"); assert.equal(result.error, undefined);
+  assert.deepEqual(f.state[SITE_ACCESS_POLICY_KEY], original);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 1);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.set" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+  const paused = await backend.getAutomationControlStatus(); assert.equal(paused.state, "paused"); assert.equal(paused.cleanupComplete, true);
+  assert.equal(f.state[AUTOMATION_KEY].paused, true);
+  await assert.rejects(backend.attach(f.params), /OBU_AUTOMATION_PAUSED/);
+  await backend.resumeAutomation(paused.revision);
+  await assert.rejects(backend.attach(f.params), /OBU_STALE_CONTROL_EPOCH/);
+  const next = await backend.getControlState({ session_id: "task" });
+  await backend.attach({ ...f.params, control_epoch: next.controlEpoch, turn_id: next.nextTurnId });
+  await backend.detachTab(7);
+});
+
+test("read recovery remains single-flight after caller timeout until its real read settles", async t => {
+  for (const fail of [false, true]) {
+    const f = await fixture(t, { automationCleanupTimeoutMs: 30 });
+    f.state[SITE_ACCESS_POLICY_KEY] = policyState();
+    f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw Error("initial failure"); };
+    const backend = new f.Backend({ automationCleanupTimeoutMs: 30 }); await backend.controlReady; await backend.siteRecoveryReady;
+    const failed = await backend.getSiteAccessPolicy(), read = f.gate(), entered = f.gate();
+    f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) { entered.resolve(); await read.promise; if (fail) throw Error("late read failure"); } };
+    const operation = backend.recoverSiteAccessPolicy(failed.recovery.id);
+    const rejected = assert.rejects(operation, /OBU_SITE_ACCESS_UNAVAILABLE.*unconfirmed/);
+    await entered.promise; await rejected;
+    assert.ok(backend.sitePolicyUpdate); const status = await backend.getSiteAccessPolicy();
+    assert.equal(status.ready, false); assert.equal(status.recovery.state, "pending"); assert.equal(status.recovery.id, undefined);
+    assert.throws(() => backend.recoverSiteAccessPolicy(failed.recovery.id), /OBU_SITE_ACCESS_BUSY/);
+    await assert.rejects(backend.resumeAutomation((await backend.getAutomationControlStatus()).revision), /OBU_SITE_ACCESS_BUSY|OBU_SITE_ACCESS_UNAVAILABLE/);
+    read.resolve(); await backend.siteAccess.ready.catch(() => {}); await Promise.resolve(); await Promise.resolve();
+    assert.equal(backend.sitePolicyUpdate, null); assert.equal(backend.automationControl.inputBlocked, true);
+    const after = await backend.getSiteAccessPolicy(); assert.equal(after.ready, !fail);
+    if (fail) { assert.notEqual(after.recovery.id, failed.recovery.id); assert.throws(() => backend.recoverSiteAccessPolicy(failed.recovery.id), /OBU_SITE_ACCESS_RECOVERY_CONFLICT/); }
+  }
+});
+
+test("trusted storage access failure is retried only by explicit recovery before the actual policy read", async t => {
+  const f = await fixture(t); f.state[SITE_ACCESS_POLICY_KEY] = policyState();
+  f.hooks.access = () => { throw Error("trusted storage setup failed"); };
+  const before = f.calls.length, backend = new f.Backend(); await backend.controlReady; await backend.siteRecoveryReady;
+  const failed = await backend.getSiteAccessPolicy(); assert.equal(failed.recovery.state, "read-error");
+  await backend.getSiteAccessPolicy();
+  assert.equal(f.calls.slice(before).filter(([kind]) => kind === "storage.access").length, 1);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+  delete f.hooks.access; const result = await backend.recoverSiteAccessPolicy(failed.recovery.id);
+  assert.equal(result.ready, true); assert.equal(result.mode, "allow");
+  assert.equal(f.calls.slice(before).filter(([kind]) => kind === "storage.access").length, 2);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 1);
+  assert.equal((await backend.getAutomationControlStatus()).state, "paused");
+});
+
+test("read recovery requires an exact live popup message and is never a public native RPC", async t => {
+  const f = await fixture(t);
+  f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw Error("initial read failure"); };
+  const backend = new f.Backend(); await backend.controlReady; await backend.siteRecoveryReady;
+  const failed = await backend.getSiteAccessPolicy(); delete f.hooks.read;
+  const invoke = vm.runInNewContext(`${popupCode}\nhandleSiteAccessMessage`, { ...f.context, backend });
+  const sender = { id: "fixture", url: "chrome-extension://fixture/popup.html", documentId: "live-popup" };
+  const request = { type: "RECOVER_SITE_ACCESS_POLICY", expectedRecoveryId: failed.recovery.id }, before = f.calls.length;
+  for (const bad of [{ ...sender, id: "foreign" }, { ...sender, url: "https://allowed.test" }, { ...sender, tab: { id: 7 } }, { ...sender, documentId: "closed-popup" }])
+    await assert.rejects(invoke(request, bad), /OBU_CONTROL_FORBIDDEN/);
+  const contexts = f.chrome.runtime.getContexts;
+  f.chrome.runtime.getContexts = async () => [];
+  await assert.rejects(invoke(request, sender), /OBU_CONTROL_FORBIDDEN/);
+  f.chrome.runtime.getContexts = contexts;
+  for (const invalid of [
+    { type: request.type }, { ...request, expectedRecoveryId: null }, { ...request, expectedRecoveryId: 1 },
+    { ...request, expectedRecoveryId: "" }, { ...request, expectedRecoveryId: "x".repeat(129) },
+    { ...request, policy: config() }, { ...request, expectedRevision: 0 }, { ...request, extra: true },
+  ]) await assert.rejects(invoke(invalid, sender), /OBU_SITE_ACCESS_INVALID/);
+  await assert.rejects(invoke({ ...request, expectedRecoveryId: "stale" }, sender), /OBU_SITE_ACCESS_RECOVERY_CONFLICT/);
+  const Peer = vm.runInNewContext(`${code}\nJsonRpcPeer`, f.context), replies = [];
+  const peer = new Peer({ setMessageCallback() {}, sendMessage: response => replies.push(response) }, backend);
+  for (const method of ["recoverSiteAccessPolicy", "RECOVER_SITE_ACCESS_POLICY", "prepareSiteStorageAccess"])
+    await peer.handleMessage({ jsonrpc: "2.0", id: replies.length + 1, method, params: { expectedRecoveryId: failed.recovery.id } });
+  assert.equal(replies.length, 3);
+  for (const reply of replies) { assert.match(reply.error.message, /No handler registered/); assert.equal(reply.result, undefined); }
+  assert.equal(f.calls.length, before); assert.equal(backend.sitePolicyUpdate, null);
+  const result = await invoke(request, sender);
+  assert.equal(result.ready, true); assert.equal(result.stored, false);
+});
+
+test("other core startup failures cannot publish read-recovery authority or start another policy read", async t => {
+  for (const key of ["OPEN_BROWSER_USE_SESSION_STATE", "OPEN_BROWSER_USE_CONTROL_STATE", "OPEN_BROWSER_USE_INPUT_RISKS", "OPEN_BROWSER_USE_AUXILIARY_TABS"]) {
+    const f = await fixture(t); let reads = 0;
+    f.hooks.read = async requested => {
+      if (requested === SITE_ACCESS_POLICY_KEY) { reads++; throw Error("policy read failed"); }
+      if (requested === key) throw Error("independent core startup failure");
+    };
+    if (key === "OPEN_BROWSER_USE_AUXILIARY_TABS") {
+      const read = f.chrome.storage.session.get;
+      f.chrome.storage.session.get = function (requested) {
+        if (requested === key) return Promise.reject(Error("independent core startup failure"));
+        return read.call(this, requested);
+      };
+    }
+    const backend = new f.Backend();
+    await assert.rejects(backend.controlReady, /independent core startup failure/, key);
+    const status = await backend.getSiteAccessPolicy();
+    assert.equal(status.recovery.state, "read-error"); assert.equal(status.recovery.id, undefined);
+    assert.equal(backend.controlStartupState, "failed");
+    assert.throws(() => backend.recoverSiteAccessPolicy(backend.siteAccess.status().recovery.id), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+    assert.equal(reads, 1); assert.equal(backend.sitePolicyUpdate, null);
+  }
+});
+
+test("a caught automation-control loadError is still a failed core startup, never recovery authority", async t => {
+  const f = await fixture(t); let reads = 0;
+  f.state[AUTOMATION_KEY] = { version: 1, revision: 9, paused: "invalid" };
+  f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) { reads++; throw Error("policy read failed"); } };
+  const backend = new f.Backend();
+  // Existing user-Pause startup semantics keep this promise fulfilled. The
+  // separate policy-recovery gate must still withhold read authority.
+  await backend.controlReady; await backend.siteRecoveryReady;
+  assert.ok(backend.automationControl.loadError); assert.equal(backend.controlStartupState, "failed");
+  const status = await backend.getSiteAccessPolicy(); assert.equal(status.recovery.id, undefined);
+  assert.throws(() => backend.recoverSiteAccessPolicy(backend.siteAccess.status().recovery.id), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  assert.equal(reads, 1); assert.equal(backend.sitePolicyUpdate, null);
+  assert.deepEqual(f.state[AUTOMATION_KEY], { version: 1, revision: 9, paused: "invalid" });
+});
+
+test("failed durable recovery Pause performs no read and preserves the same settled recovery identity", async t => {
+  const f = await fixture(t); f.state[SITE_ACCESS_POLICY_KEY] = policyState();
+  f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw Error("initial policy failure"); };
+  const backend = new f.Backend(); await backend.controlReady; await backend.siteRecoveryReady;
+  const failed = await backend.getSiteAccessPolicy(); delete f.hooks.read;
+  f.hooks.write = async value => { if (value[AUTOMATION_KEY]) throw Error("actual Pause write rejected"); };
+  const before = f.calls.length;
+  await assert.rejects(backend.recoverSiteAccessPolicy(failed.recovery.id), /OBU_AUTOMATION_PAUSE_FAILED/);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+  assert.deepEqual(await backend.getSiteAccessPolicy(), failed); assert.equal(backend.sitePolicyUpdate, null);
+  assert.equal(backend.automationControl.inputBlocked, true); assert.equal(backend.automationControl.cleanupComplete, false);
+  delete f.hooks.write;
+  assert.equal((await backend.recoverSiteAccessPolicy(failed.recovery.id)).ready, true);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 1);
+});
+
+test("real pending Pause persistence prevents policy reread, even after the recovery caller times out", async t => {
+  const f = await fixture(t, { automationCleanupTimeoutMs: 25 });
+  f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) throw Error("initial read failure"); };
+  const backend = new f.Backend({ automationCleanupTimeoutMs: 25 }); await backend.controlReady; await backend.siteRecoveryReady;
+  const failed = await backend.getSiteAccessPolicy(); delete f.hooks.read;
+  const write = f.gate(), entered = f.gate();
+  f.hooks.write = async value => { if (value[AUTOMATION_KEY]) { entered.resolve(); await write.promise; } };
+  const before = f.calls.length, recovering = backend.recoverSiteAccessPolicy(failed.recovery.id);
+  const rejected = assert.rejects(recovering, /OBU_SITE_ACCESS_UNAVAILABLE|OBU_AUTOMATION_PAUSE_FAILED/);
+  await entered.promise;
+  assert.equal((await backend.getSiteAccessPolicy()).recovery.id, undefined);
+  await rejected;
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+  assert.equal(backend.automationControl.inputBlocked, true);
+  write.resolve(); await backend.automationTransitions.catch(() => {}); await backend.automationControl.writes;
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 0, "A late Pause ACK must not start a fresh-budget read");
+  assert.equal(backend.siteAccess.status().recovery.id, failed.recovery.id);
+  delete f.hooks.write;
+  assert.equal((await backend.recoverSiteAccessPolicy(failed.recovery.id)).ready, true);
+});
+
+test("initial pending trusted setup stays unready without retry authority or a policy get", async t => {
+  const f = await fixture(t, { automationCleanupTimeoutMs: 20 }), setup = f.gate(), entered = f.gate();
+  f.hooks.access = async () => { entered.resolve(); await setup.promise; };
+  const before = f.calls.length, backend = new f.Backend({ automationCleanupTimeoutMs: 20 });
+  await entered.promise;
+  const status = await backend.getSiteAccessPolicy();
+  assert.equal(status.ready, false); assert.equal(status.recovery.state, "pending"); assert.equal(status.recovery.id, undefined);
+  assert.equal(backend.controlStartupState, "pending");
+  assert.throws(() => backend.recoverSiteAccessPolicy("invented"), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  assert.equal(f.calls.slice(before).filter(([kind]) => kind === "storage.access").length, 1);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+  setup.resolve(); await backend.controlReady;
+  assert.equal((await backend.getSiteAccessPolicy()).ready, true);
+  assert.equal(f.calls.slice(before).filter(([kind]) => kind === "storage.access").length, 1);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 1);
+});
+
+test("retry trusted setup owns its actual promise through timeout and handles synchronous native throws", async t => {
+  for (const reject of [false, true]) {
+    const f = await fixture(t, { automationCleanupTimeoutMs: 25 });
+    const original = f.chrome.storage.local.setAccessLevel;
+    f.chrome.storage.local.setAccessLevel = () => { f.calls.push(["native-access-threw"]); throw Error("synchronous native setup throw"); };
+    const backend = new f.Backend({ automationCleanupTimeoutMs: 25 }); await backend.controlReady; await backend.siteRecoveryReady;
+    const failed = await backend.getSiteAccessPolicy(); assert.equal(failed.recovery.state, "read-error");
+    f.chrome.storage.local.setAccessLevel = original;
+    const setup = f.gate(), entered = f.gate();
+    f.hooks.access = async () => { entered.resolve(); await setup.promise; if (reject) throw Error("late setup rejection"); };
+    const before = f.calls.length, recovering = backend.recoverSiteAccessPolicy(failed.recovery.id);
+    const rejected = assert.rejects(recovering, /OBU_SITE_ACCESS_UNAVAILABLE.*unconfirmed/);
+    await entered.promise; await rejected;
+    const token = backend.sitePolicyUpdate; assert.ok(token);
+    const status = await backend.getSiteAccessPolicy(); assert.equal(status.recovery.state, "pending"); assert.equal(status.recovery.id, undefined);
+    assert.throws(() => backend.recoverSiteAccessPolicy(failed.recovery.id), /OBU_SITE_ACCESS_BUSY/);
+    await assert.rejects(backend.resumeAutomation(backend.automationControl.revision), /OBU_SITE_ACCESS_UNAVAILABLE|OBU_SITE_ACCESS_BUSY/);
+    assert.equal(backend.sitePolicyUpdate, token);
+    assert.equal(f.calls.slice(before).filter(([kind]) => kind === "storage.access").length, 1);
+    assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+    setup.resolve(); await backend.siteAccess.ready.catch(() => {}); await Promise.resolve(); await Promise.resolve();
+    assert.equal(backend.sitePolicyUpdate, null); assert.equal(backend.automationControl.inputBlocked, true);
+    const after = await backend.getSiteAccessPolicy(); assert.equal(after.ready, !reject);
+    assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, reject ? 0 : 1);
+    if (reject) {
+      assert.equal(after.recovery.state, "read-error"); assert.notEqual(after.recovery.id, failed.recovery.id);
+      assert.throws(() => backend.recoverSiteAccessPolicy(failed.recovery.id), /OBU_SITE_ACCESS_RECOVERY_CONFLICT/);
+      delete f.hooks.access; await backend.recoverSiteAccessPolicy(after.recovery.id);
+      assert.equal(f.calls.slice(before).filter(([kind]) => kind === "storage.access").length, 2);
+    }
+  }
+});
+
+test("repeated invalid rereads stay blocked until external repair and never save a replacement", async t => {
+  const f = await fixture(t);
+  f.state[SITE_ACCESS_POLICY_KEY] = { ...policyState(), revision: 37, origins: ["https://private.test/path"] };
+  const backend = new f.Backend(); await backend.controlReady; await backend.siteRecoveryReady;
+  const first = await backend.getSiteAccessPolicy(), before = f.calls.length;
+  assert.equal(first.recovery.state, "invalid");
+  await assert.rejects(backend.recoverSiteAccessPolicy(first.recovery.id), /OBU_SITE_ACCESS_STATE_INVALID/);
+  const second = await backend.getSiteAccessPolicy(); assert.equal(second.recovery.state, "invalid"); assert.notEqual(second.recovery.id, first.recovery.id);
+  assert.equal(backend.siteAccess.allowsUrl("https://allowed.test"), false);
+  f.state[SITE_ACCESS_POLICY_KEY] = { ...policyState(), revision: 37 };
+  const repaired = await backend.recoverSiteAccessPolicy(second.recovery.id);
+  assert.equal(repaired.ready, true); assert.equal(repaired.stored, true); assert.equal(repaired.revision, 37);
+  assert.equal(repaired.error, undefined); assert.equal(repaired.recovery, undefined);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.get" && key === SITE_ACCESS_POLICY_KEY).length, 2);
+  assert.equal(f.calls.slice(before).filter(([kind, key]) => kind === "storage.set" && key === SITE_ACCESS_POLICY_KEY).length, 0);
+  assert.equal((await backend.getAutomationControlStatus()).state, "paused");
+});
+
+test("startup policy failure releases unbound admission while still waiting for the real Pause ACK", async t => {
+  const f = await fixture(t, { automationCleanupTimeoutMs: 1000 });
+  const read = f.gate(), readEntered = f.gate(), pauseWrite = f.gate(), pauseEntered = f.gate();
+  f.hooks.read = async key => { if (key === SITE_ACCESS_POLICY_KEY) { readEntered.resolve(); await read.promise; throw Error("initial policy delivery failed"); } };
+  f.hooks.write = async value => { if (value[AUTOMATION_KEY]) { pauseEntered.resolve(); await pauseWrite.promise; } };
+  const before = f.calls.length, backend = new f.Backend({ automationCleanupTimeoutMs: 1000 });
+  await readEntered.promise;
+  const exporting = backend.exportPage({ ...f.params, format: "pdf" });
+  const rejected = assert.rejects(exporting, /OBU_EXPORT_CANCELLED|OBU_AUTOMATION_PAUSED/);
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(backend.pageExports.records.size, 1);
+  assert.ok(backend.pageExports.controlSnapshot().pending.length);
+  read.resolve(); await pauseEntered.promise;
+  await backend.controlReady; await rejected;
+  assert.equal(backend.controlStartupState, "pending");
+  assert.equal(backend.automationControl.cleanupComplete, false);
+  const status = await backend.getSiteAccessPolicy(); assert.equal(status.recovery.state, "read-error"); assert.equal(status.recovery.id, undefined);
+  assert.throws(() => backend.recoverSiteAccessPolicy(backend.siteAccess.status().recovery.id), /OBU_SITE_ACCESS_RECOVERY_UNAVAILABLE/);
+  assert.equal(f.calls.slice(before).some(([kind]) => kind === "attach-start" || kind === "command"), false);
+  pauseWrite.resolve(); await backend.siteRecoveryReady;
+  assert.equal(backend.pageExports.controlSnapshot().pending.length, 0); assert.equal(backend.pageExports.records.size, 0);
+  assert.equal(backend.controlStartupState, "ready");
+  const paused = await backend.getAutomationControlStatus(); assert.equal(paused.state, "paused"); assert.equal(paused.cleanupComplete, true);
+  assert.equal(f.state[AUTOMATION_KEY].paused, true);
+  assert.equal(typeof (await backend.getSiteAccessPolicy()).recovery.id, "string");
 });

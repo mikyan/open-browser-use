@@ -202,7 +202,11 @@ export function assertScreenshotDrainEvidence(probe, { pause = false, api = "raw
 export function assertOriginalScreenshotTimeout(probe, callerOutcome, api = "raw") {
   assert.equal(callerOutcome.ok, false); assert.match(callerOutcome.error, /timed out|timeout.*exceeded/i);
   const requests = probe.records.filter(r => r.kind === "request" && r.method === (api === "high-level" ? "browserAction:screenshot" : "Page.captureScreenshot"));
-  assert.equal(requests.length, 1); assert.equal(requests[0].timeoutMs, 1000);
+  assert.equal(requests.length, 1);
+  // Public browserAction deducts SDK setup time before sending its remaining
+  // engine budget. Raw executeCdp carries the exact supplied timeout instead.
+  if (api === "high-level") assert.ok(Number.isInteger(requests[0].timeoutMs) && requests[0].timeoutMs > 0 && requests[0].timeoutMs <= 1000);
+  else assert.equal(requests[0].timeoutMs, 1000);
   const responses = probe.records.filter(r => r.kind === "response" && r.requestId === requests[0].requestId);
   assert.equal(responses.length, 1, "An SDK-only timeout is not an original backend deadline ACK");
   assert.equal(responses[0].ok, false); assert.match(responses[0].error, /timed out|timeout.*exceeded/i);

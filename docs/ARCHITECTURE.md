@@ -26,7 +26,10 @@ debugger、history 和 tab groups。
   五入口共享协议及实际在途清理，见[原响应正文](references/original-response-bodies.md)。
   网站策略真实保存失败后，由可信 popup 明确重试原候选；backend 复用暂停、
   清理与 revision 检查，实际未结算写不能重试，成功仍暂停。启动读取失败
-  不属于此恢复入口，见[网站权限](references/site-access-policy.md)。
+  使用独立的显式只读恢复：原失败 ID 经校验、实际 Pause/drain 完成后才重新
+  读取，GET 不重读，未结算操作和核心 startup 失败不授予恢复权限。有效原
+  revision 保留且不写策略；确认缺失显示兼容 Default，损坏记录不重置，
+  成功仍暂停。契约及待验收范围见[网站权限](references/site-access-policy.md)。
   原生弹窗由 `browser-dialogs.js` 管理一次性决策，注册及处理均等待真实回执；
   backend 保留原 attachment 的在途响应直到清理确认。五入口使用同一协议，
   `beforeunload` 的浏览器原生激活仍是后台限制，见[原生弹窗](references/native-dialogs.md)。
@@ -366,7 +369,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
 - 可选网站规则复用暂停事务：真实 popup 保存 exact-origin allow/block 后
   保持暂停；`site-access-policy.js` 管持久 revision，`site-access-frames.js`
   检查 webNavigation 完整文档树，backend 在 native send/结果和导航事件
-  处撤权。受限模式禁未经验证的 raw/data 入口，默认 all 保持兼容；边界见
+  处撤权。策略读取失败与保存失败分别管理恢复状态；popup 显式重新读取只
+  消费当前已结算失败 ID，不保存草稿或恢复自动化。失败回复须先查询状态，
+  原操作实际结算前保持 transition 屏障；其他持久控制与输入恢复检查不被
+  跳过。受限模式禁未经验证的 raw/data 入口，确认缺失时默认 all 保持兼容；边界见
   [website access settings](references/site-access-policy.md)。
 - WebMCP 使用两层 content script：MAIN world 优先使用浏览器原生
   `document.modelContext`；如果浏览器没有提供该 API，则在页面代码运行前安装

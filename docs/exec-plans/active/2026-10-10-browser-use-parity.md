@@ -21,6 +21,15 @@
 
 ## 当前并行切片
 
+2026-10-14 [权限启动读取恢复](../completed/2026-10-14-site-access-startup-recovery.md)已接入真实
+popup 的显式只读入口，保持暂停与旧任务失效；实际清理、核心 startup、
+pending、丢失回复和旧草稿冲突有反例。专项 `yU2VGw` 2/2、相关 `GT3npA`
+8/8 actual exit 0。原 `8Fe9ev` 完整 146/148 的两个 fixture 失败保留，
+共享原 popup 与剩余预算 oracle 修正后，完整 `O0mB6k` 148/148 actual exit 0；
+旧 147 名称顺序保留，430,422ms 仅原 12 activation/4 control-focus 许可。
+Node 最终 3137 pass/1 既有 skip，源码/运行时无漂移。普通 Edge 手动授权
+仍按用户要求暂缓；不能把本切片或任何单次 CI 通过视为整体目标完成。
+
 2026-10-14 [原响应正文](../completed/2026-10-14-original-response-body.md)已完成五入口实现与
 专项 `dx9EXR` 7/7、actual exit 0：15 布局共 60 次原 POST body 读取，另含
 gate/身份/redirect/failure/限额/旧引用/迟到 native ACK 及 Pause。上游空正文

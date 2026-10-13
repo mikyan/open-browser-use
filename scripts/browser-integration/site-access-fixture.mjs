@@ -14,7 +14,7 @@ export function siteAccessFixture(route, port, query) {
       if(response.ok)document.querySelector('#submission-status').textContent='saved';};</script>`;
 }
 export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, popupURL, windowId,
-  fixtureURL, restartWorker, capture, saveArtifact, saveDetail, assert, until, traceFocus, submissions }) {
+  fixtureURL, restartWorker, capture, saveArtifact, saveDetail, assert, until, traceFocus, submissions, afterRestore }) {
   const browser = await connectBrowser("site-access");
   const allowedOrigin = new URL(fixtureURL).origin;
   const blockedOrigin = allowedOrigin.replace("127.0.0.1", "localhost");
@@ -34,7 +34,7 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
   async function apply(mode, origins) {
     const before = await readPolicy();
     await popup.evaluate("document.querySelector('#site-access-reload').click()");
-    await until(async () => { const value = await view(); return value.revision === before.revision && value.status === "Saved"; }, "fresh website settings");
+    await until(async () => { const value = await view(); return value.revision === before.revision && ["Saved", "Default"].includes(value.status); }, "fresh website settings");
     await popup.evaluate(`(()=>{const mode=document.querySelector('#site-access-mode'),text=document.querySelector('#site-access-origins');
       mode.value=${JSON.stringify(mode)};mode.dispatchEvent(new Event('change',{bubbles:true}));
       text.value=${JSON.stringify(origins.join("\n"))};text.dispatchEvent(new Event('input',{bubbles:true}));
@@ -88,7 +88,7 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     await getWorker().evaluate(`chrome.action.openPopup({windowId:${windowId}})`);
     await traceFocus("action-popup:after-open");
     popup = await connectPage(popupURL);
-    await until(async () => (await view()).status === "Saved", "initial real website settings");
+    await until(async () => ["Saved", "Default"].includes((await view()).status), "initial real website settings");
     detail.initial = await readPolicy();
     assert.equal(detail.initial.mode, "all");
     assert.equal(pendingOutcome, undefined, "waiting click ended before policy application");
@@ -183,6 +183,9 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
         detail.restored = await apply("all", []);
         await resume(); await browser.client.beginTurn();
         await browser.client.finalizeTabs([]);
+        // The next explicit-control workflow can borrow this same real popup
+        // after restoration, before it closes. Never refocus a closed window.
+        if (!primaryError && afterRestore) await afterRestore(popup);
       } catch (error) { restoreError = error; detail.restoreError = error.stack; }
       await traceFocus("site-access:before-close");
       try { await popup.evaluate("window.close()"); } catch {} popup.close();
