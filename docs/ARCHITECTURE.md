@@ -25,6 +25,11 @@ debugger、history 和 tab groups。
   页面同文档重建根节点后，下一可见反馈退休旧 renderer 并重建自有层；
   原 host/shadow/layer/cursor 归属和迟到动画检查防止脱离页面后误报到达。
   隐藏/结束不重建，不接管页面同 ID 节点，见[重建反馈](references/dom-rebuild-feedback.md)。
+  Locator 指针反馈沿原 handle/frame/session 投影原元素的 border 矩形，
+  精确绑定根 documentId。可选几何读取不阻塞原输入，实际 Promise 独立参与
+  显式清理；已接纳的按下/释放保持显示顺序，迟到矩形不能覆盖新反馈。
+  矩形是原节点快照，raw 坐标仍用根文档 hit-test，见
+  [iframe 元素反馈](references/frame-target-feedback.md)。
   原响应正文由诊断 capture 保留原 Response，`browser-response-body.js` 管理
   期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
   原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。

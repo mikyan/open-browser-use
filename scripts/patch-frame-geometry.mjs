@@ -2,6 +2,14 @@
 // process frame is already transformed there; only renderer boundaries require
 // composing a new projection. This factory is serialized into the pinned CRX.
 export function createFrameGeometryRuntime() {
+  const feedbackTargets = new WeakMap();
+  const feedback = (point, handle, progress, state, model) => {
+    // Optional visual evidence cannot fail input or change its selected point.
+    if (typeof obuCapturePointerTarget === "function") {
+      try { feedbackTargets.set(point, obuCapturePointerTarget(handle, progress, state, model)); } catch {}
+    }
+    return point;
+  };
   const identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const identities = new WeakMap();
   let nextIdentity = 0;
@@ -295,8 +303,8 @@ export function createFrameGeometryRuntime() {
         }
         if (polygon.length < 3 || area(polygon) <= 0.99) continue;
         state.check();
-        return { x: polygon.reduce((sum, p) => sum + p.x, 0) / polygon.length,
-          y: polygon.reduce((sum, p) => sum + p.y, 0) / polygon.length };
+        return feedback({ x: polygon.reduce((sum, p) => sum + p.x, 0) / polygon.length,
+          y: polygon.reduce((sum, p) => sum + p.y, 0) / polygon.length }, handle, progress, state);
       }
       return "error:notinviewport";
     });
@@ -320,11 +328,14 @@ export function createFrameGeometryRuntime() {
     const elementMap = plane(raw, size.width, size.height);
     // Native padding quads already include every transform inside this
     // renderer. Compose only the local-root session map, never the frame map.
-    return { point: project(map, project(elementMap.forward, value)),
+    return { point: project(map, project(elementMap.forward, value)), model,
       fingerprint: { elementPosition: size, paddingQuad: [...raw], handleIdentity: identityOf(handle) } };
   }
   async function offset(handle, value, progress) {
-    const result = await withSnapshot(handle, progress, async (state) => (await positionGeometry(handle, value, state)).point);
+    const result = await withSnapshot(handle, progress, async (state) => {
+      const result = await positionGeometry(handle, value, state);
+      return feedback(result.point, handle, progress, state, result.model);
+    });
     return result?.hitTargetDescription ? "error:notvisible" : result;
   }
   async function bounding(handle, progress) {
@@ -421,7 +432,8 @@ export function createFrameGeometryRuntime() {
       return { framePoint: project(state.frameMaps.get(state.target).inverse, point), frameGeometry: state.fingerprint };
     });
   }
-  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, bounding, hit, drag };
+  return { quad, plane, project, inverse, clip, area, readOwnerPlane, readElementPlane, clickable, offset, bounding, hit, drag,
+    targetForPoint: point => feedbackTargets.get(point) };
 }
 
 function replaceOnce(source, before, after, label) {

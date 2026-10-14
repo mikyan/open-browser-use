@@ -517,6 +517,177 @@ test("hit testing ignores overlay nodes and highlights an iframe without enterin
   page.hide();
 });
 
+test("original frame target border feedback replaces the opaque iframe outline without entering its document", () => {
+  const page = createPage({ reducedMotion: true });
+  const frame = page.add("iframe");
+  frame.rect = { left: 15, top: 25, width: 320, height: 180 };
+  Object.defineProperty(frame, "contentDocument", { get() { throw new Error("Feedback must not resolve another child document"); } });
+  page.hit(frame);
+  const targetRect = { x: 91.25, y: 73.5, width: 87.75, height: 29.25 };
+  page.move({ x: 135, y: 88, animateMovement: false, targetRect });
+  const [outline] = page.elements("browser-agent-target");
+  assert.equal(outline.style.display, "block");
+  assert.equal(outline.style.left, "91.25px");
+  assert.equal(outline.style.top, "73.5px");
+  assert.equal(outline.style.width, "87.75px");
+  assert.equal(outline.style.height, "29.25px");
+  assert.deepEqual(frame.style, {}, "The renderer changes only its owned feedback nodes");
+  assert.deepEqual(targetRect, { x: 91.25, y: 73.5, width: 87.75, height: 29.25 });
+  page.hide();
+});
+
+test("a pressed frame target keeps its original border feedback and original root click coordinates", () => {
+  const page = createPage({ reducedMotion: true });
+  const frame = page.add("iframe");
+  frame.rect = { left: 15, top: 25, width: 320, height: 180 }; page.hit(frame);
+  const targetRect = { x: 90, y: 70, width: 90, height: 30 };
+  page.move({ x: 135, y: 85, animateMovement: false, feedbackSequence: 1, targetRect });
+  const arrivals = page.sent.length;
+  page.click({ x: 135, y: 85, feedbackSequence: 1, targetRect });
+  const [ring] = page.elements("browser-agent-click"), [outline] = page.elements("browser-agent-target");
+  assert.equal(outline.style.left, "90px"); assert.equal(outline.style.top, "70px");
+  assert.equal(outline.style.width, "90px"); assert.equal(outline.style.height, "30px");
+  assert.equal(ring.style.left, "135px"); assert.equal(ring.style.top, "85px");
+  assert.equal(page.sent.length, arrivals, "Target feedback does not send another pointer command or arrival");
+  page.hide(); assert.equal(page.elements("browser-agent-click").length, 0);
+});
+
+const originalTargetRect = { x: 90, y: 70, width: 90, height: 30 };
+const targetPatch = (page, feedbackSequence, extra = {}) => page.send({ type: "OPEN_BROWSER_USE_TARGET_RECT", sessionId: "test-session", turnId: "test-turn", feedbackSequence, targetRect: originalTargetRect, ...extra });
+
+test("a target publication only updates its original outline once without replaying motion, arrival or rings", () => {
+  const page = createPage(); page.hit(page.add("iframe"));
+  page.move({ feedbackSequence: 1, targetRect: null, animateMovement: false });
+  page.move({ x: 230, y: 170, moveSequence: 2, feedbackSequence: 2, targetRect: null });
+  page.click({ x: 230, y: 170, feedbackSequence: 2, targetRect: null });
+  const [cursor] = page.elements("browser-agent-cursor"), [ring] = page.elements("browser-agent-click"), [outline] = page.elements("browser-agent-target");
+  const before = { transform: cursor.style.transform, frames: [...page.frames], timers: [...page.timers], animations: [...page.animations], messages: [...page.sent], popovers: [...page.popoverCalls], hits: page.hitTests.length };
+  assert.equal(outline.style.display, "none"); targetPatch(page, 2);
+  assert.equal(outline.style.left, "90px"); assert.equal(outline.style.display, "block"); assert.equal(page.elements("browser-agent-click")[0], ring);
+  assert.deepEqual({ transform: cursor.style.transform, frames: [...page.frames], timers: [...page.timers], animations: [...page.animations], messages: [...page.sent], popovers: [...page.popoverCalls], hits: page.hitTests.length }, before);
+  targetPatch(page, 2, { targetRect: { ...originalTargetRect, x: 300 } }); assert.equal(outline.style.left, "90px", "A duplicate original publication cannot overwrite a settled target"); page.hide();
+});
+
+test("absent target feedback preserves raw fallback while explicit null or malformed geometry stays hidden", () => {
+  const page = createPage({ reducedMotion: true }), frame = page.add("iframe"); page.hit(frame); page.move({ feedbackSequence: 1 });
+  const [outline] = page.elements("browser-agent-target"); assert.equal(outline.style.left, "10px");
+  for (const [index, targetRect] of [null, undefined, {}, [], { ...originalTargetRect, x: NaN }, { ...originalTargetRect, height: 0 }, { ...originalTargetRect, width: Infinity }, { x: Number.MAX_VALUE, y: 1, width: Number.MAX_VALUE, height: 30 }].entries()) {
+    page.move({ feedbackSequence: index + 2, targetRect }); assert.equal(outline.style.display, "none", "Invalid target must not become its containing iframe");
+    targetPatch(page, index + 2, { targetRect }); assert.equal(outline.style.display, "none");
+  }
+  for (const feedbackSequence of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "9", undefined]) { page.move({ feedbackSequence, targetRect: null }); targetPatch(page, feedbackSequence); assert.equal(outline.style.display, "none", "Target publication requires an original positive safe sequence"); }
+  page.hide();
+});
+
+test("scroll and resize revoke pending and settled target geometry until a new live cursor update", () => {
+  for (const event of ["scroll", "resize"]) for (const settled of [false, true]) {
+    const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 1, targetRect: null }); if (settled) targetPatch(page, 1);
+    page.emit(event); const [outline] = page.elements("browser-agent-target"); assert.equal(outline.style.display, "none");
+    targetPatch(page, 1); page.click({ feedbackSequence: 1, targetRect: originalTargetRect }); assert.equal(outline.style.display, "none", "A late update cannot repaint pre-scroll coordinates");
+    page.move({ feedbackSequence: 2, targetRect: null }); targetPatch(page, 2); assert.equal(outline.style.display, "block"); page.hide();
+  }
+});
+
+test("same-coordinate successor sequences and raw feedback mask old hinted targets and old presses", () => {
+  const page = createPage({ reducedMotion: true }), frame = page.add("iframe"); page.hit(frame);
+  page.move({ feedbackSequence: 10, targetRect: null }); page.move({ feedbackSequence: 11 });
+  const [outline] = page.elements("browser-agent-target"); targetPatch(page, 10); targetPatch(page, 11); assert.equal(outline.style.left, "10px", "A raw successor did not authorize any original target publication");
+  page.click({ feedbackSequence: 10, targetRect: originalTargetRect }); assert.equal(page.elements("browser-agent-click").length, 0, "An old same-point press cannot create a successor's ring");
+  page.move({ feedbackSequence: 12, targetRect: null }); for (const extra of [{ sessionId: "foreign" }, { turnId: "previous" }]) targetPatch(page, 12, extra);
+  assert.equal(outline.style.display, "none"); targetPatch(page, 12); assert.equal(outline.style.left, "90px"); page.hide();
+});
+
+test("out-of-order and duplicate CURSOR messages cannot replace a newer receiver or replay its effects", () => {
+  const page = createPage({ reducedMotion: true }); page.move({ x: 430, y: 230, moveSequence: 4, feedbackSequence: 40, targetRect: null });
+  const [cursor] = page.elements("browser-agent-cursor"), [outline] = page.elements("browser-agent-target"), originalTransform = cursor.style.transform, arrivals = page.sent.length;
+  page.move({ x: 80, y: 70, moveSequence: 3, feedbackSequence: 39, targetRect: originalTargetRect });
+  page.click({ x: 80, y: 70, feedbackSequence: 39, targetRect: originalTargetRect }); targetPatch(page, 39);
+  assert.equal(cursor.style.transform, originalTransform); assert.equal(outline.style.display, "none"); assert.equal(page.elements("browser-agent-click").length, 0); assert.equal(page.sent.length, arrivals);
+  targetPatch(page, 40); assert.equal(outline.style.left, "90px", "Rejected older CURSOR did not consume the actual newer receiver");
+  page.move({ x: 100, y: 100, moveSequence: 5, feedbackSequence: 40, targetRect: null });
+  targetPatch(page, 40, { targetRect: { ...originalTargetRect, x: 300 } });
+  assert.equal(cursor.style.transform, originalTransform); assert.equal(outline.style.left, "90px", "Duplicate CURSOR cannot regrant an already settled publication"); assert.equal(page.sent.length, arrivals); page.hide();
+});
+
+test("unsequenced manual feedback revokes hints without erasing its same-turn sequence watermark", () => {
+  const page = createPage({ reducedMotion: true }), frame = page.add("iframe"); page.hit(frame);
+  page.move({ x: 430, y: 230, feedbackSequence: 20, targetRect: originalTargetRect }); page.move({ x: 300, y: 200, moveSequence: 2 });
+  const [cursor] = page.elements("browser-agent-cursor"), [outline] = page.elements("browser-agent-target"), originalTransform = cursor.style.transform;
+  assert.equal(outline.style.left, "10px"); targetPatch(page, 20);
+  for (const feedbackSequence of [19, 20]) { page.move({ x: 40, y: 30, feedbackSequence, targetRect: originalTargetRect }); page.click({ feedbackSequence, targetRect: originalTargetRect }); }
+  assert.equal(cursor.style.transform, originalTransform); assert.equal(outline.style.left, "10px"); assert.equal(page.elements("browser-agent-click").length, 0);
+  page.click({ x: 300, y: 200 }); assert.equal(page.elements("browser-agent-click").length, 1, "Legacy unsequenced input remains supported");
+  page.move({ feedbackSequence: 21, targetRect: null }); targetPatch(page, 21); assert.equal(outline.style.left, "90px"); page.hide();
+});
+
+test("new turns and owners have independent CURSOR sequence ordering", () => {
+  const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 100, targetRect: originalTargetRect });
+  page.move({ turnId: "next-turn", feedbackSequence: 1, targetRect: null }); targetPatch(page, 100);
+  const [outline] = page.elements("browser-agent-target"); assert.equal(outline.style.display, "none"); targetPatch(page, 1, { turnId: "next-turn" }); assert.equal(outline.style.display, "block");
+  page.move({ sessionId: "next-owner", turnId: "next-turn", feedbackSequence: 1, targetRect: null }); assert.equal(outline.style.display, "none");
+  targetPatch(page, 1, { sessionId: "next-owner", turnId: "next-turn" }); assert.equal(outline.style.display, "block"); page.hide();
+});
+
+test("hidden and scroll-cleared receivers cannot be recreated by an old CURSOR delivery", () => {
+  for (const clear of [page => page.hide(), page => page.emit("scroll"), page => page.emit("resize")]) {
+    const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 20, targetRect: originalTargetRect }); clear(page);
+    const [cursor] = page.elements("browser-agent-cursor"), opacity = cursor.style.opacity;
+    page.move({ feedbackSequence: 19, targetRect: originalTargetRect }); targetPatch(page, 19); page.click({ feedbackSequence: 19, targetRect: originalTargetRect });
+    assert.equal(page.elements("browser-agent-target")[0].style.display, "none"); assert.equal(cursor.style.opacity, opacity); assert.equal(page.elements("browser-agent-click").length, 0); page.hide();
+  }
+});
+
+test("renderer replacement and authorized press recovery do not authorize old target publications", () => {
+  for (const settled of [false, true]) {
+    const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 1, targetRect: null }); if (settled) targetPatch(page, 1);
+    const oldHost = page.document.getElementById("open-browser-use-cursor-root"); replaceApplicationDom(page, "children");
+    targetPatch(page, 1); assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+    page.click({ x: 220, y: 140, feedbackSequence: 1, targetRect: originalTargetRect });
+    const host = page.document.getElementById("open-browser-use-cursor-root"), [outline] = page.elements("browser-agent-target"); assert.notEqual(host, oldHost); assert.ok(host.isConnected); assert.equal(page.elements("browser-agent-click").length, 1);
+    targetPatch(page, 1); assert.equal(outline.style.display, "none", "New renderer is not the original target's receiver");
+    replaceApplicationDom(page, "children"); page.move({ feedbackSequence: 2, targetRect: originalTargetRect });
+    assert.equal(page.elements("browser-agent-target")[0].style.left, "90px", "A new live cursor can create a new owner and render its own settled geometry"); page.hide();
+  }
+});
+
+test("hidden, ended, pagehidden, foreign-turn and bootstrap state cannot grant late target publication", async () => {
+  for (const stop of [page => page.hide(), page => page.move({ feedbackSequence: 2, visible: false, targetRect: null }), page => page.emit("pagehide"), page => page.move({ sessionId: "next-owner", turnId: "next-turn", feedbackSequence: 1, targetRect: null })]) {
+    const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 1, targetRect: null }); stop(page); const frames = page.frames.size, timers = page.timers.size, roots = page.elements("browser-agent-layer").length;
+    targetPatch(page, 1); assert.ok(page.elements("browser-agent-target").every(outline => outline.style.display === "none")); assert.equal(page.frames.size, frames); assert.equal(page.timers.size, timers); assert.equal(page.elements("browser-agent-layer").length, roots); page.hide();
+  }
+  const page = createPage({ reducedMotion: true }); page.initialState({ isVisible: true, sessionId: "test-session", turnId: "test-turn", cursor: { x: 40, y: 30, feedbackSequence: 1, targetRect: null } }); await Promise.resolve();
+  targetPatch(page, 1); assert.equal(page.elements("browser-agent-target")[0].style.display, "none", "A snapshot is not a new live publication grant");
+  page.move({ feedbackSequence: 2, targetRect: null }); targetPatch(page, 2); assert.equal(page.elements("browser-agent-target")[0].style.display, "block"); page.hide();
+});
+
+test("late border publication preserves root zoom, shadow top layer and print exclusion", () => {
+  const page = createPage({ reducedMotion: true }); page.document.documentElement.style.zoom = "1.5"; page.move({ feedbackSequence: 1, targetRect: null });
+  const host = page.document.getElementById("open-browser-use-cursor-root"), [layer] = page.elements("browser-agent-layer"), popovers = [...page.popoverCalls];
+  targetPatch(page, 1); assert.equal(host.style.zoom, String(1 / 1.5)); assert.equal(layer.getRootNode(), host.shadowRoot); assert.deepEqual(page.popoverCalls, popovers); assert.equal(layer.matches(":popover-open"), true);
+  const styles = findAll(host, node => node.tagName === "STYLE"); assert.equal(styles.length, 1); assert.match(styles[0].textContent, /@media print/); assert.match(styles[0].textContent, /display: none !important/); page.hide();
+});
+
+test("cached cursor STATE cannot restore an original target after viewport changes or renderer replacement", () => {
+  const cached = Object.freeze({ isVisible: true, sessionId: "test-session", turnId: "test-turn", cursor: Object.freeze({ x: 40, y: 30, moveSequence: 1, feedbackSequence: 1, targetRect: Object.freeze({ ...originalTargetRect }) }) });
+  for (const invalidate of [page => page.emit("scroll"), page => page.emit("resize"), page => replaceApplicationDom(page, "children")]) {
+    const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 1, targetRect: originalTargetRect }); invalidate(page);
+    page.send({ type: "OPEN_BROWSER_USE_CURSOR_STATE", state: cached });
+    const [outline] = page.elements("browser-agent-target"); assert.equal(outline.style.display, "none", "A cached snapshot cannot revalidate old exact geometry");
+    targetPatch(page, 1); page.click({ feedbackSequence: 1, targetRect: originalTargetRect }); assert.equal(outline.style.display, "none");
+    page.move({ feedbackSequence: 2, targetRect: originalTargetRect }); assert.equal(outline.style.display, "block"); assert.equal(outline.style.left, "90px"); page.hide();
+  }
+  assert.deepEqual(cached.cursor.targetRect, originalTargetRect, "Normalization must not mutate the original cached payload");
+});
+
+test("fresh bootstrap hides cached exact target geometry while raw absent snapshots retain local fallback", async () => {
+  for (const hinted of [true, false]) {
+    const page = createPage({ reducedMotion: true }), frame = page.add("iframe"); page.hit(frame);
+    page.initialState({ isVisible: true, sessionId: "test-session", turnId: "test-turn", cursor: { x: 40, y: 30, feedbackSequence: 1, ...(hinted ? { targetRect: originalTargetRect } : {}) } }); await Promise.resolve();
+    const [outline] = page.elements("browser-agent-target"); assert.equal(outline.style.display, hinted ? "none" : "block"); if (!hinted) assert.equal(outline.style.left, "10px");
+    targetPatch(page, 1); assert.equal(outline.style.display, hinted ? "none" : "block"); page.hide();
+  }
+});
+
 test("animateMovement false snaps to the CDP point and still acknowledges arrival", () => {
   const page = createPage();
   page.move({ x: 20, y: 25, animateMovement: false });

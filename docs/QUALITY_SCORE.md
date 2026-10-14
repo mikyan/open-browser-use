@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+iframe 内原元素高亮专项 `k2sWDv` 2/2 actual exit0：六布局原 PNG 的按钮四边
+及祖先框排除、六点击圈、六原 POST/14,185B 和十三原文档均独立核验。
+结束576ms仍隐藏；13,056ms零activation/focus/许可，精确进程清理通过。
+相关回归 `za8xMZ` 17/17 actual exit0；Node3536pass/1既有Windows skip。
+旧源六框错误和首候选nested点击圈丢失的真实失败保留。矩形是原节点快照，
+raw跨域叶目标、全屏和普通安装仍待验，见[iframe元素反馈](references/frame-target-feedback.md)。
+完整 `rkN0eF` 176/176 actual exit0，旧175名称/顺序保持；536,859ms仅原
+12activation/4control-focus许可。原始视觉/业务、源码/构建和精确清理独审
+通过；既有同文档跨turn消息交付边界单列为未完成项，旧预览ZIP保持。
+
 受限网站原页面 Blob 下载专项 `Y00W3K` 2/2 actual exit0：五入口×三布局
 15原文件2,633B，十边界另6原下载1,091B；原default context、文档、GUID、
 路径和字节独立核验。HTTP两份原拒绝分别保存，opaque共享Blob由浏览器

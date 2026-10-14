@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Frame target feedback](frame-target-feedback.md)：iframe 内原操作元素的边框
+  快照、坐标投影、迟到反馈与实际读取清理；原始红绿验收及未完成边界。
 - [Restricted page downloads](restricted-page-downloads.md)：允许网站的原始
   Blob 文档来源、同 GUID 文件交付与实际清理；受限 HTTP/POST 和最终实机验收边界。
 - [Restricted file choosers](restricted-file-chooser.md)：允许网站上的原生上传、

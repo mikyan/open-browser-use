@@ -7,6 +7,11 @@
 
 ## 当前基线
 
+- iframe 原元素高亮专项 `k2sWDv` 2/2、相关 `za8xMZ` 17/17、完整
+  `rkN0eF` 176/176均actual exit0，旧175名称/顺序保留。原六布局PNG、
+  点击圈、POST及文档、源码/构建和精确清理独审通过；完整536,859ms
+  仅原12activation/4control-focus许可。Node3536pass/1既有skip；raw叶目标、
+  全屏、已发消息跨turn边界及普通安装仍开放，见[本片记录](../completed/2026-10-14-iframe-target-feedback.md)。
 - 受限网站原页面Blob下载专项 `Y00W3K` 2/2、原下载 `NnimoV` 2/2、
   原负例/来源 `2gHGdI` 3/3均actual exit0；五入口、原文件、实际清理和
   原来源证明独立核验。完整 `8zKuaa` 175/175 actual exit0，旧175顺序
@@ -35,6 +40,11 @@
 5. 多平台、重复任务与 Codex 同组任务对比，逐项完成证据审计。
 
 ## 当前并行切片
+
+2026-10-14 [iframe内部元素反馈](../completed/2026-10-14-iframe-target-feedback.md)
+本片完成：原target/frame投影补叶元素高亮；六原布局和完整176项通过，
+不重放输入、不增加焦点许可。原六框错误与首候选点击圈丢失反例保留。
+矩形为原节点快照；raw、全屏、既有跨turn消息交付及整体持平继续开放。
 
 2026-10-14 [受限网站原页面下载](../completed/2026-10-14-restricted-page-downloads.md)
 完成本片：固定原文档与默认原生context来源，同源非opaque Blob原GUID交付

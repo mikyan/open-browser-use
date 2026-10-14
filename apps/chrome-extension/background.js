@@ -1,5 +1,6 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
+import { PassivePointerReads } from "./browser-pointer-feedback.js";
 import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserDialogs } from "./browser-dialogs.js";
@@ -916,6 +917,9 @@ class BrowserBackend {
     this.fileChooserWaitersByTabId = this.fileChooserWaits.byTab;
     this.fileChooserSetupsByTabId = new Map();
     this.nextCursorMoveSequence = 1;
+    this.nextPointerFeedbackSequence = 1;
+    this.pointerFeedbackLatest = new Map();
+    this.pointerFeedbackReads = new PassivePointerReads();
     chrome.debugger.onDetach.addListener((source, reason) => {
       if (typeof source.tabId === "number") {
         if (reason === "target_closed") this.markAttachmentDestroyed(source.tabId);
@@ -1518,7 +1522,7 @@ class BrowserBackend {
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...dialogs.tabIds, ...[...this.nativeDialogOperations].map(value => value.tabId), ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean)];
+    const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean), ...this.pointerFeedbackReads.snapshot()];
     return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
@@ -2632,6 +2636,7 @@ class BrowserBackend {
         beginHoverAction: (target, check) => beginPointerAction(target, check, "hover"),
         beginFillAction: (target, check) => beginPointerAction(target, check, "fill"),
         beginKeyboardPress: (target, check) => beginPointerAction(target, check, "keyboard"),
+        capturePointerFeedback: value => this.capturePointerTarget(value),
         send: (target, method, params, operation, pointerGuard) => {
           if (method === "Page.handleJavaScriptDialog" && this.dialogResponses.has(target.tabId))
             return this.sendDialogResponse(target, params, operation);
@@ -2670,8 +2675,10 @@ class BrowserBackend {
         release: tabId => this.releaseTrackedInput(tabId),
         prepareRelease: tabId => this.prepareInputRelease(tabId)
       },
-      onCommand: ({ target, method, commandParams, metadata }) => {
-        this.enqueuePointerFeedback({ ...metadata, target, method, commandParams });
+      onCommand: ({ target, method, commandParams, metadata, phase, feedbackTarget }) => {
+        const params = { ...metadata, target, method, commandParams, feedbackTarget };
+        if (phase === "prepare") return this.preparePointerFeedback(params);
+        this.enqueuePointerFeedback(params);
       }
     });
     return this.browserEngine;
@@ -3329,6 +3336,7 @@ class BrowserBackend {
     this.controlLedger.assertCurrent(params);
     const remaining = timeoutMs - (Date.now() - startedAt);
     if (remaining <= 0) throw new Error("Timed out preparing CDP command");
+    const publishFeedback = this.preparePointerFeedback({ session_id: params.session_id, turn_id: params.turn_id, control_epoch: params.control_epoch, method: params.method, commandParams: params.commandParams, target });
     const result = await withTimeout(remaining, async () => {
       if (params.method === "Target.getTargets") {
         const tabIds = new Set((await this.getSessionTabs(session.sessionId)).map((tab) => tab.id));
@@ -3366,7 +3374,7 @@ class BrowserBackend {
     // The low-level CLI/SDK route must show the same pointer as moveMouse.
     // Feedback is optional: a restricted or unresponsive page must not turn a
     // successful input command into a failure (and cause the caller to retry it).
-    this.enqueuePointerFeedback({ ...params, target });
+    publishFeedback();
     return result;
   }
 
@@ -3586,21 +3594,67 @@ class BrowserBackend {
     }
   }
 
+  pointerFeedbackAuthority(params, originalCheck = () => {}) {
+    const tabId = params.target.tabId, attachment = this.attachmentEpochs.get(tabId);
+    const epoch = this.controlLedger.assertCurrent(params).epoch;
+    const revision = this.exportDocumentRevisions.get(tabId) ?? 0;
+    const navigationVersion = this.siteNavigationVersions.get(tabId) ?? 0;
+    const tabEpoch = this.controlEpochs.get(tabId) ?? 0;
+    const policyGeneration = this.siteAccess.generation, policyRevision = this.siteAccess.revision;
+    const scope = Object.freeze({ session_id: params.session_id, turn_id: params.turn_id, control_epoch: epoch, tabId, attachment });
+    const check = () => {
+      this.assertControlOpen(); this.assertAttachmentAdmission(tabId, attachment); this.assertTransferScope(scope);
+      const owner = this.attachmentOwners.get(tabId);
+      if (owner && (owner.session_id !== scope.session_id || owner.turn_id !== scope.turn_id || owner.control_epoch !== epoch) ||
+          (this.controlEpochs.get(tabId) ?? 0) !== tabEpoch || (this.exportDocumentRevisions.get(tabId) ?? 0) !== revision ||
+          (this.siteNavigationVersions.get(tabId) ?? 0) !== navigationVersion ||
+          this.siteAccess.generation !== policyGeneration || this.siteAccess.revision !== policyRevision)
+        throw new Error("Original pointer feedback authority changed");
+      originalCheck();
+    };
+    check(); return { scope, check };
+  }
+
+  capturePointerTarget(value) {
+    const metadata = this.browserEngine?.active.get(value.target.tabId);
+    if (!metadata) return undefined;
+    try {
+      const authority = this.pointerFeedbackAuthority({ ...metadata, target: value.target }, value.check);
+      return this.pointerFeedbackReads.start({ ...value, ...authority });
+    } catch {
+      // A locator hint exists, but cannot claim a leaf rectangle. It is never
+      // replaced by an unrelated hit-test or a successor's active metadata.
+      return { scope: { ...metadata }, check: () => { throw new Error("Original target unavailable"); }, settled: true, value: null, result: Promise.resolve(null) };
+    }
+  }
+
+  preparePointerFeedback(params) {
+    if (!["Input.dispatchMouseEvent", "Input.dispatchDragEvent"].includes(params.method)) return () => {};
+    try {
+      const authority = this.pointerFeedbackAuthority(params, params.feedbackTarget?.check);
+      const feedbackSequence = this.nextPointerFeedbackSequence++;
+      return () => { try { authority.check(); this.enqueuePointerFeedback({ ...params, feedbackSequence, feedbackAuthority: authority }); } catch {} };
+    } catch { return () => {}; }
+  }
+
   enqueuePointerFeedback(params) {
     if (this.automationControl.inputBlocked || this.nativeRecovery) return;
     const { target, method, commandParams: event } = params;
     const tabId = target?.tabId;
     if (
-      method !== "Input.dispatchMouseEvent" ||
+      !["Input.dispatchMouseEvent", "Input.dispatchDragEvent"].includes(method) ||
       !Number.isInteger(tabId) ||
       target.sessionId != null ||
-      !["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(event?.type) ||
+      !(method === "Input.dispatchMouseEvent" ? ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"] : ["dragEnter", "dragOver", "drop"]).includes(event?.type) ||
       !Number.isFinite(event.x) ||
       !Number.isFinite(event.y) ||
       !this.attachedTabs.has(tabId)
     ) {
       return;
     }
+    const feedbackSequence = params.feedbackSequence ?? this.nextPointerFeedbackSequence++;
+    if (feedbackSequence <= (this.pointerFeedbackLatest.get(tabId) ?? 0)) return;
+    this.pointerFeedbackLatest.set(tabId, feedbackSequence);
 
     let queue = this.pointerFeedbackByTabId.get(tabId);
     if (!queue) {
@@ -3619,6 +3673,7 @@ class BrowserBackend {
     if (queue.pending.length >= MAX_POINTER_FEEDBACK_JOBS - 1) queue.pending.shift();
     queue.pending.push({
       session_id: params.session_id, turn_id: params.turn_id,
+      feedbackSequence, feedbackTarget: params.feedbackTarget, feedbackAuthority: params.feedbackAuthority,
       target: { tabId }, commandParams: { type: event.type, x: event.x, y: event.y }
     });
     if (!queue.running) {
@@ -3635,6 +3690,7 @@ class BrowserBackend {
   }
 
   clearPointerFeedback(tabId) {
+    this.pointerFeedbackLatest.delete(tabId);
     const queue = this.pointerFeedbackByTabId.get(tabId);
     if (queue) queue.pending.length = 0;
     this.pointerFeedbackByTabId.delete(tabId);
@@ -3644,8 +3700,13 @@ class BrowserBackend {
     const tabId = params.target.tabId;
     const event = params.commandParams;
 
+    // Admission already rejects late older native ACKs. Accepted jobs retain
+    // their order here: a later release must not erase the original press/ring
+    // merely because content-script setup or document lookup is still pending.
     const previous = this.cursorByTabId.get(tabId);
     const cursor = {
+      feedbackSequence: params.feedbackSequence,
+      ...(params.feedbackTarget !== undefined ? { targetRect: params.feedbackTarget.value ?? null } : {}),
       moveSequence: previous?.x === event.x && previous?.y === event.y
         ? previous.moveSequence
         : this.nextCursorMoveSequence++,
@@ -3665,8 +3726,16 @@ class BrowserBackend {
         }
         const proof = await this.assertSiteTab(tabId);
         this.assertSiteProof(proof);
+        params.feedbackAuthority?.check();
         if (!isCurrent()) return;
-        const destination = this.siteMessageDestination(proof);
+        // tabs.sendMessage without a documentId chooses the primary document
+        // when Chrome processes the message, not when it was prepared here.
+        // Optional feedback must never grant an old target to a new document.
+        const documentId = this.siteAccess.restricted ? proof.documentId :
+          (await chrome.webNavigation.getFrame({ tabId, frameId: 0 }))?.documentId;
+        params.feedbackAuthority?.check(); this.assertSiteProof(proof);
+        if (!isCurrent() || typeof documentId !== "string" || !documentId) return;
+        const destination = { documentId };
         await chrome.tabs.sendMessage(tabId, {
           type: "OPEN_BROWSER_USE_CURSOR",
           sessionId: params.session_id,
@@ -3675,20 +3744,46 @@ class BrowserBackend {
         }, destination);
         if (event.type === "mousePressed" && isCurrent()) {
           this.assertSiteProof(proof);
+          params.feedbackAuthority?.check();
           await chrome.tabs.sendMessage(tabId, {
             type: "OPEN_BROWSER_USE_POINTER_EVENT",
             sessionId: params.session_id,
             turnId: params.turn_id,
             eventType: event.type,
+            feedbackSequence: params.feedbackSequence,
+            ...(params.feedbackTarget !== undefined ? { targetRect: cursor.targetRect } : {}),
             x: event.x,
             y: event.y
           }, destination);
+        }
+        if (params.feedbackTarget !== undefined && (!params.feedbackTarget.settled || cursor.targetRect !== params.feedbackTarget.value)) {
+          // Do not join the geometry read in this position/ring queue. The
+          // original actual Promise has its own attachment-scoped drain.
+          void this.publishPointerTarget(params, cursor, proof, destination).catch(() => {});
         }
       });
     } finally {
       // Ignore a slow injection that finishes after a newer move or turn end.
       expired = true;
     }
+  }
+
+  async publishPointerTarget(params, cursor, proof, destination) {
+    const tabId = params.target.tabId;
+    let expired = false;
+    const check = () => {
+      if (expired || this.pointerFeedbackLatest.get(tabId) !== params.feedbackSequence || this.cursorByTabId.get(tabId) !== cursor)
+        throw new Error("Pointer feedback superseded");
+      params.feedbackAuthority?.check(); params.feedbackTarget.check(); this.assertSiteProof(proof);
+    };
+    try {
+      await withTimeout(POINTER_FEEDBACK_TIMEOUT_MS, async () => {
+        const rect = await params.feedbackTarget.result;
+        check(); cursor.targetRect = rect;
+        await chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_TARGET_RECT", sessionId: params.session_id,
+          turnId: params.turn_id, feedbackSequence: params.feedbackSequence, targetRect: rect }, destination);
+      });
+    } finally { expired = true; }
   }
 
   async webmcp_list_tools(params) {
@@ -5503,6 +5598,7 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId, { retryDiagnosticCleanup = false } = {}) {
+    const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.session_id === sessionId);
     const diagnosticsReleased = this.browserEngine?.drainDiagnosticCleanup?.({ sessionId, retryFailed: retryDiagnosticCleanup }) ?? Promise.resolve();
     diagnosticsReleased.catch(() => {});
     const pageDownloadsReleased = this.drainPageDownloads(record => record.scope.session_id === sessionId, { retryFailed: retryDiagnosticCleanup });
@@ -5542,7 +5638,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([fileInputsReleased, pageDownloadsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -5814,6 +5910,7 @@ class BrowserBackend {
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
+    const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.attachment === attachment);
     const fileInputsReleased = this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === attachment);
     fileInputsReleased.catch(() => {});
     const pageDownloadsReleased = this.drainPageDownloads(record => record.scope.tabId === tabId && record.scope.attachment === attachment);
@@ -5839,7 +5936,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
@@ -5922,6 +6019,9 @@ class BrowserBackend {
         // CRX also detaches on action timeout. Its captured release hook must
         // close exports on this exact attachment before native detach, without
         // cancelling an unbound reservation or a later attachment's work.
+        // Optional BoxModel reads own no native handles. Keep their actual
+        // Promises in lifecycle drains, but do not extend action-failure
+        // cleanup or its input deadline merely to finish visual evidence.
         const releases = [downloadWaitsReleased, this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === token), this.drainPageDownloads(record => record.scope.tabId === tabId && record.scope.attachment === token), this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
           this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
         const results = await Promise.allSettled(releases);

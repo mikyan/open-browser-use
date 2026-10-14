@@ -36,6 +36,7 @@ import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
+import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback } from "./frame-target-feedback-fixture.mjs";
 import { createRestrictedNetworkFixtures, checkRestrictedNetworkCaller, checkRestrictedNetworkPolicy, checkRestrictedNetworkBoundaries, runRestrictedNetworkWireCaller } from "./site-access-network-fixture.mjs";
 import { createRestrictedDiagnosticsFixtures, checkRestrictedDiagnosticsCaller, checkRestrictedDiagnosticsPolicy, checkRestrictedDiagnosticsBoundaries, runRestrictedDiagnosticsWireCaller } from "./site-access-diagnostics-fixture.mjs";
 import { checkRestrictedChooserCaller, checkRestrictedChooserPolicy, checkRestrictedChooserBoundaries, runRestrictedChooserWireCaller } from "./restricted-chooser-fixture.mjs";
@@ -378,6 +379,7 @@ const siteAccessSubmissions = createSiteAccessSubmissions();
 const topLayerFeedbackFixtures = createTopLayerFeedbackFixtures();
 const zoomFeedbackFixtures = createZoomFeedbackFixtures();
 const domRebuildFeedbackFixtures = createDOMRebuildFeedbackFixtures();
+const frameTargetFeedbackFixtures = createFrameTargetFeedbackFixtures();
 const siteAccessStartupFixtures = createSiteAccessStartupFixtures();
 const restrictedDialogFixtures = createRestrictedDialogFixtures();
 const restrictedDialogKinds = ["js", "cli", "mcp", "python", "go"];
@@ -424,6 +426,7 @@ const http = createServer(async (request, response) => {
   if (topLayerFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (zoomFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (domRebuildFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (frameTargetFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -646,6 +649,7 @@ try {
   sourceIdentity.sha256.topLayerFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "top-layer-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.zoomFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "zoom-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.domRebuildFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "dom-rebuild-feedback-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.frameTargetFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "frame-target-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256["patch-network-wait-proof.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", "patch-network-wait-proof.mjs"))).digest("hex");
   for (const name of ["site-access-network-fixture.mjs", "site-access-network-checks.py", "go-site-access-network-checks/main.go"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -1969,6 +1973,65 @@ try {
             }
           }
           value.endCleanup = { before, closed, after, hiddenObservedMs: Date.now() - hiddenAt };
+        } });
+    } catch (error) { failure = error; }
+    finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+    }
+    if (failure) throw failure;
+    return detail;
+  });
+  await test("js-frame-target-feedback", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-frame-target-feedback", timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      sourceIdentity.testHooks.push("Frame target feedback: six original same-origin, OOPIF, dynamic, nested and transformed forms; passive original document/node witnesses, independently authored CSS border-corner planes and original native PNG bytes. One fill/hover/click and POST per form; root cursor and transient ring association retained. No feedback repair, input replay or focus allowance.");
+      detail = await checkFrameTargetFeedback({ browser: owner, getWorker: () => worker, fixtureURL, fixtures: frameTargetFeedbackFixtures, until,
+        saveArtifact: (name, data) => fs.writeFile(path.join(runDir, name), data, { flag: "wx" }),
+        saveDetail: value => fs.writeFile(path.join(runDir, "frame-target-feedback.json"), JSON.stringify(value, null, 2)),
+        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
+        checkEnd: async value => {
+          const evidence = value.endCleanup = {};
+          const read = async () => {
+            const rows = [];
+            for (const item of value.states) {
+              const results = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(item.frames.map(frame => frame.documentId))}},world:'MAIN',func:()=>{
+                const host=document.getElementById('open-browser-use-cursor-root'),tree=host?.shadowRoot;
+                const cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]');
+                return {state:window.frameTargetFeedbackState(),openAgentLayers:tree?.querySelectorAll(':popover-open').length??0,
+                  opacity:cursor?getComputedStyle(cursor).opacity:null,rings:tree?.querySelectorAll('[data-testid="browser-agent-click"]').length??0};
+              }})`);
+              assert.equal(results.length, item.frames.length);
+              for (const frame of item.frames) {
+                const matches = results.filter(row => row.frameId === frame.frameId && row.documentId === frame.documentId);
+                assert.equal(matches.length, 1); assert.ok(matches[0].result?.state?.business);
+                rows.push({ tabId: item.tabId, frameId: frame.frameId, documentId: frame.documentId, ...matches[0].result });
+              }
+            }
+            return rows;
+          };
+          const before = evidence.before = await read();
+          assert.equal(before.filter(row => row.frameId === 0).length, value.states.length);
+          assert.ok(before.every(row => row.openAgentLayers === (row.frameId === 0 ? 1 : 0)));
+          await owner.client.turnEnded();
+          const hidden = row => row.openAgentLayers === 0 && row.rings === 0 && row.opacity === (row.frameId === 0 ? "0" : null);
+          const closed = evidence.closed = await until(async () => { const rows = await read(); return rows.every(hidden) ? rows : false; }, "original frame feedback ends without reviving effects", 5000);
+          const hiddenAt = Date.now();
+          await new Promise(resolve => setTimeout(resolve, 550));
+          const after = evidence.after = await read();
+          evidence.hiddenObservedMs = Date.now() - hiddenAt;
+          for (const rows of [closed, after]) {
+            assert.equal(rows.length, before.length);
+            for (let index = 0; index < before.length; index++) {
+              const prior = before[index], current = rows[index];
+              for (const key of ["tabId", "frameId", "documentId"]) assert.equal(current[key], prior[key]);
+              assert.ok(hidden(current));
+              assert.deepEqual(current.state.business, prior.state.business, "Turn end changed original frame business");
+              assert.deepEqual(current.state.geometry, prior.state.geometry, "Turn end changed original frame geometry");
+            }
+          }
+          return { hidden: true, originalDocuments: before.length, hiddenObservedMs: evidence.hiddenObservedMs };
         } });
     } catch (error) { failure = error; }
     finally {

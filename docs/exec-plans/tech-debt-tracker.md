@@ -4,6 +4,7 @@
 
 | 日期 | 区域 | 债务描述 | 为什么会存在 | 计划中的后续动作 |
 | --- | --- | --- | --- | --- |
+| 2026-10-14 | Visual feedback / P12 | 既有250ms发送超时不取消原sendMessage；结束turn删除queue但未join实际消息。同文档跨turn旧CURSOR若后交付，当前同turn序号门禁不能拒绝。尚无真实Chrome乱序复现。 | 发布前scope/documentId检查不能撤销已交给Chrome的消息；独立channel不提供这里所需的显式跨turn取消契约。 | 先保留独立协议反例，再验证实际消息结算屏障与最终hide顺序，明确未结算cleanup失败；不影响原输入期限或新增epoch状态机。raw跨域叶目标和全屏也分别待验，见[iframe反馈边界](../references/frame-target-feedback.md#remaining-scope)。 |
 | 2026-10-14 | Original response body / P11 | 已有有界原正文读取；没有流式/SSE、拦截/改写或 Chrome 原生内存上限保证。 | getResponseBody 原子返回完整解码结果，捕获元数据和实际 native buffer 的寿命不同；同步入口不能靠引擎队列外等待获得客户端并行能力。 | 保留明确失败与禁止重取，按实际任务需求再设计流式协议或同 scope 多连接流程；普通安装另验，见[原响应正文](../references/original-response-bodies.md)。 |
 | 2026-10-14 | First keyboard press / P05 | 完整 `bDKdec` 首场 `locator.press("End")` 只有可信 keyup，最终 POST 仍缺 keydown；137/138、actual exit 1。新增诊断专项 `UplYfR` 2/2、截图前置 `5eI49Q` 5/5 均 actual exit 0，未复现。 | 旧准备动作在 native probe 安装前，不能确认 down 的发送/ACK/路由。新两轮完整 End 与原生 trace 均无抑制记录，但被动记录也会影响时序，不能据此判定旧问题已修。 | 导航前 setup probe、head/bottom 原顺序及有界原生 input trace 已落地，64/64 定向测试通过。正文功能所需完整 `tRDnRM` 144/144 已启用 trace；九 End 与50原生键命令完整、无抑制，仍未复现。以后复现时按原命令和文档关联，才决定渲染/焦点修复。不重放、不隐式点击、不放宽断言；见[当前诊断计划](active/2026-10-13-initial-keyboard-delivery.md)。 |
 | 2026-10-13 | Native beforeunload / P12 | 离页确认的明确拒绝及原生 ACK 成功，但 Chromium 在创建原生界面时激活任务标签；严格后台验收失败。 | 浏览器的 app-modal 创建路径调用 ActivateContents；扩展收到事件后处理不能可靠地抢先阻止该原生选择。 | 保留真实失败和显式诊断，不恢复焦点或增加许可。寻找原生拦截能力前，不能宣称 beforeunload 无打断；普通 alert/confirm/prompt 分别验收。见[原生弹窗后台限制](../references/native-dialogs.md#known-background-gap)。 |

@@ -1,6 +1,7 @@
 // The backend fixtures execute the readable worker in a VM with fake Chrome
 // APIs. Keep its ownership and network registries real and share its clock.
 import vm from "node:vm";
+import { PassivePointerReads } from "../browser-pointer-feedback.js";
 import { BrowserNetworkWaits } from "../browser-network-waits.js";
 import { BrowserDialogs } from "../browser-dialogs.js";
 import { BrowserLifetime } from "../browser-lifetime.js";
@@ -58,6 +59,7 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { PassivePointerReads } from "./browser-pointer-feedback.js";', "")
   .replace('import { BrowserDialogs } from "./browser-dialogs.js";', "")
   .replace('import { BrowserPageWaits } from "./browser-page-waits.js";', "")
   .replace('import { NativePageDownloads } from "./native-page-downloads.js";', "")
@@ -80,7 +82,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { PassivePointerReads, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

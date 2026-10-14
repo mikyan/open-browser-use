@@ -12,6 +12,8 @@ let cursorRenderer = null;
 let interactionFeedback = null;
 let stateRevision = 0;
 let feedbackTurnKey = null;
+let targetRectReceiver = null;
+let cursorSequenceWatermark = null;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "OPEN_BROWSER_USE_PING") {
@@ -20,15 +22,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "OPEN_BROWSER_USE_CURSOR_STATE") {
     stateRevision += 1;
+    revokeTargetRect();
     latestState = normalizeState(message.state);
     renderState(latestState);
     sendResponse({ ok: true });
     return true;
   }
   if (message?.type === "OPEN_BROWSER_USE_CURSOR") {
+    const sessionId = typeof message.sessionId === "string" ? message.sessionId : latestState.sessionId;
+    const turnId = typeof message.turnId === "string" ? message.turnId : latestState.turnId;
+    if (!admitCursorSequence(message, sessionId, turnId)) {
+      sendResponse({ ok: true }); return true;
+    }
     stateRevision += 1;
+    revokeTargetRect();
     latestState = {
       cursor: {
+        ...(Object.hasOwn(message, "targetRect") ? { targetRect: normalizeTargetRect(message.targetRect) } : {}),
+        feedbackSequence: message.feedbackSequence,
         ...(message.animateMovement === false ? { animateMovement: false } : {}),
         moveSequence: message.moveSequence,
         visible: message.visible !== false,
@@ -36,12 +47,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         y: Number(message.y) || 0
       },
       isVisible: true,
-      sessionId: typeof message.sessionId === "string" ? message.sessionId : latestState.sessionId,
-      turnId: typeof message.turnId === "string" ? message.turnId : latestState.turnId
+      sessionId,
+      turnId
     };
     renderState(latestState);
+    if (latestState.isVisible && latestState.cursor.visible !== false && cursorRenderer?.isCurrent() &&
+        Object.hasOwn(message, "targetRect") && isFeedbackSequence(message.feedbackSequence)) {
+      targetRectReceiver = { renderer: cursorRenderer, cursor: latestState.cursor,
+        sessionId: latestState.sessionId, turnId: latestState.turnId,
+        feedbackSequence: message.feedbackSequence, pending: true };
+    }
     sendResponse({ ok: true });
     return true;
+  }
+  if (message?.type === "OPEN_BROWSER_USE_TARGET_RECT") {
+    if (acceptsTargetRect(message) && targetRectReceiver.pending) {
+      targetRectReceiver.pending = false;
+      latestState.cursor.targetRect = normalizeTargetRect(message.targetRect);
+      interactionFeedback?.highlight(latestState.cursor.x, latestState.cursor.y, latestState.cursor.targetRect);
+    }
+    sendResponse({ ok: true }); return true;
   }
   if (message?.type === "OPEN_BROWSER_USE_POINTER_EVENT") {
     if (
@@ -50,12 +75,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       latestState.cursor?.visible !== false &&
       message.sessionId === latestState.sessionId &&
       (latestState.turnId === null || message.turnId === latestState.turnId) &&
+      (!Object.hasOwn(message, "feedbackSequence") ||
+        isFeedbackSequence(message.feedbackSequence) && message.feedbackSequence === latestState.cursor?.feedbackSequence) &&
       isViewportPoint(message.x, message.y)
     ) {
       // The page can rebuild between move feedback and the original press.
       // Only an accepted press may recover its still-visible owned feedback.
       if (!cursorRenderer?.isCurrent()) renderState(latestState);
-      interactionFeedback?.click(message.x, message.y);
+      const targetRect = Object.hasOwn(message, "targetRect")
+        ? acceptsTargetRect(message) ? normalizeTargetRect(message.targetRect) : null
+        : latestState.cursor?.targetRect;
+      interactionFeedback?.click(message.x, message.y, targetRect);
     }
     sendResponse({ ok: true });
     return true;
@@ -65,6 +95,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 function retireCursorRenderer(renderer = cursorRenderer) {
   if (!renderer || renderer !== cursorRenderer) return;
+  if (targetRectReceiver?.renderer === renderer) revokeTargetRect(true);
   interactionFeedback?.clear();
   interactionFeedback = null;
   cursorRenderer = null;
@@ -93,9 +124,9 @@ function ensureCursorRenderer() {
 }
 
 function renderState(state) {
+  if (cursorRenderer && !cursorRenderer.isCurrent()) retireCursorRenderer();
   const cursor = normalizeCursor(state.cursor);
   const visible = state.isVisible === true && cursor?.visible !== false;
-  if (cursorRenderer && !cursorRenderer.isCurrent()) retireCursorRenderer();
   const renderer = visible ? ensureCursorRenderer() : cursorRenderer;
   if (!renderer) return;
   const viewportSize = readViewportSize();
@@ -103,7 +134,7 @@ function renderState(state) {
   if (feedbackTurnKey !== turnKey) interactionFeedback.clear();
   feedbackTurnKey = turnKey;
   if (visible && cursor) {
-    interactionFeedback.highlight(cursor.x, cursor.y);
+    interactionFeedback.highlight(cursor.x, cursor.y, cursor.targetRect);
   } else {
     interactionFeedback.clear();
   }
@@ -135,9 +166,17 @@ function createInteractionFeedback(root, host, raise) {
   root.appendChild(outline);
   const rings = new Map();
 
-  const highlight = (x, y) => {
+  const highlight = (x, y, targetRect) => {
     outline.style.display = "none";
     if (!isViewportPoint(x, y)) return;
+    // An explicit null is an original target whose geometry is unavailable;
+    // do not replace it with an unrelated iframe/container hit.
+    if (targetRect !== undefined) {
+      const rect = normalizeTargetRect(targetRect);
+      if (rect) Object.assign(outline.style, { left: `${rect.x}px`, top: `${rect.y}px`,
+        width: `${rect.width}px`, height: `${rect.height}px`, display: "block" });
+      return;
+    }
     // Hit-test only this document. An iframe is highlighted as a frame; no
     // coordinates or page state are read from its child document.
     let hit = document.elementsFromPoint(x, y).find((element) => !host.contains(element) && !root.contains(element));
@@ -173,10 +212,10 @@ function createInteractionFeedback(root, host, raise) {
   return {
     clear,
     highlight,
-    click: (x, y) => {
+    click: (x, y, targetRect) => {
       if (!isViewportPoint(x, y)) return;
       raise();
-      highlight(x, y);
+      highlight(x, y, targetRect);
       // Each click owns its effect, so a second click never restarts cursor
       // travel or leaves the first click's timer behind.
       if (rings.size >= 8) removeRing(rings.keys().next().value);
@@ -215,8 +254,13 @@ function normalizeState(state) {
       turnId: null
     };
   }
+  const cursor = normalizeCursor(state.cursor);
+  // State publications and bootstrap replies contain a cached point, not a
+  // new target observation. Preserve hinted-null versus raw-absent semantics
+  // without restoring exact geometry invalidated by scrolling or reinjection.
+  if (cursor && Object.hasOwn(cursor, "targetRect")) cursor.targetRect = null;
   return {
-    cursor: normalizeCursor(state.cursor),
+    cursor,
     isVisible: state.isVisible === true,
     sessionId: typeof state.sessionId === "string" ? state.sessionId : null,
     turnId: typeof state.turnId === "string" ? state.turnId : null
@@ -231,12 +275,52 @@ function normalizeCursor(cursor) {
     return null;
   }
   return {
+    ...(Object.hasOwn(cursor, "targetRect") ? { targetRect: normalizeTargetRect(cursor.targetRect) } : {}),
+    feedbackSequence: cursor.feedbackSequence,
     ...(cursor.animateMovement === false ? { animateMovement: false } : {}),
     ...(Number.isInteger(cursor.moveSequence) ? { moveSequence: cursor.moveSequence } : {}),
     visible: cursor.visible !== false,
     x: cursor.x,
     y: cursor.y
   };
+}
+
+function normalizeTargetRect(rect) {
+  return rect && [rect.x, rect.y, rect.width, rect.height, rect.x + rect.width, rect.y + rect.height].every(Number.isFinite) && rect.width > 0 && rect.height > 0
+    ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
+}
+
+function isFeedbackSequence(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function admitCursorSequence(message, sessionId, turnId) {
+  const sameScope = cursorSequenceWatermark?.sessionId === sessionId && cursorSequenceWatermark?.turnId === turnId;
+  if (!Object.hasOwn(message, "feedbackSequence")) {
+    // Manual/legacy updates retain their protocol, but cannot erase the
+    // ordering of native feedback already accepted in this same turn.
+    if (!sameScope) cursorSequenceWatermark = { sessionId, turnId, value: null };
+    return true;
+  }
+  const value = message.feedbackSequence;
+  if (!isFeedbackSequence(value) || sameScope && cursorSequenceWatermark.value !== null && value <= cursorSequenceWatermark.value) return false;
+  cursorSequenceWatermark = { sessionId, turnId, value };
+  return true;
+}
+
+function acceptsTargetRect(message) {
+  const receiver = targetRectReceiver;
+  return !!receiver && latestState.isVisible && latestState.cursor?.visible !== false &&
+    receiver.renderer === cursorRenderer && cursorRenderer.isCurrent() && receiver.cursor === latestState.cursor &&
+    message.sessionId === receiver.sessionId && message.turnId === receiver.turnId &&
+    isFeedbackSequence(message.feedbackSequence) && message.feedbackSequence === receiver.feedbackSequence;
+}
+
+function revokeTargetRect(clearStored = false) {
+  targetRectReceiver = null;
+  // Keep the distinction between raw fallback and an invalidated original
+  // target. A viewport change or retired renderer must not reuse its border.
+  if (clearStored && latestState.cursor && Object.hasOwn(latestState.cursor, "targetRect")) latestState.cursor.targetRect = null;
 }
 
 function readViewportSize() {
@@ -305,7 +389,11 @@ function refreshCursorState() {
     .catch(() => {});
 }
 
-const clearInteractionFeedback = () => interactionFeedback?.clear();
+const clearInteractionFeedback = () => {
+  stateRevision += 1;
+  revokeTargetRect(true);
+  interactionFeedback?.clear();
+};
 window.addEventListener("scroll", clearInteractionFeedback, true);
 window.addEventListener("resize", clearInteractionFeedback);
 window.visualViewport?.addEventListener("resize", clearInteractionFeedback);

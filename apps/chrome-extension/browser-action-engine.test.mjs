@@ -1135,3 +1135,16 @@ test("file submission synchronous admission rejects an invalidated action genera
   };
   await assert.rejects(engine.dispatch(request("setInputFiles", { locator, args: { files: [] } })), /cancelled/);
 });
+
+test('private native command preparation captures original action metadata before ACK and never borrows active successor',async()=>{
+ let observe; const captures=[];const f=fixture();
+ f.runtime.setOpenBrowserUseCommandObserver=callback=>observe=callback;
+ const engine=new BrowserActionEngine({loadRuntime:async()=>f.runtime,onCommand:value=>{captures.push(value);return ()=>value.metadata;}});
+ await engine.runtime(); engine.active.set(42,{session_id:'old',turn_id:'old-turn',control_epoch:7});
+ const publish=observe({phase:'prepare',target:{tabId:42},method:'Input.dispatchMouseEvent',commandParams:{type:'mouseMoved',x:1,y:2}});
+ engine.active.set(42,{session_id:'new',turn_id:'new-turn',control_epoch:8});
+ assert.deepEqual(publish(),{session_id:'old',turn_id:'old-turn',control_epoch:7});
+ const original={scope:{session_id:'old',turn_id:'old-turn',control_epoch:7}};
+ observe({phase:'prepare',target:{tabId:42},method:'Input.dispatchMouseEvent',commandParams:{},feedbackTarget:original});
+ assert.equal(captures[1].metadata.session_id,'old');assert.equal(captures[1].feedbackTarget,original);
+});

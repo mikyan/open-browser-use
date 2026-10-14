@@ -80,7 +80,7 @@ test("keyboard admission checks the original deadline synchronously, without exp
   assert.throws(() => f.engine.captureKeyboardPress(42), /OBU_KEYBOARD_PRESS_REJECTED/);
   const pending = f.engine.dispatch({ ...f.request, timeoutMs: 500 });
   const rejected = assert.rejects(pending, /timed out/);
-  await entered.promise; check(); assert.deepEqual(f.engine.active.get(42), { session_id: "task", turn_id: "turn" });
+  await entered.promise; check(); assert.deepEqual(f.engine.active.get(42), { session_id: "task", turn_id: "turn", control_epoch: 1 });
   advance = 1000; assert.throws(check, /Browser action timed out after 500ms/);
   gate.resolve(); await rejected; assert.throws(() => f.engine.captureKeyboardPress(42), /OBU_KEYBOARD_PRESS_REJECTED/);
 });

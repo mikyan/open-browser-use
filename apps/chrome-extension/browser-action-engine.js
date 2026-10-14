@@ -343,9 +343,9 @@ export class BrowserActionEngine {
       this.runtimePromise = this.loadRuntime().then(runtime => {
         if (this.inputHooks) runtime.setOpenBrowserUseInputHooks(this.inputHooks);
         runtime.setOpenBrowserUseEventFilter(this.isInternalEvent);
-        runtime.setOpenBrowserUseCommandObserver(({ target, method, commandParams }) => {
-          const metadata = this.active.get(target.tabId);
-          if (metadata) return this.onCommand({ target, method, commandParams, metadata });
+        runtime.setOpenBrowserUseCommandObserver(({ target, method, commandParams, phase, feedbackTarget }) => {
+          const metadata = feedbackTarget?.scope ?? this.active.get(target.tabId);
+          if (metadata) return this.onCommand({ target, method, commandParams, phase, feedbackTarget, metadata: { ...metadata } });
         });
         return runtime;
       }).catch(error => { this.runtimePromise = undefined; throw error; });
@@ -758,7 +758,7 @@ export class BrowserActionEngine {
       await entry.diagnostics.ready; await check(); entry.diagnosticsAuthority?.check();
       entry.observation ??= new BrowserObservation(page);
       phase = "running";
-      this.active.set(params.tabId, { session_id: params.session_id, turn_id: params.turn_id });
+      this.active.set(params.tabId, { session_id: params.session_id, turn_id: params.turn_id, control_epoch: params.control_epoch });
       if (keyboardPressActions.has(params.action)) {
         keyboardAdmission = { check: () => {
           checkTime();
