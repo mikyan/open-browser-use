@@ -7,6 +7,13 @@ the published preview still reject Page GUID paths with
 after the matching original begin event is admitted; completion and readable
 file delivery are separate requirements.
 
+Website restrictions add an original-document source check: the development
+contract currently admits only proven non-opaque, same-origin Blob downloads.
+Restricted HTTP/POST provenance remains unsupported. The Blob workflow has
+passed isolated browser acceptance; see [original downloads on allowed websites](restricted-page-downloads.md)
+for source, navigation, cleanup and verification boundaries. The historical
+unrestricted results below do not establish restricted-mode acceptance.
+
 ## Explicit binding and original ownership
 
 The caller must select the exact native host endpoint and an authorized

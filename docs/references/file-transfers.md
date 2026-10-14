@@ -179,6 +179,12 @@ replays a click, uploads files or closes the user's native dialog.
 
 ## Page-triggered downloads
 
+On permitted websites in allow-list or block-list mode, the development API
+accepts a same-origin, non-opaque Blob report from its proven original document.
+HTTP/POST source and redirect provenance remains unsupported in restricted mode.
+See [restricted page downloads](restricted-page-downloads.md) for admission,
+navigation and actual native cleanup semantics.
+
 `waitForDownload({tabId})` observes native `Page.downloadWillBegin` from the owned
 tab after registration. Its opaque `downloadId` is that event's GUID. Progress
 must have the same GUID and native source. Records carry the session, epoch, and

@@ -9,14 +9,14 @@ const prefix = "/original-download/", reportPath = "/report";
 
 function pageHTML(record, base, frame) {
   const child = new URL(`${prefix}frame?key=${record.key}`, base);
-  child.hostname = base.hostname === "localhost" ? "127.0.0.1" : "localhost";
+  if (!record.sharedBlob) child.hostname = base.hostname === "localhost" ? "127.0.0.1" : "localhost";
   const leaf = frame || record.variant === "root";
   const config = scriptJSON({ key: record.key, owner: record.owner, kind: record.kind, token: record.token,
-    expectedSHA: record.expected.sha256, ...(record.kind === "blob" ? { payload: record.expected.base64 } : {}), childURL: child.href });
+    expectedSHA: record.expected.sha256, ...(record.kind === "blob" ? { payload: record.expected.base64 } : {}), ...(record.sharedBlob ? { sharedBlob: true } : {}), childURL: child.href });
   return `<!doctype html><meta charset="utf-8"><title>Original page download</title>
 <style>body{font:16px sans-serif}button{padding:16px;margin:16px}iframe{width:700px;height:380px}</style>
 ${leaf ? '<form id="report" action="/report" method="post"><button id="download" type="submit">Download original report</button></form>' : ""}
-${!leaf && record.variant === "oopif" ? `<iframe id="download-frame" src="${child.href}"></iframe>` : ""}
+${!leaf && record.variant === "oopif" ? `<iframe id="download-frame"${record.opaque ? ' sandbox="allow-scripts allow-downloads"' : ""} src="${child.href}"></iframe>` : ""}
 ${!leaf && record.variant === "dynamic-oopif" ? '<button id="add-frame">Add download frame</button>' : ""}
 <pre id="state"></pre><script>(()=>{
  const config=${config},state={key:config.key,owner:config.owner,kind:config.kind,documentToken:crypto.randomUUID(),expectedSHA:config.expectedSHA,clicks:[],frameAdds:[]};
@@ -24,6 +24,34 @@ ${!leaf && record.variant === "dynamic-oopif" ? '<button id="add-frame">Add down
  const add=document.querySelector('#add-frame');
  if(add)add.onclick=event=>{state.frameAdds.push({trusted:event.isTrusted});const frame=document.createElement('iframe');frame.id='download-frame';frame.src=config.childURL;document.body.append(frame);add.disabled=true;render()};
  const form=document.querySelector('#report'),button=document.querySelector('#download');
+ ${record.sharedBlob ? `
+ const bytes=()=>Uint8Array.from(atob(config.payload),value=>value.charCodeAt(0));
+ if(!button){
+  const frame=document.querySelector('#download-frame');
+  addEventListener('message',event=>{
+   const data=event.data;if(event.source!==frame.contentWindow||event.origin!=='null'||data?.key!==config.key)return;
+   if(data.type==='shared-ready'&&!state.sharedBlob){
+    const url=URL.createObjectURL(new Blob([bytes()],{type:'application/octet-stream'}));
+    state.sharedBlob={url,creatorOrigin:globalThis.origin,creatorDocumentToken:state.documentToken,childDocumentToken:data.documentToken,revoked:false};render();
+    event.source.postMessage({type:'shared-url',key:config.key,...state.sharedBlob},'*');
+   }else if(data.type==='shared-revoke'&&state.sharedBlob&&!state.sharedBlob.revoked&&data.url===state.sharedBlob.url&&data.documentToken===state.sharedBlob.childDocumentToken){
+    URL.revokeObjectURL(data.url);state.sharedBlob.revoked=true;render();
+    event.source.postMessage({type:'shared-revoked',key:config.key,url:data.url,documentToken:data.documentToken},'*');
+   }
+  });
+ }else{
+  button.disabled=true;
+  addEventListener('message',event=>{
+   const data=event.data;if(event.source!==parent||data?.key!==config.key)return;
+   if(data.type==='shared-url'&&data.childDocumentToken===state.documentToken&&!state.sharedBlob){
+    state.sharedBlob={url:data.url,creatorOrigin:data.creatorOrigin,creatorDocumentToken:data.creatorDocumentToken,childDocumentToken:data.childDocumentToken,revoked:false};button.disabled=false;render();
+   }else if(data.type==='shared-revoked'&&data.documentToken===state.documentToken&&state.sharedBlob?.url===data.url){
+    state.sharedBlob.revoked=true;const click=state.clicks.find(value=>value.blobURL===data.url);if(click)click.revoked=true;render();
+   }
+  });
+  parent.postMessage({type:'shared-ready',key:config.key,documentToken:state.documentToken},'*');
+ }
+ ` : ""}
  if(!button)return;
  for(const name of ['owner','token','documentToken','trusted','buttonCount']){const input=document.createElement('input');input.type='hidden';input.name=name;form.append(input)}
  button.addEventListener('click',event=>{
@@ -31,9 +59,9 @@ ${!leaf && record.variant === "dynamic-oopif" ? '<button id="add-frame">Add down
   for(const [name,value] of Object.entries({owner:config.owner,token:config.token,...click}))form.elements.namedItem(name).value=String(value);
   if(config.kind==='blob'){
    event.preventDefault();const bytes=Uint8Array.from(atob(config.payload),value=>value.charCodeAt(0));
-   const url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'}));click.blobURL=url;state.blobURL=url;
+   const url=${record.sharedBlob ? "state.sharedBlob.url" : "URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'}))"};click.blobURL=url;state.blobURL=url;
    const link=document.createElement('a');link.href=url;link.download='report.bin';document.body.append(link);
-   try{link.click()}finally{URL.revokeObjectURL(url);link.remove();click.revoked=true}
+   try{link.click()}finally{${record.sharedBlob ? "parent.postMessage({type:'shared-revoke',key:config.key,url,documentToken:state.documentToken},'*');link.remove();click.revocation='parent-message-ack'" : "URL.revokeObjectURL(url);link.remove();click.revoked=true"}}
   }
   render();
  });
@@ -54,13 +82,15 @@ export function createOriginalDownloadFixtures() {
   };
   const fail = (response, hit, status, error) => { hit.error = error; reply(response, hit, status, Buffer.from(error + "\n")); };
   return {
-    createCase({ kind, owner, variant = "root" }) {
+    createCase({ kind, owner, variant = "root", opaque = false, sharedBlob = false }) {
       assert.ok(["post", "blob"].includes(kind), "Unknown original-download kind");
       assert.ok(typeof owner === "string" && owner.length > 0 && owner.length <= 160, "Fixture owner required");
       assert.ok(variants.includes(variant), "Unknown original-download variant");
+      assert.ok(typeof opaque === "boolean" && (!opaque || (kind === "blob" && variant === "oopif")), "Opaque fixture requires an existing Blob iframe");
+      assert.ok(typeof sharedBlob === "boolean" && (!sharedBlob || opaque), "Shared Blob fixture requires an opaque iframe");
       const key = randomUUID(), token = randomUUID(), nonce = randomUUID();
       const bytes = Buffer.concat([Buffer.from(JSON.stringify({ key, kind, owner, nonce }) + "\n原始报表 UTF-8\n"), Buffer.from([0, 255, 195, 40, 10, 128])]);
-      const record = { key, kind, owner, variant, token, nonce, reportPath, suggestedFilename: "report.bin",
+      const record = { key, kind, owner, variant, ...(opaque ? { opaque: true } : {}), ...(sharedBlob ? { sharedBlob: true } : {}), token, nonce, reportPath, suggestedFilename: "report.bin",
         urlPath: `${prefix}page?key=${key}`, expected: describeBytes(bytes), consumed: false, gets: [], requests: [] };
       records.set(key, record); tokens.set(token, record); return structuredClone(record);
     },

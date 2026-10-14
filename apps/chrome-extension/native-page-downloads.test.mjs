@@ -41,6 +41,40 @@ function reply(env, request, result, extra = {}) {
   env.channel.receive(message({ type: "reply", requestId: request.params.requestId, nonce: request.params.nonce, generation: request.params.generation, result, ...extra }));
 }
 
+test("caller timeout retains the exact private request settlement until the original valid late reply", async () => {
+  const f = fixture(), env = f.make(); await ready(env);
+  const request = env.channel.request("release", claim, { deadlineAt: f.deadline(10) }), native = env.sent.at(-1);
+  const actual = env.channel.settlement(request); let settled = false; actual.then(() => { settled = true; });
+  const rejected = assert.rejects(request, /TIMEOUT/); f.move(10); f.fire(); await rejected;
+  assert.equal(settled, false); assert.equal(f.timers.size, 0);
+  reply(env, native, {}, { nonce: "foreign" }); reply(env, native, {}, { generation: "successor" }); await flush();
+  assert.equal(settled, false);
+  reply(env, native, {}); assert.deepEqual(plain(await actual), {}); await flush(); assert.equal(settled, true);
+  await assert.rejects(request, /TIMEOUT/); assert.equal(env.sent.filter(value => value.params.type === "request").length, 1);
+  env.channel.close();
+});
+
+test("actual expired work is retired by the original Port loss, never a successor reply", async () => {
+  const f = fixture(), env = f.make(); await ready(env);
+  const request = env.channel.request("claim", claim, { deadlineAt: f.deadline(10) });
+  const actual = env.channel.settlement(request), actualRejection = assert.rejects(actual, /DISCONNECTED/);
+  const rejected = assert.rejects(request, /TIMEOUT/); f.move(10); f.fire(); await rejected;
+  env.channel.close(); await actualRejection;
+  const next = f.make(); await ready(next, "new-nonce", "new-generation");
+  reply(env, env.sent.at(-1), {}); await assert.rejects(actual, /DISCONNECTED/); next.channel.close();
+});
+
+test("expired but unsettled requests still occupy the fixed private request capacity", async () => {
+  const f = fixture(), env = f.make(); await ready(env);
+  const requests = Array.from({ length: 128 }, () => env.channel.request("path", claim, { deadlineAt: f.deadline(10) }));
+  const rejected = requests.map(request => assert.rejects(request, /TIMEOUT/)); f.move(10); f.fire(); await Promise.all(rejected);
+  await assert.rejects(env.channel.request("path", claim, { deadlineAt: f.deadline() }), /CAPACITY/);
+  const native = env.sent.find(value => value.params.type === "request"); reply(env, native, { path: "C:\\original.bin" });
+  await env.channel.settlement(requests[0]);
+  const next = env.channel.request("path", claim, { deadlineAt: f.deadline() }); reply(env, env.sent.at(-1), { path: "C:\\next.bin" });
+  assert.deepEqual(plain(await next), { path: "C:\\next.bin" }); env.channel.close();
+});
+
 test("actual imported module publishes only private worker proof and returns independent RPC results", async () => {
   const target = {}, sent = [], channel = new NativePageDownloads({ send: value => sent.push(value), extensionId, getInstanceId: async () => "original-instance", target });
   try {

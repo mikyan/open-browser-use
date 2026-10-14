@@ -11,6 +11,18 @@
 
 ## 当前评分
 
+受限网站原页面 Blob 下载专项 `Y00W3K` 2/2 actual exit0：五入口×三布局
+15原文件2,633B，十边界另6原下载1,091B；原default context、文档、GUID、
+路径和字节独立核验。HTTP两份原拒绝分别保存，opaque共享Blob由浏览器
+先行阻止，原日志前缀与最终日志一致；不能据此声称旧产品误接纳。49,806ms
+零activation、原两次popup focus；延迟原release回执覆盖Pause失败且期间
+策略未变，清理后才显式恢复。Node当前各组3478pass/1既有Windows skip；
+旧失败保留。HTTP/POST完整来源及普通安装仍开放，见
+[受限页面下载](references/restricted-page-downloads.md)。完整 `8zKuaa` 175/175
+actual exit0；原有下载 `NnimoV` 2/2、负例/来源 `2gHGdI` 3/3均actual exit0，
+后两轮30原文件5,200B及绑定/中断/恢复独审通过。完整旧175名称/顺序保持，
+533,980ms仅原12activation/4control-focus许可；源码/构建与原键盘输入核验通过。
+
 受限网站原生文件选择器专项 `btlfEb` 8/8 actual exit0，五入口×三布局与六
 边界共31原POST/12,779B；15次原上传、15次显式清空及一次延迟ACK上传，
 原文件、节点/文档/session、实际清理均独立核验。34,925ms零activation，

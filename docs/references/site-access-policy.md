@@ -193,8 +193,18 @@ In either restricted mode:
   rechecks the original authority and allowed tree. Cancellation drains only the
   owned wait without inspecting a newly denied site. See
   [restricted file choosers](restricted-file-chooser.md).
+- Original Page downloads can admit a non-opaque, same-origin Blob download
+  triggered by a proven allowed original document. Preparation and admission retain
+  the original frame/document and policy; a replacement document cannot
+  authorize a pending candidate. An already admitted GUID is an artifact and
+  may remain usable after legitimate allowed navigation, subject to the same
+  owner, policy, binding and current-tree checks. Paths still require the
+  explicit verified Browser connection. HTTP/POST download provenance remains
+  unsupported in restricted mode; the Blob workflow has passed isolated browser
+  acceptance through all five public entries and the original-document boundaries.
+  See [restricted original downloads](restricted-page-downloads.md).
 - Arbitrary public CDP, clipboard, WebMCP,
-  direct downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
+  direct URL/media downloads, the standalone cursor command and their result channels are unavailable. Raw CDP event
   notifications are suppressed. These channels can refer to origins outside the
   live document tree and have not been certified for this restricted mode.
 - PDF page export uses the same complete-frame permission checks before native

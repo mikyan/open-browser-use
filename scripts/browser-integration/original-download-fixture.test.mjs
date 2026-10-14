@@ -30,21 +30,22 @@ async function serve(t) {
 
 // Execute the actual served script with a small DOM contract. These are
 // deterministic fixture checks, not claims about browser trust or downloads.
-function pageScript(html, { leaf = true, dynamic = false, clickError } = {}) {
+function pageScript(html, { leaf = true, dynamic = false, clickError, frame, parent, origin = "http://127.0.0.1", documentToken = "original-document" } = {}) {
   const inputs = new Map(), children = [], calls = [], blobs = new Map(), state = { textContent: "" };
+  const listeners = [];
   const form = { append: input => inputs.set(input.name, input), elements: { namedItem: name => inputs.get(name) } };
   const button = { addEventListener: (_name, listener) => { button.listener = listener; } }, add = {};
   const document = {
-    querySelector: selector => ({ "#state": state, "#report": leaf && form, "#download": leaf && button, "#add-frame": dynamic && add })[selector] || null,
+    querySelector: selector => ({ "#state": state, "#report": leaf && form, "#download": leaf && button, "#add-frame": dynamic && add, "#download-frame": frame })[selector] || null,
     body: { append: element => children.push(element) },
     createElement: tag => ({ tag, remove() { calls.push("remove"); }, click() { calls.push("click"); if (clickError) throw clickError; } })
   };
-  const context = createContext({ document, crypto: { randomUUID: () => "original-document" }, Blob, atob,
-    URL: { createObjectURL: blob => { const url = `blob:http://127.0.0.1/test-${blobs.size}`; blobs.set(url, blob); calls.push("create"); return url; },
+  const context = createContext({ document, crypto: { randomUUID: () => documentToken }, Blob, atob, parent, origin, addEventListener: (type, listener) => { assert.equal(type, "message"); listeners.push(listener); },
+    URL: { createObjectURL: blob => { const url = `blob:${origin}/test-${blobs.size}`; blobs.set(url, blob); calls.push("create"); return url; },
       revokeObjectURL: url => { assert.ok(blobs.has(url)); calls.push("revoke"); } } });
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]; assert.equal(scripts.length, 1);
   new Script(scripts[0][1]).runInContext(context);
-  return { inputs, children, calls, blobs, state: () => JSON.parse(state.textContent),
+  return { inputs, children, calls, blobs, state: () => JSON.parse(state.textContent), disabled: () => button.disabled, message: event => listeners.forEach(listener => listener(event)),
     click(trusted) { let prevented = false; button.listener({ isTrusted: trusted, preventDefault() { prevented = true; } }); return prevented; },
     add(trusted) { add.onclick({ isTrusted: trusted }); return add.disabled; } };
 }
@@ -148,6 +149,40 @@ test("fixture rejects unsupported configuration and unrelated requests stay outs
   assert.throws(() => fixture.handle({ url: "/report" }, {}, "https://example.com/"), /Loopback/);
   const outside = await fetch(base + "elsewhere"); assert.equal(outside.status, 404); await outside.arrayBuffer();
   assert.equal(fixture.allStats().requests.length, 0);
+});
+
+test("opaque Blob iframe is explicitly sandboxed without changing ordinary source fixtures", async t => {
+  const { fixture, base } = await serve(t);
+  const opaque = fixture.createCase({ kind: "blob", owner: "opaque", variant: "oopif", opaque: true });
+  const html = await (await fetch(base + opaque.urlPath.slice(1))).text();
+  assert.match(html, /<iframe id="download-frame" sandbox="allow-scripts allow-downloads" src="http:\/\/localhost:/);
+  assert.doesNotMatch(html, /allow-same-origin/); assert.equal(fixture.stats(opaque.key).opaque, true);
+  const ordinary = fixture.createCase({ kind: "blob", owner: "ordinary", variant: "oopif" });
+  assert.equal(Object.hasOwn(ordinary, "opaque"), false);
+  assert.doesNotMatch(await (await fetch(base + ordinary.urlPath.slice(1))).text(), /sandbox=/);
+  assert.throws(() => fixture.createCase({ kind: "post", owner: "wrong", variant: "oopif", opaque: true }), /Opaque/);
+  assert.throws(() => fixture.createCase({ kind: "blob", owner: "wrong", variant: "root", opaque: true }), /Opaque/);
+});
+
+test("shared Blob is created by the original same-origin parent, consumed by the opaque child once, then revoked by its creator after the real message", async t => {
+  const { fixture, base } = await serve(t), record = fixture.createCase({ kind: "blob", owner: "shared-opaque", variant: "oopif", opaque: true, sharedBlob: true });
+  const rootHTML = await (await fetch(base + record.urlPath.slice(1))).text(), childHTML = await (await fetch(base + "original-download/frame?key=" + record.key)).text();
+  assert.ok(rootHTML.includes(`sandbox="allow-scripts allow-downloads" src="${base}original-download/frame?`));
+  const messages = []; let root, child;
+  const parentWindow = { postMessage: data => messages.push(() => root.message({ source: childWindow, origin: "null", data })) };
+  const childWindow = { postMessage: data => messages.push(() => child.message({ source: parentWindow, origin: new URL(base).origin, data })) };
+  root = pageScript(rootHTML, { leaf: false, frame: { contentWindow: childWindow }, origin: new URL(base).origin, documentToken: "creator-document" });
+  child = pageScript(childHTML, { parent: parentWindow, origin: "null", documentToken: "opaque-document" });
+  assert.equal(child.disabled(), true); assert.deepEqual(root.calls, []);
+  root.message({ source: {}, origin: "null", data: { key: record.key, type: "shared-ready", documentToken: "foreign" } }); assert.deepEqual(root.calls, []);
+  messages.shift()(); messages.shift()(); assert.equal(child.disabled(), false); assert.equal(messages.length, 0);
+  const shared = root.state().sharedBlob; assert.deepEqual(child.state().sharedBlob, shared); assert.equal(shared.creatorDocumentToken, "creator-document"); assert.equal(shared.childDocumentToken, "opaque-document");
+  assert.equal(new URL(shared.url).origin, new URL(base).origin); assert.deepEqual(Buffer.from(await root.blobs.get(shared.url).arrayBuffer()), Buffer.from(record.expected.base64, "base64"));
+  assert.equal(child.click(true), true); assert.deepEqual(child.calls, ["click", "remove"]); assert.deepEqual(root.calls, ["create"]); assert.equal(child.state().clicks[0].revoked, undefined);
+  messages.shift()(); assert.deepEqual(root.calls, ["create", "revoke"]); assert.equal(child.state().clicks[0].revoked, undefined); messages.shift()();
+  assert.equal(messages.length, 0); assert.equal(child.state().clicks.length, 1); assert.equal(child.state().clicks[0].trusted, true); assert.equal(child.state().clicks[0].revoked, true); assert.equal(child.state().clicks[0].revocation, "parent-message-ack");
+  assert.deepEqual(child.state().sharedBlob, { ...shared, revoked: true }); assert.deepEqual(root.state().clicks, []); assert.equal(fixture.stats(record.key).requests.length, 2);
+  assert.throws(() => fixture.createCase({ kind: "blob", owner: "wrong", sharedBlob: true }), /Shared/);
 });
 
 async function temporaryOutput(t) {

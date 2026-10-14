@@ -7,6 +7,11 @@
 
 ## 当前基线
 
+- 受限网站原页面Blob下载专项 `Y00W3K` 2/2、原下载 `NnimoV` 2/2、
+  原负例/来源 `2gHGdI` 3/3均actual exit0；五入口、原文件、实际清理和
+  原来源证明独立核验。完整 `8zKuaa` 175/175 actual exit0，旧175顺序
+  保持，533,980ms仅原12activation/4control-focus许可；Node3478pass/
+  1既有skip。受限HTTP/POST、普通Edge和整体持平保持开放。
 - 受限网站原生文件选择器已通过专项 `btlfEb` 8/8 actual exit0，五入口×三
   布局与六边界共31原POST/12,779B，原文件、节点及实际清理独立核验。
   34,925ms零activation、原两次popup focus；当前Node各组3400pass/1既有skip。
@@ -18,7 +23,7 @@
   actual exit 0，旧 148 顺序及原焦点许可保持；
   详见[缩放分片](../completed/2026-10-14-zoom-feedback.md)。不据此关闭 P12 或完整矩阵。
 - 分支 `codex/browser-use-parity`，已将 upstream v1.0.0 合入现有光标反馈实现。
-- 不创建或重开 PR；本地开发提交保留在本项目。
+- 不创建或重开 PR；完成的开发提交推送用户现有 fork 分支。
 - 初始审计发现私有 rewrite 未接入正式入口、Windows SDK 通信不兼容及 targetId 越过任务归属；下文记录修复与剩余缺口。
 
 ## 工作流
@@ -30,6 +35,13 @@
 5. 多平台、重复任务与 Codex 同组任务对比，逐项完成证据审计。
 
 ## 当前并行切片
+
+2026-10-14 [受限网站原页面下载](../completed/2026-10-14-restricted-page-downloads.md)
+完成本片：固定原文档与默认原生context来源，同源非opaque Blob原GUID交付
+及实际清理通过五入口和十边界。专项 `Y00W3K` 2/2、旧下载 `NnimoV` 2/2、
+原负例 `2gHGdI` 3/3、完整 `8zKuaa` 175/175均actual exit0且独审通过。
+Node3478pass/1既有skip，旧失败及预览ZIP保持。HTTP/POST原请求及重定向
+关联、普通Edge与整体持平仍开放，不据局部支持宣称完整文件能力已完成。
 
 2026-10-14 [受限网站原生文件选择器](../completed/2026-10-14-restricted-file-chooser.md)
 完成本片：固定原事件、frame/document/node 和策略，上传及显式清空经五入口、

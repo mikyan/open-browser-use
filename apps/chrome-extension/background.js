@@ -828,12 +828,18 @@ class BrowserBackend {
     this.externalScreencastTabs = new Set();
     this.internalScreencasts = new Map();
     this.downloadsById = new Map();
+    this.pageDownloadResources = new Set();
+    this.pageDownloadOperations = new Map();
     this.downloadWaits = new BrowserDownloadWaits({
-      send: (scope, sessionId) => chrome.debugger.sendCommand({ tabId: scope.tabId, ...(sessionId ? { sessionId } : {}) }, "Page.enable"),
-      assertScope: scope => this.assertTransferScope(scope),
+      send: async (scope, sessionId, waiter) => {
+        await chrome.debugger.sendCommand({ tabId: scope.tabId, ...(sessionId ? { sessionId } : {}) }, "Page.enable");
+        if (scope.downloadAccess?.restricted) await this.seedPageDownloadSource(scope, sessionId, waiter);
+      },
+      assertScope: scope => this.assertPageDownloadScope(scope),
+      assertResult: scope => { this.assertPageDownloadScope(scope); this.assertSiteProof(scope.downloadAccess?.siteProof); },
       assertBinding: record => this.assertDownloadWaitBinding(record),
       validateScope: async (scope, waiter) => {
-        await this.validateTransferScope(scope);
+        await this.validatePageDownloadScope(scope, waiter);
         if (waiter.params.requirePath) await this.validateDownloadWaitTarget(waiter);
         if (waiter.result && this.downloadsById.get(waiter.result.downloadId)?.waiterId !== waiter.waiterId)
           throw new Error("OBU_DOWNLOAD_WAIT_EXPIRED: download result is no longer available");
@@ -843,6 +849,7 @@ class BrowserBackend {
       publish: (result, waiter) => {
         const record = this.downloadsById.get(result.downloadId);
         if (record?.waiterId !== waiter.waiterId) throw new Error("OBU_DOWNLOAD_WAIT_EXPIRED: download result is no longer available");
+        if (record.scope.downloadAccess?.candidate) record.scope.downloadAccess.candidate.admitted = true;
         record.authorized = true;
         this.claimPageDownload(record, waiter.deadlineAt);
         this.emitDownloadChange(record);
@@ -878,6 +885,8 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey = new Map();
     this.fileChoosersById = new Map();
     this.fileInputDocumentsByTabId = new Map();
+    this.pageDownloadContexts = new Map();
+    this.pageDownloadContextWaiters = new Map();
     this.directoryUploads = new DirectoryUploadRegistry({
       send: (target, method, commandParams) => chrome.debugger.sendCommand(target, method, commandParams),
       checkCurrent: scope => {
@@ -1190,9 +1199,12 @@ class BrowserBackend {
     pageCleanup?.catch(() => {});
     const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
     diagnosticCleanup?.catch(() => {});
+    const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
+    pageDownloadCleanup?.catch(() => {});
     const cancelled = this.cancelGlobalControl(new Error("OBU_NATIVE_CONNECTION_LOST: native host disconnected"));
     if (pageCleanup) cancelled.releases.push(pageCleanup);
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
+    if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
     // A bootstrap may itself await this recovery. Its durability writes are
     // joined by invalidateAll below; awaiting its RPC here would self-deadlock.
     cancelled.pending = cancelled.pending.filter(pending => !this.controlBootstrapRequests.has(pending));
@@ -1266,8 +1278,10 @@ class BrowserBackend {
     // These channels can expose origins other than the tab's live documents.
     // A URL check around arbitrary CDP/JavaScript is not an origin boundary.
     const unsupported = ["executeCdp", "moveMouse", "webmcp_list_tools", "webmcp_invoke_tool", "readClipboardText", "writeClipboardText", "readClipboard", "writeClipboard",
-      "waitForDownload", "downloadURL", "downloadPath", "cancelDownload", "armDownloadWait", "collectDownloadWait", "cancelDownloadWait"];
-    if (method === "downloadMedia" || unsupported.includes(method) || (method === "exportPage" && params?.format === "mhtml"))
+      "downloadURL"];
+    if (method === "downloadMedia" || unsupported.includes(method) ||
+        (["downloadPath", "cancelDownload"].includes(method) && this.directDownloads.has(params?.downloadId)) ||
+        (method === "exportPage" && params?.format === "mhtml"))
       throw new Error("OBU_SITE_ACCESS_UNSUPPORTED: this operation is unavailable with website restrictions; use the locator, snapshot and screenshot browser actions");
   }
 
@@ -1504,7 +1518,7 @@ class BrowserBackend {
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...dialogs.tabIds, ...[...this.nativeDialogOperations].map(value => value.tabId), ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    const fileInputPending = [...this.directoryUploads.operations];
+    const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean)];
     return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
@@ -1521,7 +1535,7 @@ class BrowserBackend {
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
     for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [networksReleased, this.directoryUploads.drain(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [networksReleased, this.directoryUploads.drain(), this.drainPageDownloads(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -1545,11 +1559,14 @@ class BrowserBackend {
     pageCleanup?.catch(() => {});
     const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
     diagnosticCleanup?.catch(() => {});
+    const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
+    pageDownloadCleanup?.catch(() => {});
     // Cancel known engine work synchronously, before a slow storage write can
     // allow an already-running locator wait to deliver its first input.
     const cancelled = this.cancelGlobalControl();
     if (pageCleanup) cancelled.releases.push(pageCleanup);
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
+    if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
     const operation = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause(cancelled, deadline));
     this.automationTransitions = operation;
     return deadline.within(() => operation).catch(error => {
@@ -3232,6 +3249,9 @@ class BrowserBackend {
     this.navigationWaits.invalidateAttachedTab(tabId);
     this.directoryUploads.invalidate({ tabId, attachment: this.attachmentEpochs.get(tabId) }, new Error("OBU_TRANSFER_CANCELLED: browser attachment changed"));
     this.fileInputDocumentsByTabId.delete(tabId);
+    for (const context of this.pageDownloadContexts.get(tabId)?.values() ?? []) context.alive = false;
+    this.pageDownloadContexts.delete(tabId);
+    for (const wake of this.pageDownloadContextWaiters.get(tabId) ?? []) wake();
     // detachTab already owns this exact native cleanup attempt. Its engine
     // hook and final attachment release must not start untracked retries of a
     // rejected download cancellation after that attempt's barrier resolves.
@@ -3265,7 +3285,10 @@ class BrowserBackend {
     await this.requireSessionTab(params, "detach");
     const tabId = requireTabId(params, "detach");
     const attachment = this.attachmentEpochs.get(tabId), owner = this.attachmentOwners.get(tabId);
-    await this.browserEngine?.drainDiagnosticCleanup?.({ sessionId: params.session_id, tabId, retryFailed: true });
+    await Promise.all([
+      this.browserEngine?.drainDiagnosticCleanup?.({ sessionId: params.session_id, tabId, retryFailed: true }),
+      this.drainPageDownloads(record => record.scope.session_id === params.session_id && record.scope.tabId === tabId && record.scope.attachment === attachment, { retryFailed: true })
+    ]);
     await this.requireSessionTabOwnership(params, "detach");
     if (this.attachmentEpochs.get(tabId) !== attachment || this.attachmentOwners.get(tabId) !== owner)
       throw new Error("OBU_TRANSFER_CANCELLED: original detach attachment changed during diagnostic cleanup");
@@ -4251,6 +4274,7 @@ class BrowserBackend {
 
   async armDownloadWait(params, record) {
     const check = () => this.downloadWaits.check(record);
+    const access = { policy: this.siteAccess.status(), restricted: this.siteAccess.restricted, sources: new Map(), newFrames: new Map(), candidate: null, siteProof: null };
     if (params.requirePath) {
       const { client, generation } = record.nativeBinding;
       const targets = await this.downloadWaits.within(record, () => chrome.debugger.getTargets());
@@ -4264,6 +4288,7 @@ class BrowserBackend {
       onAttachStarted: (cancel, actual) => { record.cancelAdmission = cancel; this.downloadWaits.track(record, actual); } });
     check();
     const scope = await this.transferScope(params, "armDownloadWait", record.deadlineAt);
+    scope.downloadAccess = access;
     check(); this.downloadWaits.bind(record, scope);
     const client = record.nativeBinding?.client ?? this.nativePageDownloads?.();
     const status = client?.status();
@@ -4277,6 +4302,262 @@ class BrowserBackend {
       record.nativeContext = Object.freeze({ client, generation: status.generation, rootTargetId: target.id });
     }
     return this.downloadWaits.arm(record, [undefined, ...this.childSessionsByTabId.get(params.tabId) ?? []]);
+  }
+
+  assertPageDownloadScope(scope) {
+    this.assertControlOpen(); this.assertTransferScope(scope);
+    const access = scope.downloadAccess;
+    if (!access) return;
+    this.siteAccess.assertReady();
+    if (access.policy.generation !== this.siteAccess.generation || access.policy.revision !== this.siteAccess.status().revision)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download permissions changed");
+    const owner = this.attachmentOwners.get(scope.tabId);
+    if (!owner || ["session_id", "turn_id", "control_epoch", "attachment"].some(key => owner[key] !== scope[key]))
+      throw new Error("OBU_DOWNLOAD_WAIT_EXPIRED: original download owner changed");
+    const candidate = access.candidate;
+    if (access.restricted && candidate && !candidate.admitted) this.assertPageDownloadDocument(scope, candidate.source);
+  }
+
+  assertPageDownloadDocument(scope, source) {
+    if (!source || (source.sessionId !== undefined && !this.childSessionsByTabId.get(scope.tabId)?.has(source.sessionId)))
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download source is unavailable");
+    const documents = this.fileInputDocumentsByTabId.get(scope.tabId), root = scope.downloadAccess.rootSource;
+    // An OOPIF's native tree begins at that child. Its new route cannot replace
+    // the original root document that authorized this wait at readiness.
+    if (!root || documents?.get(root.frameId) !== root.token)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download root document changed");
+    for (const item of source.path) if (documents?.get(item.frameId) !== item.token)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download document changed");
+    const context = source.context;
+    if (!context?.alive || context.attachment !== scope.attachment || context.sessionId !== source.sessionId ||
+        context.frameId !== source.path.at(-1).frameId || context.documentToken !== source.path.at(-1).token ||
+        this.pageDownloadContexts.get(scope.tabId)?.get(context.uniqueId) !== context)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download default context changed");
+    if (source.initialFrame) {
+      if (source.initialFrame.invalid) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: initial download frame changed");
+      this.assertPageDownloadDocument(scope, source.initialFrame.parentSource);
+    }
+  }
+
+  notePageDownloadContext(source, method, params) {
+    if (!["Runtime.executionContextCreated", "Runtime.executionContextDestroyed", "Runtime.executionContextsCleared",
+      "Page.frameNavigated", "Page.documentOpened", "Page.frameDetached", "Target.detachedFromTarget"].includes(method)) return;
+    const tabId = source.tabId, sessionId = source.sessionId;
+    let contexts = this.pageDownloadContexts.get(tabId);
+    if (method === "Runtime.executionContextCreated") {
+      const value = params.context, frameId = value?.auxData?.frameId;
+      if (value?.auxData?.isDefault !== true || typeof frameId !== "string" || !frameId ||
+          !Number.isSafeInteger(value.id) || typeof value.uniqueId !== "string" || !value.uniqueId || value.uniqueId.length > 256 ||
+          typeof value.origin !== "string" || value.origin.length > 8192 ||
+          (sessionId !== undefined && !this.childSessionsByTabId.get(tabId)?.has(sessionId))) return;
+      if (!contexts) this.pageDownloadContexts.set(tabId, contexts = new Map());
+      // Keep retired native IDs until this attachment ends. Replayed old
+      // context events cannot revive a destroyed context; the bound is closed.
+      if (contexts.has(value.uniqueId)) return;
+      for (const context of contexts.values()) if (context.sessionId === sessionId && context.frameId === frameId) context.alive = false;
+      if (contexts.size >= 4096) {
+        for (const wake of this.pageDownloadContextWaiters.get(tabId) ?? []) wake();
+        return;
+      }
+      const documents = this.fileInputDocumentsByTabId.get(tabId) ?? new Map();
+      this.fileInputDocumentsByTabId.set(tabId, documents);
+      if (!documents.has(frameId)) documents.set(frameId, {});
+      contexts.set(value.uniqueId, { id: value.id, uniqueId: value.uniqueId, frameId, sessionId, origin: value.origin,
+        attachment: this.attachmentEpochs.get(tabId), documentToken: documents.get(frameId), alive: true });
+    } else {
+      const frameId = params.frameId ?? params.frame?.id;
+      const wholeDocument = ["Page.frameNavigated", "Page.documentOpened"].includes(method) && !sessionId && !params.frame?.parentId;
+      for (const context of contexts?.values() ?? []) {
+        if ((method === "Runtime.executionContextDestroyed" && context.sessionId === sessionId && context.id === params.executionContextId &&
+             (!params.executionContextUniqueId || context.uniqueId === params.executionContextUniqueId)) ||
+            (method === "Runtime.executionContextsCleared" && context.sessionId === sessionId) ||
+            (["Page.frameNavigated", "Page.documentOpened"].includes(method) && (wholeDocument || context.frameId === frameId)) ||
+            (method === "Page.frameDetached" && params.reason === "remove" && context.frameId === frameId) ||
+            (method === "Target.detachedFromTarget" && context.sessionId === params.sessionId)) context.alive = false;
+      }
+    }
+    if (method.startsWith("Runtime.executionContext") || ["Page.frameNavigated", "Page.documentOpened", "Page.frameDetached", "Target.detachedFromTarget"].includes(method))
+      for (const wake of this.pageDownloadContextWaiters.get(tabId) ?? []) wake();
+  }
+
+  async waitForPageDownloadContext(scope, sessionId, frameId, documentToken, waiter) {
+    while (true) {
+      this.downloadWaits.check(waiter);
+      if ((sessionId !== undefined && !this.childSessionsByTabId.get(scope.tabId)?.has(sessionId)) ||
+          this.fileInputDocumentsByTabId.get(scope.tabId)?.get(frameId) !== documentToken)
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download context document changed");
+      const context = [...this.pageDownloadContexts.get(scope.tabId)?.values() ?? []].find(value => value.alive && value.sessionId === sessionId &&
+        value.frameId === frameId && value.documentToken === documentToken && value.attachment === scope.attachment);
+      if (context) return context;
+      if (this.pageDownloadContexts.get(scope.tabId)?.size >= 4096)
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download context capacity exhausted");
+      let wake;
+      const changed = new Promise(resolve => { wake = resolve; });
+      const waiting = this.pageDownloadContextWaiters.get(scope.tabId) ?? new Set();
+      this.pageDownloadContextWaiters.set(scope.tabId, waiting); waiting.add(wake);
+      try { await Promise.race([changed, waiter.cancellation.promise]); }
+      finally { waiting.delete(wake); if (!waiting.size && this.pageDownloadContextWaiters.get(scope.tabId) === waiting) this.pageDownloadContextWaiters.delete(scope.tabId); }
+    }
+  }
+
+  notePageDownloadFrame(source, method, params) {
+    const waiter = this.downloadWaits.byTab.get(source.tabId), access = waiter?.scope?.downloadAccess;
+    if (!access?.restricted || waiter.invalid || !["arming", "pending"].includes(waiter.state)) return;
+    if (method === "Page.frameAttached" && typeof params.frameId === "string" && typeof params.parentFrameId === "string" &&
+        !access.newFrames.has(params.frameId) && ![...access.sources.values()].some(frames => frames.has(params.frameId))) {
+      const parentSource = access.sources.get(source.sessionId)?.get(params.parentFrameId);
+      if (!parentSource || access.newFrames.size >= 1000) return;
+      try { this.assertPageDownloadDocument(waiter.scope, parentSource); } catch { return; }
+      let settle;
+      const firstCommit = new Promise(resolve => { settle = resolve; });
+      access.newFrames.set(params.frameId, { parentSource, parentFrameId: params.parentFrameId, parentSessionId: source.sessionId, firstCommit, settle });
+    }
+    const frameId = params.frameId ?? params.frame?.id ?? params.targetInfo?.targetId;
+    const frame = access.newFrames.get(frameId);
+    if (method === "Target.attachedToTarget" && frame && !frame.childSessionId && !frame.invalid && !frame.document &&
+        params.targetInfo?.type === "iframe" && frame.parentSessionId === source.sessionId && frame.parentFrameId === params.targetInfo.parentFrameId)
+      frame.childSessionId = params.sessionId;
+    if (method === "Page.frameNavigated" && frame) {
+      if (frame.document || frame.sealed || frame.parentFrameId !== params.frame?.parentId || source.sessionId !== frame.childSessionId) frame.invalid = true;
+      else {
+        try {
+          this.assertPageDownloadDocument(waiter.scope, frame.parentSource);
+          const documents = this.fileInputDocumentsByTabId.get(source.tabId), token = {};
+          documents.set(frameId, token);
+          // Capture the first real commit at its event, never from a later
+          // download or a replacement document's frame-tree response.
+          frame.document = Object.freeze({ frameId, token, url: params.frame.url, loaderId: params.frame.loaderId, securityOrigin: params.frame.securityOrigin });
+        } catch { frame.invalid = true; }
+      }
+      frame.settle();
+    }
+    if (frame && ["Page.documentOpened", "Page.frameDetached"].includes(method)) {
+      if (method === "Page.frameDetached" && params.reason === "swap" && !frame.swapped && frame.parentSessionId === source.sessionId)
+        frame.swapped = true;
+      else { frame.invalid = true; frame.settle(); }
+    }
+    if (method === "Target.detachedFromTarget") for (const frame of access.newFrames.values()) if (frame.childSessionId === params.sessionId) {
+      frame.invalid = true; frame.settle();
+    }
+  }
+
+  pageDownloadFrames(frameTree) {
+    const result = [], seen = new Set();
+    const visit = (tree, path) => {
+      const frame = tree?.frame;
+      if (!frame || typeof frame.id !== "string" || !frame.id || typeof frame.url !== "string" ||
+          seen.has(frame.id) || seen.size >= 1000 || (tree.childFrames !== undefined && !Array.isArray(tree.childFrames)))
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: native download frame tree is unavailable");
+      seen.add(frame.id); const next = [...path, frame]; result.push(next);
+      for (const child of tree.childFrames ?? []) visit(child, next);
+    };
+    visit(frameTree, []); return result;
+  }
+
+  async seedPageDownloadSource(scope, sessionId, waiter) {
+    this.downloadWaits.check(waiter);
+    const version = this.exportDocumentRevisions.get(scope.tabId) ?? 0;
+    const target = Object.freeze({ tabId: scope.tabId, ...(sessionId ? { sessionId } : {}) });
+    let { frameTree } = await chrome.debugger.sendCommand(target, "Page.getFrameTree", {});
+    this.downloadWaits.check(waiter);
+    const initialFrame = sessionId === undefined ? undefined : scope.downloadAccess.newFrames.get(frameTree?.frame?.id);
+    const initializing = initialFrame && !initialFrame.sealed && initialFrame.childSessionId === sessionId;
+    if (initializing) {
+      this.assertPageDownloadDocument(scope, initialFrame.parentSource);
+      // A just-attached OOPIF can expose an empty provisional document before
+      // its first commit. Only this registered new frame may await that commit.
+      // The existing waiter deadline/cancellation owns the wait and the read.
+      if (["", "about:blank"].includes(frameTree.frame.url)) {
+        await Promise.race([initialFrame.firstCommit, waiter.cancellation.promise]);
+        this.downloadWaits.check(waiter);
+        if (initialFrame.invalid) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: initial download frame changed");
+        ({ frameTree } = await chrome.debugger.sendCommand(target, "Page.getFrameTree", {}));
+        this.downloadWaits.check(waiter);
+      }
+      this.assertPageDownloadDocument(scope, initialFrame.parentSource);
+      const original = initialFrame.document, current = frameTree?.frame;
+      if (initialFrame.invalid || (original && (!current || current.id !== original.frameId || current.parentId !== initialFrame.parentFrameId ||
+          current.loaderId !== original.loaderId || current.url !== original.url || current.securityOrigin !== original.securityOrigin ||
+          this.fileInputDocumentsByTabId.get(scope.tabId)?.get(original.frameId) !== original.token)))
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: initial download document was replaced");
+    } else if (version !== (this.exportDocumentRevisions.get(scope.tabId) ?? 0))
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: download source changed during preparation");
+    const paths = this.pageDownloadFrames(frameTree);
+    const documents = this.fileInputDocumentsByTabId.get(scope.tabId) ?? new Map();
+    this.fileInputDocumentsByTabId.set(scope.tabId, documents);
+    const sources = new Map();
+    for (const path of paths) {
+      const original = path.map(frame => {
+        if (!documents.has(frame.id)) documents.set(frame.id, {});
+        return Object.freeze({ frameId: frame.id, token: documents.get(frame.id), url: frame.url,
+          loaderId: frame.loaderId, securityOrigin: frame.securityOrigin });
+      });
+      const leaf = original.at(-1);
+      // A newly attached route may expose the same frame, but cannot refresh
+      // an already prepared document into a later same-URL document.
+      for (const previous of scope.downloadAccess.sources.values()) {
+        const old = previous.get(leaf.frameId);
+        if (old && old.path.at(-1).token !== leaf.token)
+          throw new Error("OBU_SITE_ACCESS_UNVERIFIED: prepared download document was replaced");
+      }
+      const context = await this.waitForPageDownloadContext(scope, sessionId, leaf.frameId, leaf.token, waiter);
+      this.downloadWaits.check(waiter);
+      if (!context.alive || original.some(item => this.fileInputDocumentsByTabId.get(scope.tabId)?.get(item.frameId) !== item.token))
+        throw new Error("OBU_SITE_ACCESS_UNVERIFIED: download source changed during context preparation");
+      sources.set(leaf.frameId, Object.freeze({ target, sessionId, path: Object.freeze(original), context, ...(initializing ? { initialFrame } : {}) }));
+    }
+    scope.downloadAccess.sources.set(sessionId, sources);
+    if (initializing) initialFrame.sealed = true;
+    if (sessionId === undefined) scope.downloadAccess.rootSource = sources.get(frameTree.frame.id).path[0];
+  }
+
+  async provePageDownloadSource(scope, waiter) {
+    const candidate = scope.downloadAccess.candidate;
+    this.assertPageDownloadDocument(scope, candidate.source);
+    const version = this.exportDocumentRevisions.get(scope.tabId) ?? 0;
+    const pending = chrome.debugger.sendCommand(candidate.source.target, "Page.getFrameTree", {});
+    const { frameTree } = await this.downloadWaits.track(waiter, pending);
+    this.downloadWaits.check(waiter); this.assertPageDownloadDocument(scope, candidate.source);
+    if (version !== (this.exportDocumentRevisions.get(scope.tabId) ?? 0))
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download source changed during inspection");
+    const path = this.pageDownloadFrames(frameTree).find(items => items.at(-1).id === candidate.frameId);
+    if (!path || path.length !== candidate.source.path.length || path.some((frame, index) => {
+      const original = candidate.source.path[index];
+      return frame.id !== original.frameId || frame.loaderId !== original.loaderId || frame.securityOrigin !== original.securityOrigin;
+    })) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download frame identity changed");
+    let known = false;
+    for (let index = 0; index < path.length; index++) {
+      // History/hash updates do not replace a document. Check both URLs while
+      // retaining its original token, native loader and security origin.
+      for (const url of [candidate.source.path[index].url, path[index].url]) {
+        if (["about:blank", "about:srcdoc"].includes(url)) continue;
+        this.siteAccess.assertUrl(url); known = true;
+      }
+    }
+    // Page.Frame.securityOrigin is derived from the loader URL in Chromium,
+    // including sandboxed documents. Only the original native default context
+    // supplies the actual document origin (never a page-controlled JS value).
+    const origin = candidate.source.context.origin;
+    let native, blob;
+    try { native = new URL(origin); blob = new URL(candidate.url); } catch {}
+    if (!known || typeof origin !== "string" || !native || !["http:", "https:"].includes(native.protocol) || native.origin !== origin ||
+        !blob || blob.protocol !== "blob:" || blob.origin === "null" || blob.origin !== origin)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download requires a same-origin non-opaque Blob source; HTTP request provenance is unavailable");
+    this.siteAccess.assertUrl(origin);
+    candidate.proven = true;
+  }
+
+  async validatePageDownloadScope(scope, waiter) {
+    this.assertPageDownloadScope(scope);
+    await this.validateTransferScope(scope);
+    const access = scope.downloadAccess;
+    if (access?.restricted && access.candidate && !access.candidate.proven) {
+      if (!waiter) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download source was not admitted");
+      await this.provePageDownloadSource(scope, waiter);
+    }
+    const proof = await this.assertSiteTab(scope.tabId);
+    this.assertPageDownloadScope(scope); this.assertSiteProof(proof);
+    if (access) access.siteProof = proof;
   }
 
   assertDownloadWaitBinding(record) {
@@ -4309,8 +4590,16 @@ class BrowserBackend {
   }
 
   async cancelDownloadWait(params) {
+    const deadline = Date.now() + this.downloadWaits.cleanupTimeoutMs;
     await this.requireSessionTab(params, "cancelDownloadWait");
-    return this.downloadWaits.cancel(params);
+    const result = await this.downloadWaits.cancel(params);
+    const release = this.drainPageDownloads(record => !record.delivered && record.waiterId === params.waiterId &&
+      ["session_id", "turn_id", "control_epoch", "tabId"].every(key => record.scope[key] === params[key]), { retryFailed: true });
+    release.catch(() => {});
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error("OBU_DOWNLOAD_WAIT_CLEANUP_TIMEOUT: original Page claim release is unconfirmed");
+    await withTimeout(remaining, () => release, () => new Error("OBU_DOWNLOAD_WAIT_CLEANUP_TIMEOUT: original Page claim release is unconfirmed"));
+    return result;
   }
 
   async downloadURL(params, record) {
@@ -4495,7 +4784,7 @@ class BrowserBackend {
 
   assertPageDownload(record, deadline) {
     if (deadline <= Date.now()) throw new Error("OBU_DOWNLOAD_TIMEOUT: download operation deadline expired");
-    this.assertTransferScope(record.scope);
+    this.assertPageDownloadScope(record.scope);
     if (!record.authorized || this.downloadsById.get(record.id) !== record)
       throw new Error("OBU_DOWNLOAD_EXPIRED: original Page download has been revoked");
     const native = record.nativeContext, status = native?.client.status();
@@ -4508,13 +4797,65 @@ class BrowserBackend {
     record.nativeClaim = Object.freeze({ guid: record.id, frameId: record.frameId, rootTargetId: record.nativeContext.rootTargetId,
       session_id: record.scope.session_id, turn_id: record.scope.turn_id, control_epoch: record.scope.control_epoch,
       tabId: record.scope.tabId, claimId: crypto.randomUUID() });
+    this.pageDownloadResources.add(record);
     record.nativeClaimPromise = Promise.resolve().then(() => {
       this.assertPageDownload(record, deadline);
-      return record.nativeContext.client.request("claim", record.nativeClaim, { deadlineAt: deadline });
+      return this.pageDownloadRequest(record, "claim", deadline);
     });
     // The begin event remains usable even when the optional native claim fails.
     // path/cancel report that original failure without replaying a claim.
     record.nativeClaimPromise.catch(() => {});
+  }
+
+  pageDownloadRequest(record, operation, deadline) {
+    const client = record.nativeContext.client;
+    const request = client.request(operation, record.nativeClaim, { deadlineAt: deadline });
+    // A public deadline may reject before the private Port reply. Retain the
+    // original request's settlement, not an async wrapper's early rejection.
+    const actual = client.settlement?.(request) ?? request;
+    record.nativePending ??= new Set();
+    record.nativePending.add(actual);
+    this.pageDownloadOperations.set(actual, record);
+    const done = () => { record.nativePending.delete(actual); this.pageDownloadOperations.delete(actual); };
+    actual.then(done, done);
+    return request;
+  }
+
+  releasePageDownloadResource(record, { retryFailed = false } = {}) {
+    if (!this.pageDownloadResources.has(record)) return Promise.resolve();
+    if (record.releasePromise && !(retryFailed && record.releaseError)) return record.releasePromise;
+    record.releaseError = null;
+    const release = (async () => {
+      await record.nativeClaimPromise.catch(() => {});
+      // Path/cancel/claim already sent on this exact Port must settle before
+      // release. No operation may enter once the public record is retired.
+      while (record.nativePending?.size) await Promise.allSettled([...record.nativePending]);
+      const native = record.nativeContext, status = native.client.status();
+      if (status.available && status.generation === native.generation) {
+        const request = this.pageDownloadRequest(record, "release", Date.now() + 10000);
+        request.catch(() => {});
+        await (native.client.settlement?.(request) ?? request);
+      }
+      // A confirmed retirement of this original Port/generation destroys its
+      // claims. A different current client alone is not evidence of retirement.
+      this.pageDownloadResources.delete(record);
+    })();
+    record.releasePromise = release;
+    release.catch(error => {
+      const status = record.nativeContext.client.status();
+      if (!status.available || status.generation !== record.nativeContext.generation) this.pageDownloadResources.delete(record);
+      else record.releaseError = error;
+    });
+    return release;
+  }
+
+  drainPageDownloads(predicate = () => true, { retryFailed = false } = {}) {
+    for (const [id, record] of this.downloadsById) if (predicate(record)) this.retirePageDownload(id);
+    const releases = [...this.pageDownloadResources].filter(predicate).map(record => this.releasePageDownloadResource(record, { retryFailed }));
+    return Promise.allSettled(releases).then(results => {
+      const failure = results.find(result => result.status === "rejected");
+      if (failure) throw failure.reason;
+    });
   }
 
   async pageDownloadOperation(record, params, operation, deadline) {
@@ -4524,11 +4865,12 @@ class BrowserBackend {
     check();
     if (!record.nativeClaimPromise) throw new Error("OBU_DOWNLOAD_EXPIRED: original Page claim is absent");
     await this.withinTransferDeadline(deadline, () => record.nativeClaimPromise);
-    await this.withinTransferDeadline(deadline, () => this.validateTransferScope(record.scope));
+    await this.withinTransferDeadline(deadline, () => this.validatePageDownloadScope(record.scope));
     check();
-    const result = await record.nativeContext.client.request(operation, record.nativeClaim, { deadlineAt: deadline });
-    await this.withinTransferDeadline(deadline, () => this.validateTransferScope(record.scope));
-    check();
+    this.assertSiteProof(record.scope.downloadAccess?.siteProof);
+    const result = await this.pageDownloadRequest(record, operation, deadline);
+    await this.withinTransferDeadline(deadline, () => this.validatePageDownloadScope(record.scope));
+    check(); this.assertSiteProof(record.scope.downloadAccess?.siteProof);
     return result;
   }
 
@@ -4537,14 +4879,7 @@ class BrowserBackend {
     if (!record) return;
     this.downloadsById.delete(id);
     if (!record.nativeClaimPromise) return;
-    // Release follows the original claim's settlement, so an in-flight claim
-    // cannot arrive after release and restore authority. No browser cancellation.
-    const release = () => {
-      const native = record.nativeContext, status = native.client.status();
-      if (this.nativePageDownloads?.() === native.client && status.available && status.generation === native.generation)
-        return native.client.request("release", record.nativeClaim, { deadlineAt: Date.now() + 10000 });
-    };
-    record.nativeClaimPromise.then(release, release).catch(() => {});
+    this.releasePageDownloadResource(record).catch(() => {});
   }
 
   readClipboardText(params, record) { return this.clipboardOperation("readClipboardText", params, record); }
@@ -4736,6 +5071,8 @@ class BrowserBackend {
       this.documentEpochs.set(tabId, (this.documentEpochs.get(tabId) ?? 0) + 1);
       for (const [id, chooser] of this.fileChoosersById) if (chooser.scope.tabId === tabId) this.fileChoosersById.delete(id);
     }
+    this.notePageDownloadFrame(source, method, params);
+    this.notePageDownloadContext(source, method, params);
     if (method === "Page.fileChooserOpened") void this.handleFileChooserOpened(source, params).catch(() => {});
     if (method === "Page.downloadWillBegin") void this.handleOwnedDownload(source, params).catch(() => {});
     if (method === "Page.downloadProgress") void this.handleOwnedDownloadProgress(source, params).catch(() => {});
@@ -4747,8 +5084,19 @@ class BrowserBackend {
     const revision = record.progressRevision = (record.progressRevision ?? 0) + 1;
     const status = params.state === "completed" ? "complete" : params.state === "canceled" ? "canceled" : "in_progress";
     try {
-      await this.validateTransferScope(record.scope);
-      this.assertTransferScope(record.scope);
+      if (!record.authorized) {
+        // A fast download can complete during the original source inspection.
+        // Buffer progress without publishing or replacing that candidate.
+        this.assertPageDownloadScope(record.scope);
+        await this.validateTransferScope(record.scope);
+        this.assertPageDownloadScope(record.scope);
+      }
+      // The source inspection may have admitted this GUID during the buffer
+      // ownership read. Publishing still requires a fresh complete site proof.
+      if (record.authorized) {
+        await this.validatePageDownloadScope(record.scope);
+        this.assertPageDownloadScope(record.scope); this.assertSiteProof(record.scope.downloadAccess?.siteProof);
+      }
       if (this.downloadsById.get(params.guid) !== record || record.progressRevision !== revision) return;
       record.status = status;
       if (record.authorized) this.emitDownloadChange(record);
@@ -4796,11 +5144,21 @@ class BrowserBackend {
     const waiter = this.downloadWaits.byTab.get(source.tabId);
     if (typeof params.guid !== "string" || !params.guid || new TextEncoder().encode(params.guid).length > 256 || this.downloadsById.has(params.guid)) return;
     this.downloadWaits.observe(waiter, source.sessionId, record => {
+      const access = record.scope.downloadAccess;
+      if (access?.restricted) {
+        if (typeof params.frameId !== "string" || !params.frameId || typeof params.url !== "string" || params.url.length > 8192)
+          throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original download identity is unavailable");
+        const original = access.sources.get(source.sessionId)?.get(params.frameId);
+        access.candidate = { frameId: params.frameId, guid: params.guid, url: params.url, source: original, proven: false, admitted: false };
+        this.assertPageDownloadDocument(record.scope, original);
+      }
       if (this.downloadsById.size >= 128) {
         const completed = [...this.downloadsById].find(([, item]) => item.delivered && ["complete", "canceled"].includes(item.status));
         if (completed) this.retirePageDownload(completed[0]);
         else throw new Error("Download tracking capacity reached");
       }
+      if (new Set([...this.downloadsById.values(), ...this.pageDownloadResources]).size >= 128)
+        throw new Error("Download tracking capacity reached");
       this.downloadsById.set(params.guid, { id: params.guid, scope: record.scope, targetSessionId: source.sessionId, frameId: params.frameId,
         nativeContext: record.nativeContext,
         waiterId: record.waiterId, url: typeof params.url === "string" ? params.url.slice(0, 8192) : undefined,
@@ -5147,6 +5505,8 @@ class BrowserBackend {
   async releaseSessionControl(sessionId, { retryDiagnosticCleanup = false } = {}) {
     const diagnosticsReleased = this.browserEngine?.drainDiagnosticCleanup?.({ sessionId, retryFailed: retryDiagnosticCleanup }) ?? Promise.resolve();
     diagnosticsReleased.catch(() => {});
+    const pageDownloadsReleased = this.drainPageDownloads(record => record.scope.session_id === sessionId, { retryFailed: retryDiagnosticCleanup });
+    pageDownloadsReleased.catch(() => {});
     this.directoryUploads.cancelWhere(record => record.scope.session_id === sessionId, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
     const fileInputsReleased = this.directoryUploads.drain(record => record.scope.session_id === sessionId);
     fileInputsReleased.catch(() => {});
@@ -5182,7 +5542,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([fileInputsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([fileInputsReleased, pageDownloadsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -5360,7 +5720,7 @@ class BrowserBackend {
     // Cancellation reveals no page content and must drain the original wait
     // even when that site's permission can no longer be inspected.
     let proof;
-    if (!["detach", "cancelDialog", "cancelNetworkWait", "cancelFileChooserWait"].includes(command)) proof = await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
+    if (!["detach", "cancelDialog", "cancelNetworkWait", "cancelFileChooserWait", "cancelDownloadWait"].includes(command)) proof = await this.assertSiteTab(tabId, { recover: true, allowBlank: params.action === "goto" });
     if (command !== "detach") this.assertAttachmentAdmission(tabId);
     this.controlLedger.assertCurrent(params);
     return proof;
@@ -5456,6 +5816,8 @@ class BrowserBackend {
     const attachment = this.attachmentEpochs.get(tabId);
     const fileInputsReleased = this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === attachment);
     fileInputsReleased.catch(() => {});
+    const pageDownloadsReleased = this.drainPageDownloads(record => record.scope.tabId === tabId && record.scope.attachment === attachment);
+    pageDownloadsReleased.catch(() => {});
     this.browserEngine?.invalidate?.(tabId);
     const networksReleased = preserveNetworkArming ? this.networkWaits.invalidateAttachedTab(tabId) : this.networkWaits.invalidateTab(tabId);
     if (preserveNavigationArming) this.navigationWaits.invalidateAttachedTab(tabId);
@@ -5477,7 +5839,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([fileInputsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
@@ -5551,12 +5913,16 @@ class BrowserBackend {
       isCurrent,
       release: async () => {
         if (!isCurrent()) return;
+        // Retire original observation authority before taking resource drains:
+        // an armed begin event must not create a new claim during key cleanup.
+        const downloadWaitsReleased = this.downloadWaits.invalidate(record => record.scope?.tabId === tabId && record.scope.attachment === token);
+        downloadWaitsReleased.catch(() => {});
         this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId && record.identity.attachment === token,
           new Error("OBU_TRANSFER_CANCELLED: original file input attachment is being released"));
         // CRX also detaches on action timeout. Its captured release hook must
         // close exports on this exact attachment before native detach, without
         // cancelling an unbound reservation or a later attachment's work.
-        const releases = [this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === token), this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
+        const releases = [downloadWaitsReleased, this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === token), this.drainPageDownloads(record => record.scope.tabId === tabId && record.scope.attachment === token), this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
           this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
         const results = await Promise.allSettled(releases);
         const failure = results.find(result => result.status === "rejected");

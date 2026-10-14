@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Restricted page downloads](restricted-page-downloads.md)：允许网站的原始
+  Blob 文档来源、同 GUID 文件交付与实际清理；受限 HTTP/POST 和最终实机验收边界。
 - [Restricted file choosers](restricted-file-chooser.md)：允许网站上的原生上传、
   原文档与节点归属、真实操作清理及当前 Codex IAB 的有限对照。
 - [DOM rebuild feedback](dom-rebuild-feedback.md)：同文档根节点重建后的光标、

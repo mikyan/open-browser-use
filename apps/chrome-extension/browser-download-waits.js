@@ -21,9 +21,9 @@ function validate(params, extra, legacy = false) {
 }
 
 export class BrowserDownloadWaits {
-  constructor({ send, assertScope, validateScope, sourceAlive, publish, discard, deliver = () => {}, assertBinding = () => {}, now = () => Date.now(),
+  constructor({ send, assertScope, validateScope, sourceAlive, publish, discard, deliver = () => {}, assertBinding = () => {}, assertResult = () => {}, now = () => Date.now(),
     setTimer = (fn, delay) => globalThis.setTimeout(fn, delay), clearTimer = id => globalThis.clearTimeout(id), maxTotal = 128, cleanupTimeoutMs = 10000 } = {}) {
-    Object.assign(this, { send, assertScope, validateScope, sourceAlive, publish, discard, deliver, assertBinding, now, setTimer, clearTimer, maxTotal, cleanupTimeoutMs });
+    Object.assign(this, { send, assertScope, validateScope, sourceAlive, publish, discard, deliver, assertBinding, assertResult, now, setTimer, clearTimer, maxTotal, cleanupTimeoutMs });
     this.records = new Map(); this.byTab = new Map(); this.operations = new Set();
   }
 
@@ -83,7 +83,7 @@ export class BrowserDownloadWaits {
         if (sessionId !== undefined) return; // A removed child cannot produce an eligible event.
         throw expired();
       }
-      try { await this.send(record.scope, sessionId); }
+      try { await this.send(record.scope, sessionId, record); }
       catch (error) { if (this.sourceAlive(record.scope, sessionId)) throw error; }
     }));
     record.targets.set(sessionId, pending);
@@ -105,12 +105,8 @@ export class BrowserDownloadWaits {
   arm(record, sessions) {
     return this.within(record, async () => {
       await Promise.all(sessions.map(session => this.enable(record, session)));
-      if (record.params.requirePath) await this.settleTargets(record, true);
-      else {
-        await this.validateScope(record.scope, record); this.check(record);
-        await this.settleTargets(record);
-      }
-      this.check(record);
+      await this.settleTargets(record, true);
+      this.check(record); this.assertResult(record.scope, record);
       if (record.state === "arming") record.state = "pending";
       record.ready.resolve();
       return { waiterId: record.waiterId, remainingMs: Math.min(record.params.timeoutMs, record.deadlineAt - this.now()) };
@@ -133,7 +129,7 @@ export class BrowserDownloadWaits {
       try {
         await this.within(record, async () => {
           await record.ready.promise;
-          await this.validateScope(record.scope, record); this.check(record);
+          await this.validateScope(record.scope, record); this.check(record); this.assertResult(record.scope, record);
           record.state = "matched";
           this.publish(record.result, record);
           record.completion.resolve();
@@ -176,8 +172,8 @@ export class BrowserDownloadWaits {
       await this.validateScope(record.scope, record); this.check(record);
       return { ...record.result };
     }).then(result => {
-      this.check(record); this.deliver(result, record); record.delivered = true; this.retire(record); return result;
-    }, error => { this.fail(record, error); throw error; });
+      this.check(record); this.assertResult(record.scope, record); this.deliver(result, record); record.delivered = true; this.retire(record); return result;
+    }).catch(error => { this.fail(record, error); throw error; });
   }
 
   async drain(record) {

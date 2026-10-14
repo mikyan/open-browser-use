@@ -33,6 +33,12 @@ debugger、history 和 tab groups。
   拦截及清理 ACK 后复核权限。共享文件输入注册表保留原 native 操作直到
   结算，Pause/end/detach 与引擎释放 hook 均等待同一资源，见
   [受限文件选择器](references/restricted-file-chooser.md)。
+  受限网站的页面下载固定 arm 时策略、主文档、原生 frame/loader 和默认
+  execution context 的实际 origin；Page frame 的 URL origin 不能替代该证明，
+  仅接纳来源明确、同源且非 opaque 的 Blob 报告。原 GUID 与实际路径沿同一
+  Native Port/Browser binding 交付；调用超时与实际私有回执分开，清理等待
+  原 claim/path/cancel/release 结算。HTTP/POST 下载的完整请求与重定向来源
+  仍未在受限模式开放，见[受限页面下载](references/restricted-page-downloads.md)。
   网站策略真实保存失败后，由可信 popup 明确重试原候选；backend 复用暂停、
   清理与 revision 检查，实际未结算写不能重试，成功仍暂停。启动读取失败
   使用独立的显式只读恢复：原失败 ID 经校验、实际 Pause/drain 完成后才重新

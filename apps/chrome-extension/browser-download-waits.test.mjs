@@ -46,6 +46,32 @@ test("readiness waits for root and known children using the original remaining b
   await f.registry.cancel({ ...params, waiterId: ack.waiterId });
 });
 
+test("a newly joined target ACK must precede final permission validation even without requirePath", async () => {
+  const gate = deferred(); let validations = 0, allowed = true, current;
+  const f = fixture({ send: async (_scope, session) => { if (session === "child") await gate.promise; },
+    validateScope: async () => {
+      if (++validations === 1) { void f.registry.enable(current, "child"); return; }
+      if (!allowed) throw new Error("OBU_SITE_ACCESS_DENIED: child changed permission");
+    } });
+  current = f.reserve(); const pending = f.registry.arm(current, [undefined]);
+  const rejected = assert.rejects(pending, /SITE_ACCESS_DENIED/);
+  await flush(); allowed = false; gate.resolve(); await rejected;
+  assert.equal(validations, 2); assert.deepEqual(f.published, []);
+  f.registry.fail(current); await f.registry.drain(current);
+});
+
+test("collect checks the original authority after its last asynchronous scope validation", async () => {
+  let revoked = false, collecting = false;
+  const f = fixture({ validateScope: async () => { if (collecting) queueMicrotask(() => { revoked = true; }); },
+    assertResult: () => { if (revoked) throw new Error("OBU_SITE_ACCESS_UNVERIFIED: original policy changed"); } });
+  const { record, handle } = await f.arm();
+  f.registry.observe(record, undefined, () => ({ downloadId: "original-guid" })); await record.completion.promise;
+  collecting = true; await assert.rejects(f.registry.collect(handle), /SITE_ACCESS_UNVERIFIED/);
+  assert.equal(record.delivered, undefined); assert.equal(record.invalid, true);
+  assert.deepEqual(f.discarded, [{ downloadId: "original-guid" }]);
+  await f.registry.drain(record); assert.equal(f.registry.records.size, 0);
+});
+
 test("strict download wait schemas and capacity are enforced before native work", async () => {
   const f = fixture({ maxTotal: 1 });
   for (const extra of [{ unknown: 1 }, { timeoutMs: null }, { timeoutMs: 0 }, { timeoutMs: 120001 }, { control_epoch: undefined }, { tabId: -1 }])

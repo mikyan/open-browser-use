@@ -12,6 +12,16 @@
 
 ## Baseline sources
 
+P10/P14 受限网站 Blob 下载专项 `Y00W3K` 2/2 actual exit0：正式五入口×
+三布局15原文件2,633B，十边界6原下载1,091B。原native默认context、文档、
+GUID及原路径/实际字节独立核验；49,806ms零activation、原两次popup focus。
+原release回执迟到时，Pause保留失败及旧策略，真实结算后才能显式恢复。
+HTTP/POST原请求及redirect链缺少原生关联，继续明确拒绝；opaque共享Blob
+在实测中由浏览器先行阻止，不能冒充产品反例。Node3478pass/1既有skip；
+完整 `8zKuaa` 175/175 actual exit0，旧175顺序保持，533,980ms仅原12activation/
+4control-focus许可；普通安装及整体持平仍开放，见
+[受限页面下载](../references/restricted-page-downloads.md)。
+
 P10/P14 受限网站原生 chooser 专项 `btlfEb` 8/8 actual exit0：五入口×三
 布局和六边界31原POST/12,779B，15原上传/15显式清空及一次延迟ACK上传，
 原节点、文件字节、策略与实际清理独立核验。34,925ms零activation，原两次

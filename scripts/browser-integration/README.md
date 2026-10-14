@@ -451,6 +451,32 @@ separate requirements. The public ready workflows above use separate modes.
 
 ## Original page download transport proof
 
+`OBU_TEST_ORIGINAL_DOWNLOADS=restricted` uses the same host, Python and typed
+Go download caller prerequisites below. It selects the dedicated
+`five-entry-restricted-page-downloads` workflow and the mandatory raw-navigation
+control. The runner borrows the existing website-settings popup, explicitly
+binds the isolated Browser endpoint after worker restart checks, and saves an
+allow list. Five public entries each trigger original Blob downloads on root,
+existing OOPIF and dynamic OOPIF documents; they retain their original scopes,
+ready acknowledgements, GUIDs, native paths and actual file bytes.
+
+Ten boundary cases check cancellation, admitted-file navigation, unadmitted
+source replacement, opaque emitters, a browser-blocked shared Blob, HTTP/POST
+provenance rejection, delayed original release-reply delivery, policy revocation
+and existing/future denied children. The HTTP case records the original click
+and collection outcomes separately and requires a source rejection from the
+collection even if the click itself is denied. The shared-Blob case requires
+the exact native browser rejection log, original wait timeout and no download
+events/files; it does not claim a product permission rejection. Delayed ACK
+gates preserve original replies and deadlines, without input replay.
+
+This mode adds no focus allowance. It restores policy, finalizes each owner,
+checks exact tab/target cleanup and preserves partial evidence and actual
+process closes on failure. The regular unbound full suite and unrestricted
+`five-entry`/`negative` modes remain separate regressions. See the
+[restricted-download contract](../../docs/references/restricted-page-downloads.md)
+for source-proof requirements and acceptance limits.
+
 `OBU_TEST_ORIGINAL_DOWNLOADS=product` exercises the production `bind-browser`
 CLI and JS SDK paths with a newly built matching host. It binds only the test's
 exact isolated Browser endpoint, waits for the CLI's actual exit, and verifies

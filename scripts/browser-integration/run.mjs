@@ -80,6 +80,7 @@ import { directoryWorldHTML, checkDirectoryWorld } from "./directory-world-fixtu
 import { createDownloadWaitFixtures, startDownloadEvidence, checkDownloadReady, checkDownloadLifecycle, downloadExpired } from "./download-waits-fixture.mjs";
 import { checkDownloadWireCaller, checkDownloadCallerResult } from "./download-waits-callers.mjs";
 import { createOriginalDownloadFixtures } from "./original-download-fixture.mjs";
+import { runRestrictedPageDownloads } from "./restricted-download-runner.mjs";
 import { connectOriginalDownloadObserver } from "./original-download-observer.mjs";
 import { checkOriginalDownloadProof, checkProductDownloadLifecycle } from "./original-download-proof.mjs";
 import { runOriginalDownloadCaller, runOriginalDownloadProcess } from "./original-download-callers.mjs";
@@ -124,13 +125,14 @@ if (createdPageProof === "five-entry" && !process.env.OBU_TEST_GO_CREATED_PAGE_B
 if (createdPageProof && ["OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
   throw new Error("Created page provenance is a separate headed mode");
 const originalDownloadBehavior = process.env.OBU_TEST_ORIGINAL_DOWNLOADS;
-if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry", "auto-connect", "negative"].includes(originalDownloadBehavior))
-  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, auto-connect, negative, or unset");
+if (originalDownloadBehavior !== undefined && !["default", "allowAndName", "product", "five-entry", "auto-connect", "negative", "restricted"].includes(originalDownloadBehavior))
+  throw new Error("OBU_TEST_ORIGINAL_DOWNLOADS must be default, allowAndName, product, five-entry, auto-connect, negative, restricted, or unset");
+const restrictedPageDownloads = originalDownloadBehavior === "restricted";
 const negativeDownloads = originalDownloadBehavior === "negative";
 const autoConnectDownloads = originalDownloadBehavior === "auto-connect";
-const fiveEntryDownloads = originalDownloadBehavior === "five-entry" || autoConnectDownloads;
+const fiveEntryDownloads = originalDownloadBehavior === "five-entry" || autoConnectDownloads || restrictedPageDownloads;
 const productDownloads = originalDownloadBehavior === "product" || fiveEntryDownloads || negativeDownloads;
-const originalDownloadTestName = negativeDownloads ? "js-original-download-negative-lifecycle" : autoConnectDownloads ? "five-entry-original-download-auto-connect" : fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
+const originalDownloadTestName = restrictedPageDownloads ? "five-entry-restricted-page-downloads" : negativeDownloads ? "js-original-download-negative-lifecycle" : autoConnectDownloads ? "five-entry-original-download-auto-connect" : fiveEntryDownloads ? "five-entry-original-download-paths" : "js-original-download-native-proof";
 if (fiveEntryDownloads && !process.env.OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY)
   throw new Error("Set OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY for five-entry original downloads");
 if (originalDownloadBehavior && ["OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_CASES"].some(key => process.env[key] !== undefined))
@@ -666,6 +668,8 @@ try {
   if (snapshotGeometry) for (const name of ["snapshot-geometry-checks.py", "go-snapshot-geometry-checks/main.go"]) sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   if (originalDownloadBehavior) for (const name of ["original-download-fixture.mjs", "original-download-observer.mjs", "original-download-proof.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
+  if (restrictedPageDownloads) for (const name of ["restricted-download-runner.mjs", "restricted-download-fixture.mjs", "original-download-relay.mjs", "original-download-callers.mjs", "python-original-download-checks.py", "go-original-download-checks/main.go"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   if (negativeDownloads) for (const name of ["original-download-negative-fixture.mjs", "original-download-negative-cases.mjs", "original-download-relay.mjs", "original-download-callers.mjs", "original-download-negative-netlog.mjs", "required-download-readiness.mjs"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.networkWaitsFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "network-waits-fixture.mjs"))).digest("hex");
@@ -885,7 +889,52 @@ try {
     if (failure) throw failure;
     return { evidence: "original-download-negative.json", bindingAttempts: detail.bindings.length };
   });
-  if (originalDownloadBehavior && !negativeDownloads) await test(originalDownloadTestName, async () => {
+  if (restrictedPageDownloads) await test(originalDownloadTestName, async () => {
+    const activePort = (await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8")).trim().split(/\r?\n/);
+    const url = new URL(browserVersion.webSocketDebuggerUrl);
+    assert.equal(url.port, activePort[0]); assert.equal(url.pathname, activePort[1]);
+    assert.equal(await worker.evaluate("chrome.runtime.id"), extensionId);
+    sourceIdentity.testHooks.push("restricted original downloads: production CLI binds exact isolated Browser root through an unchanged transparent raw-message relay after existing settings-worker checks; original popup is borrowed with its original focus allowances; public five-entry Blob delivery, native GUID/filePath and actual file bytes; no HTTP refetch, input replay or inferred filename");
+    sourceIdentity.testHooks.push("restricted download boundary gates: delay delivery of one original fulfilled Page.getFrameTree value across one real same-URL navigation; separately delay one exact real Native Port release reply identified by operation/requestId/nonce/generation and original message object before its original receive until the original 10-second Pause fails. Unrelated promises and replies are unchanged; release once, retain actual host reply and file proof separately, and fail if the 25-second watchdog releases either gate. No fabricated native result, replay or focus allowance");
+    sourceIdentity.testHooks.push("restricted download source evidence: passive original Runtime default-context events distinguish actual document origin from URL-derived Page frame metadata. The existing fixture-only document snapshot also reports its MAIN-world origin, which is not product authorization. A same-origin parent shares its real Blob URL with an opaque sandbox child through original postMessage/acknowledged revocation; the child has one trusted download trigger and the original native GUID/file evidence is retained even when public admission is denied");
+    return runRestrictedPageDownloads({
+      connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 20000 }),
+      getWorker: () => worker, fixture: originalDownloadFixtures, fixtureURL, until, runDir, directory, executable, endpoint,
+      getBrowserLog: () => browserLog.join(""),
+      pythonBinary: process.env.OBU_TEST_PYTHON || "python", pythonSnapshot,
+      goBinary: process.env.OBU_TEST_GO_ORIGINAL_DOWNLOAD_BINARY,
+      bindingIdentity: { pid: chrome.pid, profile, activePort, browserVersion, extensionId },
+      withSettings: afterRestore => checkSiteAccess({
+        connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `restricted-download-${suffix}`, timeoutMs: 15000 }),
+        getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId,
+        assert, until, restartWorker: restartObservedWorker, submissions: siteAccessSubmissions, afterRestore,
+        traceFocus: createPopupFocusTrace("site-access", "intentional harness chrome.action.openPopup for the user's website access settings"),
+        saveDetail: detail => fs.writeFile(path.join(runDir, "site-access-control.json"), JSON.stringify(detail, null, 2)),
+        saveArtifact: async (name, data) => { await fs.writeFile(path.join(runDir, name), data); return { artifact: name, bytes: data.length, sha256: createHash("sha256").update(data).digest("hex") }; },
+        connectPage: async targetURL => {
+          const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(value => value.type === "page" && value.url === targetURL), "restricted download settings page target");
+          return workerConnection(target.webSocketDebuggerUrl);
+        },
+        capture: async (name, source) => {
+          const data = source.base64 ?? (await source.call("Page.captureScreenshot", { format: "png" })).data;
+          const { bytes, width, height } = pngDimensions(data);
+          await fs.writeFile(path.join(runDir, `${name}.png`), bytes);
+          return { width, height, bytes: bytes.length };
+        }
+      })
+    });
+  });
+  if (restrictedPageDownloads) {
+    // Website settings intentionally retire old scopes. The unrelated raw
+    // navigation control has not run yet; explicitly recover its harness
+    // client and its existing tab facade without replaying any download input.
+    await browser.client.beginTurn();
+    await fs.writeFile(path.join(runDir, "restricted-download-harness-recovery.json"), JSON.stringify({
+      originalClientPreserved: true, explicitBeginTurn: true, controlEpoch: browser.client.controlEpoch,
+      reason: "new independent raw-navigation control after explicit website policy changes; no download retry"
+    }, null, 2));
+  }
+  if (originalDownloadBehavior && !negativeDownloads && !restrictedPageDownloads) await test(originalDownloadTestName, async () => {
     const owners = [], detail = { boundary: productDownloads ? "Production CLI binding and SDK original paths" : "Native transport feasibility proof, not a public path implementation" };
     let native, failure;
     try {

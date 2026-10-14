@@ -34,6 +34,7 @@ export class NativePageDownloads {
   #proof = null;
   #nonces = new Set();
   #pending = new Map();
+  #actual = new WeakMap();
   #state = { version: 1, available: false, reason: "Native Browser binding is not ready" };
 
   constructor({ send, extensionId, getInstanceId, target = globalThis, onStateChange = () => {} }) {
@@ -95,7 +96,16 @@ export class NativePageDownloads {
     this.#notify();
   }
 
-  async request(operation, payload, { deadlineAt } = {}) {
+  request(operation, payload, options = {}) {
+    try { return this.#request(operation, payload, options); }
+    catch (error) { return Promise.reject(error); }
+  }
+
+  // A caller deadline revokes delivery, not the original private operation.
+  // Cleanup may join this exact reply (or original port retirement) afterward.
+  settlement(request) { return this.#actual.get(request) ?? request; }
+
+  #request(operation, payload, { deadlineAt } = {}) {
     const wallStart = Date.now(), monoStart = performance.now();
     if (!Number.isFinite(deadlineAt)) throw failure("TIMEOUT", "a finite original deadline is required");
     const duration = Math.min(120000, deadlineAt - wallStart), monoDeadline = monoStart + duration;
@@ -108,21 +118,26 @@ export class NativePageDownloads {
     const requestId = crypto.randomUUID(), remaining = () => Math.min(deadlineAt - Date.now(), monoDeadline - performance.now());
     const timeoutMs = Math.floor(remaining());
     if (timeoutMs < 1) throw failure("TIMEOUT", "original download deadline expired");
-    return new Promise((resolve, reject) => {
-      const pending = { operation, challenge: c, generation: c.generation, remaining, resolve, reject, timer: null };
+    let actualResolve, actualReject;
+    const actual = new Promise((resolve, reject) => { actualResolve = resolve; actualReject = reject; });
+    actual.catch(() => {});
+    const request = new Promise((resolve, reject) => {
+      const pending = { operation, challenge: c, generation: c.generation, remaining, resolve, reject, actualResolve, actualReject, timer: null, expired: false };
       this.#pending.set(requestId, pending);
-      pending.timer = setTimeout(() => this.#settle(requestId, failure("TIMEOUT", "original download deadline expired")), Math.ceil(remaining()));
+      pending.timer = setTimeout(() => this.#expire(requestId), Math.ceil(remaining()));
       try {
         this.#send(envelope({ type: "request", requestId, nonce: c.nonce, generation: c.generation, operation, payload: claim, timeoutMs }));
       } catch (error) { this.close(error); }
     });
+    this.#actual.set(request, actual);
+    return request;
   }
 
   #reply(p) {
     if (!text(p.requestId) || !text(p.nonce) || !text(p.generation)) return;
     const pending = this.#pending.get(p.requestId);
     if (!pending || !this.#state.available || !this.#current(pending.challenge) || pending.challenge.nonce !== p.nonce || pending.generation !== p.generation) return;
-    if (pending.remaining() <= 0) { this.#settle(p.requestId, failure("TIMEOUT", "original download deadline expired")); return; }
+    if (pending.remaining() <= 0) this.#expire(p.requestId);
     if (!keys(p, ["version", "type", "requestId", "nonce", "generation"], ["result", "error"]) || Object.hasOwn(p, "result") === Object.hasOwn(p, "error")) {
       this.#settle(p.requestId, failure("PROTOCOL", "malformed private download reply")); return;
     }
@@ -138,7 +153,14 @@ export class NativePageDownloads {
   #settle(id, error, result) {
     const pending = this.#pending.get(id); if (!pending) return;
     this.#pending.delete(id); clearTimeout(pending.timer);
-    if (error) pending.reject(error); else pending.resolve(result);
+    if (error) pending.actualReject(error); else pending.actualResolve(result);
+    if (!pending.expired) { if (error) pending.reject(error); else pending.resolve(result); }
+  }
+
+  #expire(id) {
+    const pending = this.#pending.get(id); if (!pending || pending.expired) return;
+    pending.expired = true; clearTimeout(pending.timer);
+    pending.reject(failure("TIMEOUT", "original download deadline expired"));
   }
 
   #notify() {
