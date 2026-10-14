@@ -12,11 +12,20 @@
 
 ## Baseline sources
 
+P07/P12/P13 冷原生坐标反馈已接生产。六布局`JVWwm9`与真实worker/清理专项
+`WbyEaV`均2/2、actual exit0，原PNG/POST、资源归属及未决输入风险独审通过。
+Node3837pass/1既有skip；最终完整`ZXPe7X`180/180、actual exit0。原完整
+`6L9esM`179/180、actual exit1保留；MCP正文的立即tab库存检查补真实关闭
+观察后，`SN2lmN`专项7/7亦通过。该修正仅改两份fixture，生产源与冷路/
+重启专项字节一致。世界复用、事件共存、普通Edge及整体持平继续开放，见
+[坐标反馈](../references/raw-frame-feedback.md)。
+
+此前 warm 基线：
 P07/P12/P13 坐标反馈 warm 增量完整 `xS4ddv`180/180 actual exit0，旧178名称/
 顺序保持，Node3666pass/1既有Windows skip。18原PNG/POST（42,559B）、65原
 对象释放、39原文档及关键输入/截图独审通过；533,948ms仅原12activation/
 4control-focus许可。调用方错误/超时与完整资源清理分开，必要输入释放仍等待。
-冷CDP三布局另有原成功提交但误框的保留失败，未计入默认180通过数；普通
+早期冷CDP三布局另有原成功提交但误框的保留失败，未计入该默认180通过数；普通
 Edge、全屏和整体持平继续开放，见[坐标反馈](../references/raw-frame-feedback.md)。
 
 可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。

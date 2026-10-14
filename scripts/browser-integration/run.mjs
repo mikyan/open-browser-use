@@ -36,6 +36,7 @@ import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
 import { checkColdRawFeedback, readColdRawDocument, coldRawAddPoint } from "./cold-raw-feedback-fixture.mjs";
 import { inspectColdNativeRoutes } from "./cold-native-route-probe.mjs";
+import { coldPrivateTargetLifecyclePrefix, createColdPrivateTargetFixtures, checkColdPrivateTargetLifecycle } from "./cold-private-target-lifecycle-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback, frameTargetURLs, selectFrameTargetDocuments, frameTargetGeometry } from "./frame-target-feedback-fixture.mjs";
@@ -117,6 +118,13 @@ import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const coldPrivateTargets = process.env.OBU_TEST_COLD_PRIVATE_TARGETS === "1";
+if (process.env.OBU_TEST_COLD_PRIVATE_TARGETS !== undefined && !coldPrivateTargets)
+  throw new Error("OBU_TEST_COLD_PRIVATE_TARGETS must be 1 when set");
+if (coldPrivateTargets && process.env.OBU_TEST_CASES !== undefined && process.env.OBU_TEST_CASES !== "^js-cold-private-target-lifecycle$")
+  throw new Error("Cold private lifecycle is a separate two-case mode");
+if (coldPrivateTargets && ["OBU_TEST_CREATED_PAGES", "OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_COLD_NATIVE_READER", "OBU_TEST_COLD_NATIVE_ROUTES", "OBU_TEST_RAW_COLD_FEEDBACK"].some(key => process.env[key] !== undefined))
+  throw new Error("Cold private lifecycle cannot be combined with another diagnostic mode");
 const dialogBeforeUnload = process.env.OBU_TEST_DIALOG_BEFOREUNLOAD === "1";
 if (process.env.OBU_TEST_DIALOG_BEFOREUNLOAD !== undefined && !dialogBeforeUnload)
   throw new Error("OBU_TEST_DIALOG_BEFOREUNLOAD must be 1 when set");
@@ -384,6 +392,7 @@ const topLayerFeedbackFixtures = createTopLayerFeedbackFixtures();
 const zoomFeedbackFixtures = createZoomFeedbackFixtures();
 const domRebuildFeedbackFixtures = createDOMRebuildFeedbackFixtures();
 const frameTargetFeedbackFixtures = createFrameTargetFeedbackFixtures();
+const coldPrivateTargetFixtures = createColdPrivateTargetFixtures();
 const siteAccessStartupFixtures = createSiteAccessStartupFixtures();
 const restrictedDialogFixtures = createRestrictedDialogFixtures();
 const restrictedDialogKinds = ["js", "cli", "mcp", "python", "go"];
@@ -431,6 +440,7 @@ const http = createServer(async (request, response) => {
   if (zoomFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (domRebuildFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (frameTargetFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (coldPrivateTargetFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -555,13 +565,20 @@ try {
   }\n`;
   let stagedBackground = background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook + recoveryAuditHook + createdPageTestHook;
   if (process.env.OBU_TEST_COLD_NATIVE_READER === "1") {
-    // Diagnostic-only modules: the production backend does not yet own private
-    // target recovery. MV3 workers require static imports, including in tests.
+    // Expose the original reader only for the separate native diagnostic.
+    // MV3 workers require static imports, including in tests.
     for (const name of ["browser-native-pointer-feedback.js", "browser-frame-geometry.js"])
       await fs.copyFile(path.join(repo, "apps/chrome-extension", name), path.join(extension, name));
     stagedBackground = 'import { createNativePointerFeedback } from "./browser-native-pointer-feedback.js";\n' +
       'import { createFrameGeometryRuntime } from "./browser-frame-geometry.js";\n' + stagedBackground +
       '\nglobalThis.__integrationNativePointerFactory = Object.freeze({ createNativePointerFeedback, createFrameGeometryRuntime });\n';
+  }
+  if (process.env.OBU_TEST_COLD_PRIVATE_TARGETS === "1") {
+    const boundary = stagedBackground.indexOf("const NATIVE_HOST_NAME =");
+    assert.ok(boundary > 0);
+    stagedBackground = stagedBackground.slice(0, boundary) + coldPrivateTargetLifecyclePrefix({
+      ledgerKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS", initializedKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS_INITIALIZED", storageArea: "local"
+    }) + stagedBackground.slice(boundary);
   }
   if (siteAccessStartupEnabled || siteAccessInvalidEnabled) {
     // Chromium service workers prohibit top-level await. Preserve static
@@ -663,6 +680,8 @@ try {
   sourceIdentity.sha256.zoomFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "zoom-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.domRebuildFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "dom-rebuild-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.frameTargetFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "frame-target-feedback-fixture.mjs"))).digest("hex");
+  for (const name of ["cold-raw-feedback-fixture.mjs", "cold-native-route-probe.mjs", "cold-private-target-lifecycle-fixture.mjs"])
+    sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
   sourceIdentity.sha256.visualDeliveryLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "visual-delivery-lifecycle-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.visualNavigationFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "visual-navigation-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256["patch-network-wait-proof.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", "patch-network-wait-proof.mjs"))).digest("hex");
@@ -812,6 +831,7 @@ try {
   const backgroundWindowRecorder = owner => createBackgroundWindowRecorder({ browser: owner, readNative: readBackgroundWindowState, readFocus: readFocusLedger, focusLedger, allowedActivations: allowedPopupActivations, allowedFocus: allowedWindowFocusEvents });
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
+    if (coldPrivateTargets && !["js-raw-navigation-before-engine", "js-cold-private-target-lifecycle"].includes(name)) return;
     if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready", "js-created-page-unowned", "js-created-page-popup-source", "js-created-page-popup-delivery"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
@@ -1567,6 +1587,26 @@ try {
     await tab.getByRole("button", { name: "ARIA named action", exact: true }).click();
     assert.equal(await tab.locator("#role-result").textContent(), "clicked");
     return tab.engineInfo();
+  });
+  if (process.env.OBU_TEST_COLD_PRIVATE_TARGETS === "1") await test("js-cold-private-target-lifecycle", async () => {
+    sourceIdentity.testHooks.push("Cold private target lifecycle: original native calls, storage writes and events observed before backend construction; one exact native ACK delivery per scenario is held or rejected, with native and delivered outcomes recorded separately. Public detach retries and actual worker replacement; read-only constructor recovery observation. Original input risk remains blocked after replacement; no input replay, engine-field reset or focus allowance.");
+    const precondition = { finalized: await browser.client.finalizeTabs([]) };
+    // The mandatory raw-navigation case creates the engine. Retire its real
+    // resources before replacing the worker; no private engine state is reset.
+    precondition.restart = await restartObservedWorker();
+    precondition.control = await worker.evaluate("(async()=>{const b=__integrationBackend;await b.controlReady;await b.privatePointerRecovery?.promise;return {engineAbsent:b.browserEngine===null,status:await b.getAutomationControlStatus()}})()");
+    await fs.writeFile(path.join(runDir, "cold-private-target-precondition.json"), JSON.stringify(precondition, null, 2));
+    assert.equal(precondition.control.engineAbsent, true);
+    assert.equal(precondition.control.status.inputBlocked, false);
+    return checkColdPrivateTargetLifecycle({
+      connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
+      getWorker: () => worker, restartWorker: restartObservedWorker, fixtureURL, fixtures: coldPrivateTargetFixtures, until,
+      recover: async ({ item, owner, reason }) => reason === "same-browser-worker-recovery"
+        ? worker.evaluate("(async()=>{const b=__integrationBackend;await b.privatePointerRecovery?.promise;const s=b.privatePointerTargets.snapshot();return {...s,pending:s.pending.length}})()")
+        : owner.client.request("detach", { ...item.scope, tabId: item.tabId }, { timeoutMs: 15000 }),
+      closeTab: owned => worker.evaluate(`chrome.tabs.remove(${owned.id})`),
+      saveDetail: value => fs.writeFile(path.join(runDir, "cold-private-target-lifecycle.json"), JSON.stringify(value, null, 2))
+    });
   });
   if (mcpBinding) await test("mcp-connection-binding", () => checkMCPConnectionBinding({
     executable, socketDir, fixtureURL, fixture: mcpBindingFixture, until,

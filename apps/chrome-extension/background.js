@@ -1,6 +1,9 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { PassivePointerReads } from "./browser-pointer-feedback.js";
+import { createNativePointerRoute } from "./browser-native-pointer-route.js";
+import { PrivateTargetRegistry } from "./browser-private-targets.js";
+import { PrivateTargetStore } from "./browser-private-target-store.js";
 import { VisualDeliveries } from "./browser-visual-deliveries.js";
 import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
@@ -922,6 +925,18 @@ class BrowserBackend {
     this.nextPointerFeedbackSequence = 1;
     this.pointerFeedbackLatest = new Map();
     this.pointerFeedbackReads = new PassivePointerReads();
+    this.nativePointerStore = new PrivateTargetStore({ storage: chrome.storage, browserLifetime: this.browserLifetime,
+      onInstalled: chrome.runtime?.onInstalled, onAvailable: () => {
+        const previous = this.privatePointerTargets;
+        // Late install/update evidence may enable an unavailable, resource-free
+        // registry. It cannot replace live ownership or an in-flight load.
+        void Promise.resolve(previous?.ready).catch(() => {}).then(() => {
+          if (this.privatePointerTargets === previous && (!previous || !previous.snapshot().enabled && previous.entries.size === 0))
+            this.initializePrivatePointerTargets();
+        });
+      }
+    });
+    this.initializePrivatePointerTargets();
     this.visualRecoverySessions = new Map();
     this.visualDeliveries = new VisualDeliveries({
       hide: (tabId, documentId, receiverToken) => chrome.tabs.sendMessage(tabId, {
@@ -929,6 +944,7 @@ class BrowserBackend {
       }, { documentId })
     });
     chrome.debugger.onDetach.addListener((source, reason) => {
+      this.privatePointerTargets.observeDetach(source);
       if (typeof source.tabId === "number") {
         if (reason === "target_closed") this.markAttachmentDestroyed(source.tabId);
         this.networkWaits.invalidateTab(source.tabId);
@@ -1222,6 +1238,8 @@ class BrowserBackend {
     diagnosticCleanup?.catch(() => {});
     const pointerCleanup = retryPageCleanup ? this.pointerFeedbackReads.drain(() => true, { resourcesOnly: true, retryFailed: true }) : null;
     pointerCleanup?.catch(() => {});
+    const privatePointerCleanup = retryPageCleanup ? this.recoverPrivatePointerTargets({ retryFailed: true }) : null;
+    privatePointerCleanup?.catch(() => {});
     const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
     pageDownloadCleanup?.catch(() => {});
     const cancelled = this.cancelGlobalControl(new Error("OBU_NATIVE_CONNECTION_LOST: native host disconnected"));
@@ -1230,6 +1248,7 @@ class BrowserBackend {
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
     if (pointerCleanup) cancelled.releases.push(pointerCleanup);
+    if (privatePointerCleanup) cancelled.releases.push(privatePointerCleanup);
     // A bootstrap may itself await this recovery. Its durability writes are
     // joined by invalidateAll below; awaiting its RPC here would self-deadlock.
     cancelled.pending = cancelled.pending.filter(pending => !this.controlBootstrapRequests.has(pending));
@@ -1268,12 +1287,18 @@ class BrowserBackend {
     this.assertNativeControl();
     if (token && this.actionInputReleases.has(token))
       throw new Error("OBU_INPUT_RELEASE_IN_PROGRESS: original attachment cleanup is still pending");
-    if ([...this.pointerFeedbackReads.pending].some(record => record.scope.tabId === tabId && record.cleanupFailed))
-      throw new Error("OBU_POINTER_CLEANUP_FAILED: original pointer objects require explicit cleanup retry");
+    this.assertPointerCleanupAdmission(tabId, token);
     if (this.coldAttachmentResets.has(tabId))
       throw new Error("OBU_TAB_CONTROL_REVOKED: explicit claim is resetting an orphaned native attachment");
     if (token && this.revokedAttachmentTokens.has(token))
       throw new Error("OBU_TAB_CONTROL_REVOKED: tab moved out of its controlled location; wait for release and explicitly claim it again");
+  }
+
+  assertPointerCleanupAdmission(tabId, token = this.attachmentEpochs.get(tabId)) {
+    if ([...this.pointerFeedbackReads.pending].some(record => record.scope.tabId === tabId && record.cleanupFailed))
+      throw new Error("OBU_POINTER_CLEANUP_FAILED: original pointer objects require explicit cleanup retry");
+    if ([...this.pointerFeedbackReads.pending].some(record => record.scope.tabId === tabId && record.cleanup && record.scope.attachment !== token))
+      throw new Error("OBU_POINTER_CLEANUP_PENDING: the previous native pointer route is still being released");
   }
 
   markAttachmentDestroyed(tabId) {
@@ -1542,13 +1567,14 @@ class BrowserBackend {
     const clipboard = this.clipboard.controlSnapshot();
     const broker = this.clipboardBroker.controlSnapshot();
     const lifetime = this.browserLifetime.controlSnapshot();
+    const privatePointers = this.privatePointerTargets.snapshot(), privateStore = this.nativePointerStore.snapshot();
     // Readiness reservations may precede ownership validation. Only admitted
     // chooser scopes, not the raw setup/waiter IDs, confer detach authority.
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...dialogs.tabIds, ...[...this.nativeDialogOperations].map(value => value.tabId), ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
     const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean), ...this.pointerFeedbackReads.snapshot(), ...this.visualDeliveries.snapshot()];
-    return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...privatePointers.pending, ...privateStore.pending, ...(this.privatePointerRecovery?.pending ? [this.privatePointerRecovery.promise] : []), ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
@@ -1565,7 +1591,7 @@ class BrowserBackend {
     for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
-    const releases = [visualsReleased, networksReleased, this.directoryUploads.drain(), this.drainPageDownloads(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [visualsReleased, networksReleased, this.recoverPrivatePointerTargets(), this.directoryUploads.drain(), this.drainPageDownloads(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -1594,6 +1620,8 @@ class BrowserBackend {
     diagnosticCleanup?.catch(() => {});
     const pointerCleanup = retryPageCleanup ? this.pointerFeedbackReads.drain(() => true, { resourcesOnly: true, retryFailed: true }) : null;
     pointerCleanup?.catch(() => {});
+    const privatePointerCleanup = retryPageCleanup ? this.recoverPrivatePointerTargets({ retryFailed: true }) : null;
+    privatePointerCleanup?.catch(() => {});
     const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
     pageDownloadCleanup?.catch(() => {});
     // Cancel known engine work synchronously, before a slow storage write can
@@ -1605,6 +1633,7 @@ class BrowserBackend {
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
     if (pointerCleanup) cancelled.releases.push(pointerCleanup);
+    if (privatePointerCleanup) cancelled.releases.push(privatePointerCleanup);
     const operation = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause(cancelled, deadline));
     this.automationTransitions = operation;
     return deadline.within(() => operation).catch(error => {
@@ -2288,10 +2317,12 @@ class BrowserBackend {
     check();
     this.assertControlOpen(); // Recovered input is never cleared by debugger detach.
     if (tracked() || this.controlReleases.has(tabId)) return;
+    this.assertPointerCleanupAdmission(tabId);
     const epoch = this.controlEpochs.get(tabId) ?? 0;
     const current = () => {
       check();
       this.assertControlOpen();
+      this.assertPointerCleanupAdmission(tabId);
       if ((this.controlEpochs.get(tabId) ?? 0) !== epoch || tracked())
         throw new Error("OBU_TAB_CONTROL_REVOKED: native attachment changed during explicit claim");
     };
@@ -3340,7 +3371,7 @@ class BrowserBackend {
     // Start explicit retries, then synchronously install the original release
     // barrier before awaiting any ACK. A successor attach cannot cross it.
     const retries = [
-      this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.session_id === params.session_id && record.scope.attachment === attachment, { retryFailed: true }),
+      this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.session_id === params.session_id && (!attachment || record.scope.attachment === attachment), { retryFailed: true }),
       this.visualDeliveries.close(scope => scope.tabId === tabId && scope.session_id === params.session_id, { retryFailed: true }),
       this.browserEngine?.drainDiagnosticCleanup?.({ sessionId: params.session_id, tabId, retryFailed: true }),
       this.drainPageDownloads(record => record.scope.session_id === params.session_id && record.scope.tabId === tabId && record.scope.attachment === attachment, { retryFailed: true })
@@ -3670,6 +3701,66 @@ class BrowserBackend {
     check(); return { scope, check };
   }
 
+  initializePrivatePointerTargets() {
+    this.privatePointerTargets = new PrivateTargetRegistry({
+      load: () => this.nativePointerStore.load(), save: value => this.nativePointerStore.save(value),
+      incarnation: () => this.browserLifetime.incarnation,
+      native: { getTargets: () => chrome.debugger.getTargets(),
+        attach: (target, version) => chrome.debugger.attach(target, version),
+        detach: target => chrome.debugger.detach(target),
+        send: (target, method, params) => chrome.debugger.sendCommand(target, method, params) }
+    });
+    void this.recoverPrivatePointerTargets().catch(() => {});
+  }
+
+  recoverPrivatePointerTargets({ retryFailed = false } = {}) {
+    const registry = this.privatePointerTargets, previous = this.privatePointerRecovery;
+    if (previous?.registry === registry && previous.pending) return previous.promise;
+    const recovery = { registry, pending: true, error: null };
+    this.privatePointerRecovery = recovery;
+    recovery.promise = (async () => {
+      try { await registry.ready; }
+      catch (error) {
+        // Unknown ownership disables only this optional feature. No native
+        // client was acquired by a registry whose load did not succeed.
+        if (!registry.entries.size) return;
+        throw error;
+      }
+      const state = registry.snapshot(), failures = new Set(state.failed);
+      // Recovered independent clients are cleanup-only. Their stored tab IDs
+      // never grant authority to detach a root or operate a restored tab.
+      const results = await Promise.allSettled(state.quarantined.map(id =>
+        retryFailed && failures.has(id) ? registry.retry(id) : registry.recover(id)));
+      const failed = results.find(result => result.status === "rejected");
+      if (failed) throw failed.reason;
+    })();
+    recovery.promise.then(() => { recovery.pending = false; }, error => { recovery.pending = false; recovery.error = error; });
+    return recovery.promise;
+  }
+
+  nativePointerRead(params) {
+    const registry = this.privatePointerTargets, state = registry.snapshot();
+    if (!state.enabled || state.quarantined.length || !this.nativePointerStore.snapshot().available ||
+        this.privatePointerRecovery?.pending || this.privatePointerRecovery?.error) return undefined;
+    const authority = this.pointerFeedbackAuthority(params), { tabId, attachment } = authority.scope;
+    const incarnation = this.browserLifetime.incarnation;
+    const cleanupExclusive = () => {
+      const current = this.attachmentEpochs.get(tabId);
+      if (!this.browserLifetime.isCurrent(incarnation) || current && current !== attachment || this.coldAttachmentResets.has(tabId))
+        throw new Error("OBU_POINTER_CLEANUP_FAILED: original root exclusion changed");
+    };
+    return createNativePointerRoute({ scope: authority.scope, x: params.commandParams.x, y: params.commandParams.y,
+      check: authority.check, cleanupExclusive,
+      cleanupAuthority: () => {
+        cleanupExclusive();
+        if (!this.attachedTabs.has(tabId) || this.attachmentEpochs.get(tabId) !== attachment)
+          throw new Error("OBU_POINTER_CLEANUP_FAILED: original root attachment is unavailable");
+      },
+      destroyed: () => this.destroyedAttachmentTokens.has(attachment), registry,
+      native: { send: (target, method, commandParams) => chrome.debugger.sendCommand(target, method, commandParams) }
+    });
+  }
+
   capturePointerTarget(value) {
     const metadata = this.browserEngine?.active.get(value.target.tabId);
     if (!metadata) return undefined;
@@ -3692,7 +3783,7 @@ class BrowserBackend {
     try {
       if (params.feedbackTarget === undefined && params.target?.sessionId == null &&
           ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(params.commandParams?.type)) {
-        const read = this.browserEngine?.rawPointerRead?.(params.target.tabId, params.commandParams.x, params.commandParams.y);
+        const read = this.browserEngine?.rawPointerRead?.(params.target.tabId, params.commandParams.x, params.commandParams.y) ?? this.nativePointerRead(params);
         if (read) params = { ...params, feedbackTarget: this.captureScopedPointerTarget(read, params) };
       }
       const authority = this.pointerFeedbackAuthority(params, params.feedbackTarget?.check);
@@ -6045,7 +6136,7 @@ class BrowserBackend {
     if (retryActionRelease) {
       actionRelease.failed = false; actionRelease.allowRetry = false; actionRelease.lease = undefined;
     }
-    const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.attachment === attachment);
+    const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && (!attachment || record.scope.attachment === attachment));
     pointerReadsReleased.catch(() => {});
     const fileInputsReleased = this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === attachment);
     fileInputsReleased.catch(() => {});

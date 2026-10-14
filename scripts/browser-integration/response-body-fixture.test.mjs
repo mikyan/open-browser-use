@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash } from "node:crypto";
-import { createResponseBodyFixtures, responseBodyKinds, responseBodyBytes, checkOriginalResponseBody, checkResponseBodyEvidence, checkResponseBodyEdgesEvidence, installResponseBodyProbe, selectResponseBodyTargets, checkResponseBodyOOPIF, checkResponseBodyPauseFailure } from "./response-body-fixture.mjs";
+import vm from "node:vm";
+import { createResponseBodyFixtures, responseBodyKinds, responseBodyBytes, checkOriginalResponseBody, checkResponseBodyEvidence, checkResponseBodyEdgesEvidence, installResponseBodyProbe, selectResponseBodyTargets, checkResponseBodyOOPIF, checkResponseBodyPauseFailure, installResponseBodyCloseProbe, closeResponseBodyTabs } from "./response-body-fixture.mjs";
 import { createResponseBodyCaller } from "./response-body-callers.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 
@@ -197,4 +198,121 @@ test("Pause failure requires original 10-second cleanup timeout, blocked inputs 
     value => { value.failedPause.state.cleanupComplete = true; }, value => { value.cleanupTimeoutMs = 1000; }, value => { value.pauseSettledAt = 1001; }]) {
     const changed = structuredClone(item); mutate(changed); assert.throws(() => checkResponseBodyPauseFailure(changed));
   }
+});
+
+function closeFixture({ ids = [7], close, query, targets } = {}) {
+  const tabs = new Map(ids.map(id => [id, { id, url: `http://fixture/${id}` }])), listeners = new Set(), calls = [], reads = { tabs: 0, targets: 0 };
+  const remove = id => { tabs.delete(id); for (const listener of listeners) listener(id, { windowId: 1, isWindowClosing: false }); };
+  const api = {
+    tabs: { query() { reads.tabs++; return query ? query({ tabs, reads, remove }) : Promise.resolve([...tabs.values()]); },
+      onRemoved: { addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn) } },
+    debugger: { sendCommand(source, method, params) {
+      calls.push({ source, method, params, receiver: this });
+      if (close) return close({ source, method, params, tabs, remove });
+      remove(source.tabId); return Promise.resolve({ original: true });
+    }, getTargets() { reads.targets++; return targets ? targets({ tabs, reads }) : Promise.resolve([...tabs.keys()].map(tabId => ({ id: `target-${tabId}`, tabId }))); } }
+  };
+  const original = api.debugger.sendCommand, context = vm.createContext({ chrome: api, structuredClone, Promise });
+  const worker = { async evaluate(expression) { return structuredClone(await vm.runInContext(expression, context)); } };
+  const browser = { tab(id) { return { close: () => api.debugger.sendCommand({ tabId: id }, "Page.close", {}) }; } };
+  const items = ids.map(tabId => ({ tabId, nativeBefore: { targets: [{ id: `target-${tabId}` }] } }));
+  return { api, original, context, worker, browser, items, calls, tabs, reads, listeners, remove, detail: {}, options: { timeoutMs: 100, pollMs: 2 } };
+}
+
+test("close observer preserves native Promise, receiver, exact arguments and rejection identity", async () => {
+  const native = deferred(), f = closeFixture({ close: () => native.promise }), target = {};
+  installResponseBodyCloseProbe(f.api, target, { id: "close", tabIds: [7], targetIds: ["target-7"] });
+  const source = { tabId: 7 }, params = {}, receiver = {}, result = f.api.debugger.sendCommand.call(receiver, source, "Page.close", params);
+  assert.equal(result, native.promise); assert.equal(f.calls[0].source, source); assert.equal(f.calls[0].params, params); assert.equal(f.calls[0].receiver, receiver);
+  assert.throws(() => target.__responseBodyCloseProbe.restore(), /still pending/);
+  const error = Error("original native close failure"); native.reject(error); await assert.rejects(result, value => value === error); await tick();
+  const proof = target.__responseBodyCloseProbe.restore(); assert.equal(proof.rows[1].ok, false); assert.equal(proof.rows[1].call, 1); assert.equal(proof.restored, true); assert.equal(f.api.debugger.sendCommand, f.original);
+});
+
+test("close observer passes unselected calls through unchanged, including non-string methods", async () => {
+  const native = Promise.resolve({ original: true }), f = closeFixture({ close: () => native }), target = {};
+  installResponseBodyCloseProbe(f.api, target, { id: "close", tabIds: [7], targetIds: ["target-7"] });
+  const receiver = {}, params = {};
+  for (const [source, method] of [[{ tabId: 7 }, undefined], [{ tabId: 7 }, null], [{ tabId: 7 }, 42],
+    [{ tabId: 7, sessionId: "child" }, "Page.close"], [{ tabId: 8 }, "Input.dispatchMouseEvent"], [{ tabId: 7 }, "Runtime.evaluate"]]) {
+    assert.equal(f.api.debugger.sendCommand.call(receiver, source, method, params), native);
+    const call = f.calls.at(-1); assert.equal(call.source, source); assert.equal(call.method, method); assert.equal(call.params, params); assert.equal(call.receiver, receiver);
+  }
+  assert.equal(f.calls.length, 6); assert.deepEqual(target.__responseBodyCloseProbe.restore().rows, []);
+});
+
+test("close ACK can precede actual tab removal; read-only observation retains the first residual snapshot", async () => {
+  const f = closeFixture({ close: ({ source, remove }) => { setTimeout(() => remove(source.tabId), 15); return Promise.resolve({ original: true }); }, targets: () => Promise.resolve([]) });
+  await closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, f.options);
+  assert.equal(f.calls.length, 1); assert.equal(f.detail.closeEvidence.firstAfterClose.tabs.length, 1); assert.deepEqual(f.detail.closeEvidence.firstAfterClose.targets, []);
+  assert.deepEqual(f.detail.cleanup.tabs, []); assert.deepEqual(f.detail.cleanup.targets, []); assert.ok(f.detail.closeEvidence.observations > 1);
+  const rows = f.detail.closeEvidence.restoration.rows; assert.deepEqual(rows.map(row => row.kind), ["native", "native-settled", "removed"]);
+  assert.equal(f.listeners.size, 0); assert.equal(f.api.debugger.sendCommand, f.original);
+});
+
+test("onRemoved may precede the original close ACK without requiring another close", async () => {
+  const f = closeFixture(); await closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, f.options);
+  assert.deepEqual(f.detail.closeEvidence.restoration.rows.map(row => row.kind), ["native", "removed", "native-settled"]); assert.equal(f.calls.length, 1);
+});
+
+test("every original tab closes once and initially absent IDs do not invent close calls", async () => {
+  const f = closeFixture({ ids: [7, 8, 9] }); f.tabs.delete(8); f.items.push(f.items[0]);
+  await closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, f.options);
+  assert.deepEqual(f.calls.map(c => c.source.tabId), [7, 9]); assert.deepEqual(f.detail.closeEvidence.alreadyAbsent, [8]);
+  assert.deepEqual(f.detail.cleanup.tabIds, [7, 8, 9]); assert.deepEqual(f.detail.cleanup.tabs, []);
+});
+
+test("targets absent does not hide a remaining tab and observation timeout never retries close", async () => {
+  const f = closeFixture({ close: () => Promise.resolve({}), targets: () => Promise.resolve([]) });
+  await assert.rejects(closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, { timeoutMs: 25, pollMs: 2 }), /Timed out observing/);
+  assert.equal(f.calls.length, 1); assert.deepEqual(f.detail.cleanup.tabs.map(t => t.id), [7]); assert.deepEqual(f.detail.cleanup.targets, []);
+  assert.equal(f.detail.closeEvidence.timedOut, true); assert.equal(f.detail.closeEvidence.restoration.restored, true);
+});
+
+test("tab absence needs both exact removal evidence and target absence", async () => {
+  for (const mode of ["missing event", "target remains"]) {
+    const f = closeFixture({ close: ({ source, tabs, remove }) => { mode === "missing event" ? tabs.delete(source.tabId) : remove(source.tabId); return Promise.resolve({}); },
+      targets: () => Promise.resolve(mode === "target remains" ? [{ id: "target-7", tabId: 7 }] : []) });
+    await assert.rejects(closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, { timeoutMs: 25, pollMs: 2 }), /Timed out observing/);
+    assert.equal(f.calls.length, 1); assert.deepEqual(f.detail.cleanup.tabs, []); assert.equal(f.detail.closeEvidence.timedOut, true);
+  }
+});
+
+test("unknown native inventory error fails immediately with the original error and retained prior snapshot", async () => {
+  const original = Error("original tabs query denied");
+  const f = closeFixture({ close: () => Promise.resolve({}), query: ({ tabs, reads }) => reads.tabs === 3 ? Promise.reject(original) : Promise.resolve([...tabs.values()]) });
+  await assert.rejects(closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, f.options), error => error === original);
+  assert.equal(f.reads.tabs, 3); assert.equal(f.calls.length, 1); assert.equal(f.detail.closeEvidence.timedOut, false);
+  assert.deepEqual(f.detail.cleanup.tabs.map(t => t.id), [7]); assert.equal(f.detail.closeEvidence.observations, 1);
+});
+
+test("original close rejection is not replaced by inventory polling or retried", async () => {
+  const original = Error("original Page.close rejected"), f = closeFixture({ close: () => Promise.reject(original) });
+  await assert.rejects(closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, f.options), error => error === original);
+  assert.equal(f.calls.length, 1); assert.equal(f.reads.tabs, 1); assert.equal(f.detail.closeEvidence.attempts[0].ok, false); assert.equal(f.detail.closeEvidence.observations, 0);
+});
+
+test("held read has one bounded observation deadline and cannot be silently restored before its actual ACK", async () => {
+  const held = deferred(), f = closeFixture({ query: ({ tabs, reads }) => reads.tabs === 2 ? held.promise : Promise.resolve([...tabs.values()]) });
+  try {
+    await assert.rejects(closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, { timeoutMs: 25, pollMs: 2 }), /Timed out observing/);
+    assert.equal(f.calls.length, 1); assert.equal(f.reads.tabs, 2); assert.equal(f.detail.closeEvidence.observer.pending, 1);
+    assert.match(f.detail.closeEvidence.restoreError, /still pending/); assert.equal(f.detail.closeEvidence.restoration, undefined); assert.notEqual(f.api.debugger.sendCommand, f.original);
+  } finally { held.resolve([]); await tick(); await f.worker.evaluate("__responseBodyCloseProbe.restore()"); }
+  assert.equal(f.api.debugger.sendCommand, f.original);
+});
+
+for (const phase of ["inventory", "snapshot"]) test(`completion after the observation deadline fails even before the timer task runs (${phase})`, async t => {
+  let now = 0, inventories = 0;
+  t.mock.method(performance, "now", () => now);
+  const f = closeFixture(), evaluate = f.worker.evaluate;
+  f.worker.evaluate = async expression => {
+    const value = await evaluate(expression);
+    if (expression === "globalThis.__responseBodyCloseProbe.inventory()") inventories++;
+    if ((phase === "inventory" && inventories === 2) || (phase === "snapshot" && expression === "globalThis.__responseBodyCloseProbe.snapshot()")) now = 26;
+    return value;
+  };
+  await assert.rejects(closeResponseBodyTabs(f.browser, f.worker, f.items, f.detail, { timeoutMs: 25, pollMs: 2 }), /Timed out observing/);
+  assert.equal(f.calls.length, 1); assert.equal(f.reads.tabs, 2); assert.deepEqual(f.detail.cleanup.tabs, []);
+  assert.equal(f.detail.closeEvidence.timedOut, true); assert.equal(f.detail.closeEvidence.restoration.restored, true);
 });

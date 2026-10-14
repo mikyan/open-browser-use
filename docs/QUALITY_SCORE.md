@@ -11,18 +11,27 @@
 
 ## 当前评分
 
+冷原生坐标反馈已接入生产：`JVWwm9` 六布局PNG/POST与原生资源独审通过，
+`WbyEaV` 三场清理/真实worker替换通过；两轮均2/2、actual exit0。原输入
+保持后台操作，真实held风险不会被私有连接恢复清除。Node3837pass/1既有skip。
+最终完整 `ZXPe7X`180/180、actual exit0；原 `6L9esM`179/180、actual exit1
+保留。旧失败是MCP正文测试在原单次Page.close后立即查询仍见一个tab，
+补充真实close ACK/移除事件及有界完成观察后，专项`SN2lmN`7/7亦通过。
+该修正只改两份fixture，生产源与冷路/重启专项保持相同字节。世界复用、事件
+共存、普通Edge、全屏及整体矩阵仍开放，见[坐标反馈](references/raw-frame-feedback.md)。
+
+此前的基础阶段证据：
 冷坐标读取候选 `5pTnPP` 六布局原生矩形与独立 CSS 几何吻合，13原文档不变；
 198原生调用全部结算，39对象对应12组释放ACK，6独立target实际attach/detach。
 1,479ms零activation/focus/许可；runner和host原exit0，精确测试进程无残留。
-Node3744pass/1既有Windows skip，源码/运行时无漂移。候选未接生产backend，
-未以此宣称冷路PNG/POST通过；持久归属注册表的真实生命周期、世界复用和
-生产接线仍待验，见[坐标反馈](references/raw-frame-feedback.md)。
+Node3744pass/1既有Windows skip，源码/运行时无漂移。该阶段候选未接生产backend，
+未以此宣称冷路PNG/POST通过；之后的生产接线与有限生命周期由上方新证据覆盖。
 
 坐标高亮 warm 增量完整 `xS4ddv`180/180 actual exit0，旧178名称/顺序保持；
 Node3666pass/1既有Windows symlink权限skip。18原PNG/POST（42,559B）、65原
 对象释放ACK、39原文档及输入/截图记录独审通过。533,948ms仅原12activation/
 4control-focus许可；可选读取不延长原错误/超时，必要清理和完整detach屏障保留。
-冷CDP另有三原成功提交但误框的保留失败，不在默认180通过数中；普通Edge、
+早期冷CDP另有三原成功提交但误框的保留失败，不在该默认180通过数中；普通Edge、
 全屏及整个能力矩阵仍开放，见[坐标反馈](references/raw-frame-feedback.md)。
 
 可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。

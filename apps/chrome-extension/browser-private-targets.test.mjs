@@ -13,7 +13,7 @@ function harness({ ledger, fresh = ledger === undefined, load, save, send, attac
   const calls = [], writes = [], clients = new Set(), objects = new Set();
   const root = { tabId: 7, rootTargetId: "root", attachment: {}, check() { if (!scope) throw Error("Original scope revoked"); } };
   const native = {
-    getTargets() { calls.push({ method: "getTargets" }); return getTargets?.() ?? Promise.resolve([{ id: "child", attached: true }, ...Array.from({ length: 8 }, (_, i) => [0, 1].map(j => ({ id: `child-${i}-${j}` }))).flat()]); },
+    getTargets() { calls.push({ method: "getTargets" }); return getTargets?.() ?? Promise.resolve([{ id: "child", attached: true }, ...Array.from({ length: 64 }, (_, i) => ({ id: `child-${i}` }))]); },
     send(target, method, params) {
       calls.push({ method, target: { ...target }, params });
       if (send) { const result = send(target, method, params); if (result) return result; }
@@ -169,15 +169,25 @@ test("incarnation change revokes a live route without authorizing detach in anot
   assert.equal(h.calls.some(c => c.method === "detach"), false); assert.equal(h.registry.snapshot().unknown, "incarnation-changed"); assert.equal(h.registry.snapshot().leases.length, 1);
 });
 
-test("capacity stays at two per original attachment and sixteen globally, including failed or pending work", async () => {
+test("child-client budget allows deep candidates and stays bounded at sixty-four across roots", async () => {
   const h = harness(); await h.registry.ready; const leases = [];
   for (let index = 0; index < 8; index++) {
     const root = { ...h.root, tabId: index, attachment: {} };
-    for (let child = 0; child < 2; child++) { const lease = allocate(h, `child-${index}-${child}`, root); assert.ok(lease); leases.push(lease); }
-    assert.equal(allocate(h, `excess-${index}`, root), null);
+    for (let child = 0; child < 8; child++) { const lease = allocate(h, `child-${index * 8 + child}`, root); assert.ok(lease); leases.push(lease); }
   }
-  assert.equal(allocate(h, "global-excess", { ...h.root, attachment: {} }), null); assert.equal(allocate(h, "child-0-0", { ...h.root, attachment: {} }), null);
+  assert.equal(allocate(h, "global-excess", { ...h.root, attachment: {} }), null); assert.equal(allocate(h, "child-0", { ...h.root, attachment: {} }), null);
   await Promise.all(leases.map(l => l.ready)); await Promise.all(leases.map(l => l.release())); assert.equal(h.registry.snapshot().leases.length, 0); assert.deepEqual(h.stored.records, []);
+});
+
+test("one original attachment can reserve two depth-thirty-two child budgets but never a sixty-fifth client", async () => {
+  const h = harness(); await h.registry.ready; const leases = [];
+  for (let child = 0; child < 64; child++) {
+    const lease = h.registry.acquire({ root: h.root, targetId: `child-${child}`, parentFrameId: child % 32 ? `child-${child - 1}` : "parent" });
+    assert.ok(lease); leases.push(lease);
+  }
+  assert.equal(allocate(h, "per-root-excess"), null);
+  await Promise.all(leases.map(lease => lease.ready)); await Promise.all(leases.map(lease => lease.release()));
+  assert.equal(h.registry.snapshot().leases.length, 0); assert.equal(h.clients.size, 0);
 });
 
 test("registry refuses domain changes, unregistered allocation groups and new allocation during group cleanup", async () => {
@@ -292,4 +302,57 @@ test("recognized recovered ledger may retire exact absent host without enumerati
   const h = harness({ ledger: { version: 1, incarnation: "browser-original", records: [row()] }, send: () => Promise.reject(original) });
   await h.registry.ready; const result = await h.registry.recover("original");
   assert.deepEqual(h.calls.map(c => c.method), ["Target.getTargetInfo"]); assert.equal(result.detached, false); assert.equal(result.retiredByNativeAbsence, true); assert.equal(result.absenceEvidence[0].queryError, original); assert.deepEqual(h.stored.records, []);
+});
+
+test("prepared cleanup retry preserves all-group ACK then reverse detach for three original child routes", async () => {
+  const failure = Error("first original child group failed"); let failed = false, nativeReads = 0;
+  const h = harness({ send(target, method) {
+    if (method === "Runtime.releaseObjectGroup" && target.targetId === "child-0" && !failed) { failed = true; return Promise.reject(failure); }
+  } });
+  await h.registry.ready; const leases = [], groups = [];
+  for (let depth = 0; depth < 3; depth++) {
+    const lease = h.registry.acquire({ root: h.root, targetId: `child-${depth}`, parentFrameId: depth ? `child-${depth - 1}` : "parent" });
+    assert.ok(lease); await lease.ready; leases.push(lease); groups.push(lease.prepareGroup(`group-${depth}`));
+  }
+  const reads = new PassivePointerReads();
+  const candidate = reads.start({ scope: { attachment: h.root.attachment }, check() {}, decode: value => value,
+    read: async () => { nativeReads++; await Promise.all(leases.map((lease, depth) => evaluating(lease, `group-${depth}`))); return { x: 1, y: 2, width: 3, height: 4 }; },
+    cleanup: async () => { for (const group of groups) { await group.releaseGroup(); group.close(); } for (const lease of [...leases].reverse()) await lease.release(); } });
+  assert.equal(await candidate.result, null); assert.equal(reads.pending.size, 1);
+  const before = h.calls.length;
+  assert.equal(h.registry.prepareCleanupRetry(leases[0].leaseId), true);
+  assert.equal(h.registry.prepareCleanupRetry(leases[1].leaseId), false);
+  assert.equal(h.registry.prepareCleanupRetry(leases[2].leaseId), false);
+  assert.equal(h.calls.length, before); assert.throws(leases[0].check); assert.equal(allocate(h, "child-0"), null);
+  await reads.drain(() => true, { retryFailed: true });
+  assert.deepEqual(h.calls.slice(before).map(call => [call.method, call.target.targetId]), [
+    ["Runtime.releaseObjectGroup", "child-0"], ["Runtime.releaseObjectGroup", "child-1"], ["Runtime.releaseObjectGroup", "child-2"],
+    ["detach", "child-2"], ["detach", "child-1"], ["detach", "child-0"]
+  ]);
+  assert.equal(nativeReads, 1); assert.equal(h.clients.size, 0); assert.equal(reads.pending.size, 0);
+  const after = h.calls.length; assert.equal(h.registry.prepareCleanupRetry(leases[0].leaseId), false); assert.equal(h.calls.length, after);
+});
+
+test("cleanup retry preparation never resets an actual pending group or full release", async () => {
+  const failure = Error("original release error"), second = deferred(); let attempts = 0;
+  const h = harness({ send(_target, method) { if (method === "Runtime.releaseObjectGroup") return ++attempts === 1 ? Promise.reject(failure) : second.promise; } });
+  await h.registry.ready; const lease = allocate(h); await lease.ready; const group = lease.prepareGroup("group");
+  await assert.rejects(group.releaseGroup(), error => error === failure);
+  assert.equal(h.registry.prepareCleanupRetry(lease.leaseId), true); const pendingGroup = group.releaseGroup(); await tick();
+  const before = h.calls.length; assert.equal(h.registry.prepareCleanupRetry(lease.leaseId), false); assert.equal(group.releaseGroup(), pendingGroup);
+  const release = lease.release(); await tick(); assert.equal(h.registry.prepareCleanupRetry(lease.leaseId), false);
+  assert.equal(lease.release(), release); assert.equal(h.registry.retry(lease.leaseId), release); assert.equal(h.calls.length, before);
+  assert.throws(lease.check); assert.equal(allocate(h), null); second.resolve({}); await release;
+  assert.equal(attempts, 2); assert.equal(h.calls.filter(call => call.method === "detach").length, 1);
+});
+
+test("prepared detach retry skips already released children and never releases a successor lease", async () => {
+  const failure = Error("original first detach failed"); let fail = true;
+  const h = harness({ detach(target) { if (target.targetId === "child-0" && fail) return Promise.reject(failure); } });
+  await h.registry.ready; const first = allocate(h, "child-0"), second = allocate(h, "child-1"); await Promise.all([first.ready, second.ready]);
+  await second.release(); await assert.rejects(first.release(), error => error === failure); fail = false;
+  const successor = allocate(h, "child-1"); await successor.ready;
+  const before = h.calls.length; assert.equal(h.registry.prepareCleanupRetry(second.leaseId), false); successor.check();
+  assert.equal(h.registry.prepareCleanupRetry(first.leaseId), true); assert.equal(h.calls.length, before); assert.throws(first.check);
+  await first.release(); successor.check(); assert.equal(h.clients.has("child-1"), true); await successor.release();
 });

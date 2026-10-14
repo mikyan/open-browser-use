@@ -64,14 +64,33 @@ function png(geometry, oldOutline) {
 }
 
 // These doubles prove orchestration and evidence handling, not native trust.
-function workflow({ oldOutline = false, warm = false, receiptError } = {}) {
+function workflow({ oldOutline = false, warm = false, receiptError, resourceWait = 0 } = {}) {
   const items = [], calls = [], artifacts = [], order = []; let current, saved;
-  const state = () => ({ backendCurrent: true, engineAbsent: !warm, attached: true, attachmentKnown: true, originalAttachmentSeen: true, sameAttachment: true });
+  const state = () => ({ backendCurrent: true, registryCurrent: true, engineAbsent: !warm, attached: true, attachmentKnown: true, originalAttachmentSeen: true, sameAttachment: true });
   const append = row => current.native.records.push({ sequence: current.native.records.length + 1, state: state(), ...row });
   const record = (method, params, result = {}) => { const sequence = current.native.records.length + 1; append({ kind: "invoke", source: { tabId: current.tabId }, method, params }); append({ kind: "settled", invocation: sequence, ok: true, result }); return result; };
+  const privateRead = () => {
+    const prefix = `obu-native-pointer-fixture-${current.tabId}`, rootGroup = `${prefix}-0`;
+    record("Runtime.evaluate", { objectGroup: rootGroup }, { result: { objectId: "original-root-wrapper" } });
+    if (current.layout === "same") { record("Runtime.releaseObjectGroup", { objectGroup: rootGroup }); return; }
+    const owner = { leaseId: `lease-${current.tabId}`, targetId: `child-${current.tabId}`, rootTargetId: `root-${current.tabId}`, parentFrameId: `root-${current.tabId}`, originalAttachment: true };
+    current.native.ownedTargets.push(owner);
+    const child = (method, params = {}, result = {}, error) => {
+      const sequence = current.native.records.length + 1;
+      append({ kind: "invoke", source: { targetId: owner.targetId }, owner: copy(owner), method, params });
+      append({ kind: "settled", invocation: sequence, ok: error === undefined, ...(error ? { error } : { result }) });
+    };
+    child("Target.getTargetInfo", {}, {}, `Error: Debugger is not attached to the target with id: ${owner.targetId}.`);
+    child("debugger.attach", { version: "1.3" });
+    child("Page.getFrameTree", {}, { frameTree: { frame: { id: owner.targetId, parentId: owner.parentFrameId } } });
+    child("Runtime.evaluate", { objectGroup: `${prefix}-1` }, { result: { objectId: "original-child-wrapper" } });
+    record("Runtime.releaseObjectGroup", { objectGroup: rootGroup });
+    child("Runtime.releaseObjectGroup", { objectGroup: `${prefix}-1` });
+    child("debugger.detach", { version: null });
+  };
   const frames = item => (item.stage === "preAdd" ? item.preAdd : item.initial).map((row, i) => ({ url: row.business.href, frameId: i, parentFrameId: i - 1, documentId: row.nativeDocumentId, processId: row.nativeProcessId, documentLifecycle: "active", errorOccurred: false }));
   const browser = { async newTab(...args) { assert.deepEqual(args, [], "Cold newTab may not carry a goto URL"); const tab = { id: items.length + 1 }; calls.push({ type: "newTab", tabId: tab.id }); return tab; }, cdp: {
-    async navigate(tabId, url) { const address = new URL(url); assert.equal(tabId, current.tabId); assert.equal(address.href, current.urls.root); calls.push({ type: "navigate", tabId, url }); record("debugger.attach", { version: "1.3" }); const result = record("Page.navigate", { url }, { frameId: `root-${tabId}`, loaderId: `loader-${tabId}` }); append({ kind: "event", source: { tabId }, method: "Page.frameNavigated", params: { frame: { id: result.frameId, loaderId: result.loaderId, url } } }); return result; },
+    async navigate(tabId, url) { const address = new URL(url); assert.equal(tabId, current.tabId); assert.equal(address.href, current.urls.root); calls.push({ type: "navigate", tabId, url }); record("debugger.attach", { version: "1.3" }); const result = record("Page.navigate", { url }, { frameId: `root-${tabId}`, loaderId: `loader-${tabId}` }); append({ kind: "event", source: { tabId }, method: "Page.frameNavigated", params: { frame: { id: result.frameId, loaderId: result.loaderId, url } } }); record("Runtime.evaluate", { expression: "({ href: window.location.href, readyState: document.readyState })", returnByValue: true }, { result: { type: "object", value: { href: url, readyState: "complete" } } }); return result; },
     async call(tabId, method, params) { assert.equal(tabId, current.tabId); calls.push({ type: "cdp", tabId, method, params: copy(params) });
       if (method === "Page.getFrameTree") return record(method, params, { frameTree: { frame: { id: `root-${tabId}`, loaderId: `loader-${tabId}`, url: current.urls.root } } });
       if (method === "Input.insertText") { assert.deepEqual(params, { text: current.value }); current.stage = "before"; return record(method, params); }
@@ -79,14 +98,22 @@ function workflow({ oldOutline = false, warm = false, receiptError } = {}) {
       assert.equal(method, "Input.dispatchMouseEvent"); if (params.type === "mouseMoved" && near(params.x, current.buttonPoint.x) && near(params.y, current.buttonPoint.y)) current.stage = "rendered";
       if (params.type === "mouseReleased" && current.addPoint && near(params.x, current.addPoint.x) && near(params.y, current.addPoint.y)) current.stage = "initial";
       if (params.type === "mouseReleased" && near(params.x, current.buttonPoint.x) && near(params.y, current.buttonPoint.y)) { current.stage = "after"; current.submitted = true; }
-      return record(method, params);
+      const result = record(method, params);
+      if (params.type === "mouseMoved" && near(params.x, current.buttonPoint.x) && near(params.y, current.buttonPoint.y)) privateRead();
+      return result;
     }
   } };
   const worker = { async evaluate(code) {
     if (code.includes("globalThis.__integrationBackend?.browserEngine")) return { engineAbsent: !warm };
-    if (code.includes("function installColdRawProbe")) { const config = JSON.parse(code.match(/\(chrome,globalThis,(\{[^\n]+\})\)$/)[1]); const layout = coldRawLayouts[items.length]; current = sample(layout, config.id, config.tabId, oldOutline); current.stage = layout === "dynamic-oopif" ? "preAdd" : "initial"; current.bytes = png(current.geometry, oldOutline); current.native = { records: [], pending: 0, overflow: false, recordingErrors: 0, restored: false, state: state() }; items.push(current); return state(); }
-    if (code.includes(".mark(")) { append({ kind: "state", label: code.match(/\.mark\((.+)\)/)[1] }); return state(); }
+    if (code.includes("function installColdRawProbe")) { const config = JSON.parse(code.match(/\(chrome,globalThis,(\{[^\n]+\})\)$/)[1]); const layout = coldRawLayouts[items.length]; current = sample(layout, config.id, config.tabId, oldOutline); current.stage = layout === "dynamic-oopif" ? "preAdd" : "initial"; current.bytes = png(current.geometry, oldOutline); current.native = { tabId: current.tabId, records: [], pending: 0, overflow: false, recordingErrors: 0, restored: false, state: state(), resources: { pointerRecords: 0, privateLeases: 0 }, ownedTargets: [] }; items.push(current); return state(); }
+    if (code.includes(".mark(")) { append({ kind: "state", label: JSON.parse(code.match(/\.mark\((.+)\)/)[1]) }); return state(); }
     if (code.includes("probe.restore()")) { current.native.restored = true; return copy(current.native); }
+    if (code.includes("probe.snapshot()")) {
+      assert.equal(current.submitted, true, "Resource observation must follow the final original input");
+      order.push("resource-observation"); current.resourceObservations = (current.resourceObservations ?? 0) + 1;
+      const result = copy(current.native); if (current.resourceObservations <= resourceWait) { result.pending = 1; result.resources.pointerRecords = 1; result.resources.privateLeases = 1; }
+      return result;
+    }
     if (code.includes("chrome.tabs.query")) return { tabs: [], targets: [], engineAbsent: !warm };
     if (code.includes("targets:await chrome.debugger.getTargets")) return { frames: frames(current), targets: [], engineAbsent: !warm };
     if (code.includes("chrome.webNavigation.getAllFrames")) return frames(current);
@@ -96,17 +123,17 @@ function workflow({ oldOutline = false, warm = false, receiptError } = {}) {
   } };
   const ledger = item => ({ ...copy(item.server), posts: item.submitted ? copy(item.server.posts) : [] });
   return { browser, getWorker: () => worker, fixtureURL: "http://127.0.0.1:52001", fixtures: { stats: key => ledger(items.find(item => item.key === key)), allStats: () => items.map(ledger) },
-    until: async (predicate, label) => { assert.equal(await predicate(), true); if (receiptError && label.includes("receipt")) throw receiptError; },
+    until: async (predicate, label) => { let matched = false; for (let i = 0; i < 4 && !matched; i++) matched = await predicate(); assert.equal(matched, true); if (receiptError && label.includes("receipt")) throw receiptError; },
     saveArtifact: async (name, bytes) => artifacts.push({ name, bytes }), saveDetail: async detail => { saved = copy(detail); },
     checkEnd: async detail => { assert.equal(detail.states.length, 6); assert.equal(artifacts.length, 6); order.push("end"); return { hidden: true }; },
-    closeTab: async tab => { if (!warm) assert.equal(order[0], "end"); order.push(tab.id); },
+    closeTab: async tab => { if (!warm) assert.ok(order.includes("end")); order.push(tab.id); },
     calls, artifacts, order, detail: () => saved };
 }
 
 for (const oldOutline of [false, true]) test(`cold raw uses only blank creation and public CDP in all six layouts${oldOutline ? ", preserving original transactions through visual red" : ""}`, async () => {
   const harness = workflow({ oldOutline }), result = checkColdRawFeedback(harness);
   if (oldOutline) await assert.rejects(result, /Original leaf button outline/); else await result;
-  const detail = harness.detail(); assert.deepEqual(detail.states.map(item => item.layout), coldRawLayouts); assert.deepEqual(harness.order, ["end", 1, 2, 3, 4, 5, 6]); assert.equal(detail.serverLedger.flatMap(row => row.posts).length, 6);
+  const detail = harness.detail(); assert.deepEqual(detail.states.map(item => item.layout), coldRawLayouts); assert.deepEqual(harness.order, [...Array(6).fill("resource-observation"), "end", 1, 2, 3, 4, 5, 6]); assert.equal(detail.serverLedger.flatMap(row => row.posts).length, 6);
   for (const item of detail.states) { assert.equal(item.businessPassed, true); assert.equal(item.nativePassed, true); assert.equal(item.visiblePassed, !oldOutline); assert.equal(item.native.state.engineAbsent, true); assert.equal(item.native.state.sameAttachment, true); assert.deepEqual(item.childTargetIds, [], "Cold proof does not require engine child attachment records");
     const artifact = harness.artifacts.find(row => row.name === `cold-raw-frame-${item.layout}.png`); assert.equal(hash(artifact.bytes), item.pixels.sha256);
     const calls = harness.calls.filter(row => row.tabId === item.tabId); assert.deepEqual(calls.slice(0, 2).map(row => row.type), ["newTab", "navigate"]);
@@ -121,7 +148,7 @@ test("warm engine is rejected before any page or public input is created", async
 
 test("original receipt error is preserved while all single submissions, PNGs and End are retained", async () => {
   const original = Error("Original cold receipt timed out"), harness = workflow({ receiptError: original }); await assert.rejects(checkColdRawFeedback(harness), error => error === original);
-  const detail = harness.detail(); assert.equal(detail.states.length, 6); assert.equal(detail.serverLedger.flatMap(row => row.posts).length, 6); assert.equal(harness.artifacts.length, 6); assert.deepEqual(harness.order, ["end", 1, 2, 3, 4, 5, 6]); assert.ok(detail.states.every(item => item.native.restored && item.receiptError.includes(original.message)));
+  const detail = harness.detail(); assert.equal(detail.states.length, 6); assert.equal(detail.serverLedger.flatMap(row => row.posts).length, 6); assert.equal(harness.artifacts.length, 6); assert.deepEqual(harness.order, [...Array(6).fill("resource-observation"), "end", 1, 2, 3, 4, 5, 6]); assert.ok(detail.states.every(item => item.native.restored && item.receiptError.includes(original.message)));
 });
 
 test("cold evidence rejects engine migration, missing original ACK, changed input geometry and non-original business", async () => {
@@ -162,6 +189,86 @@ test("cold observer returns the exact native Promise and preserves unknown actua
   const api = { debugger: { sendCommand, attach: () => Promise.resolve(), detach: () => Promise.resolve(), onEvent: event(), onDetach: event() } }, target = { __integrationBackend: { browserEngine: null, attachmentEpochs: new Map([[7, token]]), attachedTabs: new Set([7]) } };
   installColdRawProbe(api, target, { id: "original", tabId: 7 }); assert.equal(api.debugger.sendCommand({ tabId: 7 }, "Input.insertText", { text: "π" }), original);
   assert.equal(target.__obuColdRawFeedback.snapshot().pending, 1); assert.equal(target.__obuColdRawFeedback.snapshot().records.filter(row => row.kind === "settled").length, 0);
+  assert.throws(() => target.__obuColdRawFeedback.restore(), /unresolved/);
   resolve({ originalACK: true }); await original; const result = target.__obuColdRawFeedback.restore(); assert.equal(result.pending, 0); assert.equal(result.restored, true); assert.equal(result.state.sameAttachment, true);
   assert.deepEqual(result.records.at(-1).result, { originalACK: true }); assert.equal(api.debugger.sendCommand, sendCommand); assert.equal(api.debugger.onEvent.listeners.size, 0); assert.equal(api.debugger.onDetach.listeners.size, 0); assert.equal(target.__obuColdRawFeedback, undefined);
+});
+
+test("private observation requires the exact live registry lease and never changes native promises", async () => {
+  const event = () => ({ addListener() {}, removeListener() {} }), token = {}, foreignToken = {};
+  let resolve; const held = new Promise(done => { resolve = done; }), other = Promise.resolve({ foreign: true });
+  const entry = { id: "lease-original", root: { tabId: 7, attachment: token, rootTargetId: "root-original" }, target: { targetId: "child-original" }, data: { parentFrameId: "root-original" } };
+  const foreign = { ...entry, id: "lease-other", root: { ...entry.root, attachment: foreignToken }, target: { targetId: "child-other" } };
+  const registry = { entries: new Map([[entry.id, entry], [foreign.id, foreign]]), targets: new Map([[entry.target.targetId, entry], [foreign.target.targetId, foreign]]) };
+  const record = { scope: { tabId: 7, attachment: token } }, pending = new Set([record]);
+  const api = { debugger: { sendCommand: source => source.targetId === entry.target.targetId ? held : other, attach: () => other, detach: () => other, onEvent: event(), onDetach: event() } };
+  const target = { __integrationBackend: { browserEngine: null, privatePointerTargets: registry, pointerFeedbackReads: { pending }, attachmentEpochs: new Map([[7, token]]), attachedTabs: new Set([7]) } };
+  installColdRawProbe(api, target, { id: "private", tabId: 7 }); const probe = target.__obuColdRawFeedback;
+  assert.equal(api.debugger.sendCommand(entry.target, "Runtime.evaluate", { objectGroup: "obu-native-pointer-test-0" }), held);
+  assert.equal(api.debugger.sendCommand(foreign.target, "Runtime.evaluate", {}), other);
+  assert.equal(api.debugger.sendCommand({ targetId: "unowned" }, "Runtime.evaluate", {}), other);
+  assert.equal(probe.snapshot().records.filter(row => row.kind === "invoke").length, 1);
+  assert.deepEqual(probe.snapshot().records.find(row => row.kind === "invoke").owner, { leaseId: entry.id, targetId: entry.target.targetId, rootTargetId: "root-original", parentFrameId: "root-original", originalAttachment: true });
+  resolve({ result: { objectId: "original" } }); await held;
+  assert.equal(probe.snapshot().pending, 0); assert.throws(() => probe.restore(), /unresolved/);
+  pending.delete(record); assert.throws(() => probe.restore(), /unresolved/);
+  registry.entries.delete(entry.id); registry.targets.delete(entry.target.targetId);
+  const done = probe.restore(); assert.equal(done.resources.privateLeases, 0); assert.equal(done.ownedTargets.length, 1); assert.equal(registry.entries.size, 1);
+});
+
+test("private native evidence rejects borrowed clients, unknown failures, missing releases and premature detach", async () => {
+  const harness = workflow(); await checkColdRawFeedback(harness); const item = harness.detail().states[1], bytes = harness.artifacts[1].bytes;
+  const calls = value => value.native.records.filter(row => row.kind === "invoke"), ack = (value, call) => value.native.records.find(row => row.invocation === call.sequence);
+  const query = value => calls(value).find(row => row.owner && row.method === "Target.getTargetInfo");
+  const release = value => calls(value).find(row => row.owner && row.method === "Runtime.releaseObjectGroup");
+  const detach = value => calls(value).find(row => row.owner && row.method === "debugger.detach");
+  const cases = [
+    value => { ack(value, query(value)).error = "Error: Permission denied"; },
+    value => { ack(value, query(value)).error = "Error: Debugger is not attached to the target with id: wrong."; },
+    value => { ack(value, query(value)).ok = true; },
+    value => { query(value).owner.originalAttachment = false; },
+    value => { release(value).params.objectGroup = "obu-native-pointer-foreign-1"; },
+    value => { ack(value, release(value)).ok = false; ack(value, release(value)).error = "Error: original release failed"; },
+    value => {
+      const rows = value.native.records, call = detach(value), reply = ack(value, call), groupRelease = release(value);
+      rows.splice(rows.indexOf(reply), 1); rows.splice(rows.indexOf(call), 1); rows.splice(rows.indexOf(groupRelease), 0, call, reply);
+      const renumber = new Map(rows.map((row, index) => [row.sequence, index + 1]));
+      for (const row of rows) { if (row.invocation !== undefined) row.invocation = renumber.get(row.invocation); row.sequence = renumber.get(row.sequence); }
+    },
+    value => { detach(value).source.targetId = "successor"; },
+    value => { detach(value).method = "Input.dispatchMouseEvent"; },
+    value => { value.native.resources.privateLeases = 1; },
+    value => { value.native.ownedTargets = []; }
+  ];
+  for (const mutate of cases) { const changed = copy(item); mutate(changed); assert.throws(() => checkColdRawNative(changed, bytes)); }
+  assert.equal(item.nativeProof.privateProof.leases.length, 1); assert.equal(item.nativeProof.privateProof.groups.length, 2);
+});
+
+test("cold completion observes held original resources only after all input and retains their final trace", async () => {
+  const harness = workflow({ resourceWait: 2 }); await checkColdRawFeedback(harness);
+  const detail = harness.detail(); assert.equal(harness.order.filter(value => value === "resource-observation").length, 18);
+  assert.ok(detail.states.every(item => item.nativePassed && item.resourceSettlement.pending === 0 && item.native.restored));
+  assert.equal(detail.serverLedger.flatMap(item => item.posts).length, 6); assert.equal(harness.artifacts.length, 6);
+});
+
+test("only the exact original navigation by-value read is exempt from remote object group accounting", async () => {
+  const harness = workflow(); await checkColdRawFeedback(harness);
+  assert.ok(harness.detail().states.every(item => item.nativeProof.privateProof.navigationReads.length === 1));
+  const item = harness.detail().states[1], bytes = harness.artifacts[1].bytes;
+  const read = value => value.native.records.find(row => row.kind === "invoke" && row.method === "Runtime.evaluate" && row.params.objectGroup === undefined);
+  const ack = value => value.native.records.find(row => row.invocation === read(value).sequence);
+  for (const mutate of [
+    value => { read(value).params.expression = "document.body"; },
+    value => { read(value).params.returnByValue = false; },
+    value => { read(value).params.contextId = 19; },
+    value => { ack(value).result.result.objectId = "unexpected-remote-handle"; },
+    value => { ack(value).result.exceptionDetails = { exception: { objectId: "unexpected-exception" } }; },
+    value => { ack(value).result.result.value.extra = { objectId: "not-navigation-state" }; },
+    value => { ack(value).result.result.value.readyState = "unknown"; },
+    value => { const owner = value.native.ownedTargets[0]; read(value).source = { targetId: owner.targetId }; read(value).owner = copy(owner); },
+    value => {
+      const call = copy(read(value)), reply = copy(ack(value)), rows = value.native.records;
+      call.sequence = rows.length + 1; reply.sequence = rows.length + 2; reply.invocation = call.sequence; rows.push(call, reply);
+    }
+  ]) { const changed = copy(item); mutate(changed); assert.throws(() => checkColdRawNative(changed, bytes)); }
 });

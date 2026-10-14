@@ -132,7 +132,8 @@ delayed-hide race. No new input replay or focus allowance was introduced.
 
 ## Cold native reader candidate
 
-The cold reader is under development, not enabled by the production backend.
+The foundation increment below preceded production integration; its native
+diagnostics alone did not enable the reader in the production backend.
 The shared geometry factory moved to `browser-frame-geometry.js` without changing
 its function body or generated warm vendor bytes. `browser-native-pointer-feedback.js`
 keeps original frame/loader, document element and owner evidence while reading
@@ -168,7 +169,7 @@ dynamic, nested, scaled and rotated layouts match independently authored CSS
 geometry. All original document/business snapshots remain unchanged. This is a
 staged-module read test: it does not inject its result into the visual renderer,
 submit the leaf form or establish cold PNG correctness. The production raw
-feedback and existing preview archives are unchanged.
+feedback and existing preview archives were unchanged at that foundation stage.
 
 Independent original-record review accounts for 198 settled native calls,
 39 opaque objects in 12 released groups, six exact independent attach/detach
@@ -176,12 +177,12 @@ chains and 13 unchanged documents. The only fixture input is the dynamic frame's
 original Add click. The 1,479 ms focus interval has no events or allowances.
 Runner and host have actual exit 0; exact test processes are absent. This mode
 has no independent Chrome exit receipt. Its 465 saved source copies and 144
-additional Go/build input hashes are verified separately. The current three
+additional Go/build input hashes are verified separately. That foundation's three
 Node groups pass 3744 tests with one existing Windows symlink privilege skip;
 all original process exits are 0 and source/runtime hashes remain unchanged.
 
-`browser-private-targets.js` is a separately tested allocator candidate, also
-not enabled in production. It reserves each exact target, persists intent before
+In that foundation, `browser-private-targets.js` was a separately tested allocator
+candidate. It reserves each exact target, persists intent before
 native attachment, and retains actual work through group/detach/storage failure.
 Startup recovery requires a known same-browser ledger; a missing key is not a
 fresh-browser witness. A trusted fresh witness must name its original browser
@@ -193,3 +194,133 @@ tests include failed group retry and delayed stale fresh witnesses; these do not
 prove native worker recovery. Integration with the existing lifecycle, native recovery
 fault tests, private-world lifecycle and the full cold visual workflow remain
 required by the [active plan](../exec-plans/active/2026-10-15-raw-frame-feedback.md).
+
+## Production cold route integration
+
+The backend now connects `browser-native-pointer-route.js` to optional raw
+pointer feedback when no warm Page reader is available. The original root
+attachment and input commands remain unchanged. The route first proves its
+opaque root identity, then uses the native reader and exact private frame
+leases. Actual reads, object groups, independent detach and durable clears remain
+in cleanup; original input success, failure and deadline do not await those
+optional operations.
+
+`browser-private-target-store.js` initializes only after a real install/update
+event and successful marker/empty-ledger writes. A missing or corrupt ownership
+record is unknown, not permission to scan or detach clients. Known same-browser
+records recover cleanup only; stored numeric tab IDs never authorize root
+detach. A validated empty old-browser ledger may rebind after its actual write;
+nonempty old-browser records remain unavailable. Privileged deletion of both
+keys combined with an old native installation event is outside this witness
+contract.
+
+Global Pause joins actual private cleanup. Settled failures require explicit
+recovery; ordinary drains do not replay them. Public detach retries the original
+groups and leases, including when external root detach already removed the
+current attachment token. Successor attach and explicit claim remain fenced by
+that old resource. Original opaque-root absence can retire cleanup after actual
+work drains and exclusion is rechecked, but cannot invent a release ACK or
+authorize new reads.
+
+Cold reads use one active route and one latest queued position per original
+attachment. New positions replace only the unstarted candidate; they never replay
+input or cancel a native send already in flight. Successful cleanup wakes that
+queue even when the preceding read used the warm route. Failed cleanup cancels
+the queued candidate and preserves the original fence until explicit recovery.
+The cold scheduler counts active and queued candidates against its global bound;
+the existing warm admission policy remains unchanged.
+
+When private ownership is unavailable, ordinary input retains its old behavior
+and feedback may use the root hit test. That branch does not establish leaf
+support. Worker recovery must retain independent unresolved input-risk blocking;
+private-target cleanup never clears it or replays input. Real visual/lifecycle
+verification for this integration is recorded separately from the earlier
+diagnostics above. Preview archives remain unchanged.
+
+### Integrated native acceptance
+
+Final-source cold run `JVWwm9` passes both opt-in cases with actual exit 0 and
+unchanged source/runtime hashes. Six original PNGs match their native screenshot
+replies byte for byte. Independent CSS and original node/owner quads agree with
+the projected leaf bounding boxes; all four outline edges pass for same-process,
+cross-process, dynamic, nested, scaled
+and rotated frames; ancestor edges are not highlighted. Six original form POSTs
+and their 48 trusted business events match, across 13 unchanged documents.
+The audit joins all 1,073 original native calls, 183 opaque handles, 56 released
+groups and 27 independent attach/detach pairs. Each root attaches once without
+engine creation or migration. End hides all documents immediately and after
+568 ms. The 8,009 ms focus ledger has no events or allowances; host and runner
+exit 0, with no exact test process remaining. There is no separate Chrome exit
+receipt. This supersedes the cold visual gap for these six fixtures, not the
+broader world-lifetime and event-coexistence requirements.
+
+The first integrated run `HruAYH` remains failed: three layouts lacked an outline
+because old optional reads filled both slots. The old navigation readiness read
+also exposed an overly broad resource oracle. Only its exact command, original
+navigation interval and handle-free value result are exempt from allocation
+group checks. Cold-only scheduler run `21NiBa` passed, but an independent mixed
+warm/cold regression required the queue wake-up fix before `JVWwm9`.
+
+Native lifecycle mode runs the mandatory navigation case followed by three
+scenes: held group delivery, rejected detach delivery and actual worker
+replacement while an original mouse button is held. Invoke it with
+`OBU_TEST_COLD_PRIVATE_TARGETS=1` and
+`OBU_TEST_CASES=^js-cold-private-target-lifecycle$`; it is exclusive of the other
+diagnostic modes. Native ACKs and controlled delivery failures are recorded
+separately. Original failed runs remain evidence: `Vaod2E` incorrectly assumed
+a completed mouse move left held input, and `mjZpUm` compared serialized key
+order instead of exact storage structure. Neither failure justified changing
+production input-risk rules, weakening ACK order or replaying input.
+
+Final-source lifecycle run `WbyEaV` passes both cases with actual exit 0 and no
+source/runtime drift. Independent review joins all 126 native calls across the
+three scenes and the replacement worker. The held risk's actual storage ACK
+precedes the single original mouse-down. Recovery leaves that risk blocked;
+both old begin/finalize requests are rejected, and the replacement issues no
+Input command. Only closing the exact original test tab clears its remaining
+same-browser risk. Private intent recovery queries and detaches the exact owned
+child, then waits for the durable clear ACK; all three final inventories are
+empty. Focus events/extra allowances and exact test process remnants are zero;
+host and runner exit 0. Stop/start is evidenced by the original runner, distinct
+worker targets and new native connections, not an independent protocol transcript.
+Controlled delivery failures are not claims of naturally occurring native errors.
+
+### Default-suite close observation
+
+Default run `6L9esM` remains 179/180 with actual exit 1. Its sole failure is an
+immediate response-body cleanup tab query after the last original `Page.close`;
+the twelve original MCP body reads and native/server bytes pass independent
+review, but the snapshot still contains that dynamic tab. The old fixture has
+no close-ACK/removal-event ledger, so that record cannot prove how soon the tab
+actually disappeared. All other input/frame/screenshot checks, exact original
+focus allowances and final process cleanup remain separately verified.
+
+The pinned [Chromium 156 close implementation](https://github.com/chromium/chromium/blob/156.0.8078.4/content/browser/devtools/protocol/page_handler.cc#L715)
+returns after dispatching before-unload. The response-body fixture now preserves
+each original native close Promise and records its ACK plus exact `tabs.onRemoved`
+events. After all original single close calls return, a five-second read-only
+observation budget requires both exact tab and target inventories to be empty.
+Query errors fail immediately; pending operations and the last snapshot survive
+timeout. Initial inventory and final diagnostic reads have separate bounded
+budgets; this is not a five-second bound on the public close calls themselves.
+No force-close, repeated input, body-read deadline change or production-code
+change is involved. The two fixture files have 58 passing deterministic checks;
+fresh real run `SN2lmN` passes all seven selected cases with actual exit 0.
+Independent review verifies 60 body reads, 15 original close/ACK/removal triples
+and both exact final inventories. Its 34,691 ms focus interval has zero events
+or allowances. Each entry completes on its first observation in this run; the
+delayed-observation branch has deterministic coverage, not a new native delay
+reproduction. The original `6L9esM` timing gap remains unexplained.
+The cold/lifecycle runs above retain their original source snapshots; only these
+two unrelated response-body fixture files changed afterwards.
+
+Final default run `ZXPe7X` passes 180/180 with actual exit 0 and unchanged
+source/runtime hashes. Independent original-record review verifies 18 frame
+PNGs/POSTs (42,559 bytes), 65 raw-object release ACKs, the original input and
+screenshot workflows, and the new close observations. Its 574,481 ms focus
+interval preserves only the original twelve activation/four control-popup
+allowances, each matched to its exact target and interval. The original host
+restart terminates generation one; generation two exits 0, all connections close
+and exact test processes are absent. Final Node groups pass 3,837 tests with one
+existing Windows symlink privilege skip. World/context lifetime, broader native
+event coexistence and ordinary installed Edge remain separate open boundaries.

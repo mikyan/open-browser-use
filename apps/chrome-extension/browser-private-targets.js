@@ -1,8 +1,14 @@
-// Only this allocator may create independent debugger clients in an extension.
+// Only this allocator may create independent debugger clients for the original
+// iframe targets it owns. Other private target kinds, such as the clipboard
+// offscreen page, keep their separate ownership and must never enter this API.
 // The adapter must load this ledger before any such attach is admitted. `fresh`
 // is a trusted browser-lifetime initialization witness, never a missing key or
 // a public request flag. Unknown state disables this optional registry only.
-const VERSION = 1, MAX_TARGETS = 16, MAX_PER_ROOT = 2, MAX_GROUPS = 32, MAX_SENDS = 64;
+// These caps count child clients, not visual reads. PassivePointerReads admits
+// at most two candidates per root and sixteen globally; each reader visits at
+// most 32 frames. Sixty-four children allow two deep candidates on one root,
+// while the same global cap bounds total native clients across every root.
+const VERSION = 1, MAX_TARGETS = 64, MAX_PER_ROOT = 64, MAX_GROUPS = 32, MAX_SENDS = 64;
 const textId = value => typeof value === "string" && value.length > 0 && value.length <= 4096;
 const tabId = value => Number.isSafeInteger(value) && value >= 0;
 const unavailable = () => new Error("OBU_PRIVATE_TARGET_UNAVAILABLE: original private route is unavailable");
@@ -229,14 +235,32 @@ export class PrivateTargetRegistry {
     return entry.releasePending;
   }
 
+  prepareCleanupRetry(leaseId) {
+    const entry = this.entries.get(leaseId);
+    // A candidate may already have released a later child before an earlier
+    // child's detach failed. Missing entries need no reset; false is not proof
+    // of cleanup. Its original lease/read cleanup still decides completion.
+    if (!entry || (entry.releasePending && !entry.releaseSettled)) return false;
+    let prepared = false;
+    for (const group of entry.groups.values()) if (group.settled && group.failed) {
+      group.attempt = null; group.settled = false; group.failed = false; prepared = true;
+    }
+    if (entry.releasePending && entry.releaseSettled && entry.status === "release-failed") {
+      entry.releasePending = null; entry.releaseSettled = false; prepared = true;
+    }
+    // Preparation sends no command and never restores read authority or drops
+    // the target fence. The reader can retry every group before detaching its
+    // original child routes in reverse order, including nested independent roots.
+    return prepared;
+  }
+
   retry(leaseId) {
     const entry = this.entries.get(leaseId);
     if (!entry) return Promise.reject(unavailable());
     const failedGroup = [...entry.groups.values()].some(group => group.failed);
     if (!entry.releasePending && !failedGroup) return Promise.reject(unavailable());
     if (entry.releasePending && (!entry.releaseSettled || entry.status !== "release-failed")) return entry.releasePending;
-    for (const group of entry.groups.values()) if (group.settled && group.failed) { group.attempt = null; group.settled = false; group.failed = false; }
-    entry.releasePending = null; entry.releaseSettled = false;
+    this.prepareCleanupRetry(leaseId);
     return this.release(entry);
   }
 

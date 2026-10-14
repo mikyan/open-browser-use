@@ -7,10 +7,19 @@
 
 ## 当前基线
 
+冷原生坐标反馈已接生产；`JVWwm9`六布局PNG/POST、`WbyEaV`三场原生清理/
+真实worker替换均2/2、actual exit0并通过独审。真实held风险保留，恢复不重放
+输入；Node3837pass/1既有skip，最终完整`ZXPe7X`180/180、actual exit0。
+原`6L9esM`179/180、actual exit1保留；MCP正文的立即tab库存检查补原close
+回执/移除事件及有界完成观察后，专项`SN2lmN`7/7亦通过。仅两份response
+fixture改变，生产字节未变。世界生命周期/事件共存及更广矩阵继续开放，见
+[本片计划](2026-10-15-raw-frame-feedback.md)。
+
+此前 warm 基线：
 坐标高亮 warm 增量 `xS4ddv`180/180 actual exit0、Node3666pass/1既有skip，
 原178名称/顺序保持。18原PNG/POST、65原对象释放及输入/截图记录独审通过；
-533,948ms仅原12activation/4control-focus许可。冷CDP的三布局误框仍有独立
-保留失败，不计入默认通过数；[本片计划](2026-10-15-raw-frame-feedback.md)
+533,948ms仅原12activation/4control-focus许可。早期冷CDP的三布局误框仍有独立
+保留失败，不计入该默认通过数；[本片计划](2026-10-15-raw-frame-feedback.md)
 与整体目标保持active，普通Edge继续延期。
 
 可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。

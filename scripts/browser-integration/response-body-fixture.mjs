@@ -172,12 +172,120 @@ async function restore(worker, item, until) {
   await until(() => worker.evaluate("!globalThis.__responseBodyProbe || globalThis.__responseBodyProbe.snapshot().pending===0"), "original native body delivery settles");
   item.probe = await worker.evaluate("globalThis.__responseBodyProbe?.restore()");
 }
-async function closeTabs(browser, worker, items, detail) {
-  const ids = items.map(item => item.tabId).filter(Number.isSafeInteger);
+// Page.close acknowledges dispatch of beforeunload, not removal from the tab
+// strip. Keep its native Promise unchanged and observe actual removal separately.
+// Chromium 156: content/browser/devtools/protocol/page_handler.cc:715-723.
+export function installResponseBodyCloseProbe(api, target, { id, tabIds, targetIds }) {
+  const key = "__responseBodyCloseProbe";
+  if (target[key]) throw Error("Response close observer already installed");
+  const original = api.debugger.sendCommand, nativeThen = Promise.prototype.then;
+  const watched = new Set(tabIds), ownedTargets = new Set(targetIds), rows = [], pending = new Set();
+  let overflow = false, restored = false;
+  const append = value => {
+    if (rows.length >= 1024) { overflow = true; return; }
+    rows.push(structuredClone({ sequence: rows.length + 1, ...value }));
+  };
+  const track = promise => {
+    pending.add(promise);
+    nativeThen.call(promise, () => pending.delete(promise), () => pending.delete(promise));
+    return promise;
+  };
+  const wrapper = function (...args) {
+    const [source, method, params] = args;
+    if (!watched.has(source?.tabId) || source.sessionId != null || typeof method !== "string" || (method !== "Page.close" && !method.startsWith("Input."))) return Reflect.apply(original, this, args);
+    const call = rows.length + 1;
+    append({ kind: "native", source, method, params: params ?? {} });
+    let promise;
+    try { promise = Reflect.apply(original, this, args); }
+    catch (error) { append({ kind: "native-settled", call, ok: false, synchronous: true, error: String(error) }); throw error; }
+    track(promise);
+    nativeThen.call(promise, value => append({ kind: "native-settled", call, ok: true, value }),
+      error => append({ kind: "native-settled", call, ok: false, error: String(error) }));
+    return promise;
+  };
+  const removed = (tabId, info) => { if (watched.has(tabId)) append({ kind: "removed", tabId, info }); };
+  const snapshot = () => structuredClone({ id, tabIds, targetIds, rows, pending: pending.size, overflow, restored });
+  const controller = {
+    snapshot,
+    async inventory() {
+      // Both original native reads remain tracked even if their observer deadline
+      // expires, or one rejects before the other has actually settled.
+      const [tabs, targets] = await Promise.all([track(api.tabs.query({})), track(api.debugger.getTargets())]);
+      return { tabIds, targetIds, tabs: tabs.filter(tab => watched.has(tab.id)),
+        targets: targets.filter(value => watched.has(value.tabId) || ownedTargets.has(value.id)), probePresent: !!target.__responseBodyProbe };
+    },
+    restore() {
+      if (pending.size) throw Error("Original close observer native operations still pending");
+      if (target[key] !== controller || api.debugger.sendCommand !== wrapper) throw Error("Response close observer identity changed");
+      api.debugger.sendCommand = original; api.tabs.onRemoved.removeListener(removed);
+      restored = true; const result = snapshot(); delete target[key]; return result;
+    }
+  };
+  api.debugger.sendCommand = wrapper; api.tabs.onRemoved.addListener(removed); target[key] = controller;
+  return snapshot();
+}
+
+export async function closeResponseBodyTabs(browser, worker, items, detail, { timeoutMs = 5000, pollMs = 100 } = {}) {
+  const tabIds = [...new Set(items.map(item => item.tabId).filter(Number.isSafeInteger))];
   const targetIds = [...new Set(items.flatMap(item => [item.nativeBefore, item.nativeAfter].flatMap(state => (state?.targets ?? []).map(target => target.id))))];
-  for (const id of ids) { const exists = await worker.evaluate(`chrome.tabs.get(${id}).then(()=>true,()=>false)`); if (exists) await browser.tab(id).close(); }
-  detail.cleanup = await worker.evaluate(`(async()=>({tabIds:${json(ids)},targetIds:${json(targetIds)},tabs:(await chrome.tabs.query({})).filter(t=>${json(ids)}.includes(t.id)),targets:(await chrome.debugger.getTargets()).filter(t=>${json(ids)}.includes(t.tabId)||${json(targetIds)}.includes(t.id)),probePresent:!!globalThis.__responseBodyProbe}))()`);
-  assert.deepEqual(detail.cleanup.tabs, []); assert.deepEqual(detail.cleanup.targets, []); assert.equal(detail.cleanup.probePresent, false);
+  const evidence = detail.closeEvidence = { id: randomUUID(), tabIds, targetIds, timeoutMs, attempts: [], observations: 0, timedOut: false };
+  const timeout = () => Object.assign(new Error("Timed out observing original response-body tab removal"), { code: "OBU_TEST_CLOSE_OBSERVATION_TIMEOUT" });
+  const bounded = async (operation, budget) => {
+    let timer;
+    try { return await Promise.race([operation, new Promise((_, reject) => { timer = setTimeout(() => reject(timeout()), Math.max(0, budget)); })]); }
+    finally { clearTimeout(timer); }
+  };
+  const control = method => worker.evaluate(`globalThis.__responseBodyCloseProbe.${method}()`);
+  let installed = false, failure;
+  try {
+    evidence.installation = await worker.evaluate(`(${installResponseBodyCloseProbe.toString()})(chrome,globalThis,${json(evidence)})`); installed = true;
+    evidence.initial = await bounded(control("inventory"), timeoutMs);
+    evidence.alreadyAbsent = tabIds.filter(id => !evidence.initial.tabs.some(tab => tab.id === id));
+    for (const id of tabIds.filter(id => !evidence.alreadyAbsent.includes(id))) {
+      const attempt = { tabId: id }; evidence.attempts.push(attempt);
+      try { attempt.value = await browser.tab(id).close(); attempt.ok = true; }
+      catch (error) { attempt.ok = false; attempt.error = errorText(error); throw error; }
+    }
+    // This observation budget begins after the original close calls. It neither
+    // changes their deadlines nor retries close, input, or a failed native read.
+    const deadline = performance.now() + timeoutMs;
+    while (true) {
+      if (performance.now() >= deadline) throw timeout();
+      const inventory = await bounded(control("inventory"), deadline - performance.now());
+      detail.cleanup = inventory; evidence.observations++;
+      evidence.firstAfterClose ??= inventory; evidence.final = inventory;
+      if (performance.now() >= deadline) throw timeout();
+      evidence.observer = await bounded(control("snapshot"), deadline - performance.now());
+      if (performance.now() >= deadline) throw timeout();
+      const probe = evidence.observer;
+      assert.equal(probe.overflow, false); assert.equal(probe.id, evidence.id);
+      assert.equal(probe.rows.some(row => row.kind === "native" && row.method.startsWith("Input.")), false);
+      let removedAll = true;
+      for (const attempt of evidence.attempts) {
+        const calls = probe.rows.filter(row => row.kind === "native" && row.method === "Page.close" && row.source.tabId === attempt.tabId);
+        assert.equal(calls.length, 1, "Each original tab closes exactly once");
+        const acks = probe.rows.filter(row => row.kind === "native-settled" && row.call === calls[0].sequence);
+        assert.equal(acks.length, 1); assert.equal(acks[0].ok, true); assert.ok(acks[0].sequence > calls[0].sequence);
+        const events = probe.rows.filter(row => row.kind === "removed" && row.tabId === attempt.tabId);
+        assert.ok(events.length <= 1); if (!events.length) removedAll = false;
+        else assert.ok(events[0].sequence > calls[0].sequence);
+      }
+      if (!inventory.tabs.length && !inventory.targets.length && removedAll && probe.pending === 0) {
+        assert.equal(inventory.probePresent, false); break;
+      }
+      await new Promise(resolve => setTimeout(resolve, Math.min(pollMs, Math.max(0, deadline - performance.now()))));
+    }
+  } catch (error) {
+    failure = error; evidence.error = errorText(error); evidence.timedOut = error?.code === "OBU_TEST_CLOSE_OBSERVATION_TIMEOUT";
+  } finally {
+    if (installed) {
+      try { evidence.observer = await bounded(control("snapshot"), 1000); }
+      catch (error) { evidence.snapshotError = errorText(error); failure ??= error; }
+      try { evidence.restoration = await bounded(control("restore"), 1000); }
+      catch (error) { evidence.restoreError = errorText(error); failure ??= error; }
+    }
+  }
+  if (failure) throw failure;
 }
 async function openCase({ browser, worker, fixtureURL, entry, layout, detail }) {
   const key = `body-${entry}-${layout}-${randomUUID().replaceAll("-", "")}`, tab = await browser.newTab();
@@ -307,7 +415,7 @@ export async function checkResponseBodyMatrix({ browser, worker, fixtureURL, ser
   finally {
     try { const active = detail.cases.at(-1); if (active && !active.probe) await restore(worker, active, until); }
     catch (error) { detail.cleanupErrors.push(errorText(error)); failure ??= error; }
-    try { await closeTabs(browser, worker, detail.cases, detail); } catch (error) { detail.cleanupErrors.push(errorText(error)); failure ??= error; }
+    try { await closeResponseBodyTabs(browser, worker, detail.cases, detail); } catch (error) { detail.cleanupErrors.push(errorText(error)); failure ??= error; }
     detail.server = detail.cases.map(item => server.stats(item.key));
   }
   if (failure) { failure.responseBodyDetail = detail; throw failure; } detail.passed = true; return detail;
@@ -415,7 +523,7 @@ export async function checkResponseBodyEdges({ browser, worker, fixtureURL, serv
       }
       const item = detail.cases.at(-1); if (item && !item.probe) await restore(worker, item, until);
     } catch (error) { detail.cleanupErrors.push(errorText(error)); failure ??= error; }
-    try { await closeTabs(browser, worker, detail.cases, detail); } catch (error) { detail.cleanupErrors.push(errorText(error)); failure ??= error; }
+    try { await closeResponseBodyTabs(browser, worker, detail.cases, detail); } catch (error) { detail.cleanupErrors.push(errorText(error)); failure ??= error; }
     detail.server = detail.cases.map(item => server.stats(item.key));
   }
   if (failure) { failure.responseBodyDetail = detail; throw failure; }

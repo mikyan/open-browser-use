@@ -38,6 +38,8 @@ const productionFiles = [
   "browser-response-body.js",
   "browser-pointer-guard.js",
   "browser-pointer-feedback.js",
+  "browser-native-pointer-feedback.js", "browser-frame-geometry.js", "browser-native-pointer-route.js",
+  "browser-private-targets.js", "browser-private-target-store.js",
   "browser-visual-deliveries.js",
   "browser-snapshot-geometry.js",
   "browser-clipboard.js", "clipboard-broker.js", "clipboard-offscreen.html", "clipboard-offscreen.js",

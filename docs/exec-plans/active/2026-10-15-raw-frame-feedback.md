@@ -42,9 +42,16 @@ of the element that received an earlier input event.
   sources. Both coordinate modes completed all six original submissions and
   native checks; all twelve outlines selected ancestor frames. No activation or
   focus event occurred in the 13,643 ms observation. Original cleanup completed.
-- [ ] Implementation and deterministic checks complete.
-- [ ] Real-browser verification and independent review complete.
-- [ ] Documentation and fork delivery complete.
+- [x] Warm and cold production routes, durable private ownership and bounded
+  latest-position scheduling implemented; deterministic checks pass.
+- [x] Six-layout cold visual/input/resource workflow passes on final source,
+  with independent review of original evidence (`JVWwm9`).
+- [x] Real worker/fault recovery and final default regression independently
+  reviewed and delivered for this integration increment.
+- [ ] World/context cardinality, navigation/document replacement and broader
+  native-event coexistence verified.
+- [x] Documentation and fork delivery prepared for the validated integration
+  increment; the broader lifecycle plan remains active.
 
 Fullscreen remains a separate unverified candidate. Its active-tab requirement
 must not be bypassed or turned into a new focus exemption for this work.
@@ -286,6 +293,123 @@ visual/POST workflow. Existing preview packages remain unchanged.
   parent routes, and colliding auto-attach events must either remain correct or
   reject feedback. Unknown geometry cannot be reported as an ancestor leaf.
 
-These unresolved identity/event/lifetime requirements make the adapter a separate
-implementation step. Passing the warm reader does not close the cold boundary or
-the parent Browser Use goal.
+These unresolved identity/event/lifetime requirements remain separate acceptance
+boundaries. Passing the warm reader does not close the cold boundary or the
+parent Browser Use goal.
+
+### Production integration
+
+The native route and durable store now connect to the production backend and
+build. A real install/update witness initializes only a never-initialized store;
+known same-browser records recover cleanup only. Optional unknown state preserves
+ordinary input. Global drains join actual private work, explicit recovery resets
+only settled failures, and stored numeric tab IDs never authorize root detach.
+
+A retained deterministic red case found that public claim could install a cold
+reset gate while an old-token allocation still needed exact-root cleanup. The
+shared pointer admission guard now runs before that gate and during its identity
+checks. The identical regression passes after the fix. A production backend
+suite also covers original input errors/deadlines and tokenless detach retry.
+
+Verification next: the original six-layout cold PNG/POST workflow, followed by
+held group delivery, rejected detach delivery and real worker replacement. The
+last scenario must preserve unresolved input-risk blocking. These are separate
+from native failure claims; controlled ACK delivery remains explicitly labeled.
+No input replay, engine-state reset or new focus allowance is permitted.
+
+The first integrated run `HruAYH` is retained with actual exit 1 and no source
+drift. Six original trusted submissions total 17,463 bytes; all original business
+checks pass. Three layouts show the correct outline, while same-process, OOPIF
+and nested hover have no rectangle. Earlier optional reads occupy both candidate
+slots, so the latest hover never starts its native read. This requires bounded
+latest-position scheduling, not input replay or a test-side delay. End remains
+hidden for 566 ms across 13 original documents; no focus/activation events or
+allowances occur.
+
+The initial resource oracle also incorrectly treated the existing root
+navigation's fixed by-value readiness read as a private allocation. The corrected
+oracle accepts only that exact command, original navigation interval and a
+handle-free value reply. Offline rechecking the six original traces passes the
+native checks; the original run remains failed and its three missing outlines
+are unchanged. A new browser run is required after the scheduler fix.
+
+Cold-only latest scheduling then passes real run `21NiBa`: all six original
+layouts now show their leaf outlines, with original PNGs and submissions. The
+original mandatory navigation case also passes. This is not yet the final full
+regression: independent review found a mixed cold/warm queue wake-up seam that
+must be fixed without changing warm read admission.
+
+The first native lifecycle run `Vaod2E` retains actual exit 1. Held group delivery
+and rejected detach delivery both complete their explicit original public retry
+and durable cleanup. Worker-owned intent also cleans correctly, but the test
+incorrectly requires an input-risk pause after only an acknowledged mouse move.
+The actual input tracker has already cleared that risk, so explicit beginTurn
+succeeds. Preserve this record; add a real held-button precondition and original
+durable-risk evidence before asserting recovery remains blocked. Do not change
+the production pause rules to satisfy an invalid test assumption.
+
+The next lifecycle run `mjZpUm` also retains actual exit 1, before worker restart.
+Its actual risk mark call 7 / ACK 10 precedes the original down call 11 / ACK 14;
+the stored risk and held-left tracker agree. The oracle incorrectly compared
+JSON property order across storage write/read. Exact deep structural comparison
+repairs both risk and recovered-intent checks without relaxing fields, unique
+write counts or native ACK order. Two retained old-source regressions fail;
+the final fixture passes 18/18 deterministic checks.
+
+Final mixed-scheduler run `JVWwm9` passes 2/2, actual exit 0, without source/runtime
+drift. Independent original-record review verifies six PNGs and six POSTs,
+48 trusted business events, 13 original documents, 1,073 native calls, 183 opaque
+handles, 56 released groups and 27 independent attach/detach pairs. The six roots
+each attach once without engine creation/migration. End remains hidden after
+568 ms; the 8,009 ms focus ledger has zero events/allowances. Host and runner
+exit 0 and exact test processes are absent, without a separate Chrome exit receipt.
+
+All three final Node groups close with actual exit 0: extension 1,793, scripts
+330 and integration 1,714 pass, with one existing Windows symlink privilege skip
+(3,837 total passing tests after the response-body close observation repair).
+There is no source/runtime drift. Existing Go inputs and binaries were hash-checked
+and reused; this is not a new Go build or an ordinary-install acceptance.
+
+Default regression `6L9esM` retains actual exit 1: 179/180 pass, with the sole
+failure in MCP response-body cleanup. All twelve original body reads across
+three layouts match their native response ACKs and server bytes. Immediately
+after three single public `Page.close` calls, the last dynamic tab remains in
+`tabs.query`, while its target inventory is empty. The old fixture restored its
+native probe before close, so it has no close-ACK/removal-event timing evidence;
+do not infer final tab absence or the exact failure timing from this record.
+
+The pinned [Chromium 156 implementation](https://github.com/chromium/chromium/blob/156.0.8078.4/content/browser/devtools/protocol/page_handler.cc#L715)
+dispatches before-unload and returns success without awaiting tab removal.
+The fixture must observe bounded completion after the original single close,
+recording exact native close ACKs, removal events and both tab/target absence.
+It must not repeat close, swallow query errors, extend body-read deadlines or
+turn the old failed run into a pass. This cleanup-observation repair is separate
+from the cold production route.
+
+### Final integrated acceptance
+
+The repaired fixture passes 58 deterministic checks and real `SN2lmN` 7/7,
+actual exit 0. Independent review joins 60 original body reads and 15 original
+close/ACK/removal triples; all six entry cleanups finish at their first observed
+inventory. This is not a new native reproduction of the old timing gap.
+
+Final default run `ZXPe7X` passes 180/180, actual exit 0 with no source/runtime
+drift. Its case names/order exactly match `xS4ddv`. Independent review verifies
+18 original frame PNGs/POSTs (42,559 bytes), 65 raw-object release ACKs,
+33 input scenes with 179 Input calls/212 native calls and 26 original POSTs
+(180,342 bytes), nine End sequences, eleven drag guard cleanups, five screenshot
+drain/deadline scenes and seven independently decoded screenshot PNGs. Original
+retirement and late rejected hide delivery remain distinct from a hide ACK.
+The 574,481 ms formal focus ledger retains only the original twelve activation
+and four control-popup allowances, matched by exact target and interval.
+The first host is intentionally terminated by its original restart test; the
+second exits 0. All original connections close and exact test processes are absent.
+
+Final Node groups pass 3,837 tests with one existing Windows privilege skip.
+The cold and lifecycle runs retain their original source snapshots: only the two
+response-body fixture files changed afterwards. Production bytes, pinned runtimes
+and hash-verified reused Go binaries match across these runs. Existing preview
+archives remain unchanged. No PR, input replay, system mouse action or new focus
+allowance was introduced. World/context cardinality, navigation/document
+replacement, native-event coexistence, ordinary Edge and the parent matrix remain
+open; this increment does not complete the broader plan or goal.

@@ -15,16 +15,35 @@ export function installColdRawProbe(api, target, { id, tabId }) {
   if (target.__obuColdRawFeedback) throw Error("Cold raw observer already installed");
   const backend = target.__integrationBackend;
   if (!backend || backend.browserEngine !== null) throw Error("Cold raw requires an uncreated browser engine");
+  const registry = backend.privatePointerTargets, ownedTargets = new Map();
   const originals = { sendCommand: api.debugger.sendCommand, attach: api.debugger.attach, detach: api.debugger.detach };
   const nativeThen = Promise.prototype.then, records = [], wrappers = {};
   let anchor, pending = 0, overflow = false, recordingErrors = 0, restored = false, size = 0;
   const state = () => {
     const current = backend.attachmentEpochs.get(tabId);
     if (anchor === undefined && current !== undefined) anchor = current;
-    return { backendCurrent: target.__integrationBackend === backend, engineAbsent: backend.browserEngine === null,
+    return { backendCurrent: target.__integrationBackend === backend, registryCurrent: backend.privatePointerTargets === registry, engineAbsent: backend.browserEngine === null,
       attached: backend.attachedTabs.has(tabId), attachmentKnown: current !== undefined,
       originalAttachmentSeen: anchor !== undefined, sameAttachment: anchor === undefined ? null : current === anchor };
   };
+  const originalLease = source => {
+    state();
+    const entry = registry?.targets.get(source?.targetId);
+    if (!entry || registry.entries.get(entry.id) !== entry || entry.root?.tabId !== tabId ||
+        anchor === undefined || entry.root.attachment !== anchor || entry.target.targetId !== source.targetId) return null;
+    const identity = { leaseId: entry.id, targetId: entry.target.targetId, rootTargetId: entry.root.rootTargetId,
+      parentFrameId: entry.data?.parentFrameId, originalAttachment: true };
+    // The reservation precedes its durable intent. Its immutable parent is
+    // available on the first attach, and is retained after native cleanup.
+    const previous = ownedTargets.get(entry.id);
+    if (identity.parentFrameId === undefined && previous) identity.parentFrameId = previous.parentFrameId;
+    ownedTargets.set(entry.id, identity);
+    return identity;
+  };
+  const resources = () => ({
+    pointerRecords: [...(backend.pointerFeedbackReads?.pending ?? [])].filter(record => record.scope.tabId === tabId).length,
+    privateLeases: [...(registry?.entries.values() ?? [])].filter(entry => entry.root?.tabId === tabId && entry.root.attachment === anchor).length
+  });
   const append = row => {
     try { const value = { sequence: records.length + 1, ...row }, bytes = JSON.stringify(value).length;
       if (records.length >= 2048 || bytes > 2 * 1024 * 1024 || size + bytes > 12 * 1024 * 1024) { overflow = true; return null; }
@@ -33,9 +52,10 @@ export function installColdRawProbe(api, target, { id, tabId }) {
   };
   for (const name of Object.keys(originals)) {
     wrappers[name] = function (...args) {
-      if (args[0]?.tabId !== tabId) return Reflect.apply(originals[name], this, args);
+      const owner = args[0]?.targetId ? originalLease(args[0]) : null;
+      if (args[0]?.tabId !== tabId && !owner) return Reflect.apply(originals[name], this, args);
       const row = append({ kind: "invoke", method: name === "sendCommand" ? args[1] : `debugger.${name}`,
-        source: structuredClone(args[0]), params: structuredClone(name === "sendCommand" ? args[2] ?? {} : { version: args[1] ?? null }), state: state() });
+        source: structuredClone(args[0]), ...(owner ? { owner } : {}), params: structuredClone(name === "sendCommand" ? args[2] ?? {} : { version: args[1] ?? null }), state: state() });
       let promise;
       try { promise = Reflect.apply(originals[name], this, args); }
       catch (error) { append({ kind: "settled", invocation: row?.sequence, ok: false, error: String(error), state: state() }); throw error; }
@@ -48,12 +68,15 @@ export function installColdRawProbe(api, target, { id, tabId }) {
     api.debugger[name] = wrappers[name];
   }
   const eventMethods = new Set(["Page.frameNavigated", "Page.frameAttached", "Page.frameDetached", "Runtime.executionContextCreated", "Runtime.executionContextDestroyed", "Runtime.executionContextsCleared", "Target.attachedToTarget", "Target.detachedFromTarget"]);
-  const onEvent = (source, method, params) => { if (source.tabId === tabId && eventMethods.has(method)) append({ kind: "event", source: structuredClone(source), method, params: structuredClone(params), state: state() }); };
-  const onDetach = (source, reason) => { if (source.tabId === tabId) append({ kind: "detached", source: structuredClone(source), reason, state: state() }); };
+  const knownTarget = source => originalLease(source) ?? [...ownedTargets.values()].find(owner => owner.targetId === source?.targetId);
+  const onEvent = (source, method, params) => { const owner = knownTarget(source); if ((source.tabId === tabId || owner) && eventMethods.has(method)) append({ kind: "event", source: structuredClone(source), ...(owner ? { owner } : {}), method, params: structuredClone(params), state: state() }); };
+  const onDetach = (source, reason) => { const owner = knownTarget(source); if (source.tabId === tabId || owner) append({ kind: "detached", source: structuredClone(source), ...(owner ? { owner } : {}), reason, state: state() }); };
   api.debugger.onEvent.addListener(onEvent); api.debugger.onDetach.addListener(onDetach);
-  const snapshot = () => structuredClone({ id, tabId, records, pending, overflow, recordingErrors, restored, state: state() });
+  const snapshot = () => structuredClone({ id, tabId, records, pending, overflow, recordingErrors, restored, state: state(), resources: resources(), ownedTargets: [...ownedTargets.values()] });
   const controller = { id, snapshot, mark(label) { const value = state(); append({ kind: "state", label, state: value }); return value; }, restore() {
     if (!restored) {
+      const original = resources();
+      if (pending || original.pointerRecords || original.privateLeases) throw Error("Cannot restore unresolved cold native resources");
       for (const name of Object.keys(originals)) if (api.debugger[name] !== wrappers[name]) throw Error("Original cold raw observer was replaced");
       for (const name of Object.keys(originals)) api.debugger[name] = originals[name];
       api.debugger.onEvent.removeListener(onEvent); api.debugger.onDetach.removeListener(onDetach); restored = true;
@@ -144,16 +167,29 @@ export function checkColdRawBusiness(item) {
 
 export function checkColdRawNative(item, bytes) {
   const probe = item.native; assert.equal(probe.restored, true); assert.equal(probe.pending, 0); assert.equal(probe.overflow, false); assert.equal(probe.recordingErrors, 0);
+  assert.deepEqual(probe.resources, { pointerRecords: 0, privateLeases: 0 });
   assert.ok(probe.records.every((row, index) => row.sequence === index + 1));
-  for (const state of [...probe.records.map(row => row.state), probe.state]) { assert.equal(state.backendCurrent, true); assert.equal(state.engineAbsent, true); assert.notEqual(state.sameAttachment, false); }
+  for (const state of [...probe.records.map(row => row.state), probe.state]) { assert.equal(state.backendCurrent, true); assert.equal(state.registryCurrent, true); assert.equal(state.engineAbsent, true); assert.notEqual(state.sameAttachment, false); }
   assert.equal(probe.state.attached, true); assert.equal(probe.state.originalAttachmentSeen, true); assert.equal(probe.state.sameAttachment, true);
   const calls = probe.records.filter(row => row.kind === "invoke"), acks = new Map();
   for (const call of calls) {
     const matching = probe.records.filter(row => row.invocation === call.sequence); assert.equal(matching.length, 1); const ack = matching[0];
-    assert.equal(ack.kind, "settled"); assert.equal(ack.ok, true); assert.ok(ack.sequence > call.sequence); acks.set(call.sequence, ack);
+    assert.equal(ack.kind, "settled"); assert.ok(ack.sequence > call.sequence); acks.set(call.sequence, ack);
+    if (!ack.ok) {
+      assert.equal(call.method, "Target.getTargetInfo"); assert.ok(call.owner?.leaseId); assert.equal(call.owner.originalAttachment, true);
+      assert.deepEqual(call.source, { targetId: call.owner.targetId });
+      assert.equal(ack.error, `Error: Debugger is not attached to the target with id: ${call.source.targetId}.`);
+    } else assert.equal(ack.ok, true);
   }
   assert.equal(probe.records.filter(row => row.kind === "settled").length, calls.length);
-  assert.equal(calls.filter(row => row.method === "debugger.attach").length, 1); assert.equal(calls.filter(row => row.method === "debugger.detach").length, 0); assert.equal(probe.records.filter(row => row.kind === "detached").length, 0);
+  const rootCalls = calls.filter(row => row.source.tabId === item.tabId);
+  assert.equal(rootCalls.filter(row => row.method === "debugger.attach").length, 1); assert.equal(rootCalls.filter(row => row.method === "debugger.detach").length, 0); assert.equal(probe.records.filter(row => row.kind === "detached" && row.source?.tabId === item.tabId).length, 0);
+  for (const row of probe.records.filter(row => row.kind === "detached")) {
+    assert.ok(row.owner?.leaseId); assert.deepEqual(row.source, { targetId: row.owner.targetId });
+    assert.ok(probe.ownedTargets.some(owner => owner.leaseId === row.owner.leaseId && owner.targetId === row.source.targetId));
+  }
+  const privateProof = checkColdRawResources(probe, acks);
+  if (item.layout !== "same") assert.ok(privateProof.leases.length > 0, "Original OOPIF requires an observed owned private route");
   const input = calls.filter(row => row.method.startsWith("Input.") || row.method === "Page.captureScreenshot");
   const expected = [...(item.layout === "dynamic-oopif" ? ["mouseMoved", "mousePressed", "mouseReleased"].map(type => ({ type, point: item.addPoint })) : []),
     ...["mouseMoved", "mousePressed", "mouseReleased"].map(type => ({ type, point: item.inputPoint })), { type: "Input.insertText" },
@@ -167,13 +203,78 @@ export function checkColdRawNative(item, bytes) {
   }
   const root = item.frameTree.frameTree.frame; assert.equal(root.url, item.urls.root); assert.ok(root.id); assert.ok(root.loaderId); assert.equal(root.loaderId, item.navigation.loaderId);
   assert.ok(probe.records.some(row => row.kind === "event" && row.method === "Page.frameNavigated" && row.source.tabId === item.tabId && row.params.frame.id === root.id && row.params.frame.loaderId === root.loaderId && row.params.frame.url === root.url), "Original root navigation event required");
-  return { inputInvocations: input.map(row => row.sequence), inputACKs: input.map(row => acks.get(row.sequence).sequence), rootFrameId: root.id, rootLoaderId: root.loaderId };
+  return { inputInvocations: input.map(row => row.sequence), inputACKs: input.map(row => acks.get(row.sequence).sequence), rootFrameId: root.id, rootLoaderId: root.loaderId, privateProof };
+}
+
+// Read only original calls/replies. Target URLs and inventory membership are
+// never ownership proof; each private call captured the actual registry lease.
+export function checkColdRawResources(probe, acks = new Map(probe.records.filter(row => row.kind === "settled").map(row => [row.invocation, row]))) {
+  const calls = probe.records.filter(row => row.kind === "invoke"), groups = new Map(), leases = new Map(), navigationReads = [];
+  const allowed = new Set(["Target.getTargetInfo", "debugger.attach", "debugger.detach", "Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate", "Runtime.callFunctionOn", "Runtime.releaseObjectGroup", "DOM.describeNode", "DOM.getBoxModel", "DOM.getFrameOwner", "DOM.resolveNode"]);
+  for (const call of calls) {
+    if (call.source.targetId !== undefined) {
+      const owner = call.owner;
+      assert.ok(owner?.leaseId && owner.rootTargetId); assert.equal(owner.originalAttachment, true);
+      assert.deepEqual(call.source, { targetId: owner.targetId }); assert.notEqual(owner.targetId, owner.rootTargetId); assert.ok(allowed.has(call.method), `Unexpected private command ${call.method}`);
+      const lease = leases.get(owner.leaseId) ?? { owner, calls: [] };
+      assert.equal(lease.owner.targetId, owner.targetId); assert.equal(lease.owner.rootTargetId, owner.rootTargetId);
+      lease.calls.push(call); leases.set(owner.leaseId, lease);
+    } else assert.deepEqual(call.source, { tabId: probe.tabId });
+    if (call.method === "Runtime.evaluate" && call.params.objectGroup === undefined) {
+      // The public SDK's original navigation waiter returns only two values.
+      // It allocates no remote handle and does not belong to the private reader.
+      // Do not extend this exception to other expressions or allocating replies.
+      assert.deepEqual(call.source, { tabId: probe.tabId }); assert.equal(call.owner, undefined);
+      assert.deepEqual(call.params, { expression: "({ href: window.location.href, readyState: document.readyState })", returnByValue: true });
+      const ack = acks.get(call.sequence), value = ack?.result?.result?.value;
+      assert.equal(ack?.ok, true); assert.equal(typeof value?.href, "string"); assert.ok(["loading", "interactive", "complete"].includes(value?.readyState));
+      assert.deepEqual(ack.result, { result: { type: "object", value: { href: value.href, readyState: value.readyState } } });
+      const navigation = calls.filter(row => row.method === "Page.navigate" && row.source.tabId === probe.tabId);
+      assert.equal(navigation.length, 1); assert.equal(acks.get(navigation[0].sequence)?.ok, true);
+      assert.ok(acks.get(navigation[0].sequence).sequence < call.sequence);
+      const complete = probe.records.find(row => row.kind === "state" && row.label === "navigated");
+      assert.ok(complete && ack.sequence < complete.sequence, "Only the original navigation waiter may read without an object group");
+      navigationReads.push({ invocation: call.sequence, ack: ack.sequence, href: value.href, readyState: value.readyState });
+      continue;
+    }
+    if (["Runtime.evaluate", "Runtime.callFunctionOn", "DOM.resolveNode", "Runtime.releaseObjectGroup"].includes(call.method)) {
+      const name = call.params.objectGroup; assert.equal(typeof name, "string"); assert.match(name, /^obu-native-pointer-.+-\d+$/);
+      const key = `${call.owner?.leaseId ?? "root"}:${name}`, group = groups.get(key) ?? { name, candidate: name.replace(/-\d+$/, ""), leaseId: call.owner?.leaseId, allocations: [], releases: [] };
+      (call.method === "Runtime.releaseObjectGroup" ? group.releases : group.allocations).push(call); groups.set(key, group);
+    }
+  }
+  for (const group of groups.values()) {
+    assert.ok(group.allocations.length > 0); assert.equal(group.releases.length, 1, "Every original group requires its single actual release");
+    const release = group.releases[0]; assert.equal(acks.get(release.sequence)?.ok, true);
+    for (const allocation of group.allocations) { const ack = acks.get(allocation.sequence); assert.equal(ack?.ok, true); assert.ok(ack.sequence < release.sequence, "Group release cannot precede an actual allocation reply"); }
+  }
+  const proof = [];
+  assert.equal(probe.ownedTargets.length, leases.size);
+  for (const [id, lease] of leases) {
+    const owned = probe.ownedTargets.filter(owner => owner.leaseId === id); assert.equal(owned.length, 1); assert.ok(owned[0].parentFrameId);
+    assert.equal(owned[0].targetId, lease.owner.targetId); assert.equal(owned[0].rootTargetId, lease.owner.rootTargetId);
+    const find = method => lease.calls.filter(call => call.method === method), queries = find("Target.getTargetInfo"), attached = find("debugger.attach"), detached = find("debugger.detach");
+    assert.equal(queries.length, 1); assert.equal(attached.length, 1); assert.equal(detached.length, 1);
+    const query = queries[0], attach = attached[0], detach = detached[0], preflight = acks.get(query.sequence);
+    assert.equal(preflight?.ok, false); assert.equal(preflight.error, `Error: Debugger is not attached to the target with id: ${owned[0].targetId}.`);
+    assert.ok(preflight.sequence < attach.sequence); assert.equal(acks.get(attach.sequence)?.ok, true); assert.equal(acks.get(detach.sequence)?.ok, true);
+    const routeGroups = [...groups.values()].filter(group => group.leaseId === id); assert.ok(routeGroups.length > 0);
+    for (const call of lease.calls.filter(call => call !== query && call !== attach && call !== detach)) {
+      assert.ok(acks.get(attach.sequence).sequence < call.sequence); assert.equal(acks.get(call.sequence)?.ok, true); assert.ok(acks.get(call.sequence).sequence < detach.sequence);
+    }
+    // One candidate releases every original route group before detaching any
+    // owned child. Other overlapping candidates keep their independent order.
+    for (const group of routeGroups) for (const original of groups.values()) if (original.candidate === group.candidate)
+      assert.ok(acks.get(original.releases[0].sequence).sequence < detach.sequence);
+    proof.push({ ...owned[0], preflight: query.sequence, attach: attach.sequence, detach: detach.sequence, groups: routeGroups.map(group => group.name) });
+  }
+  return { navigationReads, leases: proof, groups: [...groups.values()].map(group => ({ name: group.name, leaseId: group.leaseId ?? null, allocations: group.allocations.map(call => call.sequence), release: group.releases[0].sequence })) };
 }
 
 export async function checkColdRawFeedback({ browser, getWorker, fixtureURL, fixtures, until, saveArtifact, saveDetail, checkEnd, closeTab }) {
   assert.equal(typeof closeTab, "function", "Cold cleanup must not reopen an SDK turn after End");
-  const detail = { states: [], tabIds: [], childTargetIds: [], cleanup: [], boundary: "Cold public CDP only, before any browser engine creation. Original blank tabs, raw navigation/input/capture, exact-document passive reads and unchanged raw attachment. Native child sessions are observations, not fabricated CRX readiness. No input replay or focus allowance." };
-  const tabs = []; let failure;
+  const detail = { states: [], tabIds: [], childTargetIds: [], cleanup: [], boundary: "Cold public CDP only, before any browser engine creation. Original blank tabs, raw navigation/input/capture, exact-document passive reads and unchanged raw attachment. Independent child target calls are captured only through the original production registry leases; group and detach cleanup require actual ACKs. Resource settlement is observed after the final original input, without starting cleanup or retries. No input replay or focus allowance." };
+  const tabs = []; let failure, danglingObserver;
   const remember = (owner, field, error) => { owner[field] = errorText(error); failure ??= error; };
   try {
     detail.initialEngine = await getWorker().evaluate(`({engineAbsent:globalThis.__integrationBackend?.browserEngine===null})`); assert.equal(detail.initialEngine.engineAbsent, true);
@@ -210,7 +311,19 @@ export async function checkColdRawFeedback({ browser, getWorker, fixtureURL, fix
         item.after ??= await readDocuments(worker, tab.id, item.frames); item.afterSubmit = await mark("submitted"); item.server = fixtures.stats(key); item.pixels = measureFrameTargetPixels(bytes, item.geometry);
       } catch (error) { remember(item, "error", error); }
       finally {
-        if (installed) try { item.native = await worker.evaluate(`(()=>{const probe=globalThis.__obuColdRawFeedback;if(probe?.id!==${JSON.stringify(key)})throw Error('Original cold observer changed');return probe.restore()})()`); } catch (error) { remember(item, "nativeError", error); }
+        if (installed) {
+          const snapshot = () => worker.evaluate(`(()=>{const probe=globalThis.__obuColdRawFeedback;if(probe?.id!==${JSON.stringify(key)})throw Error('Original cold observer changed');return probe.snapshot()})()`);
+          try {
+            // This is observation after the final original input. It never
+            // starts cleanup, retries a failure, or delays/replays an input.
+            await until(async () => { const value = await snapshot(); item.resourceSettlement = value;
+              return value.pending === 0 && value.resources.pointerRecords === 0 && value.resources.privateLeases === 0;
+            }, "original cold pointer resources and native replies settled", 5000);
+            item.native = await worker.evaluate(`(()=>{const probe=globalThis.__obuColdRawFeedback;if(probe?.id!==${JSON.stringify(key)})throw Error('Original cold observer changed');return probe.restore()})()`);
+          } catch (error) {
+            remember(item, "nativeError", error); item.native = await snapshot().catch(() => null); danglingObserver = { worker, key };
+          }
+        }
         try { item.server = fixtures.stats(key); item.inventory = await worker.evaluate(`(async()=>({frames:await chrome.webNavigation.getAllFrames({tabId:${tab.id}}),targets:await chrome.debugger.getTargets(),engineAbsent:__integrationBackend.browserEngine===null}))()`); assert.equal(item.inventory.engineAbsent, true);
           if (item.frames) { const current = selectFrameTargetDocuments(item.inventory.frames, urls, layout); assert.ok(current); assert.deepEqual(current.map(frame => [frame.frameId, frame.documentId, frame.processId]), item.frames.map(frame => [frame.frameId, frame.documentId, frame.processId])); }
           item.childTargetIds = item.inventory.targets.filter(target => [urls.middle, urls.leaf].filter(Boolean).includes(target.url)).map(target => target.id); detail.childTargetIds.push(...item.childTargetIds);
@@ -219,12 +332,18 @@ export async function checkColdRawFeedback({ browser, getWorker, fixtureURL, fix
       if (item.after && bytes) for (const [name, check] of [["business", () => checkColdRawBusiness(item)], ["native", () => { item.nativeProof = checkColdRawNative(item, bytes); }], ["visible", () => checkFrameTargetVisible(item)]]) {
         try { check(); item[`${name}Passed`] = true; } catch (error) { item[`${name}Passed`] = false; remember(item, `${name}Error`, error); }
       }
+      if (danglingObserver) break; // Never replace an observer with actual work still outstanding.
     }
     if (detail.states.every(item => item.frames && item.after && item.artifact) && checkEnd) try { detail.end = await checkEnd(detail); } catch (error) { remember(detail, "endError", error); }
   } catch (error) { remember(detail, "error", error); }
   finally {
     try { detail.serverLedger = fixtures.allStats(); } catch (error) { remember(detail, "serverLedgerError", error); }
     for (const tab of tabs) try { await closeTab(tab); detail.cleanup.push({ tabId: tab.id, closed: true }); } catch (error) { detail.cleanup.push({ tabId: tab.id, error: errorText(error) }); failure ??= error; }
+    if (danglingObserver) try {
+      const { worker, key } = danglingObserver;
+      await until(async () => { const value = await worker.evaluate(`globalThis.__obuColdRawFeedback.snapshot()`); return value.pending === 0 && value.resources.pointerRecords === 0 && value.resources.privateLeases === 0; }, "closed original cold observer drained", 5000);
+      detail.finalObserver = await worker.evaluate(`(()=>{const probe=globalThis.__obuColdRawFeedback;if(probe?.id!==${JSON.stringify(key)})throw Error('Original cold observer changed');return probe.restore()})()`);
+    } catch (error) { remember(detail, "observerCleanupError", error); }
     try { detail.cleanupInventory = await getWorker().evaluate(`(async()=>({tabs:(await chrome.tabs.query({})).filter(row=>${JSON.stringify(detail.tabIds)}.includes(row.id)),targets:(await chrome.debugger.getTargets()).filter(row=>${JSON.stringify(detail.tabIds)}.includes(row.tabId)||${JSON.stringify(detail.childTargetIds)}.includes(row.id)),engineAbsent:__integrationBackend.browserEngine===null}))()`); assert.deepEqual(detail.cleanupInventory, { tabs: [], targets: [], engineAbsent: true }); } catch (error) { remember(detail, "cleanupError", error); }
     if (failure) detail.error = errorText(failure); try { await saveDetail(detail); } catch (error) { failure ??= error; }
   }
