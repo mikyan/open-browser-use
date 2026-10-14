@@ -1,0 +1,103 @@
+apps/chrome-extension/pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_0db59378730598 5,22,35,40,42,277-334,338
+  s_08bbfd293d324f::t_e6931dc0a35e5f 82,89,169,335
+  s_08bbfd293d324f::t_9e9dad9c3dc005 336-337,339-397
+apps/chrome-extension/keyboard-action-engine.test.mjs
+  s_08bbfd293d324f::t_ec9baa54d1fd97 83
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_e43ab7a88a0524 7
+apps/chrome-extension/content-cursor.js
+  s_08bbfd293d324f::t_d8d89230b0ebfb 278-279,288,290
+  s_08bbfd293d324f::t_79a2eb8ac9e6f0 257-261,263
+  s_08bbfd293d324f::t_89b1052856b371 16,32-36,50-51,295-308
+  s_08bbfd293d324f::t_b59d0420cd2707 41-42,63,66-70,137,169,172-179,215,218
+  s_08bbfd293d324f::t_2c1fcf310f6f24 15,25,38,54-59,64-65,78-79,85-88,98,127,289,291-294,309,311-325,392-396
+  s_08bbfd293d324f::t_5e4f32e76d93fa 310
+docs/exec-plans/completed/2026-10-14-iframe-target-feedback.md
+  s_08bbfd293d324f::t_07957b38fa515d 1-171
+scripts/patch-frame-geometry.mjs
+  s_08bbfd293d324f::t_d8d89230b0ebfb 5-12,306-307,331,335-338,435-436
+scripts/browser-integration/frame-target-feedback-fixture.test.mjs
+  s_08bbfd293d324f::t_676682237cb57c 96,98
+  s_08bbfd293d324f::t_50a130eb4616d5 1-95,97,99-101
+docs/histories/2026-10/20261014-0945-iframe-target-feedback.md
+  s_08bbfd293d324f::t_26e51495159881 1-11,14-32,39-48
+  s_08bbfd293d324f::t_07957b38fa515d 33-38,49
+  s_08bbfd293d324f::t_4d5d6da90055f0 12-13
+scripts/browser-integration/frame-target-feedback-fixture.mjs
+  s_08bbfd293d324f::t_a52f9e71c43a68 1-214
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_323f8ce943dbae 346-348,761
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_970f96fa0edf93 148
+  s_08bbfd293d324f::t_4143966715d549 19,40,133
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_846573bc39689a 4,62,85
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_10a0d25e0ff6e5 10-14,44-47
+  s_08bbfd293d324f::t_82d1155ca142b5 48
+docs/references/frame-target-feedback.md
+  s_08bbfd293d324f::t_07957b38fa515d 9-10,119-127
+  s_08bbfd293d324f::t_f15675c14c7cca 54-57
+  s_08bbfd293d324f::t_4d5d6da90055f0 58-59,69-71
+  s_08bbfd293d324f::t_5cd09c101041b0 67-68,72
+  s_08bbfd293d324f::t_88d708556e2cb5 95-118,128-130
+  s_08bbfd293d324f::t_b77455f445134b 11-36
+  s_08bbfd293d324f::t_e43ab7a88a0524 50-53,137-149,159-161
+  s_08bbfd293d324f::t_1bc093a974ad88 136,150-158
+  s_08bbfd293d324f::t_a076546ddddb1a 1-8,37-49,60-66,73-94,131-135
+scripts/patch-pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_eb470ac5a773f5 87-129
+  s_08bbfd293d324f::t_0db59378730598 1-86
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_0bd641231ac2aa 39,382,429,652,1979-2037
+scripts/patch-pointer-feedback.mjs
+  s_08bbfd293d324f::t_5ff16eb63759a0 102-108,113-118
+  s_08bbfd293d324f::t_ff3d3e924e6027 1-101,109-112,119-120
+docs/references/README.md
+  s_08bbfd293d324f::t_07957b38fa515d 20
+  s_08bbfd293d324f::t_970f96fa0edf93 19
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_10a0d25e0ff6e5 15-25,547,552
+apps/chrome-extension/content-cursor.test.mjs
+  s_08bbfd293d324f::t_96777d912d1fc7 520-543,545,547-552,668-669
+  s_08bbfd293d324f::t_dd8d88318b5230 670-690
+  s_08bbfd293d324f::t_e6b52ad2934622 600-639
+  s_08bbfd293d324f::t_23237efba7869e 641-650
+  s_08bbfd293d324f::t_e36548e0b223fe 544,546,553-599,640,651-667
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_0e8887c0ec97c8 3703-3705
+  s_08bbfd293d324f::t_846573bc39689a 1525,3759,5601,5641,5913,5939
+  s_08bbfd293d324f::t_e7cf7264627473 3747
+  s_08bbfd293d324f::t_0db59378730598 3339,3601,3610,3635-3636,3655-3656,3731-3738,6022-6024
+  s_08bbfd293d324f::t_323f8ce943dbae 3,920-922,2639,2678-2681,3377,3597-3600,3602-3609,3611-3634,3637-3639,3645,3648,3657,3676,3693,3708-3709,3729,3753-3754,3760-3763,3771-3788
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_940753b668a8e2 28-32
+apps/chrome-extension/browser-pointer-feedback.js
+  s_08bbfd293d324f::t_fa90c4ea4ffc63 1-20,26-37,39-42
+  s_08bbfd293d324f::t_323f8ce943dbae 21-25
+  s_08bbfd293d324f::t_b59d0420cd2707 38
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_dac986d8f9993f 14-19,23
+  s_08bbfd293d324f::t_10a0d25e0ff6e5 20-22
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_a05fceebd5414b 1138-1150
+apps/chrome-extension/browser-pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_f2888b3eae3fb2 1-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e52ab0c2778046c8d2d55f91f0e4ca19ec58c681",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
