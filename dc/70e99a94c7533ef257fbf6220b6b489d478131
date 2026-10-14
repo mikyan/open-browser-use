@@ -1,0 +1,156 @@
+apps/chrome-extension/native-page-downloads.test.mjs
+  s_08bbfd293d324f::t_8753dfef8be5f8 44-77
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_05d78915f2e823 454-479
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_78aba55e0fe733 36-37
+  s_08bbfd293d324f::t_30847d729f5f1a 38-41
+scripts/browser-integration/restricted-download-fixture.mjs
+  s_08bbfd293d324f::t_fecb5469db93bb 17,19-53,55-58,61,64-71
+  s_08bbfd293d324f::t_7c5888f93c41cc 138,149
+  s_08bbfd293d324f::t_16f45301f122ac 338
+  s_08bbfd293d324f::t_0cdc930b12d870 54
+  s_08bbfd293d324f::t_b287485626c58b 326-327,390-391
+  s_08bbfd293d324f::t_0d230049be02ae 60,84,86-92,94-97,101,142,319,329,356
+  s_08bbfd293d324f::t_b9011affd1a9d9 202-209,317
+  s_08bbfd293d324f::t_0b25f32acaf00b 7,270,273
+  s_08bbfd293d324f::t_3a90d8c19c29c5 224-226
+  s_08bbfd293d324f::t_8a8c3b7109cd43 196,210,213-222,227,389
+  s_08bbfd293d324f::t_3f182b92ad8547 302,318,330,349,360-361,370,387-388,407-408
+  s_08bbfd293d324f::t_e6815bb761b1ad 4,165,192-194,198-201,277,279-296,298-301,303-307,309-316,331-337,339-348,350-355,357-359,362-369,371-386,392-406,409-420
+  s_08bbfd293d324f::t_299975d02ca1cb 14-16,139-141,143-148,297
+  s_08bbfd293d324f::t_2294b0cc436a1a 3,82-83,85,93,98-100,195,197,223,228-269,271-272,274,278,308
+  s_08bbfd293d324f::t_07e47c8e53c4eb 1-2,5-6,8-13,18,59,62-63,72-75,79-81,102-137,150-164,166-191
+  s_08bbfd293d324f::t_6cca21572ca6d1 76-78,211-212,275-276,320-325,328
+docs/references/file-transfers.md
+  s_08bbfd293d324f::t_5eb96ce37b0d2a 182-187
+apps/chrome-extension/restricted-page-download-backend.test.mjs
+  s_08bbfd293d324f::t_71a18f44b2a1dd 176-214,229,277-278
+  s_08bbfd293d324f::t_067d382455e3e4 306-322
+  s_08bbfd293d324f::t_3d5729182cdddc 387-399
+  s_08bbfd293d324f::t_57bf10e8d42c3f 143,236-263,265-274,276
+  s_08bbfd293d324f::t_2108bc5e0cd2de 1-19,21,27-66,68-83,85-94,96-126,279-305,323-325,328-355
+  s_08bbfd293d324f::t_29e0bf733b7d8c 264,275
+  s_08bbfd293d324f::t_838228c10f7286 326-327
+  s_08bbfd293d324f::t_aa3a6073d21356 374
+  s_08bbfd293d324f::t_998bec2afa30c4 468-482
+  s_08bbfd293d324f::t_9fea994bc59348 20,22-26,67,84,95,144,215-228,230-235
+  s_08bbfd293d324f::t_42f971d5f93889 127-142,145-175
+  s_08bbfd293d324f::t_500f89d41cd2a3 356-373,375-386,400-467
+docs/references/README.md
+  s_08bbfd293d324f::t_97e628b46e2bea 19-20
+apps/chrome-extension/native-page-downloads.js
+  s_08bbfd293d324f::t_35344dbc0c45c5 37,99-108,121-125,127,132-133,140,156-163
+docs/references/original-page-download-delivery.md
+  s_08bbfd293d324f::t_97e628b46e2bea 10-11,14-16
+  s_08bbfd293d324f::t_3a526cee4a0573 12-13
+scripts/browser-integration/original-download-fixture.mjs
+  s_08bbfd293d324f::t_99d7b44f3d735c 19,89
+  s_08bbfd293d324f::t_0d230049be02ae 35,47
+  s_08bbfd293d324f::t_f91eff57c8309b 12,15,27-34,36-46,48-54,62,64,85,90,93
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_2e9908ddf51c60 7
+apps/chrome-extension/browser-download-waits.test.mjs
+  s_08bbfd293d324f::t_81064a8c550bc8 49-74
+scripts/browser-integration/restricted-download-fixture.test.mjs
+  s_08bbfd293d324f::t_88300ac6ac5eb4 217-230,240,245-254,257-258,261-264,271-272,274
+  s_08bbfd293d324f::t_936617e5b3ee2c 231-239
+  s_08bbfd293d324f::t_03add01be29ba8 23,37,83,201-202
+  s_08bbfd293d324f::t_b9011affd1a9d9 7,170-182
+  s_08bbfd293d324f::t_dac746c19eacc7 241-244,255-256,259-260,265-270,273
+  s_08bbfd293d324f::t_3a90d8c19c29c5 48-51
+  s_08bbfd293d324f::t_0f78b20e77d52e 144-169,183-184
+  s_08bbfd293d324f::t_3aac1e726dba57 8,132-143,185-200,203-215
+  s_08bbfd293d324f::t_cf703644f79f53 1-6,9-22,26-36,38,42-47,52-55,57-59,216
+  s_08bbfd293d324f::t_467e67640ba095 60-82,84-128,130-131
+  s_08bbfd293d324f::t_f9e4ad2c015e55 24-25,39-41
+  s_08bbfd293d324f::t_fbbc0b22a25fa6 129
+  s_08bbfd293d324f::t_e1f4a7c6199bf0 56
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_c94d8c7cfdf76f 4593,4596-4601
+  s_08bbfd293d324f::t_7534a941478d5d 4800,4803,4810-4860,4882,5088-5092,5099,5160-5161
+  s_08bbfd293d324f::t_e8d11c3987bed2 4324-4328,4511,4526,4529-4535
+  s_08bbfd293d324f::t_df24830503edf8 4595,4602
+  s_08bbfd293d324f::t_5631dbe3fc01ec 4291,4307-4323,4329-4330,4442-4460,4462,4484-4502,4508-4509,4512-4525,4527-4528,4536,4541-4562,4787,4868,4870-4873,5147-5154,5723
+  s_08bbfd293d324f::t_57bf10e8d42c3f 4343-4344
+  s_08bbfd293d324f::t_57d56b76134458 5087,5093-5098
+  s_08bbfd293d324f::t_c5e8d681222287 888-889,3252-3254,4331-4335,4342,4345-4355,4357,4362-4391,4394-4402,4503,4507,4537-4540,5075
+  s_08bbfd293d324f::t_4e1456ad7a0442 831-832,834-839,842,852,1281-1284
+  s_08bbfd293d324f::t_9188a521114f2d 5916-5919,5925
+  s_08bbfd293d324f::t_dc8b690203b7ae 4504-4506
+  s_08bbfd293d324f::t_499c35fe7630a6 1202-1203,1207,1521,1538,1562-1563,1569,3288-3291,5508-5509,5545,5819-5820,5842
+  s_08bbfd293d324f::t_eacff2adaafa05 4277,4336-4341,4403-4441,4461,4463-4483,4510,5074
+  s_08bbfd293d324f::t_29e0bf733b7d8c 4356,4358-4361,4392-4393
+docs/references/restricted-page-downloads.md
+  s_08bbfd293d324f::t_292f1cafe8e210 68-69,74-83
+  s_08bbfd293d324f::t_284e799a386024 171-174
+  s_08bbfd293d324f::t_8b59aa4eccb537 58-66
+  s_08bbfd293d324f::t_3a526cee4a0573 4
+  s_08bbfd293d324f::t_97e628b46e2bea 1-3,6-8,12-14,20-57,67,70-73,84-136,159,178-191
+  s_08bbfd293d324f::t_0923af3d64b621 160-167
+  s_08bbfd293d324f::t_d54feca7d2f6b6 137-158
+  s_08bbfd293d324f::t_3a2520319738e9 168-170,177
+  s_08bbfd293d324f::t_27f02b25e8a08b 5,175-176
+  s_08bbfd293d324f::t_89daf87011c5f9 9-11,15-19
+scripts/browser-integration/restricted-download-runner.mjs
+  s_08bbfd293d324f::t_e7bb526a8389d0 70,148-153,158
+  s_08bbfd293d324f::t_c7072fb3d92711 96
+  s_08bbfd293d324f::t_03b4a5dc2986a6 138-141,143-147,154-157,159,164-165
+  s_08bbfd293d324f::t_2575b3711b11fc 117-119,124-130
+  s_08bbfd293d324f::t_de62726607f83e 1-9,12-62,65-69,71-95,97-109,114-116,131-137,166-181
+  s_08bbfd293d324f::t_d0f4a17e26dd43 120-123
+  s_08bbfd293d324f::t_dec0b27c61bb03 142,160-163
+  s_08bbfd293d324f::t_2ee5a3e464b138 10-11,63-64,110-113
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_284e799a386024 10-14
+  s_08bbfd293d324f::t_7256aa2b4429cd 26
+  s_08bbfd293d324f::t_27f02b25e8a08b 39-44
+  s_08bbfd293d324f::t_e1ac6a5ee647db 45
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_284e799a386024 23-24
+  s_08bbfd293d324f::t_2e9908ddf51c60 14-20,25
+  s_08bbfd293d324f::t_3a2520319738e9 21-22
+docs/exec-plans/tech-debt-tracker.md
+  s_08bbfd293d324f::t_2e9908ddf51c60 12
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_0500960f49f68d 903
+  s_08bbfd293d324f::t_64fcfe4ca0749f 930,933
+  s_08bbfd293d324f::t_c7072fb3d92711 927-929,931-932,934-936
+  s_08bbfd293d324f::t_a20d100d847b2b 899
+  s_08bbfd293d324f::t_93e9ffde8a13ce 83,128-130,133,135,671-672,892-897,900-902,904-926,937
+  s_08bbfd293d324f::t_5d79f0ce8418fd 898
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_2e9908ddf51c60 15-20,23-24
+  s_08bbfd293d324f::t_284e799a386024 21-22
+docs/exec-plans/completed/2026-10-14-restricted-page-downloads.md
+  s_08bbfd293d324f::t_27f02b25e8a08b 1-217
+scripts/browser-integration/original-download-fixture.test.mjs
+  s_08bbfd293d324f::t_517b1dba186539 154-164,186-187
+  s_08bbfd293d324f::t_23c6846adeac9d 33,35,39,43-44,48,165-185
+apps/chrome-extension/browser-download-waits.js
+  s_08bbfd293d324f::t_35344dbc0c45c5 24,26,86,108-109,132,175
+  s_08bbfd293d324f::t_838228c10f7286 176
+docs/references/site-access-policy.md
+  s_08bbfd293d324f::t_3a526cee4a0573 203-204
+  s_08bbfd293d324f::t_97e628b46e2bea 198-202,205,207
+  s_08bbfd293d324f::t_30aa4c6b1ea75f 196-197
+docs/histories/2026-10/20261014-0840-restricted-page-downloads.md
+  s_08bbfd293d324f::t_de06887cc9be32 1-38,45-47
+  s_08bbfd293d324f::t_27f02b25e8a08b 39-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "dc70e99a94c7533ef257fbf6220b6b489d478131",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
