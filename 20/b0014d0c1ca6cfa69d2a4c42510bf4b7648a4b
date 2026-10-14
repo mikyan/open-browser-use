@@ -1,0 +1,106 @@
+scripts/browser-integration/bounding-geometry-fixture.mjs
+  s_08bbfd293d324f::t_d9626de3cf15f6 78,82
+docs/exec-plans/active/2026-10-15-raw-frame-feedback.md
+  s_08bbfd293d324f::t_b4332ec5f24a78 41-44,51,78-91
+  s_08bbfd293d324f::t_ec67e98e813e28 1-40,45-50
+  s_08bbfd293d324f::t_11446c623ddfe5 67-76
+  s_08bbfd293d324f::t_2901484a1fa966 92-202
+  s_08bbfd293d324f::t_279cbf9cd386bc 52-66,77
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_210034696bc238 145,149
+apps/chrome-extension/browser-pointer-feedback.js
+  s_08bbfd293d324f::t_15a89dd070917a 17-18,33-36,38-40,45-57
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_d809c423390e7e 10-15
+  s_08bbfd293d324f::t_2afa98fa7d208c 59,63-64
+  s_08bbfd293d324f::t_11446c623ddfe5 60-62
+scripts/browser-integration/frame-target-feedback-fixture.mjs
+  s_08bbfd293d324f::t_ce655c65430b41 209,214
+  s_08bbfd293d324f::t_92f4a1971a7c7c 196-198,206-208,211-213,215
+  s_08bbfd293d324f::t_194de08cf69017 173-177
+  s_08bbfd293d324f::t_52ad5b45c8c720 137,139-146,210
+  s_08bbfd293d324f::t_d9626de3cf15f6 201
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_92f4a1971a7c7c 2008
+  s_08bbfd293d324f::t_c872b91929ecf1 37,1453-1470,2049-2059
+scripts/browser-integration/frame-target-feedback-fixture.test.mjs
+  s_08bbfd293d324f::t_95c683382f79b9 57-74,103,110,144-145
+  s_08bbfd293d324f::t_3e033dbe3e6032 88-99,148
+  s_08bbfd293d324f::t_ef5be4c2f5a08c 101-102,104-105,107-109,111-112,120,133-143,146-147
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_b28bdb4b3d1226 817,2674,6146-6148,6150-6151,6155-6162,6164-6166,6176,6179-6182,6199,6201-6210
+  s_08bbfd293d324f::t_59ed229bb782bc 6149
+  s_08bbfd293d324f::t_a7c47e77966fd4 1269-1270
+  s_08bbfd293d324f::t_5752d81f8f1c90 1223-1224,1232,1595-1596,1607,3343
+  s_08bbfd293d324f::t_a5e283343c8a73 1271-1272,3676-3679,3693-3697,5675-5676,6049
+  s_08bbfd293d324f::t_b409fe390bf1d8 1213,1586,3339,5672,6043-6047,6090-6093,6152-6154,6163,6167-6173,6177,6200,6213-6214
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d809c423390e7e 15-21
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_83057274177ca8 20-21,23-31
+  s_08bbfd293d324f::t_ea2d63d87c0acd 22
+  s_08bbfd293d324f::t_5752d81f8f1c90 9-19
+scripts/raw-pointer-feedback.mjs
+  s_08bbfd293d324f::t_5965a6924456d3 1-14,20-47,49-78,80-132,134-143
+  s_08bbfd293d324f::t_210034696bc238 15-19
+  s_08bbfd293d324f::t_ea2d63d87c0acd 48,79
+  s_08bbfd293d324f::t_b28bdb4b3d1226 133
+docs/references/frame-target-feedback.md
+  s_08bbfd293d324f::t_db96fa29826b1e 60-63
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_d809c423390e7e 14-20
+docs/references/README.md
+  s_08bbfd293d324f::t_4074c9962978a3 19-20
+scripts/patch-pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_210034696bc238 22,26,31
+  s_08bbfd293d324f::t_5752d81f8f1c90 48-69
+scripts/raw-pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_9ae53e92941b24 1-18,20-92,94,97-136
+  s_08bbfd293d324f::t_59ed229bb782bc 93,96
+  s_08bbfd293d324f::t_b28bdb4b3d1226 19
+  s_08bbfd293d324f::t_83057274177ca8 95
+scripts/patch-pointer-feedback.mjs
+  s_08bbfd293d324f::t_15a89dd070917a 1-2,6-13,15-16,87-95,103-107
+  s_08bbfd293d324f::t_a5e283343c8a73 14,112-114,149
+apps/chrome-extension/pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_299ded59ba1549 507-533
+  s_08bbfd293d324f::t_5752d81f8f1c90 27-28,39,408-441
+  s_08bbfd293d324f::t_a16d0ab9b38a3b 442,444-449,453-454,506
+  s_08bbfd293d324f::t_83057274177ca8 443,450-452,455-505
+scripts/browser-integration/cold-raw-feedback-fixture.test.mjs
+  s_08bbfd293d324f::t_f7d0fb704ccbef 1-116,122-135
+  s_08bbfd293d324f::t_70d3c142384022 117-121
+scripts/browser-integration/bounding-geometry-fixture.test.mjs
+  s_08bbfd293d324f::t_1600a171f5b40e 102-114
+docs/histories/2026-10/20261015-0159-raw-frame-feedback.md
+  s_08bbfd293d324f::t_2afa98fa7d208c 1-25,30-40
+  s_08bbfd293d324f::t_11446c623ddfe5 26-29
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_b28bdb4b3d1226 20,711,720-729,904-905,917,921,929,931
+  s_08bbfd293d324f::t_a5e283343c8a73 329,351,429-432,437-452,946
+scripts/browser-integration/cold-raw-feedback-fixture.mjs
+  s_08bbfd293d324f::t_7159a313214363 1-171,173-202
+  s_08bbfd293d324f::t_70d3c142384022 172
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_db96fa29826b1e 31-35
+docs/references/raw-frame-feedback.md
+  s_08bbfd293d324f::t_05205ba7b7ae03 1-48,51-98
+  s_08bbfd293d324f::t_40029ae665f917 49-50
+  s_08bbfd293d324f::t_11446c623ddfe5 99-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "20b0014d0c1ca6cfa69d2a4c42510bf4b7648a4b",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
