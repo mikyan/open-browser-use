@@ -71,7 +71,7 @@ must not be bypassed or turned into a new focus exemption for this work.
   after 569/568/567 ms; original tabs/targets are removed. Its 533,948 ms focus
   interval retains only the original twelve activation/four control-popup
   focus allowances. Original keyboard/pointer/drag and screenshot records pass.
-- This warm increment is ready for fork delivery. The cold implementation,
+- This warm increment was delivered to the fork as `20b0014`. The cold implementation,
   its broader layout/lifecycle verification and therefore the overall plan
   remain unfinished; the cold failure is outside the passing default count.
 
@@ -90,7 +90,7 @@ must not be bypassed or turned into a new focus exemption for this work.
   use that shortcut. Warm-page support does not complete this plan; cold routing,
   remote-object cleanup and real-browser evidence remain required.
 
-## Cold design: separate native reader, not implemented
+## Cold design: separate native reader in development
 
 The warm Page reader and its caller-deadline repair are a deliverable increment.
 Cold public `executeCdp` remains required by this active plan. The recorded cold
@@ -148,24 +148,76 @@ Frame URLs, array position and numeric context IDs alone are insufficient.
 `document.open`, document-element replacement, context-ID reuse and BFCache must
 have an explicit identity strategy before this sequence is accepted.
 
-Same-process descent can keep the native session while selecting the child's
+Same-process descent keeps the native session while selecting the child's
 isolated context. For a remote child, the parent's native iframe description and
-`DOM.getFrameOwner` must agree on the same backend node. Only then may an internal
-`Target.attachToTarget` attempt target that exact child ID. Before any child read,
-its actual session ACK and child `Page.getFrameTree` must prove the exact child
-frame and original parent. The Chromium frame-ID/target-ID relationship must be
-verified by those native replies, not assumed from a URL. Nested routes retain
-their original parent-session chain. Never detach a borrowed caller session.
+`DOM.getFrameOwner` must agree on the same backend node. The original explicit
+`Target.attachToTarget` proposal was rejected by the native audit below. The
+candidate instead obtains an independent debugger client for that exact target,
+then requires its child `Page.getFrameTree` to prove the frame and original parent.
+Frame/target identity comes from native replies, never a URL. Nested routes retain
+their original parent chain. No borrowed caller client may be detached.
 
-This needs a private temporary-session registry, not merely extra CDP sends.
-Today's `handleCdpEvent` treats iframe attachment as document invalidation, adds
-public child ownership, and may arm file/download observers. The CRX transport
-also sees all debugger events. A temporary attach must not enter those paths or
-be forwarded as a caller-owned session. An attach event can precede its command
-ACK; correlate the exact returned session without suppressing a simultaneous
-caller auto-attach event for the same target. Buffering/ordering and capacity for
-that interval are unresolved. Do not change root domain subscriptions or the
-caller's `Target.setAutoAttach` configuration.
+This needs a private target registry and an adapter to the existing lifecycle.
+Independent target events must not enter public child ownership, invalidate an
+unrelated root document, arm unrelated observers or reach the CRX public route.
+The adapter must preserve caller auto-attach events for the same frame, root
+domain subscriptions and the caller's `Target.setAutoAttach` configuration.
+This event integration remains unimplemented and requires native verification.
+
+### Native permission gate and alternative under investigation
+
+The pinned Chromium 156 source rules out the proposed `Target.attachToTarget`
+route for this ordinary unpacked extension. The debugger client's
+[trust predicate](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/extensions/api/debugger/debugger_api.cc#L259)
+is specific to the Perfetto extension. An untrusted renderer client gets
+[auto-attach-only Target access](https://github.com/chromium/chromium/blob/156.0.8078.4/content/browser/devtools/render_frame_devtools_agent_host.cc#L422),
+and [explicit attachment returns Not allowed](https://github.com/chromium/chromium/blob/156.0.8078.4/content/browser/devtools/protocol/target_handler.cc#L1119).
+The new opt-in native diagnostic must preserve that actual reply; doubles alone
+cannot validate the route.
+
+An independent `chrome.debugger.attach({targetId})` is a different native API.
+The diagnostic may try it only for the exact OOPIF ID obtained from the original
+parent node, while retaining the original root attachment. This is not yet a
+production design: the independent client outlives root detach, has no opaque
+connection token in its void attach ACK, and may survive worker replacement.
+Only a successful attach owns its cleanup; an Already attached error cannot
+grant a borrowed client. Pending/failed cleanup must fence that exact target,
+and a stale target-only detach event cannot prove a successor's destruction.
+Existing tab-claim recovery intentionally does not sweep unknown target clients.
+Private-client recovery needs a separate same-browser ledger before integration.
+
+Frozen native diagnostic `KXt3Td` now confirms this distinction: the original
+`Target.attachToTarget` returns `Not allowed`; independent exact-target attach,
+child frame/parent verification and actual detach succeed while the raw root
+attachment remains unchanged. Its 85 native calls all settle, 23 tracked handles
+and six groups are released, and normal/exception handles in three proof groups
+become uncallable after the original group ACK. Four document-element native
+frame IDs and repeated named-world context reuse are observed. The diagnostic
+and mandatory old raw-navigation case pass (actual exit 0, no source drift).
+The 745 ms ready-to-end focus interval has no events or allowances; exact test
+processes exit. Independent review also confirms the moved geometry factory and
+staged vendor are unchanged from the warm increment. This diagnostic has no
+preflight, recovery, auto-attach coexistence or production lease proof.
+
+The new `browser-native-pointer-feedback.js` implements a separately testable
+reader; it is not yet wired into the backend or copied into production packages.
+A retained deterministic counterexample shows that the first fixed-world reader
+can select another real node after hit-testing methods change. Native frame ID
+and box containment do not reject that case. The current candidate uses a
+module-stable random realm identity and an immutable closure over the original
+DOM methods/getters. Both retained poisoning cases now preserve the original
+leaf; all 38 reader tests pass. Arbitrary JavaScript-intrinsic tampering is outside
+this proof, and worker replacement may create another named world.
+A privileged raw-CDP caller racing the first bootstrap has equivalent debugger
+authority; do not claim this closure is an isolation boundary against it or
+silently change the public CDP admission contract to pretend otherwise.
+
+The diagnostic reads stable named worlds, captures original Document and root
+handles, and checks the root element's native frame ID. Chromium's
+[DOM inspector supplies this frame ID for a document element](https://github.com/chromium/chromium/blob/156.0.8078.4/third_party/blink/renderer/core/inspector/inspector_dom_agent.cc#L2387).
+Numeric context IDs and URLs cannot substitute for it. A fixed wrapper retains
+both Document and documentElement: `document.open` may keep the former while
+replacing the latter. Missing native evidence rejects feedback.
 
 Each read owns a unique object group per original native session, and tracks
 actual allocation replies, including exceptions, before checking revoked visual
@@ -178,6 +230,43 @@ allows grouped resolution/call results; validate exceptional-object membership a
 per-session group behavior rather than assuming every handle is covered. Reuse
 the two-phase caller/full barrier: required input cleanup gates the input result,
 while optional resources still gate final detach and successors.
+
+### Candidate verification and integration boundary
+
+The original reader run `6Yz3DZ` is retained with actual exit 1 and no source drift:
+same-process geometry passes, while five remote layouts stop before attach with
+native `No target`. Native `getTargets` must first materialize the exact target;
+the subsequent original no-client query still has to return the exact
+`Debugger is not attached` error. URL, `attached` flags and `No target` cannot grant
+new read admission.
+
+Frozen `5pTnPP` then passes six native rectangles and the mandatory old raw
+navigation case (actual runner exit 0, unchanged sources/runtimes). Independent
+authored CSS and original owner/leaf quads agree for same-process, OOPIF, dynamic,
+nested, scaled and rotated frames. Its 198 original native calls settle; 39 opaque
+objects belong to 12 groups with actual release ACKs, and six independent targets
+have exact discovery/no-client/attach/detach chains. Thirteen original document
+and business snapshots remain unchanged. Only the dynamic fixture's original
+Add click occurs; there is no leaf input, form POST or cold visual PNG proof.
+The 1,479 ms focus interval has zero events/allowances. The host has original
+exit 0 and exact processes are absent; this mode retains no separate Chrome exit
+receipt. The registry source captured in this run was not imported by the probe.
+
+`browser-private-targets.js` separately passes 27 deterministic cases. Its trusted
+fresh witness names the original browser incarnation, durable intent precedes
+actual attach, and exact targets stay fenced through actual work and failed
+cleanup. Missing/unknown ledgers do not authorize sweeping clients. An original
+owned client can retire only its cleanup obligations after actual sends drain and
+a new exact native query proves absence; the outcome records that evidence, not
+invented group/detach ACKs. After group-first cleanup failure, explicitly retry
+the registry before retrying `PassivePointerReads`; ordinary cleanup never replays
+the failed attempt. Real worker recovery and event coexistence remain unverified.
+
+All three current deterministic Node groups close with actual exit 0: 3744 pass,
+one existing Windows symlink privilege skip, no source/runtime drift. The shared
+geometry factory and generated vendor bytes match the delivered warm version.
+These checks do not replace production integration or the original six-layout
+visual/POST workflow. Existing preview packages remain unchanged.
 
 ### Evidence required before choosing this adapter
 

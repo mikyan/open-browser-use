@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { frameTargetURLs, frameTargetGeometry, frameTargetRootPoint, selectFrameTargetDocuments,
   waitForFrameTargetFeedback, measureFrameTargetPixels, checkFrameTargetVisible } from "./frame-target-feedback-fixture.mjs";
 
-export const coldRawLayouts = Object.freeze(["same", "oopif", "nested"]);
+export const coldRawLayouts = Object.freeze(["same", "oopif", "dynamic-oopif", "nested", "scaled-oopif", "rotated-oopif"]);
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const errorText = error => error?.stack ?? String(error);
 const center = rect => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
@@ -68,10 +68,10 @@ export function installColdRawProbe(api, target, { id, tabId }) {
 export function readColdRawDocument() {
   const value = window.frameTargetFeedbackState?.();
   if (!value) return null;
-  const input = document.getElementById("note"), rect = input?.getBoundingClientRect(), style = input && getComputedStyle(input);
-  return { ...value, inputGeometry: input ? { connected: input.isConnected, token: input.dataset.token,
-    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-    styles: Object.fromEntries(["left", "top", "width", "height", "transform", "zoom", "boxSizing"].map(key => [key, style[key]])) } : null };
+  const control = id => { const node = document.getElementById(id); if (!node) return null; const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+    return { connected: node.isConnected, token: node.dataset.token, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      styles: Object.fromEntries(["left", "top", "width", "height", "transform", "zoom", "boxSizing"].map(key => [key, style[key]])) }; };
+  return { ...value, inputGeometry: control("note"), addGeometry: control("add") };
 }
 
 async function readDocuments(worker, tabId, frames) {
@@ -91,6 +91,15 @@ export function coldRawInputPoint(documents, layout) {
   return frameTargetRootPoint(center(input.rect), documents, layout);
 }
 
+export function coldRawAddPoint(document) {
+  assert.equal(document.business.role, "root"); assert.equal(document.geometry.frame, null);
+  assert.equal(document.geometry.viewport.scrollX, 0); assert.equal(document.geometry.viewport.scrollY, 0);
+  const add = document.addGeometry; assert.equal(add.connected, true); assert.equal(add.token, `${document.business.key}-root-add`);
+  assert.deepEqual(add.rect, { x: 76, y: 20, width: 210, height: 32 });
+  assert.deepEqual(add.styles, { left: "76px", top: "20px", width: "210px", height: "32px", transform: "none", zoom: "1", boxSizing: "border-box" });
+  return center(add.rect);
+}
+
 export function checkColdRawBusiness(item) {
   const roles = item.layout === "nested" ? ["root", "middle", "leaf"] : ["root", "leaf"];
   assert.deepEqual(item.initial.map(row => row.business.role), roles);
@@ -102,9 +111,20 @@ export function checkColdRawBusiness(item) {
     for (const field of ["key", "layout", "role", "documentToken", "windowToken", "href"]) assert.equal(row.business[field], initial.business[field]);
     assert.equal(row.business.documentToken, get.documentToken); assert.equal(row.business.href, get.url); assert.equal(row.business.sameDocument, true); assert.equal(row.business.sameWindow, true);
     assert.deepEqual(row.business.nodes, initial.business.nodes); assert.ok(row.business.nodes.every(node => node.original && node.connected && node.token));
-    assert.deepEqual(row.geometry, initial.geometry); assert.deepEqual(row.inputGeometry, initial.inputGeometry); assert.deepEqual(row.business.errors, []); assert.equal(row.business.overflow, false);
+    assert.deepEqual(row.geometry, initial.geometry); assert.deepEqual(row.inputGeometry, initial.inputGeometry); assert.deepEqual(row.addGeometry, initial.addGeometry); assert.deepEqual(row.business.errors, []); assert.equal(row.business.overflow, false);
   }
-  assert.ok(item.initial.every(row => row.business.events.length === 0)); assert.equal(item.initial.at(-1).business.value, "");
+  assert.ok(item.initial.slice(1).every(row => row.business.events.length === 0)); assert.equal(item.initial.at(-1).business.value, "");
+  if (item.layout === "dynamic-oopif") {
+    const original = item.preAdd[0], root = item.initial[0]; assert.equal(item.preAdd.length, 1); assert.deepEqual(original.business.events, []); assert.deepEqual(original.business.changes, []);
+    assert.deepEqual(item.addPoint, coldRawAddPoint(original));
+    for (const field of ["nativeDocumentId", "nativeFrameId", "nativeProcessId"]) assert.equal(root[field], original[field]);
+    for (const field of ["documentToken", "windowToken", "href"]) assert.equal(root.business[field], original.business[field]);
+    assert.deepEqual(original.business.nodes, root.business.nodes.filter(node => node.id === "add"));
+    assert.deepEqual(root.business.events.map(event => [event.type, event.targetId]), [["pointerdown", "add"], ["pointerup", "add"], ["click", "add"]]);
+    for (const event of root.business.events) { assert.equal(event.trusted, true); assert.equal(event.nodeToken, `${item.key}-root-add`); nearPoint(event, item.addPoint, "Original dynamic Add"); }
+    assert.equal(root.business.changes.length, 1); const change = root.business.changes[0];
+    assert.equal(change.type, "add-frame"); assert.equal(change.trusted, true); assert.equal(change.documentToken, original.business.documentToken); assert.equal(change.sourceNode, `${item.key}-root-add`); assert.equal(change.childURL, item.urls.leaf);
+  } else assert.deepEqual(item.initial[0].business.events, []);
   for (let index = 0; index < roles.length; index++) {
     const before = item.before[index].business, rendered = item.rendered[index].business;
     for (const field of ["activeElement", "selection", "focus", "events"]) assert.deepEqual(rendered[field], before[field], `Original hover/capture ${field}`);
@@ -114,7 +134,7 @@ export function checkColdRawBusiness(item) {
   assert.deepEqual({ ...post.value.business, receipt: post.receipt }, leaf); assert.equal(post.value.trustedSubmit, true); assert.deepEqual(leaf.receipt, post.receipt);
   assert.deepEqual(leaf.events.map(row => [row.type, row.targetId]), [["pointerdown", "note"], ["pointerup", "note"], ["click", "note"], ["input", "note"], ["pointerdown", "submit"], ["pointerup", "submit"], ["click", "submit"], ["submit", "form"]]);
   for (const event of leaf.events) { assert.equal(event.trusted, true); assert.equal(event.nodeToken, `${item.key}-leaf-${event.targetId}`); }
-  for (const row of item.after.slice(0, -1)) assert.deepEqual(row.business.events, []);
+  for (const [index, row] of item.after.slice(0, -1).entries()) { assert.deepEqual(row.business.events, item.initial[index].business.events); assert.deepEqual(row.business.changes, item.initial[index].business.changes); }
   for (const id of ["note", "submit"]) {
     const click = leaf.events.find(row => row.type === "click" && row.targetId === id), point = frameTargetRootPoint(click, item.after, item.layout);
     nearPoint(point, id === "note" ? item.inputPoint : item.buttonPoint, `Original ${id} click`);
@@ -135,12 +155,15 @@ export function checkColdRawNative(item, bytes) {
   assert.equal(probe.records.filter(row => row.kind === "settled").length, calls.length);
   assert.equal(calls.filter(row => row.method === "debugger.attach").length, 1); assert.equal(calls.filter(row => row.method === "debugger.detach").length, 0); assert.equal(probe.records.filter(row => row.kind === "detached").length, 0);
   const input = calls.filter(row => row.method.startsWith("Input.") || row.method === "Page.captureScreenshot");
-  assert.deepEqual(input.map(row => row.method === "Input.dispatchMouseEvent" ? row.params.type : row.method), ["mouseMoved", "mousePressed", "mouseReleased", "Input.insertText", "mouseMoved", "Page.captureScreenshot", "mousePressed", "mouseReleased"]);
+  const expected = [...(item.layout === "dynamic-oopif" ? ["mouseMoved", "mousePressed", "mouseReleased"].map(type => ({ type, point: item.addPoint })) : []),
+    ...["mouseMoved", "mousePressed", "mouseReleased"].map(type => ({ type, point: item.inputPoint })), { type: "Input.insertText" },
+    { type: "mouseMoved", point: item.buttonPoint }, { type: "Page.captureScreenshot" }, ...["mousePressed", "mouseReleased"].map(type => ({ type, point: item.buttonPoint }))];
+  assert.deepEqual(input.map(row => row.method === "Input.dispatchMouseEvent" ? row.params.type : row.method), expected.map(row => row.type));
   for (const [index, call] of input.entries()) {
     assert.deepEqual(call.source, { tabId: item.tabId }); if (index) assert.ok(acks.get(input[index - 1].sequence).sequence < call.sequence);
     if (call.method === "Input.insertText") assert.deepEqual(call.params, { text: item.value });
     else if (call.method === "Page.captureScreenshot") assert.deepEqual(Buffer.from(acks.get(call.sequence).result.data, "base64"), bytes);
-    else { nearPoint(call.params, index < 3 ? item.inputPoint : item.buttonPoint, "Original raw coordinate"); if (call.params.type !== "mouseMoved") { assert.equal(call.params.button, "left"); assert.equal(call.params.clickCount, 1); } }
+    else { nearPoint(call.params, expected[index].point, "Original raw coordinate"); if (call.params.type !== "mouseMoved") { assert.equal(call.params.button, "left"); assert.equal(call.params.clickCount, 1); } }
   }
   const root = item.frameTree.frameTree.frame; assert.equal(root.url, item.urls.root); assert.ok(root.id); assert.ok(root.loaderId); assert.equal(root.loaderId, item.navigation.loaderId);
   assert.ok(probe.records.some(row => row.kind === "event" && row.method === "Page.frameNavigated" && row.source.tabId === item.tabId && row.params.frame.id === root.id && row.params.frame.loaderId === root.loaderId && row.params.frame.url === root.url), "Original root navigation event required");
@@ -164,6 +187,13 @@ export async function checkColdRawFeedback({ browser, getWorker, fixtureURL, fix
         item.installed = await worker.evaluate(`(${installColdRawProbe.toString()})(chrome,globalThis,${JSON.stringify({ id: key, tabId: tab.id })})`); installed = true;
         item.navigation = await browser.cdp.navigate(tab.id, urls.root); item.afterNavigate = await mark("navigated");
         item.frameTree = await call("Page.getFrameTree");
+        if (layout === "dynamic-oopif") {
+          item.preAddFrames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${tab.id}})`);
+          assert.equal(item.preAddFrames.length, 1); const root = item.preAddFrames[0]; assert.equal(root.frameId, 0); assert.equal(root.url, urls.root); assert.equal(root.documentLifecycle, "active"); assert.ok(root.documentId); assert.equal(root.errorOccurred, false);
+          item.preAdd = await readDocuments(worker, tab.id, item.preAddFrames); item.addPoint = coldRawAddPoint(item.preAdd[0]);
+          for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await pointer(type, item.addPoint);
+          item.afterAdd = await mark("dynamic-child-created");
+        }
         await until(async () => { const all = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${tab.id}})`), frames = selectFrameTargetDocuments(all, urls, layout); if (!frames) return false; item.frames = frames; return true; }, "original cold frame documents committed", 5000);
         item.initial = await readDocuments(worker, tab.id, item.frames); item.geometry = frameTargetGeometry(item.initial, layout); item.inputPoint = coldRawInputPoint(item.initial, layout); item.buttonPoint = center(item.geometry.button);
         for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await pointer(type, item.inputPoint);

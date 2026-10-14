@@ -34,10 +34,11 @@ import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
-import { checkColdRawFeedback } from "./cold-raw-feedback-fixture.mjs";
+import { checkColdRawFeedback, readColdRawDocument, coldRawAddPoint } from "./cold-raw-feedback-fixture.mjs";
+import { inspectColdNativeRoutes } from "./cold-native-route-probe.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
-import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback } from "./frame-target-feedback-fixture.mjs";
+import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback, frameTargetURLs, selectFrameTargetDocuments, frameTargetGeometry } from "./frame-target-feedback-fixture.mjs";
 import { checkVisualDeliveryLifecycle } from "./visual-delivery-lifecycle-fixture.mjs";
 import { checkVisualNavigation, installVisualNavigationObserver } from "./visual-navigation-fixture.mjs";
 import { createRestrictedNetworkFixtures, checkRestrictedNetworkCaller, checkRestrictedNetworkPolicy, checkRestrictedNetworkBoundaries, runRestrictedNetworkWireCaller } from "./site-access-network-fixture.mjs";
@@ -553,6 +554,15 @@ try {
     };
   }\n`;
   let stagedBackground = background.replace(nativeCall, "__integrationConnectNative(this.hostName)") + clipboardTestHook + recoveryAuditHook + createdPageTestHook;
+  if (process.env.OBU_TEST_COLD_NATIVE_READER === "1") {
+    // Diagnostic-only modules: the production backend does not yet own private
+    // target recovery. MV3 workers require static imports, including in tests.
+    for (const name of ["browser-native-pointer-feedback.js", "browser-frame-geometry.js"])
+      await fs.copyFile(path.join(repo, "apps/chrome-extension", name), path.join(extension, name));
+    stagedBackground = 'import { createNativePointerFeedback } from "./browser-native-pointer-feedback.js";\n' +
+      'import { createFrameGeometryRuntime } from "./browser-frame-geometry.js";\n' + stagedBackground +
+      '\nglobalThis.__integrationNativePointerFactory = Object.freeze({ createNativePointerFeedback, createFrameGeometryRuntime });\n';
+  }
   if (siteAccessStartupEnabled || siteAccessInvalidEnabled) {
     // Chromium service workers prohibit top-level await. Preserve static
     // imports and stage only this test's initialization behind the probe.
@@ -1449,6 +1459,89 @@ try {
       }
       return { results };
     } finally { try { await transfers.client.finalizeTabs([]); } finally { transfers.close(); } }
+  });
+  if (process.env.OBU_TEST_COLD_NATIVE_READER === "1") await test("js-cold-native-reader-probe", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-cold-native-reader-probe", timeoutMs: 15000 });
+    const detail = { layouts: [], cleanup: [] }; let failure;
+    sourceIdentity.testHooks.push("Cold native reader diagnostic: static imports in staged extension only; original raw attachments, six authored CSS layouts and native rectangle reads with actual group/target cleanup. Rectangles are not injected into the visual renderer. No production integration, leaf input replay or focus allowance.");
+    const observe = async (tabId, frames) => {
+      const rows = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId},documentIds:${JSON.stringify(frames.map(frame => frame.documentId))}},world:'MAIN',func:${readColdRawDocument.toString()}})`);
+      return frames.map(frame => {
+        const matches = rows.filter(row => row.frameId === frame.frameId && row.documentId === frame.documentId);
+        assert.equal(matches.length, 1); assert.ok(matches[0].result);
+        return { ...matches[0].result, nativeFrameId: frame.frameId, nativeDocumentId: frame.documentId, nativeProcessId: frame.processId };
+      });
+    };
+    try {
+      for (const layout of ["same", "oopif", "dynamic-oopif", "nested", "scaled-oopif", "rotated-oopif"]) {
+        const key = `frame-feedback-${randomUUID().replaceAll("-", "")}`, urls = frameTargetURLs(fixtureURL, key, layout);
+        const owned = await owner.newTab(), item = { key, layout, urls, tabId: owned.id }; detail.layouts.push(item);
+        try {
+          item.navigation = await owner.cdp.navigate(owned.id, urls.root);
+          if (layout === "dynamic-oopif") {
+            const frames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${owned.id}})`);
+            assert.equal(frames.length, 1); item.preAdd = await observe(owned.id, frames); item.addPoint = coldRawAddPoint(item.preAdd[0]);
+            for (const type of ["mouseMoved", "mousePressed", "mouseReleased"])
+              await owner.cdp.call(owned.id, "Input.dispatchMouseEvent", { type, ...item.addPoint, ...(type === "mouseMoved" ? {} : { button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 }) });
+          }
+          await until(async () => {
+            const frames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${owned.id}})`);
+            item.frames = selectFrameTargetDocuments(frames, urls, layout); return !!item.frames;
+          }, "original native reader frame documents committed", 5000);
+          item.before = await observe(owned.id, item.frames); item.geometry = frameTargetGeometry(item.before, layout);
+          const expected = item.geometry.button; item.point = { x: expected.x + expected.width / 2, y: expected.y + expected.height / 2 };
+          item.probe = await inspectColdNativeRoutes({ getWorker: () => worker, tabId: owned.id, reader: { point: item.point },
+            saveDetail: value => fs.writeFile(path.join(runDir, `cold-native-reader-${layout}.json`), JSON.stringify(value, null, 2)) });
+          item.after = await observe(owned.id, item.frames);
+          for (const axis of ["x", "y", "width", "height"])
+            assert.ok(Number.isFinite(item.probe.reader.result?.[axis]) && Math.abs(item.probe.reader.result[axis] - expected[axis]) <= .08, `Original ${layout} native reader ${axis}`);
+          assert.equal(item.after.length, item.before.length);
+          for (const [index, row] of item.after.entries())
+            for (const field of ["business", "geometry", "inputGeometry", "addGeometry", "nativeFrameId", "nativeDocumentId", "nativeProcessId"])
+              assert.deepEqual(row[field], item.before[index][field], `Original reader ${layout} ${field}`);
+        } catch (error) { item.error = error.stack; failure ??= error; }
+        finally {
+          if (item.before && !item.after) try { item.after = await observe(owned.id, item.frames); }
+          catch (error) { item.afterError = error.stack; failure ??= error; }
+          try { await worker.evaluate(`chrome.tabs.remove(${owned.id})`); detail.cleanup.push({ tabId: owned.id, closed: true }); }
+          catch (error) { detail.cleanup.push({ tabId: owned.id, error: error.stack }); failure ??= error; }
+        }
+      }
+    } finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+      await fs.writeFile(path.join(runDir, "cold-native-reader.json"), JSON.stringify(detail, null, 2));
+    }
+    if (failure) throw failure; return detail;
+  });
+  if (process.env.OBU_TEST_COLD_NATIVE_ROUTES === "1") await test("js-cold-native-route-probe", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-cold-native-route-probe", timeoutMs: 15000 });
+    const detail = { layouts: [], cleanup: [] }; let failure;
+    sourceIdentity.testHooks.push("Cold native route diagnostic: isolated original raw tabs before any engine; native frame/document/world/target replies and actual cleanup ACKs. Explicit child attachment is diagnostic only; no input, domain enable, autoattach change or focus allowance.");
+    try {
+      for (const layout of ["same", "oopif"]) {
+        const key = `frame-feedback-${randomUUID().replaceAll("-", "")}`, urls = frameTargetURLs(fixtureURL, key, layout);
+        const owned = await owner.newTab(), item = { key, layout, urls, tabId: owned.id }; detail.layouts.push(item);
+        try {
+          item.navigation = await owner.cdp.navigate(owned.id, urls.root);
+          await until(async () => {
+            const frames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${owned.id}})`);
+            item.frames = selectFrameTargetDocuments(frames, urls, layout); return !!item.frames;
+          }, "original native probe frame documents committed", 5000);
+          item.probe = await inspectColdNativeRoutes({ browser: owner, getWorker: () => worker, tabId: owned.id, independentTarget: true,
+            saveDetail: value => fs.writeFile(path.join(runDir, `cold-native-route-${layout}.json`), JSON.stringify(value, null, 2)) });
+        } catch (error) { item.error = error.stack; failure ??= error; }
+        finally {
+          try { await worker.evaluate(`chrome.tabs.remove(${owned.id})`); detail.cleanup.push({ tabId: owned.id, closed: true }); }
+          catch (error) { detail.cleanup.push({ tabId: owned.id, error: error.stack }); failure ??= error; }
+        }
+      }
+    } finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+      await fs.writeFile(path.join(runDir, "cold-native-routes.json"), JSON.stringify(detail, null, 2));
+    }
+    if (failure) throw failure; return detail;
   });
   if (process.env.OBU_TEST_RAW_COLD_FEEDBACK === "1") await test("js-cold-cdp-frame-target-feedback", async () => {
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-cold-cdp-frame-target-feedback", timeoutMs: 15000 });

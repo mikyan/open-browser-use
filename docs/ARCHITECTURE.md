@@ -33,6 +33,10 @@ debugger、history 和 tab groups。
   投影叶节点；临时对象按原生回执释放。失败调用只等待原有必要清理，完整
   detach 仍等待可选读取和释放，并阻止新命令越过。未初始化引擎的冷 CDP
   仍使用根文档 hit-test，见[坐标反馈](references/raw-frame-feedback.md)。
+  冷路候选 `browser-native-pointer-feedback.js` 用原生 frame/document/owner
+  证明读取叶节点；几何公式与 warm 路共用 `browser-frame-geometry.js`。
+  `browser-private-targets.js` 单独管理独立 target 的持久归属与显式失败恢复。
+  两候选尚未接入生产 backend；六布局诊断读数通过不等于冷路可视反馈验收。
   `browser-visual-deliveries.js` 保留原视觉调用 Promise 与 scope/document/token，
   End、显式 detach 和 Pause 先撤销发布，再确认原消息结算及最终隐藏。
   pagehide 撤销原 receiver token，pageshow 使用新 token 且保持隐藏；精确

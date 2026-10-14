@@ -129,3 +129,67 @@ capture and their 1000 ms request budget; seven PNGs total 196,735 bytes and
 112 encoded image regions match. The counted-navigation scene retires its
 receiver before final hide in this run; it does not re-prove the separate
 delayed-hide race. No new input replay or focus allowance was introduced.
+
+## Cold native reader candidate
+
+The cold reader is under development, not enabled by the production backend.
+The shared geometry factory moved to `browser-frame-geometry.js` without changing
+its function body or generated warm vendor bytes. `browser-native-pointer-feedback.js`
+keeps original frame/loader, document element and owner evidence while reading
+fractional coordinates through native CDP. It creates no Playwright Page and
+enables no protocol domain. Each original route owns a unique object group;
+actual allocation and group-release replies remain part of cleanup.
+
+A backend/module-stable random world name and an immutable kernel capture DOM
+methods/getters before subsequent reads. Retained deterministic red/green cases
+show the old fixed-world reader accepted a different real node, while the new
+kernel preserves the original hit after DOM method/getter changes. This is not
+an isolation boundary against an equally privileged CDP peer racing the first
+bootstrap, or against arbitrary JavaScript-intrinsic tampering. Worker changes
+can create another named world; group release does not destroy isolated worlds.
+
+Native capability diagnostic `KXt3Td` confirms that this ordinary extension's
+`Target.attachToTarget` returns `Not allowed`. An independent exact-target
+`chrome.debugger.attach` can read an OOPIF and detach without migrating the root.
+Original normal and exception handles become uncallable after group release.
+This observation alone does not prove safe production recovery.
+
+The first reader run `6Yz3DZ` is retained with actual exit 1 and unchanged sources.
+Its same-process rectangle matches the original leaf, but five remote layouts
+stop before attachment: their DevTools targets have not yet been materialized.
+The corrected diagnostic calls native `getTargets` and requires the unique ID
+from the original frame owner, then still requires the exact original no-client
+response. Neither URL matching nor the inventory's `attached` flag grants ownership.
+An unchanged `No target` response remains a rejection.
+
+Frozen diagnostic `5pTnPP` then passes six native rectangles and the mandatory
+raw-navigation case, actual exit 0 with no source drift. Same-process, OOPIF,
+dynamic, nested, scaled and rotated layouts match independently authored CSS
+geometry. All original document/business snapshots remain unchanged. This is a
+staged-module read test: it does not inject its result into the visual renderer,
+submit the leaf form or establish cold PNG correctness. The production raw
+feedback and existing preview archives are unchanged.
+
+Independent original-record review accounts for 198 settled native calls,
+39 opaque objects in 12 released groups, six exact independent attach/detach
+chains and 13 unchanged documents. The only fixture input is the dynamic frame's
+original Add click. The 1,479 ms focus interval has no events or allowances.
+Runner and host have actual exit 0; exact test processes are absent. This mode
+has no independent Chrome exit receipt. Its 465 saved source copies and 144
+additional Go/build input hashes are verified separately. The current three
+Node groups pass 3744 tests with one existing Windows symlink privilege skip;
+all original process exits are 0 and source/runtime hashes remain unchanged.
+
+`browser-private-targets.js` is a separately tested allocator candidate, also
+not enabled in production. It reserves each exact target, persists intent before
+native attachment, and retains actual work through group/detach/storage failure.
+Startup recovery requires a known same-browser ledger; a missing key is not a
+fresh-browser witness. A trusted fresh witness must name its original browser
+incarnation. A cleanup-only exact absence query can retire an already owned
+client after actual sends drain; its result records native absence rather than
+inventing a group-release or detach ACK. Group-first failure requires explicit
+registry retry before `PassivePointerReads` cleanup retry. Its 27 deterministic
+tests include failed group retry and delayed stale fresh witnesses; these do not
+prove native worker recovery. Integration with the existing lifecycle, native recovery
+fault tests, private-world lifecycle and the full cold visual workflow remain
+required by the [active plan](../exec-plans/active/2026-10-15-raw-frame-feedback.md).

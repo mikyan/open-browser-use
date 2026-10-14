@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+冷坐标读取候选 `5pTnPP` 六布局原生矩形与独立 CSS 几何吻合，13原文档不变；
+198原生调用全部结算，39对象对应12组释放ACK，6独立target实际attach/detach。
+1,479ms零activation/focus/许可；runner和host原exit0，精确测试进程无残留。
+Node3744pass/1既有Windows skip，源码/运行时无漂移。候选未接生产backend，
+未以此宣称冷路PNG/POST通过；持久归属注册表的真实生命周期、世界复用和
+生产接线仍待验，见[坐标反馈](references/raw-frame-feedback.md)。
+
 坐标高亮 warm 增量完整 `xS4ddv`180/180 actual exit0，旧178名称/顺序保持；
 Node3666pass/1既有Windows symlink权限skip。18原PNG/POST（42,559B）、65原
 对象释放ACK、39原文档及输入/截图记录独审通过。533,948ms仅原12activation/
