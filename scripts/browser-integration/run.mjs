@@ -37,6 +37,8 @@ import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-lay
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback } from "./frame-target-feedback-fixture.mjs";
+import { checkVisualDeliveryLifecycle } from "./visual-delivery-lifecycle-fixture.mjs";
+import { checkVisualNavigation, installVisualNavigationObserver } from "./visual-navigation-fixture.mjs";
 import { createRestrictedNetworkFixtures, checkRestrictedNetworkCaller, checkRestrictedNetworkPolicy, checkRestrictedNetworkBoundaries, runRestrictedNetworkWireCaller } from "./site-access-network-fixture.mjs";
 import { createRestrictedDiagnosticsFixtures, checkRestrictedDiagnosticsCaller, checkRestrictedDiagnosticsPolicy, checkRestrictedDiagnosticsBoundaries, runRestrictedDiagnosticsWireCaller } from "./site-access-diagnostics-fixture.mjs";
 import { checkRestrictedChooserCaller, checkRestrictedChooserPolicy, checkRestrictedChooserBoundaries, runRestrictedChooserWireCaller } from "./restricted-chooser-fixture.mjs";
@@ -650,6 +652,8 @@ try {
   sourceIdentity.sha256.zoomFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "zoom-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.domRebuildFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "dom-rebuild-feedback-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256.frameTargetFeedbackFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "frame-target-feedback-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.visualDeliveryLifecycleFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "visual-delivery-lifecycle-fixture.mjs"))).digest("hex");
+  sourceIdentity.sha256.visualNavigationFixture = createHash("sha256").update(await fs.readFile(path.join(directory, "visual-navigation-fixture.mjs"))).digest("hex");
   sourceIdentity.sha256["patch-network-wait-proof.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "..", "patch-network-wait-proof.mjs"))).digest("hex");
   for (const name of ["site-access-network-fixture.mjs", "site-access-network-checks.py", "go-site-access-network-checks/main.go"])
     sourceIdentity.sha256[name] = createHash("sha256").update(await fs.readFile(path.join(directory, name))).digest("hex");
@@ -2325,10 +2329,18 @@ try {
     sourceIdentity.testHooks.push("counted pointer delivery: exact-tab native input invocation/settlement recorder; one OOPIF scenario explicitly drops only the first root mouseMoved with synthetic ACK; real trusted multi-click/modifier events, exact button counts, server POST and first-click navigation checked; read-only tab/document commit observations after partial navigation share the original action deadline while the native probe stays installed; no natural Viz reproduction, CDP-to-DOM authentication or new focus allowance");
     const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-pointer-counted-delivery", turnId: "counted-pre-press-delivery", timeoutMs: 20000 });
     const detail = {}; let failure;
+    sourceIdentity.testHooks.push("counted pointer visual cleanup: bounded passive original message/retirement/native navigation observer and read-only registry snapshots; no message result, input, cleanup or deadline is replaced");
+    await worker.evaluate(`(${installVisualNavigationObserver.toString()})(chrome,globalThis,'counted-visual-cleanup')`);
+    const visualCleanupSnapshot = () => worker.evaluate(`(()=>{const v=__integrationBackend.visualDeliveries;return {trace:globalThis.__obuVisualNavigation.snapshot(),pending:[...v.pending].map(p=>({scope:p.scope,kind:p.kind})),records:[...v.records].map(r=>({scope:r.scope,closed:r.closed,cleanupState:r.cleanupState,error:String(r.error??''),documents:[...r.documents]}))}})()`);
     try { await checkCountedPointerDelivery({ browser: owner, worker, fixtureURL, server: pointerDeliveryFixtures, until, detail }); }
     catch (error) { failure = error; }
     await finishChooserCase({ detail, originalError: failure, cleanup: [
-      { name: "finalize-counted-pointer-tabs", run: async () => { detail.finalize = await owner.client.finalizeTabs([]); } },
+      { name: "finalize-counted-pointer-tabs", run: async () => {
+        detail.visualBeforeFinalize = await visualCleanupSnapshot();
+        try { detail.finalize = await owner.client.finalizeTabs([]); }
+        finally { detail.visualAfterFinalize = await visualCleanupSnapshot(); }
+      } },
+      { name: "restore-counted-visual-observer", run: async () => { detail.visualTrace = await worker.evaluate("globalThis.__obuVisualNavigation.restore()"); } },
       { name: "close-counted-pointer-client", run: () => owner.close() }
     ], save: async value => {
       await fs.writeFile(path.join(runDir, "pointer-counted-delivery.json"), JSON.stringify(value, null, 2));
@@ -3243,6 +3255,7 @@ try {
   await test(memoryClipboard ? "js-clipboard-worker-restart" : "js-control-worker-restart", async () => {
     const recovery = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-worker-recovery", timeoutMs: 15000 });
     let auxiliary, clipboardPending, clipboardOutcome;
+    const visualRecovery = {};
     const clipboardSentinel = "OBU clipboard survives worker restart 中文";
     try {
       const owned = await recovery.newTab({ url: fixtureURL });
@@ -3254,6 +3267,14 @@ try {
       const oldTurn = recovery.client.turnId;
       const networkWait = await recovery.client.request("armNetworkWait", { tabId: owned.id, event: "response", match: { url: fixtureURL + "never-worker-network" }, timeoutMs: 120000 });
       const navigationWait = await recovery.client.request("armNavigationWait", { tabId: owned.id, event: "url", url: "**/never-worker-navigation", timeoutMs: 120000 });
+      await owned.getByLabel("Controlled name").hover();
+      visualRecovery.tabId = owned.id;
+      visualRecovery.documentId = await worker.evaluate(`chrome.webNavigation.getFrame({tabId:${owned.id},frameId:0}).then(frame=>frame.documentId)`);
+      const readRecoveryVisual = async () => {
+        const values = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${owned.id},documentIds:[${JSON.stringify(visualRecovery.documentId)}]},world:'MAIN',func:()=>{const tree=document.getElementById('open-browser-use-cursor-root')?.shadowRoot,cursor=tree?.querySelector('[data-testid="browser-agent-cursor"]');return {opacity:cursor?getComputedStyle(cursor).opacity:null,layers:tree?.querySelectorAll(':popover-open').length??0,rings:tree?.querySelectorAll('[data-testid="browser-agent-click"]').length??0}}})`);
+        assert.equal(values.length, 1); assert.equal(values[0].documentId, visualRecovery.documentId); return values[0].result;
+      };
+      visualRecovery.before = await until(async () => { const value = await readRecoveryVisual(); return value.opacity === "1" && value.layers === 1 ? value : false; }, "original visible receiver before worker restart");
       if (memoryClipboard) {
         assert.equal(memoryClipboardGuard?.verified, true);
         await owned.clipboard.writeText(clipboardSentinel);
@@ -3264,6 +3285,8 @@ try {
       }
       const restarted = await restartObservedWorker();
       await assert.rejects(recovery.client.getTabs(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
+      visualRecovery.after = await readRecoveryVisual();
+      assert.deepEqual(visualRecovery.after, { opacity: "0", layers: 0, rings: 0 }, "Worker recovery left the original document's feedback visible");
       await assert.rejects(recovery.client.request("collectNetworkWait", { tabId: owned.id, waiterId: networkWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       await assert.rejects(recovery.client.request("collectNavigationWait", { tabId: owned.id, waiterId: navigationWait.waiterId, turn_id: oldTurn, control_epoch: oldEpoch }), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
       assert.equal(recovery.client.controlEpoch, oldEpoch, "restart silently refreshed the client");
@@ -3284,9 +3307,10 @@ try {
       assert.match(await owned.domSnapshot(), /Controlled name/);
       await owned.getByLabel("Controlled name").fill("recovered after worker restart");
       assert.equal(await owned.getByLabel("Controlled name").inputValue(), "recovered after worker restart");
-      return { oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: restarted.oldTarget, restartedTarget: restarted.restartedTarget, restartEvents: restarted.activeEvents, restartFocus: restarted.windowFocusEvents, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true,
+      return { visualRecovery, oldEpoch, recoveredEpoch: recovery.client.controlEpoch, oldTarget: restarted.oldTarget, restartedTarget: restarted.restartedTarget, restartEvents: restarted.activeEvents, restartFocus: restarted.windowFocusEvents, auxiliaryWindowPreserved: auxiliary.id, oldNetworkWaitExpired: true, oldNavigationWaitExpired: true,
         ...(memoryClipboard ? {clipboardUnchanged:true,clipboardNotReplayed:true,oldClipboardOutcome:clipboardOutcome} : {}) };
     } finally {
+      await fs.writeFile(path.join(runDir, "worker-visual-recovery.json"), JSON.stringify(visualRecovery, null, 2));
       if (memoryClipboard) {
         let ending;
         if (clipboardPending && !clipboardOutcome) {
@@ -3362,6 +3386,8 @@ try {
         activeEvents: delta.filter(event => event.kind === "activation").map(event => event.value),
         windowFocusEvents: delta.filter(event => event.kind === "focus").map(event => event.value) };
   }
+  let visualDeliveryFromPopup;
+  const visualDeliverySelected = !process.env.OBU_TEST_CASES || new RegExp(process.env.OBU_TEST_CASES).test("js-visual-delivery-lifecycle");
   await test("js-user-global-pause-popup", async () => {
     const network = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-paused-network", timeoutMs: 15000 });
     let pauseNetworkOutcome, pauseNavigationOutcome, pauseDownloadOutcome, pauseChooserOutcome, pausePageDownloadOutcome, pausedWait, pausedNavigationWait, pausedChooserWait, pausedPageDownloadWait, pausedDownload, pausedTab, pauseAuxiliary;
@@ -3388,6 +3414,20 @@ try {
       const detail = await checkGlobalPause({
     connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),
     getWorker: () => worker, fixtureURL, popupURL: `chrome-extension://${extensionId}/popup.html`, windowId: sentinel.windowId, assert, until, traceFocus,
+    afterRestore: visualDeliverySelected ? async popup => {
+      const startedAt = Date.now();
+      try {
+        sourceIdentity.testHooks.push("Visual delivery lifecycle: controlled before-original-send and after-original-ACK delivery gates on one exact original document/scope; original arguments, native invocation/response, unique trusted POST and final hidden acknowledgement retained. These gates do not prove spontaneous Chrome reordering. Existing Pause popup is reused; no input replay or additional focus allowance.");
+        const detail = await checkVisualDeliveryLifecycle({
+          connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-visual-delivery-${suffix}`, timeoutMs: 15000 }),
+          getWorker: () => worker, popup, fixtureURL, fixtures: frameTargetFeedbackFixtures, until,
+          saveArtifact: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
+          saveDetail: detail => fs.writeFile(path.join(runDir, "visual-delivery-lifecycle.json"), JSON.stringify(detail, null, 2)),
+          closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`)
+        });
+        visualDeliveryFromPopup = { detail, elapsedMs: Date.now() - startedAt };
+      } catch (error) { visualDeliveryFromPopup = { error }; }
+    } : undefined,
     saveDetail: detail => fs.writeFile(path.join(runDir, "pause-control.json"), JSON.stringify({ ...detail, networkWait: pauseNetworkOutcome, navigationWait: pauseNavigationOutcome, fileChooserWait: pauseChooserOutcome, pageDownloadWait: pausePageDownloadOutcome, directDownload: pauseDownloadOutcome }, null, 2)),
     connectPage: async url => {
       const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target => target.type === "page" && target.url === url), "extension page target");
@@ -3447,6 +3487,20 @@ try {
         await traceFocus("pause-auxiliary:after-close");
       }
     }
+  });
+  await test("js-visual-navigation-lifecycle", async () => {
+    sourceIdentity.testHooks.push("Visual navigation: passive original sendMessage Promise and pagehide native sender/token observer; public goto/back and explicit turnEnded, with original current-document DOM reads. No message synthesis, input replay, visual repair or focus allowance; BFCache is recorded only from exact native document identity and pageshow.persisted.");
+    return checkVisualNavigation({
+      connectBrowser: () => connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-visual-navigation", timeoutMs: 15000 }),
+      getWorker: () => worker, fixtureURL, fixtures: frameTargetFeedbackFixtures, until,
+      saveDetail: detail => fs.writeFile(path.join(runDir, "visual-navigation.json"), JSON.stringify(detail, null, 2)),
+      closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`)
+    });
+  });
+  await test("js-visual-delivery-lifecycle", async () => {
+    if (visualDeliveryFromPopup?.error) throw visualDeliveryFromPopup.error;
+    assert.ok(visualDeliveryFromPopup?.detail, "Visual delivery acceptance requires js-user-global-pause-popup to borrow its original control popup");
+    return { ...visualDeliveryFromPopup.detail, workflowElapsedMs: visualDeliveryFromPopup.elapsedMs };
   });
   let startupFromPopup, invalidFromPopup, restrictedPolicyFromPopup, restrictedNetworkPolicyFromPopup, restrictedDiagnosticsPolicyFromPopup, restrictedChooserPolicyFromPopup;
   const restrictedFromPopup = new Map();
@@ -3967,6 +4021,7 @@ try {
     if (!invalidFromPopup?.error) await recordFollowingRestrictedPopup(popup);
   }
   await test("js-user-site-access-popup", async () => {
+    sourceIdentity.testHooks.push("Site-access worker recovery: bounded passive original PING Promise and exact-document isolated presence-read observer after actual worker restart; original arguments, function, result/rejection and pending state retained. No synthesized reply, receiver injection, input replay or added focus allowance.");
     const traceFocus = createPopupFocusTrace("site-access", "intentional harness chrome.action.openPopup for the user's website access settings");
     return checkSiteAccess({
       connectBrowser: suffix => connectOpenBrowserUse({ socketPath: endpoint, sessionId: `js-${suffix}`, timeoutMs: 15000 }),

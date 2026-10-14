@@ -5,6 +5,7 @@ import { observeCrxFrameMessage, prepareCrxChildFrame, refreshCrxCachedLifecycle
 function fixture() {
   const events = [];
   const transport = {
+    _tabToTarget: new Map([[7, {}]]),
     _sessions: new Map([["child-session", 7]]),
     getTargetId: tabId => tabId === 7 ? "root-frame" : undefined,
     _emitMessage(message) { observeCrxFrameMessage(this, message); events.push(message); }
@@ -18,15 +19,57 @@ function fixture() {
 
 test("BFCache restoration requests real lifecycle state only from its owned session", async () => {
   const f = fixture(), calls = [];
-  const send = async (...args) => calls.push(args);
-  const event = { method: "Page.frameNavigated", sessionId: "crx-tab-7", params: { type: "BackForwardCacheRestore", frame: { id: "root-frame" } } };
+  const send = async (...args) => { calls.push(args); return { frameTree: { frame: event.params.frame } }; };
+  const event = { method: "Page.frameNavigated", sessionId: "crx-tab-7", params: { type: "BackForwardCacheRestore", frame: { id: "root-frame", loaderId: "original-loader" } } };
+  observeCrxFrameMessage(f.transport, event);
   await refreshCrxCachedLifecycle(f.transport, event, send);
-  assert.deepEqual(calls, [[{ tabId: 7 }, "Page.setLifecycleEventsEnabled", { enabled: true }]]);
+  assert.deepEqual(calls, [[{ tabId: 7 }, "Page.getFrameTree"], [{ tabId: 7 }, "Page.setLifecycleEventsEnabled", { enabled: true }]]);
   await refreshCrxCachedLifecycle(f.transport, { ...event, params: { ...event.params, type: "Navigation" } }, send);
   await refreshCrxCachedLifecycle(f.transport, { ...event, sessionId: "crx-tab-99" }, send);
   await refreshCrxCachedLifecycle(f.transport, { ...event, sessionId: "foreign-session" }, send);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.deepEqual(f.events, [], "no lifecycle events are synthesized");
+});
+
+function cachedFixture() {
+  const f = fixture();
+  f.restore = { method: "Page.frameNavigated", sessionId: "crx-tab-7", params: { type: "BackForwardCacheRestore", frame: { id: "root-frame", loaderId: "original-loader" } } };
+  f.cachedTree = { frameTree: { frame: f.restore.params.frame, childFrames: [{ frame: { id: "restored-child", parentId: "root-frame", loaderId: "child-loader", url: "https://original.test/child" } }] } };
+  f.context = { method: "Runtime.executionContextCreated", sessionId: "crx-tab-7", params: { context: { id: 7, uniqueId: "original-context", name: "utility", auxData: { frameId: "restored-child", isDefault: false } } } };
+  observeCrxFrameMessage(f.transport, f.context);
+  observeCrxFrameMessage(f.transport, f.restore);
+  return f;
+}
+
+test("BFCache repairs only native missing children before binding their still-live original contexts", async () => {
+  const f = cachedFixture(), calls = [];
+  await refreshCrxCachedLifecycle(f.transport, f.restore, async (target, method, params) => {
+    calls.push({ target, method, params });
+    if (method === "Page.getFrameTree") return f.cachedTree;
+    assert.deepEqual(f.events.map(row => row.method), ["Page.frameAttached", "Page.frameNavigated", "Runtime.executionContextCreated"]);
+  });
+  assert.deepEqual(calls.map(row => row.method), ["Page.getFrameTree", "Page.setLifecycleEventsEnabled"]);
+  assert.deepEqual(f.events[1].params.frame, f.cachedTree.frameTree.childFrames[0].frame);
+  assert.equal(f.events[2], f.context, "Replay the exact original native payload, never a guessed context");
+});
+
+test("BFCache tree reads cannot resurrect destroyed contexts or cross navigation/attachment changes", async () => {
+  for (const change of ["destroy", "clear", "navigate", "child-detach", "reattach", "wrong-loader"]) {
+    const f = cachedFixture(); let resolve; const methods = [];
+    const pending = refreshCrxCachedLifecycle(f.transport, f.restore, async (target, method) => {
+      methods.push(method); if (method === "Page.getFrameTree") return new Promise(done => { resolve = done; });
+    });
+    assert.equal(typeof resolve, "function");
+    if (change === "destroy") observeCrxFrameMessage(f.transport, { method: "Runtime.executionContextDestroyed", sessionId: "crx-tab-7", params: { executionContextId: 7 } });
+    if (change === "clear") observeCrxFrameMessage(f.transport, { method: "Runtime.executionContextsCleared", sessionId: "crx-tab-7", params: {} });
+    if (change === "navigate") observeCrxFrameMessage(f.transport, { ...f.restore, params: { frame: { id: "root-frame", loaderId: "successor" } } });
+    if (change === "child-detach") observeCrxFrameMessage(f.transport, { method: "Page.frameDetached", sessionId: "crx-tab-7", params: { frameId: "restored-child", reason: "remove" } });
+    if (change === "reattach") f.transport._tabToTarget.set(7, {});
+    if (change === "wrong-loader") f.cachedTree.frameTree.frame = { id: "root-frame", loaderId: "successor" };
+    resolve(f.cachedTree); await pending;
+    if (["destroy", "clear"].includes(change)) assert.deepEqual(f.events.map(row => row.method), ["Page.frameAttached", "Page.frameNavigated"]);
+    else { assert.deepEqual(f.events, [], change); assert.deepEqual(methods, ["Page.getFrameTree"], change); }
+  }
 });
 
 test("late OOPIF repair uses only the owned child session's real frame identity", async () => {

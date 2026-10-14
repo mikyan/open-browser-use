@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Visual delivery cleanup](visual-delivery-cleanup.md)：原可视消息结算、精确
+  接收器退役与最终隐藏，BFCache 本地 frame 恢复及 worker 清理边界。
 - [Frame target feedback](frame-target-feedback.md)：iframe 内原操作元素的边框
   快照、坐标投影、迟到反馈与实际读取清理；原始红绿验收及未完成边界。
 - [Restricted page downloads](restricted-page-downloads.md)：允许网站的原始

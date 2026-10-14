@@ -1,6 +1,7 @@
 import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { PassivePointerReads } from "./browser-pointer-feedback.js";
+import { VisualDeliveries } from "./browser-visual-deliveries.js";
 import { BrowserLifetime } from "./browser-lifetime.js";
 import { BrowserNetworkWaits } from "./browser-network-waits.js";
 import { BrowserDialogs } from "./browser-dialogs.js";
@@ -920,6 +921,12 @@ class BrowserBackend {
     this.nextPointerFeedbackSequence = 1;
     this.pointerFeedbackLatest = new Map();
     this.pointerFeedbackReads = new PassivePointerReads();
+    this.visualRecoverySessions = new Map();
+    this.visualDeliveries = new VisualDeliveries({
+      hide: (tabId, documentId, receiverToken) => chrome.tabs.sendMessage(tabId, {
+        type: "OPEN_BROWSER_USE_CURSOR_STATE", receiverToken, state: { cursor: null, isVisible: false, sessionId: null, turnId: null }
+      }, { documentId })
+    });
     chrome.debugger.onDetach.addListener((source, reason) => {
       if (typeof source.tabId === "number") {
         if (reason === "target_closed") this.markAttachmentDestroyed(source.tabId);
@@ -939,6 +946,12 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      const visualRecoveries = [...this.visualRecoverySessions.values()].map(recovery => ({ recovery, item: recovery.tabs.get(tabId) })).filter(({ item }) => item);
+      void this.visualDeliveries.tabRemoved(tabId).then(() => {
+        // Exact removal can retire only the recovery items known at this event,
+        // and only after their actual pending reads have settled.
+        for (const { recovery, item } of visualRecoveries) if (recovery.tabs.get(tabId) === item) recovery.tabs.delete(tabId);
+      }).catch(() => {});
       this.invalidateAuxiliaryDelivery(tabId);
       void this.store.forgetDeliverable(tabId).catch(() => {});
       void this.browserLifetime.originalTabRemoved(tabId).catch(error => this.automationControl.fail(error));
@@ -1199,6 +1212,8 @@ class BrowserBackend {
     // Only explicit bootstrap retries a cleanup attempt that actually failed.
     // Restart it before invalidation captures its drain; an in-flight attempt
     // remains unchanged, and no candidate adoption or original action replays.
+    const visualCleanup = retryPageCleanup ? this.visualDeliveries.close(() => true, { retryFailed: true }) : null;
+    visualCleanup?.catch(() => {});
     const pageCleanup = retryPageCleanup ? this.pageWaits.retryFailedCleanup() : null;
     pageCleanup?.catch(() => {});
     const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
@@ -1206,6 +1221,7 @@ class BrowserBackend {
     const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
     pageDownloadCleanup?.catch(() => {});
     const cancelled = this.cancelGlobalControl(new Error("OBU_NATIVE_CONNECTION_LOST: native host disconnected"));
+    if (visualCleanup) cancelled.releases.push(visualCleanup);
     if (pageCleanup) cancelled.releases.push(pageCleanup);
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
@@ -1522,12 +1538,14 @@ class BrowserBackend {
     const tabIds = new Set([...this.attachedTabs, ...this.pendingAttachmentTabs, ...this.controlReleases.keys(), ...this.attachmentOwners.keys(), ...this.cursorByTabId.keys(), ...this.pointerFeedbackByTabId.keys(), ...engine.tabIds, ...input.tabIds, ...network.tabIds, ...dialogs.tabIds, ...[...this.nativeDialogOperations].map(value => value.tabId), ...navigation.tabIds, ...chooser.tabIds, ...auxiliary.tabIds, ...downloads.tabIds, ...exports.tabIds, ...clipboard.tabIds, ...broker.tabIds]);
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
-    const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean), ...this.pointerFeedbackReads.snapshot()];
+    const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean), ...this.pointerFeedbackReads.snapshot(), ...this.visualDeliveries.snapshot()];
     return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
     for (const marker of this.freshBlankTabs.values()) this.retireFreshBlankTab(marker);
+    const visualsReleased = this.visualDeliveries.close();
+    visualsReleased.catch(() => {});
     const snapshot = this.globalControlSnapshot();
     const networksReleased = this.networkWaits.invalidateAll();
     void this.dialogs.invalidateAll().catch(() => {});
@@ -1538,8 +1556,7 @@ class BrowserBackend {
     for (const resolve of this.cursorArrivalWaitersByKey.values()) resolve();
     this.cursorArrivalWaitersByKey.clear();
     this.cursorByTabId.clear();
-    for (const tabId of snapshot.tabIds) void this.publishCursorState(tabId).catch(() => {});
-    const releases = [networksReleased, this.directoryUploads.drain(), this.drainPageDownloads(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
+    const releases = [visualsReleased, networksReleased, this.directoryUploads.drain(), this.drainPageDownloads(), this.browserEngine?.drainDiagnosticCleanup?.() ?? Promise.resolve(), this.fileChooserWaits.invalidateAll(error), this.downloadWaits.invalidateAll(error), this.pageWaits.invalidateAll(error), this.directDownloads.invalidateAll(), this.pageExports.invalidateAll(), this.clipboard.invalidateAll(), ...[...snapshot.tabIds].map(tabId => {
       this.cancelTabTransfers(tabId, error);
       return this.detachTab(tabId).then(() => this.pauseReleaseFailures.delete(tabId), failure => { this.pauseReleaseFailures.set(tabId, failure); throw failure; });
     })];
@@ -1557,6 +1574,8 @@ class BrowserBackend {
   pauseAutomation({ retryPageCleanup = true } = {}) {
     const deadline = this.automationDeadline();
     this.automationControl.block();
+    const visualCleanup = retryPageCleanup ? this.visualDeliveries.close(() => true, { retryFailed: true }) : null;
+    visualCleanup?.catch(() => {});
     // Explicit Pause/Retry may retry settled failed cleanup, after fencing
     // input and before cancellation captures the old rejected drain promise.
     const pageCleanup = retryPageCleanup ? this.pageWaits.retryFailedCleanup() : null;
@@ -1568,6 +1587,8 @@ class BrowserBackend {
     // Cancel known engine work synchronously, before a slow storage write can
     // allow an already-running locator wait to deliver its first input.
     const cancelled = this.cancelGlobalControl();
+    cancelled.retryVisualRecovery = retryPageCleanup;
+    if (visualCleanup) cancelled.releases.push(visualCleanup);
     if (pageCleanup) cancelled.releases.push(pageCleanup);
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
@@ -1614,13 +1635,19 @@ class BrowserBackend {
     // Cancelled requests are expected to reject. Only release failures matter.
     for (const result of outcomes.slice(0, cancelled.releases.length)) if (result.status === "rejected") errors.push(result.reason);
     const tabIds = this.globalControlSnapshot().tabIds;
+    const visualRecovery = [];
     for (const sessionId of this.controlLedger.records.keys()) {
-      try { for (const tab of await within(() => this.getSessionTabs(sessionId, { strict: true }))) tabIds.add(tab.id); }
+      try {
+        const ownedTabs = await within(() => this.getSessionTabs(sessionId, { strict: true }));
+        for (const tab of ownedTabs) tabIds.add(tab.id);
+        const release = this.recoverSessionVisuals(sessionId, ownedTabs, cancelled.retryVisualRecovery === true);
+        release.catch(() => {}); visualRecovery.push(release);
+      }
       catch (error) { errors.push(error); }
     }
     for (const tabId of this.pauseReleaseFailures.keys()) tabIds.add(tabId);
     let released;
-    try { released = await within(() => Promise.allSettled([...tabIds].map(tabId => this.detachTab(tabId)))); }
+    try { released = await within(() => Promise.allSettled([...visualRecovery, ...[...tabIds].map(tabId => this.detachTab(tabId))])); }
     catch (error) { errors.push(error); return fail(); }
     for (const result of released) if (result.status === "rejected") errors.push(result.reason);
     try {
@@ -2030,7 +2057,7 @@ class BrowserBackend {
         }
       }
     }
-    await this.setSessionActiveTab(session.sessionId, chromeTab.id, check);
+    await this.setSessionActiveTab(session.sessionId, chromeTab.id, check, params);
     check();
     transaction.freshBlank.groupId = record.kind === "background-window" || state.ungrouped === true ? -1 : transaction.groupId;
     if (record.kind !== "background-window" && state.ungrouped !== true) await this.auxiliaryTabs.remove(record);
@@ -2044,7 +2071,7 @@ class BrowserBackend {
   async getTabsInTurn(params) {
     const session = await this.requireSession(params);
     const tabs = await this.getSessionTabs(session.sessionId);
-    return await this.withLogicalActive(session.sessionId, tabs.filter(tab => this.siteAccess.allowsUrl(tab.url, { allowBlank: true }) && (!tab.pendingUrl || this.siteAccess.allowsUrl(tab.pendingUrl, { allowBlank: true }))).map(toBrowserTab));
+    return await this.withLogicalActive(params, tabs.filter(tab => this.siteAccess.allowsUrl(tab.url, { allowBlank: true }) && (!tab.pendingUrl || this.siteAccess.allowsUrl(tab.pendingUrl, { allowBlank: true }))).map(toBrowserTab));
   }
 
   async getUserTabs(params) {
@@ -2171,7 +2198,7 @@ class BrowserBackend {
     if (reservation.kind === "created-page" && this.auxiliaryTabs.owner(tabId) === reservation) {
       const live = await this.liveAuxiliaryTab(reservation, { strict: true }); check();
       if (!live) throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: native child moved before explicit claim");
-      await this.setSessionActiveTab(session.sessionId, tab.id, check); check();
+      await this.setSessionActiveTab(session.sessionId, tab.id, check, params); check();
       return { ...toBrowserTab(live), active: true };
     }
     if (window.type === "popup") {
@@ -2187,14 +2214,14 @@ class BrowserBackend {
         windowId: tab.windowId, kind: "popup", control_epoch: epoch, controlRevision: revision, check, validate
       });
       check();
-      await this.setSessionActiveTab(session.sessionId, tab.id, check);
+      await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
       check();
     } else {
       const existing = this.auxiliaryTabs.owner(tabId);
       if (existing?.kind === "background-window") {
         const state = await this.store.getSession(session.sessionId);
         await this.commitBackgroundWindowTab(existing, state, check);
-        await this.setSessionActiveTab(session.sessionId, tab.id, check);
+        await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
         check();
         return { ...toBrowserTab(tab), active: true };
       }
@@ -2205,7 +2232,7 @@ class BrowserBackend {
       const state = await this.store.getSession(session.sessionId);
       if (state.ungrouped === true || existing?.kind === "ordinary" || this.auxiliaryTabs.list(session.sessionId).some(value => value.kind === "ordinary")) {
         await this.commitUngroupedTab(reservation, state, tab.windowId, check);
-        await this.setSessionActiveTab(session.sessionId, tab.id, check);
+        await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
         check();
         return { ...toBrowserTab(tab), active: true };
       }
@@ -2227,13 +2254,13 @@ class BrowserBackend {
       if (groupingError && !/No group with id|Invalid group id/i.test(String(groupingError?.message))) throw groupingError;
       if (Number.isSafeInteger(createdGroupId) && createdGroupId === state.chromeGroupId && await this.singletonGroupDisappeared(createdGroupId, tab.id, tab.windowId)) {
         await this.commitUngroupedTab(reservation, state, tab.windowId, check);
-        await this.setSessionActiveTab(session.sessionId, tab.id, check);
+        await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
         check();
         return { ...toBrowserTab(tab), active: true };
       }
       if (groupingError) throw groupingError;
       check();
-      await this.setSessionActiveTab(session.sessionId, tab.id, check);
+      await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
       check();
       await this.auxiliaryTabs.remove(reservation, { releaseExcluded: true });
     }
@@ -3246,6 +3273,9 @@ class BrowserBackend {
   }
 
   releaseEngineAttachment(tabId) {
+    // Native automatic release cannot await optional display. Its exact old
+    // delivery/final-hide barrier remains available to explicit cleanup.
+    void this.visualDeliveries.close(scope => scope.tabId === tabId).catch(() => {});
     // A cold network arm reserves capacity before the raw-to-CRX migration.
     // Release only waits bound to the retiring Page here. External detach,
     // explicit cancellation and ownership events also retire unbound setups.
@@ -3292,14 +3322,23 @@ class BrowserBackend {
     await this.requireSessionTab(params, "detach");
     const tabId = requireTabId(params, "detach");
     const attachment = this.attachmentEpochs.get(tabId), owner = this.attachmentOwners.get(tabId);
-    await Promise.all([
+    // Start explicit retries, then synchronously install the original release
+    // barrier before awaiting any ACK. A successor attach cannot cross it.
+    const retries = [
+      this.visualDeliveries.close(scope => scope.tabId === tabId && scope.session_id === params.session_id, { retryFailed: true }),
       this.browserEngine?.drainDiagnosticCleanup?.({ sessionId: params.session_id, tabId, retryFailed: true }),
       this.drainPageDownloads(record => record.scope.session_id === params.session_id && record.scope.tabId === tabId && record.scope.attachment === attachment, { retryFailed: true })
-    ]);
-    await this.requireSessionTabOwnership(params, "detach");
-    if (this.attachmentEpochs.get(tabId) !== attachment || this.attachmentOwners.get(tabId) !== owner)
-      throw new Error("OBU_TRANSFER_CANCELLED: original detach attachment changed during diagnostic cleanup");
-    await this.detachTab(tabId);
+    ];
+    const releaseAdmission = Promise.all(retries).then(async () => {
+      await this.requireSessionTabOwnership(params, "detach");
+      if (this.attachmentEpochs.get(tabId) !== attachment || this.attachmentOwners.get(tabId) !== owner)
+        throw new Error("OBU_TRANSFER_CANCELLED: original detach attachment changed during diagnostic cleanup");
+    });
+    releaseAdmission.catch(() => {});
+    const release = this.detachTab(tabId, { releaseAdmission });
+    const results = await Promise.allSettled([...retries, release]);
+    const failure = results.find(value => value.status === "rejected");
+    if (failure) throw failure.reason;
   }
 
   async executeCdp(params) {
@@ -3633,7 +3672,8 @@ class BrowserBackend {
     try {
       const authority = this.pointerFeedbackAuthority(params, params.feedbackTarget?.check);
       const feedbackSequence = this.nextPointerFeedbackSequence++;
-      return () => { try { authority.check(); this.enqueuePointerFeedback({ ...params, feedbackSequence, feedbackAuthority: authority }); } catch {} };
+      const visualTicket = this.visualDeliveries.ticket(authority.scope, authority.check);
+      return () => { try { visualTicket.check(); this.enqueuePointerFeedback({ ...params, feedbackSequence, feedbackAuthority: authority, visualTicket }); } catch {} };
     } catch { return () => {}; }
   }
 
@@ -3673,7 +3713,7 @@ class BrowserBackend {
     if (queue.pending.length >= MAX_POINTER_FEEDBACK_JOBS - 1) queue.pending.shift();
     queue.pending.push({
       session_id: params.session_id, turn_id: params.turn_id,
-      feedbackSequence, feedbackTarget: params.feedbackTarget, feedbackAuthority: params.feedbackAuthority,
+      feedbackSequence, feedbackTarget: params.feedbackTarget, feedbackAuthority: params.feedbackAuthority, visualTicket: params.visualTicket,
       target: { tabId }, commandParams: { type: event.type, x: event.x, y: event.y }
     });
     if (!queue.running) {
@@ -3717,11 +3757,13 @@ class BrowserBackend {
     };
     this.cursorByTabId.set(tabId, cursor);
     let expired = false;
+    const ticket = params.visualTicket;
+    const check = () => { ticket.check(); if (!isCurrent()) throw new Error("OBU_VISUAL_EXPIRED: pointer display expired"); };
     const isCurrent = () => !expired && !this.nativeRecovery && this.attachedTabs.has(tabId) &&
       this.pointerFeedbackByTabId.get(tabId) === queue && this.cursorByTabId.get(tabId) === cursor;
     try {
       await withTimeout(POINTER_FEEDBACK_TIMEOUT_MS, async () => {
-        if (!(await this.ensureCursorContentScript(params.session_id, tabId)) || !isCurrent()) {
+        if (!(await this.ensureCursorContentScript(params.session_id, tabId, ticket, check)) || !isCurrent()) {
           return;
         }
         const proof = await this.assertSiteTab(tabId);
@@ -3731,22 +3773,25 @@ class BrowserBackend {
         // tabs.sendMessage without a documentId chooses the primary document
         // when Chrome processes the message, not when it was prepared here.
         // Optional feedback must never grant an old target to a new document.
-        const documentId = this.siteAccess.restricted ? proof.documentId :
-          (await chrome.webNavigation.getFrame({ tabId, frameId: 0 }))?.documentId;
+        const documentId = ticket.documentId;
         params.feedbackAuthority?.check(); this.assertSiteProof(proof);
         if (!isCurrent() || typeof documentId !== "string" || !documentId) return;
         const destination = { documentId };
-        await chrome.tabs.sendMessage(tabId, {
+        check();
+        await ticket.run("CURSOR", () => chrome.tabs.sendMessage(tabId, {
           type: "OPEN_BROWSER_USE_CURSOR",
+          receiverToken: ticket.receiverToken,
           sessionId: params.session_id,
           turnId: params.turn_id,
           ...cursor
-        }, destination);
+        }, destination), { mayDisplay: true });
         if (event.type === "mousePressed" && isCurrent()) {
           this.assertSiteProof(proof);
           params.feedbackAuthority?.check();
-          await chrome.tabs.sendMessage(tabId, {
+          check();
+          await ticket.run("POINTER_EVENT", () => chrome.tabs.sendMessage(tabId, {
             type: "OPEN_BROWSER_USE_POINTER_EVENT",
+            receiverToken: ticket.receiverToken,
             sessionId: params.session_id,
             turnId: params.turn_id,
             eventType: event.type,
@@ -3754,7 +3799,7 @@ class BrowserBackend {
             ...(params.feedbackTarget !== undefined ? { targetRect: cursor.targetRect } : {}),
             x: event.x,
             y: event.y
-          }, destination);
+          }, destination), { mayDisplay: true });
         }
         if (params.feedbackTarget !== undefined && (!params.feedbackTarget.settled || cursor.targetRect !== params.feedbackTarget.value)) {
           // Do not join the geometry read in this position/ring queue. The
@@ -3774,14 +3819,15 @@ class BrowserBackend {
     const check = () => {
       if (expired || this.pointerFeedbackLatest.get(tabId) !== params.feedbackSequence || this.cursorByTabId.get(tabId) !== cursor)
         throw new Error("Pointer feedback superseded");
-      params.feedbackAuthority?.check(); params.feedbackTarget.check(); this.assertSiteProof(proof);
+      params.visualTicket.check(); params.feedbackAuthority?.check(); params.feedbackTarget.check(); this.assertSiteProof(proof);
     };
     try {
       await withTimeout(POINTER_FEEDBACK_TIMEOUT_MS, async () => {
         const rect = await params.feedbackTarget.result;
         check(); cursor.targetRect = rect;
-        await chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_TARGET_RECT", sessionId: params.session_id,
-          turnId: params.turn_id, feedbackSequence: params.feedbackSequence, targetRect: rect }, destination);
+        await params.visualTicket.run("TARGET_RECT", () => chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_TARGET_RECT", sessionId: params.session_id,
+          receiverToken: params.visualTicket.receiverToken,
+          turnId: params.turn_id, feedbackSequence: params.feedbackSequence, targetRect: rect }, destination), { mayDisplay: true });
       });
     } finally { expired = true; }
   }
@@ -3847,7 +3893,8 @@ class BrowserBackend {
       throw new Error("moveMouse requires finite x and y");
     }
     this.clearPointerFeedback(tabId);
-    const cursorReady = await this.ensureCursorContentScript(session.sessionId, tabId);
+    const ticket = this.captureVisualTicket(params, tabId);
+    const cursorReady = await this.ensureCursorContentScript(session.sessionId, tabId, ticket);
     if (!cursorReady) {
       throw new Error(`Cannot inject cursor content script into tab ${tabId}`);
     }
@@ -3866,15 +3913,16 @@ class BrowserBackend {
         ? null
         : this.createCursorArrivalWaiter(params.session_id, params.turn_id, moveSequence);
     try {
-      await chrome.tabs.sendMessage(tabId, {
+      await ticket.run("CURSOR", () => chrome.tabs.sendMessage(tabId, {
         type: "OPEN_BROWSER_USE_CURSOR",
+        receiverToken: ticket.receiverToken,
         sessionId: params.session_id,
         turnId: params.turn_id,
         moveSequence,
         x: cursor.x,
         y: cursor.y,
         visible: cursor.visible
-      });
+      }, { documentId: ticket.documentId }), { mayDisplay: true });
       await arrivalWaiter?.promise;
       this.controlLedger.assertCurrent(params);
     } catch (error) {
@@ -5030,7 +5078,7 @@ class BrowserBackend {
       const sessionState = await this.store.getSession(session.sessionId);
       sessionState.activeTabId = null;
       await this.store.save();
-      await Promise.allSettled(tabs.filter(hasTabId).map((tab) => this.publishCursorState(tab.id)));
+      // Original document hides were acknowledged inside releaseSessionControl.
     });
   }
 
@@ -5048,11 +5096,15 @@ class BrowserBackend {
   handleDownloadCreated() {}
   handleDownloadChanged() {}
 
-  notifyCursorArrived(params) {
+  notifyCursorArrived(params, sender) {
     const moveSequence = params?.moveSequence;
     if (!Number.isInteger(moveSequence)) {
       return false;
     }
+    const tabId = sender?.tab?.id;
+    const record = [...this.visualDeliveries.records].find(value => !value.closed && value.scope.tabId === tabId &&
+      value.scope.session_id === params.sessionId && value.scope.turn_id === params.turnId);
+    if (!record || !this.visualDeliveries.bootstrapAllowed(tabId, sender?.documentId, params.receiverToken, record.scope)) return false;
     const waiter = this.cursorArrivalWaitersByKey.get(cursorArrivalKey(params.sessionId, params.turnId, moveSequence));
     waiter?.();
     return Boolean(waiter);
@@ -5263,24 +5315,18 @@ class BrowserBackend {
     });
   }
 
-  readCursorOverlayState(tabId) {
-    if (this.automationControl.inputBlocked || (this.siteAccess.restricted && this.siteRevokedTabs.has(tabId))) return { cursor: null, isVisible: false, sessionId: null, turnId: null };
+  readCursorOverlayState(tabId, documentId, receiverToken) {
+    const hidden = { cursor: null, isVisible: false, sessionId: null, turnId: null };
+    if (this.automationControl.inputBlocked || this.nativeRecovery || (this.siteAccess.restricted && this.siteRevokedTabs.has(tabId))) return hidden;
     for (const [sessionId, activeTabId] of this.activeTabsBySession) {
-      if (activeTabId === tabId) {
-        return {
-          cursor: this.cursorByTabId.get(tabId) ?? null,
-          isVisible: true,
-          sessionId,
-          turnId: null
-        };
-      }
+      if (activeTabId !== tabId || this.endingSessions.has(sessionId)) continue;
+      const ledger = this.controlLedger.records.get(sessionId);
+      if (!ledger || ledger.status !== "active") continue;
+      const original = [...this.visualDeliveries.records].find(record => !record.closed && record.scope.tabId === tabId && record.scope.session_id === sessionId && record.scope.control_epoch === ledger.epoch);
+      if (!original || documentId !== undefined && !this.visualDeliveries.bootstrapAllowed(tabId, documentId, receiverToken, original.scope)) continue;
+      return { cursor: this.cursorByTabId.get(tabId) ?? null, isVisible: true, sessionId, turnId: original.scope.turn_id };
     }
-    return {
-      cursor: null,
-      isVisible: false,
-      sessionId: null,
-      turnId: null
-    };
+    return hidden;
   }
 
   isBrowserControlActive() {
@@ -5381,14 +5427,14 @@ class BrowserBackend {
     check();
   }
 
-  async setSessionActiveTab(sessionId, tabId, check = () => this.assertControlOpen()) {
+  async setSessionActiveTab(sessionId, tabId, check = () => this.assertControlOpen(), params) {
     const session = await this.store.getSession(sessionId);
     check();
     session.activeTabId = tabId;
     this.activeTabsBySession.set(sessionId, tabId);
     await this.store.save();
     check();
-    await this.publishCursorState(tabId);
+    await this.publishCursorState(tabId, params);
     check();
   }
 
@@ -5598,6 +5644,8 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId, { retryDiagnosticCleanup = false } = {}) {
+    const visualsReleased = this.visualDeliveries.close(scope => scope.session_id === sessionId, { retryFailed: retryDiagnosticCleanup });
+    visualsReleased.catch(() => {});
     const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.session_id === sessionId);
     const diagnosticsReleased = this.browserEngine?.drainDiagnosticCleanup?.({ sessionId, retryFailed: retryDiagnosticCleanup }) ?? Promise.resolve();
     diagnosticsReleased.catch(() => {});
@@ -5624,6 +5672,8 @@ class BrowserBackend {
     // An inventory failure is not proof that control was released. Keep the
     // session record so explicit recovery can retry the same owned group.
     const tabs = await this.getSessionTabs(sessionId, { strict: true });
+    const recoveredVisuals = this.recoverSessionVisuals(sessionId, tabs, retryDiagnosticCleanup);
+    recoveredVisuals.catch(() => {});
     const tabIds = new Set(tabs.filter(hasTabId).map(tab => tab.id));
     // A reservation can still be awaiting ordinary-tab ownership validation.
     // It cannot authorize detaching another session's unpublished attachment.
@@ -5638,7 +5688,7 @@ class BrowserBackend {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
       if (claim.phase !== "committed") releases.push(this.releaseAuxiliaryClaim(claim));
     }
-    const outcomes = await Promise.allSettled([pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
+    const outcomes = await Promise.allSettled([recoveredVisuals, visualsReleased, pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, diagnosticsReleased, networksReleased, dialogsReleased, choosersReleased, downloadWaitsReleased, pageWaitsReleased, downloadsReleased, exportsReleased, clipboardReleased, brokerReleased, ...releases]);
     const failures = outcomes.filter(result => result.status === "rejected");
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
@@ -5649,6 +5699,7 @@ class BrowserBackend {
     this.endingSessions.set(params.session_id, ending);
     try {
       this.controlLedger.assertCurrent(params);
+      void this.visualDeliveries.close(scope => scope.session_id === params.session_id).catch(() => {});
       this.directoryUploads.cancelWhere(record => record.scope.session_id === params.session_id, new Error("OBU_TRANSFER_CANCELLED: session control ended"));
       void this.fileChooserWaits.invalidateSession(params.session_id).catch(() => {});
       void this.downloadWaits.invalidateSession(params.session_id).catch(() => {});
@@ -5708,6 +5759,10 @@ class BrowserBackend {
     // stores retain their original errors and all lifecycle recovery below.
     await Promise.all([this.store.ready, this.controlLedger.ready, this.automationControl.ready, this.auxiliaryTabs.ready,
       this.siteAccess.ready.catch(error => { siteFailure = error; })]);
+    for (const [sessionId, record] of this.controlLedger.records) {
+      if (record.status !== "idle" && Number.isSafeInteger(this.store.state.sessions[sessionId]?.activeTabId))
+        this.visualRecoverySessions.set(sessionId, { scope: { session_id: sessionId, turn_id: record.nextTurnId ?? "worker-recovery", control_epoch: record.epoch }, tabs: new Map() });
+    }
     // The journal has already durably imported legacy Pause IDs. They cannot be
     // rebound to numbers in a replacement browser and must not enter detach.
     this.automationControl.recoveredPendingTabs.clear();
@@ -5792,10 +5847,55 @@ class BrowserBackend {
   }
 
   async clearSessionActivity(sessionId) {
+    const visualRecovery = this.visualRecoverySessions.get(sessionId);
+    if (visualRecovery && [...visualRecovery.tabs.values()].every(item => item.state === "complete")) this.visualRecoverySessions.delete(sessionId);
     this.activeTabsBySession.delete(sessionId);
     const state = Object.hasOwn(this.store.state.sessions, sessionId) ? this.store.state.sessions[sessionId] : undefined;
     if (state) state.activeTabId = null;
     await this.store.save();
+  }
+
+  async recoverSessionVisuals(sessionId, tabs, retryFailed = false) {
+    const recovery = this.visualRecoverySessions.get(sessionId);
+    if (!recovery) return;
+    const operations = tabs.filter(hasTabId).map(tab => {
+      let item = recovery.tabs.get(tab.id);
+      if (item?.state === "complete" || item?.state === "pending" || item?.state === "failed" && !retryFailed) return item.promise;
+      if (!item) { item = { documentId: null }; recovery.tabs.set(tab.id, item); }
+      item.state = "pending";
+      item.promise = this.visualDeliveries.recover({ ...recovery.scope, tabId: tab.id }, async run => {
+        if (!item.documentId) {
+          const frame = await run("RECOVERY_DOCUMENT", () => chrome.webNavigation.getFrame({ tabId: tab.id, frameId: 0 }));
+          if (typeof frame?.documentId !== "string") throw new Error("OBU_VISUAL_CLEANUP_FAILED: recovery document is unavailable");
+          item.documentId = frame.documentId;
+        }
+        let response;
+        try { response = await run("RECOVERY_PING", () => chrome.tabs.sendMessage(tab.id, { type: "OPEN_BROWSER_USE_PING" }, { documentId: item.documentId })); }
+        catch (error) {
+          // A worker restart preserves existing content listeners. A current
+          // owned document without one has no receiver to recover; do not
+          // inject or treat arbitrary transport failure as absence.
+          if (/Could not establish connection\. Receiving end does not exist\./.test(String(error?.message ?? error))) return null;
+          throw error;
+        }
+        if (response === undefined || response === null) {
+          // Other extension listeners (for example WebMCP) can settle a PING
+          // without answering it. Only an exact isolated-world absence read
+          // can distinguish that case from a broken existing visual receiver.
+          const rows = await run("RECOVERY_PRESENCE", () => chrome.scripting.executeScript({
+            target: { tabId: tab.id, documentIds: [item.documentId] }, world: "ISOLATED",
+            func: () => Object.getOwnPropertyDescriptor(globalThis, Symbol.for("open-browser-use.cursor.receiver")) === undefined
+          }));
+          if (Array.isArray(rows) && rows.length === 1 && rows[0].frameId === 0 && rows[0].documentId === item.documentId && rows[0].result === true) return null;
+          throw new Error("OBU_VISUAL_CLEANUP_FAILED: original receiver absence is unconfirmed");
+        }
+        if (response?.ok !== true) throw new Error("OBU_VISUAL_CLEANUP_FAILED: recovery receiver did not acknowledge");
+        return { documentId: item.documentId, receiverToken: response.receiverToken };
+      }, { retryFailed }).then(() => { item.state = "complete"; }, error => { item.state = "failed"; throw error; });
+      item.promise.catch(() => {});
+      return item.promise;
+    });
+    await Promise.all(operations);
   }
 
   async requireSessionTabOwnership(params, command) {
@@ -5822,7 +5922,8 @@ class BrowserBackend {
     return proof;
   }
 
-  async withLogicalActive(sessionId, tabs) {
+  async withLogicalActive(params, tabs) {
+    const sessionId = params.session_id;
     if (tabs.length === 0) {
       return tabs;
     }
@@ -5830,7 +5931,7 @@ class BrowserBackend {
     let activeTabId = this.activeTabsBySession.get(sessionId) ?? session.activeTabId;
     if (!tabs.some((tab) => tab.id === activeTabId)) {
       activeTabId = tabs.find((tab) => tab.active)?.id ?? tabs[0].id;
-      await this.setSessionActiveTab(sessionId, activeTabId);
+      await this.setSessionActiveTab(sessionId, activeTabId, () => this.controlLedger.assertCurrent(params), params);
     } else if (!this.activeTabsBySession.has(sessionId)) {
       this.activeTabsBySession.set(sessionId, activeTabId);
     }
@@ -5906,7 +6007,9 @@ class BrowserBackend {
     await Promise.allSettled(tabIds.map((tabId) => this.detachTab(tabId)));
   }
 
-  detachTab(tabId, { preserveDialogRecord = null, preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preservePageWait = null, releasePageWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null } = {}) {
+  detachTab(tabId, { preserveDialogRecord = null, preserveNetworkArming = false, preserveNavigationArming = false, preserveChooserRecord = null, preserveDownloadWait = null, preservePageWait = null, releasePageWait = null, preserveDirectRecord = null, preserveExportRecord = null, preserveClipboardRecord = null, releaseAdmission = null } = {}) {
+    const visualsReleased = this.visualDeliveries.close(scope => scope.tabId === tabId);
+    visualsReleased.catch(() => {});
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
@@ -5936,7 +6039,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([releaseAdmission, visualsReleased, pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
@@ -6010,6 +6113,7 @@ class BrowserBackend {
       isCurrent,
       release: async () => {
         if (!isCurrent()) return;
+        void this.visualDeliveries.close(scope => scope.tabId === tabId).catch(() => {});
         // Retire original observation authority before taking resource drains:
         // an armed begin event must not create a new claim during key cleanup.
         const downloadWaitsReleased = this.downloadWaits.invalidate(record => record.scope?.tabId === tabId && record.scope.attachment === token);
@@ -6116,30 +6220,48 @@ class BrowserBackend {
     });
   }
 
-  async ensureCursorContentScript(sessionId, tabId) {
-    let proof;
+  captureVisualTicket(params, tabId) {
+    const epoch = this.controlLedger.assertCurrent(params).epoch;
+    const revision = this.exportDocumentRevisions.get(tabId) ?? 0;
+    const navigation = this.siteNavigationVersions.get(tabId) ?? 0;
+    const generation = this.siteAccess.generation, policyRevision = this.siteAccess.revision;
+    const scope = Object.freeze({ session_id: params.session_id, turn_id: params.turn_id, control_epoch: epoch, tabId, attachment: this.attachmentEpochs.get(tabId) });
+    return this.visualDeliveries.ticket(scope, () => {
+      this.assertControlOpen(); this.controlLedger.assertCurrent(scope);
+      if (this.endingSessions.has(scope.session_id) || (this.exportDocumentRevisions.get(tabId) ?? 0) !== revision ||
+          (this.siteNavigationVersions.get(tabId) ?? 0) !== navigation || this.siteAccess.generation !== generation || this.siteAccess.revision !== policyRevision)
+        throw new Error("OBU_VISUAL_EXPIRED: original display scope changed");
+    });
+  }
+
+  async ensureCursorContentScript(sessionId, tabId, ticket, check = () => ticket.check()) {
+    let proof, destination;
     try {
+      check();
       proof = await this.assertSiteTab(tabId);
-      this.assertSiteProof(proof);
+      check(); this.assertSiteProof(proof);
+      const documentId = this.siteAccess.restricted ? proof.documentId :
+        (await ticket.run("DOCUMENT_LOOKUP", () => chrome.webNavigation.getFrame({ tabId, frameId: 0 })))?.documentId;
+      check(); this.assertSiteProof(proof);
+      destination = await ticket.bind(documentId);
+      check();
     } catch { return false; }
     try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_PING" }, this.siteMessageDestination(proof));
-      if (response?.ok) {
-        return true;
-      }
+      const response = await ticket.run("PING", () => chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_PING" }, destination));
+      check();
+      if (response?.error === "OBU_VISUAL_RECEIVER_RETIRED") return false;
+      if (response?.ok) { ticket.acceptToken(response); return true; }
     } catch {}
-    if (this.automationControl.inputBlocked || this.nativeRecovery) return false;
     try {
-      this.assertSiteProof(proof);
-      const destination = this.siteMessageDestination(proof);
-      await chrome.scripting.executeScript({
-        target: { tabId, ...(destination.documentId ? { documentIds: [destination.documentId] } : {}) },
-        files: ["content-cursor.js"]
-      });
+      check(); this.assertSiteProof(proof);
+      await ticket.run("INJECT", () => chrome.scripting.executeScript({
+        target: { tabId, documentIds: [destination.documentId] }, files: ["content-cursor.js"]
+      }), { mayDisplay: true });
+      check();
+      const response = await ticket.run("PING", () => chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_PING" }, destination));
+      check(); ticket.acceptToken(response);
       return true;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }
 
   siteMessageDestination(proof) {
@@ -6211,26 +6333,24 @@ class BrowserBackend {
     throw new Error(`WebMCP bridge is unavailable in tab ${tabId}`);
   }
 
-  async publishCursorState(tabId) {
-    if ((this.siteAccess.restricted || this.nativeRecovery) && !this.readCursorOverlayState(tabId).isVisible) {
-      // Cleanup may hide an existing overlay on a revoked page, but must never
-      // inject a new script or publish a new visible cursor there.
-      return chrome.tabs.sendMessage(tabId, { type: "OPEN_BROWSER_USE_CURSOR_STATE", state: { isVisible: false } }).then(response => response?.ok === true, () => false);
-    }
-    if (!(await this.ensureCursorContentScript(null, tabId))) {
-      return false;
-    }
+  async publishCursorState(tabId, params) {
+    if (!params) return false;
+    let expired = false;
     try {
-      const proof = await this.assertSiteTab(tabId);
-      this.assertSiteProof(proof);
-      const response = await chrome.tabs.sendMessage(tabId, {
-        type: "OPEN_BROWSER_USE_CURSOR_STATE",
-        state: this.readCursorOverlayState(tabId)
-      }, this.siteMessageDestination(proof));
-      return response?.ok === true;
-    } catch {
-      return false;
-    }
+      const ticket = this.captureVisualTicket(params, tabId);
+      const check = () => { ticket.check(); if (expired) throw new Error("OBU_VISUAL_EXPIRED: state display expired"); };
+      return await withTimeout(POINTER_FEEDBACK_TIMEOUT_MS, async () => {
+        if (!(await this.ensureCursorContentScript(params.session_id, tabId, ticket, check))) return false;
+        check();
+        const state = this.readCursorOverlayState(tabId);
+        if (!state.isVisible || state.sessionId !== params.session_id || state.turnId !== params.turn_id) return false;
+        const response = await ticket.run("CURSOR_STATE", () => chrome.tabs.sendMessage(tabId, {
+          type: "OPEN_BROWSER_USE_CURSOR_STATE", receiverToken: ticket.receiverToken, state
+        }, { documentId: ticket.documentId }), { mayDisplay: true });
+        return response?.ok === true;
+      });
+    } catch { return false; }
+    finally { expired = true; }
   }
 }
 
@@ -6520,11 +6640,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === "GET_OPEN_BROWSER_USE_CURSOR_STATE") {
     const tabId = typeof sender.tab?.id === "number" ? sender.tab.id : -1;
-    sendResponse({ ok: true, state: backend.readCursorOverlayState(tabId) });
+    backend.visualDeliveries.observeBootstrap(tabId, sender.documentId, message.receiverToken);
+    sendResponse({ ok: true, receiverToken: message.receiverToken, state: backend.readCursorOverlayState(tabId, typeof sender.documentId === "string" ? sender.documentId : "", message.receiverToken) });
+    return true;
+  }
+  if (message?.type === "OPEN_BROWSER_USE_VISUAL_RETIRED") {
+    sendResponse({ ok: backend.visualDeliveries.retired(sender.tab?.id, sender.documentId, message.receiverToken) });
     return true;
   }
   if (message?.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED") {
-    sendResponse({ ok: backend.notifyCursorArrived(message) });
+    sendResponse({ ok: backend.notifyCursorArrived(message, sender) });
     return true;
   }
   return false;

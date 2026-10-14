@@ -30,6 +30,17 @@ debugger、history 和 tab groups。
   显式清理；已接纳的按下/释放保持显示顺序，迟到矩形不能覆盖新反馈。
   矩形是原节点快照，raw 坐标仍用根文档 hit-test，见
   [iframe 元素反馈](references/frame-target-feedback.md)。
+  `browser-visual-deliveries.js` 保留原视觉调用 Promise 与 scope/document/token，
+  End、显式 detach 和 Pause 先撤销发布，再确认原消息结算及最终隐藏。
+  pagehide 撤销原 receiver token，pageshow 使用新 token 且保持隐藏；精确
+  退役回执只能替代旧接收器的隐藏义务。纯最终 hide 可以据此完成清理，
+  原 Promise 仍计入容量直到实际结算；可见消息、PING 和注入不可跳过结算。
+  Worker 恢复只读取原归属文档并隐藏，不注入渲染脚本、不恢复旧可见权限。
+  空 PING 仅可通过原文档 ISOLATED 世界的不可变 receiver 标记缺失读数
+  确认无需隐藏；该实际读取同样参与清理。未知结果保持失败，不涵盖旧版升级。
+  BFCache 返回后，frame adapter 用原 attachment/graph/loader 校验的原生
+  frame tree 和仍有效的原 context 恢复本地子 frame；不重载或重放输入。
+  契约及跨 worker/OOPIF 未验边界见[可视消息清理](references/visual-delivery-cleanup.md)。
   原响应正文由诊断 capture 保留原 Response，`browser-response-body.js` 管理
   期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
   原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。

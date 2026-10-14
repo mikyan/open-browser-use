@@ -210,10 +210,15 @@ export function assertOriginalScreenshotTimeout(probe, callerOutcome, api = "raw
   const responses = probe.records.filter(r => r.kind === "response" && r.requestId === requests[0].requestId);
   assert.equal(responses.length, 1, "An SDK-only timeout is not an original backend deadline ACK");
   assert.equal(responses[0].ok, false); assert.match(responses[0].error, /timed out|timeout.*exceeded/i);
-  assert.ok(responses[0].at <= callerOutcome.settledAt, "Worker timeout arrived after the SDK had already timed out");
+  // Worker and Node wall clocks cannot establish cross-process causality.
+  // The pinned SDK rejects a matched pending RPC only in #handleMessage;
+  // its local timer deletes that pending request and has a different origin.
+  const [message, origin] = callerOutcome.error.split(/\r?\n/);
+  assert.equal(message, `Error: ${responses[0].error}`, "Caller must receive the exact original worker error");
+  assert.match(origin ?? "", /^\s*at #handleMessage \(/, "Caller error must originate in the SDK's original reply handler");
   assert.equal(probe.released, false);
   return { requestSequence: requests[0].sequence, responseSequence: responses[0].sequence, requestedTimeoutMs: requests[0].timeoutMs,
-    requestAt: requests[0].at, responseAt: responses[0].at, callerSettledAt: callerOutcome.settledAt };
+    requestAt: requests[0].at, responseAt: responses[0].at, callerSettledAt: callerOutcome.settledAt, replyOrigin: "#handleMessage" };
 }
 
 const errorText = error => error?.stack ?? String(error);

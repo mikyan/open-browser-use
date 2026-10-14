@@ -134,7 +134,7 @@ fullscreen, native browser UI, ordinary Edge installation, or complete Browser
 Use parity. The [capability matrix](../product-specs/browser-use-parity.md)
 remains open.
 
-The existing visual transport has a separate, unclosed lifecycle boundary:
+At this slice's original acceptance, visual transport had a separate lifecycle boundary:
 its 250 ms display timeout does not cancel an original `tabs.sendMessage`.
 Ending a turn removes its queue but does not await that message's actual
 settlement. A hypothetical old CURSOR delivered after a new turn in the same
@@ -142,10 +142,11 @@ document is not fenced by this slice's same-turn watermark. No native browser
 reordering was observed in these runs; this is a source-level protocol gap,
 not a reproduced regression. Document-targeted routing prevents delivery to a
 replacement document, but cannot establish cancellation within the same one.
-Follow-up should first retain a distinct protocol counterexample, then consider
-an actual-message settlement barrier and final hide ordering, preserving input
-deadlines and explicit cleanup failure semantics. Full lifecycle parity stays
-open until that work is proved.
+The subsequent [visual delivery cleanup](visual-delivery-cleanup.md) slice
+retains distinct controlled counterexamples and adds actual-message settlement,
+receiver retirement and final hide ordering. Native input deadlines remain
+unchanged. Cross-worker in-flight transport and full lifecycle parity still
+remain open; that follow-up documents the exact evidence and limits.
 
 ## Native message routing
 

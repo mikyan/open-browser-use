@@ -1,3 +1,7 @@
+// The private isolated-world marker precedes any listener or renderer. It is
+// permanent for this Document, including pagehide, and is never a DOM claim.
+Object.defineProperty(globalThis, Symbol.for("open-browser-use.cursor.receiver"), { value: 1 });
+
 const ROOT_ID = "open-browser-use-cursor-root";
 const DEFAULT_X_RATIO = 0.58;
 const DEFAULT_Y_RATIO = 0.55;
@@ -14,10 +18,16 @@ let stateRevision = 0;
 let feedbackTurnKey = null;
 let targetRectReceiver = null;
 let cursorSequenceWatermark = null;
+let receiverToken = crypto.randomUUID();
+const visualMessageTypes = new Set(["OPEN_BROWSER_USE_CURSOR_STATE", "OPEN_BROWSER_USE_CURSOR", "OPEN_BROWSER_USE_TARGET_RECT", "OPEN_BROWSER_USE_POINTER_EVENT"]);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "OPEN_BROWSER_USE_PING") {
-    sendResponse({ ok: true });
+    sendResponse(receiverToken ? { ok: true, receiverToken } : { ok: false, error: "OBU_VISUAL_RECEIVER_RETIRED" });
+    return true;
+  }
+  if (visualMessageTypes.has(message?.type) && (!receiverToken || message.receiverToken !== receiverToken)) {
+    sendResponse({ ok: false, error: "OBU_VISUAL_RECEIVER_RETIRED" });
     return true;
   }
   if (message?.type === "OPEN_BROWSER_USE_CURSOR_STATE") {
@@ -25,7 +35,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     revokeTargetRect();
     latestState = normalizeState(message.state);
     renderState(latestState);
-    sendResponse({ ok: true });
+    sendResponse(latestState.isVisible ? { ok: true } : { ok: true, receiverToken });
     return true;
   }
   if (message?.type === "OPEN_BROWSER_USE_CURSOR") {
@@ -360,6 +370,7 @@ function readRootZoomCompensation() {
 
 function notifyCursorArrived(moveSequence) {
   if (
+    !receiverToken ||
     typeof latestState.sessionId !== "string" ||
     typeof latestState.turnId !== "string" ||
     !Number.isInteger(moveSequence)
@@ -369,6 +380,7 @@ function notifyCursorArrived(moveSequence) {
   chrome.runtime
     .sendMessage({
       type: "OPEN_BROWSER_USE_CURSOR_ARRIVED",
+      receiverToken,
       sessionId: latestState.sessionId,
       turnId: latestState.turnId,
       moveSequence
@@ -377,11 +389,12 @@ function notifyCursorArrived(moveSequence) {
 }
 
 function refreshCursorState() {
-  const revision = stateRevision;
+  const revision = stateRevision, token = receiverToken;
+  if (!token) return;
   chrome.runtime
-    .sendMessage({ type: "GET_OPEN_BROWSER_USE_CURSOR_STATE" })
+    .sendMessage({ type: "GET_OPEN_BROWSER_USE_CURSOR_STATE", receiverToken: token })
     .then((response) => {
-      if (response?.ok && revision === stateRevision) {
+      if (response?.ok && response.receiverToken === token && token === receiverToken && revision === stateRevision) {
         latestState = normalizeState(response.state);
         renderState(latestState);
       }
@@ -399,9 +412,20 @@ window.addEventListener("resize", clearInteractionFeedback);
 window.visualViewport?.addEventListener("resize", clearInteractionFeedback);
 window.visualViewport?.addEventListener("scroll", clearInteractionFeedback);
 window.addEventListener("pagehide", () => {
+  const retiredToken = receiverToken;
+  receiverToken = null;
   stateRevision += 1;
+  revokeTargetRect();
+  cursorSequenceWatermark = null;
   latestState = normalizeState(null);
   retireCursorRenderer();
+  if (retiredToken) chrome.runtime.sendMessage({ type: "OPEN_BROWSER_USE_VISUAL_RETIRED", receiverToken: retiredToken }).catch(() => {});
+});
+window.addEventListener("pageshow", () => {
+  // A restored Document is a new receiver lifetime. Keep it hidden until a
+  // newly admitted publication handshakes with this token; never replay the
+  // previous lifetime's bootstrap or cached visible state automatically.
+  if (!receiverToken) receiverToken = crypto.randomUUID();
 });
 refreshCursorState();
 

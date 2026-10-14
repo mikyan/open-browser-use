@@ -266,6 +266,12 @@ unchanged 10-second Pause budget. External streams explicitly queue stop then
 start; Pause must reject both without replay. After release, Retry Pause/Resume
 must finish cleanup, reject old scope and allow a fresh turn.
 
+The original timeout check binds the unique request/reply to the caller's exact
+error and first stack frame from the pinned SDK's `#handleMessage`. A local SDK
+timer error cannot qualify, even if the worker replies later. Worker and Node
+wall timestamps are retained for diagnosis, not compared as a shared causal
+clock. No deadline or timing tolerance is added.
+
 Five scenarios cover raw internal/external streams with successor/Pause and a
 high-level internal screenshot with Pause. `screenshot-native-drain.json` and
 seven PNGs retain original results and subsequent frame pixels. The 30-second

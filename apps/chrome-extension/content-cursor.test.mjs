@@ -22,6 +22,7 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
   let onMessage;
   let resolveInitialState;
   let hitElements = [];
+  let receiverSequence = 0;
 
   class Element {
     constructor(tagName) {
@@ -168,6 +169,7 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
   };
   const context = vm.createContext({
     document, window,
+    crypto: { randomUUID: () => `opaque-receiver-${++receiverSequence}` },
     performance: { now: () => timestamp },
     chrome: {
       runtime: {
@@ -186,15 +188,23 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
   vm.runInContext(source, context);
   const page = {
     document, timers, frames, animations, sent, popoverCalls, topLayer,
+    receiverPresence: () => JSON.parse(vm.runInContext('JSON.stringify(Object.getOwnPropertyDescriptor(globalThis,Symbol.for("open-browser-use.cursor.receiver")))', context)),
     effectiveZoom, zoomReads, computedStyleReads, hitTests,
     failPopover: (method) => popoverFailures.set(method, new Error(`Native ${method} failed`)),
     elements: (testId) => document.documentElement ? findAll(document.documentElement, (element) => element.dataset.testid === testId, true) : [],
     add: (tagName, parent = document.body) => parent.appendChild(document.createElement(tagName)),
     hit: (...elements) => { hitElements = elements; },
-    send: (message) => {
+    rawMessage: (message) => {
       let response;
-      assert.equal(onMessage(message, {}, (value) => { response = value; }), true);
-      assert.equal(response.ok, true);
+      assert.equal(onMessage(message, {}, value => { response = value; }), true);
+      return response;
+    },
+    send: (message) => {
+      const receiver = page.rawMessage({ type: "OPEN_BROWSER_USE_PING" });
+      const response = page.rawMessage({ receiverToken: receiver.receiverToken, ...message });
+      assert.equal(response.ok, receiver.ok);
+      if (!receiver.ok) assert.equal(response.error, "OBU_VISUAL_RECEIVER_RETIRED");
+      return response;
     },
     move: (extra = {}) => page.send({
       type: "OPEN_BROWSER_USE_CURSOR", x: 40, y: 30,
@@ -205,7 +215,7 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
       sessionId: "test-session", turnId: "test-turn", eventType: "mousePressed", ...extra
     }),
     hide: () => page.send({ type: "OPEN_BROWSER_USE_CURSOR_STATE", state: { isVisible: false } }),
-    emit: (type) => { for (const callback of listeners.get(type) ?? []) callback(); },
+    emit: (type, event = {}) => { for (const callback of listeners.get(type) ?? []) callback(event); },
     advance: (milliseconds) => {
       const end = timestamp + milliseconds;
       for (;;) {
@@ -218,10 +228,82 @@ function createPage({ reducedMotion = false, popoverAPI = true, cssZoomAPI = tru
       }
       timestamp = end;
     },
-    initialState: (state) => resolveInitialState({ ok: true, state })
+    initialState: (state, extra = {}) => resolveInitialState({ ok: true, state, receiverToken: sent.find(message => message.type === "GET_OPEN_BROWSER_USE_CURSOR_STATE").receiverToken, ...extra })
   };
   return page;
 }
+
+test("receiver presence is permanent and immutable even before rendering and after pagehide", () => {
+  const page = createPage(), marker = { value: 1, writable: false, enumerable: false, configurable: false };
+  assert.deepEqual(page.receiverPresence(), marker);
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  page.move(); page.emit("pagehide", { persisted: true });
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  assert.deepEqual(page.receiverPresence(), marker);
+  page.emit("pageshow", { persisted: true }); assert.deepEqual(page.receiverPresence(), marker);
+});
+
+test("receiver handshake retires at pagehide and renews hidden on pageshow without a fresh bootstrap", () => {
+  const page = createPage(), ping = () => page.rawMessage({ type: "OPEN_BROWSER_USE_PING" });
+  const original = ping(); assert.equal(original.ok, true); assert.equal(typeof original.receiverToken, "string"); assert.ok(original.receiverToken);
+  page.emit("pageshow", { persisted: false }); assert.equal(ping().receiverToken, original.receiverToken); page.move(); page.click(); page.emit("pagehide", { persisted: true });
+  assert.equal(ping().ok, false); assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  const retired = page.sent.filter(message => message.type === "OPEN_BROWSER_USE_VISUAL_RETIRED"); assert.equal(retired.length, 1); assert.equal(retired[0].receiverToken, original.receiverToken);
+  page.emit("pagehide"); assert.equal(page.sent.filter(message => message.type === "OPEN_BROWSER_USE_VISUAL_RETIRED").length, 1);
+  const bootstrapCount = page.sent.filter(message => message.type === "GET_OPEN_BROWSER_USE_CURSOR_STATE").length;
+  page.emit("pageshow", { persisted: true }); const fresh = ping(); assert.equal(fresh.ok, true); assert.notEqual(fresh.receiverToken, original.receiverToken);
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null); assert.equal(page.sent.filter(message => message.type === "GET_OPEN_BROWSER_USE_CURSOR_STATE").length, bootstrapCount);
+  page.move(); assert.equal(page.elements("browser-agent-cursor")[0].style.opacity, "1"); page.hide();
+});
+
+test("missing and unknown receiver tokens cannot mutate live cursor, border, ring or a pending target grant", () => {
+  const page = createPage({ reducedMotion: true }); page.move({ feedbackSequence: 1, targetRect: null }); page.click();
+  const [cursor] = page.elements("browser-agent-cursor"), [outline] = page.elements("browser-agent-target"), before = { transform: cursor.style.transform, rings: page.elements("browser-agent-click").length, display: outline.style.display };
+  const messages = [
+    { type: "OPEN_BROWSER_USE_CURSOR", x: 400, y: 500, sessionId: "foreign", turnId: "foreign", feedbackSequence: 500, targetRect: { x: 2, y: 3, width: 4, height: 5 } },
+    { type: "OPEN_BROWSER_USE_CURSOR_STATE", state: { isVisible: false } },
+    { type: "OPEN_BROWSER_USE_CURSOR_STATE", state: { isVisible: true, cursor: { x: 1, y: 1 } } },
+    { type: "OPEN_BROWSER_USE_POINTER_EVENT", eventType: "mousePressed", sessionId: "test-session", turnId: "test-turn", feedbackSequence: 1, x: 40, y: 30 },
+    { type: "OPEN_BROWSER_USE_TARGET_RECT", sessionId: "test-session", turnId: "test-turn", feedbackSequence: 1, targetRect: { x: 2, y: 3, width: 4, height: 5 } }
+  ];
+  for (const receiverToken of [undefined, "unknown", "", null, 17]) for (const message of messages) {
+    const result = page.rawMessage({ ...message, ...(receiverToken === undefined ? {} : { receiverToken }) }); assert.equal(result.ok, false); assert.equal(result.error, "OBU_VISUAL_RECEIVER_RETIRED");
+    assert.deepEqual({ transform: cursor.style.transform, rings: page.elements("browser-agent-click").length, display: outline.style.display }, before);
+  }
+  page.send({ type: "OPEN_BROWSER_USE_TARGET_RECT", sessionId: "test-session", turnId: "test-turn", feedbackSequence: 1, targetRect: { x: 90, y: 70, width: 20, height: 30 } });
+  assert.equal(outline.style.left, "90px"); page.hide();
+});
+
+test("old receiver messages and old hidden acknowledgements never touch a restored page's fresh renderer", () => {
+  const page = createPage({ reducedMotion: true }); page.move(); const old = page.rawMessage({ type: "OPEN_BROWSER_USE_PING" }).receiverToken;
+  page.emit("pagehide", { persisted: true });
+  const oldMove = { type: "OPEN_BROWSER_USE_CURSOR", receiverToken: old, x: 500, y: 500, sessionId: "old", turnId: "old", feedbackSequence: 20 };
+  assert.equal(page.rawMessage(oldMove).ok, false); assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  page.emit("pageshow", { persisted: true }); page.move({ feedbackSequence: 1, targetRect: null }); const fresh = page.rawMessage({ type: "OPEN_BROWSER_USE_PING" }).receiverToken;
+  const [cursor] = page.elements("browser-agent-cursor"), transform = cursor.style.transform;
+  for (const message of [oldMove, { type: "OPEN_BROWSER_USE_CURSOR_STATE", receiverToken: old, state: { isVisible: false } },
+    { type: "OPEN_BROWSER_USE_POINTER_EVENT", receiverToken: old, sessionId: "test-session", turnId: "test-turn", feedbackSequence: 1, eventType: "mousePressed", x: 40, y: 30 },
+    { type: "OPEN_BROWSER_USE_TARGET_RECT", receiverToken: old, sessionId: "test-session", turnId: "test-turn", feedbackSequence: 1, targetRect: { x: 1, y: 1, width: 10, height: 10 } }]) assert.equal(page.rawMessage(message).ok, false);
+  assert.equal(cursor.style.opacity, "1"); assert.equal(cursor.style.transform, transform); assert.equal(page.elements("browser-agent-click").length, 0);
+  const hidden = page.rawMessage({ type: "OPEN_BROWSER_USE_CURSOR_STATE", receiverToken: fresh, state: { isVisible: false } });
+  assert.equal(hidden.ok, true); assert.equal(hidden.receiverToken, fresh); assert.equal(cursor.style.opacity, "0");
+});
+
+test("bootstrap cannot publish a response from a different receiver token", async () => {
+  const page = createPage(); const requested = page.sent.find(message => message.type === "GET_OPEN_BROWSER_USE_CURSOR_STATE");
+  assert.equal(typeof requested.receiverToken, "string");
+  page.initialState({ isVisible: true, sessionId: "old", turnId: "old", cursor: { x: 10, y: 20 } }, { receiverToken: "wrong-receiver" }); await Promise.resolve();
+  assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+});
+
+test("pagehide invalidates the original bootstrap even after pageshow creates a new receiver", async () => {
+  const page = createPage(); const old = page.rawMessage({ type: "OPEN_BROWSER_USE_PING" }).receiverToken;
+  page.emit("pagehide", { persisted: true }); page.emit("pageshow", { persisted: true });
+  page.initialState({ isVisible: true, sessionId: "old", turnId: "old", cursor: { x: 10, y: 20 } }, { receiverToken: old }); await Promise.resolve();
+  assert.notEqual(page.rawMessage({ type: "OPEN_BROWSER_USE_PING" }).receiverToken, old); assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  page.move(); const arrivals = page.sent.filter(message => message.type === "OPEN_BROWSER_USE_CURSOR_ARRIVED"); assert.ok(arrivals.length);
+  assert.equal(arrivals.at(-1).receiverToken, page.rawMessage({ type: "OPEN_BROWSER_USE_PING" }).receiverToken); page.hide();
+});
 
 function findAll(element, predicate, includeShadow = false) {
   const children = [...element.children, ...(includeShadow && element.shadowRoot ? [element.shadowRoot] : [])];
@@ -283,7 +365,7 @@ test("hidden and destroyed feedback closes its original native layer", () => {
   const count = page.popoverCalls.length; page.hide(); assert.equal(page.popoverCalls.length, count);
   page.move({ turnId: "next" }); assert.equal(layer.matches(":popover-open"), true); assert.notEqual(layer.style.display, "none");
   page.emit("pagehide"); assert.equal(host.isConnected, false); assert.equal(layer.isConnected, false); assert.equal(page.topLayer.includes(layer), false);
-  page.move(); assert.notEqual(page.elements("browser-agent-layer")[0], layer); page.hide();
+  page.emit("pageshow", { persisted: true }); page.move(); assert.notEqual(page.elements("browser-agent-layer")[0], layer); page.hide();
 });
 
 test("missing native popover APIs retain ordinary cursor and outline feedback", () => {
@@ -489,6 +571,7 @@ test("print stylesheet shares renderer lifetime without accumulating across move
   page.move({ moveSequence: 2 }); page.hide(); page.move({ turnId: "next", moveSequence: 3 });
   assert.deepEqual(findAll(root, node => node.tagName === "STYLE"), [stylesheet]);
   page.emit("pagehide"); assert.equal(root.isConnected, false); assert.equal(stylesheet.isConnected, false);
+  page.emit("pageshow", { persisted: true });
   page.move({ turnId: "restored", moveSequence: 4 });
   const restored = page.document.getElementById("open-browser-use-cursor-root");
   assert.notEqual(restored, root);
@@ -990,6 +1073,7 @@ test("a same-ID application replacement is preserved instead of being adopted or
   assert.equal(sentinel.parentElement, applicationHost);
   applicationHost.remove(); page.emit("resize"); page.emit("scroll");
   assert.equal(page.document.getElementById("open-browser-use-cursor-root"), null);
+  page.emit("pageshow", { persisted: true });
   page.move({ moveSequence: 3 });
   assert.ok(page.document.getElementById("open-browser-use-cursor-root")?.isConnected);
   assert.equal(page.elements("browser-agent-layer").length, 1);

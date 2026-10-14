@@ -14,9 +14,10 @@ const params = (epoch, extra = {}) => ({session_id:'task',turn_id:'turn',...(epo
 function environment({storage={}, write, read, attachGate, createBrowserActionEngine}={}) {
   const calls=[], attached=new Set(), tabs=new Map([[7,{id:7,groupId:10,windowId:1,url:'https://fixture.test'}]]);
   const chrome={
+    webNavigation:{async getFrame(){return {documentId:"pause-document"}}},
     storage:{local:{async get(key){await read?.(key);return Object.hasOwn(storage,key)?{[key]:clone(storage[key])}:{}},async set(value){await write?.(value);Object.assign(storage,clone(value));calls.push(['save',Object.keys(value)[0]])}}},
     debugger:{onDetach:{addListener(){}},onEvent:{addListener(){},removeListener(){}},async attach({tabId}){await attachGate?.promise;attached.add(tabId);calls.push(['attach',tabId])},async detach({tabId}){attached.delete(tabId);calls.push(['detach',tabId])},async sendCommand(target,method){calls.push([method,target.tabId]);return {}}},
-    tabs:{async query(filter){return [...tabs.values()].filter(tab=>filter?.groupId===undefined||tab.groupId===filter.groupId)},async get(tabId){return tabs.get(tabId)},async remove(ids){calls.push(['remove',ids]);for(const id of [].concat(ids))tabs.delete(id)},async ungroup(ids){calls.push(['ungroup',ids])},async sendMessage(tabId,message){calls.push([message.type,tabId]);return {ok:true}}},
+    tabs:{async query(filter){return [...tabs.values()].filter(tab=>filter?.groupId===undefined||tab.groupId===filter.groupId)},async get(tabId){return tabs.get(tabId)},async remove(ids){calls.push(['remove',ids]);for(const id of [].concat(ids))tabs.delete(id)},async ungroup(ids){calls.push(['ungroup',ids])},async sendMessage(tabId,message){calls.push([message.type,tabId]);return message.type==='OPEN_BROWSER_USE_PING'||message.type==='OPEN_BROWSER_USE_CURSOR_STATE'&&!message.state?.isVisible?{ok:true,receiverToken:message.receiverToken??'pause-receiver'}:{ok:true}}},
     tabGroups:{async update(){},async get(){return {}},async query(){return []},async group(){calls.push(['group']);return 10}},
     runtime:{id:'fixture',getURL:path=>`chrome-extension://fixture/${path}`,async getContexts(){return [{contextType:'POPUP',documentUrl:'chrome-extension://fixture/popup.html',documentId:'popup-doc'}]}}
   };

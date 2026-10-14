@@ -5,7 +5,7 @@ export function pauseFixture() {
     <script>globalThis.events=[];for(const type of ['pointerdown','pointerup','pointermove','click','keydown','keyup'])document.addEventListener(type,event=>{events.push({type,trusted:event.isTrusted,buttons:event.buttons,key:event.key,pointerId:event.pointerId,target:event.target.id});if(type==='pointerdown')event.target.setPointerCapture(event.pointerId)});</script>`;
 }
 
-export async function checkGlobalPause({ connectBrowser, getWorker, connectPage, popupURL, windowId, fixtureURL, restartWorker, capture, saveDetail, assert, until, traceFocus = async () => {} }) {
+export async function checkGlobalPause({ connectBrowser, getWorker, connectPage, popupURL, windowId, fixtureURL, restartWorker, capture, saveDetail, assert, until, traceFocus = async () => {}, afterRestore }) {
   const first = await connectBrowser("pause-first"), second = await connectBrowser("pause-second");
   let forgedPage, forgedTab, popup;
   const detail = {};
@@ -115,6 +115,7 @@ export async function checkGlobalPause({ connectBrowser, getWorker, connectPage,
     await traceFocus("resumed-actions:complete");
     await first.client.finalizeTabs([]); await second.client.finalizeTabs([]);
     await traceFocus("pause-fixture:finalized");
+    await afterRestore?.(popup);
     detail.stage = "complete";
     return detail;
   } catch (error) {

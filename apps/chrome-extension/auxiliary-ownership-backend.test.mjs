@@ -39,6 +39,7 @@ async function fixture(t) {
     async setAccessLevel(value) { calls.push([`${name}.setAccessLevel`, value]); }
   });
   const chrome = {
+    webNavigation: { async getFrame({ tabId }) { requireTab(tabId); return { documentId: `doc-${tabId}` }; } },
     storage: { local: area("local", local), session: area("session", session) },
     runtime: { id: "fixture", getURL: path => `chrome-extension://fixture/${path}`, getManifest: () => ({ version: "test" }) },
     debugger: { onDetach: event(), onEvent: event(),
@@ -53,7 +54,7 @@ async function fixture(t) {
       async group({ tabIds, groupId }) { calls.push(["group", [...tabIds], groupId]); groupId ??= 30; if (!groups.has(groupId)) groups.set(groupId, { id: groupId, windowId: requireTab(tabIds[0]).windowId }); for (const id of tabIds) { const tab = requireTab(id); tab.groupId = groupId; tab.windowId = groups.get(groupId).windowId; } return groupId; },
       async ungroup(ids) { calls.push(["ungroup", [].concat(ids)]); for (const id of [].concat(ids)) { requireTab(id).groupId = -1; chrome.tabs.onUpdated.emit(id, { groupId: -1 }, clone(requireTab(id))); } },
       async remove(ids) { calls.push(["remove", [].concat(ids)]); for (const id of [].concat(ids)) { const tab = requireTab(id); tabs.delete(id); attached.delete(id); chrome.tabs.onRemoved.emit(id, { windowId: tab.windowId, isWindowClosing: false }); } },
-      async sendMessage() { return { ok: true }; }
+      async sendMessage(tabId, message) { return { ok: true, receiverToken: message.receiverToken ?? `receiver-${tabId}` }; }
     },
     tabGroups: {
       async get(id) { if (!groups.has(id)) throw new Error(`No group with id: ${id}`); return clone(groups.get(id)); },

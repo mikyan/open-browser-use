@@ -2,6 +2,8 @@
 // Supply only the missing CDP frame attachment, using the child's real frame
 // tree; Playwright continues to own all frame, locator, and action semantics.
 const framesByTransport = new WeakMap();
+const revisions = new WeakMap();
+const contextsByTransport = new WeakMap();
 
 function tabForSession(transport, sessionId) {
   const root = /^crx-tab-(\d+)$/.exec(sessionId ?? "");
@@ -24,12 +26,30 @@ function removeChildren(frames, parentId) {
 }
 
 export function observeCrxFrameMessage(transport, message) {
-  if (message.method === "Target.detachedFromTarget" && !message.sessionId) {
-    framesByTransport.get(transport)?.delete(tabForSession(transport, message.params?.sessionId));
-    return;
+  if (message.method === "Target.detachedFromTarget") {
+    const detached = message.params?.sessionId;
+    contextsByTransport.get(transport)?.delete(detached);
+    if (!message.sessionId) {
+      const tabId = tabForSession(transport, detached);
+      framesByTransport.get(transport)?.delete(tabId);
+      for (const [sessionId, record] of contextsByTransport.get(transport) ?? []) {
+        if (record.tabId === tabId) contextsByTransport.get(transport).delete(sessionId);
+      }
+      return;
+    }
   }
   const tabId = tabForSession(transport, message.sessionId);
   if (tabId === undefined) return;
+  if (message.method.startsWith("Runtime.executionContext")) {
+    let sessions = contextsByTransport.get(transport);
+    if (!sessions) { sessions = new Map(); contextsByTransport.set(transport, sessions); }
+    if (!sessions.has(message.sessionId)) sessions.set(message.sessionId, { tabId, contexts: new Map() });
+    const contexts = sessions.get(message.sessionId).contexts;
+    if (message.method === "Runtime.executionContextsCleared") contexts.clear();
+    else if (message.method === "Runtime.executionContextDestroyed") contexts.delete(message.params.executionContextId);
+    else if (message.method === "Runtime.executionContextCreated") contexts.set(message.params.context.id, message);
+    return;
+  }
   let frames = framesFor(transport, tabId);
   const params = message.params;
   if (message.method === "Page.getFrameTree" && message.result?.frameTree) {
@@ -52,6 +72,7 @@ export function observeCrxFrameMessage(transport, message) {
     removeChildren(frames, params.frameId);
     frames.delete(params.frameId);
   }
+  if (["Page.getFrameTree", "Page.frameAttached", "Page.frameNavigated", "Page.frameDetached", "Target.detachedFromTarget"].includes(message.method)) revisions.set(frames, (revisions.get(frames) ?? 0) + 1);
 }
 
 export async function prepareCrxChildFrame(transport, parent, event, sendCommand = (target, method) => chrome.debugger.sendCommand(target, method)) {
@@ -75,14 +96,39 @@ export async function prepareCrxChildFrame(transport, parent, event, sendCommand
   });
 }
 
-// A BFCache restore does not fire fresh load/DOMContentLoaded events. Enabling
-// lifecycle events again asks Chromium to report its actual current milestones;
-// it does not reload, disable caching, or fabricate a completed load for PW.
+// BFCache can report child contexts before the root navigation, without child
+// attachment events. PW drops those contexts while the old frame tree is live.
+// Rebuild only missing local frames from the native tree, then bind their actual
+// still-live contexts. Lifecycle reporting comes last; no load is fabricated.
 export async function refreshCrxCachedLifecycle(transport, message, sendCommand = (target, method, params) => chrome.debugger.sendCommand(target, method, params)) {
   if (message.method !== "Page.frameNavigated" || message.params?.type !== "BackForwardCacheRestore") return;
   const tabId = tabForSession(transport, message.sessionId);
   if (tabId === undefined || !transport.getTargetId(tabId)) return;
   const rootSession = message.sessionId === `crx-tab-${tabId}`;
   if (!rootSession && transport._sessions.get(message.sessionId) !== tabId) return;
-  await sendCommand(rootSession ? { tabId } : { tabId, sessionId: message.sessionId }, "Page.setLifecycleEventsEnabled", { enabled: true });
+  const attachment = transport._tabToTarget.get(tabId), frames = framesFor(transport, tabId), revision = revisions.get(frames);
+  const original = message.params.frame, target = rootSession ? { tabId } : { tabId, sessionId: message.sessionId };
+  if (!attachment || !original?.id || !original.loaderId) return;
+  const current = () => transport._tabToTarget.get(tabId) === attachment && framesByTransport.get(transport)?.get(tabId) === frames &&
+    revisions.get(frames) === revision && (rootSession || transport._sessions.get(message.sessionId) === tabId);
+  const tree = (await sendCommand(target, "Page.getFrameTree"))?.frameTree;
+  if (!current() || tree?.frame.id !== original.id || tree.frame.loaderId !== original.loaderId) return;
+  const missing = [];
+  const visit = (node, parentId) => {
+    if (node.frame?.parentId !== parentId || !node.frame.id || !node.frame.loaderId) return;
+    if (!frames.has(node.frame.id)) missing.push(node.frame);
+    for (const child of node.childFrames ?? []) visit(child, node.frame.id);
+  };
+  for (const child of tree.childFrames ?? []) visit(child, original.id);
+  const repaired = new Set();
+  for (const frame of missing) {
+    if (!frames.has(frame.parentId) || frames.has(frame.id)) continue;
+    transport._emitMessage({ method: "Page.frameAttached", sessionId: message.sessionId, params: { frameId: frame.id, parentFrameId: frame.parentId } });
+    transport._emitMessage({ method: "Page.frameNavigated", sessionId: message.sessionId, params: { frame, type: "Navigation" } });
+    repaired.add(frame.id);
+  }
+  for (const context of contextsByTransport.get(transport)?.get(message.sessionId)?.contexts.values() ?? []) {
+    if (repaired.has(context.params.context.auxData?.frameId)) transport._emitMessage(context);
+  }
+  await sendCommand(target, "Page.setLifecycleEventsEnabled", { enabled: true });
 }

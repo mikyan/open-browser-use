@@ -39,7 +39,9 @@ async function loadBackend({ sendCommand, sendMessage, inject, getFrame } = {}) 
       async update(...args) { calls.focus.push(args); },
       async sendMessage(tabId, message, destination) {
         calls.messages.push({ tabId, ...json(message) });
-        return sendMessage ? await sendMessage(tabId, message, destination) : { ok: true };
+        const response = sendMessage ? await sendMessage(tabId, message, destination) : { ok: true };
+        return response?.ok === true && (message.type === "OPEN_BROWSER_USE_PING" || message.type === "OPEN_BROWSER_USE_CURSOR_STATE" && !message.state?.isVisible)
+          ? { ...response, receiverToken: message.receiverToken ?? "pointer-receiver" } : response;
       }
     },
     windows: { async update(...args) { calls.focus.push(args); } },
@@ -78,14 +80,14 @@ for (const type of ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"]
     assert.deepEqual(calls.commands, [[{ tabId: 7 }, "Input.dispatchMouseEvent", { type, x: 120, y: 80 }]]);
     const updates = calls.messages.filter(({ type }) => type !== "OPEN_BROWSER_USE_PING");
     assert.deepEqual(updates[0], {
-      tabId: 7, type: "OPEN_BROWSER_USE_CURSOR", sessionId: session.session_id,
+      tabId: 7, type: "OPEN_BROWSER_USE_CURSOR", receiverToken: "pointer-receiver", sessionId: session.session_id,
       turnId: session.turn_id, feedbackSequence: 1, moveSequence: 1, animateMovement: false,
       visible: true, x: 120, y: 80
     });
     assert.equal(updates.length, type === "mousePressed" ? 2 : 1);
     if (type === "mousePressed") {
       assert.deepEqual(updates[1], {
-        tabId: 7, type: "OPEN_BROWSER_USE_POINTER_EVENT", sessionId: session.session_id,
+        tabId: 7, type: "OPEN_BROWSER_USE_POINTER_EVENT", receiverToken: "pointer-receiver", sessionId: session.session_id,
         turnId: session.turn_id, eventType: type, feedbackSequence: 1, x: 120, y: 80
       });
     }
@@ -208,16 +210,17 @@ test("turn end clears feedback and suppresses an in-flight update", async () => 
   await started.promise;
   await backend.executeCdp(mouse("mouseReleased"));
   const queue = backend.pointerFeedbackByTabId.get(7);
-  await backend.turnEnded(session);
-  assert.equal(backend.pointerFeedbackByTabId.size, 0);
+  const ending = backend.turnEnded(session);
+  let finished = false; ending.then(() => { finished = true; });
+  await new Promise(setImmediate); assert.equal(finished, false);
   ping.resolve({ ok: true });
+  await ending;
+  assert.equal(backend.pointerFeedbackByTabId.size, 0);
   await input;
   await queue.running;
   assert.equal(backend.cursorByTabId.size, 0);
   const updates = calls.messages.filter(({ type }) => type !== "OPEN_BROWSER_USE_PING");
-  assert.deepEqual(updates, [{ tabId: 7, type: "OPEN_BROWSER_USE_CURSOR_STATE", state: {
-    cursor: null, isVisible: false, sessionId: null, turnId: null
-  } }]);
+  assert.deepEqual(updates, []); // PING alone never authorized a visible layer.
 });
 
 test("feedback backlog is bounded and adjacent moves keep only the latest position", async () => {
@@ -251,23 +254,28 @@ test("feedback backlog is bounded and adjacent moves keep only the latest positi
 
 test("a detached queue cannot revive after a new attachment creates another queue", async () => {
   const ping = deferred();
+  const started = deferred();
   let first = true;
   const { backend, calls } = await loadBackend({ sendMessage: async (_id, message) => {
     if (message.type === "OPEN_BROWSER_USE_PING" && first) {
       first = false;
+      started.resolve();
       return ping.promise;
     }
     return { ok: true };
   } });
   await backend.executeCdp(mouse("mousePressed"));
+  await started.promise;
   const oldQueue = backend.pointerFeedbackByTabId.get(7);
-  await backend.detachTab(7);
+  const releasing = backend.detachTab(7);
+  let finished = false; releasing.then(() => { finished = true; });
+  await new Promise(setImmediate); assert.equal(finished, false);
+  ping.resolve({ ok: true }); await releasing;
   backend.attachedTabs.add(7);
   backend.attachmentEpochs.set(7, {});
   backend.inputTracker.register(7, backend.attachmentEpochs.get(7));
   await backend.executeCdp(mouse("mouseMoved", { commandParams: { type: "mouseMoved", x: 240, y: 160 } }));
   await flushFeedback(backend);
-  ping.resolve({ ok: true });
   await oldQueue.running;
   const updates = calls.messages.filter(({ type }) => type === "OPEN_BROWSER_USE_CURSOR");
   assert.deepEqual(updates.map(({ x }) => x), [240]);

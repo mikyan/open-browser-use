@@ -7,11 +7,20 @@
 
 ## 当前基线
 
+可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。
+原消息结算、最终隐藏、pagehide token退役、本地iframe缓存恢复及同版本worker
+恢复已验；独审覆盖原PNG/POST、截图原错误来源、源码/构建和精确进程清理。
+527,274ms仅原12activation/4control-focus许可，受控视觉场景内无焦点事件。
+Node3620pass/1既有Windows symlink权限skip。未使用时间容差、输入重放或
+新增焦点许可；旧失败和预览ZIP保持。普通Edge、任意跨worker在途传输、
+旧版升级、恢复登记前移除、OOPIF缓存、raw叶目标及全屏仍开放，见
+[可视消息清理](../../references/visual-delivery-cleanup.md)。
+
 - iframe 原元素高亮专项 `k2sWDv` 2/2、相关 `za8xMZ` 17/17、完整
   `rkN0eF` 176/176均actual exit0，旧175名称/顺序保留。原六布局PNG、
   点击圈、POST及文档、源码/构建和精确清理独审通过；完整536,859ms
   仅原12activation/4control-focus许可。Node3536pass/1既有skip；raw叶目标、
-  全屏、已发消息跨turn边界及普通安装仍开放，见[本片记录](../completed/2026-10-14-iframe-target-feedback.md)。
+  全屏和普通安装仍开放；该历史基线的跨turn边界由新切片处理，见[本片记录](../completed/2026-10-14-iframe-target-feedback.md)。
 - 受限网站原页面Blob下载专项 `Y00W3K` 2/2、原下载 `NnimoV` 2/2、
   原负例/来源 `2gHGdI` 3/3均actual exit0；五入口、原文件、实际清理和
   原来源证明独立核验。完整 `8zKuaa` 175/175 actual exit0，旧175顺序
@@ -41,10 +50,15 @@
 
 ## 当前并行切片
 
+2026-10-15 [可视消息实际交付与最终隐藏](../completed/2026-10-14-visual-delivery-cleanup.md)
+本片完成：End/Pause/detach保留原消息至实际结算及精确隐藏；页面退役、
+本地缓存iframe和同版本worker恢复已验。完整`HZSmT4`178/178，Node3620pass/1skip，
+原业务/图像/源码/焦点/清理独审通过。跨worker在途等剩余边界保持开放。
+
 2026-10-14 [iframe内部元素反馈](../completed/2026-10-14-iframe-target-feedback.md)
 本片完成：原target/frame投影补叶元素高亮；六原布局和完整176项通过，
 不重放输入、不增加焦点许可。原六框错误与首候选点击圈丢失反例保留。
-矩形为原节点快照；raw、全屏、既有跨turn消息交付及整体持平继续开放。
+矩形为原节点快照；raw、全屏、跨worker在途交付及整体持平继续开放。
 
 2026-10-14 [受限网站原页面下载](../completed/2026-10-14-restricted-page-downloads.md)
 完成本片：固定原文档与默认原生context来源，同源非opaque Blob原GUID交付

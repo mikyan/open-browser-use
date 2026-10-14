@@ -177,12 +177,23 @@ for (const [name, change, pause = false] of [
   ["cancelled stop reports success after Pause", p => { p.records.find(r => r.kind === "response" && r.requestId === 2).ok = true; }, true]
 ]) test(`external stream acceptance rejects ${name}`, () => { const options = { lease: "external", pause }, p = evidence(options); change(p); assert.throws(() => assertScreenshotDrainEvidence(p, options)); });
 
-test("SDK deadline followed by a later worker timeout cannot masquerade as the original timeout ACK", () => {
+const originalReplyOutcome = reply => ({ ok: false, error: `Error: ${reply.error}\n    at #handleMessage (file:///original-sdk/index.js:807:28)`, settledAt: reply.at + 1 });
+
+test("original reply identity tolerates independent wall clocks but rejects a local SDK timeout", () => {
   for (const api of ["raw", "high-level"]) {
     const p = evidence({ pause: true, api }); p.released = false;
-    const reply = p.records.find(r => r.kind === "response"), caller = { ok: false, error: "Timed out after 1000ms", settledAt: reply.at + 1 };
+    const reply = p.records.find(r => r.kind === "response"), caller = originalReplyOutcome(reply);
     assertOriginalScreenshotTimeout(p, caller, api);
-    reply.at = caller.settledAt + 1; assert.throws(() => assertOriginalScreenshotTimeout(p, caller, api));
+    reply.at = caller.settledAt + 1; assertOriginalScreenshotTimeout(p, caller, api);
+    for (const error of [
+      "Error: Open Browser Use request timed out: executeCdp\n    at Timeout._onTimeout (file:///original-sdk/index.js:724:24)",
+      `Error: ${reply.error}\n    at Timeout._onTimeout (file:///original-sdk/index.js:724:24)\n    at #handleMessage (file:///original-sdk/index.js:807:28)`,
+      "Error: Different timeout message\n    at #handleMessage (file:///original-sdk/index.js:807:28)"
+    ]) assert.throws(() => assertOriginalScreenshotTimeout(p, { ...caller, error }, api));
+    const wrong = structuredClone(p); wrong.records.find(r => r.kind === "response").requestId = "foreign";
+    assert.throws(() => assertOriginalScreenshotTimeout(wrong, caller, api));
+    const duplicate = structuredClone(p); duplicate.records.push(structuredClone(reply));
+    assert.throws(() => assertOriginalScreenshotTimeout(duplicate, caller, api));
     p.records = p.records.filter(r => r.kind !== "response"); assert.throws(() => assertOriginalScreenshotTimeout(p, caller, api));
   }
 });
@@ -191,7 +202,7 @@ test("only high-level screenshot accepts an integer remaining wire budget within
   for (const api of ["raw", "high-level"]) {
     const p = evidence({ pause: true, api }); p.released = false;
     const request = p.records.find(r => r.kind === "request"), reply = p.records.find(r => r.kind === "response");
-    const caller = { ok: false, error: "Browser action timed out", settledAt: reply.at + 1 };
+    const caller = originalReplyOutcome(reply);
     for (const timeoutMs of [1, 999, 1000]) {
       request.timeoutMs = timeoutMs;
       if (api === "raw" && timeoutMs !== 1000) assert.throws(() => assertOriginalScreenshotTimeout(p, caller, api));
@@ -203,14 +214,14 @@ test("only high-level screenshot accepts an integer remaining wire budget within
   }
 });
 
-test("reduced high-level budget still requires the original held native capture and timely wire timeout", () => {
+test("reduced high-level budget still requires the original held native capture and original wire timeout", () => {
   const original = evidence({ pause: true, api: "high-level" }); original.released = false;
   original.records.find(r => r.kind === "request").timeoutMs = 999;
-  const caller = { ok: false, error: "Browser action timed out", settledAt: original.records.find(r => r.kind === "response").at + 1 };
+  const caller = originalReplyOutcome(original.records.find(r => r.kind === "response"));
   assertOriginalScreenshotTimeout(original, caller, "high-level");
   assertScreenshotDrainEvidence(original, { pause: true, api: "high-level" });
   for (const mutate of [p => { p.records = p.records.filter(r => r.kind !== "response"); },
-    p => { p.records.find(r => r.kind === "response").at = caller.settledAt + 1; },
+    p => { p.records.find(r => r.kind === "response").error = "Different timeout message"; },
     p => { p.records.find(r => r.kind === "response").ok = true; }, p => { p.released = true; }]) {
     const changed = structuredClone(original); mutate(changed); assert.throws(() => assertOriginalScreenshotTimeout(changed, caller, "high-level"));
   }

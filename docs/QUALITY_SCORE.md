@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。
+原消息结算、最终隐藏、pagehide token退役、本地iframe缓存恢复及同版本worker
+恢复已验；独审覆盖原PNG/POST、截图原错误来源、源码/构建和精确进程清理。
+527,274ms仅原12activation/4control-focus许可，受控视觉场景内无焦点事件。
+Node3620pass/1既有Windows symlink权限skip。未使用时间容差、输入重放或
+新增焦点许可；旧失败和预览ZIP保持。普通Edge、任意跨worker在途传输、
+旧版升级、恢复登记前移除、OOPIF缓存、raw叶目标及全屏仍开放，见
+[可视消息清理](references/visual-delivery-cleanup.md)。
+
 iframe 内原元素高亮专项 `k2sWDv` 2/2 actual exit0：六布局原 PNG 的按钮四边
 及祖先框排除、六点击圈、六原 POST/14,185B 和十三原文档均独立核验。
 结束576ms仍隐藏；13,056ms零activation/focus/许可，精确进程清理通过。
@@ -19,7 +28,7 @@ iframe 内原元素高亮专项 `k2sWDv` 2/2 actual exit0：六布局原 PNG 的
 raw跨域叶目标、全屏和普通安装仍待验，见[iframe元素反馈](references/frame-target-feedback.md)。
 完整 `rkN0eF` 176/176 actual exit0，旧175名称/顺序保持；536,859ms仅原
 12activation/4control-focus许可。原始视觉/业务、源码/构建和精确清理独审
-通过；既有同文档跨turn消息交付边界单列为未完成项，旧预览ZIP保持。
+通过；该历史基线的同文档跨turn边界由上述新切片继续处理，旧预览ZIP保持。
 
 受限网站原页面 Blob 下载专项 `Y00W3K` 2/2 actual exit0：五入口×三布局
 15原文件2,633B，十边界另6原下载1,091B；原default context、文档、GUID、

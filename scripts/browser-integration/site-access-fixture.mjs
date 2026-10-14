@@ -1,4 +1,5 @@
 import { checkSiteAccessSaveRetry } from "./site-access-save-retry.mjs";
+import { installVisualNavigationObserver } from "./visual-navigation-fixture.mjs";
 
 export function siteAccessFixture(route, port, query) {
   if (route === "/site-access-child") return '<!doctype html><meta charset="utf-8"><p>Blocked embedded content</p>';
@@ -146,8 +147,23 @@ export async function checkSiteAccess({ connectBrowser, getWorker, connectPage, 
     detail.afterRestart = await readPolicy();
     assert.equal(typeof detail.afterRestart.generation, "string"); assert.notEqual(detail.afterRestart.generation, detail.allow.generation);
     assert.deepEqual({ ...detail.afterRestart, generation: detail.allow.generation }, detail.allow);
-    await assert.rejects(allowed.domSnapshot(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
-    await browser.client.beginTurn();
+    // Observe only the original explicit recovery after worker replacement.
+    // A document can have other extension listeners without a cursor receiver.
+    await getWorker().evaluate(`(${installVisualNavigationObserver.toString()})(chrome,globalThis,'site-access-visual-recovery')`);
+    let recoveryFailure;
+    try {
+      await assert.rejects(allowed.domSnapshot(), /OBU_STALE_CONTROL_EPOCH|OBU_CONTROL_BOOTSTRAP_REQUIRED/);
+      await browser.client.beginTurn();
+    } catch (error) { recoveryFailure = error;
+    } finally {
+      try { detail.visualRecoveryTrace = await getWorker().evaluate("globalThis.__obuVisualNavigation.restore()"); }
+      catch (error) {
+        detail.visualRecoveryTraceError = String(error); recoveryFailure ??= error;
+        try { detail.visualRecoveryTrace = await getWorker().evaluate("globalThis.__obuVisualNavigation.snapshot()"); }
+        catch (readError) { detail.visualRecoveryReadError = String(readError); }
+      }
+    }
+    if (recoveryFailure) throw recoveryFailure;
     await denied("blockedAfterRestart", allowed.goto(blockedURL));
     assert.equal(await allowed.getByLabel("Allowed field").inputValue(), "permitted 中文");
 

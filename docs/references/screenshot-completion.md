@@ -49,6 +49,19 @@ checks the original PNG pixels, actual wire timeout before later actions, exact
 production queue identity, stream ordering and Pause's unchanged 10-second
 budget. Its gate watchdog is a test failure, never successful cleanup.
 
+Candidate `wH1kmv` later exposed a fixture-clock error in the third raw/external
+scenario. The caller receives the original worker timeout through the SDK's
+`#handleMessage`, with the exact same error text, after about 1005 ms of its
+unchanged 3000 ms transport budget. The worker wall timestamp is nevertheless
+1 ms greater than Node's settled timestamp. Comparing those two independent
+wall clocks cannot establish whether the SDK locally timed out first. The
+failed assertion and raw artifacts remain retained. The corrected oracle
+requires the same request's unique reply, exact caller error text and first
+stack frame from the pinned SDK's original response handler. Local timer errors,
+including a timer-first stack with a deeper handler frame, remain rejected.
+Both timestamps stay in the diagnostic record. No timestamp tolerance or
+longer deadline is introduced, and the SDK is unchanged.
+
 The first run `wP9GER` fails overall (2/3 runner cases, actual exit 1). Its two
 internal-stream scenarios pass. The third scenario incorrectly tries to start
 an already-running external stream and receives Chromium's original rejection.
