@@ -7,6 +7,12 @@
 
 ## 当前基线
 
+坐标高亮 warm 增量 `xS4ddv`180/180 actual exit0、Node3666pass/1既有skip，
+原178名称/顺序保持。18原PNG/POST、65原对象释放及输入/截图记录独审通过；
+533,948ms仅原12activation/4control-focus许可。冷CDP的三布局误框仍有独立
+保留失败，不计入默认通过数；[本片计划](2026-10-15-raw-frame-feedback.md)
+与整体目标保持active，普通Edge继续延期。
+
 可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。
 原消息结算、最终隐藏、pagehide token退役、本地iframe缓存恢复及同版本worker
 恢复已验；独审覆盖原PNG/POST、截图原错误来源、源码/构建和精确进程清理。
@@ -49,6 +55,12 @@ Node3620pass/1既有Windows symlink权限skip。未使用时间容差、输入�
 5. 多平台、重复任务与 Codex 同组任务对比，逐项完成证据审计。
 
 ## 当前并行切片
+
+2026-10-15 [坐标输入的跨 frame 反馈](2026-10-15-raw-frame-feedback.md)
+warm 增量已验：已初始化 Page 的 mouse/CDP 叶高亮及两阶段清理通过默认完整
+`xS4ddv`180/180、Node3666pass/1既有skip；原PNG/POST/对象释放及输入独审通过。
+冷 CDP 的三份原成功提交仍误框，独立反例已保留，未算入通过数。冷路径与整体目标继续 active，见
+[坐标反馈](../../references/raw-frame-feedback.md)。普通 Edge 人工验收继续延期。
 
 2026-10-15 [可视消息实际交付与最终隐藏](../completed/2026-10-14-visual-delivery-cleanup.md)
 本片完成：End/Pause/detach保留原消息至实际结算及精确隐藏；页面退役、

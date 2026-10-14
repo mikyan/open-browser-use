@@ -57,9 +57,10 @@ ignored. No public SDK method or protocol field is added.
   does not invalidate an already captured snapshot; no successor is resolved.
   Projection uses the ancestor maps captured by the original action, not an
   atomic layout snapshot across frames or a fresh transform measurement.
-- A known locator with unconfirmed geometry hides its outline. Raw coordinate
-  input retains its existing root-document hit-test fallback; this work does
-  not claim that raw input has exact cross-origin leaf hit-test evidence.
+- A known locator with unconfirmed geometry hides its outline. At this slice's
+  acceptance, raw coordinate input retained its root-document hit-test fallback.
+  The subsequent [coordinate feedback](raw-frame-feedback.md) work adds leaf
+  discovery for already initialized Pages; cold raw attachments remain open.
 - Visual timeout and actual native read settlement are distinct. Cleanup must
   retain the original pending read without granting authority over a replacement
   attachment. Existing top-layer, root zoom, rebuilding and print behavior must

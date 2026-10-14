@@ -19,16 +19,16 @@ const part = (start, end) => { const i = code.indexOf(start), j = code.indexOf(e
 const json = value => JSON.parse(JSON.stringify(value));
 const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve }; };
 
-function mouseFixture() {
+function mouseFixture(capture = () => undefined, send) {
   const commands = [], drops = [];
   const symbols = { pointerFeedbackTarget, tagPointerFeedback, tagPointerCommand, obuPointerTicket: Symbol(), obuDragProgress: Symbol() };
   const { Mouse, Raw } = vm.runInNewContext(part("let Mouse$1 = class Mouse", "const aliases =") + part("let RawMouseImpl$3 =", "let RawTouchscreenImpl$3 =") + "\n({ Mouse:Mouse$1, Raw:RawMouseImpl$3 });", {
-    ...symbols, setTimeout, toModifiersMask$2: () => 0, toButtonsMask$2: buttons => buttons.size ? 1 : 0
+    ...symbols, obuCaptureRawPointerTarget: capture, setTimeout, toModifiersMask$2: () => 0, toButtonsMask$2: buttons => buttons.size ? 1 : 0
   });
   let dragging = false;
   const drag = { isDragging: () => dragging, interceptDragCausedByMove: async (_x,_y,_b,_bs,_m,move) => move(),
     drop: async (...args) => drops.push(args) };
-  const raw = new Raw({}, { send: async (method, params) => commands.push({method, params, visual:pointerCommandTarget(params)}) }, drag);
+  const raw = new Raw({}, { send: async (method, params) => { commands.push({method, params, visual:pointerCommandTarget(params)}); return send?.(method, params); } }, drag);
   const mouse = new Mouse(raw, { keyboard:{ _modifiers:()=>new Set() } });
   return {mouse,commands,drops,symbols,setDragging: value => dragging=value};
 }
@@ -43,6 +43,28 @@ for (const method of ["move", "click", "dblclick"]) test(`actual pinned Mouse.${
 test('actual pinned drag drop retains the destination target and ordinary raw movement has no fabricated hint',async()=>{
  const f=mouseFixture(), visual={}; await f.mouse.move(9,10); assert.equal(f.commands[0].visual,undefined);
  f.setDragging(true); await f.mouse.up({[pointerFeedbackTarget]:visual}); assert.equal(f.drops[0].at(-1),visual);
+});
+
+test('actual raw click uses one candidate and retains parallel move/down/up before native ACKs',async()=>{
+ const native=deferred(), visual={value:null,result:new Promise(()=>{})};let captures=0;
+ const f=mouseFixture(()=>{captures++;return visual;},()=>native.promise);
+ const clicked=f.mouse.click(17.25,28.5);
+ await new Promise(setImmediate);
+ assert.equal(captures,1);assert.deepEqual(f.commands.map(row=>row.params.type),['mouseMoved','mousePressed','mouseReleased']);
+ assert.ok(f.commands.every(row=>row.visual===visual));
+ native.resolve();await clicked;assert.equal(captures,1);
+});
+
+test('actual counted delayed raw click retains one candidate across every native pair',async()=>{
+ let captures=0;const visual={};const f=mouseFixture(()=>{captures++;return visual;});
+ await f.mouse.click(20,30,{clickCount:3,delay:1});
+ assert.equal(captures,1);assert.equal(f.commands.length,7);assert.ok(f.commands.every(row=>row.visual===visual));
+});
+
+test('independent raw move/down/up/wheel capture independent optional hints',async()=>{
+ const values=[];const f=mouseFixture(()=>{const value={index:values.length};values.push(value);return value;});
+ await f.mouse.move(20,30);await f.mouse.down();await f.mouse.up();await f.mouse.wheel(0,5);
+ assert.equal(values.length,4);for(let i=0;i<4;i++)assert.equal(f.commands[i].visual,values[i]);
 });
 
 function geometryFixture({child=false,cached}={}) {

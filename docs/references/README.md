@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Raw frame feedback](raw-frame-feedback.md)：已初始化 Page 的坐标叶节点读取、
+  原临时对象释放与调用方期限分离；冷 CDP 的独立失败及未完成边界。
 - [Visual delivery cleanup](visual-delivery-cleanup.md)：原可视消息结算、精确
   接收器退役与最终隐藏，BFCache 本地 frame 恢复及 worker 清理边界。
 - [Frame target feedback](frame-target-feedback.md)：iframe 内原操作元素的边框

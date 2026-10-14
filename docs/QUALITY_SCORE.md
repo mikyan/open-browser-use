@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+坐标高亮 warm 增量完整 `xS4ddv`180/180 actual exit0，旧178名称/顺序保持；
+Node3666pass/1既有Windows symlink权限skip。18原PNG/POST（42,559B）、65原
+对象释放ACK、39原文档及输入/截图记录独审通过。533,948ms仅原12activation/
+4control-focus许可；可选读取不延长原错误/超时，必要清理和完整detach屏障保留。
+冷CDP另有三原成功提交但误框的保留失败，不在默认180通过数中；普通Edge、
+全屏及整个能力矩阵仍开放，见[坐标反馈](references/raw-frame-feedback.md)。
+
 可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。
 原消息结算、最终隐藏、pagehide token退役、本地iframe缓存恢复及同版本worker
 恢复已验；独审覆盖原PNG/POST、截图原错误来源、源码/构建和精确进程清理。

@@ -54,6 +54,24 @@ test("native PNG ACK bytes and exactly one original submit down/up are independe
   const item=fixtureCase("oopif"),bytes=png(item.geometry);checkFrameTargetBusiness(item);item.native=native(item,bytes);checkFrameTargetNative(item,bytes);
   for(const mutate of[x=>x.native.records[1].result.data=Buffer.from("foreign image").toString("base64"),x=>x.native.records[3].ok=false,x=>x.native.records[2].source.sessionId="foreign",x=>x.native.records[4].params.x+=50,x=>x.native.records.pop(),x=>x.native.pending=1]){const changed=structuredClone(item);mutate(changed);assert.throws(()=>checkFrameTargetNative(changed,bytes));}
 });
+
+function resequenceNative(records) {
+  const sequences=new Map(records.map((row,index)=>[row.sequence,index+1]));
+  return records.map((row,index)=>({...structuredClone(row),sequence:index+1,...(Object.hasOwn(row,"invocation")?{invocation:sequences.get(row.invocation)}:{})}));
+}
+test("only raw mouse click permits overlapping original down/up ACKs, never reversed, duplicate or missing operations",()=>{
+  const item=fixtureCase("oopif"),bytes=png(item.geometry);checkFrameTargetBusiness(item);item.pointerMode="mouse";item.native=native(item,bytes);
+  const serial=item.native.records;item.native.records=resequenceNative([serial[0],serial[1],serial[2],serial[4],serial[3],serial[5]]);
+  const proof=checkFrameTargetNative(item,bytes);assert.deepEqual(proof.submitInvocations,[3,4]);assert.deepEqual(proof.submitACKs,[5,6]);
+  for(const pointerMode of[undefined,"locator","cdp"]){const changed=structuredClone(item);changed.pointerMode=pointerMode;assert.throws(()=>checkFrameTargetNative(changed,bytes));}
+  for(const mutate of[
+    records=>{[records[2].params.type,records[3].params.type]=[records[3].params.type,records[2].params.type];return records;},
+    records=>[...records,{...structuredClone(records[2]),sequence:7},{...structuredClone(records[4]),sequence:8,invocation:7}],
+    records=>[...records,{...structuredClone(records[4]),sequence:7}],
+    records=>resequenceNative(records.filter(row=>row.invocation!==3)),
+    records=>resequenceNative([records[0],records[1],records[4],records[2],records[3],records[5]])
+  ]){const changed=structuredClone(item);changed.native.records=mutate(changed.native.records);assert.throws(()=>checkFrameTargetNative(changed,bytes));}
+});
 test("ring oracle requires the single new current root effect tied to original submit coordinates",()=>{
   const item=fixtureCase("same");checkFrameTargetBusiness(item);item.pixels=measureFrameTargetPixels(png(item.geometry),item.geometry);checkFrameTargetVisible(item);
   for(const mutate of[x=>x.after[0].rings[0].documentToken="foreign",x=>x.after[0].rings[0].connected=false,x=>x.after[0].rings[0].modelPoint.x+=10,x=>x.after[0].rings.push(structuredClone(x.after[0].rings[0])),x=>x.rendered[0].feedback.target=x.geometry.parents[0]]){const changed=structuredClone(item);mutate(changed);assert.throws(()=>checkFrameTargetVisible(changed));}
@@ -67,12 +85,31 @@ test("model arrival does not wait for a correct outline, and retains original re
   const original=Error("original passive read failed");context.window.frameTargetFeedbackState=()=>{throw original;};await assert.rejects(new vm.Script(`(${waitForFrameTargetFeedback.toString()})(${JSON.stringify(expected)})`).runInNewContext(context),error=>error===original);
 });
 
+test("raw visual observation accepts a later target but preserves a wrong target at its bounded deadline",async()=>{
+  for(const arrives of [true,false]){
+    let elapsed=0,reads=0;const rectangle={x:120,y:80,width:280,height:64},state={feedback:{modelPoint:{x:260,y:112},target:null}},timers=new Map();let next=0;
+    const context={Date:{now:()=>elapsed},window:{frameTargetFeedbackState:()=>{reads++;if(arrives&&elapsed>=32)state.feedback.target=rectangle;return state;}},document:{getElementById:()=>null,fonts:{ready:Promise.resolve()},images:[]},setTimeout(callback,delay){const id=++next;timers.set(id,{callback,delay});return id;},clearTimeout:id=>timers.delete(id)};
+    const pending=new vm.Script(`(${waitForFrameTargetFeedback.toString()})(${JSON.stringify({x:260,y:112,rectangle})})`).runInNewContext(context);
+    let done=false;pending.then(()=>{done=true;});
+    for(let turns=0;!done&&turns<50;turns++){await new Promise(setImmediate);const entry=[...timers].find(([,value])=>value.delay===16);if(entry){timers.delete(entry[0]);elapsed+=16;entry[1].callback();}}
+    assert.equal(done,true);assert.equal(await pending,state);assert.ok(reads>1);assert.equal(timers.size,0);
+    if(arrives){assert.equal(elapsed,32);assert.deepEqual(state.feedback.target,rectangle);}else{assert.ok(elapsed>=500&&elapsed<550);assert.equal(state.feedback.target,null);}
+  }
+});
+
 // Protocol doubles exercise sequencing/error retention, not real browser trust.
-function workflow({oldOutline=false,receiptError}={}){
-  const items=new Map(),tabs=[],calls=[],artifacts=[];let saved,current;
+function workflow({oldOutline=false,receiptError,rawMode=null}={}){
+  const items=new Map(),tabs=[],calls=[],artifacts=[],rawCalls=[];let saved,current;
+  const recordNative=(item,method,params,result={},deferred=false)=>{const sequence=item.native.records.length+1;item.native.records.push({sequence,kind:"invoke",source:{tabId:item.tabId},method,params:structuredClone(params)});const settle=()=>item.native.records.push({sequence:item.native.records.length+1,kind:"settled",invocation:sequence,ok:true,result});if(!deferred)settle();return settle;};
+  const raw=(item,method,params)=>{rawCalls.push({tabId:item.tabId,layout:item.layout,method,params:structuredClone(params)});calls.push(`${method}:${item.layout}`);};
+  const dispatch=(item,params)=>{recordNative(item,"Input.dispatchMouseEvent",params);if(params.type==="mouseMoved")item.stage="rendered";else if(params.type==="mouseReleased"){item.submitted=true;item.stage="after";}};
   const browser={async newTab({url}){const address=new URL(url),item=fixtureCase(address.searchParams.get("layout"),address.searchParams.get("key"),tabs.length+1);item.submitted=false;item.stage="before";item.added=item.layout!=="dynamic-oopif";item.bytes=png(item.geometry,{outline:oldOutline?"parents":"leaf"});item.native=native(item,item.bytes);items.set(item.key,item);current=item;
-    const locator=selector=>({async waitFor(){if(selector.startsWith("Saved")&&receiptError)throw receiptError;},async fill(){calls.push(`fill:${item.layout}`);},async hover(){calls.push(`hover:${item.layout}`);item.stage="rendered";},async click(){calls.push(`click:${item.layout}:${selector}`);if(selector==="#add"){item.added=true;return;}item.submitted=true;item.stage="after";}}),frame={locator,getByText:locator,frameLocator:()=>frame};
-    const tab={id:item.tabId,locator,frameLocator:()=>frame,async evaluate(){return item.rendered[0];},async screenshot(){calls.push(`screenshot:${item.layout}`);return{mimeType:"image/png",base64:item.bytes.toString("base64")};},async close(){calls.push(`sdk-close:${item.tabId}`);}};tabs.push(tab);return tab;}};
+    if(rawMode)item.native.records=[];
+    const locator=selector=>({async waitFor(){if(selector.startsWith("Saved")){if(receiptError)throw receiptError;assert.equal(item.submitted,true,"Receipt cannot precede the sole original submit");}},async fill(value){assert.equal(selector,"#note");assert.equal(value,item.value);calls.push(`fill:${item.layout}`);},async hover(){assert.equal(rawMode,null,"Raw workflows cannot obtain a locator target hint");calls.push(`hover:${item.layout}`);item.stage="rendered";},async click(){assert.ok(!rawMode||selector==="#add","Raw submit cannot use locator click");calls.push(`click:${item.layout}:${selector}`);if(selector==="#add"){item.added=true;return;}item.submitted=true;item.stage="after";}}),frame={locator,getByText:locator,frameLocator:()=>frame};
+    const tab={id:item.tabId,locator,frameLocator:()=>frame,async evaluate(){return item.rendered[0];},async screenshot(){calls.push(`screenshot:${item.layout}`);if(rawMode){assert.equal(item.stage,"rendered");assert.equal(item.submitted,false);recordNative(item,"Page.captureScreenshot",{},{data:item.bytes.toString("base64")});}return{mimeType:"image/png",base64:item.bytes.toString("base64")};},async close(){calls.push(`sdk-close:${item.tabId}`);}};
+    if(rawMode==="mouse")tab.mouse={async move(x,y){raw(item,"mouse.move",{x,y});dispatch(item,{type:"mouseMoved",x,y});},async click(x,y){raw(item,"mouse.click",{x,y});const settle=["mouseMoved","mousePressed","mouseReleased"].map(type=>recordNative(item,"Input.dispatchMouseEvent",{type,x,y,...(type==="mouseMoved"?{}:{button:"left",buttons:type==="mousePressed"?1:0,clickCount:1})},{},true));for(const ack of settle)ack();item.submitted=true;item.stage="after";}};
+    tabs.push(tab);return tab;}};
+  if(rawMode==="cdp")browser.cdp={async call(tabId,method,params){const item=[...items.values()].find(row=>row.tabId===tabId);assert.ok(item,"CDP must address the original created tab");assert.equal(method,"Input.dispatchMouseEvent");assert.ok(["mouseMoved","mousePressed","mouseReleased"].includes(params.type));raw(item,method,params);dispatch(item,params);return{};}};
   const frames=item=>item.before.map((d,i)=>({url:d.business.href,frameId:i,parentFrameId:i-1,documentId:d.nativeDocumentId,processId:d.nativeProcessId,documentLifecycle:"active",errorOccurred:false}));
   const worker={async evaluate(code){if(code.includes("function installBoundingGeometryProbe"))return{};if(code.includes("probe.restore()"))return current.native;if(code.includes("chrome.tabs.query"))return{tabs:[],targets:[]};
     const id=Number(code.match(/tabId:(\d+)/)?.[1]),item=[...items.values()].find(x=>x.tabId===id)??current;current=item;
@@ -80,7 +117,7 @@ function workflow({oldOutline=false,receiptError}={}){
     if(code.includes("attachments:")){const targets=frames(item).slice(1).filter((f,i)=>f.processId!==frames(item)[i].processId).map(f=>({id:`target-${item.tabId}-${f.frameId}`,url:f.url}));return{frames:frames(item),targets,attachments:targets.map(t=>({tabId:item.tabId,source:{tabId:item.tabId},targetId:t.id,sessionId:`session-${t.id}`,type:"iframe",url:t.url}))};}
     if(code.includes("chrome.webNavigation.getAllFrames"))return item.added?frames(item):frames(item).slice(0,1);throw Error(`Unexpected fixture operation: ${code.slice(0,60)}`);}};
   const record=item=>({...structuredClone(item.server),posts:item.submitted?structuredClone(item.server.posts):[]});
-  return{browser,getWorker:()=>worker,fixtureURL:"http://127.0.0.1:52001",fixtures:{stats:key=>record(items.get(key)),allStats:()=>{calls.push("ledger");return[...items.values()].map(record);}},until:async predicate=>assert.equal(await predicate(),true),saveArtifact:async(name,bytes)=>artifacts.push({name,bytes}),saveDetail:async detail=>{saved=structuredClone(detail);},calls,artifacts,detail:()=>saved};
+  return{browser,getWorker:()=>worker,fixtureURL:"http://127.0.0.1:52001",fixtures:{stats:key=>record(items.get(key)),allStats:()=>{calls.push("ledger");return[...items.values()].map(record);}},until:async predicate=>assert.equal(await predicate(),true),saveArtifact:async(name,bytes)=>artifacts.push({name,bytes}),saveDetail:async detail=>{saved=structuredClone(detail);},calls,rawCalls,artifacts,detail:()=>saved};
 }
 test("old parent outlines preserve all six original PNGs/POSTs and end evidence before strict visual red",async()=>{
   const harness=workflow({oldOutline:true});let ended=false;await assert.rejects(checkFrameTargetFeedback({...harness,checkEnd:async detail=>{ended=true;assert.equal(detail.states.length,6);assert.equal(harness.artifacts.length,6);return{hidden:true};},closeTab:async tab=>harness.calls.push(`cleanup:${tab.id}`)}),/leaf button outline/);
@@ -92,6 +129,22 @@ test("original receipt failure retains original POST and first error through pro
 });
 test("successful end is followed by injected cleanup and not a new SDK turn",async()=>{
   const harness=workflow(),order=[];const detail=await checkFrameTargetFeedback({...harness,checkEnd:async()=>{order.push("end");return{hidden:true};},closeTab:async tab=>{assert.equal(order[0],"end");order.push(tab.id);}});assert.deepEqual(order,["end",1,2,3,4,5,6]);assert.equal(detail.states.every(x=>x.businessPassed&&x.nativePassed&&x.visiblePassed),true);
+});
+
+for(const pointerMode of["mouse","cdp"])for(const oldOutline of[false,true])test(`${pointerMode} uses authored raw coordinates for all six original transactions${oldOutline?" and preserves evidence through visual red":""}`,async()=>{
+  const harness=workflow({rawMode:pointerMode,oldOutline}),order=[];
+  const run=checkFrameTargetFeedback({...harness,pointerMode,checkEnd:async detail=>{assert.equal(detail.states.length,6);assert.equal(harness.artifacts.length,6);assert.ok(detail.states.every(item=>item.businessPassed&&item.nativePassed));order.push("end");return{hidden:true};},closeTab:async tab=>{assert.equal(order[0],"end");order.push(tab.id);}});
+  if(oldOutline)await assert.rejects(run,/Original leaf button outline/);else await run;
+  const detail=harness.detail();assert.equal(detail.pointerMode,pointerMode);assert.deepEqual(detail.states.map(item=>item.layout),frameTargetLayouts);assert.deepEqual(order,["end",1,2,3,4,5,6]);assert.deepEqual(detail.cleanupInventory,{tabs:[],targets:[]});assert.equal(detail.serverLedger.flatMap(row=>row.posts).length,6);
+  assert.equal(harness.calls.some(call=>call.startsWith("hover:")||call.endsWith(":#submit")||call.startsWith("sdk-close:")),false);assert.equal(harness.calls.filter(call=>call.endsWith(":#add")).length,1);
+  for(const item of detail.states){const point=center(item.geometry.button),raw=harness.rawCalls.filter(call=>call.tabId===item.tabId);assert.deepEqual(item.inputPoint,point);assert.equal(item.pointerMode,pointerMode);assert.equal(item.businessPassed,true);assert.equal(item.nativePassed,true);assert.equal(item.visiblePassed,!oldOutline);assert.equal(item.server.posts.length,1);assert.equal(item.native.restored,true);
+    const expected=pointerMode==="mouse"?[{method:"mouse.move",params:point},{method:"mouse.click",params:point}]:["mouseMoved","mousePressed","mouseReleased"].map(type=>({method:"Input.dispatchMouseEvent",params:{type,...point,...(type==="mouseMoved"?{}:{button:"left",buttons:type==="mousePressed"?1:0,clickCount:1})}}));
+    assert.deepEqual(raw.map(({method,params})=>({method,params})),expected);assert.ok(raw.every(call=>call.layout===item.layout));
+    const artifact=harness.artifacts.find(row=>row.name===`${pointerMode}-frame-target-${item.layout}.png`);assert.ok(artifact);assert.equal(hash(artifact.bytes),item.pixels.sha256);assert.equal(item.artifact,artifact.name);
+    const originalCalls=item.native.records.filter(row=>row.kind==="invoke");assert.deepEqual(originalCalls.map(row=>row.method==="Input.dispatchMouseEvent"?row.params.type:row.method),["mouseMoved","Page.captureScreenshot",...(pointerMode==="mouse"?["mouseMoved"]:[]),"mousePressed","mouseReleased"]);
+    if(pointerMode==="mouse")assert.ok(item.nativeProof.submitInvocations[1]<item.nativeProof.submitACKs[0]);else assert.ok(item.nativeProof.submitACKs[0]<item.nativeProof.submitInvocations[1]);
+    assert.ok(originalCalls.every(row=>row.source.tabId===item.tabId));for(const call of originalCalls.filter(row=>row.method==="Input.dispatchMouseEvent"))assert.deepEqual({x:call.params.x,y:call.params.y},point);
+  }
 });
 test("HTTP ledger uses actual localhost Host, compiles six original documents and rejects duplicate POST",async()=>{
   const fixtures=createFrameTargetFeedbackFixtures(),server=http.createServer((request,response)=>{if(!fixtures.handle(request,response,new URL(request.url,`http://127.0.0.1:${server.address().port}`))){response.writeHead(404);response.end();}});await listenFixture(server);

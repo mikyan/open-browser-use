@@ -24,7 +24,8 @@ async function loadBackend({ sendCommand, sendMessage, inject, getFrame } = {}) 
   const result = { synthetic: "CDP result" };
   const chrome = {
     debugger: {
-      onDetach: { addListener() {} },
+      onDetach: { addListener() {}, removeListener() {} },
+      onEvent: { addListener() {}, removeListener() {} },
       async detach() {},
       async sendCommand(...args) {
         calls.commands.push(json(args));
@@ -35,6 +36,7 @@ async function loadBackend({ sendCommand, sendMessage, inject, getFrame } = {}) 
     webNavigation: { async getFrame(params) { return getFrame ? getFrame(params) : { documentId: "original-document" }; } },
     tabGroups: { async get() { return { id: 10 }; } },
     tabs: {
+      onRemoved: { addListener() {}, removeListener() {} },
       async query() { return [{ id: 7, groupId: 10, url: "https://example.test" }]; },
       async update(...args) { calls.focus.push(args); },
       async sendMessage(tabId, message, destination) {
@@ -402,4 +404,130 @@ test('accepted press still emits its unique original ring when same-point releas
   ['OPEN_BROWSER_USE_CURSOR',1],['OPEN_BROWSER_USE_POINTER_EVENT',1],['OPEN_BROWSER_USE_CURSOR',2]
  ]);
  assert.equal(emitted[1].x,120);assert.equal(emitted[1].y,80);assert.equal(backend.cursorByTabId.get(7).feedbackSequence,2);
+});
+
+test('warm direct raw read uses the request scope and never delays original input for geometry or cleanup',async()=>{
+ const f=await loadBackend(),held=deferred(),release=deferred();let reads=0;
+ f.backend.browserEngine={active:new Map([[7,{session_id:'unrelated',turn_id:'other'}]]),rawPointerRead(tab,x,y){
+  assert.equal(tab,7);assert.equal(x,120);assert.equal(y,80);
+  return {target:{tabId:7},check(){},read(){reads++;return held.promise;},decode:x=>x,cleanup:()=>release.promise};
+ }};
+ assert.equal(await f.backend.executeCdp(mouse()),f.result);assert.equal(reads,1);assert.equal(f.calls.commands.length,1);
+ const record=[...f.backend.pointerFeedbackReads.pending][0];assert.equal(record.scope.session_id,session.session_id);
+ held.resolve({x:1,y:2,width:3,height:4});await new Promise(setImmediate);assert.equal(f.backend.pointerFeedbackReads.pending.size,1);
+ release.resolve();await f.backend.pointerFeedbackReads.drain();await flushFeedback(f.backend);
+});
+
+test('failed raw native release blocks admission and explicit detach retries the exact original lease',async()=>{
+ const gate=deferred(),entered=deferred();let attempts=0;
+ const f=await loadBackend({sendCommand:async(_target,method,params)=>{
+  if(method==='Runtime.releaseObject'){
+   assert.equal(params.objectId,'original-raw-object');attempts++;
+   if(attempts===1)throw Error('actual release failed');entered.resolve();await gate.promise;
+  }return {};
+ }});
+ await f.backend.executeCdp(mouse());await flushFeedback(f.backend);
+ const metadata={...session,control_epoch:f.backend.controlLedger.assertCurrent(session).epoch};
+ const lease=f.backend.prepareMediaCleanup({tabId:7},33);let reads=0;
+ const candidate=f.backend.captureScopedPointerTarget({target:{tabId:7},check(){},read(){reads++;return {x:1,y:2,width:3,height:4};},decode:x=>x,
+  cleanup:async()=>{await lease.release('original-raw-object');lease.close();}},metadata);
+ assert.equal(await candidate.result,null);assert.equal(attempts,1);assert.equal(f.backend.pointerFeedbackReads.pending.size,1);
+ await assert.rejects(f.backend.executeCdp(mouse()),/POINTER_CLEANUP_FAILED/);
+ const original=f.backend.attachmentEpochs.get(7);let detached=false;
+ const detaching=f.backend.detach({...session,tabId:7}).then(()=>detached=true);
+ await entered.promise;await new Promise(setImmediate);assert.equal(detached,false);assert.equal(f.backend.attachmentEpochs.get(7),original);
+ gate.resolve();await detaching;assert.equal(reads,1);assert.equal(attempts,2);assert.equal(f.backend.pointerFeedbackReads.pending.size,0);
+ assert.equal(f.backend.attachmentEpochs.has(7),false);
+});
+
+test('full input cleanup joins raw allocation and release after required cleanup has already completed',async()=>{
+ const f=await loadBackend(),allocation=deferred(),release=deferred();
+ await f.backend.executeCdp(mouse());await flushFeedback(f.backend);
+ const metadata={...session,control_epoch:f.backend.controlLedger.assertCurrent(session).epoch};
+ let releases=0;
+ const candidate=f.backend.captureScopedPointerTarget({target:{tabId:7},check(){},read:()=>allocation.promise,decode:x=>x,
+  cleanup:async()=>{releases++;await release.promise;}},metadata);
+ const lease=f.backend.prepareInputRelease(7);let required=false;lease.requiredCompletion.then(()=>required=true);
+ let done=false;const cleaning=lease.release().then(()=>done=true);
+ await new Promise(setImmediate);assert.equal(done,false);assert.equal(releases,0);assert.equal(required,true);
+ allocation.resolve({x:1,y:2,width:3,height:4});await new Promise(setImmediate);assert.equal(done,false);assert.equal(releases,1);
+ release.resolve();await cleaning;await candidate.result;assert.equal(done,true);assert.equal(f.backend.pointerFeedbackReads.pending.size,0);
+});
+
+for(const heldPhase of ['allocation','release'])for(const deadline of [false,true])test(`original raw ${deadline?'deadline':'native error'} returns while optional ${heldPhase} remains in full cleanup`,async()=>{
+ const allocation=deferred(),optionalRelease=deferred(),entered=deferred();let nativeDetaches=0, inputs=0, reads=0, rejectInput;
+ const f=await loadBackend();await f.backend.executeCdp(mouse());await flushFeedback(f.backend);
+ const metadata={...session,control_epoch:f.backend.controlLedger.assertCurrent(session).epoch};
+ const original=Error('original native mouse.down failure');
+ const page={on(){},off(){},mouse:{down(){inputs++;entered.resolve();if(!deadline)return Promise.reject(original);return new Promise((_,reject)=>rejectInput=reject);}}};
+ const app={attach:async()=>page,detach:async()=>{
+  const lease=f.backend.prepareInputRelease(7);rejectInput?.(Error('Page cancelled'));await lease.release();nativeDetaches++;await lease.detach();
+ }};
+ globalThis.chrome={tabs:{get:async()=>({incognito:false})}};
+ const engine=new BrowserActionEngine({loadRuntime:async()=>({crx:{start:async()=>app},setOpenBrowserUseCommandObserver(){},setOpenBrowserUseEventFilter(){},setOpenBrowserUseInputHooks(){}}),
+  inputHooks:{beginActionRelease:(tab,start)=>f.backend.beginActionInputRelease(tab,start)},onDetached:()=>f.backend.releaseEngineAttachment(7)});
+ f.backend.browserEngine=engine;
+ const candidate=f.backend.captureScopedPointerTarget({target:{tabId:7},check(){},read(){reads++;return heldPhase==='allocation'?allocation.promise:{x:1,y:2,width:3,height:4};},decode:x=>x,
+  cleanup:()=>optionalRelease.promise},metadata);
+ const token=f.backend.attachmentEpochs.get(7);
+ const action=engine.dispatch({...session,tabId:7,action:'mouse.down',timeoutMs:deadline?30:1000});
+ const rejected=assert.rejects(action,error=>deadline?/timed out after 30ms/.test(error.message):error===original);
+ try{
+  await entered.promise;
+  await Promise.race([rejected,new Promise((_,reject)=>setTimeout(()=>reject(Error('optional feedback extended original caller')),180))]);
+  assert.equal(inputs,1);assert.equal(reads,1);assert.equal(nativeDetaches,0);assert.equal(engine.releases.size,1);
+  assert.equal(f.backend.attachmentEpochs.get(7),token);assert.equal(f.backend.pointerFeedbackReads.pending.size,1);
+  await assert.rejects(f.backend.executeCdp(mouse()),/RELEASE_IN_PROGRESS/);
+  let attached=false;const successor=engine.attach(7).then(()=>attached=true);await new Promise(setImmediate);assert.equal(attached,false);
+  allocation.resolve({x:1,y:2,width:3,height:4});optionalRelease.resolve();await candidate.result;
+  await [...engine.releases.values()][0];await successor;assert.equal(nativeDetaches,1);assert.equal(f.backend.actionInputReleases.size,0);
+ }finally{allocation.resolve(null);optionalRelease.resolve();rejectInput?.(original);await action.catch(()=>{});}
+});
+
+test('required native key release still gates the original error while optional raw cleanup does not',async()=>{
+ const raw=deferred(),keyup=deferred(),keyupEntered=deferred();let rejectInput;
+ const f=await loadBackend({sendCommand:async(_target,method,params)=>{if(method==='Input.dispatchKeyEvent'&&params.type==='keyUp'){keyupEntered.resolve();await keyup.promise;}return {};}});
+ await f.backend.executeCdp({...mouse(),method:'Input.dispatchKeyEvent',commandParams:{type:'keyDown',key:'Shift',code:'ShiftLeft'}});
+ const original=Error('original raw up failure'),metadata={...session,control_epoch:f.backend.controlLedger.assertCurrent(session).epoch};
+ const page={on(){},off(){},mouse:{up:async()=>{throw original;}}};
+ const app={attach:async()=>page,detach:async()=>{const lease=f.backend.prepareInputRelease(7);rejectInput?.();await lease.release();await lease.detach();}};
+ globalThis.chrome={tabs:{get:async()=>({incognito:false})}};
+ const engine=new BrowserActionEngine({loadRuntime:async()=>({crx:{start:async()=>app},setOpenBrowserUseCommandObserver(){},setOpenBrowserUseEventFilter(){},setOpenBrowserUseInputHooks(){}}),
+  inputHooks:{beginActionRelease:(tab,start)=>f.backend.beginActionInputRelease(tab,start)},onDetached:()=>f.backend.releaseEngineAttachment(7)});
+ f.backend.browserEngine=engine;
+ f.backend.captureScopedPointerTarget({target:{tabId:7},check(){},read:()=>raw.promise,decode:x=>x,cleanup:async()=>{}},metadata);
+ let finished=false;const action=engine.dispatch({...session,tabId:7,action:'mouse.up',timeoutMs:1000});
+ const rejected=assert.rejects(action,error=>error===original).then(()=>finished=true);
+ try{
+  await keyupEntered.promise;await new Promise(setImmediate);assert.equal(finished,false);
+  keyup.resolve();await Promise.race([rejected,new Promise((_,reject)=>setTimeout(()=>reject(Error('optional raw prevented required completion')),180))]);
+  assert.equal(engine.releases.size,1);assert.equal(f.backend.pointerFeedbackReads.pending.size,1);
+ }finally{keyup.resolve();raw.resolve(null);await action.catch(()=>{});await Promise.allSettled([...engine.releases.values()]);}
+});
+
+test('failed required engine stage retains the attachment fence until explicit recovery of held raw cleanup',async()=>{
+ const raw=deferred(),stage=deferred(),stageEntered=deferred();const original=Error('original mouse down failure'),cleanupError=Error('original diagnostic cleanup failed');
+ const f=await loadBackend();await f.backend.executeCdp(mouse());await flushFeedback(f.backend);
+ const metadata={...session,control_epoch:f.backend.controlLedger.assertCurrent(session).epoch};
+ const page={on(){},off(){},mouse:{down:async()=>{throw original;}}};let nativeDetaches=0,failStage=true;
+ const app={attach:async()=>page,detach:async()=>{const lease=f.backend.prepareInputRelease(7);await lease.release();nativeDetaches++;await lease.detach();}};
+ globalThis.chrome={tabs:{get:async()=>({incognito:false})}};
+ const engine=new BrowserActionEngine({loadRuntime:async()=>({crx:{start:async()=>app},setOpenBrowserUseCommandObserver(){},setOpenBrowserUseEventFilter(){},setOpenBrowserUseInputHooks(){}}),
+  inputHooks:{beginActionRelease:(tab,start)=>f.backend.beginActionInputRelease(tab,start)},onDetached:()=>f.backend.releaseEngineAttachment(7)});
+ engine.drainDiagnosticCleanup=async()=>{if(failStage){stageEntered.resolve();await stage.promise;throw cleanupError;}};
+ f.backend.browserEngine=engine;
+ f.backend.captureScopedPointerTarget({target:{tabId:7},check(){},read:()=>raw.promise,decode:x=>x,cleanup:async()=>{}},metadata);
+ let finished=false;const action=engine.dispatch({...session,tabId:7,action:'mouse.down',timeoutMs:1000});
+ const rejected=assert.rejects(action,error=>error===original&&error.cleanupError===cleanupError).then(()=>finished=true);
+ try{
+  await stageEntered.promise;await new Promise(setImmediate);assert.equal(finished,false);assert.equal(nativeDetaches,0);
+  await assert.rejects(f.backend.executeCdp(mouse()),/RELEASE_IN_PROGRESS/);
+  stage.resolve();await rejected;assert.equal(f.backend.actionInputReleases.size,1);assert.equal(f.backend.pointerFeedbackReads.pending.size,1);
+  await assert.rejects(f.backend.executeCdp(mouse()),/RELEASE_IN_PROGRESS/);
+  // A failed attempt cannot manufacture another native detach on admission.
+  assert.equal(nativeDetaches,0);failStage=false;
+  let recovered=false;const recovery=f.backend.detach({...session,tabId:7}).then(()=>recovered=true);
+  await new Promise(setImmediate);assert.equal(recovered,false);await assert.rejects(f.backend.executeCdp(mouse()),/RELEASE_IN_PROGRESS/);
+  raw.resolve(null);await recovery;assert.equal(f.backend.actionInputReleases.size,0);assert.equal(f.backend.pointerFeedbackReads.pending.size,0);
+ }finally{stage.resolve();raw.resolve(null);await action.catch(()=>{});}
 });

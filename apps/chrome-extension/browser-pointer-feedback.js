@@ -14,8 +14,8 @@ export function validTargetRect(rect) {
 
 export class PassivePointerReads {
   constructor() { this.pending = new Set(); }
-  start({ scope, check, read, decode, cached }) {
-    const record = { scope, promise: undefined };
+  start({ scope, check, read, decode, cached, cleanup }) {
+    const record = { scope, promise: undefined, cleanup, cleanupFailed: false };
     const candidate = { scope, check, value: null, settled: false, result: undefined };
     let original;
     try {
@@ -30,13 +30,29 @@ export class PassivePointerReads {
       check();
       const rect = value === null ? null : decode(value);
       candidate.value = validTargetRect(rect) ? Object.freeze({ ...rect }) : null;
-    }).catch(() => { candidate.value = null; }).finally(() => {
-      candidate.settled = true; this.pending.delete(record);
+    }).catch(() => { candidate.value = null; }).then(async () => {
+      try { await cleanup?.(); this.pending.delete(record); }
+      catch (error) { candidate.value = null; record.cleanupFailed = true; throw error; }
+      finally { candidate.settled = true; }
     });
-    candidate.result = record.promise.then(() => candidate.value);
+    // A display result is optional; resource cleanup is not. Keep the rejected
+    // native cleanup in pending for lifecycle drains and explicit retry.
+    candidate.result = record.promise.then(() => candidate.value, () => null);
     this.pending.add(record);
     return candidate;
   }
   snapshot(predicate = () => true) { return [...this.pending].filter(predicate).map(record => record.promise); }
-  async drain(predicate = () => true) { await Promise.allSettled(this.snapshot(predicate)); }
+  async drain(predicate = () => true, { resourcesOnly = false, retryFailed = false } = {}) {
+    const records = [...this.pending].filter(record => predicate(record) && (!resourcesOnly || record.cleanup));
+    for (const record of records) if (retryFailed && record.cleanupFailed) {
+      record.cleanupFailed = false;
+      record.promise = Promise.resolve().then(record.cleanup).then(() => { this.pending.delete(record); }, error => {
+        record.cleanupFailed = true; throw error;
+      });
+      record.promise.catch(() => {});
+    }
+    const results = await Promise.allSettled(records.map(record => record.promise));
+    const failure = results.find(result => result.status === "rejected");
+    if (failure) throw failure.reason;
+  }
 }

@@ -134,9 +134,16 @@ export function frameTargetGeometry(documents, layout) {
 }
 
 export async function waitForFrameTargetFeedback(expected) {
-  return new Promise((resolve,reject) => { let poll, done=false; const finish=(error,value)=>{if(done)return;done=true;clearTimeout(timer);clearTimeout(poll);error?reject(error):resolve(value);}; const timer=setTimeout(()=>finish(Error("Original frame feedback model did not arrive")),5000);
+  return new Promise((resolve,reject) => { let poll, done=false, firstPositionAt; const finish=(error,value)=>{if(done)return;done=true;clearTimeout(timer);clearTimeout(poll);error?reject(error):resolve(value);}; const timer=setTimeout(()=>finish(Error("Original frame feedback model did not arrive")),5000);
     const root=document.getElementById("open-browser-use-cursor-root"),tree=root?.shadowRoot??root;
-    Promise.all([document.fonts.ready,...[...document.images,...(tree?.querySelectorAll("img")??[])].map(image=>image.decode())]).then(()=>{const check=()=>{if(done)return;try{const state=window.frameTargetFeedbackState(),point=state.feedback.modelPoint;if(point&&Math.abs(point.x-expected.x)<=1&&Math.abs(point.y-expected.y)<=1)return finish(null,state);poll=setTimeout(check,16);}catch(error){finish(error);}};check();},finish);
+    Promise.all([document.fonts.ready,...[...document.images,...(tree?.querySelectorAll("img")??[])].map(image=>image.decode())]).then(()=>{const check=()=>{if(done)return;try{const state=window.frameTargetFeedbackState(),point=state.feedback.modelPoint;if(point&&Math.abs(point.x-expected.x)<=1&&Math.abs(point.y-expected.y)<=1){
+      firstPositionAt??=Date.now();
+      const matched=!expected.rectangle||["x","y","width","height"].every(key=>Number.isFinite(state.feedback.target?.[key])&&Math.abs(state.feedback.target[key]-expected.rectangle[key])<=1);
+      // Raw geometry is optional and arrives separately from position. Observe
+      // it without another input; preserve wrong/missing geometry after a fixed
+      // observation window so old-source failures still retain their PNG/POST.
+      if(matched||Date.now()-firstPositionAt>=500)return finish(null,state);
+    }poll=setTimeout(check,16);}catch(error){finish(error);}};check();},finish);
   });
 }
 
@@ -163,7 +170,11 @@ export function checkFrameTargetNative(item, bytes) {
   const probe=item.native;assert.equal(probe.restored,true);assert.equal(probe.pending,0);assert.equal(probe.overflow,false);assert.equal(probe.recordingErrors,0);assert.ok(probe.records.every((r,i)=>r.sequence===i+1));const calls=probe.records.filter(row=>row.kind==="invoke"),acks=new Map();
   for(const call of calls){const rows=probe.records.filter(row=>row.invocation===call.sequence);assert.equal(rows.length,1);assert.equal(rows[0].kind,"settled");assert.equal(rows[0].ok,true);assert.ok(rows[0].sequence>call.sequence);acks.set(call.sequence,rows[0]);}assert.equal(probe.records.filter(row=>row.kind==="settled").length,calls.length);
   const shots=calls.filter(row=>row.method==="Page.captureScreenshot");assert.equal(shots.length,1);assert.deepEqual(shots[0].source,{tabId:item.tabId});assert.deepEqual(Buffer.from(acks.get(shots[0].sequence).result.data,"base64"),bytes);const captureACK=acks.get(shots[0].sequence).sequence;
-  const buttons=calls.filter(row=>row.sequence>captureACK&&row.method==="Input.dispatchMouseEvent"&&["mousePressed","mouseReleased"].includes(row.params.type));assert.deepEqual(buttons.map(row=>row.params.type),["mousePressed","mouseReleased"]);for(const call of buttons){assert.deepEqual(call.source,{tabId:item.tabId});assert.equal(call.params.button,"left");assert.equal(call.params.clickCount,1);nearPoint(call.params,item.rootClick,"Native original submit coordinate",1.1);}assert.ok(acks.get(buttons[0].sequence).sequence<buttons[1].sequence);
+  const buttons=calls.filter(row=>row.sequence>captureACK&&row.method==="Input.dispatchMouseEvent"&&["mousePressed","mouseReleased"].includes(row.params.type));assert.deepEqual(buttons.map(row=>row.params.type),["mousePressed","mouseReleased"]);for(const call of buttons){assert.deepEqual(call.source,{tabId:item.tabId});assert.equal(call.params.button,"left");assert.equal(call.params.clickCount,1);nearPoint(call.params,item.rootClick,"Native original submit coordinate",1.1);}
+  // Pinned raw Mouse.click dispatches move/down/up then joins Promise.all.
+  // Both original successful ACKs remain required, but may follow the up call.
+  assert.ok(buttons[0].sequence<buttons[1].sequence);
+  if(item.pointerMode!=="mouse")assert.ok(acks.get(buttons[0].sequence).sequence<buttons[1].sequence);
   return {captureInvocation:shots[0].sequence,captureACK,submitInvocations:buttons.map(row=>row.sequence),submitACKs:buttons.map(row=>acks.get(row.sequence).sequence)};
 }
 
@@ -182,18 +193,26 @@ async function readDocuments(worker,tabId,frames) {
   return frames.map(frame=>{const matches=rows.filter(row=>row.frameId===frame.frameId&&row.documentId===frame.documentId);assert.equal(matches.length,1);assert.ok(matches[0].result);assert.equal(matches[0].result.business.href,frame.url);return {...matches[0].result,nativeFrameId:frame.frameId,nativeDocumentId:frame.documentId,nativeProcessId:frame.processId};});
 }
 
-export async function checkFrameTargetFeedback({browser,getWorker,fixtureURL,fixtures,until,saveArtifact,saveDetail,checkEnd,closeTab=tab=>tab.close()}) {
-  const detail={states:[],tabIds:[],childTargetIds:[],cleanup:[],boundary:"Original trusted frame form submissions and native PNG bytes; independently authored CSS border-corner planes determine root AABB. Ring rectangles are passive transient evidence, not ring PNG proof. No input replay or focus allowance."},tabs=[];let failure;
+export async function checkFrameTargetFeedback({browser,getWorker,fixtureURL,fixtures,until,saveArtifact,saveDetail,checkEnd,closeTab=tab=>tab.close(),pointerMode="locator"}) {
+  assert.ok(["locator","mouse","cdp"].includes(pointerMode));
+  const detail={pointerMode,states:[],tabIds:[],childTargetIds:[],cleanup:[],boundary:"Original trusted frame form submissions and native PNG bytes; independently authored CSS border-corner planes determine root AABB and raw input coordinates. Ring rectangles are passive transient evidence, not ring PNG proof. No input replay or focus allowance."},tabs=[];let failure;
   try {
     for(const layout of frameTargetLayouts){const key=`frame-feedback-${randomUUID().replaceAll("-","")}`,urls=frameTargetURLs(fixtureURL,key,layout),item={key,layout,urls,value:`Original ${layout} π note`};detail.states.push(item);const tab=await browser.newTab({url:urls.root});tabs.push(tab);item.tabId=tab.id;detail.tabIds.push(tab.id);const worker=getWorker();let installed=false,bytes;
-      try {await worker.evaluate(`(${installBoundingGeometryProbe.toString()})(chrome,globalThis,${JSON.stringify({id:key,tabId:tab.id})})`);installed=true;
+      try {await worker.evaluate(`(${installBoundingGeometryProbe.toString()})(chrome,globalThis,${JSON.stringify({id:key,tabId:tab.id,captureRuntime:pointerMode!=="locator"})})`);installed=true;
         if(layout==="dynamic-oopif"){item.initialFrames=await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${tab.id}})`);assert.equal(item.initialFrames.filter(row=>row.url===urls.leaf).length,0);await tab.locator("#add").click();}
         let leaf=tab.frameLocator("#frame");if(layout==="nested")leaf=leaf.frameLocator("#frame");await leaf.locator("#note").waitFor({state:"visible",timeoutMs:5000});
         await until(async()=>{const frames=await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${tab.id}})`),selected=selectFrameTargetDocuments(frames,urls,layout);if(!selected)return false;item.frames=selected;return true;},"original feedback documents committed",5000);
         await leaf.locator("#note").fill(item.value);item.before=await readDocuments(worker,tab.id,item.frames);item.geometry=frameTargetGeometry(item.before,layout);
-        await leaf.locator("#submit").hover();item.arrival=await tab.evaluate(`(${waitForFrameTargetFeedback.toString()})(${JSON.stringify(center(item.geometry.button))})`,{awaitPromise:true});
-        const shot=await tab.screenshot();assert.equal(shot.mimeType,"image/png");bytes=Buffer.from(shot.base64,"base64");item.artifact=`frame-target-${layout}.png`;await saveArtifact(item.artifact,bytes);item.rendered=await readDocuments(worker,tab.id,item.frames);
-        await leaf.locator("#submit").click();await leaf.getByText(`Saved ${layout}`,{exact:false}).waitFor({timeoutMs:5000});item.after=await readDocuments(worker,tab.id,item.frames);item.server=fixtures.stats(key);item.pixels=measureFrameTargetPixels(bytes,item.geometry);
+        item.pointerMode=pointerMode;const point=item.inputPoint=center(item.geometry.button);
+        if(pointerMode==="locator")await leaf.locator("#submit").hover();
+        else if(pointerMode==="mouse")await tab.mouse.move(point.x,point.y);
+        else await browser.cdp.call(tab.id,"Input.dispatchMouseEvent",{type:"mouseMoved",x:point.x,y:point.y});
+        item.arrival=await tab.evaluate(`(${waitForFrameTargetFeedback.toString()})(${JSON.stringify({...point,...(pointerMode==="locator"?{}:{rectangle:item.geometry.button})})})`,{awaitPromise:true});
+        const shot=await tab.screenshot();assert.equal(shot.mimeType,"image/png");bytes=Buffer.from(shot.base64,"base64");item.artifact=`${pointerMode==="locator"?"":pointerMode+"-"}frame-target-${layout}.png`;await saveArtifact(item.artifact,bytes);item.rendered=await readDocuments(worker,tab.id,item.frames);
+        if(pointerMode==="locator")await leaf.locator("#submit").click();
+        else if(pointerMode==="mouse")await tab.mouse.click(point.x,point.y);
+        else for(const type of ["mousePressed","mouseReleased"])await browser.cdp.call(tab.id,"Input.dispatchMouseEvent",{type,x:point.x,y:point.y,button:"left",buttons:type==="mousePressed"?1:0,clickCount:1});
+        await leaf.getByText(`Saved ${layout}`,{exact:false}).waitFor({timeoutMs:5000});item.after=await readDocuments(worker,tab.id,item.frames);item.server=fixtures.stats(key);item.pixels=measureFrameTargetPixels(bytes,item.geometry);
       }catch(error){item.error=errorText(error);failure??=error;}
       finally {if(installed)try{item.native=await worker.evaluate(`(()=>{const probe=globalThis.__obuBoundingGeometry;if(probe?.id!==${JSON.stringify(key)})throw Error('Original frame observer changed');return probe.restore()})()`);}catch(error){item.nativeError=errorText(error);failure??=error;}
         try{item.inventory=await worker.evaluate(`(async()=>({frames:await chrome.webNavigation.getAllFrames({tabId:${tab.id}}),targets:await chrome.debugger.getTargets(),attachments:globalThis.__integrationFrames.filter(row=>row.tabId===${tab.id})}))()`);const targets=item.inventory.targets.filter(row=>item.inventory.attachments.some(a=>a.targetId===row.id));item.childTargetIds=targets.map(row=>row.id);detail.childTargetIds.push(...item.childTargetIds);

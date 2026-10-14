@@ -1,6 +1,19 @@
+import { createRawPointerFeedbackRuntime } from "./raw-pointer-feedback.mjs";
+
 // Applied after the existing frame, pointer and drag adapters. Private tags
 // survive transport parameter copies but never become native CDP fields.
 export const pointerFeedbackBridge = `
+const obuRawPointerFeedback = (${createRawPointerFeedbackRuntime.toString()})(obuFrameGeometry);
+function obuCaptureRawPointerTarget(page, x, y) {
+  if (!openBrowserUseInputHooks?.capturePointerFeedback) return undefined;
+  try {
+    const read = obuRawPointerFeedback(page, x, y, openBrowserUseInputHooks);
+    return read && openBrowserUseInputHooks.capturePointerFeedback(read);
+  } catch { return undefined; }
+}
+function createOpenBrowserUseRawPointerRead(page, x, y) {
+  return obuRawPointerFeedback(page._toImpl(), x, y, openBrowserUseInputHooks);
+}
 function obuCapturePointerTarget(handle, progress, state, cached) {
   if (!openBrowserUseInputHooks?.capturePointerFeedback) return undefined;
   const client = handle._page.delegate._sessionForHandle(handle)._client;
@@ -71,6 +84,15 @@ export function patchCrxPointerFeedback(source) {
     '"move and ' + kind + '", false, async (point) => {\n          await this._page.mouse.move(point.x, point.y);\n          await this._page.mouse.' + kind + '();',
     '"move and ' + kind + '", false, async (point, visual) => {\n          await this._page.mouse.move(point.x, point.y, { [pointerFeedbackTarget]: visual });\n          await this._page.mouse.' + kind + '({ [pointerFeedbackTarget]: visual });');
   // Mouse.click's own pre-move preserves the private option as do down/up.
+  const mouseStart = source.indexOf("let Mouse$1 ="), mouseEnd = source.indexOf("let Touchscreen$1 =", mouseStart);
+  if (mouseStart < 0 || mouseEnd < mouseStart) throw new Error("Pinned Mouse class shape changed");
+  let mouse = source.slice(mouseStart, mouseEnd);
+  mouse = replace(mouse, "  async click(x, y, options2 = {}, metadata) {", `  async click(x, y, options2 = {}, metadata) {
+    if (options2[pointerFeedbackTarget] === undefined) {
+      const visual = obuCaptureRawPointerTarget(this._page, x, y);
+      if (visual !== undefined) options2 = { ...options2, [pointerFeedbackTarget]: visual };
+    }`);
+  source = source.slice(0, mouseStart) + mouse + source.slice(mouseEnd);
   source = replace(source, "this.move(x, y, { forClick: true })", "this.move(x, y, { forClick: true, [pointerFeedbackTarget]: options2[pointerFeedbackTarget] })", 2);
   source = replace(source, "options2[obuPointerTicket], options2[obuDragProgress]);", "options2[obuPointerTicket], options2[obuDragProgress], options2[pointerFeedbackTarget]);");
   source = replace(source, "clickCount, options2[obuPointerTicket]);", "clickCount, options2[obuPointerTicket], options2[pointerFeedbackTarget]);", 2);
@@ -78,10 +100,18 @@ export function patchCrxPointerFeedback(source) {
   for (const name of ["down", "up"]) source = replace(source, "async " + name + "(x, y, button, buttons, modifiers, clickCount, obuTicket)", "async " + name + "(x, y, button, buttons, modifiers, clickCount, obuTicket, obuVisual)");
   const rawStart = source.indexOf("let RawMouseImpl$3 ="), rawEnd = source.indexOf("let RawTouchscreenImpl$3 =",rawStart);
   let raw = source.slice(rawStart,rawEnd);
+  for (const name of ["move", "down", "up"]) {
+    const signature = name === "move" ? "async move(x, y, button, buttons, modifiers, forClick, obuTicket, obuProgress, obuVisual) {" :
+      "async " + name + "(x, y, button, buttons, modifiers, clickCount, obuTicket, obuVisual) {";
+    raw = replace(raw, signature, signature + "\n    if (obuVisual === undefined) obuVisual = obuCaptureRawPointerTarget(this._page._page, x, y);");
+  }
   raw = replace(raw, 'tagPointerCommand({', 'tagPointerFeedback(tagPointerCommand({', 3);
   raw = replace(raw, '}, obuTicket));', '}, obuTicket), obuVisual));', 3);
   raw = replace(raw, "actualMove, obuTicket, obuProgress)", "actualMove, obuTicket, obuProgress, obuVisual)");
   raw = replace(raw, "this._dragManager.drop(x, y, modifiers, obuTicket)", "this._dragManager.drop(x, y, modifiers, obuTicket, obuVisual)");
+  raw = replace(raw, "async wheel(x, y, buttons, modifiers, deltaX, deltaY) {", "async wheel(x, y, buttons, modifiers, deltaX, deltaY) {\n    const obuVisual = obuCaptureRawPointerTarget(this._page._page, x, y);");
+  raw = replace(raw, 'this._client.send("Input.dispatchMouseEvent", {', 'this._client.send("Input.dispatchMouseEvent", tagPointerFeedback({');
+  raw = replace(raw, "      deltaY\n    });", "      deltaY\n    }, obuVisual));");
   source = source.slice(0,rawStart) + raw + source.slice(rawEnd);
   source = replace(source, "async interceptDragCausedByMove(x, y, button, buttons, modifiers, moveCallback, obuTicket, obuProgress)", "async interceptDragCausedByMove(x, y, button, buttons, modifiers, moveCallback, obuTicket, obuProgress, obuVisual)");
   source = replace(source, "async drop(x, y, modifiers, obuTicket)", "async drop(x, y, modifiers, obuTicket, obuVisual)");
@@ -116,5 +146,5 @@ export function patchCrxPointerFeedback(source) {
       // Standalone observers retain the original successful-ACK notification.
       try { Promise.resolve(openBrowserUseCommandObserver?.({ target: debuggee, method, commandParams })).catch(() => {}); } catch {}
     }`);
-  return 'import { pointerFeedbackTarget, tagPointerFeedback, pointerCommandTarget } from "../../../browser-pointer-feedback.js";\n' + source + "\n" + pointerFeedbackBridge;
+  return 'import { pointerFeedbackTarget, tagPointerFeedback, pointerCommandTarget } from "../../../browser-pointer-feedback.js";\n' + source + "\n" + pointerFeedbackBridge + "\nexport { createOpenBrowserUseRawPointerRead };\n";
 }

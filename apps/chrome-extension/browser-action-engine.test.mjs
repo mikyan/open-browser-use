@@ -6,6 +6,29 @@ import { BrowserActionEngine, validateBrowserAction, BROWSER_ENGINE_INFO } from 
 const request = (action, extra = {}) => ({ session_id: "test-session", turn_id: "test-turn", tabId: 42, action, ...extra });
 const locator = [{ kind: "role", role: "button", name: "Submit", exact: true }];
 
+test('raw feedback only captures an already ready Page and fences its original entry/generation',async()=>{
+ const f=fixture();let captures=0, checked=0;
+ f.runtime.createOpenBrowserUseRawPointerRead=(page,x,y)=>{assert.equal(page,f.page);assert.equal(x,10.25);assert.equal(y,20.75);captures++;return {target:{tabId:42},check(){checked++;},read:async()=>null};};
+ const engine=new BrowserActionEngine({loadRuntime:async()=>f.runtime});
+ assert.equal(engine.rawPointerRead(42,10.25,20.75),undefined);assert.equal(engine.runtimePromise,undefined);
+ const attaching=engine.attach(42);assert.equal(engine.rawPointerRead(42,10.25,20.75),undefined);
+ await attaching;const read=engine.rawPointerRead(42,10.25,20.75);read.check();assert.equal(captures,1);assert.equal(checked,1);
+ engine.invalidate(42);assert.throws(()=>read.check(),/Page changed/);assert.equal(engine.rawPointerRead(42,10.25,20.75),undefined);
+ await engine.detach(42);assert.equal(captures,1);
+});
+
+for(const deadline of [false,true])test(`late raw mouse ${deadline?'deadline':'error'} cannot detach a successor Page`,async()=>{
+ const f=fixture();let rejectDown, entered;const entering=new Promise(r=>entered=r), original=Error('original native down failed');
+ f.page.mouse={down:()=>{entered();return new Promise((_,reject)=>rejectDown=reject);}};
+ const engine=new BrowserActionEngine({loadRuntime:async()=>f.runtime});
+ const action=engine.dispatch(request('mouse.down',{timeoutMs:deadline?25:1000}));
+ const rejected=assert.rejects(action,error=>deadline?/timed out/.test(error.message):error===original);
+ await entering;engine.forget(42);await engine.attach(42);const successor=engine.pages.get(42);
+ if(deadline)await rejected;else{rejectDown(original);await rejected;}
+ assert.equal(engine.pages.get(42),successor);assert.equal(f.calls.filter(row=>row[0]==='detach').length,0);
+ rejectDown(original);await engine.queues.get(42)?.catch(()=>{});await engine.detach(42);
+});
+
 test("uncertain guarded click failure releases its attachment once without retrying the action", async () => {
   let clicks = 0;
   const failure = new Error("OBU_POINTER_DELIVERY_UNCONFIRMED: native press failed after dispatch");

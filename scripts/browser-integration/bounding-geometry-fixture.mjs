@@ -75,10 +75,11 @@ export function createBoundingGeometryFixtures() {
 
 // Transparent observer: original receiver, argument objects and Promise are
 // retained. Small native screenshot data is kept verbatim for byte comparison.
-export function installBoundingGeometryProbe(api, target, { id, tabId }) {
+export function installBoundingGeometryProbe(api, target, { id, tabId, captureRuntime = false }) {
   if (target.__obuBoundingGeometry) throw Error("Bounding geometry observer already installed");
   const original = api.debugger.sendCommand, nativeThen = Promise.prototype.then, records = [];
   const selected = new Set(["DOM.getBoxModel", "DOM.getFrameOwner", "DOM.describeNode", "DOM.resolveNode", "DOM.scrollIntoViewIfNeeded", "Page.captureScreenshot", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck"]);
+  if (captureRuntime) for (const method of ["Runtime.evaluate", "Runtime.callFunctionOn", "Runtime.releaseObject"]) selected.add(method);
   let sequence = 0, phase = "setup", pending = 0, bytes = 0, overflow = false, recordingErrors = 0, restored = false;
   const append = value => {
     try { const row = { sequence: ++sequence, phase, ...value }, size = JSON.stringify(row).length;

@@ -99,6 +99,19 @@ test("transparent native observer retains original Promise/receiver/arguments an
   const result=target.__obuBoundingGeometry.restore(),trace=checkBoundingGeometryTrace(result);assert.equal(api.debugger.sendCommand,original);assert.equal(events.size,0);assert.equal(trace.acknowledgements.get(trace.captures[0].sequence).result.data,value.data);
 });
 
+test("optional raw runtime observation preserves original allocations and release acknowledgements",async()=>{
+  for(const captureRuntime of [false,true]){
+    const events=new Set(),target={},promises=[],source={tabId:7,sessionId:"original-child"};let release;
+    const api={debugger:{sendCommand(_source,method){const promise=method==="Runtime.releaseObject"?new Promise(resolve=>{release=resolve;}):Promise.resolve({result:{objectId:"original-object"}});promises.push(promise);return promise;},onEvent:{addListener:fn=>events.add(fn),removeListener:fn=>events.delete(fn)}}};
+    const original=api.debugger.sendCommand;installBoundingGeometryProbe(api,target,{id:"raw",tabId:7,captureRuntime});
+    for(const method of ["Runtime.evaluate","Runtime.callFunctionOn"]){const promise=api.debugger.sendCommand(source,method,{});assert.equal(promise,promises.at(-1));await promise;}
+    const pending=api.debugger.sendCommand(source,"Runtime.releaseObject",{objectId:"original-object"});assert.equal(pending,promises.at(-1));
+    assert.equal(target.__obuBoundingGeometry.snapshot().pending,captureRuntime?1:0);release();await pending;
+    const result=target.__obuBoundingGeometry.restore();assert.equal(api.debugger.sendCommand,original);assert.equal(events.size,0);assert.equal(result.pending,0);
+    assert.equal(result.records.length,captureRuntime?6:0);if(captureRuntime){assert.deepEqual(result.records.filter(row=>row.kind==="invoke").map(row=>row.method),["Runtime.evaluate","Runtime.callFunctionOn","Runtime.releaseObject"]);assert.equal(result.records.at(-1).ok,true);}
+  }
+});
+
 test("native ledger rejects missing ACK, wrong capture route, overflow and native Input", () => {
   checkBoundingGeometryTrace(phaseFixture().probe);
   for(const mutate of [v=>{v.records.pop();},v=>{v.records[4].source.sessionId="child";},v=>{v.overflow=true;},v=>{v.records[0].method="Input.dispatchMouseEvent";},v=>{v.pending=1;},v=>{v.records[1].invocation=900;}]) {const probe=phaseFixture().probe;mutate(probe);assert.throws(()=>checkBoundingGeometryTrace(probe));}

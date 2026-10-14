@@ -34,6 +34,7 @@ import { startKeyboardInputTrace } from "./keyboard-input-trace.mjs";
 import { pageExportFixture, preparePageExportTab, verifyExportBytes, checkPageExports, checkPageExportLifecycle } from "./page-exports-fixture.mjs";
 import { cursorPrintHTML, checkCursorPrint } from "./cursor-print-fixture.mjs";
 import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-layer-feedback-fixture.mjs";
+import { checkColdRawFeedback } from "./cold-raw-feedback-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback } from "./frame-target-feedback-fixture.mjs";
@@ -1449,6 +1450,24 @@ try {
       return { results };
     } finally { try { await transfers.client.finalizeTabs([]); } finally { transfers.close(); } }
   });
+  if (process.env.OBU_TEST_RAW_COLD_FEEDBACK === "1") await test("js-cold-cdp-frame-target-feedback", async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-cold-cdp-frame-target-feedback", timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      sourceIdentity.testHooks.push("Cold raw frame feedback: explicit opt-in before any action engine; only public raw CDP inputs and native screenshots, passive exact-document observations and original attachment identity. No locator/browserAction substitute, input replay or focus allowance.");
+      detail = await checkColdRawFeedback({ browser: owner, getWorker: () => worker, fixtureURL, fixtures: frameTargetFeedbackFixtures, until,
+        saveArtifact: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
+        saveDetail: value => fs.writeFile(path.join(runDir, "cold-raw-frame-target-feedback.json"), JSON.stringify(value, null, 2)),
+        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
+        checkEnd: value => endFrameTargetFeedback(owner, value) });
+    } catch (error) { failure = error; }
+    finally {
+      try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }
+      finally { owner.close(); }
+    }
+    if (failure) throw failure;
+    return detail;
+  });
   await test("js-raw-navigation-before-engine", async () => {
     await browser.cdp.navigate(tab.id, fixtureURL);
     assert.equal(await tab.evaluate("document.title"), "OBU SDK fixture");
@@ -1986,16 +2005,7 @@ try {
     if (failure) throw failure;
     return detail;
   });
-  await test("js-frame-target-feedback", async () => {
-    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: "js-frame-target-feedback", timeoutMs: 15000 });
-    let detail, failure;
-    try {
-      sourceIdentity.testHooks.push("Frame target feedback: six original same-origin, OOPIF, dynamic, nested and transformed forms; passive original document/node witnesses, independently authored CSS border-corner planes and original native PNG bytes. One fill/hover/click and POST per form; root cursor and transient ring association retained. No feedback repair, input replay or focus allowance.");
-      detail = await checkFrameTargetFeedback({ browser: owner, getWorker: () => worker, fixtureURL, fixtures: frameTargetFeedbackFixtures, until,
-        saveArtifact: (name, data) => fs.writeFile(path.join(runDir, name), data, { flag: "wx" }),
-        saveDetail: value => fs.writeFile(path.join(runDir, "frame-target-feedback.json"), JSON.stringify(value, null, 2)),
-        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
-        checkEnd: async value => {
+  async function endFrameTargetFeedback(owner, value) {
           const evidence = value.endCleanup = {};
           const read = async () => {
             const rows = [];
@@ -2036,7 +2046,17 @@ try {
             }
           }
           return { hidden: true, originalDocuments: before.length, hiddenObservedMs: evidence.hiddenObservedMs };
-        } });
+  }
+  for (const pointerMode of ["locator", "mouse", "cdp"]) await test(pointerMode === "locator" ? "js-frame-target-feedback" : `js-${pointerMode}-frame-target-feedback`, async () => {
+    const owner = await connectOpenBrowserUse({ socketPath: endpoint, sessionId: pointerMode === "locator" ? "js-frame-target-feedback" : `js-${pointerMode}-frame-target-feedback`, timeoutMs: 15000 });
+    let detail, failure;
+    try {
+      sourceIdentity.testHooks.push(`Frame target feedback (${pointerMode}): six original same-origin, OOPIF, dynamic, nested and transformed forms; passive original document/node witnesses, independently authored CSS border-corner planes and original native PNG bytes. One fill, ${pointerMode === "locator" ? "locator hover/click" : "coordinate move/click"} and POST per form; root cursor and transient ring association retained. No feedback repair, input replay or focus allowance.`);
+      detail = await checkFrameTargetFeedback({ browser: owner, getWorker: () => worker, fixtureURL, fixtures: frameTargetFeedbackFixtures, until, pointerMode,
+        saveArtifact: (name, data) => fs.writeFile(path.join(runDir, name), data, { flag: "wx" }),
+        saveDetail: value => fs.writeFile(path.join(runDir, pointerMode === "locator" ? "frame-target-feedback.json" : `${pointerMode}-frame-target-feedback.json`), JSON.stringify(value, null, 2)),
+        closeTab: tab => worker.evaluate(`chrome.tabs.remove(${tab.id})`),
+        checkEnd: value => endFrameTargetFeedback(owner, value) });
     } catch (error) { failure = error; }
     finally {
       try { await owner.client.finalizeTabs([]); } catch (error) { failure ??= error; }

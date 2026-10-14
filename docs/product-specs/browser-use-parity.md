@@ -12,6 +12,13 @@
 
 ## Baseline sources
 
+P07/P12/P13 坐标反馈 warm 增量完整 `xS4ddv`180/180 actual exit0，旧178名称/
+顺序保持，Node3666pass/1既有Windows skip。18原PNG/POST（42,559B）、65原
+对象释放、39原文档及关键输入/截图独审通过；533,948ms仅原12activation/
+4control-focus许可。调用方错误/超时与完整资源清理分开，必要输入释放仍等待。
+冷CDP三布局另有原成功提交但误框的保留失败，未计入默认180通过数；普通
+Edge、全屏和整体持平继续开放，见[坐标反馈](../references/raw-frame-feedback.md)。
+
 可视消息清理完整 `HZSmT4` 178/178 actual exit0，旧176名称/顺序保持。
 原消息结算、最终隐藏、pagehide token退役、本地iframe缓存恢复及同版本worker
 恢复已验；独审覆盖原PNG/POST、截图原错误来源、源码/构建和精确进程清理。

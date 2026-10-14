@@ -814,6 +814,7 @@ class BrowserBackend {
     this.coldAttachmentResets = new Set();
     this.attachedTabs = new Set();
     this.attachmentEpochs = new Map();
+    this.actionInputReleases = new Map();
     this.attachmentOwners = new Map();
     this.revokedAttachmentTokens = new WeakSet();
     this.destroyedAttachmentTokens = new WeakSet();
@@ -1209,6 +1210,7 @@ class BrowserBackend {
     // This assignment blocks every ordinary admission and CRX command before
     // cancellation, storage, or native cleanup reaches its first await.
     this.nativeRecovery = recovery;
+    if (retryPageCleanup) this.allowActionInputRetry();
     // Only explicit bootstrap retries a cleanup attempt that actually failed.
     // Restart it before invalidation captures its drain; an in-flight attempt
     // remains unchanged, and no candidate adoption or original action replays.
@@ -1218,6 +1220,8 @@ class BrowserBackend {
     pageCleanup?.catch(() => {});
     const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
     diagnosticCleanup?.catch(() => {});
+    const pointerCleanup = retryPageCleanup ? this.pointerFeedbackReads.drain(() => true, { resourcesOnly: true, retryFailed: true }) : null;
+    pointerCleanup?.catch(() => {});
     const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
     pageDownloadCleanup?.catch(() => {});
     const cancelled = this.cancelGlobalControl(new Error("OBU_NATIVE_CONNECTION_LOST: native host disconnected"));
@@ -1225,6 +1229,7 @@ class BrowserBackend {
     if (pageCleanup) cancelled.releases.push(pageCleanup);
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
+    if (pointerCleanup) cancelled.releases.push(pointerCleanup);
     // A bootstrap may itself await this recovery. Its durability writes are
     // joined by invalidateAll below; awaiting its RPC here would self-deadlock.
     cancelled.pending = cancelled.pending.filter(pending => !this.controlBootstrapRequests.has(pending));
@@ -1261,6 +1266,10 @@ class BrowserBackend {
 
   assertAttachmentAdmission(tabId, token = this.attachmentEpochs.get(tabId)) {
     this.assertNativeControl();
+    if (token && this.actionInputReleases.has(token))
+      throw new Error("OBU_INPUT_RELEASE_IN_PROGRESS: original attachment cleanup is still pending");
+    if ([...this.pointerFeedbackReads.pending].some(record => record.scope.tabId === tabId && record.cleanupFailed))
+      throw new Error("OBU_POINTER_CLEANUP_FAILED: original pointer objects require explicit cleanup retry");
     if (this.coldAttachmentResets.has(tabId))
       throw new Error("OBU_TAB_CONTROL_REVOKED: explicit claim is resetting an orphaned native attachment");
     if (token && this.revokedAttachmentTokens.has(token))
@@ -1574,6 +1583,7 @@ class BrowserBackend {
   pauseAutomation({ retryPageCleanup = true } = {}) {
     const deadline = this.automationDeadline();
     this.automationControl.block();
+    if (retryPageCleanup) this.allowActionInputRetry();
     const visualCleanup = retryPageCleanup ? this.visualDeliveries.close(() => true, { retryFailed: true }) : null;
     visualCleanup?.catch(() => {});
     // Explicit Pause/Retry may retry settled failed cleanup, after fencing
@@ -1582,6 +1592,8 @@ class BrowserBackend {
     pageCleanup?.catch(() => {});
     const diagnosticCleanup = retryPageCleanup ? this.browserEngine?.drainDiagnosticCleanup?.({ retryFailed: true }) : null;
     diagnosticCleanup?.catch(() => {});
+    const pointerCleanup = retryPageCleanup ? this.pointerFeedbackReads.drain(() => true, { resourcesOnly: true, retryFailed: true }) : null;
+    pointerCleanup?.catch(() => {});
     const pageDownloadCleanup = retryPageCleanup ? this.drainPageDownloads(() => true, { retryFailed: true }) : null;
     pageDownloadCleanup?.catch(() => {});
     // Cancel known engine work synchronously, before a slow storage write can
@@ -1592,6 +1604,7 @@ class BrowserBackend {
     if (pageCleanup) cancelled.releases.push(pageCleanup);
     if (diagnosticCleanup) cancelled.releases.push(diagnosticCleanup);
     if (pageDownloadCleanup) cancelled.releases.push(pageDownloadCleanup);
+    if (pointerCleanup) cancelled.releases.push(pointerCleanup);
     const operation = this.automationTransitions.catch(() => {}).then(() => this.finishAutomationPause(cancelled, deadline));
     this.automationTransitions = operation;
     return deadline.within(() => operation).catch(error => {
@@ -2658,6 +2671,7 @@ class BrowserBackend {
       aroundAction: ({ params, timeoutMs, run }) => this.withRenderingLease({ tabId: params.tabId }, timeoutMs, run, params.action),
       isInternalEvent: (source, method, params) => this.isInternalCdpEvent(source, method, params),
       inputHooks: {
+        beginActionRelease: (tabId, start) => this.beginActionInputRelease(tabId, start),
         prepareMediaCleanup: (target, contextId) => this.prepareMediaCleanup(target, contextId),
         beginPointerAction: (target, check) => beginPointerAction(target, check),
         beginHoverAction: (target, check) => beginPointerAction(target, check, "hover"),
@@ -3322,9 +3336,11 @@ class BrowserBackend {
     await this.requireSessionTab(params, "detach");
     const tabId = requireTabId(params, "detach");
     const attachment = this.attachmentEpochs.get(tabId), owner = this.attachmentOwners.get(tabId);
+    this.allowActionInputRetry(record => record.scope.tabId === tabId && record.scope.attachment === attachment && record.scope.session_id === params.session_id);
     // Start explicit retries, then synchronously install the original release
     // barrier before awaiting any ACK. A successor attach cannot cross it.
     const retries = [
+      this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.session_id === params.session_id && record.scope.attachment === attachment, { retryFailed: true }),
       this.visualDeliveries.close(scope => scope.tabId === tabId && scope.session_id === params.session_id, { retryFailed: true }),
       this.browserEngine?.drainDiagnosticCleanup?.({ sessionId: params.session_id, tabId, retryFailed: true }),
       this.drainPageDownloads(record => record.scope.session_id === params.session_id && record.scope.tabId === tabId && record.scope.attachment === attachment, { retryFailed: true })
@@ -3657,6 +3673,10 @@ class BrowserBackend {
   capturePointerTarget(value) {
     const metadata = this.browserEngine?.active.get(value.target.tabId);
     if (!metadata) return undefined;
+    return this.captureScopedPointerTarget(value, metadata);
+  }
+
+  captureScopedPointerTarget(value, metadata) {
     try {
       const authority = this.pointerFeedbackAuthority({ ...metadata, target: value.target }, value.check);
       return this.pointerFeedbackReads.start({ ...value, ...authority });
@@ -3670,6 +3690,11 @@ class BrowserBackend {
   preparePointerFeedback(params) {
     if (!["Input.dispatchMouseEvent", "Input.dispatchDragEvent"].includes(params.method)) return () => {};
     try {
+      if (params.feedbackTarget === undefined && params.target?.sessionId == null &&
+          ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(params.commandParams?.type)) {
+        const read = this.browserEngine?.rawPointerRead?.(params.target.tabId, params.commandParams.x, params.commandParams.y);
+        if (read) params = { ...params, feedbackTarget: this.captureScopedPointerTarget(read, params) };
+      }
       const authority = this.pointerFeedbackAuthority(params, params.feedbackTarget?.check);
       const feedbackSequence = this.nextPointerFeedbackSequence++;
       const visualTicket = this.visualDeliveries.ticket(authority.scope, authority.check);
@@ -5644,9 +5669,11 @@ class BrowserBackend {
   }
 
   async releaseSessionControl(sessionId, { retryDiagnosticCleanup = false } = {}) {
+    if (retryDiagnosticCleanup) this.allowActionInputRetry(record => record.scope.session_id === sessionId);
     const visualsReleased = this.visualDeliveries.close(scope => scope.session_id === sessionId, { retryFailed: retryDiagnosticCleanup });
     visualsReleased.catch(() => {});
-    const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.session_id === sessionId);
+    const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.session_id === sessionId, { retryFailed: retryDiagnosticCleanup });
+    pointerReadsReleased.catch(() => {});
     const diagnosticsReleased = this.browserEngine?.drainDiagnosticCleanup?.({ sessionId, retryFailed: retryDiagnosticCleanup }) ?? Promise.resolve();
     diagnosticsReleased.catch(() => {});
     const pageDownloadsReleased = this.drainPageDownloads(record => record.scope.session_id === sessionId, { retryFailed: retryDiagnosticCleanup });
@@ -6013,7 +6040,13 @@ class BrowserBackend {
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
+    const actionRelease = this.actionInputReleases.get(attachment);
+    const retryActionRelease = actionRelease?.failed && actionRelease.allowRetry;
+    if (retryActionRelease) {
+      actionRelease.failed = false; actionRelease.allowRetry = false; actionRelease.lease = undefined;
+    }
     const pointerReadsReleased = this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.attachment === attachment);
+    pointerReadsReleased.catch(() => {});
     const fileInputsReleased = this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === attachment);
     fileInputsReleased.catch(() => {});
     const pageDownloadsReleased = this.drainPageDownloads(record => record.scope.tabId === tabId && record.scope.attachment === attachment);
@@ -6054,6 +6087,10 @@ class BrowserBackend {
       if (failure) throw failure.reason;
     });
     this.controlReleases.set(tabId, release);
+    if (retryActionRelease) {
+      actionRelease.complete = release; actionRelease.caller = release;
+      release.then(() => { if (this.actionInputReleases.get(attachment) === actionRelease) this.actionInputReleases.delete(attachment); }, () => { actionRelease.failed = true; });
+    }
     const cleanup = () => {
       if (this.controlReleases.get(tabId) === release) this.controlReleases.delete(tabId);
       if (this.pageWaitNativeReleases.get(tabId) === nativePhase) this.pageWaitNativeReleases.delete(tabId);
@@ -6106,26 +6143,49 @@ class BrowserBackend {
     return this.prepareInputRelease(tabId).release();
   }
 
+  beginActionInputRelease(tabId, start) {
+    const token = this.attachmentEpochs.get(tabId);
+    const previous = this.actionInputReleases.get(token);
+    if (previous) return previous;
+    // Preserve the inherited full cleanup contract if no optional native
+    // object read exists on this exact attachment.
+    const resource = [...this.pointerFeedbackReads.pending].find(record => record.scope.tabId === tabId && record.scope.attachment === token && record.cleanup);
+    if (!token || !resource) return undefined;
+    const lease = this.prepareInputRelease(tabId), record = { lease, scope: resource.scope, complete: undefined, caller: undefined, failed: false, allowRetry: false };
+    // Fence ordinary raw commands immediately, including while diagnostics or
+    // exports precede the native input tracker in the existing cleanup order.
+    this.actionInputReleases.set(token, record);
+    try { record.complete = start(); }
+    catch (error) { record.complete = Promise.reject(error); }
+    record.caller = Promise.race([record.complete, lease.requiredCompletion]);
+    record.caller.catch(() => {});
+    const finished = () => { if (this.actionInputReleases.get(token) === record) this.actionInputReleases.delete(token); };
+    record.complete.then(finished, () => { record.failed = true; });
+    return record;
+  }
+
+  allowActionInputRetry(predicate = () => true) {
+    // Pending full cleanup is never replaced. A completed failed attempt can
+    // be retried only by explicit lifecycle recovery; its admission fence stays
+    // installed until that replacement full attempt actually completes.
+    for (const record of this.actionInputReleases.values()) if (record.failed && predicate(record)) record.allowRetry = true;
+  }
+
   prepareInputRelease(tabId) {
     const token = this.attachmentEpochs.get(tabId);
+    const existing = this.actionInputReleases.get(token);
+    if (existing?.lease) return existing.lease;
     const isCurrent = () => Boolean(token) && this.attachmentEpochs.get(tabId) === token;
-    return {
-      isCurrent,
-      release: async () => {
+    let resolveRequired, rejectRequired, required, complete;
+    const requiredCompletion = new Promise((resolve, reject) => { resolveRequired = resolve; rejectRequired = reject; });
+    requiredCompletion.catch(() => {});
+    const releaseRequired = () => required ??= (async () => {
         if (!isCurrent()) return;
         void this.visualDeliveries.close(scope => scope.tabId === tabId).catch(() => {});
-        // Retire original observation authority before taking resource drains:
-        // an armed begin event must not create a new claim during key cleanup.
         const downloadWaitsReleased = this.downloadWaits.invalidate(record => record.scope?.tabId === tabId && record.scope.attachment === token);
         downloadWaitsReleased.catch(() => {});
         this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId && record.identity.attachment === token,
           new Error("OBU_TRANSFER_CANCELLED: original file input attachment is being released"));
-        // CRX also detaches on action timeout. Its captured release hook must
-        // close exports on this exact attachment before native detach, without
-        // cancelling an unbound reservation or a later attachment's work.
-        // Optional BoxModel reads own no native handles. Keep their actual
-        // Promises in lifecycle drains, but do not extend action-failure
-        // cleanup or its input deadline merely to finish visual evidence.
         const releases = [downloadWaitsReleased, this.directoryUploads.drain(record => record.identity.tabId === tabId && record.identity.attachment === token), this.drainPageDownloads(record => record.scope.tabId === tabId && record.scope.attachment === token), this.drainNativeDialogResponses(tabId, token), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload && record.scope.attachment === token),
           this.pageExports.invalidateAttachment(tabId, token), this.clipboard.invalidateAttachment(tabId, token), this.clipboardBroker.waitForTab(tabId)];
         const results = await Promise.allSettled(releases);
@@ -6136,9 +6196,22 @@ class BrowserBackend {
           if (!isCurrent()) throw new Error("OBU_INPUT_ATTACHMENT_CHANGED: original attachment changed during input release");
           return chrome.debugger.sendCommand(target, method, params);
         });
-      },
+      })().then(value => { resolveRequired(value); return value; }, error => { rejectRequired(error); throw error; });
+    const lease = {
+      isCurrent, requiredCompletion,
+      release: () => complete ??= (async () => {
+        // The original required cleanup runs at the same transport stage. Raw
+        // allocations/releases form an additional full-detach barrier, never
+        // an additional wait in the caller's error or timeout response.
+        const pointerResourcesReleased = this.pointerFeedbackReads.drain(record => record.scope.tabId === tabId && record.scope.attachment === token, { resourcesOnly: true });
+        const results = await Promise.allSettled([releaseRequired(), pointerResourcesReleased]);
+        const failure = results.find(result => result.status === "rejected");
+        if (failure) throw failure.reason;
+      })(),
       detach: () => isCurrent() ? chrome.debugger.detach({ tabId }) : Promise.resolve()
     };
+    if (existing) existing.lease = lease;
+    return lease;
   }
 
   prepareMediaCleanup(target, contextId) {

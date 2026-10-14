@@ -17,7 +17,7 @@ export const BROWSER_ENGINE_INFO = Object.freeze({
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 120_000;
 const keyboardPressActions = new Set(["press", "keyboard.press", "keyboard.type", "pressSequentially"]);
-const attachmentBoundInputActions = new Set(["fill", ...keyboardPressActions]);
+const attachmentBoundInputActions = new Set(["fill", ...keyboardPressActions, "mouse.move", "mouse.click", "mouse.down", "mouse.up", "mouse.wheel"]);
 export const LOCATOR_LIMITS = Object.freeze({ maxSteps: 32, maxTotalSteps: 128, maxDepth: 8 });
 // Hidden cross-process frame hit-test surfaces need a committed compositor frame
 // just like screenshots do. Hold the backend's rendering lease across the real
@@ -326,6 +326,7 @@ export class BrowserActionEngine {
     this.inputHooks = inputHooks;
     this.prepareFileInput = prepareFileInput;
     this.pages = new Map();
+    this.readyPages = new Map();
     this.queues = new Map();
     this.generations = new Map();
     this.active = new Map();
@@ -347,6 +348,7 @@ export class BrowserActionEngine {
           const metadata = feedbackTarget?.scope ?? this.active.get(target.tabId);
           if (metadata) return this.onCommand({ target, method, commandParams, phase, feedbackTarget, metadata: { ...metadata } });
         });
+        this.loadedRuntime = runtime;
         return runtime;
       }).catch(error => { this.runtimePromise = undefined; throw error; });
     }
@@ -424,8 +426,28 @@ export class BrowserActionEngine {
       return { app, page };
     })();
     this.pages.set(tabId, pending);
+    pending.then(entry => {
+      if (this.pages.get(tabId) === pending && (this.generations.get(tabId) ?? 0) === generation)
+        this.readyPages.set(tabId, { entry, pending, generation });
+    }, () => {});
     pending.catch(() => { if (this.pages.get(tabId) === pending) this.pages.delete(tabId); });
     return pending;
+  }
+
+  // Feedback may inspect only a Page that is already attached. In particular,
+  // raw native-only attachments must not be migrated into Playwright here.
+  rawPointerRead(tabId, x, y) {
+    const ready = this.readyPages.get(tabId);
+    if (!ready || typeof this.loadedRuntime?.createOpenBrowserUseRawPointerRead !== "function") return undefined;
+    const check = () => {
+      if (this.pages.get(tabId) !== ready.pending || this.readyPages.get(tabId) !== ready ||
+          (this.generations.get(tabId) ?? 0) !== ready.generation)
+        throw new Error("Original raw feedback Page changed");
+    };
+    check();
+    const read = this.loadedRuntime.createOpenBrowserUseRawPointerRead(ready.entry.page, x, y);
+    if (!read) return undefined;
+    return { ...read, check: () => { check(); read.check(); } };
   }
 
   // Short, internal Page setup shares the action queue and attachment identity.
@@ -686,6 +708,7 @@ export class BrowserActionEngine {
     let expired = false;
     let phase = "queued";
     let release;
+    let callerCleanup;
     let timer;
     let actionAttachment, keyboardAdmission;
     // Guarded input owns native state on one attachment. Its late error or
@@ -694,6 +717,16 @@ export class BrowserActionEngine {
       ? this.pages.get(params.tabId) === actionAttachment
       : (this.generations.get(params.tabId) ?? 0) === generation);
     const timeoutError = () => new Error(`Browser action timed out after ${params.timeoutMs}ms`);
+    const releaseAttachment = () => {
+      if (release) return;
+      // Optional feedback owns native objects, but cannot extend this caller's
+      // input failure/deadline. The backend retains the full detach barrier and
+      // signals only after the original required cleanup has completed.
+      const started = this.inputHooks?.beginActionRelease?.(params.tabId, () => this.detach(params.tabId));
+      release = started?.complete ?? this.detach(params.tabId);
+      callerCleanup = started?.caller ?? release;
+      release.catch(() => {});
+    };
     const checkTime = () => { if (expired || performance.now() >= deadlineAt) { expired = true; throw timeoutError(); } };
     const check = async () => {
       checkTime();
@@ -868,8 +901,8 @@ export class BrowserActionEngine {
         const keyboardFailure = keyboardPressActions.has(params.action)
           ? /OBU_KEYBOARD_PRESS_(INVALID|REJECTED|UNCONFIRMED):/.exec(error?.message ?? "")?.[1] : undefined;
         if (!release && canReleaseAttachment() && !["INVALID", "REJECTED"].includes(keyboardFailure) &&
-            (error?.name === "TimeoutError" || error?.mediaCleanupFailed || keyboardFailure === "UNCONFIRMED" || /OBU_(?:POINTER|FILL)_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) release = this.detach(params.tabId);
-        if (release) await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
+            (error?.name === "TimeoutError" || error?.mediaCleanupFailed || keyboardFailure === "UNCONFIRMED" || /OBU_(?:POINTER|FILL)_[A-Z_]+:/.test(error?.message ?? "") || ["dragTo", "mouse.down", "mouse.up"].includes(params.action))) releaseAttachment();
+        if (release) await callerCleanup.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
         throw error;
       } finally {
         if (this.keyboardAdmissions.get(params.tabId) === keyboardAdmission) this.keyboardAdmissions.delete(params.tabId);
@@ -881,11 +914,11 @@ export class BrowserActionEngine {
       timer = setTimeout(() => {
         expired = true;
         if (phase === "queued" || phase === "finished" || !canReleaseAttachment()) { reject(timeoutError()); return; }
-        release = this.detach(params.tabId);
+        releaseAttachment();
         // An in-flight attachment cannot execute input after the generation
         // check. Keep its cleanup barrier, but do not make the RPC unbounded.
         if (phase === "attaching") { release.catch(() => {}); reject(timeoutError()); return; }
-        release.then(() => reject(timeoutError()), cleanupError => { const error = timeoutError(); error.cleanupError = cleanupError; reject(error); });
+        callerCleanup.then(() => reject(timeoutError()), cleanupError => { const error = timeoutError(); error.cleanupError = cleanupError; reject(error); });
       }, Math.max(0, deadlineAt - performance.now()));
     });
     this.queues.set(params.tabId, current);
@@ -893,9 +926,9 @@ export class BrowserActionEngine {
     try { return await Promise.race([current, deadline]); }
     catch (error) {
       if (expired) {
-        if (!release && phase !== "queued" && phase !== "finished" && canReleaseAttachment()) release = this.detach(params.tabId);
+        if (!release && phase !== "queued" && phase !== "finished" && canReleaseAttachment()) releaseAttachment();
         if (release) {
-          if (phase === "running" || phase === "finished") await release.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
+          if (phase === "running" || phase === "finished") await callerCleanup.catch(cleanupError => { if (error && typeof error === "object") error.cleanupError = cleanupError; });
           else release.catch(() => {});
         }
         const timeout = timeoutError();
@@ -910,6 +943,7 @@ export class BrowserActionEngine {
   // Revoke queued/attaching work without destroying the native context needed
   // by pending media, export, clipboard, or held-input cleanup.
   invalidate(tabId) {
+    this.readyPages.delete(tabId);
     this.generations.set(tabId, (this.generations.get(tabId) ?? 0) + 1);
     for (const read of this.responseReads) if (read.tabId === tabId)
       read.controller.abort(new Error("OBU_RESPONSE_BODY_EXPIRED: original tab control ended"));
