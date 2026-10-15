@@ -94,6 +94,38 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
 - 同步能力边界与计划，提交到既有fork分支，不提PR。预览包未重打；世界/
   context生命周期、事件共存、普通Edge、全屏与完整能力矩阵继续开放。
 
+### Compatible worker realm lifetime
+
+- 用户目标保持完整能力对齐；已发布的 `preview-20261015-8f090f2` 不包含本片。
+- 旧源 `7OWtNq`、`EuhlIy` 实际 exit1 保留。后者直接命中数量断言：同一原
+  文档在两个实际 worker 替换后出现 1/2/3 个 passive world。前者另暴露恢复
+  claim 前正常 not-attached 探测误判，修复仅限精确探测，不豁免读取失败。
+- 新安装身份由独立 IndexedDB upgrade transaction 原子初始化；后续只读，
+  transaction complete 才交付，不修补损坏记录。兼容 ABI 复用 world/kernel，
+  不兼容闭包须升级 ABI。后台未就绪/存储失败不延长原输入；撤销只阻止读取与
+  发布，原 group/private client 清理仍等待实际回执。构建已包含新模块。
+- `e6vgkl` 2/2 actual exit0；原生独审确认同 context name/id/unique，数量1/1/1，
+  原 document/default context/frame-loader/HTML root 不变。205 原调用结算，
+  11组/33对象释放，13Input、三PNG、原POST2454B与8可信DOM事件一致。
+  End559ms隐藏，6689ms焦点零事件/零许可，host退出0、连接/精确进程无残留。
+- 真实数据库就绪在每代 fixture 输入前有界观察，三次均首读ready；不是生产
+  Input等待或原生IDB事件跟踪。新测试依赖fake-indexeddb固定6.2.5，仅用于开发。
+  Node三组3881pass/1既有Windows权限skip；source/runtime/dependency无漂移。
+  独立组合检查late private attach/allocation撤权后仍清理，97定向全通过。
+- 冷六布局 `4UhUBJ`、私有生命周期 `fCGIFC` 均2/2 actualexit0且独审通过：
+  六PNG/六POST17463B、13文档、983调用/45Input、51group/165objects及25私有
+  attach/detach对齐；End581ms隐藏。生命周期126调用，原risk ACK先于唯一down，
+  替换worker不重放/重接管，只有原tab关闭清风险。7104/3944ms零focus与新豁免，
+  host/runner原exit0、精确进程无残留。
+- 最终 `SfCCYW`180/180 actualexit0、原180名称/顺序保持。54生产源和三专项
+  一致；18framePNG/POST42559B、65对象ACK、33输入场179Input/212native、
+  26POST179931B、七截图PNG、60正文/15close-removed均独审通过。540693ms
+  仅原12activation/4control-popup许可；host重启第一代按原测试终止，第二代
+  exit0，七连接闭合、精确进程无残留。Node另钉package/lock和120个fake-IDB
+  文件。Go输入及15旧编译程序核同，本轮不冒称重编；旧预览包保持不变。
+  跨导航/根重建/child替换、普通Edge、全屏及完整矩阵
+  继续开放，本片不宣称目标完成。
+
 ### Main files
 
 - `scripts/raw-pointer-feedback.mjs`、`scripts/patch-pointer-feedback.mjs`
@@ -104,5 +136,7 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
 - `apps/chrome-extension/browser-frame-geometry.js`、`browser-native-pointer-feedback.js`
 - `apps/chrome-extension/browser-private-targets.js`
 - `apps/chrome-extension/browser-native-pointer-route.js`、`browser-private-target-store.js`
+- `apps/chrome-extension/browser-pointer-realm.js`
+- `scripts/browser-integration/cold-world-lifetime-fixture.mjs`
 - `scripts/browser-integration/cold-private-target-lifecycle-fixture.mjs`
 - `scripts/browser-integration/cold-native-route-probe.mjs`

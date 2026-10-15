@@ -147,8 +147,10 @@ export async function runColdNativeRouteProbe(api, target, { tabId, independentT
     const result = detail.reader = { point: structuredClone(reader.point), leases: [], groups: [] };
     assert(typeof factories?.createNativePointerFeedback === "function" && typeof factories?.createFrameGeometryRuntime === "function", "Original staged native reader factories unavailable");
     assert(Number.isFinite(reader.point?.x) && Number.isFinite(reader.point?.y), "Finite authored reader point required");
+    const realmLease = backend.nativePointerRealm?.capture();
+    assert(realmLease?.identity && typeof realmLease.check === "function", "Original native pointer realm unavailable");
     let invalid = false;
-    const check = () => { assert(!invalid && !rootDetached && Object.values(state()).every(value => value === true), "Original reader attachment authority changed"); };
+    const check = () => { assert(!invalid && !rootDetached && Object.values(state()).every(value => value === true), "Original reader attachment authority changed"); realmLease.check(); };
     const known = source => sourceKey(source) === sourceKey(rootSource) || owned.some(route => sourceKey(route.source) === sourceKey(source) && !route.nativeDetached && !route.detached);
     const send = (source, method, params) => {
       check(); assert(known(source), "Reader attempted an unowned native route");
@@ -200,7 +202,8 @@ export async function runColdNativeRouteProbe(api, target, { tabId, independentT
         };
       }
     };
-    const spec = factories.createNativePointerFeedback({ target: rootSource, ...reader.point, geometry: factories.createFrameGeometryRuntime(), adapter });
+    check();
+    const spec = factories.createNativePointerFeedback({ target: rootSource, ...reader.point, realm: realmLease.identity, geometry: factories.createFrameGeometryRuntime(), adapter });
     assert(spec && typeof spec.read === "function" && typeof spec.cleanup === "function", "Original reader did not create a read contract");
     try { result.result = await spec.read(check); result.readSettled = true; }
     catch (error) { result.readSettled = true; fail(result, "readError", error); }

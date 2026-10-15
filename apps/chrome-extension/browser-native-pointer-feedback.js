@@ -1,15 +1,33 @@
 // Optional cold-coordinate evidence. The adapter owns native attachment/route
 // authority; this reader never initializes a Page, changes domain subscriptions,
 // dispatches input, or substitutes a parent frame for an unavailable leaf.
-// One identity per backend/module lifetime, never one world per coordinate read.
-// Random names avoid an ordinary caller reusing a documented, shared world.
+// The caller supplies one committed installation identity per kernel ABI, never
+// a random fallback or one world per coordinate read. Compatible replacement
+// workers reuse that identity: at most one named world per ABI per live frame.
+// The ABI covers captureDocument and the captured readOwnerPlane helper below;
+// incompatible changes must not silently reuse an already immutable closure.
+// Realm identity is not authority to read or release a native route.
 // This is not isolation from a raw-CDP peer that races the first bootstrap with
 // the same debugging authority. No public CDP command is filtered or delayed.
 // Captured DOM functions survive later DOM-prototype/own-property changes. This
 // is not a sandbox against arbitrary same-realm JavaScript-intrinsic tampering.
-export const NATIVE_POINTER_WORLD = "Open Browser Use passive pointer " + crypto.randomUUID();
-const kernelKey = "__obuNativePointer_" + crypto.randomUUID();
-const kernelToken = crypto.randomUUID();
+export const NATIVE_POINTER_KERNEL_ABI = "1";
+
+function captureRealm(realm) {
+  const keys = ["kernelABI", "worldName", "kernelKey", "kernelToken"], identity = {};
+  try {
+    if (!realm || typeof realm !== "object" || Array.isArray(realm) ||
+        Object.keys(realm).length !== keys.length || Object.keys(realm).some(key => !keys.includes(key))) return undefined;
+    for (const key of keys) {
+      const property = Object.getOwnPropertyDescriptor(realm, key);
+      if (!property || property.get || property.set || typeof property.value !== "string" ||
+          property.value.length === 0 || property.value.length > 256 || property.value.trim() !== property.value ||
+          /[\u0000-\u001f\u007f]/.test(property.value)) return undefined;
+      identity[key] = property.value;
+    }
+    return identity.kernelABI === NATIVE_POINTER_KERNEL_ABI ? Object.freeze(identity) : undefined;
+  } catch { return undefined; }
+}
 
 function captureDocument(view, key, token, readOwnerPlane) {
   const descriptor = Object.getOwnPropertyDescriptor;
@@ -133,8 +151,9 @@ function frameTree(value) {
  * lease. The reader owns that lease before awaiting ready, including failed or
  * late attachment. The adapter must not detach a caller-owned route.
  */
-export function createNativePointerFeedback({ target, x, y, geometry, adapter }) {
-  if (!Number.isFinite(x) || !Number.isFinite(y) ||
+export function createNativePointerFeedback({ target, x, y, geometry, adapter, realm }) {
+  const identityRealm = captureRealm(realm);
+  if (!identityRealm || !Number.isFinite(x) || !Number.isFinite(y) ||
       !["quad", "plane", "project", "inverse", "readOwnerPlane"].every(key => typeof geometry?.[key] === "function") ||
       !["check", "send", "prepareGroup"].every(key => typeof adapter?.[key] === "function")) return undefined;
   let rootTarget;
@@ -191,13 +210,13 @@ export function createNativePointerFeedback({ target, x, y, geometry, adapter })
         if (seen.has(frame.id)) return null;
         seen.add(frame.id);
         const world = await send(nativeTarget, "Page.createIsolatedWorld", {
-          frameId: frame.id, worldName: NATIVE_POINTER_WORLD, grantUniveralAccess: false
+          frameId: frame.id, worldName: identityRealm.worldName, grantUniveralAccess: false
         });
         if (!Number.isSafeInteger(world?.executionContextId) || world.executionContextId <= 0) return null;
         const group = groupFor(nativeTarget);
         const captured = await send(nativeTarget, "Runtime.evaluate", {
-          expression: "(" + String(captureDocument) + ")(this," + JSON.stringify(kernelKey) + "," +
-            JSON.stringify(kernelToken) + ",(" + String(geometry.readOwnerPlane) + "))", contextId: world.executionContextId,
+          expression: "(" + String(captureDocument) + ")(this," + JSON.stringify(identityRealm.kernelKey) + "," +
+            JSON.stringify(identityRealm.kernelToken) + ",(" + String(geometry.readOwnerPlane) + "))", contextId: world.executionContextId,
           objectGroup: group.name, returnByValue: false, awaitPromise: false, userGesture: false, silent: true
         }, group);
         if (!validId(captured?.result?.objectId)) return null;

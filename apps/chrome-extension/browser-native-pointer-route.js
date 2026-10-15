@@ -8,7 +8,7 @@ const objectId = value => typeof value === "string" && value.length > 0 && value
 // Each candidate owns its original root groups and independent frame leases.
 // Input admission, user deadlines and publication remain in the backend; these
 // optional reads never attach/migrate a root or enable a protocol domain.
-export function createNativePointerRoute({ scope, x, y, check, cleanupAuthority, cleanupExclusive = cleanupAuthority, destroyed, native, registry }) {
+export function createNativePointerRoute({ scope, x, y, check, cleanupAuthority, cleanupExclusive = cleanupAuthority, destroyed, native, registry, realm }) {
   if (!Number.isSafeInteger(scope?.tabId) || scope.tabId < 0 || !scope.attachment ||
       ![check, cleanupAuthority, cleanupExclusive, destroyed, native?.send].every(value => typeof value === "function") ||
       !Number.isFinite(x) || !Number.isFinite(y)) return undefined;
@@ -57,7 +57,7 @@ export function createNativePointerRoute({ scope, x, y, check, cleanupAuthority,
     group.attempt.then(() => { group.settled = true; }, () => { group.settled = true; group.failed = true; });
     return group.attempt;
   };
-  const reader = createNativePointerFeedback({ target, x, y, geometry, adapter: {
+  const reader = createNativePointerFeedback({ target, x, y, geometry, realm, adapter: {
     check: original,
     send: (destination, method, params) => {
       original();

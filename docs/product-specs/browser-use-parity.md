@@ -12,6 +12,16 @@
 
 ## Baseline sources
 
+P07/P12/P13 兼容 worker 的原生读取世界现复用持久身份。旧 `EuhlIy` exit1
+证明同页世界1/2/3增长；新 `e6vgkl`2/2 exit0、同realm/context/document下
+1/1/1，原输入/三PNG/POST/End/清理与6689ms零focus独审通过。Node3881pass/
+1既有skip，六布局和私有清理专项通过；最终 `SfCCYW`180/180 actualexit0，
+原名称/顺序及业务/资源独审通过，540693ms保留原12activation/4control-popup
+许可，源码/运行时无漂移。身份未就绪不延长
+原输入，撤销仍清原资源。此证据限未变根文档的兼容worker替换；根重建、导航、
+child替换、普通Edge和完整持平仍开放，见[坐标反馈](../references/raw-frame-feedback.md)。
+
+此前冷集成基线：
 P07/P12/P13 冷原生坐标反馈已接生产。六布局`JVWwm9`与真实worker/清理专项
 `WbyEaV`均2/2、actual exit0，原PNG/POST、资源归属及未决输入风险独审通过。
 Node3837pass/1既有skip；最终完整`ZXPe7X`180/180、actual exit0。原完整

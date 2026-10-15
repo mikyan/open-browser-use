@@ -6,10 +6,14 @@ import { PassivePointerReads } from "./browser-pointer-feedback.js";
 
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const tick = () => new Promise(setImmediate);
+const realmIdentity = Object.freeze({ kernelABI: "1",
+  worldName: "Open Browser Use passive pointer 00000000-0000-4000-8000-000000000001 1",
+  kernelKey: "__obuNativePointer_00000000-0000-4000-8000-000000000002_1",
+  kernelToken: "00000000-0000-4000-8000-000000000003:1" });
 
 // Deterministic CDP replies exercise ownership and actual Promise composition.
 // They are not evidence for native browser permissions or rendered pixels.
-async function fixture({ remote = false, registered = true } = {}) {
+async function fixture({ remote = false, registered = true, realm = realmIdentity } = {}) {
   const calls = [], ledger = [], attached = new Set(), objects = new Map();
   let valid = true, live = true, gone = false, successor = false, hook = async () => {}, serial = 0;
   const scope = { tabId: 7, attachment: {}, session_id: "original", turn_id: "turn" };
@@ -54,7 +58,7 @@ async function fixture({ remote = false, registered = true } = {}) {
   const registry = registered ? new PrivateTargetRegistry({load:async()=>({fresh:true,incarnation:"browser"}),
     save:async value=>{ledger.push(structuredClone(value));},incarnation:()=>"browser",native}) : null;
   await registry?.ready;
-  const route = createNativePointerRoute({scope,x:55,y:50,check,native,registry,
+  const route = createNativePointerRoute({scope,x:55,y:50,check,native,registry,realm,
     cleanupAuthority(){if(!live)throw Error("original root no longer available");},
     cleanupExclusive(){if(successor)throw Error("original root exclusion lost");},destroyed:()=>gone});
   const reads = new PassivePointerReads();
@@ -67,7 +71,17 @@ test("root native route uses the actual root identity and releases its own group
   const f=await fixture(); assert.deepEqual(await f.start().result,{x:40,y:40,width:40,height:20});
   assert.equal(f.calls[0].method,"Target.getTargetInfo"); assert.equal(f.objects.size,0); assert.equal(f.reads.pending.size,0);
   assert.equal(f.calls.filter(c=>c.method==="Runtime.releaseObjectGroup").length,1);
+  assert.equal(f.calls.find(c=>c.method==="Page.createIsolatedWorld").params.worldName,realmIdentity.worldName);
+  const expression=f.calls.find(c=>c.method==="Runtime.evaluate").params.expression;
+  assert.ok(expression.includes(JSON.stringify(realmIdentity.kernelKey)));assert.ok(expression.includes(JSON.stringify(realmIdentity.kernelToken)));
   assert.ok(f.calls.every(c=>!/^Input\.|enable$|disable$|getDocument|focus|attach$/.test(c.method)));
+});
+
+test("unavailable or incompatible realm drops the route before the original root query",async()=>{
+  for(const realm of [null,{}, {...realmIdentity,kernelABI:"2"}, {...realmIdentity,worldName:""}]) {
+    const f=await fixture({realm});assert.equal(f.route,undefined);assert.equal(f.calls.length,0);
+    assert.equal(f.objects.size,0);assert.equal(f.attached.size,0);
+  }
 });
 
 test("remote route keeps the original root and releases all groups before independent detach",async()=>{

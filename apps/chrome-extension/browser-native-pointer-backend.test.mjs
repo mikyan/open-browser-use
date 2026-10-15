@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { IDBFactory } from "fake-indexeddb";
+import forceCloseDatabase from "fake-indexeddb/lib/forceCloseDatabase";
 import vm from "./test-support/backend-vm.mjs";
 import { PRIVATE_TARGET_LEDGER_KEY as LEDGER, PRIVATE_TARGET_INITIALIZED_KEY as INITIALIZED } from "./browser-private-target-store.js";
 
@@ -21,8 +23,14 @@ async function prompt(operation) {
   finally { clearTimeout(timer); }
 }
 
-async function fixture(t, { installed = true, local = {}, session = {} } = {}) {
+async function fixture(t, { installed = true, local = {}, session = {}, indexedDB = new IDBFactory(), awaitRealm = true } = {}) {
   const calls = [], hooks = {}, gates = [], workers = [], events = [];
+  const realmConnections = [];
+  const realmStorage = indexedDB && { open(...args) {
+    const request = indexedDB.open(...args);
+    request.addEventListener?.("success", () => realmConnections.push(request.result));
+    return request;
+  } };
   const rootClients = new Set(), privateClients = new Set();
   const makeEvent = () => { const value = event(); events.push(value); return value; };
   const area = (name, state) => ({
@@ -73,12 +81,13 @@ async function fixture(t, { installed = true, local = {}, session = {} } = {}) {
     scripting: { async executeScript() { return []; } }
   };
   const Backend = vm.runInNewContext(`${source.slice(0, end)}\nBrowserBackend`, {
-    chrome, Date, URL, setTimeout, clearTimeout,
+    chrome, Date, URL, setTimeout, clearTimeout, indexedDB: realmStorage,
     createBrowserActionEngine() { assert.fail("cold raw feedback must not initialize or migrate to the action engine"); }
   });
   const backend = new Backend(); workers.push(backend);
   if (installed) chrome.runtime.onInstalled.emit({ reason: "install" });
   await backend.controlReady;
+  if (awaitRealm) await backend.nativePointerRealm.ready;
   const state = await backend.store.getSession("task"); state.chromeGroupId = 10; state.activeTabId = 7; state.tabOrigins = { 7: "agent" };
   await backend.store.save();
   const current = await backend.getControlState({ session_id: "task" });
@@ -91,8 +100,9 @@ async function fixture(t, { installed = true, local = {}, session = {} } = {}) {
       await Promise.allSettled([...worker.pointerFeedbackReads.pending].map(record => record.promise));
       await Promise.allSettled([...worker.attachedTabs].map(id => worker.detachTab(id)));
     }
+    for (const database of realmConnections) database.close();
   });
-  return { backend, Backend, chrome, calls, hooks, local, session, params, rootClients, privateClients, originalInputResult, absent,
+  return { backend, Backend, chrome, calls, hooks, local, session, params, rootClients, privateClients, originalInputResult, absent, realmConnections,
     gate() { const value = deferred(); gates.push(value); return value; },
     move(extra = {}) { return { ...params, target: { tabId: 7 }, method: "Input.dispatchMouseEvent", commandParams: { type: "mouseMoved", x: 120.5, y: 80.25 }, ...extra }; },
     restart() { for (const value of events) value.clear(); const worker = new Backend(); workers.push(worker); return worker; }
@@ -109,6 +119,49 @@ test("production first install durably enables cold reads without initializing a
   assert.equal(f.calls.filter(c => c.method === "attach").length, 1); assert.equal(f.backend.browserEngine, null);
   assert.ok(f.calls.some(c => c.method === "Target.getTargetInfo" && c.target.tabId === 7));
   assert.equal(f.calls.filter(c => c.method === "Runtime.releaseObjectGroup").length, 1);
+});
+
+for (const storage of ["pending", "unavailable"]) test(`${storage} realm storage never delays control startup or original input`, { timeout: 5000 }, async t => {
+  const f = await fixture(t, { indexedDB: storage === "pending" ? { open: () => ({}) } : null, awaitRealm: false });
+  assert.equal(f.backend.nativePointerRealm.capture(), null);
+  assert.equal(f.backend.nativePointerRealm.snapshot().pending, storage === "pending");
+  await f.backend.attach(f.params);
+  assert.equal(await prompt(f.backend.executeCdp(f.move())), f.originalInputResult);
+  const failure = Error("original input failed while realm unavailable");
+  f.hooks.send = (_target, method) => method.startsWith("Input.") ? Promise.reject(failure) : undefined;
+  await assert.rejects(prompt(f.backend.executeCdp(f.move())), error => error === failure);
+  assert.equal(f.calls.some(call => call.method === "Page.createIsolatedWorld" || call.method === "Target.getTargetInfo"), false);
+  assert.equal(f.backend.pointerFeedbackReads.pending.size, 0);
+});
+
+test("replacement production backend reuses committed realm identity without restoring attachment authority", { timeout: 5000 }, async t => {
+  const f = await fixture(t), original = f.backend.nativePointerRealm.capture();
+  assert.ok(original); await f.backend.attach(f.params);
+  const replacement = f.restart(); await replacement.controlReady; await replacement.nativePointerRealm.ready;
+  assert.deepEqual(replacement.nativePointerRealm.capture().identity, original.identity);
+  assert.equal(replacement.attachmentEpochs.size, 0); assert.equal(replacement.attachedTabs.size, 0);
+  assert.equal(f.calls.filter(call => call.method === "attach").length, 1);
+});
+
+test("revoked realm blocks later reads but releases an original allocation after its actual reply", { timeout: 5000 }, async t => {
+  const f = await fixture(t), allocated = f.gate(), released = f.gate(); await f.backend.attach(f.params);
+  f.hooks.send = (_target, method) => method === "Runtime.evaluate" ? allocated.promise : method === "Runtime.releaseObjectGroup" ? released.promise : undefined;
+  assert.equal(await prompt(f.backend.executeCdp(f.move())), f.originalInputResult);
+  await until(() => f.calls.some(call => call.method === "Runtime.evaluate"), "original allocation");
+  const allocation = f.calls.find(call => call.method === "Runtime.evaluate");
+  forceCloseDatabase(f.realmConnections[0]);
+  await until(() => f.backend.nativePointerRealm.capture() === null, "realm connection revocation");
+  assert.equal(await prompt(f.backend.executeCdp(f.move())), f.originalInputResult);
+  assert.equal(f.calls.filter(call => call.method === "Page.createIsolatedWorld").length, 1);
+  allocated.resolve({ result: { objectId: "late-original-wrapper" } });
+  await until(() => f.calls.some(call => call.method === "Runtime.releaseObjectGroup"), "original group release");
+  const release = f.calls.find(call => call.method === "Runtime.releaseObjectGroup");
+  assert.deepEqual(release.target, allocation.target); assert.equal(release.params.objectGroup, allocation.params.objectGroup);
+  assert.equal(f.backend.pointerFeedbackReads.pending.size, 1, "actual release must settle before cleanup finishes");
+  assert.equal(f.calls.some(call => call.method === "Runtime.callFunctionOn"), false, "revoked identity cannot publish or continue DOM reads");
+  released.resolve({}); await f.backend.pointerFeedbackReads.drain();
+  assert.equal(f.backend.pointerFeedbackReads.pending.size, 0); assert.equal(f.rootClients.has(7), true);
+  assert.equal(f.calls.filter(call => call.method.startsWith("Input.")).length, 2);
 });
 
 test("unknown private ownership preserves ordinary production input and its original native error", { timeout: 5000 }, async t => {

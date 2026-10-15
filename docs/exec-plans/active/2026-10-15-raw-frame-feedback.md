@@ -413,3 +413,122 @@ archives remain unchanged. No PR, input replay, system mouse action or new focus
 allowance was introduced. World/context cardinality, navigation/document
 replacement, native-event coexistence, ordinary Edge and the parent matrix remain
 open; this increment does not complete the broader plan or goal.
+
+### Worker lifetime follow-up
+
+The integration increment was packaged and published as Windows preview
+`preview-20261015-8f090f2`; the uploaded artifacts were downloaded and verified.
+This delivery does not close the remaining lifecycle acceptance above.
+
+The next concrete candidate is isolated-world growth across service-worker
+replacement. The current module generates a new world name and immutable kernel
+identity on every import. Named worlds are reused within one module lifetime,
+but releaseObjectGroup and independent-client detach do not destroy a live
+document's world. Repeated worker replacement can therefore leave older worlds
+behind while new reads choose new names. Source inspection identifies the risk;
+an unchanged-production native reproduction must establish its actual behavior.
+
+1. Keep one original document alive through repeated public cold-coordinate
+   actions and two real worker replacements. Record native world/context IDs,
+   document identity, actual input and existing caller Runtime events. Preserve
+   the old-source result, original process outcome and unchanged focus rules.
+2. If confirmed, persist one private reader identity independently of resource
+   ownership. Reuse it only after actual storage confirmation, fail optional
+   reads closed on unknown/corrupt/changed identity, and retain all existing
+   root/private-client cleanup and input-risk rules. Identity must never grant
+   debugger attachment or document authority.
+3. Verify the same original scenario after the fix, then exercise original
+   frame geometry, cleanup and worker-recovery regressions. Navigation,
+   document replacement and broader native-event coexistence remain explicit
+   acceptance items until their own original native evidence is available.
+
+Old-production run `7OWtNq` retains actual exit 1 without source drift. The original
+root document survives three real worker generations; native Runtime enumeration
+shows one, two, then three passive worlds, with the same original default-context
+unique ID. Three original PNGs, one trusted submission, 554 ms of End hiding and
+empty exact tab/target cleanup are retained. Its first failing assertion is an
+oracle mistake: the new worker's explicit claim first probes the original root
+and receives the expected not-attached native error before attaching. The oracle
+must recognize only that exact recovery probe; it must not waive native feedback
+failures or turn the retained run into a pass. A new old-production run will then
+reach the separate world-cardinality assertion before production changes begin.
+
+The candidate identity module uses one IndexedDB upgrade transaction to create
+both schema and random seed. Later workers read the same record and never repair
+missing/corrupt rows. Capture remains unavailable through request success until
+the verification transaction completes. Version change or abnormal connection
+close revokes future reads, without revoking original resource-cleanup leases.
+An explicit kernel ABI covers the captured DOM/geometry closure: each persisted
+identity and ABI uses one named world per live frame. Entire-database deletion
+by a privileged peer is outside the persistence guarantee. The 23 deterministic
+IndexedDB tests are component evidence, not native worker-death acceptance.
+
+Old-production rerun `EuhlIy` reaches the intended cardinality failure (`2 !== 1`)
+with actual exit 1 and no source/runtime drift. Independent review confirms
+native worlds 1/2/3 on the unchanged root document/default context, 203 settled
+native calls, 11 released groups, three original screenshots and one trusted
+submission. End remains hidden for 555 ms; exact tabs/targets and processes are
+absent. The continuous 6,380 ms focus ledger has zero events and zero allowances.
+The v2 oracle permits only the exact not-attached probe before a new worker's
+explicit claim; both old failed runs remain unchanged. This evidence, completed
+in the preceding goal turn, authorizes wiring the persistent identity candidate.
+
+The identity is now wired into the backend, route, reader and production build.
+It is not awaited by input or control startup. Realm revocation is composed only
+with the original read/publication check; root-group and private-client cleanup
+retain their original leases. The captured closure has explicit ABI `1`.
+Independent review finds no blocker and checks late private attach/allocation
+after an actual fake-IDB close: original input completes, groups and private
+detach wait for their actual replies, and the root stays attached.
+
+Fixed run `e6vgkl` passes 2/2, actual exit 0 without source/runtime drift.
+Independent native-record review verifies worlds 1/1/1 with the same world name,
+context ID and unique ID across three workers, while original root/default
+context/document/loader remain unchanged. All 205 native calls settle; eleven
+groups cover 33 original handles. Thirteen Input calls, three original PNGs and
+one 2,454-byte trusted POST match original native/server evidence. End stays hidden
+559 ms, exact inventories/processes are empty, host exits 0 and all connections
+close. The continuous 6,689 ms focus ledger has zero events and zero allowances.
+The new fixture adds only bounded optional-realm readiness observation before
+each generation's inputs; each succeeds on its first read. This is not a raw
+IndexedDB event transcript or a production input wait.
+
+Node groups pass 3,881 tests with one existing Windows symlink privilege skip
+(extension 1,824, scripts 330, integration 1,727). Their processes actually exit
+0 and source/runtime/dependency hashes remain unchanged. Cold six-layout
+`4UhUBJ` and private lifecycle `fCGIFC` both pass 2/2, actual exit 0. Independent
+review verifies six native PNGs, six original POSTs (17,463 bytes), thirteen
+documents, 983 calls/45 Input calls, 51 group-release ACKs covering 165 handles
+and 25 exact child attach/detach pairs. End remains hidden for 581 ms. Lifecycle
+review verifies all original 126 calls, durable risk ACK before the single down,
+no replacement Input/attach/root detach, rejected old begin/finalize and risk
+clearance only after the original tab closes. Focus intervals of 7,104/3,944 ms
+have zero events or new allowances; hosts/runners exit 0 and exact processes are
+absent. Source/build/runtime identities match across both runs.
+
+Final default run `SfCCYW` passes 180/180, actual exit 0 and no source/runtime
+drift. Its original case names and order exactly match `ZXPe7X`. Independent
+review verifies 54 production files shared with the world/cold/lifecycle runs,
+18 original frame PNGs and submissions (42,559 bytes), 65 original object-release
+ACKs, 33 input scenes with 179 Input/212 native calls and 26 POSTs (179,931 bytes),
+seven screenshot PNGs, 60 response-body reads and fifteen close/removed pairs.
+The 540,693 ms formal focus interval has only the original twelve activation and
+four control-popup allowances, matched to exact target, sequence and interval.
+The original host-restart test intentionally terminates generation one; generation
+two exits 0, all seven connections close and exact test processes are absent.
+Node inputs additionally pin package/lock and all 120 fake-IDB package files;
+browser inputs and 15 reused Go binaries remain hash-matched. This does not claim
+a new Go build, ordinary-install Edge acceptance or full capability parity.
+
+The next independent native boundary is same-document root replacement after a
+cold read. Existing immutable-kernel code reacquires Document/root on each
+capture and rejects an old wrapper when its root changes; deterministic tests
+cover rejection during a read. Existing real DOM-rebuild acceptance uses warm
+locators, so it does not prove the next cold read sees the new original node.
+Reuse the same realm/default context/loader, let one trusted application click
+replace documentElement, then move to a new button with different position and
+size. Preserve native node identity, old-node disconnection, two PNGs, one trusted
+submission, End, original group cleanup and the unchanged focus ledger. First
+establish actual behavior; do not label this a production defect in advance.
+Full navigation, BFCache and replacing an already-read OOPIF are separate later
+boundaries, not covered by compatible worker reuse on an unchanged root.

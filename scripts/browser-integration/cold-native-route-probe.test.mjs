@@ -55,8 +55,11 @@ function harness({ cdpAttach = false, independentRefused = false, badChildFrame 
       throw Error(`Unexpected diagnostic call ${method}`);
     }
   } };
-  const target = { __integrationBackend: { browserEngine: null, attachedTabs: new Set([7]), attachmentEpochs: new Map([[7, anchor]]) } };
-  return { api, target, calls, objects, released, groups, attached, onEvent, onDetach };
+  const realmIdentity = Object.freeze({ kernelABI: "fixture-v1", worldName: "original-committed-world", kernelKey: "original-kernel", kernelToken: "original-token" });
+  const realmState = { captures: 0, checks: 0, available: true, revoked: false };
+  const nativePointerRealm = { capture() { realmState.captures++; return realmState.available ? Object.freeze({ identity: realmIdentity, check() { realmState.checks++; if (realmState.revoked) throw Error("OBU_POINTER_REALM_UNAVAILABLE: original identity revoked"); } }) : null; } };
+  const target = { __integrationBackend: { browserEngine: null, attachedTabs: new Set([7]), attachmentEpochs: new Map([[7, anchor]]), nativePointerRealm } };
+  return { api, target, calls, objects, released, groups, attached, onEvent, onDetach, realmIdentity, realmState };
 }
 
 function complete(detail, h) {
@@ -131,12 +134,13 @@ test("warm engine is rejected before native calls and wrapper saves a failed dia
   assert.equal(saved, failure);
 });
 
-function readerFactories({ readError, cleanupError } = {}) {
+function readerFactories({ readError, cleanupError, expectedRealm, afterAllocate } = {}) {
   const geometry = {}, scopes = [], sources = [], allocations = [], leases = [];
   return { scopes, sources, allocations, leases,
     createFrameGeometryRuntime() { return geometry; },
     createNativePointerFeedback(options) {
       assert.equal(options.geometry, geometry); assert.deepEqual(options.target, { tabId: 7 }); assert.deepEqual({ x: options.x, y: options.y }, { x: 264.5, y: 240.25 });
+      if (expectedRealm) assert.equal(options.realm, expectedRealm, "Direct factory must receive the captured original realm identity");
       const adapter = options.adapter;
       const allocate = async source => {
         sources.push(source); const group = adapter.prepareGroup(source, `reader-group-${sources.length}`); allocations.push(group);
@@ -149,6 +153,7 @@ function readerFactories({ readError, cleanupError } = {}) {
           scopes.push(scope); scope(); await allocate(options.target);
           const route = adapter.acquireChild({ parentTarget: options.target, frameId: "exact-native-child" }); leases.push(route);
           const source = await route.ready; route.check(); await allocate(source);
+          afterAllocate?.(); scope();
           if (readError) throw readError;
           return { x: 124.5, y: 208.25, width: 280, height: 64 };
         },
@@ -161,6 +166,23 @@ function readerFactories({ readError, cleanupError } = {}) {
     }
   };
 }
+
+test("direct reader captures one original realm lease and still releases actual resources after revocation", async () => {
+  const h = harness(), factories = readerFactories({ expectedRealm: h.realmIdentity, afterAllocate: () => { h.realmState.revoked = true; } });
+  const detail = await runColdNativeRouteProbe(h.api, h.target, { tabId: 7, reader: { point: { x: 264.5, y: 240.25 } } }, factories);
+  assert.match(detail.error, /OBU_POINTER_REALM_UNAVAILABLE/); assert.match(detail.reader.readError, /OBU_POINTER_REALM_UNAVAILABLE/);
+  assert.equal(h.realmState.captures, 1); assert.ok(h.realmState.checks > 1);
+  assert.equal(detail.reader.cleanupComplete, true); complete(detail, h);
+  assert.equal(h.calls.filter(call => call.method === "Runtime.releaseObjectGroup").length, 2);
+  assert.equal(h.calls.filter(call => call.method === "debugger.detach").length, 1);
+});
+
+test("unavailable original realm never starts a direct factory or a native command", async () => {
+  const h = harness(); h.realmState.available = false; let factoriesCalled = false;
+  const factories = { createFrameGeometryRuntime() { throw Error("Unexpected geometry creation"); }, createNativePointerFeedback() { factoriesCalled = true; throw Error("Unexpected reader creation"); } };
+  const detail = await runColdNativeRouteProbe(h.api, h.target, { tabId: 7, reader: { point: { x: 264.5, y: 240.25 } } }, factories);
+  assert.match(detail.error, /original native pointer realm unavailable/i); assert.equal(h.realmState.captures, 1); assert.equal(factoriesCalled, false); assert.deepEqual(h.calls, []); complete(detail, h);
+});
 
 test("reader mode uses supplied factories directly and records actual group and child-route cleanup", async () => {
   const h = harness(), factories = readerFactories();

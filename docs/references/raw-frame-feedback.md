@@ -324,3 +324,70 @@ restart terminates generation one; generation two exits 0, all connections close
 and exact test processes are absent. Final Node groups pass 3,837 tests with one
 existing Windows symlink privilege skip. World/context lifetime, broader native
 event coexistence and ordinary installed Edge remain separate open boundaries.
+
+### Compatible worker realm reuse
+
+The old module selected new random world/kernel names on every worker import.
+Old-production runs `7OWtNq` and `EuhlIy` preserve the same root document through
+two actual worker replacements and observe one, two, then three native passive
+worlds. Both retain actual exit 1; the first also exposed an oracle mistake
+around the expected not-attached probe before a replacement worker's explicit
+claim. The corrected oracle in the second run reaches the cardinality failure.
+Neither record is rewritten as a pass.
+
+`browser-pointer-realm.js` initializes an installation identity in IndexedDB.
+One upgrade transaction creates both the schema and seed; later workers perform
+only a read. A successful request does not publish identity: the verifying
+transaction must complete with the exact schema and one valid record. Missing,
+corrupt, blocked or failed storage disables optional cold reads without repairing
+or rotating the seed. Normal control startup and native input never await this
+optional readiness.
+
+The immutable injected DOM closure, including `readOwnerPlane`, has an explicit
+`NATIVE_POINTER_KERNEL_ABI`. Compatible workers use the same world/kernel/token
+names. Incompatible closure changes must bump this ABI; the guarantee is one
+named world per identity/ABI/live frame, not one across all historical ABIs.
+Worlds already created by an older random-name implementation are not removed
+by this change; the fix bounds subsequent compatible-worker reuse.
+The reader accepts an explicit copied identity and has no random fallback.
+Identity grants no root, child, document or input authority.
+
+Version change or abnormal database close revokes new reads and publication.
+The original root groups and private clients retain independent cleanup leases;
+late allocation replies and actual release/detach acknowledgements still settle
+before cleanup completes. Entire-database deletion or arbitrary same-origin
+writes by a privileged peer are outside the persistence contract. Closing a
+database connection or releasing object groups does not destroy existing worlds.
+
+The root-lifetime fixture keeps three generations in one original page, with
+caller-owned Runtime events, six original moves, three native PNGs, a single
+trusted form submission, End hiding and exact cleanup. Each new implementation
+generation observes optional realm readiness within the existing bounded test
+budget before input; legacy source is explicitly labelled `legacy-module`.
+This fixture precondition does not add waiting to production input. It covers
+compatible worker replacement on a live root document; navigation, root/document
+replacement, child-world reuse and broader native-event coexistence remain
+separate acceptance items.
+
+The dedicated runner mode is `OBU_TEST_COLD_WORLD_LIFETIME=1`, with optional
+case selection fixed to `OBU_TEST_CASES=^js-cold-world-lifetime$`. It also retains
+the original raw-navigation precondition and cannot combine with other diagnostic
+modes. Fixed run `e6vgkl` passes 2/2, actual exit 0: independent review confirms
+one original world name/context ID/unique ID across three workers, three native
+PNGs, thirteen original inputs, one trusted POST and complete resource cleanup.
+Its continuous 6,689 ms focus interval has no events or allowances. Cold layouts
+`4UhUBJ` and private lifecycle `fCGIFC` also pass 2/2 and independent review on the
+same production source. They preserve six original frame PNGs/submissions and
+the existing held-input recovery barrier respectively; neither substitutes for
+the world-cardinality evidence. Node groups pass 3,881 tests plus one existing
+Windows symlink-privilege skip.
+
+Final default `SfCCYW` passes the unchanged 180-case sequence with actual exit 0
+and no source/runtime drift. Independent review verifies original frame PNGs,
+inputs, submissions, body reads and cleanup receipts on the same 54 production
+files. The 540,693 ms focus ledger preserves only the original twelve activation
+and four control-popup allowances, each matched to its exact target and interval.
+The intentional host restart retains its first-generation termination; the second
+exits 0, seven connections close and exact test processes are absent. This closes
+the compatible-worker increment, not the remaining native lifetime boundaries
+or broader parity goal. Existing published preview archives are unchanged.

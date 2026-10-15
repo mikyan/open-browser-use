@@ -37,6 +37,7 @@ import { createTopLayerFeedbackFixtures, checkTopLayerFeedback } from "./top-lay
 import { checkColdRawFeedback, readColdRawDocument, coldRawAddPoint } from "./cold-raw-feedback-fixture.mjs";
 import { inspectColdNativeRoutes } from "./cold-native-route-probe.mjs";
 import { coldPrivateTargetLifecyclePrefix, createColdPrivateTargetFixtures, checkColdPrivateTargetLifecycle } from "./cold-private-target-lifecycle-fixture.mjs";
+import { coldWorldLifetimeProbePrefix, createColdWorldLifetimeFixtures, checkColdWorldLifetime } from "./cold-world-lifetime-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback, frameTargetURLs, selectFrameTargetDocuments, frameTargetGeometry } from "./frame-target-feedback-fixture.mjs";
@@ -118,6 +119,13 @@ import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const coldWorldLifetime = process.env.OBU_TEST_COLD_WORLD_LIFETIME === "1";
+if (process.env.OBU_TEST_COLD_WORLD_LIFETIME !== undefined && !coldWorldLifetime)
+  throw new Error("OBU_TEST_COLD_WORLD_LIFETIME must be 1 when set");
+if (coldWorldLifetime && process.env.OBU_TEST_CASES !== undefined && process.env.OBU_TEST_CASES !== "^js-cold-world-lifetime$")
+  throw new Error("Cold world lifetime is a separate two-case mode");
+if (coldWorldLifetime && ["OBU_TEST_COLD_PRIVATE_TARGETS", "OBU_TEST_CREATED_PAGES", "OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_COLD_NATIVE_READER", "OBU_TEST_COLD_NATIVE_ROUTES", "OBU_TEST_RAW_COLD_FEEDBACK"].some(key => process.env[key] !== undefined))
+  throw new Error("Cold world lifetime cannot be combined with another diagnostic mode");
 const coldPrivateTargets = process.env.OBU_TEST_COLD_PRIVATE_TARGETS === "1";
 if (process.env.OBU_TEST_COLD_PRIVATE_TARGETS !== undefined && !coldPrivateTargets)
   throw new Error("OBU_TEST_COLD_PRIVATE_TARGETS must be 1 when set");
@@ -393,6 +401,7 @@ const zoomFeedbackFixtures = createZoomFeedbackFixtures();
 const domRebuildFeedbackFixtures = createDOMRebuildFeedbackFixtures();
 const frameTargetFeedbackFixtures = createFrameTargetFeedbackFixtures();
 const coldPrivateTargetFixtures = createColdPrivateTargetFixtures();
+const coldWorldLifetimeFixtures = createColdWorldLifetimeFixtures();
 const siteAccessStartupFixtures = createSiteAccessStartupFixtures();
 const restrictedDialogFixtures = createRestrictedDialogFixtures();
 const restrictedDialogKinds = ["js", "cli", "mcp", "python", "go"];
@@ -441,6 +450,7 @@ const http = createServer(async (request, response) => {
   if (domRebuildFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (frameTargetFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (coldPrivateTargetFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (coldWorldLifetimeFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -579,6 +589,11 @@ try {
     stagedBackground = stagedBackground.slice(0, boundary) + coldPrivateTargetLifecyclePrefix({
       ledgerKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS", initializedKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS_INITIALIZED", storageArea: "local"
     }) + stagedBackground.slice(boundary);
+  }
+  if (coldWorldLifetime) {
+    const boundary = stagedBackground.indexOf("const NATIVE_HOST_NAME =");
+    assert.ok(boundary > 0);
+    stagedBackground = stagedBackground.slice(0, boundary) + coldWorldLifetimeProbePrefix() + stagedBackground.slice(boundary);
   }
   if (siteAccessStartupEnabled || siteAccessInvalidEnabled) {
     // Chromium service workers prohibit top-level await. Preserve static
@@ -832,6 +847,7 @@ try {
   async function test(name, run) {
     if (bridgeFailure) throw bridgeFailure;
     if (coldPrivateTargets && !["js-raw-navigation-before-engine", "js-cold-private-target-lifecycle"].includes(name)) return;
+    if (coldWorldLifetime && !["js-raw-navigation-before-engine", "js-cold-world-lifetime"].includes(name)) return;
     if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready", "js-created-page-unowned", "js-created-page-popup-source", "js-created-page-popup-delivery"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
@@ -1606,6 +1622,27 @@ try {
         : owner.client.request("detach", { ...item.scope, tabId: item.tabId }, { timeoutMs: 15000 }),
       closeTab: owned => worker.evaluate(`chrome.tabs.remove(${owned.id})`),
       saveDetail: value => fs.writeFile(path.join(runDir, "cold-private-target-lifecycle.json"), JSON.stringify(value, null, 2))
+    });
+  });
+  if (coldWorldLifetime) await test("js-cold-world-lifetime", async () => {
+    sourceIdentity.testHooks.push("Cold world lifetime: passive original native commands, Promise settlements and caller-enabled Runtime events in each actual worker. One original document survives two real worker replacements and explicit new-turn claims. No native input replay, engine replacement, domain interception or additional focus allowance.");
+    sourceIdentity.sha256["cold-world-lifetime-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "cold-world-lifetime-fixture.mjs"))).digest("hex");
+    const precondition = { finalized: await browser.client.finalizeTabs([]), restart: await restartObservedWorker() };
+    precondition.control = await worker.evaluate("(async()=>{const b=__integrationBackend;await b.controlReady;await b.privatePointerRecovery?.promise;return {engineAbsent:b.browserEngine===null,status:await b.getAutomationControlStatus()}})()");
+    await fs.writeFile(path.join(runDir, "cold-world-precondition.json"), JSON.stringify(precondition, null, 2));
+    assert.equal(precondition.control.engineAbsent, true);
+    assert.equal(precondition.control.status.inputBlocked, false);
+    return checkColdWorldLifetime({
+      connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
+      getWorker: () => worker, restartWorker: restartObservedWorker, fixtureURL, fixtures: coldWorldLifetimeFixtures, until,
+      closeTab: owned => worker.evaluate(`chrome.tabs.remove(${owned.id})`),
+      saveArtifact: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
+      saveDetail: value => fs.writeFile(path.join(runDir, "cold-world-lifetime.json"), JSON.stringify(value, null, 2)),
+      checkEnd: async (value, owner) => {
+        const original = { states: [{ tabId: value.tabId, frames: value.frames }] };
+        const result = await endFrameTargetFeedback(owner, original);
+        return { ...result, evidence: original.endCleanup };
+      }
     });
   });
   if (mcpBinding) await test("mcp-connection-binding", () => checkMCPConnectionBinding({

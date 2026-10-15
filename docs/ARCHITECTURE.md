@@ -35,6 +35,10 @@ debugger、history 和 tab groups。
   在私有归属可用时读取原生叶节点，见[坐标反馈](references/raw-frame-feedback.md)。
   冷路 `browser-native-pointer-feedback.js` 用原生 frame/document/owner
   证明读取叶节点；几何公式与 warm 路共用 `browser-frame-geometry.js`。
+  `browser-pointer-realm.js` 用独立 IndexedDB 原子初始化安装身份，兼容后台
+  重启复用同一命名世界；身份不是连接或文档权限。未知存储只跳过可选读取，
+  不等待普通输入；撤销不影响原资源清理。捕获的 DOM/几何闭包由显式 ABI
+  版本区分，升级不兼容闭包须同时更新 ABI。
   `browser-private-targets.js` 单独管理独立 target 的持久归属与显式失败恢复。
   `browser-native-pointer-route.js` 接入生产 backend，保留原根连接；
   `browser-private-target-store.js` 以真实安装事件、持久标记和原浏览器代次

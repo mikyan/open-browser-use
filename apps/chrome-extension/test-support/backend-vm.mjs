@@ -3,6 +3,8 @@
 import vm from "node:vm";
 import { PassivePointerReads } from "../browser-pointer-feedback.js";
 import { createNativePointerRoute } from "../browser-native-pointer-route.js";
+import { NATIVE_POINTER_KERNEL_ABI } from "../browser-native-pointer-feedback.js";
+import { PointerRealmIdentity } from "../browser-pointer-realm.js";
 import { PrivateTargetRegistry } from "../browser-private-targets.js";
 import { PrivateTargetStore } from "../browser-private-target-store.js";
 import { VisualDeliveries } from "../browser-visual-deliveries.js";
@@ -66,6 +68,8 @@ const source = code => code
   .replace('import { VisualDeliveries } from "./browser-visual-deliveries.js";', "")
   .replace('import { PassivePointerReads } from "./browser-pointer-feedback.js";', "")
   .replace('import { createNativePointerRoute } from "./browser-native-pointer-route.js";', "")
+  .replace('import { NATIVE_POINTER_KERNEL_ABI } from "./browser-native-pointer-feedback.js";', "")
+  .replace('import { PointerRealmIdentity } from "./browser-pointer-realm.js";', "")
   .replace('import { PrivateTargetRegistry } from "./browser-private-targets.js";', "")
   .replace('import { PrivateTargetStore } from "./browser-private-target-store.js";', "")
   .replace('import { BrowserDialogs } from "./browser-dialogs.js";', "")
@@ -90,7 +94,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { VisualDeliveries, PassivePointerReads, createNativePointerRoute, PrivateTargetRegistry, PrivateTargetStore, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
+  return { NATIVE_POINTER_KERNEL_ABI, PointerRealmIdentity, VisualDeliveries, PassivePointerReads, createNativePointerRoute, PrivateTargetRegistry, PrivateTargetStore, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

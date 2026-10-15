@@ -2,6 +2,8 @@ import { createBrowserActionEngine } from "./browser-runtime.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { PassivePointerReads } from "./browser-pointer-feedback.js";
 import { createNativePointerRoute } from "./browser-native-pointer-route.js";
+import { NATIVE_POINTER_KERNEL_ABI } from "./browser-native-pointer-feedback.js";
+import { PointerRealmIdentity } from "./browser-pointer-realm.js";
 import { PrivateTargetRegistry } from "./browser-private-targets.js";
 import { PrivateTargetStore } from "./browser-private-target-store.js";
 import { VisualDeliveries } from "./browser-visual-deliveries.js";
@@ -925,6 +927,9 @@ class BrowserBackend {
     this.nextPointerFeedbackSequence = 1;
     this.pointerFeedbackLatest = new Map();
     this.pointerFeedbackReads = new PassivePointerReads();
+    // Optional realm readiness never delays input/control startup. Persistent
+    // identity selects a compatible world; it grants no native route authority.
+    this.nativePointerRealm = new PointerRealmIdentity({ indexedDB: globalThis.indexedDB, kernelABI: NATIVE_POINTER_KERNEL_ABI });
     this.nativePointerStore = new PrivateTargetStore({ storage: chrome.storage, browserLifetime: this.browserLifetime,
       onInstalled: chrome.runtime?.onInstalled, onAvailable: () => {
         const previous = this.privatePointerTargets;
@@ -3742,6 +3747,8 @@ class BrowserBackend {
     const registry = this.privatePointerTargets, state = registry.snapshot();
     if (!state.enabled || state.quarantined.length || !this.nativePointerStore.snapshot().available ||
         this.privatePointerRecovery?.pending || this.privatePointerRecovery?.error) return undefined;
+    const realm = this.nativePointerRealm.capture();
+    if (!realm) return undefined;
     const authority = this.pointerFeedbackAuthority(params), { tabId, attachment } = authority.scope;
     const incarnation = this.browserLifetime.incarnation;
     const cleanupExclusive = () => {
@@ -3750,7 +3757,8 @@ class BrowserBackend {
         throw new Error("OBU_POINTER_CLEANUP_FAILED: original root exclusion changed");
     };
     return createNativePointerRoute({ scope: authority.scope, x: params.commandParams.x, y: params.commandParams.y,
-      check: authority.check, cleanupExclusive,
+      realm: realm.identity, check: () => { authority.check(); realm.check(); }, cleanupExclusive,
+      // Revoking a realm cancels reads/publication, never original cleanup.
       cleanupAuthority: () => {
         cleanupExclusive();
         if (!this.attachedTabs.has(tabId) || this.attachmentEpochs.get(tabId) !== attachment)

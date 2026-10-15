@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+兼容 worker 世界复用已取得真实红绿证据：旧 `EuhlIy` exit1、同页1/2/3世界；
+新 `e6vgkl`2/2 exit0、同页及context身份不变且始终1世界，原Input/PNG/POST/
+End及清理独审通过，6689ms焦点零事件/零许可。持久身份失败只跳过可选读取，
+不等待原输入；撤销仍清原资源。Node3881pass/1既有skip，冷六布局与清理专项
+均通过。最终 `SfCCYW`180/180 actualexit0，名称/顺序保持；540693ms仅原
+12activation/4control-popup许可，原输入/截图/正文/清理独审通过，无源码漂移。
+导航/根重建/child替换及更广矩阵继续开放。
+
+此前冷原生集成基线：
 冷原生坐标反馈已接入生产：`JVWwm9` 六布局PNG/POST与原生资源独审通过，
 `WbyEaV` 三场清理/真实worker替换通过；两轮均2/2、actual exit0。原输入
 保持后台操作，真实held风险不会被私有连接恢复清除。Node3837pass/1既有skip。

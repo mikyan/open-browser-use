@@ -7,6 +7,17 @@
 
 ## 当前基线
 
+兼容 worker 复用已接入持久 realm 身份；旧 `EuhlIy` actualexit1 的同页1/2/3
+世界增长，在新 `e6vgkl`2/2 actualexit0 中保持1/1/1。原document/default及
+passive context身份不变，Input/三PNG/POST/End/资源及无focus独审通过。
+Node3881pass/1既有skip；六布局和私有生命周期专项通过，最终 `SfCCYW`
+180/180 actualexit0、原名称/顺序及输入/PNG/正文/清理独审通过，540693ms
+仅原12activation/4control-popup许可。源码/构建/运行时一致，原退出回执齐全。
+身份只选读取环境，不赋予连接权限；未就绪不延长输入，撤销不阻断原清理。
+下一项为冷读取后的同文档根重建实机验收，导航/child替换及完整矩阵保持
+开放，详见[本片计划](2026-10-15-raw-frame-feedback.md)。
+
+此前冷集成基线：
 冷原生坐标反馈已接生产；`JVWwm9`六布局PNG/POST、`WbyEaV`三场原生清理/
 真实worker替换均2/2、actual exit0并通过独审。真实held风险保留，恢复不重放
 输入；Node3837pass/1既有skip，最终完整`ZXPe7X`180/180、actual exit0。

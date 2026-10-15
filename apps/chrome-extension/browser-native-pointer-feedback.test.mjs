@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
-import { createNativePointerFeedback, NATIVE_POINTER_WORLD } from './browser-native-pointer-feedback.js';
+import { createNativePointerFeedback, NATIVE_POINTER_KERNEL_ABI } from './browser-native-pointer-feedback.js';
 import { createFrameGeometryRuntime } from '../../scripts/patch-frame-geometry.mjs';
 import { PassivePointerReads } from './browser-pointer-feedback.js';
 
 const geometry = createFrameGeometryRuntime();
+const realmIdentity = Object.freeze({ kernelABI: '1',
+  worldName: 'Open Browser Use passive pointer 00000000-0000-4000-8000-000000000001 1',
+  kernelKey: '__obuNativePointer_00000000-0000-4000-8000-000000000002_1',
+  kernelToken: '00000000-0000-4000-8000-000000000003:1' });
 const flat = points => points.flatMap(p => [p.x, p.y]);
 const corners = (x, y, w, h) => [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}];
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
@@ -18,7 +22,7 @@ const key = target => JSON.stringify(target);
 // This is a deterministic native-response seam, not proof that a particular
 // browser permits acquiring an OOPIF target. Remote projection cases explicitly
 // inject an owned route; unavailable routes must return null in production.
-function fixture({rootOnly=false, remote=false, nested=false, angle=0, scale=1}={}) {
+function fixture({rootOnly=false, remote=false, nested=false, angle=0, scale=1, realm=realmIdentity}={}) {
   const rootTarget={tabId:7}, childTarget={targetId:'exact-child-target'};
   const calls=[], cleanupCalls=[], routeCalls=[], frames=[], objects=new Map(), groups=new Map();
   const projected = p => ({x:10+scale*(Math.cos(angle)*p.x-Math.sin(angle)*p.y),y:20+scale*(Math.sin(angle)*p.x+Math.cos(angle)*p.y)});
@@ -103,7 +107,7 @@ function fixture({rootOnly=false, remote=false, nested=false, angle=0, scale=1}=
         if(method==='Page.getFrameTree')result=getTree(target);
         else if(method==='Page.createIsolatedWorld'){
           const f=frames.find(f=>f.id===params.frameId&&key(f.target)===key(target));
-          assert.ok(f);assert.equal(params.worldName,NATIVE_POINTER_WORLD);assert.equal(params.grantUniveralAccess,false);
+          assert.ok(f);assert.equal(params.worldName,realmIdentity.worldName);assert.equal(params.grantUniveralAccess,false);
           result={executionContextId:f.contextId};
         }else if(method==='Runtime.evaluate'){
           const f=frames.find(f=>f.contextId===params.contextId&&key(f.target)===key(target));assert.ok(f);
@@ -143,7 +147,7 @@ function fixture({rootOnly=false, remote=false, nested=false, angle=0, scale=1}=
         async release(){const e={release:true,settled:false};routeCalls.push(e);await onRouteRelease?.(e);e.settled=true;}};
     }
   };
-  const spec=()=>createNativePointerFeedback({target:rootTarget,...point,geometry,adapter});
+  const spec=()=>createNativePointerFeedback({target:rootTarget,...point,geometry,adapter,realm});
   const reads=new PassivePointerReads();
   const start=()=>reads.start({...spec(),scope:{attachment:adapter,tabId:7}});
   const expected={x:Math.min(...rootPoints.map(p=>p.x)),y:Math.min(...rootPoints.map(p=>p.y)),
@@ -298,15 +302,41 @@ test('group names are unique per candidate and stable across local frame worlds'
   assert.equal(new Set(f.calls.filter(c=>c.method==='Runtime.evaluate').map(c=>c.params.objectGroup)).size,2);
 });
 
-test('module world identity is private and stable across candidates and attachment adapters',async()=>{
+test('one supplied identity reuses its world and immutable kernel across compatible modules',async()=>{
   const first=fixture({rootOnly:true}),second=fixture();
   near(await first.start().result,first.expected);near(await first.start().result,first.expected);
   near(await second.start().result,second.expected);
-  const worlds=[...first.calls,...second.calls].filter(c=>c.method==='Page.createIsolatedWorld').map(c=>c.params.worldName);
-  assert.deepEqual([...new Set(worlds)],[NATIVE_POINTER_WORLD]);
-  assert.match(NATIVE_POINTER_WORLD,/^Open Browser Use passive pointer [0-9a-f-]{36}$/);
+  const kernel=Object.getOwnPropertyDescriptor(first.root.realm,realmIdentity.kernelKey).value;
   const nextModule=await import('./browser-native-pointer-feedback.js?identity-test');
-  assert.notEqual(nextModule.NATIVE_POINTER_WORLD,NATIVE_POINTER_WORLD);
+  assert.equal(nextModule.NATIVE_POINTER_KERNEL_ABI,NATIVE_POINTER_KERNEL_ABI);
+  const next=nextModule.createNativePointerFeedback({target:first.rootTarget,...first.point,geometry,adapter:first.adapter,realm:realmIdentity});
+  near(await first.reads.start({...next,scope:{attachment:first.adapter,tabId:7}}).result,first.expected);
+  assert.equal(Object.getOwnPropertyDescriptor(first.root.realm,realmIdentity.kernelKey).value,kernel);
+  const worlds=[...first.calls,...second.calls].filter(c=>c.method==='Page.createIsolatedWorld').map(c=>c.params.worldName);
+  assert.deepEqual([...new Set(worlds)],[realmIdentity.worldName]);
+});
+
+test('missing, incompatible or malformed realm identity starts no native work and has no fallback',()=>{
+  const f=fixture({rootOnly:true});let accessorCalls=0;
+  const accessor={...realmIdentity};Object.defineProperty(accessor,'worldName',{get(){accessorCalls++;throw Error('must not invoke unknown identity getter');}});
+  const invalid=[undefined,null,{},[],{...realmIdentity,kernelABI:'2'},{...realmIdentity,kernelABI:1},
+    {...realmIdentity,extra:'unrecognized'},accessor];
+  for(const key of ['worldName','kernelKey','kernelToken'])
+    for(const value of ['',null,42,' leading','trailing ','line\nbreak','x'.repeat(257)])invalid.push({...realmIdentity,[key]:value});
+  for(const realm of invalid)assert.equal(createNativePointerFeedback({target:f.rootTarget,...f.point,geometry,adapter:f.adapter,realm}),undefined);
+  assert.equal(accessorCalls,0);assert.equal(f.calls.length,0);assert.equal(f.groups.size,0);assert.equal(f.routeCalls.length,0);
+});
+
+test('a candidate pins supplied identity values before asynchronous reads',async()=>{
+  const realm={...realmIdentity},f=fixture({rootOnly:true,realm}),spec=f.spec();
+  realm.worldName='later world';realm.kernelKey='later key';realm.kernelToken='later token';realm.kernelABI='2';
+  near(await f.reads.start({...spec,scope:{attachment:f.adapter,tabId:7}}).result,f.expected);
+  assert.ok(Object.getOwnPropertyDescriptor(f.root.realm,realmIdentity.kernelKey));
+  assert.equal(Object.getOwnPropertyDescriptor(f.root.realm,'later key'),undefined);
+});
+
+test('a valid realm identity grants no original route authority',()=>{
+  const f=fixture({rootOnly:true});f.revoke();assert.equal(f.spec(),undefined);assert.equal(f.calls.length,0);
 });
 
 test('main and formerly shared named worlds do not select the private isolated realm',async()=>{
