@@ -1,0 +1,94 @@
+docs/histories/2026-10/20261015-0159-raw-frame-feedback.md
+  s_08bbfd293d324f::t_f8f6e876e39f66 115-118,126
+  s_08bbfd293d324f::t_f507076aef710a 119-125
+  s_08bbfd293d324f::t_e63d4d86d1c1b3 97-114,127-128,139-140
+apps/chrome-extension/browser-pointer-realm.js
+  s_08bbfd293d324f::t_7c3a8f7fa6c453 1-120
+apps/chrome-extension/browser-pointer-realm.test.mjs
+  s_08bbfd293d324f::t_ba0f45e79290e6 1-226
+apps/chrome-extension/browser-native-pointer-backend.test.mjs
+  s_08bbfd293d324f::t_6aa7c9122820e1 4-5,26,28-33,84,90,103,105
+  s_08bbfd293d324f::t_bba521ea358ea3 124-166
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_091651e88f7165 1639-1645
+  s_08bbfd293d324f::t_69d76dd7b01971 40,122-128,404,453,593-597,850,1627-1638
+  s_08bbfd293d324f::t_47ae92378b0fe4 1646-1647
+scripts/browser-integration/cold-world-lifetime-fixture.mjs
+  s_08bbfd293d324f::t_c4ebab7abafead 211,274-276,296-303
+  s_08bbfd293d324f::t_647ca469775ddd 1-179,203-210,212-245,267-273,277-286,289-295,304-337
+  s_08bbfd293d324f::t_4d29f22e405a82 180-202
+  s_08bbfd293d324f::t_63b5d9c67b6175 246-266,287-288
+apps/chrome-extension/browser-native-pointer-feedback.js
+  s_08bbfd293d324f::t_ad02e9a5444d05 4-9,14-30,154-156,213,218-219
+apps/chrome-extension/browser-native-pointer-route.js
+  s_08bbfd293d324f::t_ad02e9a5444d05 11,60
+apps/chrome-extension/test-support/backend-vm.mjs
+  s_08bbfd293d324f::t_0c98d5ba5e569c 6-7,71-72
+  s_08bbfd293d324f::t_7c5b4b1fa04cf1 97
+apps/chrome-extension/browser-native-pointer-feedback.test.mjs
+  s_08bbfd293d324f::t_ad02e9a5444d05 4,9-12,25,110,150,305,309,311-316
+  s_08bbfd293d324f::t_63efffedc82266 317,319-339
+  s_08bbfd293d324f::t_0161080d958f36 318
+scripts/browser-integration/cold-native-route-probe.mjs
+  s_08bbfd293d324f::t_9ef66e85cb14d6 150-151,153,205-206
+scripts/browser-integration/cold-native-route-probe.test.mjs
+  s_08bbfd293d324f::t_ccc5c1cb13784c 58-62,137,143,156,170-185
+  s_08bbfd293d324f::t_d83d40687fd92b 186
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_0c98d5ba5e569c 5-6,930-932,3750-3751,3760-3761
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_0c98d5ba5e569c 41
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_f507076aef710a 13-15
+  s_08bbfd293d324f::t_5b66839a7a842b 10-12,16-20
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_5b66839a7a842b 15-17,21-24
+  s_08bbfd293d324f::t_f507076aef710a 18-20
+docs/references/raw-frame-feedback.md
+  s_08bbfd293d324f::t_185a3b609542ad 350-351
+  s_08bbfd293d324f::t_f8f6e876e39f66 371-382
+  s_08bbfd293d324f::t_675231aa887270 327-349,352-370
+  s_08bbfd293d324f::t_f507076aef710a 383-393
+docs/exec-plans/active/2026-10-15-raw-frame-feedback.md
+  s_08bbfd293d324f::t_f507076aef710a 507-521
+  s_08bbfd293d324f::t_a7daf39c84bc8a 465-474
+  s_08bbfd293d324f::t_cb7049e596f264 522-534
+  s_08bbfd293d324f::t_f8f6e876e39f66 499-506
+  s_08bbfd293d324f::t_99f2e7ee589fe0 444-464
+  s_08bbfd293d324f::t_605d20211bb237 416-443
+  s_08bbfd293d324f::t_244fd3c5271583 475-498
+apps/chrome-extension/browser-native-pointer-route.test.mjs
+  s_08bbfd293d324f::t_ad02e9a5444d05 9-12,16,61
+  s_08bbfd293d324f::t_63efffedc82266 74-76,80-84
+  s_08bbfd293d324f::t_187e0932a870f7 85-86
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_5b66839a7a842b 14-17,21-22
+  s_08bbfd293d324f::t_f507076aef710a 18-20
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_f461c07f4be5a0 38-41
+scripts/browser-integration/cold-world-lifetime-fixture.test.mjs
+  s_08bbfd293d324f::t_4d29f22e405a82 82-97
+  s_08bbfd293d324f::t_63b5d9c67b6175 7,13-30
+  s_08bbfd293d324f::t_c4ebab7abafead 1-6,8-12,31-63,98-176
+  s_08bbfd293d324f::t_afbeb1620f980a 64-81
+package.json
+  s_08bbfd293d324f::t_af53f2028921bc 20-22
+pnpm-lock.yaml
+  s_08bbfd293d324f::t_34a74987da2b50 9-13,51-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "dc95b36c40b854479da73d60e1b9ab68177ded8d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
