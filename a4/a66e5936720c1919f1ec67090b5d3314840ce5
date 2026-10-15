@@ -1,0 +1,38 @@
+scripts/browser-integration/research-workflow-fixture.test.mjs
+  s_08bbfd293d324f::t_2cb5c1b4455eb8 7-8,113-156
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_c1e8f91fca7712 3-25
+scripts/browser-integration/research-workflow-server.test.mjs
+  s_08bbfd293d324f::t_63fc07e690f097 1-56
+docs/histories/2026-10/20261016-0157-task-comparison.md
+  s_08bbfd293d324f::t_c1e8f91fca7712 1-42
+scripts/browser-integration/research-workflow-server.mjs
+  s_08bbfd293d324f::t_2cb5c1b4455eb8 3,7-19,26-28,35-40,49-50
+  s_08bbfd293d324f::t_7ce46753cc8ba8 29-33
+scripts/browser-integration/parity-transfer-diagnostics-server.test.mjs
+  s_08bbfd293d324f::t_156ea46545d9f1 1-90
+scripts/browser-integration/research-workflow-fixture.mjs
+  s_08bbfd293d324f::t_2cb5c1b4455eb8 32-33,140-141,159-166
+scripts/browser-integration/parity-transfer-diagnostics-server.mjs
+  s_08bbfd293d324f::t_1625b7dee1035a 1-128
+docs/exec-plans/active/2026-10-16-task-comparison.md
+  s_08bbfd293d324f::t_63fc07e690f097 79-83,90-91
+  s_08bbfd293d324f::t_cc36853a28b489 40-42,103-105,185-188
+  s_08bbfd293d324f::t_8a6f15683380ff 1-39,43-78,84-89,92-102,106-184,189-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "a4a66e5936720c1919f1ec67090b5d3314840ce5",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
