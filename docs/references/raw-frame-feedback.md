@@ -391,3 +391,66 @@ The intentional host restart retains its first-generation termination; the secon
 exits 0, seven connections close and exact test processes are absent. This closes
 the compatible-worker increment, not the remaining native lifetime boundaries
 or broader parity goal. Existing published preview archives are unchanged.
+
+### Same-document root replacement
+
+`OBU_TEST_COLD_ROOT_REBUILD=1` runs the raw-navigation precondition followed by
+`js-cold-root-rebuild`; optional case selection must be exactly that second
+name. The fixture keeps the native Document, loader, default context and passive
+realm alive while one trusted application click replaces documentElement. The
+new button has different position and size. Separate default-context reads
+identify both original roots/buttons; their explicit fixture groups add observed
+round trips and are released through their original native acknowledgements.
+Production node IDs must agree with those observations. Two original PNGs and
+one final trusted submission check the visible result and preserved input flow.
+
+First run `R58uno` remains an actual exit-1 failure: its screenshots and business
+flow pass independent review, but the oracle rejects five repeated finalization
+detaches after the original End detach has succeeded. The revised oracle keeps
+every rejected native receipt as `ok:false`. It separately classifies only the
+exact same-tab not-attached error after that successful detach acknowledgement,
+with End request/ACK evidence, no pending resources or subsequent attachment/input,
+and empty final inventories. No failed read or first detach is waived.
+
+Visual observation failures cannot skip the original screenshot attempts,
+business submission or End. The shared End helper's opt-in deferred assertion
+path sends End once even if the initial visibility/read check fails, retains
+that original failure, and records secondary End/hide errors. Existing default
+ordering is unchanged. Ten tracked deterministic checks cover these failure
+combinations and held replies; eleven fixture checks cover original identities,
+native receipts, business bytes and exact absence classification. Simulated
+clock checks do not establish native hidden duration.
+
+This increment changes acceptance code only. It establishes the next cold read
+after same-document root replacement; it does not establish continuous DOM
+tracking, navigation, BFCache, an already-read child replacement or a root
+replacement while the original native read is still pending.
+
+Fresh `0l1om9` passes 2/2 with actual exit 0 and no source/runtime drift.
+Independent review joins 175 original calls/settlements (170 successful ACKs
+and five preserved absence rejections), twelve released groups/33 handles,
+twelve inputs, two native PNGs and one 4,520-byte POST with eleven trusted DOM
+events. Root/button IDs change while Document, loader and both native contexts
+remain the same. End stays hidden for 556 ms; the 4,453 ms focus interval has
+zero events and zero allowances. The host exits 0, both connections close and
+the exact run's processes are absent. A concurrently running related suite is
+explicitly excluded from this run's process-absence claim.
+
+Related `fi8VZ5` passes the original 22 selected cases with actual exit 0; Node
+groups pass 3,902 tests with one existing Windows symlink-privilege skip. All
+54 production files match the earlier full `SfCCYW` 180/180 baseline. That full
+suite was not rerun for this acceptance-only change. Published preview archives
+are unchanged.
+
+Independent related-suite review confirms that its names/order exactly match
+the previous 180 cases filtered by the original selection plus mandatory raw
+navigation. Six original frame PNGs/POSTs (14,185 bytes), all thirteen End
+documents, and the selected input/visual workflows pass. Across those workflows,
+80 native inputs and 21 original POSTs (64,164 bytes) are checked; sixteen PNGs
+are inspected, six also joined to recorded native screenshot ACK bytes. Controlled
+synthetic replies remain separate. Unselected keyboard-chord, drag and screenshot
+drain cases are not counted. The 94,055 ms focus interval retains only the original
+two popup activations/two Pause-control focus allowances, each matched to its
+target, sequence and interval. Intentional host restart retains generation one's
+termination; generation two exits 0, all four connections close and exact test
+processes are absent. No broader capability-parity conclusion follows.

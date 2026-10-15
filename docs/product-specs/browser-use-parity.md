@@ -12,6 +12,13 @@
 
 ## Baseline sources
 
+P07/P12/P13 同文档根替换后的下一次冷读取新增真实验收：`0l1om9`2/2、
+相关`fi8VZ5`22/22，均actualexit0；两原PNG、不同几何及唯一可信提交通过。
+生产源未变，Node3902pass/1既有skip；原`R58uno`测试误判失败保留。该证据
+仅限同Document/loader/context的根替换，不覆盖导航、读中替换或连续DOM跟踪。
+详见[坐标反馈](../references/raw-frame-feedback.md)；此前完整180基线未重跑。
+
+此前兼容 worker 基线：
 P07/P12/P13 兼容 worker 的原生读取世界现复用持久身份。旧 `EuhlIy` exit1
 证明同页世界1/2/3增长；新 `e6vgkl`2/2 exit0、同realm/context/document下
 1/1/1，原输入/三PNG/POST/End/清理与6689ms零focus独审通过。Node3881pass/

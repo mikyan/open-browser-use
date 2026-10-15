@@ -7,6 +7,14 @@
 
 ## 当前基线
 
+冷读取后的同文档根替换已验：`0l1om9`2/2、相关`fi8VZ5`22/22均实际exit0，
+两原PNG/新几何/唯一可信提交通过；Node3902pass/1既有权限skip。生产源未变，
+原`R58uno`清理回执误判失败保留，此前完整`SfCCYW`180/180未重跑。
+下一项是已建立冷读取环境后，同标签同源A→B完整导航；分别检查新Document/
+loader/context uniqueId和同worldName，先不混worker、BFCache、iframe或挂起
+故障。整体目标保持active，详见[本片计划](2026-10-15-raw-frame-feedback.md)。
+
+此前兼容 worker 基线：
 兼容 worker 复用已接入持久 realm 身份；旧 `EuhlIy` actualexit1 的同页1/2/3
 世界增长，在新 `e6vgkl`2/2 actualexit0 中保持1/1/1。原document/default及
 passive context身份不变，Input/三PNG/POST/End/资源及无focus独审通过。

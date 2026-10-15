@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+同文档根替换后的下一次冷读取已验：`0l1om9`2/2、相关`fi8VZ5`22/22，
+均实际exit0且无源码漂移；新旧按钮位置/尺寸不同，保留原Document/loader/
+context，两原PNG及唯一可信提交通过。Node3902pass/1既有Windows权限skip。
+本轮只改验收代码；此前生产基线`SfCCYW`180/180继续适用，未声称重新全跑。
+原`R58uno`因结束后已分离回执误判的exit1保留。导航、读中替换与完整矩阵
+继续开放，详见[坐标反馈](references/raw-frame-feedback.md)。
+
+此前兼容 worker 基线：
 兼容 worker 世界复用已取得真实红绿证据：旧 `EuhlIy` exit1、同页1/2/3世界；
 新 `e6vgkl`2/2 exit0、同页及context身份不变且始终1世界，原Input/PNG/POST/
 End及清理独审通过，6689ms焦点零事件/零许可。持久身份失败只跳过可选读取，

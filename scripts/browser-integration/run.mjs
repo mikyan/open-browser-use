@@ -38,6 +38,7 @@ import { checkColdRawFeedback, readColdRawDocument, coldRawAddPoint } from "./co
 import { inspectColdNativeRoutes } from "./cold-native-route-probe.mjs";
 import { coldPrivateTargetLifecyclePrefix, createColdPrivateTargetFixtures, checkColdPrivateTargetLifecycle } from "./cold-private-target-lifecycle-fixture.mjs";
 import { coldWorldLifetimeProbePrefix, createColdWorldLifetimeFixtures, checkColdWorldLifetime } from "./cold-world-lifetime-fixture.mjs";
+import { createColdRootRebuildFixtures, checkColdRootRebuild } from "./cold-root-rebuild-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback, frameTargetURLs, selectFrameTargetDocuments, frameTargetGeometry } from "./frame-target-feedback-fixture.mjs";
@@ -119,6 +120,13 @@ import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const coldRootRebuild = process.env.OBU_TEST_COLD_ROOT_REBUILD === "1";
+if (process.env.OBU_TEST_COLD_ROOT_REBUILD !== undefined && !coldRootRebuild)
+  throw new Error("OBU_TEST_COLD_ROOT_REBUILD must be 1 when set");
+if (coldRootRebuild && process.env.OBU_TEST_CASES !== undefined && process.env.OBU_TEST_CASES !== "^js-cold-root-rebuild$")
+  throw new Error("Cold root rebuild is a separate two-case mode");
+if (coldRootRebuild && ["OBU_TEST_COLD_WORLD_LIFETIME", "OBU_TEST_COLD_PRIVATE_TARGETS", "OBU_TEST_CREATED_PAGES", "OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_COLD_NATIVE_READER", "OBU_TEST_COLD_NATIVE_ROUTES", "OBU_TEST_RAW_COLD_FEEDBACK"].some(key => process.env[key] !== undefined))
+  throw new Error("Cold root rebuild cannot be combined with another diagnostic mode");
 const coldWorldLifetime = process.env.OBU_TEST_COLD_WORLD_LIFETIME === "1";
 if (process.env.OBU_TEST_COLD_WORLD_LIFETIME !== undefined && !coldWorldLifetime)
   throw new Error("OBU_TEST_COLD_WORLD_LIFETIME must be 1 when set");
@@ -402,6 +410,7 @@ const domRebuildFeedbackFixtures = createDOMRebuildFeedbackFixtures();
 const frameTargetFeedbackFixtures = createFrameTargetFeedbackFixtures();
 const coldPrivateTargetFixtures = createColdPrivateTargetFixtures();
 const coldWorldLifetimeFixtures = createColdWorldLifetimeFixtures();
+const coldRootRebuildFixtures = createColdRootRebuildFixtures();
 const siteAccessStartupFixtures = createSiteAccessStartupFixtures();
 const restrictedDialogFixtures = createRestrictedDialogFixtures();
 const restrictedDialogKinds = ["js", "cli", "mcp", "python", "go"];
@@ -451,6 +460,7 @@ const http = createServer(async (request, response) => {
   if (frameTargetFeedbackFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (coldPrivateTargetFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (coldWorldLifetimeFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
+  if (coldRootRebuildFixtures.handle(request, response, new URL(request.url, `http://127.0.0.1:${httpPort}`))) return;
   if (createdPageProof && createdPageFixtures.handle(request, response)) return;
   if (originalDownloadFixtures.handle(request, response, `http://127.0.0.1:${httpPort}/`)) return;
   if (originalDownloadNegativeFixtures.handle(request, response)) return;
@@ -590,7 +600,7 @@ try {
       ledgerKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS", initializedKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS_INITIALIZED", storageArea: "local"
     }) + stagedBackground.slice(boundary);
   }
-  if (coldWorldLifetime) {
+  if (coldWorldLifetime || coldRootRebuild) {
     const boundary = stagedBackground.indexOf("const NATIVE_HOST_NAME =");
     assert.ok(boundary > 0);
     stagedBackground = stagedBackground.slice(0, boundary) + coldWorldLifetimeProbePrefix() + stagedBackground.slice(boundary);
@@ -848,6 +858,7 @@ try {
     if (bridgeFailure) throw bridgeFailure;
     if (coldPrivateTargets && !["js-raw-navigation-before-engine", "js-cold-private-target-lifecycle"].includes(name)) return;
     if (coldWorldLifetime && !["js-raw-navigation-before-engine", "js-cold-world-lifetime"].includes(name)) return;
+    if (coldRootRebuild && !["js-raw-navigation-before-engine", "js-cold-root-rebuild"].includes(name)) return;
     if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready", "js-created-page-unowned", "js-created-page-popup-source", "js-created-page-popup-delivery"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
@@ -1645,6 +1656,28 @@ try {
       }
     });
   });
+  if (coldRootRebuild) await test("js-cold-root-rebuild", async () => {
+    sourceIdentity.testHooks.push("Cold root rebuild: shared passive native observer; one original document, application-triggered root replacement and one trusted form submission through original raw inputs. Default-context node identity reads use separate fixture groups. No engine migration, input replay or new focus allowance.");
+    sourceIdentity.sha256["cold-root-rebuild-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "cold-root-rebuild-fixture.mjs"))).digest("hex");
+    const precondition = { finalized: await browser.client.finalizeTabs([]), restart: await restartObservedWorker() };
+    precondition.control = await worker.evaluate("(async()=>{const b=__integrationBackend;await b.controlReady;await b.privatePointerRecovery?.promise;return {engineAbsent:b.browserEngine===null,status:await b.getAutomationControlStatus()}})()");
+    await fs.writeFile(path.join(runDir, "cold-root-rebuild-precondition.json"), JSON.stringify(precondition, null, 2));
+    assert.equal(precondition.control.engineAbsent, true); assert.equal(precondition.control.status.inputBlocked, false);
+    return checkColdRootRebuild({
+      connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
+      getWorker: () => worker, fixtureURL, fixtures: coldRootRebuildFixtures, until,
+      closeTab: owned => worker.evaluate(`chrome.tabs.remove(${owned.id})`),
+      saveArtifact: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
+      saveDetail: value => fs.writeFile(path.join(runDir, "cold-root-rebuild.json"), JSON.stringify(value, null, 2)),
+      checkEnd: async (value, owner) => {
+        const original = { states: value.states };
+        try {
+          const result = await endFrameTargetFeedback(owner, original, { deferVisibleAssertion: true });
+          return { ...result, evidence: original.endCleanup };
+        } finally { value.endEvidence = original.endCleanup; }
+      }
+    });
+  });
   if (mcpBinding) await test("mcp-connection-binding", () => checkMCPConnectionBinding({
     executable, socketDir, fixtureURL, fixture: mcpBindingFixture, until,
     restartHost: async () => {
@@ -2175,7 +2208,7 @@ try {
     if (failure) throw failure;
     return detail;
   });
-  async function endFrameTargetFeedback(owner, value) {
+  async function endFrameTargetFeedback(owner, value, { deferVisibleAssertion = false } = {}) {
           const evidence = value.endCleanup = {};
           const read = async () => {
             const rows = [];
@@ -2195,10 +2228,32 @@ try {
             }
             return rows;
           };
-          const before = evidence.before = await read();
-          assert.equal(before.filter(row => row.frameId === 0).length, value.states.length);
-          assert.ok(before.every(row => row.openAgentLayers === (row.frameId === 0 ? 1 : 0)));
-          await owner.client.turnEnded();
+          const endWithEvidence = async () => {
+            evidence.endRequested = true;
+            try { await owner.client.turnEnded(); evidence.endAcknowledged = true; }
+            catch (error) { evidence.endError = String(error); throw error; }
+          };
+          let before, beforeFailure;
+          try { before = evidence.before = await read(); }
+          catch (error) {
+            if (deferVisibleAssertion) {
+              evidence.beforeError = String(error);
+              try { await endWithEvidence(); } catch {}
+            }
+            throw error;
+          }
+          try {
+            assert.equal(before.filter(row => row.frameId === 0).length, value.states.length);
+            assert.ok(before.every(row => row.openAgentLayers === (row.frameId === 0 ? 1 : 0)));
+          } catch (error) {
+            if (!deferVisibleAssertion) throw error;
+            beforeFailure = error; evidence.beforeVisibilityError = String(error);
+          }
+          if (deferVisibleAssertion) {
+            try { await endWithEvidence(); }
+            catch (error) { throw beforeFailure ?? error; }
+          } else await owner.client.turnEnded();
+          try {
           const hidden = row => row.openAgentLayers === 0 && row.rings === 0 && row.opacity === (row.frameId === 0 ? "0" : null);
           const closed = evidence.closed = await until(async () => { const rows = await read(); return rows.every(hidden) ? rows : false; }, "original frame feedback ends without reviving effects", 5000);
           const hiddenAt = Date.now();
@@ -2215,6 +2270,11 @@ try {
               assert.deepEqual(current.state.geometry, prior.state.geometry, "Turn end changed original frame geometry");
             }
           }
+          } catch (error) {
+            if (deferVisibleAssertion) evidence.hiddenError = String(error);
+            throw beforeFailure ?? error;
+          }
+          if (beforeFailure) throw beforeFailure;
           return { hidden: true, originalDocuments: before.length, hiddenObservedMs: evidence.hiddenObservedMs };
   }
   for (const pointerMode of ["locator", "mouse", "cdp"]) await test(pointerMode === "locator" ? "js-frame-target-feedback" : `js-${pointerMode}-frame-target-feedback`, async () => {

@@ -126,6 +126,32 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
   跨导航/根重建/child替换、普通Edge、全屏及完整矩阵
   继续开放，本片不宣称目标完成。
 
+### Same-document root replacement acceptance
+
+- 新增独立冷路根替换验收：单次可信应用点击替换documentElement，新的按钮
+  位置与尺寸不同；保留原Document、loader、默认及passive context。独立节点
+  观察有明确fixture对象组，原释放回执、两PNG、唯一POST和End共同验证。
+- `R58uno`原exit1保留：两PNG/业务独审通过，失败是oracle把原detach成功后
+  五次exact-not-attached都判为错误。只分类有原成功detach与End请求/ACK、
+  无pending/后继Input或attach且精确库存为空的absence；原ok:false/error不改。
+  新增11项fixture检查，旧断言及缺End ACK的红例均保留。
+- 共享End helper新增仅供此模式的延迟可见性断言：初始读数或可见性失败仍
+  单次发送End，保留首个错误并记录后继End/hide错误；默认流程不变。
+  十项长期回归覆盖挂起回执及复合失败，其模拟时间不充当原生时长证据。
+- 新`0l1om9`2/2、相关`fi8VZ5`22/22均actualexit0且source/runtime无漂移；
+  Node三组3902pass/1既有Windows symlink权限skip，实际退出回执完整。
+  本轮仅改验收代码，生产沿用`SfCCYW`180/180基线，未重复宣称完整跑数。
+- 根替换独审核175原调用（170成功ACK/5原absence）、12组33对象原释放、
+  12Input、两PNG、4520B原POST与11可信事件；End556ms隐藏，4453ms焦点
+  零事件/许可。原host实际exit0、两连接关闭、精确本轮进程无残留；当时仍
+  运行的相关套件被明确排除，不将其同binary进程误报为本轮泄漏或全局清零。
+- 相关22名称/顺序与原180过滤结果相同；原6frame PNG/POST14185B、13文档
+  End及所选输入/视觉流程独审通过。94055ms仅原两popup activation/两Pause
+  focus许可，精确归属保持；两代host原终止/exit0，四连接关闭、精确进程无残留。
+- 仅证明同文档根替换之后的下一次冷读取；导航、读中替换、BFCache、child
+  替换及整体目标继续开放。下片先验同标签同源完整导航，不预设生产缺陷。
+  同步文档并推现有fork分支，不提PR，已发布预览包保持不变。
+
 ### Main files
 
 - `scripts/raw-pointer-feedback.mjs`、`scripts/patch-pointer-feedback.mjs`
@@ -140,3 +166,5 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
 - `scripts/browser-integration/cold-world-lifetime-fixture.mjs`
 - `scripts/browser-integration/cold-private-target-lifecycle-fixture.mjs`
 - `scripts/browser-integration/cold-native-route-probe.mjs`
+- `scripts/browser-integration/cold-root-rebuild-fixture.mjs`
+- `scripts/browser-integration/frame-feedback-end.test.mjs`

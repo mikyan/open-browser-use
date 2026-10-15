@@ -532,3 +532,87 @@ submission, End, original group cleanup and the unchanged focus ledger. First
 establish actual behavior; do not label this a production defect in advance.
 Full navigation, BFCache and replacing an already-read OOPIF are separate later
 boundaries, not covered by compatible worker reuse on an unchanged root.
+
+### Same-document root replacement acceptance
+
+The preceding goal turn completed and pushed `dc95b36`, including the actual
+old/fixed native records and final default regression; it is progress, not a
+wait or completion of the broader goal. The worktree was clean when beginning
+this boundary. Production is kept at that verified source while the original
+behavior is established.
+
+The new isolated `OBU_TEST_COLD_ROOT_REBUILD=1` mode retains the existing raw
+navigation precondition and shared passive native observer. The application
+performs one documentElement replacement in response to a single trusted raw
+click. The replacement button has different geometry. Independent default-context
+node reads use clearly named fixture object groups and original release ACKs;
+they are observations, not production authority, and add observable round trips.
+Production hit/root IDs must agree with these original nodes. Visual waits and
+pixel assertions cannot skip screenshots, the single business submission or End
+cleanup on failure. Existing focus rules, native input sequence and time budgets
+remain intact. This first run is an acceptance investigation, not a presumed bug.
+
+Independent fixture review found the shared End helper rejected a missing initial
+layer before sending End. The new mode therefore defers that visibility failure,
+waits for the original End acknowledgement and attempts hidden-state observation,
+then preserves the original failure. An initial document-read failure also sends
+End once while retaining its original error; secondary End/hide errors remain
+diagnostic evidence. The adapter saves this evidence even when the helper throws.
+Default-mode ordering is unchanged. Eight independent VM checks of the actual
+helper/adapter pass, including held ACKs and double failures; their simulated
+clock is not native hidden-duration evidence. Three invalid new-mode invocations
+also exit before runner setup, with their expected configuration errors.
+
+First native run `R58uno` retains actual exit 1. Both original PNGs, changed
+root/button identities and the single trusted submission pass independent
+review, but the oracle incorrectly requires every detach to succeed. The first
+End detach succeeds; five later finalization detach calls return the exact
+same-tab not-attached error. Their original errors remain in the record.
+Only this proven post-End absence may be classified separately, with prior
+successful detach, no pending resources or later attachment/input, and empty
+final inventories; other failed calls must still fail acceptance.
+
+The actual End helper now has ten tracked deterministic regression checks.
+They additionally preserve the original visibility failure when End itself
+rejects and retain that secondary error as evidence. Healthy-state End errors
+remain failures. These checks use simulated native promises and clocks, not
+browser timing evidence. No production code has changed in this increment.
+
+The exact absence classifier additionally requires the original End request and
+acknowledgement plus matching helper evidence. Eleven fixture checks pass;
+the first-failure and missing-ACK regression failures remain separate records.
+Fresh native `0l1om9` passes 2/2, actual exit 0; related `fi8VZ5` passes 22/22,
+actual exit 0. Both close records have no source/runtime drift. The three Node
+groups pass 3,902 tests with one existing Windows symlink-privilege skip
+(1,824 extension, 330 scripts, 1,748 integration). Original v1 remains failed.
+
+Independent `0l1om9` review joins all 175 native calls: 170 successful ACKs and
+five preserved exact absence rejections. Twelve groups/33 handles release
+before the original successful detach; twelve original inputs, two native PNGs,
+one 4,520-byte POST and eleven trusted events match. End remains hidden 556 ms;
+the 4,453 ms focus interval has zero events/allowances. Host exit, both connection
+closures and exact original process absence are observed; the concurrently
+running related suite is excluded from that process claim. All 54 production
+files match `SfCCYW`; this increment does not require another full 180-case run.
+
+Final related-suite review confirms the same 22 names/order as the prior full
+run's original selection. Six original frame PNGs/POSTs (14,185 bytes), thirteen
+End documents and selected input/visual workflows pass. Its 94,055 ms focus
+interval preserves only the original two popup activations/two Pause-control
+focus allowances, matched to exact targets and intervals. The intentional host
+restart retains generation one's termination; generation two exits 0, all four
+connections close and exact processes are absent. No additional cases or focus
+exceptions were introduced. Documentation and repository checks pass; this
+closes the root-replacement acceptance increment, not the active parity goal.
+
+The next independent boundary is a cold read followed by one same-tab,
+same-origin full A-to-B navigation. Existing cold-layout tests navigate only
+before the first read; existing visual-navigation tests already use the warm
+engine. Production has document-revision invalidation, final loader/node checks
+and exact-document visual delivery, but these are not native acceptance of this
+transition. Require a new native Document, loader and context unique ID, the
+same world name and one world for B, different B geometry, two original PNGs,
+one B submission, resource release and unchanged focus rules. Do not require
+numeric context or frame IDs to change. Establish behavior before alleging a
+production bug. Navigation during a held read, BFCache, child replacement and
+worker replacement remain separate boundaries. Published archives are unchanged.
