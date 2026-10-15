@@ -11,13 +11,21 @@
 
 ## 当前评分
 
+六任务两轮、双方共 24 次原始尝试已结算并完成停止后独审。OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。
+保留两项环境阻塞、OBU 首轮研究的桥接清理失败及 Codex 两项隐藏输入限制，
+未以重跑覆盖。生产仍为已发布的 `e83c6d8`；本轮只改验收设施和文档。
+这不证明速度、跨平台或完整能力持平，普通安装 Edge 与独立 OS 前台观测仍
+开放。详见[两轮完整任务对照](references/paired-task-comparison.md)。
+
+此前 e83c6d8 发布基线：
+
 网络注册超时清理竞态已修复：原截止时间返回 TIMEOUT，注册开始后由原 registry
 保留 enable/disable 回执，Pause/end 完成实际清理后才释放 Page。旧源确定性
 EXPIRED/提前 detach 反例保留。最终完整浏览器 `3GBPrq`180/180、读中导航
 `K6hnZi`2/2、普通导航 `4tsar9`2/2 均实际 exit0；Node3933pass/1既有
 Windows权限skip，无源码漂移。读中导航是原生成功回复的受控延迟交付，核验旧
 候选撤销和原资源释放，不能写成浏览器自然延迟。用户要求制作新预览包；完整
-Codex能力对齐仍未结束，普通Edge人工安装及完整任务对照保持开放。
+Codex能力对齐仍未结束；普通Edge人工安装保持开放，本次有限任务对照见上方。
 
 此前完整导航基线：
 同标签同源完整导航新增 `Ri2zjD`2/2 actualexit0；换页前后两原PNG、B首次输入前

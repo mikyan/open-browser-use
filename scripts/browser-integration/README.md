@@ -2,7 +2,7 @@
 
 ## Fixed complete-task comparison
 
-The [P15 comparison protocol](../../docs/exec-plans/active/2026-10-16-task-comparison.md)
+The [P15 comparison protocol](../../docs/exec-plans/completed/2026-10-16-task-comparison.md)
 fixes six tasks, two sides and two rounds before execution. Solvers receive only
 public task instructions and use their formal browser interfaces; fixture
 drivers, private ledgers and expected answers are reserved for later auditing.
@@ -18,7 +18,8 @@ shared visible instructions. Its ready message contains public URLs and three
 generated upload file paths. Private server evidence remains local. Send `stop`
 on stdin and retain the actual child process close result as well as its files.
 
-These are preparation servers, not completed comparison results. Their focused
+The fixed 24 attempts are complete; see the [audited results](../../docs/references/paired-task-comparison.md).
+The server tests are preparation evidence, separate from those task outcomes. Their focused
 tests verify paired materials, independent submissions, original upload bytes,
 unchanged diagnostic pages and actual server shutdown. See the protocol for
 task budgets, first-attempt recording, cleanup and environment limitations.

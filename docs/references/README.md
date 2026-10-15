@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [两轮完整任务对照](paired-task-comparison.md)：固定 24 次原始尝试、失败保留、
+  正式 API/业务/清理证据与有限结论；附脱敏 SHA 索引。
+
 - [Raw frame feedback](raw-frame-feedback.md)：已初始化 Page 的坐标叶节点读取、
   原临时对象释放与调用方期限分离；冷 CDP 的独立失败及未完成边界。
 - [Visual delivery cleanup](visual-delivery-cleanup.md)：原可视消息结算、精确

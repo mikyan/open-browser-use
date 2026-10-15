@@ -5,7 +5,12 @@
 2026-10-16：上一片已在 `e83c6d8` 完成验收并发布 Windows preview。本片
 比较 Open Browser Use（OBU）正式 JS SDK 与当前 Codex Browser Use 的实际
 完整任务结果，固定 **6 个任务 × 2 方 × 2 轮 = 24 次尝试**。本计划的
-预算、业务说明、顺序和结果分类在执行前固定；目前尚无任务结果。
+预算、业务说明、顺序和结果分类在执行前固定；24 次已结算并完成停止后独审。
+
+OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。
+
+本执行计划已完成；整体 P15 与 Codex 能力对齐仍未完成。详细结果见
+[两轮完整任务对照](../../references/paired-task-comparison.md)。
 
 这不是模型推理能力或通用网页性能基准。两方均从公开任务页、渲染后的资料
 和自己的正式浏览器 API 完成任务。既有回归 driver、fixture checker、私有
@@ -17,7 +22,7 @@ oracle 只供准备环境和事后审计，不得作为 OBU 的解题器。旧�
 - [完整能力范围](../../product-specs/browser-use-parity.md)
 - [共享研究任务](../../references/shared-research-workflow.md)
 - [原页面下载](../../references/original-page-download-delivery.md)
-- [前一片执行计划](2026-10-15-raw-frame-feedback.md)
+- [前一片执行计划](../active/2026-10-15-raw-frame-feedback.md)
 
 ## 固定范围与双方入口
 
@@ -108,32 +113,35 @@ X、D2、D1、U、R、F，每项 Codex 先、OBU 后。不得在看到结果后�
 拒绝的实际提交也计入原提交次数。产品修复后的复验可另列补充证据，但不
 覆盖这 24 行，也不在本计划自动增加次数。
 
-| 序号 | Attempt ID | 轮次 | 任务 | 方 | 状态 | wall ms | 工具/API 次数 | 失败/替代 | 业务提交/触发 | 文件/报告 | tabs 终态 | 观测/清理 | 原证据 |
-|---:|---|---:|---|---|---|---:|---|---|---|---|---|---|---|
-| 01 | p15-r1-f-obu | 1 | F | OBU | pending | — | — | — | — | — | — | — | — |
-| 02 | p15-r1-f-codex | 1 | F | Codex | pending | — | — | — | — | — | — | — | — |
-| 03 | p15-r1-r-obu | 1 | R | OBU | pending | — | — | — | — | — | — | — | — |
-| 04 | p15-r1-r-codex | 1 | R | Codex | pending | — | — | — | — | — | — | — | — |
-| 05 | p15-r1-u-obu | 1 | U | OBU | pending | — | — | — | — | — | — | — | — |
-| 06 | p15-r1-u-codex | 1 | U | Codex | pending | — | — | — | — | — | — | — | — |
-| 07 | p15-r1-d1-obu | 1 | D1 | OBU | pending | — | — | — | — | — | — | — | — |
-| 08 | p15-r1-d1-codex | 1 | D1 | Codex | pending | — | — | — | — | — | — | — | — |
-| 09 | p15-r1-d2-obu | 1 | D2 | OBU | pending | — | — | — | — | — | — | — | — |
-| 10 | p15-r1-d2-codex | 1 | D2 | Codex | pending | — | — | — | — | — | — | — | — |
-| 11 | p15-r1-x-obu | 1 | X | OBU | pending | — | — | — | — | — | — | — | — |
-| 12 | p15-r1-x-codex | 1 | X | Codex | pending | — | — | — | — | — | — | — | — |
-| 13 | p15-r2-x-codex | 2 | X | Codex | pending | — | — | — | — | — | — | — | — |
-| 14 | p15-r2-x-obu | 2 | X | OBU | pending | — | — | — | — | — | — | — | — |
-| 15 | p15-r2-d2-codex | 2 | D2 | Codex | pending | — | — | — | — | — | — | — | — |
-| 16 | p15-r2-d2-obu | 2 | D2 | OBU | pending | — | — | — | — | — | — | — | — |
-| 17 | p15-r2-d1-codex | 2 | D1 | Codex | pending | — | — | — | — | — | — | — | — |
-| 18 | p15-r2-d1-obu | 2 | D1 | OBU | pending | — | — | — | — | — | — | — | — |
-| 19 | p15-r2-u-codex | 2 | U | Codex | pending | — | — | — | — | — | — | — | — |
-| 20 | p15-r2-u-obu | 2 | U | OBU | pending | — | — | — | — | — | — | — | — |
-| 21 | p15-r2-r-codex | 2 | R | Codex | pending | — | — | — | — | — | — | — | — |
-| 22 | p15-r2-r-obu | 2 | R | OBU | pending | — | — | — | — | — | — | — | — |
-| 23 | p15-r2-f-codex | 2 | F | Codex | pending | — | — | — | — | — | — | — | — |
-| 24 | p15-r2-f-obu | 2 | F | OBU | pending | — | — | — | — | — | — | — | — |
+| 序号 / Attempt ID | 任务 / 方 | 最终状态 | 业务 wall 秒 | 正式 API 次数 | 清理 ms | 业务与页终态 |
+|---|---|---|---:|---:|---:|---|
+| 01 / `p15-r1-f-obu` | F / obu | blocked-environment | — | 0 | — | 未访问任务；跨代理终端 handle 不可用 |
+| 02 / `p15-r1-f-codex` | F / codex | blocked-environment | — | 0 | — | 未访问任务；原 solver 换 turn 后 IAB 不可用 |
+| 03 / `p15-r1-r-obu` | R / obu | failed | 293.807 | 72 | 60550 | 报告正确；原 finalize 失败，迟到恢复关闭了报告 |
+| 04 / `p15-r1-r-codex` | R / codex | success | 147.453 | 67 | 138 | 唯一报告；保留交付页并关闭资料页 |
+| 05 / `p15-r1-u-obu` | U / obu | success | 78.729 | 12 | 25 | 三文件唯一上传；同输入清空 |
+| 06 / `p15-r1-u-codex` | U / codex | unsupported | 115.278 | 17 | 45 | 隐藏输入不可点击；原 CDP 明确拒绝直接设文件 |
+| 07 / `p15-r1-d1-obu` | D1 / obu | success | 62.448 | 10 | 28 | 一次原 POST 下载；实际文件匹配 |
+| 08 / `p15-r1-d1-codex` | D1 / codex | success | 44.495 | 9 | 39 | 一次原 POST 下载；实际文件匹配 |
+| 09 / `p15-r1-d2-obu` | D2 / obu | success | 63.053 | 10 | 32 | 一次原 Blob 下载；立即 revoke 后文件匹配 |
+| 10 / `p15-r1-d2-codex` | D2 / codex | success | 37.010 | 9 | 44 | 一次原 Blob 下载；立即 revoke 后文件匹配 |
+| 11 / `p15-r1-x-obu` | X / obu | success | 49.900 | 9 | 38 | 主页面与跨源框架原 console/error/network |
+| 12 / `p15-r1-x-codex` | X / codex | success | 126.899 | 24 | 45 | 主页面与跨源框架；保留原不支持调用及合法替代 |
+| 13 / `p15-r2-x-codex` | X / codex | success | 63.324 | 20 | 45 | 新页面与跨源框架原诊断 |
+| 14 / `p15-r2-x-obu` | X / obu | success | 44.631 | 9 | 35 | 新页面与跨源框架原诊断 |
+| 15 / `p15-r2-d2-codex` | D2 / codex | success | 34.075 | 9 | 37 | 新 Blob 案例的原文件匹配 |
+| 16 / `p15-r2-d2-obu` | D2 / obu | success | 62.793 | 10 | 36 | 新 Blob 案例的原文件匹配 |
+| 17 / `p15-r2-d1-codex` | D1 / codex | success | 32.225 | 9 | 45 | 新 POST 案例的原文件匹配 |
+| 18 / `p15-r2-d1-obu` | D1 / obu | success | 58.879 | 10 | 33 | 新 POST 案例的原文件匹配 |
+| 19 / `p15-r2-u-codex` | U / codex | unsupported | 32.219 | 9 | 20 | 隐藏 chooser 失败；未上传，未到清空阶段 |
+| 20 / `p15-r2-u-obu` | U / obu | success | 55.141 | 11 | 22 | 新案例三文件唯一上传；同输入清空 |
+| 21 / `p15-r2-r-codex` | R / codex | success | 75.313 | 65 | 176 | 新材料唯一报告；保留两份交付报告 |
+| 22 / `p15-r2-r-obu` | R / obu | success | 340.707 | 61 | 102 | 新材料唯一报告；保留交付页至统一清场 |
+| 23 / `p15-r2-f-codex` | F / codex | success | 101.296 | 32 | 96 | 两次框架保存、唯一提交与公开证据 |
+| 24 / `p15-r2-f-obu` | F / obu | success | 89.593 | 29 | 37 | 两次框架保存、唯一提交与公开证据 |
+
+完整逐项原件索引、错误/替代、文件 SHA、tabs、观测与清理边界见
+[脱敏结果索引](../../references/paired-task-comparison-results.json)。
 
 ## 结果分类与证据契约
 
@@ -185,12 +193,12 @@ unknown，不以更宽的成功定义掩盖。
 - [x] 为研究增加同轮相同材料且独立账本的薄比较入口；默认随机行为不变。
   原 fixture 与 paired server 定向 7/7 实际退出 0；不含正式比较尝试。
 - [x] 准备上传/诊断共同可见说明与薄 server，记录源 hash；不调用解题 checker。
-  独立薄 server 由准备代理验证 2/2，比较运行仍待 manifest 冻结。
-- [ ] 冻结执行 manifest：双方真实工具/浏览器/模型身份、源码/构建、公共指令
-  与输入 hash、24 个唯一 attempt ID、录制与清理方案。确认再开始第一行。
-- [ ] 顺序完成 24 行，保留全部首次结果、能力缺口和限制。
-- [ ] 事后独审原业务、下载文件、诊断、页终态与可得的焦点/清理证据。
-- [ ] 发布有限结果表和有证据的 gap 清单。本片到 24 行收口，不自动增加
+  独立薄 server 由准备代理验证 2/2，正式比较前已冻结 manifest。
+- [x] 冻结执行 manifest：双方真实工具/浏览器/模型身份、源码/构建、公共指令
+  与输入 hash、24 个唯一 attempt ID、录制与清理方案。原 manifest 在第一行前冻结，中途环境/桥接修正用追加记录保留。
+- [x] 顺序完成 24 行，保留全部首次结果、能力缺口和限制。
+- [x] 事后独审原业务、下载文件、诊断、页终态与可得的焦点/清理证据。
+- [x] 发布有限结果表和有证据的 gap 清单。本片到 24 行收口，不自动增加
   任务、平台或故障排列；真实缺陷另列后续优先级。
 
 ## 决策记录
@@ -200,3 +208,6 @@ unknown，不以更宽的成功定义掩盖。
   不能代替同题比较，因此增加可注入材料 nonce 的比较专用入口。
 - 2026-10-16：保留表单页面明确要求的公开证据链接；私有 server ledger 和
   管理端点仍不进入 solver。实际工具能力及不支持项由本轮原回执决定。
+
+- 2026-10-16：24 次到此收口。原两项环境阻塞、一次桥接清理失败和两项隐藏输入限制保留；修正不补跑原失败。
+- 2026-10-16：服务、host/browser 和外层终端实际正常退出；最终独审通过是证据核验完成，不表示 24 项均成功。

@@ -12,13 +12,21 @@
 
 ## Baseline sources
 
+六任务两轮、双方共 24 次原始尝试已结算并完成停止后独审。OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。
+保留两项环境阻塞、OBU 首轮研究的桥接清理失败及 Codex 两项隐藏输入限制，
+未以重跑覆盖。生产仍为已发布的 `e83c6d8`；本轮只改验收设施和文档。
+这不证明速度、跨平台或完整能力持平，普通安装 Edge 与独立 OS 前台观测仍
+开放。详见[两轮完整任务对照](../references/paired-task-comparison.md)。
+
+此前 e83c6d8 发布基线：
+
 网络注册超时清理竞态已修复：原截止时间返回 TIMEOUT，注册开始后由原 registry
 保留 enable/disable 回执，Pause/end 完成实际清理后才释放 Page。旧源确定性
 EXPIRED/提前 detach 反例保留。最终完整浏览器 `3GBPrq`180/180、读中导航
 `K6hnZi`2/2、普通导航 `4tsar9`2/2 均实际 exit0；Node3933pass/1既有
 Windows权限skip，无源码漂移。读中导航是原生成功回复的受控延迟交付，核验旧
 候选撤销和原资源释放，不能写成浏览器自然延迟。用户要求制作新预览包；完整
-Codex能力对齐仍未结束，普通Edge人工安装及完整任务对照保持开放。
+Codex能力对齐仍未结束；普通Edge人工安装保持开放，本次有限任务对照见上方。
 
 此前完整导航基线：
 P07/P12/P13 同标签同源A→B完整导航`Ri2zjD`2/2 actualexit0；两原PNG、B首次
@@ -611,7 +619,7 @@ P04位置快照已完成三种原生DPR的五入口专项：`oVaN3m`、`wTM1CH`�
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属、光标/蓝框/点击圈及后台操作已实测。此前完整 `run-5TPsWz` 104 项连续 observer 中，六次测试窗口创建各有首 tab 激活；四条 focus 仅来自两次明确控制面板打开，均精确归因，原 sentinel 不变，没有额外前台事件。新增研究专项16/16为零激活/零focus，75创建、60关闭、15个非活动报告保留且既有tabs元数据不变。新增后台专项3独立任务、31轮、172POST、490渲染区间/563跨owner重叠，A闲置310秒、C结束时B原scope继续，8创建/8关闭、零激活/零focus。同文档根重建的自有图层恢复已有原PNG/提交红绿证据，旧动画、隐藏与同ID页面节点有生命周期保护，见[重建反馈](../references/dom-rebuild-feedback.md)。新增原 iframe 叶元素高亮与同 turn 反馈顺序保护，见[iframe反馈](../references/frame-target-feedback.md)。同 worker 的原视觉消息按实际结算及精确最终隐藏清理，受控 End/Pause/detach 红绿证据、原 receiver token 退役及恢复已验，见[可视消息清理](../references/visual-delivery-cleanup.md)。不是全套零事件；原生 popup 激活、跨 worker 在途交付与更广压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | 持久 epoch、结束取消、移组/跨窗口撤权、可信输入释放、网络/导航/下载 handle 失效与 session incarnation 已验。真实 browser restart/reload `browser-restart-w5chI9` 8/8 含未知输入经 startup witness 的保守恢复。最终 Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3 增加实际 host 退出和两次原生 EOF exit0；挂起请求及时失败，原 deadline+250ms 无迟到动作，暂停经同 popup 显式恢复。主回归 `run-aZyBs1` 77/77。Edge `native-lifecycle-R7MPzo` 清单隔离通过但出现未知窗口 focus，整项失败且 reload 未执行。drag新增原attachment guard资源屏障，实际HTML cancel ACK先于按钮释放；原node/read晚到异常对象保留归属，底层每条native清理核独立释放预算，已确认cancel/release不重发。实际tracker/media/backend链的三种late ACK反例与十场实机通过，但持有guard时worker丢失恢复仍未实机验证；早页面监听器与capture释放不保证零副作用。未决原生调用可能阻止清理，worker 丢失下载 handle 不保证底层传输取消；三SDK新增实际连接固定，EOF/close后旧client/locator/waits不能因同路径或active变化迁移，fresh client显式恢复；Windows原生IPC及三SDK六场浏览器证据通过；Linux真实Unix socket三SDK验证通过，523 Go/142 JS/109 Python pass，平台skip另记。视觉消息新增实际结算屏障、精确 pagehide 退役及 cleanup-only worker 恢复；纯 hide 可由精确退役完成义务但原 Promise 保留到实际结算，任意跨 worker 传输仍未证明，见[可视消息清理](../references/visual-delivery-cleanup.md)。签名更新/禁启、packed alarm、其他 OS 及更多压力顺序待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | 全局暂停与真实 popup 已验收；七条等待/数据入口的未绑定预约ID不再授予detach权限，实际pending保留，14后端反例与完整`eRYJ16`125/125通过，见[权限边界](../references/control-lifecycle.md)。新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。已结算的策略写失败可由真实 popup 明确重试原候选，原生配额拒绝、持久读回及恢复后唯一提交已验，见[网站权限](../references/site-access-policy.md)。启动读取失败可显式只读恢复，实际 Pause 后保留原设置且仍暂停；损坏记录可通过独立审阅显式替换，保持暂停，运行时代号防旧请求/证明复用。受限原生弹窗三接口绑定原策略及 emitter/document 证明，五入口与拒绝边界已验；允许 frame 提交期间仅在原期限内有界重读快照，实际输入不重放。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及更广浏览器/扩展恢复顺序仍待完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 此前 Windows Chromium 156 主 headed `run-5TPsWz` 104/104，新增五入口×三布局研究15项：当前资料、跨源/动态frame、准确比较和来源、单次报告、实际75创建/60关闭/15保留。专项16/16与全套均独立核验原始请求/收据，扩展新增无组任务页与失败创建撤权，Opera/Brave 原生多页另行验收通过。该历史分片CI Node1079（827+53+199）、JS115、Python82、Go全包通过，另有opt-in后台长闲置2/2。最近完整回归`yVGT4D`125/125，旧122项顺序保持，新增六SDK断线/close恢复场景；Node1792、JS142、Python110全过，Go519 test/subtest pass另26平台skip，typecheck通过。244620ms无新增focus豁免。此前`I0B25O`122/122，Node1788/1788；旧121名称/顺序保持，新增十场drag含两代真实误投反例、5正确POST/五拒绝及11guard实际ACK清理；237777ms无新增focus豁免。此前`iRrKtt`121/121，Node1723/1723；原120项顺序保留，新增七场元素边界/八图有独立原始native/PNG/像素/focus核验；此前八场显式position坐标/POST证据仍保留；历史`XHmJdq`108/109与`hb2m29`100/111失败保留。此前上传分片SDK检查JS134、Python99通过；Go全包通过并保留26项平台skip，跨平台CLI构建通过；当前bounds及drag分片未重跑这些套件，沿用源/二进制manifest核验。Codex Edge共享研究最终3/3，无浏览器方法失败/替代；无独立OS焦点证据且测试server强制退出，限制另记。此前共享表单3/3、部分方法替代及严格frame指针0/3与87/89窗口失败均保留；不推断速度或完整持平。原生Chrome生命周期3/3不代替Edge失败；开放研究、文件/诊断同组任务及更多重复/平台比较仍待完成 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 六任务两轮固定 24 次已独审：OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。 保留全部首次结果；正式 API、业务 wall、清理、原文件/报告及观测分别记录。OBU 使用隔离 Chromium 和测试 Native Port，Codex 使用 IAB；两轮不证明速度或整体持平。普通安装 Edge、独立 OS 焦点和更广任务/平台仍开放。详见[两轮结果](../references/paired-task-comparison.md)；历史研究证据见[共享研究](../references/shared-research-workflow.md)。 |
 
 ## Browser lifetime implementation and acceptance boundary
 
