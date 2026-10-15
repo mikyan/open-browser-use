@@ -1,0 +1,41 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_5820641d83a02e 14-22
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_5820641d83a02e 15-22
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_aa5e2287961dc7 43-48
+  s_08bbfd293d324f::t_28d6643c6d3383 1-42,49-58
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_28d6643c6d3383 3-55
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_f350ea49c75b13 96-106
+  s_08bbfd293d324f::t_aa5e2287961dc7 141-146
+  s_08bbfd293d324f::t_23928db26915ae 50-63
+  s_08bbfd293d324f::t_92db19e91d9598 21-24
+  s_08bbfd293d324f::t_3d3689f9cd4db3 1-20,25-49,64-65,67,69,71,73-95
+  s_08bbfd293d324f::t_35df714b4a47b0 107-116
+  s_08bbfd293d324f::t_5820641d83a02e 66,68,70,72,117-140
+scripts/browser-integration/managed-headless-check.mjs
+  s_08bbfd293d324f::t_cf7a3068d0e547 284-289,304-309,328
+  s_08bbfd293d324f::t_58beb9d2ed56e0 17-18,23,45,119-128,175,199-201,204-211,215,224-228,280,293
+  s_08bbfd293d324f::t_d05a1862a164c6 1-16,19-22,24-44,46-118,129-174,176-198,202-203,212-214,216-218,229-279,281-283,290-292,294-303,310-327,329-331
+  s_08bbfd293d324f::t_5c32ab40b45e0b 219-223
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_5820641d83a02e 10-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "a5197a1efe406ae6bf0838b9deb20e498dce01cc",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
