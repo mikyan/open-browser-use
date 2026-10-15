@@ -3012,7 +3012,7 @@ class BrowserBackend {
     check();
     const engine = await this.getBrowserEngine();
     check();
-    return engine.withPage(params, { deadlineAt: record.deadlineAt }, async ({ page, check: checkPage }) => {
+    return engine.withPage(params, { deadlineAt: record.deadlineAt, isolateTimeout: true, registrationOwnsCleanup: true }, async ({ page, check: checkPage }) => {
       check();
       await checkPage();
       check();

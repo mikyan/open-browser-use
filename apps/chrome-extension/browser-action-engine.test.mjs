@@ -643,6 +643,25 @@ test("warm setup deadline caught before its timer isolates navigation but preser
   }
 });
 
+test("registration cleanup ownership preserves cold and warm Pages when the callback's deadline expires", async t => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  for (const warm of [false, true]) {
+    now = 0;
+    const f = fixture(), engine = new BrowserActionEngine({ loadRuntime: async () => f.runtime });
+    if (warm) await engine.withPage(pageSetupParams, { deadlineAt: 1000 }, () => {});
+    const original = new Error("OBU_NETWORK_WAIT_TIMEOUT: original registry registration expired");
+    await assert.rejects(engine.withPage(pageSetupParams, {
+      deadlineAt: 10, isolateTimeout: true, registrationOwnsCleanup: true
+    }, () => { now = 11; throw original; }), error => error === original);
+    await Promise.allSettled(engine.controlSnapshot().pending);
+    assert.equal(f.calls.filter(call => call[0] === "detach").length, 0);
+    assert.equal(engine.pages.size, 1);
+    await engine.detach(42);
+    assert.equal(f.calls.filter(call => call[0] === "detach").length, 1);
+  }
+});
+
 test("isolated cold setup timeout still cleans its late attachment without detaching a successor", async () => {
   let release, attaches = 0, registered = 0;
   const f = fixture();

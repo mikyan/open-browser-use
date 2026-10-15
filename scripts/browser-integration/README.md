@@ -1,5 +1,23 @@
 # Browser integration acceptance
 
+## Navigation while a cold pointer reply is held
+
+`OBU_TEST_COLD_HELD_NAVIGATION=1` selects the mandatory raw-navigation precondition
+and `js-cold-held-navigation`. Use the regular isolated browser/host prerequisites;
+if setting `OBU_TEST_CASES`, its value must be `^js-cold-held-navigation$`. Do not
+combine this mode with other diagnostic flags.
+
+The scenario shares the ordinary cold-navigation page, native observer and
+business checks. After A's first move/PNG/drain, a second declared A move holds
+delivery of one already-successful native hit reply. A's input and navigation
+to B must complete before that exact reply is delivered. The old candidate must
+be revoked and its actual object group released before B's unique normal move,
+PNG, trusted submission and End. Native ACK and controlled delivery records are
+separate; this does not simulate slow renderer execution or relax the visual
+deadline. The default `OBU_TEST_COLD_NAVIGATION=1` mode remains a separate
+uninterrupted control. Scope and results are recorded in
+[raw coordinate feedback](../../docs/references/raw-frame-feedback.md).
+
 ## Request and response waits on restricted websites
 
 The five `*-restricted-network-waits` cases exercise JS, CLI, MCP, Python and

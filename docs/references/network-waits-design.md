@@ -268,6 +268,18 @@ host、IPC framing 和 endpoint discovery 沿用既有实现；该协议不依�
 
 ## 正式验收要求
 
+### 注册超时与清理归属
+
+网络等待的 Page setup 和 registry 共用原截止时间。进入订阅注册后，registry
+拥有原 enable/disable 回执的清理责任：setup 超时仍按原期限返回 TIMEOUT，
+但不能提前 detach Page。Pause/end 等实际订阅清理完成后才能释放原 attachment。
+排队尚未开始、冷 attachment 尚未完成和注册完成后的监听生命周期分别保持
+原有边界；不会因这项保护延长调用预算或放宽权限检查。
+
+`withPage` 的 `registrationOwnsCleanup` 仅由网络等待显式启用，配合
+`isolateTimeout` 保留共享 Page；其它调用沿用原默认。相同截止时间的 timer
+可以按不同顺序到达，测试明确先触发 setup timer，确保不会依赖偶然调度通过。
+
 可复用 `scripts/browser-integration/network-waits-fixture.mjs`、`run.mjs` 与各语言
 checker。经过实际 Go host 和生产 extension 的 Page 事件，不能伪造 CDP 网络事件
 或为了通过冷启动测试先预热引擎。以下是验收条件，不是本页对运行结果的声明。

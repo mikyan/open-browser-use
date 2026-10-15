@@ -40,6 +40,7 @@ import { coldPrivateTargetLifecyclePrefix, createColdPrivateTargetFixtures, chec
 import { coldWorldLifetimeProbePrefix, createColdWorldLifetimeFixtures, checkColdWorldLifetime } from "./cold-world-lifetime-fixture.mjs";
 import { createColdRootRebuildFixtures, checkColdRootRebuild } from "./cold-root-rebuild-fixture.mjs";
 import { createColdNavigationFixtures, checkColdNavigation } from "./cold-navigation-fixture.mjs";
+import { checkColdHeldNavigation } from "./cold-held-navigation-fixture.mjs";
 import { createZoomFeedbackFixtures, checkZoomFeedback } from "./zoom-feedback-fixture.mjs";
 import { createDOMRebuildFeedbackFixtures, checkDOMRebuildFeedback } from "./dom-rebuild-feedback-fixture.mjs";
 import { createFrameTargetFeedbackFixtures, checkFrameTargetFeedback, frameTargetURLs, selectFrameTargetDocuments, frameTargetGeometry } from "./frame-target-feedback-fixture.mjs";
@@ -121,6 +122,13 @@ import { checkDirectLocatorUpload, checkDirectLocatorDirectory } from "./direct-
 const directory = path.dirname(fileURLToPath(import.meta.url));
 // Reject unknown settings before filesystem setup, servers, or process launch.
 const fieldTrialConfig = resolveFieldTrialConfig(process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+const coldHeldNavigation = process.env.OBU_TEST_COLD_HELD_NAVIGATION === "1";
+if (process.env.OBU_TEST_COLD_HELD_NAVIGATION !== undefined && !coldHeldNavigation)
+  throw new Error("OBU_TEST_COLD_HELD_NAVIGATION must be 1 when set");
+if (coldHeldNavigation && process.env.OBU_TEST_CASES !== undefined && process.env.OBU_TEST_CASES !== "^js-cold-held-navigation$")
+  throw new Error("Cold held navigation is a separate two-case mode");
+if (coldHeldNavigation && ["OBU_TEST_COLD_NAVIGATION", "OBU_TEST_COLD_ROOT_REBUILD", "OBU_TEST_COLD_WORLD_LIFETIME", "OBU_TEST_COLD_PRIVATE_TARGETS", "OBU_TEST_CREATED_PAGES", "OBU_TEST_ORIGINAL_DOWNLOADS", "OBU_TEST_MEMORY_CLIPBOARD", "OBU_TEST_DOWNLOAD_DIAGNOSTIC", "OBU_TEST_CHOOSER_DIAGNOSTIC", "OBU_TEST_GO_CHOOSER_DIAGNOSTIC", "OBU_TEST_MCP_BINDING", "OBU_TEST_SNAPSHOT_GEOMETRY", "OBU_TEST_BACKGROUND_PARALLEL", "OBU_TEST_COLD_NATIVE_READER", "OBU_TEST_COLD_NATIVE_ROUTES", "OBU_TEST_RAW_COLD_FEEDBACK"].some(key => process.env[key] !== undefined))
+  throw new Error("Cold held navigation cannot be combined with another diagnostic mode");
 const coldNavigation = process.env.OBU_TEST_COLD_NAVIGATION === "1";
 if (process.env.OBU_TEST_COLD_NAVIGATION !== undefined && !coldNavigation)
   throw new Error("OBU_TEST_COLD_NAVIGATION must be 1 when set");
@@ -610,7 +618,7 @@ try {
       ledgerKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS", initializedKey: "OPEN_BROWSER_USE_PRIVATE_FRAME_TARGETS_INITIALIZED", storageArea: "local"
     }) + stagedBackground.slice(boundary);
   }
-  if (coldWorldLifetime || coldRootRebuild || coldNavigation) {
+  if (coldWorldLifetime || coldRootRebuild || coldNavigation || coldHeldNavigation) {
     const boundary = stagedBackground.indexOf("const NATIVE_HOST_NAME =");
     assert.ok(boundary > 0);
     stagedBackground = stagedBackground.slice(0, boundary) + coldWorldLifetimeProbePrefix() + stagedBackground.slice(boundary);
@@ -870,6 +878,7 @@ try {
     if (coldWorldLifetime && !["js-raw-navigation-before-engine", "js-cold-world-lifetime"].includes(name)) return;
     if (coldRootRebuild && !["js-raw-navigation-before-engine", "js-cold-root-rebuild"].includes(name)) return;
     if (coldNavigation && !["js-raw-navigation-before-engine", "js-cold-navigation"].includes(name)) return;
+    if (coldHeldNavigation && !["js-raw-navigation-before-engine", "js-cold-held-navigation"].includes(name)) return;
     if (createdPageProof && !["js-raw-navigation-before-engine", "js-created-page-provenance", "js-created-page-ready", "five-entry-created-page-ready", "js-created-page-unowned", "js-created-page-popup-source", "js-created-page-popup-delivery"].includes(name)) return;
     if (originalDownloadBehavior && name !== "js-raw-navigation-before-engine" && name !== originalDownloadTestName) return;
     if (goChooserDiagnostic && !goChooserDiagnosticCases.includes(name)) return;
@@ -1689,19 +1698,23 @@ try {
       }
     });
   });
-  if (coldNavigation) await test("js-cold-navigation", async () => {
-    sourceIdentity.testHooks.push("Cold navigation: shared passive native observer; one original cold attachment across a same-origin A-to-B document navigation, two screenshots and one trusted B submission. Default-context node identity reads use separate fixture groups. No engine migration, input replay or new focus allowance.");
+  if (coldNavigation || coldHeldNavigation) await test(coldHeldNavigation ? "js-cold-held-navigation" : "js-cold-navigation", async () => {
+    const prefix = coldHeldNavigation ? "cold-held-navigation" : "cold-navigation";
+    sourceIdentity.testHooks.push(coldHeldNavigation
+      ? "Cold held navigation: shared passive native observer plus one controlled delayed delivery of an already fulfilled native A hit handle. Original input and same-origin navigation finish while that reply remains held. Original value delivery, stale-candidate revocation and actual group cleanup precede B's unique new move. Two original screenshots and one trusted B submission; no input replay, engine migration or new focus allowance. This is controlled reply delivery, not naturally slow browser execution."
+      : "Cold navigation: shared passive native observer; one original cold attachment across a same-origin A-to-B document navigation, two screenshots and one trusted B submission. Default-context node identity reads use separate fixture groups. No engine migration, input replay or new focus allowance.");
     sourceIdentity.sha256["cold-navigation-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "cold-navigation-fixture.mjs"))).digest("hex");
+    if (coldHeldNavigation) sourceIdentity.sha256["cold-held-navigation-fixture.mjs"] = createHash("sha256").update(await fs.readFile(path.join(directory, "cold-held-navigation-fixture.mjs"))).digest("hex");
     const precondition = { finalized: await browser.client.finalizeTabs([]), restart: await restartObservedWorker() };
     precondition.control = await worker.evaluate("(async()=>{const b=__integrationBackend;await b.controlReady;await b.privatePointerRecovery?.promise;return {engineAbsent:b.browserEngine===null,status:await b.getAutomationControlStatus()}})()");
-    await fs.writeFile(path.join(runDir, "cold-navigation-precondition.json"), JSON.stringify(precondition, null, 2));
+    await fs.writeFile(path.join(runDir, `${prefix}-precondition.json`), JSON.stringify(precondition, null, 2));
     assert.equal(precondition.control.engineAbsent, true); assert.equal(precondition.control.status.inputBlocked, false);
-    return checkColdNavigation({
+    return (coldHeldNavigation ? checkColdHeldNavigation : checkColdNavigation)({
       connectBrowser: sessionId => connectOpenBrowserUse({ socketPath: endpoint, sessionId, timeoutMs: 15000 }),
       getWorker: () => worker, fixtureURL, fixtures: coldNavigationFixtures, until,
       closeTab: owned => worker.evaluate(`chrome.tabs.remove(${owned.id})`),
       saveArtifact: (name, bytes) => fs.writeFile(path.join(runDir, name), bytes, { flag: "wx" }),
-      saveDetail: value => fs.writeFile(path.join(runDir, "cold-navigation.json"), JSON.stringify(value, null, 2)),
+      saveDetail: value => fs.writeFile(path.join(runDir, `${prefix}.json`), JSON.stringify(value, null, 2)),
       checkEnd: async (value, owner) => {
         const original = { states: value.states };
         try {

@@ -12,7 +12,10 @@ for (const key of Object.keys(environment)) if (key.startsWith("OBU_TEST_")) del
 for (const [name, settings, message] of [
   ["invalid enable value", { OBU_TEST_COLD_NAVIGATION: "0" }, "OBU_TEST_COLD_NAVIGATION must be 1 when set"],
   ["unrelated case selection", { OBU_TEST_COLD_NAVIGATION: "1", OBU_TEST_CASES: "^js-navigation$" }, "Cold navigation is a separate two-case mode"],
-  ["another cold diagnostic", { OBU_TEST_COLD_NAVIGATION: "1", OBU_TEST_COLD_ROOT_REBUILD: "1" }, "Cold navigation cannot be combined with another diagnostic mode"]
+  ["another cold diagnostic", { OBU_TEST_COLD_NAVIGATION: "1", OBU_TEST_COLD_ROOT_REBUILD: "1" }, "Cold navigation cannot be combined with another diagnostic mode"],
+  ["invalid held enable value", { OBU_TEST_COLD_HELD_NAVIGATION: "0" }, "OBU_TEST_COLD_HELD_NAVIGATION must be 1 when set"],
+  ["unrelated held case selection", { OBU_TEST_COLD_HELD_NAVIGATION: "1", OBU_TEST_CASES: "^js-cold-navigation$" }, "Cold held navigation is a separate two-case mode"],
+  ["mixed held and ordinary navigation", { OBU_TEST_COLD_HELD_NAVIGATION: "1", OBU_TEST_COLD_NAVIGATION: "1" }, "Cold held navigation cannot be combined with another diagnostic mode"]
 ]) test(`cold navigation rejects ${name} before starting a browser`, { timeout: 20000 }, () => {
   const result = spawnSync(process.execPath, [entry], {
     cwd: repository, env: { ...environment, ...settings },

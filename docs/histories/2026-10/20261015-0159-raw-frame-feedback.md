@@ -172,6 +172,19 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
   新包包含此前dc95b36的持久世界复用修复，提供安装/覆盖步骤及构建来源清单。
   普通Edge下载路径人工验收、读中导航、BFCache和完整矩阵继续开放。
 
+
+### 读中导航、新网络清理修复与再次打包
+
+- 用户再次要求新包，当前有界验收收尾后发布，不启动新一轮能力开发。
+- 新 held 模式只延迟原生已成功 hit 回复的交付，A 原输入及 B 原导航均完成后
+  才交付；旧候选撤销、旧对象不再读取、原组释放 ACK 后才进行 B 新输入。
+- 最终 `K6hnZi`2/2、普通对照`4tsar9`2/2；十/九原 Input、两原 PNG、
+  唯一可信 B 提交及 End/资源清理通过。未修改原输入、回执或生产视觉期限。
+- 全 Node 意外揭示既有网络订阅超时提前detach；具体修复及旧源红例见
+  [网络注册清理](20261016-0130-network-registration-cleanup.md)。修复后重新
+  完整 `3GBPrq`180/180、Node3933pass/1既有skip，均 actualexit0且无漂移。
+- 从最终干净提交打包；完整持平仍active，下阶段转完整任务对照及普通新页后台行为。
+
 ### Main files
 
 - `scripts/raw-pointer-feedback.mjs`、`scripts/patch-pointer-feedback.mjs`

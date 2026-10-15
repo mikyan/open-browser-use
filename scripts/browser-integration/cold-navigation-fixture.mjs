@@ -152,13 +152,16 @@ export function checkColdNavigationVisible(detail) {
   }
 }
 
-export function coldNavigationInputs(value) {
+export const coldNavigationHeldMove = Object.freeze({ type: "mouseMoved", x: 210, y: 166, buttons: 0 });
+
+export function coldNavigationInputs(value, { heldReadNavigation = false } = {}) {
   const move = box => ({ type: "mouseMoved", ...center(box), buttons: 0 });
   const click = box => [move(box), { type: "mousePressed", ...center(box), button: "left", buttons: 1, clickCount: 1 }, { type: "mouseReleased", ...center(box), button: "left", buttons: 0, clickCount: 1 }];
-  return [move(coldNavigationGeometry.a), move(coldNavigationGeometry.b), ...click(coldNavigationGeometry.input), { text: value }, ...click(coldNavigationGeometry.b)];
+  return [move(coldNavigationGeometry.a), ...(heldReadNavigation ? [coldNavigationHeldMove] : []), move(coldNavigationGeometry.b), ...click(coldNavigationGeometry.input), { text: value }, ...click(coldNavigationGeometry.b)];
 }
 
-export function checkColdNavigationNative(detail, pngs) {
+export function checkColdNavigationNative(detail, pngs, { heldReadNavigation = false } = {}) {
+  const bInputIndex = heldReadNavigation ? 2 : 1;
   const probe = detail.native; assert.equal(probe.restored, true); assert.equal(probe.pending, 0); assert.equal(probe.overflow, false); assert.equal(probe.recordingErrors, 0);
   assert.ok(probe.records.every((row, index) => row.sequence === index + 1));
   const calls = probe.records.filter(row => row.kind === "call"), acks = new Map();
@@ -200,7 +203,7 @@ export function checkColdNavigationNative(detail, pngs) {
     nativeAbsences.push({ classification: "already-detached", invocation: call.sequence, settlement: rejected.sequence, ok: false, error: rejected.error, afterSuccessfulDetachACK: acks.get(first.sequence).sequence });
   }
   const own = calls.filter(row => row.target.tabId === detail.tabId && !row.target.sessionId), inputs = own.filter(row => row.method.startsWith("Input."));
-  const expected = coldNavigationInputs(detail.value); assert.deepEqual(inputs.map(row => row.params), expected); assert.deepEqual(inputs.map(row => row.method), expected.map(params => "text" in params ? "Input.insertText" : "Input.dispatchMouseEvent"));
+  const expected = coldNavigationInputs(detail.value, { heldReadNavigation }); assert.deepEqual(inputs.map(row => row.params), expected); assert.deepEqual(inputs.map(row => row.method), expected.map(params => "text" in params ? "Input.insertText" : "Input.dispatchMouseEvent"));
   for (let index = 1; index < inputs.length; index++) assert.ok(acks.get(inputs[index - 1].sequence).sequence < inputs[index].sequence);
   const enable = own.filter(row => row.method === "Runtime.enable"); assert.equal(enable.length, 1); assert.ok(acks.get(enable[0].sequence).sequence < inputs[0].sequence);
   for (const call of calls.filter(row => row.sequence >= enable[0].sequence && row.sequence <= beforeEnd)) assert.deepEqual(call.target, { tabId: detail.tabId }, "Root-only cold workflow cannot allocate on an unobserved target");
@@ -209,7 +212,7 @@ export function checkColdNavigationNative(detail, pngs) {
   assert.equal(own.filter(row => row.method === "debugger.detach" && row.sequence <= beforeEnd).length, 0);
   for (const call of calls) assert.ok(!["DOM.enable", "Runtime.disable", "Target.setAutoAttach"].includes(call.method), `Unexpected caller-domain mutation ${call.method}`);
   const shots = own.filter(row => row.method === "Page.captureScreenshot"); assert.equal(shots.length, 2);
-  for (const [index, shot] of shots.entries()) { assert.deepEqual(shot.params, { format: "png" }); assert.deepEqual(Buffer.from(acks.get(shot.sequence).value.data, "base64"), pngs[index]); assert.ok(acks.get(inputs[index ? 1 : 0].sequence).sequence < shot.sequence); }
+  for (const [index, shot] of shots.entries()) { assert.deepEqual(shot.params, { format: "png" }); assert.deepEqual(Buffer.from(acks.get(shot.sequence).value.data, "base64"), pngs[index]); assert.ok(acks.get(inputs[index ? bInputIndex : 0].sequence).sequence < shot.sequence); }
   const groups = new Map();
   for (const call of own) if (["Runtime.evaluate", "Runtime.callFunctionOn"].includes(call.method)) {
     const remotes = [acks.get(call.sequence).value?.result, acks.get(call.sequence).value?.exceptionDetails?.exception];
@@ -240,7 +243,7 @@ export function checkColdNavigationNative(detail, pngs) {
       assert.deepEqual(boundary.records, probe.records.slice(0, end)); assert.ok(end < nav.sequence);
       assert.ok(calls.filter(row => row.sequence <= end).every(row => acks.get(row.sequence).sequence <= end), "Original A calls settle before B navigation");
       for (const group of groups.values()) if (group.calls.some(sequence => sequence <= end)) assert.ok(group.calls.every(sequence => sequence <= end) && group.release.ack <= end, "All A groups release before B navigation");
-      assert.ok(acks.get(shots[0].sequence).sequence <= end && nav.sequence < inputs[1].sequence);
+      assert.ok(acks.get(shots[0].sequence).sequence <= end && nav.sequence < inputs[bInputIndex].sequence);
       const between = probe.records.slice(end, phase.moveBoundary).filter(row => row.kind === "event" && row.source.tabId === detail.tabId && !row.source.sessionId);
       for (const old of [...detail.phases[0].contexts.defaults, ...detail.phases[0].contexts.worlds]) assert.ok(between.some(row => row.method === "Runtime.executionContextsCleared" || row.method === "Runtime.executionContextDestroyed" && (row.params.executionContextUniqueId ? row.params.executionContextUniqueId === old.uniqueId : row.params.executionContextId === old.id)), "Original A context leaves the current Runtime set");
     }
@@ -281,9 +284,14 @@ async function readNodeIdentity(browser, tabId, contextId, group, evidence) {
   if (failure) throw failure;
 }
 
-export async function checkColdNavigation({ connectBrowser, getWorker, fixtureURL, fixtures, until, saveArtifact, saveDetail, closeTab, checkEnd }) {
+export async function checkColdNavigation({ connectBrowser, getWorker, fixtureURL, fixtures, until, saveArtifact, saveDetail, closeTab, checkEnd, heldReadNavigation }) {
   const detail = { key: `cold-navigation-${randomUUID().replaceAll("-", "")}`, phases: [], tabIds: [], states: [], observationErrors: [], cleanupErrors: [],
     boundary: "One same-tab same-origin full A-to-B navigation after A's actual cold read/group drain. Original root attachment and persistent realm remain. Independent default-context identity reads add observation roundtrips. Native navigate's reply and subsequent identity observations are distinct; fixture observations do not expand the SDK load promise. Runtime events establish the current context set, not physical destruction of A's heap. Visual observations, including B's initially hidden feedback before its first input, are checked after both screenshots, unique B POST, End and cleanup; no held-read, BFCache, worker or iframe claim." };
+  if (heldReadNavigation) {
+    assert.equal(heldReadNavigation.kind, "late-hit-navigation");
+    for (const name of ["afterADrain", "beforeBMove", "releaseFinally", "restore", "check"]) assert.equal(typeof heldReadNavigation[name], "function");
+    detail.boundary = "One declared additional A move holds a successful original native hit handle's delivery across same-tab same-origin navigation. Native fulfillment and controlled delivery are separate. B input starts only after the old candidate and actual group cleanup settle. No B queued-display deadline, natural Chrome latency or reordered native execution is claimed.";
+  }
   let browser, tab, failure; const pngs = [], control = (method, args = []) => getWorker().evaluate(`(()=>{const p=globalThis.__obuColdWorldLifetime;if(!p)throw Error('Cold world prefix missing');return p[${JSON.stringify(method)}](...${JSON.stringify(args)})})()`);
   const cleanup = async (stage, fn) => { try { return await fn(); } catch (error) { detail.cleanupErrors.push({ stage, error: errorText(error) }); failure ??= error; } };
   const observe = async (stage, fn) => { try { return await fn(); } catch (error) { detail.observationErrors.push({ stage, error: errorText(error) }); } };
@@ -297,7 +305,9 @@ export async function checkColdNavigation({ connectBrowser, getWorker, fixtureUR
     const click = async box => { await move(box); await mouse({ type: "mousePressed", ...center(box), button: "left", buttons: 1, clickCount: 1 }); await mouse({ type: "mouseReleased", ...center(box), button: "left", buttons: 0, clickCount: 1 }); };
     for (const name of ["a", "b"]) {
       const phase = { name, identity: {}, url: new URL(`${route}page?key=${detail.key}&stage=${name}`, fixtureURL).href }; detail.phases.push(phase);
-      if (name === "b") { await drain(); detail.navigationBoundary = await control("mark", ["A-drained-before-original-B-navigation"]); }
+      if (name === "b") { await drain(); detail.navigationBoundary = await control("mark", ["A-drained-before-original-B-navigation"]);
+        if (heldReadNavigation) await heldReadNavigation.afterADrain({ browser, tab, detail });
+      }
       phase.navigation = await browser.cdp.navigate(tab.id, phase.url);
       await until(async () => { const frames = await getWorker().evaluate(`chrome.webNavigation.getAllFrames({tabId:${tab.id}})`); const exact = frames.filter(frame => frame.frameId === 0 && frame.url === phase.url && frame.documentLifecycle === "active" && !frame.errorOccurred); if (exact.length !== 1) return false; phase.frames = exact; return true; }, `original navigation ${name} document`, 5000);
       detail.states = [{ tabId: tab.id, frames: phase.frames }];
@@ -305,6 +315,7 @@ export async function checkColdNavigation({ connectBrowser, getWorker, fixtureUR
       phase.before = await readDocument(getWorker(), tab.id, phase.frames[0]); phase.tree = await browser.cdp.call(tab.id, "Page.getFrameTree", {});
       const prior = await control("snapshot"), defaults = coldWorldContexts(prior, phase.tree.frameTree.frame.id).defaults; assert.equal(defaults.length, 1);
       await readNodeIdentity(browser, tab.id, defaults[0].id, `fixture-cold-navigation-${detail.key}-${name}`, phase.identity);
+      if (name === "b" && heldReadNavigation) await heldReadNavigation.beforeBMove({ browser, tab, detail, phase });
       phase.moveBoundary = (await control("mark", [`${name}-before-original-move`])).records.at(-1).sequence;
       await move(coldNavigationGeometry[name]);
       phase.arrival = await observe(`${name}-arrival`, () => getWorker().evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id},documentIds:[${JSON.stringify(phase.frames[0].documentId)}]},world:'MAIN',func:${waitForFrameTargetFeedback.toString()},args:[${JSON.stringify({ ...center(coldNavigationGeometry[name]), rectangle: coldNavigationGeometry[name] })}]})`));
@@ -320,15 +331,17 @@ export async function checkColdNavigation({ connectBrowser, getWorker, fixtureUR
     if (checkEnd) await cleanup("original-turn-end", async () => { detail.endCleanup = await checkEnd(detail, browser); });
   } catch (error) { failure ??= error; detail.workflowError = errorText(error); }
   finally {
+    if (heldReadNavigation) await cleanup("held-read-finally-release", () => heldReadNavigation.releaseFinally({ browser, tab, detail }));
     await cleanup("original-server-ledger", () => { detail.server = fixtures.stats(detail.key); });
     if (browser) await cleanup("original-owner-finalize", async () => { detail.finalizeScope = scopeOf(browser); detail.finalized = await browser.client.finalizeTabs([]); });
     if (tab) await cleanup("original-exact-tab-close", async () => { const tabs = await getWorker().evaluate("chrome.tabs.query({})"); if (tabs.some(value => value.id === tab.id)) await closeTab(tab); });
     if (browser) await cleanup("original-owner-close", () => browser.close());
     await cleanup("original-observer-drain", () => until(async () => (await control("snapshot")).pending === 0, "original navigation observer drain", 5000));
+    if (heldReadNavigation) await cleanup("held-read-observer-restore", () => heldReadNavigation.restore({ browser, tab, detail }));
     await cleanup("original-observer-restore", async () => { detail.native = await control("restore"); });
     await cleanup("original-exact-inventory", async () => { detail.cleanup = await getWorker().evaluate(`(async()=>({tabs:(await chrome.tabs.query({})).filter(t=>t.id===${tab?.id ?? -1}),targets:(await chrome.debugger.getTargets()).filter(t=>t.tabId===${tab?.id ?? -1})}))()`); assert.deepEqual(detail.cleanup, { tabs: [], targets: [] }); });
   }
-  if (!failure) try { checkColdNavigationIdentity(detail); checkColdNavigationBusiness(detail); detail.nativeProof = checkColdNavigationNative(detail, pngs); checkColdNavigationVisible(detail); }
+  if (!failure) try { checkColdNavigationIdentity(detail); checkColdNavigationBusiness(detail); detail.nativeProof = checkColdNavigationNative(detail, pngs, { heldReadNavigation: !!heldReadNavigation }); if (heldReadNavigation) detail.heldReadProof = heldReadNavigation.check(detail); checkColdNavigationVisible(detail); }
   catch (error) { failure = error; detail.oracleError = errorText(error); }
   detail.passed = !failure; if (failure) detail.error = errorText(failure);
   try { await saveDetail(detail); } catch (error) { failure ??= error; }

@@ -681,3 +681,78 @@ navigation clear/commit sequence and the unchanged attachment. End is hidden
 565 ms; 3,706 ms has zero focus events/allowances. The original host exits 0 and
 both connections close. Related world/root identity checks, original Node TAPs,
 source/build identities and all three exact process inventories also pass.
+
+### In-flight cold read across navigation
+
+The previous goal turn is verified progress: `b0c9d04` is clean and matches the
+fork branch; `preview-20261016-b0c9d04` is published, with all four uploaded assets
+downloaded and hash-checked. The full parity objective remains active. This
+continuation does not replace or rebuild that released package.
+
+One bounded acceptance scene now closes the remaining in-flight-read question.
+After A's original move, PNG and resource drain, a second predeclared A move
+holds delivery of one successful native hit-handle reply. The actual browser
+call is already fulfilled; this is controlled delivery delay, not evidence of
+naturally slow browser execution. The original input and one public navigation
+to B must finish while the reply is held. B's new document/revision is observed
+under the original attachment before the exact original reply is delivered.
+
+Require the old candidate to remain null, no further old node/geometry reads,
+and actual original group-release ACK before B's unique subsequent move. Two
+original PNGs, ten exact native inputs, one B POST, End, focus and process cleanup
+remain mandatory. B's lack of an old highlight alone is insufficient: the
+existing 250 ms visual deadline could also suppress a result. No queued B
+visibility requirement, deadline relaxation, replay or focus allowance is added.
+Reuse the existing page/server/identity/business/visual checks and introduce only
+an explicit opt-in interleaving hook with a separate reply gate and oracle.
+
+Read-only production review found no established defect: late handles are
+recorded before authority checks, navigation invalidates the document revision,
+and original cleanup authority survives that invalidation. Establish the real
+interleaving before changing production. The next priority after this bounded
+slice is complete-task comparison and ordinary new-page background behavior;
+do not turn every additional pointer combination into a new completion rule.
+Ordinary Edge authorization remains deferred by the user, without blocking
+independent development.
+
+### Fresh preview requested; network registration deadline defect
+
+The user's new request explicitly asks for another package, superseding the
+earlier no-rebuild continuation. Finish this bounded increment and publish a
+new clean-commit Windows preview to the fork, without a PR. Do not start the
+next six-workflow comparison during this delivery.
+
+Initial held `e2abaG` and normal navigation `aWeA42` both pass 2/2 with actual
+exit 0 and no source drift. Node v1 retains one failure in the existing network
+registration deadline test: Page setup can detach the Page while the original
+subscription ACK is still pending, returning EXPIRED instead of TIMEOUT.
+This is not accepted as a timing-only test failure. Reproduce deterministically,
+preserve the original failing evidence, and make the registration cleanup owner
+explicit while retaining the original caller deadline. A production change
+requires a fresh full browser run and both navigation checks on final sources
+before packaging; previous full production hashes are no longer sufficient.
+
+### Final held-read navigation and release validation
+
+Final production sources pass full `3GBPrq` 180/180, held `K6hnZi` 2/2 and normal
+navigation `4tsar9` 2/2, all with actual exit 0 and no source/runtime drift.
+Node passes 3,933 checks with one existing Windows symlink-privilege skip.
+The held scene delivers one already-fulfilled original native hit reply only
+after B has committed. The old candidate is rejected, original resource cleanup
+finishes before B's new move, and ten original inputs, two original PNGs and one
+trusted B submission pass. Normal navigation retains its exact nine-input path.
+This is controlled reply delivery, not a claim of naturally delayed native calls.
+
+The newly discovered network-registration timeout defect changes only backend
+opt-in and the shared engine's explicit cleanup-ownership option; other callers
+keep their defaults. The original failed Node run and deterministic old-source
+failures remain preserved. Full regression was rerun after this production fix.
+The independent full audit covers outcomes, source/build/runtime identity,
+focus/host/process cleanup; it does not repeat every historical business/pixel
+companion audit. The dedicated navigation runs retain their separate audits.
+
+Prepare the requested fresh preview from the final clean commit. No PR is
+created. Ordinary installed Edge authorization remains user-deferred. After
+delivery, resume the fixed six-workflow, two-round P15 task comparison and
+ordinary new-page background behavior, without inventing new pointer permutations
+as additional completion requirements. The full parity goal remains active.

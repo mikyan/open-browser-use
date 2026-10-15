@@ -496,3 +496,28 @@ End stays hidden 565 ms; the 3,706 ms focus interval has zero events/allowances.
 The original host exits 0, both connections close and exact run processes are
 absent. Related world/root runs retain their original identity assertions and
 zero-focus rules; all 54 production files match the full production baseline.
+
+### Final held-read navigation and release validation
+
+Final production sources pass full `3GBPrq` 180/180, held `K6hnZi` 2/2 and normal
+navigation `4tsar9` 2/2, all with actual exit 0 and no source/runtime drift.
+Node passes 3,933 checks with one existing Windows symlink-privilege skip.
+The held scene delivers one already-fulfilled original native hit reply only
+after B has committed. The old candidate is rejected, original resource cleanup
+finishes before B's new move, and ten original inputs, two original PNGs and one
+trusted B submission pass. Normal navigation retains its exact nine-input path.
+This is controlled reply delivery, not a claim of naturally delayed native calls.
+
+The newly discovered network-registration timeout defect changes only backend
+opt-in and the shared engine's explicit cleanup-ownership option; other callers
+keep their defaults. The original failed Node run and deterministic old-source
+failures remain preserved. Full regression was rerun after this production fix.
+The independent full audit covers outcomes, source/build/runtime identity,
+focus/host/process cleanup; it does not repeat every historical business/pixel
+companion audit. The dedicated navigation runs retain their separate audits.
+
+Prepare the requested fresh preview from the final clean commit. No PR is
+created. Ordinary installed Edge authorization remains user-deferred. After
+delivery, resume the fixed six-workflow, two-round P15 task comparison and
+ordinary new-page background behavior, without inventing new pointer permutations
+as additional completion requirements. The full parity goal remains active.

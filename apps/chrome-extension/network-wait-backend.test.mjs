@@ -210,15 +210,32 @@ test("Pause and turn end retain actual network cleanup ACK after listeners are s
 
 test("arm expiry cannot let Pause release the Page while its original enable or disable ACK is pending", async t => {
   const f = await fixture(t), enable = deferred(), disable = deferred(), entered = deferred();
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const timers = new Set(); let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(globalThis, "setTimeout", (callback, delay) => {
+    const timer = { callback, delay, source: new Error().stack }; timers.add(timer); return timer;
+  });
+  t.mock.method(globalThis, "clearTimeout", timer => timers.delete(timer));
   f.hooks.subscription = ({ enabled }) => { if (enabled) { entered.resolve(); return enable.promise; } return disable.promise; };
-  const arming = assert.rejects(f.arm({ timeoutMs: 35 }), /OBU_NETWORK_WAIT_TIMEOUT/);
-  await entered.promise; await arming;
-  let done = false;
-  const pause = f.backend.pauseAutomation().then(value => { done = true; return value; });
-  await tick(); assert.equal(done, false); assert.ok(f.backend.networkWaits.controlSnapshot().pending.length);
-  enable.resolve(); await tick(); assert.equal(done, false);
-  assert.equal(f.calls.some(([method]) => method === "engine-detach"), false);
-  disable.resolve(); assert.equal((await pause).cleanupComplete, true);
+  const arming = f.arm({ timeoutMs: 35 }).then(value => ({ value }), error => ({ error }));
+  try {
+    await entered.promise;
+    // Both timers have the same deadline. Deliberately dispatch the engine's
+    // timer first, preserving the registry's still-pending original ACKs.
+    const engineTimers = [...timers].filter(timer => timer.source.split("\n")
+      .find(line => /browser-(?:action-engine|network-waits)\.js/.test(line))?.includes("browser-action-engine.js"));
+    assert.equal(engineTimers.length, 1); now = 1035;
+    timers.delete(engineTimers[0]); engineTimers[0].callback();
+    await flush(); assert.match((await arming).error?.message ?? "", /^OBU_NETWORK_WAIT_TIMEOUT:/);
+    assert.equal(f.calls.some(([method]) => method === "engine-detach"), false);
+    let done = false;
+    const pause = f.backend.pauseAutomation().then(value => { done = true; return value; });
+    await flush(); assert.equal(done, false); assert.ok(f.backend.networkWaits.controlSnapshot().pending.length);
+    enable.resolve(); await flush(); assert.equal(done, false);
+    assert.equal(f.calls.some(([method]) => method === "engine-detach"), false);
+    disable.resolve(); assert.equal((await pause).cleanupComplete, true);
+  } finally { enable.resolve(); disable.resolve(); await arming; await flush(); t.mock.restoreAll(); }
 });
 
 test("entry deadline and capacity reservation precede a delayed controlReady and cannot arm late", async t => {

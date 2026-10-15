@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { listenFixture } from "./fixture-listener.mjs";
 import { coldWorldContexts } from "./cold-world-lifetime-fixture.mjs";
 import { coldNavigationGeometry as boxes, coldNavigationHTML, createColdNavigationFixtures, checkColdNavigation,
-  checkColdNavigationIdentity, checkColdNavigationBusiness, checkColdNavigationNative, checkColdNavigationVisible, coldNavigationInputs } from "./cold-navigation-fixture.mjs";
+  checkColdNavigationIdentity, checkColdNavigationBusiness, checkColdNavigationNative, checkColdNavigationVisible, coldNavigationInputs, coldNavigationHeldMove } from "./cold-navigation-fixture.mjs";
 
 const copy = value => structuredClone(value), hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const center = rect => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }), key = `cold-navigation-${"a".repeat(32)}`;
@@ -196,6 +196,37 @@ test("original navigation error remains primary with cleanup errors and no navig
   await assert.rejects(checkColdNavigation(harness), error => error === original); const detail = harness.detail();
   assert.match(detail.workflowError, /Original B navigation failed/); assert.ok(detail.cleanupErrors.some(row => /Original cleanup failed/.test(row.error)));
   assert.equal(detail.native.restored, true); assert.equal(harness.inputs.length, 1); assert.equal(harness.artifacts.length, 1); assert.equal(detail.server.posts.length, 0);
+});
+
+test("held-read hook adds one declared A move while visual failure still saves PNGs, B POST and End", async () => {
+  const harness = workflow(); const hook = { kind: "late-hit-navigation",
+    async afterADrain({ browser, tab }) { harness.calls.push("hold-A"); await browser.cdp.call(tab.id, "Input.dispatchMouseEvent", coldNavigationHeldMove); },
+    async beforeBMove() { harness.calls.push("release-after-B-commit"); },
+    async releaseFinally() { harness.calls.push("finally-release"); }, async restore() { harness.calls.push("restore-gate"); }, check() {} };
+  await assert.rejects(checkColdNavigation({ ...harness, heldReadNavigation: hook }));
+  const detail = harness.detail(); assert.equal(detail.observationErrors.length, 4); assert.equal(harness.artifacts.length, 2);
+  assert.deepEqual(harness.inputs.map(row => row.params), coldNavigationInputs(detail.value, { heldReadNavigation: true }));
+  assert.equal(harness.calls.filter(call => call === "submit").length, 1); assert.equal(detail.server.posts.length, 1);
+  assert.ok(harness.calls.indexOf("png:a") < harness.calls.indexOf("hold-A"));
+  assert.ok(harness.calls.indexOf("hold-A") < harness.calls.indexOf("navigate:b"));
+  assert.ok(harness.calls.indexOf("navigate:b") < harness.calls.indexOf("release-after-B-commit"));
+  assert.ok(harness.calls.indexOf("release-after-B-commit") < harness.calls.indexOf("png:b"));
+  assert.ok(harness.calls.indexOf("end") < harness.calls.indexOf("finally-release"));
+  assert.ok(harness.calls.indexOf("finally-release") < harness.calls.indexOf("finalize"));
+  assert.equal(harness.calls.filter(call => call === "restore-gate").length, 1); assert.equal(detail.native.restored, true);
+});
+
+test("held navigation failure releases before finalize and preserves first error despite failed gate cleanup", async () => {
+  const original = Error("Original navigation rejected"), harness = workflow({ navigationError: original });
+  await assert.rejects(checkColdNavigation({ ...harness, heldReadNavigation: { kind: "late-hit-navigation",
+    async afterADrain({ browser, tab }) { await browser.cdp.call(tab.id, "Input.dispatchMouseEvent", coldNavigationHeldMove); },
+    async beforeBMove() { assert.fail("No B move after failed navigation"); },
+    async releaseFinally() { harness.calls.push("gate-release"); throw Error("Original held cleanup failed"); },
+    async restore() { harness.calls.push("gate-restore"); }, check() {} } }), error => error === original);
+  assert.equal(harness.inputs.length, 2); assert.equal(harness.artifacts.length, 1); assert.equal(harness.detail().server.posts.length, 0);
+  assert.ok(harness.calls.indexOf("gate-release") < harness.calls.indexOf("finalize"));
+  assert.ok(harness.detail().cleanupErrors.some(row => /Original held cleanup failed/.test(row.error)));
+  assert.equal(harness.calls.filter(call => call === "gate-restore").length, 1); assert.equal(harness.detail().native.restored, true);
 });
 
 test("original markup has distinct authored A/B geometry and no programmatic focus/navigation", () => {

@@ -455,6 +455,7 @@ export class BrowserActionEngine {
   async withPage(params, {
     deadlineAt,
     isolateTimeout = false,
+    registrationOwnsCleanup = false,
     timeoutError = () => new Error("OBU_NETWORK_WAIT_TIMEOUT: Page setup deadline expired"),
     expiredError = () => new Error("OBU_NETWORK_WAIT_EXPIRED: tab control ended during setup")
   }, callback) {
@@ -462,10 +463,13 @@ export class BrowserActionEngine {
     string(params.session_id, "session_id");
     string(params.turn_id, "turn_id");
     if (!Number.isSafeInteger(params.control_epoch) || params.control_epoch < 1) throw new Error("control_epoch must be a positive safe integer");
-    if (!Number.isFinite(deadlineAt) || typeof isolateTimeout !== "boolean" || typeof callback !== "function" || typeof timeoutError !== "function" || typeof expiredError !== "function") throw new Error("Invalid Page setup deadline, callback or error factory");
+    if (!Number.isFinite(deadlineAt) || typeof isolateTimeout !== "boolean" || typeof registrationOwnsCleanup !== "boolean" || typeof callback !== "function" || typeof timeoutError !== "function" || typeof expiredError !== "function") throw new Error("Invalid Page setup deadline, callback or error factory");
     const generation = this.generations.get(params.tabId) ?? 0;
     let expired = false, phase = "queued", timer, createdAttachment = false;
     const canDetachOnTimeout = () => phase !== "queued" && phase !== "finished" &&
+      // A registry that retains the original subscription ACK owns cleanup
+      // after registration starts. Its caller deadline cannot release that Page.
+      !(phase === "registering" && registrationOwnsCleanup) &&
       (!isolateTimeout || createdAttachment) && (this.generations.get(params.tabId) ?? 0) === generation;
     const timeout = timeoutError;
     const remainingMs = () => {
