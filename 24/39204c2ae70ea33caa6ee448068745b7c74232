@@ -1,0 +1,57 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_e724c434e4cd01 14-21
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_e724c434e4cd01 15-21
+scripts/browser-integration/cold-root-rebuild-fixture.mjs
+  s_08bbfd293d324f::t_dc54f881b94425 121-125,229-232,234
+  s_08bbfd293d324f::t_25110cfd380e20 198-199
+  s_08bbfd293d324f::t_45fe65c6093ee0 200-202
+  s_08bbfd293d324f::t_3c6246f783e436 1-120,126-187,218-228,233,235-243,245-317
+  s_08bbfd293d324f::t_26f804d490546d 188-197,203-217,244
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_e724c434e4cd01 10-17
+scripts/browser-integration/cold-root-rebuild-fixture.test.mjs
+  s_08bbfd293d324f::t_dc54f881b94425 42,138,167
+  s_08bbfd293d324f::t_aa33730dd213a7 68-69,75,78-111,113-116,128-130
+  s_08bbfd293d324f::t_45fe65c6093ee0 72-74,112
+  s_08bbfd293d324f::t_26f804d490546d 76-77
+  s_08bbfd293d324f::t_8377a4303f0547 1-41,43-67,131-137,139-166,168-245
+  s_08bbfd293d324f::t_88d75f235af8e5 70-71,117-127
+docs/histories/2026-10/20261015-0159-raw-frame-feedback.md
+  s_08bbfd293d324f::t_22aec486cf1d95 148-150
+  s_08bbfd293d324f::t_89b7eee7caccd5 129-143,151-154,169-170
+  s_08bbfd293d324f::t_15b2970b30ac93 144-147
+docs/references/raw-frame-feedback.md
+  s_08bbfd293d324f::t_15b2970b30ac93 428-443
+  s_08bbfd293d324f::t_a418ee65f4479f 394-427
+  s_08bbfd293d324f::t_22aec486cf1d95 444-456
+scripts/browser-integration/frame-feedback-end.test.mjs
+  s_08bbfd293d324f::t_bfba441ad69a1d 1-80
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_efae372ae13329 2252-2255
+  s_08bbfd293d324f::t_dbe9eb48b219bc 41,123-129,413,463,603,861,1659-1673
+  s_08bbfd293d324f::t_1b28b261129026 1674-1680,2211,2231-2251,2256,2273-2277
+docs/exec-plans/active/2026-10-15-raw-frame-feedback.md
+  s_08bbfd293d324f::t_3a4b2a2a08a739 535-553
+  s_08bbfd293d324f::t_e724c434e4cd01 580-588,608-618
+  s_08bbfd293d324f::t_22aec486cf1d95 598-607
+  s_08bbfd293d324f::t_15bb474057aedf 554-564
+  s_08bbfd293d324f::t_a8da135a6ed753 565-579
+  s_08bbfd293d324f::t_15b2970b30ac93 589-597
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "2439204c2ae70ea33caa6ee448068745b7c74232",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
