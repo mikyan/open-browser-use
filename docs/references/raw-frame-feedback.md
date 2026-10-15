@@ -454,3 +454,45 @@ two popup activations/two Pause-control focus allowances, each matched to its
 target, sequence and interval. Intentional host restart retains generation one's
 termination; generation two exits 0, all four connections close and exact test
 processes are absent. No broader capability-parity conclusion follows.
+
+### Cold same-tab full navigation
+
+The separate `OBU_TEST_COLD_NAVIGATION=1` mode retains the mandatory raw-navigation
+case and one cold attachment across an A-to-B same-origin full navigation. A's
+first read and original resource releases finish before navigation. B has a new
+native Document, loader and default/passive context unique IDs, the same named
+world, and exactly one current passive context. Numeric context/frame/node IDs
+are not required to change. Different authored button geometry is joined to the
+original production node and box reads.
+
+`Ri2zjD` passes 2/2 with actual exit 0 and no source/runtime drift. Independent
+review checks both original screenshot replies and PNGs (18,039/17,986 bytes),
+the B checkpoint before its first input with no visible inherited A feedback,
+and the unique B POST (2,671 bytes, eight trusted DOM events). Nine original
+Input calls match the workflow without replay. The checkpoint is an observation
+before B input, not continuous observation of every navigation frame.
+
+The shared test context reducer now prefers the supplied unique destruction ID
+over a potentially reused numeric ID. A deterministic late-old-event regression
+fails with the former reducer; malformed supplied unique IDs fail explicitly,
+and legacy numeric fallback remains only for an absent field. Original native
+event records are unchanged. This fixes an acceptance oracle, not a demonstrated
+production defect or native event-reordering claim.
+
+On the same final sources, world-lifetime `6jh6nS` and root-replacement `BFDPU7`
+each pass 2/2 with actual exit 0; Node groups pass 3,919 with one existing Windows
+symlink-privilege skip. Production code still matches the previous full `SfCCYW`
+180/180 baseline; that full suite was not rerun for this acceptance-only change.
+Navigation while an original read is pending, BFCache, child replacement and the
+complete parity matrix remain open. The user requested a fresh Windows preview
+containing the already validated persistent-world production fix and current
+acceptance coverage; release assets carry their own build/source manifest.
+
+Native review matches 143 original calls/settlements: 138 successful ACKs and
+five preserved exact post-detach absence errors. Nine groups/25 handles receive
+their original release ACKs. A drain precedes B's one native navigation; the
+actual context-clear and frame-commit events establish the new live context set.
+End stays hidden 565 ms; the 3,706 ms focus interval has zero events/allowances.
+The original host exits 0, both connections close and exact run processes are
+absent. Related world/root runs retain their original identity assertions and
+zero-focus rules; all 54 production files match the full production baseline.

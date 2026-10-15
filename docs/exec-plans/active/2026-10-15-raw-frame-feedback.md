@@ -616,3 +616,68 @@ one B submission, resource release and unchanged focus rules. Do not require
 numeric context or frame IDs to change. Establish behavior before alleging a
 production bug. Navigation during a held read, BFCache, child replacement and
 worker replacement remain separate boundaries. Published archives are unchanged.
+
+### Cold same-tab navigation acceptance
+
+The preceding goal turn completed and pushed `2439204`; current HEAD and the
+clean worktree confirm that root-replacement acceptance is progress. The broader
+parity objective remains active. This turn follows the planned full-navigation
+boundary without presuming a production defect or replacing the wider goal.
+
+The separate `OBU_TEST_COLD_NAVIGATION=1` mode retains the original raw-navigation
+precondition and existing passive native observer. One cold attachment navigates
+to A, completes its original move/PNG and native resource cleanup, then uses one
+public raw navigation to same-origin B. Native document, loader and context
+unique IDs must distinguish B; numeric IDs need not change. B uses different
+button geometry. Independent native node reads, original screenshots, one
+trusted B submission, End and unchanged focus/cleanup checks establish the
+actual transition. Existing production code is unchanged while establishing
+the first behavior. Held-read navigation and BFCache are separate future checks.
+
+Read-only review found an oracle defect in the shared Runtime event reducer:
+an old destroyed event carrying both a unique ID and a reused numeric ID could
+remove a successor. Supplied unique IDs now select only their exact context;
+numeric fallback is retained only when the unique field is absent, and malformed
+supplied identities fail explicitly. Original event records are never rewritten.
+The old reducer fails the new deterministic late-event case (12 pass/1 fail);
+the corrected shared fixture has 14 passing checks. Root-replacement, End and
+new runner-configuration checks bring this targeted group to 38/38. This is a
+test-oracle fix, not evidence of an observed native event reordering or a
+production bug. Existing world/root native modes will cover the shared helper
+on the final source. Context retirement describes the current CDP live set,
+not physical destruction of an old page's heap or a BFCache claim.
+
+The pinned [V8 protocol definition](https://github.com/v8/v8/blob/b976f35da8356fcf4e5e176d1d810ba6a6f05718/include/js_protocol.pdl)
+distinguishes the deprecated numeric destruction ID from the unique context ID.
+The reducer regression uses a controlled event sequence; native navigation
+evidence will determine which events actually occur in the selected browser.
+
+The B checkpoint before its first input also records whether any old A effect
+is visibly inherited. A hidden pre-existing renderer is allowed; connection
+or target presence alone is not a visibility test. This checkpoint and the
+later native PNG have separate roles, without claiming continuous observation
+of every intermediate navigation frame.
+
+Final same-source native runs `Ri2zjD` (navigation), `6jh6nS` (compatible worker
+world lifetime) and `BFDPU7` (same-document root replacement) each pass their two
+cases with actual exit 0. All three wrapper records confirm no source/runtime
+drift. Node groups pass 1,824 extension, 330 scripts and 1,765 integration checks,
+with one existing Windows symlink-privilege skip. Independent visual/business
+review joins both original navigation PNGs (18,039/17,986 bytes), the B pre-input
+hidden checkpoint and one 2,671-byte B POST with eight trusted events to nine
+original native Input calls. Production remains unchanged from full `SfCCYW`.
+
+The user's latest request is to produce another usable package. Finish this
+acceptance increment, commit/push only to the existing fork branch, and create a
+new Windows preview from the clean commit. Keep the earlier release intact and
+include normal company-computer installation and in-place update instructions.
+This package includes the persistent-world production fix since the prior
+preview; it does not close the broader parity goal. Further native held-read
+navigation, BFCache, child replacement and ordinary Edge acceptance remain open.
+
+Final native review joins 143 original calls/settlements (138 successful ACKs,
+five preserved exact post-detach absences), nine groups/25 handles, the original
+navigation clear/commit sequence and the unchanged attachment. End is hidden
+565 ms; 3,706 ms has zero focus events/allowances. The original host exits 0 and
+both connections close. Related world/root identity checks, original Node TAPs,
+source/build identities and all three exact process inventories also pass.

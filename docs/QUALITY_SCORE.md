@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+同标签同源完整导航新增 `Ri2zjD`2/2 actualexit0；换页前后两原PNG、B首次输入前
+隐藏检查及唯一可信提交通过。共享上下文判定器优先用uniqueId，避免数字ID复用
+时误删后继；这是验收代码修正，未据此宣称生产缺陷。相关world `6jh6nS`与根
+替换`BFDPU7`各2/2 actualexit0，Node3919pass/1既有Windows权限skip，无源码
+漂移。生产源保持此前`SfCCYW`180/180基线；读中导航、BFCache及完整矩阵仍开放。
+
+此前同文档根替换基线：
 同文档根替换后的下一次冷读取已验：`0l1om9`2/2、相关`fi8VZ5`22/22，
 均实际exit0且无源码漂移；新旧按钮位置/尺寸不同，保留原Document/loader/
 context，两原PNG及唯一可信提交通过。Node3902pass/1既有Windows权限skip。

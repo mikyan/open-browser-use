@@ -7,6 +7,14 @@
 
 ## 当前基线
 
+冷读取后的同标签同源完整导航`Ri2zjD`2/2 actualexit0；A/B原生Document、loader
+与context uniqueId更新，同worldName且B仅一当前世界。B首次输入前无旧可见反馈，
+两原PNG及唯一可信提交通过。共享测试判定器修正数字context ID复用问题，生产
+源未变；world `6jh6nS`、根替换`BFDPU7`各2/2，Node3919pass/1既有权限skip。
+完整`SfCCYW`180/180基线未重复运行。用户本轮要求新预览包；整体目标仍active，
+读中导航、BFCache、child替换和普通Edge人工安装验收继续开放。
+
+此前同文档根替换基线：
 冷读取后的同文档根替换已验：`0l1om9`2/2、相关`fi8VZ5`22/22均实际exit0，
 两原PNG/新几何/唯一可信提交通过；Node3902pass/1既有权限skip。生产源未变，
 原`R58uno`清理回执误判失败保留，此前完整`SfCCYW`180/180未重跑。

@@ -152,6 +152,26 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
   替换及整体目标继续开放。下片先验同标签同源完整导航，不预设生产缺陷。
   同步文档并推现有fork分支，不提PR，已发布预览包保持不变。
 
+### 同标签同源完整导航与新预览请求
+
+- 用户询问是否结束并要求再打新包；说明完整能力对齐仍在进行，本轮先收尾
+  当前导航验收，再从干净提交制作新的Windows预览，不提PR、不覆盖旧发布。
+- 新独立cold-navigation模式保留原raw-navigation前置例，单attachment下A读取
+  完整释放后经原公开CDP接口导航到B。检查新Document/loader/context uniqueId、
+  同worldName和单当前私有世界；数字ID不要求变化。B输入前检查旧效果已隐藏。
+- 共享测试context reducer修正迟到旧销毁事件与数字ID复用误判；原事件不改，
+  缺unique字段才允许数字fallback，畸形unique明确失败。确定性旧实现红例保留，
+  未据此宣称生产代码存在缺陷或原生复现该事件顺序。
+- `Ri2zjD`、world `6jh6nS`、根替换`BFDPU7`各2/2、actualexit0且无漂移。
+  Node3919pass/1既有Windows权限skip。两原PNG18039/17986B、唯一B POST2671B、
+  八可信事件和九原Input独审通过；首次B输入前隐藏观察不代表连续导航录屏。
+- 原生独审核143call/settlement（138成功ACK/5保留absence）、9组25对象释放，
+  A drain后一次B导航及实际clear/commit；End565ms隐藏，3706ms零焦点事件/许可。
+  原host实际exit0、两连接关闭，三个专项精确进程库存均空；54生产文件匹配基线。
+- 本轮只改验收代码，生产沿用完整`SfCCYW`180/180基线；未重新全跑。
+  新包包含此前dc95b36的持久世界复用修复，提供安装/覆盖步骤及构建来源清单。
+  普通Edge下载路径人工验收、读中导航、BFCache和完整矩阵继续开放。
+
 ### Main files
 
 - `scripts/raw-pointer-feedback.mjs`、`scripts/patch-pointer-feedback.mjs`
@@ -168,3 +188,5 @@ Node3666pass/1既有Windows skip。18原PNG/POST、65原对象释放与39文档�
 - `scripts/browser-integration/cold-native-route-probe.mjs`
 - `scripts/browser-integration/cold-root-rebuild-fixture.mjs`
 - `scripts/browser-integration/frame-feedback-end.test.mjs`
+- `scripts/browser-integration/cold-navigation-fixture.mjs`
+- `scripts/browser-integration/cold-navigation-runner.test.mjs`

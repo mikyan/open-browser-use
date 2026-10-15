@@ -111,6 +111,41 @@ test("passive observer preserves original Promise/receiver and observes native e
   assert.equal(calls.length, 1, "Observer does not enable another domain or create a world"); assert.match(coldWorldLifetimeProbePrefix(), /^;\(/);
 });
 
+test("old unique destruction does not retire a successor that reused the numeric context ID", () => {
+  const probe = trace();
+  event(probe, context(1, "", "a-default"));
+  event(probe, context(2, `${prefix}shared`, "a-passive"));
+  append(probe, { kind: "event", source: { tabId: 7 }, method: "Runtime.executionContextsCleared", params: {} });
+  event(probe, context(1, "", "b-default"));
+  event(probe, context(2, `${prefix}shared`, "b-passive"));
+  for (const [id, uniqueId] of [[1, "a-default"], [2, "a-passive"]])
+    append(probe, { kind: "event", source: { tabId: 7 }, method: "Runtime.executionContextDestroyed", params: { executionContextId: id, executionContextUniqueId: uniqueId } });
+  const original = copy(probe.records), live = coldWorldContexts(probe, "original-root");
+  assert.deepEqual(live.defaults.map(row => row.uniqueId), ["b-default"]);
+  assert.deepEqual(live.worlds.map(row => row.uniqueId), ["b-passive"]);
+  assert.deepEqual(probe.records, original, "Original event records are not rewritten");
+  append(probe, { kind: "event", source: { tabId: 7 }, method: "Runtime.executionContextDestroyed", params: { executionContextId: 2, executionContextUniqueId: "b-passive" } });
+  assert.equal(coldWorldContexts(probe, "original-root").worlds.length, 0);
+});
+
+test("numeric destruction remains supported only when no unique identity is supplied", () => {
+  const probe = trace(); event(probe, context(1, "")); event(probe, context(2, `${prefix}shared`));
+  for (const source of [{ tabId: 8 }, { tabId: 7, sessionId: "foreign-session" }])
+    append(probe, { kind: "event", source, method: "Runtime.executionContextDestroyed", params: { executionContextId: 2 } });
+  assert.equal(coldWorldContexts(probe, "original-root").worlds.length, 1);
+  append(probe, { kind: "event", source: { tabId: 7 }, method: "Runtime.executionContextDestroyed", params: { executionContextId: 2 } });
+  assert.equal(coldWorldContexts(probe, "original-root").worlds.length, 0);
+  assert.equal(coldWorldContexts(probe, "original-root").defaults.length, 1);
+});
+
+test("malformed supplied unique identity cannot silently fall back to a numeric ID", () => {
+  for (const uniqueId of [null, "", 0]) {
+    const probe = trace(); event(probe, context(2, `${prefix}shared`));
+    append(probe, { kind: "event", source: { tabId: 7 }, method: "Runtime.executionContextDestroyed", params: { executionContextId: 2, executionContextUniqueId: uniqueId } });
+    assert.throws(() => coldWorldContexts(probe, "original-root"), /Malformed native context unique ID/);
+  }
+});
+
 test("native context identity uses exact root route/frame, clear and destroyed events", () => {
   const probe = trace(); event(probe, context(1, "")); event(probe, context(2, `${prefix}one`));
   event(probe, context(3, `${prefix}wrong-tab`), { tabId: 8 }); event(probe, context(4, `${prefix}child-session`), { tabId: 7, sessionId: "child" });

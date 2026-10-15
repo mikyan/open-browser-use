@@ -12,6 +12,14 @@
 
 ## Baseline sources
 
+P07/P12/P13 同标签同源A→B完整导航`Ri2zjD`2/2 actualexit0；两原PNG、B首次
+输入前无旧可见反馈、唯一可信提交及原资源释放已验。Document/loader/context
+uniqueId更新，同worldName且B只有一当前世界；不要求数字ID变化。world与根
+替换相关回归各2/2，Node3919pass/1既有权限skip，生产沿用`SfCCYW`180/180基线。
+这只证明A读取已清理后的导航与下一次B读取，不证明读中导航、BFCache、child
+替换或完整能力持平，详见[坐标反馈](../references/raw-frame-feedback.md)。
+
+此前同文档根替换基线：
 P07/P12/P13 同文档根替换后的下一次冷读取新增真实验收：`0l1om9`2/2、
 相关`fi8VZ5`22/22，均actualexit0；两原PNG、不同几何及唯一可信提交通过。
 生产源未变，Node3902pass/1既有skip；原`R58uno`测试误判失败保留。该证据

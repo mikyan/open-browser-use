@@ -143,8 +143,12 @@ export function coldWorldContexts(probe, frameId) {
     if (row.kind !== "event" || row.source.tabId !== probe.tabId || row.source.sessionId) continue;
     if (row.method === "Runtime.executionContextsCleared") contexts.clear();
     if (row.method === "Runtime.executionContextDestroyed") {
-      contexts.delete(row.params.executionContextId);
-      if (row.params.executionContextUniqueId) for (const [id, context] of contexts) if (context.uniqueId === row.params.executionContextUniqueId) contexts.delete(id);
+      const uniqueId = row.params.executionContextUniqueId;
+      if (uniqueId !== undefined) {
+        assert.ok(typeof uniqueId === "string" && uniqueId.length, "Malformed native context unique ID");
+        // A numeric ID may already belong to a successor after navigation.
+        for (const [id, context] of contexts) if (context.uniqueId === uniqueId) contexts.delete(id);
+      } else contexts.delete(row.params.executionContextId);
     }
     if (row.method === "Runtime.executionContextCreated") contexts.set(row.params.context.id, row.params.context);
   }
