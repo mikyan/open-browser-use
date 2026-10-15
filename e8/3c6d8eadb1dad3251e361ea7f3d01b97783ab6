@@ -1,0 +1,59 @@
+scripts/browser-integration/cold-navigation-runner.test.mjs
+  s_08bbfd293d324f::t_0fde4aa966697a 15-18
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_825ea16ca07a6e 3-20
+scripts/browser-integration/cold-held-navigation-fixture.test.mjs
+  s_08bbfd293d324f::t_9d201439ea95ab 1-133
+scripts/browser-integration/run.mjs
+  s_08bbfd293d324f::t_0fde4aa966697a 43,125-131,621,881,1701-1705,1707,1710,1712,1717
+apps/chrome-extension/network-wait-backend.test.mjs
+  s_08bbfd293d324f::t_665df00b55ea69 213-219,221-225,228-238
+  s_08bbfd293d324f::t_9d9ec9441e753a 226-227
+docs/exec-plans/active/2026-10-15-raw-frame-feedback.md
+  s_08bbfd293d324f::t_ab758564951e5b 684-716
+  s_08bbfd293d324f::t_f1b83a6c27704e 717-733
+  s_08bbfd293d324f::t_2869ca6ac4c5e0 734-758
+docs/histories/2026-10/20261016-0130-network-registration-cleanup.md
+  s_08bbfd293d324f::t_1b4cd79813e3ba 1-59
+  s_08bbfd293d324f::t_4955bf2bc0cbba 60-61
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_532e7b99da805f 3015
+scripts/browser-integration/cold-held-navigation-fixture.mjs
+  s_08bbfd293d324f::t_c149688bdba293 1-203
+apps/chrome-extension/browser-action-engine.test.mjs
+  s_08bbfd293d324f::t_68a3d0c7ab8909 646-664
+docs/references/network-waits-design.md
+  s_08bbfd293d324f::t_f21a45002c7c37 271-282
+apps/chrome-extension/browser-action-engine.js
+  s_08bbfd293d324f::t_532e7b99da805f 458,466,470-472
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_809786b2538d1d 14-22
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_556685a287a4ea 10-18
+docs/histories/2026-10/20261015-0159-raw-frame-feedback.md
+  s_08bbfd293d324f::t_734f8e281c68dc 175-187
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d84c6a2ee97677 15-23
+docs/references/raw-frame-feedback.md
+  s_08bbfd293d324f::t_a1ec15725672f9 499-523
+scripts/browser-integration/cold-navigation-fixture.mjs
+  s_08bbfd293d324f::t_4dea73a314dd37 155-157,160,163-164,206,215,246,287,290-294,308-310,318,334,340,344
+scripts/browser-integration/cold-navigation-fixture.test.mjs
+  s_08bbfd293d324f::t_1a3903ee082adc 9,201-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "e83c6d8eadb1dad3251e361ea7f3d01b97783ab6",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
