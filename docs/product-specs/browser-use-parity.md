@@ -12,6 +12,14 @@
 
 ## Baseline sources
 
+当前可用发布为 `preview-20261016-dfb9e6b`，生产运行功能沿用 e83c6d8。
+显式隔离 Headless 的真实 Native Messaging 原型五步通过，保留此前两次
+零业务失败；这是开发可行性证据，尚无用户启动器、实时观看与可信控制，
+不计作 P01–P15 整体完成，也不改变普通 profile 的焦点边界。见
+[隔离会话计划](../exec-plans/active/2026-10-16-managed-browser-session.md)。
+
+此前完整任务对照：
+
 六任务两轮、双方共 24 次原始尝试已结算并完成停止后独审。OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。
 保留两项环境阻塞、OBU 首轮研究的桥接清理失败及 Codex 两项隐藏输入限制，
 未以重跑覆盖。生产仍为已发布的 `e83c6d8`；本轮只改验收设施和文档。

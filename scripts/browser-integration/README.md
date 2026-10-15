@@ -1,5 +1,58 @@
 # Browser integration acceptance
 
+## Isolated headless native feasibility
+
+`managed-headless-check.mjs` is a Windows developer check for the pinned
+Chromium 156.0.8078.4 executable (SHA-256
+`7f08161bbeb2853ffe1780a9ded4985087f52efb9725d7d8207aabdd42f7cfb9`). Build the
+current Go host and JS SDK first, then select both binaries explicitly:
+
+```powershell
+$env:OBU_TEST_HOST_BINARY = (Resolve-Path .tmp/open-browser-use.exe).Path
+$env:OBU_TEST_CHROMIUM_BINARY = '<absolute path to the pinned Chromium chrome.exe>'
+$env:OBU_TEST_FIELD_TRIAL_CONFIG = 'disabled'
+node scripts/browser-integration/managed-headless-check.mjs
+```
+
+The shared `browserStartupOptions` policy defaults to `disabled`; explicitly
+selecting `browser-default` preserves the browser's original testing config.
+The runner uses `--headless=new` without `--no-sandbox`, a fresh private profile
+and environment, and a unique owned HKCU native-host registration. Staging
+changes only the native-host name and public unpacked extension key. The
+production `connectNative` path launches the actual host. A read-only extensions
+manager inventory includes disabled/terminated entries and accepts only the
+fixture extension plus entries explicitly marked `COMPONENT`. It does not
+change browser permission UI or use a daily profile.
+
+One original SDK form submission and PNG precede one Control-click/`expectPage`
+child and its unique POST. `turnEnded`, old-handle rejection, debugger release,
+`Browser.close`, exact-handle native EOF, process/endpoint cleanup and removal
+of the unchanged owned registration are recorded under a new
+`.tmp/browser-integration/managed-headless-*` directory. Browser log and source
+hashes accompany each attempt. Do not describe this as a single 20-second
+startup budget: endpoint discovery and the later descriptor wait share the
+original endpoint deadline, while worker lookup and native-status waits each
+have their own 20-second bound.
+
+Retained first outcomes: `jBbcen` exited with browser code 3 before an endpoint
+under the default browser testing config; `XUd0ts` exposed an early descriptor
+read in the harness. Both performed zero business actions and retain their
+original runner snapshots. A separate no-extension A/B/C diagnostic found that
+the existing disabled testing-config policy allowed this pinned browser to
+start; it did not identify the individual failing experiment. After using that
+policy and waiting for actual descriptor publication, `Z8Bgff` passed 5/5 with
+actual outer exit 0. Its connection step took 1,980 ms. The original form and
+child POST bodies were 112 and 192 bytes, the PNG was 758×369, and both browser
+and native host exited with code 0. All 17 observed owned processes exited;
+the pipe, endpoint records and unique registration were removed.
+
+This is deployment feasibility, not a delivered managed-session feature,
+ordinary installed-browser acceptance, OS foreground measurement or
+`finalizeTabs` coverage. Internal tab/window activation events remain recorded
+diagnostics. Visible live viewing, trusted user controls, login handoff and a
+public launcher remain open in the
+[managed-session plan](../../docs/exec-plans/active/2026-10-16-managed-browser-session.md).
+
 ## Fixed complete-task comparison
 
 The [P15 comparison protocol](../../docs/exec-plans/completed/2026-10-16-task-comparison.md)

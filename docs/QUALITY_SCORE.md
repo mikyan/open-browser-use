@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+已按用户要求交付 `preview-20261016-dfb9e6b`，运行功能与 e83c6d8 相同，
+重建主机、离线检查、制品独审及上传后回下载哈希核验通过。新增显式隔离
+Headless 原型在真实 Native Messaging 下完成五步验证（含原表单、原生子页、
+截图和实际 EOF 清理），两次零业务前置失败保留。尚无用户启动器、实时
+viewer 或可信暂停入口；未纳入安装包，不替代普通浏览器焦点验收。见
+[隔离会话计划](exec-plans/active/2026-10-16-managed-browser-session.md)。
+
+此前完整任务对照：
+
 六任务两轮、双方共 24 次原始尝试已结算并完成停止后独审。OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。
 保留两项环境阻塞、OBU 首轮研究的桥接清理失败及 Codex 两项隐藏输入限制，
 未以重跑覆盖。生产仍为已发布的 `e83c6d8`；本轮只改验收设施和文档。
