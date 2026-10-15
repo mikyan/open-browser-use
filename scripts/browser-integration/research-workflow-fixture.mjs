@@ -29,8 +29,8 @@ function definition(fields) {
 }
 
 // A nonce changes source values as well as revisions; layout does not determine an answer.
-function generate(key, variant, port) {
-  const nonce = randomUUID(), bytes = createHash("sha256").update(nonce).digest();
+function generate(key, variant, port, nonce) {
+  const bytes = createHash("sha256").update(nonce).digest();
   const mode = bytes[0] % 4, documents = {}, rows = [];
   const base = `/research-task/${key}`, origin = `http://127.0.0.1:${port}`;
   for (const [index, [vendorId, name]] of Object.entries(vendors).entries()) {
@@ -137,7 +137,8 @@ function validatePayload(payload, record) {
   return true;
 }
 
-export function createResearchWorkflowFixture({ onChange = () => {} } = {}) {
+export function createResearchWorkflowFixture({ onChange = () => {}, nonceFactory = () => randomUUID() } = {}) {
+  if (typeof nonceFactory !== "function") throw new TypeError("Research material factory must be a function");
   const records = new Map();
   const changed = () => onChange();
   const reply = (response, status, body, type = "text/html; charset=utf-8") => {
@@ -155,7 +156,14 @@ export function createResearchWorkflowFixture({ onChange = () => {} } = {}) {
       if (route || request.method !== "GET") { fail(response, 404, "Task not found"); return true; }
       const variant = Number(url.searchParams.get("variant") ?? 1);
       if (![1, 2, 3].includes(variant) || records.size >= 128) { fail(response, 400, "Invalid task or capacity reached"); return true; }
-      record = generate(key, variant, port); records.set(key, record);
+      // Comparison callers may share material across distinct task keys. Only
+      // source facts are shared; requests, submissions and receipts stay local.
+      try {
+        const nonce = nonceFactory(key, variant);
+        if (typeof nonce !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(nonce)) throw Error("Invalid material nonce");
+        record = generate(key, variant, port, nonce);
+      } catch { fail(response, 500, "Task material unavailable"); return true; }
+      records.set(key, record);
     }
     if (record.requests.length >= 512) { record.overflow = true; changed(); fail(response, 429, "Evidence capacity reached"); return true; }
     record.requests.push({ index: record.requests.length, at: Date.now(), method: request.method, url: url.href, route }); changed();

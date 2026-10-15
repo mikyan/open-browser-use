@@ -4,8 +4,8 @@ import http from "node:http";
 import vm from "node:vm";
 import { createResearchWorkflowFixture, researchWorkflowTask, checkResearchReceipt } from "./research-workflow-fixture.mjs";
 
-async function withServer(operation) {
-  const fixture = createResearchWorkflowFixture();
+async function withServer(operation, options) {
+  const fixture = createResearchWorkflowFixture(options);
   const server = http.createServer((request, response) => {
     if (!fixture.handle(request, response, server.address().port)) { response.writeHead(404); response.end(); }
   });
@@ -110,3 +110,47 @@ test("post-hoc evidence rejects missing source reads, repeated submissions, byte
   const result = await post(`${base}/research-task/${untrustedKey}/submit`, untrusted); await fetch(base + result.body.reportURL);
   const untrustedLedger = fixture.stats(untrustedKey); assert.throws(() => checkResearchReceipt(untrustedLedger.receipt, untrustedLedger), /save action/);
 }));
+
+test("paired public materials are identical while source URLs and single-submission ledgers remain independent", () => {
+  const nonces = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"], factoryCalls = [];
+  return withServer(async ({ fixture, base }) => {
+    const keys = ["round1-obu", "round1-codex", "round2-obu", "round2-codex"], records = [];
+    for (const key of keys) {
+      assert.equal((await fetch(`${base}/research-task/${key}?variant=3`)).status, 200);
+      const record = fixture.stats(key); records.push(record);
+      for (const id of ["a", "b", "c"]) for (const kind of ["quote", "terms"]) {
+        const body = await (await fetch(record.documents[id][`${kind}URL`])).text();
+        assert.deepEqual(bodyFields(body), Object.fromEntries(Object.entries(record.documents[id][kind]).map(([name, value]) => [name, String(value)])));
+      }
+    }
+    for (const [first, second] of [[records[0], records[1]], [records[2], records[3]]]) {
+      for (const id of ["a", "b", "c"]) {
+        assert.deepEqual(first.documents[id].quote, second.documents[id].quote);
+        assert.deepEqual(first.documents[id].terms, second.documents[id].terms);
+        for (const kind of ["quote", "terms"]) assert.notEqual(first.documents[id][`${kind}URL`], second.documents[id][`${kind}URL`]);
+      }
+      assert.equal(first.oracle.selection, second.oracle.selection);
+      assert.equal((await post(`${base}/research-task/${first.key}/submit`, payloadFor(first))).status, 201);
+      assert.equal(fixture.stats(second.key).receipt, null);
+      assert.deepEqual(fixture.stats(second.key).posts, []);
+      assert.equal((await post(`${base}/research-task/${second.key}/submit`, payloadFor(second))).status, 201);
+      assert.notEqual(fixture.stats(first.key).receipt.reportId, fixture.stats(second.key).receipt.reportId);
+      assert.equal((await post(`${base}/research-task/${first.key}/submit`, payloadFor(first))).status, 409);
+      assert.equal(fixture.stats(second.key).posts.length, 1);
+      assert.equal(fixture.stats(second.key).acceptedSubmissions, 1);
+      assert.equal(fixture.stats(second.key).duplicateSubmissions, 0);
+    }
+    assert.notDeepEqual(records[0].documents.a.quote, records[2].documents.a.quote);
+    assert.deepEqual(factoryCalls, keys.map(key => [key, 3]));
+  }, { nonceFactory: (key, variant) => { factoryCalls.push([key, variant]); return nonces[key.startsWith("round1") ? 0 : 1]; } });
+});
+
+test("invalid material factories cannot publish partial tasks or leak their private error", async () => {
+  assert.throws(() => createResearchWorkflowFixture({ nonceFactory: null }), /factory must be a function/);
+  for (const nonceFactory of [() => "private-invalid-value", () => { throw Error("private-seed-details"); }])
+    await withServer(async ({ fixture, base }) => {
+      const response = await fetch(`${base}/research-task/invalid-material?variant=3`);
+      assert.equal(response.status, 500); assert.deepEqual(await response.json(), { error: "Task material unavailable" });
+      assert.deepEqual(fixture.allStats(), []);
+    }, { nonceFactory });
+});

@@ -1,5 +1,28 @@
 # Browser integration acceptance
 
+## Fixed complete-task comparison
+
+The [P15 comparison protocol](../../docs/exec-plans/active/2026-10-16-task-comparison.md)
+fixes six tasks, two sides and two rounds before execution. Solvers receive only
+public task instructions and use their formal browser interfaces; fixture
+drivers, private ledgers and expected answers are reserved for later auditing.
+
+`node scripts/browser-integration/research-workflow-server.mjs --paired-comparison`
+publishes four public task URLs. Both sides see the same material within each
+round, with separate task keys and submission ledgers; the next round has new
+material. The default server remains independently randomized.
+
+`node scripts/browser-integration/parity-transfer-diagnostics-server.mjs --output <new-directory>`
+serves the existing root upload and root/cross-origin diagnostics pages with
+shared visible instructions. Its ready message contains public URLs and three
+generated upload file paths. Private server evidence remains local. Send `stop`
+on stdin and retain the actual child process close result as well as its files.
+
+These are preparation servers, not completed comparison results. Their focused
+tests verify paired materials, independent submissions, original upload bytes,
+unchanged diagnostic pages and actual server shutdown. See the protocol for
+task budgets, first-attempt recording, cleanup and environment limitations.
+
 ## Navigation while a cold pointer reply is held
 
 `OBU_TEST_COLD_HELD_NAVIGATION=1` selects the mandatory raw-navigation precondition
