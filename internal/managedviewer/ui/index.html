@@ -24,7 +24,7 @@
       <div class="screen"><img id="frame" alt="所选标签页的浏览器画面，包含可用的 AI 光标和元素高亮" draggable="false" hidden><textarea id="human-input" class="human-input" aria-label="接管页面键盘输入" autocomplete="off" autocapitalize="off" spellcheck="false" tabindex="-1" disabled></textarea><div id="placeholder"><strong>选择一个标签页查看</strong><span>普通查看不传递输入；点击“接管此页”后可在画面内操作。</span></div></div>
       <div class="caption"><span id="page-title">未选择标签页</span><span id="dimensions"></span></div>
     </section>
-    <footer><p>接管会先暂停 Agent。点击画面后可输入文字、使用按键或滚动；离开输入区域会结束接管。完成后保持暂停，请明确点击“继续操作”让 Agent 发起新操作。原生系统弹窗和文件选择不在画面内。</p><p>暂停会阻止 Agent 的新操作，并等待现有控制释放；网页自身的脚本仍可运行。停止会关闭此独立浏览器。普通查看断开不会自动暂停或继续；接管断开会释放人工控制。</p></footer>
+    <footer><p>接管会先暂停 Agent。点击画面后可输入文字、使用按键或滚动；页面跳转时暂停输入，等新画面后可继续，旧输入不会重放。切换查看窗口会结束接管。完成后保持暂停，请明确点击“继续操作”让 Agent 发起新操作。原生系统弹窗和文件选择不在画面内。</p><p>暂停会阻止 Agent 的新操作，并等待现有控制释放；网页自身的脚本仍可运行。停止会关闭此独立浏览器。普通查看断开不会自动暂停或继续；接管断开会释放人工控制。</p></footer>
   </main>
 </body>
 </html>

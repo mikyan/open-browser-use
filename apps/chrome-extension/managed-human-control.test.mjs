@@ -5,10 +5,10 @@ import { ManagedHumanControl } from "./managed-human-control.js";
 const defer = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function fixture(options = {}) {
-  const calls = [], frames = [], listeners = new Set(), risks = new Set();
-  let paused = false, authorized = true;
+  const calls = [], frames = [], states = [], listeners = new Set(), risks = new Set();
+  let paused = false, authorized = true, documentId = "original-document", loaderId = "loader-1", clock = 100;
   const emit = (source = { targetId: "original-target" }, metadata = options.metadata ?? { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0 }) => {
-    for (const listener of [...listeners]) listener(source, "Page.screencastFrame", { data: "cGl4ZWxz", metadata, sessionId: 42 });
+    for (const listener of [...listeners]) listener(source, "Page.screencastFrame", { data: "cGl4ZWxz", metadata: { monotonicTimestamp: clock + 1, ...metadata }, sessionId: 42 });
   };
   const chrome = { debugger: {
     onEvent: { addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn) },
@@ -18,19 +18,25 @@ function fixture(options = {}) {
       calls.push([method, target, params]);
       const result = await options.command?.(method, params);
       if (method === "Page.startScreencast" && options.frames !== false) queueMicrotask(emit);
-      return result ?? (method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, scale: 1, zoom: 1, offsetX: 0, offsetY: 0 } } : {});
+      if (result !== undefined) return result;
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root", loaderId, url: "https://fixture.test/" + documentId } } };
+      if (method === "Performance.getMetrics") return { metrics: [{ name: "Timestamp", value: clock }] };
+      return method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, scale: 1, zoom: 1, offsetX: 0, offsetY: 0 } } : {};
     }
   } };
   const control = new ManagedHumanControl({ chrome,
-    capture: async tabId => { calls.push(["capture"]); await options.capture?.(); return { tabId, targetId: "original-target", documentId: "original-document" }; },
-    validate: async candidate => { assert.equal(candidate.documentId, "original-document"); await options.validate?.(); },
+    capture: async tabId => { calls.push(["capture"]); await options.capture?.(); return { tabId, targetId: "original-target", documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
+    validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
     onFailure: error => calls.push(["failure", error.message])
   });
-  const begin = () => control.begin(7, () => { if (!authorized) throw new Error("lease expired"); }, frame => frames.push(frame));
-  return { control, chrome, calls, frames, risks, emit, listeners, begin, expire: () => { authorized = false; } };
+  const begin = () => control.begin(7, () => { if (!authorized) throw new Error("lease expired"); }, frame => frames.push(frame), state => states.push(state));
+  return { control, chrome, calls, frames, states, risks, emit, listeners, begin,
+    changeDocument: (id = "next-document") => { documentId = id; loaderId = "loader-" + id; clock += 10; },
+    event: (method, params = {}, source = { targetId: "original-target" }) => { for (const listener of [...listeners]) listener(source, method, params); },
+    expire: () => { authorized = false; } };
 }
 const input = (handle, value, extra = {}) => {
   const info = handle.info();
@@ -81,7 +87,7 @@ test("close revokes immediately but joins the original delayed down, release, an
   await assert.rejects(input(handle, { type: "text", text: "late" }), /revoked/);
   await tick(); assert.equal(closed, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
   assert.throws(() => f.control.assertReleased(), /releasing human control/);
-  down.resolve(); await assert.rejects(pending, /revoked/); await tick();
+  down.resolve(); assert.equal((await pending).acknowledged, true); await tick();
   const released = f.calls.findIndex(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased");
   const detach = f.calls.findIndex(([method]) => method === "detach");
   assert.ok(released >= 0 && detach > released);
@@ -128,7 +134,7 @@ test("closing shifted committed text joins its real insertion and Shift release 
   let closed = false; const closing = handle.close().then(() => { closed = true; });
   await handle.closed; await tick();
   assert.equal(closed, false); assert.equal(f.calls.some(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp"), false);
-  inserted.resolve(); await assert.rejects(pending, /revoked/); await releaseEntered.promise;
+  inserted.resolve(); assert.equal((await pending).acknowledged, true); await releaseEntered.promise;
   assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/);
   assert.equal(f.calls.some(([method]) => method === "detach"), false); assert.equal(f.risks.size, 1);
   released.resolve(); await closing;
@@ -250,7 +256,7 @@ test("closing waits for the original native frame ACK and stop before detaching"
 test("input admission snapshots caller values and errors name stale, busy, and invalid contracts", async () => {
   const durable = defer(), entered = defer(); let writes = 0;
   const f = fixture({ markRisk: () => { if (++writes === 2) { entered.resolve(); return durable.promise; } } }), handle = await f.begin();
-  await assert.rejects(input(handle, { type: "text", text: "x" }, { generation: 2 }), /OBU_HUMAN_STALE/);
+  await assert.rejects(input(handle, { type: "text", text: "x" }, { generation: 2 }), /OBU_HUMAN_GENERATION_STALE/);
   await assert.rejects(input(handle, { type: "wheel", x: 1, y: 1, deltaX: 4097, deltaY: 0 }), /OBU_HUMAN_INVALID/);
   await assert.rejects(input(handle, { type: "key", action: "down", key: "x".repeat(65), code: "KeyX", windowsVirtualKeyCode: 88 }), /OBU_HUMAN_INVALID/);
   const value = { type: "key", action: "down", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
@@ -336,7 +342,7 @@ test("invalid native surfaces never grant input and still ACK, stop and detach t
   for (const change of [{ deviceWidth: 799 }, { deviceHeight: 599 }, { deviceWidth: Infinity }, { deviceHeight: 16385 },
     { pageScaleFactor: 2 }, { offsetTop: 1 }, { offsetTop: undefined }]) {
     const f = fixture({ metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, ...change } });
-    await assert.rejects(f.begin(), /revoked|cancelled because tab control ended/);
+    await assert.rejects(f.begin(), /revoked|cancelled because tab control ended|OBU_HUMAN_GEOMETRY/);
     assert.equal(f.frames.length, 0); assert.equal(f.risks.size, 0); f.control.assertReleased();
     for (const method of ["Page.screencastFrameAck", "Page.stopScreencast", "detach"])
       assert.equal(f.calls.filter(([name]) => name === method).length, 1, method);
@@ -448,4 +454,203 @@ test("cancel during original attach waits for that completion and never attaches
   attaching.resolve(); await assert.rejects(pending, /revoked/); await closing;
   assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
   assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+});
+
+
+test("navigation keeps the same lease and target but synchronously retires its displayed generation", async () => {
+  const f = fixture(), handle = await f.begin(), before = handle.info();
+  await input(handle, { type: "text", text: "A only" });
+  let wholeClosed = false; handle.closed.then(() => { wholeClosed = true; });
+  f.changeDocument("B");
+  f.control.navigation(7, { frameId: 0 }, "committed");
+  assert.deepEqual(handle.info(), { ...before, state: "navigating", generation: 2, viewport: null, lastInputSequence: 0 });
+  assert.deepEqual(f.states.at(-1), handle.info());
+  await assert.rejects(handle.input({ leaseId: before.leaseId, generation: 1, sequence: 2, input: { type: "text", text: "old queue" } }), /OBU_HUMAN_GENERATION_STALE/);
+  await f.control.current.recovery;
+  assert.equal(handle.info().state, "active"); assert.equal(handle.info().leaseId, before.leaseId);
+  assert.equal(handle.info().generation, 2); assert.equal(handle.info().lastInputSequence, 0);
+  const receipt = await input(handle, { type: "text", text: "B only" });
+  assert.deepEqual(receipt, { leaseId: before.leaseId, generation: 2, sequence: 1, acknowledged: true });
+  assert.equal(Object.isFrozen(receipt), true); assert.equal(wholeClosed, false);
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "pause").length, 1);
+  assert.equal(f.risks.size, 1); assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/);
+  await handle.close();
+});
+
+test("tab metadata stays blank before a verified frame and after the original lease closes", async t => {
+  const f = fixture({ frames: false }), beginning = f.begin();
+  t.after(async () => { f.emit(); try { await beginning; } finally { await f.control.current?.handle.close(); } });
+  await tick();
+  const original = f.control.current.handle;
+  assert.deepEqual(original.tabInfo(), { id: 7, title: "页面正在跳转", url: "" });
+  f.emit(); const handle = await beginning;
+  assert.deepEqual(handle.tabInfo(), { id: 7, title: "Title original-document", url: "https://fixture.test/original-document" });
+  assert.equal(Object.isFrozen(handle.tabInfo()), true);
+  await handle.close();
+  assert.deepEqual(handle.tabInfo(), { id: 7, title: "", url: "" });
+});
+
+test("tab metadata never publishes a late candidate from an abandoned navigation", async t => {
+  const f = fixture(), handle = await f.begin(), entered = defer(), read = defer();
+  t.after(async () => { read.resolve(); await handle.close(); });
+  const validate = f.control.validate;
+  f.control.validate = async (candidate, options) => {
+    const result = await validate(candidate, options);
+    if (options?.advance && result.documentId === "B") { entered.resolve(); await read.promise; }
+    return result;
+  };
+  f.changeDocument("B"); f.control.navigation(7, { frameId: 0 }, "committed"); await entered.promise;
+  assert.deepEqual(handle.tabInfo(), { id: 7, title: "页面正在跳转", url: "" });
+  f.changeDocument("C"); f.control.navigation(7, { frameId: 0 }, "committed");
+  read.resolve(); await f.control.current.recovery;
+  assert.deepEqual(handle.tabInfo(), { id: 7, title: "Title C", url: "https://fixture.test/C" });
+  assert.deepEqual(f.frames.map(frame => frame.generation), [1, 3]);
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
+});
+
+test("tab metadata uses the final original validation without changing typed human info", async t => {
+  const f = fixture(), validate = f.control.validate;
+  f.control.validate = async (...args) => ({ ...await validate(...args), title: f.control.current?.epoch?.document ? "Final title" : "Early title" });
+  const handle = await f.begin(); t.after(() => handle.close());
+  assert.equal(handle.tabInfo().title, "Final title");
+  assert.deepEqual(Object.keys(handle.info()).sort(), ["generation", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
+});
+
+test("old down ACK remains its exact tuple and held release finishes before any successor stream", async () => {
+  const down = defer(), release = defer(), releaseEntered = defer(); let held = false;
+  const f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") { held = true; return down.promise; }
+    if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased") { releaseEntered.resolve(); return release.promise; }
+  } }), handle = await f.begin(), old = handle.info();
+  const sending = input(handle, { type: "pointer", action: "down", x: 10, y: 20, button: "left" });
+  await tick(); assert.equal(held, true);
+  f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed");
+  await tick(); assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  down.resolve();
+  assert.deepEqual(await sending, { leaseId: old.leaseId, generation: 1, sequence: 1, acknowledged: true });
+  await releaseEntered.promise; assert.equal(handle.info().lastInputSequence, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  release.resolve(); await f.control.current.recovery;
+  assert.equal(handle.info().state, "active"); assert.equal(handle.info().generation, 2);
+  await assert.rejects(input(handle, { type: "pointer", action: "up", x: 10, y: 20, button: "left" }), /hold does not match/);
+  assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased").length, 1);
+  await handle.close();
+});
+
+test("navigation during durable input admission rejects definitely unsent old input and retains the lease", async () => {
+  const marked = defer(), markEntered = defer(); let marks = 0;
+  const f = fixture({ markRisk: () => { if (++marks === 2) { markEntered.resolve(); return marked.promise; } } }), handle = await f.begin();
+  const sending = input(handle, { type: "text", text: "must never be inserted" }); sending.catch(() => {});
+  await markEntered.promise; f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed");
+  marked.resolve(); await assert.rejects(sending, /OBU_HUMAN_GENERATION_STALE/);
+  await f.control.current.recovery;
+  assert.equal(handle.info().state, "active"); assert.equal(handle.info().lastInputSequence, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0);
+  await handle.close();
+});
+
+test("retirement waits for original frame ACK and real stop before a new native start", async () => {
+  const ack = defer(), stop = defer(), stopped = defer(); let acks = 0, stops = 0;
+  const f = fixture({ command: method => {
+    if (method === "Page.screencastFrameAck" && ++acks === 2) return ack.promise;
+    if (method === "Page.stopScreencast" && ++stops === 1) { stopped.resolve(); return stop.promise; }
+  } }), handle = await f.begin();
+  f.emit(); await tick(); f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed");
+  await tick(); assert.equal(stops, 0); assert.equal(f.frames.length, 1);
+  ack.resolve(); await stopped.promise;
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  stop.resolve(); await f.control.current.recovery;
+  assert.deepEqual(f.frames.map(frame => frame.generation), [1, 2]); await handle.close();
+});
+
+test("a new native stream ACKs but rejects an old encoding captured before its TimeTicks barrier", async () => {
+  let starts = 0;
+  const f = fixture({ frames: false, command: method => { if (method === "Page.startScreencast") starts++; } });
+  const beginning = f.begin(); await tick(); f.emit(); const handle = await beginning;
+  f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed");
+  await tick(); assert.equal(starts, 2);
+  f.emit(undefined, { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, timestamp: 9999999999, monotonicTimestamp: 101 });
+  await tick(); assert.equal(handle.info().state, "navigating"); assert.equal(handle.info().viewport, null); assert.equal(f.frames.length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.screencastFrameAck").length, 2);
+  f.emit(); await f.control.current.recovery;
+  assert.equal(handle.info().state, "active"); assert.equal(f.frames.at(-1).metadata.monotonicTimestamp, 111);
+  await handle.close();
+});
+
+test("missing native monotonic evidence never falls back to wall clock or stream identity", async () => {
+  const f = fixture({ metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, timestamp: Date.now() / 1000, monotonicTimestamp: undefined } });
+  await assert.rejects(f.begin(), /capture timestamp/); f.control.assertReleased();
+  assert.equal(f.frames.length, 0); assert.equal(f.calls.filter(([method]) => method === "Page.screencastFrameAck").length, 1);
+  const g = fixture({ command: method => method === "Performance.getMetrics" ? { metrics: [] } : undefined });
+  await assert.rejects(g.begin(), /capture barrier/); g.control.assertReleased();
+  assert.equal(g.calls.filter(([method]) => method === "Page.startScreencast").length, 0);
+});
+
+test("redirect and subframe pending events keep input closed until the last original navigation commits", async () => {
+  const f = fixture(), handle = await f.begin();
+  f.control.navigation(7, { frameId: 0 }, "pending");
+  f.control.navigation(7, { frameId: 0 }, "updated");
+  f.event("Page.frameStartedNavigating", { frameId: "root" });
+  await tick(); assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  f.changeDocument("B"); f.control.navigation(7, { frameId: 0 }, "committed");
+  await tick(); assert.equal(handle.info().state, "navigating");
+  f.event("Page.frameNavigated", { frame: { id: "root" } });
+  await f.control.current.recovery; const generation = handle.info().generation;
+  f.control.navigation(7, { frameId: 4 }, "pending"); await tick();
+  assert.equal(handle.info().state, "navigating");
+  f.control.navigation(7, { frameId: 4 }, "committed"); await f.control.current.recovery;
+  assert.ok(handle.info().generation > generation); assert.equal(handle.info().state, "active");
+  f.event("Page.navigatedWithinDocument", { frameId: "root", url: "https://fixture.test/B#next" });
+  await f.control.current.recovery; assert.equal(handle.info().state, "active");
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1); await handle.close();
+});
+
+test("navigation during document preparation cannot publish or reuse that abandoned generation", async () => {
+  const reading = defer(), entered = defer(); let reads = 0;
+  const f = fixture({ command: method => {
+    if (method === "Performance.getMetrics" && ++reads === 2) { entered.resolve(); return reading.promise; }
+  } }), handle = await f.begin();
+  f.changeDocument("B"); f.control.navigation(7, { frameId: 0 }, "committed"); await entered.promise;
+  const abandoned = handle.info().generation;
+  f.changeDocument("C"); f.control.navigation(7, { frameId: 0 }, "committed");
+  reading.resolve({ metrics: [{ name: "Timestamp", value: 110 }] }); await f.control.current.recovery;
+  assert.equal(handle.info().generation, abandoned + 1);
+  assert.deepEqual(f.frames.map(frame => frame.generation), [1, abandoned + 1]);
+  await handle.close();
+});
+
+test("End during navigation keeps the original native preparation in cleanup and never opens a successor", async () => {
+  const reading = defer(), entered = defer(); let reads = 0;
+  const f = fixture({ command: method => {
+    if (method === "Performance.getMetrics" && ++reads === 2) { entered.resolve(); return reading.promise; }
+  } }), handle = await f.begin();
+  f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed"); await entered.promise;
+  let ended = false; const closing = handle.close().then(() => { ended = true; });
+  await tick(); assert.equal(ended, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  reading.resolve({ metrics: [{ name: "Timestamp", value: 110 }] }); await closing;
+  assert.equal(handle.info().state, "released"); assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+});
+
+test("a bounded navigation deadline revokes but never invents a pending native release ACK", async () => {
+  const releasing = defer(), entered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchKeyEvent" && params.type === "keyUp") { entered.resolve(); return releasing.promise; }
+  } }), handle = await f.begin(); f.control.recoveryTimeoutMs = 15;
+  await input(handle, { type: "key", action: "down", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
+  f.control.navigation(7, { frameId: 0 }, "pending"); await entered.promise;
+  assert.match((await handle.closed).reason, /OBU_HUMAN_NAVIGATION_TIMEOUT/);
+  assert.equal(f.risks.size, 1); assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  releasing.resolve(); await handle.close(); assert.equal(f.risks.size, 0);
+});
+
+test("an unknown old native input error ends the whole lease instead of continuing its new document", async () => {
+  const sent = defer(), f = fixture({ command: method => method === "Input.insertText" ? sent.promise : undefined }), handle = await f.begin();
+  const sending = input(handle, { type: "text", text: "unknown" }); sending.catch(() => {}); await tick();
+  f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed");
+  sent.reject(new Error("native outcome unknown")); await assert.rejects(sending, /outcome unknown/);
+  await handle.close(); assert.equal(handle.info().state, "released");
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
 });

@@ -1,7 +1,7 @@
 const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 const MAX_FRAME_CHARS = 4 * Math.ceil(MAX_FRAME_BYTES / 3);
 const MAX_NATIVE_ACKS = 4;
-const metadataKeys = ["offsetTop", "pageScaleFactor", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY", "timestamp"];
+const metadataKeys = ["offsetTop", "pageScaleFactor", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY", "timestamp", "monotonicTimestamp"];
 
 function deferred() {
   let resolve, reject;
@@ -28,14 +28,15 @@ export class BrowserRendering {
     return actual;
   }
 
-  async subscribe(tabId, attachment, check, onFrame) {
+  async subscribe(tabId, attachment, check, onFrame, { acceptFrame = () => true } = {}) {
     if (typeof onFrame !== "function") throw new Error("OBU_VIEWER_INVALID: a frame receiver is required");
+    if (typeof acceptFrame !== "function") throw new Error("OBU_VIEWER_INVALID: a frame admission predicate is required");
     check();
     if (this.records.has(tabId)) throw new Error("OBU_VIEWER_BUSY: the original viewer must finish closing first");
     if (this.records.size >= 16) throw new Error("OBU_VIEWER_LIMIT: too many active viewer streams");
     if (this.isExternal(tabId)) throw new Error("OBU_VIEWER_UNAVAILABLE: the tab has a caller-owned screencast");
     const ready = deferred(), closed = deferred();
-    const record = { tabId, attachment, check, onFrame, ready, closed,
+    const record = { tabId, attachment, check, onFrame, acceptFrame, ready, closed,
       streamId: crypto.randomUUID(), sequence: 0, published: 0, publishing: true,
       active: false, started: false, frameIds: [], acks: new Set(), borrowers: new Set() };
     this.records.set(tabId, record);
@@ -114,10 +115,17 @@ export class BrowserRendering {
       if (record.error) return;
       try { this.check(record); }
       catch (error) { this.revoke(record, error, true); void this.close(record).catch(() => {}); return; }
-      record.ready.resolve();
       if (!record.publishing || sequence <= record.published) return;
-      record.published = sequence;
-      try { record.onFrame(Object.freeze({ tabId: record.tabId, streamId: record.streamId, sequence, mimeType: "image/png", data, metadata: Object.freeze(metadata) })); }
+      try {
+        const frame = Object.freeze({ tabId: record.tabId, streamId: record.streamId, sequence, mimeType: "image/png", data, metadata: Object.freeze(metadata) });
+        // A new stream ID alone does not prove a new capture. Consumers may
+        // reject an old encoding's late frame, after its one native ACK, without
+        // allowing that frame to complete startup or publish any coordinates.
+        if (!record.acceptFrame(frame)) return;
+        record.onFrame(frame);
+        record.published = sequence;
+        record.ready.resolve();
+      }
       catch (error) { this.revoke(record, error); void this.close(record).catch(() => {}); }
     }, error => {
       record.acks.delete(ack);

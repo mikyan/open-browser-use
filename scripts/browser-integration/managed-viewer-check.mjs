@@ -13,6 +13,7 @@ import { connectNormalCDP, managedProcess, runProcess, bound, poll, sleep } from
 import { listenFixture } from "./fixture-listener.mjs";
 import { browserStartupOptions } from "./browser-startup.mjs";
 import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
+import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -79,11 +80,6 @@ async function treeHashes(root) {
   const entries = await fs.readdir(root, { recursive: true, withFileTypes: true });
   const files = entries.filter(entry => entry.isFile()).map(entry => path.join(entry.parentPath, entry.name)).sort();
   return Object.fromEntries(await Promise.all(files.map(async file => [path.relative(root, file).replaceAll("\\", "/"), hash(await fs.readFile(file))])));
-}
-function descendants(table, pid) {
-  const ids = new Set([pid]); let changed;
-  do { changed = false; for (const value of table) if (ids.has(value.ParentProcessId) && !ids.has(value.ProcessId)) { ids.add(value.ProcessId); changed = true; } } while (changed);
-  return table.filter(value => ids.has(value.ProcessId));
 }
 function assertPrivatePath(root, file) {
   const relative = path.relative(root, file);
@@ -187,7 +183,7 @@ export async function runManagedViewerCheck() {
   try {
     report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")) };
     const snapshot = path.join(runDir, "source-snapshot");
-    for (const source of ["cmd/open-browser-use/managed.go", "internal/managedbrowser", "internal/managedviewer", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
+    for (const source of ["cmd/open-browser-use/managed.go", "internal/managedbrowser", "internal/managedviewer", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/observed-process-descendants.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
       const destination = path.join(snapshot, source); await fs.mkdir(path.dirname(destination), { recursive: true });
       await fs.cp(path.join(repo, source), destination, { recursive: true });
     }

@@ -456,3 +456,73 @@ Release executable SHA-256:
 `183c83ec75975bdcbe4dc8fabeb3ae86634e59735532a76e9e920b6fee694f97`.
 The package contains limited same-document control, not the proposed continuous
 navigation design. The overall parity goal remains active.
+
+## Continuous human navigation within the original lease
+
+Continued the active Browser Use parity goal after the requested package was
+delivered. One human lease now survives root redirects, child navigation and
+same-document SPA routes on its original tab/target. Each generation owns its
+input sequence, held-input tracker and rendering cleanup. Navigation retires
+unsent inputs without replay; a submitted input retains its original receipt
+and deadline. Unknown native completion still revokes the whole lease. End,
+Pause, Stop and disconnect cannot be bypassed by recovery.
+
+New readiness requires verified current document/site/ownership, a native
+TimeTicks capture barrier and a matching frame actually decoded by the viewer.
+CDP provides no conditional documentId input parameter, so this does not retract
+already submitted actions or promise atomic cross-document input. UI metadata
+comes from the current verified candidate; old title/address is cleared during
+navigation. The 93f54a1 release is unchanged and excludes this new functionality.
+
+Cross-layer regressions cover a retired generation's original in-flight ACK,
+unknown input failure, old queues/frames/timeouts, coalesced state before a frame,
+late Begin preserving its already queued first frame, and navigation during the
+completion of status publication. The latter two had explicit original failing
+tests before their fixes. Go all-package tests/vet/build passed; final extension
+tests passed 1,995 cases and viewer UI 47. The canonical bridge/public projection
+fixtures were regenerated through actual implementations rather than invented
+wire results. Five metadata regressions also failed before the fix and passed
+afterward.
+
+A zero-business native clock diagnostic passed three static/redirect/SPA frame
+observations and normal shutdown. First production navigation run `yI1c1P`
+completed six stages, but visual inspection found the old A title/address on B.
+The report and screenshots remain unchanged. After that display fix, `fRIjwN`
+completed six stages with actual exit 0: one Begin/lease/target, 47 exact input
+receipts across four used generations, one 302, one child navigation, one SPA
+route and one final 483-byte POST. Three real viewer DOM metadata checks match
+the original current page. Original Browser.close, browser/native/supervisor/
+viewer exits, Job empty and registration/endpoint cleanup all succeeded without
+forced termination. Report SHA-256:
+`69fe80235ebebb1dc2a843d3a0c23b620b4e607ed8a6e6f86124bd7589e1b6f6`.
+Independent audit fully decoded 53 native PNGs and 6 viewer screenshots; audit
+SHA-256 `518c45d465f5942e4aa1487a16942252bd8667d3e4c1ecd7ce9913f1d5d40311`.
+An earlier auditor failure from JavaScript Number rounding of native FILETIME
+is preserved. Only that integer's IEEE-754 projection is compared specially;
+the original Go JSON remains exact authority and is now bound by raw bytes/hash.
+
+An additional same-document regression, `paPWuq`, failed before any webpage
+request: the test's PID-only descendant walk attached old system processes to a
+reused browser child PID. Actual test processes all exited 0 and the owned Job
+emptied, but the incorrect disappearance list timed out. No unrelated process
+was terminated, and this failed report remains intact. Four managed runners now
+share a read-only helper checking full seven-digit UTC creation times on every
+edge; a synthetic reuse counterexample failed before the fix and 27 related
+tests passed afterward. This inventory is observation, never kill authority.
+
+With the corrected harness and unchanged production runtime, `w1KteZ` completed
+six stages with actual exit 0: 30 exact input receipts, trusted original Shift
+and mouse release after socket disconnect, explicit Resume/new turn, same
+document and one 299-byte POST. All original process exits and cleanup succeeded
+without force. Report SHA-256:
+`b70b2f128a1cbe0f7e52d422d40eff39fe1170ae5db03bded45919641fabb865`.
+Independent audit passed and fully decoded 32 native PNGs plus 5 viewer
+screenshots. It confirmed no compensating release on the disconnected socket
+and runtime extension/EXE/SDK identity with the navigation run. Audit SHA-256:
+`1568fcce7beefeeaeb5f70e6eb585b3090107d4ea5ea36be1ad8fc3e884e0cf2`.
+The legacy same-document runner has no lifecycleSource field; its audit instead
+hashes the original Go lifecycle bytes independently and only projects the
+nativeCreationTime integer for comparison with the JavaScript observation.
+These outcomes do not establish real held-input navigation, OOPIF-local input,
+real SSO/MFA, complete IME, ordinary company Edge or cross-platform parity.
+No PR or new package is created by this continuation.

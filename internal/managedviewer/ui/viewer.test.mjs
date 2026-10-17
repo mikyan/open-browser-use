@@ -642,3 +642,222 @@ test("retired human callbacks do not suppress the independent Stop acknowledgeme
   h.respond(stop.id, { stopped: true });
   assert.equal(h.element("state").textContent, "会话已停止");
 });
+
+function generationState(h, generation, state = "active", eventSequence = 21000 + generation * 10) {
+  return h.humanState({ eventSequence, retiredSequence: 21000 + generation * 10 - 2,
+    human: { ...h.humanState().human, state, generation, viewport: state === "navigating" ? null : { width: 1280, height: 720 } } });
+}
+
+function resumeGeneration(h, generation = 2) {
+  const state = generationState(h, generation);
+  h.socket.message({ type: "state", ...state });
+  h.humanFrame(1, { generation, streamId: `human-generation-${generation}`, eventSequence: state.eventSequence + 1, retiredSequence: state.retiredSequence });
+  h.images.at(-1).onload();
+  return state;
+}
+
+test("navigation suspends one lease, clears held UI and unsent input, then restarts sequence after decode", () => {
+  const h = setup(); h.readyHuman();
+  h.event("frame", "pointerdown", mouse());
+  const old = h.socket.sent.at(-1);
+  h.event("human-input", "keydown", key());
+  h.event("human-input", "compositionstart");
+  h.element("human-input").value = "uncommitted";
+  h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.element("human-input").value, "");
+  assert.equal(h.element("frame").hasPointerCapture(1), false);
+  assert.equal(h.element("frame").hidden, true);
+  h.event("human-input", "blur"); // Disabling the focused input must not end navigation.
+  h.event("frame", "pointerup", mouse());
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "during-navigation" });
+  assert.equal(h.socket.sent.at(-1), old);
+  assert.equal(h.element("human-end").disabled, false);
+  assert.match(h.element("human-status").textContent, /跳转/);
+  const next = generationState(h, 2);
+  h.socket.message({ type: "state", ...next });
+  h.humanFrame(1, { generation: 2, streamId: "new-document", eventSequence: next.eventSequence + 1, retiredSequence: next.retiredSequence });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.images.at(-1).onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  h.event("human-input", "compositionend", { data: "retired-composition" });
+  h.event("human-input", "keyup", key({ shiftKey: false }));
+  h.event("frame", "pointerup", mouse());
+  assert.equal(h.socket.sent.at(-1), old);
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "new-document" });
+  assert.equal(h.socket.sent.at(-1).generation, 2);
+  assert.equal(h.socket.sent.at(-1).sequence, 1);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanBegin").length, 1);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+});
+
+test("navigation retires old success, error and timeout without changing successor input or status", () => {
+  for (const settlement of ["success", "error", "timeout"]) {
+    const h = setup(); h.readyHuman();
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "old" });
+    const old = h.socket.sent.at(-1), timer = [...h.timers.values()].at(-1);
+    h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+    const next = resumeGeneration(h);
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "new" });
+    const current = h.socket.sent.at(-1);
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "queued" });
+    if (settlement === "success") h.ackInput(old);
+    else if (settlement === "error") h.socket.message({ type: "response", id: old.id, error: { code: "OPERATION_UNCONFIRMED", message: "old" } });
+    else timer();
+    assert.equal(h.socket.sent.at(-1), current, settlement);
+    assert.equal(h.element("human-input").dataset.pending, "2", settlement);
+    assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0", settlement);
+    assert.equal(h.element("connection").textContent, "已连接", settlement);
+    h.ackInput(current, next);
+    assert.equal(h.socket.sent.at(-1).generation, 2, settlement);
+    assert.equal(h.socket.sent.at(-1).sequence, 2, settlement);
+  }
+});
+
+test("navigation accepts the triggering input's exact old receipt and current navigating state", () => {
+  const h = setup(); h.readyHuman();
+  h.event("frame", "pointerdown", mouse());
+  const down = h.socket.sent.at(-1);
+  h.event("frame", "pointerup", mouse());
+  h.ackInput(down, generationState(h, 2, "navigating"));
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+  assert.equal(h.socket.sent.at(-1), down);
+  resumeGeneration(h);
+  h.event("frame", "pointerdown", mouse());
+  assert.equal(h.socket.sent.at(-1).generation, 2);
+  assert.equal(h.socket.sent.at(-1).sequence, 1);
+});
+
+test("navigation buffers one early future frame and rejects late old decode", () => {
+  const h = setup(); h.readyHuman();
+  h.humanFrame(2);
+  const oldDecode = h.images.at(-1);
+  h.humanFrame(1, { generation: 2, streamId: "new-document", eventSequence: 21021, retiredSequence: 21018 });
+  h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  h.humanFrame(2, { generation: 2, streamId: "new-document", eventSequence: 21022, retiredSequence: 21018 });
+  h.humanFrame(1, { generation: 2, streamId: "new-document", eventSequence: 21021, retiredSequence: 21018 });
+  h.socket.message({ type: "state", ...generationState(h, 2, "active", 21023) });
+  assert.equal(h.images.length, 2);
+  oldDecode.onload();
+  assert.equal(h.element("frame").hidden, true);
+  assert.equal(h.images.length, 3);
+  h.images.at(-1).onload();
+  assert.equal(h.element("frame").dataset.generation, "2");
+  assert.equal(h.element("frame").dataset.frameSequence, "2");
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+});
+
+test("navigation coalesced active generation still discards old lane and waits for decode", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "old" });
+  h.socket.message({ type: "state", ...generationState(h, 3) });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("frame").hidden, true);
+  h.event("human-input", "blur"); // The coalesced active snapshot also disables the old focused input.
+  resumeGeneration(h, 3);
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "new" });
+  assert.equal(h.socket.sent.at(-1).sequence, 1);
+  assert.equal(h.socket.sent.at(-1).generation, 3);
+});
+
+test("navigation stale-before-dispatch error waits for a newer generation without replay or End", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "not-dispatched" });
+  const old = h.socket.sent.at(-1);
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "queued-old" });
+  h.socket.message({ type: "response", id: old.id, error: { code: "HUMAN_GENERATION_STALE", message: "generation retired before dispatch" } });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.socket.sent.at(-1), old);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002 }) });
+  h.humanFrame(3); h.images.at(-1).onload();
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  resumeGeneration(h);
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "fresh" });
+  assert.equal(h.socket.sent.at(-1).input.text, "fresh");
+  assert.equal(h.socket.sent.at(-1).sequence, 1);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+});
+
+test("navigation never overrides explicit End, Stop, blur or connection loss", () => {
+  for (const finish of ["end", "stop", "blur", "disconnect"]) {
+    const h = setup(); h.readyHuman();
+    h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+    if (finish === "end") h.element("human-end").click();
+    else if (finish === "stop") h.element("stop").click();
+    else if (finish === "blur") h.windowEvents.blur();
+    else h.socket.close();
+    const command = h.socket.sent.at(-1);
+    h.socket.message({ type: "state", ...generationState(h, 2) });
+    h.humanFrame(1, { generation: 2, streamId: "late-new-document", eventSequence: 21021, retiredSequence: 21018 });
+    assert.equal(h.element("human-input").dataset.enabled, "false", finish);
+    assert.equal(h.socket.sent.at(-1), command, finish);
+    if (finish === "end" || finish === "blur") {
+      assert.equal(command.operation, "humanEnd");
+      h.respond(command.id, h.state(2, "paused", true, { eventSequence: 21030, retiredSequence: 21030, human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } }));
+      assert.equal(h.element("control").disabled, false, finish);
+    } else if (finish === "stop") {
+      h.respond(command.id, { stopped: true });
+      assert.equal(h.element("state").textContent, "会话已停止");
+    }
+  }
+});
+
+test("navigation retires a delayed Begin receipt once its original admission changes generation", () => {
+  for (const settlement of ["success", "error", "timeout"]) {
+    const h = setup(); h.running(); h.choose();
+    h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+    h.element("human-begin").click();
+    const begin = h.socket.sent.at(-1), timer = [...h.timers.values()].at(-1);
+    h.socket.message({ type: "state", ...h.humanState() });
+    h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+    resumeGeneration(h);
+    if (settlement === "success") h.respond(begin.id, h.humanState());
+    else if (settlement === "error") h.socket.message({ type: "response", id: begin.id, error: { code: "OPERATION_UNCONFIRMED", message: "old Begin" } });
+    else timer();
+    assert.equal(h.element("human-input").dataset.enabled, "true", settlement);
+    assert.equal(h.element("connection").textContent, "已连接", settlement);
+    assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0, settlement);
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "new" });
+    assert.equal(h.socket.sent.at(-1).generation, 2, settlement);
+    assert.equal(h.socket.sent.at(-1).sequence, 1, settlement);
+  }
+});
+
+test("navigation does not reinterpret unknown input failure as a confirmed stale rejection", () => {
+  for (const failure of ["OPERATION_UNCONFIRMED", "HUMAN_STALE", "timeout"]) {
+    const h = setup(); h.readyHuman();
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "unknown" });
+    const input = h.socket.sent.at(-1);
+    if (failure === "timeout") [...h.timers.values()].at(-1)();
+    else h.socket.message({ type: "response", id: input.id, error: { code: failure, message: "unknown original result" } });
+    assert.equal(h.socket.sent.at(-1).operation, "humanEnd", failure);
+    h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+    h.socket.message({ type: "state", ...generationState(h, 2) });
+    h.humanFrame(1, { generation: 2, eventSequence: 21021, retiredSequence: 21018 });
+    assert.equal(h.element("human-input").dataset.enabled, "false", failure);
+    assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 1, failure);
+  }
+});
+
+test("navigation rejects malformed readiness and never regresses an established generation", () => {
+  const h = setup(); h.readyHuman();
+  h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  resumeGeneration(h);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 21029, retiredSequence: 21018 }) });
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "still-generation-two" });
+  assert.equal(h.socket.sent.at(-1).generation, 2);
+  for (const human of [
+    { state: "navigating", generation: 0, viewport: null },
+    { state: "navigating", generation: 2, viewport: { width: 1280, height: 720 } },
+    { state: "active", generation: 2, viewport: null }
+  ]) {
+    const invalid = setup(); invalid.readyHuman();
+    invalid.socket.message({ type: "state", ...invalid.humanState({ eventSequence: 21020, human: { ...invalid.humanState().human, ...human } }) });
+    assert.equal(invalid.element("human-input").dataset.enabled, "false");
+    assert.equal(invalid.socket.sent.at(-1).operation, "humanEnd");
+  }
+});

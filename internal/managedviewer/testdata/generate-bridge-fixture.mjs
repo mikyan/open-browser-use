@@ -22,7 +22,7 @@ export async function captureFixture() {
       let release;
       const closed = new Promise(resolve => { release = resolve; });
       return { info: () => ({ ...humanInfo }), closed,
-        async input(envelope) { assertAuthority(); if (envelope.leaseId !== humanInfo.leaseId || envelope.generation !== humanInfo.generation || envelope.sequence !== humanInfo.lastInputSequence + 1) throw Error("fixture input identity mismatch"); humanInfo.lastInputSequence = envelope.sequence; return { ...humanInfo }; },
+        async input(envelope) { assertAuthority(); if (envelope.leaseId !== humanInfo.leaseId || envelope.generation !== humanInfo.generation || envelope.sequence !== humanInfo.lastInputSequence + 1) throw Error("fixture input identity mismatch"); humanInfo.lastInputSequence = envelope.sequence; return { leaseId: envelope.leaseId, generation: envelope.generation, sequence: envelope.sequence, acknowledged: true }; },
         async close() { humanInfo.state = "released"; release({ reason: "fixture release" }); }
       };
     }

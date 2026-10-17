@@ -852,7 +852,7 @@ class BrowserBackend {
     });
     this.managedHuman = new ManagedHumanControl({ chrome,
       capture: tabId => this.captureManagedHumanPage(tabId),
-      validate: candidate => this.validateManagedHumanPage(candidate),
+      validate: (candidate, options) => this.validateManagedHumanPage(candidate, options),
       pause: reservation => this.pauseAutomation({ managedHumanReservation: reservation }),
       assertPaused: () => {
         this.assertNativeControl(); this.browserLifetime.assertInputRecoveryClear(); this.siteAccess.assertReady();
@@ -1030,7 +1030,7 @@ class BrowserBackend {
       if (claim) void this.releaseAuxiliaryClaim(claim, { destroyed: true }).catch(() => {});
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
-      if (change.url || Object.hasOwn(change, "groupId") || Object.hasOwn(change, "pinned")) this.managedHuman.invalidateTab(tabId);
+      if (Object.hasOwn(change, "groupId") || Object.hasOwn(change, "pinned")) this.managedHuman.invalidateTab(tabId);
       const delivery = this.auxiliaryDeliveries.get(tabId);
       if (delivery && ((Object.hasOwn(change, "groupId") && change.groupId !== delivery.position.groupId) ||
           (Object.hasOwn(change, "pinned") && change.pinned !== delivery.position.pinned))) this.invalidateAuxiliaryDelivery(tabId);
@@ -1478,10 +1478,10 @@ class BrowserBackend {
 
   onSiteNavigation(details, phase) {
     const { tabId, frameId, url } = details;
-    this.managedHuman.invalidateTab(tabId);
+    this.managedHuman.navigation(tabId, details, phase);
     if (!this.siteAccess.restricted || !Number.isInteger(tabId) || tabId < 0) return;
     // Track only tabs this backend controls; user browsing never grows a ledger.
-    if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.siteRevokedTabs.has(tabId)) return;
+    if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.siteRevokedTabs.has(tabId) && !this.managedHuman.ownsTab(tabId)) return;
     this.siteNavigationVersions.set(tabId, (this.siteNavigationVersions.get(tabId) ?? 0) + 1);
     const pending = this.sitePendingFrames.get(tabId) ?? new Map();
     if (frameId === 0 && phase === "committed") pending.clear();
@@ -1497,9 +1497,11 @@ class BrowserBackend {
   }
 
   revokeSiteTab(tabId) {
-    if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.browserEngine?.pages?.has(tabId) && !this.browserEngine?.queues?.has(tabId)) return;
+    const human = this.managedHuman.ownsTab(tabId);
+    if (!human && !this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.browserEngine?.pages?.has(tabId) && !this.browserEngine?.queues?.has(tabId)) return;
     if (this.siteRevokedTabs.has(tabId)) return;
     this.siteRevokedTabs.add(tabId);
+    if (human) this.managedHuman.invalidateTab(tabId);
     this.networkWaits.invalidateTab(tabId);
     void this.dialogs.invalidateTab(tabId).catch(() => {});
     this.navigationWaits.invalidateTab(tabId);
@@ -3530,9 +3532,9 @@ class BrowserBackend {
     }), "screenshot");
   }
 
-  beginManagedHuman(tabId, assertAuthority, onFrame) {
+  beginManagedHuman(tabId, assertAuthority, onFrame, onState) {
     if (managedConfig === null) throw new Error("OBU_HUMAN_UNAVAILABLE: managed human control is unavailable in an ordinary browser");
-    return this.managedHuman.begin(tabId, assertAuthority, onFrame);
+    return this.managedHuman.begin(tabId, assertAuthority, onFrame, onState);
   }
 
   async captureManagedHumanPage(tabId) {
@@ -3552,20 +3554,26 @@ class BrowserBackend {
     if (candidates.length !== 1 || typeof frame?.documentId !== "string" || !frame.documentId)
       throw new Error("OBU_HUMAN_UNAVAILABLE: original page and document identity could not be proved");
     return Object.freeze({ tabId, targetId: candidates[0].id, documentId: frame.documentId,
+      title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "",
       windowId: tab.windowId, groupId: tab.groupId, pinned: tab.pinned, incarnation: this.browserLifetime.incarnation,
       policyGeneration: this.siteAccess.generation, policyRevision: this.siteAccess.status().revision });
   }
 
-  async validateManagedHumanPage(candidate) {
+  async validateManagedHumanPage(candidate, { advance = false } = {}) {
     this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
     const proof = await this.assertSiteTab(candidate.tabId, { allowBlank: true });
     const [tab, frame, targets] = await Promise.all([chrome.tabs.get(candidate.tabId), chrome.webNavigation.getFrame({ tabId: candidate.tabId, frameId: 0 }), chrome.debugger.getTargets()]);
     this.assertSiteProof(proof); assertControllableTab(tab);
+    if (proof && proof.documentId !== frame?.documentId)
+      throw new Error("OBU_SITE_ACCESS_UNVERIFIED: document changed after human permission inspection");
     if (!this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || candidate.policyGeneration !== this.siteAccess.generation ||
-        candidate.policyRevision !== this.siteAccess.status().revision || frame?.documentId !== candidate.documentId ||
+        candidate.policyRevision !== this.siteAccess.status().revision || typeof frame?.documentId !== "string" || !frame.documentId ||
+        (!advance && frame.documentId !== candidate.documentId) ||
         tab.windowId !== candidate.windowId || tab.groupId !== candidate.groupId || tab.pinned !== candidate.pinned ||
         !targets.some(target => target.id === candidate.targetId && target.tabId === candidate.tabId && target.type === "page"))
       throw new Error("OBU_HUMAN_STALE: original document, ownership, or permission changed");
+    return Object.freeze({ ...candidate, documentId: frame.documentId,
+      title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "" });
   }
 
   async getManagedViewerTabs() {

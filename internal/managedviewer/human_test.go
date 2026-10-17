@@ -111,7 +111,23 @@ func humanTestBegin(t *testing.T, b *testBackend, s *Server) *websocket.Conn {
 	send(t, c, `{"id":1,"operation":"humanBegin","tabId":1}`)
 	humanTestCall(t, b, "humanBegin")
 	humanTestSuccess(t, c, 1)
+	humanTestFrame(t, b, c, humanTestLease, 1, 3)
 	return c
+}
+
+func humanTestFrame(t *testing.T, b *testBackend, c *websocket.Conn, lease string, generation, eventSequence uint64) {
+	t.Helper()
+	b.events <- jsonBytes(map[string]any{"type": "frame", "sequence": eventSequence, "frameSequence": 1, "tabId": 1, "streamId": fmt.Sprintf("%s-%d", lease, generation), "mimeType": "image/png", "data": "aW1hZ2U=", "controlMode": "human", "humanLeaseId": lease, "generation": generation})
+	for {
+		message := readMessage(t, c)
+		if string(message["type"]) == `"state"` {
+			continue
+		}
+		if string(message["type"]) != `"frame"` || string(message["generation"]) != fmt.Sprint(generation) || string(message["humanLeaseId"]) != string(jsonBytes(lease)) {
+			t.Fatalf("expected original frame: %s", jsonBytes(message))
+		}
+		break
+	}
 }
 
 func humanTestInput(id, sequence uint64) string {
@@ -502,7 +518,16 @@ func TestHumanPausedEarlyFrameSurvivesBeginAndLatestGeometryWins(t *testing.T) {
 	if string(m["type"]) != `"state"` || string(m["retiredSequence"]) != "0" {
 		t.Fatalf("pending Begin wrongly retired paused snapshot: %s", jsonBytes(m))
 	}
-	b.events <- json.RawMessage(`{"type":"frame","sequence":4,"frameSequence":1,"tabId":1,"streamId":"original-human-stream","mimeType":"image/png","data":"aW1hZ2U=","controlMode":"human","humanLeaseId":"original-human-lease","generation":1,"targetId":"PRIVATE_TARGET"}`)
+	// Every new generation is published before its first frame, even while
+	// the original generation-zero Begin reply is still pending.
+	f, _ = object(humanTestState(true, 0))
+	state, _ = object(f["status"])
+	state["eventSequence"] = jsonBytes(4)
+	b.events <- jsonBytes(map[string]any{"type": "status", "sequence": 4, "status": state})
+	if string(readMessage(t, c)["type"]) != `"state"` {
+		t.Fatal("missing generation status")
+	}
+	b.events <- json.RawMessage(`{"type":"frame","sequence":5,"frameSequence":1,"tabId":1,"streamId":"original-human-stream","mimeType":"image/png","data":"aW1hZ2U=","controlMode":"human","humanLeaseId":"original-human-lease","generation":1,"targetId":"PRIVATE_TARGET"}`)
 	m = readMessage(t, c)
 	if string(m["type"]) != `"frame"` || string(m["controlMode"]) != `"human"` || string(m["generation"]) != "1" || m["targetId"] != nil || string(m["retiredSequence"]) != "0" {
 		t.Fatalf("early paused human frame lost identity: %s", jsonBytes(m))
@@ -511,8 +536,8 @@ func TestHumanPausedEarlyFrameSurvivesBeginAndLatestGeometryWins(t *testing.T) {
 	// generation-zero Begin response. Input uses the newer original geometry.
 	f, _ = object(humanTestState(true, 0))
 	state, _ = object(f["status"])
-	state["eventSequence"] = jsonBytes(5)
-	b.events <- jsonBytes(map[string]any{"type": "status", "sequence": 5, "status": state})
+	state["eventSequence"] = jsonBytes(6)
+	b.events <- jsonBytes(map[string]any{"type": "status", "sequence": 6, "status": state})
 	if string(readMessage(t, c)["type"]) != `"state"` {
 		t.Fatal("missing first-frame state")
 	}
@@ -668,6 +693,7 @@ func TestHumanLateFailureCannotRevokeSuccessorLease(t *testing.T) {
 			oldID := uint64(1)
 			if original == "humanInput" {
 				humanTestSuccess(t, c, 1)
+				humanTestFrame(t, b, c, humanTestLease, 1, 3)
 				send(t, c, humanTestInput(2, 1))
 				humanTestCall(t, b, "humanInput")
 				oldID = 2
@@ -687,6 +713,7 @@ func TestHumanLateFailureCannotRevokeSuccessorLease(t *testing.T) {
 			humanTestSuccess(t, c, 4)
 			once.Do(func() { close(oldDone) })
 			humanTestError(t, c, oldID, "OPERATION_UNCONFIRMED")
+			humanTestFrame(t, b, c, "successor-lease", 1, 103)
 			send(t, c, strings.Replace(humanTestInput(5, 1), humanTestLease, "successor-lease", 1))
 			humanTestCall(t, b, "humanInput") // No old select:null may intervene.
 			humanTestSuccess(t, c, 5)

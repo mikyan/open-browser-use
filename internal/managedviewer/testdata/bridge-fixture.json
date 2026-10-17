@@ -256,7 +256,7 @@
         "streamId": "fixture-human-stream"
       },
       "cleanupPending": 0,
-      "eventSequence": 8,
+      "eventSequence": 6,
       "human": {
         "state": "active",
         "leaseId": "fixture-human-lease",
@@ -655,31 +655,6 @@
       "extensionInstanceId": "fixture-instance",
       "workerBootId": "fixture-worker",
       "portId": "fixture-port",
-      "type": "frame",
-      "tabId": 7,
-      "streamId": "fixture-human-stream",
-      "frameSequence": 1,
-      "mimeType": "image/png",
-      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
-      "metadata": {
-        "pageScaleFactor": 1,
-        "deviceWidth": 1,
-        "deviceHeight": 1,
-        "timestamp": 2
-      },
-      "controlMode": "human",
-      "humanLeaseId": "fixture-human-lease",
-      "generation": 1,
-      "sequence": 7
-    },
-    {
-      "version": 1,
-      "channelId": "fixture-channel",
-      "runId": "0123456789abcdef0123456789abcdef",
-      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "extensionInstanceId": "fixture-instance",
-      "workerBootId": "fixture-worker",
-      "portId": "fixture-port",
       "type": "status",
       "status": {
         "version": 1,
@@ -712,7 +687,7 @@
           "streamId": "fixture-human-stream"
         },
         "cleanupPending": 0,
-        "eventSequence": 8,
+        "eventSequence": 7,
         "human": {
           "state": "active",
           "leaseId": "fixture-human-lease",
@@ -725,6 +700,31 @@
           "lastInputSequence": 0
         }
       },
+      "sequence": 7
+    },
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "frame",
+      "tabId": 7,
+      "streamId": "fixture-human-stream",
+      "frameSequence": 1,
+      "mimeType": "image/png",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "metadata": {
+        "pageScaleFactor": 1,
+        "deviceWidth": 1,
+        "deviceHeight": 1,
+        "timestamp": 2
+      },
+      "controlMode": "human",
+      "humanLeaseId": "fixture-human-lease",
+      "generation": 1,
       "sequence": 8
     },
     {

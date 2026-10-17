@@ -73,6 +73,8 @@ type UserController struct {
 	heartbeatEvery       time.Duration
 	humanRisk            bool
 	humanRiskGeneration  uint64
+	humanStatus          *managedprotocol.HumanState
+	humanStatusSequence  uint64
 }
 
 // OpenUserController binds once to this run's already authenticated worker.
@@ -319,7 +321,8 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if _, err := managedprotocol.ParseHumanState(f["human"]); err != nil {
+	human, err := managedprotocol.ParseHumanState(f["human"])
+	if err != nil {
 		return err
 	}
 	if _, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"]); err != nil {
@@ -333,6 +336,35 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if len(data) > 4<<20 || json.Unmarshal(data, &value) != nil || !c.matches(value.managedUserIdentity, true) || value.EventSequence == nil || *value.EventSequence > 1<<53-1 || value.Connected == nil {
 		return errors.New("managed user status identity mismatch")
 	}
+	if human != nil && *value.EventSequence >= c.humanStatusSequence {
+		previous := c.humanStatus
+		// Late replies may carry an original input receipt and an older status.
+		// The receipt remains useful, but the snapshot cannot restore a stream.
+		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
+			return nil
+		}
+		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
+			if err := c.retireStreamLocked(); err != nil {
+				return err
+			}
+		}
+		c.humanStatus, c.humanStatusSequence = human, *value.EventSequence
+	}
+	return nil
+}
+
+func (c *UserController) retireStreamLocked() error {
+	if c.streamID != "" {
+		if len(c.retiredStreams) >= 1024 {
+			return errors.New("managed user stream retirement capacity exhausted")
+		}
+		c.retiredStreams[c.streamID] = true
+	}
+	c.streamID = ""
+	c.frameMode, c.frameLease, c.frameGeneration = "", "", 0
+	c.lastBrokerSequence, c.frameTabID = 0, 0
+	c.retiredFrameSequence = c.lastFrameSequence
+	c.latestFrame = nil
 	return nil
 }
 
@@ -398,7 +430,7 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	if err != nil {
 		return nil, err
 	}
-	if err := contextError(ctx); err != nil {
+	if err := userSubmissionError(ctx); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
@@ -443,6 +475,18 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 		return nil, err
 	}
 	result, err := call.wait(ctx)
+	if err != nil && operation == "humanInput" && errors.Is(context.Cause(ctx), managedprotocol.ErrHumanGenerationRetired) {
+		// A navigation cancels the submission context, not its original native
+		// receipt. Continue the same wait under the original deadline. No retry
+		// or new deadline is introduced, and the HTTP input lane stays occupied.
+		original := context.WithoutCancel(ctx)
+		cancel := func() {}
+		if deadline, ok := ctx.Deadline(); ok {
+			original, cancel = context.WithDeadline(original, deadline)
+		}
+		result, err = call.wait(original)
+		cancel()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -882,7 +926,7 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 			c.mu.Unlock()
 			return err
 		}
-		if event.TabID == 0 || event.TabID > 1<<53-1 || event.StreamID == "" || len(event.StreamID) > 256 || event.FrameSequence == 0 || event.FrameSequence > 1<<53-1 || event.FrameSequence <= c.lastBrokerSequence || event.MIMEType != "image/png" || len(event.Data) > 4*((4<<20+2)/3) || c.retiredStreams[event.StreamID] {
+		if event.TabID == 0 || event.TabID > 1<<53-1 || event.StreamID == "" || len(event.StreamID) > 256 || event.FrameSequence == 0 || event.FrameSequence > 1<<53-1 || event.MIMEType != "image/png" || len(event.Data) > 4*((4<<20+2)/3) {
 			c.mu.Unlock()
 			return errors.New("invalid managed user frame")
 		}
@@ -890,6 +934,23 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 		if err != nil || len(decoded) == 0 || len(decoded) > 4<<20 {
 			c.mu.Unlock()
 			return errors.New("invalid managed user frame bytes")
+		}
+		if event.ControlMode == "human" {
+			human := c.humanStatus
+			if human != nil && human.LeaseID == event.HumanLeaseID && human.TabID == event.TabID && event.Generation < human.Generation {
+				// This original old frame can never regain display authority. The
+				// bridge owns its retired native credit; do not create another ACK.
+				c.mu.Unlock()
+				return nil
+			}
+			if human == nil || human.LeaseID != event.HumanLeaseID || human.TabID != event.TabID || human.Generation != event.Generation || human.State != "active" && human.State != "navigating" {
+				c.mu.Unlock()
+				return errors.New("managed human frame lacks its generation status")
+			}
+		}
+		if event.FrameSequence <= c.lastBrokerSequence || c.retiredStreams[event.StreamID] {
+			c.mu.Unlock()
+			return errors.New("managed user frame was retired or repeated")
 		}
 		if c.streamID != "" && (c.streamID != event.StreamID || c.frameTabID != event.TabID) {
 			c.mu.Unlock()
@@ -910,18 +971,10 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 			return errors.New("managed user frame ACK capacity exhausted")
 		}
 	case "clear", "error":
-		if c.streamID != "" {
-			if len(c.retiredStreams) >= 1024 {
-				c.mu.Unlock()
-				return errors.New("managed user stream retirement capacity exhausted")
-			}
-			c.retiredStreams[c.streamID] = true
+		if err := c.retireStreamLocked(); err != nil {
+			c.mu.Unlock()
+			return err
 		}
-		c.streamID = ""
-		c.frameMode, c.frameLease, c.frameGeneration = "", "", 0
-		c.lastBrokerSequence, c.frameTabID = 0, 0
-		c.retiredFrameSequence = c.lastFrameSequence
-		c.latestFrame = nil
 		c.states = append(c.states, append(json.RawMessage(nil), data...))
 	case "status":
 		if err := c.validateStatusLocked(event.Status); err != nil {
@@ -931,9 +984,16 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 		// Consecutive status updates can replace each other; clear events remain
 		// ordered so a retired frame is never left visible by a slow consumer.
 		if len(c.states) > 0 {
-			var last struct{ Type string }
+			var last struct {
+				Type     string
+				Sequence uint64
+			}
 			_ = json.Unmarshal(c.states[len(c.states)-1], &last)
-			if last.Type == "status" {
+			// Preserve the generation announcement on the other side of an
+			// undelivered frame. Otherwise coalescing navigating -> active could
+			// make that first frame precede every status advertising its g.
+			crossesFrame := c.latestFrame != nil && last.Sequence < c.lastFrameSequence && event.Sequence > c.lastFrameSequence
+			if last.Type == "status" && !crossesFrame {
 				c.states = c.states[:len(c.states)-1]
 			}
 		}

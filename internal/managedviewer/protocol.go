@@ -14,11 +14,12 @@ const maxSafeInteger = uint64(1<<53 - 1)
 const maxFrameEncoding = 4 * ((4<<20 + 2) / 3)
 
 type command struct {
-	id        uint64
-	operation string
-	payload   json.RawMessage
-	ctx       context.Context
-	epoch     uint64
+	id         uint64
+	operation  string
+	payload    json.RawMessage
+	ctx        context.Context
+	epoch      uint64
+	generation uint64
 }
 
 // object rejects duplicate keys as well as trailing JSON. Silent last-key wins

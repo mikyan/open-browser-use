@@ -11,12 +11,14 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const defer = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-async function fixture({ managed = true, command, write, detach, authority = () => {} } = {}) {
-  const calls = [], storage = {}, listeners = new Set(), detachListeners = new Set();
+async function fixture({ managed = true, command, write, detach, authority = () => {}, policy } = {}) {
+  const calls = [], states = [], storage = {}, listeners = new Set(), detachListeners = new Set();
   let documentId = "original-document";
+  if (policy) storage.OPEN_BROWSER_USE_SITE_ACCESS_POLICY = { version: 1, revision: 1, ...policy };
   const tab = { id: 7, groupId: 10, windowId: 1, pinned: false, url: "https://fixture.test", title: "Original" };
   const chrome = {
-    webNavigation: { async getFrame() { return { documentId }; } },
+    webNavigation: { async getFrame() { return { documentId }; },
+      async getAllFrames() { return [{ frameId: 0, parentFrameId: -1, url: tab.url, documentId, documentLifecycle: "active", errorOccurred: false }]; } },
     storage: { local: {
       async get(key) { return Object.hasOwn(storage, key) ? { [key]: clone(storage[key]) } : {}; },
       async set(value) { await write?.(value); Object.assign(storage, clone(value)); }
@@ -31,9 +33,12 @@ async function fixture({ managed = true, command, write, detach, authority = () 
         calls.push([method, clone(target), params === undefined ? undefined : clone(params)]);
         const response = await command?.(target, method, params);
         if (method === "Page.startScreencast") queueMicrotask(() => {
-          for (const listener of [...listeners]) listener(target, "Page.screencastFrame", { sessionId: 42, data: "cGl4ZWxz", metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0 } });
+          for (const listener of [...listeners]) listener(target, "Page.screencastFrame", { sessionId: 42, data: "cGl4ZWxz", metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, monotonicTimestamp: 101 } });
         });
-        return response ?? (method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, scale: 1, zoom: 1, offsetX: 0, offsetY: 0 } } : {});
+        if (response !== undefined) return response;
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root", loaderId: "loader-" + documentId, url: tab.url } } };
+        if (method === "Performance.getMetrics") return { metrics: [{ name: "Timestamp", value: 100 }] };
+        return method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, scale: 1, zoom: 1, offsetX: 0, offsetY: 0 } } : {};
       }
     },
     tabs: { async get() { return { ...tab }; }, async query() { return [{ ...tab }]; },
@@ -50,8 +55,8 @@ async function fixture({ managed = true, command, write, detach, authority = () 
   const params = { session_id: "task", turn_id: first.nextTurnId, control_epoch: first.controlEpoch, tabId: 7 };
   await backend.attach(params);
   const frames = [];
-  const begin = () => backend.beginManagedHuman(7, authority, frame => frames.push(frame));
-  return { backend, Backend, chrome, calls, storage, first, params, begin, frames,
+  const begin = () => backend.beginManagedHuman(7, authority, frame => frames.push(frame), state => states.push(state));
+  return { backend, Backend, chrome, calls, storage, first, params, begin, frames, states, tab,
     changeDocument: () => { documentId = "replacement-document"; },
     emitDetach: (source, reason) => { for (const fn of detachListeners) fn(source, reason); } };
 }
@@ -118,7 +123,7 @@ test("ordinary Pause joins actual human down and cleanup while rejecting late hu
   let done = false; const pausing = f.backend.pauseAutomation().then(() => { done = true; });
   await tick(); assert.equal(done, false);
   assert.equal(f.calls.some(([method, target]) => method === "detach" && target.targetId), false);
-  gate.resolve(); await assert.rejects(sending, /revoked|Pause/); await pausing;
+  gate.resolve(); assert.equal((await sending).acknowledged, true); await pausing;
   assert.equal(handle.info().state, "released"); assert.equal(f.backend.managedHuman.status(), null);
   assert.equal(f.backend.automationControl.state, "paused");
 });
@@ -186,4 +191,69 @@ test("a contradictory debugger source cannot revoke the human lease or release t
   assert.equal(f.backend.attachedTabs.size, 0);
   f.emitDetach({ targetId: "original-target", tabId: 7 }, "target_closed");
   await handle.close(); assert.equal(handle.info().state, "released");
+});
+
+
+test("real backend keeps human navigation in the restricted site ledger after task ownership is paused", async () => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } }), handle = await f.begin();
+  assert.equal(f.backend.attachedTabs.size, 0); assert.equal(f.backend.attachmentOwners.size, 0);
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: "https://fixture.test/next" }, "pending");
+  assert.equal(handle.info().state, "navigating"); assert.equal(f.backend.sitePendingFrames.get(7).get(0), "https://fixture.test/next");
+  const version = f.backend.siteNavigationVersions.get(7);
+  f.changeDocument(); f.tab.url = "https://fixture.test/next";
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: f.tab.url }, "committed");
+  await f.backend.managedHuman.current.recovery;
+  assert.equal(handle.info().state, "active"); assert.ok(f.backend.siteNavigationVersions.get(7) > version);
+  assert.equal(f.backend.sitePendingFrames.has(7), false);
+  assert.equal(f.states.some(state => state.state === "navigating" && state.viewport === null), true);
+  await input(handle, { type: "text", text: "allowed new document" });
+  await assert.rejects(f.backend.resumeAutomation(f.backend.automationControl.revision), /OBU_HUMAN_BUSY/);
+  await handle.close(); assert.equal(f.backend.automationControl.state, "paused");
+});
+
+test("human tab metadata clears the original address during navigation and adopts only the verified successor", async t => {
+  const f = await fixture(), handle = await f.begin(); t.after(() => handle.close());
+  assert.deepEqual(clone(handle.tabInfo()), { id: 7, title: "Original", url: "https://fixture.test" });
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: "https://fixture.test/B" }, "pending");
+  assert.deepEqual(clone(handle.tabInfo()), { id: 7, title: "页面正在跳转", url: "" });
+  f.changeDocument(); f.tab.title = "Current B"; f.tab.url = "https://fixture.test/B";
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: f.tab.url }, "committed");
+  await f.backend.managedHuman.current.recovery;
+  assert.deepEqual(clone(handle.tabInfo()), { id: 7, title: "Current B", url: "https://fixture.test/B" });
+  assert.equal(f.calls.filter(([method]) => method.startsWith("Input.")).length, 0);
+  assert.equal(f.calls.filter(([method, target]) => method === "attach" && target.targetId).length, 1);
+});
+
+test("human tab metadata bounds native titles and URLs without changing original candidate identity", async t => {
+  const f = await fixture(); t.after(() => f.backend.pauseAutomation());
+  f.tab.title = "A".repeat(600); f.tab.url = "https://fixture.test/#" + "x".repeat(9000);
+  const candidate = await f.backend.captureManagedHumanPage(7);
+  assert.equal(candidate.title, "A".repeat(512)); assert.equal(candidate.url, f.tab.url.slice(0, 8192));
+  f.tab.title = "B".repeat(700); f.tab.url = "https://fixture.test/#" + "y".repeat(9000);
+  const verified = await f.backend.validateManagedHumanPage(candidate);
+  assert.equal(verified.title, "B".repeat(512)); assert.equal(verified.url, f.tab.url.slice(0, 8192));
+  for (const key of ["tabId", "targetId", "documentId", "windowId", "groupId", "pinned", "incarnation", "policyGeneration", "policyRevision"])
+    assert.equal(verified[key], candidate[key], key);
+  assert.equal(candidate.title, "A".repeat(512)); assert.equal(Object.isFrozen(verified), true);
+});
+
+test("a denied pending navigation of a human-only page revokes the whole lease before any new input", async () => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } }), handle = await f.begin();
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 4, url: "https://denied.test/frame" }, "pending");
+  assert.equal(f.backend.siteRevokedTabs.has(7), true);
+  await assert.rejects(input(handle, { type: "text", text: "forbidden" }), /revoked/);
+  await handle.close(); assert.equal(handle.info().state, "released");
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0);
+});
+
+test("human continuation never adopts changed original window, tab placement, or target identity", async () => {
+  for (const change of [f => { f.tab.windowId++; }, f => { f.tab.groupId++; }, f => { f.tab.pinned = true; },
+    f => { f.chrome.debugger.getTargets = async () => [{ id: "replacement", tabId: 7, type: "page" }]; }]) {
+    const f = await fixture(), handle = await f.begin(); f.changeDocument(); change(f);
+    f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: f.tab.url }, "committed");
+    await handle.closed; await handle.close(); assert.equal(handle.info().state, "released");
+    assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+    assert.equal(f.calls.filter(([method, target]) => method === "attach" && target.targetId).length, 1);
+  }
 });

@@ -141,3 +141,26 @@ test("an external owner is never changed or ACKed by a viewer", async () => {
   await assert.rejects(f.subscribe(), /caller-owned screencast/);
   f.emit(); await tick(); assert.deepEqual(f.calls, []);
 });
+
+
+test("filtered captures receive their original ACK without satisfying startup", async () => {
+  const f = fixture();
+  let ready = false;
+  const opening = f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame),
+    { acceptFrame: frame => frame.metadata.monotonicTimestamp > 100 }).then(value => { ready = true; return value; });
+  await tick(); assert.equal(ready, false); assert.equal(f.frames.length, 0);
+  f.emit("b2xk", { timestamp: 9999999999, monotonicTimestamp: 99 }); await tick();
+  assert.equal(ready, false); assert.equal(f.calls.filter(call => call.method === "Page.screencastFrameAck").length, 2);
+  f.emit("bmV3", { monotonicTimestamp: 101 }); const subscription = await opening;
+  assert.equal(f.frames.length, 1); assert.equal(f.frames[0].sequence, 3);
+  assert.equal(f.frames[0].metadata.monotonicTimestamp, 101); await subscription.close();
+});
+
+test("a failed capture proof retains native ACK and cleanup rather than publishing ready", async () => {
+  const f = fixture();
+  await assert.rejects(f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame),
+    { acceptFrame: () => { throw new Error("missing capture proof"); } }), /missing capture proof/);
+  assert.equal(f.frames.length, 0); assert.equal(f.calls.filter(call => call.method === "Page.screencastFrameAck").length, 1);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  assert.equal(f.listeners.size, 0); assert.equal(f.drains.size, 0);
+});

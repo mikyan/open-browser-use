@@ -80,6 +80,7 @@ func TestHumanFirstFrameStateDoesNotGrantInputAuthority(t *testing.T) {
 
 func TestHumanStatusAndOriginalReceipts(t *testing.T) {
 	for _, raw := range []string{
+		`{"state":"navigating","leaseId":"a","tabId":1,"generation":5,"viewport":null}`,
 		`{"state":"active","leaseId":"a","tabId":1,"generation":0,"viewport":{"width":800,"height":600},"lastInputSequence":0,"private":"not projected"}`,
 		`{"state":"releasing","leaseId":"a","tabId":1,"generation":2,"viewport":null}`,
 	} {
@@ -92,6 +93,8 @@ func TestHumanStatusAndOriginalReceipts(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
+		`{"state":"navigating","leaseId":"a","tabId":1,"generation":0,"viewport":null}`,
+		`{"state":"navigating","leaseId":"a","tabId":1,"generation":2,"viewport":{"width":800,"height":600}}`,
 		`{"state":"active","leaseId":"a","tabId":1,"generation":1,"viewport":null}`,
 		`{"state":"active","leaseId":"a","tabId":1,"generation":1,"viewport":{"width":800,"width":900,"height":600}}`,
 		`{"state":"active","leaseId":"a","tabId":1,"generation":null,"viewport":{"width":800,"height":600}}`,

@@ -41,13 +41,22 @@ func (c *connection) admitBegin(request *command) bool {
 	c.humanEpoch++
 	c.humanClaimed, c.humanStarting, c.humanRevoked = true, true, false
 	c.humanLease, c.humanGeneration, c.humanSequence = "", 0, 0
+	c.humanRetiredGeneration = 0
+	c.humanActive = false
+	c.humanFrameLease, c.humanFrameGeneration, c.humanFrameTabID = "", 0, 0
+	c.inputCtx, c.inputCancel = nil, nil
+	var fields struct {
+		TabID uint64 `json:"tabId"`
+	}
+	_ = json.Unmarshal(request.payload, &fields)
+	c.humanTabID = fields.TabID
 	c.humanCandidate = nil
 	c.humanCtx, c.humanCancel = context.WithCancel(c.ctx)
 	request.ctx, request.epoch = c.humanCtx, c.humanEpoch
 	return true
 }
 
-func (c *connection) admitInput(request command) bool {
+func (c *connection) admitInput(request command) string {
 	var input struct {
 		LeaseID    string `json:"leaseId"`
 		Generation uint64
@@ -55,16 +64,20 @@ func (c *connection) admitInput(request command) bool {
 	}
 	_ = json.Unmarshal(request.payload, &input)
 	c.controlMu.Lock()
-	if !c.humanClaimed || c.humanStarting || c.humanRevoked || c.humanLease != input.LeaseID || c.humanGeneration != input.Generation || c.humanSequence+1 != input.Sequence || c.ctx.Err() != nil {
+	if c.humanClaimed && !c.humanRevoked && c.humanLease == input.LeaseID && (input.Generation < c.humanGeneration || input.Generation <= c.humanRetiredGeneration) {
 		c.controlMu.Unlock()
-		return false
+		return "HUMAN_GENERATION_STALE"
 	}
-	request.ctx, request.epoch = c.humanCtx, c.humanEpoch
+	if !c.humanClaimed || c.humanStarting || c.humanRevoked || !c.humanActive || c.humanLease != input.LeaseID || c.humanGeneration != input.Generation || c.humanSequence+1 != input.Sequence || c.ctx.Err() != nil || c.inputCtx == nil || c.humanFrameLease != input.LeaseID || c.humanFrameGeneration != input.Generation || c.humanFrameTabID != c.humanTabID {
+		c.controlMu.Unlock()
+		return "HUMAN_STALE"
+	}
+	request.ctx, request.epoch, request.generation = c.inputCtx, c.humanEpoch, c.humanGeneration
 	select {
 	case c.inputs <- request:
 		c.humanSequence = input.Sequence
 		c.controlMu.Unlock()
-		return true
+		return ""
 	default:
 		c.controlMu.Unlock()
 		// Losing an up event would strand an original down. End this connection
@@ -72,7 +85,7 @@ func (c *connection) admitInput(request command) bool {
 		c.revokeHuman()
 		c.cancel()
 		_ = c.ws.CloseNow()
-		return false
+		return "HUMAN_STALE"
 	}
 }
 
@@ -85,10 +98,15 @@ func (c *connection) revokeHuman() {
 
 func (c *connection) revokeHumanLocked() []command {
 	c.humanRevoked = true
+	c.humanActive = false
 	c.humanEpoch++
 	if c.humanCancel != nil {
 		c.humanCancel()
 	}
+	return c.drainInputsLocked()
+}
+
+func (c *connection) drainInputsLocked() []command {
 	var pending []command
 	for {
 		select {
@@ -97,6 +115,12 @@ func (c *connection) revokeHumanLocked() []command {
 		default:
 			return pending
 		}
+	}
+}
+
+func (c *connection) rejectGenerationInputs(pending []command) {
+	for _, request := range pending {
+		c.failure(request.id, "HUMAN_GENERATION_STALE", "原页面代次已结束，未发送的输入不会重放。")
 	}
 }
 
@@ -114,9 +138,14 @@ func (s *Server) inputLane(c *connection) {
 		case request := <-c.inputs:
 			c.controlMu.Lock()
 			current := !c.humanRevoked && request.epoch == c.humanEpoch
+			generationCurrent := request.generation == c.humanGeneration
 			c.controlMu.Unlock()
 			if !current {
 				c.failure(request.id, "HUMAN_STALE", "人工输入已撤销，未发送的操作不会重放。")
+				continue
+			}
+			if !generationCurrent {
+				c.rejectGenerationInputs([]command{request})
 				continue
 			}
 			// Command returns success only for this exact native input receipt.
@@ -154,7 +183,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 			TabID uint64 `json:"tabId"`
 		}
 		_ = json.Unmarshal(request.payload, &fields)
-		if err != nil || human == nil || human.State != "active" || human.TabID != fields.TabID {
+		if err != nil || human == nil || human.State != "active" && human.State != "navigating" || human.TabID != fields.TabID {
 			return errors.New("original human begin receipt mismatch")
 		}
 		c.controlMu.Lock()
@@ -163,17 +192,19 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 			return errors.New("human begin was revoked")
 		}
 		c.humanStarting = false
-		c.humanLease, c.humanGeneration = human.LeaseID, human.Generation
+		c.humanLease = human.LeaseID
 		if latest := c.humanCandidate; latest != nil && latest.LeaseID == human.LeaseID {
-			if latest.State != "active" {
+			if latest.State != "active" && latest.State != "navigating" {
 				c.controlMu.Unlock()
 				return errors.New("human begin already released")
 			}
-			if latest.Generation > c.humanGeneration {
-				c.humanGeneration = latest.Generation
+			if latest.Generation >= human.Generation {
+				human = latest
 			}
 		}
+		pending := c.applyHumanStateLocked(human)
 		c.controlMu.Unlock()
+		c.rejectGenerationInputs(pending)
 	}
 	c.observeHumanState(result)
 	if request.operation == "pause" || request.operation == "select" && bytesNullTab(request.payload) {
@@ -208,22 +239,102 @@ func (c *connection) observeHumanState(data json.RawMessage) {
 	}
 	c.humanStateSequence = value.EventSequence
 	if c.humanStarting && value.Human != nil {
-		c.humanCandidate = value.Human
+		if value.Human.TabID == c.humanTabID && (c.humanCandidate == nil || value.Human.LeaseID == c.humanCandidate.LeaseID && value.Human.Generation >= c.humanCandidate.Generation) {
+			c.humanCandidate = value.Human
+		}
 	}
 	if value.Cleanup != nil && value.Cleanup.CleanupConfirmed && value.Cleanup.LeaseID == c.humanLease && (value.Human == nil || value.Human.State == "released") {
 		c.humanClaimed, c.humanStarting = false, false
 	}
-	if value.Human != nil && value.Human.LeaseID == c.humanLease && !c.humanRevoked {
-		if value.Human.State == "active" && (value.Human.Generation == c.humanGeneration || c.humanGeneration == 0 && value.Human.Generation == 1) {
-			c.humanGeneration = value.Human.Generation
-		} else {
-			c.humanRevoked = true
-			if c.humanCancel != nil {
-				c.humanCancel()
+	var pending []command
+	if value.Human != nil && value.Human.LeaseID == c.humanLease && value.Human.TabID == c.humanTabID && !c.humanRevoked {
+		pending = c.applyHumanStateLocked(value.Human)
+	}
+	revoked := c.humanRevoked
+	c.controlMu.Unlock()
+	if revoked {
+		c.rejectRevokedInputs(pending)
+	} else {
+		c.rejectGenerationInputs(pending)
+	}
+}
+
+// A generation is retired without retiring its lease. Its queued inputs are
+// never replayed, and an already-submitted input still owns the single lane
+// until the original adapter settles it. Only whole-lease cleanup clears risk.
+func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []command {
+	if human.Generation < c.humanGeneration {
+		return nil
+	}
+	if human.State != "active" && human.State != "navigating" {
+		return c.revokeHumanLocked()
+	}
+	var pending []command
+	if human.Generation > c.humanGeneration {
+		if c.inputCancel != nil {
+			c.inputCancel(managedprotocol.ErrHumanGenerationRetired)
+		}
+		pending = c.drainInputsLocked()
+		c.humanGeneration, c.humanSequence = human.Generation, 0
+		c.inputCtx, c.inputCancel = context.WithCancelCause(c.humanCtx)
+		// A response can arrive after the new frame. Preserve only a frame
+		// already carrying this exact generation, never a retired one.
+		if c.humanFrameGeneration != human.Generation || c.humanFrameLease != human.LeaseID || c.humanFrameTabID != human.TabID {
+			c.humanFrameLease, c.humanFrameGeneration, c.humanFrameTabID = "", 0, 0
+			select {
+			case <-c.frames:
+			default:
 			}
 		}
 	}
+	c.humanActive = human.State == "active" && human.Generation > c.humanRetiredGeneration && human.Viewport != nil
+	return pending
+}
+
+func (c *connection) retireInputGeneration(request command) {
+	c.controlMu.Lock()
+	var pending []command
+	if !c.humanRevoked && request.epoch == c.humanEpoch && request.generation == c.humanGeneration {
+		c.humanRetiredGeneration = request.generation
+		c.humanActive = false
+		if c.inputCancel != nil {
+			c.inputCancel(managedprotocol.ErrHumanGenerationRetired)
+		}
+		pending = c.drainInputsLocked()
+	}
 	c.controlMu.Unlock()
+	c.rejectGenerationInputs(pending)
+}
+
+// A trusted active status is not evidence that a frame has actually arrived.
+// Frames may precede their Begin reply, but never the bridge's status for g.
+func (c *connection) observeHumanFrame(data json.RawMessage) bool {
+	var frame struct {
+		ControlMode string `json:"controlMode"`
+		LeaseID     string `json:"humanLeaseId"`
+		Generation  uint64 `json:"generation"`
+		TabID       uint64 `json:"tabId"`
+	}
+	if json.Unmarshal(data, &frame) != nil {
+		return false
+	}
+	if frame.ControlMode != "human" {
+		return true
+	}
+	c.controlMu.Lock()
+	defer c.controlMu.Unlock()
+	if !c.humanClaimed || c.humanRevoked || frame.TabID != c.humanTabID {
+		return false
+	}
+	lease, generation := c.humanLease, c.humanGeneration
+	if c.humanStarting && c.humanCandidate != nil {
+		lease, generation = c.humanCandidate.LeaseID, c.humanCandidate.Generation
+	}
+	if frame.LeaseID != lease || frame.Generation != generation || generation == 0 {
+		return false
+	}
+	c.humanFrameLease, c.humanFrameGeneration, c.humanFrameTabID = frame.LeaseID, frame.Generation, frame.TabID
+	return true
 }
 
 // Failed current human commands may leave held input. Cleanup is independent

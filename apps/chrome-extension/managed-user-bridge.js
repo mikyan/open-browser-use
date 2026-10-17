@@ -151,6 +151,71 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     channel.inFlight = credit;
     emit(channel, { type: "frame", ...frame });
   }
+  function deliverFrame(channel, frame) {
+    if (channel.inFlight) channel.latest = frame;
+    else sendFrame(channel, frame);
+  }
+  function resetHumanFrames(channel, record) {
+    // A manager may still be acknowledging the original published frame.
+    // Retire that exact credit once; never accept an arbitrary old sequence.
+    if (channel.inFlight) {
+      if (channel.retiredAcks.size >= 64) throw failure("CAPACITY", "unsettled retired frame credits exceeded their bound");
+      channel.retiredAcks.add(channel.inFlight.sequence);
+    }
+    channel.inFlight = null; channel.latest = null;
+    record.pendingHumanFrame = null;
+    record.streamId = null; record.lastFrameSequence = 0;
+    record.publishedHumanStream = null;
+    channel.streamState = { state: "starting", streamId: null };
+  }
+  function humanStateChanged(channel, record, value) {
+    if (record.retired || channel.closed || channel.stream !== record) return;
+    if (!record.handle) { record.earlyState = value; return; }
+    const currentInfo = record.handle.info();
+    // Native state callbacks are snapshots. A delayed snapshot cannot retire
+    // the newer document, even if it names the same durable human lease.
+    if (!value || value.leaseId !== currentInfo.leaseId || value.tabId !== record.tabId ||
+        value.generation !== currentInfo.generation || value.state !== currentInfo.state) return;
+    if (!["active", "navigating"].includes(value.state)) return;
+    if (!integer(value.generation) || value.generation < record.humanGeneration)
+      throw failure("HUMAN_UNCONFIRMED", "human generation regressed");
+    if (value.generation > record.humanGeneration) {
+      resetHumanFrames(channel, record);
+      record.humanGeneration = value.generation;
+    }
+    channel.stateEpoch++;
+    record.humanStatePublicationPending = true;
+    publishHumanStatus(channel, record);
+  }
+  function publishHumanStatus(channel, record) {
+    if (record.humanPublication || record.retired || channel.closed || channel.stream !== record) return;
+    record.humanStatePublicationPending = false;
+    const publication = (async () => {
+      const value = await status(channel, true);
+      if (record.retired || channel.closed || channel.stream !== record) return;
+      const info = record.handle.info(), frame = record.pendingHumanFrame;
+      if (!frame || info.state !== "active" || value.human?.state !== "active" ||
+          frame.humanLeaseId !== info.leaseId || frame.generation !== info.generation ||
+          value.human.leaseId !== info.leaseId || value.human.generation !== info.generation ||
+          value.stream.streamId !== frame.streamId) return;
+      // The actual matching status is emitted first. A successor frame never
+      // grants its own lease/generation simply by arriving before that state.
+      record.pendingHumanFrame = null;
+      record.publishedHumanStream = frame.streamId;
+      deliverFrame(channel, frame);
+    })();
+    record.humanPublication = publication;
+    publication.then(() => {
+      if (record.humanPublication === publication) record.humanPublication = null;
+      // A navigation can arrive after status emitted but before this Promise
+      // settles. Publish that state even when its first frame has not arrived.
+      if (record.humanStatePublicationPending || record.pendingHumanFrame) publishHumanStatus(channel, record);
+    }, () => {
+      if (record.humanPublication === publication) record.humanPublication = null;
+      if (!record.retired && !channel.closed && channel.stream === record)
+        void retireStream(channel, "human state publication unavailable").catch(() => {});
+    });
+  }
   function receiveFrame(channel, record, value) {
     if (record.retired || channel.stream !== record || channel.closed) return;
     try {
@@ -159,22 +224,20 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       if (frame.tabId !== record.tabId) throw failure("FRAME", "frame belongs to a different tab");
       if (record.human) {
         const info = record.handle?.info();
+        if (frame.controlMode === "human" && frame.humanLeaseId === info?.leaseId && frame.generation < info.generation) return;
         if (frame.controlMode !== "human" || info?.state !== "active" || frame.humanLeaseId !== info.leaseId || frame.generation !== info.generation)
           throw failure("FRAME", "frame does not match the active human lease and geometry");
+        if (record.humanGeneration !== info.generation) humanStateChanged(channel, record, info);
       } else if (frame.controlMode !== undefined) throw failure("FRAME", "observation stream cannot authorize human input");
       if (record.streamId && record.streamId !== frame.streamId) throw failure("FRAME", "original stream identity changed");
       if (frame.frameSequence <= record.lastFrameSequence) return;
       record.streamId = frame.streamId; record.lastFrameSequence = frame.frameSequence;
       if (channel.streamState.state !== "streaming" || channel.streamState.streamId !== frame.streamId) channel.stateEpoch++;
       channel.streamState = { state: "streaming", streamId: frame.streamId };
-      if (channel.inFlight) channel.latest = frame;
-      else sendFrame(channel, frame);
-      if (record.human && record.publishedHumanGeneration !== frame.generation) {
-        record.publishedHumanGeneration = frame.generation;
-        // A static page may send its only frame after Begin returned generation
-        // zero. Publish the actual new geometry state; never invent readiness.
-        void status(channel, true).catch(() => {});
-      }
+      if (record.human && record.publishedHumanStream !== frame.streamId) {
+        record.pendingHumanFrame = frame;
+        publishHumanStatus(channel, record);
+      } else deliverFrame(channel, frame);
     } catch (error) {
       if (channel.closed) return;
       void retireStream(channel, "frame unavailable").catch(() => {});
@@ -184,9 +247,10 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   }
   async function tabs(channel) {
     assertCurrent(channel);
-    if (channel.stream?.human && !channel.stream.retired) return [channel.stream.tab];
-    const result = await backend.getManagedViewerTabs();
+    const human = channel.stream?.human && !channel.stream.retired ? channel.stream : null;
+    const result = human ? [human.handle?.tabInfo?.() ?? human.tab] : await backend.getManagedViewerTabs();
     assertCurrent(channel);
+    if (human && result[0]?.id !== human.tabId) throw failure("TABS", "human metadata belongs to a different tab");
     if (!Array.isArray(result) || result.length > 4096) throw failure("TABS", "invalid live attachment list");
     const ids = new Set();
     return result.map(tab => {
@@ -291,7 +355,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     await Promise.all([...cleanup]);
     assertSelection(channel, epoch);
     if (cleanupFailure) throw failure("CLEANUP", "original viewing cleanup is incomplete");
-    const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null };
+    const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null, earlyState: null, humanGeneration: 0 };
     channel.stateEpoch++; channel.stream = record; channel.selectedTabId = tabId;
     channel.streamState = { state: "starting", streamId: null };
     const authority = () => {
@@ -303,18 +367,19 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       return backend.beginManagedHuman(tabId, authority, value => {
         if (!record.handle) { record.earlyFrame = value; return; }
         receiveFrame(channel, record, value);
-      });
+      }, value => humanStateChanged(channel, record, value));
     });
     try {
       const handle = await record.started;
       if (!handle || ["info", "input", "close"].some(key => typeof handle[key] !== "function")) throw failure("HUMAN_UNAVAILABLE", "invalid human control handle");
       record.handle = handle;
       const info = handle.info();
-      if (!text(info?.leaseId, 128) || info.tabId !== tabId || info.state !== "active") throw failure("HUMAN_UNAVAILABLE", "human control did not become active");
+      if (!text(info?.leaseId, 128) || info.tabId !== tabId || !["active", "navigating"].includes(info.state)) throw failure("HUMAN_UNAVAILABLE", "human control did not become available");
       if (handle.closed?.then) void handle.closed.then(() => {
         if (!record.retired && channel.stream === record) void retireStream(channel, "human control ended").catch(() => {});
       }, () => { if (!record.retired && channel.stream === record) void retireStream(channel, "human control failed").catch(() => {}); });
       authority();
+      if (record.earlyState) { const value = record.earlyState; record.earlyState = null; humanStateChanged(channel, record, value); }
       if (record.earlyFrame) {
         const value = record.earlyFrame; record.earlyFrame = null;
         receiveFrame(channel, record, value);
@@ -344,7 +409,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       if (!text(id)) throw failure("CONFIG", "invalid channel identifier");
       const channel = { id, key: value.channelKey, identity: Object.fromEntries(identityKeys.map(key => [key, value[key]])), proof, nonce: proof.nonce, sink,
         deadline: now() + LEASE_MS, closed: false, timer: null, sequence: 0, stateEpoch: 0, selectedTabId: null, stream: null,
-        streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve() };
+        streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, retiredAcks: new Set(), pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve() };
       usedKeys.add(channel.key); current = channel; arm(channel);
       try { return { ...identity(channel), status: await status(channel) }; }
       catch (error) { await revoke(channel, "open failed"); throw error; }
@@ -368,6 +433,8 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (channel.key !== value.channelKey) throw failure("IDENTITY", "channel key does not match");
     if (operation === "heartbeat") { channel.deadline = now() + LEASE_MS; arm(channel); }
     if (operation === "ack") {
+      if (channel.retiredAcks.delete(value.sequence))
+        return { acknowledged: value.sequence, workerBootId: channel.identity.workerBootId };
       if (!channel.inFlight || channel.inFlight.sequence !== value.sequence) throw failure("ACK", "acknowledgement does not match the outstanding frame");
       channel.inFlight = null;
       if (channel.latest) { const frame = channel.latest; channel.latest = null; sendFrame(channel, frame); }
@@ -392,15 +459,18 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (operation === "humanInput") {
       const record = channel.stream, handle = record?.human && !record.retired && record.handle;
       const before = handle?.info();
+      if (before?.leaseId === value.leaseId && (before.generation > value.generation || before.state === "navigating" && before.generation === value.generation))
+        throw failure("HUMAN_GENERATION_STALE", "original document input was not dispatched; wait for the current frame");
       if (!before || before.state !== "active" || before.leaseId !== value.leaseId || before.generation !== value.generation)
         throw failure("HUMAN_STALE", "original human lease and geometry are no longer active");
       const accepted = await handle.input({ leaseId: value.leaseId, generation: value.generation, sequence: value.sequence, input: value.input });
-      const after = handle.info();
-      if (record.retired || channel.stream !== record || [accepted, after].some(info => info?.state !== "active" || info.leaseId !== value.leaseId || info.generation !== value.generation || info.lastInputSequence !== value.sequence)) {
+      if (accepted?.acknowledged !== true || accepted.leaseId !== value.leaseId || accepted.generation !== value.generation || accepted.sequence !== value.sequence) {
         if (channel.stream === record) await retireStream(channel, "original input acknowledgement unavailable");
         throw failure("HUMAN_UNCONFIRMED", "original input receipt is unavailable; do not replay the input");
       }
-      inputReceipt = { leaseId: after.leaseId, generation: after.generation, sequence: after.lastInputSequence, acknowledged: true };
+      // The click's actual receipt and the current page status are different
+      // facts. A click which caused navigation still owns its original ACK.
+      inputReceipt = { leaseId: accepted.leaseId, generation: accepted.generation, sequence: accepted.sequence, acknowledged: true };
     } else if (operation === "humanEnd") {
       const record = channel.stream;
       if (!record?.human || !record.handle || record.handle.info().leaseId !== value.leaseId) throw failure("HUMAN_STALE", "original human lease is no longer active");

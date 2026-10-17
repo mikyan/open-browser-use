@@ -13,6 +13,7 @@ import { connectNormalCDP, managedProcess, runProcess, bound, poll } from "./nor
 import { listenFixture } from "./fixture-listener.mjs";
 import { browserStartupOptions } from "./browser-startup.mjs";
 import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
+import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -103,11 +104,6 @@ async function treeHashes(root) {
   const entries = await fs.readdir(root, { recursive: true, withFileTypes: true });
   const files = entries.filter(entry => entry.isFile()).map(entry => path.join(entry.parentPath, entry.name)).sort();
   return Object.fromEntries(await Promise.all(files.map(async file => [path.relative(root, file).replaceAll("\\", "/"), hash(await fs.readFile(file))])));
-}
-function descendants(table, pid) {
-  const ids = new Set([pid]); let changed;
-  do { changed = false; for (const value of table) if (ids.has(value.ParentProcessId) && !ids.has(value.ProcessId)) { ids.add(value.ProcessId); changed = true; } } while (changed);
-  return table.filter(value => ids.has(value.ProcessId));
 }
 
 export async function runManagedHumanCheck() {

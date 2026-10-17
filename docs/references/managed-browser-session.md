@@ -161,6 +161,26 @@ SDK 继续使用自己的确切 endpoint 参数。例如 JavaScript SDK 的
 恢复。重新获取查看链接时，`managed view` 会等待原连接的清理确认；超时
 只表示未确认，不能重放网页输入。停止会话仍沿原进程退出流程执行。
 
+### 当前源码的连续接管（尚未进入 93f54a1 包）
+
+源码新增同一接管租约内的页面跳转、重定向、子 frame 导航和 hash/history
+路由切换。跳转时自动暂停人工输入并清除旧地址；新页面已验证且画面实际
+解码后可继续操作，无需再次点击接管。用户完成接管后，仍要明确继续 Agent。
+当前画面的标题和地址取自该代次的原生页面检查，不复用接管开始时的地址。
+
+新旧代次各自保留输入序号和实际回执。已发送的点击即使触发导航，仍按原
+请求返回；未发送的旧队列不重放。失联、未知输入结果、权限或归属变化、
+不支持的几何仍会释放整个接管。导航停用输入框产生的本地失焦不会结束租约；
+真正切换查看窗口、隐藏页面、完成接管或停止会话仍会结束它。
+
+画面使用 Chromium 原生 `Performance.Timestamp` 和 screencast
+`monotonicTimestamp` 的 TimeTicks 捕获屏障；换 streamId 本身不能证明
+画面来自新页面。此实现要求这些原生字段可用，缺失时不启用输入。时钟依据见
+[Chromium Page 实现](https://raw.githubusercontent.com/chromium/chromium/main/content/browser/devtools/protocol/page_handler.cc)
+及 [Performance 实现](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/inspector/inspector_performance_agent.cc)。
+CDP 输入没有 documentId 条件参数：观察到跳转后可撤销尚未提交的旧输入，
+已经提交给浏览器的输入不能撤回；这些检查不构成跨文档原子事务。
+
 ## 生命周期与隔离范围
 
 Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运行目录、
@@ -192,13 +212,28 @@ Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运�
 
 ## 当前未完成
 
-- 真实网站登录兼容、人工接管的完整输入法/跨文档操作、可见交付页；实时 viewer 的更广兼容与异常生命周期验收。
+- 真实网站登录兼容、完整输入法、跨站/OOPIF 输入、按住按键或按钮时跳转的真实浏览器验收、可见交付页；实时 viewer 的更广兼容与异常生命周期验收。
 - 浏览器自动获取/兼容发现以及 macOS/Linux managed 实现。
 - 普通已登录浏览器的原生弹窗抢焦点问题。Headless 内部激活事件也不能
   直接证明操作系统前台焦点保持，需另有相同范围的观察证据。
 - 完整能力对齐。原型或 launcher 的单项通过不能代表所有 Browser Use 任务。
 
 ## 当前验证
+
+当前源码的 `managed-human-navigation-fRIjwN` 六步实际 exit 0：一次接管经过
+A 的唯一可信点击、302 到 B、子 frame 导航和同文档 SPA，47 项输入按实际
+代次分别取得原生回执；原 B 保留草稿，明确 End/Resume 和新 Agent 轮次后
+完成唯一 483 B POST。三次导航的标题、地址和画面身份均检查；原进程 exit 0、
+Job/注册/endpoint 清理通过，无强制终止。独审完整解码 59 张 PNG。结果 SHA：
+`69fe80235ebebb1dc2a843d3a0c23b620b4e607ed8a6e6f86124bd7589e1b6f6`。
+首轮标题/地址滞留、审计整数投影修正及零业务 PID 观察器失败均保留在计划，
+未以新结果覆盖。本功能尚未重新打包；真实跨站登录和 held-input 导航仍待验。
+
+同一生产版本的同文档回归 `managed-human-w1KteZ` 六步实际 exit 0，30 项
+输入、Shift/左键按住时的原 WS 断线释放、显式新轮次接回、唯一 299 B POST
+和正常退出通过。报告 SHA：
+`b70b2f128a1cbe0f7e52d422d40eff39fe1170ae5db03bded45919641fabb865`。
+该结果覆盖同文档断线，不是按住输入时导航的真实验收。
 
 2026-10-17，同文档人工接管 `managed-human-6U55vc` 六步实际 exit 0。
 原表单只加载一次：Agent 草稿保留，viewer 实际传递 30 项有序输入，包括

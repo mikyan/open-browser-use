@@ -16,6 +16,11 @@ import (
 const MaxSafeInteger = 1<<53 - 1
 const MaxCommandBytes = 32 << 10
 
+// ErrHumanGenerationRetired cancels only the old generation's unsent work.
+// Adapters must still settle input already submitted to the original native
+// channel; this local cause is never proof of a native acknowledgement.
+var ErrHumanGenerationRetired = errors.New("human input generation retired")
+
 func HumanFields(operation string) []string {
 	switch operation {
 	case "humanBegin":
@@ -218,12 +223,15 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 		return nil, nil
 	}
 	f, err := Object(data)
-	if err != nil || !choice(f["state"], "starting", "active", "releasing", "released", "error") || !text(f["leaseId"], 128, false) || !integer(f["tabId"], 1, MaxSafeInteger) || !integer(f["generation"], 0, MaxSafeInteger) || f["viewport"] == nil {
+	if err != nil || !choice(f["state"], "starting", "active", "navigating", "releasing", "released", "error") || !text(f["leaseId"], 128, false) || !integer(f["tabId"], 1, MaxSafeInteger) || !integer(f["generation"], 0, MaxSafeInteger) || f["viewport"] == nil {
 		return nil, errors.New("invalid human status")
 	}
 	var result HumanState
 	if json.Unmarshal(data, &result) != nil {
 		return nil, errors.New("invalid human status")
+	}
+	if result.State == "navigating" && (result.Generation == 0 || !bytes.Equal(f["viewport"], []byte("null"))) {
+		return nil, errors.New("invalid navigating human generation")
 	}
 	if !bytes.Equal(f["viewport"], []byte("null")) {
 		viewport, err := Object(f["viewport"])

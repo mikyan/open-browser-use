@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/ifuryst/open-browser-use/internal/managedprotocol"
 )
 
 const userReadLimit = 8 << 20
@@ -83,7 +84,7 @@ func (c *userCDP) fail(err error) {
 }
 
 func (c *userCDP) start(ctx context.Context, session, method string, params any) (*userCall, error) {
-	if err := contextError(ctx); err != nil {
+	if err := userSubmissionError(ctx); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
@@ -129,13 +130,13 @@ func (c *userCDP) start(ctx context.Context, session, method string, params any)
 		select {
 		case c.writeGate <- struct{}{}:
 		case <-ctx.Done():
-			c.settle(id, userReply{err: ctx.Err()})
+			c.settle(id, userReply{err: userSubmissionError(ctx)})
 			return
 		case <-c.done:
 			return
 		}
 		defer func() { <-c.writeGate }()
-		if err := contextError(ctx); err != nil {
+		if err := userSubmissionError(ctx); err != nil {
 			c.settle(id, userReply{err: err})
 			return
 		}
@@ -148,6 +149,18 @@ func (c *userCDP) start(ctx context.Context, session, method string, params any)
 		}
 	}()
 	return call, nil
+}
+
+// Only the writer, before submission, can turn local generation cancellation
+// into a definitely-unsent receipt. Socket loss or a cancelled caller cannot.
+func userSubmissionError(ctx context.Context) error {
+	if err := contextError(ctx); err != nil {
+		if errors.Is(context.Cause(ctx), managedprotocol.ErrHumanGenerationRetired) {
+			return &userBridgeError{code: "OBU_HUMAN_GENERATION_STALE"}
+		}
+		return err
+	}
+	return nil
 }
 
 func (c *userCDP) settle(id uint64, result userReply) {

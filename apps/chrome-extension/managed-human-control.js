@@ -21,64 +21,62 @@ function clientGeometry(metrics) {
   return Object.freeze({ width: viewport.clientWidth, height: viewport.clientHeight });
 }
 
-// This owns a separate native attachment after task Pause actually completes.
-// It never lends the task backend a token, changes task admission, or reattaches
-// a replacement tab. All native work (including timed-out work) stays here.
+// The native attachment and durable risk belong to one whole human lease.
+// Every document generation owns separate input intent, native work and stream.
 export class ManagedHumanControl {
   constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, onFailure = () => {} }) {
     Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, onFailure });
     this.current = null;
+    this.recoveryTimeoutMs = 10000;
   }
 
   assertReleased() { if (this.current) throw fail("finish releasing human control before resuming automation", "BUSY"); }
   status() { return this.current ? this.info(this.current) : null; }
+  ownsTab(tabId) { return this.current?.tabId === tabId && !this.current.revoked; }
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
-      generation: record.generation, viewport: record.viewport, lastInputSequence: record.sequence });
+      generation: record.generation, viewport: record.viewport, lastInputSequence: record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
+  }
+  tabInfo(record) {
+    const epoch = record.epoch;
+    const candidate = this.current === record && !record.revoked && record.state === "active" &&
+      epoch && !epoch.retired && epoch.id === record.generation ? epoch.candidate : null;
+    // Metadata belongs to the current verified document, never the original
+    // capture or an abandoned preparation. It does not grant input authority.
+    return Object.freeze({ id: record.tabId,
+      title: candidate ? (typeof candidate.title === "string" ? candidate.title.slice(0, 512) : "") :
+        ["starting", "navigating"].includes(record.state) ? "页面正在跳转" : "",
+      url: candidate && typeof candidate.url === "string" ? candidate.url.slice(0, 8192) : "" });
+  }
+  notify(record) {
+    try { record.onState(this.info(record)); }
+    catch (error) { void this.close(record, error).catch(() => {}); }
   }
   check(record) {
     if (this.current !== record || record.revoked) throw fail("human lease was revoked", "STALE");
     record.assertAuthority();
     if (record.paused) this.assertPaused();
   }
+  checkGeneration(record, epoch) {
+    this.check(record);
+    if (record.epoch !== epoch || epoch.retired || (record.generation && record.generation !== epoch.id))
+      throw fail("input does not match the displayed human lease and generation; native input was not sent", "GENERATION_STALE");
+  }
   ownsSource(record, source) {
     if (!record.attached || !source || typeof source !== "object" || source.sessionId != null || source.extensionId != null) return false;
-    // Chrome may report a page session by tabId even when attached by targetId.
-    // The fallback is valid only during this exclusive, original attachment.
     if (Object.hasOwn(source, "targetId")) return source.targetId === record.candidate.targetId &&
       (source.tabId === undefined || source.tabId === record.tabId);
     return source.tabId === record.tabId;
   }
 
-  begin(tabId, assertAuthority, onFrame) {
+  begin(tabId, assertAuthority, onFrame, onState = () => {}) {
     this.assertReleased();
-    if (!Number.isSafeInteger(tabId) || tabId < 0 || typeof assertAuthority !== "function" || typeof onFrame !== "function") throw fail("invalid human control request");
+    if (!Number.isSafeInteger(tabId) || tabId < 0 || typeof assertAuthority !== "function" || typeof onFrame !== "function" || typeof onState !== "function") throw fail("invalid human control request");
     assertAuthority();
-    const record = { tabId, assertAuthority, onFrame, leaseId: crypto.randomUUID(), token: {}, state: "starting",
-      generation: 0, viewport: null, sequence: 0, closed: deferred(), buttons: new Set(), keys: new Map(), drains: new Set(), listeners: new Map() };
-    // Reserve synchronously, before capture, storage, Pause, or native attach.
+    const record = { tabId, assertAuthority, onFrame, onState, leaseId: crypto.randomUUID(), state: "starting",
+      generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set() };
     this.current = record;
-    record.tracker = new NativeInputTracker({
-      beforeInput: () => this.markRisk(record.leaseId, tabId),
-      assertInput: () => this.checkInputGeometry(record)
-    });
-    let queue = Promise.resolve();
-    record.rendering = new BrowserRendering({ streams: new Map(), drains: record.drains,
-      queue: (_tabId, operation) => { const next = queue.catch(() => {}).then(operation); queue = next; return next; },
-      // Starting work still requires live human authority. Native frame ACKs
-      // and stop belong to the original attachment even after publication is
-      // revoked, and must be allowed to finish their actual cleanup.
-      send: (_target, method, params) => this.send(record, method, params,
-        ["Page.enable", "Page.startScreencast"].includes(method) ? () => this.check(record) : undefined),
-      addListener: listener => {
-        const wrapped = (source, method, params) => { if (this.ownsSource(record, source)) listener({ tabId }, method, params); };
-        record.listeners.set(listener, wrapped); this.chrome.debugger.onEvent.addListener(wrapped);
-      },
-      removeListener: listener => { const wrapped = record.listeners.get(listener); if (wrapped) this.chrome.debugger.onEvent.removeListener(wrapped); record.listeners.delete(listener); },
-      isCurrent: (_tabId, token) => record.attached && record.token === token,
-      isExternal: () => false
-    });
-    record.handle = Object.freeze({ info: () => this.info(record), input: envelope => this.input(record, envelope), close: () => this.close(record), closed: record.closed.promise });
+    record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record), input: envelope => this.input(record, envelope), close: () => this.close(record), closed: record.closed.promise });
     record.start = Promise.resolve().then(() => this.start(record));
     return record.start.then(() => record.handle, async error => {
       try { await this.close(record, error); }
@@ -87,114 +85,230 @@ export class ManagedHumanControl {
     });
   }
 
+  createGeneration(record) {
+    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map() };
+    epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
+      assertInput: () => this.checkInputGeometry(record, epoch) });
+    epoch.tracker.register(record.tabId, epoch.token);
+    let queue = Promise.resolve();
+    epoch.rendering = new BrowserRendering({ streams: new Map(), drains: record.drains,
+      queue: (_tabId, operation) => { const next = queue.catch(() => {}).then(operation); queue = next; return next; },
+      send: (_target, method, params) => this.send(record, method, params,
+        ["Page.enable", "Page.startScreencast"].includes(method) ? () => this.checkGeneration(record, epoch) : undefined),
+      addListener: listener => {
+        const wrapped = (source, method, params) => { if (this.ownsSource(record, source)) listener({ tabId: record.tabId }, method, params); };
+        epoch.listeners.set(listener, wrapped); this.chrome.debugger.onEvent.addListener(wrapped);
+      },
+      removeListener: listener => { const wrapped = epoch.listeners.get(listener); if (wrapped) this.chrome.debugger.onEvent.removeListener(wrapped); epoch.listeners.delete(listener); },
+      // Retirement revokes publication, not the original stop/ACK authority.
+      isCurrent: (_tabId, token) => record.attached && epoch.token === token && !epoch.cleaned,
+      isExternal: () => false
+    });
+    record.epoch = epoch; record.epochs.add(epoch);
+    // Retain these inspection seams for existing lifecycle tests.
+    record.token = epoch.token; record.tracker = epoch.tracker; record.rendering = epoch.rendering;
+    return epoch;
+  }
+
   async start(record) {
     this.check(record);
     record.candidate = await this.capture(record.tabId);
     this.check(record);
-    await this.pause(record);
-    record.paused = true;
+    await this.pause(record); record.paused = true;
+    this.check(record); await this.validate(record.candidate); this.check(record);
+    await this.markRisk(record.leaseId, record.tabId); record.riskMarked = true;
     this.check(record);
-    await this.validate(record.candidate);
-    this.check(record);
-    await this.markRisk(record.leaseId, record.tabId);
-    record.riskMarked = true;
-    this.check(record);
-    await this.chrome.debugger.attach({ targetId: record.candidate.targetId }, "1.3");
-    record.attached = true;
-    record.tracker.register(record.tabId, record.token);
+    await this.chrome.debugger.attach({ targetId: record.candidate.targetId }, "1.3"); record.attached = true;
     record.lifecycle = (source, method, params) => {
       if (!this.ownsSource(record, source)) return;
-      if (["Page.frameNavigated", "Page.documentOpened"].includes(method) && !params?.frame?.parentId)
-        this.invalidateTab(record.tabId);
-      else if (method === "Page.frameResized") this.recheckResize(record);
+      if (["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameDetached"].includes(method)) {
+        const frameId = params?.frame?.id ?? params?.frameId;
+        this.navigation(record.tabId, { frameId, root: Boolean(params?.frame && !params.frame.parentId) },
+          method === "Page.frameStartedNavigating" ? "pending" : "committed", "native");
+      } else if (method === "Page.frameResized") this.recheckResize(record, record.epoch);
     };
     this.chrome.debugger.onEvent.addListener(record.lifecycle);
-    this.check(record);
-    await this.validate(record.candidate);
-    this.check(record);
+    this.check(record); await this.validate(record.candidate); this.check(record);
     await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
-    this.check(record);
-    // CSS client dimensions exclude native scrollbars. They guard subsequent
-    // layout changes; only the original native frame establishes the complete
-    // input surface (DIP == CSS pixels here because both zoom and scale are 1).
-    record.clientViewport = clientGeometry(await this.send(record, "Page.getLayoutMetrics", undefined, () => this.check(record)));
-    this.check(record);
-    record.subscription = await record.rendering.subscribe(record.tabId, record.token,
-      () => { if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE"); },
-      frame => this.frame(record, frame));
-    this.check(record);
-    record.subscription.closed.then(({ reason }) => { if (!record.revoked) void this.close(record, fail(reason)).catch(() => {}); });
-    record.state = "active";
+    await this.send(record, "Performance.enable", { timeDomain: "timeTicks" }, () => this.check(record));
+    this.check(record); record.initialized = true;
+    await this.recover(record);
   }
 
   send(record, method, params, assertAdmission) {
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
+    let dispatched = false;
     const actual = Promise.resolve().then(() => {
       if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
       assertAdmission?.();
+      dispatched = true;
       return this.chrome.debugger.sendCommand({ targetId: record.candidate.targetId }, method, params);
     });
     record.drains.add(actual);
-    actual.then(() => record.drains.delete(actual), () => record.drains.delete(actual));
+    actual.then(() => record.drains.delete(actual), error => {
+      record.drains.delete(actual);
+      // Navigation cannot turn an unknown native outcome into a safe retry.
+      if (dispatched && !record.revoked) void this.close(record, error).catch(() => {});
+    });
     return actual;
   }
 
-  frame(record, frame) {
-    this.check(record);
-    const metadata = frame.metadata;
-    const width = metadata.deviceWidth, height = metadata.deviceHeight;
+  frameTree(value) {
+    const entries = [], visit = (node, parent = null) => {
+      const frame = node?.frame;
+      if (entries.length >= 1000 || !frame || typeof frame.id !== "string" || !frame.id || typeof frame.loaderId !== "string" || !frame.loaderId || typeof frame.url !== "string")
+        throw fail("native document and loader identity could not be proved", "UNAVAILABLE");
+      entries.push([frame.id, parent, frame.loaderId, frame.url, frame.urlFragment ?? ""]);
+      if (node.childFrames !== undefined && !Array.isArray(node.childFrames)) throw fail("invalid native frame tree", "UNAVAILABLE");
+      for (const child of node.childFrames ?? []) visit(child, frame.id);
+    };
+    visit(value?.frameTree); return JSON.stringify(entries);
+  }
+
+  async prepare(record, epoch) {
+    const check = () => this.checkGeneration(record, epoch);
+    check();
+    const candidate = await this.validate(record.candidate, { advance: record.generation > 0 });
+    check(); epoch.candidate = candidate ?? record.candidate;
+    epoch.document = this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check));
+    check();
+    epoch.clientViewport = clientGeometry(await this.send(record, "Page.getLayoutMetrics", undefined, check));
+    check();
+    // Performance Timestamp and Page.monotonicTimestamp are native TimeTicks
+    // seconds. Wall-clock timestamp, receipt time and a new stream ID are not
+    // substitutes for the capture barrier.
+    const metrics = await this.send(record, "Performance.getMetrics", undefined, check);
+    check();
+    const timestamps = metrics?.metrics?.filter(metric => metric.name === "Timestamp");
+    if (timestamps?.length !== 1 || !Number.isFinite(timestamps[0].value) || timestamps[0].value <= 0)
+      throw fail("native monotonic capture barrier is unavailable", "UNAVAILABLE");
+    epoch.barrier = timestamps[0].value;
+    const currentCandidate = await this.validate(epoch.candidate); check();
+    epoch.candidate = currentCandidate ?? epoch.candidate;
+    if (this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check)) !== epoch.document)
+      throw fail("native document changed during capture preparation", "DOCUMENT_CHANGED");
+    check();
+  }
+
+  recover(record) {
+    if (record.recovery) return record.recovery;
+    const work = (async () => {
+      while (!record.revoked) {
+        if (record.epoch?.retired) await this.releaseGeneration(record, record.epoch);
+        this.check(record);
+        while (record.pendingNavigations.size) {
+          await new Promise(resolve => { record.wake = resolve; }); record.wake = null;
+          this.check(record);
+        }
+        const epoch = this.createGeneration(record);
+        try {
+          await this.prepare(record, epoch);
+          this.checkGeneration(record, epoch);
+          epoch.start = epoch.rendering.subscribe(record.tabId, epoch.token,
+            () => { if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE"); },
+            frame => this.frame(record, epoch, frame), { acceptFrame: frame => {
+              if (epoch.retired || record.revoked) return false;
+              this.checkGeneration(record, epoch);
+              const capture = frame.metadata.monotonicTimestamp;
+              if (!Number.isFinite(capture) || capture <= 0) throw fail("native frame capture timestamp is unavailable", "UNAVAILABLE");
+              return capture > epoch.barrier;
+            } });
+          epoch.subscription = await epoch.start;
+          this.checkGeneration(record, epoch);
+          epoch.subscription.closed.then(({ reason }) => {
+            if (!record.revoked && !epoch.retired) void this.close(record, fail(reason)).catch(() => {});
+          });
+          clearTimeout(record.recoveryTimer); record.recoveryTimer = null;
+          return;
+        } catch (error) {
+          if (record.revoked) throw error;
+          if (!epoch.retired) throw error;
+          // Only an observed navigation may retire a preparation. Do not
+          // silently retry unknown native failures or failed cleanup.
+          await this.releaseGeneration(record, epoch);
+        }
+      }
+      this.check(record);
+    })();
+    record.recovery = work;
+    work.then(() => {
+      if (record.recovery === work) record.recovery = null;
+      if (!record.revoked && record.state === "navigating") void this.recover(record).catch(() => {});
+    }, error => {
+      if (record.recovery === work) record.recovery = null;
+      void this.close(record, error).catch(() => {});
+    });
+    return work;
+  }
+
+  navigation(tabId, details = {}, phase = "committed", source = "web") {
+    const record = this.current;
+    if (!record || record.tabId !== tabId || record.revoked) return;
+    if (!record.initialized || phase === "error") { this.invalidateTab(tabId); return; }
+    const key = `${source}:${details.frameId ?? "unknown"}`;
+    if (phase === "pending") record.pendingNavigations.add(key);
+    else if (phase === "committed") {
+      if (details.root || details.frameId === 0) for (const item of record.pendingNavigations) if (item.startsWith(`${source}:`)) record.pendingNavigations.delete(item);
+      record.pendingNavigations.delete(key);
+    }
+    if (record.pendingNavigations.size > 1000 || record.generation >= Number.MAX_SAFE_INTEGER) {
+      void this.close(record, fail("navigation exceeded bounded capacity", "UNAVAILABLE")).catch(() => {}); return;
+    }
+    if (record.epoch) this.retireGeneration(record, record.epoch);
+    record.generation = Math.max(1, record.generation) + 1;
+    record.viewport = null; record.state = "navigating";
+    this.notify(record); record.wake?.();
+    if (record.revoked) return;
+    if (!record.recoveryTimer) record.recoveryTimer = setTimeout(() => {
+      void this.close(record, fail("navigation did not produce a verified frame before its deadline", "NAVIGATION_TIMEOUT")).catch(() => {});
+    }, this.recoveryTimeoutMs);
+    void this.recover(record).catch(() => {});
+  }
+
+  frame(record, epoch, frame) {
+    this.checkGeneration(record, epoch);
+    const metadata = frame.metadata, width = metadata.deviceWidth, height = metadata.deviceHeight;
     if (metadata.pageScaleFactor !== 1 || metadata.offsetTop !== 0 ||
         !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 16384 || height > 16384 ||
-        record.clientViewport.width > width || record.clientViewport.height > height ||
-        record.viewport && (width !== record.viewport.width || height !== record.viewport.height)) {
-      // Never deliver coordinates whose relationship to the current viewport
-      // was guessed. A new explicit handoff is required after geometry changes.
-      record.generation++;
-      record.viewport = null;
-      void this.close(record, fail("viewport changed; release and start a new handoff", "GEOMETRY")).catch(() => {});
-      return;
+        epoch.clientViewport.width > width || epoch.clientViewport.height > height ||
+        epoch.viewport && (width !== epoch.viewport.width || height !== epoch.viewport.height)) {
+      record.generation++; record.viewport = null;
+      const error = fail("viewport changed; release and start a new handoff", "GEOMETRY");
+      void this.close(record, error).catch(() => {}); throw error;
     }
-    // Preserve the entire displayed surface, including native scrollbars.
-    // Never scale its image coordinates down to the smaller CSS client area.
-    if (!record.viewport) record.viewport = Object.freeze({ width, height });
-    if (!record.generation) record.generation = 1;
-    record.onFrame(Object.freeze({ ...frame, controlMode: "human", humanLeaseId: record.leaseId, generation: record.generation }));
+    if (!epoch.viewport) epoch.viewport = Object.freeze({ width, height });
+    record.viewport = epoch.viewport; record.generation = epoch.id;
+    if (record.state !== "active") { record.state = "active"; this.notify(record); }
+    this.checkGeneration(record, epoch);
+    record.onFrame(Object.freeze({ ...frame, controlMode: "human", humanLeaseId: record.leaseId, generation: epoch.id }));
   }
 
-  checkInputGeometry(record) {
-    this.check(record);
-    if (record.geometryPending) throw fail("original viewport resize check is still pending", "GEOMETRY");
+  checkInputGeometry(record, epoch) {
+    this.checkGeneration(record, epoch);
+    if (epoch.geometryPending) throw fail("original viewport resize check is still pending", "GEOMETRY");
   }
-
-  checkClientGeometry(record, metrics) {
+  checkClientGeometry(epoch, metrics) {
     const client = clientGeometry(metrics);
-    if (client.width !== record.clientViewport.width || client.height !== record.clientViewport.height)
+    if (client.width !== epoch.clientViewport.width || client.height !== epoch.clientViewport.height)
       throw fail("viewport changed before native input", "GEOMETRY");
   }
-
-  recheckResize(record) {
-    if (record.revoked || !record.clientViewport) return;
-    // Coalesce events into one original native call at a time. A late reply
-    // can only validate this lease; it never updates geometry or a successor.
-    record.geometryDirty = true;
-    if (record.geometryPending) return;
+  recheckResize(record, epoch) {
+    if (!epoch || epoch.retired || record.revoked || !epoch.clientViewport) return;
+    epoch.geometryDirty = true;
+    if (epoch.geometryPending) return;
     const pending = Promise.resolve().then(async () => {
-      while (record.geometryDirty && !record.revoked) {
-        record.geometryDirty = false;
-        this.check(record);
-        const metrics = await this.send(record, "Page.getLayoutMetrics", undefined, () => this.check(record));
-        this.check(record);
-        this.checkClientGeometry(record, metrics);
+      while (epoch.geometryDirty && !epoch.retired && !record.revoked) {
+        epoch.geometryDirty = false;
+        this.checkGeneration(record, epoch);
+        const metrics = await this.send(record, "Page.getLayoutMetrics", undefined, () => this.checkGeneration(record, epoch));
+        this.checkGeneration(record, epoch); this.checkClientGeometry(epoch, metrics);
       }
     });
-    record.geometryPending = pending;
-    const clear = () => { if (record.geometryPending === pending) record.geometryPending = null; };
+    epoch.geometryPending = pending;
+    const clear = () => { if (epoch.geometryPending === pending) epoch.geometryPending = null; };
     pending.then(clear, error => {
       clear();
-      if (!record.revoked) {
-        record.generation++; record.viewport = null;
-        void this.close(record, error).catch(() => {});
-      }
+      if (!record.revoked && !epoch.retired) { record.generation++; record.viewport = null; void this.close(record, error).catch(() => {}); }
     });
   }
 
@@ -249,44 +363,86 @@ export class ManagedHumanControl {
     try {
       this.check(record);
       fields(envelope, ["leaseId", "generation", "sequence", "input"]);
-      if (record.state !== "active" || !record.generation || !record.viewport || envelope.leaseId !== record.leaseId || envelope.generation !== record.generation ||
-          !Number.isSafeInteger(envelope.sequence) || envelope.sequence !== record.sequence + 1) throw fail("input does not match the displayed human lease and generation", "STALE");
-      if (record.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
+      if (envelope.leaseId !== record.leaseId) throw fail("input does not match the displayed human lease", "STALE");
+      const epoch = record.epoch;
+      if (!epoch || epoch.retired || record.state !== "active" || !record.generation || !record.viewport || envelope.generation !== record.generation)
+        throw fail("input does not match the displayed human lease and generation; native input was not sent", "GENERATION_STALE");
+      if (!Number.isSafeInteger(envelope.sequence) || envelope.sequence !== epoch.sequence + 1) throw fail("input does not match the displayed human lease sequence", "STALE");
+      if (epoch.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
       fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text"]);
-      const [method, params, commit] = this.command(record, { ...envelope.input });
+      const [method, params, commit] = this.command(epoch, { ...envelope.input });
       const sequence = envelope.sequence;
+      let sent = false;
       const pending = Promise.resolve().then(async () => {
-        this.check(record);
-        if (record.geometryPending) await record.geometryPending;
-        this.check(record);
-        await this.validate(record.candidate);
-        this.check(record);
-        const metrics = await this.send(record, "Page.getLayoutMetrics", undefined, () => this.check(record));
-        this.check(record);
-        this.checkClientGeometry(record, metrics);
-        record.sequence = sequence;
-        await record.tracker.send({ tabId: record.tabId }, record.token, method, params, () => {
-          this.checkInputGeometry(record);
-          return this.send(record, method, params, () => this.checkInputGeometry(record));
+        this.checkGeneration(record, epoch);
+        if (epoch.geometryPending) await epoch.geometryPending;
+        this.checkGeneration(record, epoch);
+        await this.validate(epoch.candidate); this.checkGeneration(record, epoch);
+        const metrics = await this.send(record, "Page.getLayoutMetrics", undefined, () => this.checkGeneration(record, epoch));
+        this.checkGeneration(record, epoch); this.checkClientGeometry(epoch, metrics);
+        if (this.frameTree(await this.send(record, "Page.getFrameTree", undefined, () => this.checkGeneration(record, epoch))) !== epoch.document)
+          throw fail("native document changed before input", "DOCUMENT_CHANGED");
+        this.checkGeneration(record, epoch);
+        await epoch.tracker.send({ tabId: record.tabId }, epoch.token, method, params, () => {
+          this.checkInputGeometry(record, epoch);
+          return this.send(record, method, params, () => { this.checkInputGeometry(record, epoch); sent = true; });
         });
-        commit();
-        this.check(record);
-        return this.info(record);
+        commit(); epoch.sequence = sequence;
+        // An actual native ACK remains an ACK for its original tuple, even
+        // after navigation or End. It never advances a successor generation.
+        return Object.freeze({ leaseId: record.leaseId, generation: epoch.id, sequence, acknowledged: true });
+      }).catch(error => {
+        // Independent document reads can reject while the observed navigation
+        // fence wins. The dispatch marker, not an error-text guess, proves this
+        // old request was never delivered. Native failures revoke in send().
+        if (!sent && epoch.retired && !record.revoked) {
+          this.check(record);
+          throw fail("input generation ended before native dispatch", "GENERATION_STALE");
+        }
+        throw error;
       });
-      record.inputPending = pending;
-      pending.then(() => { if (record.inputPending === pending) record.inputPending = null; }, error => {
-        if (record.inputPending === pending) record.inputPending = null;
+      epoch.inputPending = pending;
+      pending.then(() => { if (epoch.inputPending === pending) epoch.inputPending = null; }, error => {
+        if (epoch.inputPending === pending) epoch.inputPending = null;
+        if (!sent && error?.message?.startsWith("OBU_HUMAN_GENERATION_STALE:")) return;
         void this.close(record, error).catch(() => {});
       });
       return pending;
     } catch (error) { return Promise.reject(error); }
   }
 
+  retireGeneration(record, epoch) {
+    if (epoch.retired) return;
+    epoch.retired = true;
+    void epoch.rendering.cancel(record.tabId, epoch.token).catch(() => {});
+  }
+  releaseGeneration(record, epoch) {
+    this.retireGeneration(record, epoch);
+    if (epoch.cleaned) return Promise.resolve();
+    if (!epoch.cleaning) {
+      epoch.cleaning = (async () => {
+        await Promise.allSettled([epoch.start, epoch.inputPending, epoch.geometryPending].filter(Boolean));
+        if (record.attached) {
+          await epoch.tracker.release(record.tabId, epoch.token, (_target, method, params) => this.send(record, method, params));
+          await epoch.rendering.cancel(record.tabId, epoch.token);
+          await Promise.allSettled([...epoch.tracker.controlSnapshot().pending]);
+          epoch.tracker.forget(record.tabId, epoch.token);
+        } else if (record.destroyed) {
+          await Promise.allSettled([...epoch.tracker.controlSnapshot().pending]);
+          epoch.tracker.forget(record.tabId, epoch.token, { destroyed: true });
+        } else throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
+        epoch.cleaned = true; record.epochs.delete(epoch);
+      })();
+      epoch.cleaning.catch(() => { epoch.cleaning = null; });
+    }
+    return epoch.cleaning;
+  }
   revoke(record, error = fail("human control ended", "STALE")) {
     if (record.revoked) return;
     record.revoked = true; record.state = "releasing"; record.onFrame = null;
+    clearTimeout(record.recoveryTimer); record.recoveryTimer = null; record.wake?.();
     record.closed.resolve({ reason: String(error.message) });
-    void record.rendering.cancel(record.tabId, record.token).catch(() => {});
+    for (const epoch of record.epochs) this.retireGeneration(record, epoch);
   }
   cancel(error, exempt) {
     if (!this.current || this.current === exempt) return Promise.resolve();
@@ -296,23 +452,16 @@ export class ManagedHumanControl {
     this.revoke(record, error);
     if (!record.closing) {
       record.closing = (async () => {
-        await Promise.allSettled([record.start, record.inputPending, record.geometryPending].filter(Boolean));
+        await Promise.allSettled([record.start, record.recovery].filter(Boolean));
+        for (const epoch of record.epochs) await this.releaseGeneration(record, epoch);
+        await Promise.allSettled([...record.drains]);
         if (record.attached) {
-          await record.tracker.release(record.tabId, record.token, (_target, method, params) => this.send(record, method, params));
-          await record.rendering.cancel(record.tabId, record.token);
-          await Promise.allSettled([...record.drains]);
           await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: false });
-          // No synthetic onDetach acknowledgement: Chrome's detach Promise is
-          // the native completion. Never detach while an original send lives.
           record.detaching = true;
           try { await this.chrome.debugger.detach({ targetId: record.candidate.targetId }); }
           finally { record.detaching = false; }
           record.attached = false;
-          record.tracker.forget(record.tabId, record.token);
-        } else if (record.destroyed) {
-          await Promise.allSettled([...record.tracker.controlSnapshot().pending, ...record.drains]);
-          record.tracker.forget(record.tabId, record.token, { destroyed: true });
-        } else if (record.lost) throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
+        } else if (record.lost && !record.destroyed) throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
         if (record.riskMarked) await this.clearRisk(record.leaseId);
         if (record.lifecycle) this.chrome.debugger.onEvent.removeListener(record.lifecycle);
         record.state = "released";
@@ -325,7 +474,10 @@ export class ManagedHumanControl {
   invalidateTab(tabId, { destroyed = false } = {}) {
     const record = this.current;
     if (!record || record.tabId !== tabId) return;
-    if (destroyed) { record.destroyed = true; record.attached = false; record.rendering.released(tabId, record.token); }
+    if (destroyed) {
+      record.destroyed = true; record.attached = false;
+      for (const epoch of record.epochs) epoch.rendering.released(tabId, epoch.token);
+    }
     void this.close(record, fail(destroyed ? "original tab closed" : "original page or ownership changed", "STALE")).catch(() => {});
   }
   observeDetach(source, reason) {
@@ -333,7 +485,7 @@ export class ManagedHumanControl {
     if (!record || !this.ownsSource(record, source)) return false;
     if (record.detaching) return true;
     record.attached = false; record.lost = true; record.destroyed = reason === "target_closed";
-    record.rendering.released(record.tabId, record.token);
+    for (const epoch of record.epochs) epoch.rendering.released(record.tabId, epoch.token);
     void this.close(record, fail("original debugger attachment ended", "UNAVAILABLE")).catch(() => {});
     return true;
   }

@@ -1,5 +1,32 @@
 # Browser integration acceptance
 
+## Continuous managed human navigation (Windows, experimental)
+
+Build the current CLI, extension and JavaScript SDK, set the same three absolute
+`OBU_TEST_*` paths below, and run
+`node scripts/browser-integration/managed-human-navigation-check.mjs`.
+
+One original workflow uses one Begin and one lease/target across A's trusted
+Next click, a single-use 302 to B, a child-document navigation and a same-document
+SPA route. ASCII and Unicode extend the original draft. Every generation waits
+for matching status and a genuinely decoded frame; the original triggering
+input must still return its exact native receipt. Explicit End/Resume and a new
+Agent turn lead to one final POST. The fixture records original request/response
+bytes and rejects replay, even after an invalid attempt.
+
+The runner checks current title/URL in the actual viewer DOM and retains source
+snapshots, raw PNGs, target/document identities and original process receipts.
+`lifecycleSource` binds the original Go JSON bytes; its exact native FILETIME
+integer must not be replaced by JavaScript's rounded Number projection. This
+workflow does not exercise iframe-local input, held input during navigation,
+real credentials, OS mouse/foreground behavior or broader login compatibility.
+
+`fRIjwN` passed all six stages with actual exit 0, 47 exact input receipts and
+one 483-byte POST. Independent decoding covered 53 native frames and 6 viewer
+screenshots. The earlier `yI1c1P` kept the old page title/address; that visual
+defect and the original evidence remain recorded in the
+[managed-session plan](../../docs/exec-plans/active/2026-10-16-managed-browser-session.md).
+
 ## Managed same-document human control (Windows, experimental)
 
 Build the current CLI, extension and JavaScript SDK, then set the same three
@@ -33,6 +60,16 @@ not wrap native input or fabricate command acknowledgements. Build/source hashes
 must stay unchanged. Any failure, unknown cleanup or forced termination remains
 in the original attempt's report. This is not a real login/SSO/MFA, cross-navigation,
 ordinary Edge/company-PC or independent OS foreground acceptance.
+
+Managed runners share a read-only process inventory helper which compares each
+child's complete UTC creation time against its observed parent. A reused PID
+must not inherit older processes or their descendants. This inventory is not
+termination authority or an atomic OS snapshot; original process handles and
+Job receipts remain authoritative. Disappearance still uses the original
+PID/CreationDate pair. The zero-business `paPWuq` failure from the former PID-only
+helper is retained. With the corrected helper, `w1KteZ` completed six stages,
+30 exact inputs, held-input disconnect cleanup and one 299-byte POST, actual
+exit 0, using the same production runtime as the navigation workflow above.
 
 The first complete original workflow `6U55vc` passed six stages with actual exit
 0, 30 exact input receipts and one 299-byte POST. The same frozen runtime passed

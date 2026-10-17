@@ -42,6 +42,90 @@
 
 ## Module 与 Interface 决策
 
+### 连续人工接管（2026-10-17，限定导航流程已验，未重新打包）
+
+上一轮新包交付属于实际进展；发布基线为 93f54a1。接下来沿用同一个人工
+lease、原 tab/target 和暂停状态，支持一次 Begin 经页面跳转/重定向和 SPA
+后继续输入。不能用自动 End/Begin 或反复要求用户接管替代这条原始流程。
+
+将文档代次生命周期收进 ManagedHumanControl Module；其 Interface 仍是
+Begin/Input/End，补充 typed `navigating` 状态与代次通知。跨层 Seam 约定：
+
+- 状态 `active(g) → navigating(g+1, viewport:null) → active(g+1)`；导航
+  同步撤旧发布/输入，保留租约和 durable held-input 风险。序号按
+  `(leaseId, generation)` 从 1 开始；连续重定向可合并状态，但代次单调。
+- 旧原生调用、held input 释放和原渲染清理必须实际结算，才能恢复新代。
+  每代独立 tracker token/队列/回执；已发送且 ACK 成功的输入仍返回原 tuple。
+  明确未发送的旧代请求用 typed `HUMAN_GENERATION_STALE`，与未知原生结果区分。
+- 新画面不能只依赖 stop/start 或 streamId。需验证原 tab/target、当前站点
+  和 document/loader，使用原生同一 TimeTicks 时钟的捕获时间屏障排除旧编码帧。
+  缺字段或无法证明时不开放输入；静态页、跳转页的真实帧需分别验证。
+- bridge/Go/UI 接收更大代次时退休旧画面和队列；旧回执、异步解码、超时
+  不得关闭或更改新代次。新代真实帧匹配并解码后才启用 UI 输入。End/Stop/
+  Pause/断线仍是整个租约的释放，不能被导航恢复越过。
+- CDP 输入没有 documentId 条件参数。只能保证观察到导航栅栏后，尚未发出
+  的旧请求不再提交；不能宣称撤回了已交给 Chromium 的输入。实际在途结果
+  单独记录，不重放、不以事后 document 读取伪造原子归属。
+
+验证包括定点跨层竞态及一次真实业务：A 页面原始点击经重定向到 B，保留同
+lease/target，B 输入后 SPA 继续输入，最终唯一提交和原清理。另测子 frame
+导航、held input 导航释放、旧回执/旧编码帧迟到与 End/断线。每次原尝试的
+失败和清理记录保留。此次开发不自动更新已发布的 93f54a1 包。
+
+本轮实施及原始证据：
+
+- 独立零业务时钟诊断 `human-navigation-clock-7T29sj` 实际 exit 0：静态 A、
+  302 后静态 B、B 的 history 跳转均取得晚于原 Performance 屏障的原生帧，
+  三张 PNG 完整解码；实际 Browser.close、原浏览器 exit 0，无强制终止。
+  结果 SHA `1e16b025a32ae699b6b2d06a9b09926f513d936bd6525f4a17ff9fbd0bb39448`。
+  它只验证这组原生时钟观察，不替代生产接管流程或原子输入证明。
+- 跨层检查修正了已提交输入被 generation context 取消遮掉原回执、状态合并
+  跨过首帧、迟到 Begin 清掉同代唯一首帧，以及 publication 收尾时遗漏无帧
+  导航通知。后两项有明确修前失败（`aaafaa`、`20f457`），修后确定性回归
+  通过；旧输入未知失败仍整租约撤销，不能借导航吞掉错误。
+- 原生产导航 `managed-human-navigation-yI1c1P` 六步实际 exit 0：一次 Begin，
+  同 lease/tab/target 经过 302、子 frame 和 SPA，47 项精确输入回执，唯一
+  483 B POST。原进程/Job/注册/endpoint 清理正常，无强制终止。报告 SHA
+  `8942b42b934ff39c666ae1b53e26060af7dc7f0e5c8191fb04cf0a741356f75c`。
+  目视发现接管中标题/地址仍显示原 A，不能把这轮写成元数据显示通过。
+- 元数据改为来自当前已验证候选，导航期间清旧值；新增 5 个反例先失败后
+  通过。修后原导航 `managed-human-navigation-fRIjwN` 六步实际 exit 0：
+  保持同样的单接管/47 输入/唯一提交，三次导航的实际 DOM 标题、选中项和
+  URL 均匹配当前原文档，包括 `#spa`。报告 SHA
+  `69fe80235ebebb1dc2a843d3a0c23b620b4e607ed8a6e6f86124bd7589e1b6f6`；
+  独审 SHA `518c45d465f5942e4aa1487a16942252bd8667d3e4c1ecd7ce9913f1d5d40311`。
+  独审完整解码 53 个原生 PNG 和 6 张截图，核验原生命周期字节、原 4 类
+  进程退出 0、Job 归零与清理回执，不靠事后进程不存在替代退出证据。
+- 首轮独审曾把超过 2^53 的 nativeCreationTime 经 JS Number 投影误判为
+  生命周期不一致，原 audit 失败保留；修正只核验该字段的 IEEE-754 投影，
+  原 Go JSON 精确整数仍作权威。新 runner 另存原生命周期文件 bytes/SHA。
+- 修后扩展全套 1,995 项实际 exit 0；UI 47 项、Go 全包/vet/build 与原
+  bridge fixture 一致性检查通过。Go 导航专项重复运行覆盖旧队列、迟到原
+  回执、未知失败和 Begin 首帧竞态；不能把次数当成新增业务覆盖。
+- 附加同文档回归 `managed-human-paPWuq` 在启动检查实际 exit 1：测试脚本
+  仅按 PID 遍历，误把复用父 PID 的旧系统进程列入 viewer，进程归属断言和
+  后续名单消失检查失败。0 网页请求、0 人工输入、0 POST；原测试 browser、
+  native、supervisor、viewer 均 exit 0，Job 归零，无强制终止。原报告 SHA
+  `fe277e8fcb5500d15e5c84d75be29a10ce17d34359f3cc4aeb508bf407b761fc`。
+  这是验收观察器问题，失败记录保留，不视作人工断线释放已验。
+- 四个 managed runner 共用只读进程树 helper，逐条父子边核对完整七位 UTC
+  CreationDate，断开父 PID 复用产生的旧边，不按进程名删除或终止进程。
+  合成反例修前实际 exit 1，修后相关 27 项测试通过。修后同文档原回归
+  `managed-human-w1KteZ` 六步实际 exit 0：30 项精确输入回执，原文档中
+  Shift/左键按住时断开原 WS，实际可信释放后再明确 Resume/new turn，
+  同一文档唯一 299 B POST。四类进程 exit 0、Job 归零，无强制终止；
+  原报告 SHA `b70b2f128a1cbe0f7e52d422d40eff39fe1170ae5db03bded45919641fabb865`。
+  这次 helper 修复未改变生产运行源码；前一轮的失败不被后续通过覆盖。
+- 停止后独审实际 exit 0，复核 30 项 ACK、原连接未补发释放、原文档唯一
+  提交与正常退出，完整解码 32 张原生 PNG 和 5 张 viewer 截图。运行扩展、
+  EXE、SDK 与导航验收一致；审计 SHA
+  `1568fcce7beefeeaeb5f70e6eb585b3090107d4ea5ea36be1ad8fc3e884e0cf2`。
+  旧同文档 runner 没有 `lifecycleSource` 字段；独审单独绑定原 Go lifecycle
+  的字节哈希，仅对 nativeCreationTime 比较 JavaScript 数值投影。
+
+限定导航不证明 held-input 导航的真实释放、跨站/OOPIF 内输入、完整 IME、
+真实 SSO/MFA、普通公司 Edge 或跨平台；这些仍为后续目标。
+
 采用 `codebase-design` 的 Module/Interface 原则：managed-session
 Module 负责浏览器进程、profile 独占、确切 native endpoint、观看连接和实际
 清理。调用者应获得一个已验证的会话句柄，而不是自行拼装端口、PID、临时
@@ -142,7 +226,8 @@ setup 只验证自然关窗，不重放登录业务。不使用真实网站或�
 用户再次要求打包后，已发布 `preview-20261017-93f54a1`，包含下述已验证
 同文档人工接管；运行源码与 9ac3a04 相同，新增修改限发布指南。离线 CLI/MCP、
 独立制品检查及四资产回下载校验通过，网页流程未重跑。以下保留原开发过程
-及旧包范围；跨文档接管仍仅完成设计审查，没有进入本次包或取得验收。
+及旧包范围；该次打包时跨文档接管仅完成设计审查，没有进入该包。后续源码
+实现和限定验收见上方连续接管记录。
 
 上一轮完成并发布登录准备，属于已验证进展。本轮继续补完整目标中尚缺的
 任务中途人工操作；自动续做期间不自行重复打包。用户随后再次要求新包，
@@ -318,7 +403,9 @@ host；仅私有暂存副本写入 version 1 与随机 managed host 名。非法
 - [ ] 浏览器发现/兼容与完整异常生命周期验收，其他平台实现。
 - [x] 限定用户流程：实时画面、可见反馈、可信暂停/恢复/结束、串行登录准备
   及同文档人工接管；任务调用者没有用户控制通道。
-- [ ] 真实登录/输入法/跨文档与更广用户体验验收，普通公司 Edge 安装。
+- [x] 固定 Windows Chromium 的单租约根重定向、子 frame 导航与 SPA 连续
+  接管，原输入回执、当前标题/地址和唯一提交；尚未重新打包。
+- [ ] 真实登录/输入法/更广跨站接管和用户体验验收，普通公司 Edge 安装。
 - [x] 原始下载绑定：此会话确切 Browser root 与 Native Port 挑战成功。
 - [ ] 本模式的原文件下载及实际取消业务验收；沿用既有契约，不自动连接
   别的用户浏览器。

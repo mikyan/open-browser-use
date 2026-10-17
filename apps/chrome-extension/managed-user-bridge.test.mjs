@@ -67,9 +67,9 @@ function fixture(t, options = {}) {
 function humanFixture(t) {
   const f = fixture(t);
   f.humans = [];
-  f.backend.beginManagedHuman = async (tabId, authority, onFrame) => {
+  f.backend.beginManagedHuman = async (tabId, authority, onFrame, onState) => {
     f.calls.push(["humanBegin", tabId]); authority();
-    const closed = deferred(), record = { tabId, authority, onFrame, closed, closeCalls: 0, inputCalls: 0,
+    const closed = deferred(), record = { tabId, authority, onFrame, onState, closed, closeCalls: 0, inputCalls: 0,
       info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0 } };
     const handle = record.handle = {
       info: () => ({ ...record.info }), closed: closed.promise,
@@ -78,8 +78,8 @@ function humanFixture(t) {
         const pending = record.pending = (async () => {
           await f.humanInputGate?.promise;
           authority();
-          record.info.lastInputSequence = envelope.sequence;
-          return { ...record.info, ...(f.inputReplyOverride ?? {}) };
+          if (record.info.generation === envelope.generation) record.info.lastInputSequence = envelope.sequence;
+          return { leaseId: envelope.leaseId, generation: envelope.generation, sequence: envelope.sequence, acknowledged: true, ...(f.inputReplyOverride ?? {}) };
         })();
         return pending;
       },
@@ -123,6 +123,15 @@ function humanFixture(t) {
   f.input = (sequence, extra = {}) => f.request("humanInput", {
     leaseId: f.humans.at(-1).info.leaseId, generation: 1, sequence, input: { type: "text", text: "synthetic" }, ...extra
   });
+  f.navigate = (generation, record = f.humans.at(-1)) => {
+    Object.assign(record.info, { state: "navigating", generation, viewport: null, lastInputSequence: 0 });
+    record.onState({ ...record.info });
+  };
+  f.arrive = (generation, sequence = 1, record = f.humans.at(-1)) => {
+    Object.assign(record.info, { state: "active", generation, viewport: { width: 800, height: 600 } });
+    record.onState({ ...record.info });
+    f.humanFrame(sequence, { streamId: `human-stream-${record.info.leaseId}-g${generation}` }, record);
+  };
   return f;
 }
 
@@ -481,12 +490,151 @@ test("a first human frame during Begin is kept until the original handle becomes
 
 test("input acknowledgement cannot be fabricated from the requested sequence", async t => {
   const f = humanFixture(t); await f.open(); await f.begin();
-  f.inputReplyOverride = { lastInputSequence: 0 };
+  f.inputReplyOverride = { sequence: 0 };
   await assert.rejects(f.input(1), /HUMAN_UNCONFIRMED/);
   assert.equal(f.humans[0].inputCalls, 1);
   assert.equal(f.humans[0].info.lastInputSequence, 1);
   assert.equal(f.humans[0].info.state, "released");
   await assert.rejects(f.input(2), /HUMAN_STALE/);
+});
+
+test("navigation keeps one human lease and publishes the new generation before its first frame", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const start = f.events.length;
+  f.navigate(2); await flush();
+  const navigating = (await f.request("status")).status;
+  assert.equal(navigating.human.state, "navigating");
+  assert.equal(navigating.human.leaseId, "human-1");
+  assert.equal(navigating.human.viewport, null);
+  assert.equal(navigating.selectedTabId, 7);
+  assert.equal(navigating.humanCleanup, undefined);
+  await assert.rejects(f.input(1), /HUMAN_GENERATION_STALE/);
+  await assert.rejects(f.input(1, { generation: 2 }), /HUMAN_GENERATION_STALE/);
+  assert.equal(f.humans[0].inputCalls, 0);
+  f.arrive(2); await flush();
+  const events = f.events.slice(start), frameIndex = events.findIndex(event => event.type === "frame");
+  assert.ok(frameIndex > 0);
+  assert.ok(events.slice(0, frameIndex).some(event => event.type === "status" && event.status.human.generation === 2));
+  assert.equal(events.some(event => event.type === "clear"), false);
+  assert.equal(events[frameIndex].generation, 2);
+  assert.equal(f.humans[0].closeCalls, 0);
+  assert.equal(f.calls.filter(call => call[0] === "humanBegin").length, 1);
+  assert.deepEqual((await f.input(1, { generation: 2 })).inputReceipt,
+    { leaseId: "human-1", generation: 2, sequence: 1, acknowledged: true });
+  assert.equal(f.state.state, "paused");
+});
+
+test("a navigation-triggering native acknowledgement belongs to the old generation without ending the new one", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  f.humanInputGate = deferred();
+  const original = f.input(1); await flush();
+  f.navigate(2); f.arrive(2); await flush();
+  f.humanInputGate.resolve();
+  const reply = await original;
+  assert.deepEqual(reply.inputReceipt, { leaseId: "human-1", generation: 1, sequence: 1, acknowledged: true });
+  assert.equal(reply.status.human.generation, 2);
+  assert.equal(reply.status.human.lastInputSequence, 0);
+  assert.equal(f.humans[0].closeCalls, 0);
+  assert.deepEqual((await f.input(1, { generation: 2 })).inputReceipt,
+    { leaseId: "human-1", generation: 2, sequence: 1, acknowledged: true });
+});
+
+test("an exact retired frame credit settles once without clearing the new outstanding credit", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const oldFrame = f.events.findLast(event => event.type === "frame");
+  f.navigate(2); f.arrive(2); await flush();
+  const newFrame = f.events.findLast(event => event.type === "frame");
+  assert.notEqual(newFrame.sequence, oldFrame.sequence);
+  await f.request("ack", { sequence: oldFrame.sequence });
+  await assert.rejects(f.request("ack", { sequence: oldFrame.sequence }), /ACK/);
+  f.humanFrame(2, { streamId: newFrame.streamId });
+  assert.equal(f.events.findLast(event => event.type === "frame").sequence, newFrame.sequence);
+  await f.request("ack", { sequence: newFrame.sequence });
+  assert.equal(f.events.findLast(event => event.type === "frame").frameSequence, 2);
+});
+
+test("old human state and old encoded frames cannot revoke or repaint a successor generation", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const record = f.humans[0], oldInfo = { ...record.info };
+  f.navigate(2); f.arrive(2); await flush();
+  const frameCount = f.events.filter(event => event.type === "frame").length;
+  record.onState(oldInfo);
+  f.humanFrame(99, { generation: 1, streamId: "original-retired-stream" }); await flush();
+  assert.equal(f.events.filter(event => event.type === "frame").length, frameCount);
+  assert.equal(record.closeCalls, 0);
+  assert.equal((await f.request("status")).status.human.generation, 2);
+  const ended = await f.request("humanEnd", { leaseId: "human-1" });
+  assert.deepEqual(ended.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+});
+
+test("coalesced navigation waits for actual state publication and keeps only the newest matching frame", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const held = deferred(), entered = deferred(); let block = true;
+  f.backend.getAutomationControlStatus = async () => {
+    if (block) { block = false; entered.resolve(); await held.promise; }
+    return { ...f.state };
+  };
+  const start = f.events.length;
+  f.navigate(2); await entered.promise;
+  f.arrive(2); f.navigate(4); f.arrive(4, 1);
+  f.humanFrame(2, { streamId: "human-stream-human-1-g4" });
+  assert.equal(f.events.slice(start).some(event => event.type === "frame"), false);
+  held.resolve(); await flush();
+  const events = f.events.slice(start), frames = events.filter(event => event.type === "frame");
+  assert.deepEqual(frames.map(frame => [frame.generation, frame.frameSequence]), [[4, 2]]);
+  assert.equal(events[0].type, "status");
+  assert.equal(events[0].status.human.generation, 4);
+  assert.equal(f.humans[0].closeCalls, 0);
+});
+
+test("navigation during publication completion publishes its state without waiting for a frame", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const start = f.events.length;
+  let once = true;
+  f.backend.getAutomationControlStatus = () => {
+    if (once) { once = false; queueMicrotask(() => queueMicrotask(() => f.navigate(2))); }
+    return Promise.resolve({ ...f.state });
+  };
+  f.humans[0].onState({ ...f.humans[0].info });
+  await flush();
+  // Do not issue a status request: the unsolicited navigation publication is
+  // what disables the viewer while no successor frame is available yet.
+  const automatic = f.events.slice(start).filter(event => event.type === "status");
+  assert.equal(automatic.at(-1).status.human.state, "navigating");
+  assert.equal(automatic.at(-1).status.human.generation, 2);
+  assert.equal(automatic.at(-1).status.human.viewport, null);
+  assert.equal(f.humans[0].closeCalls, 0);
+  assert.ok(automatic.length <= 3, "A finite state change must not create an unbounded publication loop");
+});
+
+test("human navigation clears the old address and publishes current page metadata with the new frame", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const record = f.humans[0];
+  record.handle.tabInfo = () => record.info.state === "navigating"
+    ? { id: 7, title: "页面正在跳转", url: "" }
+    : { id: 7, title: record.info.generation === 1 ? "Page A" : "Page B", url: `https://example.test/${record.info.generation === 1 ? "a" : "b"}` };
+  assert.equal((await f.request("status")).status.tabs[0].url, "https://example.test/a");
+  f.navigate(2); await flush();
+  assert.deepEqual(f.events.findLast(event => event.type === "status").status.tabs, [{ id: 7, title: "页面正在跳转", url: "" }]);
+  f.arrive(2); await flush();
+  const current = f.events.findLast(event => event.type === "status");
+  assert.deepEqual(current.status.tabs, [{ id: 7, title: "Page B", url: "https://example.test/b" }]);
+  const frame = f.events.findLast(event => event.type === "frame");
+  assert.ok(current.sequence < frame.sequence);
+  assert.equal(record.closeCalls, 0);
+});
+
+test("End during navigation releases the whole lease and late state cannot reopen it", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  f.navigate(2); await flush();
+  const end = await f.request("humanEnd", { leaseId: "human-1" });
+  assert.equal(end.status.human, null);
+  assert.deepEqual(end.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  const count = f.events.filter(event => event.type === "frame").length;
+  f.arrive(2); await flush();
+  assert.equal(f.events.filter(event => event.type === "frame").length, count);
+  assert.equal((await f.request("status")).status.human, null);
+  assert.equal(f.humans[0].closeCalls, 1);
 });
 
 test("human End revokes immediately but waits for the original input and cleanup", async t => {

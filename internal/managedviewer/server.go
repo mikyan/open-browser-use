@@ -63,32 +63,40 @@ type Server struct {
 }
 
 type connection struct {
-	ws                 *websocket.Conn
-	ctx                context.Context
-	cancel             context.CancelFunc
-	replies            chan outbound
-	state              chan json.RawMessage
-	frames             chan json.RawMessage
-	work               chan struct{}
-	workers            sync.WaitGroup
-	stopReply          *delivery
-	sequenceMu         sync.Mutex
-	retiredSequence    uint64
-	controlMu          sync.Mutex
-	humanClaimed       bool
-	humanStarting      bool
-	humanRevoked       bool
-	humanLease         string
-	humanGeneration    uint64
-	humanSequence      uint64
-	humanEpoch         uint64
-	humanStateSequence uint64
-	humanCandidate     *managedprotocol.HumanState
-	humanCtx           context.Context
-	humanCancel        context.CancelFunc
-	inputs             chan command
-	releases           chan struct{}
-	cleanupDone        chan struct{}
+	ws                     *websocket.Conn
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	replies                chan outbound
+	state                  chan json.RawMessage
+	frames                 chan json.RawMessage
+	work                   chan struct{}
+	workers                sync.WaitGroup
+	stopReply              *delivery
+	sequenceMu             sync.Mutex
+	retiredSequence        uint64
+	controlMu              sync.Mutex
+	humanClaimed           bool
+	humanStarting          bool
+	humanRevoked           bool
+	humanLease             string
+	humanGeneration        uint64
+	humanRetiredGeneration uint64
+	humanSequence          uint64
+	humanEpoch             uint64
+	humanStateSequence     uint64
+	humanCandidate         *managedprotocol.HumanState
+	humanCtx               context.Context
+	humanCancel            context.CancelFunc
+	humanTabID             uint64
+	humanActive            bool
+	humanFrameLease        string
+	humanFrameGeneration   uint64
+	humanFrameTabID        uint64
+	inputCtx               context.Context
+	inputCancel            context.CancelCauseFunc
+	inputs                 chan command
+	releases               chan struct{}
+	cleanupDone            chan struct{}
 }
 
 type outbound struct {
@@ -401,8 +409,8 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if request.operation == "humanInput" {
-			if !c.admitInput(request) {
-				c.failure(request.id, "HUMAN_STALE", "人工控制已失效或输入顺序不匹配，请完成接管；不要重试输入。")
+			if code := c.admitInput(request); code != "" {
+				c.failure(request.id, code, "人工控制已失效或输入顺序不匹配；未发送的操作不会重放。")
 			}
 			continue
 		}
@@ -480,7 +488,11 @@ func (s *Server) command(c *connection, request command) {
 	default:
 	}
 	if err := ctx.Err(); err != nil {
-		c.failure(request.id, "HUMAN_STALE", "人工请求在提交前已撤销，未发送的操作不会重放。")
+		code := "HUMAN_STALE"
+		if errors.Is(context.Cause(ctx), managedprotocol.ErrHumanGenerationRetired) {
+			code = "HUMAN_GENERATION_STALE"
+		}
+		c.failure(request.id, code, "人工请求在提交前已撤销，未发送的操作不会重放。")
 		return
 	}
 	result, err := s.config.Backend.Command(ctx, request.payload)
@@ -491,10 +503,15 @@ func (s *Server) command(c *connection, request command) {
 		result, err = publicState(result)
 	}
 	if err != nil {
+		var coded interface{ UserErrorCode() string }
+		if request.operation == "humanInput" && errors.As(err, &coded) && (coded.UserErrorCode() == "OBU_HUMAN_GENERATION_STALE" || coded.UserErrorCode() == "OBU_MANAGED_USER_HUMAN_GENERATION_STALE") {
+			c.retireInputGeneration(request)
+			c.failure(request.id, "HUMAN_GENERATION_STALE", "原页面代次已结束，此输入未提交；不会重放到新页面。")
+			return
+		}
 		if request.operation == "humanBegin" || request.operation == "humanInput" {
 			s.releaseFailedHuman(c, request.epoch)
 		}
-		var coded interface{ UserErrorCode() string }
 		if errors.As(err, &coded) && (coded.UserErrorCode() == "OBU_HUMAN_STALE" || coded.UserErrorCode() == "OBU_MANAGED_USER_HUMAN_STALE") {
 			c.failure(request.id, "HUMAN_STALE", "人工控制已失效，请完成接管；不要重试输入。")
 		} else {
@@ -538,6 +555,7 @@ func (c *connection) displayData(data json.RawMessage) json.RawMessage {
 		var human *managedprotocol.HumanState
 		_ = json.Unmarshal(fields["human"], &human)
 		retire = !humanPending && human == nil && (status.State != "running" || string(fields["selectedTabId"]) == "null")
+		retire = retire || human != nil && human.State == "navigating"
 	}
 	c.sequenceMu.Lock()
 	defer c.sequenceMu.Unlock()
@@ -643,6 +661,9 @@ func (s *Server) events() {
 			if c := s.active; c != nil {
 				if kind != "frame" {
 					c.observeHumanState(public)
+				} else if !c.observeHumanFrame(public) {
+					s.mu.Unlock()
+					continue
 				}
 				public = c.displayData(public)
 				if kind == "frame" {

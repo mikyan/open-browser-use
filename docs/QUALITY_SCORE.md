@@ -11,6 +11,16 @@
 
 ## 当前评分
 
+当前源码新增单租约连续人工接管，尚未进入下述发布包。固定 Windows Chromium
+的 `managed-human-navigation-fRIjwN` 六步实际 exit 0：47 项输入、302/子 frame/
+SPA、正确当前标题地址、唯一 POST 及正常清理；独审完整解码 59 张 PNG。
+扩展 1,995 项、UI 47 项、Go 全包/vet/build 通过。首轮标题地址滞留和跨层
+竞态均修复并保留原证据；附加同文档回归的 PID 复用观察器失败也已保留。
+修正 helper 后 `managed-human-w1KteZ` 六步实际 exit 0，30 输入、原按住
+输入的断线释放、同文档唯一 POST 及正常退出通过，生产运行源码未再改变。
+停止后独审通过，37 张 PNG 完整解码，运行扩展、EXE、SDK 与导航验收一致。
+范围和待验事项见[隔离会话计划](exec-plans/active/2026-10-16-managed-browser-session.md)。
+
 最新交付为 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)，
 已包含限定的同文档人工接管。运行源码与已验证的 9ac3a04 一致；干净重建后
 离线 CLI/MCP 30 工具、独立制品检查 5,388 项及四资产回下载哈希核对通过。

@@ -14,6 +14,7 @@ import { assertManagedViewerTerminal } from "./managed-viewer-check.mjs";
 import { createManagedSetupFixture, setupCookieName, setupStorageKey } from "./managed-setup-fixture.mjs";
 import { setupWindowProbe, assertVisibleSetupWindow } from "./managed-setup-window-probe.mjs";
 import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
+import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -109,11 +110,6 @@ async function treeHashes(root) {
   const entries = await fs.readdir(root, { recursive: true, withFileTypes: true });
   const files = entries.filter(entry => entry.isFile()).map(entry => path.join(entry.parentPath, entry.name)).sort();
   return Object.fromEntries(await Promise.all(files.map(async file => [path.relative(root, file).replaceAll("\\", "/"), hash(await fs.readFile(file))])));
-}
-function descendants(table, pid) {
-  const ids = new Set([pid]); let changed;
-  do { changed = false; for (const item of table) if (ids.has(item.ParentProcessId) && !ids.has(item.ProcessId)) { ids.add(item.ProcessId); changed = true; } } while (changed);
-  return table.filter(item => ids.has(item.ProcessId));
 }
 function privatePath(root, file) {
   const relative = path.relative(root, file);
@@ -256,7 +252,7 @@ export async function runManagedSetupCheck() {
   try {
     report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")) };
     await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true }); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), path.join(runDir, "sdk-input"), { recursive: true });
-    for (const source of ["cmd/open-browser-use/main.go", "cmd/open-browser-use/managed.go", "cmd/open-browser-use/managed_setup.go", "internal/managedbrowser", "internal/managedviewer", "scripts/browser-integration/managed-setup-check.mjs", "scripts/browser-integration/managed-setup-fixture.mjs", "scripts/browser-integration/managed-setup-window-probe.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
+    for (const source of ["cmd/open-browser-use/main.go", "cmd/open-browser-use/managed.go", "cmd/open-browser-use/managed_setup.go", "internal/managedbrowser", "internal/managedviewer", "scripts/browser-integration/managed-setup-check.mjs", "scripts/browser-integration/managed-setup-fixture.mjs", "scripts/browser-integration/managed-setup-window-probe.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/observed-process-descendants.mjs", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
       const target = path.join(runDir, "source-snapshot", source); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.cp(path.join(repo, source), target, { recursive: true });
     }
     report.source.snapshot = await treeHashes(path.join(runDir, "source-snapshot"));

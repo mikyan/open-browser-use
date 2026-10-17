@@ -121,8 +121,13 @@ debugger、history 和 tab groups。
   `managed-human-control.js` 固定原页面 target，持有独立接管租约并跟踪
   原生按键、指针和 rendering 清理；桥接层负责与原任务暂停、选择及继续衔接。
   接管先等待原任务清理及首帧实际解码；结束后仍暂停，明确 Resume 后任务
-  需要新轮次。任意 frame 导航、同文档/SPA 跳转或视口几何变化终止租约，
-  不自动跨文档续接；完整 IME 和真实网站 SSO/MFA 尚未验收。
+  需要新轮次。当前源码可在原 tab/target 和同一人工租约内经过根/子 frame
+  导航及 SPA；每次导航撤旧队列，等待原输入和渲染释放，再以原生 TimeTicks
+  捕获屏障建立新代画面。明确未发送的旧输入返回 typed stale，已提交输入
+  保留原 tuple 回执及期限；HTTP 与 UI 均须见到匹配的新帧才能开放输入。
+  视口几何、页面归属或网站权限变化仍终止租约。CDP 不提供 documentId
+  条件输入，不能撤回已提交动作或保证跨导航原子输入。发布包 93f54a1 仍为
+  同文档版本；完整 IME、真实网站 SSO/MFA 与跨平台尚未验收。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。
