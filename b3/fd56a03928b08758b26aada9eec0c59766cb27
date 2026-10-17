@@ -1,0 +1,87 @@
+internal/managedbrowser/setup_windows_test.go
+  s_08bbfd293d324f::t_8106911b1933dc 1-84,86-98,103,105-109,114-115,119-124,129,131-138,143-152,157-161,167-175,180-184,198,205-207,210,259-261,270,286,291-295,299,303,329-331,340,350-352,371
+  s_08bbfd293d324f::t_902f83a5f32211 186-191,360,367-369
+  s_08bbfd293d324f::t_82cbc55a532530 85,99-102,104,110-113,116-118,125-128,130,139-142,153-156,162-166,176-179,185,192-197,199-204,208-209,211-258,262-269,271-285,287-290,296-298,300-302,304-328,332-339,341-349,353-359,361-366,370
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_75ed6460ce9b17 6,22,31,33-56,159
+  s_08bbfd293d324f::t_8b4b576bb73988 5,30,32,167-186
+  s_08bbfd293d324f::t_1fffa6ef615f86 187
+internal/managedbrowser/session.go
+  s_08bbfd293d324f::t_902f83a5f32211 180-201,276-293,295,297,299-314,316-317,319-334,364,371
+  s_08bbfd293d324f::t_a6eef6281055e0 60,493,497
+  s_08bbfd293d324f::t_911b7e74065927 22,95-104,113,146-151,178-179,213-215,219,269-273,275,363,365-370,372-377,488-492,494-496,498-501
+cmd/open-browser-use/managed.go
+  s_08bbfd293d324f::t_4c0ca4e1169e8e 143-147,160-163,262,265-275,303-304,439-441
+  s_08bbfd293d324f::t_75ed6460ce9b17 72
+scripts/browser-integration/private-devtools-endpoint.test.mjs
+  s_08bbfd293d324f::t_30548e2220179e 1-74
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_47e628380ae72b 191-239
+docs/SECURITY.md
+  s_08bbfd293d324f::t_6b50f21b12a9de 63,70-77
+  s_08bbfd293d324f::t_0ffe72a7d14ab5 78
+internal/managedbrowser/config.go
+  s_08bbfd293d324f::t_902f83a5f32211 31,61
+  s_08bbfd293d324f::t_911b7e74065927 27-30,32-33,37-40,44-48,62-65
+scripts/browser-integration/managed-setup-check.test.mjs
+  s_08bbfd293d324f::t_ee7426b954a6df 5,12-29
+  s_08bbfd293d324f::t_59703b173cda0d 8,52-60
+  s_08bbfd293d324f::t_284f90395dffa1 1-4,6-7,9-11,30-51,61-122
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_8b4b576bb73988 110
+  s_08bbfd293d324f::t_98ba1133a2da44 111-112
+scripts/browser-integration/managed-setup-fixture.mjs
+  s_08bbfd293d324f::t_3c187a80e0e7ce 1-87
+docs/RELIABILITY.md
+  s_08bbfd293d324f::t_6b50f21b12a9de 34-40
+scripts/browser-integration/managed-setup-check.mjs
+  s_08bbfd293d324f::t_ee7426b954a6df 24-53,196-201,232-233,259,263,309
+  s_08bbfd293d324f::t_c4b6a59a5289a1 11,16,189-192,279-281,311-313
+  s_08bbfd293d324f::t_284f90395dffa1 271-272,277
+  s_08bbfd293d324f::t_59703b173cda0d 15,132,150-157,168,180-183,228-231
+  s_08bbfd293d324f::t_e6890c6d5f66a6 1-10,12-14,17-23,54-131,133-149,158-167,169-179,184-188,193-195,202-227,234-258,260-262,264-270,273-276,278,282-308,310,314-371
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_911b7e74065927 77-79
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_8b4b576bb73988 7
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_8ef04480886ec2 105-117,120-124,129-134
+  s_08bbfd293d324f::t_8b4b576bb73988 104,118-119,125-128,135-136
+scripts/browser-integration/managed-viewer-check.mjs
+  s_08bbfd293d324f::t_30548e2220179e 15,92-98,190,223,271
+scripts/browser-integration/private-devtools-endpoint.mjs
+  s_08bbfd293d324f::t_30548e2220179e 1-37
+internal/managedbrowser/platform_windows.go
+  s_08bbfd293d324f::t_911b7e74065927 308-313,392-394
+  s_08bbfd293d324f::t_a6eef6281055e0 353-360
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_8b4b576bb73988 14-20
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_8b4b576bb73988 3-20
+cmd/open-browser-use/managed_setup.go
+  s_08bbfd293d324f::t_4c0ca4e1169e8e 1-40,43-64
+  s_08bbfd293d324f::t_75ed6460ce9b17 41-42
+scripts/browser-integration/managed-setup-window-probe.mjs
+  s_08bbfd293d324f::t_59703b173cda0d 1-47
+internal/managedbrowser/platform_other.go
+  s_08bbfd293d324f::t_911b7e74065927 20-22
+cmd/open-browser-use/managed_setup_test.go
+  s_08bbfd293d324f::t_9932c51277ca52 1-79
+  s_08bbfd293d324f::t_a6e90dedc94a5c 80-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "b3fd56a03928b08758b26aada9eec0c59766cb27",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
