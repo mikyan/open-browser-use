@@ -10,6 +10,15 @@
 
 ## 当前对应关系
 
+- 新源码的 Windows managed 浏览器安装入口固定官方 Chrome for Testing
+  win64 `155.0.8059.84`，ZIP SHA-256 为
+  `507f2a031441d10c62b5e3d4e863f09ac1198a571c1419976cbd8387f639afde`。
+  来源是 [CfT 官方版本目录](https://github.com/GoogleChromeLabs/chrome-for-testing)
+  所列的 Google Storage HTTPS 地址。版本与摘要随代码审查更新，不在 run 时
+  解析浮动版本；显式 install 校验 ZIP 摘要、归档路径及完整文件后才发布，
+  启动离线复核已安装文件。摘要固定原下载字节，不是 Google 的签名声明；
+  不关闭 TLS/系统执行策略。浏览器归档内容原样保留，代码和预览包不捆绑该 ZIP。
+
 - 原生 Browser 下载连接固定使用 `github.com/coder/websocket v1.8.15`，
   版本与内容校验提交在 `go.mod`/`go.sum`。关闭代理和重定向，输入端点仍由
   调用方明确指定；该依赖不是浏览器发现或授权机制。Windows/Linux实际

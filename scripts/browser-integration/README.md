@@ -177,6 +177,17 @@ environment paths shown below, then run:
 node scripts/browser-integration/managed-viewer-check.mjs
 ```
 
+To validate installed-cache selection, first run the production executable's
+`managed browser install --browser-cache <absolute dedicated cache>`. Also set
+`OBU_TEST_MANAGED_BROWSER_CACHE` to that cache and `OBU_TEST_HOST_VALIDATION` to the
+preserved Go test/vet/build report. Keep the three explicit expected paths for
+evidence: the browser must match offline `managed browser status`, and the
+extension must be next to the executable. The actual run command omits both
+`--browser-path` and `--extension-dir` and starts from a fresh working directory.
+The runner never downloads or installs a browser. It preserves original lifecycle
+bytes, including the exact native creation-time uint64, and binds the validated
+binary to its complete Go source snapshot.
+
 Four original steps cover startup, changing native frames, one original child
 document with a single form transaction, real DOM Pause/Resume/Stop controls,
 old-handle rejection and actual terminal cleanup. Resume requires a new SDK turn

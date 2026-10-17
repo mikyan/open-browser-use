@@ -145,9 +145,12 @@ go build -o dist/ ./cmd/open-browser-use
 [本地注册说明](docs/references/edge-installation.md)。
 
 开发分支另有实验性 Windows `managed run/status/view/stop` 入口，使用独立的
-Headless Chromium profile，需要自行指定 Chromium 或 Chrome for Testing
-程序及匹配扩展。查看页提供实时画面和暂停、继续、停止按钮，登录接管尚未实现；普通公司电脑安装
-不需要启用此模式。命令、CLI/MCP 接入和验收边界见
+Headless Chromium profile。先运行一次 `managed browser install` 下载固定的
+推荐浏览器，再执行 `managed run --name work`；Windows 完整包会提供程序旁的
+扩展。启动仅离线检查缓存，也支持自行指定浏览器。查看页提供实时画面、暂停、
+继续、停止和限定范围的人工接管；可选 `managed setup` 用于任务前在专用窗口
+登录。完整登录/输入法与重启恢复仍待完善。普通安装不需要启用此模式。
+命令、CLI/MCP 接入和验收边界见
 [独立浏览器会话](docs/references/managed-browser-session.md)。
 
 扩展工具栏弹窗中的 **Pause all agents** 可暂停所有 Agent；清理失败时保持

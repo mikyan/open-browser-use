@@ -61,15 +61,19 @@ that ticket to the local human; Info, status and lifecycle records must not.
 Its fixed worker bridge validates the original run, native binding, worker/context
 and channel identity. It exposes only typed user operations, not arbitrary CDP;
 ordinary popup authorization remains unchanged. The development branch adds a
-typed human-control lease for the original task page; real-browser acceptance is
-still pending and the published preview does not include this path. Begin pauses
+typed human-control lease for the original task page; real-browser acceptance
+has passed for bounded Windows flows. Begin pauses
 task input before acquiring the original native target. Input requires the exact
 lease, decoded-frame geometry generation and next sequence; native completion
 receipts must match the original input. Task RPC cannot obtain this authority.
-Navigation, geometry changes, disconnection and lost viewer focus revoke input.
+Navigation and geometry changes revoke old queued input; the same original tab
+and target can continue only after original cleanup and a newly decoded frame.
+Disconnection and lost viewer focus revoke input.
 Release does not resume the Agent. A terminated worker alone cannot prove that
 held renderer input was released; unresolved cleanup requires the original owned
-browser to exit. This is not a complete login, SSO/MFA or cross-navigation flow.
+browser to exit. Finalized result pages require a separate explicit selection
+and lease while the task remains paused. This is not complete login or SSO/MFA
+acceptance, and worker replacement does not restore result authority.
 Its profile and native environment are separate from ordinary
 installed profiles, but are not a sandbox against arbitrary code running as the
 same OS user. Startup rejects unknown nonempty directories and reparse paths;

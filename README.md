@@ -158,10 +158,13 @@ host for the loaded extension's actual ID. For Windows Edge, follow the
 [local manifest instructions](docs/references/edge-installation.md).
 
 An optional experimental Windows `managed run/status/view/stop` entry point runs a
-separate headless Chromium profile. It requires an explicit Chromium or Chrome
-for Testing executable and a matching built extension. A local viewer provides
-live frames and explicit pause, resume and stop controls. Login handoff remains
-unfinished. Ordinary installation does not require it. See
+separate headless Chromium profile. Run `managed browser install` once to download
+the fixed recommended browser, then `managed run --name work`; the complete Windows
+bundle supplies the adjacent extension. Launch only checks the installed cache
+offline; an explicit browser path is also supported. A local viewer provides
+live frames, pause/resume/stop and bounded manual takeover. Optional `managed setup`
+prepares login in a separate visible window before the task. Full login/IME and
+restart recovery remain unfinished. Ordinary installation does not require this mode. See
 [managed sessions](docs/references/managed-browser-session.md) for commands,
 CLI/MCP selection and the current validation boundary.
 

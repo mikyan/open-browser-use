@@ -694,3 +694,49 @@ Unchanged extension/SDK files were reused; existing result/viewer browser
 workflows and the extension's full suite were not rerun for this host change.
 Ordinary company Edge, broader platform/recovery behavior and complete Codex
 parity remain open. No additional package or PR was created in this slice.
+
+## Explicit browser provisioning and requested Windows refresh (2026-10-17)
+
+The user asked whether development had finished and requested another package.
+Full parity remains open. This slice removes the requirement to manually find
+a compatible managed browser: `managed browser install/status` uses fixed CfT
+win64 155.0.8059.84 and a compiled official URL/archive digest. Installation
+checks bounded ZIP paths, full file bytes and an exclusive native cache lock
+before same-volume publication. Existing damaged or unknown trees are retained.
+`run/setup` select the installed cache offline; explicit browser paths win.
+`run` defaults only to the extension beside the executable. No ordinary profile
+discovery, automatic update or browser restart recovery was added.
+
+Windows directory-replacement testing caught lazy file-ID acquisition in Go's
+Lstat FileInfo: a later SameFile could inspect the replacement pathname. The
+fix captures identity from the original open handle's File.Stat before download;
+the original failing case now rejects and preserves the replacement directory.
+Runtime tests recorded 60 passes, zero failures/skips with the optional original
+archive check enabled. CLI focused tests and full Go test/vet/build also passed.
+The original failed test log remains preserved.
+
+The initial origin-download helper incorrectly inspected only the first of two
+x-goog-hash headers and reported failure after downloading complete bytes. That
+failed report was retained; supplemental exact-origin metadata, local MD5/SHA256
+and all ZIP CRCs verified the unchanged file. This is a local pin, not a Google
+signature. The independent ZIP inventory contains 305 files, 455,706,289 bytes.
+The first production-install harness invocation stopped before any install due
+to case-sensitive environment lookup; it was corrected and its failure recorded.
+
+The validated production EXE then completed actual download/install, offline
+status and repeated install with only System32 on PATH. All 305 installed files
+matched the independent original ZIP inventory. Install report SHA256:
+`3c1450129454f9a64aaa327841162e528e506737d5590b444b901a556a95f183`.
+Go validation report SHA256:
+`b0406be840eefac5805a00613bcaa93336f66966f2a687c19a7b8fee60e03963`.
+
+`managed-viewer-7dxhON` passed four original stages with actual outer exit 0.
+It launched from a fresh cwd using only browser-cache selection and EXE-adjacent
+extension defaults, with automatic Native binding. The original child submitted
+once; 38 native PNGs, real DOM Pause/Resume/Stop and original browser/native/
+supervisor exit 0 completed without forced cleanup. Raw lifecycle bytes preserve
+the original native creation-time uint64. Report SHA256:
+`49e7a990b183f020be97748abd2974e0d9b9ca97c14ab6d22b3f00211b4af2e1`.
+The real browser used the validated precommit EXE; the requested release will
+rebuild from the clean source separately. Visible setup, real login, ordinary
+company Edge and worker recovery were not exercised in this slice. No PR.

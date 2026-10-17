@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+Windows 新增显式推荐浏览器安装和离线默认选择：runtime 专项 60 条通过记录，
+CLI 8 组定向及 Go 全包/vet/build 通过。生产 EXE 安装/离线状态/复用实际通过，
+305 文件与官方 ZIP 的独立清单一致。默认选择 `managed-viewer-7dxhON` 四步
+实际 exit 0，38 原帧、唯一 POST、Pause/Resume/Stop 和原进程清理通过。
+Windows 原目录身份的延迟读取缺陷已由反例修复；先前失败记录保留。新包按用户
+请求进入交付流程；可见 setup、本轮普通公司 Edge 与完整能力对齐未验。
+
 正式 managed 原下载 `managed-download-LWwtqG` 五步实际 exit 0：自动 Native
 binding、8 项原流程、7 文件/17,524 B、真实取消与仅取消等待、16 次越权拒绝，
 17 条完整原请求和正常 Stop/原进程/Job/注册清理均通过。确定性反例促成 Go

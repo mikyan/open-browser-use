@@ -20,6 +20,53 @@ const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
 const redact = text => text.replace(/(#ticket=)[A-Za-z0-9_-]+/g, "$1[redacted]");
 const serialize = value => JSON.stringify(value, (_key, item) => typeof item === "string" ? redact(item) : item, 2);
+const recommendedBrowser = { version: "155.0.8059.84", platform: "win64", archiveSHA256: "507f2a031441d10c62b5e3d4e863f09ac1198a571c1419976cbd8387f639afde", executableSHA256: "a2ae305da79e701af793b667c1ca3d87383729040596264e52f51259d7966413" };
+const windowsPath = value => path.win32.resolve(value).toLowerCase();
+const absoluteWindowsPath = value => typeof value === "string" && path.win32.isAbsolute(value) && path.win32.parse(value).root.length > 1;
+
+export function managedViewerRunArguments({ executable, browser, extension, browserCache, root, name }) {
+  for (const value of [executable, browser, extension, root]) assert.ok(absoluteWindowsPath(value), "Acceptance inputs must be explicit absolute paths");
+  const args = ["managed", "run", "--root", root, "--name", name];
+  if (browserCache !== undefined) {
+    assert.ok(absoluteWindowsPath(browserCache), "OBU_TEST_MANAGED_BROWSER_CACHE must be an absolute installed cache");
+    assert.equal(windowsPath(extension), windowsPath(path.win32.join(path.win32.dirname(executable), "extension")), "Cache-mode extension must be the original EXE-adjacent extension directory");
+    const relative = path.win32.relative(browserCache, browser);
+    assert.ok(relative && !path.win32.isAbsolute(relative) && relative !== ".." && !relative.startsWith("..\\"), "Expected browser executable must be inside the original cache");
+    args.push("--browser-cache", browserCache);
+  } else args.push("--browser-path", browser, "--extension-dir", extension);
+  return [...args, "--startup-timeout", "30s"];
+}
+
+export function assertManagedBrowserInstallation(installation, { browser, sha256 }) {
+  assert.ok(installation && typeof installation === "object" && !Array.isArray(installation));
+  for (const [field, expected] of Object.entries(recommendedBrowser)) assert.equal(installation[field], expected, `Installed browser ${field} differs from the fixed acceptance version`);
+  assert.ok(absoluteWindowsPath(installation.executable));
+  assert.equal(windowsPath(installation.executable), windowsPath(browser), "Formal status selected a different executable");
+  assert.match(sha256, /^[0-9a-f]{64}$/); assert.equal(installation.executableSHA256, sha256, "Installed browser bytes differ from the original expected executable");
+  assert.equal(installation.reused, true, "Offline status must inspect the existing installation");
+  return installation;
+}
+
+export function projectManagedViewerLifecycle(bytes) {
+  assert.ok(Buffer.isBuffer(bytes) && bytes.length > 0 && bytes.length <= 1024 * 1024);
+  const text = bytes.toString("utf8"), value = JSON.parse(text);
+  const matches = [...text.matchAll(/"nativeCreationTime"\s*:\s*(\d+)(?=\s*[,}])/g)];
+  let nativeCreationTimeDecimal = null;
+  if (Object.hasOwn(value, "nativeCreationTime")) {
+    assert.equal(matches.length, 1, "Expected one exact Go uint64 native creation timestamp");
+    nativeCreationTimeDecimal = matches[0][1];
+    assert.ok(BigInt(nativeCreationTimeDecimal) > 0n && BigInt(nativeCreationTimeDecimal) <= 18446744073709551615n);
+  }
+  return { value, bytes: bytes.length, sha256: hash(bytes), nativeCreationTimeDecimal };
+}
+
+export function assertManagedViewerBrowserCommand(lifecycle, browser) {
+  assert.ok(Array.isArray(lifecycle.commandLine) && lifecycle.commandLine.length > 0);
+  assert.ok(absoluteWindowsPath(lifecycle.commandLine[0]));
+  assert.equal(windowsPath(lifecycle.commandLine[0]), windowsPath(browser), "Original Browser commandLine selected a different executable");
+  assert.ok(lifecycle.commandLine.includes("--headless=new"), "Acceptance must not open a visible managed browser");
+  return { executable: lifecycle.commandLine[0], expectedExecutable: browser, matched: true };
+}
 
 export function projectViewerCommand(message) {
   if (message?.type === "authenticate") return null;
@@ -101,21 +148,23 @@ async function devToolsEndpoint(profile, owner) {
 export async function runManagedViewerCheck() {
   assert.equal(process.platform, "win32");
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
+  const browserCache = process.env.OBU_TEST_MANAGED_BROWSER_CACHE, validationFile = process.env.OBU_TEST_HOST_VALIDATION;
   assert.ok(executable && chromium && extension, "Set OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY and OBU_TEST_EXTENSION_DIR explicitly");
   await Promise.all([executable, chromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
   const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/managed-viewer-"));
   const root = path.join(runDir, "owned-root"), name = "viewer-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerMessages: [], viewerCommands: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [],
+    launchMode: browserCache === undefined ? "explicit-browser-and-extension" : "installed-cache-and-exe-adjacent-extension", commandCwd: runDir,
     scope: "Production managed launcher, original SDK transaction, independent headless viewer using real DOM controls; no OS foreground or login-handoff acceptance" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), screenshots = [], frameWrites = [];
-  let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, page, stopped = false, captureError, lastUIState;
+  let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, page, stopped = false, captureError, lastUIState, finalLifecycleSaved = false;
   const fixtures = createCreatedPageFixtures();
   const server = createServer((request, response) => { if (!fixtures.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => {
-    const record = {}; report.commands.push(record);
-    return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options });
+    const record = { cwd: runDir }; report.commands.push(record);
+    return managedProcess(program, args, { cwd: runDir, registry, record, maximumBytes: 2 * 1024 * 1024, ...options });
   };
   async function command(args, expected = 0) {
     const running = launch(executable, args, { timeoutMs: args[0] === "managed" && args[1] === "stop" ? 55000 : 45000 });
@@ -127,6 +176,22 @@ export async function runManagedViewerCheck() {
     const record = {};
     await runProcess("powershell.exe", ["-NoProfile", "-Command", "@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,@{n='CreationDate';e={$_.CreationDate.ToUniversalTime().ToString('o')}}) | ConvertTo-Json -Compress"], { record, registry, timeoutMs: 15000 });
     return JSON.parse(record.stdout);
+  }
+  async function lifecycle(label) {
+    let directory = info?.runDir;
+    if (!directory) {
+      const runs = path.join(root, name, "runs"), entries = await fs.readdir(runs, { withFileTypes: true });
+      assert.equal(entries.length, 1, "Startup lifecycle origin is ambiguous");
+      assert.ok(entries[0].isDirectory() && !entries[0].isSymbolicLink() && /^[0-9a-f]{32}$/.test(entries[0].name));
+      directory = path.join(runs, entries[0].name);
+    }
+    const file = path.join(directory, "lifecycle.json"); assertPrivatePath(root, file);
+    const bytes = await fs.readFile(file), { value, ...metadata } = projectManagedViewerLifecycle(bytes);
+    const copy = `lifecycle-${label}.json`; await fs.writeFile(path.join(runDir, copy), bytes, { flag: "wx" });
+    const source = { file: path.relative(runDir, file).replaceAll("\\", "/"), copy, ...metadata };
+    if (label === "final") { report.lifecycleSource = source; report.lifecycle = value; finalLifecycleSaved = true; }
+    else { report.readyLifecycleSource = source; report.readyLifecycle = value; }
+    return value;
   }
   const checkCapture = () => { if (captureError) throw captureError; };
   const wait = (read, label, timeoutMs = 15000) => poll(async () => { checkCapture(); return read(); }, { timeoutMs, intervalMs: 40, label });
@@ -185,21 +250,43 @@ export async function runManagedViewerCheck() {
   let child, freshChild, fixture, item;
 
   try {
+    const runArguments = managedViewerRunArguments({ executable, browser: chromium, extension, browserCache, root, name });
     report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")) };
+    if (validationFile) {
+      const bytes = await fs.readFile(validationFile), validation = JSON.parse(bytes);
+      assert.equal(validation.passed, true); assert.equal(validation.sourceUnchanged, true); assert.deepEqual(validation.before, validation.after);
+      for (const phase of ["test", "vet", "build", "buildInfo"]) assert.equal(validation[phase].exitCode, 0, `Original host ${phase} did not pass`);
+      assert.equal(validation.executableSHA256, report.source.executable, "Supplied host is not the original verified build");
+      assert.ok(Object.keys(validation.before).length > 0);
+      for (const [relative, expected] of Object.entries(validation.before)) {
+        const file = path.resolve(repo, relative); assertPrivatePath(repo, file);
+        assert.equal(hash(await fs.readFile(file)), expected, `Verified host source changed: ${relative}`);
+      }
+      await fs.writeFile(path.join(runDir, "host-build-validation.json"), bytes, { flag: "wx" });
+      report.hostBuild = { mode: "reused verified build, not rebuilt by this runner", validationFile, copy: "host-build-validation.json", validationSHA256: hash(bytes), executableSHA256: validation.executableSHA256, originalStartedAt: validation.startedAt, originalEndedAt: validation.endedAt, currentSourceFilesMatched: Object.keys(validation.before).length };
+    } else report.hostBuild = { mode: "caller supplied binary; source/build provenance unverified", executableSHA256: report.source.executable };
     const snapshot = path.join(runDir, "source-snapshot");
-    for (const source of ["cmd/open-browser-use/managed.go", "internal/managedbrowser", "internal/managedviewer", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/observed-process-descendants.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
+    for (const source of ["cmd/open-browser-use", "internal", "packages/open-browser-use-go", "go.mod", "go.sum", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/managed-viewer-check.test.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/observed-process-descendants.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
       const destination = path.join(snapshot, source); await fs.mkdir(path.dirname(destination), { recursive: true });
       await fs.cp(path.join(repo, source), destination, { recursive: true });
     }
     report.source.snapshot = await treeHashes(snapshot);
+    for (const relative of ["cmd/open-browser-use/managed_browser.go", "cmd/open-browser-use/managed_setup.go", "go.mod", "go.sum"]) assert.ok(report.source.snapshot[relative], `Missing managed runtime source: ${relative}`);
+    assert.ok(Object.keys(report.source.snapshot).some(file => file.startsWith("internal/managedruntime/") && file.endsWith(".go")), "Managed runtime source must be frozen before acceptance");
     await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true });
     await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), path.join(runDir, "sdk-input"), { recursive: true });
     const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(runDir, "sdk-input/index.js")));
     await listenFixture(server); const fixtureURL = `http://127.0.0.1:${server.address().port}`;
     await step("production-run-and-independent-viewer", async () => {
-      launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
+      if (browserCache !== undefined) {
+        const statusCommandIndex = report.commands.length;
+        const status = JSON.parse((await command(["managed", "browser", "status", "--browser-cache", browserCache])).stdout);
+        report.browserCache = { root: browserCache, statusCommandIndex, status };
+        assertManagedBrowserInstallation(status, { browser: chromium, sha256: report.source.browser });
+      }
+      launcher = launch(executable, runArguments);
       const ready = await wait(() => {
-        if (launcher.record.closedAt) throw new Error(`Managed launcher exited ${launcher.record.code}: ${launcher.record.stderr}`);
+        if (launcher.record.exitedAt !== undefined || launcher.record.closedAt !== undefined || launcher.record.spawnError !== undefined) throw new Error(`Managed launcher ended before ready (${launcher.record.code ?? "unknown"}): ${redact(launcher.record.stderr)}`);
         const text = launcher.record.stdout.trim(); if (!text.endsWith("}")) return null;
         return JSON.parse(text);
       }, "production managed ready", 40000);
@@ -209,6 +296,12 @@ export async function runManagedViewerCheck() {
       assert.equal(JSON.stringify(info).includes("ticket="), false);
       report.originalProcesses = descendants(await processTable(), info.browserPID);
       assert.ok(report.originalProcesses.some(value => value.ProcessId === info.nativePID));
+      const originalBrowser = report.originalProcesses.find(value => value.ProcessId === info.browserPID);
+      assert.ok(originalBrowser?.ExecutablePath); assert.equal(windowsPath(originalBrowser.ExecutablePath), windowsPath(chromium));
+      await lifecycle("ready"); assert.equal(report.readyLifecycle.state, "ready"); assert.deepEqual(report.readyLifecycle.info, info);
+      assert.equal(report.readyLifecycle.binding?.bound, true); assert.equal(report.readyLifecycle.binding?.exclusive, true);
+      assert.equal(report.readyLifecycle.binding.extensionInstanceId, info.extensionInstanceId);
+      report.browserSelection = assertManagedViewerBrowserCommand(report.readyLifecycle, chromium);
       const status = JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout);
       assert.deepEqual(status.info, info); assert.equal(JSON.stringify(status).includes("ticket="), false);
       const fresh = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
@@ -360,8 +453,10 @@ export async function runManagedViewerCheck() {
       stopped = true;
       report.viewerStopped = await screenshot("viewer-stopped.png");
       const terminal = await bound(launcher.completed, 10000, "original supervisor terminal exit"); assert.equal(terminal.code, 0, terminal.stderr);
-      report.lifecycle = JSON.parse(await fs.readFile(path.join(info.runDir, "lifecycle.json"), "utf8"));
+      await lifecycle("final");
       assertManagedViewerTerminal(report.lifecycle, info);
+      assertManagedViewerBrowserCommand(report.lifecycle, chromium);
+      assert.deepEqual(report.lifecycle.commandLine, report.readyLifecycle.commandLine);
       report.processesGone = await wait(async () => {
         const table = await processTable(), originals = [...report.originalProcesses, ...report.preCloseProcesses];
         const remaining = originals.filter(before => table.some(after => before.ProcessId === after.ProcessId && before.CreationDate === after.CreationDate));
@@ -378,6 +473,7 @@ export async function runManagedViewerCheck() {
       try { await bound(launcher.completed, 10000, "supervisor cleanup terminal exit"); }
       catch (error) { report.cleanup.supervisorError = error.stack; launcher.terminate("acceptance-cleanup"); try { await launcher.completed; } catch (failure) { report.cleanup.forcedSupervisor = failure.stack; } }
     }
+    if (launcher && !finalLifecycleSaved) try { await lifecycle("final"); } catch (error) { report.cleanup.lifecycleReadError = error.stack; }
     if (viewerBrowser) try {
       report.viewerPreCloseProcesses = descendants(await processTable(), viewerProcess.record.pid);
       const session = await viewerBrowser.newBrowserCDPSession();
@@ -400,6 +496,9 @@ export async function runManagedViewerCheck() {
       assert.equal(hash(await fs.readFile(chromium)), report.source.browser);
       assert.deepEqual(await treeHashes(extension), report.source.extension);
       assert.deepEqual(await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")), report.source.sdk);
+      assert.deepEqual(await treeHashes(path.join(runDir, "extension-input")), report.source.extension);
+      assert.deepEqual(await treeHashes(path.join(runDir, "sdk-input")), report.source.sdk);
+      if (validationFile) assert.equal(hash(await fs.readFile(validationFile)), report.hostBuild.validationSHA256);
       assert.deepEqual(await treeHashes(path.join(runDir, "source-snapshot")), report.source.snapshot);
       for (const [relative, expected] of Object.entries(report.source.snapshot)) {
         assert.equal(hash(await fs.readFile(path.join(repo, relative))), expected, `Original source/helper changed during acceptance: ${relative}`);

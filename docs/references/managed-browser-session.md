@@ -8,7 +8,7 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
+上一完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
 包含连续导航和结果页接续。干净构建、离线 CLI/MCP、独立制品审计和四资产
 回下载哈希核对通过；发布 EXE 单独重建，未在该 EXE 上重跑网页业务。
 旧包 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)
@@ -24,9 +24,10 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 
 - Windows 10 或更新版本；需要具有创建当前用户 Native Messaging 注册项
   的权限。公司策略可能禁止扩展或调试，应遵守公司的软件安装规定。
-- 自行准备 Chromium 或 Chrome for Testing 可执行文件，使用绝对路径。
-  启动器不会搜索、下载或安装浏览器，也不会替用户启用普通 Edge/Chrome
-  的远程调试授权。当前加载方式不能假定兼容普通 branded 浏览器。
+- 当前源码新增 `managed browser install`，可显式准备固定推荐的 Chrome for
+  Testing；该入口尚未进入上方 d0605b1 包。安装后 `run/setup` 可以省略
+  browser-path，启动只做离线检查，不隐式下载或更新。仍可用 browser-path
+  明确指定自备 Chromium/CfT；不会搜索日常 Edge/Chrome 或替用户启用远程调试。
 - 使用同一次构建的 `open-browser-use.exe` 与完整扩展目录；扩展目录必须
   含生成的引擎文件、`managed-config.js`、`managed-native-host.js`、
   `managed-user-bridge.js`、`managed-human-control.js` 和 `managed-result-pages.js`。
@@ -37,6 +38,33 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 
 ## 启动、使用和结束
 
+### 由程序准备专用浏览器
+
+在包含此功能的新构建中运行：
+
+```powershell
+& 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed browser install
+& 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed browser status
+```
+
+安装入口使用编译时固定的 Chrome for Testing win64 `155.0.8059.84` 及 ZIP
+摘要，首次下载后验证完整文件再发布；重复安装复用已核验文件。无需 Go、Node
+或管理员权限。固定下载来源见 [Chrome for Testing](https://github.com/GoogleChromeLabs/chrome-for-testing)。
+`status` 是离线检查，不会下载浏览器。缓存位于当前用户的
+`%LOCALAPPDATA%\OpenBrowserUse\browser`；需要其他位置时，在 install、status、
+run 和 setup 中使用同一个绝对路径 `--browser-cache`。
+
+完整安装包的 EXE 旁有 `extension` 时，可以直接启动：
+
+```powershell
+& 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed run --name work
+```
+
+此时浏览器来自已安装的推荐版本，扩展来自 EXE 相邻目录，与终端当前目录无关。
+显式 browser-path/extension-dir 优先；自备浏览器时不读取推荐缓存。缓存缺失
+或损坏会报错，不会改用日常浏览器；完整内容检查失败也不会覆盖已有目录。
+登录准备和任务运行仍串行使用同名专用 profile，浏览器缓存不存放登录资料。
+
 ### 可选：先在专用浏览器登录
 
 `managed setup` 是可选的登录准备入口，旧 `preview-20261017-41577de`
@@ -46,8 +74,7 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 ```powershell
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed setup `
   --name work `
-  --root 'D:\BrowserData\OpenBrowserUse-Managed' `
-  --browser-path 'D:\Tools\Chromium\chrome.exe'
+  --root 'D:\BrowserData\OpenBrowserUse-Managed'
 ```
 
 在新窗口的地址栏打开网站，自己完成登录。完成后关闭整个独立浏览器，
@@ -65,17 +92,19 @@ setup 和 run，也不会自动从登录准备切换为 Agent 操作。
 
 ### 运行 Agent 会话
 
-下面是 PowerShell 示例。将程序、浏览器、扩展路径换成实际安装位置；
+下面是完成 browser install 后的 PowerShell 示例。将程序路径换成实际安装位置；
 `--root` 指向 managed 数据目录。它与程序目录分开，便于保留专用 profile。
 
 ```powershell
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed run `
   --name work `
   --root 'D:\BrowserData\OpenBrowserUse-Managed' `
-  --browser-path 'D:\Tools\Chromium\chrome.exe' `
-  --extension-dir 'D:\Tools\OpenBrowserUse\extension' `
   --startup-timeout 30s
 ```
+
+自备兼容 Chromium/CfT 时，可在 setup/run 增加
+`--browser-path 'D:\Tools\Chromium\chrome.exe'`。扩展未放在 EXE 旁时，在 run
+增加 `--extension-dir 'D:\Tools\OpenBrowserUse\extension'`。
 
 保持这个终端运行。只有输出 `state: "ready"` 后才可以接入；其中 `info`
 包含本次 `runId`、确切任务 `socketPath`、profile 和运行记录目录。
@@ -244,10 +273,18 @@ Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运�
 本片同时修复 reader 处理 attach 回复和后续事件之间的 session 发布竞态，
 晚到原回复仍只供原资源清理。该 Go 修正尚未进入 d0605b1 已发布包。
 
+### 推荐浏览器安装与默认选择验收（2026-10-17）
+
+固定 CfT win64 155.0.8059.84 的生产 EXE 首次安装、离线状态和重复安装均
+实际通过；305 个原文件与独立 ZIP 清单逐项匹配。正式 `managed-viewer-7dxhON`
+从新工作目录省略浏览器/扩展参数，四步实际 exit 0，包含真实 Native Messaging、
+38 张实时帧、原生子页唯一提交、暂停/继续/停止和原进程清理。Go 全包/vet/build
+与安装边界测试通过；此轮没有重新验证可见 setup 或普通公司 Edge。
+
 ## 当前未完成
 
 - 真实网站登录兼容、完整输入法、跨站/OOPIF 输入、按住按键或按钮时跳转的真实浏览器验收、可见交付页；实时 viewer 的更广兼容与异常生命周期验收。
-- 浏览器自动获取/兼容发现以及 macOS/Linux managed 实现。
+- 更广推荐浏览器版本兼容、更新迁移以及 macOS/Linux managed 实现。
 - 普通已登录浏览器的原生弹窗抢焦点问题。Headless 内部激活事件也不能
   直接证明操作系统前台焦点保持，需另有相同范围的观察证据。
 - 完整能力对齐。原型或 launcher 的单项通过不能代表所有 Browser Use 任务。

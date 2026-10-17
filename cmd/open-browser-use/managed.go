@@ -324,11 +324,38 @@ func managedUserRequest(root, name, operation string, timeout time.Duration) (ma
 }
 
 func newManagedCommand() *cobra.Command {
-	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Use setup for manual login in a dedicated visible Chromium profile, then close it and start run for isolated headless tasks with a local live viewer. Setup and run cannot use the same profile concurrently. The viewer URL is a private, one-use user capability. The viewer offers experimental explicit control of the current page. Navigation ends takeover, and completion leaves the task paused until explicit Resume and a new turn. Ordinary installed browser profiles are unchanged."}
-	command.AddCommand(newManagedSetupCommand())
+	return newManagedCommandWithBrowser(defaultManagedBrowserAccess())
+}
+
+func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
+	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Explicitly prepare the fixed recommended Chromium with managed browser install, or provide --browser-path. Setup and run only inspect the local cache; they never download a browser. Use setup for manual login in a dedicated visible profile, then close it and start run for isolated headless tasks with a local live viewer. Setup and run cannot use the same profile concurrently. The viewer URL is a private, one-use user capability. Experimental takeover can continue through navigation within the same original tab and target; completion leaves the task paused until explicit Resume and a new turn. Finalized result pages can be viewed and operated while the task remains paused. Ordinary installed browser profiles are unchanged."}
+	command.AddCommand(newManagedSetupCommandWithBrowser(browser), newManagedBrowserCommand(browser))
 	var config managedbrowser.Config
+	var browserCache string
 	runCommand := &cobra.Command{Use: "run", Short: "Keep an isolated browser running until Ctrl+C or managed stop", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer cancel()
+			startupTimeout := config.StartupTimeout
+			if startupTimeout == 0 {
+				startupTimeout = 45 * time.Second
+			}
+			startupCtx, startupCancel := context.WithTimeout(ctx, startupTimeout)
+			defer startupCancel()
+			var err error
+			config.BrowserPath, err = browser.browserPath(startupCtx, config.BrowserPath, browserCache)
+			if err != nil {
+				return err
+			}
+			config.HostPath, err = browser.executable()
+			if err != nil {
+				return err
+			}
+			config.ExtensionDir, err = managedExtensionPath(config.ExtensionDir, config.HostPath)
+			if err != nil {
+				return err
+			}
+			config.ExtensionPublicKey = betaExtensionPublicKey
 			address, err := managedControlAddress(config.Root, config.Name)
 			if err != nil {
 				return err
@@ -338,19 +365,6 @@ func newManagedCommand() *cobra.Command {
 				return fmt.Errorf("managed supervisor is already running or cannot be created: %w", err)
 			}
 			defer listener.Close()
-			config.HostPath, err = os.Executable()
-			if err != nil {
-				return err
-			}
-			config.ExtensionPublicKey = betaExtensionPublicKey
-			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt)
-			defer cancel()
-			startupTimeout := config.StartupTimeout
-			if startupTimeout == 0 {
-				startupTimeout = 45 * time.Second
-			}
-			startupCtx, startupCancel := context.WithTimeout(ctx, startupTimeout)
-			defer startupCancel()
 			session, err := managedbrowser.Start(startupCtx, config)
 			if err != nil {
 				return err
@@ -399,11 +413,10 @@ func newManagedCommand() *cobra.Command {
 		}}
 	runCommand.Flags().StringVar(&config.Root, "root", defaultManagedRoot(), "dedicated managed session root")
 	runCommand.Flags().StringVar(&config.Name, "name", "default", "isolated session name")
-	runCommand.Flags().StringVar(&config.BrowserPath, "browser-path", "", "explicit Chromium or Chrome for Testing executable")
-	runCommand.Flags().StringVar(&config.ExtensionDir, "extension-dir", "", "built extension directory containing managed-config.js")
+	runCommand.Flags().StringVar(&config.BrowserPath, "browser-path", "", "explicit Chromium executable; otherwise verify the owned local cache")
+	runCommand.Flags().StringVar(&browserCache, "browser-cache", "", "absolute owned browser cache directory; ignored with --browser-path")
+	runCommand.Flags().StringVar(&config.ExtensionDir, "extension-dir", "", "built extension directory; defaults only to extension next to this executable")
 	runCommand.Flags().DurationVar(&config.StartupTimeout, "startup-timeout", 30*time.Second, "total startup budget")
-	_ = runCommand.MarkFlagRequired("browser-path")
-	_ = runCommand.MarkFlagRequired("extension-dir")
 	command.AddCommand(runCommand)
 	for _, operation := range []string{"status", "stop", "view"} {
 		var root, name string

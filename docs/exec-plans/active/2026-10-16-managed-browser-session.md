@@ -42,6 +42,42 @@
 
 ## Module 与 Interface 决策
 
+### 独立浏览器的获取与默认选择（2026-10-17，限定流程已验）
+
+上一目标轮提交 `c88d419` 并核对 fork，完成真实下载和启动身份修复，属于
+实际进展。本轮核对现状后优先补使用门槛：Windows 包虽不需要 Go/Node，
+`run/setup` 仍强制用户自找兼容浏览器，`run` 另须手填扩展目录。
+
+- 新 `managedruntime` Module 只负责显式安装、离线检查及推荐 runtime 路径。
+  固定 Chrome for Testing win64 `155.0.8059.84` 和审核后的 ZIP SHA-256；
+  不在每次启动时查询浮动 Stable，也不选择日常 Chrome/Edge 或用户 profile。
+  官方 [CfT 下载目录](https://github.com/GoogleChromeLabs/chrome-for-testing)
+  与版本元数据用于确认唯一下载来源；本地摘要不冒称 Google 签名。
+- `managed browser install/status --browser-cache ...` 提供正式 EXE 入口。
+  Install 校验有界 ZIP 和完整文件摘要后原子发布；取消/失败不能发布半成品。
+  只清理本次创建的 stage，已有损坏版本不覆盖，未知目录或 reparse 路径拒绝。
+- `run/setup` 可省略 browser-path，从已安装的推荐版本离线选择；显式路径
+  优先且不触碰 cache。`run` 省略 extension-dir 时只找 EXE 相邻 extension。
+  缺失时给出可执行的安装/参数指引；浏览器选择不隐式下载或修改既有 profile。
+- 用生产安装入口实际下载，再以同一 EXE 和所得浏览器验证默认选择、正式
+  Native Messaging、原页面业务/实时帧和实际退出。离线状态/优先级、损坏、
+  截断、取消、越界 ZIP 和并发安装用接口测试验证，不以 mock 代替实际启动。
+
+同 worker 的 Native Port 恢复与跨 worker 结果页恢复已经只读分析，仍为后续
+工作：旧 controller 永久绑定原身份，native 退出当前会终止原浏览器；展示
+marker 不足以恢复用户权限。本轮不同时修改恢复协议。用户随后明确要求“再打个
+新包”，因此本轮安装与默认启动验收后制作新的 Windows 预览包；不创建 PR。
+
+实现与验证已完成：runtime 专项 60 条通过记录、CLI 8 组定向、Go 全包/vet/build
+通过。Windows 目录替换负例发现 Lstat 的 file ID 延迟读取会误认同名替代目录；
+改用原打开句柄 File.Stat 捕获身份后原负例通过，修前日志保留。
+生产 EXE 的首次 install、离线 status 和重复 install 均实际 exit 0，进程 PATH
+仅保留 System32；305 个原文件共 455,706,289 B 与独立 ZIP 清单逐项相同。
+正式 `managed-viewer-7dxhON` 四步实际 exit 0：从全新 cwd 省略浏览器/扩展参数，
+自动 Native binding、38 张实时帧、原生子页唯一 POST、Pause/Resume/Stop 及原
+browser/native/supervisor 正常退出均通过。原始 lifecycle 字节和 uint64 保留。
+此轮未运行可见 setup、普通公司 Edge、真实登录或重启恢复，不计为完整能力持平。
+
 ### 正式隔离会话的原文件下载（2026-10-17，限定流程已验）
 
 上一轮已交付 `preview-20261017-d0605b1`。本片验证正式 `managed run`
