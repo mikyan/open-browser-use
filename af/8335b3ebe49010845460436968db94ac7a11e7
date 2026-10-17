@@ -1,0 +1,86 @@
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_b6c128a65cd252 7
+internal/managedruntime/platform_other.go
+  s_08bbfd293d324f::t_b85375fdb3ef37 1-9
+docs/SECURITY.md
+  s_08bbfd293d324f::t_0326022559aff4 64
+  s_08bbfd293d324f::t_d03bab152d8944 65,69-71,74-76
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_d03bab152d8944 180-190
+README.zh-CN.md
+  s_08bbfd293d324f::t_9d86323db53d29 148-153
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_d1b09b32160fe9 68-69
+  s_08bbfd293d324f::t_b6c128a65cd252 45,70-79
+  s_08bbfd293d324f::t_8d7261cecf1e33 46-67,80
+cmd/open-browser-use/managed.go
+  s_08bbfd293d324f::t_a6bc3674d1b839 327-332,334,337-346,350,352,354,359-361,363-367,416-418
+internal/managedruntime/runtime_windows_test.go
+  s_08bbfd293d324f::t_b6bba73d7b8b42 1-200
+  s_08bbfd293d324f::t_9bf0957a0725b4 201-417
+internal/managedruntime/platform_windows_test.go
+  s_08bbfd293d324f::t_835fb576931a92 1-18,22-23,27,31,35-39,43-50,54-55,59,63-66,70,80,84-88,96,103,129-132,139
+  s_08bbfd293d324f::t_bdb4646a23e949 19-21,24-26,28-30,32-34,40-42,51-53,56-58,60-62,67-69,71-79,81-83,89-95,97-102,104-128,133-138
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_b6c128a65cd252 14-20
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_d1b09b32160fe9 102-106
+scripts/browser-integration/managed-viewer-check.test.mjs
+  s_08bbfd293d324f::t_77751fd54e4e11 3-21,23-59
+  s_08bbfd293d324f::t_9a69b47861fe71 22
+internal/managedruntime/archive.go
+  s_08bbfd293d324f::t_b85375fdb3ef37 1-213
+internal/managedruntime/platform_windows.go
+  s_08bbfd293d324f::t_b85375fdb3ef37 1-145
+cmd/open-browser-use/managed_setup.go
+  s_08bbfd293d324f::t_a6bc3674d1b839 17-20,22,28-40,50,54,77-78
+docs/SUPPLY_CHAIN_SECURITY.md
+  s_08bbfd293d324f::t_7f2ad40746ab69 13-21
+internal/managedruntime/archive_test.go
+  s_08bbfd293d324f::t_b6bba73d7b8b42 1-76
+  s_08bbfd293d324f::t_50f8f25b3c183e 77-100
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_b6c128a65cd252 15-17,19-21
+  s_08bbfd293d324f::t_a8fa6aad040e43 18
+README.md
+  s_08bbfd293d324f::t_9d86323db53d29 161-167
+scripts/browser-integration/managed-viewer-check.mjs
+  s_08bbfd293d324f::t_5e051ed5f32f76 23,151,158,162,166-167,180-195,253,255-267,269,274-275,281-287,299-304,456,458-459,476,499-501
+  s_08bbfd293d324f::t_5c3dc34b8b8a57 24,26-27,29-30,32-42,44-64,66-69
+  s_08bbfd293d324f::t_9a69b47861fe71 25,28,31,43,65,289
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_fac9f468b41773 11,41,77,95,105-107
+  s_08bbfd293d324f::t_b6c128a65cd252 276-283
+  s_08bbfd293d324f::t_a8fa6aad040e43 287
+  s_08bbfd293d324f::t_7f33ba28d66f2d 27-30,42-67
+  s_08bbfd293d324f::t_8a823d3690664d 108
+internal/managedruntime/runtime.go
+  s_08bbfd293d324f::t_54efc8d4c9f392 1-148,152-189,191-466,479-482,484-506,508-527,529-541,543-589
+  s_08bbfd293d324f::t_fc261f931e4bbe 149-151
+  s_08bbfd293d324f::t_bdb4646a23e949 190,467-478,483,507,528,542
+cmd/open-browser-use/managed_browser_test.go
+  s_08bbfd293d324f::t_4176b61efc4c40 24-31,65-67,71-73,75-77,79-84,87-89,96-110,112-120,125,132-134,137-139,143-147,149-151,153-155,157-159,167-169,180-182,191-193,199-201,207-208,230,237-239,242-247,252-257
+  s_08bbfd293d324f::t_e23e3be81cccd1 173,209-229
+  s_08bbfd293d324f::t_d8963183044b45 1-23,32-64,68-70,74,78,85-86,90-95,111,121-124,126-131,135-136,140-142,148,152,156,160-166,170-172,174-179,183-190,194-198,202-206,231-236,240-241,248-251,258-259
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_a8fa6aad040e43 697-742
+cmd/open-browser-use/managed_browser.go
+  s_08bbfd293d324f::t_4176b61efc4c40 102-104,108-110,114-116,119
+  s_08bbfd293d324f::t_a6bc3674d1b839 1-101,105-107,111-113,117-118,120-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "af8335b3ebe49010845460436968db94ac7a11e7",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
