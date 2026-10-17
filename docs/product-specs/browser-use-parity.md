@@ -12,15 +12,18 @@
 
 ## Baseline sources
 
-当前开发源码的同 worker Native 恢复已完成限定流程验收。首轮发现已发布推荐
+当前发布 `preview-20261017-a4e6b0c` 的同 worker Native 恢复已完成限定流程验收。首轮发现旧包推荐
 CfT 155 缺少结果查看/人工接管所需的捕获时间字段，故推荐版本改为固定
 156.0.8078.12，并增加明确兼容错误。正式安装、旧缓存共存及离线复用通过，
 原旧文件与新官方 305 文件独审通过。最终 `A6UPE3` 六步实际 exit 0：15 项人工
 输入、唯一 POST、同 Browser/worker/document/receipt 的显式恢复、旧票据拒绝
 及原清理通过。三轮失败保留；真正 worker/browser 重启与完整能力持平仍开放。
-修正未进入 81cfdae 包。见[隔离会话计划](../exec-plans/active/2026-10-16-managed-browser-session.md)。
+上述修正已进入 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)。离线 CLI/MCP 30 工具、独立制品 5,510 项检查、4 个发布资产回下载哈希及本地副本核对通过。
+完整包/扩展/Skill 分别为 98/71/6 文件，499 项源码输入逐项匹配。
+本轮只从干净源码重建，未重跑网页业务；真正 worker 替换恢复仅设计、未实现。
+见[隔离会话计划](../exec-plans/active/2026-10-16-managed-browser-session.md)。
 
-Windows 专用浏览器获取现有正式 `managed browser install/status`，固定 CfT
+此前 81cfdae 包的专用浏览器获取提供 `managed browser install/status`，当时固定 CfT
 155.0.8059.84，run/setup 离线默认选择，run 使用 EXE 相邻扩展。生产安装、
 305 文件独立校验和离线复用实际通过；最终默认启动 `managed-viewer-1wBVEd` 四步
 实际 exit 0，40 实时帧、原生子页唯一 POST、Pause/Resume/Stop 与清理通过。

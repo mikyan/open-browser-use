@@ -8,14 +8,17 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261017-81cfdae](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-81cfdae)，
-包含本文的推荐浏览器安装、默认选择和运行字典兼容修复，以及之前的启动连接
-修复。干净重建、离线 CLI/MCP、独立制品检查和四资产回下载校验已通过。
-该包的 CfT 155 验证了安装和普通实时查看，但后续验收发现它缺少结果页查看与
-人工接管所需的原生捕获时间信息。这两项在该推荐版本上不可用；当前开发源码
-改用固定 CfT 156.0.8078.12，并提供明确的不兼容提示，尚未进入上方发布包。
+最新完整包为 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)，
+从干净提交 `a4e6b0cb5142d7e34c94c2857e4420ce28804a61` 重建，包含固定 CfT 156.0.8078.12、
+旧 155 缓存共存升级和同一存活 worker 的显式 `managed recover`。离线 CLI/MCP 30 工具、独立制品 5,510 项检查、4 个发布资产回下载哈希及本地副本核对通过。
+完整包/扩展/Skill 分别为 98/71/6 文件，499 项源码输入逐项匹配。本次打包未重跑网页业务；原 `A6UPE3` 六步
+恢复验收与停止后独审是功能源码的既有证据，不计为发布 EXE 的新运行。
+上一完整包 [preview-20261017-81cfdae](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-81cfdae)
+验证了 CfT 155 的安装和普通查看，后续确认其缺少结果查看/人工接管需要的原生
+捕获时间字段。旧 155 用户更新程序后须显式再运行 `managed browser install`；
+启动不会自动下载或升级。原旧文件和字典保留，默认只选新推荐版本。
 此前连续接管、结果页及原下载的 Chromium 156 验收保持为历史证据。
-上一完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
+更早完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
 包含连续导航和结果页接续。干净构建、离线 CLI/MCP、独立制品审计和四资产
 回下载哈希核对通过；发布 EXE 单独重建，未在该 EXE 上重跑网页业务。
 旧包 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)
@@ -32,7 +35,7 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 - Windows 10 或更新版本；需要具有创建当前用户 Native Messaging 注册项
   的权限。公司策略可能禁止扩展或调试，应遵守公司的软件安装规定。
 - `managed browser install` 可显式准备固定推荐的 Chrome for Testing；
-  该入口已进入 81cfdae 包，当前源码另有上述兼容版本修正。安装后 `run/setup` 可以省略
+  新预览包含上述兼容版本修正。安装后 `run/setup` 可以省略
   browser-path，启动只做离线检查，不隐式下载或更新。仍可用 browser-path
   明确指定自备 Chromium/CfT；不会搜索日常 Edge/Chrome 或替用户启用远程调试。
 - 使用同一次构建的 `open-browser-use.exe` 与完整扩展目录；扩展目录必须
@@ -54,7 +57,7 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed browser status
 ```
 
-当前源码的安装入口使用编译时固定的 Chrome for Testing win64 `156.0.8078.12` 及 ZIP
+本次预览的安装入口使用编译时固定的 Chrome for Testing win64 `156.0.8078.12` 及 ZIP
 摘要，首次下载后验证完整文件再发布；重复安装复用已核验文件。无需 Go、Node
 或管理员权限。固定下载来源见 [Chrome for Testing](https://github.com/GoogleChromeLabs/chrome-for-testing)。
 `status` 是离线检查，不会下载浏览器。缓存位于当前用户的
@@ -256,9 +259,9 @@ Agent 已暂停且清理完成时同样可用，完成接管后仍保持暂停�
 
 ## 生命周期与隔离范围
 
-### Native 断线后的显式恢复（开发中，尚未进入发布包）
+### Native 断线后的显式恢复（实验功能，已进入 a4e6b0c 预览）
 
-当专用会话的 Native 连接进程退出时，源码中的新恢复路径保留原浏览器和页面，
+当专用会话的 Native 连接进程退出时，恢复路径保留原浏览器和页面，
 `managed status` 显示 `degraded`，不再返回可用任务 endpoint。用户可在终端执行：
 
 ```powershell

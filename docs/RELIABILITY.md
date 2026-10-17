@@ -15,8 +15,11 @@ CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD
 ## 实验性 managed 会话
 
 `managed run` 使用同一启动期限验证私有端口、真实 native 进程和扩展身份，
-ready 后的会话生命周期独立于启动期限。Browser 或 native host 实际退出
-会触发自有会话清理；不重启浏览器或重放页面操作。
+ready 后的会话生命周期独立于启动期限。Browser 实际退出会触发自有会话
+清理；Native host 实际退出则进入 degraded，保留原 Browser 并隐藏任务 endpoint。
+仅用户显式 `managed recover` 可在原 worker/context 仍存活且真实清理已确认后
+建立新连接，恢复后仍暂停。`managed stop` 始终可用；不自动恢复、重启浏览器
+或重放页面操作。
 
 `managed stop` 等待原 Browser.close、进程退出及 Job 清空；强制终止保持
 独立记录并返回失败，不能计为正常 EOF。调用者超时后实际清理继续，profile

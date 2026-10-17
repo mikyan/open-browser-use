@@ -75,6 +75,26 @@ HTTP/WS 工作结束后，仅同一已失效 backend 的真实完整退休结果
 lifecycle 字节、两代原 Native 回执和注册/pipe/endpoint 清理均匹配。
 独审 SHA-256：`421267e9d1ba316adff641a629c74325c875d4511d5cb577017215f0c8e35e2b`。
 
+### 2026-10-17 用户请求的新包已发布
+
+[preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c) 从干净提交 `a4e6b0cb5142d7e34c94c2857e4420ce28804a61`
+重建，包含同 worker Native 恢复和固定 CfT 156.0.8078.12。离线 CLI/MCP 30 工具、独立制品 5,510 项检查、4 个发布资产回下载哈希及本地副本核对通过。
+完整包/扩展/Skill 分别为 98/71/6 文件，499 项源码输入逐项匹配。
+原发布 EXE SHA-256：`0db5e597ed164bc356d348245eccfcfe93eac2d393a47a9d6879bc213b5de0b7`。
+制品独审 SHA-256：`4bf6d55f5313d3c932d2910870369897a123f456563f1bcb7d2e92890bc4482d`。
+本轮只打包，未重跑网页业务；原验收与全部失败记录保持独立，不新增功能通过声明。
+
+### 待续：真正 worker 替换后的显式恢复（仅设计，未实现）
+
+本次包不包含此能力。拟保留原 Browser/profile/result target/document，分别验证原
+执行上下文终结、新 context uniqueId/workerBootId 和新 Native 绑定；targetId 可能
+复用。worker 死亡不能替代截图流 stop/detach 或 held-input 释放。先实现无遗留
+输入风险的恢复，并为活动只读查看取得原目标实际清理回执；持键、指针或未知
+输入风险继续阻断，由 Stop 等待原 Browser/Job 退出。扩展需新增绑定 run/
+incarnation/原文档的持久候选记录和启动暂停门禁；旧 task、human lease、viewer
+票据不恢复，不重开 URL 或重放输入。最低真实验收包括原页 worker 替换正例及
+held-input 恢复拒绝负例；持久提交与跨 worker 原资源清理证明仍待实现。
+
 ## 当前依据
 
 - 生产 `backgroundWindow: true` 创建可见 normal window，不能悄悄改成

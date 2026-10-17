@@ -116,7 +116,7 @@ debugger、history 和 tab groups。
   事件拒绝仅记录固定类别，不输出原 payload 或任意错误文本。
   它不增加页面 debugger 附件，也不在 task RPC 中开放用户控制。见
   [独立会话](references/managed-browser-session.md)。
-  开发中的 `managed recover` 将 Native 连接代次与 Browser 生命周期分开；
+  a4e6b0c 预览的实验性 `managed recover` 将 Native 连接代次与 Browser 生命周期分开；
   原 Native 退出时保留 Browser、暂停扩展准入并隐藏任务 endpoint。原 controller
   通过完整身份的 cleanup-only 入口等待实际释放，同 worker/context 的新 Port
   经重新挑战后才能建立新的 controller 和 HTTP viewer；恢复后仍暂停。历史

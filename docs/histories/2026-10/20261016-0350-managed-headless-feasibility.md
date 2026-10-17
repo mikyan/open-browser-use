@@ -871,3 +871,37 @@ This slice does not verify true worker replacement, browser restart, in-flight
 input recovery, real accounts/IME/SSO/MFA, ordinary company Edge or other platforms.
 It does not create a PR or another package; the published 81cfdae package is
 unchanged and does not contain these fixes. The full parity goal remains open.
+
+### 2026-10-17: Requested a4e6b0c Windows package refresh
+
+The user requested another usable package. Published [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)
+from clean source commit `a4e6b0cb5142d7e34c94c2857e4420ce28804a61`. The package includes the
+fixed CfT 156.0.8078.12 recommendation, verified old-cache coexistence, and explicit
+same-worker Native recovery. True worker replacement remains unimplemented.
+The source was rebuilt separately for release; no browser business flow, browser
+installation, profile mutation or PR was performed during this packaging round.
+Original A6UPE3 acceptance and prior failed attempts remain separate evidence.
+
+Offline CLI/MCP exposed 30 tools. The independent artifact audit completed
+5,510 checks against 499 matched source inputs. Bundle/extension/Skill contain
+98/71/6 files. All 4 uploaded assets were downloaded and matched the original
+hashes; the local delivery copy matched all 102 files. These counts describe
+artifact checks and do not add browser acceptance attempts.
+
+Release executable SHA-256: `0db5e597ed164bc356d348245eccfcfe93eac2d393a47a9d6879bc213b5de0b7`.
+Independent package audit SHA-256: `4bf6d55f5313d3c932d2910870369897a123f456563f1bcb7d2e92890bc4482d`.
+Offline report SHA-256: `440bcef7df40f77f2124bc1f0efb6fe799b746f88d0187a0c4b1d8b05bbbd8cf`.
+Upload roundtrip report SHA-256: `eb66506b34bfe0b4dd2409db1468581cb01e6e3466a1e2f59af2f80a0d304a68`.
+Published release receipt SHA-256: `4e5e0a2472bb39285966f681e6094b69f862c385bd421e93bf99505572cb9a50`.
+Local copy report SHA-256: `59a911bf114e35437b67a56825657f92dafbb40bcdcdf6046aca79bb7783d614`.
+
+- `open-browser-use-windows-x64-preview-20261017-a4e6b0c.zip`: 10,436,765 bytes; SHA-256 `3d57c22d08869a5919ec4fe9edb05367023e08fa7ffea5b6355b7ddbce85283c`.
+- `open-browser-use-extension-preview-20261017-a4e6b0c.zip`: 1,418,211 bytes; SHA-256 `86ce4e50861613009d739d848475a59bed0cc48f008647a1eaa02d74842ec6ab`.
+- `open-browser-use-skill-preview-20261017-a4e6b0c.zip`: 28,048 bytes; SHA-256 `5d17b8e42c860f38cc9d9c7c964b0ab83016c2b3ab5d98e75e2715c4927a9fdb`.
+- `SHA256SUMS`: 367 bytes; SHA-256 `2a43fce2d09615739b0afcfe74ad73d523e249583ba789c4d0259ad142c6abdc`.
+
+The browser is downloaded only by explicit `managed browser install` and is not
+bundled. Existing 155 users must run that command after updating the program;
+run/setup do not silently upgrade. The package retains the normal company-PC
+installation guide. Full parity, company Edge, true worker/browser restart,
+unconfirmed input recovery and real login/IME/SSO/MFA remain open.
