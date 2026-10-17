@@ -1,0 +1,75 @@
+scripts/browser-integration/managed-download-proof.test.mjs
+  s_08bbfd293d324f::t_b7208b450f46bf 74-82
+  s_08bbfd293d324f::t_f3a9fab5134a65 6,83-104,109-134
+  s_08bbfd293d324f::t_916bf6d1415128 1-5,7-73,135-158
+  s_08bbfd293d324f::t_7d87fa711ebb2a 105-108
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_ea5e2b132f30bc 3-12,21-29,35-43
+  s_08bbfd293d324f::t_2e1d869019a8b1 30-34
+  s_08bbfd293d324f::t_13cf1244d6e412 13-20
+scripts/browser-integration/managed-download-check.test.mjs
+  s_08bbfd293d324f::t_cec3e9b202562f 1-2,4-17,38
+  s_08bbfd293d324f::t_82b3e8f16b69e0 3,18-37
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_2d59f856b9d500 239-245
+docs/references/original-page-download-delivery.md
+  s_08bbfd293d324f::t_9d8a3ca66939d5 4-7,10
+  s_08bbfd293d324f::t_084386f5b05e50 8-9
+  s_08bbfd293d324f::t_be0edff641957b 21-48
+scripts/browser-integration/managed-download-proof.mjs
+  s_08bbfd293d324f::t_e6e8e15fc9dd70 1-45,55-108,161-179,182-214,217-247,257-308,311-323,327-328,330-349
+  s_08bbfd293d324f::t_216d8f5087f863 180-181,309-310
+  s_08bbfd293d324f::t_b7208b450f46bf 46-54,324-326,329
+  s_08bbfd293d324f::t_f3a9fab5134a65 109-146,151-160,215-216,248-256
+  s_08bbfd293d324f::t_7d87fa711ebb2a 147-150
+internal/managedbrowser/managed_user_attachment_test.go
+  s_08bbfd293d324f::t_c785089fa754fe 1-6,8-52,262-263
+  s_08bbfd293d324f::t_b82b2aebd9e710 7,53-261,264
+  s_08bbfd293d324f::t_7fd6ac7f0bc65c 265-301
+scripts/browser-integration/managed-download-check.mjs
+  s_08bbfd293d324f::t_fee3402da1086e 97,222-231,346
+  s_08bbfd293d324f::t_d4da278b6b44f0 195-203,233-239,243,347
+  s_08bbfd293d324f::t_04ed13957cee63 1-24,64-96,98-194,204,206-221,232,240-242,244-265,267-345,348-363
+  s_08bbfd293d324f::t_cec3e9b202562f 25-31,33-44,46,48-55,266
+  s_08bbfd293d324f::t_90a5efe13a4077 32,45,47
+  s_08bbfd293d324f::t_82b3e8f16b69e0 56-63,205
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_e882b7ae48e361 42,181,236-245,252-253,257-262,764,784-798,885-929,932-946,948-952
+  s_08bbfd293d324f::t_c138497c7664ff 177-178,182-183,186,188,201,235,246-251,254-256,263-265
+  s_08bbfd293d324f::t_548500430c5b43 266
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_c3b09776f38b16 82-90,107
+  s_08bbfd293d324f::t_62923de2012d64 45,91-101
+  s_08bbfd293d324f::t_6914643fa74416 68-81
+  s_08bbfd293d324f::t_3c76c04dcfa937 102-106
+  s_08bbfd293d324f::t_bfb51235a5ccd5 46-67
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_557b1ef3c7ed91 108-110
+  s_08bbfd293d324f::t_ceb153ca75b6c6 132-133
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_79de2b0bc44726 15-21
+internal/managedbrowser/managed_user_transport.go
+  s_08bbfd293d324f::t_4e493f59b86105 29,88-93,109,175-187,189-190,226-235
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_50fa7abb37bfb6 14-20
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_54c2bd0d449272 657-696
+  s_08bbfd293d324f::t_997133127e43ea 627-656
+  s_08bbfd293d324f::t_6044b7196a306a 600-626
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "c88d4199458806719d33d8b583b189ee46e0188d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
