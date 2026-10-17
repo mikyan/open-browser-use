@@ -426,3 +426,14 @@ receipts. Viewer audit
 confirmed the separate four-stage workflow and all 19 PNGs. Current absence of
 the original 29/26 process identities, registration, pipes and endpoints was
 recorded only as additional evidence, not as a substitute for original cleanup.
+
+## Requested Windows package including same-document human control
+
+The user asked whether development had finished and requested another package.
+The overall parity goal remains open. This delivery uses the verified runtime
+from `9ac3a04`, updates the installation guide for its limited managed-viewer
+human control, and rebuilds from a clean committed checkout. Navigation
+continuation is design work only and is excluded. The original browser results
+and six earlier failed attempts remain historical evidence; packaging does not
+rerun or replace them. Publication will follow independent artifact and offline
+CLI/MCP checks, with uploaded assets downloaded again for hash comparison.

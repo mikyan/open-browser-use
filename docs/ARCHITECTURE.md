@@ -112,13 +112,17 @@ debugger、history 和 tab groups。
   明确报告 setup，CLI/MCP 任务选择拒绝该模式；只有原树退出后才释放资料目录。
 - `internal/managedviewer/`：实验性的本地 HTTP/WS 实时查看界面。只绑定
   loopback，核验精确 Host/Origin、一次性票据和单个观看连接；投影已验证
-  worker 状态及 PNG。开发分支新增显式页面租约内的 typed 人工输入，不提供
-  通用 CDP 代理；固定 Windows Chromium 的同文档六步流程已验收，尚未入包。Pause/Resume 沿用原
+  worker 状态及 PNG。本次 Windows 预览的功能基线包含显式页面租约内的
+  typed 人工输入，不提供通用 CDP 代理；固定 Windows Chromium 的同文档
+  六步流程已验收。Pause/Resume 沿用原
   backend 门禁，Stop 直接等待 supervisor 的实际退出回执。
   `internal/managedprotocol/` 统一人工输入、回执和帧身份的严格解析；HTTP
   输入单队列等待原回执，释放请求先撤销排队输入，再等待实际清理。扩展的
   `managed-human-control.js` 固定原页面 target，持有独立接管租约并跟踪
   原生按键、指针和 rendering 清理；桥接层负责与原任务暂停、选择及继续衔接。
+  接管先等待原任务清理及首帧实际解码；结束后仍暂停，明确 Resume 后任务
+  需要新轮次。任意 frame 导航、同文档/SPA 跳转或视口几何变化终止租约，
+  不自动跨文档续接；完整 IME 和真实网站 SSO/MFA 尚未验收。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。
