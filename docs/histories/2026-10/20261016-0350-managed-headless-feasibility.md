@@ -102,3 +102,29 @@ New reference documentation gives ordinary-install-first guidance and explicit
 Windows run/status/stop, CLI and MCP examples. Architecture, security,
 reliability, quality and release notes distinguish this experimental launcher
 from the existing ordinary browser installation and from full parity.
+
+### 2026-10-17: Rebuild the requested current preview
+
+The user asked whether development had finished and requested another package.
+The overall goal remains incomplete. Publish `preview-20261017-f2d3421` from
+an isolated clean checkout of `f2d3421c0803b8309d34c2c580d3357be9f7c244`;
+all 432 selected production Git objects match dde4d40. This is a fresh build
+with the same runtime features, excluding the uncommitted viewer/control work.
+The source comparison uses committed objects because checkout line endings
+differ; the initial workspace-byte assertion and missing isolated builder
+dependency were retained as preparation failures, then corrected before build.
+
+Offline CLI checks and MCP initialization/listing passed with 30 tools. The
+independent audit actually exited 0 and verified 94 bundle files, 67 extension
+files and 6 Skill files, with no development viewer surface in the archives.
+Its 5,652 mechanical checks are artifact checks, not new browser test cases.
+All three ZIP files and SHA256SUMS were downloaded from the draft and matched
+local hashes before publication to the fork. Full ZIP SHA-256:
+`848c788a28430522249a62a46d0edf7b4db8925f0c8f44d5ce86ae7e105e6dc9`.
+Audit SHA-256:
+`a9ec8b304fcadf3aeb11d917f1bc66c02ce7c3abcd9a858b22e51e334764a534`.
+No PR, browser installation, registry mutation or fresh webpage task was
+performed for this delivery. Historical browser results remain historical;
+viewer integration and ordinary Edge/company-computer acceptance remain open.
+
+[Download the preview](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-f2d3421).
