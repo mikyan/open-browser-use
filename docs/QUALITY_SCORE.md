@@ -15,10 +15,14 @@
 `managed-result-VGrDlV` 六步实际 exit 0：50 项输入回执、原导航和唯一 POST，
 两次 Begin/End 保留同一原结果且不 Resume；普通 viewer `o6PuJl` 四步回归通过。
 扩展 2,053 项、UI 54 项、Go 全包/vet/build 通过。首次新标签预期失败保留，
-只修正测试文字。用户本轮要求的新包尚待干净构建和制品核验；worker 重启恢复、
-Stop 后保留窗口和普通公司 Edge 验收仍开放。
+只修正测试文字。用户要求的新包
+[preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)
+已发布：干净重建、离线 CLI/MCP 30 工具、独立制品 5,442 项检查和四资产回下载
+哈希核对通过，完整包/扩展/Skill 为 98/71/6 文件。结果流程独审 868 项、44 PNG
+完整解码通过；普通 viewer 独审 8 项、45 PNG 通过。发布 EXE 单独重建，未重跑
+网页业务；worker 重启恢复、Stop 后保留窗口和普通公司 Edge 验收仍开放。
 
-当前源码新增单租约连续人工接管，尚未进入下述发布包。固定 Windows Chromium
+此前源码新增单租约连续人工接管，当时尚未进入 93f54a1 包。固定 Windows Chromium
 的 `managed-human-navigation-fRIjwN` 六步实际 exit 0：47 项输入、302/子 frame/
 SPA、正确当前标题地址、唯一 POST 及正常清理；独审完整解码 59 张 PNG。
 扩展 1,995 项、UI 47 项、Go 全包/vet/build 通过。首轮标题地址滞留和跨层
@@ -28,7 +32,7 @@ SPA、正确当前标题地址、唯一 POST 及正常清理；独审完整解�
 停止后独审通过，37 张 PNG 完整解码，运行扩展、EXE、SDK 与导航验收一致。
 范围和待验事项见[隔离会话计划](exec-plans/active/2026-10-16-managed-browser-session.md)。
 
-最新交付为 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)，
+上一交付为 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)，
 已包含限定的同文档人工接管。运行源码与已验证的 9ac3a04 一致；干净重建后
 离线 CLI/MCP 30 工具、独立制品检查 5,388 项及四资产回下载哈希核对通过。
 完整包/扩展/Skill 分别为 97/70/6 文件。此轮打包未重跑网页业务；以下原始

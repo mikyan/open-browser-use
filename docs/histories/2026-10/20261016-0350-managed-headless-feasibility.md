@@ -571,3 +571,29 @@ Result authority is not restored across worker replacement. Stop still closes
 the managed browser; visible result-window retention, real SSO/MFA/IME, company
 Edge installation and cross-platform parity remain open. The requested package
 requires a separate clean build and artifact verification; no PR is created.
+
+The independent result audit passed 868 original-evidence checks and fully
+decoded 37 native PNGs plus 7 screenshots. Audit SHA-256:
+`7d29246e7edc110d1648dfd865118b17f813824581412944d22e453dc13181c3`.
+The ordinary viewer audit passed 8 groups and decoded 38 native PNGs plus 7
+screenshots; SHA-256
+`d7b0ac2217bb424a27c2dea9e96661a2b2ba2c5ea39aabbf5824cac638662771`.
+The first result auditor used the wrong original authority field name; the
+first viewer audit's additional short TCP probe timed out. Both failed auditor
+records remain unchanged. Corrected auditing and one bounded read-only probe
+passed without altering or rerunning browser business.
+
+Published the requested `preview-20261017-d0605b1` from clean commit
+`d0605b1e9f34d9e695d3147e8cf59cdcef59b994`. Offline CLI/MCP 30 tools,
+5,442 independent artifact checks, 98/71/6 bundle/extension/Skill members,
+four-asset download roundtrip and a 102-file local copy all passed. Artifact
+audit SHA-256:
+`984c0fa5f36812a7f82d87049271667e7d34a095fd8d6f99175fece0639950d2`.
+Full ZIP SHA-256:
+`c4132c5022cae9d84efb8b6bfe81d920618bacd63e4dbc75baa1c541d4fa4fe3`.
+Initial GitHub draft creation returned an already-existing asset error after
+uploading three files. Exact target/digests were checked, only the missing full
+ZIP was uploaded without replacing assets, and all four were downloaded and
+verified before publication. The release executable was rebuilt separately with
+clean VCS metadata and trimpath, not relabelled the browser-tested executable.
+No PR was created. The broader capability goal remains active.

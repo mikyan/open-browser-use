@@ -8,6 +8,9 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
+最新完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
+包含连续导航和结果页接续。干净构建、离线 CLI/MCP、独立制品审计和四资产
+回下载哈希核对通过；发布 EXE 单独重建，未在该 EXE 上重跑网页业务。
 旧包 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)
 仅包含同文档人工接管，没有连续导航和结果页接续；其干净重建、离线 CLI/MCP、
 独立制品审计和上传后回下载校验通过。
@@ -202,6 +205,10 @@ Agent 已暂停且清理完成时同样可用，完成接管后仍保持暂停�
 两次 Begin/End 不需要恢复 Agent，原进程和 Job 正常退出。观看阶段前后原页面
 事件与草稿不变；未在真实只读画面上主动尝试输入。普通 viewer 的 `o6PuJl`
 四步回归也通过。旧 93f54a1 包不含本段功能；发布制品的构建与核验记录另列。
+结果流程停止后独审通过 868 项，完整解码 37 张原生 PNG 和 7 张查看器截图；
+普通 viewer 独审通过 8 项，完整解码 38 张原生 PNG 和 7 张截图。初始审计器
+字段名错误和短时 TCP 探测超时均保留，修正审计器/补充有界只读观察后通过，
+没有重跑或修改原浏览器流程。
 
 ## 生命周期与隔离范围
 
