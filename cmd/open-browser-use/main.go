@@ -86,6 +86,7 @@ func newRootCommand() *cobra.Command {
 	root.Flags().BoolVarP(&showVersion, "version", "v", false, "print version")
 	root.AddCommand(
 		newHostCommand(),
+		newManagedCommand(),
 		newBindBrowserCommand(),
 		newSetupCommand(),
 		newManifestCommand(),
@@ -1180,6 +1181,8 @@ type socketOptions struct {
 	sessionID     string
 	browser       string
 	profile       string
+	managedName   string
+	managedRoot   string
 }
 
 func addSocketFlags(cmd *cobra.Command, options *socketOptions) {
@@ -1194,6 +1197,21 @@ func addSocketFlags(cmd *cobra.Command, options *socketOptions) {
 	cmd.Flags().StringVar(&options.sessionID, "session-id", options.sessionID, "browser session id used for tab grouping and cleanup")
 	cmd.Flags().StringVar(&options.browser, "browser", "", "browser selector (chrome, chrome-beta, edge, brave, opera, vivaldi, bitbrowser, or display name; platform support varies)")
 	cmd.Flags().StringVar(&options.profile, "profile", "", "Chrome profile selector (directory name like \"Default\" / \"Profile 1\" or display name like \"Eva\")")
+	cmd.Flags().StringVar(&options.managedName, "managed", "", "live experimental managed session name (Windows)")
+	cmd.Flags().StringVar(&options.managedRoot, "managed-root", defaultManagedRoot(), "dedicated root for --managed")
+	priorPreRun := cmd.PreRunE
+	cmd.PreRunE = func(command *cobra.Command, args []string) error {
+		if err := validateManagedFlags(command, options); err != nil {
+			return err
+		}
+		if priorPreRun != nil {
+			return priorPreRun(command, args)
+		}
+		return nil
+	}
+	for _, selector := range []string{"socket", "socket-dir", "browser", "profile"} {
+		cmd.MarkFlagsMutuallyExclusive("managed", selector)
+	}
 }
 
 func newCallCommand() *cobra.Command {

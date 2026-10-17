@@ -29,7 +29,7 @@ func (binding *mcpBrowserConnection) acquire(options socketOptions, deadline tim
 		if time.Until(deadline) <= 0 {
 			return nil, errors.New("request timed out before connecting")
 		}
-		conn, err := dialBrowserSocketForProfile(options.socketPath, options.socketDir, options.browser, options.profile, time.Until(deadline))
+		conn, err := dialBrowserSocketForOptions(options, time.Until(deadline))
 		if err != nil {
 			// No connection was selected. A later, explicit request may discover
 			// a browser that was not available when this request was submitted.
@@ -263,5 +263,5 @@ func dialCLIControl(options socketOptions, deadline time.Time) (net.Conn, error)
 	if time.Until(deadline) <= 0 {
 		return nil, errors.New("request timed out before connecting")
 	}
-	return dialBrowserSocketForProfile(options.socketPath, options.socketDir, options.browser, options.profile, time.Until(deadline))
+	return dialBrowserSocketForOptions(options, time.Until(deadline))
 }

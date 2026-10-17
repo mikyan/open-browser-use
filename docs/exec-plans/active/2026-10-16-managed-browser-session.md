@@ -33,19 +33,20 @@
    问题；失败保留，不用类似布局和重放动作扩充通过数。
 4. 现有 popup-only 暂停/网站权限鉴权不得为原型放宽。真实用户控制与可见
    画面未交付前，不把隐藏进程称作完整可用的 Browser Use 产品模式。
-5. 新包 `preview-20261016-dfb9e6b` 已按用户要求交付。该原型不触发再打包；
-   不创建 PR，完成且验证后的代码只推送 fork。
+5. 新包 `preview-20261016-dfb9e6b` 已按用户要求交付。原型本身不触发再打包；
+   2026-10-17 用户另行明确要求新包，正式入口验证后更新交付。不创建 PR，
+   完成且验证后的代码只推送 fork。
 
 ## Module 与 Interface 决策
 
-采用 `codebase-design` 的 Module/Interface 原则：未来 managed-session
+采用 `codebase-design` 的 Module/Interface 原则：managed-session
 Module 负责浏览器进程、profile 独占、确切 native endpoint、观看连接和实际
 清理。调用者应获得一个已验证的会话句柄，而不是自行拼装端口、PID、临时
 目录和注册项。现有 SDK 继续在原 endpoint 上运行页面任务。
 
-这是待原生可行性证据支持的设计方向，尚未引入生产 Interface 或抽象层。
-实际原型将帮助确定进程退出、扩展启动与 native EOF 的真实顺序；不要提前
-编写只在 mock 中成立的启动器。
+原型已验证进程退出、扩展启动与 native EOF 的真实顺序。2026-10-17
+以此实现 `Start/Info/Done/Close` 接口和正式 CLI，并单独验证生产入口，
+不以原型或 mock 的通过代替正式入口证据。
 
 首个用户模式优先使用前台 `managed run` 生命周期与本地 viewer，不先建设
 daemon。Ctrl+C、明确 stop 和启动失败共用实际关闭流程；命名 profile 的
@@ -63,18 +64,49 @@ viewer 是待实现的用户 Interface，不能将当前 SDK screenshot 轮询�
 
 ## 验证阶段
 
+### 正式启动入口实施（2026-10-17）
+
+当前实现中的实验性入口为 `managed run/status/stop`。`run` 前台持有会话，
+可由 Ctrl+C 或同一活连接上的 `stop` 请求结束；CLI/MCP 的 `--managed`
+通过当前用户的管理 pipe 获取确切任务 endpoint，与已有 profile/socket
+选择互斥。管理通道不读取 PID 文件清场，不在会话不存在时回退全局浏览器。
+`stop` 必须在实际清理完成后答复，错误或连接中断不能报告成功。尚不提供
+用户暂停、恢复、实时 viewer 或人工登录，不能据此宣布完整 managed 模式。
+
+Go `internal/managedbrowser` 持有专用 profile 的 OS 锁、随机运行目录、
+唯一原生注册及 browser/native 进程句柄。Windows 采用创建时
+`PROC_THREAD_ATTRIBUTE_JOB_LIST` 加入不可继承的 kill-on-close Job，避免
+创建后再挂入 Job 的孤儿竞争窗口；正常先 Browser.close/EOF，失败才终止
+自有 Job，并等待所有成员退出。实现依据：[创建属性](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)、
+[Job 生命周期](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)。
+
+扩展新增独立 `managed-config.js` 数据文件。普通包为 `null`，保留原固定
+host；仅私有暂存副本写入 version 1 与随机 managed host 名。非法配置在
+连接前失败，不连接默认 host。生产后台不再依靠测试脚本替换字符串，
+真实 connectNative 和现有 popup-only 用户控制鉴权保持原路径。
+
+系统锁/进程树/注册归属、监督停止回执及连接选择测试已通过；正式 CLI
+独立三步原始验收实际 exit 0，详情见下方进度及
+[用户入口说明](../../references/managed-browser-session.md)。停止后独审
+37 项证据检查通过，15 个去重后的原进程身份已退出；审计实际 exit 0，SHA-256
+`8271414aba4e013c7c82fc837e424ad854dd03150279e0a360a0f9897eebddbd`。
+用户明确要求的新包从干净提交构建并单独校验后交付；失败保留。
+
 - [x] 原生可行性：独立脚本仅加载原扩展，暂存修改限唯一测试 host 名和
   现有公开扩展 key；核原生产哈希、Go 元数据、真实 host PID/endpoint。
 - [x] 正式操作：原 SDK fill/click 提交原始字节；截图保留；先 ready 再用
   一次 Control-click 打开原 child，并从原 typed Tab 完成唯一提交。
 - [x] 原型清理：turnEnded、原 Browser.close、浏览器退出、native EOF、唯一
   注册清理与无自有进程残留；失败时也保留全部原回执。
+- [x] Windows 实验性正式入口：profile 独占、启动/正常停止、CLI/MCP
+  确切选择、原生子页与实际退出的有限验证。
 - [ ] 正式用户会话的 finalizeTabs、交付页保留与后续人工接管。
-- [ ] 产品实现：浏览器发现/兼容、profile 独占和启动/停止/崩溃处理。
+- [ ] 浏览器发现/兼容与完整异常生命周期验收，其他平台实现。
 - [ ] 用户体验：实时画面、可见反馈、可信暂停/恢复/结束，以及登录/人工
   接管的明确流程；不得把任务调用者当作用户控制通道。
-- [ ] 原始下载：绑定此会话确切 Browser root 与 Native Port，原路径和实际
-  取消沿用现有契约；不得自动连接别的用户浏览器。
+- [x] 原始下载绑定：此会话确切 Browser root 与 Native Port 挑战成功。
+- [ ] 本模式的原文件下载及实际取消业务验收；沿用既有契约，不自动连接
+  别的用户浏览器。
 - [ ] 正式安装和完整任务验收，跨平台范围分别报告。
 
 ## 风险和判据
@@ -89,6 +121,16 @@ OS 前台观测。测试 adapter、临时注册与生产安装的差异必须公
 任何启动、连接、操作或清理失败均保持失败，不将采集完整等同能力通过。
 
 ## 进度
+
+- 2026-10-17：正式 `managed-launcher-xgfAuQ` 原始三步全部通过，runner
+  实际 exit 0。CLI/MCP 选择同一私有 host；重复名称启动被拒且无新 run。
+  SDK 一次可信 Control-click 接续原 child、唯一 192 B POST、758×369 PNG
+  以及 turnEnded 旧句柄拒绝均确认。原 Browser.close `{}`、browser/native
+  exit 0、Job 成员归零、原进程退出、唯一注册和 endpoint 清理通过，无
+  强制终止。结果 SHA-256 为
+  `8c398e632daa1db8d4e627a8b36ac80ddb6905ec85d89a1a94f1cac7a22ed790`。
+  Go 全包、扩展 1829 项和 builder 25 项通过。停止后独审进行中，新包结果
+  待补；未验普通 Edge/公司电脑、OS 前台焦点、实际下载或实时 viewer。
 
 - 2026-10-16：重新核对当前干净 `dfb9e6b`、最新发布及剩余缺口。只读
   fullscreen 调查未证明新的生产缺陷；普通原生 popup 的前台行为已有失败

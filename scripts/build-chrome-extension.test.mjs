@@ -536,6 +536,12 @@ test("extension build includes runnable pinned ESM and third-party notices, not 
   assert.match(await fs.readFile(path.join(vendor, "MODIFICATIONS.txt"), "utf8"), /Locator file upload reuses/);
   for (const match of entry.matchAll(/from "(.+?)"/g)) await fs.access(path.join(vendor, match[1]));
   assert.ok(!(await fs.readdir(output)).some(file => file.endsWith(".test.mjs")));
+  for (const file of ["managed-config.js", "managed-native-host.js"]) {
+    assert.equal(await fs.readFile(path.join(output, file), "utf8"),
+      await fs.readFile(path.join("apps/chrome-extension", file), "utf8"));
+  }
+  const managedConfigSource = await fs.readFile(path.join(output, "managed-config.js"), "utf8");
+  assert.equal((await import(`data:text/javascript,${encodeURIComponent(managedConfigSource)}`)).default, null);
   assert.equal(await fs.readFile(path.join(output, "auxiliary-tab-ownership.js"), "utf8"),
     await fs.readFile(path.join("apps/chrome-extension", "auxiliary-tab-ownership.js"), "utf8"));
   assert.equal(await fs.readFile(path.join(output, "browser-lifetime.js"), "utf8"),

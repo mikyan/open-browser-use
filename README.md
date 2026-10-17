@@ -157,6 +157,13 @@ packages do not include these local changes. Register that CLI as the native
 host for the loaded extension's actual ID. For Windows Edge, follow the
 [local manifest instructions](docs/references/edge-installation.md).
 
+An optional experimental Windows `managed run/status/stop` entry point runs a
+separate headless Chromium profile. It requires an explicit Chromium or Chrome
+for Testing executable and a matching built extension; it has no live viewer,
+pause UI or login handoff yet. Ordinary installation does not require it. See
+[managed sessions](docs/references/managed-browser-session.md) for commands,
+CLI/MCP selection and the current validation boundary.
+
 For original page-triggered POST/Blob download paths, this branch adds an optional
 [native Browser binding](docs/references/original-page-download-delivery.md).
 It requires an authorized Browser root connection and exclusive download control.

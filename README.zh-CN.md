@@ -144,6 +144,12 @@ go build -o dist/ ./cmd/open-browser-use
 按实际加载的扩展 ID 注册这个 CLI 作为 native host，Windows Edge 的命令见
 [本地注册说明](docs/references/edge-installation.md)。
 
+开发分支另有实验性 Windows `managed run/status/stop` 入口，使用独立的
+Headless Chromium profile，需要自行指定 Chromium 或 Chrome for Testing
+程序及匹配扩展。它尚无实时画面、暂停界面和登录接管；普通公司电脑安装
+不需要启用此模式。命令、CLI/MCP 接入和验收边界见
+[独立浏览器会话](docs/references/managed-browser-session.md)。
+
 扩展工具栏弹窗中的 **Pause all agents** 可暂停所有 Agent；清理失败时保持
 阻断，点击 **Retry pause** 重试。**Resume control** 只允许 Agent 开始新轮次，
 不会重放旧任务。暂停保留页面，无法撤销已发生的页面操作。

@@ -99,6 +99,12 @@ debugger、history 和 tab groups。
   正式名是 `open-browser-use`，可通过同路径 symlink 或 shell alias 暴露为
   `obu`。
 - `internal/host/`：Go native messaging stdio 到本地 IPC endpoint 的中继。
+- `internal/managedbrowser/`：实验性 Windows 独立浏览器生命周期。前台
+  `managed run` 持有 profile 锁、自有 Job、唯一 native 注册和真实进程句柄；
+  通过原 Native Port 挑战绑定私有 Browser root。CLI/MCP `--managed` 从
+  存活管理 pipe 取得确切 endpoint，不回退普通 profile。独立 stop 等待原树
+  退出；实时 viewer、用户暂停及登录接管仍待实现，见
+  [独立会话](references/managed-browser-session.md)。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。

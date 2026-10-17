@@ -27,8 +27,11 @@ import { NativeMessageReceiver } from "./native-message-receiver.js";
 import { NativePageDownloads } from "./native-page-downloads.js";
 import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-policy.js";
 import { assertSiteAccessFrames } from "./site-access-frames.js";
+import managedConfig from "./managed-config.js";
+import { resolveManagedNativeHost } from "./managed-native-host.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
+const ACTIVE_NATIVE_HOST_NAME = resolveManagedNativeHost(managedConfig, NATIVE_HOST_NAME);
 let extensionInstancePromise;
 function getExtensionInstanceId() {
   if (!extensionInstancePromise) {
@@ -1777,7 +1780,7 @@ class BrowserBackend {
       metadata: {
         extensionId: chrome.runtime.id,
         extensionInstanceId,
-        nativeHostName: NATIVE_HOST_NAME,
+        nativeHostName: ACTIVE_NATIVE_HOST_NAME,
         browserActionProtocolVersion: 1,
         turnLifecycleVersion: 1,
         networkWaitVersion: 1,
@@ -6741,7 +6744,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 const webMcpGate = new WebMcpGate();
 const backend = new BrowserBackend({ webMcpGate });
-const transport = new NativeTransport(NATIVE_HOST_NAME, {
+const transport = new NativeTransport(ACTIVE_NATIVE_HOST_NAME, {
   onDisconnect: () => { void backend.nativeDisconnected().catch(() => {}); },
   onPageDownloadsStateChange: () => backend.nativeDownloadStateChanged()
 });

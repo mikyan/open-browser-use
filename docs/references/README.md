@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [独立浏览器会话](managed-browser-session.md)：实验性 Windows launcher、
+  CLI/MCP 选择、真实 Native Messaging 和进程清理，以及 viewer/登录边界。
+
 - [两轮完整任务对照](paired-task-comparison.md)：固定 24 次原始尝试、失败保留、
   正式 API/业务/清理证据与有限结论；附脱敏 SHA 索引。
 

@@ -1,5 +1,33 @@
 # Browser integration acceptance
 
+## Production managed launcher (Windows, experimental)
+
+`managed-launcher-check.mjs` exercises the actual `managed run/status/stop`
+commands with a fresh dedicated profile, production Native Messaging, CLI/MCP
+selection, and the current JavaScript SDK. Build the CLI and extension first,
+then set explicit absolute paths:
+
+```powershell
+$env:OBU_TEST_HOST_BINARY = "<built open-browser-use.exe>"
+$env:OBU_TEST_CHROMIUM_BINARY = "<pinned Chromium chrome.exe>"
+$env:OBU_TEST_EXTENSION_DIR = "<built extension directory>"
+node scripts/browser-integration/managed-launcher-check.mjs
+```
+
+The three steps verify live supervisor selection (including a rejected duplicate
+launch), one original Control-click child with one form POST and a screenshot,
+and actual terminal shutdown. Passive worker CDP reads establish child provenance;
+business actions use the production SDK. Results retain command outputs, source
+hashes, process identities, original lifecycle receipts and fixture bytes under
+`.tmp/browser-integration/managed-launcher-*`. Any original call error fails the
+run; cleanup cannot turn it into success. No business operation is replayed.
+
+The first production run `managed-launcher-xgfAuQ` exited 0 with all three steps
+passing on Chromium 156. This is limited launcher validation, not a live viewer,
+trusted pause UI, login handoff, ordinary Edge installation, company-PC acceptance,
+or independent OS foreground test. User commands and boundaries are documented in
+[managed browser sessions](../../docs/references/managed-browser-session.md).
+
 ## Isolated headless native feasibility
 
 `managed-headless-check.mjs` is a Windows developer check for the pinned

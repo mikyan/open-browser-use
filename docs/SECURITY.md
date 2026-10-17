@@ -52,6 +52,16 @@ Application-level client authentication remains unimplemented. User-configured d
 
 ## User Pause
 
+Experimental Windows managed sessions use a separate profile, private native
+registration and current-user management pipe. A live supervisor may expose
+status and stop for its exact run; it does not add Pause/Resume authority to the
+task RPC interface. The managed mode has no viewer, trusted pause interface or
+login handoff yet. Its profile and native environment are separate from ordinary
+installed profiles, but are not a sandbox against arbitrary code running as the
+same OS user. Startup rejects unknown nonempty directories and reparse paths;
+cleanup acts on the retained owned Job and original handles, never a PID file.
+See [managed sessions](references/managed-browser-session.md).
+
 The production runtime disables CRX's implicit `tabs.onCreated` popup attachment.
 New Pages must pass backend ownership/admission hooks; iframe child sessions
 continue through the existing owned-root route. This prevents a popup from

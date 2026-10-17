@@ -56,3 +56,40 @@ controls and login/installation flows remain in the active session plan.
 - `scripts/browser-integration/managed-headless-check.mjs`
 - `scripts/browser-integration/README.md`
 - `docs/exec-plans/active/2026-10-16-managed-browser-session.md`
+
+### 2026-10-17: Implement the experimental Windows launcher
+
+The user requested a fresh usable package while the broader capability goal
+remains active. Add `managed run/status/stop` and exact CLI/MCP `--managed`
+selection, using a foreground supervisor and a separate persistent profile.
+`internal/managedbrowser` owns the OS lock, private extension/host staging,
+unique current-user registration, atomic Job membership and original native
+process handles. Startup has one budget; cleanup preserves the lock until the
+owned process tree actually exits. The ordinary extension configuration remains
+`null`; the private staged copy carries only its versioned random native name.
+
+The first production-entry attempt `managed-launcher-xgfAuQ` completed three
+steps with actual runner exit 0. CLI/MCP selected the original endpoint, a
+same-name collision created no extra run, and the SDK's original Control-click
+opened the original child with exactly one 192-byte POST. The 758×369 PNG showed
+the AI pointer and target feedback; turn end rejected the old handle. Original
+Browser.close returned `{}`, browser/native exits were both 0, Job membership
+reached zero, original processes exited, and native registration/endpoint cleanup
+completed without forced termination. The result SHA-256 is
+`8c398e632daa1db8d4e627a8b36ac80ddb6905ec85d89a1a94f1cac7a22ed790`.
+
+Go tests across the module, 1,829 extension tests and 25 builder tests passed.
+Stopped-state independent auditing passed 37 evidence checks with actual exit 0,
+including 15 distinct original process identities, both registry views, endpoint
+cleanup and decoded PNG pixels. The old-handle rejection is evidenced by the
+runner assertion, not a separately retained raw error. Audit SHA-256:
+`8271414aba4e013c7c82fc837e424ad854dd03150279e0a360a0f9897eebddbd`.
+The requested package is being built separately from a clean commit, with offline
+checks and archive auditing. This does not validate normal installed Edge, the company computer,
+OS foreground behavior, native download files, profile login/restart or a full
+task matrix. Viewer, trusted pause/resume and login handoff remain unfinished.
+
+New reference documentation gives ordinary-install-first guidance and explicit
+Windows run/status/stop, CLI and MCP examples. Architecture, security,
+reliability, quality and release notes distinguish this experimental launcher
+from the existing ordinary browser installation and from full parity.
