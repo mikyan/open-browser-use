@@ -8,7 +8,8 @@ profile 和真实 Native Messaging。它是可选的实验入口，提供本地�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文对应当前开发分支。正式 CLI 已完成下文限定范围的真实浏览器验收；
-实时画面功能已包含在 [preview-20261017-41577de 完整包](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-41577de)，之前的 `preview-20261017-f2d3421`
+登录准备和实时画面已包含在 [preview-20261017-b3fd56a 完整包](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-b3fd56a)。
+旧 `preview-20261017-41577de` 只有实时查看，`preview-20261017-f2d3421`
 只提供启动、状态和停止命令。npm 上游包和旧预览包不能直接套用下面的新命令。
 
 ## 准备

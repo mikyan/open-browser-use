@@ -237,3 +237,24 @@ the pre-commit acceptance EXE. Persistent synthetic state is the validated scope
 SSO/MFA, hardware keys, live same-document human takeover, ordinary company Edge,
 OS foreground behavior, cross-platform managed sessions and full parity remain
 open. Existing installation remains unchanged; no PR is requested or created.
+
+The requested clean-source package is now published as
+[preview-20261017-b3fd56a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-b3fd56a),
+from `b3fd56a03928b08758b26aada9eec0c59766cb27`. The two acceptance snapshots'
+69 Git objects match that commit. Setup's separate stopped-state review passed
+10 checks with actual exit 0; report SHA-256:
+`6a462d67bcb05e875723c61050ac84510fb9ccd7edc969b8845e874a3d44d6da`.
+Sensitive POST bodies are represented by original server hashes/byte counts,
+not retained raw bytes, so that review cannot independently recompute them.
+
+The release EXE was rebuilt from a clean isolated checkout. Offline CLI/MCP
+passed with 30 tools and explicit setup help checks. Independent ZIP auditing
+passed 5,322 artifact checks across 96 bundle, 69 extension and 6 Skill files.
+All four uploaded assets were downloaded and matched before publication. Full
+ZIP: 10,194,974 bytes, SHA-256
+`236c1d51abff1be473b8c1aa44250532fab1cee83d235d8ff5c30916c8d2c048`.
+Artifact audit SHA-256:
+`3c8cffebfe4be4b6721577c4deeca3e87761b19cab8d10bf181843445ab48b53`.
+The local delivery's 100 files match the isolated source output. No browser
+replay, installation or PR was performed during packaging; prior packages and
+failed evidence remain intact. These results do not complete the active goal.
