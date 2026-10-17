@@ -188,3 +188,52 @@ fixed-candidate hash, exact binary context and verified Go source provenance
 constrain the documented exception. Other credential and personal-path scans
 remain active. The corrected build used a separate clean checkout, preserving
 the failed directory. No install, PR or additional browser replay was performed.
+
+### 2026-10-17: Explicit login preparation before managed tasks
+
+The user asked again whether development was complete and requested a fresh
+package. Full Browser Use parity remains open. Add Windows `managed setup` to
+open a visible dedicated profile at about:blank for manual login, then require
+normal closure before an explicit `managed run` with the same browser/name/root.
+Both modes share the owned profile lock and original Job/process lifecycle.
+Setup stages no task extension or native host, publishes no task endpoint/viewer,
+rejects CLI/MCP task selection and discards browser output instead of logging
+manual login details. Natural exit preserves actual browser/Job receipts without
+fabricating Browser.close; explicit stop still waits for that original ACK.
+
+Original synthetic acceptance `managed-setup-QyXNkx` passed five stages, actual
+exit 0. A CDP test actor submitted one local login on the original visible setup
+page; after browser exit, the public SDK used the same persistent HttpOnly cookie
+and localStorage in a new run and submitted one authenticated receipt. A separate
+profile received 401 and closed naturally, without replaying login. Both lock
+directions, CLI/MCP/view refusal and absent task endpoints were checked. The
+three original browser exits were 0, Job counts reached 0, and 9/13/10 original
+process identities disappeared without force. Read-only native window observation
+confirmed visible setup windows and no windows after exit. Root inspected both
+post-login/receipt screenshots; no real account or system mouse was used.
+Result SHA-256:
+`daadcaeb558f43b3fc9ad0f55a7fc32696ff748060347b524c5fb155a13fad37`.
+
+Same-production-source viewer regression `managed-viewer-cOCeeU` passed four
+stages with actual exit 0, 38 native frames, one original 190-byte POST and actual
+normal cleanup. The existing independent stopped-state auditor passed 19 checks,
+including 45 decoded PNGs and all original process identities. Root visually
+confirmed the live AI pointer/blue outline. Audit SHA-256:
+`40f7aba5177ef0da6a53c5105a1991a64d53425644a1a8f33811cc0bc001a0cf`.
+Go module tests/vet and 15 final integration-helper tests passed. Unchanged
+extension-suite results remain historical rather than new runs.
+
+Two zero-business failures remain failed. Viewer `ocDaKN` hit EBUSY while reading
+the newly published private port file; its independent viewer required forced
+cleanup and lacked a complete original process inventory. The helper now observes
+that same process/file within its original startup budget, rejecting unrelated
+errors and process death. Setup `XjPnhh` incorrectly rejected all extension targets;
+the corrected assertion derives this project's exact public identities, records
+other targets as unclassified and retains separate launch/endpoint/file checks.
+Neither correction changed production behavior or replayed submitted business.
+
+The new package will be rebuilt from a clean commit and checked separately from
+the pre-commit acceptance EXE. Persistent synthetic state is the validated scope;
+SSO/MFA, hardware keys, live same-document human takeover, ordinary company Edge,
+OS foreground behavior, cross-platform managed sessions and full parity remain
+open. Existing installation remains unchanged; no PR is requested or created.

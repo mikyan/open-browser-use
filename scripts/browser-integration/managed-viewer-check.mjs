@@ -12,6 +12,7 @@ import { installCreatedPageObserver, assertCreatedPageSource, assertCreatedPageR
 import { connectNormalCDP, managedProcess, runProcess, bound, poll, sleep } from "./normal-browser-downloads-support.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 import { browserStartupOptions } from "./browser-startup.mjs";
+import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -88,16 +89,13 @@ function assertPrivatePath(root, file) {
   const relative = path.relative(root, file);
   assert.ok(relative && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`), "Expected a path inside the original private run");
 }
-async function devToolsEndpoint(profile) {
-  return poll(async () => {
-    let text;
-    try { text = await fs.readFile(path.join(profile, "DevToolsActivePort"), "utf8"); }
-    catch (error) { if (error.code === "ENOENT") return null; throw error; }
-    const lines = text.trim().split(/\r?\n/);
-    if (lines.length < 2) return null;
-    assert.match(lines[0], /^[1-9][0-9]{0,4}$/); assert.match(lines[1], /^\/devtools\/browser\/[A-Za-z0-9._~-]+$/);
-    return { port: Number(lines[0]), url: `ws://127.0.0.1:${lines[0]}${lines[1]}` };
-  }, { timeoutMs: 20000, intervalMs: 50, label: "original private DevTools endpoint" });
+async function devToolsEndpoint(profile, owner) {
+  return waitPrivateDevToolsEndpoint(profile, { assertAlive() {
+    const record = owner.record;
+    if (record.exitedAt !== undefined || record.closedAt !== undefined || record.spawnError !== undefined) {
+      throw new Error(`Original private browser owner ended before DevTools publication (PID ${record.pid}, code ${record.code ?? "unknown"})`);
+    }
+  } });
 }
 
 export async function runManagedViewerCheck() {
@@ -189,7 +187,7 @@ export async function runManagedViewerCheck() {
   try {
     report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")) };
     const snapshot = path.join(runDir, "source-snapshot");
-    for (const source of ["cmd/open-browser-use/managed.go", "internal/managedbrowser", "internal/managedviewer", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
+    for (const source of ["cmd/open-browser-use/managed.go", "internal/managedbrowser", "internal/managedviewer", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
       const destination = path.join(snapshot, source); await fs.mkdir(path.dirname(destination), { recursive: true });
       await fs.cp(path.join(repo, source), destination, { recursive: true });
     }
@@ -222,7 +220,7 @@ export async function runManagedViewerCheck() {
       const startup = browserStartupOptions([`--user-data-dir=${viewerProfile}`, "--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
       report.viewerStartup = startup;
       viewerProcess = launch(chromium, startup.args);
-      const endpoint = await devToolsEndpoint(viewerProfile);
+      const endpoint = await devToolsEndpoint(viewerProfile, viewerProcess);
       viewerBrowser = await playwrightChromium.connectOverCDP(endpoint.url);
       const context = viewerBrowser.contexts()[0]; page = context.pages()[0] ?? await context.newPage();
       await page.setViewportSize({ width: 1180, height: 900 });
@@ -270,7 +268,7 @@ export async function runManagedViewerCheck() {
     });
 
     await step("original-child-and-native-frame-stream", async () => {
-      const endpoint = await devToolsEndpoint(info.profileDir);
+      const endpoint = await devToolsEndpoint(info.profileDir, launcher);
       const targets = await (await fetch(`http://127.0.0.1:${endpoint.port}/json/list`)).json();
       const target = targets.find(value => value.type === "service_worker" && value.url === `chrome-extension://${info.extensionId}/background.js`); assert.ok(target);
       report.observerConnection = {};

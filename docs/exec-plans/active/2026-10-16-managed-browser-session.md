@@ -101,8 +101,39 @@ Close 调用截止只限制等待，不能证明原 stream、进程或 HTTP 资�
 独立制品审计及四资产上传回下载核验通过；此前 f2d3421 不包含这些
 工作。登录接管、普通 Edge/公司电脑、OS 前台观察和整体能力对齐仍开放。
 
-独立 profile 的登录与人工接管尚未设计完成。未来可采用串行的可见 setup
-与隐藏 run，但两者不得同时打开同一 profile，也不复制日常浏览器凭据。
+### 登录准备实施（2026-10-17，限定范围已验）
+
+新增显式 `managed setup`，仅此命令打开用户可操作的独立可见浏览器。
+`StartSetup/Info/Done/Close` 复用原 Session 的目录归属、name/profile 锁、
+Windows Job 与原进程退出回执；同一资料目录的 setup/run 必须串行。
+setup 固定从 about:blank 开始，由用户手动导航；不从命令行收集登录地址、
+密码或验证码，不复制日常浏览器资料，也不自动接着启动 Agent。
+
+setup 不加载任务扩展、不注册 Native host、不发布任务 endpoint 或 viewer。
+原管理连接只提供 `state: setup`、明确 mode 和实际 stop 回执；CLI/MCP
+任务选择必须拒绝 setup，不得把空 socket 当成默认发现。自然关窗后的原
+browser exit 0 和 Job 归零是正常结束；显式 stop 仍等待原 Browser.close
+及进程树退出。不能在收到窗口事件后先释放 profile 锁。
+
+原始真实验收 `managed-setup-QyXNkx` 五步实际 exit 0，使用唯一私有 profile
+和同一固定 Chromium：独立测试 actor
+在本地 fixture 中完成一次登录 POST、持久 HttpOnly cookie/localStorage；
+原 setup 正常退出后，正式 SDK 在新 run 访问受保护页并完成一次后续提交。
+同时验证同名互斥、任务连接拒绝、旧身份不可用和原进程清理。另一独立
+setup 只验证自然关窗，不重放登录业务。不使用真实网站或个人凭据；日志
+只保留认证结果/必要哈希，不能把测试 actor 等同真人 MFA 或 OS 焦点验收。
+`managed-viewer-cOCeeU` 四步回归实际 exit 0，停止后独审 19 项通过。
+原零业务 `XjPnhh` 扩展断言失败、`ocDaKN` 端口文件 EBUSY 失败保留；
+后者独立 viewer 强制清理且未取得完整原进程清单，不能记成正常清理。
+修正只涉及测试身份检查和原期限文件观察；生产源码没有因失败而变更。
+
+此功能解决登录准备，不保留原 Document、sessionStorage、仅内存令牌或
+未提交表单。任务中途的同文档人工接管仍需要独立 human 控制租约和输入
+生命周期，不能临时 Resume 或放宽现有任务附件权限来代替。Chromium 的
+[资料目录说明](https://chromium.googlesource.com/chromium/src/+/main/docs/user_data_dir.md)
+与[统一 Headless 说明](https://developer.chrome.com/docs/automation-and-testing/headless)
+支持串行 profile 复用的设计；上述合成原流程验证了持久数据，真实网站
+兼容和任务中途同文档人工接管仍开放。
 
 ## 验证阶段
 

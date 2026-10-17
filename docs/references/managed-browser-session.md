@@ -2,7 +2,8 @@
 
 `managed run` 在 Windows 中运行一个独立的 Headless Chromium，使用专用
 profile 和真实 Native Messaging。它是可选的实验入口，提供本地实时画面和
-用户暂停、继续、停止按钮；登录接管流程尚未实现。普通公司电脑安装仍按完整包里的
+用户暂停、继续、停止按钮。本轮预览新增串行的可见登录准备，任务中途的
+同文档人工接管仍未实现。普通公司电脑安装仍按完整包里的
 `README-先看这里.md` 操作：解压到固定目录、运行对应浏览器的安装脚本，
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
@@ -18,13 +19,40 @@ profile 和真实 Native Messaging。它是可选的实验入口，提供本地�
   启动器不会搜索、下载或安装浏览器，也不会替用户启用普通 Edge/Chrome
   的远程调试授权。当前加载方式不能假定兼容普通 branded 浏览器。
 - 使用同一次构建的 `open-browser-use.exe` 与完整扩展目录；扩展目录必须
-含生成的引擎文件、`managed-config.js`、`managed-native-host.js` 和 `managed-user-bridge.js`。
+  含生成的引擎文件、`managed-config.js`、`managed-native-host.js` 和 `managed-user-bridge.js`。
   源码 checkout 可用 `pnpm build:chrome-extension` 生成
   `dist/chrome-extension-unpacked`。Windows 完整包中的目录名为 `extension`。
 - 为 managed 数据选择全新的专用目录，或由此入口创建并带匹配归属标记的
   原目录。不要指向已有浏览器 profile、日常文件目录或链接目录。
 
 ## 启动、使用和结束
+
+### 可选：先在专用浏览器登录
+
+`managed setup` 是本轮预览新增的入口，旧 `preview-20261017-41577de`
+尚不包含它。它只打开专用浏览器资料目录，不开放 Agent 任务连接。使用与
+后续 run 相同的名称、数据目录和浏览器程序：
+
+```powershell
+& 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed setup `
+  --name work `
+  --root 'D:\BrowserData\OpenBrowserUse-Managed' `
+  --browser-path 'D:\Tools\Chromium\chrome.exe'
+```
+
+在新窗口的地址栏打开网站，自己完成登录。完成后关闭整个独立浏览器，
+等待终端退出，再执行下面的 `managed run`。也可在另一个终端用同名
+`managed stop` 结束；`managed status` 会明确显示 `state: "setup"`。
+setup 期间不加载任务扩展，CLI/MCP 连接会被拒绝。不能同时运行同一名称的
+setup 和 run，也不会自动从登录准备切换为 Agent 操作。
+
+这条流程复用同一电脑、用户和专用资料目录中的持久网站数据，不复制日常
+浏览器登录资料。未提交表单、sessionStorage 和仅内存令牌不能随重启交接；
+网站也可能主动使会话失效。实际网站 SSO、Windows Hello、硬件密钥和 MFA
+兼容仍须分别验证；受监督 Chromium 的自动化标识也可能影响网站支持。
+请先保存任务结果再结束旧 run。要保留当前文档的中途人工接管尚未提供。
+
+### 运行 Agent 会话
 
 下面是 PowerShell 示例。将程序、浏览器、扩展路径换成实际安装位置；
 `--root` 指向 managed 数据目录。它与程序目录分开，便于保留专用 profile。
@@ -128,13 +156,34 @@ Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运�
 
 ## 当前未完成
 
-- 登录与人工接管、可见交付页；实时 viewer 的更广兼容与异常生命周期验收。
+- 真实网站登录兼容、同文档人工接管、可见交付页；实时 viewer 的更广兼容与异常生命周期验收。
 - 浏览器自动获取/兼容发现以及 macOS/Linux managed 实现。
 - 普通已登录浏览器的原生弹窗抢焦点问题。Headless 内部激活事件也不能
   直接证明操作系统前台焦点保持，需另有相同范围的观察证据。
 - 完整能力对齐。原型或 launcher 的单项通过不能代表所有 Browser Use 任务。
 
 ## 当前验证
+
+2026-10-17，登录准备原始流程 `managed-setup-QyXNkx` 五步实际 exit 0。
+同一专用 profile 先在可见 setup 窗口完成唯一合成登录 POST，保存持久
+HttpOnly cookie 与 localStorage；正常关闭后，由正式 SDK 在新 run 访问
+受保护页并完成唯一后续 POST。setup/run 双向互斥、CLI/MCP/view 拒绝、
+同名资料复用和另名未认证资料均验证。显式 stop 有原 Browser.close 回执，
+另一个独立 setup 自然关闭没有伪造该回执；三次原浏览器均 exit 0、Job 归零，
+没有强制终止。原窗口可见与退出后消失由只读 Windows 观察确认；测试 actor
+经 CDP 操作合成本地页，不代表真人、SSO/MFA 或系统前台焦点验收。
+结果 SHA-256：`daadcaeb558f43b3fc9ad0f55a7fc32696ff748060347b524c5fb155a13fad37`。
+
+同源码实时查看回归 `managed-viewer-cOCeeU` 四步实际 exit 0，38 原生帧、
+唯一 190 B POST、暂停/新轮次继续/停止与正常清理通过；停止后独审 19 项
+通过。结果 SHA-256：`47edc6b450932e144649a8c6302a17c70c9bc2260f542b4158f3739e8f295018`。
+Go 全包测试及 vet 通过；扩展源码未改，旧扩展测试保留为历史结果。
+
+两次零业务前置失败保留：`managed-viewer-ocDaKN` 在读取刚发布的端口文件时
+遇到 Windows EBUSY，独立查看进程经强制清理，未取得完整原进程身份清单；
+修正为在原启动期限观察同一文件。`managed-setup-XjPnhh` 的验收断言误把
+所有 extension target 当成本项目扩展；改为按本项目公开 key/ID 核对，并
+如实记录其他未分类目标。两次修正都只改验收设施，未重放已提交业务。
 
 2026-10-17，实时查看原始验收 `managed-viewer-5xVYLn` 四步全部通过，runner
 实际 exit 0。独立查看页收到 38 个原生 PNG 帧，全部保留；画面显示 AI 光标

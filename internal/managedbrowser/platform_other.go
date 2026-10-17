@@ -17,6 +17,9 @@ func platformRegister(string, string, string) (io.Closer, error) { return nil, e
 func platformStart(string, []string, []string, string) (*platformProcess, error) {
 	return nil, errManagedPlatform
 }
+func platformStartWithVisibility(string, []string, []string, string, bool) (*platformProcess, error) {
+	return nil, errManagedPlatform
+}
 
 type platformProcess struct{}
 

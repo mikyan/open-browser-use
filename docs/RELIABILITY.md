@@ -31,3 +31,10 @@ ready 后的会话生命周期独立于启动期限。Browser 或 native host �
 自动重连或 Resume；独立 supervisor Stop 仍可用。HTTP Stop 成功只来自
 真实会话关闭，原成功回复实际写出后才关闭查看服务器。客户端等待超时
 不代表未执行，也不构成清理完成的依据，不自动重试输入或控制命令。
+
+开发中的 `managed setup` 与 run 共用原 profile 锁和退出清理。在 setup 中，
+用户关闭浏览器后的原进程退出属于正常结束；记录 `browser-exited` 和真实
+exit/Job 结果，不给已经退出的浏览器补发或伪造 Browser.close 回执。显式 stop
+记录 `requested` 并按原 Close 流程等待确认。自然非零退出、失败的关闭调用
+或强制终止仍报告失败。登录状态的复用要经过实际持久数据与原进程退出验证，
+不能仅由目录名相同推导；不会恢复旧任务轮次、内存状态或未提交表单。

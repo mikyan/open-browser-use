@@ -1,5 +1,23 @@
 # Browser integration acceptance
 
+## Managed login preparation (Windows, experimental)
+
+Build the CLI and extension and set the three absolute `OBU_TEST_*` paths shown
+below, then run `node scripts/browser-integration/managed-setup-check.mjs`.
+Five stages use production setup/run, the original visible setup page, a
+synthetic CDP actor and the public task SDK. One local login POST sets a persistent
+HttpOnly cookie and localStorage marker; after the original browser exits, one
+authenticated task POST uses the same profile. An unrelated profile only performs
+an unauthenticated GET before natural last-window closure. Business is not replayed.
+
+Checks cover both directions of setup/run exclusion, task/view rejection, actual
+Browser.close versus natural exit, Job and original process/window cleanup, and
+source/build stability. Raw synthetic passwords, cookies and storage values are
+not retained in reports; hashes and server validation are. Other Chromium
+extension targets are recorded as unclassified; absence checks use the exact
+project extension identities. This does not test real credentials, human MFA,
+OS foreground behavior, ordinary company Edge or in-place task takeover.
+
 ## Managed live viewer and user controls (Windows, experimental)
 
 `managed-viewer-check.mjs` uses the production launcher and SDK plus an independent

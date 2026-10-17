@@ -69,6 +69,7 @@ type managedMessage struct {
 	Info      *managedbrowser.Info `json:"info,omitempty"`
 	Error     string               `json:"error,omitempty"`
 	ViewerURL string               `json:"viewerURL,omitempty"`
+	NextStep  string               `json:"nextStep,omitempty"`
 }
 
 func readManagedMessage(conn net.Conn) (managedMessage, error) {
@@ -139,7 +140,11 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 		return
 	default:
 	}
-	if err := wire.WriteJSON(conn, managedMessage{State: "ready", RunID: s.info.RunID, Info: &s.info}); err != nil {
+	state := "ready"
+	if s.info.Mode == "setup" {
+		state = "setup"
+	}
+	if err := wire.WriteJSON(conn, managedMessage{State: state, RunID: s.info.RunID, Info: &s.info}); err != nil {
 		return
 	}
 	// User operations require this same live connection and this exact run.
@@ -152,6 +157,10 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 		return
 	}
 	if request.Operation == "view" {
+		if s.info.Mode == "setup" {
+			_ = wire.WriteJSON(conn, managedMessage{Error: "managed setup is for manual login; no task viewer is available"})
+			return
+		}
 		select {
 		case <-s.stop:
 			_ = wire.WriteJSON(conn, managedMessage{Error: "managed session is stopping"})
@@ -250,8 +259,19 @@ func managedUserRequest(root, name, operation string, timeout time.Duration) (ma
 	if err != nil {
 		return zero, err
 	}
-	if response.State != "ready" || response.Info == nil || response.Info.Name != name || response.Info.RunID == "" || response.RunID != response.Info.RunID || !transport.IsNamedPipe(response.Info.SocketPath) {
+	if response.Info == nil || response.Info.Name != name || response.Info.RunID == "" || response.RunID != response.Info.RunID {
 		return zero, errors.New("managed supervisor did not confirm a ready, exact session")
+	}
+	if response.Info.Mode == "setup" {
+		info := response.Info
+		if response.State != "setup" || info.BrowserPID <= 0 || info.SocketPath != "" || info.NativePID != 0 || info.NativeHostName != "" || info.ExtensionID != "" || info.ExtensionInstanceID != "" || response.ViewerURL != "" {
+			return zero, errors.New("managed setup reported an invalid browser identity or task endpoint")
+		}
+		if operation == "view" {
+			return zero, errors.New("managed setup is for manual login; close it before starting managed run")
+		}
+	} else if (response.Info.Mode != "" && response.Info.Mode != "run") || response.State != "ready" || !transport.IsNamedPipe(response.Info.SocketPath) {
+		return zero, errors.New("managed supervisor did not confirm a ready, exact task session")
 	}
 	if operation == "status" {
 		return response, nil
@@ -280,7 +300,8 @@ func managedUserRequest(root, name, operation string, timeout time.Duration) (ma
 }
 
 func newManagedCommand() *cobra.Command {
-	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Run an isolated headless Chromium session with a local live viewer and explicit user pause, resume and stop controls. The viewer URL is a private, one-use user capability. Login handoff is not implemented. Ordinary installed browser profiles are unchanged."}
+	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Use setup for manual login in a dedicated visible Chromium profile, then close it and start run for isolated headless tasks with a local live viewer. Setup and run cannot use the same profile concurrently. The viewer URL is a private, one-use user capability. In-place task handoff is not implemented. Ordinary installed browser profiles are unchanged."}
+	command.AddCommand(newManagedSetupCommand())
 	var config managedbrowser.Config
 	runCommand := &cobra.Command{Use: "run", Short: "Keep an isolated browser running until Ctrl+C or managed stop", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -414,6 +435,9 @@ func dialBrowserSocketForOptions(options socketOptions, timeout time.Duration) (
 	status, err := managedRequest(root, options.managedName, false, timeout)
 	if err != nil {
 		return nil, err
+	}
+	if status.Info.Mode == "setup" {
+		return nil, errors.New("managed session is in manual login setup; close setup and explicitly start managed run before connecting an Agent")
 	}
 	if time.Until(deadline) <= 0 {
 		return nil, context.DeadlineExceeded

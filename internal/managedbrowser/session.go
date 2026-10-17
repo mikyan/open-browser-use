@@ -19,6 +19,7 @@ import (
 )
 
 type Info struct {
+	Mode                string `json:"mode,omitempty"`
 	Name                string `json:"name"`
 	RunID               string `json:"runId"`
 	RunDir              string `json:"runDir"`
@@ -56,6 +57,7 @@ type lifecycle struct {
 	NativeCreationTime  uint64                   `json:"nativeCreationTime,omitempty"`
 	Binding             json.RawMessage          `json:"binding,omitempty"`
 	BrowserClose        *acknowledgement         `json:"browserClose,omitempty"`
+	CloseReason         string                   `json:"closeReason,omitempty"`
 	BrowserExit         *exitReceipt             `json:"browserExit,omitempty"`
 	NativeExit          *exitReceipt             `json:"nativeExit,omitempty"`
 	JobEmpty            *acknowledgement         `json:"jobEmpty,omitempty"`
@@ -90,6 +92,16 @@ func (s *Session) Done() <-chan struct{} { return s.done }
 // Start's context governs setup only. A ready session has its own lifetime and
 // must be explicitly closed; expiration of the startup budget does not kill it.
 func Start(parent context.Context, config Config) (_ *Session, err error) {
+	return startSession(parent, config, false)
+}
+
+// StartSetup opens a visible browser at about:blank for human login. It shares
+// the run profile lock and process ownership, but never starts a task endpoint.
+func StartSetup(parent context.Context, config SetupConfig) (*Session, error) {
+	return startSession(parent, Config{Root: config.Root, Name: config.Name, BrowserPath: config.BrowserPath, StartupTimeout: config.StartupTimeout}, true)
+}
+
+func startSession(parent context.Context, config Config, setup bool) (_ *Session, err error) {
 	if config.StartupTimeout == 0 {
 		config.StartupTimeout = 45 * time.Second
 	}
@@ -98,7 +110,7 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	config, err = validateConfig(config)
+	config, err = validateLaunchConfig(config, setup)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +143,12 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 	if err != nil {
 		return nil, err
 	}
-	s.info = Info{Name: config.Name, RunID: id, RunDir: filepath.Join(nameDir, "runs", id), ProfileDir: filepath.Join(nameDir, "profile"), NativeHostName: "com.openbrowseruse.managed.n" + id}
+	s.info = Info{Name: config.Name, RunID: id, RunDir: filepath.Join(nameDir, "runs", id), ProfileDir: filepath.Join(nameDir, "profile")}
+	if setup {
+		s.info.Mode = "setup"
+	} else {
+		s.info.NativeHostName = "com.openbrowseruse.managed.n" + id
+	}
 	if err := ownDirectory(s.info.ProfileDir, ".managed-profile.json", config.Name); err != nil {
 		return nil, err
 	}
@@ -154,31 +171,34 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	extension := filepath.Join(s.info.RunDir, "extension")
-	s.info.ExtensionID, err = stageExtension(ctx, config.ExtensionDir, extension, config.ExtensionPublicKey, s.info.NativeHostName)
-	if err != nil {
-		return nil, err
-	}
-	nativeExe := filepath.Join(s.info.RunDir, "native-host.exe")
-	if err := copyRegular(ctx, config.HostPath, nativeExe); err != nil {
-		return nil, err
-	}
-	manifest := map[string]any{"name": s.info.NativeHostName, "description": "Open Browser Use isolated session", "path": nativeExe, "type": "stdio", "allowed_origins": []string{"chrome-extension://" + s.info.ExtensionID + "/"}}
-	manifestPath := filepath.Join(s.info.RunDir, "native-host.json")
-	if err := writeJSONFile(manifestPath, manifest); err != nil {
-		return nil, err
-	}
 	env, err := privateEnvironment(s.info.RunDir)
 	if err != nil {
 		return nil, err
 	}
-	s.endpointDir = filepath.Join(s.info.RunDir, "temp", "open-browser-use")
-	if err := contextError(ctx); err != nil {
-		return nil, err
-	}
-	s.registration, err = platformRegister(s.info.NativeHostName, manifestPath, id)
-	if err != nil {
-		return nil, err
+	extension, nativeExe := "", ""
+	if !setup {
+		extension = filepath.Join(s.info.RunDir, "extension")
+		s.info.ExtensionID, err = stageExtension(ctx, config.ExtensionDir, extension, config.ExtensionPublicKey, s.info.NativeHostName)
+		if err != nil {
+			return nil, err
+		}
+		nativeExe = filepath.Join(s.info.RunDir, "native-host.exe")
+		if err := copyRegular(ctx, config.HostPath, nativeExe); err != nil {
+			return nil, err
+		}
+		manifest := map[string]any{"name": s.info.NativeHostName, "description": "Open Browser Use isolated session", "path": nativeExe, "type": "stdio", "allowed_origins": []string{"chrome-extension://" + s.info.ExtensionID + "/"}}
+		manifestPath := filepath.Join(s.info.RunDir, "native-host.json")
+		if err := writeJSONFile(manifestPath, manifest); err != nil {
+			return nil, err
+		}
+		s.endpointDir = filepath.Join(s.info.RunDir, "temp", "open-browser-use")
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		s.registration, err = platformRegister(s.info.NativeHostName, manifestPath, id)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// Only the locked, owned profile may contain a previous endpoint file. It
 	// cannot identify the next run, even if the same ephemeral port is reused.
@@ -190,10 +210,13 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 		return nil, err
 	}
 	args := browserArguments(s.info.ProfileDir, extension, filepath.Join(s.info.RunDir, "chrome.log"))
+	if setup {
+		args = setupBrowserArguments(s.info.ProfileDir)
+	}
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	s.process, err = platformStart(config.BrowserPath, args, env, filepath.Join(s.info.RunDir, "browser.log"))
+	s.process, err = platformStartWithVisibility(config.BrowserPath, args, env, filepath.Join(s.info.RunDir, "browser.log"), setup)
 	if err != nil {
 		return nil, err
 	}
@@ -243,66 +266,73 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 	if err := validateBrowserArguments(commandLine.Arguments, args); err != nil {
 		return nil, err
 	}
+	if setup {
+		if err := validateSetupArguments(commandLine.Arguments); err != nil {
+			return nil, err
+		}
+	}
 	s.record.CommandLine = commandLine.Arguments
-	var descriptor host.ActiveSocketRecord
-	if err := s.waitStartup(ctx, func() (bool, error) {
-		data, err := readSmallFile(filepath.Join(s.endpointDir, "active.json"), 4096)
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+	if !setup {
+		var descriptor host.ActiveSocketRecord
+		if err := s.waitStartup(ctx, func() (bool, error) {
+			data, err := readSmallFile(filepath.Join(s.endpointDir, "active.json"), 4096)
+			if errors.Is(err, os.ErrNotExist) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			if err := json.Unmarshal(data, &descriptor); err != nil {
+				return false, err
+			}
+			if !transport.IsNamedPipe(descriptor.SocketPath) || descriptor.PID <= 0 || descriptor.StartedAt.IsZero() {
+				return false, errors.New("invalid private native endpoint descriptor")
+			}
+			return true, nil
+		}); err != nil {
+			return nil, fmt.Errorf("managed native startup: %w", err)
 		}
+		s.native, err = s.process.NativeHost(descriptor.PID, nativeExe)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
-		if err := json.Unmarshal(data, &descriptor); err != nil {
-			return false, err
+		s.info.NativePID, s.info.SocketPath = descriptor.PID, descriptor.SocketPath
+		s.record.NativeDescriptor = &descriptor
+		s.record.NativeCreationTime = s.native.CreationTime()
+		go func() {
+			waitErr := s.native.Wait(context.Background())
+			code, codeErr := s.native.ExitCode()
+			s.nativeExit = processReceipt(code, codeErr, waitErr)
+			close(s.nativeDone)
+		}()
+		var backend struct {
+			Type     string `json:"type"`
+			Metadata struct {
+				ExtensionID         string `json:"extensionId"`
+				ExtensionInstanceID string `json:"extensionInstanceId"`
+				NativeHostName      string `json:"nativeHostName"`
+			} `json:"metadata"`
 		}
-		if !transport.IsNamedPipe(descriptor.SocketPath) || descriptor.PID <= 0 || descriptor.StartedAt.IsZero() {
-			return false, errors.New("invalid private native endpoint descriptor")
+		if err := nativeCall(ctx, s.info.SocketPath, "getInfo", map[string]any{}, &backend); err != nil {
+			return nil, err
 		}
-		return true, nil
-	}); err != nil {
-		return nil, fmt.Errorf("managed native startup: %w", err)
+		if backend.Type != "extension" || backend.Metadata.ExtensionID != s.info.ExtensionID || backend.Metadata.NativeHostName != s.info.NativeHostName || backend.Metadata.ExtensionInstanceID == "" {
+			return nil, errors.New("managed native endpoint has an unexpected extension identity")
+		}
+		s.info.ExtensionInstanceID = backend.Metadata.ExtensionInstanceID
+		deadline, _ := ctx.Deadline()
+		remaining := time.Until(deadline).Milliseconds()
+		if remaining < 1 {
+			return nil, context.DeadlineExceeded
+		}
+		if err := nativeCall(ctx, s.info.SocketPath, "host.bindBrowser", map[string]any{"cdpURL": cdpURL, "exclusive": true, "timeoutMs": remaining}, &s.record.Binding); err != nil {
+			return nil, err
+		}
+		if err := validateBinding(s.record.Binding, s.info); err != nil {
+			return nil, err
+		}
+		s.userRootURL = cdpURL
 	}
-	s.native, err = s.process.NativeHost(descriptor.PID, nativeExe)
-	if err != nil {
-		return nil, err
-	}
-	s.info.NativePID, s.info.SocketPath = descriptor.PID, descriptor.SocketPath
-	s.record.NativeDescriptor = &descriptor
-	s.record.NativeCreationTime = s.native.CreationTime()
-	go func() {
-		waitErr := s.native.Wait(context.Background())
-		code, codeErr := s.native.ExitCode()
-		s.nativeExit = processReceipt(code, codeErr, waitErr)
-		close(s.nativeDone)
-	}()
-	var backend struct {
-		Type     string `json:"type"`
-		Metadata struct {
-			ExtensionID         string `json:"extensionId"`
-			ExtensionInstanceID string `json:"extensionInstanceId"`
-			NativeHostName      string `json:"nativeHostName"`
-		} `json:"metadata"`
-	}
-	if err := nativeCall(ctx, s.info.SocketPath, "getInfo", map[string]any{}, &backend); err != nil {
-		return nil, err
-	}
-	if backend.Type != "extension" || backend.Metadata.ExtensionID != s.info.ExtensionID || backend.Metadata.NativeHostName != s.info.NativeHostName || backend.Metadata.ExtensionInstanceID == "" {
-		return nil, errors.New("managed native endpoint has an unexpected extension identity")
-	}
-	s.info.ExtensionInstanceID = backend.Metadata.ExtensionInstanceID
-	deadline, _ := ctx.Deadline()
-	remaining := time.Until(deadline).Milliseconds()
-	if remaining < 1 {
-		return nil, context.DeadlineExceeded
-	}
-	if err := nativeCall(ctx, s.info.SocketPath, "host.bindBrowser", map[string]any{"cdpURL": cdpURL, "exclusive": true, "timeoutMs": remaining}, &s.record.Binding); err != nil {
-		return nil, err
-	}
-	if err := validateBinding(s.record.Binding, s.info); err != nil {
-		return nil, err
-	}
-	s.userRootURL = cdpURL
 	if err := s.checkStartup(ctx); err != nil {
 		return nil, err
 	}
@@ -328,6 +358,21 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 
 func browserArguments(profile, extension, log string) []string {
 	return []string{"--headless=new", "--enable-automation", "--user-data-dir=" + profile, "--remote-debugging-port=0", "--disable-extensions-except=" + extension, "--load-extension=" + extension, "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-background-networking", "--site-per-process", "--disable-field-trial-config", "--enable-logging", "--log-file=" + log, "about:blank"}
+}
+
+func setupBrowserArguments(profile string) []string {
+	return []string{"--enable-automation", "--user-data-dir=" + profile, "--remote-debugging-port=0", "--disable-extensions", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--site-per-process", "--disable-field-trial-config", "about:blank"}
+}
+
+func validateSetupArguments(actual []string) error {
+	for _, value := range actual {
+		key, _, _ := strings.Cut(value, "=")
+		switch key {
+		case "--headless", "--load-extension", "--disable-extensions-except", "--app", "--app-id", "--incognito", "--guest", "--profile-directory", "--enable-logging", "--log-file", "--log-net-log":
+			return fmt.Errorf("managed setup rejects %s", key)
+		}
+	}
+	return nil
 }
 
 func validateBrowserArguments(actual, wanted []string) error {
@@ -440,7 +485,20 @@ func (s *Session) shutdown() {
 	}
 	if s.process != nil {
 		grace, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if s.browser != nil {
+		// In setup the user may close the last visible window. The original
+		// process receipt is authoritative; sending CDP to an exited browser
+		// would turn a normal user close into a false transport failure.
+		naturalSetupExit := false
+		if s.info.Mode == "setup" {
+			s.record.CloseReason = "requested"
+			select {
+			case <-s.browserDone:
+				naturalSetupExit = true
+				s.record.CloseReason = "browser-exited"
+			default:
+			}
+		}
+		if s.browser != nil && !naturalSetupExit {
 			var response json.RawMessage
 			err := s.browser.call(grace, "Browser.close", map[string]any{}, &response)
 			s.record.BrowserClose = receipt(response, err)

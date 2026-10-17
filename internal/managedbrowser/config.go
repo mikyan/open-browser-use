@@ -24,13 +24,28 @@ type Config struct {
 	StartupTimeout                                                      time.Duration
 }
 
+// SetupConfig opens only the dedicated profile for explicit human use. There
+// is no task extension, host, input API or initial website URL in this mode.
+type SetupConfig struct {
+	Root, Name, BrowserPath string
+	StartupTimeout          time.Duration
+}
+
 var managedName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,47}$`)
 
 func validateConfig(c Config) (Config, error) {
+	return validateLaunchConfig(c, false)
+}
+
+func validateLaunchConfig(c Config, setup bool) (Config, error) {
 	if !managedName.MatchString(c.Name) || reservedName(c.Name) {
 		return c, errors.New("managed name must be 1–48 lowercase letters, digits, underscores or hyphens, starting with a letter, and not a Windows device name")
 	}
-	for label, value := range map[string]*string{"root": &c.Root, "browser": &c.BrowserPath, "extension": &c.ExtensionDir, "host": &c.HostPath} {
+	paths := map[string]*string{"root": &c.Root, "browser": &c.BrowserPath}
+	if !setup {
+		paths["extension"], paths["host"] = &c.ExtensionDir, &c.HostPath
+	}
+	for label, value := range paths {
 		if strings.TrimSpace(*value) == "" {
 			return c, fmt.Errorf("managed %s path is required", label)
 		}
@@ -43,7 +58,11 @@ func validateConfig(c Config) (Config, error) {
 		}
 		*value = filepath.Clean(absolute)
 	}
-	for _, file := range []string{c.BrowserPath, c.HostPath} {
+	executables := []string{c.BrowserPath}
+	if !setup {
+		executables = append(executables, c.HostPath)
+	}
+	for _, file := range executables {
 		info, err := os.Stat(file)
 		if err != nil {
 			return c, err

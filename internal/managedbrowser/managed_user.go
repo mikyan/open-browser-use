@@ -74,6 +74,9 @@ type UserController struct {
 func (s *Session) OpenUserController(ctx context.Context) (*UserController, error) {
 	s.userMu.Lock()
 	defer s.userMu.Unlock()
+	if s.info.Mode == "setup" {
+		return nil, errors.New("managed setup has no task or viewer controller")
+	}
 	if s.userOpened || s.userRootURL == "" {
 		return nil, errors.New("managed user controller was already opened or session is not ready")
 	}

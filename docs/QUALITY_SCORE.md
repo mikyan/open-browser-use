@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+新增实验性 Windows `managed setup`：可见专用窗口登录后显式关闭，再由
+`managed run` 串行复用持久数据。`managed-setup-QyXNkx` 五步与同源码
+viewer 回归 `managed-viewer-cOCeeU` 四步均实际 exit 0；后者独审 19 项
+通过。Go 全包及 vet 通过；没有重跑未变更的扩展全套测试。两次零业务前置
+失败与其中一次查看器强制清理如实保留，详见独立会话参考。真人 SSO/MFA、
+同文档中途接管、普通公司 Edge、OS 前台焦点及完整能力对齐仍开放。
+
 已按用户要求交付 `preview-20261016-dfb9e6b`，运行功能与 e83c6d8 相同，
 重建主机、离线检查、制品独审及上传后回下载哈希核验通过。新增显式隔离
 Headless 原型在真实 Native Messaging 下完成五步验证（含原表单、原生子页、

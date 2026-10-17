@@ -107,6 +107,9 @@ debugger、history 和 tab groups。
   保留原 context/run/Native Port 身份，提供有界 typed 用户控制与实时帧。
   它不增加页面 debugger 附件，也不在 task RPC 中开放用户控制。见
   [独立会话](references/managed-browser-session.md)。
+  实验性的 `StartSetup` 与 `Start` 共用资料目录锁和进程生命周期；显式 setup
+  打开可见浏览器但禁用扩展，不产生 native 注册或任务 endpoint。管理 status
+  明确报告 setup，CLI/MCP 任务选择拒绝该模式；只有原树退出后才释放资料目录。
 - `internal/managedviewer/`：实验性的本地 HTTP/WS 实时查看界面。只绑定
   loopback，核验精确 Host/Origin、一次性票据和单个观看连接；投影已验证
   worker 状态及 PNG，不提供浏览器输入或 CDP 代理。Pause/Resume 沿用原

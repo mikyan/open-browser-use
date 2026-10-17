@@ -305,6 +305,12 @@ func (e *platformExitError) Error() string {
 // suspended-create/AssignProcessToJobObject sequence, supervisor death cannot
 // leave a newly created process outside the kill-on-close job.
 func platformStart(executable string, args, env []string, logPath string) (*platformProcess, error) {
+	return platformStartWithVisibility(executable, args, env, logPath, false)
+}
+
+// visible is reserved for the explicit human setup command. Job membership,
+// inherited handles and Ctrl+C isolation are identical in both launch modes.
+func platformStartWithVisibility(executable string, args, env []string, logPath string, visible bool) (*platformProcess, error) {
 	for _, path := range []string{executable, logPath} {
 		if err := platformValidatePath(path); err != nil {
 			return nil, err
@@ -344,7 +350,14 @@ func platformStart(executable string, args, env []string, logPath string) (*plat
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		return nil, err
 	}
-	log, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	var log *os.File
+	if visible {
+		// Human setup may visit login callbacks containing credentials. Its
+		// stdout/stderr are not retained; readiness uses DevToolsActivePort.
+		log, err = os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	} else {
+		log, err = os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -376,6 +389,9 @@ func platformStart(executable string, args, env []string, logPath string) (*plat
 	startup.Cb = uint32(unsafe.Sizeof(startup))
 	startup.Flags = windows.STARTF_USESTDHANDLES | windows.STARTF_USESHOWWINDOW
 	startup.ShowWindow = windows.SW_HIDE
+	if visible {
+		startup.ShowWindow = windows.SW_SHOWNORMAL
+	}
 	startup.StdInput, startup.StdOutput, startup.StdErr = inherited[0], inherited[1], inherited[1]
 	startup.ProcThreadAttributeList = attributes.List()
 	var information windows.ProcessInformation
