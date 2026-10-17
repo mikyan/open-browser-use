@@ -258,3 +258,35 @@ Artifact audit SHA-256:
 The local delivery's 100 files match the isolated source output. No browser
 replay, installation or PR was performed during packaging; prior packages and
 failed evidence remain intact. These results do not complete the active goal.
+
+### 2026-10-17: Requested verified-source package refresh
+
+The user again asked whether development had finished and requested a new package.
+Full parity remains open. Human takeover was still uncommitted and lacked complete
+cross-layer and real-browser acceptance, so all such work was preserved outside
+the release. Build only committed source `2547e6e4622bdda5c820b58e7c50f3df9968f465`
+in a fresh isolated clean checkout. Read-only comparison found 793 application,
+SDK, dependency and build/test script Git objects identical to the previously
+verified b3fd56a release; only three documentation files differed. This refresh
+adds no runtime feature, and its notes explicitly distinguish retained historical
+browser evidence from the new packaging checks.
+
+The host and production extension were rebuilt, and offline CLI/help/MCP checks
+passed with 30 tools. Independent ZIP auditing passed 5,324 mechanical assertions
+across 96 bundle, 69 extension and 6 Skill members, including 451 selected source
+inputs. These are artifact checks, not 5,324 browser tests. All four uploaded assets
+were downloaded and matched before publication; the local delivery's 100 files
+also matched the isolated output. Published on the fork as
+[preview-20261017-2547e6e](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-2547e6e).
+Full ZIP is 10,194,880 bytes, SHA-256:
+`145dc0bf1a8e67d4fd0830cc65b82cc04e3635e146ce1a816d6cc12e405d852b`.
+Audit report SHA-256:
+`0563cba1d0ddb0ec664178e9eab11b89a77d8b1758ec740f64417ee8c17dd689`.
+
+The first preparation used an already occupied scratch name. The existing
+prepare script refused the existing result, and the new bootstrap's exclusive
+write also failed on the old script; both actual exit-1 outcomes were retained.
+No prior package was overwritten. A new unique directory then completed the
+preparation and delivery. No browser workflow, installation, registry update or
+PR was performed for this refresh. Ordinary company Edge and the remaining
+capability matrix are still unverified; the active development goal is not done.
