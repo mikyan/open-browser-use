@@ -18,7 +18,10 @@ Windows 专用浏览器获取现有正式 `managed browser install/status`，固
 实际 exit 0，40 实时帧、原生子页唯一 POST、Pause/Resume/Stop 与清理通过。
 运行后离线状态/复用和停止后独审通过；首次字典运行数据误拒绝已修复并保留失败。
 Go 全包/vet/build 及安装边界测试通过。此结果改善部署门槛，不代表所有浏览器、
-真实登录、重启恢复或完整 Browser Use 能力持平；本轮新包正在交付。
+真实登录、重启恢复或完整 Browser Use 能力持平。本轮已发布
+`preview-20261017-81cfdae`，干净重建、离线 CLI/MCP 30 工具、独立制品 5,488 项
+检查和四资产回下载校验通过。新包不将历史 Chromium 156 接管/结果/下载验收
+计作本轮 CfT 155 新运行；发布 EXE 单独重建，未重跑网页业务。
 
 正式 managed 自动 Native binding 的原下载专项 `managed-download-LWwtqG`
 五步实际 exit 0：8 个原始尝试、7 份文件/17,524 B、在途真实取消、仅取消

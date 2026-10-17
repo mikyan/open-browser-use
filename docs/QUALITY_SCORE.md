@@ -19,7 +19,10 @@ CLI 8 组定向及 Go 全包/vet/build 通过。生产 EXE 安装/离线状态/�
 首轮 `7dxhON` 运行后新增字典触发缓存拒绝；修为仅接纳有界 bdic 运行数据，
 原 305 文件仍严格校验。首轮失败审计和生产 status 拒绝保留。
 Windows 原目录身份的延迟读取缺陷已由反例修复；先前失败记录保留。新包按用户
-请求进入交付流程；可见 setup、本轮普通公司 Edge 与完整能力对齐未验。
+请求发布为 [preview-20261017-81cfdae](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-81cfdae)：
+干净重建、离线 CLI/MCP 30 工具、独立制品 5,488 项检查和四资产回下载哈希通过。
+完整包/扩展/Skill 为 98/71/6 文件；发布 EXE 单独重建，未重跑网页业务。
+可见 setup、本轮普通公司 Edge 与完整能力对齐未验。
 
 正式 managed 原下载 `managed-download-LWwtqG` 五步实际 exit 0：自动 Native
 binding、8 项原流程、7 文件/17,524 B、真实取消与仅取消等待、16 次越权拒绝，

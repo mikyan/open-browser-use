@@ -774,3 +774,25 @@ Post-run cache report SHA256:
 `b2ec8889de029f30a6b7c61590683b3bb3714e38c8ad1bdf93169246c8f9e9e5`.
 The requested release uses this final source; it does not promote the earlier
 incomplete cache-reuse result or claim visible setup and login were retested.
+
+### Published Windows package
+
+Published `preview-20261017-81cfdae` from clean commit
+`81cfdae2442e816c5e97e2c09a9ae96ee325f515` to the user's fork, without a PR.
+The release EXE is a separate Go 1.26.9 Windows amd64 trimpath build. Offline
+CLI/MCP initialization and 30 tools passed; independent artifact auditing passed
+5,488 checks with full/extension/skill inventories of 98/71/6 files. All four
+uploaded assets were downloaded again and matched before publication. The
+local 102-file delivery copy also matched. No browser business was rerun for
+release packaging. The source-binding check records Git CRLF-to-LF clean-filter
+canonicalization for two pre-existing text files; their accepted raw hashes and
+committed blob hashes are both retained, with no other source difference.
+
+Full ZIP: 10,381,832 bytes, SHA256
+`991b661e6a953da15559f5284910e70f2e19385444c7d7e243c2e9fb327f01a1`.
+Artifact audit SHA256:
+`250ee29a261daa73ce0e230a64601894b8291e96675ff2c128fcf8e27f410874`.
+Release: https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-81cfdae
+The package includes the normal company-PC installation guide and optional
+install-then-run managed commands. Browser binaries are downloaded explicitly
+on first use, not included in the ZIP. Full parity remains open.

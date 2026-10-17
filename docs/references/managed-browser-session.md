@@ -8,6 +8,11 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
+最新完整包为 [preview-20261017-81cfdae](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-81cfdae)，
+包含本文的推荐浏览器安装、默认选择和运行字典兼容修复，以及之前的启动连接
+修复。干净重建、离线 CLI/MCP、独立制品检查和四资产回下载校验已通过。
+本轮 CfT 155 验证安装和四步查看流程；此前连续接管、结果页及原下载的 Chromium
+156 验收保持为历史证据，未在 CfT 155 上重跑。
 上一完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
 包含连续导航和结果页接续。干净构建、离线 CLI/MCP、独立制品审计和四资产
 回下载哈希核对通过；发布 EXE 单独重建，未在该 EXE 上重跑网页业务。
