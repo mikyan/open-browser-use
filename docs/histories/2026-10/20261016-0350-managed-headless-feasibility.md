@@ -169,3 +169,22 @@ retains 100 ns precision. No original browser evidence or production code change
 This is limited Windows/Chromium validation. Login handoff, ordinary Edge/company
 installation, OS foreground observation, cross-platform managed sessions and
 the full capability/task matrix remain open. No PR is requested or created.
+
+The requested package is published on the fork as
+[preview-20261017-41577de](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-41577de),
+from clean commit `41577de23774ecab7155a00567f8d19dc709583b`. The accepted source
+snapshot's 33 Git objects match its parent runtime commit; the final commit only
+corrects viewer toggle instructions. Offline CLI/MCP passed with 30 tools.
+Independent artifact auditing passed 5,312 mechanical checks across 96 bundle,
+69 extension and 6 Skill members; all four uploaded assets were downloaded and
+matched original hashes before publication. Full ZIP is 10,184,779 bytes, SHA-256
+`94353a396fb144082ec736f54335c6b30c5f409a47e9cae4f4492277f982d7a5`.
+Package audit SHA-256:
+`f801197c8c99ed393a31e8d16f4a3a4c5133df8fc6a5b21c3b050580525a72d5`.
+
+An initial assembly failed before ZIP creation because the token scanner matched
+concatenated Go HTTP standard-library literals. That failure is retained; a
+fixed-candidate hash, exact binary context and verified Go source provenance
+constrain the documented exception. Other credential and personal-path scans
+remain active. The corrected build used a separate clean checkout, preserving
+the failed directory. No install, PR or additional browser replay was performed.
