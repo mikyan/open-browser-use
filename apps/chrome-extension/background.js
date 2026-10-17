@@ -28,6 +28,8 @@ import { NativePageDownloads } from "./native-page-downloads.js";
 import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-policy.js";
 import { assertSiteAccessFrames } from "./site-access-frames.js";
 import managedConfig from "./managed-config.js";
+import { BrowserRendering } from "./browser-rendering.js";
+import { installManagedUserBridge } from "./managed-user-bridge.js";
 import { resolveManagedNativeHost } from "./managed-native-host.js";
 
 const NATIVE_HOST_NAME = "com.ifuryst.open_browser_use.extension";
@@ -838,6 +840,15 @@ class BrowserBackend {
     this.renderingLeases = new Map();
     this.externalScreencastTabs = new Set();
     this.internalScreencasts = new Map();
+    this.browserRendering = new BrowserRendering({
+      streams: this.internalScreencasts, drains: this.renderingDrains,
+      queue: (tabId, operation) => this.queueRendering(tabId, operation),
+      send: (target, method, params) => chrome.debugger.sendCommand(target, method, params),
+      addListener: listener => chrome.debugger.onEvent.addListener(listener),
+      removeListener: listener => chrome.debugger.onEvent.removeListener(listener),
+      isCurrent: (tabId, attachment) => this.attachedTabs.has(tabId) && this.attachmentEpochs.get(tabId) === attachment,
+      isExternal: tabId => this.externalScreencastTabs.has(tabId)
+    });
     this.downloadsById = new Map();
     this.pageDownloadResources = new Set();
     this.pageDownloadOperations = new Map();
@@ -1718,7 +1729,7 @@ class BrowserBackend {
     return gate.status();
   }
 
-  resumeAutomation(expectedRevision) {
+  resumeAutomation(expectedRevision, assertAuthority = () => {}) {
     const deadline = this.automationDeadline();
     const gate = this.automationControl;
     let failed = false;
@@ -1732,6 +1743,7 @@ class BrowserBackend {
       void gate.persist(true).catch(error => gate.fail(error));
     };
     const operation = this.automationTransitions.catch(() => {}).then(async () => {
+      try { assertAuthority(); } catch (error) { failResume(error); throw error; }
       await deadline.within(() => gate.ready);
       this.siteAccess.assertReady();
       if (this.sitePolicyUpdate) throw new Error("OBU_SITE_ACCESS_BUSY: wait for the website policy change before resuming");
@@ -1742,7 +1754,9 @@ class BrowserBackend {
       const pauseSequence = gate.pauseSequence;
       try {
         await deadline.within(() => this.controlLedger.writes);
+        assertAuthority();
         await deadline.within(() => gate.persist(false));
+        assertAuthority();
       } catch (error) { failResume(error); throw error; }
       if (gate.pauseSequence !== pauseSequence) {
         void gate.persist(true).catch(error => gate.fail(error));
@@ -3279,7 +3293,7 @@ class BrowserBackend {
     // CRX must establish its own protocol state. Release only a raw attachment
     // that this backend actually owns; never detach a competing debugger.
     if (this.attachedTabs.has(tabId)) {
-      const releases = [this.dialogs.invalidateAttachedTab(tabId), this.drainNativeDialogResponses(tabId, this.attachmentEpochs.get(tabId)), this.fileChooserWaits.invalidateAttachedTab(tabId), this.downloadWaits.invalidateAttachedTab(tabId), this.pageWaits.invalidateAttachedTab(tabId), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
+      const releases = [this.browserRendering.cancel(tabId, this.attachmentEpochs.get(tabId)), this.dialogs.invalidateAttachedTab(tabId), this.drainNativeDialogResponses(tabId, this.attachmentEpochs.get(tabId)), this.fileChooserWaits.invalidateAttachedTab(tabId), this.downloadWaits.invalidateAttachedTab(tabId), this.pageWaits.invalidateAttachedTab(tabId), this.directDownloads.invalidate(record => record.params.tabId === tabId && record.scope?.mediaDownload),
         this.pageExports.invalidateAttachedTab(tabId), this.clipboard.invalidateAttachedTab(tabId)];
       const results = await Promise.allSettled(releases);
       const failure = results.find(result => result.status === "rejected");
@@ -3326,6 +3340,7 @@ class BrowserBackend {
   }
 
   releaseEngineAttachment(tabId) {
+    this.browserRendering.released(tabId, this.attachmentEpochs.get(tabId));
     // Native automatic release cannot await optional display. Its exact old
     // delivery/final-hide barrier remains available to explicit cleanup.
     void this.visualDeliveries.close(scope => scope.tabId === tabId).catch(() => {});
@@ -3451,6 +3466,10 @@ class BrowserBackend {
       });
       if (target.sessionId === undefined && ["Page.startScreencast", "Page.stopScreencast"].includes(params.method)) {
         return await this.queueRendering(target.tabId, async () => {
+          checkTarget();
+          this.controlLedger.assertCurrent(params);
+          if (Date.now() >= startedAt + timeoutMs) throw new Error("Timed out preparing CDP command before native send");
+          await this.browserRendering.beforeExternal(target.tabId, attachment);
           const response = await send();
           // A timed-out RPC is not a completed native operation. Record a late
           // ACK only for its original live owner, before releasing the queue.
@@ -3478,6 +3497,47 @@ class BrowserBackend {
       check();
       return chrome.debugger.sendCommand(target, "Page.captureScreenshot", commandParams);
     }), "screenshot");
+  }
+
+  async getManagedViewerTabs() {
+    if (managedConfig === null) throw new Error("OBU_VIEWER_FORBIDDEN: managed viewer is unavailable in an ordinary browser");
+    try { this.assertControlOpen(); } catch { return []; }
+    const results = [];
+    for (const [tabId, owner] of this.attachmentOwners) {
+      try {
+        this.assertTransferScope(owner);
+        this.assertAttachmentAdmission(tabId, owner.attachment);
+        await this.validateTransferScope(owner);
+        const tab = await chrome.tabs.get(tabId);
+        this.assertControlOpen();
+        this.assertTransferScope(owner);
+        if (this.attachmentOwners.get(tabId) !== owner) continue;
+        assertControllableTab(tab);
+        const proof = await this.assertSiteTab(tabId, { allowBlank: true });
+        this.assertControlOpen(); this.assertTransferScope(owner); this.assertSiteProof(proof);
+        if (this.attachmentOwners.get(tabId) !== owner) continue;
+        results.push({ id: tabId, title: String(tab.title ?? "").slice(0, 1024), url: String(tab.url ?? "").slice(0, 8192) });
+      } catch { /* Only live eligible original attachments are selectable. */ }
+    }
+    return results;
+  }
+
+  async managedViewerSubscribe(tabId, onFrame) {
+    if (managedConfig === null) throw new Error("OBU_VIEWER_FORBIDDEN: managed viewer is unavailable in an ordinary browser");
+    if (!Number.isInteger(tabId) || tabId < 0) throw new Error("OBU_VIEWER_INVALID: a tab ID is required");
+    const owner = this.attachmentOwners.get(tabId);
+    if (!owner) throw new Error("OBU_VIEWER_UNAVAILABLE: the tab has no live automation attachment");
+    let proof;
+    const check = () => {
+      this.assertControlOpen(); this.assertAttachmentAdmission(tabId, owner.attachment); this.assertTransferScope(owner);
+      if (this.attachmentOwners.get(tabId) !== owner) throw new Error("OBU_VIEWER_UNAVAILABLE: original tab ownership changed");
+      if (proof) this.assertSiteProof(proof);
+    };
+    check();
+    await this.validateTransferScope(owner);
+    proof = await this.assertSiteTab(tabId, { allowBlank: true });
+    check();
+    return this.browserRendering.subscribe(tabId, owner.attachment, check, onFrame);
   }
 
   trackRenderingCapture(attachment, operation) {
@@ -3548,6 +3608,18 @@ class BrowserBackend {
         const result = await runOperation();
         assertCurrent();
         return result;
+      }
+      const viewer = this.browserRendering.borrow(tabId, attachment, error => { expired = true; rejectCancellation(error); });
+      if (viewer) {
+        try {
+          phase = `waiting for shared viewer frame before ${action}`;
+          await viewer.ready;
+          assertCurrent();
+          phase = `running ${action} with shared viewer stream`;
+          const result = await runOperation();
+          assertCurrent();
+          return result;
+        } finally { viewer.release(); }
       }
       let started = false;
       const stream = this.internalScreencasts.get(tabId) ?? { active: false, frameIds: [] };
@@ -6142,6 +6214,8 @@ class BrowserBackend {
     this.directoryUploads.cancelWhere(record => record.identity.tabId === tabId, new Error("OBU_TRANSFER_CANCELLED: tab control ended"));
     this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
     const attachment = this.attachmentEpochs.get(tabId);
+    const renderingReleased = this.browserRendering.cancel(tabId, attachment);
+    renderingReleased.catch(() => {});
     const actionRelease = this.actionInputReleases.get(attachment);
     const retryActionRelease = actionRelease?.failed && actionRelease.allowRetry;
     if (retryActionRelease) {
@@ -6174,7 +6248,7 @@ class BrowserBackend {
     // but keep the barrier until both it and this new cleanup have settled.
     const previousRelease = this.controlReleases.get(tabId);
     const previousNative = this.pageWaitNativeReleases.get(tabId);
-    const nativeRelease = Promise.allSettled([releaseAdmission, visualsReleased, pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
+    const nativeRelease = Promise.allSettled([releaseAdmission, visualsReleased, renderingReleased, pointerReadsReleased, fileInputsReleased, pageDownloadsReleased, networksReleased, dialogsReleased, this.drainNativeDialogResponses(tabId, attachment), choosersReleased, downloadWaitsReleased, mediaReleased, exportsReleased, clipboardReleased, this.clipboardBroker.waitForTab(tabId), previousNative ?? previousRelease]).then(results => {
       const failure = results.find(result => result.status === "rejected");
       if (failure) throw failure.reason;
       return previousRelease ? undefined : this.releaseTabControl(tabId, attachment);
@@ -6749,6 +6823,7 @@ const transport = new NativeTransport(ACTIVE_NATIVE_HOST_NAME, {
   onPageDownloadsStateChange: () => backend.nativeDownloadStateChanged()
 });
 backend.nativePageDownloads = () => transport.pageDownloads;
+installManagedUserBridge({ config: managedConfig, backend, getInstanceId: getExtensionInstanceId, target: globalThis });
 const peer = new JsonRpcPeer(transport, backend);
 async function handleAutomationControlMessage(message, sender) {
   if (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL("popup.html")) {

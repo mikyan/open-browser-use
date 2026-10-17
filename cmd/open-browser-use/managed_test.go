@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -14,6 +15,118 @@ import (
 	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 )
+
+func TestManagedViewerTicketRequiresSameLiveRunAndExplicitRequest(t *testing.T) {
+	const ticketURL = "http://127.0.0.1:54321/#ticket=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
+	for _, runID := range []string{"retired", "current"} {
+		t.Run(runID, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			s := newManagedSupervisor(nil, managedbrowser.Info{Name: "fixture", RunID: "current"})
+			issued := make(chan struct{}, 1)
+			s.issueViewerURL = func() (string, error) { issued <- struct{}{}; return ticketURL, nil }
+			done := make(chan struct{})
+			go func() { s.handle(server); server.Close(); close(done) }()
+			_ = client.SetDeadline(time.Now().Add(time.Second))
+			if err := wire.WriteJSON(client, managedMessage{Operation: "status"}); err != nil {
+				t.Fatal(err)
+			}
+			status, err := readManagedMessage(client)
+			if err != nil || status.State != "ready" || status.ViewerURL != "" {
+				t.Fatalf("status leaked or failed: %+v %v", status, err)
+			}
+			select {
+			case <-issued:
+				t.Fatal("status created a user capability")
+			default:
+			}
+			if err := wire.WriteJSON(client, managedMessage{Operation: "view", RunID: runID}); err != nil {
+				t.Fatal(err)
+			}
+			response, err := readManagedMessage(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-done
+			if runID != "current" {
+				if response.Error == "" || response.ViewerURL != "" || len(issued) != 0 {
+					t.Fatalf("retired run obtained a capability: %+v", response)
+				}
+			} else if response.State != "viewer" || response.RunID != runID || response.ViewerURL != ticketURL || len(issued) != 1 {
+				t.Fatalf("explicit view missing exact original result: %+v", response)
+			}
+			select {
+			case <-s.stop:
+				t.Fatal("view stopped the session")
+			default:
+			}
+		})
+	}
+}
+
+func TestManagedViewerStopWaitsForCleanupDespiteCallerDeadline(t *testing.T) {
+	s := newManagedSupervisor(nil, managedbrowser.Info{RunID: "current"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.requestStop(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation was concealed: %v", err)
+	}
+	select {
+	case <-s.stop:
+	default:
+		t.Fatal("original stop was not admitted")
+	}
+	select {
+	case <-s.finished:
+		t.Fatal("caller deadline completed real shutdown")
+	default:
+	}
+	result := make(chan error, 1)
+	go func() { result <- s.requestStop(context.Background()) }()
+	select {
+	case <-result:
+		t.Fatal("second observer did not wait for original cleanup")
+	default:
+	}
+	s.err = errors.New("original process cleanup failed")
+	close(s.finished)
+	if err := <-result; err != s.err {
+		t.Fatalf("original cleanup error replaced: %v", err)
+	}
+}
+
+func TestManagedViewUsesLiveSupervisorAndRefusesNonlocalURL(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows managed transport")
+	}
+	for _, location := range []string{
+		"http://127.0.0.1:54321/#ticket=" + strings.Repeat("A", 43),
+		"https://example.invalid/#ticket=" + strings.Repeat("A", 43),
+	} {
+		root := t.TempDir()
+		address, err := managedControlAddress(root, "fixture")
+		if err != nil {
+			t.Fatal(err)
+		}
+		listener, err := transport.Listen(address)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := newManagedSupervisor(listener, managedbrowser.Info{Name: "fixture", RunID: "unique", SocketPath: transport.NewEndpoint("", "fixture-unique")})
+		s.issueViewerURL = func() (string, error) { return location, nil }
+		s.serve()
+		response, err := managedUserRequest(root, "fixture", "view", time.Second)
+		s.stopOnce.Do(func() { close(s.stop) })
+		s.finish(nil)
+		if strings.HasPrefix(location, "http://127.0.0.1:") {
+			if err != nil || response.ViewerURL != location || response.RunID != "unique" {
+				t.Fatalf("local viewer failed: %+v %v", response, err)
+			}
+		} else if err == nil {
+			t.Fatal("nonlocal URL accepted as the private viewer")
+		}
+	}
+}
 
 func TestManagedStopWaitsForOriginalCleanup(t *testing.T) {
 	for _, cleanupErr := range []error{nil, errors.New("native exit unconfirmed")} {

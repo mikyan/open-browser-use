@@ -56,11 +56,49 @@ daemon。Ctrl+C、明确 stop 和启动失败共用实际关闭流程；命名 p
 独占锁保持到自有浏览器及 host 都退出。运行记录只用于定位，不能仅凭
 PID 文件杀进程，也不能在缺少匹配连接时退回全局 active endpoint。
 
-viewer 是待实现的用户 Interface，不能将当前 SDK screenshot 轮询当作已有
-实时观看能力。它需要与现有 rendering Module 协调有界帧订阅，不另抢 debugger
+viewer 是独立用户 Interface，使用现有 rendering Module 的有界原生帧订阅，
+并提供真实暂停/继续/停止控制，不另抢 debugger
 附件。现有任务 socket 不授予用户暂停/恢复权；若新增 supervisor 控制 Seam，
 必须具有独立管理能力、真实 cleanup 回执和 revision 检查，并保留原 popup
 鉴权。这不能抵御同一 OS 用户任意执行代码，契约与当前本地通信一致。
+
+### 实时观看与可信控制实施（2026-10-17，有限真实验收通过）
+
+现有截图/页面动作已依赖原生 screencast 推动画面，viewer 必须借用同一
+rendering 生命周期，不能第二次 attach 页面或并行启动另一条原生流。
+`BrowserRendering` 管理长订阅、短动作借用及原 start/ACK/stop 的真实在途
+回执；每帧只做一次原生 ACK，网页/HTTP 接收速度不控制这个 ACK。caller
+显式 raw screencast 撤销 viewer，结束后不自动恢复；Pause/end/detach 撤权
+与实际清理仍属于已有 backend 屏障。
+
+仅 managed 配置的 worker 安装不可变 `__obuManagedUser`，由原生绑定的
+run、extension instance、worker boot、Native Port 和私有随机 channel key
+共同约束。Go supervisor 在自有 Browser root 的独立连接上只 attach 原
+extension service worker，以固定 Runtime binding 接收帧，不开放一般 CDP
+代理或任务 RPC 用户 setter。10 秒 lease/3 秒 heartbeat 丢失后撤销观看，
+不自动 Resume；事件和调用均保留原 worker/context 身份，不重连原任务。
+桥保留一帧信用和一个最新候选，PNG 编码前上限 4 MiB。CDP screencast 的
+sessionId 不是帧序号，native、bridge 与 UI 的顺序分别记录。
+
+`internal/managedviewer` 提供仅绑定 IPv4 loopback 的 HTTP/WS 用户界面，
+精确核验 Host/Origin、一次性 fragment 票据和一个活跃观看者。`managed run`
+只在用户启动结果附带查看链接；`managed view` 经原管理连接和 run 身份签发
+新票据。Info、普通 status、task RPC 和生命周期文件均不能泄露该能力。
+浏览器不会自动打开查看页。HTTP 私有投影将桥的 nested status.automation
+转成公开 UI 状态，去除私有身份字段；UI 只显示经确认的运行/暂停/停止状态。
+
+Pause 释放观看并实际清理任务控制。Resume 校验用户看到的 revision 与
+worker boot，不恢复旧 attachment、观看或输入；需要新 turn 和显式选择。
+Stop 直接经 supervisor 结束原 Session，即使 worker 控制连接失联仍可用。
+原 Session.Close 完成后才能确认停止，WS Stop 回复须真实写出再关服务器。
+Close 调用截止只限制等待，不能证明原 stream、进程或 HTTP 资源已清理。
+
+当前扩展专项 1,873 项、builder 25 项、Go 全包及 vet、UI/辅助 20 项通过。
+原真实 `managed-viewer-5xVYLn` 四步实际 exit 0，38 个原生 PNG、同一原始
+子页唯一提交、真实 DOM 暂停/继续/停止和实际进程清理均确认，无源码漂移。
+结果 SHA-256 为 `4ced0acb55a4e2d21f4d834baa051f381d65270fb2345f0fc37d1f9dd752f585`。
+用户再次要求打包，本轮将从验证后的提交构建新包；此前 f2d3421 不包含这些
+工作。登录接管、普通 Edge/公司电脑、OS 前台观察和整体能力对齐仍开放。
 
 独立 profile 的登录与人工接管尚未设计完成。未来可采用串行的可见 setup
 与隐藏 run，但两者不得同时打开同一 profile，也不复制日常浏览器凭据。

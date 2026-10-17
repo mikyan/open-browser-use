@@ -23,3 +23,11 @@ ready 后的会话生命周期独立于启动期限。Browser 或 native host �
 锁保留到原树退出。生命周期 JSON 中的缺失回执不能当作成功，平台查询失败
 保持未确认。管理通道失败也不会自动改连日常浏览器。当前验收状态与用户
 入口见[独立会话](references/managed-browser-session.md)。
+
+实验性 viewer 共用原页面 rendering 流，保留实际 start/ACK/stop 回执；
+用户网络接收速度不控制 native frame ACK。观看端仅保留有界最新帧，控制
+回复不能静默丢弃。撤权序号穿过 Go/HTTP/UI 的队列和图像解码，防止迟到帧
+在 Pause、换页或断流后重新显示。原 worker/context 丢失时控制失效，不
+自动重连或 Resume；独立 supervisor Stop 仍可用。HTTP Stop 成功只来自
+真实会话关闭，原成功回复实际写出后才关闭查看服务器。客户端等待超时
+不代表未执行，也不构成清理完成的依据，不自动重试输入或控制命令。

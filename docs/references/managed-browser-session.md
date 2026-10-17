@@ -1,14 +1,14 @@
 # 实验性独立浏览器会话
 
 `managed run` 在 Windows 中运行一个独立的 Headless Chromium，使用专用
-profile 和真实 Native Messaging。它是可选的实验入口，目前没有实时画面、
-用户暂停/恢复界面或登录接管流程。普通公司电脑安装仍按完整包里的
+profile 和真实 Native Messaging。它是可选的实验入口，提供本地实时画面和
+用户暂停、继续、停止按钮；登录接管流程尚未实现。普通公司电脑安装仍按完整包里的
 `README-先看这里.md` 操作：解压到固定目录、运行对应浏览器的安装脚本，
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文对应当前开发分支。正式 CLI 已完成下文限定范围的真实浏览器验收；
-Windows 完整包已发布为 [preview-20261017-dde4d40](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-dde4d40)。npm 上游包和旧预览包不提供
-本入口，不能将下面的命令直接套用到旧版程序。
+实时画面功能需要本次更新后的完整包，之前的 `preview-20261017-f2d3421`
+只提供启动、状态和停止命令。npm 上游包和旧预览包不能直接套用下面的新命令。
 
 ## 准备
 
@@ -18,7 +18,7 @@ Windows 完整包已发布为 [preview-20261017-dde4d40](https://github.com/miky
   启动器不会搜索、下载或安装浏览器，也不会替用户启用普通 Edge/Chrome
   的远程调试授权。当前加载方式不能假定兼容普通 branded 浏览器。
 - 使用同一次构建的 `open-browser-use.exe` 与完整扩展目录；扩展目录必须
-  含生成的引擎文件、`managed-config.js` 和 `managed-native-host.js`。
+含生成的引擎文件、`managed-config.js`、`managed-native-host.js` 和 `managed-user-bridge.js`。
   源码 checkout 可用 `pnpm build:chrome-extension` 生成
   `dist/chrome-extension-unpacked`。Windows 完整包中的目录名为 `extension`。
 - 为 managed 数据选择全新的专用目录，或由此入口创建并带匹配归属标记的
@@ -40,6 +40,9 @@ Windows 完整包已发布为 [preview-20261017-dde4d40](https://github.com/miky
 
 保持这个终端运行。只有输出 `state: "ready"` 后才可以接入；其中 `info`
 包含本次 `runId`、确切任务 `socketPath`、profile 和运行记录目录。
+同次输出的 `viewerURL` 是本机查看链接，复制到自己的浏览器打开即可。
+链接只可使用一次，有效期十分钟；刷新或重新打开时，运行下面的 `managed view`
+领取新链接。不要把带凭据的完整链接发给 Agent、网站或其他人。
 `--name` 为 1–48 个小写字母、数字或连字符，以字母开头；Windows 设备名
 不可用。省略 `--root` 时使用当前用户的 `%APPDATA%\OpenBrowserUse\managed`。
 同一名称/profile 只能有一个存活会话。
@@ -48,6 +51,9 @@ Windows 完整包已发布为 [preview-20261017-dde4d40](https://github.com/miky
 
 ```powershell
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed status `
+  --name work --root 'D:\BrowserData\OpenBrowserUse-Managed'
+
+& 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed view `
   --name work --root 'D:\BrowserData\OpenBrowserUse-Managed'
 
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' info `
@@ -59,6 +65,13 @@ Windows 完整包已发布为 [preview-20261017-dde4d40](https://github.com/miky
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed stop `
   --name work --root 'D:\BrowserData\OpenBrowserUse-Managed'
 ```
+
+查看页中先选择已由任务使用的标签页，再点击开始观看。画面来自独立浏览器，
+可显示网页内容、AI 光标和元素反馈；查看页不接管系统鼠标。
+点击暂停会撤销当前任务控制并等待清理；继续只解除暂停，Agent 需要开启新轮次并
+重新取得页面句柄。旧轮次不会自动恢复，观看也需要重新选择。停止会关闭整个独立
+浏览器；按钮成功回执表示原会话已经完成清理。断线或超时保持失败或未知状态，
+不能据此认定操作完成。同一时间只支持一个查看连接。
 
 也可以在运行 `managed run` 的原终端按 Ctrl+C 结束。`stop` 关闭整个独立
 浏览器及其页面；先保存或导出需要的结果。它不是暂停，不提供恢复旧轮次
@@ -114,13 +127,27 @@ Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运�
 
 ## 当前未完成
 
-- 实时 viewer、可信用户暂停/恢复、登录与人工接管、可见交付页。
+- 登录与人工接管、可见交付页；实时 viewer 的更广兼容与异常生命周期验收。
 - 浏览器自动获取/兼容发现以及 macOS/Linux managed 实现。
 - 普通已登录浏览器的原生弹窗抢焦点问题。Headless 内部激活事件也不能
   直接证明操作系统前台焦点保持，需另有相同范围的观察证据。
 - 完整能力对齐。原型或 launcher 的单项通过不能代表所有 Browser Use 任务。
 
 ## 当前验证
+
+2026-10-17，实时查看原始验收 `managed-viewer-5xVYLn` 四步全部通过，runner
+实际 exit 0。独立查看页收到 38 个原生 PNG 帧，全部保留；画面显示 AI 光标
+和按钮蓝框。通过真实页面按钮完成暂停、继续和停止：暂停后输入被拒、原表单
+尚未提交；继续后旧句柄仍被拒，开启新轮次后接续同一子页、保留原字段并只
+提交一次。观看流显式重建，停止回执及 browser/native exit 0、Job 归零和
+原进程退出均确认，没有强制终止。源码和构建清单在验收期间保持不变。
+结果 SHA-256：
+`4ced0acb55a4e2d21f4d834baa051f381d65270fb2345f0fc37d1f9dd752f585`。
+Go 全包测试及 vet、扩展 1,873 项、builder 25 项、UI/验收辅助 20 项通过。
+停止后独立审计实际 exit 0，19 项检查确认唯一 190 B POST、原控制回执、
+45 张 PNG 像素解码及当前资源清理。审计 SHA-256：
+`81ba4fc00134c5064c324e300d957a9462d9fb0c6c676116709a4a9f9c1eb379`。
+这些结果限于固定 Chromium 和此原始流程，不等同于完整能力或安装验收。
 
 2026-10-17，固定 Chromium 156.0.8078.4 的正式 launcher 首次原始尝试
 `managed-launcher-xgfAuQ` 完成三步，runner 实际 exit 0：CLI/MCP 均选择

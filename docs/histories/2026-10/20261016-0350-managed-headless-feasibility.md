@@ -128,3 +128,44 @@ performed for this delivery. Historical browser results remain historical;
 viewer integration and ordinary Edge/company-computer acceptance remain open.
 
 [Download the preview](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-f2d3421).
+
+### 2026-10-17: Add managed live viewing and trusted user controls
+
+The user again requested a fresh package. Add `managed view`, a loopback HTTP/WS
+viewer and an exact-worker user controller separate from task RPC. The viewer
+shares the original native rendering stream, displays the existing AI feedback,
+and exposes Pause/Resume/Stop. One-use tickets, bounded frame queues, lease and
+worker/context identities constrain the connection. Resume uses revision checks
+and requires fresh task handles; it never replays input or restarts viewing.
+Stop waits for original cleanup and writes its reply before closing the server.
+Oversized native frames revoke viewing and settle original ACK/stop without
+cancelling an existing business screenshot. Delayed status observations cannot
+overwrite completed control transitions.
+
+The first real viewer attempt `managed-viewer-5xVYLn` passed all four stages with
+actual runner exit 0. It retained 38 native PNGs, real DOM command/response IDs,
+one original child document, two single fills, rejected old handles across Pause
+and Resume, and one POST after explicit new-turn reacquisition. Original browser
+and native exits were 0, Job membership reached zero, and original processes,
+registration and endpoints were cleaned without forcing. Source/build inventories
+did not change. Root visually inspected the streaming, paused and stopped viewer
+screenshots, confirming the AI cursor, blue target outline and clear status UI.
+Result SHA-256:
+`4ced0acb55a4e2d21f4d834baa051f381d65270fb2345f0fc37d1f9dd752f585`.
+Go module tests/vet, 1,873 extension tests, 25 builder tests and 20 UI/runner helper
+tests passed. The real acceptance executable predates the final clean commit;
+the requested release will rebuild separately and retain that distinction.
+
+Stopped-state auditing actually exited 0 with 19 checks. It independently decoded
+all 38 native frames and seven screenshots, verified the original 190-byte POST,
+seven DOM command/reply pairs, old-handle errors, 15 managed and 10 viewer process
+identities, and current registry/pipe/endpoint/HTTP cleanup. Audit SHA-256:
+`81ba4fc00134c5064c324e300d957a9462d9fb0c6c676116709a4a9f9c1eb379`.
+The first audit's three false assumptions were retained and corrected: render
+generation can stay constant within a stream, the null config has comments, and
+CIM creation timestamps have microsecond precision while original handle FILETIME
+retains 100 ns precision. No original browser evidence or production code changed.
+
+This is limited Windows/Chromium validation. Login handoff, ordinary Edge/company
+installation, OS foreground observation, cross-platform managed sessions and
+the full capability/task matrix remain open. No PR is requested or created.

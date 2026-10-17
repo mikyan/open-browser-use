@@ -72,6 +72,9 @@ type Session struct {
 	process                 *platformProcess
 	native                  *platformNativeProcess
 	browser                 *browserConnection
+	userRootURL             string
+	userMu                  sync.Mutex
+	userOpened              bool
 	registration, lock      io.Closer
 	endpointDir             string
 	browserDone, nativeDone chan struct{}
@@ -299,6 +302,7 @@ func Start(parent context.Context, config Config) (_ *Session, err error) {
 	if err := validateBinding(s.record.Binding, s.info); err != nil {
 		return nil, err
 	}
+	s.userRootURL = cdpURL
 	if err := s.checkStartup(ctx); err != nil {
 		return nil, err
 	}

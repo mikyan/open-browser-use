@@ -1,0 +1,389 @@
+{
+  "scope": "Actual bridge protocol output using simulated backend; no browser/native frame acceptance",
+  "open": {
+    "version": 1,
+    "channelId": "fixture-channel",
+    "runId": "0123456789abcdef0123456789abcdef",
+    "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "extensionInstanceId": "fixture-instance",
+    "workerBootId": "fixture-worker",
+    "portId": "fixture-port",
+    "status": {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "running",
+        "inputBlocked": false,
+        "revision": 0,
+        "cleanupComplete": false
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Fixture tab",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 0
+    }
+  },
+  "select": {
+    "status": {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": 7,
+      "automation": {
+        "state": "running",
+        "inputBlocked": false,
+        "revision": 0,
+        "cleanupComplete": false
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Fixture tab",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "starting",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 1
+    }
+  },
+  "status": {
+    "status": {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": 7,
+      "automation": {
+        "state": "running",
+        "inputBlocked": false,
+        "revision": 0,
+        "cleanupComplete": false
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Fixture tab",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "streaming",
+        "streamId": "fixture-stream"
+      },
+      "cleanupPending": 0,
+      "eventSequence": 2
+    }
+  },
+  "pause": {
+    "status": {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 1,
+        "cleanupComplete": true
+      },
+      "tabs": [],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 4
+    }
+  },
+  "resume": {
+    "status": {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "running",
+        "inputBlocked": false,
+        "revision": 2,
+        "cleanupComplete": false
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Fixture tab",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 5
+    }
+  },
+  "disconnect": {
+    "disconnected": true,
+    "status": {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "connected": false,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "running",
+        "inputBlocked": false,
+        "revision": 2,
+        "cleanupComplete": false
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Fixture tab",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 5
+    }
+  },
+  "events": [
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "fixture-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "fixture-instance",
+        "workerBootId": "fixture-worker",
+        "portId": "fixture-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": 7,
+        "automation": {
+          "state": "running",
+          "inputBlocked": false,
+          "revision": 0,
+          "cleanupComplete": false
+        },
+        "tabs": [
+          {
+            "id": 7,
+            "title": "Fixture tab",
+            "url": "https://fixture.invalid/"
+          }
+        ],
+        "stream": {
+          "state": "starting",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 1
+      },
+      "sequence": 1
+    },
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "frame",
+      "tabId": 7,
+      "streamId": "fixture-stream",
+      "frameSequence": 1,
+      "mimeType": "image/png",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "metadata": {
+        "pageScaleFactor": 1,
+        "deviceWidth": 1,
+        "deviceHeight": 1,
+        "timestamp": 1
+      },
+      "sequence": 2
+    },
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "clear",
+      "reason": "automation paused",
+      "sequence": 3
+    },
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "fixture-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "fixture-instance",
+        "workerBootId": "fixture-worker",
+        "portId": "fixture-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": null,
+        "automation": {
+          "state": "paused",
+          "inputBlocked": true,
+          "revision": 1,
+          "cleanupComplete": true
+        },
+        "tabs": [],
+        "stream": {
+          "state": "idle",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 4
+      },
+      "sequence": 4
+    },
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "fixture-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "fixture-instance",
+        "workerBootId": "fixture-worker",
+        "portId": "fixture-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": null,
+        "automation": {
+          "state": "running",
+          "inputBlocked": false,
+          "revision": 2,
+          "cleanupComplete": false
+        },
+        "tabs": [
+          {
+            "id": 7,
+            "title": "Fixture tab",
+            "url": "https://fixture.invalid/"
+          }
+        ],
+        "stream": {
+          "state": "idle",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 5
+      },
+      "sequence": 5
+    },
+    {
+      "version": 1,
+      "channelId": "fixture-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "fixture-instance",
+      "workerBootId": "fixture-worker",
+      "portId": "fixture-port",
+      "type": "closed",
+      "reason": "manager disconnected",
+      "sequence": 6
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>浏览器会话 · Open Browser Use</title>
+  <link rel="stylesheet" href="/viewer.css">
+  <script src="/viewer.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">OPEN BROWSER USE · 实验性查看窗口</p><h1>浏览器会话</h1></div>
+      <span id="connection" class="badge">正在连接</span>
+    </header>
+    <section class="controls" aria-label="会话控制">
+      <div class="status"><span id="indicator" class="indicator"></span><div><strong id="state" role="status">正在确认状态</strong><p id="detail">等待本地会话确认。</p></div></div>
+      <div class="buttons"><button id="refresh" type="button" disabled>刷新状态</button><button id="control" class="primary" type="button" disabled>暂停操作</button><button id="stop" class="danger" type="button" disabled>停止会话</button></div>
+    </section>
+    <p id="error" class="error" role="alert" hidden></p>
+    <section class="viewer" aria-label="浏览器画面">
+      <div class="toolbar"><label for="tabs">查看标签页</label><select id="tabs" disabled><option value="">选择标签页</option></select><button id="watch" type="button" disabled>开始查看</button><span id="freshness">尚无画面</span></div>
+      <div class="screen"><img id="frame" alt="所选标签页的浏览器画面，包含可用的 AI 光标和元素高亮" hidden><div id="placeholder"><strong>选择一个标签页查看</strong><span>画面仅供查看，不向网页传递鼠标或键盘输入。</span></div></div>
+      <div class="caption"><span id="page-title">未选择标签页</span><span id="dimensions"></span></div>
+    </section>
+    <footer><p>暂停会阻止 Agent 的新操作，并等待现有控制释放；网页自身的脚本仍可运行。继续后，请让 Agent 发起新的操作。</p><p>停止会关闭此独立浏览器及其中的标签页。查看连接断开时，Agent 不会自动暂停或继续。</p></footer>
+  </main>
+</body>
+</html>

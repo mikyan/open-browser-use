@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/ifuryst/open-browser-use/internal/host"
 	"github.com/ifuryst/open-browser-use/internal/managedbrowser"
+	"github.com/ifuryst/open-browser-use/internal/managedviewer"
 	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 	"github.com/spf13/cobra"
@@ -66,6 +68,7 @@ type managedMessage struct {
 	State     string               `json:"state,omitempty"`
 	Info      *managedbrowser.Info `json:"info,omitempty"`
 	Error     string               `json:"error,omitempty"`
+	ViewerURL string               `json:"viewerURL,omitempty"`
 }
 
 func readManagedMessage(conn net.Conn) (managedMessage, error) {
@@ -81,15 +84,16 @@ func readManagedMessage(conn net.Conn) (managedMessage, error) {
 // Only the supervisor owns shutdown. A caller receives a stopped response only
 // after the original Session.Close has finished. There is no task RPC setter.
 type managedSupervisor struct {
-	listener    net.Listener
-	info        managedbrowser.Info
-	stop        chan struct{}
-	finished    chan struct{}
-	stopOnce    sync.Once
-	err         error
-	mu          sync.Mutex
-	connections map[net.Conn]struct{}
-	wg          sync.WaitGroup
+	listener       net.Listener
+	info           managedbrowser.Info
+	stop           chan struct{}
+	finished       chan struct{}
+	stopOnce       sync.Once
+	err            error
+	mu             sync.Mutex
+	connections    map[net.Conn]struct{}
+	wg             sync.WaitGroup
+	issueViewerURL func() (string, error)
 }
 
 func newManagedSupervisor(listener net.Listener, info managedbrowser.Info) *managedSupervisor {
@@ -138,17 +142,36 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 	if err := wire.WriteJSON(conn, managedMessage{State: "ready", RunID: s.info.RunID, Info: &s.info}); err != nil {
 		return
 	}
-	// A stop is accepted only on this same connection and for this same run.
+	// User operations require this same live connection and this exact run.
 	request, err = readManagedMessage(conn)
 	if err != nil {
 		return
 	}
-	if request.Operation != "stop" || request.RunID != s.info.RunID {
+	if (request.Operation != "stop" && request.Operation != "view") || request.RunID != s.info.RunID {
 		_ = wire.WriteJSON(conn, managedMessage{Error: "managed run identity or operation mismatch"})
 		return
 	}
+	if request.Operation == "view" {
+		select {
+		case <-s.stop:
+			_ = wire.WriteJSON(conn, managedMessage{Error: "managed session is stopping"})
+			return
+		default:
+		}
+		if s.issueViewerURL == nil {
+			_ = wire.WriteJSON(conn, managedMessage{Error: "managed viewer is unavailable"})
+			return
+		}
+		viewerURL, err := s.issueViewerURL()
+		if err != nil {
+			_ = wire.WriteJSON(conn, managedMessage{Error: err.Error()})
+			return
+		}
+		_ = wire.WriteJSON(conn, managedMessage{State: "viewer", RunID: s.info.RunID, ViewerURL: viewerURL})
+		return
+	}
 	s.stopOnce.Do(func() { close(s.stop) })
-	_ = conn.SetDeadline(time.Now().Add(40 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(50 * time.Second))
 	<-s.finished
 	response := managedMessage{State: "stopped", RunID: s.info.RunID}
 	if s.err != nil {
@@ -156,6 +179,18 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 		response.Error = s.err.Error()
 	}
 	_ = wire.WriteJSON(conn, response)
+}
+
+// The HTTP user route shares the supervisor's original shutdown receipt. It
+// never closes its own HTTP server from inside a pending Stop handler.
+func (s *managedSupervisor) requestStop(ctx context.Context) error {
+	s.stopOnce.Do(func() { close(s.stop) })
+	select {
+	case <-s.finished:
+		return s.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *managedSupervisor) finish(err error) {
@@ -180,7 +215,18 @@ func (s *managedSupervisor) finish(err error) {
 }
 
 func managedRequest(root, name string, stop bool, timeout time.Duration) (managedMessage, error) {
+	operation := "status"
+	if stop {
+		operation = "stop"
+	}
+	return managedUserRequest(root, name, operation, timeout)
+}
+
+func managedUserRequest(root, name, operation string, timeout time.Duration) (managedMessage, error) {
 	var zero managedMessage
+	if operation != "status" && operation != "stop" && operation != "view" {
+		return zero, errors.New("unknown managed user operation")
+	}
 	endpoint, err := managedControlAddress(root, name)
 	if err != nil {
 		return zero, err
@@ -207,18 +253,25 @@ func managedRequest(root, name string, stop bool, timeout time.Duration) (manage
 	if response.State != "ready" || response.Info == nil || response.Info.Name != name || response.Info.RunID == "" || response.RunID != response.Info.RunID || !transport.IsNamedPipe(response.Info.SocketPath) {
 		return zero, errors.New("managed supervisor did not confirm a ready, exact session")
 	}
-	if !stop {
+	if operation == "status" {
 		return response, nil
 	}
-	if err := wire.WriteJSON(conn, managedMessage{Operation: "stop", RunID: response.RunID}); err != nil {
+	if err := wire.WriteJSON(conn, managedMessage{Operation: operation, RunID: response.RunID}); err != nil {
 		return zero, err
 	}
 	stopped, err := readManagedMessage(conn)
 	if err != nil {
-		return zero, fmt.Errorf("managed shutdown outcome is unknown: %w", err)
+		return zero, fmt.Errorf("managed %s outcome is unknown: %w", operation, err)
 	}
 	if stopped.Error != "" {
 		return stopped, errors.New(stopped.Error)
+	}
+	if operation == "view" {
+		location, parseErr := url.Parse(stopped.ViewerURL)
+		if stopped.State != "viewer" || stopped.RunID != response.RunID || parseErr != nil || location.Scheme != "http" || location.Hostname() != "127.0.0.1" || location.Port() == "" || location.User != nil || location.Path != "/" || location.RawQuery != "" || !strings.HasPrefix(location.Fragment, "ticket=") || len(location.Fragment) != len("ticket=")+43 {
+			return stopped, errors.New("managed viewer did not confirm the original run and local URL")
+		}
+		return stopped, nil
 	}
 	if stopped.State != "stopped" || stopped.RunID != response.RunID {
 		return stopped, errors.New("managed shutdown did not confirm the original run")
@@ -227,7 +280,7 @@ func managedRequest(root, name string, stop bool, timeout time.Duration) (manage
 }
 
 func newManagedCommand() *cobra.Command {
-	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Run an isolated headless Chromium session. This experimental launcher has no live viewer, user pause UI or login handoff yet. It does not change ordinary installed browser profiles."}
+	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Run an isolated headless Chromium session with a local live viewer and explicit user pause, resume and stop controls. The viewer URL is a private, one-use user capability. Login handoff is not implemented. Ordinary installed browser profiles are unchanged."}
 	var config managedbrowser.Config
 	runCommand := &cobra.Command{Use: "run", Short: "Keep an isolated browser running until Ctrl+C or managed stop", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -247,27 +300,56 @@ func newManagedCommand() *cobra.Command {
 			config.ExtensionPublicKey = betaExtensionPublicKey
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer cancel()
-			session, err := managedbrowser.Start(ctx, config)
+			startupTimeout := config.StartupTimeout
+			if startupTimeout == 0 {
+				startupTimeout = 45 * time.Second
+			}
+			startupCtx, startupCancel := context.WithTimeout(ctx, startupTimeout)
+			defer startupCancel()
+			session, err := managedbrowser.Start(startupCtx, config)
 			if err != nil {
 				return err
 			}
+			controller, err := session.OpenUserController(startupCtx)
+			if err != nil {
+				cleanupCtx, finish := context.WithTimeout(context.Background(), 30*time.Second)
+				defer finish()
+				return errors.Join(err, session.Close(cleanupCtx))
+			}
 			supervisor := newManagedSupervisor(listener, session.Info())
-			supervisor.serve()
-			err = writeJSONTo(cmd.OutOrStdout(), managedMessage{State: "ready", RunID: session.Info().RunID, Info: func() *managedbrowser.Info { info := session.Info(); return &info }()})
+			viewer, err := managedviewer.Start(managedviewer.Config{RunID: session.Info().RunID, Backend: controller, Stop: supervisor.requestStop})
+			if err != nil {
+				return errors.Join(err, closeManagedRuntime(session, controller))
+			}
+			supervisor.issueViewerURL = viewer.IssueURL
+			// Only the foreground human-facing launch result receives the ticket.
+			// Info and management status never contain it; opening it is explicit.
+			err = startupCtx.Err()
+			startupCancel()
+			if err == nil {
+				supervisor.serve()
+				err = writeJSONTo(cmd.OutOrStdout(), managedMessage{State: "ready", RunID: session.Info().RunID, Info: func() *managedbrowser.Info { info := session.Info(); return &info }(), ViewerURL: viewer.URL()})
+			}
 			if err == nil {
 				select {
 				case <-ctx.Done():
 				case <-supervisor.stop:
 				case <-session.Done():
 					err = errors.New("managed browser or native host exited unexpectedly")
+				case <-viewer.Done():
+					err = errors.New("managed viewer exited unexpectedly")
 				}
 			}
 			supervisor.stopOnce.Do(func() { close(supervisor.stop) })
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cleanupCancel()
-			closeErr := session.Close(cleanupCtx)
+			closeErr := closeManagedRuntime(session, controller)
 			supervisor.finish(closeErr)
-			return errors.Join(err, closeErr)
+			replyCtx, replyCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			replyErr := viewer.WaitStopReply(replyCtx)
+			replyCancel()
+			viewerCtx, viewerCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			viewerErr := viewer.Close(viewerCtx)
+			viewerCancel()
+			return errors.Join(err, closeErr, replyErr, viewerErr)
 		}}
 	runCommand.Flags().StringVar(&config.Root, "root", defaultManagedRoot(), "dedicated managed session root")
 	runCommand.Flags().StringVar(&config.Name, "name", "default", "isolated session name")
@@ -277,15 +359,15 @@ func newManagedCommand() *cobra.Command {
 	_ = runCommand.MarkFlagRequired("browser-path")
 	_ = runCommand.MarkFlagRequired("extension-dir")
 	command.AddCommand(runCommand)
-	for _, operation := range []string{"status", "stop"} {
+	for _, operation := range []string{"status", "stop", "view"} {
 		var root, name string
 		child := &cobra.Command{Use: operation, Short: operation + " the live managed supervisor", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				timeout := 5 * time.Second
 				if operation == "stop" {
-					timeout = 40 * time.Second
+					timeout = 50 * time.Second
 				}
-				response, err := managedRequest(root, name, operation == "stop", timeout)
+				response, err := managedUserRequest(root, name, operation, timeout)
 				if err != nil {
 					return err
 				}
@@ -296,6 +378,22 @@ func newManagedCommand() *cobra.Command {
 		command.AddCommand(child)
 	}
 	return command
+}
+
+func closeManagedRuntime(session *managedbrowser.Session, controller *managedbrowser.UserController) error {
+	// Revoke user commands and finish the original stream before normal browser
+	// closure. Even a failed/late controller cleanup must not orphan the process
+	// tree; a final wait observes the same controller after real browser exit.
+	controlCtx, controlCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	controlErr := controller.Close(controlCtx)
+	controlCancel()
+	sessionCtx, sessionCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	sessionErr := session.Close(sessionCtx)
+	sessionCancel()
+	settledCtx, settledCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	settledErr := controller.Close(settledCtx)
+	settledCancel()
+	return errors.Join(controlErr, sessionErr, settledErr)
 }
 
 func dialBrowserSocketForOptions(options socketOptions, timeout time.Duration) (net.Conn, error) {

@@ -30,6 +30,8 @@ import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "../site-access-poli
 import { assertSiteAccessFrames } from "../site-access-frames.js";
 import managedConfig from "../managed-config.js";
 import { resolveManagedNativeHost } from "../managed-native-host.js";
+import { BrowserRendering } from "../browser-rendering.js";
+import { installManagedUserBridge } from "../managed-user-bridge.js";
 
 const sessionValuesByChrome = new WeakMap();
 function extendLegacyFixture(chrome) {
@@ -67,6 +69,8 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { installManagedUserBridge } from "./managed-user-bridge.js";', "")
+  .replace('import { BrowserRendering } from "./browser-rendering.js";', "")
   .replace('import managedConfig from "./managed-config.js";', "")
   .replace('import { resolveManagedNativeHost } from "./managed-native-host.js";', "")
   .replace('import { VisualDeliveries } from "./browser-visual-deliveries.js";', "")
@@ -98,7 +102,7 @@ const source = code => code
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
   extendLegacyFixture(sandbox?.chrome);
-  return { NATIVE_POINTER_KERNEL_ABI, PointerRealmIdentity, VisualDeliveries, PassivePointerReads, createNativePointerRoute, PrivateTargetRegistry, PrivateTargetStore, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, managedConfig, resolveManagedNativeHost, ...sandbox, AuxiliaryTabOwnership };
+  return { BrowserRendering, installManagedUserBridge, NATIVE_POINTER_KERNEL_ABI, PointerRealmIdentity, VisualDeliveries, PassivePointerReads, createNativePointerRoute, PrivateTargetRegistry, PrivateTargetStore, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, managedConfig, resolveManagedNativeHost, ...sandbox, AuxiliaryTabOwnership };
 };
 
 export default {

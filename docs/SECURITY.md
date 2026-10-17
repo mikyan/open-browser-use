@@ -54,9 +54,14 @@ Application-level client authentication remains unimplemented. User-configured d
 
 Experimental Windows managed sessions use a separate profile, private native
 registration and current-user management pipe. A live supervisor may expose
-status and stop for its exact run; it does not add Pause/Resume authority to the
-task RPC interface. The managed mode has no viewer, trusted pause interface or
-login handoff yet. Its profile and native environment are separate from ordinary
+status, view and stop for its exact run; it does not add Pause/Resume authority to
+the task RPC interface. The experimental viewer uses a separate one-use fragment
+ticket, exact loopback Host/Origin, and one active WebSocket. Run/view may show
+that ticket to the local human; Info, status and lifecycle records must not.
+Its fixed worker bridge validates the original run, native binding, worker/context
+and channel identity. It exposes only typed user operations, not arbitrary CDP;
+ordinary popup authorization remains unchanged. Login handoff is not implemented.
+Its profile and native environment are separate from ordinary
 installed profiles, but are not a sandbox against arbitrary code running as the
 same OS user. Startup rejects unknown nonempty directories and reparse paths;
 cleanup acts on the retained owned Job and original handles, never a PID file.

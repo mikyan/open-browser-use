@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
 import { BrowserActionEngine } from "./browser-action-engine.js";
+import { installManagedUserBridge } from "./managed-user-bridge.js";
 
 const source = (await readFile(new URL("./background.js", import.meta.url), "utf8")).replace('import { createBrowserActionEngine } from "./browser-runtime.js";', "").replace('import { NativeInputTracker } from "./browser-input-adapter.js";', (await readFile(new URL("./browser-input-adapter.js", import.meta.url), "utf8")).replace(/^export /gm, "") + "\nglobalThis.performance ??= { now: () => Date.now() };");
 const runtimeStart = source.indexOf("chrome.runtime.onInstalled.addListener");
@@ -14,12 +15,12 @@ const json = (value) => JSON.parse(JSON.stringify(value));
 const defer = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function loadBackend({ attachError, command, detach, frames = true, engineFactory } = {}) {
+async function loadBackend({ attachError, command, detach, frames = true, engineFactory, managed = false } = {}) {
   const calls = [];
   const listeners = new Set();
   let detachListener;
-  const emit = (source = { tabId: 7 }) => {
-    for (const listener of [...listeners]) listener(source, "Page.screencastFrame", { sessionId: 42 });
+  const emit = (source = { tabId: 7 }, params = { sessionId: 42, data: "cGl4ZWxz", metadata: { deviceWidth: 800, deviceHeight: 600, timestamp: 12 } }) => {
+    for (const listener of [...listeners]) listener(source, "Page.screencastFrame", params);
   };
   const chrome = {
     debugger: {
@@ -37,13 +38,15 @@ async function loadBackend({ attachError, command, detach, frames = true, engine
     },
     storage: { local: { async get() { return {}; }, async set() {} } },
     tabs: {
+      async get() { return { id: 7, groupId: 10, title: "Fixture", url: "https://fixture.test" }; },
       async query() { return [{ id: 7, groupId: 10, url: "https://fixture.test" }]; },
       async update() { throw new Error("Must not activate a tab"); }
     },
     windows: { async update() { throw new Error("Must not focus a window"); } }
   };
   const BrowserBackend = vm.runInNewContext(`${source.slice(0, runtimeStart)}\nBrowserBackend;`, {
-    chrome, Date, setTimeout, clearTimeout, createBrowserActionEngine: engineFactory
+    chrome, Date, setTimeout, clearTimeout, createBrowserActionEngine: engineFactory,
+    managedConfig: managed ? { version: 1, nativeHostName: "com.openbrowseruse.managed.n0123456789abcdef0123456789abcdef" } : null
   });
   const backend = new BrowserBackend();
   await backend.store.ready;
@@ -107,6 +110,179 @@ test("a CRX screenshot cannot send without a currently accepting rendering lease
     // Non-screenshot commands keep their ordinary admission and response path.
     assert.equal(await f.send({ tabId: 7 }, "Runtime.evaluate", {}, () => "ordinary result"), "ordinary result");
   } finally { f.restore(); }
+});
+
+test("ordinary installs expose no managed viewer capability and managed selection lists only existing live attachments", async () => {
+  const ordinary = await loadBackend(); await ordinary.attach();
+  await assert.rejects(ordinary.backend.managedViewerSubscribe(7, () => {}), /OBU_VIEWER_FORBIDDEN/);
+  await assert.rejects(ordinary.backend.getManagedViewerTabs(), /OBU_VIEWER_FORBIDDEN/);
+  const f = await loadBackend({ managed: true });
+  assert.deepEqual(json(await f.backend.getManagedViewerTabs()), []);
+  await assert.rejects(f.backend.managedViewerSubscribe(7, () => {}), /no live automation attachment/);
+  assert.equal(f.calls.length, 0);
+  await f.attach();
+  assert.deepEqual(json(await f.backend.getManagedViewerTabs()), [{ id: 7, title: "Fixture", url: "https://fixture.test" }]);
+});
+
+test("managed preview and repeated screenshots use one original stream without activating the tab", async () => {
+  const f = await loadBackend({ managed: true }), received = [];
+  await f.attach();
+  const subscription = await f.backend.managedViewerSubscribe(7, frame => received.push(frame));
+  const streamId = received[0].streamId;
+  await f.cdp("Page.captureScreenshot");
+  await f.cdp("Page.captureScreenshot");
+  f.emit(); await tick();
+  assert.equal(received.length, 2);
+  assert.equal(received[1].streamId, streamId);
+  assert.equal(received[1].sequence, 2);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.captureScreenshot").length, 2);
+  assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast"), false);
+  assert.equal(f.backend.isInternalCdpEvent({ tabId: 7 }, "Page.screencastFrame", { sessionId: 42 }), true);
+  await subscription.close();
+  assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, 1);
+  assert.equal(f.backend.renderingDrains.size, 0);
+});
+
+test("raw caller stream stops a managed preview first and does not silently restore it", async () => {
+  const f = await loadBackend({ managed: true }), received = [];
+  await f.attach();
+  const subscription = await f.backend.managedViewerSubscribe(7, frame => received.push(frame));
+  await f.cdp("Page.startScreencast", { format: "jpeg", quality: 20 });
+  assert.match((await subscription.closed).reason, /caller-owned screencast/);
+  assert.deepEqual(f.calls.filter(([method]) => ["Page.startScreencast", "Page.stopScreencast"].includes(method)).map(call => [call[0], call[2]]), [
+    ["Page.startScreencast", { format: "png", everyNthFrame: 1 }], ["Page.stopScreencast", undefined], ["Page.startScreencast", { format: "jpeg", quality: 20 }]
+  ]);
+  const ackCount = f.calls.filter(([method]) => method === "Page.screencastFrameAck").length;
+  f.emit(); await tick(); assert.equal(received.length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.screencastFrameAck").length, ackCount);
+  await assert.rejects(f.backend.managedViewerSubscribe(7, () => {}), /caller-owned screencast/);
+  await subscription.close();
+  assert.equal(f.backend.externalScreencastTabs.has(7), true);
+  await f.cdp("Page.stopScreencast"); f.emit(); await tick();
+  assert.equal(received.length, 1); assert.equal(f.backend.browserRendering.records.size, 0);
+});
+
+test("viewer close does not replay or abort an already dispatched screenshot and waits for its actual native completion", async () => {
+  const capture = defer(), entered = defer(), received = [];
+  const f = await loadBackend({ managed: true, command: method => { if (method === "Page.captureScreenshot") { entered.resolve(); return capture.promise; } } });
+  await f.attach(); const subscription = await f.backend.managedViewerSubscribe(7, frame => received.push(frame));
+  const screenshot = f.cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  let closed = false; const close = subscription.close().then(() => { closed = true; });
+  f.emit(); await tick(); assert.equal(closed, false); assert.equal(received.length, 1);
+  assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast"), false);
+  capture.resolve({ data: "original capture" });
+  assert.deepEqual(await screenshot, { data: "original capture" }); await close;
+  assert.equal(f.calls.filter(([method]) => method === "Page.captureScreenshot").length, 1);
+  assert.equal(f.backend.renderingDrains.size, 0);
+});
+
+test("Pause revokes viewer immediately and cannot claim cleanup before the native frame ACK and stop", async () => {
+  const ack = defer(), stop = defer(); let slow = false;
+  const f = await loadBackend({ managed: true, command: method => method === "Page.screencastFrameAck" && slow ? ack.promise : method === "Page.stopScreencast" ? stop.promise : undefined });
+  await f.attach(); const received = [];
+  const subscription = await f.backend.managedViewerSubscribe(7, frame => received.push(frame));
+  slow = true; f.emit(); await tick();
+  let paused = false; const pause = f.backend.pauseAutomation().then(value => { paused = true; return value; });
+  f.emit(); await tick(); assert.equal(paused, false); assert.equal(received.length, 1);
+  assert.match((await subscription.closed).reason, /tab control ended/);
+  ack.resolve(); await tick(); assert.equal(paused, false);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  stop.resolve(); assert.equal((await pause).cleanupComplete, true);
+  assert.equal(f.backend.renderingDrains.size, 0); assert.equal(f.backend.attachedTabs.size, 0);
+});
+
+test("an oversized native viewer frame preserves the original pending screenshot and waits for actual ACK and stop", async () => {
+  const capture = defer(), entered = defer(), ack = defer(), stop = defer(), received = [];
+  let slowAck = false;
+  const f = await loadBackend({ managed: true, command: method => {
+    if (method === "Page.captureScreenshot") { entered.resolve(); return capture.promise; }
+    if (method === "Page.screencastFrameAck" && slowAck) return ack.promise;
+    if (method === "Page.stopScreencast") return stop.promise;
+  } });
+  await f.attach();
+  const subscription = await f.backend.managedViewerSubscribe(7, frame => received.push(frame));
+  const screenshot = f.cdp("Page.captureScreenshot", {}, { timeoutMs: 1000 });
+  await entered.promise;
+  slowAck = true;
+  f.emit({ tabId: 7 }, { sessionId: 42, data: Buffer.alloc(4 * 1024 * 1024 + 1).toString("base64") });
+  assert.match((await subscription.closed).reason, /OBU_VIEWER_FRAME_TOO_LARGE/);
+  let closed = false;
+  const closing = subscription.close().then(() => { closed = true; });
+  await tick();
+  assert.equal(closed, false); assert.equal(received.length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.screencastFrameAck").length, 2);
+  assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast"), false);
+  capture.resolve({ data: "same original capture" });
+  assert.deepEqual(await screenshot, { data: "same original capture" });
+  await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast"), false);
+  ack.resolve(); await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, 1);
+  stop.resolve(); await closing;
+  assert.equal(f.calls.filter(([method]) => method === "Page.captureScreenshot").length, 1);
+  assert.equal(f.backend.renderingDrains.size, 0);
+});
+
+test("a viewer rejects stale transfer ownership before another copied frame", async () => {
+  const f = await loadBackend({ managed: true }), received = [];
+  await f.attach(); const subscription = await f.backend.managedViewerSubscribe(7, frame => received.push(frame));
+  const owner = f.backend.attachmentOwners.get(7);
+  f.backend.controlLedger.records.get(owner.session_id).epoch++;
+  f.emit(); await tick();
+  assert.equal(received.length, 1); assert.match((await subscription.closed).reason, /OBU_STALE_CONTROL_EPOCH/);
+  await subscription.close();
+});
+
+test("managed Resume authority is checked again after the real persisted write", async () => {
+  const f = await loadBackend({ managed: true }); await f.attach();
+  const paused = await f.backend.pauseAutomation();
+  const saved = f.backend.automationControl.persist.bind(f.backend.automationControl), entered = defer(), write = defer();
+  let allowed = true;
+  f.backend.automationControl.persist = async value => { if (!value) { entered.resolve(); await write.promise; } return saved(value); };
+  const resume = f.backend.resumeAutomation(paused.revision, () => { if (!allowed) throw new Error("managed control lease expired"); });
+  const failed = assert.rejects(resume, /managed control lease expired/);
+  await entered.promise; allowed = false; write.resolve(); await failed;
+  const status = await f.backend.getAutomationControlStatus();
+  assert.equal(status.inputBlocked, true); assert.notEqual(status.state, "running");
+  await assert.rejects(f.cdp("Runtime.evaluate", { expression: "1" }), /OBU_AUTOMATION/);
+});
+
+test("the private managed bridge can select, Pause, read paused status and explicitly Resume the real backend", async () => {
+  const f = await loadBackend({ managed: true }); await f.attach();
+  const runId = "0123456789abcdef0123456789abcdef", proof = { nonce: "native-bound-nonce", extensionId: "a".repeat(32), extensionInstanceId: "instance", workerBootId: "boot", portId: "port" };
+  const messages = [], target = { __obuNativeDownloadBinding: proof, __obuManagedViewerEvent: text => messages.push(JSON.parse(text)) };
+  const bridge = installManagedUserBridge({ config: { version: 1, nativeHostName: `com.openbrowseruse.managed.n${runId}` }, backend: f.backend, getInstanceId: async () => proof.extensionInstanceId, target });
+  const channelKey = "A".repeat(43);
+  await bridge.open({ version: 1, runId, extensionId: proof.extensionId, extensionInstanceId: proof.extensionInstanceId, workerBootId: proof.workerBootId, portId: proof.portId, channelKey });
+  try {
+    await bridge.request({ channelKey, operation: "select", tabId: 7 });
+    assert.equal(messages.filter(message => message.type === "frame").length, 1);
+    const { status: paused } = await bridge.request({ channelKey, operation: "pause" });
+    assert.equal(paused.automation.state, "paused");
+    assert.equal(paused.automation.cleanupComplete, true);
+    assert.deepEqual(json(paused.tabs), []);
+    assert.equal(paused.selectedTabId, null);
+    const { status: running } = await bridge.request({ channelKey, operation: "resume", expectedRevision: paused.automation.revision, expectedWorkerBootId: proof.workerBootId });
+    assert.equal(running.automation.state, "running");
+    assert.deepEqual(json(running.tabs), []);
+    assert.equal(f.backend.attachedTabs.size, 0, "Resume must not restore original agent attachments");
+  } finally { await bridge.request({ channelKey, operation: "disconnect" }); }
+});
+
+test("failed viewer stop remains in the original attachment until explicit Pause retries cleanup", async () => {
+  let stops = 0;
+  const f = await loadBackend({ managed: true, command: method => {
+    if (method === "Page.stopScreencast" && ++stops === 1) throw new Error("native stop refused");
+  } });
+  await f.attach(); const attachment = f.backend.attachmentEpochs.get(7);
+  const subscription = await f.backend.managedViewerSubscribe(7, () => {});
+  await assert.rejects(subscription.close(), /native stop refused/);
+  assert.equal(f.backend.attachmentEpochs.get(7), attachment);
+  assert.equal(f.backend.browserRendering.records.size, 1);
+  assert.equal((await f.backend.pauseAutomation()).cleanupComplete, true);
+  assert.equal(stops, 2); assert.equal(f.backend.browserRendering.records.size, 0);
 });
 
 for (const external of [false, true]) test(`real engine and pinned Progress abort retain actual CRX screenshot in the original lease and Pause drain (${external ? "caller-owned" : "internal"} stream)`, async () => {

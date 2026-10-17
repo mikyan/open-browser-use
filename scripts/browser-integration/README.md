@@ -1,5 +1,26 @@
 # Browser integration acceptance
 
+## Managed live viewer and user controls (Windows, experimental)
+
+`managed-viewer-check.mjs` uses the production launcher and SDK plus an independent
+headless viewer profile. Build the CLI and extension, set the same three absolute
+environment paths shown below, then run:
+
+```powershell
+node scripts/browser-integration/managed-viewer-check.mjs
+```
+
+Four original steps cover startup, changing native frames, one original child
+document with a single form transaction, real DOM Pause/Resume/Stop controls,
+old-handle rejection and actual terminal cleanup. Resume requires a new SDK turn
+and explicit viewing; no input is replayed. The report binds typed viewer commands
+to their original response IDs and preserves decoded-frame observations, raw
+errors, process identities and lifecycle receipts. Only the first 64 frame PNGs
+are retained; later frames retain hashes and dimensions. Tokens are redacted.
+Original source and build inventories must remain unchanged throughout the run.
+This does not test login handoff, normal Edge installation, company-PC policies,
+OS foreground focus or the full Browser Use task matrix.
+
 ## Production managed launcher (Windows, experimental)
 
 `managed-launcher-check.mjs` exercises the actual `managed run/status/stop`

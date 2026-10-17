@@ -103,8 +103,14 @@ debugger、history 和 tab groups。
   `managed run` 持有 profile 锁、自有 Job、唯一 native 注册和真实进程句柄；
   通过原 Native Port 挑战绑定私有 Browser root。CLI/MCP `--managed` 从
   存活管理 pipe 取得确切 endpoint，不回退普通 profile。独立 stop 等待原树
-  退出；实时 viewer、用户暂停及登录接管仍待实现，见
+  退出。UserController 通过独立 Browser root 连接只绑定原 worker，
+  保留原 context/run/Native Port 身份，提供有界 typed 用户控制与实时帧。
+  它不增加页面 debugger 附件，也不在 task RPC 中开放用户控制。见
   [独立会话](references/managed-browser-session.md)。
+- `internal/managedviewer/`：实验性的本地 HTTP/WS 实时查看界面。只绑定
+  loopback，核验精确 Host/Origin、一次性票据和单个观看连接；投影已验证
+  worker 状态及 PNG，不提供浏览器输入或 CDP 代理。Pause/Resume 沿用原
+  backend 门禁，Stop 直接等待 supervisor 的实际退出回执。登录接管未实现。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。

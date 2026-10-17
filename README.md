@@ -157,10 +157,11 @@ packages do not include these local changes. Register that CLI as the native
 host for the loaded extension's actual ID. For Windows Edge, follow the
 [local manifest instructions](docs/references/edge-installation.md).
 
-An optional experimental Windows `managed run/status/stop` entry point runs a
+An optional experimental Windows `managed run/status/view/stop` entry point runs a
 separate headless Chromium profile. It requires an explicit Chromium or Chrome
-for Testing executable and a matching built extension; it has no live viewer,
-pause UI or login handoff yet. Ordinary installation does not require it. See
+for Testing executable and a matching built extension. A local viewer provides
+live frames and explicit pause, resume and stop controls. Login handoff remains
+unfinished. Ordinary installation does not require it. See
 [managed sessions](docs/references/managed-browser-session.md) for commands,
 CLI/MCP selection and the current validation boundary.
 

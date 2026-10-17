@@ -63,7 +63,7 @@ function fixture(config) {
   };
   return {
     calls, messages,
-    start: () => vm.runInNewContext(`${source}\n({ backend, transport, handleAutomationControlMessage, handleSiteAccessMessage });`, {
+    start: () => vm.runInNewContext(`${source}\n({ backend, transport, handleAutomationControlMessage, handleSiteAccessMessage, managedUser: globalThis.__obuManagedUser, managedDescriptor: Object.getOwnPropertyDescriptor(globalThis, "__obuManagedUser") });`, {
       chrome, managedConfig: config, NativeInputTracker, URL, Date, setTimeout, clearTimeout
     })
   };
@@ -79,6 +79,13 @@ for (const [label, config, expected] of [["ordinary", null, ordinaryHost], ["man
     assert.equal(worker.transport.getStatus().hostName, expected);
     assert.equal(worker.transport.getStatus().state, "connected");
     assert.equal(f.messages[0].method, "obu.native.hello");
+    if (config === null) assert.equal(worker.managedUser, undefined);
+    else {
+      assert.equal(Object.isFrozen(worker.managedUser), true);
+      assert.equal(worker.managedDescriptor.writable, false);
+      assert.equal(worker.managedDescriptor.configurable, false);
+      assert.deepEqual(Object.keys(worker.managedUser), ["open", "request"]);
+    }
     // A managed host changes routing only; it grants no popup control authority.
     for (const [handler, type] of [[worker.handleAutomationControlMessage, "PAUSE_AUTOMATION"],
       [worker.handleSiteAccessMessage, "SET_SITE_ACCESS_POLICY"]]) {
