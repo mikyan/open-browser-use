@@ -31,6 +31,13 @@ type Backend interface {
 	Done() <-chan struct{}
 }
 
+// A retired backend can prove whole-channel cleanup after ordinary commands
+// have been revoked. Close must join its original inputs, streams and replies;
+// transport loss or a canceled caller is not a successful retirement receipt.
+type retiringBackend interface {
+	Close(context.Context) error
+}
+
 type Config struct {
 	RunID   string
 	Backend Backend
@@ -248,7 +255,27 @@ func (s *Server) Close(ctx context.Context) error {
 			httpErr := s.http.Close()
 			s.wg.Wait()
 			s.mu.Lock()
-			s.closeErr = errors.Join(httpErr, s.cleanupErr)
+			cleanupErr := s.cleanupErr
+			s.mu.Unlock()
+			// Unsubscribe can fail before the original Native loss notification.
+			// Only the same, now-unavailable backend's actual whole-channel
+			// retirement can settle that earlier obligation. Keep its historical
+			// error, and never retire a live backend to hide an ordinary failure.
+			if cleanupErr != nil {
+				select {
+				case <-s.config.Backend.Done():
+					if retiring, ok := s.config.Backend.(retiringBackend); ok {
+						if err := retiring.Close(context.Background()); err == nil {
+							cleanupErr = nil
+						} else {
+							cleanupErr = errors.Join(cleanupErr, err)
+						}
+					}
+				default:
+				}
+			}
+			s.mu.Lock()
+			s.closeErr = errors.Join(httpErr, cleanupErr)
 			s.mu.Unlock()
 			close(s.done)
 		}()
@@ -363,6 +390,14 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		cleanupResult, cleanupErr := s.config.Backend.Command(cleanup, json.RawMessage(`{"operation":"select","tabId":null}`))
 		if cleanupErr == nil {
 			cleanupErr = c.confirmCleanup(cleanupResult)
+		} else {
+			select {
+			case <-s.config.Backend.Done():
+				if retired, ok := s.config.Backend.(retiringBackend); ok {
+					cleanupErr = retired.Close(cleanup)
+				}
+			default:
+			}
 		}
 		finish()
 		c.workers.Wait()
@@ -516,6 +551,10 @@ func (s *Server) command(c *connection, request command) {
 		}
 		if request.operation == "humanBegin" || request.operation == "humanInput" {
 			s.releaseFailedHuman(c, request.epoch)
+		}
+		if (request.operation == "select" || request.operation == "humanBegin") && errors.As(err, &coded) && coded.UserErrorCode() == "OBU_HUMAN_CAPTURE_UNSUPPORTED" {
+			c.failure(request.id, "BROWSER_CAPTURE_UNSUPPORTED", "当前浏览器不支持结果页查看或人工接管。请安装推荐浏览器版本，并启动新会话。")
+			return
 		}
 		if errors.As(err, &coded) && (coded.UserErrorCode() == "OBU_HUMAN_STALE" || coded.UserErrorCode() == "OBU_MANAGED_USER_HUMAN_STALE") {
 			c.failure(request.id, "HUMAN_STALE", "人工控制已失效，请完成接管；不要重试输入。")

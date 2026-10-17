@@ -206,7 +206,7 @@ export class ManagedHumanControl {
     check();
     const timestamps = metrics?.metrics?.filter(metric => metric.name === "Timestamp");
     if (timestamps?.length !== 1 || !Number.isFinite(timestamps[0].value) || timestamps[0].value <= 0)
-      throw fail("native monotonic capture barrier is unavailable", "UNAVAILABLE");
+      throw fail("this browser does not provide the native monotonic capture barrier; use the recommended compatible managed browser", "CAPTURE_UNSUPPORTED");
     epoch.barrier = timestamps[0].value;
     const currentCandidate = await this.validate(epoch.candidate); check();
     epoch.candidate = currentCandidate ?? epoch.candidate;
@@ -235,7 +235,8 @@ export class ManagedHumanControl {
               if (epoch.retired || record.revoked) return false;
               this.checkGeneration(record, epoch);
               const capture = frame.metadata.monotonicTimestamp;
-              if (!Number.isFinite(capture) || capture <= 0) throw fail("native frame capture timestamp is unavailable", "UNAVAILABLE");
+              if (!Number.isFinite(capture) || capture <= 0)
+                throw fail("this browser does not provide the native frame capture timestamp; use the recommended compatible managed browser", "CAPTURE_UNSUPPORTED");
               return capture > epoch.barrier;
             } });
           epoch.subscription = await epoch.start;

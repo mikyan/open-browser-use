@@ -893,6 +893,7 @@
       "cleanupPending": 0,
       "eventSequence": 31,
       "human": null,
+      "view": null,
       "humanCleanup": {
         "leaseId": "result-human-5",
         "cleanupConfirmed": true

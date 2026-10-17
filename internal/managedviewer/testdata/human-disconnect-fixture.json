@@ -41,7 +41,8 @@
         "generation": 0,
         "viewport": null,
         "lastInputSequence": 0
-      }
+      },
+      "view": null
     }
   },
   "firstEnd": {
@@ -72,6 +73,7 @@
       "cleanupPending": 0,
       "eventSequence": 3,
       "human": null,
+      "view": null,
       "humanCleanup": {
         "leaseId": "disconnect-human-1",
         "cleanupConfirmed": true
@@ -119,6 +121,7 @@
         "viewport": null,
         "lastInputSequence": 0
       },
+      "view": null,
       "humanCleanup": {
         "leaseId": "disconnect-human-1",
         "cleanupConfirmed": true
@@ -154,6 +157,7 @@
       "cleanupPending": 0,
       "eventSequence": 6,
       "human": null,
+      "view": null,
       "humanCleanup": {
         "leaseId": "disconnect-human-2",
         "cleanupConfirmed": true
@@ -220,7 +224,8 @@
           "generation": 0,
           "viewport": null,
           "lastInputSequence": 0
-        }
+        },
+        "view": null
       },
       "sequence": 1
     },
@@ -272,6 +277,7 @@
         "cleanupPending": 0,
         "eventSequence": 3,
         "human": null,
+        "view": null,
         "humanCleanup": {
           "leaseId": "disconnect-human-1",
           "cleanupConfirmed": true
@@ -321,6 +327,7 @@
         "cleanupPending": 0,
         "eventSequence": 4,
         "human": null,
+        "view": null,
         "humanCleanup": {
           "leaseId": "disconnect-human-1",
           "cleanupConfirmed": true
@@ -377,6 +384,7 @@
           "viewport": null,
           "lastInputSequence": 0
         },
+        "view": null,
         "humanCleanup": {
           "leaseId": "disconnect-human-1",
           "cleanupConfirmed": true

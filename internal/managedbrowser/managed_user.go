@@ -85,33 +85,81 @@ type UserController struct {
 func (s *Session) OpenUserController(ctx context.Context) (*UserController, error) {
 	s.userMu.Lock()
 	defer s.userMu.Unlock()
+	s.mu.Lock()
 	if s.info.Mode == "setup" {
+		s.mu.Unlock()
 		return nil, errors.New("managed setup has no task or viewer controller")
 	}
 	if s.userOpened || s.userRootURL == "" {
+		s.mu.Unlock()
 		return nil, errors.New("managed user controller was already opened or session is not ready")
 	}
 	if err := s.checkStartup(ctx); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	select {
 	case <-s.done:
+		s.mu.Unlock()
 		return nil, errors.New("managed session is closed")
 	default:
 	}
 	if err := validateBinding(s.record.Binding, s.info); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	var identity managedUserIdentity
 	if err := json.Unmarshal(s.record.Binding, &identity); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
 	identity.Version, identity.RunID = 1, s.info.RunID
 	s.userOpened = true
-	return openUserController(ctx, s.userRootURL, identity, s.done)
+	ctx, cancel := context.WithCancel(ctx)
+	s.userOpenCancel, s.userOpenDone = cancel, make(chan struct{})
+	finished := s.userOpenDone
+	root, owner := s.userRootURL, s.ownerTerminated
+	s.mu.Unlock()
+	defer func() {
+		cancel()
+		s.mu.Lock()
+		s.userOpenCancel = nil
+		close(finished)
+		s.mu.Unlock()
+	}()
+	c, err := openUserControllerRetained(ctx, root, identity, owner, nil, s.retainController)
+	if err == nil {
+		s.mu.Lock()
+		if s.recovery.State != "ready" {
+			err = errors.New("managed native host ended during initial user control setup")
+		} else {
+			s.userCurrent = c
+			s.currentNative.controller = c
+		}
+		s.mu.Unlock()
+	}
+	if err != nil && c != nil {
+		c.unavailable(err)
+	}
+	return c, err
 }
 
 func openUserController(ctx context.Context, root string, identity managedUserIdentity, ownerDone <-chan struct{}) (_ *UserController, err error) {
+	return openUserControllerRetained(ctx, root, identity, ownerDone, nil, nil)
+}
+
+type managedWorkerIdentity struct {
+	TargetID, ContextUID, WorkerBootID string
+	ContextID                          int64
+}
+
+func (c *UserController) workerIdentity() managedWorkerIdentity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return managedWorkerIdentity{c.targetID, c.contextUID, c.identity.WorkerBootID, c.contextID}
+}
+
+func openUserControllerRetained(ctx context.Context, root string, identity managedUserIdentity, ownerDone <-chan struct{}, expected *managedWorkerIdentity, retain func(*UserController)) (_ *UserController, err error) {
 	key, err := randomID()
 	if err != nil {
 		return nil, err
@@ -125,6 +173,9 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 		acks: make(chan uint64, 2), retiredStreams: make(map[string]bool), heartbeatEvery: 3 * time.Second}
 	c.workers.Add(1)
 	c.cdp = newUserCDP(connection.conn, c.handleEvent)
+	if retain != nil {
+		retain(c)
+	}
 	go c.deliverEvents()
 	go func() {
 		select {
@@ -171,6 +222,9 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 	if targetID == "" {
 		return nil, errors.New("managed user exact worker target is unavailable")
 	}
+	if expected != nil && (expected.TargetID != targetID || expected.WorkerBootID != identity.WorkerBootID) {
+		return nil, errors.New("managed recovery worker target or boot identity changed")
+	}
 	c.mu.Lock()
 	c.targetID = targetID
 	c.mu.Unlock()
@@ -197,7 +251,11 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 	}
 	c.mu.Lock()
 	contextID := c.contextID
+	contextUID := c.contextUID
 	c.mu.Unlock()
+	if expected != nil && (expected.ContextUID != contextUID || expected.ContextID != contextID) {
+		return nil, errors.New("managed recovery worker execution context changed")
+	}
 	if err = c.cdp.call(ctx, sessionID, "Runtime.addBinding", map[string]any{"name": userBindingName, "executionContextId": contextID}, nil); err != nil {
 		return nil, err
 	}
@@ -593,16 +651,21 @@ func (c *UserController) trackCallLocked(call *userCall) {
 
 func (c *UserController) privateRequest(ctx context.Context, operation string, extra map[string]any) (json.RawMessage, error) {
 	c.mu.Lock()
-	if c.closing && operation != "disconnect" {
+	cleanup := operation == "disconnect" || operation == "retire"
+	if c.closing && !cleanup {
 		c.mu.Unlock()
 		return nil, errors.New("managed user channel is closing")
 	}
 	params := map[string]any{"operation": operation, "channelKey": c.channelKey}
+	if operation == "retire" {
+		params["version"], params["runId"], params["extensionId"], params["extensionInstanceId"] = 1, c.identity.RunID, c.identity.ExtensionID, c.identity.ExtensionInstanceID
+		params["workerBootId"], params["portId"], params["channelId"] = c.identity.WorkerBootID, c.identity.PortID, c.identity.ChannelID
+	}
 	for key, value := range extra {
 		params[key] = value
 	}
 	call, err := c.evaluateLocked(ctx, "request", params)
-	if err == nil && operation != "disconnect" {
+	if err == nil && !cleanup {
 		c.trackCallLocked(call)
 	}
 	c.mu.Unlock()
@@ -815,7 +878,7 @@ func (c *UserController) shutdownUser() {
 		c.workers.Add(1)
 		go func() {
 			defer c.workers.Done()
-			data, err := c.privateRequest(context.Background(), "disconnect", nil)
+			data, err := c.privateRequest(context.Background(), "retire", nil)
 			result <- userReply{data: data, err: err}
 		}()
 		select {
@@ -823,17 +886,9 @@ func (c *UserController) shutdownUser() {
 			cleanupErr = reply.err
 			receipt = reply.data
 			if cleanupErr == nil {
-				var response struct {
-					Disconnected bool
-					Status       json.RawMessage `json:"status"`
-				}
-				if json.Unmarshal(receipt, &response) != nil || !response.Disconnected {
-					cleanupErr = errors.New("managed user disconnect lacks a cleanup receipt")
-				} else {
-					c.mu.Lock()
-					cleanupErr = c.validateStatusLocked(response.Status)
-					c.mu.Unlock()
-				}
+				c.mu.Lock()
+				cleanupErr = c.validateRetirementLocked(receipt)
+				c.mu.Unlock()
 			}
 		case <-terminated:
 			proof = terminationProof

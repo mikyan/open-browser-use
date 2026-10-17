@@ -21,8 +21,10 @@ import (
 	"time"
 )
 
-const RecommendedVersion = "155.0.8059.84"
-const recommendedSHA256 = "507f2a031441d10c62b5e3d4e863f09ac1198a571c1419976cbd8387f639afde"
+const RecommendedVersion = "156.0.8078.12"
+const recommendedSHA256 = "3afa11a86d390f83dc108c218a8fde04d68f2a9c4fd4cd010db0f2cde4837e5c"
+const retainedVersion = "155.0.8059.84"
+const retainedSHA256 = "507f2a031441d10c62b5e3d4e863f09ac1198a571c1419976cbd8387f639afde"
 const recommendedURL = "https://storage.googleapis.com/chrome-for-testing-public/" + RecommendedVersion + "/win64/chrome-win64.zip"
 const cacheMarker = ".managed-runtime.json"
 const manifestName = ".installation.json"
@@ -131,7 +133,7 @@ func inspect(ctx context.Context, root, version, digest string) (_ Installation,
 		return Installation{}, err
 	}
 	defer func() { err = errors.Join(err, lock.Close()) }()
-	if err := cacheLayout(root, version); err != nil {
+	if err := cacheLayout(ctx, root, version); err != nil {
 		return Installation{}, err
 	}
 	return inspectDirectory(ctx, filepath.Join(root, version+"-win64"), version, digest)
@@ -166,7 +168,7 @@ func install(ctx context.Context, root string, s source) (_ Installation, err er
 		return Installation{}, err
 	}
 	defer func() { err = errors.Join(err, lock.Close()) }()
-	if err := cacheLayout(root, s.version); err != nil {
+	if err := cacheLayout(ctx, root, s.version); err != nil {
 		return Installation{}, err
 	}
 	destination := filepath.Join(root, s.version+"-win64")
@@ -299,12 +301,15 @@ func ownership(root string, create bool) error {
 	return nil
 }
 
-func cacheLayout(root, version string) error {
+func cacheLayout(ctx context.Context, root, version string) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
+		if err := checkContext(ctx); err != nil {
+			return err
+		}
 		if err := platformValidatePath(filepath.Join(root, entry.Name())); err != nil {
 			return err
 		}
@@ -316,6 +321,13 @@ func cacheLayout(root, version string) error {
 		case version + "-win64":
 			if !entry.IsDir() {
 				return errors.New("managed browser version path is not a directory")
+			}
+		case retainedVersion + "-win64":
+			// Explicit upgrades may coexist with this exact formerly shipped
+			// pin. Revalidate its owned inventory without selecting, executing,
+			// rewriting or deleting it. Other version directories remain unknown.
+			if _, err := inspectDirectory(ctx, filepath.Join(root, entry.Name()), retainedVersion, retainedSHA256); err != nil {
+				return fmt.Errorf("retained managed browser installation is unverified: %w", err)
 			}
 		default:
 			return errors.New("managed browser cache has unknown or unfinished entries; nothing was removed")

@@ -796,3 +796,78 @@ Release: https://github.com/mikyan/open-browser-use/releases/tag/preview-2026101
 The package includes the normal company-PC installation guide and optional
 install-then-run managed commands. Browser binaries are downloaded explicitly
 on first use, not included in the ZIP. Full parity remains open.
+
+
+### 2026-10-17: Recover one Native connection in the original live worker
+
+Add explicit `managed recover` while preserving the original Browser/profile,
+worker target/context/boot identity and delivered result pages. Session retains
+all Native process handles, bindings, exit receipts and controller cleanup across
+at most 32 generations. Native loss degrades management without closing the
+Browser. Recovery retires the original controller and HTTP viewer, verifies a
+new Native process/Port and the same worker, then publishes a fresh paused viewer.
+Stop cancels and joins recovery and all retained resources; failed preparations
+remain owned. Old task/view access cannot implicitly reconnect or resume input.
+The extension has a bounded exact-identity cleanup-only retirement operation.
+
+Cross-layer tests caught two cleanup issues: real nonzero Windows process exits
+must preserve their original error while being distinguished from unknown wait
+failures; whole-controller Close must verify explicit null/idle fields and the
+original human cleanup before accepting a receipt. An independent review also
+found that an earlier viewer unsubscribe error could permanently block later
+confirmed retirement. Its red/green regression now requires the same unavailable
+backend's actual full cleanup after all HTTP/WS workers finish, retaining the
+historical error. Live backends and unknown cleanup are not accepted as proof.
+
+The first real attempt LPY0ZE completed its only POST/finalize but failed result
+viewing before Native fault injection. Fixed official Chromium sources and an
+independent zero-business CfT 155 capture proved that version lacks native
+`monotonicTimestamp`; its wall-clock timestamp is not a substitute. Preserve the
+capture barrier and return `OBU_HUMAN_CAPTURE_UNSUPPORTED` with an actionable
+viewer message. Pin CfT win64 156.0.8078.12 instead, with original ZIP SHA256
+`3afa11a86d390f83dc108c218a8fde04d68f2a9c4fd4cd010db0f2cde4837e5c`.
+Explicit installation supports coexistence with the verified former 155 pin,
+without modifying it or selecting it as the default. Unknown/changed files and
+real directory junctions still fail closed. Runtime/CLI tests and vet passed.
+
+The production EXE performed the real network installation, offline status and
+reuse into an independently copied historical cache. The independent audit
+confirmed all 309 old files and dictionaries unchanged, and all 305 new original
+files (460,072,969 bytes) identical to the official ZIP/manifest. Runtime-generated
+dictionaries were recorded separately. Upgrade audit SHA256:
+`7efa62b360a01d9f85918c93a3149cb39b50112fcee5dde2c7dcff5cdb7c92fa`.
+Full Go test/vet/build passed with unchanged source; validation SHA256:
+`a073adb3772e7adccf9fb582bb6774caec0464405b0f7d533f0f6d4d61c992a5`.
+The extension's complete 2,065-test recovery baseline passed; the subsequently
+changed human-control module passed all 70 tests. The runner helpers passed 9.
+
+Keep 4J5sp6 (test read private cleanupPending from the public result) and htYjeo
+(test expected a Playwright socket event after closing its observed target) as
+failed attempts. Both completed the original baseline result and human End with
+normal shutdown; neither reached fault/recovery. Fix only those harness contracts:
+use the strict public cleanup projection and the existing formal managed-view
+reader/worker/cleanup barrier. Do not manufacture a socket event or replay inputs.
+
+Final A6UPE3 completed all six stages with actual outer exit 0. One original POST,
+15 exact human input receipts, 17 native frames, two Begin/End pairs and no Resume
+were recorded. One exact retained Native handle was terminated; its confirmed
+exit 4294967295 and original error remain in lifecycle evidence. Explicit recovery
+created one new Native generation while retaining Browser/worker/context/target/
+document/draft/receipt. The old unused ticket failed on old and new listeners.
+The fresh paused viewer edited only the original result note and local review.
+Native generation two, Browser, supervisor and viewer exited 0; Job, registration,
+endpoints and original processes were cleaned. Root visually checked the recovered
+result and Unicode note. Post-run cache status/reuse passed again with closed-port
+proxies and System32-only PATH. Browser report SHA256:
+`0c1b90c272f9bc92a75c5758728ac0b54edbb951eb2b4e7d7212ba5be79cc74a`.
+
+Independent stopped-state auditing passed nine groups with actual exit 0,
+covering five original lifecycle byte copies, exact uint64 process times, both
+Native cleanup receipts, all 20 fully decoded PNGs and 30 original process
+identities. Both registry views, both pipes and endpoint records were cleared.
+Audit SHA256: `421267e9d1ba316adff641a629c74325c875d4511d5cb577017215f0c8e35e2b`.
+
+This slice does not verify true worker replacement, browser restart, in-flight
+input recovery, real accounts/IME/SSO/MFA, ordinary company Edge or other platforms.
+It does not create a PR or another package; the published 81cfdae package is
+unchanged and does not contain these fixes. The full parity goal remains open.

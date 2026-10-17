@@ -38,6 +38,14 @@ type exitReceipt struct {
 	Error string    `json:"error,omitempty"`
 }
 
+// A nonzero exit is a confirmed process outcome, not a failure to wait for the
+// original handle. Keep its diagnostic separately from confirmation.
+type platformExitError struct{ Code uint32 }
+
+func (e *platformExitError) Error() string {
+	return fmt.Sprintf("managed process exited with code %d", e.Code)
+}
+
 type acknowledgement struct {
 	At     time.Time       `json:"at"`
 	Error  string          `json:"error,omitempty"`
@@ -66,17 +74,34 @@ type lifecycle struct {
 	RegistrationCleanup *acknowledgement         `json:"registrationCleanup,omitempty"`
 	EndpointCleanup     *acknowledgement         `json:"endpointCleanup,omitempty"`
 	Error               string                   `json:"error,omitempty"`
+	NativeConnections   []nativeConnectionRecord `json:"nativeConnections,omitempty"`
 }
 
 type Session struct {
+	mu                      sync.Mutex
 	info                    Info
 	record                  lifecycle
-	process                 *platformProcess
-	native                  *platformNativeProcess
+	process                 ownedBrowserProcess
+	native                  managedNativeHandle
 	browser                 *browserConnection
 	userRootURL             string
 	userMu                  sync.Mutex
 	userOpened              bool
+	userOpenDone            chan struct{}
+	userOpenCancel          context.CancelFunc
+	userCurrent             *UserController
+	controllers             []*UserController
+	nativeConnections       []*nativeConnection
+	currentNative           *nativeConnection
+	nativeExecutable        string
+	recovery                RecoveryStatus
+	changes                 chan struct{}
+	recoveryCancel          context.CancelFunc
+	recoveryDone            chan struct{}
+	recoveryUnconfirmed     bool
+	ownerTerminated         chan struct{}
+	ownerOnce               sync.Once
+	recoveryHooks           *nativeRecoveryHooks
 	registration, lock      io.Closer
 	endpointDir             string
 	browserDone, nativeDone chan struct{}
@@ -86,7 +111,15 @@ type Session struct {
 	closeErr                error
 }
 
-func (s *Session) Info() Info            { return s.info }
+func (s *Session) Info() Info {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	info := s.info
+	if s.recovery.State != "" && s.recovery.State != "ready" {
+		info.SocketPath = ""
+	}
+	return info
+}
 func (s *Session) Done() <-chan struct{} { return s.done }
 
 // Start's context governs setup only. A ready session has its own lifetime and
@@ -128,7 +161,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{lock: lock, done: make(chan struct{}), browserDone: make(chan struct{}), nativeDone: make(chan struct{})}
+	s := &Session{lock: lock, done: make(chan struct{}), browserDone: make(chan struct{}), nativeDone: make(chan struct{}), changes: make(chan struct{}, 1), ownerTerminated: make(chan struct{})}
 	s.record = lifecycle{Version: 1, State: "starting", StartedAt: time.Now().UTC()}
 	defer func() {
 		if err == nil {
@@ -183,6 +216,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 			return nil, err
 		}
 		nativeExe = filepath.Join(s.info.RunDir, "native-host.exe")
+		s.nativeExecutable = nativeExe
 		if err := copyRegular(ctx, config.HostPath, nativeExe); err != nil {
 			return nil, err
 		}
@@ -284,12 +318,9 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 		s.info.NativePID, s.info.SocketPath = descriptor.PID, descriptor.SocketPath
 		s.record.NativeDescriptor = &descriptor
 		s.record.NativeCreationTime = s.native.CreationTime()
-		go func() {
-			waitErr := s.native.Wait(context.Background())
-			code, codeErr := s.native.ExitCode()
-			s.nativeExit = processReceipt(code, codeErr, waitErr)
-			close(s.nativeDone)
-		}()
+		connection := &nativeConnection{handle: s.native, done: s.nativeDone, record: nativeConnectionRecord{Epoch: 1, Descriptor: descriptor, CreationTime: s.native.CreationTime()}}
+		s.nativeConnections, s.currentNative = []*nativeConnection{connection}, connection
+		go s.waitNative(connection)
 		var backend struct {
 			Type     string `json:"type"`
 			Metadata struct {
@@ -316,6 +347,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 		if err := validateBinding(s.record.Binding, s.info); err != nil {
 			return nil, err
 		}
+		connection.record.Binding = append(json.RawMessage(nil), s.record.Binding...)
 		s.userRootURL = cdpURL
 	}
 	if err := s.checkStartup(ctx); err != nil {
@@ -323,6 +355,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	}
 	now := time.Now().UTC()
 	s.record.State, s.record.ReadyAt, s.record.Info = "ready", &now, s.info
+	s.recovery = RecoveryStatus{State: "ready", Epoch: 1}
 	if err := s.save(); err != nil {
 		return nil, err
 	}
@@ -332,12 +365,14 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	go func() {
 		select {
 		case <-s.browserDone:
-		case <-s.nativeDone:
 		case <-s.done:
 			return
 		}
 		s.beginClose()
 	}()
+	if !setup {
+		go s.observeNative(s.currentNative)
+	}
 	return s, nil
 }
 
@@ -457,9 +492,32 @@ func (s *Session) Close(ctx context.Context) error {
 	}
 }
 
-func (s *Session) beginClose() { s.closeOnce.Do(func() { go s.shutdown() }) }
+func (s *Session) beginClose() {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.recovery.State = "closing"
+		if s.recoveryCancel != nil {
+			s.recoveryCancel()
+		}
+		if s.userOpenCancel != nil {
+			s.userOpenCancel()
+		}
+		s.notifyLocked()
+		s.mu.Unlock()
+		go s.shutdown()
+	})
+}
 
 func (s *Session) shutdown() {
+	s.mu.Lock()
+	recovering, opening := s.recoveryDone, s.userOpenDone
+	s.mu.Unlock()
+	if recovering != nil {
+		<-recovering
+	}
+	if opening != nil {
+		<-opening
+	}
 	var failures []error
 	s.record.State = "closing"
 	s.record.Info = s.info
@@ -512,18 +570,45 @@ func (s *Session) shutdown() {
 		}
 		s.record.JobEmpty = receipt(json.RawMessage(`{"activeProcesses":0}`), nil)
 		<-s.browserDone
+		s.ownerOnce.Do(func() {
+			if s.ownerTerminated != nil {
+				close(s.ownerTerminated)
+			}
+		})
 		s.record.BrowserExit = &s.browserExit
 		if s.browserExit.Error != "" {
 			failures = append(failures, errors.New(s.browserExit.Error))
 		}
-		if s.native != nil {
-			<-s.nativeDone
-			s.record.NativeExit = &s.nativeExit
-			if s.nativeExit.Error != "" {
-				failures = append(failures, errors.New(s.nativeExit.Error))
+		for _, connection := range s.nativeConnections {
+			<-connection.done
+			if !connection.record.ExitConfirmed || connection.record.Exit == nil || connection.record.Exit.Code == nil {
+				failures = append(failures, fmt.Errorf("native connection %d exit could not be confirmed", connection.record.Epoch))
+			} else if connection == s.currentNative && *connection.record.Exit.Code != 0 {
+				failures = append(failures, fmt.Errorf("current native connection exited with code %d", *connection.record.Exit.Code))
 			}
-			if err := s.native.Close(); err != nil {
+			if connection == s.currentNative {
+				s.record.NativeExit = connection.record.Exit
+			}
+			if err := connection.handle.Close(); err != nil {
 				failures = append(failures, err)
+			}
+		}
+		for _, controller := range s.controllers {
+			if err := controller.Close(context.Background()); err != nil {
+				failures = append(failures, err)
+			}
+		}
+		for _, connection := range s.nativeConnections {
+			if connection.controller != nil {
+				connection.controller.mu.Lock()
+				data := append(json.RawMessage(nil), connection.controller.cleanupReceipt...)
+				connection.controller.mu.Unlock()
+				var err error
+				if len(data) == 0 {
+					err = errors.New("original controller cleanup receipt is missing")
+					failures = append(failures, err)
+				}
+				connection.record.ControllerCleanup = receipt(data, err)
 			}
 		}
 		if s.browser != nil {
@@ -562,6 +647,10 @@ func (s *Session) shutdown() {
 	}
 	now := time.Now().UTC()
 	s.record.EndedAt, s.record.State = &now, "closed"
+	s.mu.Lock()
+	s.recovery.State = "closed"
+	s.notifyLocked()
+	s.mu.Unlock()
 	if s.info.RunDir != "" {
 		s.closeErr = errors.Join(s.closeErr, s.save())
 	}
@@ -582,7 +671,7 @@ func (s *Session) cleanEndpointRecords() error {
 		if entry.Name() != "active.json" && !strings.HasSuffix(entry.Name(), host.EndpointRecordSuffix) {
 			return errors.New("managed native endpoint directory contains unknown entries")
 		}
-		if s.info.SocketPath == "" || s.info.NativePID <= 0 {
+		if len(s.nativeConnections) == 0 && (s.info.SocketPath == "" || s.info.NativePID <= 0) {
 			return errors.New("managed native cleanup cannot confirm the original endpoint identity; records retained")
 		}
 		data, err := readSmallFile(filepath.Join(s.endpointDir, entry.Name()), 4096)
@@ -590,7 +679,18 @@ func (s *Session) cleanEndpointRecords() error {
 			return err
 		}
 		var record host.ActiveSocketRecord
-		if json.Unmarshal(data, &record) != nil || record.SocketPath != s.info.SocketPath || record.PID != s.info.NativePID {
+		matched := false
+		if json.Unmarshal(data, &record) == nil {
+			for _, connection := range s.nativeConnections {
+				if record.SocketPath == connection.record.Descriptor.SocketPath && record.PID == connection.record.Descriptor.PID {
+					matched = true
+				}
+			}
+			if len(s.nativeConnections) == 0 {
+				matched = record.SocketPath == s.info.SocketPath && record.PID == s.info.NativePID
+			}
+		}
+		if !matched {
 			return errors.New("managed native cleanup found a foreign endpoint record")
 		}
 		if err := os.Remove(filepath.Join(s.endpointDir, entry.Name())); err != nil {
@@ -620,6 +720,16 @@ func receipt(result json.RawMessage, err error) *acknowledgement {
 }
 
 func (s *Session) save() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveLocked()
+}
+
+func (s *Session) saveLocked() error {
+	s.record.NativeConnections = nil
+	for _, connection := range s.nativeConnections {
+		s.record.NativeConnections = append(s.record.NativeConnections, connection.record)
+	}
 	return writeJSONFile(filepath.Join(s.info.RunDir, "lifecycle.json"), s.record)
 }
 

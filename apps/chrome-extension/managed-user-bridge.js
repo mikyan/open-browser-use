@@ -52,12 +52,13 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   newChannelId = () => crypto.randomUUID() }) {
   if (config === null) return null;
   const host = resolveManagedNativeHost(config, ""), runId = host.slice(-32);
-  if (!backend || ["getManagedViewerTabs", "managedViewerSubscribe", "getAutomationControlStatus", "pauseAutomation", "resumeAutomation"].some(key => typeof backend[key] !== "function") ||
+  if (!backend || ["getManagedViewerTabs", "managedViewerSubscribe", "getAutomationControlStatus", "pauseAutomation", "resumeAutomation",
+    "prepareManagedUserOpen", "commitManagedUserOpen", "waitManagedNativeRecovery", "onManagedNativeLoss"].some(key => typeof backend[key] !== "function") ||
       typeof getInstanceId !== "function" || typeof nativeProof !== "function" || !target || Object.hasOwn(target, API))
     throw failure("CONFIG", "a managed backend and an unused worker surface are required");
 
-  let current = null, opening = null;
-  const usedKeys = new Set(), cleanup = new Set();
+  let current = null, opening = null, latestChannel = null;
+  const usedKeys = new Set(), channels = new Map(), cleanup = new Set();
   let cleanupFailure = null;
 
   const identity = channel => ({ version: 1, channelId: channel.id, ...channel.identity });
@@ -138,8 +139,31 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     }
     channel.closedPromise = trackCleanup(Promise.all(releases).then(() => {
       if (cleanupFailure) throw failure("CLEANUP", String(cleanupFailure.message ?? cleanupFailure));
+      channel.cleanupConfirmed = true;
     }));
     return channel.closedPromise;
+  }
+  backend.onManagedNativeLoss(epoch => {
+    const channel = current ?? latestChannel;
+    if (!channel) return;
+    channel.nativeEpoch = epoch;
+    // Revoke publication and accepted selections in the same disconnect turn.
+    // Only the original channel retains a bounded cleanup-only receipt path.
+    void revoke(channel, "native binding lost").catch(() => {});
+  });
+
+  async function disconnectedStatus(channel, joinNative = false) {
+    await revoke(channel, "manager disconnected");
+    if (joinNative) await backend.waitManagedNativeRecovery(channel.nativeEpoch);
+    const automation = await backend.getAutomationControlStatus();
+    if (!channel.cleanupConfirmed || channel.stream || channel.selectedTabId !== null)
+      throw failure("CLEANUP", "original viewer cleanup is incomplete");
+    const disconnected = { ...identity(channel), connected: false, leaseMs: LEASE_MS, heartbeatMs: HEARTBEAT_MS,
+      expiresAt: Math.ceil(wallNow()), selectedTabId: channel.selectedTabId, automation, tabs: [],
+      stream: { ...channel.streamState }, cleanupPending: 0, eventSequence: channel.sequence, human: null,
+      view: null, ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
+    if (JSON.stringify(disconnected).length > 1024 * 1024) throw failure("CAPACITY", "disconnected metadata status exceeds its bound");
+    return { disconnected: true, status: disconnected };
   }
   function arm(channel) {
     clearTimer(channel.timer);
@@ -440,23 +464,48 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const proof = nativeProof(), sink = target[BINDING];
     if (!proof || !text(proof.nonce) || typeof sink !== "function" || !identityKeys.slice(1).every(key => proof[key] === value[key]))
       throw failure("IDENTITY", "original native worker binding is unavailable");
-    const ticket = {}; opening = ticket;
+    const ticket = {}, deadline = now() + LEASE_MS; opening = ticket;
+    usedKeys.add(value.channelKey);
+    const assertOpening = () => {
+      if (now() >= deadline) throw failure("CLOSED", "original user open admission expired");
+    };
     try {
+      const admission = await backend.prepareManagedUserOpen();
+      assertOpening();
       if (await getInstanceId() !== value.extensionInstanceId || nativeProof() !== proof || target[BINDING] !== sink)
         throw failure("IDENTITY", "original worker identity changed during open");
+      assertOpening();
       const id = newChannelId();
       if (!text(id)) throw failure("CONFIG", "invalid channel identifier");
       const channel = { id, key: value.channelKey, identity: Object.fromEntries(identityKeys.map(key => [key, value[key]])), proof, nonce: proof.nonce, sink,
-        deadline: now() + LEASE_MS, closed: false, timer: null, sequence: 0, stateEpoch: 0, selectedTabId: null, stream: null,
-        streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, retiredAcks: new Set(), pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve() };
-      usedKeys.add(channel.key); current = channel; arm(channel);
-      try { return { ...identity(channel), status: await status(channel) }; }
+        deadline, closed: false, timer: null, sequence: 0, stateEpoch: 0, selectedTabId: null, stream: null,
+        streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, retiredAcks: new Set(), pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve(),
+        nativeEpoch: admission?.epoch ?? null };
+      channels.set(channel.key, channel); current = latestChannel = channel; arm(channel);
+      try {
+        const result = { ...identity(channel), status: await status(channel) };
+        assertCurrent(channel);
+        assertOpening();
+        backend.commitManagedUserOpen(admission);
+        return result;
+      }
       catch (error) { await revoke(channel, "open failed"); throw error; }
     } finally { if (opening === ticket) opening = null; }
   }
   async function request(input) {
     // Read the operation through a data descriptor before deciding its schema.
     const operation = input && Object.getOwnPropertyDescriptor(input, "operation")?.value;
+    if (operation === "retire") {
+      const value = fields(input, ["channelKey", "operation", "channelId", "version", ...identityKeys]);
+      const channel = typeof value.channelKey === "string" && channels.get(value.channelKey);
+      if (!channel || value.version !== 1 || value.channelId !== channel.id ||
+          !identityKeys.every(key => value[key] === channel.identity[key]))
+        throw failure("IDENTITY", "original cleanup channel identity does not match");
+      // This path deliberately does not consult current native proof. Its
+      // exact retired channel can only close/join original resources, never
+      // heartbeat, acquire authority, or affect a newer channel.
+      return disconnectedStatus(channel, true);
+    }
     const extra = ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : [];
     const value = fields(input, ["channelKey", "operation", ...extra], ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : []);
     if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd"].includes(operation) ||
@@ -481,19 +530,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       return { acknowledged: value.sequence, workerBootId: channel.identity.workerBootId };
     }
     if (operation === "disconnect") {
-      await revoke(channel, "manager disconnected");
-      // Revoke joins the original selection, native input, and handle release.
-      // The last live snapshot predates that release (and may name an older
-      // human lease). Only the actual settled resources can confirm cleanup.
-      const automation = await backend.getAutomationControlStatus();
-      if (cleanupFailure || cleanup.size || channel.stream || channel.selectedTabId !== null)
-        throw failure("CLEANUP", "original viewer cleanup is incomplete");
-      const disconnected = { ...identity(channel), connected: false, leaseMs: LEASE_MS, heartbeatMs: HEARTBEAT_MS,
-        expiresAt: Math.ceil(wallNow()), selectedTabId: channel.selectedTabId, automation, tabs: [],
-        stream: { ...channel.streamState }, cleanupPending: cleanup.size, eventSequence: channel.sequence, human: null,
-        ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
-      if (JSON.stringify(disconnected).length > 1024 * 1024) throw failure("CAPACITY", "disconnected metadata status exceeds its bound");
-      return { disconnected: true, status: disconnected };
+      return disconnectedStatus(channel);
     }
     let inputReceipt;
     if (operation === "humanInput") {

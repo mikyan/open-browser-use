@@ -11,8 +11,10 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 最新完整包为 [preview-20261017-81cfdae](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-81cfdae)，
 包含本文的推荐浏览器安装、默认选择和运行字典兼容修复，以及之前的启动连接
 修复。干净重建、离线 CLI/MCP、独立制品检查和四资产回下载校验已通过。
-本轮 CfT 155 验证安装和四步查看流程；此前连续接管、结果页及原下载的 Chromium
-156 验收保持为历史证据，未在 CfT 155 上重跑。
+该包的 CfT 155 验证了安装和普通实时查看，但后续验收发现它缺少结果页查看与
+人工接管所需的原生捕获时间信息。这两项在该推荐版本上不可用；当前开发源码
+改用固定 CfT 156.0.8078.12，并提供明确的不兼容提示，尚未进入上方发布包。
+此前连续接管、结果页及原下载的 Chromium 156 验收保持为历史证据。
 上一完整包为 [preview-20261017-d0605b1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-d0605b1)，
 包含连续导航和结果页接续。干净构建、离线 CLI/MCP、独立制品审计和四资产
 回下载哈希核对通过；发布 EXE 单独重建，未在该 EXE 上重跑网页业务。
@@ -29,8 +31,8 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 
 - Windows 10 或更新版本；需要具有创建当前用户 Native Messaging 注册项
   的权限。公司策略可能禁止扩展或调试，应遵守公司的软件安装规定。
-- 当前源码新增 `managed browser install`，可显式准备固定推荐的 Chrome for
-  Testing；该入口尚未进入上方 d0605b1 包。安装后 `run/setup` 可以省略
+- `managed browser install` 可显式准备固定推荐的 Chrome for Testing；
+  该入口已进入 81cfdae 包，当前源码另有上述兼容版本修正。安装后 `run/setup` 可以省略
   browser-path，启动只做离线检查，不隐式下载或更新。仍可用 browser-path
   明确指定自备 Chromium/CfT；不会搜索日常 Edge/Chrome 或替用户启用远程调试。
 - 使用同一次构建的 `open-browser-use.exe` 与完整扩展目录；扩展目录必须
@@ -52,12 +54,18 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
 & 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed browser status
 ```
 
-安装入口使用编译时固定的 Chrome for Testing win64 `155.0.8059.84` 及 ZIP
+当前源码的安装入口使用编译时固定的 Chrome for Testing win64 `156.0.8078.12` 及 ZIP
 摘要，首次下载后验证完整文件再发布；重复安装复用已核验文件。无需 Go、Node
 或管理员权限。固定下载来源见 [Chrome for Testing](https://github.com/GoogleChromeLabs/chrome-for-testing)。
 `status` 是离线检查，不会下载浏览器。缓存位于当前用户的
 `%LOCALAPPDATA%\OpenBrowserUse\browser`；需要其他位置时，在 install、status、
 run 和 setup 中使用同一个绝对路径 `--browser-cache`。
+
+升级后的安装命令可在原缓存内并列安装 156，保留已验证的旧 155 文件和字典；
+默认启动只选择当前推荐版本。它不会覆盖损坏的旧安装、移除未知文件，或沿链接
+目录操作。旧 155 的结果查看不兼容来自原生协议字段缺失，不能用修改系统时间
+或刷新页面解决。固定版本依据见
+[Chromium 156 捕获实现](https://chromium.googlesource.com/chromium/src/+/refs/tags/156.0.8078.12/content/browser/devtools/protocol/page_handler.cc)。
 
 完整安装包的 EXE 旁有 `extension` 时，可以直接启动：
 
@@ -247,6 +255,29 @@ Agent 已暂停且清理完成时同样可用，完成接管后仍保持暂停�
 没有重跑或修改原浏览器流程。
 
 ## 生命周期与隔离范围
+
+### Native 断线后的显式恢复（开发中，尚未进入发布包）
+
+当专用会话的 Native 连接进程退出时，源码中的新恢复路径保留原浏览器和页面，
+`managed status` 显示 `degraded`，不再返回可用任务 endpoint。用户可在终端执行：
+
+```powershell
+& 'D:\Tools\OpenBrowserUse\open-browser-use.exe' managed recover `
+  --name work --root 'D:\BrowserData\OpenBrowserUse-Managed'
+```
+
+成功返回新的 `viewerURL`，原链接和原控制权限不能沿用。原结果页保留原 tab、
+target 和 document，Agent 仍暂停；要继续自动操作，需在新查看器明确 Resume，
+再让 Agent 开启新轮次。`managed view` 只领取正常连接的查看链接，不隐式恢复。
+
+恢复要求原扩展 worker 和执行上下文仍在、原输入和画面流已真实释放、新 Native
+进程属于原 Browser Job，并通过新的连接挑战。无法确认清理、worker 替换、原
+浏览器退出或不完整的新连接均不授权恢复；仍可 `managed stop` 结束原会话。
+不会重新打开页面 URL、恢复旧租约、重放输入或重提表单。每次运行最多保留 32
+个 Native 连接代次；到达上限需停止并新建会话。固定 Windows CfT 156.0.8078.12
+的 `A6UPE3` 六步验收通过：一次真实 Native 退出、显式恢复、原结果查看和人工
+接续、旧票据拒绝及最终清理均确认。原结果文档和唯一提交回执保留，恢复后未
+自动 Resume。该有限结果不包含真正 worker 替换、浏览器重启或在途输入恢复。
 
 Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运行目录、
 唯一 HKCU Native Messaging 注册和浏览器进程树。暂存扩展只变更公开 key

@@ -1,5 +1,41 @@
 # Browser integration acceptance
 
+## Managed Native recovery in the original worker (Windows, experimental)
+
+Build the current host, extension and SDK. Set `OBU_TEST_HOST_BINARY`,
+`OBU_TEST_EXTENSION_DIR`, `OBU_TEST_CHROMIUM_BINARY` and the preserved host
+build report `OBU_TEST_HOST_VALIDATION`, then run:
+
+```powershell
+node scripts/browser-integration/managed-native-recovery-check.mjs
+```
+
+Use the installed fixed recommended CfT runtime. The six-stage scenario creates
+one result with one business POST and finalizes it, verifies viewing and human
+Begin/End, then terminates only the original Native process through its retained
+handle. One explicit `managed recover` must preserve the same browser, worker,
+context, document, draft and receipt. The replacement starts paused; old viewer
+tickets are rejected. Further human input changes only local result annotations,
+without reopening the URL, submitting again or resuming the Agent. Formal Stop
+must account for both Native generations and the original browser/Job.
+
+The runner retains raw lifecycle bytes (including full-width FILETIME values),
+source hashes, command receipts, native PNGs, original HTTP bytes and cleanup
+evidence on failure as well as success. This does not test worker replacement,
+browser restart, in-flight input recovery, company Edge or real login accounts.
+
+The initial `managed-native-recovery-LPY0ZE` attempt failed before Native fault
+injection: the original POST/finalize succeeded, but result viewing failed on
+CfT 155. That version lacks the native capture timestamp required by the view
+and human leases. Original failure evidence and successful stopped-state cleanup
+remain preserved; it is not a recovery pass. The recommendation is now fixed at
+CfT 156.0.8078.12 without weakening the capture barrier. The subsequent 4J5sp6
+public-field mistake and htYjeo closed-target observer timeout also remain failed
+attempts. The final A6UPE3 workflow completed all six stages with actual exit 0,
+15 native input receipts, 17 frames and one original POST. The formal managed
+view command confirms old-reader/worker/cleanup completion; a Playwright socket
+close observation after its target closes is recorded only as a diagnostic.
+
 ## Managed original downloads (Windows, experimental)
 
 Set the explicit `OBU_TEST_HOST_BINARY`, `OBU_TEST_CHROMIUM_BINARY` and

@@ -435,6 +435,7 @@
       "cleanupPending": 0,
       "eventSequence": 13,
       "human": null,
+      "view": null,
       "humanCleanup": {
         "leaseId": "fixture-human-lease",
         "cleanupConfirmed": true

@@ -1284,11 +1284,58 @@ class BrowserBackend {
     return this.startNativeRecovery();
   }
 
+  onManagedNativeLoss(listener) {
+    (this.managedNativeLossListeners ??= new Set()).add(listener);
+  }
+
+  async waitManagedNativeRecovery(epoch = this.managedNativeEpoch) {
+    // Retiring an old manager joins only its original native generation. A
+    // later connection's cleanup cannot become this old channel's authority.
+    if (epoch) await epoch.recovery.promise;
+  }
+
+  async prepareManagedUserOpen() {
+    await this.controlReady;
+    const epoch = this.managedNativeEpoch;
+    await this.waitManagedNativeRecovery(epoch);
+    const token = Object.freeze({ epoch });
+    this.assertManagedUserOpen(token);
+    return token;
+  }
+
+  assertManagedUserOpen(token) {
+    if (!token || token.epoch !== this.managedNativeEpoch)
+      throw new Error("OBU_MANAGED_NATIVE_CHANGED: native connection changed during user open");
+    this.assertNativeControl();
+    this.browserLifetime.assertInputRecoveryClear();
+    if (token.epoch && !token.epoch.opened) {
+      const gate = this.automationControl;
+      if (gate.state !== "paused" || !gate.inputBlocked || !gate.cleanupComplete)
+        throw new Error("OBU_MANAGED_NATIVE_PAUSE_INCOMPLETE: original native cleanup must finish while paused");
+    }
+  }
+
+  commitManagedUserOpen(token) {
+    this.assertManagedUserOpen(token);
+    if (token.epoch) token.epoch.opened = true;
+  }
+
+  assertManagedNativeResume() {
+    if (!managedConfig) return;
+    this.assertNativeControl();
+    if (this.managedNativeEpoch && !this.managedNativeEpoch.opened)
+      throw new Error("OBU_MANAGED_NATIVE_RECOVERY_REQUIRED: explicitly recover the original managed connection before resuming");
+  }
+
   startNativeRecovery({ retryPageCleanup = false } = {}) {
     const recovery = { error: null, pending: true };
     // This assignment blocks every ordinary admission and CRX command before
     // cancellation, storage, or native cleanup reaches its first await.
     this.nativeRecovery = recovery;
+    if (managedConfig) {
+      this.automationControl.block();
+      this.managedNativeEpoch = { recovery, opened: false };
+    }
     if (retryPageCleanup) this.allowActionInputRetry();
     // Only explicit bootstrap retries a cleanup attempt that actually failed.
     // Restart it before invalidation captures its drain; an in-flight attempt
@@ -1324,11 +1371,25 @@ class BrowserBackend {
     operation.then(() => {
       recovery.pending = false;
       if (this.nativeRecovery === recovery) this.nativeRecovery = null;
-    }, error => { recovery.pending = false; recovery.error = error; });
+    }, error => {
+      recovery.pending = false; recovery.error = error;
+      if (managedConfig) {
+        this.automationControl.fail(error);
+        void this.automationControl.persist(true).catch(failure => this.automationControl.fail(failure));
+      }
+    });
+    if (managedConfig) for (const listener of this.managedNativeLossListeners ?? []) listener(this.managedNativeEpoch);
     return operation;
   }
 
   async finishNativeRecovery(recovery, cancelled) {
+    if (managedConfig) {
+      // Use the original captured cleanup, on this transition itself. Calling
+      // pauseAutomation here would enqueue a Pause behind its own waiter.
+      await this.finishAutomationPause(cancelled);
+      if (this.nativeRecovery !== recovery) throw new Error("OBU_NATIVE_RECOVERY_FAILED: native recovery identity changed");
+      return;
+    }
     await this.controlLedger.invalidateAll("native-host-disconnect");
     const results = await Promise.allSettled([...cancelled.releases, ...cancelled.pending]);
     const failures = results.slice(0, cancelled.releases.length).filter(result => result.status === "rejected");
@@ -1786,7 +1847,7 @@ class BrowserBackend {
     // Do not queue an impossible Resume behind a human Begin's still-pending
     // Pause. The reservation fences admission at call time as well as at every
     // asynchronous storage boundary below.
-    try { this.managedHuman.assertHumanReleased(); }
+    try { this.managedHuman.assertHumanReleased(); this.assertManagedNativeResume(); }
     catch (error) { return Promise.reject(error); }
     const deadline = this.automationDeadline();
     const gate = this.automationControl;
@@ -1802,6 +1863,7 @@ class BrowserBackend {
     };
     const operation = this.automationTransitions.catch(() => {}).then(async () => {
       this.managedHuman.assertHumanReleased();
+      this.assertManagedNativeResume();
       try { assertAuthority(); } catch (error) { failResume(error); throw error; }
       await deadline.within(() => gate.ready);
       this.siteAccess.assertReady();
@@ -1814,9 +1876,11 @@ class BrowserBackend {
       try {
         await deadline.within(() => this.controlLedger.writes);
         this.managedHuman.assertHumanReleased();
+        this.assertManagedNativeResume();
         assertAuthority();
         await deadline.within(() => gate.persist(false));
         this.managedHuman.assertHumanReleased();
+        this.assertManagedNativeResume();
         assertAuthority();
       } catch (error) { failResume(error); throw error; }
       if (gate.pauseSequence !== pauseSequence) {

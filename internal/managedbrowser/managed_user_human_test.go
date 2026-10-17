@@ -63,7 +63,7 @@ func TestManagedHumanWorkerDeathIsNotHeldInputCleanup(t *testing.T) {
 			f.evaluated(req, map[string]any{"status": humanFixtureState(f)})
 			return true
 		}
-		if req.Operation == "humanInput" || req.Operation == "disconnect" {
+		if req.Operation == "humanInput" || req.Operation == "retire" {
 			held <- req
 			return true
 		}
@@ -121,7 +121,7 @@ func TestManagedHumanCanceledCallerStillJoinsOriginalInput(t *testing.T) {
 			f.evaluated(req, map[string]any{"status": humanFixtureState(f)})
 			return true
 		}
-		if req.Operation == "humanInput" || req.Operation == "disconnect" {
+		if req.Operation == "humanInput" || req.Operation == "retire" {
 			held <- req
 			return true
 		}

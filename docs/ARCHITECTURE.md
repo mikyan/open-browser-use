@@ -116,6 +116,12 @@ debugger、history 和 tab groups。
   事件拒绝仅记录固定类别，不输出原 payload 或任意错误文本。
   它不增加页面 debugger 附件，也不在 task RPC 中开放用户控制。见
   [独立会话](references/managed-browser-session.md)。
+  开发中的 `managed recover` 将 Native 连接代次与 Browser 生命周期分开；
+  原 Native 退出时保留 Browser、暂停扩展准入并隐藏任务 endpoint。原 controller
+  通过完整身份的 cleanup-only 入口等待实际释放，同 worker/context 的新 Port
+  经重新挑战后才能建立新的 controller 和 HTTP viewer；恢复后仍暂停。历史
+  进程句柄、退出事实与故障错误均保留，Stop 取消并等待未决恢复。原 Browser
+  Job 实际清空的通知独立于 Session.Done，避免失败 controller 的清理互等。
   实验性的 `StartSetup` 与 `Start` 共用资料目录锁和进程生命周期；显式 setup
   打开可见浏览器但禁用扩展，不产生 native 注册或任务 endpoint。管理 status
   明确报告 setup，CLI/MCP 任务选择拒绝该模式；只有原树退出后才释放资料目录。

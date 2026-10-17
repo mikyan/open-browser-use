@@ -149,6 +149,7 @@ func (f *userFixture) status() map[string]any {
 	result["automation"] = map[string]any{"state": state, "inputBlocked": f.paused, "revision": f.revision, "cleanupComplete": f.paused}
 	result["tabs"] = []any{map[string]any{"id": 7, "title": "Owned", "url": "https://fixture.invalid/"}}
 	result["stream"] = map[string]any{"state": "idle", "streamId": nil}
+	result["cleanupPending"], result["human"], result["view"] = 0, nil, nil
 	return result
 }
 func (f *userFixture) emit(kind string, extra map[string]any) uint64 {
@@ -250,7 +251,7 @@ func (f *userFixture) respond(req userTestRequest) {
 			var sequence uint64
 			_ = json.Unmarshal(req.Arguments["sequence"], &sequence)
 			f.evaluated(req, map[string]any{"acknowledged": sequence, "workerBootId": f.identity.WorkerBootID})
-		case "disconnect":
+		case "retire":
 			f.emit("closed", map[string]any{"reason": "manager disconnected"})
 			state := f.status()
 			state["connected"], state["selectedTabId"] = false, nil
@@ -487,7 +488,7 @@ func TestManagedUserFrameAndWorkerEpochViolationsRevoke(t *testing.T) {
 func TestManagedUserCloseWaitsOriginalDisconnectAndPendingSelect(t *testing.T) {
 	held := make(chan userTestRequest, 2)
 	f := newUserFixture(t, func(f *userFixture, r userTestRequest) bool {
-		if r.Operation == "select" || r.Operation == "disconnect" {
+		if r.Operation == "select" || r.Operation == "retire" {
 			held <- r
 			return true
 		}
@@ -667,7 +668,7 @@ func TestManagedUserCloseJoinsPrivateReceiptAfterCallerTimeout(t *testing.T) {
 func TestManagedUserConcurrentUnsubscribeWaitsOriginalClose(t *testing.T) {
 	held := make(chan userTestRequest, 1)
 	f := newUserFixture(t, func(f *userFixture, req userTestRequest) bool {
-		if req.Operation == "disconnect" {
+		if req.Operation == "retire" {
 			held <- req
 			return true
 		}

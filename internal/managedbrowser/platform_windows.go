@@ -299,12 +299,6 @@ type platformProcess struct {
 	closeErr     error
 }
 
-type platformExitError struct{ Code uint32 }
-
-func (e *platformExitError) Error() string {
-	return fmt.Sprintf("managed process exited with code %d", e.Code)
-}
-
 // Assignment happens inside CreateProcess, before child code runs. Unlike a
 // suspended-create/AssignProcessToJobObject sequence, supervisor death cannot
 // leave a newly created process outside the kill-on-close job.

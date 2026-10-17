@@ -17,6 +17,18 @@ function fixture(t, options = {}) {
   const f = { target, events, subscriptions, calls, state, liveTabs: [{ id: 7, title: "Owned tab", url: "https://example.test/" }], resumeGate: null, subscribeGate: null, closeGate: null,
     openArgs: { version: 1, runId, extensionId: proof.extensionId, extensionInstanceId: proof.extensionInstanceId, workerBootId: proof.workerBootId, portId: proof.portId, channelKey: key } };
   const backend = {
+    onManagedNativeLoss(listener) { f.nativeLostListener = listener; },
+    async waitManagedNativeRecovery(epoch) { await epoch?.promise; },
+    async prepareManagedUserOpen() {
+      const epoch = f.nativeEpoch;
+      await backend.waitManagedNativeRecovery(epoch);
+      return epoch;
+    },
+    commitManagedUserOpen(epoch) {
+      if (epoch !== f.nativeEpoch) throw new Error("OBU_MANAGED_NATIVE_CHANGED");
+      if (epoch && (state.state !== "paused" || !state.cleanupComplete)) throw new Error("OBU_MANAGED_NATIVE_PAUSE_INCOMPLETE");
+      f.openCommitted = true;
+    },
     async getAutomationControlStatus() { return { ...state }; },
     async getManagedViewerTabs() { return f.liveTabs; },
     async managedViewerSubscribe(tabId, onFrame) {
@@ -55,6 +67,14 @@ function fixture(t, options = {}) {
   f.frame = (sequence, extra = {}, subscription = subscriptions.at(-1)) => subscription.onFrame({ tabId: subscription.tabId, streamId: `stream-${subscription.tabId}`, sequence,
     mimeType: "image/png", data: Buffer.from(`frame ${sequence}`).toString("base64"), metadata: { deviceWidth: 800, deviceHeight: 600, timestamp: sequence, documentId: "not-proof" }, ...extra });
   f.advance = ms => { time += ms; };
+  f.retire = (opened, extra = {}) => f.api.request({ operation: "retire", ...f.openArgs, channelId: opened.channelId, ...extra });
+  f.loseNative = () => {
+    f.nativeEpoch = deferred(); f.openCommitted = false;
+    target.__obuNativeDownloadBinding = undefined;
+    state.state = "pausing"; state.cleanupComplete = false;
+    f.nativeLostListener(f.nativeEpoch);
+    return f.nativeEpoch;
+  };
   t.after(async () => {
     f.resumeGate?.resolve(); f.subscribeGate?.resolve(); f.closeGate?.resolve();
     f.humanBeginGate?.resolve(); f.humanInputGate?.resolve(); f.humanCloseGate?.resolve();
@@ -134,6 +154,98 @@ function humanFixture(t) {
   };
   return f;
 }
+
+test("native loss retires the exact channel synchronously and only its full identity can join original cleanup", async t => {
+  const f = humanFixture(t), opened = await f.open();
+  await f.begin();
+  f.humanCloseGate = deferred();
+  const epoch = f.loseNative();
+  await assert.rejects(f.request("status"), /CLOSED/);
+  await assert.rejects(f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }), /CLOSED/);
+  for (const extra of [{ channelKey: "z".repeat(64) }, { channelId: "other" }, { portId: "replacement" }, { workerBootId: "replacement" }, { runId: "0".repeat(32) }])
+    await assert.rejects(f.retire(opened, extra), /IDENTITY/);
+  const retiring = f.retire(opened);
+  let done = false; retiring.then(() => { done = true; });
+  await flush(); assert.equal(done, false);
+  f.humanCloseGate.resolve(); await flush(); assert.equal(done, false, "native cleanup is separate from original user release");
+  Object.assign(f.state, { state: "paused", cleanupComplete: true }); epoch.resolve();
+  const result = await retiring;
+  assert.equal(result.status.portId, "port");
+  assert.equal(result.status.view, null); assert.equal(result.status.human, null);
+  assert.deepEqual(result.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  assert.equal(result.status.cleanupPending, 0);
+  assert.equal(f.humans[0].closeCalls, 1);
+  assert.equal(result.status.eventSequence, f.events.at(-1).sequence);
+});
+
+test("an old retire receipt neither closes nor pauses a new native channel", async t => {
+  const f = fixture(t), opened = await f.open();
+  const epoch = f.loseNative();
+  Object.assign(f.state, { state: "paused", cleanupComplete: true }); epoch.resolve();
+  await f.retire(opened);
+  const proof = Object.freeze({ nonce: "new-nonce", ...f.openArgs, portId: "new-port" });
+  f.target.__obuNativeDownloadBinding = proof;
+  const newKey = "b".repeat(64);
+  const successor = await f.open({ portId: "new-port", channelKey: newKey });
+  const selected = await f.api.request({ operation: "select", channelKey: newKey, tabId: 7 });
+  const calls = f.calls.length;
+  const original = await f.retire(opened);
+  assert.equal(original.status.channelId, opened.channelId);
+  assert.equal(original.status.portId, "port");
+  assert.equal(f.calls.length, calls);
+  const status = await f.api.request({ operation: "status", channelKey: newKey });
+  assert.equal(status.status.channelId, successor.channelId);
+  assert.equal(status.status.selectedTabId, selected.status.selectedTabId);
+  await f.api.request({ operation: "disconnect", channelKey: newKey });
+});
+
+test("retire waits for pending Begin and preserves unconfirmed original human release", async t => {
+  const f = humanFixture(t), opened = await f.open();
+  f.humanBeginGate = deferred(); f.humanCloseGate = deferred();
+  const beginning = f.begin(); const beginRejected = assert.rejects(beginning, /unconfirmed original release/);
+  await flush(); assert.equal(f.humans.length, 1);
+  const epoch = f.loseNative(); epoch.resolve();
+  f.humanCleanupError = new Error("unconfirmed original release");
+  const retiring = f.retire(opened); const retireRejected = assert.rejects(retiring, /unconfirmed original release/);
+  f.humanBeginGate.resolve(); await flush();
+  assert.equal(f.humans[0].info.state, "releasing");
+  f.humanCloseGate.resolve(); await Promise.all([beginRejected, retireRejected]);
+  f.target.__obuNativeDownloadBinding = Object.freeze({ nonce: "replacement", ...f.openArgs, portId: "replacement" });
+  await assert.rejects(f.open({ portId: "replacement", channelKey: "b".repeat(64) }), /CLEANUP/);
+});
+
+test("normal retire joins resources without requiring or causing an unrelated Pause", async t => {
+  const f = fixture(t), opened = await f.open();
+  await f.request("select", { tabId: 7 });
+  const result = await f.retire(opened);
+  assert.equal(result.status.automation.state, "running");
+  assert.equal(f.calls.filter(call => call[0] === "pause").length, 0);
+  assert.equal(f.subscriptions[0].closeCalls, 1);
+  await assert.rejects(f.request("status"), /CLOSED/);
+});
+
+test("open cannot commit a recovery which changed during original metadata inspection", async t => {
+  const f = fixture(t);
+  const original = f.backend.getManagedViewerTabs;
+  f.backend.getManagedViewerTabs = async () => { f.nativeEpoch = deferred(); return original(); };
+  await assert.rejects(f.open(), /NATIVE_CHANGED/);
+  assert.equal(f.openCommitted, undefined);
+  await assert.rejects(f.request("status"), /CLOSED/);
+});
+
+test("open retains its original deadline and one-shot key while native recovery is unresolved", async t => {
+  const f = fixture(t), gate = deferred();
+  f.backend.prepareManagedUserOpen = () => gate.promise;
+  const opening = f.open(), rejected = assert.rejects(opening, /open admission expired/);
+  f.advance(10001);
+  await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /BUSY/);
+  gate.resolve(); await rejected;
+  assert.equal(f.openCommitted, undefined);
+  assert.equal(f.events.length, 0);
+  await assert.rejects(f.open(), /REPLAY/);
+  await f.open({ channelKey: "b".repeat(64) });
+  await f.api.request({ operation: "disconnect", channelKey: "b".repeat(64) });
+});
 
 test("ordinary package installs no control surface; managed surface is immutable", t => {
   const target = {};

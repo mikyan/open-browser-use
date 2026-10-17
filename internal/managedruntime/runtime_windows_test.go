@@ -385,7 +385,7 @@ func TestPinnedOfficialArchiveStructure(t *testing.T) {
 	for _, file := range plan.files {
 		bytes += file.UncompressedSize64
 	}
-	if bytes != 455706289 {
+	if bytes != 460072969 {
 		t.Fatalf("original expanded bytes changed: %d", bytes)
 	}
 	t.Logf("pinned original ZIP: %d files, %d dirs, %d expanded bytes; no execution", len(plan.files), len(plan.dirs), bytes)

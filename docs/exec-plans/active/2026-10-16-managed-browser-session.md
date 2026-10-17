@@ -7,6 +7,74 @@
 不会占用系统鼠标。它是完整 Browser Use 目标的一条新部署路线；普通已登录
 浏览器的后台弹窗焦点问题仍按原计划处理，不能被此模式的结果替代。
 
+## 2026-10-17 同 worker 的 Native 连接恢复（限定流程已验）
+
+当前源码保留同一原 Browser、profile、worker target/context/workerBootId，在
+Native host 退出后由用户显式 `managed recover` 重新连接。原结果 tab、target、
+document 和页面内容必须保留；不重新打开 URL，不重放业务或输入。恢复成功后
+Agent 仍暂停，新 viewer 使用新地址和一次性票据。真正 worker 替换后的结果
+权限恢复不在此片，当前仍拒绝；展示标记不能升级为控制权限。
+
+- Module `managedbrowser.Session` 分离 Browser 生命周期与 Native 代次，
+  以 `RecoveryStatus`、`Changes`、`Recover` 为管理 Interface。每代保留原
+  进程句柄、creation time、descriptor、binding 与退出回执；Native 退出转为
+  degraded，Stop 始终关闭原 Job。恢复失败不能丢弃已启动资源。
+- 扩展在 managed Native 断线时同步暂停准入并完成原资源清理。旧 channel
+  只有 cleanup-only 退休入口，可等待原真实释放，不能再执行普通操作。新
+  Native Port 挑战原 Browser 后仍核验原 worker/context，保留暂停状态。
+- CLI 管理 pipe 保持原 runId，在 degraded/recovering 时不交付任务 endpoint。
+  旧 controller 与 HTTP viewer 实际退休后再建立新 viewer，全部就绪才发布
+  新 Info 与 URL；view 不隐式恢复，Stop 取消恢复并等待原资源结算。
+- Viewer 将原 backend 的实际关闭回执作为全通道退休的 Seam，不把已失效
+  backend 的普通 `select:null` 拒绝当作资源已释放。未知回执仍阻止恢复。
+- 验证包括代次/旧权限/错误 worker/未确认清理的定向反例，以及固定推荐 CfT
+  的独立原流程：一次提交并 finalize，先确认原结果查看与人工 Begin/End，
+  再按已持有的原 Native 进程句柄断开、显式恢复、核验原页面及旧票据拒绝，
+  最终 Stop 核对每代 Native、原 Browser、Job 和注册清理。原失败报告保留。
+
+首轮 `managed-native-recovery-LPY0ZE` 实际 exit 1：原唯一 POST 和 finalize
+成功，随后原结果页只读 select 失败，因此尚未注入 Native 故障或执行恢复。
+原文档、草稿、receipt 保留；正常 Stop、browser/native exit 0、Job 清理与
+停止后独审通过。该结果不能计为恢复通过。
+
+固定版本官方源码确认 CfT 155 的 screencast metadata 没有原生捕获
+`monotonicTimestamp`，其 `timestamp` 是构建 metadata 时的系统时间，不能
+代替现有 TimeTicks 屏障。此前结果页/人工接管验收使用 Chromium 156，155
+安装验收只覆盖普通实时查看。保持捕获屏障，升级推荐版本至固定兼容 156；
+缺少能力时提供明确用户错误，同时保留实际 ACK/stop/detach 清理义务。
+旧版本共存安装、推荐版本真实安装与限定恢复验收已完成，详见下方记录。
+
+后续 `managed-native-recovery-4J5sp6` 在 CfT 156.0.8078.12 已显示原结果并完成
+首次人工输入及 End，测试随后错误地读取 public API 未暴露的 `cleanupPending`
+而实际 exit 1。原 public 回执已有 `viewerCleanupComplete: true`、原租约清理
+确认和 paused 状态；测试须使用正式字段。原记录保留，尚未注入故障或执行恢复。
+
+`htYjeo` 在同一冻结生产构建通过该基线后，因关闭 viewer 页面后观察器未收到
+WebSocket close 事件而超时，实际 exit 1。测试改用已有正式 `managed view`
+入口等待原 reader、workers 和清理完成，再签发旧代次的未消费票据；页面关闭
+回执与观察器是否收到事件分别记录，不伪造事件。原失败保留，生产代码未改。
+
+最终 `managed-native-recovery-A6UPE3` 六步实际 exit 0：唯一原 POST 和 finalize，
+15 项原人工输入回执、17 原帧、两次 Begin/End、旧查看器真实清理屏障均通过。
+终止一次预持有句柄的原 Native host 后，显式恢复发布第二代 Native/controller/
+viewer；原 Browser、worker/context、target/document、草稿、receipt 保持不变。
+旧未消费票据在旧 listener 和新 listener 均被拒绝；新 viewer 保持 paused，
+只修改原结果的本地备注和一次 review，没有 Resume、再次 POST 或 URL 重开。
+原故障 exit 4294967295 及错误文字保留且有 exitConfirmed；第二代 Native、
+Browser、supervisor、viewer 均正常退出，Job、注册和 endpoint 清理通过。
+原结果 SHA-256：`0c1b90c272f9bc92a75c5758728ac0b54edbb951eb2b4e7d7212ba5be79cc74a`。
+
+完整 Go test/vet/build、扩展恢复测试及完整旧基线、改动的人工模块 70 项、
+runner helper 9 项通过。生产安装/离线复用与升级独审确认旧 309 文件不变、
+新 305 原文件与官方 ZIP 一致；完整恢复后缓存 status/reuse 仍离线通过。
+旧 viewer 历史清理失败先于 Native loss 通知的竞态已用红绿反例修复：等所有
+HTTP/WS 工作结束后，仅同一已失效 backend 的真实完整退休结果可结算原义务，
+历史错误保留，活 backend 和未知清理不放行。完整能力对齐仍开放；本片未重新打包。
+
+停止后独审 9 组通过，20 张 PNG 完整解码，30 个原进程身份均已退出；5 份原
+lifecycle 字节、两代原 Native 回执和注册/pipe/endpoint 清理均匹配。
+独审 SHA-256：`421267e9d1ba316adff641a629c74325c875d4511d5cb577017215f0c8e35e2b`。
+
 ## 当前依据
 
 - 生产 `backgroundWindow: true` 创建可见 normal window，不能悄悄改成

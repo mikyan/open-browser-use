@@ -11,6 +11,8 @@ export async function captureFixture() {
   const target = { __obuNativeDownloadBinding: Object.freeze({ nonce: "fixture-nonce", ...identity }), __obuManagedViewerEvent: value => events.push(JSON.parse(value)) };
   let frame, humanFrame, humanInfo, state = { state: "running", inputBlocked: false, revision: 0, cleanupComplete: false };
   const backend = {
+    onManagedNativeLoss() {}, async waitManagedNativeRecovery() {},
+    async prepareManagedUserOpen() { return null; }, commitManagedUserOpen() {},
     async getAutomationControlStatus() { return { ...state }; },
     async getManagedViewerTabs() { return state.state === "running" ? [{ id: 7, title: "Fixture tab", url: "https://fixture.invalid/" }] : []; },
     async managedViewerSubscribe(id, callback) { frame = callback; return { async close() {} }; },
@@ -107,6 +109,8 @@ export async function captureResultFixture() {
     return Object.freeze(handle);
   }
   const backend = {
+    onManagedNativeLoss() {}, async waitManagedNativeRecovery() {},
+    async prepareManagedUserOpen() { return null; }, commitManagedUserOpen() {},
     async getAutomationControlStatus() { return { ...automation }; },
     async getManagedViewerTabs() { return [{ ...metadata(), kind: "result", deliveryId, watchable: true, takeover: true }]; },
     managedViewerSubscribe(id, onFrame, onState, options, authority) { return createLease("view", id, authority, onFrame, onState, options); },

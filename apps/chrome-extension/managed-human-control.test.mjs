@@ -8,7 +8,7 @@ function fixture(options = {}) {
   const calls = [], frames = [], states = [], listeners = new Set(), risks = new Set();
   let paused = false, authorized = true, documentId = "original-document", loaderId = "loader-1", clock = 100;
   const emit = (source = { targetId: "original-target" }, metadata = options.metadata ?? { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0 }) => {
-    for (const listener of [...listeners]) listener(source, "Page.screencastFrame", { data: "cGl4ZWxz", metadata: { monotonicTimestamp: clock + 1, ...metadata }, sessionId: 42 });
+    for (const listener of [...listeners]) listener(source, "Page.screencastFrame", { data: "cGl4ZWxz", metadata: options.nativeMetadata ?? { monotonicTimestamp: clock + 1, ...metadata }, sessionId: 42 });
   };
   const chrome = { debugger: {
     onEvent: { addListener: fn => listeners.add(fn), removeListener: fn => listeners.delete(fn) },
@@ -582,12 +582,52 @@ test("a new native stream ACKs but rejects an old encoding captured before its T
 
 test("missing native monotonic evidence never falls back to wall clock or stream identity", async () => {
   const f = fixture({ metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, timestamp: Date.now() / 1000, monotonicTimestamp: undefined } });
-  await assert.rejects(f.begin(), /capture timestamp/); f.control.assertReleased();
+  await assert.rejects(f.begin(), /OBU_HUMAN_CAPTURE_UNSUPPORTED:.*capture timestamp/); f.control.assertReleased();
   assert.equal(f.frames.length, 0); assert.equal(f.calls.filter(([method]) => method === "Page.screencastFrameAck").length, 1);
-  const g = fixture({ command: method => method === "Performance.getMetrics" ? { metrics: [] } : undefined });
-  await assert.rejects(g.begin(), /capture barrier/); g.control.assertReleased();
-  assert.equal(g.calls.filter(([method]) => method === "Page.startScreencast").length, 0);
+  for (const mode of ["human", "view"]) {
+    const g = fixture({ command: method => method === "Performance.getMetrics" ? { metrics: [] } : undefined });
+    await assert.rejects(mode === "human" ? g.begin() : g.beginView(), /OBU_HUMAN_CAPTURE_UNSUPPORTED:.*capture barrier/);
+    g.control.assertReleased();
+    assert.equal(g.calls.filter(([method]) => method === "Page.startScreencast").length, 0);
+    assert.equal(g.calls.filter(([method]) => method === "detach").length, 1);
+    assert.equal(g.frames.length, 0); assert.equal(g.risks.size, 0);
+  }
 });
+
+for (const mode of ["human", "view"]) {
+  test(`${mode} rejects the Chrome 155 metadata shape only after original ACK, stop and detach settle`, async () => {
+    // Chromium tag 155.0.8059.84 Page.pdl declares only the wall-clock field;
+    // page_handler.cc constructs it with Time::Now(), not capture TimeTicks.
+    // This is a protocol-shaped unit fixture, not the original browser event.
+    const nativeMetadata = Object.freeze({ offsetTop: 0, pageScaleFactor: 1, deviceWidth: 800, deviceHeight: 600,
+      scrollOffsetX: 0, scrollOffsetY: 0, timestamp: 1792231474.855 });
+    const ack = defer(), ackEntered = defer(), stop = defer(), stopEntered = defer(), detach = defer(), detachEntered = defer();
+    const f = fixture({ nativeMetadata, command: method => {
+      if (method === "Page.screencastFrameAck") { ackEntered.resolve(); return ack.promise; }
+      if (method === "Page.stopScreencast") { stopEntered.resolve(); return stop.promise; }
+    }, detach: () => { detachEntered.resolve(); return detach.promise; } });
+    const beginning = mode === "human" ? f.begin() : f.beginView();
+    let settled = false;
+    beginning.then(() => { settled = true; }, () => { settled = true; });
+    await ackEntered.promise;
+    assert.equal(settled, false); assert.equal(f.frames.length, 0);
+    assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast" || method === "detach"), false);
+    ack.resolve(); await stopEntered.promise;
+    assert.equal(settled, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+    assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/);
+    stop.resolve(); await detachEntered.promise;
+    assert.equal(settled, false); assert.equal(f.risks.size, mode === "human" ? 1 : 0);
+    detach.resolve();
+    await assert.rejects(beginning, /OBU_HUMAN_CAPTURE_UNSUPPORTED:.*recommended compatible managed browser/);
+    f.control.assertReleased();
+    assert.equal(f.frames.length, 0); assert.equal(f.states.some(value => value.state === "active"), false);
+    assert.equal(f.listeners.size, 0); assert.equal(f.risks.size, 0);
+    assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+    for (const method of ["Page.startScreencast", "Page.screencastFrameAck", "Page.stopScreencast", "detach"])
+      assert.equal(f.calls.filter(([name]) => name === method).length, 1, method);
+    if (mode === "view") assertViewOnly(f);
+  });
+}
 
 test("redirect and subframe pending events keep input closed until the last original navigation commits", async () => {
   const f = fixture(), handle = await f.begin();

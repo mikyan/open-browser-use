@@ -19,7 +19,6 @@ import (
 
 	"github.com/ifuryst/open-browser-use/internal/host"
 	"github.com/ifuryst/open-browser-use/internal/managedbrowser"
-	"github.com/ifuryst/open-browser-use/internal/managedviewer"
 	"github.com/ifuryst/open-browser-use/internal/transport"
 	"github.com/ifuryst/open-browser-use/internal/wire"
 	"github.com/spf13/cobra"
@@ -63,13 +62,14 @@ func managedControlAddress(root, name string) (string, error) {
 }
 
 type managedMessage struct {
-	Operation string               `json:"operation,omitempty"`
-	RunID     string               `json:"runId,omitempty"`
-	State     string               `json:"state,omitempty"`
-	Info      *managedbrowser.Info `json:"info,omitempty"`
-	Error     string               `json:"error,omitempty"`
-	ViewerURL string               `json:"viewerURL,omitempty"`
-	NextStep  string               `json:"nextStep,omitempty"`
+	Operation   string               `json:"operation,omitempty"`
+	RunID       string               `json:"runId,omitempty"`
+	State       string               `json:"state,omitempty"`
+	Info        *managedbrowser.Info `json:"info,omitempty"`
+	Error       string               `json:"error,omitempty"`
+	ViewerURL   string               `json:"viewerURL,omitempty"`
+	NextStep    string               `json:"nextStep,omitempty"`
+	NativeEpoch uint64               `json:"nativeEpoch,omitempty"`
 }
 
 func readManagedMessage(conn net.Conn) (managedMessage, error) {
@@ -96,6 +96,8 @@ type managedSupervisor struct {
 	wg              sync.WaitGroup
 	issueViewerURL  func() (string, error)
 	waitViewerReady func(context.Context) error
+	statusSnapshot  func() managedMessage
+	recoverViewer   func(context.Context) (managedMessage, error)
 }
 
 func newManagedSupervisor(listener net.Listener, info managedbrowser.Info) *managedSupervisor {
@@ -145,7 +147,11 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 	if s.info.Mode == "setup" {
 		state = "setup"
 	}
-	if err := wire.WriteJSON(conn, managedMessage{State: state, RunID: s.info.RunID, Info: &s.info}); err != nil {
+	status := managedMessage{State: state, RunID: s.info.RunID, Info: &s.info}
+	if s.statusSnapshot != nil {
+		status = s.statusSnapshot()
+	}
+	if err := wire.WriteJSON(conn, status); err != nil {
 		return
 	}
 	// User operations require this same live connection and this exact run.
@@ -153,8 +159,43 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 	if err != nil {
 		return
 	}
-	if (request.Operation != "stop" && request.Operation != "view") || request.RunID != s.info.RunID {
+	if (request.Operation != "stop" && request.Operation != "view" && request.Operation != "recover") || request.RunID != s.info.RunID {
 		_ = wire.WriteJSON(conn, managedMessage{Error: "managed run identity or operation mismatch"})
+		return
+	}
+	if request.Operation == "recover" {
+		if s.info.Mode == "setup" || s.recoverViewer == nil {
+			_ = wire.WriteJSON(conn, managedMessage{Error: "this managed session does not support Native recovery"})
+			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
+		ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
+		defer cancel()
+		go func() {
+			select {
+			case <-s.stop:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		select {
+		case <-s.stop:
+			_ = wire.WriteJSON(conn, managedMessage{Error: "managed session is stopping"})
+			return
+		default:
+		}
+		response, err := s.recoverViewer(ctx)
+		if err != nil {
+			_ = wire.WriteJSON(conn, managedMessage{Error: err.Error()})
+			return
+		}
+		select {
+		case <-s.stop:
+			_ = wire.WriteJSON(conn, managedMessage{Error: "managed session stopped before recovery delivery"})
+			return
+		default:
+		}
+		_ = wire.WriteJSON(conn, response)
 		return
 	}
 	if request.Operation == "view" {
@@ -257,7 +298,7 @@ func managedRequest(root, name string, stop bool, timeout time.Duration) (manage
 
 func managedUserRequest(root, name, operation string, timeout time.Duration) (managedMessage, error) {
 	var zero managedMessage
-	if operation != "status" && operation != "stop" && operation != "view" {
+	if operation != "status" && operation != "stop" && operation != "view" && operation != "recover" {
 		return zero, errors.New("unknown managed user operation")
 	}
 	endpoint, err := managedControlAddress(root, name)
@@ -291,11 +332,28 @@ func managedUserRequest(root, name, operation string, timeout time.Duration) (ma
 		if response.State != "setup" || info.BrowserPID <= 0 || info.SocketPath != "" || info.NativePID != 0 || info.NativeHostName != "" || info.ExtensionID != "" || info.ExtensionInstanceID != "" || response.ViewerURL != "" {
 			return zero, errors.New("managed setup reported an invalid browser identity or task endpoint")
 		}
-		if operation == "view" {
+		if operation == "view" || operation == "recover" {
 			return zero, errors.New("managed setup is for manual login; close it before starting managed run")
 		}
-	} else if (response.Info.Mode != "" && response.Info.Mode != "run") || response.State != "ready" || !transport.IsNamedPipe(response.Info.SocketPath) {
-		return zero, errors.New("managed supervisor did not confirm a ready, exact task session")
+	} else {
+		if response.Info.Mode != "" && response.Info.Mode != "run" {
+			return zero, errors.New("managed supervisor reported an unknown session mode")
+		}
+		switch response.State {
+		case "ready":
+			if !transport.IsNamedPipe(response.Info.SocketPath) {
+				return zero, errors.New("managed supervisor did not confirm an exact task endpoint")
+			}
+		case "degraded", "recovering":
+			if response.Info.SocketPath != "" || response.Info.BrowserPID <= 0 || response.ViewerURL != "" {
+				return zero, errors.New("unavailable managed session leaked an endpoint or has no browser identity")
+			}
+			if operation == "view" {
+				return zero, errors.New("managed connection is unavailable; use managed recover explicitly")
+			}
+		default:
+			return zero, errors.New("managed supervisor did not confirm an available management session")
+		}
 	}
 	if operation == "status" {
 		return response, nil
@@ -310,9 +368,16 @@ func managedUserRequest(root, name, operation string, timeout time.Duration) (ma
 	if stopped.Error != "" {
 		return stopped, errors.New(stopped.Error)
 	}
-	if operation == "view" {
+	if operation == "view" || operation == "recover" {
 		location, parseErr := url.Parse(stopped.ViewerURL)
-		if stopped.State != "viewer" || stopped.RunID != response.RunID || parseErr != nil || location.Scheme != "http" || location.Hostname() != "127.0.0.1" || location.Port() == "" || location.User != nil || location.Path != "/" || location.RawQuery != "" || !strings.HasPrefix(location.Fragment, "ticket=") || len(location.Fragment) != len("ticket=")+43 {
+		wantedState := "viewer"
+		if operation == "recover" {
+			wantedState = "recovered"
+			if stopped.Info == nil || stopped.Info.RunID != response.RunID || stopped.Info.Name != name || !transport.IsNamedPipe(stopped.Info.SocketPath) || stopped.NativeEpoch <= response.NativeEpoch {
+				return stopped, errors.New("managed recovery did not confirm a new Native generation in the original run")
+			}
+		}
+		if stopped.State != wantedState || stopped.RunID != response.RunID || parseErr != nil || location.Scheme != "http" || location.Hostname() != "127.0.0.1" || location.Port() == "" || location.User != nil || location.Path != "/" || location.RawQuery != "" || !strings.HasPrefix(location.Fragment, "ticket=") || len(location.Fragment) != len("ticket=")+43 {
 			return stopped, errors.New("managed viewer did not confirm the original run and local URL")
 		}
 		return stopped, nil
@@ -376,40 +441,36 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 				return errors.Join(err, session.Close(cleanupCtx))
 			}
 			supervisor := newManagedSupervisor(listener, session.Info())
-			viewer, err := managedviewer.Start(managedviewer.Config{RunID: session.Info().RunID, Backend: controller, Stop: supervisor.requestStop})
+			runtime, err := newManagedRuntime(session, controller, supervisor)
 			if err != nil {
 				return errors.Join(err, closeManagedRuntime(session, controller))
 			}
-			supervisor.issueViewerURL = viewer.IssueURL
-			supervisor.waitViewerReady = viewer.WaitReady
 			// Only the foreground human-facing launch result receives the ticket.
 			// Info and management status never contain it; opening it is explicit.
 			err = startupCtx.Err()
 			startupCancel()
 			if err == nil {
-				supervisor.serve()
-				err = writeJSONTo(cmd.OutOrStdout(), managedMessage{State: "ready", RunID: session.Info().RunID, Info: func() *managedbrowser.Info { info := session.Info(); return &info }(), ViewerURL: viewer.URL()})
+				ready := runtime.status()
+				if ready.State != "ready" {
+					err = errors.New("managed connection ended before startup publication")
+				} else {
+					supervisor.serve()
+					ready.ViewerURL = runtime.viewer.URL()
+					err = writeJSONTo(cmd.OutOrStdout(), ready)
+				}
 			}
 			if err == nil {
 				select {
 				case <-ctx.Done():
 				case <-supervisor.stop:
 				case <-session.Done():
-					err = errors.New("managed browser or native host exited unexpectedly")
-				case <-viewer.Done():
-					err = errors.New("managed viewer exited unexpectedly")
+					err = errors.New("managed browser exited unexpectedly")
 				}
 			}
 			supervisor.stopOnce.Do(func() { close(supervisor.stop) })
-			closeErr := closeManagedRuntime(session, controller)
+			closeErr := runtime.close()
 			supervisor.finish(closeErr)
-			replyCtx, replyCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			replyErr := viewer.WaitStopReply(replyCtx)
-			replyCancel()
-			viewerCtx, viewerCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			viewerErr := viewer.Close(viewerCtx)
-			viewerCancel()
-			return errors.Join(err, closeErr, replyErr, viewerErr)
+			return errors.Join(err, closeErr, runtime.closeViewers())
 		}}
 	runCommand.Flags().StringVar(&config.Root, "root", defaultManagedRoot(), "dedicated managed session root")
 	runCommand.Flags().StringVar(&config.Name, "name", "default", "isolated session name")
@@ -418,7 +479,7 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 	runCommand.Flags().StringVar(&config.ExtensionDir, "extension-dir", "", "built extension directory; defaults only to extension next to this executable")
 	runCommand.Flags().DurationVar(&config.StartupTimeout, "startup-timeout", 30*time.Second, "total startup budget")
 	command.AddCommand(runCommand)
-	for _, operation := range []string{"status", "stop", "view"} {
+	for _, operation := range []string{"status", "stop", "view", "recover"} {
 		var root, name string
 		child := &cobra.Command{Use: operation, Short: operation + " the live managed supervisor", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -427,6 +488,8 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 					timeout = 50 * time.Second
 				} else if operation == "view" {
 					timeout = 35 * time.Second
+				} else if operation == "recover" {
+					timeout = 65 * time.Second
 				}
 				response, err := managedUserRequest(root, name, operation, timeout)
 				if err != nil {
@@ -436,6 +499,10 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 			}}
 		child.Flags().StringVar(&root, "root", defaultManagedRoot(), "dedicated managed session root")
 		child.Flags().StringVar(&name, "name", "default", "isolated session name")
+		if operation == "recover" {
+			child.Short = "Reconnect an ended Native connection in the original managed browser"
+			child.Long = "Explicitly retire the old connection and reconnect to the same original browser and extension worker. Returns a new one-use viewer URL. Pages remain in place and the Agent stays paused; Resume and a new turn are required for further automation. Worker replacement or unconfirmed cleanup cannot recover. No page navigation or input is replayed."
+		}
 		command.AddCommand(child)
 	}
 	return command
@@ -478,6 +545,9 @@ func dialBrowserSocketForOptions(options socketOptions, timeout time.Duration) (
 	}
 	if status.Info.Mode == "setup" {
 		return nil, errors.New("managed session is in manual login setup; close setup and explicitly start managed run before connecting an Agent")
+	}
+	if status.State != "ready" {
+		return nil, errors.New("managed task connection is unavailable; use managed recover explicitly, then Resume and start a new turn")
 	}
 	if time.Until(deadline) <= 0 {
 		return nil, context.DeadlineExceeded
