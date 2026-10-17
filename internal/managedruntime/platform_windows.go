@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -142,4 +143,15 @@ func (lock *cacheLock) Close() error {
 		lock.err = errors.Join(windows.UnlockFileEx(lock.handle, 0, 1, 0, &windows.Overlapped{}), windows.CloseHandle(lock.handle))
 	})
 	return lock.err
+}
+
+func platformValidateDictionary(file *os.File) error {
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(windows.Handle(file.Fd()), &info); err != nil {
+		return err
+	}
+	if info.FileAttributes&(windows.FILE_ATTRIBUTE_DIRECTORY|windows.FILE_ATTRIBUTE_REPARSE_POINT) != 0 || info.NumberOfLinks != 1 {
+		return errors.New("managed browser dictionary cache must be an ordinary single-link file")
+	}
+	return nil
 }

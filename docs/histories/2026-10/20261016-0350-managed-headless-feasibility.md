@@ -740,3 +740,37 @@ the original native creation-time uint64. Report SHA256:
 The real browser used the validated precommit EXE; the requested release will
 rebuild from the clean source separately. Visible setup, real login, ordinary
 company Edge and worker recovery were not exercised in this slice. No PR.
+
+### Runtime dictionaries and final repeated-use acceptance
+
+Stopped-state auditing of 7dxhON exposed a real repeated-use bug: Chromium wrote
+`Dictionaries/en-US-10-2.bdic` next to its executable. All original 305 files
+matched, but production status then exited 1 for an unknown directory. The first
+failed audit (SHA256 `02610d55151c384ffb43b422c0134de9652a6f1d786e2b4dddb6391ac7e45034`)
+and actual status failure were retained. No dictionary was deleted to turn it green.
+
+The final runtime accepts only bounded direct locale-version.bdic entries in that
+exact directory, requiring regular single-link files and a BDic header. Links,
+nested directories, unexpected names and programs remain rejected. Limits are
+64 files, 32 MiB each and 128 MiB total. Original manifest entries always retain
+exact digest checks, including any dictionary originally present in an archive.
+These runtime data are not authenticated official ZIP members. Final package
+tests recorded 75 passes, zero skips/failures; full Go test/vet/build passed again.
+
+A fresh production installation and four-stage `managed-viewer-1wBVEd` both
+exited 0 with the final source. The original child submitted once, 40 native
+frames arrived, and original browser/native/supervisor exit plus cleanup completed
+normally. After shutdown, production status and install reuse both succeeded with
+network proxies pointing at a closed loopback port and System32-only PATH. The
+independent stopped-state audit passed all 10 sections and fully decoded 47 PNGs.
+Root visually confirmed the original cursor and target highlight. No browser
+business was replayed by the auditor, and previous failed reports remain unchanged.
+
+Final browser report SHA256:
+`c8fb411b33ed72c43e5ed5073db4bebc9dc15db4a24c6b7cd3ec9bc4808597f7`.
+Final audit SHA256:
+`d254239f9b09e8aba486200a6ce7b077c9e6743e955d5dc2bbcd4f33abcc1eb5`.
+Post-run cache report SHA256:
+`b2ec8889de029f30a6b7c61590683b3bb3714e38c8ad1bdf93169246c8f9e9e5`.
+The requested release uses this final source; it does not promote the earlier
+incomplete cache-reuse result or claim visible setup and login were retested.

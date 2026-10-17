@@ -78,6 +78,16 @@ marker 不足以恢复用户权限。本轮不同时修改恢复协议。用户�
 browser/native/supervisor 正常退出均通过。原始 lifecycle 字节和 uint64 保留。
 此轮未运行可见 setup、普通公司 Edge、真实登录或重启恢复，不计为完整能力持平。
 
+首轮运行后独审发现 Chrome 在 EXE 旁新增 `Dictionaries/en-US-10-2.bdic`，
+原 305 文件未变，但正式 status 实际 exit 1。失败审计原样保留；按该版本
+Chromium 的 Windows 路径实现，只额外接纳确切目录直接子级的普通单链接
+locale-version.bdic（BDic 头、64 文件、单个 32 MiB、合计 128 MiB），不删除
+字典、不把运行数据计作原 ZIP 成员；原 manifest 文件优先严格校验。
+修后 runtime 75 条通过、Go 全包/vet/build 通过；新缓存生产安装和正式
+`managed-viewer-1wBVEd` 四步实际 exit 0（40 帧、唯一 POST、正常退出）。
+运行后 status/install-reuse 离线通过。停止后独审 10 项与 47 PNG 完整解码
+通过，原光标及目标高亮已目视确认。新包以此修后源码为基线。
+
 ### 正式隔离会话的原文件下载（2026-10-17，限定流程已验）
 
 上一轮已交付 `preview-20261017-d0605b1`。本片验证正式 `managed run`

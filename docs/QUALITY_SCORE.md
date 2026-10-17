@@ -11,10 +11,13 @@
 
 ## 当前评分
 
-Windows 新增显式推荐浏览器安装和离线默认选择：runtime 专项 60 条通过记录，
+Windows 新增显式推荐浏览器安装和离线默认选择：runtime 专项 75 条通过记录，
 CLI 8 组定向及 Go 全包/vet/build 通过。生产 EXE 安装/离线状态/复用实际通过，
-305 文件与官方 ZIP 的独立清单一致。默认选择 `managed-viewer-7dxhON` 四步
-实际 exit 0，38 原帧、唯一 POST、Pause/Resume/Stop 和原进程清理通过。
+305 文件与官方 ZIP 的独立清单一致。最终默认选择 `managed-viewer-1wBVEd` 四步
+实际 exit 0，40 原帧、唯一 POST、Pause/Resume/Stop 和原进程清理通过；运行后
+离线状态与复用通过，停止后独审 10 项、47 PNG 完整解码通过。
+首轮 `7dxhON` 运行后新增字典触发缓存拒绝；修为仅接纳有界 bdic 运行数据，
+原 305 文件仍严格校验。首轮失败审计和生产 status 拒绝保留。
 Windows 原目录身份的延迟读取缺陷已由反例修复；先前失败记录保留。新包按用户
 请求进入交付流程；可见 setup、本轮普通公司 Edge 与完整能力对齐未验。
 

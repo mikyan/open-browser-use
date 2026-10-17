@@ -14,8 +14,9 @@
 
 Windows 专用浏览器获取现有正式 `managed browser install/status`，固定 CfT
 155.0.8059.84，run/setup 离线默认选择，run 使用 EXE 相邻扩展。生产安装、
-305 文件独立校验和离线复用实际通过；默认启动 `managed-viewer-7dxhON` 四步
-实际 exit 0，38 实时帧、原生子页唯一 POST、Pause/Resume/Stop 与清理通过。
+305 文件独立校验和离线复用实际通过；最终默认启动 `managed-viewer-1wBVEd` 四步
+实际 exit 0，40 实时帧、原生子页唯一 POST、Pause/Resume/Stop 与清理通过。
+运行后离线状态/复用和停止后独审通过；首次字典运行数据误拒绝已修复并保留失败。
 Go 全包/vet/build 及安装边界测试通过。此结果改善部署门槛，不代表所有浏览器、
 真实登录、重启恢复或完整 Browser Use 能力持平；本轮新包正在交付。
 

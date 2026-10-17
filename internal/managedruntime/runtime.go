@@ -103,8 +103,9 @@ func DefaultRoot() (string, error) {
 	return root, nil
 }
 
-// Inspect verifies the complete installation while holding the existing native
-// lock. It never creates a missing cache, lock, manifest or network connection.
+// Inspect verifies every original installation file while holding the existing
+// native lock. Only bounded Chromium dictionary runtime data may be additional.
+// It never creates a missing cache, lock, manifest or network connection.
 func Inspect(ctx context.Context, root string) (Installation, error) {
 	if err := supported(); err != nil {
 		return Installation{}, err
@@ -371,6 +372,7 @@ func inspectDirectory(ctx context.Context, directory, version, digest string) (I
 		return Installation{}, errors.New("managed browser executable is missing from manifest")
 	}
 	filesSeen, dirsSeen := 0, 0
+	runtimeData := dictionaryCache{}
 	err = filepath.WalkDir(directory, func(file string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -388,6 +390,9 @@ func inspectDirectory(ctx context.Context, directory, version, digest string) (I
 		relative = filepath.ToSlash(relative)
 		if entry.IsDir() {
 			if !dirs[relative] {
+				if relative == dictionaryDirectory {
+					return nil // Walk children individually; never skip their checks.
+				}
 				return errors.New("managed browser contains an unknown directory")
 			}
 			dirsSeen++
@@ -401,6 +406,9 @@ func inspectDirectory(ctx context.Context, directory, version, digest string) (I
 		}
 		want, ok := expected[relative]
 		if !ok {
+			if strings.HasPrefix(relative, dictionaryDirectory+"/") {
+				return runtimeData.check(ctx, file, relative)
+			}
 			return errors.New("managed browser contains an unknown file")
 		}
 		got, err := hashFile(ctx, file, want.Size)

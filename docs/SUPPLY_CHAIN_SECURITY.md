@@ -16,7 +16,11 @@
   来源是 [CfT 官方版本目录](https://github.com/GoogleChromeLabs/chrome-for-testing)
   所列的 Google Storage HTTPS 地址。版本与摘要随代码审查更新，不在 run 时
   解析浮动版本；显式 install 校验 ZIP 摘要、归档路径及完整文件后才发布，
-  启动离线复核已安装文件。摘要固定原下载字节，不是 Google 的签名声明；
+  启动离线复核原安装文件。Windows CfT 会在 EXE 旁生成 Dictionaries，见
+  [该版本路径实现](https://chromium.googlesource.com/chromium/src/+/155.0.8059.84/chrome/common/chrome_paths.cc)。
+  此运行数据与固定归档分开：只允许该目录直接子级、受名称/数量/大小/文件头
+  约束的普通 bdic 字典，不接受链接、子目录或额外程序；不把字典视为已验证的
+  官方 ZIP 成员。摘要固定原下载字节，不是 Google 的签名声明；
   不关闭 TLS/系统执行策略。浏览器归档内容原样保留，代码和预览包不捆绑该 ZIP。
 
 - 原生 Browser 下载连接固定使用 `github.com/coder/websocket v1.8.15`，
