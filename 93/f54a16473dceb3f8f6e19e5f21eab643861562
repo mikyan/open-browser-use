@@ -1,0 +1,23 @@
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_33e5d64a2da0f9 429-439
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_eb376f2a0e7cc6 115-117,123-125
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_eb376f2a0e7cc6 4-6,10-15,25-26,36-37,57-58,133,135-141,143-148,151-153,156,215-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "93f54a16473dceb3f8f6e19e5f21eab643861562",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
