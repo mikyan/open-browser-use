@@ -2,26 +2,30 @@
   "humanBegin": {
     "eventSequence": 6,
     "human": {
-      "state": "active",
-      "leaseId": "fixture-human-lease",
-      "tabId": 7,
       "generation": 0,
+      "leaseId": "fixture-human-lease",
+      "state": "active",
+      "tabId": 7,
       "viewport": null
     },
     "selectedTabId": 7,
     "status": {
-      "state": "paused",
+      "cleanupComplete": true,
       "inputBlocked": true,
       "revision": 3,
-      "cleanupComplete": true
+      "state": "paused"
     },
     "tabs": [
       {
         "id": 7,
+        "kind": "task",
+        "takeover": false,
         "title": "Fixture tab",
-        "url": "https://fixture.invalid/"
+        "url": "https://fixture.invalid/",
+        "watchable": false
       }
     ],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   },
@@ -29,17 +33,18 @@
     "eventSequence": 11,
     "human": null,
     "humanCleanup": {
-      "leaseId": "fixture-human-lease",
-      "cleanupConfirmed": true
+      "cleanupConfirmed": true,
+      "leaseId": "fixture-human-lease"
     },
     "selectedTabId": null,
     "status": {
-      "state": "paused",
+      "cleanupComplete": true,
       "inputBlocked": true,
       "revision": 3,
-      "cleanupComplete": true
+      "state": "paused"
     },
     "tabs": [],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   },
@@ -64,35 +69,39 @@
   "humanInput": {
     "eventSequence": 9,
     "human": {
-      "state": "active",
-      "leaseId": "fixture-human-lease",
-      "tabId": 7,
       "generation": 1,
+      "leaseId": "fixture-human-lease",
+      "state": "active",
+      "tabId": 7,
       "viewport": {
-        "width": 1,
-        "height": 1
+        "height": 1,
+        "width": 1
       }
     },
     "inputReceipt": {
-      "leaseId": "fixture-human-lease",
+      "acknowledged": true,
       "generation": 1,
-      "sequence": 1,
-      "acknowledged": true
+      "leaseId": "fixture-human-lease",
+      "sequence": 1
     },
     "selectedTabId": 7,
     "status": {
-      "state": "paused",
+      "cleanupComplete": true,
       "inputBlocked": true,
       "revision": 3,
-      "cleanupComplete": true
+      "state": "paused"
     },
     "tabs": [
       {
         "id": 7,
+        "kind": "task",
+        "takeover": false,
         "title": "Fixture tab",
-        "url": "https://fixture.invalid/"
+        "url": "https://fixture.invalid/",
+        "watchable": false
       }
     ],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   },
@@ -100,52 +109,60 @@
     "eventSequence": 12,
     "human": null,
     "humanCleanup": {
-      "leaseId": "fixture-human-lease",
-      "cleanupConfirmed": true
+      "cleanupConfirmed": true,
+      "leaseId": "fixture-human-lease"
     },
     "selectedTabId": null,
     "status": {
-      "state": "running",
+      "cleanupComplete": false,
       "inputBlocked": false,
       "revision": 4,
-      "cleanupComplete": false
+      "state": "running"
     },
     "tabs": [
       {
         "id": 7,
+        "kind": "task",
+        "takeover": true,
         "title": "Fixture tab",
-        "url": "https://fixture.invalid/"
+        "url": "https://fixture.invalid/",
+        "watchable": true
       }
     ],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   },
   "humanStatus": {
     "eventSequence": 6,
     "human": {
-      "state": "active",
-      "leaseId": "fixture-human-lease",
-      "tabId": 7,
       "generation": 1,
+      "leaseId": "fixture-human-lease",
+      "state": "active",
+      "tabId": 7,
       "viewport": {
-        "width": 1,
-        "height": 1
+        "height": 1,
+        "width": 1
       }
     },
     "selectedTabId": 7,
     "status": {
-      "state": "paused",
+      "cleanupComplete": true,
       "inputBlocked": true,
       "revision": 3,
-      "cleanupComplete": true
+      "state": "paused"
     },
     "tabs": [
       {
         "id": 7,
+        "kind": "task",
+        "takeover": false,
         "title": "Fixture tab",
-        "url": "https://fixture.invalid/"
+        "url": "https://fixture.invalid/",
+        "watchable": false
       }
     ],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   },
@@ -154,18 +171,22 @@
     "human": null,
     "selectedTabId": null,
     "status": {
-      "state": "running",
+      "cleanupComplete": false,
       "inputBlocked": false,
       "revision": 0,
-      "cleanupComplete": false
+      "state": "running"
     },
     "tabs": [
       {
         "id": 7,
+        "kind": "task",
+        "takeover": true,
         "title": "Fixture tab",
-        "url": "https://fixture.invalid/"
+        "url": "https://fixture.invalid/",
+        "watchable": true
       }
     ],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   },
@@ -174,18 +195,22 @@
     "human": null,
     "selectedTabId": 7,
     "status": {
-      "state": "running",
+      "cleanupComplete": false,
       "inputBlocked": false,
       "revision": 0,
-      "cleanupComplete": false
+      "state": "running"
     },
     "tabs": [
       {
         "id": 7,
+        "kind": "task",
+        "takeover": true,
         "title": "Fixture tab",
-        "url": "https://fixture.invalid/"
+        "url": "https://fixture.invalid/",
+        "watchable": true
       }
     ],
+    "view": null,
     "viewerCleanupComplete": true,
     "workerBootId": "fixture-worker"
   }

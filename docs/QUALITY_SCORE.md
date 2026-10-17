@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+当前源码补齐正式 finalize 后的原结果页查看与人工接续。固定 Windows Chromium
+`managed-result-VGrDlV` 六步实际 exit 0：50 项输入回执、原导航和唯一 POST，
+两次 Begin/End 保留同一原结果且不 Resume；普通 viewer `o6PuJl` 四步回归通过。
+扩展 2,053 项、UI 54 项、Go 全包/vet/build 通过。首次新标签预期失败保留，
+只修正测试文字。用户本轮要求的新包尚待干净构建和制品核验；worker 重启恢复、
+Stop 后保留窗口和普通公司 Edge 验收仍开放。
+
 当前源码新增单租约连续人工接管，尚未进入下述发布包。固定 Windows Chromium
 的 `managed-human-navigation-fRIjwN` 六步实际 exit 0：47 项输入、302/子 frame/
 SPA、正确当前标题地址、唯一 POST 及正常清理；独审完整解码 59 张 PNG。

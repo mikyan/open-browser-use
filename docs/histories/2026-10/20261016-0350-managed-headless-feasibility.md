@@ -526,3 +526,48 @@ nativeCreationTime integer for comparison with the JavaScript observation.
 These outcomes do not establish real held-input navigation, OOPIF-local input,
 real SSO/MFA, complete IME, ordinary company Edge or cross-platform parity.
 No PR or new package is created by this continuation.
+
+## Original delivered results remain available to the user
+
+The user requested another package. Before that build, complete the current
+result-page continuation slice: only a successful formal finalize publishes a
+bounded worker-local delivery identity for its original tab/target/document.
+The private viewer can watch or explicitly take over a result while running or
+cleanly paused, without renewing stale task authority. End leaves the Agent
+paused and permits viewing or taking over the same result again. View and human
+leases share native capture/cleanup but have immutable separate modes; view
+offers no input interface, focus emulation, input tracker or implicit Pause.
+Delivery IDs, generations and actual state-before-frame ordering survive the
+bridge, Go controller, HTTP projection and UI. Legal task admission waits for
+actual view cleanup; rejected stale task calls cannot remove user access.
+
+Review corrections cover finalize publication under its ending fence, navigation
+during multi-page finalization, late old-generation validation and status reads,
+and pending Resume versus new selections. Read-only rendering permits bounded
+zoom/resize without inheriting human-input geometry assumptions. The builder
+includes the new registry module. Go all-package tests/vet/build, 2,053 extension
+tests, 54 UI tests and 41 build/helper tests passed. Actual bridge-generated
+wire fixtures passed their canonical check; simulated backend tests remain
+distinct from native browser acceptance.
+
+First native attempt `managed-result-vaiv5h` failed after A had been delivered
+and redirected to B: the harness expected the old option label without the new
+delivered-result prefix. Preserve the failed report, SHA-256
+`77a933f248dc731a21439d688724d3cd713ea3d123a124854cabb99d080ba77d`.
+Only the exact UI assertion changed. With unchanged production runtime,
+`managed-result-VGrDlV` completed six stages with actual exit 0: original
+finalize, running/paused read-only views, 50 exact native input receipts through
+302/child/SPA, one 483-byte POST, two Begin/End pairs and a second takeover of
+the same B document/draft/receipt without Resume or task reclaim. Original
+Browser.close, process exits, Job emptiness and endpoint/registration cleanup
+succeeded without forced termination. Report SHA-256:
+`a132925e39d5f827342289a6eb93a04166ce4aff5c437389e9220198d83af177`.
+The read-only phase preserved the observed page input events and draft; it did
+not actively attempt input into the read-only view. Ordinary viewer regression
+`o6PuJl` passed four stages with actual exit 0 on the same runtime; report SHA:
+`b57bb329bf79d62b59f07c4160f8cbfa06394320ee5e98f3fed9853c8435cd11`.
+
+Result authority is not restored across worker replacement. Stop still closes
+the managed browser; visible result-window retention, real SSO/MFA/IME, company
+Edge installation and cross-platform parity remain open. The requested package
+requires a separate clean build and artifact verification; no PR is created.

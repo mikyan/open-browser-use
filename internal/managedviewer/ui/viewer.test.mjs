@@ -2,13 +2,150 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
-import { captureFixture } from "../testdata/generate-bridge-fixture.mjs";
+import { captureFixture, captureResultFixture } from "../testdata/generate-bridge-fixture.mjs";
 
 const source = readFileSync(new URL("./viewer.js", import.meta.url), "utf8");
 const ticket = "a".repeat(43);
 
+const resultTab = (extra = {}) => ({ id: 1, title: "Result", url: "https://example.test/result", kind: "result", deliveryId: "original-delivery", watchable: true, takeover: true, ...extra });
+const viewState = (extra = {}) => ({ state: "active", leaseId: "view-a", tabId: 1, generation: 1, viewport: { width: 1280, height: 720 }, ...extra });
+function readyResult(h, mode = "paused") {
+  h.authenticate();
+  h.respond(1, h.state(2, mode, mode === "paused", { tabs: [resultTab()], view: null }));
+  h.choose();
+  const request = h.socket.sent.at(-1);
+  h.respond(request.id, h.state(2, mode, mode === "paused", { tabs: [resultTab()], selectedTabId: 1, view: viewState() }));
+  h.frame(1, { eventSequence: 20001, controlMode: "user-view", viewLeaseId: "view-a", generation: 1 });
+  h.images.at(-1).onload();
+}
+
+test("paused delivered result is watchable but a decoded view never grants input", () => {
+  const h = setup(); readyResult(h);
+  assert.deepEqual(h.socket.sent[2], { id: 2, operation: "select", tabId: 1, deliveryId: "original-delivery" });
+  assert.equal(h.element("tabs").children[1].text, "已交付结果 · Result");
+  assert.equal(h.element("human-begin").textContent, "操作结果页");
+  assert.equal(h.element("human-begin").disabled, false);
+  assert.equal(h.element("control").disabled, false);
+  assert.equal(h.element("frame").dataset.controlMode, "user-view");
+  assert.equal(h.element("frame").dataset.viewLeaseId, "view-a");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  const before = h.socket.sent.length;
+  h.event("frame", "pointerdown", { button: 0, pointerId: 1, clientX: 100, clientY: 100 });
+  h.event("human-input", "keydown", { key: "A", code: "KeyA", keyCode: 65 });
+  assert.equal(h.socket.sent.length, before);
+  h.element("control").click();
+  assert.equal(h.socket.sent.at(-1).operation, "resume");
+});
+
+test("result takeover carries delivery identity and End permits another takeover while paused", () => {
+  const h = setup(); readyResult(h);
+  h.element("human-begin").click();
+  const begin = h.socket.sent.at(-1);
+  assert.deepEqual(begin, { id: 3, operation: "humanBegin", tabId: 1, deliveryId: "original-delivery" });
+  h.respond(begin.id, h.humanState({ tabs: [resultTab()], selectedTabId: 1, view: null, eventSequence: 20002, retiredSequence: 20001 }));
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.humanFrame(1, { eventSequence: 20003, retiredSequence: 20001 }); h.images.at(-1).onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  h.element("human-end").click();
+  const end = h.socket.sent.at(-1);
+  h.respond(end.id, h.state(2, "paused", true, { tabs: [resultTab()], human: null, view: null, eventSequence: 20004, retiredSequence: 20003, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } }));
+  assert.equal(h.element("human-begin").disabled, false);
+  assert.equal(h.element("watch").disabled, false);
+  h.element("human-begin").click();
+  assert.equal(h.socket.sent.at(-1).deliveryId, "original-delivery");
+  assert.equal(h.socket.sent.filter(x => x.operation === "resume").length, 0);
+});
+
+test("capabilities and cleanup restrict result admission; paused legacy tasks remain blocked", () => {
+  for (const extra of [{ tabs: [resultTab({ watchable: false, takeover: false })] }, { tabs: [resultTab()], viewerCleanupComplete: false }, {}]) {
+    const h = setup(); h.authenticate(); h.respond(1, h.state(2, "paused", true, extra));
+    h.choose();
+    assert.equal(h.element("watch").disabled, true);
+    assert.equal(h.element("human-begin").disabled, true);
+    assert.equal(h.socket.sent.some(x => x.operation === "select"), false);
+  }
+});
+
+test("delivery replacement retires pending selection and requires a fresh explicit choice", () => {
+  for (const late of ["success", "error", "timeout"]) {
+    const h = setup(); h.authenticate(); h.respond(1, h.state(2, "paused", true, { tabs: [resultTab()] })); h.choose();
+    const timeout = [...h.timers.values()].at(-1);
+    h.socket.message({ type: "state", ...h.state(2, "paused", true, { tabs: [resultTab({ deliveryId: "successor" })], eventSequence: 20002 }) });
+    if (late === "timeout") timeout();
+    else if (late === "error") h.socket.message({ type: "response", id: 2, error: { code: "OPERATION_UNCONFIRMED" } });
+    else h.respond(2, h.state(2, "paused", true, { tabs: [resultTab()], selectedTabId: 1, view: viewState() }));
+    assert.equal(h.element("tabs").value, "");
+    assert.equal(h.element("state").textContent, "已暂停");
+    assert.equal(h.element("human-begin").disabled, true);
+    h.choose();
+    assert.equal(h.socket.sent.at(-1).deliveryId, "successor");
+  }
+});
+
+test("read-only navigation retires decode and admits only the matching successor frame", () => {
+  const h = setup(); readyResult(h);
+  h.frame(2, { eventSequence: 20002, controlMode: "user-view", viewLeaseId: "view-a", generation: 1 });
+  const oldDecode = h.images.at(-1);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { tabs: [resultTab()], selectedTabId: 1, view: viewState({ state: "navigating", generation: 2, viewport: null }), eventSequence: 20003 }) });
+  h.frame(1, { eventSequence: 20005, streamId: "view-next", controlMode: "user-view", viewLeaseId: "view-a", generation: 2 });
+  oldDecode.onload();
+  assert.equal(h.element("frame").src, undefined);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { tabs: [resultTab()], selectedTabId: 1, view: viewState({ generation: 2 }), eventSequence: 20004 }) });
+  h.images.at(-1).onload();
+  assert.equal(h.element("frame").dataset.generation, "2");
+  assert.equal(h.element("frame").dataset.viewLeaseId, "view-a");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanEnd"), false);
+  const count = h.images.length;
+  h.frame(10, { eventSequence: 20006, controlMode: "user-view", viewLeaseId: "view-a", generation: 1 });
+  h.frame(11, { eventSequence: 20007, controlMode: "user-view", viewLeaseId: "other", generation: 2 });
+  h.frame(12, { eventSequence: 20008 });
+  assert.equal(h.images.length, count);
+});
+
+test("actual Go-projected result fixture supports view, paused takeover, End and a second takeover", () => {
+  const fixture = JSON.parse(readFileSync(new URL("../testdata/public-result-fixture.json", import.meta.url), "utf8"));
+  const h = setup();
+  const state = value => ({ ...value, retiredSequence: 0 });
+  const receiveFrame = (mode, lease) => {
+    const value = fixture.events.find(e => e.type === "frame" && e.controlMode === mode && (e.viewLeaseId || e.humanLeaseId) === lease);
+    assert.ok(value);
+    h.socket.message(state(value));
+    h.images.at(-1).naturalWidth = h.images.at(-1).naturalHeight = 1;
+    h.images.at(-1).onload();
+  };
+  h.authenticate(); h.respond(1, state(fixture.open)); h.choose(7);
+  assert.equal(h.socket.sent.at(-1).deliveryId, "fixture-delivery-original");
+  h.respond(2, state(fixture.viewRunningStatus)); receiveFrame("user-view", fixture.viewRunningStatus.view.leaseId);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.element("control").click(); h.respond(3, state(fixture.pause));
+  h.element("watch").click(); h.respond(4, state(fixture.viewPausedStatus)); receiveFrame("user-view", fixture.viewPausedStatus.view.leaseId);
+  h.element("human-begin").click(); h.respond(5, state(fixture.humanBegin)); receiveFrame("human", fixture.humanBegin.human.leaseId);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "x" });
+  h.respond(6, state(fixture.humanInput));
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "1");
+  h.socket.message({ type: "state", ...state(fixture.humanNavigation.navigating) });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.socket.message({ type: "state", ...state(fixture.humanNavigation.active) });
+  const successor = fixture.events.find(e => e.type === "frame" && e.controlMode === "human" && e.generation === 2);
+  h.socket.message(state(successor)); h.images.at(-1).onload();
+  h.element("human-end").click(); h.respond(7, state(fixture.humanEnd));
+  assert.equal(h.element("state").textContent, "已暂停");
+  h.element("watch").click(); h.respond(8, state(fixture.viewAfterHumanStatus)); receiveFrame("user-view", fixture.viewAfterHumanStatus.view.leaseId);
+  assert.ok(h.element("page-title").textContent.includes("B"));
+  h.element("human-begin").click(); h.respond(9, state(fixture.secondHumanBegin)); receiveFrame("human", fixture.secondHumanBegin.human.leaseId);
+  h.element("human-end").click(); h.respond(10, state(fixture.secondHumanEnd));
+  assert.equal(h.element("human-begin").disabled, false);
+  assert.equal(h.socket.sent.filter(x => x.operation === "resume").length, 0);
+});
+
 test("Go projection fixture matches the current real managed worker bridge", async () => {
   assert.deepEqual(await captureFixture(), JSON.parse(readFileSync(new URL("../testdata/bridge-fixture.json", import.meta.url), "utf8")));
+});
+
+test("result fixture records the real bridge lifecycle, including view navigation", async () => {
+  assert.deepEqual(await captureResultFixture(), JSON.parse(readFileSync(new URL("../testdata/result-bridge-fixture.json", import.meta.url), "utf8")));
 });
 
 function setup() {

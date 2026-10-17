@@ -1,5 +1,36 @@
 # Browser integration acceptance
 
+## Delivered managed result continuation (Windows, experimental)
+
+Use the same explicit host/browser/extension prerequisites as continuous
+navigation below, then run:
+
+```powershell
+node scripts/browser-integration/managed-human-navigation-check.mjs --delivered-result
+```
+
+This mode uses the same original one-use A→302→B/child/SPA fixture. The SDK
+fills A once and formally finalizes that exact page as a deliverable. The user
+then views the original page while running and paused, explicitly takes over,
+and performs the only final business POST through the real viewer. End leaves
+the Agent paused; viewing B and a second zero-input takeover must preserve the
+same document, draft, receipt and delivery identity. No Agent reclaim, URL
+reopening, task-page input interception or input replay is used. Original old
+task capability probes must fail without withdrawing user control.
+
+The runner preserves original commands, native frames, actual viewer decodes,
+document identities, HTTP bytes and process cleanup. The first view frame must
+follow its matching lease/generation announcement. The workflow is limited to
+one live worker/run; it does not prove worker restart recovery, real SSO/MFA,
+cross-platform support or stopping while retaining a visible result window.
+
+`managed-result-VGrDlV` completed all six stages with actual exit 0: 50 exact
+input receipts, one 483-byte POST, two Begin/End pairs and no Resume. The first
+`vaiv5h` attempt failed after a successful redirect because the test expected
+the old tab label without the new delivered-result prefix; its report remains
+unchanged. Only that exact UI expectation was corrected. The same frozen
+runtime passed the four-stage ordinary viewer regression `o6PuJl`.
+
 ## Continuous managed human navigation (Windows, experimental)
 
 Build the current CLI, extension and JavaScript SDK, set the same three absolute

@@ -224,6 +224,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 }
 
 func (c *connection) observeHumanState(data json.RawMessage) {
+	c.observeViewState(data)
 	var value struct {
 		Human         *managedprotocol.HumanState   `json:"human"`
 		Cleanup       *managedprotocol.HumanCleanup `json:"humanCleanup"`
@@ -312,11 +313,18 @@ func (c *connection) observeHumanFrame(data json.RawMessage) bool {
 	var frame struct {
 		ControlMode string `json:"controlMode"`
 		LeaseID     string `json:"humanLeaseId"`
+		ViewLeaseID string `json:"viewLeaseId"`
 		Generation  uint64 `json:"generation"`
 		TabID       uint64 `json:"tabId"`
 	}
 	if json.Unmarshal(data, &frame) != nil {
 		return false
+	}
+	if frame.ControlMode == "user-view" {
+		c.controlMu.Lock()
+		defer c.controlMu.Unlock()
+		view := c.view
+		return !c.humanClaimed && c.viewAllowed && view != nil && view.State == "active" && view.LeaseID == frame.ViewLeaseID && view.TabID == frame.TabID && view.Generation == frame.Generation && frame.Generation > 0
 	}
 	if frame.ControlMode != "human" {
 		return true
@@ -405,21 +413,24 @@ func (c *connection) confirmCleanup(data json.RawMessage) error {
 		return nil
 	}
 	state, err := object(f["status"])
-	if err != nil || string(state["selectedTabId"]) != "null" {
+	if err != nil || string(state["selectedTabId"]) != "null" || state["view"] != nil && string(state["view"]) != "null" {
 		return errors.New("cleanup lacks original unselection")
 	}
 	c.controlMu.Lock()
 	lease := c.humanLease
 	human := c.humanClaimed
+	view := c.viewRisk
 	c.controlMu.Unlock()
 	if human || lease != "" {
 		receipt, err := managedprotocol.ParseHumanCleanup(state["humanCleanup"])
 		if err != nil || lease != "" && (receipt == nil || receipt.LeaseID != lease) || state["human"] != nil && string(state["human"]) != "null" {
 			return errors.New("original human cleanup is unconfirmed")
 		}
+	}
+	if human || lease != "" || view {
 		var count *uint64
 		if json.Unmarshal(state["cleanupPending"], &count) != nil || count == nil || *count != 0 || state["cleanupError"] != nil {
-			return errors.New("original human cleanup is pending")
+			return errors.New("original viewer cleanup is pending")
 		}
 	}
 	return nil

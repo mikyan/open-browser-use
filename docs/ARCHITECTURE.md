@@ -128,6 +128,13 @@ debugger、history 和 tab groups。
   视口几何、页面归属或网站权限变化仍终止租约。CDP 不提供 documentId
   条件输入，不能撤回已提交动作或保证跨导航原子输入。发布包 93f54a1 仍为
   同文档版本；完整 IME、真实网站 SSO/MFA 与跨平台尚未验收。
+  `managed-result-pages.js` 仅在正式 finalize 清理及最终校验后
+  发布原结果记录；展示 marker 与分组名不授予权限。用户列表按 task/result
+  分开，结果选择固定 deliveryId，重新取得任务控制会撤旧用户记录并等待原
+  view 清理。只读 view 与 human 共用原 native/TimeTicks/generation 生命周期，
+  但无输入、Pause、焦点模拟或输入风险标记；结果可在暂停完成时查看和接管。
+  user-view 的状态必须先于匹配帧穿过 Go/HTTP/UI。记录目前限定原 worker/run，
+  重启恢复及停止后保留窗口仍未实现；新结果流程的真实验收见隔离会话计划。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。

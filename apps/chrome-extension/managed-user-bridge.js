@@ -9,13 +9,13 @@ const integer = value => Number.isSafeInteger(value) && value >= 0;
 
 // Data descriptors only: this private JSON-shaped surface never invokes a
 // supplied getter, accepts inherited authority, or forwards arbitrary CDP.
-function fields(value, required) {
+function fields(value, required, optional = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw failure("PROTOCOL", "expected an object");
   const keys = Reflect.ownKeys(value), descriptors = Object.getOwnPropertyDescriptors(value);
-  if (keys.length !== required.length || keys.some(key => !required.includes(key)) ||
-      required.some(key => !descriptors[key] || !Object.hasOwn(descriptors[key], "value")))
+  if (keys.some(key => !required.includes(key) && !optional.includes(key)) ||
+      keys.some(key => !Object.hasOwn(descriptors[key], "value")) || required.some(key => !descriptors[key]))
     throw failure("PROTOCOL", "unexpected, missing, or non-data field");
-  return Object.fromEntries(required.map(key => [key, descriptors[key].value]));
+  return Object.fromEntries(keys.map(key => [key, descriptors[key].value]));
 }
 
 function frameCopy(value) {
@@ -32,10 +32,15 @@ function frameCopy(value) {
   for (const key of ["offsetTop", "pageScaleFactor", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY", "timestamp", "monotonicTimestamp"])
     if (Number.isFinite(value.metadata?.[key])) metadata[key] = value.metadata[key];
   const human = value.controlMode === "human";
-  if (value.controlMode !== undefined && !human || !human && (value.humanLeaseId !== undefined || value.generation !== undefined) || human && (!text(value.humanLeaseId, 128) || !integer(value.generation) || value.generation < 1))
-    throw failure("FRAME", "invalid human frame identity");
+  const view = value.controlMode === "user-view", lease = human ? value.humanLeaseId : value.viewLeaseId;
+  if (value.controlMode !== undefined && !human && !view ||
+      !human && value.humanLeaseId !== undefined || !view && value.viewLeaseId !== undefined ||
+      !human && !view && value.generation !== undefined ||
+      (human || view) && (!text(lease, 128) || !integer(value.generation) || value.generation < 1))
+    throw failure("FRAME", "invalid user frame identity");
   return { tabId: value.tabId, streamId: value.streamId, frameSequence: value.sequence, mimeType: value.mimeType, data: value.data, metadata,
-    ...(human ? { controlMode: "human", humanLeaseId: value.humanLeaseId, generation: value.generation } : {}) };
+    ...(human ? { controlMode: "human", humanLeaseId: lease, generation: value.generation } :
+      view ? { controlMode: "user-view", viewLeaseId: lease, generation: value.generation } : {}) };
 }
 
 // Installed only in a packaged managed worker. The manager reaches it through
@@ -106,10 +111,10 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         return;
       }
       await handle.close();
-      if (record.human) {
+      if (record.human || record.view) {
         const info = handle.info();
-        if (info?.state !== "released" || !text(info.leaseId, 128)) throw failure("CLEANUP", "original human release was not confirmed");
-        channel.humanCleanup = { leaseId: info.leaseId, cleanupConfirmed: true };
+        if (info?.state !== "released" || !text(info.leaseId, 128)) throw failure("CLEANUP", "original user page release was not confirmed");
+        if (record.human) channel.humanCleanup = { leaseId: info.leaseId, cleanupConfirmed: true };
       }
     })());
     return record.closing;
@@ -155,7 +160,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (channel.inFlight) channel.latest = frame;
     else sendFrame(channel, frame);
   }
-  function resetHumanFrames(channel, record) {
+  function resetLeaseFrames(channel, record) {
     // A manager may still be acknowledging the original published frame.
     // Retire that exact credit once; never accept an arbitrary old sequence.
     if (channel.inFlight) {
@@ -163,12 +168,12 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       channel.retiredAcks.add(channel.inFlight.sequence);
     }
     channel.inFlight = null; channel.latest = null;
-    record.pendingHumanFrame = null;
+    record.pendingLeaseFrame = null;
     record.streamId = null; record.lastFrameSequence = 0;
-    record.publishedHumanStream = null;
+    record.publishedLeaseStream = null;
     channel.streamState = { state: "starting", streamId: null };
   }
-  function humanStateChanged(channel, record, value) {
+  function leaseStateChanged(channel, record, value) {
     if (record.retired || channel.closed || channel.stream !== record) return;
     if (!record.handle) { record.earlyState = value; return; }
     const currentInfo = record.handle.info();
@@ -177,41 +182,43 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (!value || value.leaseId !== currentInfo.leaseId || value.tabId !== record.tabId ||
         value.generation !== currentInfo.generation || value.state !== currentInfo.state) return;
     if (!["active", "navigating"].includes(value.state)) return;
-    if (!integer(value.generation) || value.generation < record.humanGeneration)
+    if (!integer(value.generation) || value.generation < record.leaseGeneration)
       throw failure("HUMAN_UNCONFIRMED", "human generation regressed");
-    if (value.generation > record.humanGeneration) {
-      resetHumanFrames(channel, record);
-      record.humanGeneration = value.generation;
+    if (value.generation > record.leaseGeneration) {
+      resetLeaseFrames(channel, record);
+      record.leaseGeneration = value.generation;
     }
     channel.stateEpoch++;
-    record.humanStatePublicationPending = true;
-    publishHumanStatus(channel, record);
+    record.leaseStatePublicationPending = true;
+    publishLeaseStatus(channel, record);
   }
-  function publishHumanStatus(channel, record) {
-    if (record.humanPublication || record.retired || channel.closed || channel.stream !== record) return;
-    record.humanStatePublicationPending = false;
+  function publishLeaseStatus(channel, record) {
+    if (record.leasePublication || record.retired || channel.closed || channel.stream !== record) return;
+    record.leaseStatePublicationPending = false;
     const publication = (async () => {
       const value = await status(channel, true);
       if (record.retired || channel.closed || channel.stream !== record) return;
-      const info = record.handle.info(), frame = record.pendingHumanFrame;
-      if (!frame || info.state !== "active" || value.human?.state !== "active" ||
-          frame.humanLeaseId !== info.leaseId || frame.generation !== info.generation ||
-          value.human.leaseId !== info.leaseId || value.human.generation !== info.generation ||
+      const info = record.handle.info(), frame = record.pendingLeaseFrame;
+      const announced = record.view ? value.view : value.human;
+      const frameLease = record.view ? frame?.viewLeaseId : frame?.humanLeaseId;
+      if (!frame || info.state !== "active" || announced?.state !== "active" ||
+          frameLease !== info.leaseId || frame.generation !== info.generation ||
+          announced.leaseId !== info.leaseId || announced.generation !== info.generation ||
           value.stream.streamId !== frame.streamId) return;
       // The actual matching status is emitted first. A successor frame never
       // grants its own lease/generation simply by arriving before that state.
-      record.pendingHumanFrame = null;
-      record.publishedHumanStream = frame.streamId;
+      record.pendingLeaseFrame = null;
+      record.publishedLeaseStream = frame.streamId;
       deliverFrame(channel, frame);
     })();
-    record.humanPublication = publication;
+    record.leasePublication = publication;
     publication.then(() => {
-      if (record.humanPublication === publication) record.humanPublication = null;
+      if (record.leasePublication === publication) record.leasePublication = null;
       // A navigation can arrive after status emitted but before this Promise
       // settles. Publish that state even when its first frame has not arrived.
-      if (record.humanStatePublicationPending || record.pendingHumanFrame) publishHumanStatus(channel, record);
+      if (record.leaseStatePublicationPending || record.pendingLeaseFrame) publishLeaseStatus(channel, record);
     }, () => {
-      if (record.humanPublication === publication) record.humanPublication = null;
+      if (record.leasePublication === publication) record.leasePublication = null;
       if (!record.retired && !channel.closed && channel.stream === record)
         void retireStream(channel, "human state publication unavailable").catch(() => {});
     });
@@ -222,21 +229,22 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       assertCurrent(channel);
       const frame = frameCopy(value);
       if (frame.tabId !== record.tabId) throw failure("FRAME", "frame belongs to a different tab");
-      if (record.human) {
+      if (record.human || record.view) {
         const info = record.handle?.info();
-        if (frame.controlMode === "human" && frame.humanLeaseId === info?.leaseId && frame.generation < info.generation) return;
-        if (frame.controlMode !== "human" || info?.state !== "active" || frame.humanLeaseId !== info.leaseId || frame.generation !== info.generation)
-          throw failure("FRAME", "frame does not match the active human lease and geometry");
-        if (record.humanGeneration !== info.generation) humanStateChanged(channel, record, info);
+        const mode = record.view ? "user-view" : "human", lease = record.view ? frame.viewLeaseId : frame.humanLeaseId;
+        if (frame.controlMode === mode && lease === info?.leaseId && frame.generation < info.generation) return;
+        if (frame.controlMode !== mode || info?.state !== "active" || lease !== info.leaseId || frame.generation !== info.generation)
+          throw failure("FRAME", "frame does not match the active user lease and geometry");
+        if (record.leaseGeneration !== info.generation) leaseStateChanged(channel, record, info);
       } else if (frame.controlMode !== undefined) throw failure("FRAME", "observation stream cannot authorize human input");
       if (record.streamId && record.streamId !== frame.streamId) throw failure("FRAME", "original stream identity changed");
       if (frame.frameSequence <= record.lastFrameSequence) return;
       record.streamId = frame.streamId; record.lastFrameSequence = frame.frameSequence;
       if (channel.streamState.state !== "streaming" || channel.streamState.streamId !== frame.streamId) channel.stateEpoch++;
       channel.streamState = { state: "streaming", streamId: frame.streamId };
-      if (record.human && record.publishedHumanStream !== frame.streamId) {
-        record.pendingHumanFrame = frame;
-        publishHumanStatus(channel, record);
+      if ((record.human || record.view) && record.publishedLeaseStream !== frame.streamId) {
+        record.pendingLeaseFrame = frame;
+        publishLeaseStatus(channel, record);
       } else deliverFrame(channel, frame);
     } catch (error) {
       if (channel.closed) return;
@@ -248,7 +256,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   async function tabs(channel) {
     assertCurrent(channel);
     const human = channel.stream?.human && !channel.stream.retired ? channel.stream : null;
-    const result = human ? [human.handle?.tabInfo?.() ?? human.tab] : await backend.getManagedViewerTabs();
+    const result = human ? [{ ...human.tab, ...(human.handle?.tabInfo?.() ?? {}) }] : await backend.getManagedViewerTabs();
     assertCurrent(channel);
     if (human && result[0]?.id !== human.tabId) throw failure("TABS", "human metadata belongs to a different tab");
     if (!Array.isArray(result) || result.length > 4096) throw failure("TABS", "invalid live attachment list");
@@ -256,7 +264,15 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     return result.map(tab => {
       if (!integer(tab.id) || ids.has(tab.id)) throw failure("TABS", "invalid live attachment identity");
       ids.add(tab.id);
-      return { id: tab.id, title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "" };
+      const result = tab.kind === "result", task = tab.kind === undefined || tab.kind === "task";
+      if (!task && !result || result && (!text(tab.deliveryId, 128) || typeof tab.watchable !== "boolean" || typeof tab.takeover !== "boolean") ||
+          !result && tab.deliveryId !== undefined || tab.watchable !== undefined && typeof tab.watchable !== "boolean" || tab.takeover !== undefined && typeof tab.takeover !== "boolean")
+        throw failure("TABS", "invalid user page capabilities");
+      const activeView = channel.stream?.view && !channel.stream.retired && channel.stream.tabId === tab.id && channel.stream.tab.deliveryId === tab.deliveryId ? channel.stream : null;
+      const current = activeView?.handle?.tabInfo?.() ?? tab;
+      return { id: tab.id, title: typeof current.title === "string" ? current.title.slice(0, 512) : "", url: typeof current.url === "string" ? current.url.slice(0, 8192) : "",
+        ...(tab.kind !== undefined ? { kind: tab.kind } : {}), ...(result ? { deliveryId: tab.deliveryId } : {}),
+        ...(tab.watchable !== undefined ? { watchable: tab.watchable } : {}), ...(tab.takeover !== undefined ? { takeover: tab.takeover } : {}) };
     });
   }
   async function status(channel, publish = false) {
@@ -270,7 +286,8 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       const automation = await backend.getAutomationControlStatus();
       assertCurrent(channel);
       if (channel.stateEpoch !== epoch) continue;
-      if (channel.selectedTabId !== null && !liveTabs.some(tab => tab.id === channel.selectedTabId)) {
+      if (channel.selectedTabId !== null && !liveTabs.some(tab => tab.id === channel.selectedTabId &&
+          (!channel.stream?.view || tab.deliveryId === channel.stream.tab.deliveryId))) {
         await retireStream(channel, "original attachment unavailable");
         continue;
       }
@@ -279,6 +296,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         automation, tabs: liveTabs, stream: { ...channel.streamState }, cleanupPending: cleanup.size,
         eventSequence: channel.sequence + (publish ? 1 : 0),
         human: channel.stream?.human ? channel.stream.handle?.info() ?? null : null,
+        view: channel.stream?.view ? channel.stream.handle?.info() ?? null : null,
         ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}),
         ...(cleanupFailure ? { cleanupError: String(cleanupFailure.message ?? cleanupFailure) } : {}) };
       if (JSON.stringify(value).length > 1024 * 1024) throw failure("CAPACITY", "live metadata status exceeds its bound");
@@ -291,6 +309,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   function assertSelection(channel, epoch) {
     assertCurrent(channel);
     if (epoch !== channel.selectionEpoch) throw failure("CLOSED", "original selection request was revoked");
+    if (channel.pendingResumes) throw failure("BUSY", "wait for the original Resume before selecting a page");
   }
   function cancelSelections(channel, reason, publish = true) {
     // Revoke synchronously, including a Begin still reading its original tab or
@@ -307,55 +326,75 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     channel.selections = cancelled;
     return cancelled;
   }
-  async function select(channel, tabId, epoch) {
+  function checkTabSelection(tab, deliveryId, capability) {
+    if (!tab || tab[capability] === false || (tab.kind === "result" ? deliveryId !== tab.deliveryId : deliveryId !== undefined))
+      throw failure("TAB", "original page selection or capability is no longer available");
+  }
+  async function select(channel, tabId, epoch, deliveryId) {
     assertSelection(channel, epoch);
     if (channel.stream?.human && tabId !== null) throw failure("HUMAN_BUSY", "finish the original human control before changing selection");
-    if (tabId !== null && !(await tabs(channel)).some(tab => tab.id === tabId))
-      throw failure("TAB", "only an existing owned attached tab can be selected");
+    const tab = tabId === null ? null : (await tabs(channel)).find(tab => tab.id === tabId);
+    if (tabId !== null) checkTabSelection(tab, deliveryId, "watchable");
     assertSelection(channel, epoch);
-    if (channel.selectedTabId === tabId && !cleanup.size && !cleanupFailure) return;
+    if (channel.selectedTabId === tabId && channel.stream?.tab?.deliveryId === deliveryId && !cleanup.size && !cleanupFailure) return;
     await retireStream(channel, "selection changed");
     assertSelection(channel, epoch);
     await Promise.all([...cleanup]);
     assertSelection(channel, epoch);
     if (cleanupFailure) throw failure("CLEANUP", String(cleanupFailure.message ?? cleanupFailure));
     if (tabId === null) return;
-    const record = { tabId, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null };
+    const record = { tabId, tab, view: tab.kind === "result", retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null,
+      handle: null, earlyFrame: null, earlyState: null, leaseGeneration: 0 };
     channel.stateEpoch++;
     channel.stream = record; channel.selectedTabId = tabId;
     channel.streamState = { state: "starting", streamId: null };
-    record.started = Promise.resolve().then(() => {
+    const authority = () => {
       assertCurrent(channel);
       if (record.retired || channel.stream !== record) throw failure("CLOSED", "original selection was revoked");
-      return backend.managedViewerSubscribe(tabId, frame => receiveFrame(channel, record, frame));
+    };
+    record.started = Promise.resolve().then(() => {
+      authority();
+      return backend.managedViewerSubscribe(tabId, frame => {
+        if (record.view && !record.handle) { record.earlyFrame = frame; return; }
+        receiveFrame(channel, record, frame);
+      }, value => leaseStateChanged(channel, record, value), deliveryId === undefined ? {} : { deliveryId }, authority);
     });
     try {
       const handle = await record.started;
       if (!handle || typeof handle.close !== "function") throw failure("STREAM", "invalid viewer subscription");
+      if (record.view) {
+        if (typeof handle.info !== "function" || typeof handle.tabInfo !== "function" || handle.input !== undefined)
+          throw failure("STREAM", "result viewing must not provide input authority");
+        record.handle = handle;
+        const info = handle.info();
+        if (!text(info?.leaseId, 128) || info.tabId !== tabId || info.lastInputSequence !== 0 || !["active", "navigating"].includes(info.state))
+          throw failure("STREAM", "result viewing did not become available");
+      }
       if (handle.closed?.then) void handle.closed.then(({ reason } = {}) => {
         if (record.retired || channel.stream !== record || channel.closed) return;
         void retireStream(channel, text(reason, 4096) ? reason : "original stream unavailable").catch(() => {});
       }, () => { if (!record.retired && channel.stream === record) void retireStream(channel, "original stream failed").catch(() => {}); });
-      assertCurrent(channel);
-      if (record.retired || channel.stream !== record) throw failure("CLOSED", "original selection was revoked");
+      authority();
+      if (record.earlyState) { const value = record.earlyState; record.earlyState = null; leaseStateChanged(channel, record, value); }
+      if (record.earlyFrame) { const value = record.earlyFrame; record.earlyFrame = null; receiveFrame(channel, record, value); }
     } catch (error) {
       if (channel.stream === record) await retireStream(channel, "subscription unavailable");
       throw error;
     }
   }
-  async function beginHuman(channel, tabId, epoch) {
+  async function beginHuman(channel, tabId, epoch, deliveryId) {
     assertSelection(channel, epoch);
     if (typeof backend.beginManagedHuman !== "function") throw failure("HUMAN_UNAVAILABLE", "human control is unavailable");
     if (channel.stream?.human) throw failure("HUMAN_BUSY", "human control is already active");
     const tab = (await tabs(channel)).find(tab => tab.id === tabId);
     assertSelection(channel, epoch);
-    if (!tab) throw failure("HUMAN_STALE", "the original task page is no longer available");
+    checkTabSelection(tab, deliveryId, "takeover");
     await retireStream(channel, "human takeover requested");
     assertSelection(channel, epoch);
     await Promise.all([...cleanup]);
     assertSelection(channel, epoch);
     if (cleanupFailure) throw failure("CLEANUP", "original viewing cleanup is incomplete");
-    const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null, earlyState: null, humanGeneration: 0 };
+    const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null, earlyState: null, leaseGeneration: 0 };
     channel.stateEpoch++; channel.stream = record; channel.selectedTabId = tabId;
     channel.streamState = { state: "starting", streamId: null };
     const authority = () => {
@@ -367,7 +406,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       return backend.beginManagedHuman(tabId, authority, value => {
         if (!record.handle) { record.earlyFrame = value; return; }
         receiveFrame(channel, record, value);
-      }, value => humanStateChanged(channel, record, value));
+      }, value => leaseStateChanged(channel, record, value), deliveryId === undefined ? {} : { deliveryId });
     });
     try {
       const handle = await record.started;
@@ -379,7 +418,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         if (!record.retired && channel.stream === record) void retireStream(channel, "human control ended").catch(() => {});
       }, () => { if (!record.retired && channel.stream === record) void retireStream(channel, "human control failed").catch(() => {}); });
       authority();
-      if (record.earlyState) { const value = record.earlyState; record.earlyState = null; humanStateChanged(channel, record, value); }
+      if (record.earlyState) { const value = record.earlyState; record.earlyState = null; leaseStateChanged(channel, record, value); }
       if (record.earlyFrame) {
         const value = record.earlyFrame; record.earlyFrame = null;
         receiveFrame(channel, record, value);
@@ -419,10 +458,11 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     // Read the operation through a data descriptor before deciding its schema.
     const operation = input && Object.getOwnPropertyDescriptor(input, "operation")?.value;
     const extra = ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : [];
-    const value = fields(input, ["channelKey", "operation", ...extra]);
+    const value = fields(input, ["channelKey", "operation", ...extra], ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : []);
     if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd"].includes(operation) ||
         typeof value.channelKey !== "string" || (operation === "select" && value.tabId !== null && !integer(value.tabId)) ||
         (operation === "humanBegin" && (!integer(value.tabId) || value.tabId < 1)) ||
+        (value.deliveryId !== undefined && (!text(value.deliveryId, 128) || value.tabId === null)) ||
         (["humanInput", "humanEnd"].includes(operation) && !text(value.leaseId, 128)) ||
         (operation === "humanInput" && (!integer(value.generation) || value.generation < 1 || !integer(value.sequence) || value.sequence < 1)) ||
         (operation === "resume" && (!integer(value.expectedRevision) || !text(value.expectedWorkerBootId))) ||
@@ -479,13 +519,13 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       if (cleanupFailure) throw failure("CLEANUP", "human cleanup is unconfirmed");
     } else if (operation === "humanBegin") {
       const epoch = channel.selectionEpoch;
-      const selected = channel.selections.catch(() => {}).then(() => beginHuman(channel, value.tabId, epoch));
+      const selected = channel.selections.catch(() => {}).then(() => beginHuman(channel, value.tabId, epoch, value.deliveryId));
       channel.selections = selected; await selected;
     } else if (operation === "select") {
       if (value.tabId === null) await cancelSelections(channel, "selection cleared");
       else {
         const epoch = channel.selectionEpoch;
-        const selected = channel.selections.catch(() => {}).then(() => select(channel, value.tabId, epoch));
+        const selected = channel.selections.catch(() => {}).then(() => select(channel, value.tabId, epoch, value.deliveryId));
         channel.selections = selected; await selected;
       }
     } else if (operation === "pause") {
@@ -495,9 +535,12 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       finally { channel.stateEpoch++; }
     } else if (operation === "resume") {
       if (value.expectedWorkerBootId !== channel.identity.workerBootId) throw failure("REVISION", "worker changed; refresh status before resuming");
+      // User viewing has no task or input authority. Explicit Resume retires
+      // its original native lease before task admission can start again.
+      if (channel.stream?.view) await cancelSelections(channel, "result viewing ended before resume");
       const assertResume = () => {
         assertCurrent(channel);
-        if (channel.stream?.human) throw failure("HUMAN_BUSY", "finish human control before resuming the Agent");
+        if (channel.stream?.human || channel.stream?.view) throw failure("HUMAN_BUSY", "finish original user page control before resuming the Agent");
         if (cleanup.size || cleanupFailure) throw failure("CLEANUP", "original viewer cleanup is incomplete");
       };
       assertResume();

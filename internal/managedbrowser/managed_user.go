@@ -75,6 +75,8 @@ type UserController struct {
 	humanRiskGeneration  uint64
 	humanStatus          *managedprotocol.HumanState
 	humanStatusSequence  uint64
+	viewStatus           *managedprotocol.HumanState
+	viewStatusSequence   uint64
 }
 
 // OpenUserController binds once to this run's already authenticated worker.
@@ -325,6 +327,10 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if err != nil {
 		return err
 	}
+	view, err := managedprotocol.ParseViewState(f["view"])
+	if err != nil || human != nil && view != nil {
+		return errors.New("managed user view and human state conflict")
+	}
 	if _, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"]); err != nil {
 		return err
 	}
@@ -335,6 +341,22 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	}
 	if len(data) > 4<<20 || json.Unmarshal(data, &value) != nil || !c.matches(value.managedUserIdentity, true) || value.EventSequence == nil || *value.EventSequence > 1<<53-1 || value.Connected == nil {
 		return errors.New("managed user status identity mismatch")
+	}
+	if *value.EventSequence >= c.viewStatusSequence {
+		previous := c.viewStatus
+		if previous != nil && view != nil && previous.LeaseID == view.LeaseID && view.Generation < previous.Generation {
+			return nil
+		}
+		if previous != nil && (view == nil || previous.LeaseID != view.LeaseID || view.Generation > previous.Generation || view.State != "active") ||
+			view != nil && c.streamID != "" && c.frameMode != "user-view" {
+			if err := c.retireStreamLocked(); err != nil {
+				return err
+			}
+		}
+		c.viewStatus, c.viewStatusSequence = view, *value.EventSequence
+		if view != nil {
+			c.humanStatus, c.humanStatusSequence = nil, *value.EventSequence
+		}
 	}
 	if human != nil && *value.EventSequence >= c.humanStatusSequence {
 		previous := c.humanStatus
@@ -391,11 +413,11 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 	case "select":
 		allowed["tabId"] = true
 		unselect = bytes.Equal(f["tabId"], []byte("null"))
-		if !unselect {
-			var id uint64
-			if json.Unmarshal(f["tabId"], &id) != nil || id == 0 || id > 1<<53-1 {
-				return nil, "", false, errors.New("invalid managed user tab")
-			}
+		if f["deliveryId"] != nil {
+			allowed["deliveryId"] = true
+		}
+		if err := managedprotocol.ValidateSelection(f); err != nil {
+			return nil, "", false, err
 		}
 	case "resume":
 		allowed["expectedRevision"], allowed["expectedWorkerBootId"] = true, true
@@ -410,6 +432,9 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		}
 		for _, name := range managedprotocol.HumanFields(operation) {
 			allowed[name] = true
+		}
+		if operation == "humanBegin" && f["deliveryId"] != nil {
+			allowed["deliveryId"] = true
 		}
 	default:
 		return nil, "", false, errors.New("unsupported managed user operation")
@@ -516,7 +541,7 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 		fields, parseErr := userObject(response.Status)
 		var selected *uint64
 		var pending *uint64
-		if parseErr == nil && json.Unmarshal(fields["selectedTabId"], &selected) == nil && selected == nil && json.Unmarshal(fields["cleanupPending"], &pending) == nil && pending != nil && *pending == 0 && fields["cleanupError"] == nil && (fields["human"] == nil || string(fields["human"]) == "null") {
+		if parseErr == nil && json.Unmarshal(fields["selectedTabId"], &selected) == nil && selected == nil && json.Unmarshal(fields["cleanupPending"], &pending) == nil && pending != nil && *pending == 0 && fields["cleanupError"] == nil && (fields["human"] == nil || string(fields["human"]) == "null") && (fields["view"] == nil || string(fields["view"]) == "null") {
 			c.humanRisk = false // Only a real cleanup operation, never a status snapshot.
 		}
 	}
@@ -905,6 +930,7 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 		Status        json.RawMessage
 		ControlMode   string `json:"controlMode"`
 		HumanLeaseID  string `json:"humanLeaseId"`
+		ViewLeaseID   string `json:"viewLeaseId"`
 		Generation    uint64 `json:"generation"`
 	}
 	if len(data) > userReadLimit || json.Unmarshal(data, &event) != nil {
@@ -948,6 +974,17 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 				return errors.New("managed human frame lacks its generation status")
 			}
 		}
+		if event.ControlMode == "user-view" {
+			view := c.viewStatus
+			if view != nil && view.LeaseID == event.ViewLeaseID && view.TabID == event.TabID && event.Generation < view.Generation {
+				c.mu.Unlock()
+				return nil
+			}
+			if view == nil || view.LeaseID != event.ViewLeaseID || view.TabID != event.TabID || view.Generation != event.Generation || view.State != "active" {
+				c.mu.Unlock()
+				return errors.New("managed user-view frame lacks its active generation status")
+			}
+		}
 		if event.FrameSequence <= c.lastBrokerSequence || c.retiredStreams[event.StreamID] {
 			c.mu.Unlock()
 			return errors.New("managed user frame was retired or repeated")
@@ -956,11 +993,15 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 			c.mu.Unlock()
 			return errors.New("managed user stream changed without retirement")
 		}
-		if c.streamID != "" && (c.frameMode != event.ControlMode || c.frameLease != event.HumanLeaseID || c.frameGeneration != event.Generation) {
+		lease := event.HumanLeaseID
+		if event.ControlMode == "user-view" {
+			lease = event.ViewLeaseID
+		}
+		if c.streamID != "" && (c.frameMode != event.ControlMode || c.frameLease != lease || c.frameGeneration != event.Generation) {
 			c.mu.Unlock()
 			return errors.New("managed human stream identity changed without retirement")
 		}
-		c.frameMode, c.frameLease, c.frameGeneration = event.ControlMode, event.HumanLeaseID, event.Generation
+		c.frameMode, c.frameLease, c.frameGeneration = event.ControlMode, lease, event.Generation
 		c.streamID, c.lastFrameSequence = event.StreamID, event.Sequence
 		c.lastBrokerSequence, c.frameTabID = event.FrameSequence, event.TabID
 		c.latestFrame = append(json.RawMessage(nil), data...)

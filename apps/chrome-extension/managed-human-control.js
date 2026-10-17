@@ -21,8 +21,8 @@ function clientGeometry(metrics) {
   return Object.freeze({ width: viewport.clientWidth, height: viewport.clientHeight });
 }
 
-// The native attachment and durable risk belong to one whole human lease.
-// Every document generation owns separate input intent, native work and stream.
+// One native attachment belongs to an immutable view or human lease. Only a
+// human lease owns input intent and durable risk; both share document cleanup.
 export class ManagedHumanControl {
   constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, onFailure = () => {} }) {
     Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, onFailure });
@@ -31,11 +31,16 @@ export class ManagedHumanControl {
   }
 
   assertReleased() { if (this.current) throw fail("finish releasing human control before resuming automation", "BUSY"); }
+  assertHumanReleased() {
+    if (this.current && (this.current.mode === "human" || this.current.state === "error"))
+      throw fail("finish releasing human control before resuming automation", "BUSY");
+  }
   status() { return this.current ? this.info(this.current) : null; }
   ownsTab(tabId) { return this.current?.tabId === tabId && !this.current.revoked; }
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
-      generation: record.generation, viewport: record.viewport, lastInputSequence: record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
+      generation: record.generation, viewport: record.viewport,
+      lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
   tabInfo(record) {
     const epoch = record.epoch;
@@ -69,27 +74,41 @@ export class ManagedHumanControl {
     return source.tabId === record.tabId;
   }
 
-  begin(tabId, assertAuthority, onFrame, onState = () => {}) {
+  begin(tabId, assertAuthority, onFrame, onState = () => {}, options = {}) {
+    return this.beginLease("human", tabId, assertAuthority, onFrame, onState, options);
+  }
+  beginView(tabId, assertAuthority, onFrame, onState = () => {}, options = {}) {
+    return this.beginLease("view", tabId, assertAuthority, onFrame, onState, options);
+  }
+  beginLease(mode, tabId, assertAuthority, onFrame, onState, options) {
     this.assertReleased();
-    if (!Number.isSafeInteger(tabId) || tabId < 0 || typeof assertAuthority !== "function" || typeof onFrame !== "function" || typeof onState !== "function") throw fail("invalid human control request");
+    if (!["human", "view"].includes(mode) || !Number.isSafeInteger(tabId) || tabId < 0 || typeof assertAuthority !== "function" || typeof onFrame !== "function" || typeof onState !== "function") throw fail("invalid human control request");
+    fields(options, [], ["deliveryId"]);
+    if (Object.hasOwn(options, "deliveryId") && (typeof options.deliveryId !== "string" || !options.deliveryId)) throw fail("invalid delivery identity");
     assertAuthority();
     const record = { tabId, assertAuthority, onFrame, onState, leaseId: crypto.randomUUID(), state: "starting",
       generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set() };
+    Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
     this.current = record;
-    record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record), input: envelope => this.input(record, envelope), close: () => this.close(record), closed: record.closed.promise });
+    record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record),
+      ...(mode === "human" ? { input: envelope => this.input(record, envelope) } : {}),
+      close: () => this.close(record), closed: record.closed.promise });
     record.start = Promise.resolve().then(() => this.start(record));
     return record.start.then(() => record.handle, async error => {
       try { await this.close(record, error); }
-      catch { throw Object.assign(fail("original human cleanup remains unconfirmed", "CLEANUP_INCOMPLETE"), { humanCleanupIncomplete: true }); }
+      catch { throw Object.assign(fail("original user-page cleanup remains unconfirmed", "CLEANUP_INCOMPLETE"),
+        mode === "human" ? { humanCleanupIncomplete: true } : { viewerCleanupIncomplete: true }); }
       throw error;
     });
   }
 
   createGeneration(record) {
     const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map() };
-    epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
-      assertInput: () => this.checkInputGeometry(record, epoch) });
-    epoch.tracker.register(record.tabId, epoch.token);
+    if (record.mode === "human") {
+      epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
+        assertInput: () => this.checkInputGeometry(record, epoch) });
+      epoch.tracker.register(record.tabId, epoch.token);
+    }
     let queue = Promise.resolve();
     epoch.rendering = new BrowserRendering({ streams: new Map(), drains: record.drains,
       queue: (_tabId, operation) => { const next = queue.catch(() => {}).then(operation); queue = next; return next; },
@@ -112,11 +131,11 @@ export class ManagedHumanControl {
 
   async start(record) {
     this.check(record);
-    record.candidate = await this.capture(record.tabId);
+    record.candidate = await this.capture(record.tabId, record.options);
     this.check(record);
-    await this.pause(record); record.paused = true;
+    if (record.mode === "human") { await this.pause(record); record.paused = true; }
     this.check(record); await this.validate(record.candidate); this.check(record);
-    await this.markRisk(record.leaseId, record.tabId); record.riskMarked = true;
+    if (record.mode === "human") { await this.markRisk(record.leaseId, record.tabId); record.riskMarked = true; }
     this.check(record);
     await this.chrome.debugger.attach({ targetId: record.candidate.targetId }, "1.3"); record.attached = true;
     record.lifecycle = (source, method, params) => {
@@ -129,13 +148,15 @@ export class ManagedHumanControl {
     };
     this.chrome.debugger.onEvent.addListener(record.lifecycle);
     this.check(record); await this.validate(record.candidate); this.check(record);
-    await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
+    if (record.mode === "human") await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
     await this.send(record, "Performance.enable", { timeDomain: "timeTicks" }, () => this.check(record));
     this.check(record); record.initialized = true;
     await this.recover(record);
   }
 
   send(record, method, params, assertAdmission) {
+    if (record.mode === "view" && (method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled"))
+      throw fail("a view lease has no native input or focus authority", "UNAVAILABLE");
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
     let dispatched = false;
     const actual = Promise.resolve().then(() => {
@@ -172,8 +193,12 @@ export class ManagedHumanControl {
     check(); epoch.candidate = candidate ?? record.candidate;
     epoch.document = this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check));
     check();
-    epoch.clientViewport = clientGeometry(await this.send(record, "Page.getLayoutMetrics", undefined, check));
-    check();
+    // A read-only view has no CSS input coordinates. Zoom, visual offsets and
+    // scrollbars constrain human input only, not the original native image.
+    if (record.mode === "human") {
+      epoch.clientViewport = clientGeometry(await this.send(record, "Page.getLayoutMetrics", undefined, check));
+      check();
+    }
     // Performance Timestamp and Page.monotonicTimestamp are native TimeTicks
     // seconds. Wall-clock timestamp, receipt time and a new stream ID are not
     // substitutes for the capture barrier.
@@ -268,10 +293,16 @@ export class ManagedHumanControl {
   frame(record, epoch, frame) {
     this.checkGeneration(record, epoch);
     const metadata = frame.metadata, width = metadata.deviceWidth, height = metadata.deviceHeight;
-    if (metadata.pageScaleFactor !== 1 || metadata.offsetTop !== 0 ||
-        !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 16384 || height > 16384 ||
-        epoch.clientViewport.width > width || epoch.clientViewport.height > height ||
-        epoch.viewport && (width !== epoch.viewport.width || height !== epoch.viewport.height)) {
+    const invalidSurface = !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > 16384 || height > 16384;
+    const resized = epoch.viewport && (width !== epoch.viewport.width || height !== epoch.viewport.height);
+    if (!invalidSurface && resized && record.mode === "view") {
+      // Do not relabel this already-encoded frame as the new viewport. Retire
+      // its original stream, then require a new native TimeTicks capture.
+      this.navigation(record.tabId, {}, "committed", "view-resize");
+      return;
+    }
+    if (invalidSurface || record.mode === "human" && (metadata.pageScaleFactor !== 1 || metadata.offsetTop !== 0 ||
+        epoch.clientViewport.width > width || epoch.clientViewport.height > height || resized)) {
       record.generation++; record.viewport = null;
       const error = fail("viewport changed; release and start a new handoff", "GEOMETRY");
       void this.close(record, error).catch(() => {}); throw error;
@@ -280,7 +311,9 @@ export class ManagedHumanControl {
     record.viewport = epoch.viewport; record.generation = epoch.id;
     if (record.state !== "active") { record.state = "active"; this.notify(record); }
     this.checkGeneration(record, epoch);
-    record.onFrame(Object.freeze({ ...frame, controlMode: "human", humanLeaseId: record.leaseId, generation: epoch.id }));
+    record.onFrame(Object.freeze({ ...frame, generation: epoch.id, ...(record.mode === "human"
+      ? { controlMode: "human", humanLeaseId: record.leaseId }
+      : { controlMode: "user-view", viewLeaseId: record.leaseId }) }));
   }
 
   checkInputGeometry(record, epoch) {
@@ -293,7 +326,12 @@ export class ManagedHumanControl {
       throw fail("viewport changed before native input", "GEOMETRY");
   }
   recheckResize(record, epoch) {
-    if (!epoch || epoch.retired || record.revoked || !epoch.clientViewport) return;
+    if (!epoch || epoch.retired || record.revoked) return;
+    if (record.mode === "view") {
+      this.navigation(record.tabId, {}, "committed", "view-resize");
+      return;
+    }
+    if (!epoch.clientViewport) return;
     epoch.geometryDirty = true;
     if (epoch.geometryPending) return;
     const pending = Promise.resolve().then(async () => {
@@ -362,6 +400,7 @@ export class ManagedHumanControl {
   input(record, envelope) {
     try {
       this.check(record);
+      if (record.mode !== "human") throw fail("a view lease has no input authority", "UNAVAILABLE");
       fields(envelope, ["leaseId", "generation", "sequence", "input"]);
       if (envelope.leaseId !== record.leaseId) throw fail("input does not match the displayed human lease", "STALE");
       const epoch = record.epoch;
@@ -423,13 +462,17 @@ export class ManagedHumanControl {
       epoch.cleaning = (async () => {
         await Promise.allSettled([epoch.start, epoch.inputPending, epoch.geometryPending].filter(Boolean));
         if (record.attached) {
-          await epoch.tracker.release(record.tabId, epoch.token, (_target, method, params) => this.send(record, method, params));
+          if (epoch.tracker) await epoch.tracker.release(record.tabId, epoch.token, (_target, method, params) => this.send(record, method, params));
           await epoch.rendering.cancel(record.tabId, epoch.token);
-          await Promise.allSettled([...epoch.tracker.controlSnapshot().pending]);
-          epoch.tracker.forget(record.tabId, epoch.token);
+          if (epoch.tracker) {
+            await Promise.allSettled([...epoch.tracker.controlSnapshot().pending]);
+            epoch.tracker.forget(record.tabId, epoch.token);
+          }
         } else if (record.destroyed) {
-          await Promise.allSettled([...epoch.tracker.controlSnapshot().pending]);
-          epoch.tracker.forget(record.tabId, epoch.token, { destroyed: true });
+          if (epoch.tracker) {
+            await Promise.allSettled([...epoch.tracker.controlSnapshot().pending]);
+            epoch.tracker.forget(record.tabId, epoch.token, { destroyed: true });
+          }
         } else throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
         epoch.cleaned = true; record.epochs.delete(epoch);
       })();
@@ -448,6 +491,11 @@ export class ManagedHumanControl {
     if (!this.current || this.current === exempt) return Promise.resolve();
     return this.close(this.current, error);
   }
+  revokeView(tabId) {
+    const record = this.current;
+    if (!record || record.mode !== "view" || (tabId !== undefined && record.tabId !== tabId)) return Promise.resolve();
+    return this.close(record, fail("original view retired for task admission", "STALE"));
+  }
   close(record, error) {
     this.revoke(record, error);
     if (!record.closing) {
@@ -456,7 +504,7 @@ export class ManagedHumanControl {
         for (const epoch of record.epochs) await this.releaseGeneration(record, epoch);
         await Promise.allSettled([...record.drains]);
         if (record.attached) {
-          await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: false });
+          if (record.mode === "human") await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: false });
           record.detaching = true;
           try { await this.chrome.debugger.detach({ targetId: record.candidate.targetId }); }
           finally { record.detaching = false; }

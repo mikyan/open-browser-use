@@ -92,6 +92,11 @@ type connection struct {
 	humanFrameLease        string
 	humanFrameGeneration   uint64
 	humanFrameTabID        uint64
+	view                   *managedprotocol.HumanState
+	viewStateSequence      uint64
+	viewRetiredSequence    uint64
+	viewAllowed            bool
+	viewRisk               bool
 	inputCtx               context.Context
 	inputCancel            context.CancelCauseFunc
 	inputs                 chan command
@@ -544,9 +549,13 @@ func (c *connection) displayData(data json.RawMessage) json.RawMessage {
 	var sequence uint64
 	_ = json.Unmarshal(fields["eventSequence"], &sequence)
 	retire := kind == "clear" || kind == "unavailable"
+	c.controlMu.Lock()
+	viewRetired := c.viewRetiredSequence
+	c.controlMu.Unlock()
 	if fields["status"] != nil {
 		var status struct {
-			State string `json:"state"`
+			State           string `json:"state"`
+			CleanupComplete bool   `json:"cleanupComplete"`
 		}
 		_ = json.Unmarshal(fields["status"], &status)
 		c.controlMu.Lock()
@@ -554,11 +563,17 @@ func (c *connection) displayData(data json.RawMessage) json.RawMessage {
 		c.controlMu.Unlock()
 		var human *managedprotocol.HumanState
 		_ = json.Unmarshal(fields["human"], &human)
-		retire = !humanPending && human == nil && (status.State != "running" || string(fields["selectedTabId"]) == "null")
+		var view *managedprotocol.HumanState
+		_ = json.Unmarshal(fields["view"], &view)
+		retire = !humanPending && human == nil && view == nil && (status.State != "running" || string(fields["selectedTabId"]) == "null")
 		retire = retire || human != nil && human.State == "navigating"
+		retire = retire || view != nil && (view.State != "active" || status.State != "running" && (status.State != "paused" || !status.CleanupComplete))
 	}
 	c.sequenceMu.Lock()
 	defer c.sequenceMu.Unlock()
+	if viewRetired > c.retiredSequence {
+		c.retiredSequence = viewRetired
+	}
 	if retire && sequence > c.retiredSequence {
 		c.retiredSequence = sequence
 		select {

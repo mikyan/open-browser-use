@@ -1,0 +1,1354 @@
+{
+  "events": [
+    {
+      "eventSequence": 1,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": false,
+        "inputBlocked": false,
+        "revision": 0,
+        "state": "running"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A",
+          "url": "https://fixture.invalid/result-a",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 1,
+        "leaseId": "result-view-1",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 2,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": false,
+        "inputBlocked": false,
+        "revision": 0,
+        "state": "running"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A",
+          "url": "https://fixture.invalid/result-a",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 1,
+        "leaseId": "result-view-1",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "user-view",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 3,
+      "generation": 1,
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 101,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-view-1-g1",
+      "tabId": 7,
+      "type": "frame",
+      "viewLeaseId": "result-view-1"
+    },
+    {
+      "eventSequence": 4,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": false,
+        "inputBlocked": false,
+        "revision": 0,
+        "state": "running"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A",
+          "url": "https://fixture.invalid/result-a",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 2,
+        "leaseId": "result-view-1",
+        "state": "navigating",
+        "tabId": 7,
+        "viewport": null
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 5,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": false,
+        "inputBlocked": false,
+        "revision": 0,
+        "state": "running"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 2,
+        "leaseId": "result-view-1",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "user-view",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 6,
+      "generation": 2,
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 102,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-view-1-g2",
+      "tabId": 7,
+      "type": "frame",
+      "viewLeaseId": "result-view-1"
+    },
+    {
+      "eventSequence": 7,
+      "message": "画面订阅已结束，可重新选择查看。",
+      "type": "clear"
+    },
+    {
+      "eventSequence": 8,
+      "human": null,
+      "selectedTabId": null,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 1,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 9,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 1,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 1,
+        "leaseId": "result-view-2",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 10,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 1,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 1,
+        "leaseId": "result-view-2",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "user-view",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 11,
+      "generation": 1,
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 101,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-view-2-g1",
+      "tabId": 7,
+      "type": "frame",
+      "viewLeaseId": "result-view-2"
+    },
+    {
+      "eventSequence": 12,
+      "message": "画面订阅已结束，可重新选择查看。",
+      "type": "clear"
+    },
+    {
+      "eventSequence": 13,
+      "human": {
+        "generation": 1,
+        "leaseId": "result-human-3",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 14,
+      "human": {
+        "generation": 1,
+        "leaseId": "result-human-3",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "human",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 15,
+      "generation": 1,
+      "humanLeaseId": "result-human-3",
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 101,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-human-3-g1",
+      "tabId": 7,
+      "type": "frame"
+    },
+    {
+      "eventSequence": 16,
+      "human": {
+        "generation": 1,
+        "leaseId": "result-human-3",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 17,
+      "human": {
+        "generation": 2,
+        "leaseId": "result-human-3",
+        "state": "navigating",
+        "tabId": 7,
+        "viewport": null
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 18,
+      "human": {
+        "generation": 2,
+        "leaseId": "result-human-3",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "human",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 19,
+      "generation": 2,
+      "humanLeaseId": "result-human-3",
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 102,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-human-3-g2",
+      "tabId": 7,
+      "type": "frame"
+    },
+    {
+      "eventSequence": 20,
+      "message": "画面订阅已结束，可重新选择查看。",
+      "type": "clear"
+    },
+    {
+      "eventSequence": 21,
+      "human": null,
+      "humanCleanup": {
+        "cleanupConfirmed": true,
+        "leaseId": "result-human-3"
+      },
+      "selectedTabId": null,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 22,
+      "human": null,
+      "humanCleanup": {
+        "cleanupConfirmed": true,
+        "leaseId": "result-human-3"
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 1,
+        "leaseId": "result-view-4",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 23,
+      "human": null,
+      "humanCleanup": {
+        "cleanupConfirmed": true,
+        "leaseId": "result-human-3"
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": {
+        "generation": 1,
+        "leaseId": "result-view-4",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "user-view",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 24,
+      "generation": 1,
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 101,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-view-4-g1",
+      "tabId": 7,
+      "type": "frame",
+      "viewLeaseId": "result-view-4"
+    },
+    {
+      "eventSequence": 25,
+      "message": "画面订阅已结束，可重新选择查看。",
+      "type": "clear"
+    },
+    {
+      "eventSequence": 26,
+      "human": {
+        "generation": 1,
+        "leaseId": "result-human-5",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "humanCleanup": {
+        "cleanupConfirmed": true,
+        "leaseId": "result-human-3"
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 3,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 27,
+      "human": {
+        "generation": 1,
+        "leaseId": "result-human-5",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "humanCleanup": {
+        "cleanupConfirmed": true,
+        "leaseId": "result-human-3"
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 3,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "controlMode": "human",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7FQAAAAASUVORK5CYII=",
+      "eventSequence": 28,
+      "generation": 1,
+      "humanLeaseId": "result-human-5",
+      "metadata": {
+        "deviceHeight": 1,
+        "deviceWidth": 1,
+        "monotonicTimestamp": 101,
+        "offsetTop": 0,
+        "pageScaleFactor": 1
+      },
+      "mimeType": "image/png",
+      "sequence": 1,
+      "streamId": "result-human-5-g1",
+      "tabId": 7,
+      "type": "frame"
+    },
+    {
+      "eventSequence": 29,
+      "message": "画面订阅已结束，可重新选择查看。",
+      "type": "clear"
+    },
+    {
+      "eventSequence": 30,
+      "human": null,
+      "humanCleanup": {
+        "cleanupConfirmed": true,
+        "leaseId": "result-human-5"
+      },
+      "selectedTabId": null,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 3,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "type": "state",
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    {
+      "eventSequence": 31,
+      "message": "浏览器控制连接已断开；仍可停止会话。",
+      "type": "unavailable"
+    }
+  ],
+  "humanBegin": {
+    "eventSequence": 14,
+    "human": {
+      "generation": 1,
+      "leaseId": "result-human-3",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 2,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A route",
+        "url": "https://fixture.invalid/result-a#view",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "humanEnd": {
+    "eventSequence": 21,
+    "human": null,
+    "humanCleanup": {
+      "cleanupConfirmed": true,
+      "leaseId": "result-human-3"
+    },
+    "selectedTabId": null,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 2,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Continued B",
+        "url": "https://fixture.invalid/result-b",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "humanInput": {
+    "eventSequence": 16,
+    "human": {
+      "generation": 1,
+      "leaseId": "result-human-3",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "inputReceipt": {
+      "acknowledged": true,
+      "generation": 1,
+      "leaseId": "result-human-3",
+      "sequence": 1
+    },
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 2,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A route",
+        "url": "https://fixture.invalid/result-a#view",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "humanNavigation": {
+    "active": {
+      "eventSequence": 19,
+      "human": {
+        "generation": 2,
+        "leaseId": "result-human-3",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Continued B",
+          "url": "https://fixture.invalid/result-b",
+          "watchable": true
+        }
+      ],
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    "navigating": {
+      "eventSequence": 17,
+      "human": {
+        "generation": 2,
+        "leaseId": "result-human-3",
+        "state": "navigating",
+        "tabId": 7,
+        "viewport": null
+      },
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": true,
+        "inputBlocked": true,
+        "revision": 2,
+        "state": "paused"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "view": null,
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    }
+  },
+  "open": {
+    "eventSequence": 0,
+    "human": null,
+    "selectedTabId": null,
+    "status": {
+      "cleanupComplete": false,
+      "inputBlocked": false,
+      "revision": 0,
+      "state": "running"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A",
+        "url": "https://fixture.invalid/result-a",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "pause": {
+    "eventSequence": 8,
+    "human": null,
+    "selectedTabId": null,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 1,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A route",
+        "url": "https://fixture.invalid/result-a#view",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "secondHumanBegin": {
+    "eventSequence": 27,
+    "human": {
+      "generation": 1,
+      "leaseId": "result-human-5",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "humanCleanup": {
+      "cleanupConfirmed": true,
+      "leaseId": "result-human-3"
+    },
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 3,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Continued B",
+        "url": "https://fixture.invalid/result-b",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "secondHumanEnd": {
+    "eventSequence": 30,
+    "human": null,
+    "humanCleanup": {
+      "cleanupConfirmed": true,
+      "leaseId": "result-human-5"
+    },
+    "selectedTabId": null,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 3,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Continued B",
+        "url": "https://fixture.invalid/result-b",
+        "watchable": true
+      }
+    ],
+    "view": null,
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "viewAfterHuman": {
+    "eventSequence": 22,
+    "human": null,
+    "humanCleanup": {
+      "cleanupConfirmed": true,
+      "leaseId": "result-human-3"
+    },
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 2,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Continued B",
+        "url": "https://fixture.invalid/result-b",
+        "watchable": true
+      }
+    ],
+    "view": {
+      "generation": 1,
+      "leaseId": "result-view-4",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "viewAfterHumanStatus": {
+    "eventSequence": 24,
+    "human": null,
+    "humanCleanup": {
+      "cleanupConfirmed": true,
+      "leaseId": "result-human-3"
+    },
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 2,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Continued B",
+        "url": "https://fixture.invalid/result-b",
+        "watchable": true
+      }
+    ],
+    "view": {
+      "generation": 1,
+      "leaseId": "result-view-4",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "viewNavigation": {
+    "active": {
+      "eventSequence": 6,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": false,
+        "inputBlocked": false,
+        "revision": 0,
+        "state": "running"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A route",
+          "url": "https://fixture.invalid/result-a#view",
+          "watchable": true
+        }
+      ],
+      "view": {
+        "generation": 2,
+        "leaseId": "result-view-1",
+        "state": "active",
+        "tabId": 7,
+        "viewport": {
+          "height": 1,
+          "width": 1
+        }
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    },
+    "navigating": {
+      "eventSequence": 4,
+      "human": null,
+      "selectedTabId": 7,
+      "status": {
+        "cleanupComplete": false,
+        "inputBlocked": false,
+        "revision": 0,
+        "state": "running"
+      },
+      "tabs": [
+        {
+          "deliveryId": "fixture-delivery-original",
+          "id": 7,
+          "kind": "result",
+          "takeover": true,
+          "title": "Delivered A",
+          "url": "https://fixture.invalid/result-a",
+          "watchable": true
+        }
+      ],
+      "view": {
+        "generation": 2,
+        "leaseId": "result-view-1",
+        "state": "navigating",
+        "tabId": 7,
+        "viewport": null
+      },
+      "viewerCleanupComplete": true,
+      "workerBootId": "result-worker"
+    }
+  },
+  "viewPaused": {
+    "eventSequence": 9,
+    "human": null,
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 1,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A route",
+        "url": "https://fixture.invalid/result-a#view",
+        "watchable": true
+      }
+    ],
+    "view": {
+      "generation": 1,
+      "leaseId": "result-view-2",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "viewPausedStatus": {
+    "eventSequence": 11,
+    "human": null,
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": true,
+      "inputBlocked": true,
+      "revision": 1,
+      "state": "paused"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A route",
+        "url": "https://fixture.invalid/result-a#view",
+        "watchable": true
+      }
+    ],
+    "view": {
+      "generation": 1,
+      "leaseId": "result-view-2",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "viewRunning": {
+    "eventSequence": 1,
+    "human": null,
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": false,
+      "inputBlocked": false,
+      "revision": 0,
+      "state": "running"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A",
+        "url": "https://fixture.invalid/result-a",
+        "watchable": true
+      }
+    ],
+    "view": {
+      "generation": 1,
+      "leaseId": "result-view-1",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  },
+  "viewRunningStatus": {
+    "eventSequence": 3,
+    "human": null,
+    "selectedTabId": 7,
+    "status": {
+      "cleanupComplete": false,
+      "inputBlocked": false,
+      "revision": 0,
+      "state": "running"
+    },
+    "tabs": [
+      {
+        "deliveryId": "fixture-delivery-original",
+        "id": 7,
+        "kind": "result",
+        "takeover": true,
+        "title": "Delivered A",
+        "url": "https://fixture.invalid/result-a",
+        "watchable": true
+      }
+    ],
+    "view": {
+      "generation": 1,
+      "leaseId": "result-view-1",
+      "state": "active",
+      "tabId": 7,
+      "viewport": {
+        "height": 1,
+        "width": 1
+      }
+    },
+    "viewerCleanupComplete": true,
+    "workerBootId": "result-worker"
+  }
+}

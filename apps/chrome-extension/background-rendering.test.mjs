@@ -121,7 +121,7 @@ test("ordinary installs expose no managed viewer capability and managed selectio
   await assert.rejects(f.backend.managedViewerSubscribe(7, () => {}), /no live automation attachment/);
   assert.equal(f.calls.length, 0);
   await f.attach();
-  assert.deepEqual(json(await f.backend.getManagedViewerTabs()), [{ id: 7, title: "Fixture", url: "https://fixture.test" }]);
+  assert.deepEqual(json(await f.backend.getManagedViewerTabs()), [{ id: 7, title: "Fixture", url: "https://fixture.test", kind: "task", watchable: true, takeover: true }]);
 });
 
 test("managed preview and repeated screenshots use one original stream without activating the tab", async () => {

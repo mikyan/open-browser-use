@@ -69,6 +69,9 @@ test("each high-ID retired-capability probe replaces its connection before retur
 test("human command evidence preserves authority and sequence while hashing text payloads", () => {
   assert.equal(projectHumanCommand({ type: "authenticate", token: "private-ticket" }), null);
   assert.deepEqual(projectHumanCommand({ id: 1, operation: "humanBegin", tabId: 8 }), { id: 1, operation: "humanBegin", tabId: 8 });
+  const delivered = { id: 9, operation: "humanBegin", tabId: 8, deliveryId: "original-delivery" };
+  assert.deepEqual(projectHumanCommand(delivered), delivered);
+  for (const deliveryId of [null, "", "x".repeat(129), "bad\nidentity"]) assert.throws(() => projectHumanCommand({ ...delivered, deliveryId }));
   assert.deepEqual(projectHumanCommand({ id: 2, operation: "humanEnd", leaseId: "original-lease" }), { id: 2, operation: "humanEnd", leaseId: "original-lease" });
   const base = { id: 3, operation: "humanInput", leaseId: "original-lease", generation: 1, sequence: 4 };
   const text = "synthetic 人工π", projected = projectHumanCommand({ ...base, input: { type: "text", text } });

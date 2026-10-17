@@ -12,6 +12,12 @@
 
 ## Baseline sources
 
+当前源码的连续导航与原结果页接续已完成固定 Windows Chromium 限定验收。
+`managed-result-VGrDlV` 六步、50 项输入、唯一 POST、两次接管及结束通过，
+同源码普通 viewer 回归 `o6PuJl` 四步通过。扩展 2,053 项、UI 54 项及 Go
+全包/vet/build 通过。本轮按用户要求另建新包；worker 重启后的结果恢复、
+Stop 后保留可见窗口、真实登录/IME、公司 Edge 和跨平台仍未完成。
+
 当前可用发布为 `preview-20261017-93f54a1`，包含已验证的同文档人工接管。
 Windows 独立会话已有正式 `managed run/view/status/stop`、实时画面及可信
 暂停/继续/停止；`managed setup` 提供任务开始前的专用 profile 登录准备。

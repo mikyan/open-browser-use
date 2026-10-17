@@ -45,11 +45,13 @@ func parseCommand(data []byte) (command, error) {
 	case "status", "pause", "stop":
 	case "select":
 		allowed["tabId"] = true
-		if !bytes.Equal(f["tabId"], []byte("null")) {
-			var id uint64
-			if json.Unmarshal(f["tabId"], &id) != nil || id == 0 || id > maxSafeInteger {
-				return c, errors.New("invalid tab")
-			}
+		allowed["deliveryId"] = true
+		selection := map[string]json.RawMessage{"operation": f["operation"], "tabId": f["tabId"]}
+		if raw, ok := f["deliveryId"]; ok {
+			selection["deliveryId"] = raw
+		}
+		if err := managedprotocol.ValidateSelection(selection); err != nil {
+			return c, err
 		}
 	case "resume":
 		allowed["expectedRevision"], allowed["expectedWorkerBootId"] = true, true
@@ -70,6 +72,9 @@ func parseCommand(data []byte) (command, error) {
 		}
 		for _, key := range managedprotocol.HumanFields(c.operation) {
 			allowed[key] = true
+		}
+		if c.operation == "humanBegin" {
+			allowed["deliveryId"] = true
 		}
 	default:
 		return c, errors.New("unsupported operation")
@@ -140,20 +145,12 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if bytes.Equal(f["eventSequence"], []byte("null")) || json.Unmarshal(f["eventSequence"], &eventSequence) != nil || eventSequence > maxSafeInteger {
 		return nil, errors.New("missing status event sequence")
 	}
-	type tab struct {
-		ID    uint64 `json:"id"`
-		Title string `json:"title"`
-		URL   string `json:"url"`
-	}
-	tabs := []tab{}
-	if bytes.Equal(f["tabs"], []byte("null")) || json.Unmarshal(f["tabs"], &tabs) != nil || len(tabs) > 4096 {
-		return nil, errors.New("invalid tab list")
+	tabs, err := managedprotocol.ParseViewerTabs(f["tabs"], status.State == "running")
+	if err != nil {
+		return nil, err
 	}
 	seenTabs := map[uint64]bool{}
 	for _, t := range tabs {
-		if t.ID == 0 || t.ID > maxSafeInteger || seenTabs[t.ID] || len(t.Title) > 4096 || len(t.URL) > 16384 {
-			return nil, errors.New("invalid tab")
-		}
 		seenTabs[t.ID] = true
 	}
 	var selected *uint64
@@ -167,6 +164,24 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if human != nil && (status.State == "running" || !*status.InputBlocked) {
 		return nil, errors.New("human control did not pause automation")
 	}
+	view, err := managedprotocol.ParseViewState(f["view"])
+	if err != nil || human != nil && view != nil {
+		return nil, errors.New("invalid independent viewing state")
+	}
+	if view != nil {
+		if selected == nil || *selected != view.TabID {
+			return nil, errors.New("view belongs to a different selected tab")
+		}
+		found := false
+		for _, tab := range tabs {
+			if tab.ID == view.TabID && tab.Kind == "result" {
+				found = true
+			}
+		}
+		if !found {
+			return nil, errors.New("view has no original result page")
+		}
+	}
 	cleanup, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"])
 	if err != nil {
 		return nil, err
@@ -175,7 +190,7 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence, "human": human}
+	out := map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence, "human": human, "view": view}
 	if cleanup != nil {
 		out["humanCleanup"] = cleanup
 	}
@@ -253,6 +268,8 @@ func publicEvent(data []byte) (string, json.RawMessage, error) {
 	}
 	if mode == "human" {
 		out["controlMode"], out["humanLeaseId"], out["generation"] = mode, lease, generation
+	} else if mode == "user-view" {
+		out["controlMode"], out["viewLeaseId"], out["generation"] = mode, lease, generation
 	}
 	return kind, jsonBytes(out), nil
 }

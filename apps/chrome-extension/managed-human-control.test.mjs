@@ -25,15 +25,17 @@ function fixture(options = {}) {
     }
   } };
   const control = new ManagedHumanControl({ chrome,
-    capture: async tabId => { calls.push(["capture"]); await options.capture?.(); return { tabId, targetId: "original-target", documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
+    capture: async (tabId, captureOptions) => { calls.push(["capture"]); await options.capture?.(tabId, captureOptions); return { tabId, targetId: "original-target", documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
     validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
     onFailure: error => calls.push(["failure", error.message])
   });
-  const begin = () => control.begin(7, () => { if (!authorized) throw new Error("lease expired"); }, frame => frames.push(frame), state => states.push(state));
-  return { control, chrome, calls, frames, states, risks, emit, listeners, begin,
+  const authority = () => { if (!authorized) throw new Error("lease expired"); };
+  const begin = (request = {}) => control.begin(7, authority, frame => frames.push(frame), state => states.push(state), request);
+  const beginView = (request = {}) => control.beginView(7, authority, frame => frames.push(frame), state => states.push(state), request);
+  return { control, chrome, calls, frames, states, risks, emit, listeners, begin, beginView,
     changeDocument: (id = "next-document") => { documentId = id; loaderId = "loader-" + id; clock += 10; },
     event: (method, params = {}, source = { targetId: "original-target" }) => { for (const listener of [...listeners]) listener(source, method, params); },
     expire: () => { authorized = false; } };
@@ -653,4 +655,236 @@ test("an unknown old native input error ends the whole lease instead of continui
   await handle.close(); assert.equal(handle.info().state, "released");
   assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
   assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
+});
+
+const assertViewOnly = f => {
+  assert.equal(f.calls.some(([method]) => method === "pause" || method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled"), false);
+  assert.equal(f.risks.size, 0);
+};
+
+test("view mode shares original native frames without Pause, input, focus or durable input risk", async () => {
+  const forbidden = () => assert.fail("view acquired human authority");
+  const f = fixture({ pause: forbidden, markRisk: forbidden, clearRisk: forbidden });
+  f.control.assertPaused = forbidden;
+  const handle = await f.beginView(), record = f.control.current;
+  assert.equal(record.mode, "view"); assert.throws(() => { record.mode = "human"; }, TypeError);
+  assert.equal(record.tracker, undefined); assert.equal(record.epoch.tracker, undefined);
+  assert.deepEqual(Object.keys(handle).sort(), ["close", "closed", "info", "tabInfo"]);
+  assert.equal(Object.isFrozen(handle), true); assert.equal(handle.info().state, "active");
+  assert.equal(handle.info().lastInputSequence, 0); f.control.assertHumanReleased();
+  assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/);
+  assert.deepEqual(handle.tabInfo(), { id: 7, title: "Title original-document", url: "https://fixture.test/original-document" });
+  const frame = f.frames[0];
+  assert.equal(frame.controlMode, "user-view"); assert.equal(frame.viewLeaseId, handle.info().leaseId);
+  assert.equal(Object.hasOwn(frame, "humanLeaseId"), false); assert.equal(frame.generation, 1);
+  await assert.rejects(f.control.input(record, {}), /view lease has no input authority/);
+  assert.throws(() => f.control.send(record, "Input.insertText", { text: "must not send" }), /no native input or focus authority/);
+  await handle.close(); assertViewOnly(f); f.control.assertReleased(); f.control.assertHumanReleased();
+  assert.equal(f.listeners.size, 0); assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+});
+
+test("both immutable lease modes capture only the original private delivery option snapshot", async () => {
+  for (const mode of ["human", "view"]) {
+    let captured;
+    const f = fixture({ capture: (tabId, options) => { assert.equal(tabId, 7); captured = options; } });
+    const request = { deliveryId: "original-delivery" };
+    const pending = mode === "view" ? f.beginView(request) : f.begin(request);
+    request.deliveryId = "successor-delivery";
+    const handle = await pending;
+    assert.deepEqual(captured, { deliveryId: "original-delivery" }); assert.equal(Object.isFrozen(captured), true);
+    assert.equal(f.control.current.mode, mode); await handle.close();
+    let accessed = false;
+    assert.throws(() => f.beginView(Object.defineProperty({}, "deliveryId", { get() { accessed = true; return "hidden"; } })), /invalid input fields/);
+    assert.equal(accessed, false); assert.throws(() => f.beginView({ mode: "human" }), /invalid input fields/);
+    f.control.assertReleased();
+  }
+});
+
+for (const boundary of ["capture", "attach", "Performance.enable", "Page.enable", "Page.startScreencast", "Page.screencastFrameAck"]) {
+  test(`view authority revoked during ${boundary} waits for its original work and cleans without input`, async () => {
+    const pending = defer(), entered = defer(), wait = () => { entered.resolve(); return pending.promise; };
+    const f = fixture(boundary.includes(".") ? { command: method => method === boundary ? wait() : undefined } : { [boundary]: wait });
+    const beginning = f.beginView(); beginning.catch(() => {}); await entered.promise;
+    f.expire(); let finished = false;
+    const closing = f.control.revokeView(7).then(() => { finished = true; });
+    await tick(); assert.equal(finished, false); assert.equal(f.frames.length, 0);
+    assert.throws(() => f.beginView(), /OBU_HUMAN_BUSY/); assert.throws(() => f.begin(), /OBU_HUMAN_BUSY/);
+    pending.resolve();
+    await assert.rejects(beginning, boundary.startsWith("Page.")
+      ? /^Error: Rendered action was cancelled because tab control ended$/ : /expired|revoked/);
+    await closing;
+    assertViewOnly(f); f.control.assertReleased(); assert.equal(f.listeners.size, 0);
+    assert.equal(f.calls.filter(([method]) => method === "detach").length, boundary === "capture" ? 0 : 1);
+  });
+}
+
+test("view retirement synchronously drops late frames and joins original ACK, stop and detach", async () => {
+  const ack = defer(), ackEntered = defer(), stop = defer(), stopEntered = defer(), detach = defer(); let acks = 0;
+  const f = fixture({ command: method => {
+    if (method === "Page.screencastFrameAck" && ++acks === 2) { ackEntered.resolve(); return ack.promise; }
+    if (method === "Page.stopScreencast") { stopEntered.resolve(); return stop.promise; }
+  }, detach: () => detach.promise });
+  const handle = await f.beginView(); await f.control.revokeView(8);
+  assert.equal(handle.info().state, "active");
+  f.emit(); await ackEntered.promise;
+  const closing = f.control.revokeView(7);
+  assert.equal(closing, f.control.revokeView()); assert.equal(closing, handle.close());
+  assert.equal(handle.info().state, "releasing");
+  f.emit(); await tick(); assert.equal(f.frames.length, 1);
+  assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast" || method === "detach"), false);
+  assert.throws(() => f.begin(), /OBU_HUMAN_BUSY/);
+  ack.resolve(); await stopEntered.promise;
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  stop.resolve(); await tick(); assert.throws(() => f.beginView(), /OBU_HUMAN_BUSY/);
+  detach.resolve(); await closing; assertViewOnly(f); f.control.assertReleased();
+  const human = await f.begin();
+  await f.control.revokeView(7); assert.equal(human.info().state, "active");
+  assert.throws(() => f.control.assertHumanReleased(), /OBU_HUMAN_BUSY/); await human.close();
+});
+
+test("view navigation preserves its whole lease and filters old captures before the new document", async () => {
+  let starts = 0;
+  const f = fixture({ frames: false, command: method => { if (method === "Page.startScreencast") starts++; } });
+  const beginning = f.beginView(); await tick(); f.emit(); const handle = await beginning, original = handle.info();
+  let closed = false; handle.closed.then(() => { closed = true; });
+  f.changeDocument("delivered-B"); f.control.navigation(7, { frameId: 0 }, "committed");
+  assert.deepEqual(handle.info(), { ...original, state: "navigating", generation: 2, viewport: null });
+  assert.deepEqual(f.states.at(-1), handle.info());
+  assert.deepEqual(handle.tabInfo(), { id: 7, title: "页面正在跳转", url: "" });
+  await tick(); assert.equal(starts, 2); f.control.assertHumanReleased();
+  f.emit(undefined, { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, monotonicTimestamp: 101 });
+  await tick(); assert.equal(f.frames.length, 1); assert.equal(handle.info().state, "navigating");
+  f.emit(); await f.control.current.recovery;
+  assert.equal(handle.info().leaseId, original.leaseId); assert.equal(handle.info().state, "active");
+  assert.equal(handle.info().lastInputSequence, 0); assert.equal(closed, false);
+  assert.equal(handle.tabInfo().url, "https://fixture.test/delivered-B");
+  assert.deepEqual(f.frames.map(frame => [frame.controlMode, frame.viewLeaseId, frame.generation]),
+    [["user-view", original.leaseId, 1], ["user-view", original.leaseId, 2]]);
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
+  await handle.close(); assertViewOnly(f);
+});
+
+test("view revoke during new document preparation waits for that native reply without publishing a successor", async () => {
+  const read = defer(), entered = defer(); let reads = 0;
+  const f = fixture({ command: method => {
+    if (method === "Performance.getMetrics" && ++reads === 2) { entered.resolve(); return read.promise; }
+  } }), handle = await f.beginView();
+  f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed"); await entered.promise;
+  let finished = false; const closing = f.control.revokeView().then(() => { finished = true; });
+  await tick(); assert.equal(finished, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  read.resolve({ metrics: [{ name: "Timestamp", value: 110 }] }); await closing;
+  assert.equal(handle.info().state, "released"); assert.equal(f.frames.length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1); assertViewOnly(f);
+});
+
+test("unconfirmed view detach blocks Resume and every new lease until real cleanup", async () => {
+  let failDetach = true;
+  const f = fixture({ detach: () => { if (failDetach) throw new Error("original view detach unconfirmed"); } });
+  const handle = await f.beginView(); f.control.assertHumanReleased();
+  await assert.rejects(f.control.revokeView(), /original view detach unconfirmed/);
+  assert.equal(handle.info().state, "error"); assert.throws(() => f.control.assertHumanReleased(), /OBU_HUMAN_BUSY/);
+  assert.throws(() => f.beginView(), /OBU_HUMAN_BUSY/); assert.throws(() => f.begin(), /OBU_HUMAN_BUSY/);
+  failDetach = false; await f.control.revokeView(); f.control.assertHumanReleased(); f.control.assertReleased(); assertViewOnly(f);
+});
+
+test("a failed view begin exposes its unconfirmed cleanup barrier without human input risk", async () => {
+  const ready = defer(), entered = defer(); let failDetach = true;
+  const f = fixture({ command: method => {
+    if (method === "Performance.enable") { entered.resolve(); return ready.promise; }
+  }, detach: () => { if (failDetach) throw new Error("original view detach unconfirmed"); } });
+  const beginning = f.beginView(); beginning.catch(() => {}); await entered.promise; f.expire(); ready.resolve();
+  await assert.rejects(beginning, error => error.viewerCleanupIncomplete === true && !error.humanCleanupIncomplete);
+  assert.throws(() => f.control.assertHumanReleased(), /OBU_HUMAN_BUSY/);
+  failDetach = false; await f.control.revokeView(); f.control.assertReleased(); assertViewOnly(f);
+});
+
+test("external view debugger loss remains unknown until original target destruction is confirmed", async () => {
+  const f = fixture(), handle = await f.beginView();
+  assert.equal(f.control.observeDetach({ targetId: "original-target" }, "canceled_by_user"), true);
+  await assert.rejects(handle.close(), /did not confirm/);
+  assert.throws(() => f.control.assertHumanReleased(), /OBU_HUMAN_BUSY/);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  f.control.invalidateTab(7, { destroyed: true }); await handle.close();
+  f.control.assertReleased(); f.control.assertHumanReleased(); assertViewOnly(f);
+});
+
+test("viewing a zoomed or offset page never acquires the human CSS input restrictions", async () => {
+  for (const metadata of [
+    { deviceWidth: 900, deviceHeight: 700, pageScaleFactor: 2, offsetTop: 25 },
+    { deviceWidth: 600, deviceHeight: 400, pageScaleFactor: 0.75, offsetTop: -1 },
+    { deviceWidth: 800, deviceHeight: 600 }
+  ]) {
+    const f = fixture({ metadata, command: method => {
+      if (method === "Page.getLayoutMetrics") assert.fail("view must not obtain an input coordinate proof");
+    } }), handle = await f.beginView();
+    assert.equal(handle.info().state, "active");
+    assert.deepEqual(handle.info().viewport, { width: metadata.deviceWidth, height: metadata.deviceHeight });
+    assert.equal(f.frames.length, 1); assert.equal(handle.input, undefined);
+    await handle.close(); assertViewOnly(f);
+  }
+});
+
+test("view surface bounds still reject invalid images and perform real cleanup", async () => {
+  for (const change of [{ deviceWidth: 0 }, { deviceHeight: Infinity }, { deviceWidth: 16385 }]) {
+    const f = fixture({ metadata: { deviceWidth: 800, deviceHeight: 600, ...change } });
+    await assert.rejects(f.beginView(), /revoked|cancelled because tab control ended|OBU_HUMAN_GEOMETRY/);
+    assert.equal(f.frames.length, 0); f.control.assertReleased(); assertViewOnly(f);
+    for (const method of ["Page.screencastFrameAck", "Page.stopScreencast", "detach"])
+      assert.equal(f.calls.filter(([name]) => name === method).length, 1, method);
+  }
+});
+
+test("a native view resize retires the old frame and waits for actual ACK and stop before a new capture", async () => {
+  const ack = defer(), ackEntered = defer(), stop = defer(), stopEntered = defer(); let acks = 0, barriers = 0;
+  const f = fixture({ frames: false, command: method => {
+    if (method === "Performance.getMetrics") return { metrics: [{ name: "Timestamp", value: ++barriers * 100 }] };
+    if (method === "Page.screencastFrameAck" && ++acks === 2) { ackEntered.resolve(); return ack.promise; }
+    if (method === "Page.stopScreencast" && barriers === 1) { stopEntered.resolve(); return stop.promise; }
+  } });
+  const beginning = f.beginView(); await tick(); f.emit(); const handle = await beginning, original = handle.info();
+  let closed = false; handle.closed.then(() => { closed = true; });
+  f.emit(); await ackEntered.promise; resize(f);
+  assert.deepEqual(handle.info(), { ...original, state: "navigating", generation: 2, viewport: null });
+  await tick(); assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast"), false);
+  ack.resolve(); await stopEntered.promise;
+  assert.equal(f.frames.length, 1); assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  stop.resolve(); await tick(); assert.equal(barriers, 2);
+  const metadata = { deviceWidth: 640, deviceHeight: 480, pageScaleFactor: 2, offsetTop: 20 };
+  f.emit(undefined, { ...metadata, monotonicTimestamp: 150 }); await tick();
+  assert.equal(f.frames.length, 1); assert.equal(handle.info().state, "navigating");
+  f.emit(undefined, { ...metadata, monotonicTimestamp: 201 }); await f.control.current.recovery;
+  assert.equal(handle.info().leaseId, original.leaseId); assert.equal(handle.info().state, "active");
+  assert.deepEqual(handle.info().viewport, { width: 640, height: 480 }); assert.equal(handle.info().generation, 2);
+  assert.deepEqual(f.frames.map(frame => frame.generation), [1, 2]); assert.equal(closed, false);
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
+  await handle.close(); assertViewOnly(f);
+});
+
+test("a changed view frame surface starts a verified generation without reusing that triggering encoding", async () => {
+  let barriers = 0;
+  const f = fixture({ frames: false, command: method => method === "Performance.getMetrics" ? { metrics: [{ name: "Timestamp", value: ++barriers * 100 }] } : undefined });
+  const beginning = f.beginView(); await tick(); f.emit(); const handle = await beginning;
+  const resized = { deviceWidth: 960, deviceHeight: 720, pageScaleFactor: 1.5, offsetTop: 10 };
+  f.emit(undefined, { ...resized, monotonicTimestamp: 150 }); await tick();
+  assert.equal(handle.info().state, "navigating"); assert.equal(handle.info().generation, 2);
+  assert.equal(f.frames.length, 1); assert.equal(barriers, 2);
+  f.emit(undefined, { ...resized, monotonicTimestamp: 150 }); await tick(); assert.equal(f.frames.length, 1);
+  f.emit(undefined, { ...resized, monotonicTimestamp: 201 }); await f.control.current.recovery;
+  assert.equal(handle.info().state, "active"); assert.deepEqual(handle.info().viewport, { width: 960, height: 720 });
+  assert.equal(f.frames.at(-1).metadata.monotonicTimestamp, 201);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 2);
+  await handle.close(); assertViewOnly(f);
+});
+
+test("ending a view during resize preparation joins the original native reply and cannot publish late geometry", async () => {
+  const reading = defer(), entered = defer(); let barriers = 0;
+  const f = fixture({ command: method => {
+    if (method === "Performance.getMetrics" && ++barriers === 2) { entered.resolve(); return reading.promise; }
+  } }), handle = await f.beginView();
+  resize(f); await entered.promise;
+  let closed = false; const closing = f.control.revokeView().then(() => { closed = true; });
+  await tick(); assert.equal(closed, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  reading.resolve({ metrics: [{ name: "Timestamp", value: 200 }] }); await closing;
+  assert.equal(handle.info().state, "released"); assert.equal(f.frames.length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1); assertViewOnly(f);
 });

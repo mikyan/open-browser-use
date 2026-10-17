@@ -120,11 +120,15 @@ func choice(raw json.RawMessage, values ...string) bool {
 func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 	bad := errors.New("invalid typed human command")
 	required := HumanFields(operation)
-	if required == nil || !exact(f, required, nil) || !choice(f["operation"], operation) {
+	var optional []string
+	if operation == "humanBegin" {
+		optional = []string{"deliveryId"}
+	}
+	if required == nil || !exact(f, required, optional) || !choice(f["operation"], operation) {
 		return bad
 	}
 	if operation == "humanBegin" {
-		if !integer(f["tabId"], 1, MaxSafeInteger) {
+		if !integer(f["tabId"], 1, MaxSafeInteger) || f["deliveryId"] != nil && !DeliveryID(f["deliveryId"]) {
 			return bad
 		}
 		return nil
@@ -286,24 +290,28 @@ func MatchInputReceipt(request map[string]json.RawMessage, receipt *InputReceipt
 func ParseFrameIdentity(f map[string]json.RawMessage) (mode, lease string, generation uint64, err error) {
 	bad := errors.New("invalid human frame identity")
 	if f["controlMode"] == nil {
-		if f["humanLeaseId"] != nil || f["generation"] != nil {
+		if f["humanLeaseId"] != nil || f["viewLeaseId"] != nil || f["generation"] != nil {
 			return "", "", 0, bad
 		}
 		return "", "", 0, nil
 	}
-	if json.Unmarshal(f["controlMode"], &mode) != nil || mode != "human" && mode != "observe" {
+	if json.Unmarshal(f["controlMode"], &mode) != nil || mode != "human" && mode != "observe" && mode != "user-view" {
 		return "", "", 0, bad
 	}
 	if mode == "observe" {
-		if f["humanLeaseId"] != nil || f["generation"] != nil {
+		if f["humanLeaseId"] != nil || f["viewLeaseId"] != nil || f["generation"] != nil {
 			return "", "", 0, bad
 		}
 		return mode, "", 0, nil
 	}
-	if !text(f["humanLeaseId"], 128, false) || !integer(f["generation"], 1, MaxSafeInteger) {
+	key, other := "humanLeaseId", "viewLeaseId"
+	if mode == "user-view" {
+		key, other = other, key
+	}
+	if f[other] != nil || !text(f[key], 128, false) || !integer(f["generation"], 1, MaxSafeInteger) {
 		return "", "", 0, bad
 	}
-	_ = json.Unmarshal(f["humanLeaseId"], &lease)
+	_ = json.Unmarshal(f[key], &lease)
 	_ = json.Unmarshal(f["generation"], &generation)
 	return mode, lease, generation, nil
 }

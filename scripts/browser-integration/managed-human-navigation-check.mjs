@@ -28,16 +28,18 @@ async function treeHashes(root) {
   return Object.fromEntries(await Promise.all(files.map(async file => [path.relative(root, file).replaceAll("\\", "/"), hash(await fs.readFile(file))])));
 }
 
-export async function runManagedHumanNavigationCheck() {
+export async function runManagedHumanNavigationCheck({ deliveredResult = false } = {}) {
+  assert.equal(typeof deliveredResult, "boolean");
   assert.equal(process.platform, "win32");
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
   await Promise.all([executable, chromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/managed-human-navigation-"));
+  const runDir = await fs.mkdtemp(path.join(repo, `.tmp/browser-integration/${deliveredResult ? "managed-result" : "managed-human-navigation"}-`));
   const root = path.join(runDir, "owned-root"), name = "human-navigation-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
-    scope: "Production managed human UI; one Begin across original form A, one-use Next GET with 302 to B, child-frame navigation and same-document SPA; one explicit End/Resume and one final SDK POST; no real credentials, OS input, input retry, or extra task page CDP attachment" };
+    deliveredResult,
+    scope: deliveredResult ? "Production SDK finalizes original A; user views the delivered original page, pauses and takes over through 302/child/SPA, submits the unique POST, then views and retakes the same B without resuming/reclaiming for the Agent; no OS input, credentials, URL reopen, input retry, or extra task CDP attachment" : "Production managed human UI; one Begin across original form A, one-use Next GET with 302 to B, child-frame navigation and same-document SPA; one explicit End/Resume and one final SDK POST; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
@@ -67,7 +69,7 @@ export async function runManagedHumanNavigationCheck() {
   let connection = 0;
   async function uiAction(selector, operation, tabId) {
     const before = report.viewerCommands.length, action = { selector, operation, tabId, connection, startedAt: Date.now() }; report.viewerActions.push(action);
-    if (operation === "select") await page.locator(selector).selectOption(String(tabId)); else await page.locator(selector).click();
+    if (selector === "#tabs" && operation === "select") await page.locator(selector).selectOption(String(tabId)); else await page.locator(selector).click();
     const request = await wait(() => report.viewerCommands.slice(before).find(item => item.operation === operation && (operation !== "select" || item.tabId === tabId)), `original DOM ${operation}`);
     action.requestId = request.id; const reply = await replyFor(request.id, operation === "stop" ? 55000 : 35000); action.completedAt = Date.now();
     assert.equal(report.viewerCommands.slice(before).filter(item => item.operation === operation && (operation !== "select" || item.tabId === tabId)).length, 1);
@@ -112,6 +114,24 @@ export async function runManagedHumanNavigationCheck() {
     report.viewerDecodedFrames.push({ at: Date.now(), frame: { streamId: proof.frame.streamId, sequence: proof.frame.sequence, humanLeaseId: proof.frame.humanLeaseId, generation: proof.frame.generation }, decoded: proof.decoded, stateIndex, frameIndex });
     return proof.frame;
   }
+  async function decodeResultView() {
+    const proof = await wait(async () => {
+      const view = state?.view;
+      if (view?.state !== "active" || view.tabId !== oldTaskTab.id || state.selectedTabId !== oldTaskTab.id ||
+          !state.tabs.some(tab => tab.id === oldTaskTab.id && tab.deliveryId === report.business.deliveryId)) return null;
+      const frame = report.frames.findLast(item => item.controlMode === "user-view" && item.tabId === oldTaskTab.id && item.viewLeaseId === view.leaseId && item.generation === view.generation);
+      if (!frame) return null;
+      const decoded = await page.locator("#frame").evaluate(element => ({ hidden: element.hidden, complete: element.complete, width: element.naturalWidth, ...element.dataset }));
+      return !decoded.hidden && decoded.complete && decoded.width > 0 && decoded.controlMode === "user-view" && decoded.viewLeaseId === view.leaseId &&
+        decoded.streamId === frame.streamId && Number(decoded.generation) === view.generation && Number(decoded.frameSequence) >= frame.sequence && { view, frame, decoded };
+    }, "original result-view decoded after matching lease announcement", 35000);
+    const frameIndex = report.viewerMessages.findIndex(item => item.type === "frame" && item.controlMode === "user-view" && item.tabId === oldTaskTab.id &&
+      item.viewLeaseId === proof.view.leaseId && item.generation === proof.view.generation && item.streamId === proof.frame.streamId);
+    const stateIndex = report.viewerMessages.findIndex(item => { const view = item.type === "state" ? item.view : item.type === "response" ? item.result?.view : null;
+      return view?.state === "active" && view.leaseId === proof.view.leaseId && view.generation === proof.view.generation; });
+    assert.ok(stateIndex >= 0 && stateIndex < frameIndex, "Result frame must not authorize its own lease");
+    report.viewerDecodedFrames.push({ kind: "user-view", ...proof }); return proof;
+  }
   async function navigationAction(label, operation, expectedDocument) {
     const before = report.viewerCommands.length, generation = state.human.generation;
     const action = { label, connection, generation, startedAt: Date.now(), kind: "real viewer navigation input" }; report.viewerActions.push(action);
@@ -135,7 +155,7 @@ export async function runManagedHumanNavigationCheck() {
     assert.ok(metadata); assert.equal(metadata.url, action.document.url, "Viewer address must describe the newly displayed document");
     const title = await page.locator("#page-title").textContent();
     assert.equal(title, `${metadata.title} · ${metadata.url}`);
-    assert.equal(await page.locator("#tabs option:checked").textContent(), metadata.title);
+    assert.equal(await page.locator("#tabs option:checked").textContent(), deliveredResult ? `已交付结果 · ${metadata.title}` : metadata.title);
     action.displayedMetadata = { ...metadata, caption: title };
     return frame;
   }
@@ -180,7 +200,7 @@ export async function runManagedHumanNavigationCheck() {
             const frame = { ...message, data: undefined, at, connection: originalConnection, bytes: png.length, sha256: hash(png), width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
             if (report.frames.length < 96) { frame.file = `native-frame-${String(report.frames.length).padStart(4, "0")}.png`; const write = fs.writeFile(path.join(runDir, frame.file), png); frameWrites.push(write); write.catch(error => { captureError ??= error; }); }
             if (report.frames.length >= 1024) throw new Error("Frame observation capacity"); report.frames.push(frame);
-            report.viewerMessages.push({ type: "frame", at, connection: originalConnection, tabId: frame.tabId, streamId: frame.streamId, sequence: frame.sequence, controlMode: frame.controlMode, humanLeaseId: frame.humanLeaseId, generation: frame.generation, sha256: frame.sha256 });
+            report.viewerMessages.push({ type: "frame", at, connection: originalConnection, tabId: frame.tabId, streamId: frame.streamId, sequence: frame.sequence, controlMode: frame.controlMode, humanLeaseId: frame.humanLeaseId, viewLeaseId: frame.viewLeaseId, generation: frame.generation, sha256: frame.sha256 });
           } else {
             report.viewerMessages.push({ ...message, at, connection: originalConnection });
             if (originalConnection === connection && (message.type === "state" || message.type === "response" && message.result?.status)) {
@@ -260,6 +280,31 @@ export async function runManagedHumanNavigationCheck() {
       report.business = { tabId: oldTaskTab.id, original, originalAuthority: oldTaskAuthority, originalTarget: targets[0], originalFrames: await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${oldTaskTab.id}})`) };
       await uiAction("#refresh", "status"); await uiAction("#tabs", "select", oldTaskTab.id);
       assert.equal(posts().length, 0); report.agentDraft = await screenshot("viewer-agent-form-a.png");
+      if (deliveredResult) {
+        report.business.finalize = await taskBrowser.client.finalizeTabs([{ tabId: oldTaskTab.id, status: "deliverable" }]);
+        await denied("original Agent authority after finalizing original result", () => requestOriginalSnapshot(taskBrowser.client, oldTaskAuthority), /OBU_STALE_CONTROL_EPOCH/);
+        await uiAction("#refresh", "status");
+        const result = state.tabs.find(item => item.id === oldTaskTab.id);
+        assert.equal(result?.kind, "result"); assert.ok(result.deliveryId); assert.equal(result.watchable, true); assert.equal(result.takeover, true);
+        report.business.deliveryId = result.deliveryId;
+        const targetsAfter = await nativeMap(oldTaskTab.id); assert.equal(targetsAfter.length, 1); assert.equal(targetsAfter[0].id, targets[0].id); assert.equal(targetsAfter[0].attached, false);
+        const beforeView = await documentRead(oldTaskTab.id); assert.equal(beforeView.documentId, original.documentId); assert.equal(beforeView.draft, original.draft);
+        if (await page.locator("#tabs").inputValue() === String(oldTaskTab.id)) await uiAction("#watch", "select", oldTaskTab.id);
+        else await uiAction("#tabs", "select", oldTaskTab.id);
+        report.business.resultViewRunning = await decodeResultView();
+        assert.equal(report.viewerCommands.filter(item => item.operation.startsWith("human")).length, 0);
+        report.business.resultViewScreenshot = await screenshot("viewer-delivered-original-a.png");
+        await uiAction("#control", "pause"); await uiAction("#refresh", "status");
+        // The same selected ID may remain after Pause; use the explicit watch
+        // button rather than a no-change select event to open its new view.
+        if (await page.locator("#tabs").inputValue() === String(oldTaskTab.id)) await uiAction("#watch", "select", oldTaskTab.id);
+        else await uiAction("#tabs", "select", oldTaskTab.id);
+        report.business.resultViewPaused = await decodeResultView(); assert.equal(state.status.state, "paused");
+        const afterViewing = await documentRead(oldTaskTab.id); report.business.afterReadOnlyViewing = afterViewing;
+        assert.equal(afterViewing.documentId, original.documentId); assert.equal(afterViewing.draft, original.draft);
+        assert.deepEqual(afterViewing.state.events, original.state.events, "Read-only viewing and Pause must not deliver page input");
+        assert.equal(posts().length, 0);
+      }
     });
 
     await step("one-human-begin-original-a-input-and-302-to-b", async () => {
@@ -316,7 +361,53 @@ export async function runManagedHumanNavigationCheck() {
       report.business.nativeRouting = { originalTargetId: report.business.originalTarget.id, events, boundary: "Read-only original native event identities; no native command interception or invented ACK log." };
     });
 
-    await step("one-end-explicit-resume-and-original-workflow-post", async () => {
+    await step(deliveredResult ? "human-only-result-post-end-and-original-result-reopen" : "one-end-explicit-resume-and-original-workflow-post", async () => {
+      if (deliveredResult) {
+        const beforeSubmit = await documentRead(oldTaskTab.id); report.business.beforeSubmit = beforeSubmit;
+        assert.equal(beforeSubmit.documentId, originalB.documentId); assert.equal(beforeSubmit.draft, fixture.expectedDraft); assert.equal(posts().length, 0);
+        const point = await viewerPoint(beforeSubmit.boxes.submit);
+        await inputAction("human commits original delivered workflow once", () => page.mouse.click(point.x, point.y));
+        const receipt = await wait(async () => { const value = await documentRead(oldTaskTab.id); return value.result && JSON.parse(value.result); }, "original user result POST response");
+        const after = await documentRead(oldTaskTab.id); report.business.after = after; report.business.receipt = receipt;
+        report.business.receiptProof = assertManagedHumanNavigationReceipt(fixture.stats(), original, originalB, after, receipt);
+        const ended = await uiAction("#human-end", "humanEnd");
+        assert.equal(ended.human, null); assert.equal(ended.status.state, "paused"); assert.equal(ended.status.cleanupComplete, true);
+        assert.deepEqual(ended.humanCleanup, { leaseId: businessLease.leaseId, cleanupConfirmed: true }); report.business.humanEnd = ended;
+        assert.equal(report.viewerCommands.filter(item => item.operation === "humanBegin").length, 1);
+        await uiAction("#refresh", "status");
+        const result = state.tabs.find(item => item.id === oldTaskTab.id); assert.equal(result.deliveryId, report.business.deliveryId); assert.equal(result.kind, "result");
+        if (await page.locator("#tabs").inputValue() === String(oldTaskTab.id)) await uiAction("#watch", "select", oldTaskTab.id);
+        else await uiAction("#tabs", "select", oldTaskTab.id);
+        report.business.resultViewAfterHuman = await decodeResultView();
+        const reopened = await documentRead(oldTaskTab.id); assert.equal(reopened.documentId, originalB.documentId); assert.equal(reopened.state.submits, 1);
+        report.business.receiptScreenshot = await screenshot("viewer-delivered-b-receipt.png");
+        const second = await uiAction("#human-begin", "humanBegin");
+        assert.notEqual(second.human.leaseId, businessLease.leaseId); assert.equal(second.status.state, "paused");
+        report.business.secondTakeover = second; await decodeHumanFrame(second.human);
+        const afterSecondBegin = await documentRead(oldTaskTab.id); report.business.afterSecondBegin = afterSecondBegin;
+        assert.equal(afterSecondBegin.documentId, originalB.documentId); assert.equal(afterSecondBegin.state.documentToken, originalB.state.documentToken);
+        assert.equal(afterSecondBegin.draft, after.draft); assert.equal(afterSecondBegin.result, after.result); assert.equal(afterSecondBegin.state.submits, 1);
+        const secondEnd = await uiAction("#human-end", "humanEnd");
+        assert.equal(secondEnd.status.state, "paused"); assert.deepEqual(secondEnd.humanCleanup, { leaseId: second.human.leaseId, cleanupConfirmed: true });
+        report.business.secondEnd = secondEnd;
+        const targets = await nativeMap(oldTaskTab.id); assert.equal(targets.length, 1); assert.equal(targets[0].id, report.business.originalTarget.id); assert.equal(targets[0].attached, false);
+        await denied("old task cannot regain delivered page while paused", () => requestOriginalSnapshot(taskBrowser.client, oldTaskAuthority), /OBU_AUTOMATION_PAUSED|OBU_STALE_CONTROL_EPOCH/);
+        assert.equal(report.viewerCommands.filter(item => item.operation === "resume").length, 0);
+        assert.equal(report.viewerCommands.filter(item => item.operation === "humanBegin").length, 2);
+        assert.equal(report.viewerCommands.filter(item => item.operation === "humanEnd").length, 2);
+        assert.equal(posts().length, 1);
+        const afterSecondEnd = await documentRead(oldTaskTab.id); report.business.afterSecondEnd = afterSecondEnd;
+        assert.equal(afterSecondEnd.documentId, originalB.documentId); assert.equal(afterSecondEnd.draft, after.draft); assert.equal(afterSecondEnd.result, after.result);
+        report.business.finalReceiptProof = assertManagedHumanNavigationReceipt(fixture.stats(), original, originalB, afterSecondEnd, receipt);
+        const allInputs = report.viewerCommands.filter(item => item.operation === "humanInput");
+        assert.ok(allInputs.every(item => item.leaseId === businessLease.leaseId), "The second takeover performs no additional input");
+        const groups = Object.groupBy(allInputs, item => item.generation);
+        for (const items of Object.values(groups)) for (let i = 0; i < items.length; i++) {
+          assert.equal(items[i].sequence, i + 1); assertHumanInputReceipt(items[i], await replyFor(items[i].id));
+        }
+        report.business.inputGenerations = Object.fromEntries(Object.entries(groups).map(([generation, items]) => [generation, { count: items.length, firstSequence: items[0].sequence, lastSequence: items.at(-1).sequence }]));
+        for (const request of report.viewerCommands.filter(item => ["select", "humanBegin"].includes(item.operation) && item.deliveryId !== undefined)) assert.equal(request.deliveryId, report.business.deliveryId);
+      } else {
       const ended = await uiAction("#human-end", "humanEnd");
       assert.equal(ended.human, null); assert.deepEqual(ended.humanCleanup, { leaseId: businessLease.leaseId, cleanupConfirmed: true });
       assert.equal(ended.status.state, "paused"); assert.equal(ended.status.cleanupComplete, true); report.business.humanEnd = ended;
@@ -334,6 +425,7 @@ export async function runManagedHumanNavigationCheck() {
       report.business.receiptProof = assertManagedHumanNavigationReceipt(fixture.stats(), original, originalB, after, receipt);
       assert.equal(after.documentId, originalB.documentId);
       await uiAction("#refresh", "status"); await uiAction("#tabs", "select", oldTaskTab.id); report.business.receiptScreenshot = await screenshot("viewer-navigation-receipt.png");
+      }
       report.observerFinal = await worker.evaluate("__managedHumanAcceptance.stop()"); assert.equal(report.observerFinal.listenerPresent, false); assert.equal(report.observerFinal.overflow, false);
       await worker.close(); worker = null;
     });
@@ -403,5 +495,6 @@ export async function runManagedHumanNavigationCheck() {
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
-  const report = await runManagedHumanNavigationCheck(); process.exitCode = report.passed ? 0 : 1;
+  assert.ok(process.argv.slice(2).every(arg => arg === "--delivered-result"), "Unknown acceptance argument");
+  const report = await runManagedHumanNavigationCheck({ deliveredResult: process.argv.includes("--delivered-result") }); process.exitCode = report.passed ? 0 : 1;
 }

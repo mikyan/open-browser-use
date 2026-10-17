@@ -40,7 +40,8 @@
       },
       "cleanupPending": 0,
       "eventSequence": 0,
-      "human": null
+      "human": null,
+      "view": null
     }
   },
   "select": {
@@ -76,7 +77,8 @@
       },
       "cleanupPending": 0,
       "eventSequence": 1,
-      "human": null
+      "human": null,
+      "view": null
     }
   },
   "status": {
@@ -112,7 +114,8 @@
       },
       "cleanupPending": 0,
       "eventSequence": 2,
-      "human": null
+      "human": null,
+      "view": null
     }
   },
   "pause": {
@@ -142,7 +145,8 @@
       },
       "cleanupPending": 0,
       "eventSequence": 4,
-      "human": null
+      "human": null,
+      "view": null
     }
   },
   "resume": {
@@ -178,7 +182,8 @@
       },
       "cleanupPending": 0,
       "eventSequence": 5,
-      "human": null
+      "human": null,
+      "view": null
     }
   },
   "humanBegin": {
@@ -221,7 +226,8 @@
         "generation": 0,
         "viewport": null,
         "lastInputSequence": 0
-      }
+      },
+      "view": null
     }
   },
   "humanStatus": {
@@ -267,7 +273,8 @@
           "height": 1
         },
         "lastInputSequence": 0
-      }
+      },
+      "view": null
     }
   },
   "humanInput": {
@@ -313,7 +320,8 @@
           "height": 1
         },
         "lastInputSequence": 1
-      }
+      },
+      "view": null
     },
     "inputReceipt": {
       "leaseId": "fixture-human-lease",
@@ -350,6 +358,7 @@
       "cleanupPending": 0,
       "eventSequence": 11,
       "human": null,
+      "view": null,
       "humanCleanup": {
         "leaseId": "fixture-human-lease",
         "cleanupConfirmed": true
@@ -390,6 +399,7 @@
       "cleanupPending": 0,
       "eventSequence": 12,
       "human": null,
+      "view": null,
       "humanCleanup": {
         "leaseId": "fixture-human-lease",
         "cleanupConfirmed": true
@@ -473,7 +483,8 @@
         },
         "cleanupPending": 0,
         "eventSequence": 1,
-        "human": null
+        "human": null,
+        "view": null
       },
       "sequence": 1
     },
@@ -546,7 +557,8 @@
         },
         "cleanupPending": 0,
         "eventSequence": 4,
-        "human": null
+        "human": null,
+        "view": null
       },
       "sequence": 4
     },
@@ -591,7 +603,8 @@
         },
         "cleanupPending": 0,
         "eventSequence": 5,
-        "human": null
+        "human": null,
+        "view": null
       },
       "sequence": 5
     },
@@ -643,7 +656,8 @@
           "generation": 0,
           "viewport": null,
           "lastInputSequence": 0
-        }
+        },
+        "view": null
       },
       "sequence": 6
     },
@@ -698,7 +712,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "view": null
       },
       "sequence": 7
     },
@@ -778,7 +793,8 @@
             "height": 1
           },
           "lastInputSequence": 1
-        }
+        },
+        "view": null
       },
       "sequence": 9
     },
@@ -830,6 +846,7 @@
         "cleanupPending": 0,
         "eventSequence": 11,
         "human": null,
+        "view": null,
         "humanCleanup": {
           "leaseId": "fixture-human-lease",
           "cleanupConfirmed": true
@@ -879,6 +896,7 @@
         "cleanupPending": 0,
         "eventSequence": 12,
         "human": null,
+        "view": null,
         "humanCleanup": {
           "leaseId": "fixture-human-lease",
           "cleanupConfirmed": true

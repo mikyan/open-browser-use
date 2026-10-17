@@ -19,13 +19,14 @@ async function until(check, label) {
   throw new Error(`Fixture did not reach ${label}`);
 }
 
-export async function fixture(t) {
+export async function fixture(t, { managed = false } = {}) {
   const local = {}, session = {}, calls = [], attached = new Set(), hooks = {}, gates = [];
   const tabs = new Map([
     [7, { id: 7, groupId: 10, windowId: 1, url: "https://fixture.test/main", active: false }],
     [8, { id: 8, groupId: -1, windowId: 2, url: "https://fixture.test/popup", active: true }],
     [9, { id: 9, groupId: 20, windowId: 1, url: "https://fixture.test/other", active: false }]
   ]);
+  if (managed) for (const tab of tabs.values()) tab.pinned = false;
   const windows = new Map([[1, { id: 1, type: "normal", focused: true }], [2, { id: 2, type: "popup", focused: false }], [3, { id: 3, type: "popup", focused: false }]]);
   const groups = new Map([[10, { id: 10, windowId: 1 }], [20, { id: 20, windowId: 1 }]]);
   const requireTab = id => { const tab = tabs.get(id); if (!tab) throw new Error(`No tab with id: ${id}`); return tab; };
@@ -39,12 +40,21 @@ export async function fixture(t) {
     storage: { local: area("local", local), session: area("session", session) },
     runtime: { id: "fixture", getURL: path => `chrome-extension://fixture/${path}`, getManifest: () => ({ version: "test" }) },
     debugger: { onDetach: event(), onEvent: event(),
-      async attach({ tabId }) { calls.push(["attach-start", tabId]); await hooks.attach?.(tabId); requireTab(tabId); attached.add(tabId); calls.push(["attach", tabId]); },
-      async detach({ tabId }) { await hooks.detach?.(tabId); attached.delete(tabId); calls.push(["detach", tabId]); },
-      async getTargets() { return [...tabs.values()].map(tab => ({ id: `target-${tab.id}`, tabId: tab.id, type: "page", url: tab.url, attached: attached.has(tab.id) })); },
-      async sendCommand(target, method, params) { calls.push([method, target.tabId, clone(params)]); await hooks.command?.(target, method, params); return { result: { value: "fixture" } }; }
+      async attach(target) { const tabId = target.tabId ?? Number(target.targetId?.slice(7)); calls.push(["attach-start", tabId]); await hooks.attach?.(tabId); requireTab(tabId); attached.add(tabId); calls.push(["attach", tabId]); },
+      async detach(target) { const tabId = target.tabId ?? Number(target.targetId?.slice(7)); await hooks.detach?.(tabId); attached.delete(tabId); calls.push(["detach", tabId]); },
+      async getTargets() { const override = await hooks.targets?.(); if (override !== undefined) return override; return [...tabs.values()].map(tab => ({ id: `target-${tab.id}`, tabId: tab.id, type: "page", url: tab.url, attached: attached.has(tab.id) })); },
+      async sendCommand(target, method, params) { calls.push([method, target.tabId, clone(params)]); const response = await hooks.command?.(target, method, params); if (response !== undefined) return response;
+        if (managed && target.targetId) {
+          const tabId = Number(target.targetId.slice(7));
+          if (method === "Page.startScreencast") queueMicrotask(() => chrome.debugger.onEvent.emit(target, "Page.screencastFrame", { sessionId: 42, data: "cGl4ZWxz", metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, monotonicTimestamp: 101 } }));
+          if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root", loaderId: "loader-" + frameRecords.get(tabId)?.[0]?.documentId, url: requireTab(tabId).url } } };
+          if (method === "Performance.getMetrics") return { metrics: [{ name: "Timestamp", value: 100 }] };
+          if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { clientWidth: 800, clientHeight: 600, scale: 1, zoom: 1, offsetX: 0, offsetY: 0 } };
+          return {};
+        }
+        return { result: { value: "fixture" } }; }
     },
-    webNavigation: {onBeforeNavigate:event(),onCommitted:event(),onErrorOccurred:event(),onHistoryStateUpdated:event(),onReferenceFragmentUpdated:event(),onCreatedNavigationTarget:event(),async getAllFrames({tabId}){await hooks.frames?.(tabId);return clone(frameRecords.get(tabId)??[])}},
+    webNavigation: {async getFrame({tabId}) { await hooks.frame?.(tabId); return clone(frameRecords.get(tabId)?.[0]); },onBeforeNavigate:event(),onCommitted:event(),onErrorOccurred:event(),onHistoryStateUpdated:event(),onReferenceFragmentUpdated:event(),onCreatedNavigationTarget:event(),async getAllFrames({tabId}){await hooks.frames?.(tabId);return clone(frameRecords.get(tabId)??[])}},
     tabs: { onRemoved: event(), onUpdated: event(), onDetached: event(), onAttached: event(), onMoved: event(), onReplaced: event(),
       async get(id) { await hooks.getTab?.(id); return clone(requireTab(id)); },
       async query(filter = {}) { await hooks.query?.(filter); return [...tabs.values()].filter(tab => (filter.groupId === undefined || tab.groupId === filter.groupId) && (filter.windowId === undefined || tab.windowId === filter.windowId)).map(clone); },
@@ -63,7 +73,7 @@ export async function fixture(t) {
       async getAll() { return [...windows.values()].map(clone); }
     }
   };
-  const Backend = vm.runInNewContext(`${code}\nBrowserBackend`, { chrome, crypto, Date, URL, setTimeout, clearTimeout });
+  const Backend = vm.runInNewContext(`${code}\nBrowserBackend`, { chrome, crypto, Date, URL, setTimeout, clearTimeout, managedConfig: managed ? { version: 1, nativeHostName: "com.openbrowseruse.managed.n0123456789abcdef0123456789abcdef" } : null });
   const backend = new Backend();
   await backend.controlReady;
   backend.browserEngine = { async attach(tabId) { attached.add(tabId); backend.attachedTabs.add(tabId); if(!backend.attachmentEpochs.has(tabId)) backend.attachmentEpochs.set(tabId, {}); }, async detach(tabId){attached.delete(tabId);backend.releaseEngineAttachment(tabId);}, invalidate(){}, forget(){} };
@@ -77,6 +87,7 @@ export async function fixture(t) {
   t.after(async () => {
     for (const gate of gates) gate.resolve();
     for (const key of Object.keys(hooks)) delete hooks[key];
+    await backend.managedHuman.current?.handle.close().catch(() => {});
     backend.networkWaits.invalidateAll();
     await backend.pageWaits.invalidateAll();
     for(const record of [...backend.pageWaits.records.values()]) backend.pageWaits.remove(record);

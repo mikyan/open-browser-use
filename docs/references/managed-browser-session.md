@@ -1,16 +1,16 @@
 # 实验性独立浏览器会话
 
 `managed run` 在 Windows 中运行一个独立的 Headless Chromium，使用专用
-profile 和真实 Native Messaging。本次 Windows 预览的实验功能基线包含
-本地实时画面、用户暂停/继续/停止、串行可见登录准备，以及经过限定流程
-验收的同文档人工接管。普通公司电脑安装仍按完整包里的
+profile 和真实 Native Messaging。当前源码的实验功能包含本地实时画面、用户
+暂停/继续/停止、串行可见登录准备、连续人工接管和已交付结果页接续；后两项
+已完成固定浏览器的限定流程验收。普通公司电脑安装仍按完整包里的
 `README-先看这里.md` 操作：解压到固定目录、运行对应浏览器的安装脚本，
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
-本文记录本次预览的使用方式与已验证边界，不代表任意旧版制品都有这些能力。
-最新完整包为 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)，
-已包含下述同文档人工接管；干净重建、离线 CLI/MCP、独立制品审计和上传后
-回下载校验通过，本次打包没有重跑真实网页流程。
+本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
+旧包 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)
+仅包含同文档人工接管，没有连续导航和结果页接续；其干净重建、离线 CLI/MCP、
+独立制品审计和上传后回下载校验通过。
 历史旧包 [preview-20261017-2547e6e](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-2547e6e)
 的运行功能与 b3fd56a 相同，包含登录准备和实时查看，不包含同文档人工接管。
 更早的 `preview-20261017-41577de` 只有实时查看，
@@ -26,7 +26,7 @@ npm 上游包和旧预览包不能直接套用下面的新功能；请使用同�
   的远程调试授权。当前加载方式不能假定兼容普通 branded 浏览器。
 - 使用同一次构建的 `open-browser-use.exe` 与完整扩展目录；扩展目录必须
   含生成的引擎文件、`managed-config.js`、`managed-native-host.js`、
-  `managed-user-bridge.js` 和 `managed-human-control.js`。
+  `managed-user-bridge.js`、`managed-human-control.js` 和 `managed-result-pages.js`。
   源码 checkout 可用 `pnpm build:chrome-extension` 生成
   `dist/chrome-extension-unpacked`。Windows 完整包中的目录名为 `extension`。
 - 为 managed 数据选择全新的专用目录，或由此入口创建并带匹配归属标记的
@@ -133,7 +133,7 @@ SDK 继续使用自己的确切 endpoint 参数。例如 JavaScript SDK 的
 来自当前存活 `managed status` 的 `info.socketPath`。SDK 尚无 managed 名称
 解析入口。任务仍须遵守原有 turn、页面归属、下载和网站权限契约。
 
-## 同文档人工接管（实验功能）
+## 人工接管（实验功能）
 
 1. 任务运行时，在查看页选择原任务标签页，点击“接管此页”。系统先暂停
    Agent 并等待其原控制释放，再取得当前页面的人工控制，不关闭或重新加载
@@ -151,17 +151,17 @@ SDK 继续使用自己的确切 endpoint 参数。例如 JavaScript SDK 的
 携带旧任务轮次或旧控制代次的请求、固定旧归属的页面句柄、旧人工租约与迟到输入均被
 拒绝；普通 Tab 包装对象使用客户端显式开启后的新轮次，不等同于旧控制权限。
 
-这是当前页面的有限接管。主 frame 或任意子 frame 导航、同文档导航
-（含 hash/history 等 SPA 跳转）或视口几何变化都会终止租约，不自动跟随
-下一文档或续接 SPA 跳转。输入坐标按首个原生画面的完整 CSS
-尺寸换算，包含原页面滚动条；内容区尺寸另行核对，首帧到达前禁止输入。
+当前支持同一标签页内主 frame 重定向、子 frame 导航及 hash/history 等 SPA
+跳转。切换文档时暂停输入，验证当前页面并解码新画面后继续；视口几何不再
+符合输入条件时释放接管。输入坐标按当前原生画面的完整 CSS 尺寸换算，包含
+原页面滚动条；内容区尺寸另行核对，当前代次首帧到达前禁止输入。
 当前只接受未缩放、无可视偏移的画面；
 完整 IME 输入法、真实网站登录及 SSO/MFA、原生文件选择器、新弹窗接续仍未验收。
 观看模式的断线不会自动暂停任务；人工接管时任务已经暂停，释放后不会自动
 恢复。重新获取查看链接时，`managed view` 会等待原连接的清理确认；超时
 只表示未确认，不能重放网页输入。停止会话仍沿原进程退出流程执行。
 
-### 当前源码的连续接管（尚未进入 93f54a1 包）
+### 连续接管的范围
 
 源码新增同一接管租约内的页面跳转、重定向、子 frame 导航和 hash/history
 路由切换。跳转时自动暂停人工输入并清除旧地址；新页面已验证且画面实际
@@ -180,6 +180,28 @@ SDK 继续使用自己的确切 endpoint 参数。例如 JavaScript SDK 的
 及 [Performance 实现](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/inspector/inspector_performance_agent.cc)。
 CDP 输入没有 documentId 条件参数：观察到跳转后可撤销尚未提交的旧输入，
 已经提交给浏览器的输入不能撤回；这些检查不构成跨文档原子事务。
+
+## 已交付结果页接续（实验功能）
+
+Agent 通过 `finalizeTabs` 保留的原页面会显示为“已交付结果”。用户可以只读
+查看，再明确点击“操作结果页”输入；这两种操作不需要 Agent 重新取得页面。
+Agent 已暂停且清理完成时同样可用，完成接管后仍保持暂停。人工跳转后再次
+查看时沿用原标签页的当前文档，不重新打开原地址或重放表单。
+
+查看结果不授予输入权限，也不恢复 Agent 的旧轮次。明确接管、切换页面、
+继续 Agent 或断开连接时，都要等待原查看资源的真实释放。页面被关闭、移动、
+替换或由新的合法任务重新取得控制后，旧结果选择失效。
+
+当前结果登记限定在原 managed worker/run 中，worker 重启后不会根据展示
+分组或旧磁盘记录自动恢复权限。这项恢复能力仍待实现。`managed stop` 仍会
+关闭整个浏览器，不提供停止后保留窗口；需先保存或导出结果。
+
+固定 Windows Chromium 的 `managed-result-VGrDlV` 六步实际 exit 0：
+正式 finalize 原 A，运行和暂停时只读查看，50 项人工输入经过 302、子 frame
+和 SPA，唯一 483 B POST；End 后再次查看和零输入接管仍为原 B、草稿和结果。
+两次 Begin/End 不需要恢复 Agent，原进程和 Job 正常退出。观看阶段前后原页面
+事件与草稿不变；未在真实只读画面上主动尝试输入。普通 viewer 的 `o6PuJl`
+四步回归也通过。旧 93f54a1 包不含本段功能；发布制品的构建与核验记录另列。
 
 ## 生命周期与隔离范围
 
@@ -227,7 +249,7 @@ A 的唯一可信点击、302 到 B、子 frame 导航和同文档 SPA，47 项�
 Job/注册/endpoint 清理通过，无强制终止。独审完整解码 59 张 PNG。结果 SHA：
 `69fe80235ebebb1dc2a843d3a0c23b620b4e607ed8a6e6f86124bd7589e1b6f6`。
 首轮标题/地址滞留、审计整数投影修正及零业务 PID 观察器失败均保留在计划，
-未以新结果覆盖。本功能尚未重新打包；真实跨站登录和 held-input 导航仍待验。
+未以新结果覆盖。真实跨站登录和 held-input 导航仍待验。
 
 同一生产版本的同文档回归 `managed-human-w1KteZ` 六步实际 exit 0，30 项
 输入、Shift/左键按住时的原 WS 断线释放、显式新轮次接回、唯一 299 B POST

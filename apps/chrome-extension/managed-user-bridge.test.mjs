@@ -842,3 +842,148 @@ test("mismatched human frame cannot grant input or replace the original lease", 
     assert.equal((await f.request("status")).status.human, null);
   }
 });
+
+function resultFixture(t) {
+  const f = humanFixture(t);
+  f.views = [];
+  f.liveTabs = [{ id: 7, kind: "result", deliveryId: "delivery-original", watchable: true, takeover: true, title: "Original result", url: "https://example.test/result" }];
+  f.backend.managedViewerSubscribe = async (tabId, onFrame, onState, options, authority) => {
+    authority(); assert.deepEqual(options, { deliveryId: "delivery-original" });
+    const closed = deferred(), record = { tabId, onFrame, onState, authority, closeCalls: 0,
+      info: { state: "active", leaseId: `view-${f.views.length + 1}`, tabId, generation: 1, viewport: { width: 800, height: 600 }, lastInputSequence: 0 } };
+    record.handle = { info: () => ({ ...record.info }), tabInfo: () => ({ id: tabId, title: "Original result", url: "https://example.test/result" }), closed: closed.promise,
+      close() {
+        if (record.closing) return record.closing;
+        record.closeCalls++; record.info.state = "releasing"; closed.resolve({ reason: "ended" });
+        return record.closing = (async () => { await f.closeGate?.promise; if (f.viewCleanupError) throw f.viewCleanupError;
+          record.info.state = "released"; f.calls.push(["viewReleased", tabId]); })();
+      } };
+    f.views.push(record); f.calls.push(["viewBegin", tabId]);
+    await f.subscribeGate?.promise;
+    authority();
+    if (f.earlyViewFrame) f.viewFrame(1, {}, record);
+    return record.handle;
+  };
+  f.viewFrame = (sequence, extra = {}, record = f.views.at(-1)) => record.onFrame({ tabId: record.tabId,
+    streamId: `view-stream-${record.info.leaseId}-g${record.info.generation}`, sequence, mimeType: "image/png",
+    data: Buffer.from(`view frame ${sequence}`).toString("base64"), metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1 },
+    controlMode: "user-view", viewLeaseId: record.info.leaseId, generation: record.info.generation, ...extra });
+  f.view = () => f.request("select", { tabId: 7, deliveryId: "delivery-original" });
+  f.navigateView = generation => {
+    Object.assign(f.views.at(-1).info, { state: "navigating", generation, viewport: null });
+    f.views.at(-1).onState({ ...f.views.at(-1).info });
+  };
+  f.arriveView = generation => {
+    Object.assign(f.views.at(-1).info, { state: "active", generation, viewport: { width: 800, height: 600 } });
+    f.views.at(-1).onState({ ...f.views.at(-1).info }); f.viewFrame(1);
+  };
+  return f;
+}
+
+test("a delivered result is viewed while paused without human input authority", async t => {
+  const f = resultFixture(t); await f.open(); await f.request("pause"); f.calls.length = 0;
+  f.earlyViewFrame = true;
+  const result = await f.view(); await flush();
+  assert.equal(result.status.automation.state, "paused"); assert.equal(result.status.human, null);
+  assert.equal(result.status.view.leaseId, "view-1"); assert.equal(f.views[0].handle.input, undefined);
+  assert.equal(result.status.tabs[0].deliveryId, "delivery-original");
+  const frame = f.events.find(e => e.type === "frame"); assert.equal(frame.controlMode, "user-view");
+  const announcement = f.events.find(e => e.type === "status" && e.status.view?.leaseId === frame.viewLeaseId);
+  assert.ok(announcement.sequence < frame.sequence);
+  await assert.rejects(f.request("humanInput", { leaseId: "view-1", generation: 1, sequence: 1, input: { type: "text", text: "must not send" } }), /HUMAN_STALE/);
+  assert.deepEqual(f.calls, [["viewBegin", 7]]);
+});
+
+test("result selections require their exact delivery identity and declared capabilities", async t => {
+  const f = resultFixture(t); await f.open();
+  for (const operation of ["select", "humanBegin"]) {
+    for (const deliveryId of [undefined, "replacement", ""]) await assert.rejects(f.request(operation, { tabId: 7, ...(deliveryId === undefined ? {} : { deliveryId }) }), /TAB|PROTOCOL/);
+  }
+  f.liveTabs[0].watchable = false; await assert.rejects(f.view(), /TAB/);
+  f.liveTabs[0].takeover = false; await assert.rejects(f.request("humanBegin", { tabId: 7, deliveryId: "delivery-original" }), /TAB/);
+  assert.equal(f.views.length, 0); assert.equal(f.humans.length, 0);
+  f.liveTabs = [{ id: 7, title: "Task" }]; await assert.rejects(f.view(), /TAB/);
+  for (const changed of [{ watchable: "yes" }, { deliveryId: undefined }, { kind: "unknown" }]) {
+    f.liveTabs = [{ id: 7, kind: "result", deliveryId: "delivery-original", watchable: true, takeover: true, ...changed }];
+    await assert.rejects(f.request("status"), /TABS/);
+  }
+});
+
+test("result viewing navigation announces the successor before frames and retires exact old credit once", async t => {
+  const f = resultFixture(t); await f.open(); await f.view(); f.viewFrame(1); await flush();
+  const original = f.events.find(e => e.type === "frame");
+  f.navigateView(2); await flush(); f.arriveView(2); await flush();
+  const successor = f.events.filter(e => e.type === "frame").at(-1);
+  assert.equal(successor.generation, 2); assert.equal(f.views.length, 1);
+  const announcement = f.events.find(e => e.type === "status" && e.status.view?.generation === 2 && e.status.view.state === "active");
+  assert.ok(announcement.sequence < successor.sequence);
+  f.viewFrame(99, { generation: 1, streamId: original.streamId });
+  await f.request("ack", { sequence: original.sequence });
+  await assert.rejects(f.request("ack", { sequence: original.sequence }), /ACK/);
+  f.viewFrame(2); assert.equal(f.events.filter(e => e.type === "frame").at(-1), successor);
+  await f.request("ack", { sequence: successor.sequence });
+  assert.equal(f.events.filter(e => e.type === "frame").at(-1).frameSequence, 2);
+  assert.equal(f.views[0].closeCalls, 0);
+});
+
+test("a late result-view navigation notification cannot disappear during status publication", async t => {
+  const f = resultFixture(t); await f.open(); await f.view();
+  const eventPush = f.events.push.bind(f.events); let navigated = false;
+  f.events.push = (...events) => { const n = eventPush(...events);
+    if (!navigated && events.some(e => e.type === "status" && e.status.view?.state === "active")) {
+      navigated = true; queueMicrotask(() => f.navigateView(2));
+    } return n;
+  };
+  f.viewFrame(1); await flush(); await flush();
+  assert.equal(f.events.filter(e => e.type === "status").at(-1).status.view.state, "navigating");
+  assert.equal(f.events.filter(e => e.type === "status").at(-1).status.view.generation, 2);
+});
+
+test("explicit result takeover joins original view cleanup before sending Begin and retains deliveryId", async t => {
+  const f = resultFixture(t); await f.open(); await f.view(); f.closeGate = deferred();
+  const originalBegin = f.backend.beginManagedHuman;
+  f.backend.beginManagedHuman = (...args) => { assert.deepEqual(args[4], { deliveryId: "delivery-original" }); return originalBegin(...args); };
+  const takeover = f.request("humanBegin", { tabId: 7, deliveryId: "delivery-original" }); await flush();
+  assert.equal(f.humans.length, 0); assert.equal(f.views[0].info.state, "releasing");
+  assert.throws(f.views[0].authority, /CLOSED/);
+  f.closeGate.resolve(); const result = await takeover;
+  assert.equal(result.status.view, null); assert.equal(result.status.human.leaseId, "human-1");
+  assert.ok(f.calls.findIndex(c => c[0] === "viewReleased") < f.calls.findIndex(c => c[0] === "humanBegin"));
+});
+
+test("Resume waits for original result viewing cleanup without gaining input from its lease", async t => {
+  const f = resultFixture(t); await f.open(); await f.request("pause"); await f.view(); f.closeGate = deferred();
+  const resume = f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }); await flush();
+  assert.equal(f.calls.some(c => c[0] === "resume"), false); assert.equal(f.state.state, "paused");
+  f.closeGate.resolve(); const result = await resume;
+  assert.equal(result.status.automation.state, "running"); assert.equal(result.status.view, null);
+  assert.ok(f.calls.findIndex(c => c[0] === "viewReleased") < f.calls.findIndex(c => c[0] === "resume"));
+});
+
+test("result view cleanup failure blocks takeover, Resume and replacement channel", async t => {
+  const f = resultFixture(t); await f.open(); await f.request("pause"); await f.view();
+  f.viewCleanupError = new Error("original view detach remains unknown");
+  await assert.rejects(f.request("humanBegin", { tabId: 7, deliveryId: "delivery-original" }), /detach remains unknown/);
+  await assert.rejects(f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }), /CLEANUP/);
+  await assert.rejects(f.request("disconnect"), /CLEANUP|detach remains unknown/);
+  await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
+  assert.equal(f.humans.length, 0); assert.equal(f.state.state, "paused");
+});
+
+test("a selection cannot introduce a new result lease across an in-flight Resume", async t => {
+  const f = resultFixture(t); await f.open(); await f.request("pause");
+  f.resumeGate = deferred();
+  const resume = f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }); await flush();
+  await assert.rejects(f.view(), /BUSY/);
+  await assert.rejects(f.request("humanBegin", { tabId: 7, deliveryId: "delivery-original" }), /BUSY/);
+  assert.equal(f.views.length, 0); assert.equal(f.humans.length, 0);
+  f.resumeGate.resolve(); await resume; assert.equal(f.state.state, "running");
+});
+
+test("replacement delivery at the same tab retires the old selection and rejects its old choice", async t => {
+  const f = resultFixture(t); await f.open(); await f.view();
+  f.liveTabs[0].deliveryId = "delivery-replacement";
+  const result = await f.request("status");
+  assert.equal(result.status.view, null); assert.equal(result.status.selectedTabId, null);
+  assert.equal(f.views[0].info.state, "released"); await assert.rejects(f.view(), /TAB/);
+});

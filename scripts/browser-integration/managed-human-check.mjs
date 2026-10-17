@@ -25,6 +25,10 @@ export function projectHumanCommand(message) {
   assert.ok(Number.isSafeInteger(message.id) && message.id > 0);
   assert.ok(["humanBegin", "humanInput", "humanEnd"].includes(message.operation));
   const allowed = message.operation === "humanBegin" ? ["id", "operation", "tabId"] : message.operation === "humanEnd" ? ["id", "operation", "leaseId"] : ["id", "operation", "leaseId", "generation", "sequence", "input"];
+  if (message.operation === "humanBegin" && message.deliveryId !== undefined) {
+    assert.ok(typeof message.deliveryId === "string" && message.deliveryId.length > 0 && message.deliveryId.length <= 128 && !/[\x00-\x1f\x7f]/.test(message.deliveryId));
+    allowed.push("deliveryId");
+  }
   assert.deepEqual(Object.keys(message).sort(), allowed.sort());
   if (message.operation === "humanBegin") { assert.ok(Number.isSafeInteger(message.tabId) && message.tabId > 0); return { ...message }; }
   assert.ok(typeof message.leaseId === "string" && message.leaseId.length > 0 && message.leaseId.length <= 256);

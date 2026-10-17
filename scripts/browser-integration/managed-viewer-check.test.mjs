@@ -18,6 +18,10 @@ test("outgoing viewer evidence preserves typed command IDs but never authenticat
   const resume = { id: 4, operation: "resume", expectedRevision: 3, expectedWorkerBootId: "original-worker" };
   assert.deepEqual(projectViewerCommand(resume), resume);
   assert.deepEqual(projectViewerCommand({ id: 5, operation: "select", tabId: 7 }), { id: 5, operation: "select", tabId: 7 });
+  const delivered = { id: 8, operation: "select", tabId: 7, deliveryId: "original-delivery" };
+  assert.deepEqual(projectViewerCommand(delivered), delivered);
+  for (const deliveryId of [null, "", "x".repeat(129), "bad\nidentity"]) assert.throws(() => projectViewerCommand({ ...delivered, deliveryId }));
+  assert.throws(() => projectViewerCommand({ ...delivered, tabId: null }));
   assert.deepEqual(projectViewerCommand({ id: 6, operation: "stop" }), { id: 6, operation: "stop" });
   for (const command of [null, { id: 0, operation: "pause" }, { id: 1, operation: "evaluate" }, { ...resume, expectedRevision: -1 }, { ...resume, token: "must-not-persist" }, { id: 2, operation: "select", tabId: -1 }]) {
     assert.throws(() => projectViewerCommand(command));

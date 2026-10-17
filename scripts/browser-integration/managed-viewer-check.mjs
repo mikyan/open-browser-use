@@ -31,6 +31,10 @@ export function projectViewerCommand(message) {
   if (message.operation === "select") {
     assert.ok(message.tabId === null || Number.isSafeInteger(message.tabId) && message.tabId > 0, "Invalid viewer selection");
     allowed.add("tabId"); result.tabId = message.tabId;
+    if (message.deliveryId !== undefined) {
+      assert.ok(message.tabId !== null && typeof message.deliveryId === "string" && message.deliveryId.length > 0 && message.deliveryId.length <= 128 && !/[\x00-\x1f\x7f]/.test(message.deliveryId), "Invalid original delivery identity");
+      allowed.add("deliveryId"); result.deliveryId = message.deliveryId;
+    }
   }
   if (message.operation === "resume") {
     assert.ok(Number.isSafeInteger(message.expectedRevision) && message.expectedRevision >= 0, "Invalid viewer revision");

@@ -42,6 +42,55 @@
 
 ## Module 与 Interface 决策
 
+### 原结果页的用户接续（2026-10-17，限定流程已验）
+
+上一目标轮完成提交 `5d105c2` 并核对 fork，属于实际进展。当前源码检查发现：
+`finalizeTabs` 已保留结果页并释放任务 attachment，但 viewer 列表与人工接管
+只认 live task attachment，导致原结果页从用户入口消失。本片补齐同一原页面
+的只读观看和明确人工接管，不重新请求 URL，也不自动恢复 Agent 权限。
+
+- 独立 managed result Module 记录本次 finalize 的原 tab/target、browser/run、
+  当前文档和最终位置。只在原清理、disposition、存储与最终校验完成后发布；
+  原有 presentation-only marker 不迁移成权限，`turnEnded` 不自动交付页面。
+- 私有用户列表区分 task/result，给出 `watchable`、`takeover`；结果选择及
+  接管携带 opaque `deliveryId`。每次操作复核原记录，不把旧 tabId 选择升级
+  为新交付或新任务权限。关闭、移位、替换或 Agent 重新取得控制会撤销旧记录。
+- 共享 ManagedHumanControl Module 的原生帧与导航清理，增加创建时固定的
+  view Adapter。view 不提供 Input、暂停、焦点模拟或输入风险标记；明确接管
+  必须先等 view 的原生关闭，再建立独立 human 租约。任务 admission 同步撤销
+  view 发布并等待实际清理。不会用附加 debugger 失败充当互斥机制。
+- 状态增加独立 `view` 租约及 generation；帧使用 `user-view/viewLeaseId`，
+  不能伪装 human。Go/HTTP/UI 先接纳当前代次状态，再接受原帧；旧回执、
+  排队帧、迟到解码不能污染后续观看。结果在正常运行或已完成暂停时可用。
+- 人工导航后继续保留同一 delivery/target 的已验证当前文档。End 后仍保持
+  Agent 暂停，用户可重新查看/接管原 B；Resume 明确关闭 view 后才恢复任务。
+
+验收从正式 SDK 创建并填写原草稿开始，正式 finalize 原页，核对旧任务权限
+失效、原页面未重载；用户只读观看后从暂停状态接管，导航并唯一提交，End
+后再次观看原结果。保留原请求、输入回执、PNG、进程退出及失败记录。先做
+跨层定点测试，再做隔离真实浏览器。用户本轮再次要求新包，验证后从干净提交
+打包并推送 fork，不创建 PR。
+
+本轮实施及原始证据：
+
+- 扩展全套 2,053 项、UI 54 项、Go 全包/vet/build、实际 bridge 生成样本
+  核对通过。有限结果登记和后台专项 30 项通过。修正旧任务请求误撤用户
+  权限、finalize 发布时序及旧导航验证晚回覆盖新状态的竞态。
+- 首次 `managed-result-vaiv5h` 实际 exit 1：原 A 已交付并成功跳转 B，
+  测试仍期望旧标签文字，未包含新的“已交付结果”前缀。保留原始失败，
+  只修正精确界面预期，未改变生产代码。报告 SHA-256：
+  `77a933f248dc731a21439d688724d3cd713ea3d123a124854cabb99d080ba77d`。
+- 修后 `managed-result-VGrDlV` 六步实际 exit 0：50 项精确输入回执，原
+  302/子 frame/SPA 和唯一 483 B POST；两次 Begin/End、三次结果观看保留
+  原交付、tab/target、当前文档、草稿与回执，不执行 Resume 或 Agent 接回。
+  查看期间原页面输入事件未增加，尚未主动尝试只读画面输入。报告 SHA：
+  `a132925e39d5f827342289a6eb93a04166ce4aff5c437389e9220198d83af177`。
+- 同一冻结运行源码的普通 viewer 回归 `managed-viewer-o6PuJl` 四步实际
+  exit 0，原子页、暂停/继续和停止清理通过。报告 SHA-256：
+  `b57bb329bf79d62b59f07c4160f8cbfa06394320ee5e98f3fed9853c8435cd11`。
+- 结果登记仍限定当前 worker/run；worker 重启恢复、Stop 后保留可见窗口、
+  真实登录/IME、公司 Edge 和跨平台仍未验收。整体目标保持开放。
+
 ### 连续人工接管（2026-10-17，限定导航流程已验，未重新打包）
 
 上一轮新包交付属于实际进展；发布基线为 93f54a1。接下来沿用同一个人工
