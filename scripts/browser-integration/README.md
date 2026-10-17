@@ -1,5 +1,46 @@
 # Browser integration acceptance
 
+## Managed original downloads (Windows, experimental)
+
+Set the explicit `OBU_TEST_HOST_BINARY`, `OBU_TEST_CHROMIUM_BINARY` and
+`OBU_TEST_EXTENSION_DIR` paths for the current build and build the JavaScript
+SDK, then run:
+
+```powershell
+node scripts/browser-integration/managed-download-check.mjs
+```
+
+For a reused verified host, also set `OBU_TEST_HOST_VALIDATION` to its preserved
+build report. This report contains matching `before`/`after` source-path SHA-256
+maps, `sourceUnchanged: true`, `passed: true`, the `executableSHA256`, and zero
+`exitCode` values for `test`, `vet`, `build` and `buildInfo`. The runner verifies
+those actual files and copies the original report into its evidence directory.
+Without that report, it records the supplied binary's hash and explicitly leaves
+its source/build provenance unverified.
+
+The runner uses the real `managed run` supervisor and its automatic Native
+Port/Browser binding. It checks six original POST/Blob downloads across root,
+existing OOPIF and OOPIF created after ready, then one actual in-flight cancel
+and one waiter-only cancel whose original transfer must complete. Each download
+requires path readiness before its sole triggering click. Passive Page events,
+scoped notifications, exact HTTP journals and the original returned-path bytes
+provide separate evidence; the observer does not wrap native APIs or capture
+a Browser raw-command trace.
+
+OOPIF provenance is read from its original attached session before input; the
+root session's frame tree may omit remote children. The CLI's pretty JSON is
+parsed as a complete object, and Stop must name the original run with
+`state: "stopped"` before lifecycle verification.
+
+The default download root is read independently without changing preferences
+or enumerating other files. Only seven fully proven original files are removed
+by exact path and identity after a successful proof. On failure, the original
+attempt and any remaining files are retained; business actions are not replayed.
+The runner records raw lifecycle bytes and actual Stop/exit/Job/registration
+cleanup even when the business proof fails. This is a default-policy, isolated
+Windows workflow; ordinary company Edge installation, restricted-site HTTP
+downloads and broader platform behavior remain separate acceptance work.
+
 ## Delivered managed result continuation (Windows, experimental)
 
 Use the same explicit host/browser/extension prerequisites as continuous

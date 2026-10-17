@@ -105,6 +105,9 @@ debugger、history 和 tab groups。
   存活管理 pipe 取得确切 endpoint，不回退普通 profile。独立 stop 等待原树
   退出。UserController 通过独立 Browser root 连接只绑定原 worker，
   保留原 context/run/Native Port 身份，提供有界 typed 用户控制与实时帧。
+  原 attach 回复在 reader 继续处理事件前发布 session 身份；接纳回调不持有
+  transport 锁。调用者取消不结算原回复，清理仍等待该回复和原 detach 回执。
+  事件拒绝仅记录固定类别，不输出原 payload 或任意错误文本。
   它不增加页面 debugger 附件，也不在 task RPC 中开放用户控制。见
   [独立会话](references/managed-browser-session.md)。
   实验性的 `StartSetup` 与 `Start` 共用资料目录锁和进程生命周期；显式 setup
@@ -126,8 +129,8 @@ debugger、history 和 tab groups。
   捕获屏障建立新代画面。明确未发送的旧输入返回 typed stale，已提交输入
   保留原 tuple 回执及期限；HTTP 与 UI 均须见到匹配的新帧才能开放输入。
   视口几何、页面归属或网站权限变化仍终止租约。CDP 不提供 documentId
-  条件输入，不能撤回已提交动作或保证跨导航原子输入。发布包 93f54a1 仍为
-  同文档版本；完整 IME、真实网站 SSO/MFA 与跨平台尚未验收。
+  条件输入，不能撤回已提交动作或保证跨导航原子输入。发布包 d0605b1 已包含
+  连续导航和结果页接续；完整 IME、真实网站 SSO/MFA 与跨平台尚未验收。
   `managed-result-pages.js` 仅在正式 finalize 清理及最终校验后
   发布原结果记录；展示 marker 与分组名不授予权限。用户列表按 task/result
   分开，结果选择固定 deliveryId，重新取得任务控制会撤旧用户记录并等待原

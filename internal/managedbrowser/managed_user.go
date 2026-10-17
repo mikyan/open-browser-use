@@ -39,6 +39,7 @@ type UserController struct {
 	contextID            int64
 	contextUID           string
 	contextReady         chan struct{}
+	attachCall           *userCall
 	openCall             *userCall
 	openAttempt          bool
 	opened               bool
@@ -173,19 +174,18 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 	c.mu.Lock()
 	c.targetID = targetID
 	c.mu.Unlock()
-	var attached struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err = c.cdp.call(ctx, "", "Target.attachToTarget", map[string]any{"targetId": targetID, "flatten": true}, &attached); err != nil {
+	attachCall, err := c.startWorkerAttachment(ctx, targetID)
+	if err != nil {
 		return nil, err
 	}
-	if attached.SessionID == "" {
-		return nil, errors.New("managed user worker session is missing")
+	_, err = attachCall.wait(ctx)
+	if err != nil {
+		return nil, err
 	}
 	c.mu.Lock()
-	c.sessionID = attached.SessionID
+	sessionID := c.sessionID
 	c.mu.Unlock()
-	if err = c.cdp.call(ctx, attached.SessionID, "Runtime.enable", map[string]any{}, nil); err != nil {
+	if err = c.cdp.call(ctx, sessionID, "Runtime.enable", map[string]any{}, nil); err != nil {
 		return nil, err
 	}
 	select {
@@ -198,7 +198,7 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 	c.mu.Lock()
 	contextID := c.contextID
 	c.mu.Unlock()
-	if err = c.cdp.call(ctx, attached.SessionID, "Runtime.addBinding", map[string]any{"name": userBindingName, "executionContextId": contextID}, nil); err != nil {
+	if err = c.cdp.call(ctx, sessionID, "Runtime.addBinding", map[string]any{"name": userBindingName, "executionContextId": contextID}, nil); err != nil {
 		return nil, err
 	}
 	params := map[string]any{"version": 1, "runId": identity.RunID, "extensionId": identity.ExtensionID, "extensionInstanceId": identity.ExtensionInstanceID, "workerBootId": identity.WorkerBootID, "portId": identity.PortID, "channelKey": key}
@@ -231,6 +231,38 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 
 func (c *UserController) Events() <-chan json.RawMessage { return c.events }
 func (c *UserController) Done() <-chan struct{}          { return c.done }
+
+func (c *UserController) startWorkerAttachment(ctx context.Context, targetID string) (*userCall, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closing || c.attachCall != nil || targetID == "" || targetID != c.targetID {
+		return nil, errors.New("managed user original worker attachment is unavailable")
+	}
+	call, err := c.cdp.startReceipt(ctx, "", "Target.attachToTarget", map[string]any{"targetId": targetID, "flatten": true}, c.acceptWorkerAttachment)
+	if err == nil {
+		c.attachCall = call
+	}
+	return call, err
+}
+
+func (c *UserController) acceptWorkerAttachment(data json.RawMessage) error {
+	var attached struct {
+		SessionID string `json:"sessionId"`
+	}
+	fields, err := userObject(data)
+	if err != nil || len(fields) != 1 || json.Unmarshal(data, &attached) != nil || attached.SessionID == "" || len(attached.SessionID) > 256 || strings.IndexFunc(attached.SessionID, func(r rune) bool { return r <= 32 || r == 127 }) >= 0 {
+		return errors.New("managed user worker session is missing")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionID != "" && c.sessionID != attached.SessionID {
+		return errors.New("managed user original worker attachment changed")
+	}
+	// A late original reply still supplies cleanup authority after the caller's
+	// deadline. It does not reopen control or attach to another worker.
+	c.sessionID = attached.SessionID
+	return nil
+}
 
 func (c *UserController) evaluateLocked(ctx context.Context, method string, params any) (*userCall, error) {
 	args, err := json.Marshal(params)
@@ -729,7 +761,7 @@ func (c *UserController) Close(ctx context.Context) error {
 
 func (c *UserController) shutdownUser() {
 	c.mu.Lock()
-	openCall, attempted, session := c.openCall, c.openAttempt, c.sessionID
+	attachCall, openCall, attempted := c.attachCall, c.openCall, c.openAttempt
 	humanRisk := c.humanRisk
 	commands := make([]*userCall, 0, len(c.commands))
 	for call := range c.commands {
@@ -749,7 +781,21 @@ func (c *UserController) shutdownUser() {
 	}
 	var receipt json.RawMessage
 	var cleanupErr error
-	if attempted && openCall != nil {
+	if attachCall != nil {
+		select {
+		case <-attachCall.done:
+			cleanupErr = attachCall.reply.err
+		case <-terminated:
+			proof = terminationProof
+		case <-unsafeWorkerGone:
+			waitOwnedExit()
+			proof = terminationProof
+		}
+	}
+	c.mu.Lock()
+	session := c.sessionID
+	c.mu.Unlock()
+	if proof == "bridge-disconnect" && cleanupErr == nil && attempted && openCall != nil {
 		select {
 		case <-openCall.done:
 			if openCall.reply.err != nil {
@@ -836,10 +882,74 @@ func (c *UserController) shutdownUser() {
 	close(c.cleanupDone)
 }
 
-func (c *UserController) handleEvent(session, method string, params json.RawMessage) error {
+// Event diagnostics contain only our fixed categories and method whitelist.
+// Native payloads, identifiers, expressions and underlying parser errors never
+// become startup logs or public errors.
+type userEventError struct {
+	kind, method, stage string
+	expectedSession     bool
+}
+
+func (e *userEventError) Error() string {
+	return fmt.Sprintf("managed user CDP event identity or protocol mismatch (kind=%s method=%s stage=%s expectedSession=%t)", e.kind, e.method, e.stage, e.expectedSession)
+}
+
+func userEventMethod(method string) string {
+	switch method {
+	case "Target.targetCreated", "Target.targetInfoChanged", "Target.targetDestroyed", "Target.attachedToTarget", "Target.detachedFromTarget",
+		"Runtime.executionContextCreated", "Runtime.executionContextDestroyed", "Runtime.executionContextsCleared", "Runtime.bindingCalled", "Runtime.consoleAPICalled", "Runtime.exceptionThrown",
+		"Inspector.workerScriptLoaded", "Inspector.detached", "Inspector.targetCrashed":
+		return method
+	default:
+		return "other"
+	}
+}
+
+func userEventKind(err error) string {
+	switch err.Error() {
+	case "foreign managed worker event session":
+		return "foreign-session"
+	case "invalid worker execution context":
+		return "invalid-context"
+	case "invalid worker destruction":
+		return "invalid-destruction"
+	case "invalid worker detach":
+		return "invalid-detach"
+	case "invalid managed worker binding event":
+		return "invalid-binding"
+	case "managed worker binding context changed":
+		return "binding-context"
+	case "managed user event identity or sequence mismatch":
+		return "bridge-identity-sequence"
+	default:
+		return "invalid-event-payload"
+	}
+}
+
+func (c *UserController) handleEvent(session, method string, params json.RawMessage) (err error) {
 	c.mu.Lock()
 	targetID, workerSession := c.targetID, c.sessionID
+	stage := "discovering"
+	switch {
+	case c.closing:
+		stage = "closing"
+	case c.opened:
+		stage = "open"
+	case c.openAttempt:
+		stage = "opening"
+	case c.contextID != 0:
+		stage = "context-ready"
+	case workerSession != "":
+		stage = "attached"
+	case c.attachCall != nil:
+		stage = "attaching"
+	}
 	c.mu.Unlock()
+	defer func() {
+		if err != nil {
+			err = &userEventError{kind: userEventKind(err), method: userEventMethod(method), stage: stage, expectedSession: workerSession != ""}
+		}
+	}()
 	if session == "" {
 		switch method {
 		case "Target.targetDestroyed":

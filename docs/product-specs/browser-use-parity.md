@@ -12,6 +12,13 @@
 
 ## Baseline sources
 
+正式 managed 自动 Native binding 的原下载专项 `managed-download-LWwtqG`
+五步实际 exit 0：8 个原始尝试、7 份文件/17,524 B、在途真实取消、仅取消
+waiter 后同传输完成、16 次跨 session 拒绝和正常原退出均通过。17 条原请求
+无隐藏重发。Go 的 attach 回执发布顺序已用确定性红绿反例修复，全包/vet/build
+通过；该修正尚未进入 d0605b1 包。普通公司 Edge、恢复及完整 P10 仍部分完成，
+见[managed 原下载](../references/original-page-download-delivery.md#managed-production-entrypoint-acceptance)。
+
 当前源码的连续导航与原结果页接续已完成固定 Windows Chromium 限定验收。
 `managed-result-VGrDlV` 六步、50 项输入、唯一 POST、两次接管及结束通过，
 同源码普通 viewer 回归 `o6PuJl` 四步通过。扩展 2,053 项、UI 54 项及 Go

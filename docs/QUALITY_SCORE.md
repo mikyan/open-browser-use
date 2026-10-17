@@ -11,6 +11,13 @@
 
 ## 当前评分
 
+正式 managed 原下载 `managed-download-LWwtqG` 五步实际 exit 0：自动 Native
+binding、8 项原流程、7 文件/17,524 B、真实取消与仅取消等待、16 次越权拒绝，
+17 条完整原请求和正常 Stop/原进程/Job/注册清理均通过。确定性反例促成 Go
+attach 回执的 session 发布顺序修复，全包/vet/build 通过；该修正尚未进入
+d0605b1 已发布包。此前三轮失败和验收脚本修正均保留；这不是普通公司 Edge、
+多平台或完整下载恢复验收。见[原下载](references/original-page-download-delivery.md)。
+
 当前源码补齐正式 finalize 后的原结果页查看与人工接续。固定 Windows Chromium
 `managed-result-VGrDlV` 六步实际 exit 0：50 项输入回执、原导航和唯一 POST，
 两次 Begin/End 保留同一原结果且不 Resume；普通 viewer `o6PuJl` 四步回归通过。

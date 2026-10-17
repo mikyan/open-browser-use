@@ -236,8 +236,13 @@ Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运�
 
 启动器会绑定该私有 Browser root 的原下载通路，但下载能力仍受既有
 [原生下载契约](original-page-download-delivery.md)和
-[受限网站下载边界](restricted-page-downloads.md)约束。本轮是否实际验证
-文件下载须独立报告，不能由 binding 成功推导。
+[受限网站下载边界](restricted-page-downloads.md)约束。固定 Windows Chromium
+的 `managed-download-LWwtqG` 已通过正式入口的八项原下载验证：7 份原文件
+17,524 B、真实在途取消、仅取消等待后继续传输、16 次外部 session 拒绝和
+原进程正常退出。没有配置下载目录或重发请求；详见
+[独立下载证据](original-page-download-delivery.md#managed-production-entrypoint-acceptance)。
+本片同时修复 reader 处理 attach 回复和后续事件之间的 session 发布竞态，
+晚到原回复仍只供原资源清理。该 Go 修正尚未进入 d0605b1 已发布包。
 
 ## 当前未完成
 

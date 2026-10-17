@@ -26,6 +26,7 @@ type userCall struct {
 	done    chan struct{}
 	reply   userReply
 	session string
+	accept  func(json.RawMessage) error
 }
 
 func (c *userCall) wait(ctx context.Context) (json.RawMessage, error) {
@@ -84,6 +85,12 @@ func (c *userCDP) fail(err error) {
 }
 
 func (c *userCDP) start(ctx context.Context, session, method string, params any) (*userCall, error) {
+	return c.startReceipt(ctx, session, method, params, nil)
+}
+
+// accept consumes only this original command's successful reply. It runs in
+// reader order before the next event, never while holding the transport lock.
+func (c *userCDP) startReceipt(ctx context.Context, session, method string, params any, accept func(json.RawMessage) error) (*userCall, error) {
 	if err := userSubmissionError(ctx); err != nil {
 		return nil, err
 	}
@@ -99,7 +106,7 @@ func (c *userCDP) start(ctx context.Context, session, method string, params any)
 	}
 	c.next++
 	id := c.next
-	call := &userCall{done: make(chan struct{}), session: session}
+	call := &userCall{done: make(chan struct{}), session: session, accept: accept}
 	c.pending[id] = call
 	previousWrite := c.lastWrite
 	written := make(chan struct{})
@@ -165,12 +172,22 @@ func userSubmissionError(ctx context.Context) error {
 
 func (c *userCDP) settle(id uint64, result userReply) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if call := c.pending[id]; call != nil {
-		delete(c.pending, id)
-		call.reply = result
-		close(call.done)
+	call := c.pending[id]
+	if call != nil {
+		delete(c.pending, id) // This receipt now owns the sole settlement.
 	}
+	c.mu.Unlock()
+	if call == nil {
+		return
+	}
+	// Controller admissions acquire controller.mu before transport.mu. Do not
+	// invert that order here. A concurrent socket failure cannot replace this
+	// already received reply or close its done channel before acceptance ends.
+	if result.err == nil && call.accept != nil {
+		result.err = call.accept(result.data)
+	}
+	call.reply = result
+	close(call.done)
 }
 
 func (c *userCDP) call(ctx context.Context, session, method string, params, result any) error {
@@ -206,8 +223,16 @@ func (c *userCDP) read() {
 			return
 		}
 		if message.ID == 0 {
-			if message.Method == "" || c.event(message.SessionID, message.Method, message.Params) != nil {
-				c.fail(errors.New("managed user CDP event identity or protocol mismatch"))
+			if message.Method == "" {
+				c.fail(&userEventError{kind: "missing-method", method: "other", stage: "unknown"})
+				return
+			}
+			if err := c.event(message.SessionID, message.Method, message.Params); err != nil {
+				var safe *userEventError
+				if !errors.As(err, &safe) {
+					safe = &userEventError{kind: "unclassified", method: userEventMethod(message.Method), stage: "unknown"}
+				}
+				c.fail(safe)
 				return
 			}
 			continue

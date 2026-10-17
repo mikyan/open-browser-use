@@ -1,9 +1,13 @@
 # Original page downloads through a verified Browser connection
 
 The development branch can deliver an original Page download through an
-explicitly bound Browser root connection. Ordinary extension-only installs and
-the published preview still reject Page GUID paths with
-`OBU_DOWNLOAD_PATH_UNAVAILABLE`. `expectDownload().result()` returns
+explicitly bound Browser root connection. Ordinary extension-only installs
+without that verified binding reject Page GUID paths with
+`OBU_DOWNLOAD_PATH_UNAVAILABLE`. The experimental Windows
+[managed session](managed-browser-session.md) establishes its own binding during
+startup; its bounded original-download workflow has passed on fixed Windows
+Chromium, as recorded below.
+`expectDownload().result()` returns
 after the matching original begin event is admitted; completion and readable
 file delivery are separate requirements.
 
@@ -13,6 +17,34 @@ Restricted HTTP/POST provenance remains unsupported. The Blob workflow has
 passed isolated browser acceptance; see [original downloads on allowed websites](restricted-page-downloads.md)
 for source, navigation, cleanup and verification boundaries. The historical
 unrestricted results below do not establish restricted-mode acceptance.
+
+## Managed production entrypoint acceptance
+
+`managed-download-LWwtqG` passed five stages with actual exit 0 on Windows and
+Chromium 156.0.8078.4. The formal `managed run` established the original Native
+Port and Browser binding automatically; no test Port adapter or manual rebind
+was used. The JS SDK delivered six original POST/Blob files across root,
+existing OOPIF and an OOPIF created after readiness. A seventh held response
+completed after canceling only its waiter. All seven original returned files
+were read in full (17,524 bytes) and checked against their original response
+bytes, then individually removed after rechecking exact file identity.
+
+One separate original held POST was canceled through the public download API:
+its Page GUID reached `canceled`, the original HTTP response closed unfinished
+before Stop or fixture teardown, and its path was rejected. Sixteen foreign
+session path/cancel attempts were denied. The complete original journal held
+17 requests (12 GET, 5 POST), with no unassigned request or replay. Original
+documents, Page events and exact child-session frame trees support frame
+provenance; a root session's frame tree need not include a remote child.
+
+The original supervisor, Browser.close, browser/native exit, Job emptiness and
+registration/endpoint cleanup all succeeded without forced termination. This
+is a fixed-browser JS acceptance, not ordinary company Edge installation,
+restricted POST support, worker recovery, a full Browser command trace, or an
+OS foreground test. Three earlier failed browser attempts remain in the
+[managed history](../histories/2026-10/20261016-0350-managed-headless-feasibility.md).
+An independently reproduced startup attach-order race was fixed in the tested
+Go host; that fix is newer than the published `preview-20261017-d0605b1` package.
 
 ## Explicit binding and original ownership
 

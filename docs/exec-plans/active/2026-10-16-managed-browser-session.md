@@ -42,6 +42,69 @@
 
 ## Module 与 Interface 决策
 
+### 正式隔离会话的原文件下载（2026-10-17，限定流程已验）
+
+上一轮已交付 `preview-20261017-d0605b1`。本片验证正式 `managed run`
+自动建立的真实 Native Port/Browser binding 能否交付原网页文件，并真正取消
+正在传输的下载；它不触发重新打包，不替代暂缓的普通公司 Edge 人工安装验收。
+
+- 复用现有生产原文件路径接口及默认网站策略，不改下载目录、不用测试 Port
+  adapter，也不由 URL 重新下载。只读隔离 profile 的首选项或当前用户的 Known
+  Downloads 目录，作为独立路径边界，不枚举该目录中的其他文件。
+- 一次有限真实流程包含根页面、原 OOPIF、ready 后才创建的 OOPIF，各自的
+  原 POST/Blob 下载；随后各做一次在途真实取消和只取消 waiter 后原传输完成。
+  每个尝试固定原 scope/tab/target/frame/GUID，保留一次性请求、原生事件、
+  公共 API 回执与原文件字节。外部 session 的路径/取消请求必须拒绝。
+- proof Module 管理原请求证据，runner 管理正式启动、冻结源码身份和原退出。
+  仅在原文件字节与文件身份已证明后清理确切文件；失败留下已取得的原证据，
+  不重放业务。实际取消须在 Stop 或 fixture close 前证明传输已关闭且未完成。
+- 本片没有捕获 Native Port 私有 RPC 的原始传输，不把公共取消回执或 Page
+  事件表述为完整 Browser 私有命令 trace。停止时仍独立保留原 lifecycle 字节、
+  Browser.close、进程退出、Job、注册和 endpoint 的实际证据。
+
+先做脚本定点检查与独立预审，再运行固定 Chromium 的隔离验收。只有真实
+行为暴露缺陷时才修改生产代码；本片通过也不代表所有下载、平台或完整能力对齐。
+
+首轮 `managed-download-IGwZHd` 实际 exit 1，在下载前启动失败：user CDP
+事件身份/协议校验拒绝。原 binding 已成功；约 2.7ms 后关闭浏览器，原
+Browser.close、browser/native exit 0、Job=0、注册和 endpoint 清理均有回执，
+没有强制结束或业务请求。报告 SHA
+`a0285d20aaec06451e66bd3928c1409b4252fb5003085e1b433c265fce31b34a`。
+runner 的补充 Stop 在已结束 supervisor 上返回失败，照实保留。
+
+只读检查发现 UserController 的确定调度窗口：reader 收到原 attach 回复并
+唤醒调用者后，可在调用者发布 `sessionID` 前处理后续 scoped event，将它
+误判成 foreign。原失败没有保存具体事件，所以该窗口尚不能视为首轮已证
+根因。先构造确定性反例，再把原回复的身份接纳收进 reader 的同步结算边界；
+只允许原 pending 回复授予 session，foreign event 继续拒绝，不重试 attach。
+补充固定类别的事件诊断，不记录原 payload、通道密钥或任意错误文本。
+
+该确定性反例先失败，原回复同步接纳修正后通过；晚回复、取消后原 detach、
+错误 session、锁序和诊断脱敏边界通过。Go 全包/vet/build 已通过，168 项
+输入在验证前后保持一致。新 EXE 的后续两轮还暴露了验收脚本假设：
+`CGCzdj` 将 CLI 多行 JSON 按单行解析，未执行下载；`a1GGbR` 完成两项 root
+下载并取得原 OOPIF 文件后，错误要求 root frame tree 包含 remote child。
+该轮 Stop 原回复为 `{runId,state:"stopped"}`，脚本却检查 `stopped:true`。
+这两轮均保留失败及正常原退出证据；三个已确认字节/身份的文件后来逐个
+精确清理，另存清理回执，不修改原报告，也不将失败案改成通过。
+修正后的 proof 在点击前读取原 OOPIF attachment 对应 session 的原生树，
+runner 按实际 CLI 对象核对原 runId。
+
+修正后的 `managed-download-LWwtqG` 五步实际 exit 0：8 个原始尝试，6 个
+root/OOPIF/dynamic OOPIF POST/Blob 文件及 1 个仅取消 waiter 后继续完成的
+held 文件共 17,524 B，逐字节与原响应一致。另一个 held POST 的公共取消
+回执、原 Page canceled 和 HTTP 未完成关闭均早于 Stop/fixture close。
+16 次外部 scope 的路径/取消请求拒绝，17 条全局原请求恰好对应全部 case。
+7 个确切文件核对身份后删除，正常 Browser.close、进程退出、Job=0、注册和
+endpoint 清理通过，无强制终止。原报告 SHA
+`34100f88ecd6090eaa7dae4677e15d4355c9a8a8ce894e1f8b03bee8c66171c3`。
+Go 修正仍在源码中，未重新打包；原有 viewer/result 的浏览器流程未重复运行。
+停止后独审 2,959 项通过，核对原冻结源码、构建、原 uint64 lifecycle、全部
+原字节与确切文件清理。首次 auditor 错把 generation 放在 worker 私有 proof
+读取而失败，保留原记录；改为直接对照原 host binding 与公共 client metadata，
+不重跑浏览器。最终 audit SHA
+`9e45a4671a1b5e9d9d3d87d3519fb61681368a8f3fb84b3b9aba1b30b6c90708`。
+
 ### 原结果页的用户接续（2026-10-17，限定流程已验）
 
 上一目标轮完成提交 `5d105c2` 并核对 fork，属于实际进展。当前源码检查发现：

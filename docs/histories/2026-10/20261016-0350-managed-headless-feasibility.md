@@ -597,3 +597,100 @@ ZIP was uploaded without replacing assets, and all four were downloaded and
 verified before publication. The release executable was rebuilt separately with
 clean VCS metadata and trimpath, not relabelled the browser-tested executable.
 No PR was created. The broader capability goal remains active.
+
+## Managed original download acceptance and startup identity ordering
+
+Added a formal managed download runner and a separate bounded proof module.
+The intended workflow uses eight original transfers: root/existing OOPIF/new
+OOPIF POST and Blob files, an actual in-flight cancel, and observation-only
+cancel followed by completion. It retains the real Native binding, public
+receipts, passive Page events, original documents, global HTTP journals and
+full returned-path bytes. Only seven fully verified files are individually
+removed; the default download directory is independently read, never configured
+by the test or scanned for filenames. Negative checks reject forged completion,
+fixture-caused cancellation, unassigned requests and replay.
+
+First native attempt `managed-download-IGwZHd` failed before any download with
+the original generic managed-user CDP event rejection. Its report SHA-256 is
+`a0285d20aaec06451e66bd3928c1409b4252fb5003085e1b433c265fce31b34a`.
+The automatic binding succeeded; original Browser.close, browser/native exit
+0, Job=0 and registration/endpoint cleanup completed without forced termination.
+The runner's later Stop against the already-ended supervisor returned failure
+and remains recorded. Supplemental stopped-state observation found no remaining
+original resource. No original CDP event payload was captured, so this result
+does not identify the precise event or establish its root cause.
+
+Inspection found a separate definite scheduling window: the CDP reader can
+process an event immediately after the original attach reply, before the caller
+has published the returned session identity. An equivalent helper extraction
+and deterministic scripted-WebSocket test reproduce that refusal without sleeps
+or browser retries. The original successful attach receipt now publishes its
+session synchronously in reader order, outside the transport lock. Cleanup
+retains that exact receipt across caller cancellation and waits for the actual
+detach acknowledgement. Foreign/malformed replies still grant no authority;
+fixed-category diagnostics expose no native payload or arbitrary error text.
+The deterministic old-behavior test failed, then passed with the fix. Late
+reply, malformed reply, foreign session, lock ordering and diagnostic privacy
+tests passed. Full Go tests, vet and build passed with 168 unchanged source
+inputs. Validated executable SHA-256:
+`baada6198055a65f75dd6934e1533ad41233642decdc5908a7f34a31d79d32fd`.
+
+Two subsequent native attempts exposed separate harness assumptions. In
+`managed-download-CGCzdj`, the real new executable reached ready, but the runner
+parsed only the first line of pretty-printed JSON; no download was attempted.
+Report SHA-256:
+`2ef0bf0926e8e38122cee9e817c8d61bcd41635bc584dbdcb16ae625c4de0bb8`.
+The complete-object parser now handles stdout chunking. Its first privacy test
+also caught assertion formatting that included trailing input; fixed boolean
+assertions passed the same test without disclosing the supplied value.
+
+`managed-download-a1GGbR` passed root POST/Blob and read the original OOPIF POST
+file, then failed a root-frame-tree membership assumption: this Chromium's root
+tree omitted the separate child process. Its actual Page GUID, original child
+attachment and session agreed. Report SHA-256:
+`3fe9fa475eee7845b6fe54d3c40b938df9130da617258a1f3ba26501c7eddc36`.
+The runner also incorrectly expected `stopped: true`; the actual CLI replied
+with the exact run ID and `state: stopped`. Both failed attempts preserved
+normal Browser.close, browser/native exit 0, Job=0 and original resource
+cleanup. Their failed reports remain unchanged; none counts as successful
+download acceptance.
+
+The final harness reads the original OOPIF session's frame tree before its
+single click and compares native target, attachment, parent, URL and document
+evidence. Optional native `parentId` may be absent, but an observed value must
+match; the original attachment's parent link is always required. The fixed
+ready/Stop parser tests passed 4/4. Final proof/fixture/file checks passed 36
+with one existing Windows symlink-permission skip; the proof's nine tests passed.
+
+`managed-download-LWwtqG` then passed all five stages with actual outer exit 0.
+Eight original attempts produced seven complete files (17,524 bytes) and one
+actual canceled held response. Sixteen foreign scope path/cancel requests were
+rejected. The complete 17-request journal contained 12 GETs and five POSTs,
+with no unassigned request or replay. Actual cancel acknowledgement, Page
+`canceled` and unfinished HTTP close all preceded Stop and fixture teardown;
+canceling only the waiter left the other original response open, and releasing
+that same response completed the same GUID. Seven files were removed only
+after rechecking their original identity and exact bytes. Browser.close,
+browser/native/supervisor exit 0, Job=0 and registration/endpoint cleanup all
+completed without forced termination. Original report SHA-256:
+`34100f88ecd6090eaa7dae4677e15d4355c9a8a8ce894e1f8b03bee8c66171c3`.
+
+Stopped-state independent auditing passed 2,959 checks across six sections,
+including 533 frozen source files, 71 runtime extension files, 26 SDK files,
+168 validated host source files and exact original Go uint64 lifecycle bytes.
+Audit SHA-256:
+`9e45a4671a1b5e9d9d3d87d3519fb61681368a8f3fb84b3b9aba1b30b6c90708`.
+Its first attempt failed because it expected generation in the worker's private
+binding proof; the actual generation lives in the host binding and public
+client metadata. The corrected audit compares those original fields directly,
+without substituting the nonce. Preserve the failed audit SHA-256
+`09218bd1dd1dc8cccb27cb870a0858613b2deca1884bd70c261cf0d57287204a`.
+No browser business was rerun for auditing. The three files from the earlier
+failed OOPIF run were separately identity/byte-verified and precisely removed;
+its original failed report was not changed or upgraded.
+
+The accepted Go startup fix remains newer than published package d0605b1.
+Unchanged extension/SDK files were reused; existing result/viewer browser
+workflows and the extension's full suite were not rerun for this host change.
+Ordinary company Edge, broader platform/recovery behavior and complete Codex
+parity remain open. No additional package or PR was created in this slice.
