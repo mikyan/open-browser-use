@@ -1,0 +1,31 @@
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_518e93913155db 7
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_518e93913155db 440-458
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_518e93913155db 140-145
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_518e93913155db 14-19,23-24,27
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_518e93913155db 15,19-21
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_518e93913155db 10-11,15
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_518e93913155db 11-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "81d824c821415d54f45d0480c743d52e3924e441",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
