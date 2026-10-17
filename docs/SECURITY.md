@@ -60,7 +60,16 @@ ticket, exact loopback Host/Origin, and one active WebSocket. Run/view may show
 that ticket to the local human; Info, status and lifecycle records must not.
 Its fixed worker bridge validates the original run, native binding, worker/context
 and channel identity. It exposes only typed user operations, not arbitrary CDP;
-ordinary popup authorization remains unchanged. In-place login handoff is not implemented.
+ordinary popup authorization remains unchanged. The development branch adds a
+typed human-control lease for the original task page; real-browser acceptance is
+still pending and the published preview does not include this path. Begin pauses
+task input before acquiring the original native target. Input requires the exact
+lease, decoded-frame geometry generation and next sequence; native completion
+receipts must match the original input. Task RPC cannot obtain this authority.
+Navigation, geometry changes, disconnection and lost viewer focus revoke input.
+Release does not resume the Agent. A terminated worker alone cannot prove that
+held renderer input was released; unresolved cleanup requires the original owned
+browser to exit. This is not a complete login, SSO/MFA or cross-navigation flow.
 Its profile and native environment are separate from ordinary
 installed profiles, but are not a sandbox against arbitrary code running as the
 same OS user. Startup rejects unknown nonempty directories and reparse paths;

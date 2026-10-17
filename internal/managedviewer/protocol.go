@@ -2,10 +2,12 @@ package managedviewer
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
+
+	"github.com/ifuryst/open-browser-use/internal/managedprotocol"
 )
 
 const maxSafeInteger = uint64(1<<53 - 1)
@@ -15,42 +17,20 @@ type command struct {
 	id        uint64
 	operation string
 	payload   json.RawMessage
+	ctx       context.Context
+	epoch     uint64
 }
 
 // object rejects duplicate keys as well as trailing JSON. Silent last-key wins
 // would make the authorization check and command consumer disagree.
 func object(data []byte) (map[string]json.RawMessage, error) {
-	d := json.NewDecoder(bytes.NewReader(data))
-	first, err := d.Token()
-	if err != nil || first != json.Delim('{') {
-		return nil, errors.New("expected object")
-	}
-	fields := map[string]json.RawMessage{}
-	for d.More() {
-		key, err := d.Token()
-		if err != nil {
-			return nil, err
-		}
-		name, ok := key.(string)
-		if !ok || fields[name] != nil {
-			return nil, errors.New("duplicate field")
-		}
-		var value json.RawMessage
-		if err := d.Decode(&value); err != nil {
-			return nil, err
-		}
-		fields[name] = value
-	}
-	if _, err := d.Token(); err != nil {
-		return nil, err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return nil, errors.New("trailing JSON")
-	}
-	return fields, nil
+	return managedprotocol.Object(data)
 }
 
 func parseCommand(data []byte) (command, error) {
+	if len(data) > managedprotocol.MaxCommandBytes {
+		return command{}, errors.New("command too large")
+	}
 	f, err := object(data)
 	if err != nil {
 		return command{}, err
@@ -74,8 +54,21 @@ func parseCommand(data []byte) (command, error) {
 		allowed["expectedRevision"], allowed["expectedWorkerBootId"] = true, true
 		var revision uint64
 		var worker string
-		if json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > maxSafeInteger || json.Unmarshal(f["expectedWorkerBootId"], &worker) != nil || worker == "" || len(worker) > 256 {
+		if bytes.Equal(f["expectedRevision"], []byte("null")) || json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > maxSafeInteger || json.Unmarshal(f["expectedWorkerBootId"], &worker) != nil || worker == "" || len(worker) > 256 {
 			return c, errors.New("invalid resume identity")
+		}
+	case "humanBegin", "humanInput", "humanEnd":
+		human := make(map[string]json.RawMessage, len(f)-1)
+		for key, value := range f {
+			if key != "id" {
+				human[key] = value
+			}
+		}
+		if err := managedprotocol.ValidateHuman(c.operation, human); err != nil {
+			return c, err
+		}
+		for _, key := range managedprotocol.HumanFields(c.operation) {
+			allowed[key] = true
 		}
 	default:
 		return c, errors.New("unsupported operation")
@@ -122,7 +115,7 @@ func publicState(data []byte) (json.RawMessage, error) {
 		CleanupComplete *bool  `json:"cleanupComplete"`
 	}
 	statusFields, statusErr := object(f["automation"])
-	if statusErr != nil || statusFields["revision"] == nil || json.Unmarshal(f["automation"], &status) != nil || status.InputBlocked == nil || status.CleanupComplete == nil || status.Revision > maxSafeInteger {
+	if statusErr != nil || statusFields["revision"] == nil || bytes.Equal(statusFields["revision"], []byte("null")) || json.Unmarshal(f["automation"], &status) != nil || status.InputBlocked == nil || status.CleanupComplete == nil || status.Revision > maxSafeInteger {
 		return nil, errors.New("invalid backend status")
 	}
 	switch status.State {
@@ -138,12 +131,12 @@ func publicState(data []byte) (json.RawMessage, error) {
 		return nil, errors.New("missing worker identity")
 	}
 	var cleanupPending uint64
-	if json.Unmarshal(f["cleanupPending"], &cleanupPending) != nil || cleanupPending > maxSafeInteger {
+	if bytes.Equal(f["cleanupPending"], []byte("null")) || json.Unmarshal(f["cleanupPending"], &cleanupPending) != nil || cleanupPending > maxSafeInteger {
 		return nil, errors.New("missing viewer cleanup state")
 	}
 	viewerClean := cleanupPending == 0 && f["cleanupError"] == nil
 	var eventSequence uint64
-	if json.Unmarshal(f["eventSequence"], &eventSequence) != nil || eventSequence > maxSafeInteger {
+	if bytes.Equal(f["eventSequence"], []byte("null")) || json.Unmarshal(f["eventSequence"], &eventSequence) != nil || eventSequence > maxSafeInteger {
 		return nil, errors.New("missing status event sequence")
 	}
 	type tab struct {
@@ -152,7 +145,7 @@ func publicState(data []byte) (json.RawMessage, error) {
 		URL   string `json:"url"`
 	}
 	tabs := []tab{}
-	if json.Unmarshal(f["tabs"], &tabs) != nil || len(tabs) > 4096 {
+	if bytes.Equal(f["tabs"], []byte("null")) || json.Unmarshal(f["tabs"], &tabs) != nil || len(tabs) > 4096 {
 		return nil, errors.New("invalid tab list")
 	}
 	seenTabs := map[uint64]bool{}
@@ -166,7 +159,29 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if json.Unmarshal(f["selectedTabId"], &selected) != nil || selected != nil && (*selected == 0 || *selected > maxSafeInteger || !seenTabs[*selected]) {
 		return nil, errors.New("invalid selection")
 	}
-	return jsonBytes(map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence}), nil
+	human, err := managedprotocol.ParseHumanState(f["human"])
+	if err != nil {
+		return nil, err
+	}
+	if human != nil && (status.State == "running" || !*status.InputBlocked) {
+		return nil, errors.New("human control did not pause automation")
+	}
+	cleanup, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"])
+	if err != nil {
+		return nil, err
+	}
+	input, err := managedprotocol.ParseInputReceipt(envelope["inputReceipt"])
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence, "human": human}
+	if cleanup != nil {
+		out["humanCleanup"] = cleanup
+	}
+	if input != nil {
+		out["inputReceipt"] = input
+	}
+	return jsonBytes(out), nil
 }
 
 func publicEvent(data []byte) (string, json.RawMessage, error) {
@@ -216,8 +231,8 @@ func publicEvent(data []byte) (string, json.RawMessage, error) {
 	// Metadata is numeric CDP screencast geometry, never arbitrary HTML or URLs.
 	metadata := map[string]float64{}
 	if f["metadata"] != nil {
-		var source map[string]json.RawMessage
-		if json.Unmarshal(f["metadata"], &source) != nil {
+		source, err := object(f["metadata"])
+		if err != nil {
 			return "", nil, errors.New("invalid frame metadata")
 		}
 		for _, key := range []string{"timestamp", "monotonicTimestamp", "pageScaleFactor", "offsetTop", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY"} {
@@ -230,5 +245,13 @@ func publicEvent(data []byte) (string, json.RawMessage, error) {
 			}
 		}
 	}
-	return kind, jsonBytes(map[string]any{"type": kind, "mimeType": mime, "data": image, "streamId": stream, "tabId": tabID, "sequence": sequence, "eventSequence": eventSequence, "metadata": metadata}), nil
+	out := map[string]any{"type": kind, "mimeType": mime, "data": image, "streamId": stream, "tabId": tabID, "sequence": sequence, "eventSequence": eventSequence, "metadata": metadata}
+	mode, lease, generation, err := managedprotocol.ParseFrameIdentity(f)
+	if err != nil {
+		return "", nil, err
+	}
+	if mode == "human" {
+		out["controlMode"], out["humanLeaseId"], out["generation"] = mode, lease, generation
+	}
+	return kind, jsonBytes(out), nil
 }

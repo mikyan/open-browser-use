@@ -1,0 +1,400 @@
+{
+  "version": 1,
+  "scope": "Production bridge with simulated backend; no native input or browser acceptance",
+  "firstBegin": {
+    "status": {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": 7,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 1,
+        "cleanupComplete": true
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Synthetic disconnect page",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "starting",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 1,
+      "human": {
+        "state": "active",
+        "leaseId": "disconnect-human-1",
+        "tabId": 7,
+        "generation": 0,
+        "viewport": null,
+        "lastInputSequence": 0
+      }
+    }
+  },
+  "firstEnd": {
+    "status": {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 1,
+        "cleanupComplete": true
+      },
+      "tabs": [],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 3,
+      "human": null,
+      "humanCleanup": {
+        "leaseId": "disconnect-human-1",
+        "cleanupConfirmed": true
+      }
+    }
+  },
+  "secondBegin": {
+    "status": {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": 7,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 3,
+        "cleanupComplete": true
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Synthetic disconnect page",
+          "url": "https://fixture.invalid/"
+        }
+      ],
+      "stream": {
+        "state": "starting",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 5,
+      "human": {
+        "state": "active",
+        "leaseId": "disconnect-human-2",
+        "tabId": 7,
+        "generation": 0,
+        "viewport": null,
+        "lastInputSequence": 0
+      },
+      "humanCleanup": {
+        "leaseId": "disconnect-human-1",
+        "cleanupConfirmed": true
+      }
+    }
+  },
+  "disconnect": {
+    "disconnected": true,
+    "status": {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "connected": false,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000000000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 3,
+        "cleanupComplete": true
+      },
+      "tabs": [],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 6,
+      "human": null,
+      "humanCleanup": {
+        "leaseId": "disconnect-human-2",
+        "cleanupConfirmed": true
+      }
+    }
+  },
+  "evidence": {
+    "disconnectWaitedForOriginalRelease": true,
+    "closeCalls": [
+      1,
+      1
+    ],
+    "closeOrder": [
+      "disconnect-human-1",
+      "disconnect-human-2"
+    ]
+  },
+  "events": [
+    {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "disconnect-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "disconnect-instance",
+        "workerBootId": "disconnect-worker",
+        "portId": "disconnect-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": 7,
+        "automation": {
+          "state": "paused",
+          "inputBlocked": true,
+          "revision": 1,
+          "cleanupComplete": true
+        },
+        "tabs": [
+          {
+            "id": 7,
+            "title": "Synthetic disconnect page",
+            "url": "https://fixture.invalid/"
+          }
+        ],
+        "stream": {
+          "state": "starting",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 1,
+        "human": {
+          "state": "active",
+          "leaseId": "disconnect-human-1",
+          "tabId": 7,
+          "generation": 0,
+          "viewport": null,
+          "lastInputSequence": 0
+        }
+      },
+      "sequence": 1
+    },
+    {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "type": "clear",
+      "reason": "human control finished",
+      "sequence": 2
+    },
+    {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "disconnect-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "disconnect-instance",
+        "workerBootId": "disconnect-worker",
+        "portId": "disconnect-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": null,
+        "automation": {
+          "state": "paused",
+          "inputBlocked": true,
+          "revision": 1,
+          "cleanupComplete": true
+        },
+        "tabs": [],
+        "stream": {
+          "state": "idle",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 3,
+        "human": null,
+        "humanCleanup": {
+          "leaseId": "disconnect-human-1",
+          "cleanupConfirmed": true
+        }
+      },
+      "sequence": 3
+    },
+    {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "disconnect-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "disconnect-instance",
+        "workerBootId": "disconnect-worker",
+        "portId": "disconnect-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": null,
+        "automation": {
+          "state": "running",
+          "inputBlocked": false,
+          "revision": 2,
+          "cleanupComplete": false
+        },
+        "tabs": [
+          {
+            "id": 7,
+            "title": "Synthetic disconnect page",
+            "url": "https://fixture.invalid/"
+          }
+        ],
+        "stream": {
+          "state": "idle",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 4,
+        "human": null,
+        "humanCleanup": {
+          "leaseId": "disconnect-human-1",
+          "cleanupConfirmed": true
+        }
+      },
+      "sequence": 4
+    },
+    {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "disconnect-channel",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "disconnect-instance",
+        "workerBootId": "disconnect-worker",
+        "portId": "disconnect-port",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": 7,
+        "automation": {
+          "state": "paused",
+          "inputBlocked": true,
+          "revision": 3,
+          "cleanupComplete": true
+        },
+        "tabs": [
+          {
+            "id": 7,
+            "title": "Synthetic disconnect page",
+            "url": "https://fixture.invalid/"
+          }
+        ],
+        "stream": {
+          "state": "starting",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 5,
+        "human": {
+          "state": "active",
+          "leaseId": "disconnect-human-2",
+          "tabId": 7,
+          "generation": 0,
+          "viewport": null,
+          "lastInputSequence": 0
+        },
+        "humanCleanup": {
+          "leaseId": "disconnect-human-1",
+          "cleanupConfirmed": true
+        }
+      },
+      "sequence": 5
+    },
+    {
+      "version": 1,
+      "channelId": "disconnect-channel",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "disconnect-instance",
+      "workerBootId": "disconnect-worker",
+      "portId": "disconnect-port",
+      "type": "closed",
+      "reason": "manager disconnected",
+      "sequence": 6
+    }
+  ]
+}

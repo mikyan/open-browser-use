@@ -1,6 +1,6 @@
 # 前端协作说明
 
-Open Browser Use 当前 `main` 分支只保留 Chrome extension 前端。
+当前分支包含 Chrome extension 前端，以及实验性 managed 会话的本地查看界面。
 
 ## 当前前端边界
 
@@ -8,6 +8,19 @@ Open Browser Use 当前 `main` 分支只保留 Chrome extension 前端。
 - `apps/chrome-extension/popup.css`：popup 样式。
 - `apps/chrome-extension/popup.js`：popup 行为。
 - `apps/chrome-extension/content-cursor.js`：页面内 cursor overlay。
+- `internal/managedviewer/ui/`：隔离浏览器的本地实时画面、用户暂停/继续/停止，
+  以及开发分支的实验性人工接管。限定同文档流程已验收，发布状态见[独立会话](references/managed-browser-session.md)。
+
+## 本地查看界面
+
+查看界面只在原生帧实际解码、原页面接管租约与画面代次仍一致时接收人工
+输入。坐标按完整画面映射，保留原页面滚动条；视口变化会结束当前接管。
+输入逐项等候确认，超时和断线不自动重放。结束接管后 Agent 保持暂停，
+需用户显式继续，再由 Agent 开启新任务轮次。
+
+每轮人工请求保留独立本地代次，旧错误、超时和回复不得结束后来接管或
+改变其按钮状态。UI 行为用 `node --test internal/managedviewer/ui/viewer.test.mjs`
+验证；真实输入、帧与清理验证另见浏览器集成脚本，单元测试不替代浏览器验收。
 
 ## 页内操作反馈
 

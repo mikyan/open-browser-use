@@ -50,6 +50,7 @@ type userCDP struct {
 	done       chan struct{}
 	readerDone chan struct{}
 	writeGate  chan struct{}
+	lastWrite  <-chan struct{}
 	writers    sync.WaitGroup
 	event      func(string, string, json.RawMessage) error
 }
@@ -99,6 +100,9 @@ func (c *userCDP) start(ctx context.Context, session, method string, params any)
 	id := c.next
 	call := &userCall{done: make(chan struct{}), session: session}
 	c.pending[id] = call
+	previousWrite := c.lastWrite
+	written := make(chan struct{})
+	c.lastWrite = written
 	c.writers.Add(1)
 	c.mu.Unlock()
 	message := map[string]any{"id": id, "method": method, "params": params}
@@ -106,13 +110,22 @@ func (c *userCDP) start(ctx context.Context, session, method string, params any)
 		message["sessionId"] = session
 	}
 	data, err := json.Marshal(message)
-	if err != nil {
-		c.settle(id, userReply{err: err})
-		c.writers.Done()
-		return call, nil
-	}
 	go func() {
 		defer c.writers.Done()
+		defer close(written)
+		// Preserve submission order, not reply order. In particular a cleanup
+		// must not overtake an older Begin which could otherwise start afterward.
+		if previousWrite != nil {
+			select {
+			case <-previousWrite:
+			case <-c.done:
+				return
+			}
+		}
+		if err != nil {
+			c.settle(id, userReply{err: err})
+			return
+		}
 		select {
 		case c.writeGate <- struct{}{}:
 		case <-ctx.Done():

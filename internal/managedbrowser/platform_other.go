@@ -10,6 +10,8 @@ import (
 
 var errManagedPlatform = errors.New("isolated managed browser sessions currently require Windows 10 or newer")
 
+func platformSharingViolation(error) bool { return false }
+
 func platformValidatePath(string) error                          { return errManagedPlatform }
 func platformProtectDirectory(string) error                      { return errManagedPlatform }
 func platformLock(string) (io.Closer, error)                     { return nil, errManagedPlatform }

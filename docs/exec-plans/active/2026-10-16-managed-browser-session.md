@@ -133,9 +133,143 @@ setup 只验证自然关窗，不重放登录业务。不使用真实网站或�
 [资料目录说明](https://chromium.googlesource.com/chromium/src/+/main/docs/user_data_dir.md)
 与[统一 Headless 说明](https://developer.chrome.com/docs/automation-and-testing/headless)
 支持串行 profile 复用的设计；上述合成原流程验证了持久数据，真实网站
-兼容和任务中途同文档人工接管仍开放。
+兼容仍开放；独立同文档接管的后续实现及限定验收见下节。
 
 ## 验证阶段
+
+### 同文档人工接管实施（2026-10-17，限定流程已验，未入包）
+
+上一轮完成并发布登录准备，属于已验证进展。本轮继续补完整目标中尚缺的
+任务中途人工操作；自动续做期间不自行重复打包。用户随后再次要求新包，
+本轮将已验证提交 `2547e6e` 隔离重建，人工接管 WIP 保留且不进入该包。采用扩展内独立
+`ManagedHumanControl` Module，显式选择原任务标签页并冻结原 target 身份。
+先同步撤销任务输入，再等待原 Pause 和附件清理，之后才取得独立人工附件。
+不临时 Resume、不把人工 token 放入任务归属表，不给任务 RPC 增加控制权。
+
+人工输入和原生画面复用独立的输入跟踪、渲染和 BrowserLifetime 风险日志，
+保持原文档和未提交数据。按真实解码帧与文档/几何代次限定输入，有界顺序
+传送指针、键盘、已提交文本和滚轮；禁止任意 CDP/脚本代理。结束、页面失效、
+用户连接断开和原 worker 丢失先撤销接纳，再等待原调用、按键/按钮释放、
+原生帧 ACK/stop 与 detach。任何未知清理都阻止从 popup 或 viewer Resume。
+
+UI 独立显示“接管此页”“完成接管”，人工期间 Agent 保持暂停。完成接管
+只回到已暂停，用户再明确继续；必须新 turn/新句柄，旧人工和旧任务能力
+均不能恢复。观察模式保持原语义，任务暂停不能被误当成人工帧失效。
+
+真实验收使用同一个原表单：Agent 填一个字段，真实 viewer DOM 接管并点击、
+输入合成文本、滚动，交回后新任务取得同一 target/Document 并唯一提交。
+保留原点击/输入/帧/回执与清理证据。另行验已确认 held input 后断开原 WS
+的实际释放，不重放业务来刷通过。完整 IME、SSO/MFA、原生文件选择器、
+新弹窗接续、操作系统前台行为仍须分别取证，不能由这一原流程推导。
+
+用户要求交付时的开发断点（尚未提交、尚未真实验收）：
+
+- 独立 human backend、VM/builder 接入及定点测试已写；相关 131 项实际
+  exit 0。模块不支持几何改变后自动续租，必须重新明确接管。
+- UI 27 项行为测试实际通过；完整 UI 套件仍有旧 bridge fixture 不含
+  `human:null` 的跨层差异，尚未更新，不能记为全套通过。
+- 原始单次业务 runner/fixture 已写，4 项辅助测试实际通过；未启动浏览器。
+- 根 bridge 和共享 Go typed schema 仅部分接入，尚未测试。继续时先补
+  `humanCleanupIncomplete` 屏障、原 `lastInputSequence` 回执、generation
+  和 lease 验证、pending Begin/Input 时断线的同步撤权；再完成 Go viewer
+  projection、顺序输入队列、结束/断线优先清理及旧 fixture。
+- 必须完成上述跨层测试和真实浏览器原流程后，才能提交该功能、更新能力
+  文档及考虑下一包。当前包的离线/制品检查不验人工接管。
+
+续做进度（2026-10-17，仍未交付人工接管）：
+
+- 已完成独立 backend、bridge、Go/HTTP 输入队列、UI 和 shared public fixture。
+  修复 Shift 按住时的已提交文本、旧释放回复影响新 Begin、旧失败请求撤销
+  后继接管、断线清理先后顺序与私有字段误用。扩展 1,920 项、UI 35 项及
+  runner/fixture 6 项通过；Go 全包/vet 和冻结源码构建实际 exit 0。
+- 首个真实 `managed-human-EO2bNJ` 实际 exit 1：启动阶段读取原
+  DevToolsActivePort 遇 Windows sharing violation。没有网页请求、人工输入
+  或 POST。缺少 Browser root 的原清理记录为强制终止、browser exit 1、Job
+  归零；尚未确认 native 身份的 endpoint 保留为清理错误，不能记作正常关闭。
+  结果 SHA-256：`7ec0e57104ef5cdf9364519629ff986e9e3a94c648c19ea87c6b743fa087d038`。
+- Windows 启动仅对原文件的 `ERROR_SHARING_VIOLATION` 在原期限内继续观察，
+  不换端点、不重启浏览器；真实独占文件句柄专项、Go 全包/vet 通过。随后
+  `managed-human-wrP0ID` 启动及非业务 Begin/帧/End/Resume 成功，实际 exit 1
+  来自验收器误把普通 Tab 包装对象视为固定旧轮次。修正为核验明确携带原
+  session/turn/control epoch 的请求；该失败未发生主表单请求、人工输入或 POST。
+  原报告 SHA-256：`35b1d45a41522edfce4d1b6c1d053bf0efe1170abd0dc7306d5afeea3556d431`。
+- `managed-human-XLQ6VS` 实际 exit 1：原 Agent 已填写未提交表单，第二次
+  Begin 在首帧处失败，0 accepted humanInput、0 POST。正常 Browser.close、
+  browser/native/viewer/supervisor exit 0 与 Job 归零不改变业务失败结论。
+  原报告 SHA-256：`cd1732846c0032c3e0c1431efde72d686681c5fe44fdaa3b8a5f7b93a3c4c974`。
+- 独立零业务 `human-geometry-cEDK4O` 实际 exit 0：短页 client/frame 均为
+  778×446，长页和 RTL 长页 client 为 763×446、frame/inner 为 778×446，
+  scale/zoom 均为 1。证实 native surface 包含滚动条，不能与 client 尺寸
+  直接相等比较；原 Browser.close/exit 0 和进程归零完整。生产正在改为首帧
+  完整 surface 与私有 client 双重核对；这次诊断不构成人工输入验收。
+- 验收器点击目标改为原矩形与完整视口交集的中心，保留全部坐标证据，未
+  改页面或额外滚动。UI 旧 Begin 错误/输入超时结束后继租约的问题已修复，
+  UI 37 项通过；几何修正后的完整扩展 1,959 项通过，Go 全包/vet 通过。
+- `managed-human-tQeuXy` 实际 exit 1：长页 Begin 和人工首帧已成功，原
+  move/down 两项取得精确回执，up 得到通用未确认错误。没有 POST；不能
+  从该错误推出原 native up 是否发送，也不能把清理时的释放当作原 up 成功。
+  原报告 SHA-256：`d79b00159c5e69141dec46a7873867e04191e574e7ee62b9d0864db1137bad9e`。
+  新增精确白名单 `reasonCode` 和失败后的只读页面尺寸记录，以便区分后续
+  失败；不把新增诊断反推为历史证据。真实完整人工流程和共享 viewer 回归
+  仍待完成，人工接管继续排除在已发布包之外。
+- 独立无表单诊断 `human-pointer-diagnostic-U0ZXS7` 实际 exit 0：原 viewer
+  move/down/up 三个精确回执、原输入框聚焦、End 和正常停止通过；client
+  743×369、完整 surface 758×369 保持不变。各输入阶段之间额外读取了原
+  layout metrics 和 DOM，可能改变时序；不能代替原业务失败的修复证明。
+- `managed-human-IDDtlj` 实际 exit 1：仍在原 move/down 后的 up 失败，
+  未取得 reasonCode、无 POST。失败后记录显示 client 高度 369→354、
+  scrollWidth 743→829，业务元素矩形不变；事件日志文字造成横向溢出是
+  推断，未采集原日志元素的独立尺寸。fixture 仅为日志增加换行，不改变
+  业务布局或放宽生产几何校验。原报告 SHA-256：
+  `7b264b59ad9b2b9486c10625d4038fd604684c4901fdf978a9825963c0ef3fe4`。
+- 换行后的 `managed-human-JYEQfy` 实际 exit 1：23 项人工输入有精确回执，
+  原草稿追加 ASCII/Unicode、Shift down/text/up 顺序和一次可信确认点击
+  通过。随后真实 viewer wheel 未产生出站请求；UI 仍 active、pending 0、
+  sequence/acknowledged 23，原页尺寸不变、scrollY 0、无 POST。没有完成
+  held-input 断线、恢复、唯一业务提交及计划中的 UI Stop。最终 Browser.close
+  和 browser/native exit 0、Job 归零成立，但 supervisor exit 1 报告 viewer
+  rendering cleanup 未确认，不能声称全层正常清理。原报告 SHA-256：
+  `7b004282bcdc780e4a6186129d9405544475da582504029ead65c42c2ac2a664`。
+  正在核查 viewer 真实 wheel 命中和独立清理边界；旧失败不被后续诊断覆盖。
+- 独立无业务 `viewer-wheel-diagnostic-9Qk3Sm` 采集与清理实际 exit 0。两个
+  新 profile、相同静态图像和坐标，各执行一次真实 click/wheel；A 为默认
+  CDP context 后设置 DOM 1280×1000，实际窗口仍 780×580，wheel 命中
+  DIV 而非图像，查看页滚动 115；B 显式创建 1280×1000 context，实际
+  窗口也为该尺寸，wheel 命中图像并被其处理器取消，查看页未滚动。双方
+  原 Browser.close/exit 0 与身份退出成立，无扩展、host、表单或 POST。
+  runner 因此使用显式 viewer context，并逐页核对实际窗口；生产滚轮逻辑
+  未改。该诊断不替代完整接管验收，结果 SHA-256：
+  `177af01f46af7001eaa7a4a231309893eaa7f4cbd94ffd47844ab68754467c6e`。
+- 清理链另查到确定错误：bridge 已等待真实 revoke，却把先前 active human
+  快照作为 disconnect 回执返回；Go 缓存该原回执后，HTTP 按当前租约拒绝
+  清理确认。现在从实际清理后的资源重建回执，未知释放仍拒绝；新增跨层
+  回归正在核对，尚不能把修复视为原真实失败已通过。
+- 修复后原完整 `managed-human-6U55vc` 六步实际 exit 0：30 项精确人工
+  回执包含 pointer 10、key 5、text 13、wheel 2。原页面保留 Agent 草稿，
+  可信 Shift/A/keyup、Unicode、双向 600 滚轮与一次确认点击通过。按住
+  Shift 和左键时关闭原 WS，原文档实际收到释放；新连接确认确切 lease
+  cleanup 后显式 Resume、新 turn，旧人工及原任务 authority 拒绝，同一
+  Document 唯一提交 299 B POST。四个查看页的实际窗口均为 1280×1000。
+  最后 UI Stop、browser/native/supervisor/viewer exit 0、Job 归零、原身份
+  退出、注册及 endpoint 清理通过，未强制终止，cleanup 为空。结果 SHA-256：
+  `6454f2397a11e4f332dbaaa4a2775573a4fbe9a151d8a8a56264d49725a2a749`。
+- 同冻结运行时的普通 `managed-viewer-q5L0so` 四步实际 exit 0，12 原生帧、
+  AI 光标及蓝框、唯一提交、暂停/显式新轮次继续/停止和清理通过。结果
+  SHA-256：`b22dac7bce5f818b896f9e8fada0c484feb515601f585aef893cd831c67350cf`。
+  根代理目视检查了人工接管、最终提交以及普通 viewer 的原截图。
+- 最终扩展 1,966 项、UI 37 项、runner/fixture 10 项、Go 全包/vet 通过。
+  真实 bridge 输出生成的独立 Go 清理测试覆盖当前租约正例及五类旧/未知
+  回执反例。首次 UI 检查 36/37 的旧 golden 差异保留；重新生成实际 bridge
+  输出后通过，没有修改生产 UI。当前发布包保持 2547e6e；真实 IME、SSO/MFA、
+  跨导航接管、原生弹窗、缩放/触摸、普通公司 Edge 和独立 OS 前台证据仍未验。
+- 两项停止后独审均实际 exit 0。`6U55vc` 原始源码、30 输入回执、同文档
+  释放/恢复、299 B POST/231 B 响应、35 PNG 完整解码、29 个去重原进程
+  身份及清理证据一致，审计 SHA-256：
+  `541b11728fed90e35271afc54e05382059f0902f1404b01a3d49b8c8d374b7bf`。
+  `q5L0so` 核对唯一 190 B POST、七个 UI 控制回执、19 PNG 完整解码与
+  26 个去重原进程身份，审计 SHA-256：
+  `11f08984f80ab903c71369a6c84ad07edb8aa1ab03021e6d0285267d50c74ac6`。
+  当前资源不存在是补证，不替代原生退出与释放回执；审计项不计作新增业务。
 
 ### 正式启动入口实施（2026-10-17）
 
@@ -173,10 +307,13 @@ host；仅私有暂存副本写入 version 1 与随机 managed host 名。非法
   注册清理与无自有进程残留；失败时也保留全部原回执。
 - [x] Windows 实验性正式入口：profile 独占、启动/正常停止、CLI/MCP
   确切选择、原生子页与实际退出的有限验证。
-- [ ] 正式用户会话的 finalizeTabs、交付页保留与后续人工接管。
+- [x] Windows 固定 Chromium 的同文档基本人工接管：原草稿、typed 输入、
+  断线 held-input 释放、确切 cleanup 后显式继续与新轮次接回。
+- [ ] 正式用户会话的 finalizeTabs、可见交付页保留与其后续人工接续。
 - [ ] 浏览器发现/兼容与完整异常生命周期验收，其他平台实现。
-- [ ] 用户体验：实时画面、可见反馈、可信暂停/恢复/结束，以及登录/人工
-  接管的明确流程；不得把任务调用者当作用户控制通道。
+- [x] 限定用户流程：实时画面、可见反馈、可信暂停/恢复/结束、串行登录准备
+  及同文档人工接管；任务调用者没有用户控制通道。
+- [ ] 真实登录/输入法/跨文档与更广用户体验验收，普通公司 Edge 安装。
 - [x] 原始下载绑定：此会话确切 Browser root 与 Native Port 挑战成功。
 - [ ] 本模式的原文件下载及实际取消业务验收；沿用既有契约，不自动连接
   别的用户浏览器。

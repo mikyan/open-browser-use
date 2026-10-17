@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,31 @@ func browserEndpoint(data []byte) (string, error) {
 	}
 	endpoint := fmt.Sprintf("ws://127.0.0.1:%d%s", port, strings.TrimSpace(lines[1]))
 	if err := browserdownloads.ValidateURL(endpoint); err != nil {
+		return "", err
+	}
+	return endpoint, nil
+}
+
+func (s *Session) waitBrowserEndpoint(ctx context.Context, portFile string) (string, error) {
+	var endpoint string
+	err := s.waitStartup(ctx, func() (bool, error) {
+		data, err := readSmallFile(portFile, 4096)
+		if errors.Is(err, os.ErrNotExist) || platformSharingViolation(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		// Chromium publishes this file directly, including with an exclusive
+		// Windows handle. Missing, busy and partial publication belong to this
+		// original process and startup deadline; no replacement is launched.
+		if len(strings.Split(strings.TrimSpace(string(data)), "\n")) < 2 {
+			return false, nil
+		}
+		endpoint, err = browserEndpoint(data)
+		return err == nil, err
+	})
+	if err != nil {
 		return "", err
 	}
 	return endpoint, nil

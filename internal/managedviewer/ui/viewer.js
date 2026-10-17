@@ -5,7 +5,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   let ticket = fragment.get("ticket") || "";
   history.replaceState(null, "", location.pathname);
-  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions"].map(id => [id, document.getElementById(id)]));
+  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input"].map(id => [id, document.getElementById(id)]));
   let ws, connected = false, authenticated = false, available = false, stopped = false;
   let status = null, worker = "", pendingAction = null, nextId = 0, appliedId = 0;
   let selected = null, selectedOnce = false, tabs = [], lastFrameAt = 0, imageURL = null;
@@ -16,7 +16,43 @@
   let imageBusy = false, pendingFrame = null;
   let lastFrameTitle = "";
   let awaitingSelectionFrame = null;
+  let human = null, humanAction = null, humanOwner = "", humanEnding = false;
+  let humanEpoch = 0;
+  let humanSequence = 0, humanInputId = null, decodedHuman = null, awaitingHumanFrame = null;
+  let acknowledgedSequence = 0, composing = false;
+  let humanEndAttempted = false;
+  const inputQueue = [], pressedButtons = new Set(), pressedKeys = new Set();
+  const maxQueuedInputs = 32;
   const pending = new Map();
+
+  function humanReserved() { return human && human.state !== "released"; }
+  function humanReady() {
+    return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
+      human?.state === "active" && human.leaseId === humanOwner && decodedHuman?.leaseId === humanOwner &&
+      human.generation > 0 && human.viewport?.width > 0 && human.viewport?.height > 0 &&
+      decodedHuman.generation === human.generation && decodedHuman.tabId === human.tabId;
+  }
+
+  function blockHuman() {
+    humanEnding = true;
+    decodedHuman = null;
+    awaitingHumanFrame = null;
+    inputQueue.length = 0;
+    pressedKeys.clear();
+    pressedButtons.clear();
+    el["human-input"].value = "";
+  }
+
+  function endHuman(message = "", retryCleanup = false) {
+    const leaseId = human?.leaseId || humanOwner;
+    blockHuman(); // Revoke admission before awaiting any original input or cleanup receipt.
+    if (message) error(message);
+    if (leaseId && (!humanEndAttempted || retryCleanup) && humanAction !== "humanEnd" && authenticated && !stopped) {
+      humanEndAttempted = true;
+      send("humanEnd", { leaseId });
+    }
+    render();
+  }
 
   function error(message = "") {
     el.error.textContent = message;
@@ -35,28 +71,43 @@
       stopped: ["会话已停止", "已收到独立浏览器停止完成的确认。"]
     };
     const [label, detail] = descriptions[state];
-    el.state.textContent = label;
-    el.detail.textContent = detail;
+    el.state.textContent = available && human?.state === "active" && !humanEnding ? "人工接管中" : label;
+    el.detail.textContent = available && human?.state === "active" && !humanEnding ? "Agent 已暂停；人工控制只作用于当前接管的页面。" : detail;
     el.indicator.className = "indicator " + state;
     el.connection.textContent = stopped ? "已结束" : authenticated ? (available ? "已连接" : "控制状态不可用") : connected ? "正在验证" : "未连接";
     el.refresh.disabled = !authenticated || stopped || Boolean(pendingAction);
     const canResume = available && status.state === "paused" && status.cleanupComplete && viewerCleanupComplete;
     const retry = available && (status.state === "error" || status.state === "paused" && (!status.cleanupComplete || !viewerCleanupComplete));
     el.control.textContent = pendingAction === "pause" ? "正在暂停…" : pendingAction === "resume" ? "正在继续…" : canResume ? "继续操作" : retry ? "重试暂停" : "暂停操作";
-    el.control.disabled = !authenticated || !available || stopped || Boolean(pendingAction) || status.state === "pausing";
+    el.control.disabled = !authenticated || !available || stopped || Boolean(pendingAction) || Boolean(humanAction) || Boolean(humanOwner) || Boolean(humanReserved()) || status.state === "pausing";
     el.stop.disabled = !authenticated || stopped || pendingAction === "stop";
     if (pendingAction === "stop") el.stop.textContent = "正在停止…";
     else el.stop.textContent = "停止会话";
-    el.tabs.disabled = !authenticated || !available || status.state !== "running" || Boolean(pendingAction) || pendingSelectId !== null || stopped;
+    el.tabs.disabled = !authenticated || !available || status.state !== "running" || Boolean(pendingAction) || Boolean(humanAction) || Boolean(humanReserved()) || pendingSelectId !== null || stopped;
     el.watch.disabled = el.tabs.disabled || selected === null;
     el.watch.textContent = pendingSelectId !== null ? "正在确认…" : watching === selected && selected !== null ? "停止查看" : "开始查看";
+    el["human-begin"].disabled = el.tabs.disabled || selected === null;
+    el["human-begin"].hidden = Boolean(humanReserved()) || Boolean(humanAction) || Boolean(humanOwner);
+    el["human-end"].hidden = !humanReserved() && !humanAction && !humanOwner;
+    el["human-end"].disabled = !authenticated || stopped || !(human?.leaseId || humanOwner) || humanAction === "humanEnd";
+    el["human-end"].textContent = humanAction === "humanEnd" || human?.state === "releasing" ? "正在释放接管…" : "完成接管";
+    const ready = humanReady();
+    el.frame.dataset.interactive = String(ready);
+    el["human-input"].disabled = !ready;
+    el["human-input"].dataset.enabled = String(ready);
+    el["human-input"].dataset.pending = String(inputQueue.length + (humanInputId === null ? 0 : 1));
+    el["human-input"].dataset.sequence = String(humanSequence);
+    el["human-input"].dataset.acknowledgedSequence = String(acknowledgedSequence);
+    el["human-status"].hidden = !humanReserved() && !humanAction && !humanOwner;
+    el["human-status"].textContent = humanAction === "humanBegin" || human?.state === "starting" ? "正在暂停 Agent 并等待原控制释放…" : humanEnding || human?.state === "releasing" ? "人工输入已禁用，正在等待释放确认；不会重试网页操作。" : human?.state === "error" ? "人工控制未完成释放。请完成接管或停止会话；Agent 保持暂停。" : ready ? "你正在操作 · 点击画面后输入；离开输入区域会结束接管。完成后 Agent 仍保持暂停。" : "你正在接管 · 等待当前画面解码，暂不接收输入。";
     freshness();
   }
 
   function freshness() {
     if (!lastFrameAt) { el.freshness.textContent = "尚无画面"; return; }
     const seconds = Math.max(0, Math.floor((Date.now() - lastFrameAt) / 1000));
-    const frozen = !available || status?.state !== "running" || stopped || selected === null || (watching !== selected && pendingSelectTab !== selected);
+    const humanLive = human?.state === "active" && !humanEnding && decodedHuman?.leaseId === human.leaseId;
+    const frozen = !available || stopped || (!humanLive && (status?.state !== "running" || selected === null || (watching !== selected && pendingSelectTab !== selected)));
     el.freshness.textContent = (frozen ? "保留画面 · " : seconds < 3 ? "实时 · " : "等待更新 · ") + (seconds < 1 ? "刚刚" : `${seconds} 秒前`);
   }
 
@@ -64,6 +115,7 @@
     imageGeneration++;
     pendingFrame = null;
     awaitingSelectionFrame = null;
+    decodedHuman = null;
     if (imageURL) URL.revokeObjectURL(imageURL);
     imageURL = null;
     el.frame.removeAttribute("src");
@@ -92,11 +144,38 @@
     retireThrough(value.retiredSequence);
     if (value.eventSequence < retiredSequence) return;
     if (value.eventSequence < controlSequence || status && next.revision < status.revision || responseId && responseId < appliedId) return;
+    const nextHuman = value.human ?? null;
+    if (nextHuman && (!["starting", "active", "releasing", "released", "error"].includes(nextHuman.state) || typeof nextHuman.leaseId !== "string" || !nextHuman.leaseId || !Number.isSafeInteger(nextHuman.tabId) || nextHuman.tabId < 1 || !Number.isSafeInteger(nextHuman.generation) || nextHuman.generation < 0 ||
+      nextHuman.viewport !== null && (!Number.isFinite(nextHuman.viewport?.width) || nextHuman.viewport.width <= 0 || !Number.isFinite(nextHuman.viewport?.height) || nextHuman.viewport.height <= 0))) throw new Error("人工控制状态格式无效。");
+    if (humanAction === "humanBegin" && nextHuman && selected !== nextHuman.tabId) throw new Error("接管页面身份不匹配。");
+    // The first native frame supplies generation 1 after Begin may already
+    // have returned active/generation 0. This is readiness, not a successor
+    // document. Later geometry changes always revoke the original input lane.
+    const initialGeometry = human && nextHuman && human.leaseId === nextHuman.leaseId && human.tabId === nextHuman.tabId &&
+      human.generation === 0 && !decodedHuman && humanSequence === 0 && !humanEnding &&
+      ["starting", "active"].includes(human.state) && ["starting", "active"].includes(nextHuman.state);
+    const geometryChanged = human && nextHuman && (human.generation !== nextHuman.generation ||
+      human.viewport?.width !== nextHuman.viewport?.width || human.viewport?.height !== nextHuman.viewport?.height);
+    if (human && (!nextHuman || nextHuman.leaseId !== human.leaseId || nextHuman.tabId !== human.tabId || geometryChanged && !initialGeometry || human.state === "active" && nextHuman.state !== "active" || ["releasing", "released", "error"].includes(nextHuman.state))) {
+      blockHuman();
+      imageGeneration++;
+      pendingFrame = null;
+    }
+    human = nextHuman;
+    if (humanAction === "humanBegin" && human && !humanOwner) humanOwner = human.leaseId;
+    if (humanOwner && human?.state !== "active" && value.humanCleanup?.leaseId === humanOwner && value.humanCleanup.cleanupConfirmed === true) {
+      // A confirmed End joins native input too, including a reply whose local
+      // timeout expired. Only this receipt may clear that outstanding marker.
+      humanInputId = null;
+      humanOwner = "";
+      humanAction = null;
+      humanEpoch++; // All original Begin/Input/End callbacks are now retired.
+    }
     controlSequence = value.eventSequence;
-    if (next.state !== "running" || value.selectedTabId === null) retireThrough(Math.max(retiredSequence, value.eventSequence));
+    if (!humanReserved() && humanAction !== "humanBegin" && (next.state !== "running" || value.selectedTabId === null)) retireThrough(Math.max(retiredSequence, value.eventSequence));
     if (responseId) appliedId = responseId;
     worker = value.workerBootId;
-    if (next.state !== "running") { imageGeneration++; pendingFrame = null; }
+    if (next.state !== "running" && human?.state !== "active") { imageGeneration++; pendingFrame = null; }
     status = next;
     viewerCleanupComplete = value.viewerCleanupComplete;
     tabs = Array.isArray(value.tabs) ? value.tabs : [];
@@ -106,7 +185,7 @@
       selected = value.selectedTabId ?? null;
       selectedOnce = true;
     }
-    if (selected !== null && !tabs.some(t => t.id === selected)) {
+    if (selected !== null && !tabs.some(t => t.id === selected) && human?.tabId !== selected && humanAction !== "humanBegin") {
       selected = null;
       imageGeneration++;
       pendingFrame = null;
@@ -116,6 +195,10 @@
     const waiting = awaitingSelectionFrame;
     awaitingSelectionFrame = null;
     if (waiting && watching === waiting.tabId) frame(waiting);
+    const waitingHuman = awaitingHumanFrame;
+    awaitingHumanFrame = null;
+    if (waitingHuman) frame(waitingHuman);
+    if (humanEnding && human?.state === "active" && !humanEndAttempted) endHuman();
   }
 
   function retireThrough(sequence) {
@@ -124,6 +207,7 @@
     retiredSequence = sequence;
     imageGeneration++;
     pendingFrame = null;
+    if (decodedHuman && Number(el.frame.dataset.eventSequence) <= sequence) decodedHuman = null;
   }
 
   function send(operation, fields = {}) {
@@ -133,26 +217,45 @@
       const entry = pending.get(id);
       if (!entry) return;
       pending.delete(id);
+      if (entry.humanEpoch !== undefined && entry.humanEpoch !== humanEpoch) return;
       if (pendingSelectId === id) { pendingSelectId = null; pendingSelectTab = null; }
       if (pendingAction === operation) pendingAction = null;
+      if (humanAction === operation) humanAction = null;
+      if (operation.startsWith("human")) endHuman("人工操作确认超时，输入已禁用；不会自动重试。请等待释放确认或停止会话。");
       available = false;
       error("等待确认超时，不能据此判断操作是否完成。请刷新状态；不会自动重试操作。");
       render();
     }, operation === "stop" ? 55000 : 35000);
-    pending.set(id, { operation, timeout });
+    pending.set(id, { operation, timeout, fields, ...(operation.startsWith("human") ? { humanEpoch } : {}) });
     if (operation === "select") { pendingSelectId = id; pendingSelectTab = fields.tabId; }
     if (["pause", "resume", "stop"].includes(operation)) pendingAction = operation;
+    if (["humanBegin", "humanEnd"].includes(operation)) humanAction = operation;
     ws.send(JSON.stringify({ id, operation, ...fields }));
     render();
+    return id;
+  }
+
+  function validFrameScope(value) {
+    if (!available || revoked || stopped || value.eventSequence <= retiredSequence) return false;
+    if (value.controlMode === "human") return human?.state === "active" && !humanEnding && human.leaseId === value.humanLeaseId && human.generation === value.generation && human.tabId === value.tabId;
+    return !humanReserved() && !humanAction && status.state === "running" && selected === value.tabId && (watching === value.tabId || pendingSelectTab === value.tabId);
   }
 
   function frame(value) {
     retireThrough(value.retiredSequence);
+    if (revoked || stopped || !Number.isSafeInteger(value.eventSequence) || value.eventSequence <= retiredSequence ||
+      typeof value.data !== "string" || value.data.length > 4 * Math.ceil(4 * 1024 * 1024 / 3) || value.mimeType !== "image/png") return;
+    if (value.controlMode === "human" && !humanEnding &&
+        (humanAction === "humanBegin" && !human && selected === value.tabId ||
+         human?.leaseId === value.humanLeaseId && human.tabId === value.tabId && human.generation === 0 && ["starting", "active"].includes(human.state))) {
+      if (!awaitingHumanFrame || value.eventSequence > awaitingHumanFrame.eventSequence) awaitingHumanFrame = value;
+      return;
+    }
     if (available && !revoked && selected === value.tabId && value.eventSequence > retiredSequence && pendingSelectId !== null && watching !== value.tabId && pendingSelectTab !== value.tabId) {
       awaitingSelectionFrame = value;
       return;
     }
-    if (!available || revoked || !Number.isSafeInteger(value.eventSequence) || value.eventSequence <= retiredSequence || value.eventSequence <= lastFrameEvent || status.state !== "running" || selected !== value.tabId || (watching !== value.tabId && pendingSelectTab !== value.tabId) || typeof value.data !== "string" || value.data.length > 4 * Math.ceil(4 * 1024 * 1024 / 3) || value.mimeType !== "image/png") return;
+    if (!validFrameScope(value) || !Number.isSafeInteger(value.eventSequence) || value.eventSequence <= lastFrameEvent || typeof value.data !== "string" || value.data.length > 4 * Math.ceil(4 * 1024 * 1024 / 3) || value.mimeType !== "image/png") return;
     lastFrameEvent = value.eventSequence;
     if (stream === value.streamId && value.sequence <= frameSequence) return;
     stream = value.streamId;
@@ -173,10 +276,10 @@
       imageBusy = false;
       const next = pendingFrame;
       pendingFrame = null;
-      if (next && next.eventSequence > retiredSequence && available && !revoked && status.state === "running" && selected === next.tabId && (watching === next.tabId || pendingSelectTab === next.tabId) && !stopped) decodeFrame(next);
+      if (next && validFrameScope(next)) decodeFrame(next);
     };
     image.onload = () => {
-      if (generation !== imageGeneration || value.eventSequence <= retiredSequence || !available || revoked || status.state !== "running" || selected !== value.tabId || (watching !== value.tabId && pendingSelectTab !== value.tabId) || stopped) { URL.revokeObjectURL(nextURL); finish(); return; }
+      if (generation !== imageGeneration || !validFrameScope(value)) { URL.revokeObjectURL(nextURL); finish(); return; }
       if (imageURL) URL.revokeObjectURL(imageURL);
       imageURL = nextURL;
       el.frame.src = imageURL;
@@ -186,17 +289,128 @@
       el.frame.dataset.eventSequence = String(value.eventSequence);
       el.frame.dataset.renderGeneration = String(generation);
       el.frame.dataset.capturedAt = String(value.metadata?.timestamp ?? "");
+      el.frame.dataset.controlMode = value.controlMode === "human" ? "human" : "observe";
+      el.frame.dataset.humanLeaseId = value.controlMode === "human" ? value.humanLeaseId : "";
+      el.frame.dataset.generation = value.controlMode === "human" ? String(value.generation) : "";
+      decodedHuman = value.controlMode === "human" ? { leaseId: value.humanLeaseId, generation: value.generation, tabId: value.tabId, width: image.naturalWidth, height: image.naturalHeight } : null;
       el.placeholder.hidden = true;
       el.dimensions.textContent = `${image.naturalWidth} × ${image.naturalHeight}`;
       lastFrameAt = Date.now();
       const tab = tabs.find(t => t.id === value.tabId);
       lastFrameTitle = tab ? `${tab.title || "未命名标签页"} · ${tab.url || ""}` : `标签页 ${value.tabId}`;
-      freshness();
+      render();
       finish();
     };
     image.onerror = () => { URL.revokeObjectURL(nextURL); finish(); };
     image.src = nextURL;
   }
+
+  function drainInput() {
+    if (!humanReady() || humanInputId !== null || !inputQueue.length) return;
+    const input = inputQueue.shift();
+    humanInputId = send("humanInput", { leaseId: human.leaseId, generation: human.generation, sequence: ++humanSequence, input });
+    render();
+  }
+
+  function enqueueInput(input) {
+    if (!humanReady()) return false;
+    const previous = inputQueue.at(-1);
+    // Only an unsent move may be replaced; button/key transitions and text are never replayed or dropped.
+    if (input.type === "pointer" && input.action === "move" && previous?.type === "pointer" && previous.action === "move") inputQueue[inputQueue.length - 1] = input;
+    else if (inputQueue.length >= maxQueuedInputs) { endHuman("人工输入队列已满，已停止接收输入并请求释放；未发送的操作不会重放。"); return false; }
+    else inputQueue.push(input);
+    drainInput();
+    render();
+    return true;
+  }
+
+  const modifiers = event => (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+  const buttons = ["left", "middle", "right"];
+  function point(event) {
+    if (!humanReady() || !decodedHuman?.width || !decodedHuman.height) return null;
+    const rect = el.frame.getBoundingClientRect();
+    const scale = Math.min(rect.width / decodedHuman.width, rect.height / decodedHuman.height);
+    if (!Number.isFinite(scale) || scale <= 0) return null;
+    const width = decodedHuman.width * scale, height = decodedHuman.height * scale;
+    const left = rect.left + (rect.width - width) / 2, top = rect.top + (rect.height - height) / 2;
+    if (event.clientX < left || event.clientX >= left + width || event.clientY < top || event.clientY >= top + height) return null;
+    return { x: (event.clientX - left) * human.viewport.width / width, y: (event.clientY - top) * human.viewport.height / height };
+  }
+
+  function pointer(event, action) {
+    if (!humanReady()) return;
+    if (event.pointerType && event.pointerType !== "mouse") { endHuman("当前接管仅支持鼠标输入；已请求释放控制。"); return; }
+    const position = point(event);
+    if (!position) { if (pressedButtons.size) endHuman("指针已离开当前画面，正在释放按键和人工控制。"); return; }
+    const button = buttons[event.button];
+    if (action !== "move" && !button) return;
+    event.preventDefault();
+    if (action === "down") {
+      if (pressedButtons.has(button)) return;
+      el["human-input"].focus({ preventScroll: true });
+      pressedButtons.add(button);
+      el.frame.setPointerCapture(event.pointerId);
+    } else if (action === "up") {
+      if (!pressedButtons.delete(button)) return;
+    }
+    enqueueInput({ type: "pointer", action, ...position, ...(action === "move" ? {} : { button }), modifiers: modifiers(event) });
+    if (action === "up" && !pressedButtons.size && el.frame.hasPointerCapture(event.pointerId)) el.frame.releasePointerCapture(event.pointerId);
+  }
+
+  function committedText(text) {
+    el["human-input"].value = "";
+    if (typeof text !== "string" || !text) return;
+    if (text.length > 4096) { endHuman("一次输入过长，已请求释放；文字未发送。请分段输入。"); return; }
+    enqueueInput({ type: "text", text });
+  }
+
+  function keyboard(event, action) {
+    if (!humanReady() || event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key)) return;
+    const shortcut = event.ctrlKey || event.altKey || event.metaKey;
+    const printable = Array.from(event.key || "").length === 1;
+    if (printable && !shortcut && !pressedKeys.has(event.code)) return; // Committed text has exactly one path below.
+    if (!event.code || !Number.isInteger(event.keyCode) || event.keyCode < 1 || event.keyCode > 255) return;
+    event.preventDefault();
+    if (action === "down") {
+      if (pressedKeys.has(event.code)) return;
+      pressedKeys.add(event.code);
+    } else if (!pressedKeys.delete(event.code)) return;
+    enqueueInput({ type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event) });
+  }
+
+  el["human-begin"].addEventListener("click", () => {
+    if (el["human-begin"].disabled) return;
+    humanEpoch++;
+    error(); clearFrame();
+    human = null; humanOwner = ""; humanEnding = humanEndAttempted = composing = false;
+    humanSequence = acknowledgedSequence = 0;
+    inputQueue.length = 0; humanInputId = null;
+    send("humanBegin", { tabId: selected });
+  });
+  el["human-end"].addEventListener("click", () => { if (!el["human-end"].disabled) endHuman("", true); });
+  for (const action of ["down", "move", "up"]) el.frame.addEventListener(`pointer${action}`, event => pointer(event, action));
+  for (const event of ["pointercancel", "lostpointercapture"]) el.frame.addEventListener(event, () => { if (pressedButtons.size) endHuman("指针控制已中断，正在释放人工控制。"); });
+  el.frame.addEventListener("contextmenu", event => { if (humanReady()) event.preventDefault(); });
+  el.frame.addEventListener("wheel", event => {
+    const position = point(event);
+    if (!position) return;
+    event.preventDefault();
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? human.viewport.height : 1;
+    const deltaX = event.deltaX * unit, deltaY = event.deltaY * unit;
+    if (Number.isFinite(deltaX) && Number.isFinite(deltaY)) enqueueInput({ type: "wheel", ...position, deltaX, deltaY, modifiers: modifiers(event) });
+  }, { passive: false });
+  el["human-input"].addEventListener("keydown", event => keyboard(event, "down"));
+  el["human-input"].addEventListener("keyup", event => keyboard(event, "up"));
+  el["human-input"].addEventListener("beforeinput", event => {
+    if (!humanReady() || event.isComposing || composing || /Composition/.test(event.inputType)) return;
+    event.preventDefault();
+    if (["insertText", "insertFromPaste", "insertReplacementText"].includes(event.inputType)) committedText(event.data ?? event.dataTransfer?.getData("text/plain"));
+  });
+  el["human-input"].addEventListener("compositionstart", () => { composing = true; });
+  el["human-input"].addEventListener("compositionend", event => { composing = false; if (humanReady()) committedText(event.data); else el["human-input"].value = ""; });
+  el["human-input"].addEventListener("blur", () => { if (humanReserved() && !humanEnding) endHuman("输入区域已失焦，正在释放人工控制；Agent 保持暂停。"); });
+  window.addEventListener("blur", () => { if ((humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。"); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && (humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已隐藏，正在释放人工控制；Agent 保持暂停。"); });
 
   el.refresh.addEventListener("click", () => { error(); send("status"); });
   el.control.addEventListener("click", () => {
@@ -205,7 +419,7 @@
     if (status.state === "paused" && status.cleanupComplete && viewerCleanupComplete) send("resume", { expectedRevision: status.revision, expectedWorkerBootId: worker });
     else send("pause");
   });
-  el.stop.addEventListener("click", () => { if (!el.stop.disabled) { error(); send("stop"); } });
+  el.stop.addEventListener("click", () => { if (!el.stop.disabled) { blockHuman(); error(); send("stop"); } });
   el.watch.addEventListener("click", () => {
     if (el.watch.disabled) return;
     error();
@@ -253,6 +467,7 @@
         imageGeneration++;
         pendingFrame = null;
         awaitingSelectionFrame = null;
+        if (humanReserved()) endHuman("当前接管画面已撤销，正在释放人工控制。");
         render();
       } else if (value.type === "unavailable") {
         available = false;
@@ -261,6 +476,7 @@
         pendingFrame = null;
         awaitingSelectionFrame = null;
         pendingSelectTab = null;
+        blockHuman();
         error("浏览器控制连接已断开；仍可停止会话。");
         render();
       } else if (value.type === "response") {
@@ -268,20 +484,49 @@
         if (!entry) return;
         clearTimeout(entry.timeout);
         pending.delete(value.id);
+        if (entry.humanEpoch !== undefined && entry.humanEpoch !== humanEpoch) return;
         if (pendingSelectId === value.id) { pendingSelectId = null; pendingSelectTab = null; }
         if (pendingAction === entry.operation) pendingAction = null;
+        if (entry.operation === "humanInput") {
+          const current = humanInputId === value.id && entry.fields.leaseId === humanOwner && entry.fields.generation === human?.generation;
+          if (humanInputId === value.id) humanInputId = null;
+          if (!current) { render(); return; } // A retired lease's receipt cannot drain a successor input lane.
+        }
         if (value.error) {
+          if (entry.operation.startsWith("human")) {
+            if (humanAction === entry.operation) humanAction = null;
+            endHuman(value.error.message || "人工操作结果未确认，已禁用输入并请求释放。");
+          }
           available = false;
           error(value.error.message || "操作结果未确认，请刷新状态。");
         } else if (entry.operation === "stop" && value.result?.stopped === true) {
           stopped = true;
           error();
+        } else if (entry.operation === "humanInput") {
+          const receipt = value.result?.inputReceipt;
+          if (!receipt || receipt.acknowledged !== true || receipt.leaseId !== entry.fields.leaseId || receipt.generation !== entry.fields.generation || receipt.sequence !== entry.fields.sequence) {
+            endHuman("人工输入回执不匹配，已禁用输入并请求释放；不会重试。");
+          } else {
+            acknowledgedSequence = receipt.sequence;
+            acceptState(value.result, value.id);
+            drainInput();
+          }
         } else {
           acceptState(value.result, value.id);
+          if (entry.operation === "humanBegin") {
+            if (humanAction === "humanBegin") humanAction = null;
+            if (human?.state !== "active" || human.leaseId !== humanOwner) endHuman("接管尚未就绪，输入保持禁用。");
+          } else if (entry.operation === "humanEnd") {
+            if (humanAction === "humanEnd") humanAction = null;
+            const cleanup = value.result?.humanCleanup;
+            if (!cleanup || cleanup.leaseId !== entry.fields.leaseId || cleanup.cleanupConfirmed !== true) error("人工控制释放尚未确认；Agent 保持暂停，请刷新状态或停止会话。");
+            else { if (humanOwner === entry.fields.leaseId) humanOwner = ""; error(); }
+          }
         }
         render();
       }
     } catch {
+      if (humanReserved()) endHuman("人工控制状态无法确认，已禁用输入并请求释放。");
       available = false;
       error("未能读取浏览器状态。请刷新状态后再操作。");
       render();
@@ -289,6 +534,7 @@
   });
   ws.addEventListener("close", () => {
     connected = authenticated = available = false;
+    blockHuman();
     pendingAction = null;
     pendingSelectId = pendingSelectTab = null;
     for (const { timeout } of pending.values()) clearTimeout(timeout);
@@ -298,5 +544,5 @@
   });
   ws.addEventListener("error", () => { /* The close handler reports unconfirmed state. */ });
   setInterval(freshness, 1000);
-  window.addEventListener("pagehide", () => { ws.close(); clearFrame(); }, { once: true });
+  window.addEventListener("pagehide", () => { blockHuman(); ws.close(); clearFrame(); }, { once: true });
 })();

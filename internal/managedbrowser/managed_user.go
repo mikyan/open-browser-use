@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ifuryst/open-browser-use/internal/managedprotocol"
 )
 
 const userBindingName = "__obuManagedViewerEvent"
@@ -25,7 +26,7 @@ type managedUserIdentity struct {
 	ChannelID           string `json:"channelId,omitempty"`
 }
 
-// UserController has no browser-input or general CDP surface. Done signals
+// UserController permits bounded explicit human input, never general CDP. Done signals
 // unavailable user control, separately from Close's original cleanup receipt.
 type UserController struct {
 	cdp                  *userCDP
@@ -64,9 +65,14 @@ type UserController struct {
 	frameTabID           uint64
 	retiredFrameSequence uint64
 	streamID             string
+	frameMode            string
+	frameLease           string
+	frameGeneration      uint64
 	retiredStreams       map[string]bool
 	acks                 chan uint64
 	heartbeatEvery       time.Duration
+	humanRisk            bool
+	humanRiskGeneration  uint64
 }
 
 // OpenUserController binds once to this run's already authenticated worker.
@@ -233,7 +239,8 @@ func (c *UserController) evaluateLocked(ctx context.Context, method string, para
 
 type userBridgeError struct{ code string }
 
-func (e *userBridgeError) Error() string { return "managed user bridge rejected request: " + e.code }
+func (e *userBridgeError) Error() string         { return "managed user bridge rejected request: " + e.code }
+func (e *userBridgeError) UserErrorCode() string { return e.code }
 
 func bridgeValue(data json.RawMessage) (json.RawMessage, error) {
 	var result struct {
@@ -251,14 +258,17 @@ func bridgeValue(data json.RawMessage) (json.RawMessage, error) {
 		// Preserve a bounded known error code, never a stack, expression, key or
 		// browser-supplied arbitrary message in logs or public HTTP errors.
 		code := "UNKNOWN"
-		for _, prefix := range []string{"OBU_MANAGED_USER_", "OBU_CONTROL_", "OBU_AUTOMATION_"} {
-			if at := strings.Index(result.Result.Description, prefix); at >= 0 {
-				candidate := result.Result.Description[at:]
+		description := strings.TrimPrefix(result.Result.Description, "Error: ")
+		for _, prefix := range []string{"OBU_MANAGED_USER_", "OBU_HUMAN_", "OBU_CONTROL_", "OBU_AUTOMATION_"} {
+			if strings.HasPrefix(description, prefix) {
+				candidate := description
 				end := 0
 				for end < len(candidate) && end < 96 && (candidate[end] == '_' || candidate[end] >= 'A' && candidate[end] <= 'Z') {
 					end++
 				}
-				code = candidate[:end]
+				if end < len(candidate) && candidate[end] == ':' {
+					code = candidate[:end]
+				}
 				break
 			}
 		}
@@ -305,6 +315,16 @@ func (c *UserController) acceptOpen(data json.RawMessage) error {
 }
 
 func (c *UserController) validateStatusLocked(data json.RawMessage) error {
+	f, err := userObject(data)
+	if err != nil {
+		return err
+	}
+	if _, err := managedprotocol.ParseHumanState(f["human"]); err != nil {
+		return err
+	}
+	if _, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"]); err != nil {
+		return err
+	}
 	var value struct {
 		managedUserIdentity
 		EventSequence *uint64 `json:"eventSequence"`
@@ -317,38 +337,11 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 }
 
 func userObject(data []byte) (map[string]json.RawMessage, error) {
-	d := json.NewDecoder(bytes.NewReader(data))
-	first, err := d.Token()
-	if err != nil || first != json.Delim('{') {
-		return nil, errors.New("managed user command must be an object")
-	}
-	result := make(map[string]json.RawMessage)
-	for d.More() {
-		key, err := d.Token()
-		if err != nil {
-			return nil, err
-		}
-		name, ok := key.(string)
-		if !ok || result[name] != nil {
-			return nil, errors.New("duplicate managed user field")
-		}
-		var value json.RawMessage
-		if err := d.Decode(&value); err != nil {
-			return nil, err
-		}
-		result[name] = value
-	}
-	if _, err := d.Token(); err != nil {
-		return nil, err
-	}
-	if _, err := d.Token(); err != io.EOF {
-		return nil, errors.New("trailing managed user JSON")
-	}
-	return result, nil
+	return managedprotocol.Object(data)
 }
 
 func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool, error) {
-	if len(data) > 8192 {
+	if len(data) > 32<<10 {
 		return nil, "", false, errors.New("managed user command too large")
 	}
 	f, err := userObject(data)
@@ -378,6 +371,13 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		var boot string
 		if bytes.Equal(f["expectedRevision"], []byte("null")) || json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > 1<<53-1 || json.Unmarshal(f["expectedWorkerBootId"], &boot) != nil || boot == "" || len(boot) > 256 {
 			return nil, "", false, errors.New("invalid managed user resume identity")
+		}
+	case "humanBegin", "humanInput", "humanEnd":
+		if err := managedprotocol.ValidateHuman(operation, f); err != nil {
+			return nil, "", false, err
+		}
+		for _, name := range managedprotocol.HumanFields(operation) {
+			allowed[name] = true
 		}
 	default:
 		return nil, "", false, errors.New("unsupported managed user operation")
@@ -431,8 +431,13 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	f["channelKey"] = key
 	call, err := c.evaluateLocked(ctx, "request", f)
 	if err == nil {
+		if operation == "humanBegin" {
+			c.humanRisk = true
+			c.humanRiskGeneration++
+		}
 		c.trackCallLocked(call)
 	}
+	riskGeneration := c.humanRiskGeneration
 	c.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -445,6 +450,16 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	if err != nil {
 		return nil, err
 	}
+	responseFields, err := userObject(value)
+	if err != nil {
+		return nil, err
+	}
+	if operation == "humanInput" {
+		receipt, err := managedprotocol.ParseInputReceipt(responseFields["inputReceipt"])
+		if err != nil || !managedprotocol.MatchInputReceipt(f, receipt) {
+			return nil, errors.New("managed original human input receipt mismatch")
+		}
+	}
 	var response struct {
 		Status json.RawMessage `json:"status"`
 	}
@@ -453,6 +468,14 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	}
 	c.mu.Lock()
 	err = c.validateStatusLocked(response.Status)
+	if err == nil && riskGeneration == c.humanRiskGeneration && (unselect || operation == "humanEnd" || operation == "pause") {
+		fields, parseErr := userObject(response.Status)
+		var selected *uint64
+		var pending *uint64
+		if parseErr == nil && json.Unmarshal(fields["selectedTabId"], &selected) == nil && selected == nil && json.Unmarshal(fields["cleanupPending"], &pending) == nil && pending != nil && *pending == 0 && fields["cleanupError"] == nil && (fields["human"] == nil || string(fields["human"]) == "null") {
+			c.humanRisk = false // Only a real cleanup operation, never a status snapshot.
+		}
+	}
 	c.mu.Unlock()
 	if err != nil {
 		c.unavailable(err)
@@ -582,8 +605,10 @@ func (c *UserController) cleanupFailure(err error) {
 }
 
 func (c *UserController) Close(ctx context.Context) error {
+	ownerExited := false
 	select {
 	case <-c.ownerDone:
+		ownerExited = true
 		c.markWorkerGone()
 	default:
 	}
@@ -595,9 +620,26 @@ func (c *UserController) Close(ctx context.Context) error {
 	}
 	select {
 	case <-c.workerGone:
+		var failure <-chan struct{}
+		if !ownerExited {
+			failure = c.cleanupFailed
+			select {
+			case <-c.cleanupFailed:
+				c.mu.Lock()
+				err := c.cleanupErr
+				c.mu.Unlock()
+				return err
+			default:
+			}
+		}
 		select {
 		case <-c.cleanupDone:
 			return nil
+		case <-failure:
+			c.mu.Lock()
+			err := c.cleanupErr
+			c.mu.Unlock()
+			return err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -619,12 +661,23 @@ func (c *UserController) Close(ctx context.Context) error {
 func (c *UserController) shutdownUser() {
 	c.mu.Lock()
 	openCall, attempted, session := c.openCall, c.openAttempt, c.sessionID
+	humanRisk := c.humanRisk
 	commands := make([]*userCall, 0, len(c.commands))
 	for call := range c.commands {
 		commands = append(commands, call)
 	}
 	c.mu.Unlock()
 	proof := "bridge-disconnect"
+	var terminated <-chan struct{} = c.workerGone
+	terminationProof := "worker-terminated"
+	var unsafeWorkerGone <-chan struct{}
+	if humanRisk {
+		terminated, terminationProof, unsafeWorkerGone = c.ownerDone, "session-terminated", c.workerGone
+	}
+	waitOwnedExit := func() {
+		c.cleanupFailure(errors.New("original worker ended before human cleanup was confirmed; waiting for owned browser exit"))
+		<-c.ownerDone
+	}
 	var receipt json.RawMessage
 	var cleanupErr error
 	if attempted && openCall != nil {
@@ -635,11 +688,14 @@ func (c *UserController) shutdownUser() {
 			} else {
 				cleanupErr = c.acceptOpen(openCall.reply.data)
 			}
-		case <-c.workerGone:
-			proof = "worker-terminated"
+		case <-terminated:
+			proof = terminationProof
+		case <-unsafeWorkerGone:
+			waitOwnedExit()
+			proof = terminationProof
 		}
 	}
-	if proof != "worker-terminated" && cleanupErr == nil && attempted {
+	if proof == "bridge-disconnect" && cleanupErr == nil && attempted {
 		result := make(chan userReply, 1)
 		c.workers.Add(1)
 		go func() {
@@ -664,39 +720,45 @@ func (c *UserController) shutdownUser() {
 					c.mu.Unlock()
 				}
 			}
-		case <-c.workerGone:
-			proof = "worker-terminated"
+		case <-terminated:
+			proof = terminationProof
+		case <-unsafeWorkerGone:
+			waitOwnedExit()
+			proof = terminationProof
 		}
 	}
 	if cleanupErr != nil {
 		c.cleanupFailure(fmt.Errorf("managed user cleanup unconfirmed: %w", cleanupErr))
-		<-c.workerGone
-		proof = "worker-terminated"
+		<-terminated
+		proof = terminationProof
 	}
-	if proof != "worker-terminated" {
+	if proof == "bridge-disconnect" {
 		for _, call := range commands {
 			select {
 			case <-call.done:
-			case <-c.workerGone:
-				proof = "worker-terminated"
+			case <-terminated:
+				proof = terminationProof
+			case <-unsafeWorkerGone:
+				waitOwnedExit()
+				proof = terminationProof
 			}
 		}
 	}
-	if proof != "worker-terminated" && session != "" {
+	if proof == "bridge-disconnect" && session != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := c.cdp.call(ctx, "", "Target.detachFromTarget", map[string]any{"sessionId": session}, nil)
 		cancel()
 		if err != nil {
 			c.cleanupFailure(errors.New("managed user worker detach unconfirmed"))
-			<-c.workerGone
-			proof = "worker-terminated"
+			<-terminated
+			proof = terminationProof
 		}
 	}
 	c.cdp.fail(errors.New("managed user cleanup finished"))
 	<-c.cdp.readerDone
 	c.cdp.writers.Wait()
 	c.workers.Wait()
-	if len(receipt) == 0 || proof == "worker-terminated" {
+	if len(receipt) == 0 || proof != "bridge-disconnect" {
 		receipt, _ = json.Marshal(map[string]any{"cleanupConfirmed": true, "cleanupProof": proof, "status": map[string]any{"connected": false, "selectedTabId": nil}})
 	}
 	c.mu.Lock()
@@ -783,6 +845,10 @@ func (c *UserController) handleEvent(session, method string, params json.RawMess
 }
 
 func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
+	fields, parseErr := userObject(data)
+	if parseErr != nil {
+		return parseErr
+	}
 	var event struct {
 		managedUserIdentity
 		Type          string
@@ -793,6 +859,9 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 		MIMEType      string `json:"mimeType"`
 		Data          string
 		Status        json.RawMessage
+		ControlMode   string `json:"controlMode"`
+		HumanLeaseID  string `json:"humanLeaseId"`
+		Generation    uint64 `json:"generation"`
 	}
 	if len(data) > userReadLimit || json.Unmarshal(data, &event) != nil {
 		return errors.New("invalid managed user event")
@@ -809,6 +878,10 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 	}
 	switch event.Type {
 	case "frame":
+		if _, _, _, err := managedprotocol.ParseFrameIdentity(fields); err != nil {
+			c.mu.Unlock()
+			return err
+		}
 		if event.TabID == 0 || event.TabID > 1<<53-1 || event.StreamID == "" || len(event.StreamID) > 256 || event.FrameSequence == 0 || event.FrameSequence > 1<<53-1 || event.FrameSequence <= c.lastBrokerSequence || event.MIMEType != "image/png" || len(event.Data) > 4*((4<<20+2)/3) || c.retiredStreams[event.StreamID] {
 			c.mu.Unlock()
 			return errors.New("invalid managed user frame")
@@ -822,6 +895,11 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 			c.mu.Unlock()
 			return errors.New("managed user stream changed without retirement")
 		}
+		if c.streamID != "" && (c.frameMode != event.ControlMode || c.frameLease != event.HumanLeaseID || c.frameGeneration != event.Generation) {
+			c.mu.Unlock()
+			return errors.New("managed human stream identity changed without retirement")
+		}
+		c.frameMode, c.frameLease, c.frameGeneration = event.ControlMode, event.HumanLeaseID, event.Generation
 		c.streamID, c.lastFrameSequence = event.StreamID, event.Sequence
 		c.lastBrokerSequence, c.frameTabID = event.FrameSequence, event.TabID
 		c.latestFrame = append(json.RawMessage(nil), data...)
@@ -840,6 +918,7 @@ func (c *UserController) receiveBridgeEvent(data json.RawMessage) error {
 			c.retiredStreams[c.streamID] = true
 		}
 		c.streamID = ""
+		c.frameMode, c.frameLease, c.frameGeneration = "", "", 0
 		c.lastBrokerSequence, c.frameTabID = 0, 0
 		c.retiredFrameSequence = c.lastFrameSequence
 		c.latestFrame = nil

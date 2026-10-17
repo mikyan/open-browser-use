@@ -36,6 +36,10 @@ var (
 	deleteRegistryKey = windows.NewLazySystemDLL("advapi32.dll").NewProc("RegDeleteKeyExW")
 )
 
+func platformSharingViolation(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION)
+}
+
 // Only ordinary absolute local paths are accepted. Check every existing ancestor,
 // including junctions (which os.ModeSymlink alone does not consistently describe).
 func platformValidatePath(path string) error {

@@ -1,5 +1,6 @@
 // Package managedviewer serves an explicitly authorized, local-only viewer.
-// It does not expose browser input, task RPC, or a general CDP proxy.
+// It exposes only typed human input for an explicitly leased page, never task
+// RPC or a general CDP proxy.
 package managedviewer
 
 import (
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/ifuryst/open-browser-use/internal/managedprotocol"
 )
 
 //go:embed ui/index.html ui/viewer.js ui/viewer.css
@@ -61,17 +63,32 @@ type Server struct {
 }
 
 type connection struct {
-	ws              *websocket.Conn
-	ctx             context.Context
-	cancel          context.CancelFunc
-	replies         chan outbound
-	state           chan json.RawMessage
-	frames          chan json.RawMessage
-	work            chan struct{}
-	workers         sync.WaitGroup
-	stopReply       *delivery
-	sequenceMu      sync.Mutex
-	retiredSequence uint64
+	ws                 *websocket.Conn
+	ctx                context.Context
+	cancel             context.CancelFunc
+	replies            chan outbound
+	state              chan json.RawMessage
+	frames             chan json.RawMessage
+	work               chan struct{}
+	workers            sync.WaitGroup
+	stopReply          *delivery
+	sequenceMu         sync.Mutex
+	retiredSequence    uint64
+	controlMu          sync.Mutex
+	humanClaimed       bool
+	humanStarting      bool
+	humanRevoked       bool
+	humanLease         string
+	humanGeneration    uint64
+	humanSequence      uint64
+	humanEpoch         uint64
+	humanStateSequence uint64
+	humanCandidate     *managedprotocol.HumanState
+	humanCtx           context.Context
+	humanCancel        context.CancelFunc
+	inputs             chan command
+	releases           chan struct{}
+	cleanupDone        chan struct{}
 }
 
 type outbound struct {
@@ -144,6 +161,40 @@ func (s *Server) IssueURL() (string, error) {
 	s.expires, s.used = time.Now().Add(ticketLifetime), false
 	s.url = s.origin + "/#ticket=" + token
 	return s.url, nil
+}
+
+// WaitReady waits for the original viewer reader, cleanup receipt and workers.
+// Client-side WebSocket closure is not itself proof that these have finished.
+// It issues no ticket and never disconnects an active viewer on the caller's behalf.
+func (s *Server) WaitReady(ctx context.Context) error {
+	s.mu.Lock()
+	active, closed, cleanupErr := s.active, s.closed, s.cleanupErr
+	s.mu.Unlock()
+	if closed {
+		return errors.New("managed viewer is closed")
+	}
+	if cleanupErr != nil && active == nil {
+		return errors.New("previous viewer cleanup is unconfirmed")
+	}
+	if active != nil {
+		select {
+		case <-active.cleanupDone:
+		case <-ctx.Done():
+			return fmt.Errorf("previous viewer is still connected or its cleanup is pending: %w", ctx.Err())
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errors.New("managed viewer is closed")
+	}
+	if s.cleanupErr != nil {
+		return errors.New("previous viewer cleanup is unconfirmed")
+	}
+	if s.active != nil {
+		return errors.New("a managed viewer is already connected")
+	}
+	return nil
 }
 
 func (s *Server) Done() <-chan struct{} { return s.done }
@@ -265,7 +316,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.CloseNow()
-	ws.SetReadLimit(8192)
+	ws.SetReadLimit(managedprotocol.MaxCommandBytes)
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 	authCtx, authCancel := context.WithTimeout(ctx, 2*time.Second)
@@ -280,7 +331,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	digest := sha256.Sum256([]byte(token))
-	c := &connection{ws: ws, ctx: ctx, cancel: cancel, replies: make(chan outbound, 16), state: make(chan json.RawMessage, 1), frames: make(chan json.RawMessage, 1), work: make(chan struct{}, 4)}
+	c := &connection{ws: ws, ctx: ctx, cancel: cancel, replies: make(chan outbound, 16), state: make(chan json.RawMessage, 1), frames: make(chan json.RawMessage, 1), work: make(chan struct{}, 4), inputs: make(chan command, 32), releases: make(chan struct{}, 1), cleanupDone: make(chan struct{}), humanRevoked: true}
 	s.mu.Lock()
 	if s.closed || s.active != nil || s.used || !time.Now().Before(s.expires) || subtle.ConstantTimeCompare(digest[:], s.ticket[:]) != 1 {
 		s.mu.Unlock()
@@ -289,27 +340,37 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	s.used, s.active = true, c
 	s.mu.Unlock()
 	defer func() {
+		c.revokeHuman()
 		cancel()
 		_ = ws.CloseNow()
+		// select:null revokes both a starting human lease and its original input
+		// before joining callers. Waiting for those callers first can deadlock
+		// held input cleanup. Ordinary viewing retains its previous semantics.
+		cleanup, finish := context.WithTimeout(context.Background(), 30*time.Second)
+		cleanupResult, cleanupErr := s.config.Backend.Command(cleanup, json.RawMessage(`{"operation":"select","tabId":null}`))
+		if cleanupErr == nil {
+			cleanupErr = c.confirmCleanup(cleanupResult)
+		}
+		finish()
 		c.workers.Wait()
 		c.stopReply.finish(errors.New("viewer connection closed before Stop reply delivery was confirmed"))
-		// A disconnected viewer relinquishes only its rendering subscription.
-		// It never pauses/resumes the agent or closes the browser implicitly.
-		cleanup, finish := context.WithTimeout(context.Background(), 30*time.Second)
-		_, cleanupErr := s.config.Backend.Command(cleanup, json.RawMessage(`{"operation":"select","tabId":null}`))
-		finish()
 		s.mu.Lock()
 		if cleanupErr != nil {
 			s.cleanupErr = errors.New("viewer rendering cleanup was not confirmed")
+		} else {
+			s.cleanupErr = nil
 		}
 		if s.active == c {
 			s.active = nil
 		}
+		close(c.cleanupDone)
 		s.mu.Unlock()
 	}()
 	c.reply(jsonBytes(map[string]any{"type": "authenticated"}))
 	c.workers.Add(1)
 	go func() { defer c.workers.Done(); c.write() }()
+	c.workers.Add(1)
+	go func() { defer c.workers.Done(); s.inputLane(c) }()
 	var lastID uint64
 	stopRequested := false
 	for {
@@ -322,6 +383,33 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			return // No invalid/duplicate command can reach the backend.
 		}
 		lastID = request.id
+		c.controlMu.Lock()
+		claimed, lease := c.humanClaimed, c.humanLease
+		c.controlMu.Unlock()
+		if claimed && (request.operation == "resume" || request.operation == "select" && !bytesNullTab(request.payload)) {
+			c.failure(request.id, "HUMAN_BUSY", "请先确认原人工控制已释放，再继续 Agent。")
+			continue
+		}
+		if request.operation == "humanEnd" {
+			var value struct {
+				LeaseID string `json:"leaseId"`
+			}
+			_ = json.Unmarshal(request.payload, &value)
+			if lease == "" || value.LeaseID != lease {
+				c.failure(request.id, "HUMAN_STALE", "原人工控制身份已失效。")
+				continue
+			}
+		}
+		if request.operation == "humanInput" {
+			if !c.admitInput(request) {
+				c.failure(request.id, "HUMAN_STALE", "人工控制已失效或输入顺序不匹配，请完成接管；不要重试输入。")
+			}
+			continue
+		}
+		release := request.operation == "humanEnd" || request.operation == "pause" || request.operation == "select" && bytesNullTab(request.payload)
+		if release || request.operation == "stop" {
+			c.revokeHuman()
+		}
 		if request.operation == "stop" {
 			if stopRequested {
 				c.failure(request.id, "STOP_PENDING", "停止请求正在处理中。")
@@ -332,6 +420,13 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			s.stopReply = c.stopReply
 			s.mu.Unlock()
+		} else if release {
+			select {
+			case c.releases <- struct{}{}:
+			default:
+				c.failure(request.id, "BUSY", "原控制释放正在处理中。")
+				continue
+			}
 		} else {
 			select {
 			case c.work <- struct{}{}:
@@ -340,14 +435,21 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
+		if request.operation == "humanBegin" && !c.admitBegin(&request) {
+			<-c.work
+			c.failure(request.id, "HUMAN_BUSY", "原人工控制尚未释放，请先完成接管。")
+			continue
+		}
 		c.workers.Add(1)
-		go func(request command) {
+		go func(request command, release bool) {
 			defer c.workers.Done()
-			if request.operation != "stop" {
+			if release {
+				defer func() { <-c.releases }()
+			} else if request.operation != "stop" {
 				defer func() { <-c.work }()
 			}
 			s.command(c, request)
-		}(request)
+		}(request, release)
 	}
 }
 
@@ -356,7 +458,11 @@ func (s *Server) command(c *connection, request command) {
 	if request.operation == "stop" {
 		budget = 50 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(c.ctx, budget)
+	parent := c.ctx
+	if request.ctx != nil {
+		parent = request.ctx
+	}
+	ctx, cancel := context.WithTimeout(parent, budget)
 	defer cancel()
 	if request.operation == "stop" {
 		// Stop is the supervisor's user operation, even after the worker dies.
@@ -373,12 +479,38 @@ func (s *Server) command(c *connection, request command) {
 		return
 	default:
 	}
+	if err := ctx.Err(); err != nil {
+		c.failure(request.id, "HUMAN_STALE", "人工请求在提交前已撤销，未发送的操作不会重放。")
+		return
+	}
 	result, err := s.config.Backend.Command(ctx, request.payload)
+	if err == nil && (request.operation == "humanEnd" || request.operation == "pause" || request.operation == "select" && bytesNullTab(request.payload)) {
+		err = c.confirmCleanup(result)
+	}
 	if err == nil {
 		result, err = publicState(result)
 	}
 	if err != nil {
-		c.failure(request.id, "OPERATION_UNCONFIRMED", "未能确认操作结果。请刷新状态，勿自动重试操作。")
+		if request.operation == "humanBegin" || request.operation == "humanInput" {
+			s.releaseFailedHuman(c, request.epoch)
+		}
+		var coded interface{ UserErrorCode() string }
+		if errors.As(err, &coded) && (coded.UserErrorCode() == "OBU_HUMAN_STALE" || coded.UserErrorCode() == "OBU_MANAGED_USER_HUMAN_STALE") {
+			c.failure(request.id, "HUMAN_STALE", "人工控制已失效，请完成接管；不要重试输入。")
+		} else {
+			detail := map[string]any{"code": "OPERATION_UNCONFIRMED", "message": "未能确认操作结果。请刷新状态，勿自动重试操作。"}
+			if reason := humanFailureReason(request.operation, err); reason != "" {
+				detail["reasonCode"] = reason
+			}
+			c.reply(jsonBytes(map[string]any{"type": "response", "id": request.id, "error": detail}))
+		}
+		return
+	}
+	if err := c.acceptHumanResult(request, result); err != nil {
+		if request.operation == "humanBegin" || request.operation == "humanInput" {
+			s.releaseFailedHuman(c, request.epoch)
+		}
+		c.failure(request.id, "OPERATION_UNCONFIRMED", "人工控制原回执不匹配；输入已禁用，请完成接管或停止会话。")
 		return
 	}
 	result = c.displayData(result)
@@ -400,7 +532,12 @@ func (c *connection) displayData(data json.RawMessage) json.RawMessage {
 			State string `json:"state"`
 		}
 		_ = json.Unmarshal(fields["status"], &status)
-		retire = status.State != "running" || string(fields["selectedTabId"]) == "null"
+		c.controlMu.Lock()
+		humanPending := c.humanClaimed
+		c.controlMu.Unlock()
+		var human *managedprotocol.HumanState
+		_ = json.Unmarshal(fields["human"], &human)
+		retire = !humanPending && human == nil && (status.State != "running" || string(fields["selectedTabId"]) == "null")
 	}
 	c.sequenceMu.Lock()
 	defer c.sequenceMu.Unlock()
@@ -504,6 +641,9 @@ func (s *Server) events() {
 			}
 			s.mu.Lock()
 			if c := s.active; c != nil {
+				if kind != "frame" {
+					c.observeHumanState(public)
+				}
 				public = c.displayData(public)
 				if kind == "frame" {
 					latest(c.frames, public)

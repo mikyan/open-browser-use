@@ -14,14 +14,21 @@ test("Go projection fixture matches the current real managed worker bridge", asy
 function setup() {
   const nodes = new Map();
   const images = [], revoked = [], timers = new Map();
+  const windowEvents = {}, documentEvents = {};
   let timerId = 0, replaced, socket;
+  let focused = null;
   function element(id) {
     if (!nodes.has(id)) nodes.set(id, {
       disabled: false, hidden: false, textContent: "", value: "", listeners: {}, dataset: {},
       addEventListener(event, handler) { this.listeners[event] = handler; },
       replaceChildren(...children) { this.children = children; },
       removeAttribute(name) { delete this[name]; },
-      click() { this.listeners.click?.(); }
+      click() { this.listeners.click?.(); },
+      focus() { const old = focused; focused = this; if (old && old !== this) old.listeners.blur?.(); },
+      getBoundingClientRect() { return this.rect || { left: 10, top: 20, width: 640, height: 360 }; },
+      setPointerCapture(id) { this.capture = id; },
+      hasPointerCapture(id) { return this.capture === id; },
+      releasePointerCapture() { this.capture = null; this.listeners.lostpointercapture?.(); }
     });
     return nodes.get(id);
   }
@@ -39,7 +46,7 @@ function setup() {
   }
   let nextBlob = 0;
   const context = vm.createContext({
-    document: { getElementById: element },
+    document: { getElementById: element, addEventListener(name, handler) { documentEvents[name] = handler; } },
     location: { hash: `#ticket=${ticket}`, host: "127.0.0.1:44555", pathname: "/" },
     history: { replaceState(...args) { replaced = args; } },
     URLSearchParams, WebSocket: FakeSocket, Blob, Uint8Array,
@@ -48,7 +55,7 @@ function setup() {
     atob: value => Buffer.from(value, "base64").toString("binary"),
     setTimeout(callback) { timers.set(++timerId, callback); return timerId; },
     clearTimeout(id) { timers.delete(id); }, setInterval() {},
-    window: { addEventListener() {} }
+    window: { addEventListener(name, handler) { windowEvents[name] = handler; } }
   });
   vm.runInContext(source, context);
   function authenticate() { socket.open(); socket.message({ type: "authenticated" }); }
@@ -59,7 +66,13 @@ function setup() {
   function running() { authenticate(); respond(1, state()); }
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
-  return { element, socket, images, revoked, timers, replaced, authenticate, state, respond, running, choose, frame };
+  function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 } }, ...extra }); }
+  function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
+  function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
+  function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
+  function ackInput(request = socket.sent.at(-1), extra = {}) { respond(request.id, { ...humanState(), inputReceipt: { acknowledged: true, leaseId: request.leaseId, generation: request.generation, sequence: request.sequence }, ...extra }); }
+  return { element, socket, images, revoked, timers, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput };
 }
 
 test("ticket is removed before connecting and sent only in first WebSocket auth", () => {
@@ -219,4 +232,413 @@ test("a coalesced status retains the retirement barrier when Clear was replaced"
   assert.equal(h.images.length, 2);
   h.images[1].onload();
   assert.equal(h.element("frame").dataset.streamId, "stream-b");
+});
+
+const mouse = (extra = {}) => ({ pointerId: 1, pointerType: "mouse", clientX: 330, clientY: 200, button: 0, ...extra });
+const key = (extra = {}) => ({ key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true, ...extra });
+
+test("human input requires a real decode of the matching lease and generation", () => {
+  const h = setup(); h.beginHuman();
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.event("frame", "pointerdown", mouse());
+  assert.equal(h.socket.sent.at(-1).operation, "humanBegin");
+  h.humanFrame(1, { humanLeaseId: "retired-lease" });
+  h.humanFrame(1, { generation: 2 });
+  assert.equal(h.images.length, 0);
+  h.humanFrame();
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.images[0].onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.element("frame").dataset.controlMode, "human");
+  assert.equal(h.element("control").disabled, true);
+  assert.equal(h.element("watch").disabled, true);
+  h.event("frame", "pointerdown", mouse());
+  assert.deepEqual(h.socket.sent.at(-1), { id: 4, operation: "humanInput", leaseId: "lease-a", generation: 1, sequence: 1, input: { type: "pointer", action: "down", x: 640, y: 360, button: "left", modifiers: 0 } });
+});
+
+test("input coordinates use actual image content and reject letterboxing", () => {
+  const h = setup(); h.readyHuman();
+  h.element("frame").rect = { left: 10, top: 20, width: 640, height: 640 };
+  h.event("frame", "pointerdown", mouse({ clientY: 40 }));
+  assert.equal(h.socket.sent.at(-1).operation, "humanBegin");
+  h.event("frame", "pointerdown", mouse({ clientY: 340 }));
+  assert.equal(h.socket.sent.at(-1).input.x, 640);
+  assert.equal(h.socket.sent.at(-1).input.y, 360);
+  h.event("frame", "pointermove", mouse({ clientY: 10 }));
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+});
+
+test("one in-flight input waits for exact receipt; only adjacent unsent moves coalesce", () => {
+  const h = setup(); h.readyHuman();
+  h.event("frame", "pointerdown", mouse());
+  const first = h.socket.sent.at(-1);
+  for (let x = 340; x < 380; x++) h.event("frame", "pointermove", mouse({ clientX: x }));
+  h.event("frame", "pointerup", mouse({ clientX: 380 }));
+  assert.equal(h.socket.sent.at(-1), first);
+  assert.equal(h.element("human-input").dataset.pending, "3");
+  h.ackInput(first);
+  const move = h.socket.sent.at(-1);
+  assert.equal(move.sequence, 2);
+  assert.equal(move.input.action, "move");
+  assert.equal(move.input.x, 738);
+  h.ackInput(move);
+  const up = h.socket.sent.at(-1);
+  assert.equal(up.sequence, 3);
+  assert.equal(up.input.action, "up");
+  h.ackInput(up);
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "3");
+});
+
+test("ending synchronously blocks admission and does not wait in the input queue", () => {
+  const h = setup(); h.readyHuman();
+  h.event("frame", "pointerdown", mouse());
+  const original = h.socket.sent.at(-1);
+  h.event("frame", "pointerup", mouse());
+  h.element("human-end").click();
+  const end = h.socket.sent.at(-1);
+  assert.equal(end.operation, "humanEnd");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.ackInput(original);
+  assert.equal(h.socket.sent.at(-1), end);
+  h.respond(end.id, { ...h.state(2, "paused", true, { eventSequence: 20010, retiredSequence: 20010 }), human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+  assert.equal(h.element("control").textContent, "继续操作");
+  assert.equal(h.element("control").disabled, false);
+  assert.equal(h.socket.sent.some(command => command.operation === "resume"), false);
+  h.humanFrame(3, { eventSequence: 20011 });
+  assert.equal(h.images.length, 1);
+});
+
+test("blur releases held input exactly once while native input is still pending", () => {
+  const h = setup(); h.readyHuman();
+  h.event("frame", "pointerdown", mouse());
+  h.event("human-input", "keydown", key());
+  h.event("human-input", "blur");
+  h.windowEvents.blur();
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 1);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("human-input").dataset.pending, "1");
+});
+
+test("plain text, committed composition and shortcut key transitions have distinct paths", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "keydown", key({ key: "a", code: "KeyA", keyCode: 65, shiftKey: false }));
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "a", isComposing: false });
+  const text = h.socket.sent.at(-1);
+  assert.deepEqual(text.input, { type: "text", text: "a" });
+  h.event("human-input", "keyup", key({ key: "a", code: "KeyA", keyCode: 65, shiftKey: false }));
+  h.ackInput(text);
+  h.event("human-input", "compositionstart");
+  h.event("human-input", "beforeinput", { inputType: "insertCompositionText", data: "中文", isComposing: true });
+  h.event("human-input", "compositionend", { data: "中文" });
+  const composed = h.socket.sent.at(-1);
+  assert.deepEqual(composed.input, { type: "text", text: "中文" });
+  h.event("human-input", "beforeinput", { inputType: "insertFromComposition", data: "中文", isComposing: false });
+  h.ackInput(composed);
+  h.event("human-input", "keydown", key({ key: "a", code: "KeyA", keyCode: 65, ctrlKey: true, shiftKey: false }));
+  const down = h.socket.sent.at(-1);
+  assert.equal(down.input.type, "key");
+  assert.equal(down.input.action, "down");
+  h.event("human-input", "keyup", key({ key: "a", code: "KeyA", keyCode: 65, ctrlKey: false, shiftKey: false }));
+  h.ackInput(down);
+  assert.equal(h.socket.sent.at(-1).input.action, "up");
+  assert.equal(h.socket.sent.filter(command => command.input?.type === "text").length, 2);
+});
+
+test("held Shift, committed uppercase and Shift release keep exact receipt order", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "keydown", key());
+  const down = h.socket.sent.at(-1);
+  h.event("human-input", "keydown", key({ key: "A", code: "KeyA", keyCode: 65 }));
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "A", isComposing: false });
+  h.event("human-input", "keyup", key({ key: "A", code: "KeyA", keyCode: 65 }));
+  h.event("human-input", "keyup", key({ shiftKey: false }));
+  assert.equal(h.socket.sent.at(-1), down);
+  assert.equal(h.element("human-input").dataset.pending, "3");
+  h.ackInput(down);
+  const text = h.socket.sent.at(-1);
+  assert.equal(text.sequence, 2); assert.deepEqual(text.input, { type: "text", text: "A" });
+  h.ackInput(text);
+  const up = h.socket.sent.at(-1);
+  assert.equal(up.sequence, 3);
+  assert.deepEqual(up.input, { type: "key", action: "up", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0 });
+  h.ackInput(up);
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "3");
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 3);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+});
+
+test("the Go-projected canonical bridge fixture drives human UI without private sequence fields", () => {
+  const fixture = JSON.parse(readFileSync(new URL("../testdata/public-human-fixture.json", import.meta.url), "utf8"));
+  const h = setup(); h.authenticate();
+  const state = name => ({ ...fixture[name], retiredSequence: 0 });
+  h.respond(1, state("open")); h.choose(7); h.respond(2, state("select"));
+  h.element("human-begin").click();
+  h.respond(3, state("humanBegin"));
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(fixture.humanBegin.human.viewport, null);
+  assert.deepEqual(Object.keys(fixture.humanBegin.human).sort(), ["generation", "leaseId", "state", "tabId", "viewport"]);
+  h.socket.message({ type: "state", ...state("humanStatus") });
+  h.socket.message({ ...fixture.humanFrame, retiredSequence: 0 });
+  assert.equal(h.images.length, 1);
+  h.images[0].naturalWidth = h.images[0].naturalHeight = 1;
+  h.images[0].onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "A" });
+  const input = h.socket.sent.at(-1);
+  assert.equal(input.operation, "humanInput"); assert.equal(input.sequence, 1);
+  h.respond(input.id, state("humanInput"));
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  h.element("human-end").click(); h.respond(h.socket.sent.at(-1).id, state("humanEnd"));
+  assert.equal(h.element("control").disabled, false);
+  h.element("control").click();
+  assert.equal(h.socket.sent.at(-1).operation, "resume");
+  h.respond(h.socket.sent.at(-1).id, state("humanResume"));
+  assert.equal(h.element("state").textContent, "正在运行");
+});
+
+test("wheel coordinates and pixel deltas follow the decoded viewport", () => {
+  const h = setup(); h.readyHuman();
+  const wheel = h.event("frame", "wheel", mouse({ deltaX: 0, deltaY: 3, deltaMode: 1 }));
+  assert.equal(wheel.prevented, true);
+  assert.deepEqual(h.socket.sent.at(-1).input, { type: "wheel", x: 640, y: 360, deltaX: 0, deltaY: 48, modifiers: 0 });
+});
+
+test("committed text uses the same UTF-16 bound as the native human protocol", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "😀".repeat(2049) });
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 0);
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+});
+
+test("bounded input overflow revokes admission instead of dropping release transitions", () => {
+  const h = setup(); h.readyHuman();
+  for (let i = 0; i < 34; i++) h.event("human-input", "beforeinput", { inputType: "insertText", data: "a" });
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 1);
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.element("human-input").dataset.pending, "1");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+});
+
+test("wrong original input receipt never drains the next command", () => {
+  const h = setup(); h.readyHuman();
+  h.event("frame", "pointerdown", mouse());
+  const original = h.socket.sent.at(-1);
+  h.event("frame", "pointerup", mouse());
+  h.ackInput(original, { inputReceipt: { acknowledged: true, leaseId: "lease-a", generation: 1, sequence: 2 } });
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 1);
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("late human frame and reply cannot revive control after geometry revocation", () => {
+  const h = setup(); h.readyHuman();
+  h.humanFrame(2);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20003, human: { ...h.humanState().human, state: "releasing", generation: 2 } }) });
+  h.images[1].onload();
+  assert.equal(h.element("frame").dataset.frameSequence, "1");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.socket.message({ type: "state", ...h.humanState() });
+  h.humanFrame(4, { generation: 1 });
+  assert.equal(h.images.length, 2);
+  assert.equal(h.element("control").disabled, true);
+});
+
+test("blur during Begin fences late activation and requests cleanup without input", () => {
+  const h = setup(); h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+  h.element("human-begin").click();
+  h.windowEvents.blur();
+  h.respond(3, h.humanState());
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  h.humanFrame();
+  assert.equal(h.images.length, 0);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+});
+
+test("a human frame before Begin receipt waits for matching state and never enables early", () => {
+  const h = setup(); h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+  h.element("human-begin").click();
+  h.humanFrame();
+  assert.equal(h.images.length, 0);
+  h.respond(3, h.humanState());
+  assert.equal(h.images.length, 1);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.images[0].onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+});
+
+test("an early human frame survives a pending-Begin paused snapshot without inferred retirement", () => {
+  const h = setup(); h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+  h.element("human-begin").click();
+  h.humanFrame();
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, retiredSequence: 19999, human: null, tabs: [] }) });
+  assert.equal(h.images.length, 0);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.respond(3, h.humanState({ eventSequence: 20003 }));
+  assert.equal(h.images.length, 1);
+  h.images[0].onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+});
+
+test("active generation zero waits for the first matching decoded frame and later real generation status", () => {
+  const h = setup(); h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+  h.element("human-begin").click();
+  const unready = { ...h.humanState().human, generation: 0, viewport: null };
+  h.respond(3, h.humanState({ human: unready }));
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.humanFrame(2);
+  h.humanFrame(1); // An older event cannot replace the single latest slot.
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20003, human: unready }) });
+  assert.equal(h.images.length, 0);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20004 }) });
+  assert.equal(h.images.length, 1);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.images[0].onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.element("frame").dataset.frameSequence, "2");
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+});
+
+test("a failed or retiring human geometry may have null viewport without restoring input", () => {
+  const h = setup(); h.readyHuman();
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20004, human: { ...h.humanState().human, state: "releasing", generation: 2, viewport: null } }) });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("control").disabled, true);
+  assert.equal(h.element("connection").textContent, "已连接");
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20005, human: { ...h.humanState().human, state: "error", generation: 2, viewport: null }, viewerCleanupComplete: false }) });
+  assert.equal(h.element("human-end").disabled, false);
+  assert.equal(h.element("control").disabled, true);
+  assert.equal(h.element("connection").textContent, "已连接");
+});
+
+test("explicit retirement or blur discards an early frame before first geometry readiness", () => {
+  for (const invalidate of [h => h.socket.message({ type: "clear", eventSequence: 20003, retiredSequence: 20003 }), h => h.windowEvents.blur()]) {
+    const h = setup(); h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+    h.element("human-begin").click();
+    h.respond(3, h.humanState({ human: { ...h.humanState().human, generation: 0, viewport: null } }));
+    h.humanFrame(); invalidate(h);
+    h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20005 }) });
+    assert.equal(h.images.length, 0);
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+  }
+});
+
+test("human release needs the original cleanup receipt before enabling Agent Resume", () => {
+  const h = setup(); h.readyHuman();
+  h.element("human-end").click();
+  const end = h.socket.sent.at(-1);
+  h.respond(end.id, { ...h.state(2, "paused", true, { eventSequence: 20010, retiredSequence: 20010 }), human: null });
+  assert.equal(h.element("control").disabled, true);
+  assert.equal(h.element("human-end").hidden, false);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20011, retiredSequence: 20010 }), human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+  assert.equal(h.element("control").disabled, false);
+});
+
+test("timeout or socket closure fences queued text without replay", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "a" });
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "b" });
+  [...h.timers.values()].at(-1)();
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 1);
+  h.socket.close();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "c" });
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 1);
+});
+
+test("a late receipt from a finished lease cannot drain its successor input lane", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "old" });
+  const old = h.socket.sent.at(-1);
+  h.element("human-end").click();
+  h.respond(h.socket.sent.at(-1).id, { ...h.state(2, "paused", true, { eventSequence: 20010, retiredSequence: 20010 }), human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+  h.element("control").click();
+  h.respond(h.socket.sent.at(-1).id, h.state(3));
+  h.element("human-begin").click();
+  const nextState = h.state(4, "paused", true, { eventSequence: 40000, retiredSequence: 39999, human: { ...h.humanState().human, leaseId: "lease-b" } });
+  h.respond(h.socket.sent.at(-1).id, nextState);
+  h.humanFrame(1, { humanLeaseId: "lease-b", eventSequence: 40001, retiredSequence: 39999, streamId: "human-b" });
+  h.images.at(-1).onload();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "new" });
+  const current = h.socket.sent.at(-1);
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "queued" });
+  h.ackInput(old);
+  assert.equal(h.socket.sent.at(-1), current);
+  assert.equal(h.element("human-input").dataset.pending, "2");
+  h.respond(current.id, { ...nextState, inputReceipt: { acknowledged: true, leaseId: "lease-b", generation: 1, sequence: 1 } });
+  assert.equal(h.socket.sent.at(-1).sequence, 2);
+  assert.equal(h.socket.sent.at(-1).leaseId, "lease-b");
+});
+
+test("retired Begin, Input and End callbacks cannot change a successor admission", () => {
+  for (const operation of ["humanBegin", "humanInput", "humanEnd"]) {
+    for (const settlement of ["success", "error", "timeout"]) {
+      for (const successorReady of [false, true]) {
+        const label = `${operation}/${settlement}/${successorReady ? "active" : "pending"}`;
+        const h = setup(); h.running(); h.choose();
+        h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+        h.element("human-begin").click();
+        let old = h.socket.sent.at(-1), timer = [...h.timers.values()].at(-1);
+        if (operation === "humanBegin") h.socket.message({ type: "state", ...h.humanState() });
+        else {
+          h.respond(old.id, h.humanState()); h.humanFrame(); h.images.at(-1).onload();
+          if (operation === "humanInput") {
+            h.event("human-input", "beforeinput", { inputType: "insertText", data: "original" });
+            old = h.socket.sent.at(-1); timer = [...h.timers.values()].at(-1);
+          }
+        }
+        h.element("human-end").click();
+        const end = h.socket.sent.at(-1);
+        const cleanup = { ...h.state(2, "paused", true, { eventSequence: 20010, retiredSequence: 20010 }), human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } };
+        if (operation === "humanEnd") {
+          old = end; timer = [...h.timers.values()].at(-1);
+          h.socket.message({ type: "state", ...cleanup }); // Real cleanup can precede its command response.
+        } else h.respond(end.id, cleanup);
+        assert.equal(h.element("control").disabled, false, label);
+        h.element("control").click(); h.respond(h.socket.sent.at(-1).id, h.state(3));
+        h.element("human-begin").click();
+        const begin = h.socket.sent.at(-1);
+        const next = h.state(4, "paused", true, { eventSequence: 40000, retiredSequence: 39999, human: { ...h.humanState().human, leaseId: "lease-b" } });
+        const makeReady = () => {
+          h.respond(begin.id, next);
+          h.humanFrame(1, { humanLeaseId: "lease-b", eventSequence: 40001, retiredSequence: 39999, streamId: "human-b" });
+          h.images.at(-1).onload();
+        };
+        if (successorReady) makeReady();
+        const count = h.socket.sent.length;
+        if (settlement === "timeout") timer();
+        else if (settlement === "error") h.socket.message({ type: "response", id: old.id, error: { message: "original operation was revoked" } });
+        else if (operation === "humanInput") h.ackInput(old);
+        else h.respond(old.id, operation === "humanBegin" ? h.humanState() : cleanup);
+        assert.equal(h.socket.sent.length, count, label);
+        if (!successorReady) {
+          assert.equal(h.element("human-status").textContent, "正在暂停 Agent 并等待原控制释放…", label);
+          makeReady();
+        }
+        assert.equal(h.element("human-input").dataset.enabled, "true", label);
+        assert.equal(h.element("connection").textContent, "已连接", label);
+        h.event("human-input", "beforeinput", { inputType: "insertText", data: "successor" });
+        assert.equal(h.socket.sent.at(-1).leaseId, "lease-b", label);
+        assert.equal(h.socket.sent.at(-1).sequence, 1, label);
+      }
+    }
+  }
+});
+
+test("retired human callbacks do not suppress the independent Stop acknowledgement", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "old" });
+  const old = h.socket.sent.at(-1), timer = [...h.timers.values()].at(-1);
+  h.element("human-end").click();
+  h.respond(h.socket.sent.at(-1).id, { ...h.state(2, "paused", true, { eventSequence: 20010, retiredSequence: 20010 }), human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+  h.element("stop").click();
+  const stop = h.socket.sent.at(-1);
+  timer(); h.socket.message({ type: "response", id: old.id, error: { message: "old" } });
+  assert.equal(h.element("state").textContent, "正在停止");
+  h.respond(stop.id, { stopped: true });
+  assert.equal(h.element("state").textContent, "会话已停止");
 });

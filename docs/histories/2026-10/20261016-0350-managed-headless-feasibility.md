@@ -290,3 +290,139 @@ No prior package was overwritten. A new unique directory then completed the
 preparation and delivery. No browser workflow, installation, registry update or
 PR was performed for this refresh. Ordinary company Edge and the remaining
 capability matrix are still unverified; the active development goal is not done.
+
+### 2026-10-17: Same-document human control development
+
+The development branch adds a separate typed human-control lease after the
+original task has actually paused. It retains the original tab/document, tracks
+native held input and rendering cleanup, and exposes no general CDP proxy in the
+viewer. The shared Go protocol projects public lease/frame/receipt fields;
+bounded input lanes wait for actual acknowledgements. End and disconnect revoke
+queued input before joining cleanup. Resume remains explicit and requires a new
+task control epoch. Worker termination alone cannot prove release in a live
+renderer; the original owned browser exit is a separate terminal proof.
+
+Three original browser attempts failed and remain preserved. EO2bNJ encountered
+a Windows sharing violation while the original DevToolsActivePort was being
+published, before any fixture request. Its forced browser exit and unverified
+native endpoint cleanup remain failures. Startup now observes only this exact
+temporary sharing error within the original deadline; it does not replace the
+endpoint or restart the browser. wrP0ID completed nonbusiness Begin/frame/End and
+Resume, then failed an incorrect harness assertion about ordinary Tab wrappers.
+Those wrappers use the client's explicitly renewed turn; the corrected harness
+instead sends the original captured session/turn/control-epoch fields. Neither
+attempt submitted business input.
+
+XLQ6VS created and filled the original unsubmitted Agent form, but human Begin
+failed at its first frame, before accepted human input or POST. Normal final
+Browser.close, browser/native/supervisor/viewer exit 0 and Job cleanup do not turn
+that failed attempt into a pass. Separate zero-input geometry diagnostic cEDK4O
+measured short-page client/frame 778×446 and long/RTL client 763×446 versus frame
+778×446, all at scale/zoom 1. Native screenshots include scrollbars whereas CDP
+client dimensions exclude them. The diagnostic completed actual normal cleanup;
+it is not human-control acceptance.
+
+The correction separates the first frame's full CSS surface from private client
+geometry, leaves the public viewport null until that frame, and rejects geometry
+changes before native input. The harness targets the visible intersection of an
+element and the full surface without altering fixture layout or adding scrolls.
+UI review also reproduced late old Begin errors and old input timeouts ending a
+successor lease. Per-admission handling now retires all old callbacks; 37 UI tests
+pass, including interleaved success/error/timeout cases and independent Stop.
+The complete extension suite passed 1,959 tests, and the Go module/vet/build passed
+with unchanged captured sources.
+
+The next original attempt tQeuXy still failed with actual exit 1. Its long-page
+Begin and human frame succeeded; pointer move and down received exact original
+receipts, then up returned an unconfirmed operation. No POST occurred. The report
+does not contain the underlying cause or prove whether that original native up
+was sent. A cleanup release is not the missing up receipt. The original report
+hash is `d79b00159c5e69141dec46a7873867e04191e574e7ee62b9d0864db1137bad9e`.
+An exact allowlist of existing typed errors is now optionally projected as
+`reasonCode`, without raw exception text, stack, input or credentials. Unknown
+errors retain the generic response and original cleanup behavior. The harness
+also records original client/scroll dimensions and bounded read-only state after
+a failure; these additions cannot reconstruct missing historical observations.
+Full same-document acceptance and the shared viewer regression remain pending.
+The published 2547e6e package excludes all this development work.
+
+The separate no-form U0ZXS7 diagnostic completed three pointer receipts and
+normal End/stop. Extra layout and DOM reads between gestures affect timing;
+this is not the original business acceptance. IDDtlj still failed at pointer up
+with exit 1 and no reasonCode or POST. Its new original observations show client
+height 369→354 and scroll width 743→829 while business rectangles stayed fixed.
+The event-log text is a plausible overflow source, not a proven historical cause.
+Only the synthetic log now wraps unbroken text; production geometry rejection
+and input receipt requirements remain unchanged.
+
+JYEQfy then confirmed 23 original human input receipts, including ASCII, Unicode,
+Shift-held text and one trusted confirmation click. Its subsequent viewer wheel
+produced no outgoing input; the UI remained active with sequence/acknowledged 23
+and pending 0. The original page dimensions stayed fixed and no POST occurred.
+Actual exit 1 remains a failure, before held-input disconnect, Resume or final
+submission. Browser.close, browser/native exit 0 and Job cleanup were recorded,
+but the supervisor exited 1 with viewer rendering cleanup unconfirmed. Those
+browser-exit records do not replace the missing viewer cleanup acknowledgement.
+The original report hash is
+`7b004282bcdc780e4a6186129d9405544475da582504029ead65c42c2ac2a664`.
+Wheel hit testing and the independent cleanup boundary remain under diagnosis;
+the already published package is unchanged.
+
+A bounded two-profile host diagnostic, 9Qk3Sm, completed actual exit 0 without
+extensions, host, form or POST. With the same static image and coordinates, the
+default CDP context emulated 1280×1000 while its native window remained 780×580:
+wheel reached a DIV, not the image handler, and scrolled the viewing document.
+An explicit viewport context had matching native dimensions; its one wheel
+reached the image handler and was prevented without scrolling the viewer.
+Both actual Browser.close receipts and process exits were confirmed. The runner
+now uses an explicit viewer context and records/asserts native window dimensions;
+production wheel handling is unchanged. This diagnostic does not prove the full
+human workflow. Its result hash is
+`177af01f46af7001eaa7a4a231309893eaa7f4cbd94ffd47844ab68754467c6e`.
+
+The cleanup path separately returned a stale active-human snapshot after actual
+bridge revoke. Go cached that response and HTTP correctly rejected it as proof
+of releasing the current lease. Disconnect now builds its response from settled
+resources and the actual final automation status. It cannot confirm a rejected
+or unresolved native release; a close Promise alone is insufficient without the
+original handle's released state. Cross-layer and real-browser verification are
+still pending at this point.
+
+After those corrections, the original `6U55vc` workflow completed all six stages
+with actual exit 0. Thirty exact input receipts include pointer, key, committed
+ASCII/Unicode and two wheel inputs. The original unsaved document survived human
+control; closing its viewer socket with Shift and left mouse held produced actual
+releases in that document. A new viewer confirmed the original lease cleanup,
+explicit Resume and a new task turn rejected obsolete authority and completed
+exactly one 299-byte POST from the same document. UI Stop and original browser,
+native host, supervisor and independent viewer exits were all confirmed without
+forced termination. Source and build inputs remained frozen. The report hash is
+`6454f2397a11e4f332dbaaa4a2775573a4fbe9a151d8a8a56264d49725a2a749`.
+
+The same frozen runtime passed the ordinary viewer regression `q5L0so`, four
+stages with actual exit 0, twelve native frames, AI cursor/element feedback,
+one original submission, Pause/new-turn Resume/Stop and normal cleanup. Its
+report hash is `b22dac7bce5f818b896f9e8fada0c484feb515601f585aef893cd831c67350cf`.
+Original human and viewer screenshots were inspected. Final validation includes
+1,966 extension tests, 37 UI tests, ten runner/fixture tests and full Go tests/vet.
+The new cross-layer fixture executes the real bridge and proves current-lease
+cleanup acceptance plus five stale/unknown-receipt rejections. The initial UI
+36/37 result from the old canonical golden was retained; generating the actual
+new bridge output resolved it without altering UI behavior.
+
+This completes only the fixed Windows Chromium synthetic same-document slice.
+Real IME, SSO/MFA, navigation handoff, native dialogs, touch/zoom, ordinary company
+Edge, other platforms and independent OS foreground behavior remain unverified.
+The overall parity goal stays active; the published 2547e6e package is unchanged
+and does not contain this human-control work.
+
+Both stopped-state independent audits completed actual exit 0 without rerunning
+either browser workflow. Human audit
+`541b11728fed90e35271afc54e05382059f0902f1404b01a3d49b8c8d374b7bf`
+confirmed frozen inputs, 30 input acknowledgements, exact document/lease cleanup,
+original POST/response bytes, full decoding of 35 PNGs and original process
+receipts. Viewer audit
+`11f08984f80ab903c71369a6c84ad07edb8aa1ab03021e6d0285267d50c74ac6`
+confirmed the separate four-stage workflow and all 19 PNGs. Current absence of
+the original 29/26 process identities, registration, pipes and endpoints was
+recorded only as additional evidence, not as a substitute for original cleanup.

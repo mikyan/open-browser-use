@@ -31,6 +31,7 @@ import { assertSiteAccessFrames } from "../site-access-frames.js";
 import managedConfig from "../managed-config.js";
 import { resolveManagedNativeHost } from "../managed-native-host.js";
 import { BrowserRendering } from "../browser-rendering.js";
+import { ManagedHumanControl } from "../managed-human-control.js";
 import { installManagedUserBridge } from "../managed-user-bridge.js";
 
 const sessionValuesByChrome = new WeakMap();
@@ -69,6 +70,7 @@ function extendLegacyFixture(chrome) {
 }
 
 const source = code => code
+  .replace('import { ManagedHumanControl } from "./managed-human-control.js";', "")
   .replace('import { installManagedUserBridge } from "./managed-user-bridge.js";', "")
   .replace('import { BrowserRendering } from "./browser-rendering.js";', "")
   .replace('import managedConfig from "./managed-config.js";', "")
@@ -101,6 +103,7 @@ const source = code => code
   .replace('import { BROWSER_ENGINE_INFO, validateBrowserAction } from "./browser-action-engine.js";', "")
   .replace('import { AuxiliaryTabOwnership } from "./auxiliary-tab-ownership.js";', "");
 const globals = sandbox => {
+  sandbox = { ManagedHumanControl, ...sandbox };
   extendLegacyFixture(sandbox?.chrome);
   return { BrowserRendering, installManagedUserBridge, NATIVE_POINTER_KERNEL_ABI, PointerRealmIdentity, VisualDeliveries, PassivePointerReads, createNativePointerRoute, PrivateTargetRegistry, PrivateTargetStore, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, managedConfig, resolveManagedNativeHost, ...sandbox, AuxiliaryTabOwnership };
 };

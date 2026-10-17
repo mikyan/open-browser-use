@@ -85,16 +85,17 @@ func readManagedMessage(conn net.Conn) (managedMessage, error) {
 // Only the supervisor owns shutdown. A caller receives a stopped response only
 // after the original Session.Close has finished. There is no task RPC setter.
 type managedSupervisor struct {
-	listener       net.Listener
-	info           managedbrowser.Info
-	stop           chan struct{}
-	finished       chan struct{}
-	stopOnce       sync.Once
-	err            error
-	mu             sync.Mutex
-	connections    map[net.Conn]struct{}
-	wg             sync.WaitGroup
-	issueViewerURL func() (string, error)
+	listener        net.Listener
+	info            managedbrowser.Info
+	stop            chan struct{}
+	finished        chan struct{}
+	stopOnce        sync.Once
+	err             error
+	mu              sync.Mutex
+	connections     map[net.Conn]struct{}
+	wg              sync.WaitGroup
+	issueViewerURL  func() (string, error)
+	waitViewerReady func(context.Context) error
 }
 
 func newManagedSupervisor(listener net.Listener, info managedbrowser.Info) *managedSupervisor {
@@ -170,6 +171,29 @@ func (s *managedSupervisor) handle(conn net.Conn) {
 		if s.issueViewerURL == nil {
 			_ = wire.WriteJSON(conn, managedMessage{Error: "managed viewer is unavailable"})
 			return
+		}
+		_ = conn.SetDeadline(time.Now().Add(35 * time.Second))
+		if s.waitViewerReady != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			go func() {
+				select {
+				case <-s.stop:
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			err := s.waitViewerReady(ctx)
+			cancel()
+			if err != nil {
+				_ = wire.WriteJSON(conn, managedMessage{Error: err.Error()})
+				return
+			}
+		}
+		select {
+		case <-s.stop:
+			_ = wire.WriteJSON(conn, managedMessage{Error: "managed session is stopping"})
+			return
+		default:
 		}
 		viewerURL, err := s.issueViewerURL()
 		if err != nil {
@@ -300,7 +324,7 @@ func managedUserRequest(root, name, operation string, timeout time.Duration) (ma
 }
 
 func newManagedCommand() *cobra.Command {
-	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Use setup for manual login in a dedicated visible Chromium profile, then close it and start run for isolated headless tasks with a local live viewer. Setup and run cannot use the same profile concurrently. The viewer URL is a private, one-use user capability. In-place task handoff is not implemented. Ordinary installed browser profiles are unchanged."}
+	command := &cobra.Command{Use: "managed", Short: "Experimental isolated browser sessions (Windows)", Long: "Use setup for manual login in a dedicated visible Chromium profile, then close it and start run for isolated headless tasks with a local live viewer. Setup and run cannot use the same profile concurrently. The viewer URL is a private, one-use user capability. The viewer offers experimental explicit control of the current page. Navigation ends takeover, and completion leaves the task paused until explicit Resume and a new turn. Ordinary installed browser profiles are unchanged."}
 	command.AddCommand(newManagedSetupCommand())
 	var config managedbrowser.Config
 	runCommand := &cobra.Command{Use: "run", Short: "Keep an isolated browser running until Ctrl+C or managed stop", Args: cobra.NoArgs,
@@ -343,6 +367,7 @@ func newManagedCommand() *cobra.Command {
 				return errors.Join(err, closeManagedRuntime(session, controller))
 			}
 			supervisor.issueViewerURL = viewer.IssueURL
+			supervisor.waitViewerReady = viewer.WaitReady
 			// Only the foreground human-facing launch result receives the ticket.
 			// Info and management status never contain it; opening it is explicit.
 			err = startupCtx.Err()
@@ -387,6 +412,8 @@ func newManagedCommand() *cobra.Command {
 				timeout := 5 * time.Second
 				if operation == "stop" {
 					timeout = 50 * time.Second
+				} else if operation == "view" {
+					timeout = 35 * time.Second
 				}
 				response, err := managedUserRequest(root, name, operation, timeout)
 				if err != nil {

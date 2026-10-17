@@ -1,5 +1,45 @@
 # Browser integration acceptance
 
+## Managed same-document human control (Windows, experimental)
+
+Build the current CLI, extension and JavaScript SDK, then set the same three
+absolute `OBU_TEST_*` paths below and run
+`node scripts/browser-integration/managed-human-check.mjs`.
+
+Six stages use the actual managed supervisor, task SDK and production viewer
+inside a separate headless test browser. A nonbusiness page exercises explicit
+Begin/End. One original form then retains the Agent's unsubmitted draft while
+the viewer sends pointer, keyboard, committed text and wheel input. Confirmed
+held Shift and mouse input are released by closing the original viewer socket;
+the harness must not substitute UI key-up or End. After the original cleanup
+receipt, explicit Resume and a new task turn, that same document performs its
+single final POST. Retired human and task identities must reject exactly; no
+business input is replayed. High-ID rejection probes retire their own viewer
+connection before normal UI commands resume on a new one.
+
+The independent viewing browser uses an explicit Playwright context with a
+1280×1000 viewport; each newly opened page records its actual native window
+bounds. Emulating a larger DOM in the default CDP context can leave the native
+window smaller. In the bounded `9Qk3Sm` host diagnostic, that mismatch sent wheel
+to a container instead of the image handler. This is a test-actor correction,
+not a change to production wheel input or proof of general browser behavior.
+
+Reports preserve original native event routing, input receipts, trusted DOM
+events, target/document identities, exact synthetic POST bytes, process identities
+and lifecycle receipts. The first 96 native PNG payloads are retained; later
+frames retain metadata and hashes. Actual viewer image decoding is recorded
+separately. The observer only reads worker scripting and debugger events; it does
+not wrap native input or fabricate command acknowledgements. Build/source hashes
+must stay unchanged. Any failure, unknown cleanup or forced termination remains
+in the original attempt's report. This is not a real login/SSO/MFA, cross-navigation,
+ordinary Edge/company-PC or independent OS foreground acceptance.
+
+The first complete original workflow `6U55vc` passed six stages with actual exit
+0, 30 exact input receipts and one 299-byte POST. The same frozen runtime passed
+the ordinary viewer regression `q5L0so` (four stages, actual exit 0). Earlier
+failed attempts retain their original reports, including unconfirmed cleanup;
+see the [managed-session plan](../../docs/exec-plans/active/2026-10-16-managed-browser-session.md).
+
 ## Managed login preparation (Windows, experimental)
 
 Build the CLI and extension and set the three absolute `OBU_TEST_*` paths shown

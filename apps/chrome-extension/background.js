@@ -29,6 +29,7 @@ import { SiteAccessPolicy, normalizeSiteAccessPolicy } from "./site-access-polic
 import { assertSiteAccessFrames } from "./site-access-frames.js";
 import managedConfig from "./managed-config.js";
 import { BrowserRendering } from "./browser-rendering.js";
+import { ManagedHumanControl } from "./managed-human-control.js";
 import { installManagedUserBridge } from "./managed-user-bridge.js";
 import { resolveManagedNativeHost } from "./managed-native-host.js";
 
@@ -849,6 +850,19 @@ class BrowserBackend {
       isCurrent: (tabId, attachment) => this.attachedTabs.has(tabId) && this.attachmentEpochs.get(tabId) === attachment,
       isExternal: tabId => this.externalScreencastTabs.has(tabId)
     });
+    this.managedHuman = new ManagedHumanControl({ chrome,
+      capture: tabId => this.captureManagedHumanPage(tabId),
+      validate: candidate => this.validateManagedHumanPage(candidate),
+      pause: reservation => this.pauseAutomation({ managedHumanReservation: reservation }),
+      assertPaused: () => {
+        this.assertNativeControl(); this.browserLifetime.assertInputRecoveryClear(); this.siteAccess.assertReady();
+        if (this.sitePolicyUpdate || this.automationControl.state !== "paused" || !this.automationControl.cleanupComplete || !this.automationControl.inputBlocked)
+          throw new Error("OBU_HUMAN_UNAVAILABLE: task Pause must remain complete during human control");
+      },
+      markRisk: (riskId, tabId) => durableInput(() => this.browserLifetime.markInputRisk({ riskId, tabId })),
+      clearRisk: riskId => durableInput(() => this.browserLifetime.clearInputRisk(riskId)),
+      onFailure: error => { this.automationControl.fail(error); void this.automationControl.persist(true).catch(() => {}); }
+    });
     this.downloadsById = new Map();
     this.pageDownloadResources = new Set();
     this.pageDownloadOperations = new Map();
@@ -963,6 +977,7 @@ class BrowserBackend {
       }, { documentId })
     });
     chrome.debugger.onDetach.addListener((source, reason) => {
+      if (this.managedHuman.observeDetach(source, reason)) return;
       this.privatePointerTargets.observeDetach(source);
       if (typeof source.tabId === "number") {
         if (reason === "target_closed") this.markAttachmentDestroyed(source.tabId);
@@ -982,6 +997,7 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      this.managedHuman.invalidateTab(tabId, { destroyed: true });
       const visualRecoveries = [...this.visualRecoverySessions.values()].map(recovery => ({ recovery, item: recovery.tabs.get(tabId) })).filter(({ item }) => item);
       void this.visualDeliveries.tabRemoved(tabId).then(() => {
         // Exact removal can retire only the recovery items known at this event,
@@ -1014,6 +1030,7 @@ class BrowserBackend {
       if (claim) void this.releaseAuxiliaryClaim(claim, { destroyed: true }).catch(() => {});
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
+      if (change.url || Object.hasOwn(change, "groupId") || Object.hasOwn(change, "pinned")) this.managedHuman.invalidateTab(tabId);
       const delivery = this.auxiliaryDeliveries.get(tabId);
       if (delivery && ((Object.hasOwn(change, "groupId") && change.groupId !== delivery.position.groupId) ||
           (Object.hasOwn(change, "pinned") && change.pinned !== delivery.position.pinned))) this.invalidateAuxiliaryDelivery(tabId);
@@ -1068,6 +1085,8 @@ class BrowserBackend {
         this.onSiteNavigation(details, phase);
       });
     }
+    chrome.tabs?.onDetached?.addListener(tabId => this.managedHuman.invalidateTab(tabId));
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => this.managedHuman.invalidateTab(removed));
     this.controlStartupState = "pending";
     this.controlReady = this.recoverControlState();
     this.siteRecoveryReady = this.controlReady.then(async () => {
@@ -1459,6 +1478,7 @@ class BrowserBackend {
 
   onSiteNavigation(details, phase) {
     const { tabId, frameId, url } = details;
+    this.managedHuman.invalidateTab(tabId);
     if (!this.siteAccess.restricted || !Number.isInteger(tabId) || tabId < 0) return;
     // Track only tabs this backend controls; user browsing never grows a ledger.
     if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.siteRevokedTabs.has(tabId)) return;
@@ -1596,7 +1616,9 @@ class BrowserBackend {
     return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...privatePointers.pending, ...privateStore.pending, ...(this.privatePointerRecovery?.pending ? [this.privatePointerRecovery.promise] : []), ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
-  cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user")) {
+  cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user"), managedHumanReservation) {
+    const humanReleased = this.managedHuman.cancel(error, managedHumanReservation);
+    humanReleased.catch(() => {});
     for (const marker of this.freshBlankTabs.values()) this.retireFreshBlankTab(marker);
     const visualsReleased = this.visualDeliveries.close();
     visualsReleased.catch(() => {});
@@ -1622,10 +1644,11 @@ class BrowserBackend {
         releases.push(release);
       }
     }
+    releases.push(humanReleased);
     return { tabIds: snapshot.tabIds, pending: snapshot.pending, releases };
   }
 
-  pauseAutomation({ retryPageCleanup = true } = {}) {
+  pauseAutomation({ retryPageCleanup = true, managedHumanReservation } = {}) {
     const deadline = this.automationDeadline();
     this.automationControl.block();
     if (retryPageCleanup) this.allowActionInputRetry();
@@ -1645,7 +1668,7 @@ class BrowserBackend {
     pageDownloadCleanup?.catch(() => {});
     // Cancel known engine work synchronously, before a slow storage write can
     // allow an already-running locator wait to deliver its first input.
-    const cancelled = this.cancelGlobalControl();
+    const cancelled = this.cancelGlobalControl(undefined, managedHumanReservation);
     cancelled.retryVisualRecovery = retryPageCleanup;
     if (visualCleanup) cancelled.releases.push(visualCleanup);
     if (pageCleanup) cancelled.releases.push(pageCleanup);
@@ -1730,6 +1753,11 @@ class BrowserBackend {
   }
 
   resumeAutomation(expectedRevision, assertAuthority = () => {}) {
+    // Do not queue an impossible Resume behind a human Begin's still-pending
+    // Pause. The reservation fences admission at call time as well as at every
+    // asynchronous storage boundary below.
+    try { this.managedHuman.assertReleased(); }
+    catch (error) { return Promise.reject(error); }
     const deadline = this.automationDeadline();
     const gate = this.automationControl;
     let failed = false;
@@ -1743,6 +1771,7 @@ class BrowserBackend {
       void gate.persist(true).catch(error => gate.fail(error));
     };
     const operation = this.automationTransitions.catch(() => {}).then(async () => {
+      this.managedHuman.assertReleased();
       try { assertAuthority(); } catch (error) { failResume(error); throw error; }
       await deadline.within(() => gate.ready);
       this.siteAccess.assertReady();
@@ -1754,8 +1783,10 @@ class BrowserBackend {
       const pauseSequence = gate.pauseSequence;
       try {
         await deadline.within(() => this.controlLedger.writes);
+        this.managedHuman.assertReleased();
         assertAuthority();
         await deadline.within(() => gate.persist(false));
+        this.managedHuman.assertReleased();
         assertAuthority();
       } catch (error) { failResume(error); throw error; }
       if (gate.pauseSequence !== pauseSequence) {
@@ -3497,6 +3528,44 @@ class BrowserBackend {
       check();
       return chrome.debugger.sendCommand(target, "Page.captureScreenshot", commandParams);
     }), "screenshot");
+  }
+
+  beginManagedHuman(tabId, assertAuthority, onFrame) {
+    if (managedConfig === null) throw new Error("OBU_HUMAN_UNAVAILABLE: managed human control is unavailable in an ordinary browser");
+    return this.managedHuman.begin(tabId, assertAuthority, onFrame);
+  }
+
+  async captureManagedHumanPage(tabId) {
+    this.assertControlOpen();
+    const owner = this.attachmentOwners.get(tabId);
+    if (!owner) throw new Error("OBU_HUMAN_UNAVAILABLE: handoff requires an original live task attachment");
+    const check = () => {
+      this.assertControlOpen(); this.assertAttachmentAdmission(tabId, owner.attachment); this.assertTransferScope(owner);
+      if (this.attachmentOwners.get(tabId) !== owner) throw new Error("OBU_HUMAN_STALE: original task ownership changed");
+    };
+    check();
+    await this.validateTransferScope(owner);
+    const proof = await this.assertSiteTab(tabId, { allowBlank: true });
+    const [tab, frame, targets] = await Promise.all([chrome.tabs.get(tabId), chrome.webNavigation.getFrame({ tabId, frameId: 0 }), chrome.debugger.getTargets()]);
+    check(); this.assertSiteProof(proof); assertControllableTab(tab);
+    const candidates = targets.filter(target => target.tabId === tabId && target.type === "page" && typeof target.id === "string" && target.id);
+    if (candidates.length !== 1 || typeof frame?.documentId !== "string" || !frame.documentId)
+      throw new Error("OBU_HUMAN_UNAVAILABLE: original page and document identity could not be proved");
+    return Object.freeze({ tabId, targetId: candidates[0].id, documentId: frame.documentId,
+      windowId: tab.windowId, groupId: tab.groupId, pinned: tab.pinned, incarnation: this.browserLifetime.incarnation,
+      policyGeneration: this.siteAccess.generation, policyRevision: this.siteAccess.status().revision });
+  }
+
+  async validateManagedHumanPage(candidate) {
+    this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
+    const proof = await this.assertSiteTab(candidate.tabId, { allowBlank: true });
+    const [tab, frame, targets] = await Promise.all([chrome.tabs.get(candidate.tabId), chrome.webNavigation.getFrame({ tabId: candidate.tabId, frameId: 0 }), chrome.debugger.getTargets()]);
+    this.assertSiteProof(proof); assertControllableTab(tab);
+    if (!this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || candidate.policyGeneration !== this.siteAccess.generation ||
+        candidate.policyRevision !== this.siteAccess.status().revision || frame?.documentId !== candidate.documentId ||
+        tab.windowId !== candidate.windowId || tab.groupId !== candidate.groupId || tab.pinned !== candidate.pinned ||
+        !targets.some(target => target.id === candidate.targetId && target.tabId === candidate.tabId && target.type === "page"))
+      throw new Error("OBU_HUMAN_STALE: original document, ownership, or permission changed");
   }
 
   async getManagedViewerTabs() {

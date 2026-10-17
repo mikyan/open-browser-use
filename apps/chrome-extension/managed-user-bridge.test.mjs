@@ -57,8 +57,71 @@ function fixture(t, options = {}) {
   f.advance = ms => { time += ms; };
   t.after(async () => {
     f.resumeGate?.resolve(); f.subscribeGate?.resolve(); f.closeGate?.resolve();
+    f.humanBeginGate?.resolve(); f.humanInputGate?.resolve(); f.humanCloseGate?.resolve();
     try { await f.request("disconnect"); } catch { /* already revoked */ }
     for (const timer of timers) clearTimeout(timer);
+  });
+  return f;
+}
+
+function humanFixture(t) {
+  const f = fixture(t);
+  f.humans = [];
+  f.backend.beginManagedHuman = async (tabId, authority, onFrame) => {
+    f.calls.push(["humanBegin", tabId]); authority();
+    const closed = deferred(), record = { tabId, authority, onFrame, closed, closeCalls: 0, inputCalls: 0,
+      info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0 } };
+    const handle = record.handle = {
+      info: () => ({ ...record.info }), closed: closed.promise,
+      input(envelope) {
+        authority(); record.inputCalls++; f.calls.push(["humanInput", envelope.sequence]);
+        const pending = record.pending = (async () => {
+          await f.humanInputGate?.promise;
+          authority();
+          record.info.lastInputSequence = envelope.sequence;
+          return { ...record.info, ...(f.inputReplyOverride ?? {}) };
+        })();
+        return pending;
+      },
+      close() {
+        if (record.closing) return record.closing;
+        record.closeCalls++; record.info.state = "releasing"; closed.resolve({ reason: "released" });
+        record.closing = (async () => {
+          await Promise.allSettled([record.pending].filter(Boolean));
+          await f.humanCloseGate?.promise;
+          if (f.humanCleanupError) throw f.humanCleanupError;
+          record.info.state = "released"; f.calls.push(["humanReleased", tabId]);
+        })();
+        return record.closing;
+      }
+    };
+    f.humans.push(record);
+    try {
+      await f.humanBeginGate?.promise; authority();
+      await f.backend.pauseAutomation(); authority();
+      record.info.state = "active";
+      if (f.earlyHumanFrame) f.humanFrame(1, {}, record);
+      return handle;
+    } catch (error) {
+      try { await handle.close(); }
+      catch (cleanupError) { throw Object.assign(cleanupError, { humanCleanupIncomplete: true }); }
+      throw error;
+    }
+  };
+  f.humanFrame = (sequence, extra = {}, record = f.humans.at(-1)) => {
+    if (!record.info.generation) record.info.generation = 1;
+    record.onFrame({ tabId: record.tabId, streamId: `human-stream-${record.info.leaseId}`, sequence,
+      mimeType: "image/png", data: Buffer.from(`human frame ${sequence}`).toString("base64"),
+      metadata: { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1 },
+      controlMode: "human", humanLeaseId: record.info.leaseId, generation: record.info.generation, ...extra });
+  };
+  f.begin = async () => {
+    const result = await f.request("humanBegin", { tabId: 7 });
+    f.humanFrame(1); await flush();
+    return result;
+  };
+  f.input = (sequence, extra = {}) => f.request("humanInput", {
+    leaseId: f.humans.at(-1).info.leaseId, generation: 1, sequence, input: { type: "text", text: "synthetic" }, ...extra
   });
   return f;
 }
@@ -383,4 +446,251 @@ test("a delayed old automation snapshot is reread after Resume without replaying
   assert.equal(refreshed.status.automation.revision, resumed.status.automation.revision);
   assert.ok(observations >= 3);
   assert.equal(f.calls.filter(call => call[0] === "resume").length, 1);
+});
+
+test("human takeover retires observation, publishes actual geometry and returns an original input receipt", async t => {
+  const f = humanFixture(t); await f.open(); await f.request("select", { tabId: 7 });
+  const starting = await f.begin();
+  assert.equal(f.subscriptions[0].closeCalls, 1);
+  assert.equal(starting.status.human.generation, 0);
+  assert.equal(starting.status.automation.state, "paused");
+  const frames = f.events.filter(event => event.type === "frame");
+  assert.equal(frames.length, 1); assert.equal(frames[0].controlMode, "human");
+  assert.equal(frames[0].humanLeaseId, "human-1");
+  assert.ok(f.events.some(event => event.type === "status" && event.status.human?.generation === 1));
+  await assert.rejects(f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }), /HUMAN_BUSY/);
+  await assert.rejects(f.input(1, { generation: 2 }), /HUMAN_STALE/);
+  await assert.rejects(f.input(1, { leaseId: "retired-lease" }), /HUMAN_STALE/);
+  assert.equal(f.humans[0].inputCalls, 0);
+  const applied = await f.input(1);
+  assert.deepEqual(applied.inputReceipt, { leaseId: "human-1", generation: 1, sequence: 1, acknowledged: true });
+  const ended = await f.request("humanEnd", { leaseId: "human-1" });
+  assert.equal(ended.status.human, null);
+  assert.deepEqual(ended.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  assert.equal(ended.status.automation.state, "paused");
+  await assert.rejects(f.input(2), /HUMAN_STALE/);
+});
+
+test("a first human frame during Begin is kept until the original handle becomes active", async t => {
+  const f = humanFixture(t); f.earlyHumanFrame = true; await f.open();
+  const result = await f.request("humanBegin", { tabId: 7 }); await flush();
+  assert.equal(result.status.human.generation, 1);
+  assert.deepEqual(f.events.filter(event => event.type === "frame").map(event => [event.humanLeaseId, event.generation, event.frameSequence]), [["human-1", 1, 1]]);
+  assert.equal(f.humans[0].closeCalls, 0);
+});
+
+test("input acknowledgement cannot be fabricated from the requested sequence", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  f.inputReplyOverride = { lastInputSequence: 0 };
+  await assert.rejects(f.input(1), /HUMAN_UNCONFIRMED/);
+  assert.equal(f.humans[0].inputCalls, 1);
+  assert.equal(f.humans[0].info.lastInputSequence, 1);
+  assert.equal(f.humans[0].info.state, "released");
+  await assert.rejects(f.input(2), /HUMAN_STALE/);
+});
+
+test("human End revokes immediately but waits for the original input and cleanup", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  f.humanInputGate = deferred(); f.humanCloseGate = deferred();
+  const input = f.input(1), rejected = assert.rejects(input, /HUMAN_STALE/);
+  await flush();
+  let ended = false;
+  const end = f.request("humanEnd", { leaseId: "human-1" }).then(result => { ended = true; return result; });
+  await flush();
+  await assert.rejects(f.input(2), /HUMAN_STALE/);
+  await assert.rejects(f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }), /CLEANUP/);
+  assert.equal(ended, false); assert.equal(f.humans[0].closeCalls, 1);
+  f.humanInputGate.resolve(); await rejected; await flush(); assert.equal(ended, false);
+  f.humanCloseGate.resolve();
+  assert.deepEqual((await end).status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  assert.equal(f.humans[0].inputCalls, 1);
+});
+
+test("unselect fences Begin while original tab inspection is still pending", async t => {
+  const f = humanFixture(t); await f.open();
+  const entered = deferred(), held = deferred(); let first = true;
+  f.backend.getManagedViewerTabs = async () => { if (first) { first = false; entered.resolve(); await held.promise; } return f.liveTabs; };
+  const begin = f.request("humanBegin", { tabId: 7 }), rejected = assert.rejects(begin, /CLOSED/);
+  await entered.promise;
+  let completed = false;
+  const clear = f.request("select", { tabId: null }).then(result => { completed = true; return result; });
+  await flush(); assert.equal(completed, false);
+  held.resolve(); await rejected;
+  assert.equal((await clear).status.human, null);
+  assert.equal(f.humans.length, 0);
+});
+
+test("unselect does not queue cancellation behind an in-progress human Begin", async t => {
+  const f = humanFixture(t); await f.open(); f.humanBeginGate = deferred(); f.humanCloseGate = deferred();
+  const begin = f.request("humanBegin", { tabId: 7 }), rejected = assert.rejects(begin, /HUMAN_STALE/);
+  await flush(); assert.equal(f.humans.length, 1);
+  let cleared = false;
+  const clear = f.request("select", { tabId: null }).then(result => { cleared = true; return result; });
+  await flush(); assert.equal(cleared, false);
+  assert.throws(f.humans[0].authority, /HUMAN_STALE/);
+  f.humanBeginGate.resolve(); await flush(); assert.equal(cleared, false);
+  f.humanCloseGate.resolve(); await rejected; await clear;
+  assert.equal(f.humans[0].info.state, "released");
+  assert.equal(f.calls.some(call => call[0] === "pause"), false);
+});
+
+test("Pause retires a queued human Begin without starting it after the old subscription settles", async t => {
+  const f = humanFixture(t); await f.open(); f.subscribeGate = deferred();
+  const select = f.request("select", { tabId: 7 }), selectRejected = assert.rejects(select, /CLOSED/);
+  await flush();
+  const begin = f.request("humanBegin", { tabId: 7 }), beginRejected = assert.rejects(begin, /CLOSED/);
+  const pause = f.request("pause"); await flush(); f.subscribeGate.resolve();
+  await Promise.all([selectRejected, beginRejected, pause]);
+  assert.equal(f.humans.length, 0); assert.equal(f.state.state, "paused");
+  assert.equal(f.subscriptions[0].closeCalls, 1);
+});
+
+test("disconnect waits for original human input release and blocks a replacement channel", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin(); f.humanInputGate = deferred();
+  const input = f.input(1), rejected = assert.rejects(input, /CLOSED/); await flush();
+  let done = false; const close = f.request("disconnect").then(result => { done = true; return result; });
+  await flush(); assert.equal(done, false);
+  await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
+  f.humanInputGate.resolve(); await rejected;
+  const result = await close;
+  assert.equal(f.humans[0].info.state, "released");
+  assert.equal(f.calls.filter(call => call[0] === "humanReleased").length, 1);
+  assert.equal(result.status.human, null);
+  assert.deepEqual(result.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  assert.equal(result.status.cleanupPending, 0);
+});
+
+test("disconnect reports the newly released human lease and final event sequence, not the previous lease snapshot", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  await f.request("humanEnd", { leaseId: "human-1" });
+  await f.begin();
+  const before = (await f.request("status")).status;
+  assert.equal(before.human.leaseId, "human-2");
+  assert.deepEqual(before.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  f.humanCloseGate = deferred();
+  let done = false;
+  const disconnect = f.request("disconnect").then(result => { done = true; return result; });
+  await flush(); assert.equal(done, false);
+  assert.equal(f.humans[1].info.state, "releasing");
+  f.humanCloseGate.resolve();
+  const result = await disconnect;
+  assert.equal(f.humans[1].info.state, "released");
+  assert.equal(result.disconnected, true);
+  assert.equal(result.status.connected, false);
+  assert.equal(result.status.selectedTabId, null);
+  assert.equal(result.status.human, null);
+  assert.deepEqual(result.status.humanCleanup, { leaseId: "human-2", cleanupConfirmed: true });
+  assert.equal(result.status.cleanupPending, 0);
+  assert.equal(Object.hasOwn(result.status, "cleanupError"), false);
+  assert.deepEqual(result.status.stream, { state: "idle", streamId: null });
+  assert.deepEqual(result.status.tabs, []);
+  assert.equal(f.events.at(-1).type, "closed");
+  assert.equal(result.status.eventSequence, f.events.at(-1).sequence);
+  assert.ok(result.status.eventSequence > before.eventSequence);
+});
+
+test("disconnect never confirms a human close rejection or a resolved close without actual released state", async t => {
+  for (const mode of ["reject", "unconfirmed"]) {
+    const f = humanFixture(t); await f.open(); await f.begin();
+    await f.request("humanEnd", { leaseId: "human-1" }); await f.begin();
+    if (mode === "reject") f.humanCleanupError = new Error("original native release unconfirmed");
+    else f.humans[1].handle.close = async () => { f.humans[1].info.state = "releasing"; };
+    await assert.rejects(f.request("disconnect"), /release.*unconfirmed|release was not confirmed/);
+    assert.notEqual(f.humans[1].info.state, "released");
+    await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
+  }
+});
+
+test("disconnect joins a pending Begin that returns its original handle after cancellation", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  await f.request("humanEnd", { leaseId: "human-1" });
+  const originalBegin = f.backend.beginManagedHuman, delivery = deferred();
+  f.backend.beginManagedHuman = async (...args) => { const handle = await originalBegin(...args); await delivery.promise; return handle; };
+  const begin = f.request("humanBegin", { tabId: 7 }), rejected = assert.rejects(begin, /CLOSED/);
+  await flush(); await flush();
+  assert.equal(f.humans[1].info.state, "active");
+  f.humanCloseGate = deferred();
+  let done = false;
+  const disconnect = f.request("disconnect").then(result => { done = true; return result; });
+  await flush(); assert.equal(done, false);
+  assert.throws(f.humans[1].authority, /CLOSED/);
+  delivery.resolve(); await rejected; await flush(); assert.equal(done, false);
+  f.humanCloseGate.resolve();
+  const result = await disconnect;
+  assert.equal(f.humans[1].closeCalls, 1);
+  assert.equal(f.humans[1].info.state, "released");
+  assert.equal(result.status.human, null);
+  assert.deepEqual(result.status.humanCleanup, { leaseId: "human-2", cleanupConfirmed: true });
+  assert.equal(result.status.cleanupPending, 0);
+});
+
+test("disconnect joins rejected Begin cleanup without inventing an undelivered human lease receipt", async t => {
+  const f = humanFixture(t); await f.open(); f.humanBeginGate = deferred(); f.humanCloseGate = deferred();
+  const begin = f.request("humanBegin", { tabId: 7 }), rejected = assert.rejects(begin, /CLOSED/);
+  await flush(); assert.equal(f.humans.length, 1);
+  let done = false;
+  const disconnect = f.request("disconnect").then(result => { done = true; return result; });
+  await flush(); f.humanBeginGate.resolve(); await flush(); assert.equal(done, false);
+  assert.equal(f.humans[0].info.state, "releasing");
+  f.humanCloseGate.resolve(); await rejected;
+  const result = await disconnect;
+  assert.equal(f.humans[0].info.state, "released");
+  assert.equal(result.status.human, null);
+  assert.equal(result.status.cleanupPending, 0);
+  assert.equal(Object.hasOwn(result.status, "humanCleanup"), false);
+});
+
+test("disconnect preserves a pending Begin cleanup failure instead of returning a disconnected receipt", async t => {
+  const f = humanFixture(t); await f.open(); f.humanBeginGate = deferred(); f.humanCloseGate = deferred();
+  f.humanCleanupError = new Error("original pending Begin release unconfirmed");
+  const begin = f.request("humanBegin", { tabId: 7 });
+  const beginRejected = assert.rejects(begin, /pending Begin release unconfirmed/);
+  await flush(); assert.equal(f.humans.length, 1);
+  const disconnectRejected = assert.rejects(f.request("disconnect"), /pending Begin release unconfirmed|CLEANUP/);
+  f.humanBeginGate.resolve(); await flush();
+  assert.equal(f.humans[0].info.state, "releasing");
+  f.humanCloseGate.resolve(); await Promise.all([beginRejected, disconnectRejected]);
+  assert.notEqual(f.humans[0].info.state, "released");
+  await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
+});
+
+test("disconnect does not substitute a stale automation snapshot when the final status read fails", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  f.backend.getAutomationControlStatus = async () => { throw new Error("original automation status unavailable"); };
+  await assert.rejects(f.request("disconnect"), /original automation status unavailable/);
+  assert.equal(f.humans[0].info.state, "released");
+  assert.equal(f.humans[0].closeCalls, 1);
+});
+
+test("disconnect refreshes automation after fencing a pending Resume", async t => {
+  const f = fixture(t); await f.open(); await f.request("pause");
+  const before = (await f.request("status")).status;
+  f.resumeGate = deferred();
+  const resume = f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" });
+  const rejected = assert.rejects(resume, /CLOSED/); await flush();
+  const disconnect = await f.request("disconnect");
+  assert.equal(disconnect.status.automation.state, "paused");
+  assert.ok(disconnect.status.automation.revision > before.automation.revision);
+  assert.deepEqual(disconnect.status.automation, f.state);
+  f.resumeGate.resolve(); await rejected;
+  assert.deepEqual(disconnect.status.automation, f.state);
+});
+
+test("failed human Begin cleanup remains a sticky barrier with no delivered handle", async t => {
+  const f = humanFixture(t); await f.open();
+  f.backend.beginManagedHuman = async () => { throw Object.assign(new Error("unconfirmed native release"), { humanCleanupIncomplete: true }); };
+  await assert.rejects(f.request("humanBegin", { tabId: 7 }), /unconfirmed native release/);
+  await assert.rejects(f.request("select", { tabId: 7 }), /unconfirmed native release|CLEANUP/);
+  await assert.rejects(f.request("disconnect"), /unconfirmed native release|CLEANUP/);
+  await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
+});
+
+test("mismatched human frame cannot grant input or replace the original lease", async t => {
+  for (const changed of [{ humanLeaseId: "different" }, { generation: 2 }, { controlMode: undefined }]) {
+    const f = humanFixture(t); await f.open(); await f.request("humanBegin", { tabId: 7 });
+    f.humanFrame(1, changed); await flush();
+    assert.equal(f.events.filter(event => event.type === "frame").length, 0);
+    assert.equal(f.humans[0].closeCalls, 1);
+    assert.equal((await f.request("status")).status.human, null);
+  }
 });

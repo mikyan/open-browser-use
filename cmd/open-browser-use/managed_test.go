@@ -64,6 +64,91 @@ func TestManagedViewerTicketRequiresSameLiveRunAndExplicitRequest(t *testing.T) 
 	}
 }
 
+func TestManagedViewWaitsForOriginalViewerCleanupBeforeIssuingOnce(t *testing.T) {
+	for _, failCleanup := range []bool{false, true} {
+		t.Run(fmtCleanup(func() error {
+			if failCleanup {
+				return errors.New("unknown")
+			}
+			return nil
+		}()), func(t *testing.T) {
+			client, server := net.Pipe()
+			defer client.Close()
+			s := newManagedSupervisor(nil, managedbrowser.Info{Name: "fixture", RunID: "current"})
+			entered, release := make(chan struct{}), make(chan struct{})
+			issued := make(chan struct{}, 1)
+			s.waitViewerReady = func(ctx context.Context) error {
+				close(entered)
+				select {
+				case <-release:
+					if failCleanup {
+						return errors.New("original human release unconfirmed")
+					}
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			s.issueViewerURL = func() (string, error) { issued <- struct{}{}; return "http://127.0.0.1:1234/#ticket=private", nil }
+			done := make(chan struct{})
+			go func() { s.handle(server); server.Close(); close(done) }()
+			client.SetDeadline(time.Now().Add(3 * time.Second))
+			if err := wire.WriteJSON(client, managedMessage{Operation: "status"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readManagedMessage(client); err != nil {
+				t.Fatal(err)
+			}
+			if err := wire.WriteJSON(client, managedMessage{Operation: "view", RunID: "current"}); err != nil {
+				t.Fatal(err)
+			}
+			<-entered
+			select {
+			case <-issued:
+				t.Fatal("ticket issued before actual cleanup")
+			default:
+			}
+			close(release)
+			result, err := readManagedMessage(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-done
+			if failCleanup {
+				if result.Error == "" || result.ViewerURL != "" || len(issued) != 0 {
+					t.Fatalf("unknown cleanup issued ticket: %+v", result)
+				}
+			} else if result.State != "viewer" || len(issued) != 1 {
+				t.Fatalf("original view did not issue exactly once: %+v", result)
+			}
+		})
+	}
+}
+
+func TestManagedViewWaitingForCleanupIsCanceledBySessionStop(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	s := newManagedSupervisor(nil, managedbrowser.Info{Name: "fixture", RunID: "current"})
+	entered := make(chan struct{})
+	s.waitViewerReady = func(ctx context.Context) error { close(entered); <-ctx.Done(); return ctx.Err() }
+	s.issueViewerURL = func() (string, error) { t.Error("Stop permitted a new ticket"); return "", nil }
+	done := make(chan struct{})
+	go func() { s.handle(server); server.Close(); close(done) }()
+	client.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = wire.WriteJSON(client, managedMessage{Operation: "status"})
+	if _, err := readManagedMessage(client); err != nil {
+		t.Fatal(err)
+	}
+	_ = wire.WriteJSON(client, managedMessage{Operation: "view", RunID: "current"})
+	<-entered
+	close(s.stop)
+	result, err := readManagedMessage(client)
+	if err != nil || result.Error == "" || result.ViewerURL != "" {
+		t.Fatalf("stop failed to cancel waiting view: %+v %v", result, err)
+	}
+	<-done
+}
+
 func TestManagedViewerStopWaitsForCleanupDespiteCallerDeadline(t *testing.T) {
 	s := newManagedSupervisor(nil, managedbrowser.Info{RunID: "current"})
 	ctx, cancel := context.WithCancel(context.Background())

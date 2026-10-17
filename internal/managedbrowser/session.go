@@ -227,23 +227,8 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 		s.browserExit = processReceipt(code, codeErr, waitErr)
 		close(s.browserDone)
 	}()
-	var cdpURL string
-	if err := s.waitStartup(ctx, func() (bool, error) {
-		data, err := readSmallFile(portFile, 4096)
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		// Chromium writes this small file directly. An incomplete publication
-		// is still startup, bounded by the same deadline, not a fresh attempt.
-		if len(strings.Split(strings.TrimSpace(string(data)), "\n")) < 2 {
-			return false, nil
-		}
-		cdpURL, err = browserEndpoint(data)
-		return err == nil, err
-	}); err != nil {
+	cdpURL, err := s.waitBrowserEndpoint(ctx, portFile)
+	if err != nil {
 		return nil, fmt.Errorf("managed Browser startup: %w", err)
 	}
 	s.browser, err = connectBrowser(ctx, cdpURL)
@@ -597,12 +582,15 @@ func (s *Session) cleanEndpointRecords() error {
 		if entry.Name() != "active.json" && !strings.HasSuffix(entry.Name(), host.EndpointRecordSuffix) {
 			return errors.New("managed native endpoint directory contains unknown entries")
 		}
+		if s.info.SocketPath == "" || s.info.NativePID <= 0 {
+			return errors.New("managed native cleanup cannot confirm the original endpoint identity; records retained")
+		}
 		data, err := readSmallFile(filepath.Join(s.endpointDir, entry.Name()), 4096)
 		if err != nil {
 			return err
 		}
 		var record host.ActiveSocketRecord
-		if json.Unmarshal(data, &record) != nil || s.info.SocketPath == "" || record.SocketPath != s.info.SocketPath || record.PID != s.info.NativePID {
+		if json.Unmarshal(data, &record) != nil || record.SocketPath != s.info.SocketPath || record.PID != s.info.NativePID {
 			return errors.New("managed native cleanup found a foreign endpoint record")
 		}
 		if err := os.Remove(filepath.Join(s.endpointDir, entry.Name())); err != nil {

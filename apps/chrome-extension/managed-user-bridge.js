@@ -31,7 +31,11 @@ function frameCopy(value) {
   // does not prove a frame's document identity; do not manufacture one here.
   for (const key of ["offsetTop", "pageScaleFactor", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY", "timestamp", "monotonicTimestamp"])
     if (Number.isFinite(value.metadata?.[key])) metadata[key] = value.metadata[key];
-  return { tabId: value.tabId, streamId: value.streamId, frameSequence: value.sequence, mimeType: value.mimeType, data: value.data, metadata };
+  const human = value.controlMode === "human";
+  if (value.controlMode !== undefined && !human || !human && (value.humanLeaseId !== undefined || value.generation !== undefined) || human && (!text(value.humanLeaseId, 128) || !integer(value.generation) || value.generation < 1))
+    throw failure("FRAME", "invalid human frame identity");
+  return { tabId: value.tabId, streamId: value.streamId, frameSequence: value.sequence, mimeType: value.mimeType, data: value.data, metadata,
+    ...(human ? { controlMode: "human", humanLeaseId: value.humanLeaseId, generation: value.generation } : {}) };
 }
 
 // Installed only in a packaged managed worker. The manager reaches it through
@@ -98,10 +102,15 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       catch (error) {
         // Ordinary startup rejection follows its actual cleanup. A native
         // cleanup failure must remain a barrier even when no handle arrived.
-        if (error?.viewerCleanupIncomplete) throw error;
+        if (error?.viewerCleanupIncomplete || error?.humanCleanupIncomplete) throw error;
         return;
       }
       await handle.close();
+      if (record.human) {
+        const info = handle.info();
+        if (info?.state !== "released" || !text(info.leaseId, 128)) throw failure("CLEANUP", "original human release was not confirmed");
+        channel.humanCleanup = { leaseId: info.leaseId, cleanupConfirmed: true };
+      }
     })());
     return record.closing;
   }
@@ -110,7 +119,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     channel.closed = true;
     if (current === channel) current = null;
     clearTimer(channel.timer);
-    const retired = retireStream(channel, reason, false);
+    const retired = cancelSelections(channel, reason, false);
     const releases = [...cleanup, retired];
     // Fence a pending Resume before it can later unblock input. This does not
     // undo an already completed Resume or browser action. The backend checks
@@ -148,6 +157,11 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       assertCurrent(channel);
       const frame = frameCopy(value);
       if (frame.tabId !== record.tabId) throw failure("FRAME", "frame belongs to a different tab");
+      if (record.human) {
+        const info = record.handle?.info();
+        if (frame.controlMode !== "human" || info?.state !== "active" || frame.humanLeaseId !== info.leaseId || frame.generation !== info.generation)
+          throw failure("FRAME", "frame does not match the active human lease and geometry");
+      } else if (frame.controlMode !== undefined) throw failure("FRAME", "observation stream cannot authorize human input");
       if (record.streamId && record.streamId !== frame.streamId) throw failure("FRAME", "original stream identity changed");
       if (frame.frameSequence <= record.lastFrameSequence) return;
       record.streamId = frame.streamId; record.lastFrameSequence = frame.frameSequence;
@@ -155,6 +169,12 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       channel.streamState = { state: "streaming", streamId: frame.streamId };
       if (channel.inFlight) channel.latest = frame;
       else sendFrame(channel, frame);
+      if (record.human && record.publishedHumanGeneration !== frame.generation) {
+        record.publishedHumanGeneration = frame.generation;
+        // A static page may send its only frame after Begin returned generation
+        // zero. Publish the actual new geometry state; never invent readiness.
+        void status(channel, true).catch(() => {});
+      }
     } catch (error) {
       if (channel.closed) return;
       void retireStream(channel, "frame unavailable").catch(() => {});
@@ -164,6 +184,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   }
   async function tabs(channel) {
     assertCurrent(channel);
+    if (channel.stream?.human && !channel.stream.retired) return [channel.stream.tab];
     const result = await backend.getManagedViewerTabs();
     assertCurrent(channel);
     if (!Array.isArray(result) || result.length > 4096) throw failure("TABS", "invalid live attachment list");
@@ -193,6 +214,8 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         expiresAt: Math.ceil(wallNow() + Math.max(0, channel.deadline - now())), selectedTabId: channel.selectedTabId,
         automation, tabs: liveTabs, stream: { ...channel.streamState }, cleanupPending: cleanup.size,
         eventSequence: channel.sequence + (publish ? 1 : 0),
+        human: channel.stream?.human ? channel.stream.handle?.info() ?? null : null,
+        ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}),
         ...(cleanupFailure ? { cleanupError: String(cleanupFailure.message ?? cleanupFailure) } : {}) };
       if (JSON.stringify(value).length > 1024 * 1024) throw failure("CAPACITY", "live metadata status exceeds its bound");
       channel.lastStatus = value;
@@ -201,15 +224,36 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     }
     throw failure("STALE_STATUS", "control state kept changing during metadata inspection");
   }
-  async function select(channel, tabId) {
+  function assertSelection(channel, epoch) {
     assertCurrent(channel);
+    if (epoch !== channel.selectionEpoch) throw failure("CLOSED", "original selection request was revoked");
+  }
+  function cancelSelections(channel, reason, publish = true) {
+    // Revoke synchronously, including a Begin still reading its original tab or
+    // waiting behind an older selection. Cleanup must not queue behind Begin.
+    channel.selectionEpoch++;
+    const previous = channel.selections;
+    const retired = retireStream(channel, reason, publish);
+    // Snapshot here: a later channel-close cleanup can itself wait for this
+    // cancellation, and must never become its own prerequisite.
+    const originalCleanup = [...cleanup];
+    const cancelled = Promise.all([previous.catch(() => {}), retired, ...originalCleanup]).then(() => {
+      if (cleanupFailure) throw failure("CLEANUP", "original viewer cleanup is incomplete");
+    });
+    channel.selections = cancelled;
+    return cancelled;
+  }
+  async function select(channel, tabId, epoch) {
+    assertSelection(channel, epoch);
+    if (channel.stream?.human && tabId !== null) throw failure("HUMAN_BUSY", "finish the original human control before changing selection");
     if (tabId !== null && !(await tabs(channel)).some(tab => tab.id === tabId))
       throw failure("TAB", "only an existing owned attached tab can be selected");
-    assertCurrent(channel);
+    assertSelection(channel, epoch);
     if (channel.selectedTabId === tabId && !cleanup.size && !cleanupFailure) return;
     await retireStream(channel, "selection changed");
+    assertSelection(channel, epoch);
     await Promise.all([...cleanup]);
-    assertCurrent(channel);
+    assertSelection(channel, epoch);
     if (cleanupFailure) throw failure("CLEANUP", String(cleanupFailure.message ?? cleanupFailure));
     if (tabId === null) return;
     const record = { tabId, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null };
@@ -235,6 +279,51 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       throw error;
     }
   }
+  async function beginHuman(channel, tabId, epoch) {
+    assertSelection(channel, epoch);
+    if (typeof backend.beginManagedHuman !== "function") throw failure("HUMAN_UNAVAILABLE", "human control is unavailable");
+    if (channel.stream?.human) throw failure("HUMAN_BUSY", "human control is already active");
+    const tab = (await tabs(channel)).find(tab => tab.id === tabId);
+    assertSelection(channel, epoch);
+    if (!tab) throw failure("HUMAN_STALE", "the original task page is no longer available");
+    await retireStream(channel, "human takeover requested");
+    assertSelection(channel, epoch);
+    await Promise.all([...cleanup]);
+    assertSelection(channel, epoch);
+    if (cleanupFailure) throw failure("CLEANUP", "original viewing cleanup is incomplete");
+    const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null };
+    channel.stateEpoch++; channel.stream = record; channel.selectedTabId = tabId;
+    channel.streamState = { state: "starting", streamId: null };
+    const authority = () => {
+      assertCurrent(channel);
+      if (record.retired || channel.stream !== record) throw failure("HUMAN_STALE", "original human control was revoked");
+    };
+    record.started = Promise.resolve().then(() => {
+      authority();
+      return backend.beginManagedHuman(tabId, authority, value => {
+        if (!record.handle) { record.earlyFrame = value; return; }
+        receiveFrame(channel, record, value);
+      });
+    });
+    try {
+      const handle = await record.started;
+      if (!handle || ["info", "input", "close"].some(key => typeof handle[key] !== "function")) throw failure("HUMAN_UNAVAILABLE", "invalid human control handle");
+      record.handle = handle;
+      const info = handle.info();
+      if (!text(info?.leaseId, 128) || info.tabId !== tabId || info.state !== "active") throw failure("HUMAN_UNAVAILABLE", "human control did not become active");
+      if (handle.closed?.then) void handle.closed.then(() => {
+        if (!record.retired && channel.stream === record) void retireStream(channel, "human control ended").catch(() => {});
+      }, () => { if (!record.retired && channel.stream === record) void retireStream(channel, "human control failed").catch(() => {}); });
+      authority();
+      if (record.earlyFrame) {
+        const value = record.earlyFrame; record.earlyFrame = null;
+        receiveFrame(channel, record, value);
+      }
+    } catch (error) {
+      if (channel.stream === record) await retireStream(channel, "human takeover unavailable");
+      throw error;
+    } finally { channel.stateEpoch++; }
+  }
   async function open(input) {
     const value = fields(input, ["version", ...identityKeys, "channelKey"]);
     if (value.version !== 1 || value.runId !== runId || !text(value.extensionId, 32) || !/^[a-p]{32}$/.test(value.extensionId) ||
@@ -255,7 +344,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       if (!text(id)) throw failure("CONFIG", "invalid channel identifier");
       const channel = { id, key: value.channelKey, identity: Object.fromEntries(identityKeys.map(key => [key, value[key]])), proof, nonce: proof.nonce, sink,
         deadline: now() + LEASE_MS, closed: false, timer: null, sequence: 0, stateEpoch: 0, selectedTabId: null, stream: null,
-        streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, pendingResumes: 0, selections: Promise.resolve() };
+        streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve() };
       usedKeys.add(channel.key); current = channel; arm(channel);
       try { return { ...identity(channel), status: await status(channel) }; }
       catch (error) { await revoke(channel, "open failed"); throw error; }
@@ -264,10 +353,13 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   async function request(input) {
     // Read the operation through a data descriptor before deciding its schema.
     const operation = input && Object.getOwnPropertyDescriptor(input, "operation")?.value;
-    const extra = operation === "select" ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : [];
+    const extra = ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : [];
     const value = fields(input, ["channelKey", "operation", ...extra]);
-    if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect"].includes(operation) ||
+    if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd"].includes(operation) ||
         typeof value.channelKey !== "string" || (operation === "select" && value.tabId !== null && !integer(value.tabId)) ||
+        (operation === "humanBegin" && (!integer(value.tabId) || value.tabId < 1)) ||
+        (["humanInput", "humanEnd"].includes(operation) && !text(value.leaseId, 128)) ||
+        (operation === "humanInput" && (!integer(value.generation) || value.generation < 1 || !integer(value.sequence) || value.sequence < 1)) ||
         (operation === "resume" && (!integer(value.expectedRevision) || !text(value.expectedWorkerBootId))) ||
         (operation === "ack" && (!integer(value.sequence) || value.sequence < 1)))
       throw failure("PROTOCOL", "invalid typed user operation");
@@ -282,22 +374,60 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       return { acknowledged: value.sequence, workerBootId: channel.identity.workerBootId };
     }
     if (operation === "disconnect") {
-      const previous = channel.lastStatus;
       await revoke(channel, "manager disconnected");
-      return { disconnected: true, status: { ...previous, connected: false, selectedTabId: null, stream: { state: "idle", streamId: null } } };
+      // Revoke joins the original selection, native input, and handle release.
+      // The last live snapshot predates that release (and may name an older
+      // human lease). Only the actual settled resources can confirm cleanup.
+      const automation = await backend.getAutomationControlStatus();
+      if (cleanupFailure || cleanup.size || channel.stream || channel.selectedTabId !== null)
+        throw failure("CLEANUP", "original viewer cleanup is incomplete");
+      const disconnected = { ...identity(channel), connected: false, leaseMs: LEASE_MS, heartbeatMs: HEARTBEAT_MS,
+        expiresAt: Math.ceil(wallNow()), selectedTabId: channel.selectedTabId, automation, tabs: [],
+        stream: { ...channel.streamState }, cleanupPending: cleanup.size, eventSequence: channel.sequence, human: null,
+        ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
+      if (JSON.stringify(disconnected).length > 1024 * 1024) throw failure("CAPACITY", "disconnected metadata status exceeds its bound");
+      return { disconnected: true, status: disconnected };
     }
-    if (operation === "select") {
-      const selected = channel.selections.catch(() => {}).then(() => select(channel, value.tabId));
+    let inputReceipt;
+    if (operation === "humanInput") {
+      const record = channel.stream, handle = record?.human && !record.retired && record.handle;
+      const before = handle?.info();
+      if (!before || before.state !== "active" || before.leaseId !== value.leaseId || before.generation !== value.generation)
+        throw failure("HUMAN_STALE", "original human lease and geometry are no longer active");
+      const accepted = await handle.input({ leaseId: value.leaseId, generation: value.generation, sequence: value.sequence, input: value.input });
+      const after = handle.info();
+      if (record.retired || channel.stream !== record || [accepted, after].some(info => info?.state !== "active" || info.leaseId !== value.leaseId || info.generation !== value.generation || info.lastInputSequence !== value.sequence)) {
+        if (channel.stream === record) await retireStream(channel, "original input acknowledgement unavailable");
+        throw failure("HUMAN_UNCONFIRMED", "original input receipt is unavailable; do not replay the input");
+      }
+      inputReceipt = { leaseId: after.leaseId, generation: after.generation, sequence: after.lastInputSequence, acknowledged: true };
+    } else if (operation === "humanEnd") {
+      const record = channel.stream;
+      if (!record?.human || !record.handle || record.handle.info().leaseId !== value.leaseId) throw failure("HUMAN_STALE", "original human lease is no longer active");
+      await retireStream(channel, "human control finished");
+      await Promise.all([...cleanup]);
+      if (cleanupFailure) throw failure("CLEANUP", "human cleanup is unconfirmed");
+    } else if (operation === "humanBegin") {
+      const epoch = channel.selectionEpoch;
+      const selected = channel.selections.catch(() => {}).then(() => beginHuman(channel, value.tabId, epoch));
       channel.selections = selected; await selected;
+    } else if (operation === "select") {
+      if (value.tabId === null) await cancelSelections(channel, "selection cleared");
+      else {
+        const epoch = channel.selectionEpoch;
+        const selected = channel.selections.catch(() => {}).then(() => select(channel, value.tabId, epoch));
+        channel.selections = selected; await selected;
+      }
     } else if (operation === "pause") {
       channel.stateEpoch++;
-      const released = retireStream(channel, "automation paused");
+      const released = cancelSelections(channel, "automation paused");
       try { await Promise.all([released, backend.pauseAutomation()]); }
       finally { channel.stateEpoch++; }
     } else if (operation === "resume") {
       if (value.expectedWorkerBootId !== channel.identity.workerBootId) throw failure("REVISION", "worker changed; refresh status before resuming");
       const assertResume = () => {
         assertCurrent(channel);
+        if (channel.stream?.human) throw failure("HUMAN_BUSY", "finish human control before resuming the Agent");
         if (cleanup.size || cleanupFailure) throw failure("CLEANUP", "original viewer cleanup is incomplete");
       };
       assertResume();
@@ -307,7 +437,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       finally { channel.pendingResumes--; channel.stateEpoch++; }
     }
     assertCurrent(channel);
-    return { status: await status(channel, operation !== "status") };
+    return { status: await status(channel, operation !== "status"), ...(inputReceipt ? { inputReceipt } : {}) };
   }
   const api = Object.freeze({ open, request });
   Object.defineProperty(target, API, { value: api, configurable: false, writable: false, enumerable: false });
