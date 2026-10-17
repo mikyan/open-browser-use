@@ -17,7 +17,8 @@ Headless 原型在真实 Native Messaging 下完成五步验证（含原表单�
 截图和实际 EOF 清理），两次零业务前置失败保留。当前新增实验性 Windows
 `managed run/status/stop` 和 CLI/MCP 名称选择，正式入口在 Chromium 156
 完成三步原始业务/清理验证，实际 exit 0；停止后独审 37 项证据检查通过。
-用户要求的新包正在从本次源码构建，发布制品另做离线检查与 ZIP 审计。
+用户要求的新包 `preview-20261017-dde4d40` 已发布：干净提交重建、离线
+CLI/MCP、94 文件完整包独立解压校验及四个上传资产回下载哈希均通过。
 Go、扩展及构建专项检查通过。实时 viewer、可信
 暂停及登录接管尚未实现，不替代普通浏览器焦点验收。见
 [隔离会话计划](exec-plans/active/2026-10-16-managed-browser-session.md)。

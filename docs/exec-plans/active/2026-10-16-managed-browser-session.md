@@ -122,6 +122,12 @@ OS 前台观测。测试 adapter、临时注册与生产安装的差异必须公
 
 ## 进度
 
+- 2026-10-17：用户要求的新包 `preview-20261017-dde4d40` 已从干净提交
+  重建并发布到 fork。离线 CLI/MCP、94/67/6 文件的完整包/扩展/Skill
+  独审与四资产上传回下载校验通过。发布 EXE 未冒称重跑过原页面业务；
+  原验收 EXE 与发布 EXE 的身份分别保留。完整包 SHA-256 为
+  `ce924e01b94008e739787bfdbb346247e503fe545f058f6d500a29f5b9e73687`。
+  本次不创建 PR，后续 viewer、用户控制及安装范围仍保持开放。
 - 2026-10-17：正式 `managed-launcher-xgfAuQ` 原始三步全部通过，runner
   实际 exit 0。CLI/MCP 选择同一私有 host；重复名称启动被拒且无新 run。
   SDK 一次可信 Control-click 接续原 child、唯一 192 B POST、758×369 PNG

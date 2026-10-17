@@ -84,8 +84,17 @@ including 15 distinct original process identities, both registry views, endpoint
 cleanup and decoded PNG pixels. The old-handle rejection is evidenced by the
 runner assertion, not a separately retained raw error. Audit SHA-256:
 `8271414aba4e013c7c82fc837e424ad854dd03150279e0a360a0f9897eebddbd`.
-The requested package is being built separately from a clean commit, with offline
-checks and archive auditing. This does not validate normal installed Edge, the company computer,
+The requested `preview-20261017-dde4d40` package was rebuilt from the clean
+`dde4d40ad7ad691897c9b88aec62a66b3a095df4` commit and published to the fork.
+Offline CLI/MCP checks passed. Independent extraction verified 94 bundle files,
+67 extension files and 6 Skill files; all four uploaded assets were downloaded
+and matched local hashes before publication. Full ZIP SHA-256:
+`ce924e01b94008e739787bfdbb346247e503fe545f058f6d500a29f5b9e73687`.
+Package audit SHA-256:
+`94780b91e0db64ab31af7a7511425f5c537c9c3b25227ecee63ad823b44fa750`.
+An initial auditor parsing error requiring a semicolon in a Go const declaration
+was corrected; its failure record was retained and the same archives passed.
+No PR was created. This does not validate normal installed Edge, the company computer,
 OS foreground behavior, native download files, profile login/restart or a full
 task matrix. Viewer, trusted pause/resume and login handoff remain unfinished.
 

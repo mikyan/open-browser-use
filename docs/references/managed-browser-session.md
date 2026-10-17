@@ -7,7 +7,7 @@ profile 和真实 Native Messaging。它是可选的实验入口，目前没有�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文对应当前开发分支。正式 CLI 已完成下文限定范围的真实浏览器验收；
-本次用户要求的新包发布结果待补。npm 上游包和旧预览包不提供
+Windows 完整包已发布为 [preview-20261017-dde4d40](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-dde4d40)。npm 上游包和旧预览包不提供
 本入口，不能将下面的命令直接套用到旧版程序。
 
 ## 准备
