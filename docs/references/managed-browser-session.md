@@ -8,6 +8,9 @@ profile 和真实 Native Messaging。本次 Windows 预览的实验功能基线�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录本次预览的使用方式与已验证边界，不代表任意旧版制品都有这些能力。
+最新完整包为 [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)，
+已包含下述同文档人工接管；干净重建、离线 CLI/MCP、独立制品审计和上传后
+回下载校验通过，本次打包没有重跑真实网页流程。
 历史旧包 [preview-20261017-2547e6e](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-2547e6e)
 的运行功能与 b3fd56a 相同，包含登录准备和实时查看，不包含同文档人工接管。
 更早的 `preview-20261017-41577de` 只有实时查看，

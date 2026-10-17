@@ -437,3 +437,22 @@ continuation is design work only and is excluded. The original browser results
 and six earlier failed attempts remain historical evidence; packaging does not
 rerun or replace them. Publication will follow independent artifact and offline
 CLI/MCP checks, with uploaded assets downloaded again for hash comparison.
+
+Published [preview-20261017-93f54a1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-93f54a1)
+from clean source `93f54a16473dceb3f8f6e19e5f21eab643861562`. The production
+Git objects match 9ac3a04; 158 Go and 157 extension/builder test inputs match
+their original passing evidence. A fresh Go 1.26.9 Windows amd64 CGO=0 trimpath
+build and fresh 70-file extension build succeeded. Offline CLI/MCP exposes 30
+tools; independent artifact audit passed 5,388 checks with 97/70/6 archive
+members. Audit SHA-256:
+`3be624ab5b0d1122b5e474c0f4ba8c55ce2c152452d8fc5ef33d2ebcf8f76eb8`.
+All four uploaded assets were downloaded and matched their local hashes before
+publication; the local delivery copy matched all 101 files. No browser business
+workflow, installation or browser registry changes were performed in packaging.
+
+Full ZIP: 10,258,927 bytes, SHA-256
+`f6665725fcdec8121dbf45b362e75cd420295569f91bf44e31fdebfe8b95b8f4`.
+Release executable SHA-256:
+`183c83ec75975bdcbe4dc8fabeb3ae86634e59735532a76e9e920b6fee694f97`.
+The package contains limited same-document control, not the proposed continuous
+navigation design. The overall parity goal remains active.
