@@ -1,0 +1,46 @@
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_e567e086f4dc1f 743-776
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_e567e086f4dc1f 14,16-20
+internal/managedruntime/platform_other.go
+  s_08bbfd293d324f::t_26b288c362d438 5-8,13
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_e567e086f4dc1f 281,283-285
+  s_08bbfd293d324f::t_8de0f0902fcd88 66-68
+internal/managedruntime/runtime.go
+  s_08bbfd293d324f::t_26b288c362d438 106-108,375,393-395,409-411
+internal/managedruntime/dictionary_windows_test.go
+  s_08bbfd293d324f::t_0f9c661de6409f 1-111
+  s_08bbfd293d324f::t_1dec80a4ec7f41 112-191
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_e567e086f4dc1f 81-90
+docs/SUPPLY_CHAIN_SECURITY.md
+  s_08bbfd293d324f::t_8de0f0902fcd88 19-23
+internal/managedruntime/dictionary.go
+  s_08bbfd293d324f::t_26b288c362d438 1-65
+  s_08bbfd293d324f::t_d9c82756fd474d 66-79
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_e567e086f4dc1f 17-19
+internal/managedruntime/platform_windows.go
+  s_08bbfd293d324f::t_26b288c362d438 9,147-156
+  s_08bbfd293d324f::t_4cd936f272ffcd 157
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_8de0f0902fcd88 104
+  s_08bbfd293d324f::t_93e6cffdf6dce1 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "81cfdae2442e816c5e97e2c09a9ae96ee325f515",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
