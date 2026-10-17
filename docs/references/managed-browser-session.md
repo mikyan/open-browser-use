@@ -8,7 +8,12 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)，
+最新完整包为 [preview-20261017-6588984](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-6588984)，
+从干净提交 `65889844f5266f2e2702f5ee9726ab9105ec2c1f` 重建。运行功能与 a4e6b0c 相同，
+本次提交差异仅文档；正在开发的扩展后台重启恢复未入包。离线 CLI/MCP
+30 工具、独立制品 5,507 项检查、4 个资产回下载哈希及本地副本核对通过。
+本次打包未重跑网页业务，既有功能验收不计为发布 EXE 的新运行。
+上一同功能完整包为 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)，
 从干净提交 `a4e6b0cb5142d7e34c94c2857e4420ce28804a61` 重建，包含固定 CfT 156.0.8078.12、
 旧 155 缓存共存升级和同一存活 worker 的显式 `managed recover`。离线 CLI/MCP 30 工具、独立制品 5,510 项检查、4 个发布资产回下载哈希及本地副本核对通过。
 完整包/扩展/Skill 分别为 98/71/6 文件，499 项源码输入逐项匹配。本次打包未重跑网页业务；原 `A6UPE3` 六步

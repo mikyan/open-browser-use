@@ -905,3 +905,32 @@ bundled. Existing 155 users must run that command after updating the program;
 run/setup do not silently upgrade. The package retains the normal company-PC
 installation guide. Full parity, company Edge, true worker/browser restart,
 unconfirmed input recovery and real login/IME/SSO/MFA remain open.
+
+### 2026-10-17: Requested 6588984 Windows package refresh
+
+The user asked whether development had finished and requested a fresh package.
+Published [preview-20261017-6588984](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-6588984) from clean commit `65889844f5266f2e2702f5ee9726ab9105ec2c1f`.
+Runtime behavior is unchanged from a4e6b0c: all 558 accepted source inputs have
+identical Git blob identities; the intervening commit changes nine documentation
+files only. Ongoing worker-replacement implementation remains in the worktree
+and is excluded from this release. Full capability parity remains open.
+
+The EXE and extension were rebuilt in an isolated clean checkout. Offline CLI/MCP
+exposed 30 tools; independent artifact auditing passed 5,507 checks.
+The full bundle, extension and Skill contain 98, 71 and 6 files. All four uploaded
+assets were downloaded and matched their original hashes; all 102 local delivery
+files matched. The only managed-guide publication transformation updates its
+release introduction, with repository-relative links bound to the source commit.
+No browser business, installation, registration change or PR was performed.
+Earlier acceptance and failed runs remain historical evidence.
+
+- Full ZIP: `open-browser-use-windows-x64-preview-20261017-6588984.zip` (10,435,599 bytes), SHA-256 `9a29b535f081bfffe871ad597fba3e0b29d04374cd75f1cfe1a8c54ca8e8746b`.
+- Release EXE SHA-256: `2e379d017c5499e71fd8dd61c6047b2b348718519717c6f760ef21a774f204d0`.
+- Independent audit SHA-256: `3604acf230afad22714625b7b38b8832dcac2dd99e8eaa88984febbf2f622ddf`.
+- Upload roundtrip report SHA-256: `452edac193b268537a451a7be4bd2cf12b4aedf86b2a37e68aeead75d70718a1`.
+
+The first preparation attempt encountered an existing scratch report and refused
+its exclusive write; no previous report was overwritten. A new isolated directory
+was used for the completed preparation and release. Ordinary company installation
+instructions remain in README-先看这里.md. True worker replacement and the broader
+unverified boundaries documented for a4e6b0c remain incomplete.
