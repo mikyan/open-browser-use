@@ -176,7 +176,10 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 			return bad
 		}
 	case "key":
-		if !exact(input, []string{"type", "action", "key", "code", "windowsVirtualKeyCode"}, []string{"modifiers"}) || !choice(input["action"], "down", "up") || !text(input["key"], 64, false) || !text(input["code"], 64, false) || !integer(input["windowsVirtualKeyCode"], 0, 255) {
+		if !exact(input, []string{"type", "action", "key", "code", "windowsVirtualKeyCode"}, []string{"modifiers", "repeat"}) || !choice(input["action"], "down", "up") || !text(input["key"], 64, false) || !text(input["code"], 64, false) || !integer(input["windowsVirtualKeyCode"], 0, 255) {
+			return bad
+		}
+		if raw, exists := input["repeat"]; exists && (!bytes.Equal(raw, []byte("true")) || !choice(input["action"], "down")) {
 			return bad
 		}
 		var code string
@@ -216,6 +219,7 @@ type HumanState struct {
 	Generation         uint64    `json:"generation"`
 	Viewport           *Viewport `json:"viewport"`
 	InputBudgetVersion uint64    `json:"inputBudgetVersion,omitempty"`
+	KeyRepeatVersion   uint64    `json:"keyRepeatVersion,omitempty"`
 }
 
 type HumanCleanup struct {
@@ -263,6 +267,9 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	// retains legacy timing; null, zero and unknown versions never enable it.
 	if raw, ok := f["inputBudgetVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human input budget")
+	}
+	if raw, ok := f["keyRepeatVersion"]; ok && !integer(raw, 1, 1) {
+		return nil, errors.New("unsupported human key repeat")
 	}
 	return &result, nil
 }

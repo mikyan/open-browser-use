@@ -44,7 +44,7 @@ export class ManagedHumanControl {
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
-      ...(record.mode === "human" ? { inputBudgetVersion: 1 } : {}),
+      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
   tabInfo(record) {
@@ -635,15 +635,18 @@ export class ManagedHumanControl {
       return ["Input.dispatchMouseEvent", { ...point(), type: "mouseWheel", deltaX: finite(input.deltaX, -4096, 4096), deltaY: finite(input.deltaY, -4096, 4096), modifiers: modifier() }, () => {}];
     }
     if (input?.type === "key") {
-      fields(input, ["type", "action", "key", "code", "windowsVirtualKeyCode"], ["modifiers"]);
+      fields(input, ["type", "action", "key", "code", "windowsVirtualKeyCode"], ["modifiers", "repeat"]);
       if (!["down", "up"].includes(input.action) || typeof input.key !== "string" || !input.key.length || input.key.length > 64 || typeof input.code !== "string" || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(input.code) ||
           !Number.isInteger(input.windowsVirtualKeyCode) || input.windowsVirtualKeyCode < 0 || input.windowsVirtualKeyCode > 255) throw fail("invalid key input");
-      if (input.action === "down" && record.keys.has(input.code) || input.action === "up" && !record.keys.has(input.code)) throw fail("key hold does not match this lease");
+      if (Object.hasOwn(input, "repeat") && (input.repeat !== true || input.action !== "down")) throw fail("repeat requires a key down and true");
+      const repeat = input.repeat === true;
       const held = record.keys.get(input.code);
-      if (input.action === "up" && held.windowsVirtualKeyCode !== input.windowsVirtualKeyCode) throw fail("key release must match its original virtual key");
+      if (input.action === "down" && (repeat ? !held : held) || input.action === "up" && !held) throw fail("key hold does not match this lease");
+      if ((input.action === "up" || repeat) && held.windowsVirtualKeyCode !== input.windowsVirtualKeyCode) throw fail("key release or repeat must match its original virtual key");
       // DOM key text can change as another modifier is released. The native
       // release uses the original acknowledged key, never an unrelated keyUp
-      // that would incorrectly clear the input tracker's held intent.
+      // that would incorrectly clear the input tracker's held intent. A repeat
+      // uses this event's key/modifiers, but never replaces the ACKed hold.
       const key = input.action === "up" ? held : { key: input.key, code: input.code, windowsVirtualKeyCode: input.windowsVirtualKeyCode };
       const modifiers = modifier();
       // Enter needs the native character phase for default editing/submission.
@@ -652,8 +655,8 @@ export class ManagedHumanControl {
       const enter = input.action === "down" && key.key === "Enter" && ["Enter", "NumpadEnter"].includes(key.code) &&
         key.windowsVirtualKeyCode === 13 && (modifiers & 7) === 0;
       return ["Input.dispatchKeyEvent", { ...key, type: input.action === "up" ? "keyUp" : enter ? "keyDown" : "rawKeyDown", modifiers,
-        ...(enter ? { text: "\r", unmodifiedText: "\r" } : {}) },
-        () => { if (input.action === "down") record.keys.set(input.code, key); else record.keys.delete(input.code); }];
+        ...(enter ? { text: "\r", unmodifiedText: "\r" } : {}), ...(repeat ? { autoRepeat: true } : {}) },
+        () => { if (input.action === "up") record.keys.delete(input.code); else if (!repeat) record.keys.set(input.code, key); }];
     }
     if (input?.type === "text") {
       fields(input, ["type", "text"]);
@@ -682,7 +685,7 @@ export class ManagedHumanControl {
       if (!Number.isSafeInteger(envelope.sequence) || envelope.sequence !== epoch.sequence + 1) throw fail("input does not match the displayed human lease sequence", "STALE");
       if (epoch.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
       if (record.dialogs.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
-      fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text"]);
+      fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat"]);
       const [method, params, commit] = this.command(epoch, { ...envelope.input });
       const sequence = envelope.sequence;
       const operation = { dispatched: false, modalInterrupted: false };

@@ -206,7 +206,26 @@ End, explicit Resume, its own unique POST and Stop. No task-page CDP input,
 clipboard access or synthetic DOM keyboard events are used. NumpadEnter retains
 its code; the human input protocol does not expose keypad location.
 
-Six stages use the actual managed supervisor, task SDK and production viewer
+Set `OBU_TEST_HUMAN_SCENARIO=key-repeat` with a matching build manifest to run
+the same entrypoint with six original textarea cases: Backspace, Delete,
+ArrowLeft, ArrowRight, prevented Backspace and Backspace held through End.
+The isolated viewer receives one native down, two native `autoRepeat: true`
+downs and a final up; the held case instead requires the original remote End
+cleanup up before releasing the viewer's own local key. Each original viewer
+event, production request/receipt, task event, value and selection is retained.
+The full task and lease ledgers reject extra or delayed input. This page has
+exactly one GET and zero POSTs; the subsequent original handoff supplies the
+workflow's single POST. The seven-stage run requires `keyRepeatVersion: 1`
+and retains explicit Resume/new-turn checks and final Stop. It simulates native
+browser repeats, not OS keyboard timing or physical hardware:
+
+```powershell
+$env:OBU_TEST_HUMAN_SCENARIO = 'key-repeat'
+node scripts/browser-integration/managed-human-check.mjs
+```
+
+The default `handoff` scenario uses six stages with the actual managed
+supervisor, task SDK and production viewer
 inside a separate headless test browser. A nonbusiness page exercises explicit
 Begin/End. One original form then retains the Agent's unsubmitted draft while
 the viewer sends pointer, keyboard, committed text and wheel input. Confirmed

@@ -10,6 +10,43 @@ function fixture() {
     release: (operation = async (...args) => { calls.push(args); }, timeout = 500) => tracker.release(42, token, operation, timeout) };
 }
 
+test("autoRepeat keeps the original hold object and actual pending cleanup even when DOM key changes", async () => {
+  const f = fixture(), key = { code: "KeyA", key: "A", windowsVirtualKeyCode: 65 };
+  await f.send("Input.dispatchKeyEvent", { ...key, type: "rawKeyDown", modifiers: 8 });
+  const record = f.tracker.attachments.get(42), held = record.states.get("").keys.get("KeyA");
+  let finish;
+  const repeat = f.send("Input.dispatchKeyEvent", { ...key, key: "a", type: "rawKeyDown", modifiers: 0, autoRepeat: true },
+    { tabId: 42 }, () => new Promise(resolve => { finish = resolve; }));
+  try {
+    assert.equal(record.states.get("").keys.get("KeyA"), held);
+    let released = false; const releasing = f.release().then(() => { released = true; });
+    await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(released, false); assert.deepEqual(f.calls, []);
+    finish(); await repeat; await releasing;
+    assert.deepEqual(f.calls, [[{ tabId: 42 }, "Input.dispatchKeyEvent", { ...key, type: "keyUp", modifiers: 0 }]]);
+  } finally { finish(); await repeat; await f.release(); }
+});
+
+test("autoRepeat ACK cannot confirm an original down whose native outcome is unknown", async () => {
+  const f = fixture(), key = { code: "KeyA", key: "A", windowsVirtualKeyCode: 65 };
+  let fail;
+  const down = f.send("Input.dispatchKeyEvent", { ...key, type: "rawKeyDown" }, { tabId: 42 }, () => new Promise((_, reject) => { fail = reject; }));
+  const rejected = assert.rejects(down, /unknown original/), record = f.tracker.attachments.get(42);
+  const held = record.states.get("").keys.get("KeyA");
+  await f.send("Input.dispatchKeyEvent", { ...key, key: "a", type: "rawKeyDown", autoRepeat: true });
+  fail(new Error("unknown original")); await rejected;
+  try {
+    assert.equal(record.states.get("").keys.get("KeyA"), held);
+    assert.throws(() => f.tracker.beginKeyboardPress(42, f.token), /requires confirmed native input/);
+  } finally { await f.release(); }
+  assert.deepEqual(f.calls, [[{ tabId: 42 }, "Input.dispatchKeyEvent", { ...key, type: "keyUp", modifiers: 0 }]]);
+});
+
+test("raw autoRepeat without a recorded down still retains conservative cleanup intent", async () => {
+  const f = fixture(), key = { code: "ArrowLeft", key: "ArrowLeft", windowsVirtualKeyCode: 37 };
+  await f.send("Input.dispatchKeyEvent", { ...key, type: "rawKeyDown", autoRepeat: true }); await f.release();
+  assert.deepEqual(f.calls, [[{ tabId: 42 }, "Input.dispatchKeyEvent", { ...key, type: "keyUp", modifiers: 0 }]]);
+});
+
 test("raw and CRX share one held state, so an acknowledged up is not released twice", async () => {
   const f = fixture();
   await f.send("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 7, y: 9 });

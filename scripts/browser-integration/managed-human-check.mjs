@@ -17,6 +17,8 @@ import { observedProcessDescendants as descendants } from "./observed-process-de
 import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
 import { managedHumanSourceFiles } from "./managed-human-source-snapshot.mjs";
 import { humanKeyboardCases, createManagedHumanKeyboardFixture, readManagedHumanKeyboardDocument, assertManagedHumanKeyboardCase, assertManagedHumanKeyboardReceipt, assertManagedHumanKeyboardLedger } from "./managed-human-keyboard-fixture.mjs";
+import { humanKeyRepeatCases, nativeKeyRepeatGesture, installManagedKeyRepeatObserver, assertManagedKeyRepeatCase, assertManagedKeyRepeatLedger } from "./managed-human-key-repeat.mjs";
+import { createManagedKeyRepeatFixture, readManagedKeyRepeatDocument } from "./managed-human-key-repeat-fixture.mjs";
 import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger } from "./managed-human-ime.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -98,12 +100,12 @@ export function projectHumanCommand(message) {
   assert.ok(Number.isSafeInteger(message.generation) && message.generation > 0);
   assert.ok(Number.isSafeInteger(message.sequence) && message.sequence > 0);
   const input = message.input; assert.ok(input && typeof input === "object" && !Array.isArray(input));
-  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers"], text: ["type", "text"] }[input.type];
+  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat"], text: ["type", "text"] }[input.type];
   assert.ok(fields); assert.ok(Object.keys(input).every(key => fields.includes(key)));
   if (input.type === "pointer") { assert.ok(["move", "down", "up"].includes(input.action)); assert.ok(input.button === undefined || ["left", "middle", "right"].includes(input.button)); }
   if (["pointer", "wheel"].includes(input.type)) for (const key of ["x", "y"]) assert.ok(Number.isFinite(input[key]) && input[key] >= 0);
   if (input.type === "wheel") for (const key of ["deltaX", "deltaY"]) assert.ok(Number.isFinite(input[key]));
-  if (input.type === "key") { assert.ok(["down", "up"].includes(input.action)); assert.equal(typeof input.key, "string"); assert.equal(typeof input.code, "string"); assert.ok(Number.isInteger(input.windowsVirtualKeyCode)); }
+  if (input.type === "key") { assert.ok(["down", "up"].includes(input.action)); assert.equal(typeof input.key, "string"); assert.equal(typeof input.code, "string"); assert.ok(Number.isInteger(input.windowsVirtualKeyCode)); if (Object.hasOwn(input, "repeat")) { assert.equal(input.repeat, true); assert.equal(input.action, "down"); } }
   if (input.modifiers !== undefined) assert.ok(Number.isInteger(input.modifiers) && input.modifiers >= 0 && input.modifiers <= 15);
   if (input.type === "text") { assert.ok(typeof input.text === "string" && Buffer.byteLength(input.text) <= 8192); return { ...message, input: { type: "text", textBytes: Buffer.byteLength(input.text), textSHA256: hash(input.text) } }; }
   return structuredClone(message);
@@ -174,28 +176,30 @@ async function treeHashes(root) {
 
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
-  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard"].includes(scenario));
-  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", explicitEnd = paste || ime || keyboard;
+  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat"].includes(scenario));
+  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", explicitEnd = paste || ime || keyboard || keyRepeat;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const viewerChromium = paste ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
-  assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME/keyboard requires a build manifest; local paste also requires an explicit guarded viewer binary");
+  assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME/keyboard/key-repeat requires a build manifest; local paste also requires an explicit guarded viewer binary");
   await Promise.all([executable, chromium, viewerChromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : "managed-human-"));
-  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
+  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : "managed-human-"));
+  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
     scope: paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
       : ime ? "Production managed human viewer with browser-native CDP IME composition on the isolated headless viewer only. Candidate updates, two identical commits and cancellation; original task text receipts/document/one POST, held-Shift End and Stop. No Windows OS input method, clipboard, synthetic DOM event, task CDP input or business replay."
+      : keyRepeat ? "Production managed viewer native key down plus explicit autoRepeat key events for Backspace/Delete/ArrowLeft/ArrowRight, prevented defaults and End-held-repeat cleanup. Original task values/selections/receipts and independent handoff one POST. CDP keyboard simulation targets only the viewer; no OS input, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyboard ? "Production managed viewer native Enter/Shift+Enter/NumpadEnter editing, prevented default, one original implicit form POST; independent original handoff POST, held-Shift End, explicit Resume and Stop. No OS input, clipboard, task CDP input or business replay."
       : "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
-  let keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
-  const fixture = createManagedHumanFixture({ scenario: keyboard ? "handoff" : scenario });
+  let repeatTab, keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
+  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat ? "handoff" : scenario });
+  const repeatFixture = keyRepeat ? createManagedKeyRepeatFixture() : null;
   const keyboardFixture = keyboard ? createManagedHumanKeyboardFixture() : null;
-  const server = createServer((request, response) => { if (!keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
+  const server = createServer((request, response) => { if (!repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
     const child = launch(executable, args, { timeoutMs: args[0] === "managed" && args[1] === "stop" ? 55000 : 45000 });
@@ -315,6 +319,7 @@ export async function runManagedHumanCheck() {
   }
   const documentRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const keyboardRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanKeyboardDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous keyboard root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
+  const repeatRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedKeyRepeatDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous repeat root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const observerSnapshot = () => worker.evaluate("__managedHumanAcceptance.snapshot()");
   const posts = () => fixture.stats().requests.filter(item => item.method === "POST");
@@ -503,6 +508,72 @@ export async function runManagedHumanCheck() {
       await denied("nonbusiness original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, originalAuthority), /OBU_STALE_CONTROL_EPOCH/);
     });
 
+    if (keyRepeat) await step("native-key-repeat-and-original-held-End", async () => {
+      repeatTab = await taskBrowser.newTab({ url: fixtureURL + "/human-key-repeat", backgroundWindow: true });
+      await repeatTab.domSnapshot({ timeoutMs: 10000 });
+      const authority = captureTaskAuthority(taskBrowser.client, repeatTab.id);
+      const detail = report.keyRepeat = { tabId: repeatTab.id, original: await repeatRead(repeatTab.id), authority, cases: [], nativeCommands: [] };
+      detail.originalTargets = await nativeMap(repeatTab.id); assert.equal(detail.originalTargets.length, 1);
+      await uiAction("#refresh", "status"); await uiAction("#tabs", "select", repeatTab.id);
+      detail.begin = await uiAction("#human-begin", "humanBegin"); assert.equal(detail.begin.status.state, "paused");
+      detail.firstFrame = await decodeHumanFrame(detail.begin.human); const lease = { ...state.human }; detail.lease = lease;
+      assert.equal(lease.keyRepeatVersion, 1);
+      await page.evaluate(installManagedKeyRepeatObserver);
+      const session = await viewerContext.newCDPSession(page);
+      const observe = () => page.evaluate(() => __managedKeyRepeatObservation.snapshot());
+      const native = async params => {
+        const row = { method: "Input.dispatchKeyEvent", params: structuredClone(params), startedAt: Date.now() }; detail.nativeCommands.push(row);
+        try { row.result = await session.send(row.method, params); row.acknowledgedAt = Date.now(); }
+        catch (error) { row.error = String(error); throw error; }
+        finally { row.settledAt = Date.now(); }
+        return row;
+      };
+      try {
+        for (const definition of humanKeyRepeatCases) {
+          const row = { definition, startedAt: Date.now() }; detail.cases.push(row);
+          const document = await repeatRead(repeatTab.id), position = await viewerPoint(document.boxes[definition.id]);
+          row.focusCommands = await inputAction(`focus original repeat field ${definition.id}`, () => page.mouse.click(position.x, position.y));
+          row.anchorCommands = await inputAction(`position original repeat caret ${definition.id}`, () => page.keyboard.press(definition.anchor));
+          row.before = await repeatRead(repeatTab.id); row.viewerBefore = await observe(); row.nativeCommands = [];
+          row.commands = await inputAction(`native repeat gesture ${definition.id}`, async () => {
+            for (const params of nativeKeyRepeatGesture(definition)) row.nativeCommands.push(await native(params));
+          });
+          row.after = await repeatRead(repeatTab.id); row.viewerAfter = await observe();
+          row.proof = assertManagedKeyRepeatCase({ ...row, case: definition, replies: report.viewerMessages, scope: lease });
+          row.completedAt = Date.now();
+        }
+        detail.after = await repeatRead(repeatTab.id); assert.deepEqual(detail.after.state.heldKeys, ["Backspace"]);
+        detail.screenshot = await screenshot("viewer-native-key-repeat.png");
+        detail.end = await uiAction("#human-end", "humanEnd"); assert.equal(detail.end.human, null);
+        assert.deepEqual(detail.end.humanCleanup, { leaseId: lease.leaseId, cleanupConfirmed: true });
+        assert.equal(detail.end.status.state, "paused"); assert.equal(detail.end.status.cleanupComplete, true);
+        detail.released = await repeatRead(repeatTab.id);
+        const releasedEvents = detail.released.state.events.slice(detail.after.state.events.length);
+        assert.equal(releasedEvents.length, 1); assert.equal(releasedEvents[0].type, "keyup"); assert.equal(releasedEvents[0].code, "Backspace");
+        detail.eventLedger = assertManagedKeyRepeatLedger({ original: detail.original, after: detail.released, cases: detail.cases, replies: report.viewerMessages, scope: lease });
+        const originalInputs = detail.cases.flatMap(row => [...row.focusCommands, ...row.anchorCommands, ...row.commands]);
+        const leaseInputs = report.viewerCommands.filter(row => row.operation === "humanInput" && row.leaseId === lease.leaseId);
+        assert.deepEqual(leaseInputs, originalInputs, "Original repeat lease cannot contain a late or invented input");
+        detail.endLedger = { leaseId: lease.leaseId, generation: lease.generation, requestIds: leaseInputs.map(row => row.id) };
+        // Release the viewer browser's local native key after actual remote End.
+        // This is not a task release receipt and must create no new wire input.
+        const wireEnd = report.viewerCommands.length;
+        detail.localRelease = await native({ type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8, autoRepeat: false });
+        detail.viewerAfterLocalRelease = await observe(); assert.equal(report.viewerCommands.length, wireEnd);
+        assert.deepEqual((await repeatRead(repeatTab.id)).state.events, detail.released.state.events);
+      } finally {
+        try { detail.observerFinal = await page.evaluate(() => __managedKeyRepeatObservation.stop()); }
+        finally { await session.detach(); detail.observerDetachedAt = Date.now(); }
+      }
+      assert.equal(detail.observerFinal.active, false); assert.equal(detail.observerFinal.overflow, false);
+      detail.afterTargets = await nativeMap(repeatTab.id); assert.equal(detail.afterTargets[0].id, detail.originalTargets[0].id); assert.equal(detail.afterTargets[0].attached, false);
+      await deniedHuman(lease, "ended repeat lease cannot send input");
+      detail.resume = await uiAction("#control", "resume"); assert.equal(detail.resume.status.state, "running");
+      await denied("repeat original request before explicit new turn", () => repeatTab.domSnapshot({ timeoutMs: 1500 }), /OBU_STALE_CONTROL_EPOCH/);
+      detail.newTurn = await taskBrowser.client.beginTurn("original-handoff-after-repeat");
+      await denied("repeat original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, authority), /OBU_STALE_CONTROL_EPOCH/);
+    });
+
     if (keyboard) await step("native-keyboard-editing-and-one-implicit-submit", async () => {
       keyboardTab = await taskBrowser.newTab({ url: fixtureURL + "/human-keyboard-form", backgroundWindow: true });
       await keyboardTab.domSnapshot({ timeoutMs: 10000 });
@@ -560,7 +631,7 @@ export async function runManagedHumanCheck() {
       assert.equal(posts().length, 0); report.agentDraft = await screenshot("viewer-agent-draft.png");
     });
 
-    await step(paste ? "same-document-native-local-paste-and-held-key-End" : ime ? "same-document-native-IME-and-held-key-End" : keyboard ? "same-document-original-handoff-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
+    await step(paste ? "same-document-native-local-paste-and-held-key-End" : ime ? "same-document-native-IME-and-held-key-End" : (keyboard || keyRepeat) ? "same-document-original-handoff-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
       const eventStart = (await observerSnapshot()).events.length;
       const begun = await uiAction("#human-begin", "humanBegin"); assert.equal(begun.status.state, "paused"); assert.ok(["preparing", "active"].includes(begun.human.state));
       businessLease = begun.human; report.business.humanBegin = begun;
@@ -699,6 +770,17 @@ export async function runManagedHumanCheck() {
         assert.deepEqual(report.keyboard.finalDocument.state.events, report.keyboard.released.state.events, "Released keyboard page must not receive late input");
         report.keyboard.finalReceiptProof = assertManagedHumanKeyboardReceipt({ stats: keyboardFixture.stats(), original: report.keyboard.original, after: report.keyboard.finalDocument });
       }
+      if (keyRepeat) {
+        report.keyRepeat.finalDocument = await repeatRead(repeatTab.id);
+        assert.deepEqual(report.keyRepeat.finalDocument.state.events, report.keyRepeat.released.state.events, "Released repeat page cannot receive late input");
+        const detail = report.keyRepeat, negatives = report.denied.filter(row => row.request?.leaseId === detail.lease.leaseId);
+        assert.equal(negatives.length, 1); assert.equal(negatives[0].verified, true); assert.equal(negatives[0].response.error.code, "HUMAN_STALE");
+        const entireLease = report.viewerCommands.filter(row => row.operation === "humanInput" && row.leaseId === detail.lease.leaseId);
+        assert.equal(entireLease.filter(row => row.id === negatives[0].request.id).length, 1);
+        assert.deepEqual(entireLease.filter(row => row.id !== negatives[0].request.id), detail.cases.flatMap(row => [...row.focusCommands, ...row.anchorCommands, ...row.commands]),
+          "Only the recorded original inputs and one explicit retired-lease negative are permitted through the end of the workflow");
+        detail.finalWireLedger = { requestIds: entireLease.map(row => row.id), rejectedProbeId: negatives[0].request.id };
+      }
       report.observerFinal = await worker.evaluate("__managedHumanAcceptance.stop()"); assert.equal(report.observerFinal.listenerPresent, false); assert.equal(report.observerFinal.overflow, false);
       await worker.close(); worker = null;
     });
@@ -721,6 +803,9 @@ export async function runManagedHumanCheck() {
     console.error(redact(error.stack ?? error));
     // Observe the same failed document before original cleanup. These bounded
     // reads run only after failure; they cannot change prior input/ACK ordering.
+    if (worker && repeatTab) try {
+      report.failureRepeatDocument = { at: Date.now(), value: await bound(repeatRead(repeatTab.id), 5000, "failed original repeat document observation") };
+    } catch (failure) { report.failureRepeatDocumentError = redact(String(failure)); }
     if (worker && keyboardTab) try {
       report.failureKeyboardDocument = { at: Date.now(), value: await bound(keyboardRead(keyboardTab.id), 5000, "failed original keyboard document observation") };
     } catch (failure) { report.failureKeyboardDocumentError = redact(String(failure)); }
@@ -768,6 +853,16 @@ export async function runManagedHumanCheck() {
       }
     } catch (error) { report.cleanup.sourceChanged = error.stack; }
     report.fixture = fixture.stats();
+    if (repeatFixture) {
+      report.keyRepeatFixture = repeatFixture.stats();
+      if (report.keyRepeat?.finalDocument) try {
+        assert.equal(report.keyRepeatFixture.overflow, false); assert.equal(report.keyRepeatFixture.requests.length, 1);
+        const hit = report.keyRepeatFixture.requests[0]; assert.equal(hit.method, "GET"); assert.equal(hit.status, 200);
+        assert.equal(hit.finished, true); assert.equal(hit.aborted, false); assert.equal(hit.documentToken, report.keyRepeat.original.state.documentToken);
+        assert.equal(report.fixture.requests.filter(row => row.method === "POST").length, 1, "Only the independent original handoff POST is permitted");
+        report.keyRepeat.finalEventLedger = assertManagedKeyRepeatLedger({ original: report.keyRepeat.original, after: report.keyRepeat.finalDocument, cases: report.keyRepeat.cases, replies: report.viewerMessages, scope: report.keyRepeat.lease });
+      } catch (error) { report.cleanup.repeatLedger = error.stack; }
+    }
     if (keyboardFixture) {
       report.keyboardFixture = keyboardFixture.stats();
       if (report.keyboard?.finalDocument) try {
@@ -778,7 +873,7 @@ export async function runManagedHumanCheck() {
     report.frameRetention = { observedFrames: report.frames.length, savedPNGs: report.frames.filter(frame => frame.file).length, maximumSavedPNGs: 96, metadataOnlyFrames: report.frames.filter(frame => !frame.file).length,
       policy: "The first 96 actual native PNG payloads are retained for independent decoding; all received frames retain hash/header metadata. viewerDecodedFrames identifies actual browser decodes, not unperformed decodes of every frame." };
     report.liveRunnerChildren = [...registry].map(value => value.pid);
-    report.passed = !report.error && report.steps.length === (keyboard ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
     await save(); console.log("RESULT", JSON.stringify({ runDir, passed: report.passed }));
   }
   return report;

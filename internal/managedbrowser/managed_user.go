@@ -86,6 +86,7 @@ type UserController struct {
 	humanRiskGeneration  uint64
 	humanStatus          *managedprotocol.HumanState
 	humanStatusSequence  uint64
+	humanStatusCurrent   bool
 	pendingDialog        *managedprotocol.PendingDialog
 	dialogStatusSequence uint64
 	dialogClaims         map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim
@@ -539,8 +540,8 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 			return nil
 		}
-		if previous != nil && previous.LeaseID == human.LeaseID && previous.InputBudgetVersion != human.InputBudgetVersion {
-			return errors.New("managed human input budget changed within its original lease")
+		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion) {
+			return errors.New("managed human capabilities changed within their original lease")
 		}
 		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
 			if err := c.retireStreamLocked(); err != nil {
@@ -551,6 +552,9 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	}
 	if *value.EventSequence >= c.dialogStatusSequence {
 		c.pendingDialog, c.dialogStatusSequence = dialog, *value.EventSequence
+		// humanStatus also retains historical identity for cleanup and stale
+		// replies. Only this accepted current state may advertise repeat input.
+		c.humanStatusCurrent = *value.Connected && human != nil
 	}
 	return nil
 }
@@ -671,6 +675,23 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 		if err := c.claimDialogLocked(f); err != nil {
 			c.mu.Unlock()
 			return nil, err
+		}
+	}
+	if operation == "humanInput" {
+		var input struct {
+			Repeat bool `json:"repeat"`
+		}
+		_ = json.Unmarshal(f["input"], &input)
+		if input.Repeat {
+			var lease string
+			var generation uint64
+			_ = json.Unmarshal(f["leaseId"], &lease)
+			_ = json.Unmarshal(f["generation"], &generation)
+			human := c.humanStatus
+			if !c.humanStatusCurrent || human == nil || human.State != "active" || human.KeyRepeatVersion != 1 || human.LeaseID != lease || human.Generation != generation {
+				c.mu.Unlock()
+				return nil, errors.New("managed key repeat lacks its current native capability")
+			}
 		}
 	}
 	key, _ := json.Marshal(c.channelKey)

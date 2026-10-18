@@ -146,6 +146,10 @@ debugger、history 和 tab groups。
   严格 Enter/NumpadEnter 在普通或 Shift 情况下以单次带 CR 的 keyDown 保留
   原生编辑和表单语义；原抬键与清理不携带文本，不额外 insertText。对应
   身份条件、网页取消和验收边界见[人工 Enter](references/managed-human-keyboard.md)。
+  原 human lease 可声明固定的 `keyRepeatVersion: 1`；查看器、Go及扩展只
+  接纳已有原持键的真实重复 down，逐次等待ACK且保留最初释放身份。原生
+  `autoRepeat` 不替换持键或确认未知首次输入；End取消队列并等待实际清理。
+  持键后变为本地粘贴组合时须先松键，见[重复按键](references/managed-human-key-repeat.md)。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

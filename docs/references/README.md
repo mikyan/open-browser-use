@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Managed 人工重复按键](managed-human-key-repeat.md)：长按退格、Delete及方向键，
+  原租约能力、逐次回执和结束时原持键释放，以及固定浏览器验收边界。
+
 - [Managed 人工 Enter](managed-human-keyboard.md)：原生换行、网页取消和单行
   表单提交的映射、原始失败及正式入口验收。
 

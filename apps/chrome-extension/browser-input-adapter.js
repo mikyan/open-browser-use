@@ -265,10 +265,15 @@ export class NativeInputTracker {
     } else if (method === "Input.dispatchKeyEvent") {
       const identity = params.code || params.key || String(params.windowsVirtualKeyCode ?? params.nativeVirtualKeyCode ?? "unknown");
       if (["keyDown", "rawKeyDown"].includes(params.type)) {
-        const key = {};
-        for (const name of ["code", "key", "windowsVirtualKeyCode", "nativeVirtualKeyCode", "location", "isKeypad"]) if (params[name] !== undefined) key[name] = params[name];
-        state.keys.set(identity, key);
-        complete = () => confirmedHolds.add(key);
+        // Repeated native downs own distinct actual Promises, not a new hold.
+        // Their ACK must neither replace the original release identity nor
+        // turn an earlier unknown down into a confirmed hold.
+        if (params.autoRepeat !== true || !state.keys.has(identity)) {
+          const key = {};
+          for (const name of ["code", "key", "windowsVirtualKeyCode", "nativeVirtualKeyCode", "location", "isKeypad"]) if (params[name] !== undefined) key[name] = params[name];
+          state.keys.set(identity, key);
+          complete = () => confirmedHolds.add(key);
+        }
       } else if (params.type === "keyUp") {
         const key = state.keys.get(identity);
         complete = () => { if (state.keys.get(identity) === key) state.keys.delete(identity); };
@@ -404,7 +409,7 @@ export function observeCrxInputCommand(transport, target, method, params) {
   if (method === "Input.setInterceptDrags") state.intercepting = params.enabled === true;
   if (method === "Input.dispatchKeyEvent" && params.code) {
     if (params.type === "keyUp") state.keys.delete(params.code);
-    else if (["keyDown", "rawKeyDown"].includes(params.type)) state.keys.set(params.code, {
+    else if (["keyDown", "rawKeyDown"].includes(params.type) && (params.autoRepeat !== true || !state.keys.has(params.code))) state.keys.set(params.code, {
       code: params.code, key: params.key, windowsVirtualKeyCode: params.windowsVirtualKeyCode,
       nativeVirtualKeyCode: params.nativeVirtualKeyCode, location: params.location, isKeypad: params.isKeypad
     });

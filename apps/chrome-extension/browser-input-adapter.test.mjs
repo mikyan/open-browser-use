@@ -8,6 +8,14 @@ function fixture() {
     observe: (method, params, target = { tabId: 42 }) => observeCrxInputCommand(transport, target, method, params),
     release: () => releaseCrxInput(transport, 42, async (...args) => { calls.push(args); }) };
 }
+test("compatibility autoRepeat preserves the original successful key for cleanup", async () => {
+  const f = fixture();
+  f.observe("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "KeyA", key: "A", windowsVirtualKeyCode: 65, modifiers: 8 });
+  f.observe("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "KeyA", key: "a", windowsVirtualKeyCode: 65, autoRepeat: true });
+  await f.release(); assert.equal(f.calls.length, 1); assert.equal(f.calls[0][2].key, "A");
+  assert.equal(f.calls[0][2].type, "keyUp"); assert.equal(Object.hasOwn(f.calls[0][2], "autoRepeat"), false);
+});
+
 test("cancelled drag releases observed input once at its last position", async () => {
   const f = fixture();
   f.observe("Input.dispatchMouseEvent", { type: "mousePressed", button: "left", x: 20, y: 30 });

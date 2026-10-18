@@ -67,6 +67,7 @@
       typeof value.leaseId === "string" && value.leaseId && Number.isSafeInteger(value.tabId) && value.tabId > 0 &&
       Number.isSafeInteger(value.generation) && value.generation >= 0 &&
       (!Object.hasOwn(value, "inputBudgetVersion") || value.inputBudgetVersion === 1) &&
+      (!Object.hasOwn(value, "keyRepeatVersion") || value.keyRepeatVersion === 1) &&
       (value.state !== "preparing" || value.viewport === null) &&
       (value.state !== "navigating" || value.generation > 0 && value.viewport === null) &&
       (value.viewport === null ? value.state !== "active" || value.generation === 0 :
@@ -292,10 +293,13 @@
     const nextHuman = value.human ?? null;
     if (nextHuman && Object.hasOwn(nextHuman, "inputBudgetVersion") && nextHuman.inputBudgetVersion !== 1) throw new Error("人工等待预算版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.inputBudgetVersion !== human.inputBudgetVersion) throw new Error("原人工接管的等待预算发生变化。");
+    if (nextHuman && Object.hasOwn(nextHuman, "keyRepeatVersion") && nextHuman.keyRepeatVersion !== 1) throw new Error("人工重复按键版本无效。");
+    if (human && nextHuman?.leaseId === human.leaseId && nextHuman.keyRepeatVersion !== human.keyRepeatVersion) throw new Error("原人工接管的重复按键能力发生变化。");
     const nextDialog = value.pendingDialog ?? null;
     if (!validDialog(nextDialog, nextHuman)) throw new Error("网页弹窗身份无效。");
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
     if (nextView && Object.hasOwn(nextView, "inputBudgetVersion")) throw new Error("只读查看不能声明人工等待预算。");
+    if (nextView && Object.hasOwn(nextView, "keyRepeatVersion")) throw new Error("只读查看不能声明人工重复按键。");
     if (!validView(nextView) || nextView && nextHuman || nextView && (nextView.tabId !== value.selectedTabId || !nextTabs.some(tab => tab.id === nextView.tabId && tab.kind === "result"))) throw new Error("独立查看身份无效。");
     if (view && nextView && view.leaseId === nextView.leaseId && nextView.generation < view.generation) return;
     const waitingView = awaitingViewFrame;
@@ -579,17 +583,38 @@
     // A key already sent to that browser still owns its original real release.
     const localPaste = !event.altKey && (event.keyCode === 86 && (event.ctrlKey || event.metaKey) ||
       event.keyCode === 45 && event.shiftKey && !event.ctrlKey && !event.metaKey);
-    if (localPaste && !pressedKeys.has(event.code)) return;
+    if (localPaste) {
+      if (!pressedKeys.has(event.code)) {
+        if (displayedNotice?.kind === "held-paste") error();
+        return;
+      }
+      // Adding a modifier to an existing hold (e.g. Insert then Shift) must
+      // not turn its repeat into a remote clipboard shortcut. Preserve the
+      // original up; local text cannot commit through a nonmodifier hold.
+      if (action === "down") {
+        event.preventDefault();
+        error("请先松开当前按键，再使用粘贴快捷键。", "held-paste", humanOwner);
+        return;
+      }
+    }
     const shortcut = event.ctrlKey || event.altKey || event.metaKey;
     const printable = Array.from(event.key || "").length === 1;
     if (printable && !shortcut && !pressedKeys.has(event.code)) return; // Committed text has exactly one path below.
     if (!event.code || !Number.isInteger(event.keyCode) || event.keyCode < 1 || event.keyCode > 255) return;
     event.preventDefault();
+    let repeat = false;
     if (action === "down") {
-      if (pressedKeys.has(event.code)) return;
-      pressedKeys.add(event.code);
+      if (event.repeat === true) {
+        // A real repeat retains the original physical hold and gets its own
+        // queued receipt. It cannot create a hold after navigation or End.
+        if (!pressedKeys.has(event.code) || human.keyRepeatVersion !== 1) return;
+        repeat = true;
+      } else {
+        if (pressedKeys.has(event.code)) return;
+        pressedKeys.add(event.code);
+      }
     } else if (!pressedKeys.delete(event.code)) return;
-    enqueueInput({ type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event) }, releasingHeldInput);
+    enqueueInput({ type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event), ...(repeat ? { repeat: true } : {}) }, releasingHeldInput);
   }
 
   el["human-begin"].addEventListener("click", () => {
@@ -793,7 +818,8 @@
           if (entry.operation === "humanBegin") {
             const original = value.result?.human;
             if (!validHuman(original) || !admittedHumanState(original) || original.tabId !== entry.fields.tabId ||
-                humanOwner && original.leaseId !== humanOwner || human && original.inputBudgetVersion !== human.inputBudgetVersion)
+                humanOwner && original.leaseId !== humanOwner || human &&
+                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion))
               throw new Error("原接管回执不匹配。");
           }
           acceptState(value.result, value.id);

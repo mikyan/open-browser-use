@@ -148,7 +148,7 @@ test("result fixture records the real bridge lifecycle, including view navigatio
   assert.deepEqual(await captureResultFixture(), JSON.parse(readFileSync(new URL("../testdata/result-bridge-fixture.json", import.meta.url), "utf8")));
 });
 
-function setup(inputBudgetVersion) {
+function setup(inputBudgetVersion, keyRepeatVersion) {
   const nodes = new Map();
   const images = [], revoked = [], timers = new Map(), timerDelays = new Map();
   const windowEvents = {}, documentEvents = {};
@@ -204,7 +204,7 @@ function setup(inputBudgetVersion) {
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
   function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
-  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}) }, ...extra }); }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}) }, ...extra }); }
   function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
   function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
@@ -863,6 +863,153 @@ test("plain text, committed composition and shortcut key transitions have distin
   h.ackInput(down);
   assert.equal(h.socket.sent.at(-1).input.action, "up");
   assert.equal(h.socket.sent.filter(command => command.input?.type === "text").length, 2);
+});
+
+for (const [name, code] of [["Backspace", 8], ["Delete", 46], ["ArrowLeft", 37], ["ArrowRight", 39], ["Enter", 13]]) test(`native repeat ${name} preserves every real down and the one up in receipt order`, () => {
+  const h = setup(undefined, 1); h.readyHuman();
+  const event = { key: name, code: name, keyCode: code, shiftKey: false };
+  h.event("human-input", "keydown", key(event));
+  const first = h.socket.sent.at(-1);
+  h.event("human-input", "keydown", key({ ...event, repeat: false }));
+  h.event("human-input", "keydown", key({ ...event, repeat: true }));
+  h.event("human-input", "keydown", key({ ...event, repeat: true, shiftKey: true }));
+  h.event("human-input", "keyup", key(event));
+  assert.equal(h.socket.sent.at(-1), first);
+  assert.equal(h.element("human-input").dataset.pending, "4");
+  for (let sequence = 1; sequence <= 4; sequence++) {
+    const request = h.socket.sent.at(-1);
+    assert.equal(request.sequence, sequence);
+    assert.deepEqual(request.input, { type: "key", action: sequence === 4 ? "up" : "down", key: name,
+      code: name, windowsVirtualKeyCode: code, modifiers: sequence === 3 ? 8 : 0, ...([2, 3].includes(sequence) ? { repeat: true } : {}) });
+    h.ackInput(request);
+  }
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 4);
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "4");
+});
+
+test("native repeat requires an original held key and the native lease capability", () => {
+  for (const version of [undefined, 1]) {
+    const h = setup(undefined, version); h.readyHuman();
+    const event = { key: "Backspace", code: "Backspace", keyCode: 8, shiftKey: false };
+    const initial = h.socket.sent.length;
+    h.event("human-input", "keydown", key({ ...event, repeat: true }));
+    assert.equal(h.socket.sent.length, initial, "orphan repeat cannot invent a new held key");
+    h.event("human-input", "keydown", key(event)); h.ackInput();
+    const down = h.socket.sent.at(-1);
+    h.event("human-input", "keydown", key({ ...event, repeat: true }));
+    if (version === 1) { assert.equal(h.socket.sent.at(-1).input.repeat, true); h.ackInput(); }
+    else assert.equal(h.socket.sent.at(-1), down);
+    h.event("human-input", "keyup", key(event));
+    assert.equal(h.socket.sent.at(-1).input.action, "up"); h.ackInput();
+    assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, version === 1 ? 3 : 2);
+  }
+});
+
+test("native repeat printable characters retain only their original committed text path", () => {
+  const h = setup(undefined, 1); h.readyHuman();
+  for (const repeat of [false, true, true]) {
+    const event = h.event("human-input", "keydown", key({ key: "a", code: "KeyA", keyCode: 65, repeat, shiftKey: false }));
+    assert.equal(event.prevented, undefined);
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "a" });
+    assert.deepEqual(h.socket.sent.at(-1).input, { type: "text", text: "a" }); h.ackInput();
+  }
+  h.event("human-input", "keyup", key({ key: "a", code: "KeyA", keyCode: 65, shiftKey: false }));
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 3);
+});
+
+test("native repeat End and blur drop unsent repetitions without replaying an in-flight one", () => {
+  for (const ending of ["End", "blur"]) {
+    const h = setup(undefined, 1); h.readyHuman();
+    const event = { key: "Delete", code: "Delete", keyCode: 46, shiftKey: false };
+    h.event("human-input", "keydown", key(event)); h.ackInput();
+    h.event("human-input", "keydown", key({ ...event, repeat: true }));
+    const repeat = h.socket.sent.at(-1); assert.equal(repeat.input.repeat, true);
+    h.event("human-input", "keydown", key({ ...event, repeat: true }));
+    if (ending === "End") h.element("human-end").click(); else h.windowEvents.blur();
+    const end = h.socket.sent.at(-1); assert.equal(end.operation, "humanEnd");
+    h.ackInput(repeat); assert.equal(h.socket.sent.at(-1), end);
+    h.event("human-input", "keyup", key(event));
+    assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 2);
+    assert.equal(h.socket.sent.filter(row => row.operation === "humanEnd").length, 1);
+    h.respond(end.id, releaseState(h));
+    assert.equal(h.element("human-input").dataset.pending, "0");
+  }
+});
+
+test("native repeat navigation retires queued repetitions and requires a new original down", () => {
+  const h = setup(undefined, 1); h.readyHuman();
+  const event = { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37, shiftKey: false };
+  h.event("human-input", "keydown", key(event)); h.ackInput();
+  h.event("human-input", "keydown", key({ ...event, repeat: true }));
+  const repeat = h.socket.sent.at(-1); assert.equal(repeat.input.repeat, true);
+  h.event("human-input", "keydown", key({ ...event, repeat: true }));
+  const human = { ...h.humanState().human, generation: 2 };
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20003, human: { ...human, state: "navigating", viewport: null } }) });
+  h.ackInput(repeat);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20004, human }) });
+  h.humanFrame(1, { generation: 2, streamId: "successor", eventSequence: 20005 }); h.images.at(-1).onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  h.event("human-input", "keydown", key({ ...event, repeat: true }));
+  h.event("human-input", "keyup", key(event));
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 2);
+  h.event("human-input", "keydown", key(event));
+  assert.equal(h.socket.sent.at(-1).generation, 2); assert.equal(h.socket.sent.at(-1).sequence, 1);
+  assert.equal(h.socket.sent.at(-1).input.repeat, undefined);
+});
+
+test("native repeat capability cannot change on an original lease or a delayed Begin", () => {
+  for (const version of [undefined, 1]) {
+    for (const next of [undefined, 0, 1, 2, null, "1"]) {
+      if (next === version) continue;
+      const h = setup(undefined, version); h.readyHuman();
+      const human = { ...h.humanState().human }; delete human.keyRepeatVersion;
+      if (next !== undefined) human.keyRepeatVersion = next;
+      h.socket.message({ type: "state", ...h.humanState({ human, eventSequence: 20002 }) });
+      assert.equal(h.element("human-input").dataset.enabled, "false");
+      assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+    }
+    const h = setup(undefined, version), { begin, original } = beginPreparing(h);
+    h.socket.message({ type: "state", ...original, eventSequence: 20003 });
+    const human = { ...original.human }; delete human.keyRepeatVersion;
+    if (version === undefined) human.keyRepeatVersion = 1;
+    h.respond(begin.id, { ...original, human });
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+    // A rejected Begin never grants the admission required to issue End.
+    // The connection becomes unavailable; the UI must not invent a lease ACK.
+    assert.equal(h.element("connection").textContent, "控制状态不可用");
+    assert.equal(h.socket.sent.some(row => row.operation === "humanInput" || row.operation === "humanEnd"), false);
+  }
+});
+
+test("native repeat capability is rejected on a read-only view", () => {
+  const h = setup(); readyResult(h);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, tabs: [resultTab()], selectedTabId: 1,
+    view: viewState({ keyRepeatVersion: 1 }) }) });
+  assert.equal(h.element("watch").disabled, true);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+});
+
+test("native repeat cannot turn an original held key into a remote paste shortcut", () => {
+  for (const [held, repeating] of [
+    [{ key: "Insert", code: "Insert", keyCode: 45, shiftKey: false }, { key: "Insert", code: "Insert", keyCode: 45, shiftKey: true }],
+    [{ key: "v", code: "KeyV", keyCode: 86, altKey: true, shiftKey: false }, { key: "v", code: "KeyV", keyCode: 86, ctrlKey: true, shiftKey: false }],
+    [{ key: "v", code: "KeyV", keyCode: 86, altKey: true, shiftKey: false }, { key: "v", code: "KeyV", keyCode: 86, metaKey: true, shiftKey: false }]
+  ]) {
+    const h = setup(undefined, 1); h.readyHuman();
+    h.event("human-input", "keydown", key(held)); h.ackInput();
+    const original = h.socket.sent.at(-1);
+    const repeat = h.event("human-input", "keydown", key({ ...repeating, repeat: true }));
+    assert.equal(repeat.prevented, true, "neither remote nor local paste may run while this original nonmodifier key remains held");
+    assert.equal(h.socket.sent.at(-1), original);
+    assert.match(h.element("error").textContent, /松开.*粘贴/);
+    h.event("human-input", "keyup", key({ ...repeating, repeat: false }));
+    assert.equal(h.socket.sent.at(-1).input.action, "up");
+    assert.equal(h.socket.sent.at(-1).input.code, held.code); h.ackInput();
+    assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 2);
+    const normalPaste = h.event("human-input", "keydown", key(repeating));
+    assert.equal(normalPaste.prevented, undefined, "released original key restores the normal local paste shortcut");
+  }
 });
 
 test("local paste shortcuts preserve the browser default without forwarding a paste key", () => {

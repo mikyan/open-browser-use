@@ -377,7 +377,7 @@ test("actual Begin admits End before Page.enable ACK but grants no input or dial
   const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });
   const handle = await f.beginAdmitted(); await entered.promise;
   assert.deepEqual({ ...handle.info(), leaseId: "original" }, {
-    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, lastInputSequence: 0
+    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, lastInputSequence: 0
   });
   assert.equal(handle.pendingDialog(), null);
   await assert.rejects(input(handle, { type: "text", text: "must not send" }), /GENERATION_STALE/);
@@ -1245,6 +1245,140 @@ test("native Enter unknown down failure is never replayed and cleanup contains o
   assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false); assert.equal(f.risks.size, 0);
 });
 
+test("native repeat capability belongs only to human leases", async () => {
+  const f = fixture(), human = await f.begin();
+  assert.equal(human.info().keyRepeatVersion, 1); await human.close();
+  const view = await f.beginView(); assert.equal(Object.hasOwn(view.info(), "keyRepeatVersion"), false); await view.close();
+});
+
+for (const key of [{ key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 },
+  { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
+  { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 },
+  { key: "Enter", code: "NumpadEnter", windowsVirtualKeyCode: 13 }])
+test(`native repeat preserves separate original acknowledgements (${key.code})`, async () => {
+  const f = fixture(), handle = await f.begin(), original = handle.info();
+  try {
+    await input(handle, { type: "key", action: "down", ...key });
+    const held = f.control.current.epoch.keys.get(key.code);
+    for (let sequence = 2; sequence <= 3; sequence++) {
+      assert.deepEqual(await input(handle, { type: "key", action: "down", ...key, repeat: true }),
+        { leaseId: original.leaseId, generation: original.generation, sequence, acknowledged: true });
+      assert.equal(f.control.current.epoch.keys.get(key.code), held);
+    }
+    await input(handle, { type: "key", action: "up", ...key });
+    const events = f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]);
+    const character = key.key === "Enter" ? { text: "\r", unmodifiedText: "\r" } : {};
+    const down = { ...key, type: key.key === "Enter" ? "keyDown" : "rawKeyDown", modifiers: 0, ...character };
+    assert.deepEqual(events, [down, { ...down, autoRepeat: true }, { ...down, autoRepeat: true }, { ...key, type: "keyUp", modifiers: 0 }]);
+    assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+  } finally { await handle.close(); }
+});
+
+test("native repeat accepts changed DOM key and modifiers but keeps the original held identity", async () => {
+  const f = fixture(), handle = await f.begin(), key = { key: "A", code: "KeyA", windowsVirtualKeyCode: 65 };
+  try {
+    await input(handle, { type: "key", action: "down", ...key, modifiers: 8 });
+    const held = f.control.current.epoch.keys.get(key.code);
+    await input(handle, { type: "key", action: "down", ...key, key: "a", repeat: true, modifiers: 0 });
+    assert.equal(f.control.current.epoch.keys.get(key.code), held);
+    await input(handle, { type: "key", action: "up", ...key, key: "a" });
+    assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]), [
+      { ...key, type: "rawKeyDown", modifiers: 8 }, { ...key, key: "a", type: "rawKeyDown", modifiers: 0, autoRepeat: true },
+      { ...key, type: "keyUp", modifiers: 0 }
+    ]);
+  } finally { await handle.close(); }
+});
+
+test("native repeat rejects invalid spelling, missing original holds and changed physical identity without sending", async () => {
+  const f = fixture(), handle = await f.begin(), key = { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 };
+  try {
+    const invalid = [false, null, 0, 1, "true", undefined].map(repeat => ({ type: "key", action: "down", ...key, repeat }));
+    invalid.push({ type: "key", action: "up", ...key, repeat: true }, { type: "text", text: "x", repeat: true },
+      { type: "pointer", action: "move", x: 1, y: 1, repeat: true }, { type: "wheel", x: 1, y: 1, deltaX: 0, deltaY: 1, repeat: true },
+      { type: "key", action: "down", ...key, repeat: true });
+    for (const value of invalid) await assert.rejects(input(handle, value), /OBU_HUMAN_INVALID/);
+    assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+    await input(handle, { type: "key", action: "down", ...key });
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key }), /key hold does not match/);
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key, windowsVirtualKeyCode: 39, repeat: true }), /original virtual key/);
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key, code: "ArrowRight", repeat: true }), /key hold does not match/);
+    assert.equal(handle.info().lastInputSequence, 1);
+    await input(handle, { type: "key", action: "up", ...key });
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key, repeat: true }), /key hold does not match/);
+  } finally { await handle.close(); }
+});
+
+test("native repeat cannot precede its original down ACK or overlap another repeat ACK", async () => {
+  const first = defer(), firstEntered = defer(), repeat = defer(), repeatEntered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (method !== "Input.dispatchKeyEvent" || params.type === "keyUp") return;
+    if (params.autoRepeat) { repeatEntered.resolve(); return repeat.promise; }
+    firstEntered.resolve(); return first.promise;
+  } }), handle = await f.begin(), key = { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 };
+  try {
+    const pending = input(handle, { type: "key", action: "down", ...key }); await firstEntered.promise;
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key, repeat: true }), /OBU_HUMAN_BUSY/);
+    first.resolve(); await pending;
+    const repeated = input(handle, { type: "key", action: "down", ...key, repeat: true });
+    await Promise.race([repeatEntered.promise, repeated]);
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key, repeat: true }), /OBU_HUMAN_BUSY/);
+    assert.equal(handle.info().lastInputSequence, 1); repeat.resolve(); assert.equal((await repeated).sequence, 2);
+  } finally { first.resolve(); repeat.resolve(); await handle.close(); }
+});
+
+for (const boundary of ["End", "navigation", "unknown"])
+test(`native repeat ${boundary} joins the actual pending command and releases the original key once`, async () => {
+  const repeated = defer(), entered = defer(), key = { key: "A", code: "KeyA", windowsVirtualKeyCode: 65 };
+  const f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchKeyEvent" && params.autoRepeat) { entered.resolve(); return repeated.promise; }
+  } }), handle = await f.begin(), original = handle.info();
+  try {
+    await input(handle, { type: "key", action: "down", ...key, modifiers: 8 });
+    const pending = input(handle, { type: "key", action: "down", ...key, key: "a", repeat: true });
+    await Promise.race([entered.promise, pending]);
+    let closing, closed = false;
+    if (boundary === "End") closing = handle.close().then(() => { closed = true; });
+    if (boundary === "navigation") { f.changeDocument("repeat-next"); f.control.navigation(7, { frameId: 0 }, "committed"); }
+    await tick(); assert.equal(closed, false);
+    assert.equal(f.calls.some(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp"), false);
+    if (boundary === "unknown") {
+      const failure = new Error("original repeat native outcome unknown"), rejected = assert.rejects(pending, error => error === failure);
+      repeated.reject(failure); await rejected; await handle.close();
+    } else {
+      repeated.resolve(); assert.deepEqual(await pending, { leaseId: original.leaseId, generation: original.generation, sequence: 2, acknowledged: true });
+      if (closing) await closing;
+      else {
+        await f.control.current.recovery; assert.equal(handle.info().lastInputSequence, 0);
+        await assert.rejects(input(handle, { type: "key", action: "down", ...key, repeat: true }), /key hold does not match/);
+      }
+    }
+    const events = f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]);
+    assert.deepEqual(events, [{ ...key, type: "rawKeyDown", modifiers: 8 },
+      { ...key, key: "a", type: "rawKeyDown", modifiers: 0, autoRepeat: true }, { ...key, type: "keyUp", modifiers: 0 }]);
+    assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+  } finally { repeated.resolve(); await handle.close(); }
+});
+
+test("native repeat triggering a dialog is cancelled before its original ACK and original key release", async () => {
+  const repeated = defer(), entered = defer(); let f;
+  const key = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 };
+  f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchKeyEvent" && params.autoRepeat) { opening(f, { type: "alert" }); entered.resolve(); return repeated.promise; }
+    if (method === "Page.handleJavaScriptDialog") { assert.deepEqual(params, { accept: false }); f.event("Page.javascriptDialogClosed", { frameId: "root" }); repeated.resolve(); }
+  } });
+  const handle = await f.begin(), original = handle.info();
+  try {
+    await input(handle, { type: "key", action: "down", ...key });
+    const pending = input(handle, { type: "key", action: "down", ...key, repeat: true }); await Promise.race([entered.promise, pending]);
+    assert.ok(handle.pendingDialog()); await handle.close();
+    assert.deepEqual(await pending, { leaseId: original.leaseId, generation: original.generation, sequence: 2, acknowledged: true });
+    const events = f.calls.filter(([method]) => method === "Input.dispatchKeyEvent");
+    assert.equal(events.length, 3); assert.equal(events[1][2].autoRepeat, true); assert.equal(events[1][2].text, "\r");
+    assert.deepEqual(events[2][2], { ...key, type: "keyUp", modifiers: 0 });
+    assert.ok(f.calls.findIndex(([method]) => method === "Page.handleJavaScriptDialog") < f.calls.indexOf(events[2]));
+  } finally { repeated.resolve(); await handle.close(); }
+});
+
 test("key release binds the original virtual key and retains its acknowledged key identity", async () => {
   const f = fixture(), handle = await f.begin();
   await input(handle, { type: "key", action: "down", key: "C", code: "KeyC", windowsVirtualKeyCode: 67, modifiers: 8 });
@@ -1476,7 +1610,7 @@ test("tab metadata uses the final original validation without changing typed hum
   f.control.validate = async (...args) => ({ ...await validate(...args), title: f.control.current?.epoch?.document ? "Final title" : "Early title" });
   const handle = await f.begin(); t.after(() => handle.close());
   assert.equal(handle.tabInfo().title, "Final title");
-  assert.deepEqual(Object.keys(handle.info()).sort(), ["generation", "inputBudgetVersion", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
+  assert.deepEqual(Object.keys(handle.info()).sort(), ["generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
 });
 
 test("old down ACK remains its exact tuple and held release finishes before any successor stream", async () => {

@@ -150,6 +150,15 @@ test("human command evidence preserves authority and sequence while hashing text
   ]) assert.throws(() => projectHumanCommand(command));
 });
 
+test("human command projection preserves only explicit true repeat on original key down", () => {
+  const request = { id: 9, operation: "humanInput", leaseId: "original", generation: 1, sequence: 2,
+    input: { type: "key", action: "down", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, repeat: true } };
+  assert.deepEqual(projectHumanCommand(request), request);
+  for (const repeat of [false, null, 1, "true"]) assert.throws(() => projectHumanCommand({ ...request, input: { ...request.input, repeat } }));
+  assert.throws(() => projectHumanCommand({ ...request, input: { ...request.input, action: "up" } }));
+  assert.throws(() => projectHumanCommand({ ...request, input: { type: "text", text: "x", repeat: true } }));
+});
+
 test("read-only native observer never wraps or invokes debugger commands and removes its original listeners", () => {
   const channel = () => { const listeners = new Set(); return { listeners, addListener: value => listeners.add(value), removeListener: value => listeners.delete(value), emit: (...args) => { for (const listener of listeners) listener(...args); } }; };
   const onEvent = channel(), onDetach = channel();

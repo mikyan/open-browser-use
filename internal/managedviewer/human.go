@@ -44,6 +44,7 @@ func (c *connection) admitBegin(request *command) bool {
 	c.humanRetiredGeneration = 0
 	c.humanActive = false
 	c.humanBudgetVersion, c.humanBudgetKnown = 0, false
+	c.humanKeyRepeatVersion = 0
 	c.humanFrameLease, c.humanFrameGeneration, c.humanFrameTabID = "", 0, 0
 	c.inputCtx, c.inputCancel = nil, nil
 	var fields struct {
@@ -64,6 +65,9 @@ func (c *connection) admitInput(request command) string {
 		LeaseID    string `json:"leaseId"`
 		Generation uint64
 		Sequence   uint64
+		Input      struct {
+			Repeat bool `json:"repeat"`
+		}
 	}
 	_ = json.Unmarshal(request.payload, &input)
 	c.controlMu.Lock()
@@ -72,6 +76,10 @@ func (c *connection) admitInput(request command) string {
 		return "HUMAN_GENERATION_STALE"
 	}
 	if !c.humanClaimed || c.humanStarting || c.humanRevoked || !c.humanActive || c.humanLease != input.LeaseID || c.humanGeneration != input.Generation || c.humanSequence+1 != input.Sequence || c.ctx.Err() != nil || c.inputCtx == nil || c.humanFrameLease != input.LeaseID || c.humanFrameGeneration != input.Generation || c.humanFrameTabID != c.humanTabID {
+		c.controlMu.Unlock()
+		return "HUMAN_STALE"
+	}
+	if input.Input.Repeat && c.humanKeyRepeatVersion != 1 {
 		c.controlMu.Unlock()
 		return "HUMAN_STALE"
 	}
@@ -206,9 +214,9 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 		c.humanStarting = false
 		c.humanLease = human.LeaseID
 		if latest := c.humanCandidate; latest != nil && latest.LeaseID == human.LeaseID {
-			if latest.InputBudgetVersion != human.InputBudgetVersion {
+			if latest.InputBudgetVersion != human.InputBudgetVersion || latest.KeyRepeatVersion != human.KeyRepeatVersion {
 				c.controlMu.Unlock()
-				return errors.New("human begin budget differs from its original status")
+				return errors.New("human begin capabilities differ from its original status")
 			}
 			if latest.State != "active" && latest.State != "preparing" && latest.State != "navigating" {
 				c.controlMu.Unlock()
@@ -278,7 +286,7 @@ func (c *connection) observeHumanState(data json.RawMessage) error {
 	var pending []command
 	if c.humanStarting && value.Human != nil {
 		if value.Human.TabID == c.humanTabID && (c.humanCandidate == nil || value.Human.LeaseID == c.humanCandidate.LeaseID && value.Human.Generation >= c.humanCandidate.Generation) {
-			if c.humanCandidate != nil && c.humanCandidate.InputBudgetVersion != value.Human.InputBudgetVersion {
+			if c.humanCandidate != nil && (c.humanCandidate.InputBudgetVersion != value.Human.InputBudgetVersion || c.humanCandidate.KeyRepeatVersion != value.Human.KeyRepeatVersion) {
 				pending = c.revokeHumanLocked()
 			} else {
 				c.humanCandidate = value.Human
@@ -314,7 +322,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 	if human.Generation < c.humanGeneration {
 		return nil
 	}
-	if c.humanBudgetKnown && human.InputBudgetVersion != c.humanBudgetVersion {
+	if c.humanBudgetKnown && (human.InputBudgetVersion != c.humanBudgetVersion || human.KeyRepeatVersion != c.humanKeyRepeatVersion) {
 		// A coalesced state may update display, but cannot upgrade an admitted
 		// input's deadline or silently downgrade its original native contract.
 		return c.revokeHumanLocked()
@@ -341,6 +349,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 		}
 	}
 	c.humanBudgetVersion, c.humanBudgetKnown = human.InputBudgetVersion, true
+	c.humanKeyRepeatVersion = human.KeyRepeatVersion
 	c.humanActive = human.State == "active" && human.Generation > c.humanRetiredGeneration && human.Viewport != nil
 	return pending
 }
