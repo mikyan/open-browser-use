@@ -7,18 +7,65 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium as playwrightChromium } from "playwright";
-import { createManagedHumanFixture, readManagedHumanDocument, assertManagedHumanReceipt, humanASCII, humanUnicode } from "./managed-human-check-fixture.mjs";
+import { createManagedHumanFixture, readManagedHumanDocument, assertManagedHumanReceipt, humanASCII, humanUnicode, humanPasteText } from "./managed-human-check-fixture.mjs";
 import { assertManagedViewerTerminal, assertManagedViewerFrames, projectViewerCommand } from "./managed-viewer-check.mjs";
 import { connectNormalCDP, managedProcess, runProcess, bound, poll } from "./normal-browser-downloads-support.mjs";
 import { listenFixture } from "./fixture-listener.mjs";
 import { browserStartupOptions } from "./browser-startup.mjs";
 import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
 import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
+import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
+import { managedHumanSourceFiles } from "./managed-human-source-snapshot.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const redact = text => String(text).replace(/(#ticket=)[A-Za-z0-9_-]+/g, "$1[redacted]");
 const serialize = value => JSON.stringify(value, (_key, item) => typeof item === "string" ? redact(item) : item, 2);
+
+// Passive observer on the isolated viewer only, after the clipboard guard.
+// It observes browser-dispatched paste; it never constructs ClipboardEvent,
+// invokes a clipboard API, or sends task input. All fields are synthetic.
+export function installManagedPasteObserver() {
+  const events = [], listeners = []; let overflow = false, active = true;
+  for (const type of ["copy", "paste", "beforeinput", "input", "keydown", "keyup"]) {
+    const listener = event => {
+      if (!["human-input", "donor", "neutral"].includes(event.target?.id)) return;
+      if (events.length >= 256) { overflow = true; return; }
+      const bounded = value => { if (typeof value !== "string") return null; if (value.length > 4096) { overflow = true; return null; } return value; };
+      events.push({ sequence: events.length + 1, at: Date.now(), type, target: event.target.id, trusted: event.isTrusted,
+        defaultPrevented: event.defaultPrevented, key: event.key ?? null, code: event.code ?? null,
+        inputType: event.inputType ?? null, data: bounded(event.data),
+        clipboardText: event.clipboardData ? bounded(event.clipboardData.getData("text/plain")) : null,
+        value: bounded(event.target.value) });
+    };
+    document.addEventListener(type, listener, { passive: true }); listeners.push({ type, listener });
+  }
+  const snapshot = () => ({ events: structuredClone(events), overflow, active });
+  Object.defineProperty(globalThis, "__managedPasteObservation", { value: { snapshot, stop() { for (const { type, listener } of listeners) document.removeEventListener(type, listener); active = false; return snapshot(); } } });
+}
+
+export function assertManagedPasteEvidence({ viewer, commands, replies, before, after, expectedDraft }) {
+  assert.equal(viewer.overflow, false); assert.equal(viewer.active, true);
+  const paste = viewer.events.filter(event => event.type === "paste" && event.target === "human-input");
+  assert.equal(paste.length, 1); assert.equal(paste[0].trusted, true); assert.equal(paste[0].defaultPrevented, true);
+  assert.equal(paste[0].clipboardText, humanPasteText.replaceAll("\n", "\r\n"), "Pinned Windows memory clipboard preserves its original CRLF payload");
+  const texts = commands.filter(value => value.input?.type === "text"); assert.equal(texts.length, 1, "Exactly one original committed-text command, never a replay");
+  assert.equal(texts[0].input.textBytes, Buffer.byteLength(paste[0].clipboardText)); assert.equal(texts[0].input.textSHA256, hash(paste[0].clipboardText));
+  assert.deepEqual(commands.map(value => value.input.type === "text" ? "text" : `${value.input.code}:${value.input.action}`), ["ControlLeft:down", "text", "ControlLeft:up"]);
+  for (const request of commands) {
+    assert.equal(request.operation, "humanInput"); assert.equal(request.leaseId, texts[0].leaseId); assert.equal(request.generation, texts[0].generation);
+    assertHumanInputReceipt(request, replies.find(reply => reply.id === request.id && reply.connection === request.connection));
+  }
+  assert.equal(after.documentId, before.documentId); assert.equal(after.state.documentToken, before.state.documentToken);
+  assert.equal(after.state.eventOverflow, false); assert.equal(after.draft, expectedDraft);
+  const nativeEvents = after.state.events.slice(before.state.events.length);
+  assert.ok(nativeEvents.some(event => event.type === "beforeinput" && event.trusted));
+  assert.ok(nativeEvents.some(event => event.type === "input" && event.trusted));
+  assert.equal(nativeEvents.some(event => ["paste", "copy", "cut"].includes(event.type) || event.code === "KeyV"), false, "Task must receive committed text, not a native clipboard shortcut");
+  return { requestId: texts[0].id, leaseId: texts[0].leaseId, generation: texts[0].generation, sequence: texts[0].sequence,
+    clipboardBytes: texts[0].input.textBytes, clipboardSHA256: texts[0].input.textSHA256, nativeEvents,
+    boundary: "One trusted viewer paste, one original text request and exact receipt, unchanged original document and exact LF-normalized textarea value. Multiline native insertion may emit several DOM input events." };
+}
 
 export function projectHumanCommand(message) {
   if (!message?.operation?.startsWith("human")) return projectViewerCommand(message);
@@ -112,19 +159,24 @@ async function treeHashes(root) {
 
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
+  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste"].includes(scenario));
+  const paste = scenario === "local-paste";
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
+  const viewerChromium = paste ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
-  await Promise.all([executable, chromium, extension].map(file => fs.access(file)));
+  assert.ok(viewerChromium && (!paste || buildFile), "Local paste requires explicit guarded viewer binary and build manifest");
+  await Promise.all([executable, chromium, viewerChromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/managed-human-"));
-  const root = path.join(runDir, "owned-root"), name = "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
-  const report = { runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
-    scope: "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
+  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : "managed-human-"));
+  const root = path.join(runDir, paste ? "r" : "owned-root"), name = paste ? "p" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
+  const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
+    scope: paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
+      : "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
   let oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
-  const fixture = createManagedHumanFixture();
+  const fixture = createManagedHumanFixture({ scenario });
   const server = createServer((request, response) => { if (!fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
@@ -223,6 +275,7 @@ export async function runManagedHumanCheck() {
     // DOM there can leave wheel coordinates outside the original small window.
     // All viewer pages use the same explicitly sized, private test context.
     page = await viewerContext.newPage();
+    if (paste) await page.addInitScript(installManagedPasteObserver);
     const geometrySession = await viewerContext.newCDPSession(page);
     try {
       const nativeWindow = await bound(geometrySession.send("Browser.getWindowForTarget"), 5000, "original viewer native window");
@@ -269,7 +322,7 @@ export async function runManagedHumanCheck() {
   }
 
   try {
-    report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")) };
+    report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), viewerBrowser: hash(await fs.readFile(viewerChromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")) };
     const snapshot = path.join(runDir, "source-snapshot");
     const builder = await fs.readFile(path.join(repo, "scripts/build-chrome-extension.mjs"), "utf8");
     const declaration = builder.match(/const productionFiles\s*=\s*(\[[\s\S]*?\]);/); assert.ok(declaration, "The frozen builder must declare its exact production inputs");
@@ -281,14 +334,25 @@ export async function runManagedHumanCheck() {
       productionInputs[name] = hash(bytes);
     }
     report.source.productionExtensionInputs = productionInputs;
-    const sourceNames = (await fs.readdir(path.join(repo, "apps/chrome-extension"))).filter(file => /\.(js|json|html|css)$/.test(file) && !file.includes(".test."));
-    const extensionSources = [...new Set([...sourceNames, ...productionFiles])].map(file => `apps/chrome-extension/${file}`);
-    const builderSources = (await fs.readdir(path.join(repo, "scripts"))).filter(file => /^patch-.*\.mjs$/.test(file) && !file.includes(".test.")).map(file => `scripts/${file}`);
-    const integrationSources = (await fs.readdir(path.join(repo, "scripts/browser-integration"))).filter(file => file.endsWith(".mjs") || ["package.json", "package-lock.json"].includes(file)).map(file => `scripts/browser-integration/${file}`);
-    for (const source of ["cmd/open-browser-use", "internal", "packages/open-browser-use-go", "go.mod", "go.sum", "scripts/build-chrome-extension.mjs", ...builderSources, ...extensionSources, ...integrationSources]) {
-      const destination = path.join(snapshot, source); await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.cp(path.join(repo, source), destination, { recursive: true });
+    const sourceFiles = await managedHumanSourceFiles("acceptance", launch);
+    for (const source of sourceFiles) {
+      const relative = path.relative(repo, path.resolve(repo, source)); assert.ok(relative && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`));
+      const destination = path.join(snapshot, source); await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.copyFile(path.join(repo, source), destination);
     }
     report.source.snapshot = await treeHashes(snapshot);
+    if (buildFile) {
+      const bytes = await fs.readFile(buildFile), build = JSON.parse(bytes); assert.equal(build.passed, true);
+      assert.equal(report.source.executable, build.exeSHA256); assert.deepEqual(report.source.extension, build.extensionFiles);
+      report.buildEvidence = { path: buildFile, file: "build-manifest.json", sha256: hash(bytes) };
+      await fs.writeFile(path.join(runDir, "build-manifest.json"), bytes, { flag: "wx" });
+      report.source.builtInputs = build.sourceInputs; report.source.buildSnapshot = path.join(path.dirname(buildFile), "source-snapshot");
+      for (const [file, expected] of Object.entries(build.sourceInputs)) {
+        assert.equal(report.source.snapshot[file], expected, `Current source differs from build input ${file}`);
+        const tested = await fs.readFile(path.join(report.source.buildSnapshot, file)); assert.equal(hash(tested), expected);
+        const destination = path.join(runDir, "built-source-snapshot", file); await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.writeFile(destination, tested, { flag: "wx" });
+      }
+      report.source.provenance = "Exact build sourceInputs and bytes bind runtime. The separately frozen acceptance harness is not represented as tested by an earlier build.";
+    }
     await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true });
     await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), path.join(runDir, "sdk-input"), { recursive: true });
     const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(runDir, "sdk-input/index.js")));
@@ -305,12 +369,30 @@ export async function runManagedHumanCheck() {
       assert.equal(info.name, name); assert.ok(info.runId && info.browserPID > 0 && info.nativePID > 0);
       report.originalProcesses = descendants(await processTable(), info.browserPID); assert.ok(report.originalProcesses.some(item => item.ProcessId === info.nativePID));
       const status = JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout); assert.deepEqual(status.info, info);
-      const startup = browserStartupOptions([`--user-data-dir=${viewerProfile}`, "--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
-      report.viewerStartup = startup; viewerProcess = launch(chromium, startup.args);
+      const startup = browserStartupOptions([`--user-data-dir=${viewerProfile}`, "--headless=new", ...(paste ? ["--enable-automation"] : []), "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+      report.viewerStartup = startup; viewerProcess = launch(viewerChromium, startup.args);
       viewerBrowser = await playwrightChromium.connectOverCDP((await endpointFor(viewerProfile, viewerProcess)).url);
+      if (paste) {
+        const session = await viewerBrowser.newBrowserCDPSession();
+        try { report.clipboardGuard = await verifyMemoryClipboard({ call: (method, params) => session.send(method, params) }, viewerChromium); }
+        finally { await session.detach(); }
+      }
       viewerContext = await viewerBrowser.newContext({ viewport: { width: 1280, height: 1000 } });
       report.viewerProcesses = descendants(await processTable(), viewerProcess.record.pid);
       assert.ok(!report.viewerProcesses.some(item => item.ProcessId === info.browserPID));
+      if (paste) {
+        assert.equal(report.clipboardGuard.verified, true);
+        const donor = await viewerContext.newPage(); await donor.addInitScript(installManagedPasteObserver);
+        try {
+          await donor.goto(fixtureURL + "/human-clipboard-donor");
+          await donor.evaluate(text => { const el = document.getElementById("donor"); el.value = text; el.focus(); el.select(); }, humanPasteText);
+          await donor.keyboard.press("Control+C"); await donor.locator("#neutral").focus(); await donor.keyboard.press("Control+V");
+          report.clipboardSeed = await donor.evaluate(() => ({ value: document.getElementById("neutral").value, ...__managedPasteObservation.stop() }));
+          assert.equal(report.clipboardSeed.value, humanPasteText); assert.equal(report.clipboardSeed.overflow, false); assert.equal(report.clipboardSeed.active, false);
+          for (const type of ["copy", "paste", "beforeinput", "input"]) assert.ok(report.clipboardSeed.events.some(event => event.type === type && event.trusted));
+          assert.equal(report.clipboardSeed.events.filter(event => event.type === "paste").length, 1);
+        } finally { await donor.close(); }
+      }
       const fresh = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
       const viewerURL = new URL(fresh.viewerURL); assert.equal(viewerURL.hostname, "127.0.0.1"); assert.equal(viewerURL.origin, new URL(ready.viewerURL).origin);
       report.viewerOrigin = viewerURL.origin; report.viewerTicketSHA256 = hash(viewerURL.hash);
@@ -328,9 +410,10 @@ export async function runManagedHumanCheck() {
       const originalAuthority = captureTaskAuthority(taskBrowser.client, tab.id);
       report.explicitRelease = { tabId: tab.id, originalAuthority, beforeTargets: await nativeMap(tab.id) }; assert.equal(report.explicitRelease.beforeTargets.length, 1);
       await uiAction("#refresh", "status"); await uiAction("#tabs", "select", tab.id);
-      const begun = await uiAction("#human-begin", "humanBegin"); assert.equal(begun.human.state, "active"); assert.equal(begun.status.state, "paused");
+      const begun = await uiAction("#human-begin", "humanBegin"); assert.ok(["preparing", "active"].includes(begun.human.state)); assert.equal(begun.status.state, "paused");
       normalLease = begun.human; report.explicitRelease.begin = begun;
       report.explicitRelease.frame = await decodeHumanFrame(normalLease);
+      assert.equal(state.human.leaseId, normalLease.leaseId); assert.equal(state.human.tabId, normalLease.tabId); assert.ok(state.human.generation >= normalLease.generation);
       normalLease = { ...state.human };
       const ended = await uiAction("#human-end", "humanEnd");
       assert.equal(ended.human, null); assert.deepEqual(ended.humanCleanup, { leaseId: normalLease.leaseId, cleanupConfirmed: true });
@@ -356,18 +439,25 @@ export async function runManagedHumanCheck() {
       assert.equal(posts().length, 0); report.agentDraft = await screenshot("viewer-agent-draft.png");
     });
 
-    await step("same-document-real-human-input-and-held-input-disconnect", async () => {
+    await step(paste ? "same-document-native-local-paste-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
       const eventStart = (await observerSnapshot()).events.length;
-      const begun = await uiAction("#human-begin", "humanBegin"); assert.equal(begun.status.state, "paused"); assert.equal(begun.human.state, "active");
+      const begun = await uiAction("#human-begin", "humanBegin"); assert.equal(begun.status.state, "paused"); assert.ok(["preparing", "active"].includes(begun.human.state));
       businessLease = begun.human; report.business.humanBegin = begun;
       report.business.firstHumanFrame = await decodeHumanFrame(businessLease);
-      businessLease = { ...state.human };
-      assert.equal(state.human.leaseId, businessLease.leaseId); assert.ok(state.human.viewport);
+      assert.equal(state.human.leaseId, businessLease.leaseId); assert.equal(state.human.tabId, businessLease.tabId); assert.ok(state.human.generation >= businessLease.generation);
+      businessLease = { ...state.human }; assert.ok(state.human.viewport);
       const transferred = await documentRead(oldTaskTab.id); assert.equal(transferred.documentId, original.documentId); assert.equal(transferred.state.documentToken, original.state.documentToken); assert.equal(transferred.draft, fixture.draft);
       await denied("task input during human lease", () => oldTaskTab.mouse.move(2, 2, { timeoutMs: 1500 }), /OBU_AUTOMATION_PAUSED/);
       const draftPoint = await viewerPoint(transferred.boxes.draft);
       await inputAction("click original draft through native frame", () => page.mouse.click(draftPoint.x, draftPoint.y));
       await inputAction("move caret to draft end", () => page.keyboard.press("End"));
+      if (paste) {
+        const before = await documentRead(oldTaskTab.id);
+        const commands = await inputAction("one trusted local Control+V from guarded viewer memory clipboard", () => page.keyboard.press("Control+V"));
+        await wait(async () => (await documentRead(oldTaskTab.id)).draft === fixture.expectedDraft, "one original multiline paste value");
+        const after = await documentRead(oldTaskTab.id), viewer = await page.evaluate(() => __managedPasteObservation.snapshot());
+        report.business.localPaste = { before, after, viewer, commands, proof: assertManagedPasteEvidence({ viewer, commands, replies: report.viewerMessages, before, after, expectedDraft: fixture.expectedDraft }) };
+      } else {
       const shiftedIndex = humanASCII.indexOf("A"); assert.ok(shiftedIndex > 0);
       await inputAction("type synthetic ASCII prefix through viewer", () => page.keyboard.type(humanASCII.slice(0, shiftedIndex)));
       const shiftStart = (await documentRead(oldTaskTab.id)).state.events.length;
@@ -382,10 +472,22 @@ export async function runManagedHumanCheck() {
       report.business.shiftedText = { events: shiftEvents, originalDocumentId: original.documentId };
       await inputAction("type remaining synthetic ASCII through viewer", () => page.keyboard.type(humanASCII.slice(shiftedIndex + 1)));
       await inputAction("insert synthetic Unicode through viewer", () => page.keyboard.insertText(humanUnicode));
+      }
       await wait(async () => (await documentRead(oldTaskTab.id)).draft === fixture.expectedDraft, "original unsaved field extended by human");
       const buttonPoint = await viewerPoint((await documentRead(oldTaskTab.id)).boxes["human-button"]);
       await inputAction("human confirmation pointer click", () => page.mouse.click(buttonPoint.x, buttonPoint.y));
       await wait(async () => (await documentRead(oldTaskTab.id)).state.clicks.length === 1, "one original human confirmation");
+      if (paste) {
+        // The multiline fixture makes the confirmation button partly clipped.
+        // Put the actual viewer pointer over the current native page's empty
+        // left margin before scrolling, instead of retaining that old edge.
+        const current = await documentRead(oldTaskTab.id);
+        const wheelPoint = await viewerPoint({ x: 0, y: 0, width: current.boxes.draft.x, height: current.viewport.height });
+        const hit = await page.evaluate(point => ({ id: document.elementFromPoint(point.x, point.y)?.id, viewport: { width: innerWidth, height: innerHeight } }), wheelPoint);
+        assert.equal(hit.id, "frame"); assert.ok(wheelPoint.x >= 0 && wheelPoint.y >= 0 && wheelPoint.x < hit.viewport.width && wheelPoint.y < hit.viewport.height);
+        report.business.wheelTarget = { at: Date.now(), wheelPoint, hit };
+        await inputAction("move into current visible native frame before scroll", () => page.mouse.move(wheelPoint.x, wheelPoint.y));
+      }
       await inputAction("scroll original document", () => page.mouse.wheel(0, 600));
       await wait(async () => (await documentRead(oldTaskTab.id)).state.maximumScrollY > 300, "original document scroll");
       await inputAction("return original document to held-input target", () => page.mouse.wheel(0, -600));
@@ -393,24 +495,42 @@ export async function runManagedHumanCheck() {
       await decodeHumanFrame(businessLease);
       report.business.beforeHeld = await documentRead(oldTaskTab.id); assert.equal(report.business.beforeHeld.documentId, original.documentId); assert.equal(report.business.beforeHeld.draft, fixture.expectedDraft);
       assert.equal(report.business.beforeHeld.state.clicks.length, 1); assert.equal(report.business.beforeHeld.state.clicks[0].trusted, true);
-      const holdPoint = await viewerPoint(report.business.beforeHeld.boxes.hold);
+      const holdPoint = await viewerPoint(paste ? report.business.beforeHeld.boxes.draft : report.business.beforeHeld.boxes.hold);
       await inputAction("focus original held-input target", () => page.mouse.click(holdPoint.x, holdPoint.y));
       await inputAction("hold Shift on original document", () => page.keyboard.down("Shift"));
-      await inputAction("hold left mouse on original document", () => page.mouse.down({ button: "left" }));
-      const held = await documentRead(oldTaskTab.id); assert.deepEqual(held.state.heldKeys, ["ShiftLeft"]); assert.deepEqual(held.state.heldButtons, [0]);
+      if (!paste) await inputAction("hold left mouse on original document", () => page.mouse.down({ button: "left" }));
+      const held = await documentRead(oldTaskTab.id); assert.deepEqual(held.state.heldKeys, ["ShiftLeft"]); assert.deepEqual(held.state.heldButtons, paste ? [] : [0]);
       report.business.held = held; report.business.heldAt = Date.now();
       businessLease = { ...state.human, lastInputSequence: Math.max(...report.viewerCommands.filter(value => value.operation === "humanInput" && value.leaseId === businessLease.leaseId).map(value => value.sequence)) };
       report.business.lastHumanLease = businessLease; report.business.humanScreenshot = await screenshot("viewer-human-edited.png");
       const closeAt = Date.now(), commandCount = report.viewerCommands.length;
+      if (paste) {
+        report.business.end = await uiAction("#human-end", "humanEnd");
+        assert.equal(report.business.end.human, null); assert.equal(report.business.end.status.state, "paused");
+        assert.deepEqual(report.business.end.humanCleanup, { leaseId: businessLease.leaseId, cleanupConfirmed: true });
+        assert.equal(await page.locator("#human-input").getAttribute("data-enabled"), "false");
+      } else {
       await page.evaluate(() => globalThis.__managedHumanTestSocket.close(1000, "synthetic held-input disconnect"));
       await wait(() => report.viewerMessages.find(value => value.type === "socketClosed" && value.connection === connection && value.at >= closeAt), "original viewer socket actually closed");
+      }
       report.business.releasedDocument = await wait(async () => { const value = await documentRead(oldTaskTab.id); return value.state.heldKeys.length === 0 && value.state.heldButtons.length === 0 && value; }, "actual original native key and button release", 35000);
       assert.equal(report.business.releasedDocument.documentId, original.documentId); assert.equal(report.business.releasedDocument.draft, fixture.expectedDraft);
       const releaseEvents = report.business.releasedDocument.state.events.slice(held.state.events.length);
       assert.ok(releaseEvents.some(value => value.type === "keyup" && value.code === "ShiftLeft" && value.trusted));
-      assert.ok(releaseEvents.some(value => value.type === "mouseup" && value.button === 0 && value.trusted));
-      assert.equal(report.viewerCommands.slice(commandCount).filter(value => ["humanInput", "humanEnd", "resume"].includes(value.operation)).length, 0, "Transport disconnect must not be replaced with UI keyup, End, or Resume");
-      report.business.disconnected = { at: closeAt, connection, commandCount, actualReleaseObservedAt: Date.now(), releaseEvents };
+      if (paste) {
+        assert.deepEqual(report.viewerCommands.slice(commandCount).map(value => value.operation), ["humanEnd"], "Original End alone must release held input; no task keyup or retry");
+        const retiredCount = report.viewerCommands.length;
+        await page.keyboard.up("Shift"); await page.keyboard.press("KeyZ");
+        assert.equal(report.viewerCommands.length, retiredCount, "Retired UI must not send inputs, including local modifier release");
+        report.business.afterRetiredUI = await documentRead(oldTaskTab.id); assert.equal(report.business.afterRetiredUI.draft, fixture.expectedDraft);
+        assert.deepEqual(report.business.afterRetiredUI.state.events, report.business.releasedDocument.state.events);
+        report.business.ended = { at: closeAt, connection, commandCount, actualReleaseObservedAt: Date.now(), releaseEvents,
+          boundary: "The original humanEnd may be triggered by focus leaving the input during the button click. Exactly one real End and its native cleanup are required; click-handler causality is not assumed." };
+      } else {
+        assert.ok(releaseEvents.some(value => value.type === "mouseup" && value.button === 0 && value.trusted));
+        assert.equal(report.viewerCommands.slice(commandCount).filter(value => ["humanInput", "humanEnd", "resume"].includes(value.operation)).length, 0, "Transport disconnect must not be replaced with UI keyup, End, or Resume");
+        report.business.disconnected = { at: closeAt, connection, commandCount, actualReleaseObservedAt: Date.now(), releaseEvents };
+      }
       const observed = await observerSnapshot(); assert.equal(observed.overflow, false);
       const frameEvents = observed.events.slice(eventStart).filter(value => value.method === "Page.screencastFrame"); assert.ok(frameEvents.length > 0);
       for (const event of frameEvents) {
@@ -426,14 +546,16 @@ export async function runManagedHumanCheck() {
     });
 
     await step("actual-human-cleanup-explicit-resume-and-one-original-post", async () => {
+      if (!paste) {
       const oldPage = page;
       const fresh = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout); assert.equal(new URL(fresh.viewerURL).origin, report.viewerOrigin);
       await openViewer(fresh.viewerURL); await oldPage.close();
+      }
       assert.equal(state.status.state, "paused"); assert.equal(state.status.cleanupComplete, true); assert.equal(state.human, null);
       assert.deepEqual(state.humanCleanup, { leaseId: businessLease.leaseId, cleanupConfirmed: true });
-      report.business.disconnectCleanup = structuredClone(state);
+      report.business[paste ? "endCleanup" : "disconnectCleanup"] = structuredClone(state);
       const targets = await nativeMap(oldTaskTab.id); assert.equal(targets.length, 1); assert.equal(targets[0].id, report.business.originalTarget.id); assert.equal(targets[0].attached, false);
-      await deniedHuman(businessLease, "disconnected human lease cannot send input");
+      await deniedHuman(businessLease, paste ? "ended paste lease cannot send input" : "disconnected human lease cannot send input");
       report.business.resume = await uiAction("#control", "resume"); assert.equal(report.business.resume.status.state, "running"); assert.equal(report.business.resume.human, null);
       await denied("business original request before explicit new turn", () => oldTaskTab.domSnapshot({ timeoutMs: 1500 }), /OBU_STALE_CONTROL_EPOCH/);
       report.business.newTurn = await taskBrowser.client.beginTurn("explicit-after-human-release"); freshTaskTab = taskBrowser.tab(oldTaskTab.id); await freshTaskTab.domSnapshot({ timeoutMs: 10000 });
@@ -457,7 +579,10 @@ export async function runManagedHumanCheck() {
       await wait(async () => await page.locator("#state").textContent() === "会话已停止", "actual Stop UI reply", 55000);
       report.viewerStopped = await screenshot("viewer-stopped.png");
       const terminal = await bound(launcher.completed, 10000, "original supervisor terminal exit"); assert.equal(terminal.code, 0, redact(terminal.stderr));
-      report.lifecycle = JSON.parse(await fs.readFile(path.join(info.runDir, "lifecycle.json"), "utf8")); assertManagedViewerTerminal(report.lifecycle, info);
+      const lifecycleBytes = await fs.readFile(path.join(info.runDir, "lifecycle.json"));
+      await fs.writeFile(path.join(runDir, "lifecycle-original.json"), lifecycleBytes, { flag: "wx" });
+      report.lifecycleEvidence = { file: "lifecycle-original.json", sha256: hash(lifecycleBytes), bytes: lifecycleBytes.length, boundary: "Original raw JSON is authoritative for uint64 FILETIME; parsed numeric fields may round." };
+      report.lifecycle = JSON.parse(lifecycleBytes); assertManagedViewerTerminal(report.lifecycle, info);
       report.processesGone = await wait(async () => { const table = await processTable(), originals = [...report.originalProcesses, ...report.preCloseProcesses]; const remaining = originals.filter(before => table.some(after => before.ProcessId === after.ProcessId && before.CreationDate === after.CreationDate)); return !remaining.length && { at: Date.now(), originalIdentities: originals.length, remaining }; }, "original managed tree gone");
       const status = await command(["managed", "status", "--root", root, "--name", name], 1); assert.match(status.stderr, /has no reachable supervisor/);
     });
@@ -497,9 +622,17 @@ export async function runManagedHumanCheck() {
     try { await Promise.all(frameWrites); checkCapture(); } catch (error) { report.cleanup.frameWriteError = error.stack; }
     try {
       assert.equal(hash(await fs.readFile(executable)), report.source.executable); assert.equal(hash(await fs.readFile(chromium)), report.source.browser);
+      assert.equal(hash(await fs.readFile(viewerChromium)), report.source.viewerBrowser);
       assert.deepEqual(await treeHashes(extension), report.source.extension); assert.deepEqual(await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")), report.source.sdk);
       assert.deepEqual(await treeHashes(path.join(runDir, "source-snapshot")), report.source.snapshot);
       for (const [relative, expected] of Object.entries(report.source.snapshot)) assert.equal(hash(await fs.readFile(path.join(repo, relative))), expected, `Source changed during acceptance: ${relative}`);
+      if (report.buildEvidence) {
+        assert.equal(hash(await fs.readFile(buildFile)), report.buildEvidence.sha256);
+        for (const [relative, expected] of Object.entries(report.source.builtInputs)) {
+          assert.equal(hash(await fs.readFile(path.join(runDir, "built-source-snapshot", relative))), expected);
+          assert.equal(hash(await fs.readFile(path.join(report.source.buildSnapshot, relative))), expected);
+        }
+      }
     } catch (error) { report.cleanup.sourceChanged = error.stack; }
     report.fixture = fixture.stats(); report.screenshots = screenshots; report.endedAt = Date.now();
     report.frameRetention = { observedFrames: report.frames.length, savedPNGs: report.frames.filter(frame => frame.file).length, maximumSavedPNGs: 96, metadataOnlyFrames: report.frames.filter(frame => !frame.file).length,

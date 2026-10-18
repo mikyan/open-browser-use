@@ -2,7 +2,51 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import fs from "node:fs/promises";
-import { installManagedHumanObserver, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint } from "./managed-human-check.mjs";
+import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint } from "./managed-human-check.mjs";
+import { humanPasteText } from "./managed-human-check-fixture.mjs";
+import vm from "node:vm";
+
+function pasteProof() {
+  const leaseId = "original", generation = 2, connection = 1, raw = humanPasteText.replaceAll("\n", "\r\n");
+  const commands = [
+    { type: "key", action: "down", code: "ControlLeft", key: "Control", windowsVirtualKeyCode: 17 },
+    { type: "text", text: raw },
+    { type: "key", action: "up", code: "ControlLeft", key: "Control", windowsVirtualKeyCode: 17 }
+  ].map((input, index) => ({ ...projectHumanCommand({ id: index + 1, operation: "humanInput", leaseId, generation, sequence: index + 1, input }), connection }));
+  return { viewer: { overflow: false, active: true, events: [{ type: "paste", target: "human-input", trusted: true, defaultPrevented: true, clipboardText: raw }] }, commands,
+    replies: commands.map(request => ({ type: "response", id: request.id, connection, result: { inputReceipt: { leaseId, generation, sequence: request.sequence, acknowledged: true } } })),
+    before: { documentId: "doc-original", state: { documentToken: "token", events: [] } },
+    after: { documentId: "doc-original", draft: "draft" + humanPasteText, state: { documentToken: "token", eventOverflow: false,
+      events: [{ type: "beforeinput", trusted: true, data: raw }, { type: "input", trusted: true, data: "line one" }, { type: "input", trusted: true, data: "line two" }] } },
+    expectedDraft: "draft" + humanPasteText };
+}
+
+test("native local paste proof uses exact one text receipt, not a fixed count of multiline DOM input events", () => {
+  const proof = pasteProof(); assert.doesNotThrow(() => assertManagedPasteEvidence(proof));
+  assert.equal(assertManagedPasteEvidence(proof).clipboardSHA256, createHash("sha256").update(humanPasteText.replaceAll("\n", "\r\n")).digest("hex"));
+});
+
+test("paste proof rejects synthetic events, replay, stale receipt/document and task clipboard routing", () => {
+  for (const change of [
+    value => { value.viewer.events[0].trusted = false; }, value => { value.viewer.events[0].clipboardText = humanPasteText; },
+    value => { value.commands.push(structuredClone(value.commands[1])); }, value => { value.replies[1].result.inputReceipt.generation++; },
+    value => { value.after.documentId = "successor"; }, value => { value.after.draft += humanPasteText; },
+    value => { value.after.state.events.push({ type: "paste", trusted: true }); },
+    value => { value.after.state.events.push({ type: "keydown", code: "KeyV", trusted: true }); }
+  ]) { const proof = pasteProof(); change(proof); assert.throws(() => assertManagedPasteEvidence(proof)); }
+});
+
+test("passive paste observer bounds synthetic fields and removes the exact listeners", () => {
+  const listeners = new Map(), document = { addEventListener(type, listener) { listeners.set(type, listener); }, removeEventListener(type, listener) { assert.equal(listeners.get(type), listener); listeners.delete(type); } };
+  const context = vm.createContext({ document, structuredClone }); vm.runInContext(`(${installManagedPasteObserver.toString()})()`, context);
+  const event = { type: "paste", target: { id: "human-input", value: "" }, isTrusted: true, defaultPrevented: true, clipboardData: { getData(type) { assert.equal(type, "text/plain"); return humanPasteText; } } };
+  listeners.get("paste")(event);
+  const before = context.__managedPasteObservation.snapshot(); assert.equal(before.events.length, 1); assert.equal(before.events[0].trusted, true);
+  before.events[0].clipboardText = "mutated"; assert.equal(context.__managedPasteObservation.snapshot().events[0].clipboardText, humanPasteText);
+  for (let i = 0; i < 256; i++) listeners.get("paste")(event);
+  assert.equal(context.__managedPasteObservation.snapshot().overflow, true); assert.equal(context.__managedPasteObservation.snapshot().events.length, 256);
+  assert.equal(context.__managedPasteObservation.stop().active, false); assert.equal(listeners.size, 0);
+});
 
 test("human viewer point uses the target's visible intersection rather than its offscreen center", () => {
   const target = { x: 24, y: 329.59375, width: 240, height: 90 };
@@ -57,9 +101,7 @@ test("each high-ID retired-capability probe replaces its connection before retur
   for (const fragment of order) { const index = probe.indexOf(fragment); assert.ok(index > offset, `Missing or reordered probe boundary: ${fragment}`); offset = index; }
   assert.equal((probe.match(/command\(\["managed", "view"/g) ?? []).length, 1);
   assert.equal(probe.includes("uiAction("), false, "No UI command on the probed connection");
-  for (const directory of ["cmd/open-browser-use", "internal", "packages/open-browser-use-go"]) assert.ok(source.includes(`\"${directory}\"`));
-  assert.match(source, /"go\.mod", "go\.sum"/);
-  assert.match(source, /file\.endsWith\("\.mjs"\)/, "All top-level transitive integration helpers are captured");
+  assert.ok(source.includes('managedHumanSourceFiles'), 'Shared strict source selection is retained');
   const down = source.indexOf('page.keyboard.down("Shift")');
   const text = source.indexOf('page.keyboard.press("KeyA")', down);
   const up = source.indexOf('page.keyboard.up("Shift")', text);

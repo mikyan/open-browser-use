@@ -8,8 +8,8 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261019-bcc8304](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-bcc8304)，包含首帧准备/导航弹窗的原上下文修复、
-并发结果登记和晚到网址通知核验。432份源输入、77份扩展与已测构建绑定，
+最新已发布完整包为 [preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0)，包含原生弹窗来源标签、首帧准备/导航弹窗的原上下文修复、
+并发结果登记和晚到网址通知核验。437份源输入、77份扩展与已测构建绑定，
 离线CLI/MCP、独立包审计及四资产回下载通过；固定场景与限制见
 [人工网页弹窗](managed-human-dialogs.md)，完整能力对齐仍未完成。
 
@@ -20,9 +20,10 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 从干净提交 `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` 重建，新增稳定同源及嵌套子页面的人工prompt回答。
 完整包/扩展/Skill为102/75/7文件；离线CLI/MCP、独立制品、上传回下载和本地副本校验通过。
 发布EXE未重跑网页业务；该包不包含下面续轮的 OOPIF 和 End 提示修复。
-当前源码的 `mod-BENPnK` 已通过主/同源/嵌套/单层跨站 OOPIF prompt 及正常
-End/Stop 验收；该续轮已进入上述e3fee2a包。初始/导航弹窗、复杂 iframe 和完整能力对齐
-仍开放，弹窗卡片尚不单独显示子站来源，见[人工网页弹窗](managed-human-dialogs.md)。
+历史验收 `mod-BENPnK` 通过主/同源/嵌套/单层跨站 OOPIF prompt 及正常
+End/Stop；该续轮已进入上述e3fee2a包。后续3241ff0包另通过固定初始/导航
+场景，并新增独立来源显示。复杂 iframe 和完整能力对齐仍开放，见
+[人工网页弹窗](managed-human-dialogs.md)。
 
 历史完整包为 [preview-20261018-95e7b29](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-95e7b29)，
 从干净提交 `95e7b29e3c079506445c52d3db192561adca6ced` 重建，新增主页面人工网页弹窗及五分钟累计等待预算、更新后的Skill。
@@ -224,6 +225,13 @@ SDK 继续使用自己的确切 endpoint 参数。例如 JavaScript SDK 的
    点击画面输入文字、按键、指针和滚轮。输入按顺序等待原生确认，不自动重试。
 3. 点击“完成接管”，等待原按键、按钮和渲染资源释放。结束后 Agent 保持
    暂停；明确点击“继续操作”后，Agent 仍须开启新轮次并重新取得页面控制。
+
+当前源码支持在接管输入区使用 Ctrl+V（另处理 Meta+V、Shift+Insert）粘贴
+本地纯文字。只提交当前粘贴事件提供的文本，不上传 HTML 或文件，也不读取
+被控浏览器的剪贴板。一次最多4096个UTF-16单位，超限整体拒绝并结束接管；
+不支持的控制字符和孤立surrogate整体拒绝。多行内容遵循目标输入控件的
+换行规则。验证范围仅为隔离浏览器内存剪贴板，普通可见浏览器的系统剪贴板、
+完整输入法和非Windows平台仍待验收。
 
 输入区失焦、查看窗口失焦或页面被隐藏都会结束接管。源码新增的网页弹窗
 交互会临时停用页面输入框，其本地失焦不会结束接管；可在画面上方确认、

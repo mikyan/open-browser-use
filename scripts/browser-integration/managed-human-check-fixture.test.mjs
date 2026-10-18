@@ -1,7 +1,25 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
-import { createManagedHumanFixture, assertManagedHumanReceipt } from "./managed-human-check-fixture.mjs";
+import { createManagedHumanFixture, assertManagedHumanReceipt, humanPasteText } from "./managed-human-check-fixture.mjs";
+import vm from "node:vm";
+
+test("local-paste fixture preserves multiline value and the original one-shot POST", async () => {
+  const fixture = createManagedHumanFixture({ scenario: "local-paste" });
+  assert.equal(fixture.expectedDraft, fixture.draft + humanPasteText); assert.throws(() => createManagedHumanFixture({ scenario: "unknown" }));
+  const server = createServer((request, response) => { if (!fixture.handle(request, response)) response.writeHead(404).end(); });
+  await listenFixture(server); const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const html = await (await fetch(origin + "/human-form")).text(); assert.match(html, /<textarea name="draft"/);
+    assert.doesNotThrow(() => new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]));
+    const token = fixture.stats().requests[0].documentToken;
+    const body = new URLSearchParams({ workflowId: fixture.workflowId, documentToken: token, draft: fixture.expectedDraft, humanClicks: "1", humanTrusted: "true", submitCount: "1", heldKeys: "0", heldButtons: "0", maximumScrollY: "600" });
+    const response = await fetch(origin + "/human-receipt", { method: "POST", body }); assert.equal(response.status, 200); const receipt = await response.json();
+    assert.equal(receipt.documentToken, token); assert.equal(fixture.stats().requests[1].draftMatches, true);
+    assert.equal(new URLSearchParams(Buffer.from(fixture.stats().requests[1].body.base64, "base64").toString()).get("draft"), fixture.draft + humanPasteText);
+    assert.equal((await fetch(origin + "/human-receipt", { method: "POST", body })).status, 409);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
 import { listenFixture } from "./fixture-listener.mjs";
 
 test("synthetic handoff fixture preserves exact one-shot POST bytes and original document identity", async () => {

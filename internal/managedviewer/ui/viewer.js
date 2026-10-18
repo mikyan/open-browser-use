@@ -571,8 +571,15 @@
   }
 
   function keyboard(event, action) {
-    const releasingHeldInput = Boolean(pendingDialog) && action === "up" && pressedKeys.has(event.code);
-    if (!humanReady(releasingHeldInput) || event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key)) return;
+    const heldRelease = action === "up" && pressedKeys.has(event.code);
+    const releasingHeldInput = Boolean(pendingDialog) && heldRelease;
+    if (!humanReady(releasingHeldInput) || !heldRelease && (event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key))) return;
+    // The browser supplies local clipboard text through paste. Forwarding this
+    // shortcut would instead ask the controlled browser to use its clipboard.
+    // A key already sent to that browser still owns its original real release.
+    const localPaste = !event.altKey && (event.keyCode === 86 && (event.ctrlKey || event.metaKey) ||
+      event.keyCode === 45 && event.shiftKey && !event.ctrlKey && !event.metaKey);
+    if (localPaste && !pressedKeys.has(event.code)) return;
     const shortcut = event.ctrlKey || event.altKey || event.metaKey;
     const printable = Array.from(event.key || "").length === 1;
     if (printable && !shortcut && !pressedKeys.has(event.code)) return; // Committed text has exactly one path below.
@@ -621,10 +628,23 @@
   window.addEventListener("keyup", event => {
     if (pendingDialog && pressedKeys.has(event.code)) keyboard(event, "up");
   }, true);
+  el["human-input"].addEventListener("paste", event => {
+    event.preventDefault();
+    if (!humanReady() || composing) return;
+    // Read only this original event's plain text, synchronously. Never retain
+    // its DataTransfer or perform a later navigator.clipboard read.
+    const text = event.clipboardData?.getData("text/plain");
+    if (typeof text === "string" && (!text.isWellFormed() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text))) {
+      el["human-input"].value = "";
+      error("粘贴内容含不支持的字符，文字未发送。请检查后重新粘贴。");
+      return;
+    }
+    committedText(text);
+  });
   el["human-input"].addEventListener("beforeinput", event => {
     if (!humanReady() || event.isComposing || composing || /Composition/.test(event.inputType)) return;
     event.preventDefault();
-    if (["insertText", "insertFromPaste", "insertReplacementText"].includes(event.inputType)) committedText(event.data ?? event.dataTransfer?.getData("text/plain"));
+    if (["insertText", "insertReplacementText"].includes(event.inputType)) committedText(event.data ?? event.dataTransfer?.getData("text/plain"));
   });
   el["human-input"].addEventListener("compositionstart", () => {
     composing = humanReady();

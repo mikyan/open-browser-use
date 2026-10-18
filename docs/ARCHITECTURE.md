@@ -139,6 +139,10 @@ debugger、history 和 tab groups。
   输入单队列等待原回执，释放请求先撤销排队输入，再等待实际清理。扩展的
   `managed-human-control.js` 固定原页面 target，持有独立接管租约并跟踪
   原生按键、指针和 rendering 清理；桥接层负责与原任务暂停、选择及继续衔接。
+  查看器保留本地 Ctrl/Meta+V、Shift+Insert 的浏览器默认行为，只从原 paste
+  事件同步读取纯文字，经已有队列和原回执插入；不向被控浏览器发送粘贴键。
+  直接文字允许严格匹配的 Shift/Control/Meta 持键，保留原持有状态及实际释放；
+  其他持键或按钮仍拒绝。组合输入过滤不会吞掉原已登记按键的释放。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

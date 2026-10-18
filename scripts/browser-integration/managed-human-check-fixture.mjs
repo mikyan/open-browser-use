@@ -5,8 +5,11 @@ import { createHash, randomUUID } from "node:crypto";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 export const humanASCII = " human-ASCII";
 export const humanUnicode = " 人工接管π";
+export const humanPasteText = " 人工粘贴😀 e\u0301\n第二行 π\nthird line";
 
-export function createManagedHumanFixture() {
+export function createManagedHumanFixture({ scenario = "handoff" } = {}) {
+  assert.ok(["handoff", "local-paste"].includes(scenario));
+  const paste = scenario === "local-paste", suffix = paste ? humanPasteText : humanASCII + humanUnicode;
   const workflowId = randomUUID(), draft = `unsubmitted-${randomUUID()}`;
   const requests = [], documents = new Set();
   let committed = false, overflow = false;
@@ -18,7 +21,7 @@ export function createManagedHumanFixture() {
   }
   function handle(request, response) {
     const url = new URL(request.url, "http://127.0.0.1");
-    if (!["/human-form", "/human-receipt", "/human-control"].includes(url.pathname)) return false;
+    if (!["/human-form", "/human-receipt", "/human-control", ...(paste ? ["/human-clipboard-donor"] : [])].includes(url.pathname)) return false;
     if (requests.length >= 16) { overflow = true; request.resume(); response.writeHead(503); response.end(); return true; }
     const hit = { sequence: requests.length + 1, method: request.method, path: url.pathname, at: Date.now(), finished: false, closed: false, aborted: false, errors: [] };
     requests.push(hit);
@@ -27,6 +30,9 @@ export function createManagedHumanFixture() {
     response.on("error", error => hit.errors.push(error.message));
     request.on("error", error => hit.errors.push(error.message));
     if (url.search) { request.resume(); reply(response, hit, 400, '{"error":"unexpected query"}'); return true; }
+    if (paste && request.method === "GET" && url.pathname === "/human-clipboard-donor") {
+      request.resume(); reply(response, hit, 200, '<!doctype html><meta charset="utf-8"><title>Synthetic memory clipboard donor</title><label>Donor<textarea id="donor"></textarea></label><label>Neutral control<textarea id="neutral"></textarea></label>', "text/html; charset=utf-8"); return true;
+    }
     if (request.method === "GET" && url.pathname === "/human-control") {
       request.resume();
       reply(response, hit, 200, '<!doctype html><meta charset="utf-8"><title>Independent release check</title><style>body{font:24px sans-serif;background:#def;padding:32px}</style><h1>Independent human release check</h1><p>No form, external account, or business submission on this page.</p>', "text/html; charset=utf-8"); return true;
@@ -34,13 +40,13 @@ export function createManagedHumanFixture() {
     if (request.method === "GET" && url.pathname === "/human-form") {
       request.resume(); const documentToken = randomUUID(); documents.add(documentToken); hit.documentToken = documentToken;
       const html = `<!doctype html><meta charset="utf-8"><title>Original managed human form</title>
-<style>body{font:20px sans-serif;margin:24px;background:#eff5ff;color:#132641}label{display:block;margin:18px 0}input{font:20px sans-serif;width:650px;padding:12px}button{font:20px sans-serif;padding:14px;margin:8px}#hold{width:240px;height:90px;background:#e1c6ff;display:grid;place-content:center;user-select:none}#spacer{height:1500px;background:linear-gradient(#eff5ff,#cce3e8)}#state{font:12px monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-width:900px}#bottom{height:200px}</style>
-<h1>Continue the original unsaved form</h1><form id="form"><label>Original draft<input name="draft" id="draft" autocomplete="off"></label><button type="button" id="human-button">Human confirmation</button><div id="hold" tabindex="0">Hold target for disconnect</div><div id="spacer"></div><section id="bottom"><button type="submit" id="commit">Commit original handoff receipt</button><pre id="result"></pre></section></form><pre id="state"></pre>
+<style>body{font:20px sans-serif;margin:24px;background:#eff5ff;color:#132641}label{display:block;margin:18px 0}input,textarea{font:20px sans-serif;width:650px;padding:12px}button{font:20px sans-serif;padding:14px;margin:8px}#hold{width:240px;height:90px;background:#e1c6ff;display:grid;place-content:center;user-select:none}#spacer{height:1500px;background:linear-gradient(#eff5ff,#cce3e8)}#state{font:12px monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-width:900px}#bottom{height:200px}</style>
+<h1>Continue the original unsaved form</h1><form id="form"><label>Original draft${paste ? '<textarea name="draft" id="draft" autocomplete="off" rows="3"></textarea>' : '<input name="draft" id="draft" autocomplete="off">'}</label><button type="button" id="human-button">Human confirmation</button><div id="hold" tabindex="0">Hold target for disconnect</div><div id="spacer"></div><section id="bottom"><button type="submit" id="commit">Commit original handoff receipt</button><pre id="result"></pre></section></form><pre id="state"></pre>
 <script>
 const state={workflowId:${JSON.stringify(workflowId)},documentToken:${JSON.stringify(documentToken)},events:[],eventOverflow:false,clicks:[],submits:0,scrollY:0,maximumScrollY:0,heldKeys:[],heldButtons:[]};
 const render=()=>{state.scrollY=scrollY;state.maximumScrollY=Math.max(state.maximumScrollY,scrollY);document.querySelector('#state').textContent=JSON.stringify(state)};
-const record=e=>{if(state.events.length>=256){state.eventOverflow=true;return}const item={type:e.type,target:e.target?.id??'',trusted:e.isTrusted};if(e.type.startsWith('key')){item.key=e.key;item.code=e.code;item.repeat=e.repeat;if(e.type==='keydown'){if(!state.heldKeys.includes(e.code))state.heldKeys.push(e.code)}else state.heldKeys=state.heldKeys.filter(k=>k!==e.code)}if(e.type.startsWith('pointer')||e.type.startsWith('mouse')){item.button=e.button;item.buttons=e.buttons;item.x=e.clientX;item.y=e.clientY;if(e.type==='mousedown'&&!state.heldButtons.includes(e.button))state.heldButtons.push(e.button);if(e.type==='mouseup')state.heldButtons=state.heldButtons.filter(b=>b!==e.button)}if(e.type==='input'){item.inputType=e.inputType;item.data=e.data}if(e.type==='wheel'){item.deltaX=e.deltaX;item.deltaY=e.deltaY}state.events.push(item);render()};
-for(const name of ['keydown','keyup','pointerdown','pointerup','mousedown','mouseup','input','wheel'])document.addEventListener(name,record,{capture:true,passive:true});
+const record=e=>{if(state.events.length>=256){state.eventOverflow=true;return}const item={type:e.type,target:e.target?.id??'',trusted:e.isTrusted};if(e.type.startsWith('key')){item.key=e.key;item.code=e.code;item.repeat=e.repeat;if(e.type==='keydown'){if(!state.heldKeys.includes(e.code))state.heldKeys.push(e.code)}else state.heldKeys=state.heldKeys.filter(k=>k!==e.code)}if(e.type.startsWith('pointer')||e.type.startsWith('mouse')){item.button=e.button;item.buttons=e.buttons;item.x=e.clientX;item.y=e.clientY;if(e.type==='mousedown'&&!state.heldButtons.includes(e.button))state.heldButtons.push(e.button);if(e.type==='mouseup')state.heldButtons=state.heldButtons.filter(b=>b!==e.button)}if(e.type==='input'||e.type==='beforeinput'){item.inputType=e.inputType;item.data=e.data}if(e.type==='wheel'){item.deltaX=e.deltaX;item.deltaY=e.deltaY}state.events.push(item);render()};
+for(const name of ['keydown','keyup','pointerdown','pointerup','mousedown','mouseup','input','wheel',...${JSON.stringify(paste ? ["beforeinput", "paste", "copy", "cut"] : [])}])document.addEventListener(name,record,{capture:true,passive:true});
 addEventListener('scroll',render,{passive:true});
 document.querySelector('#human-button').addEventListener('click',e=>{state.clicks.push({trusted:e.isTrusted,sequence:state.clicks.length+1});render()});
 document.querySelector('#form').addEventListener('submit',async e=>{e.preventDefault();state.submits++;render();const body=new URLSearchParams({workflowId:state.workflowId,documentToken:state.documentToken,draft:document.querySelector('#draft').value,humanClicks:String(state.clicks.length),humanTrusted:String(state.clicks.every(item=>item.trusted)),submitCount:String(state.submits),heldKeys:String(state.heldKeys.length),heldButtons:String(state.heldButtons.length),maximumScrollY:String(state.maximumScrollY)});const response=await fetch('/human-receipt',{method:'POST',body});document.querySelector('#result').textContent=await response.text()});render();
@@ -59,7 +65,7 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
       if (size > 8192 || names.some(name => fields.getAll(name).length !== 1) || hit.fieldNames.some(name => !names.includes(name))) { reply(response, hit, 400, '{"error":"fields"}'); return; }
       hit.documentToken = fields.get("documentToken");
       hit.originalDocument = documents.has(hit.documentToken);
-      hit.draftMatches = fields.get("draft") === draft + humanASCII + humanUnicode;
+      hit.draftMatches = fields.get("draft") === draft + suffix;
       hit.humanClicks = Number(fields.get("humanClicks")); hit.submitCount = Number(fields.get("submitCount"));
       hit.maximumScrollY = Number(fields.get("maximumScrollY"));
       if (fields.get("workflowId") !== workflowId || !hit.originalDocument || !hit.draftMatches || hit.humanClicks !== 1 || fields.get("humanTrusted") !== "true" || hit.submitCount !== 1 || fields.get("heldKeys") !== "0" || fields.get("heldButtons") !== "0" || !(hit.maximumScrollY > 300)) { reply(response, hit, 400, '{"error":"original human handoff required"}'); return; }
@@ -70,7 +76,7 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
     });
     return true;
   }
-  return { handle, workflowId, draft, expectedDraft: draft + humanASCII + humanUnicode,
+  return { handle, workflowId, draft, scenario, expectedDraft: draft + suffix,
     stats: () => structuredClone({ workflowId, requests, committed, overflow }) };
 }
 

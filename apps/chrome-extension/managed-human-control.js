@@ -6,6 +6,7 @@ import { ManagedHumanDocumentGraph } from "./managed-human-document-graph.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
+const textModifierKeys = { ShiftLeft: 16, ShiftRight: 16, ControlLeft: 17, ControlRight: 17, MetaLeft: 91, MetaRight: 92 };
 const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); promise.catch(() => {}); return { promise, resolve, reject }; };
 function fields(value, required, optional = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw fail("invalid input object");
@@ -651,11 +652,12 @@ export class ManagedHumanControl {
       fields(input, ["type", "text"]);
       if (typeof input.text !== "string" || input.text.length < 1 || input.text.length > 4096 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(input.text)) throw fail("invalid text input");
       // insertText commits text directly (including the viewer's already
-      // shifted character); it does not synthesize or release a physical key.
-      // Preserve real Shift holds through this commit and their later ACKed up.
-      const onlyShift = [...record.keys.values()].every(key =>
-        ["ShiftLeft", "ShiftRight"].includes(key.code) && key.windowsVirtualKeyCode === 16);
-      if (!onlyShift || record.buttons.size) throw fail("release held input before inserting text");
+      // shifted character or locally captured paste); it does not synthesize
+      // a shortcut or release a physical key. Keep verified modifier holds
+      // through the commit and their later original ACKed up.
+      const onlyModifiers = [...record.keys.values()].every(key =>
+        textModifierKeys[key.code] === key.windowsVirtualKeyCode);
+      if (!onlyModifiers || record.buttons.size) throw fail("release held input before inserting text");
       return ["Input.insertText", { text: input.text }, () => {}];
     }
     throw fail("unsupported input type");

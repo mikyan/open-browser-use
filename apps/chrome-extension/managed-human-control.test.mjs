@@ -898,6 +898,53 @@ test("committed text permits only actual Shift holds without releasing or replay
   }
 });
 
+test("verified Control and Meta holds permit ordered direct text without synthesizing release", async () => {
+  const control = code => ({ key: "Control", code, windowsVirtualKeyCode: 17 });
+  const meta = (code, windowsVirtualKeyCode) => ({ key: "Meta", code, windowsVirtualKeyCode });
+  const shift = { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
+  for (const keys of [[control("ControlLeft")], [control("ControlRight")], [meta("MetaLeft", 91)], [meta("MetaRight", 92)],
+    [control("ControlLeft"), shift], [meta("MetaLeft", 91), shift]]) {
+    const f = fixture(), handle = await f.begin();
+    try {
+      for (const key of keys) await input(handle, { type: "key", action: "down", ...key });
+      const held = [...f.control.current.epoch.keys.entries()];
+      for (const text of ["原始文本🙂\n", "连续第二次\t"]) {
+        const original = handle.info(), receipt = await input(handle, { type: "text", text });
+        assert.deepEqual(receipt, { leaseId: original.leaseId, generation: original.generation, sequence: original.lastInputSequence + 1, acknowledged: true });
+        assert.deepEqual([...f.control.current.epoch.keys.entries()], held);
+        for (const [code, key] of held) assert.equal(f.control.current.epoch.keys.get(code), key);
+      }
+      assert.deepEqual(f.calls.filter(([method]) => method === "Input.insertText").map(([, , params]) => params), [{ text: "原始文本🙂\n" }, { text: "连续第二次\t" }]);
+      assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp").length, 0);
+      for (const key of [...keys].reverse()) await input(handle, { type: "key", action: "up", ...key });
+      assert.equal(f.control.current.epoch.keys.size, 0);
+      assert.deepEqual(f.calls.filter(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp").map(([, , params]) => params.code), [...keys].reverse().map(key => key.code));
+    } finally { await handle.close(); }
+    assert.equal(f.risks.size, 0);
+  }
+});
+
+test("closing Control-held text joins the original insertion and exact release before detach", async () => {
+  const inserted = defer(), released = defer(), releaseEntered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (method === "Input.insertText") return inserted.promise;
+    if (method === "Input.dispatchKeyEvent" && params.type === "keyUp") { releaseEntered.resolve(); return released.promise; }
+  } });
+  const handle = await f.begin();
+  await input(handle, { type: "key", action: "down", key: "Control", code: "ControlRight", windowsVirtualKeyCode: 17, modifiers: 2 });
+  const pending = input(handle, { type: "text", text: "original known text" }); pending.catch(() => {}); await tick();
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
+  let closed = false; const closing = handle.close().then(() => { closed = true; });
+  await handle.closed; await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.some(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp"), false);
+  inserted.resolve(); assert.equal((await pending).acknowledged, true); await releaseEntered.promise;
+  assert.equal(closed, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  released.resolve(); await closing;
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
+  assert.deepEqual(f.calls.filter(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp").map(([, , params]) => [params.code, params.windowsVirtualKeyCode]), [["ControlRight", 17]]);
+  assert.equal(f.risks.size, 0); f.control.assertReleased();
+});
+
 test("closing shifted committed text joins its real insertion and Shift release before detach", async () => {
   const inserted = defer(), released = defer(), releaseEntered = defer();
   const f = fixture({ command: (method, params) => {
@@ -919,12 +966,15 @@ test("closing shifted committed text joins its real insertion and Shift release 
   assert.equal(f.risks.size, 0); f.control.assertReleased();
 });
 
-test("text still rejects other held keys, false Shift identities, and held mouse buttons", async () => {
+test("text still rejects other held keys, false modifier identities, and held mouse buttons", async () => {
   const keys = [
-    { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17 },
     { key: "Alt", code: "AltRight", windowsVirtualKeyCode: 18 },
-    { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91 },
     { key: "A", code: "KeyA", windowsVirtualKeyCode: 65 },
+    { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 16 },
+    { key: "Control", code: "ControlRight", windowsVirtualKeyCode: 18 },
+    { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 92 },
+    { key: "Meta", code: "MetaRight", windowsVirtualKeyCode: 91 },
+    { key: "Control", code: "KeyA", windowsVirtualKeyCode: 17 },
     { key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 17 },
     { key: "Shift", code: "ShiftRight", windowsVirtualKeyCode: 17 },
     { key: "Shift", code: "KeyA", windowsVirtualKeyCode: 16 }

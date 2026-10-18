@@ -865,6 +865,119 @@ test("plain text, committed composition and shortcut key transitions have distin
   assert.equal(h.socket.sent.filter(command => command.input?.type === "text").length, 2);
 });
 
+test("local paste shortcuts preserve the browser default without forwarding a paste key", () => {
+  for (const shortcut of [
+    { key: "v", code: "KeyV", keyCode: 86, ctrlKey: true, shiftKey: false },
+    { key: "V", code: "KeyV", keyCode: 86, ctrlKey: true, shiftKey: true },
+    { key: "v", code: "KeyV", keyCode: 86, metaKey: true, shiftKey: false },
+    { key: "v", code: "Period", keyCode: 86, ctrlKey: true, shiftKey: false },
+    { key: "Insert", code: "Insert", keyCode: 45, shiftKey: true },
+  ]) {
+    const h = setup(); h.readyHuman(); const count = h.socket.sent.length;
+    const down = h.event("human-input", "keydown", key(shortcut));
+    assert.equal(down.prevented, undefined, "browser must be able to dispatch its original paste");
+    h.event("human-input", "keyup", key({ ...shortcut, ctrlKey: false, metaKey: false, shiftKey: false }));
+    assert.equal(h.socket.sent.length, count, "paste shortcut must not access the remote clipboard");
+  }
+});
+
+test("local paste reads plain text once and cannot duplicate it through beforeinput", () => {
+  const h = setup(); h.readyHuman(); const reads = [], text = "本地粘贴 🙂\n第二行\t終わり";
+  const event = h.event("human-input", "paste", { clipboardData: { getData(type) { reads.push(type); return type === "text/plain" ? text : "<b>wrong</b>"; } } });
+  assert.equal(event.prevented, true);
+  const sent = h.socket.sent.at(-1); assert.deepEqual(sent.input, { type: "text", text });
+  assert.deepEqual(reads, ["text/plain"]);
+  h.event("human-input", "beforeinput", { inputType: "insertFromPaste", data: text });
+  h.ackInput(sent);
+  assert.equal(h.socket.sent.filter(row => row.input?.type === "text").length, 1);
+  assert.equal(h.element("human-input").value, "");
+});
+
+test("local paste does not inspect clipboard data after End or during composition", () => {
+  for (const cause of ["End", "composition"]) {
+    const h = setup(); h.readyHuman();
+    if (cause === "End") h.element("human-end").click(); else h.event("human-input", "compositionstart");
+    const count = h.socket.sent.length;
+    const event = h.event("human-input", "paste", { clipboardData: { getData() { throw new Error("unavailable paste data must not be read"); } } });
+    assert.equal(event.prevented, true);
+    assert.equal(h.socket.sent.length, count);
+  }
+});
+
+test("local paste keeps repeated text and real modifier transitions in original receipt order", () => {
+  for (const held of [
+    { key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true, shiftKey: false },
+    { key: "Meta", code: "MetaLeft", keyCode: 91, metaKey: true, shiftKey: false },
+    { key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true },
+  ]) {
+    const h = setup(); h.readyHuman(); h.event("human-input", "keydown", key(held));
+    const down = h.socket.sent.at(-1);
+    for (const text of ["第一次\n🙂", "第二次\t終わり"]) h.event("human-input", "paste", { clipboardData: { getData: () => text } });
+    h.event("human-input", "keyup", key({ ...held, ctrlKey: false, metaKey: false, shiftKey: false }));
+    assert.equal(h.socket.sent.at(-1), down);
+    h.ackInput(down); const first = h.socket.sent.at(-1);
+    assert.deepEqual(first.input, { type: "text", text: "第一次\n🙂" });
+    h.ackInput(first); const second = h.socket.sent.at(-1);
+    assert.deepEqual(second.input, { type: "text", text: "第二次\t終わり" });
+    h.ackInput(second); const up = h.socket.sent.at(-1);
+    assert.equal(up.input.code, held.code); assert.equal(up.input.action, "up");
+    h.ackInput(up);
+    const commands = h.socket.sent.filter(row => row.operation === "humanInput");
+    assert.deepEqual(commands.map(row => row.sequence), [1, 2, 3, 4]);
+    assert.ok(commands.every(row => row.leaseId === down.leaseId && row.generation === down.generation));
+    assert.equal(h.element("human-input").dataset.pending, "0");
+  }
+});
+
+test("local paste preserves an older remote key release and honors virtual-key layout", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "keydown", key({ key: ".", code: "KeyV", keyCode: 190, ctrlKey: true, shiftKey: false }));
+  const down = h.socket.sent.at(-1); assert.equal(down.input.windowsVirtualKeyCode, 190);
+  h.event("human-input", "keyup", key({ key: ".", code: "KeyV", keyCode: 190, ctrlKey: true, shiftKey: false }));
+  h.ackInput(down);
+  const up = h.socket.sent.at(-1); assert.equal(up.input.action, "up");
+  assert.equal(up.input.windowsVirtualKeyCode, 190); h.ackInput(up);
+  h.event("human-input", "keydown", key({ key: "v", code: "KeyV", keyCode: 86, ctrlKey: true, altKey: true, shiftKey: false }));
+  const older = h.socket.sent.at(-1); assert.equal(older.input.action, "down");
+  const release = h.event("human-input", "keyup", key({ key: "v", code: "KeyV", keyCode: 86, ctrlKey: true, altKey: false, shiftKey: false }));
+  assert.equal(release.prevented, true); h.ackInput(older);
+  assert.equal(h.socket.sent.at(-1).input.action, "up");
+  assert.equal(h.socket.sent.at(-1).input.windowsVirtualKeyCode, 86);
+});
+
+test("local paste modifiers retain their original release during composition", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "keydown", key({ key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true, shiftKey: false }));
+  const down = h.socket.sent.at(-1); h.ackInput(down);
+  h.event("human-input", "compositionstart");
+  const release = h.event("human-input", "keyup", key({ key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: false, shiftKey: false, isComposing: true }));
+  assert.equal(release.prevented, true);
+  const up = h.socket.sent.at(-1); assert.equal(up.input.action, "up");
+  assert.equal(up.input.code, "ControlLeft"); h.ackInput(up);
+  h.event("human-input", "keydown", key({ key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true, isComposing: true }));
+  assert.equal(h.socket.sent.at(-1), up, "composition cannot admit a new key hold");
+});
+
+test("local paste rejects malformed text without reading rich data or sending replacements", () => {
+  for (const text of ["\ud800", "bad\u0000value", "bad\u000bvalue"]) {
+    const h = setup(); h.readyHuman(); const count = h.socket.sent.length, reads = [];
+    h.event("human-input", "paste", { clipboardData: { getData(type) { reads.push(type); return text; } } });
+    assert.equal(h.socket.sent.length, count); assert.deepEqual(reads, ["text/plain"]);
+    assert.match(h.element("error").textContent, /未发送/);
+  }
+});
+
+test("local paste queued before End cannot be sent by a late original key acknowledgment", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "keydown", key({ key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true, shiftKey: false }));
+  const down = h.socket.sent.at(-1);
+  h.event("human-input", "paste", { clipboardData: { getData: () => "must not outlive original human" } });
+  h.element("human-end").click(); const end = h.socket.sent.at(-1);
+  h.ackInput(down);
+  assert.equal(h.socket.sent.at(-1), end);
+  assert.equal(h.socket.sent.some(row => row.input?.type === "text"), false);
+});
+
 test("held Shift, committed uppercase and Shift release keep exact receipt order", () => {
   const h = setup(); h.readyHuman();
   h.event("human-input", "keydown", key());
