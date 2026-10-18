@@ -1,0 +1,33 @@
+packages/open-browser-use-go/page_wait_composition_test.go
+  s_08bbfd293d324f::t_27441487ecf76b 1-188
+skills/open-browser-use/references/managed-session.md
+  s_08bbfd293d324f::t_21d96ee89bc0fc 1-11,17-36,39-242,246-260
+  s_08bbfd293d324f::t_b48f4db01eff8d 12-16,37-38,243-245
+docs/references/created-page-waits.md
+  s_08bbfd293d324f::t_5a22b7831e5c27 863-873
+docs/histories/2026-10/20261018-1100-created-page-go-scope.md
+  s_08bbfd293d324f::t_5a22b7831e5c27 1-29
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_967b662888c845 14-19
+packages/open-browser-use-go/client.go
+  s_08bbfd293d324f::t_22052bc8e99852 581-585
+  s_08bbfd293d324f::t_66e78ea6b96dfd 586
+skills/open-browser-use/SKILL.md
+  s_08bbfd293d324f::t_21d96ee89bc0fc 3,14-15,26,31,38,45-47,113-116,152-154,159,194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "5d42f7a89035fd80235f3283eea48d82fb872e18",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
