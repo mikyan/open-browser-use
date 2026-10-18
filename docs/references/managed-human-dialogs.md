@@ -7,6 +7,8 @@
 
 当前源码另通过稳定跨站 OOPIF prompt 和完成接管后的提示清理验收。查看器
 仍通过原生弹窗的 typed 回答通道处理网页消息，不继续 Agent、不重放点击。
+最新重打包 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc) 的产品功能与e3fee2a相同；未验收的首帧/导航准备期改动未纳入。
+
 上述续轮已按用户要求发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束提示修复；旧6a3bee5不包含。
 
 ## 使用与限制

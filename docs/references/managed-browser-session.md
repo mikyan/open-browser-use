@@ -8,7 +8,10 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束接管提示修复。
+最新完整包为 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc)，从5e830dc重建，产品功能与e3fee2a相同。
+本轮未验收的首帧/导航弹窗改动未入包；407份生产输入、76份扩展及离线CLI/MCP、独立包审计和四资产回下载通过。
+
+历史完整包为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束接管提示修复。
 407份源码及76个扩展文件与实测构建绑定，离线CLI/MCP、独立包审计和四资产回下载通过；发布EXE单独重建。
 
 历史完整包为 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)，

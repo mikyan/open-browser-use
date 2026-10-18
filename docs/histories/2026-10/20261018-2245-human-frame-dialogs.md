@@ -1,6 +1,14 @@
 # 子页面的人工弹窗
 
-最新交付已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，源提交 `e3fee2a35cb4b4d0e52b3c84e95314c867c7b33b`。
+用户再次要求新包，已从干净提交 `5e830dc8d8c5da466cb6c48c15358008cfe74568` 发布 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc)。
+产品功能与上一包e3fee2a相同；其后提交只有文档及诊断，本轮首帧/导航弹窗开发仍未验收，全部未提交改动留在工作区、未入包。
+407份生产输入匹配已测快照和Git对象，76份扩展文件匹配已测制品；完整包/扩展/Skill为103/76/7文件。
+发布EXE单独重建，离线CLI/MCP30工具、8434项独立包检查、四资产回下载和107本地文件副本核对通过。
+未为重打包重跑网页业务；普通公司Edge和完整能力对齐仍开放。
+
+完整包SHA256：`fa7b5076e1549940963bd2d24328bb861d5ce9a6605d01eb8bd70872a81a651e`。未提PR。
+
+此前交付已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，源提交 `e3fee2a35cb4b4d0e52b3c84e95314c867c7b33b`。
 完整包/扩展/Skill为103/76/7文件，407份源码输入匹配冻结实测快照及Git对象，76个未加key扩展文件字节相同。
 发布EXE单独重建，离线CLI/MCP30工具、8417项独立包审计、四资产回下载及107本地文件副本核对通过。
 完整包SHA256：`ab4e6107ec9b7f69e602fba0f499ac2adce00d3b3805aee9d56b4677da84dbe1`。未为打包重跑网页业务，未提PR。
