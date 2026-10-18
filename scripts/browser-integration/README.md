@@ -188,6 +188,16 @@ Build the current CLI, extension and JavaScript SDK, then set the same three
 absolute `OBU_TEST_*` paths below and run
 `node scripts/browser-integration/managed-human-check.mjs`.
 
+Set `OBU_TEST_HUMAN_SCENARIO=ime` and an exact source/artifact
+`OBU_TEST_BUILD_MANIFEST` to exercise native viewer composition: candidate
+updates, two identical confirmations, cancellation, held-Shift End and one
+original POST. This uses `Input.imeSetComposition` only on the isolated viewer;
+it is not Windows OS input-method or candidate-window acceptance. Original
+CDP ACKs, native event flags, complete lease text ledger and cleanup remain
+separate evidence. See [IME acceptance](../../docs/references/managed-human-ime.md).
+Published manifests may differ only by the exact beta public key declared in
+the current CLI source; all other fields and production files must match.
+
 Six stages use the actual managed supervisor, task SDK and production viewer
 inside a separate headless test browser. A nonbusiness page exercises explicit
 Begin/End. One original form then retains the Agent's unsubmitted draft while

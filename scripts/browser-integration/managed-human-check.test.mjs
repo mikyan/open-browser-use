@@ -2,9 +2,23 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import fs from "node:fs/promises";
-import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint } from "./managed-human-check.mjs";
+import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint, assertManagedExtensionManifest } from "./managed-human-check.mjs";
 import { humanPasteText } from "./managed-human-check-fixture.mjs";
 import vm from "node:vm";
+
+test("published extension accepts only the exact declared public-key addition", () => {
+  const source = Buffer.from(JSON.stringify({ manifest_version: 3, name: "fixture", permissions: ["debugger"] }));
+  const declaration = 'const betaExtensionPublicKey = "YWJjZA=="\n';
+  assert.equal(assertManagedExtensionManifest(source, source, "").mode, "exact-source-bytes");
+  const published = Buffer.from(JSON.stringify({ ...JSON.parse(source), key: "YWJjZA==" }));
+  const result = assertManagedExtensionManifest(published, source, declaration);
+  assert.equal(result.mode, "source-manifest-plus-declared-beta-key"); assert.notEqual(result.actualSHA256, result.sourceSHA256);
+  for (const changed of [{ ...JSON.parse(published), name: "changed" }, { ...JSON.parse(published), key: "wrong" }, { ...JSON.parse(published), extra: true }, { ...JSON.parse(source) }]) {
+    assert.throws(() => assertManagedExtensionManifest(Buffer.from(JSON.stringify(changed, null, 2)), source, declaration));
+  }
+  assert.throws(() => assertManagedExtensionManifest(published, source, ""));
+  assert.throws(() => assertManagedExtensionManifest(published, source, declaration.repeat(2)));
+});
 
 function pasteProof() {
   const leaseId = "original", generation = 2, connection = 1, raw = humanPasteText.replaceAll("\n", "\r\n");

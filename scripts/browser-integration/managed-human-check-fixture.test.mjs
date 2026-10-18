@@ -3,6 +3,26 @@ import { createServer } from "node:http";
 import test from "node:test";
 import { createManagedHumanFixture, assertManagedHumanReceipt, humanPasteText } from "./managed-human-check-fixture.mjs";
 import vm from "node:vm";
+import { humanIMEText } from "./managed-human-ime.mjs";
+
+test("IME fixture requires both identical commits and one original POST", async () => {
+  const fixture = createManagedHumanFixture({ scenario: "ime" }); assert.equal(fixture.expectedDraft, fixture.draft + humanIMEText.repeat(2));
+  const server = createServer((request, response) => { if (!fixture.handle(request, response)) response.writeHead(404).end(); });
+  await listenFixture(server); const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const html = await (await fetch(origin + "/human-form")).text(); assert.match(html, /<input name="draft"/); assert.match(html, /compositionstart/);
+    assert.doesNotThrow(() => new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]));
+    const token = fixture.stats().requests[0].documentToken;
+    const fields = { workflowId: fixture.workflowId, documentToken: token, draft: fixture.expectedDraft, humanClicks: "1", humanTrusted: "true", submitCount: "1", heldKeys: "0", heldButtons: "0", maximumScrollY: "500" };
+    for (const count of [1, 3]) {
+      const response = await fetch(origin + "/human-receipt", { method: "POST", body: new URLSearchParams({ ...fields, draft: fixture.draft + humanIMEText.repeat(count) }) });
+      assert.equal(response.status, 400); await response.text(); assert.equal(fixture.stats().committed, false);
+    }
+    const body = new URLSearchParams(fields), response = await fetch(origin + "/human-receipt", { method: "POST", body });
+    assert.equal(response.status, 200); assert.equal((await response.json()).documentToken, token);
+    assert.equal((await fetch(origin + "/human-receipt", { method: "POST", body })).status, 409);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
 
 test("local-paste fixture preserves multiline value and the original one-shot POST", async () => {
   const fixture = createManagedHumanFixture({ scenario: "local-paste" });

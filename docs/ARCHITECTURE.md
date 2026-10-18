@@ -204,6 +204,9 @@ debugger、history 和 tab groups。
   视口几何、页面归属或网站权限变化仍终止租约。CDP 不提供 documentId
   条件输入，不能撤回已提交动作或保证跨导航原子输入。发布包 d0605b1 已包含
   连续导航和结果页接续；完整 IME、真实网站 SSO/MFA 与跨平台尚未验收。
+  本地 composition 候选只存在查看器，确认后经原输入队列提交文字；固定
+  发布包的原生浏览器组合输入、重复确认和取消已验证，系统输入法及候选窗口
+  仍待验证，见[组合输入验收](references/managed-human-ime.md)。
   `managed-result-pages.js` 仅在正式 finalize 清理及最终校验后
   发布原结果记录；展示 marker 与分组名不授予权限。用户列表按 task/result
   分开，结果选择固定 deliveryId，重新取得任务控制会撤旧用户记录并等待原

@@ -8,10 +8,12 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新已发布完整包为 [preview-20261019-119179c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-119179c)，新增本地纯文字粘贴，
-保留原生弹窗来源标签及既有接管能力。437份源输入、77份扩展与已测构建绑定，
-2888项Node、Go test/vet及六步固定内存剪贴板流程通过；离线CLI/MCP、独立
-制品核对及四资产回下载通过。普通系统剪贴板、公司Edge及完整对齐仍未完成。
+最新已发布完整包为 [preview-20261019-d07ae52](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-d07ae52)，
+是119179c的同功能重打包，保留本地纯文字粘贴、原生弹窗来源和既有接管能力。
+437份源输入与原测试相同；构建、离线CLI/MCP、独立制品核对及四资产回下载
+通过，未重新运行原Go/2888项Node检查。该发布EXE和扩展随后完成六步浏览器
+组合输入流程，见[组合输入验收](managed-human-ime.md)。原六步固定内存剪贴板
+流程仍是此前证据。普通系统剪贴板、真实输入法、公司Edge及完整对齐仍未完成。
 弹窗的既有验证范围见[人工网页弹窗](managed-human-dialogs.md)。
 
 历史完整包为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束接管提示修复。

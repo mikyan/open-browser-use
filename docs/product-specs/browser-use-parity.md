@@ -12,6 +12,12 @@
 
 ## Baseline sources
 
+2026-10-19，已发布d07ae52的实际EXE和77份扩展完成`mhi-66idOk`六步组合
+输入流程：候选不外发、两次相同确认各提交一次、取消不提交、原回执、持键
+End、唯一POST及Stop通过。本轮只新增验收设施，437份产品输入不变，原
+Go/2888项Node结果仅复用；浏览器CDP组合输入不代替Windows实际输入法。
+独立原记录核验与范围见[组合输入验收](../references/managed-human-ime.md)。
+
 本轮本地纯文字粘贴通过2888项Node、Go test/vet、16项验收脚手架检查及
 `mhp-hAL2oX`六步真实接管流程。可信Ctrl+V只产生一次原文本请求和匹配回执，
 原多行草稿、持键End、唯一POST和正常Stop均通过；仅固定Headless内存

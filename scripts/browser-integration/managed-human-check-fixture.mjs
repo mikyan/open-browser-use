@@ -1,6 +1,7 @@
 // One synthetic same-document handoff. Only the final Agent action may POST.
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { humanIMEText } from "./managed-human-ime.mjs";
 
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 export const humanASCII = " human-ASCII";
@@ -8,8 +9,8 @@ export const humanUnicode = " 人工接管π";
 export const humanPasteText = " 人工粘贴😀 e\u0301\n第二行 π\nthird line";
 
 export function createManagedHumanFixture({ scenario = "handoff" } = {}) {
-  assert.ok(["handoff", "local-paste"].includes(scenario));
-  const paste = scenario === "local-paste", suffix = paste ? humanPasteText : humanASCII + humanUnicode;
+  assert.ok(["handoff", "local-paste", "ime"].includes(scenario));
+  const paste = scenario === "local-paste", ime = scenario === "ime", suffix = paste ? humanPasteText : ime ? humanIMEText.repeat(2) : humanASCII + humanUnicode;
   const workflowId = randomUUID(), draft = `unsubmitted-${randomUUID()}`;
   const requests = [], documents = new Set();
   let committed = false, overflow = false;
@@ -45,8 +46,8 @@ export function createManagedHumanFixture({ scenario = "handoff" } = {}) {
 <script>
 const state={workflowId:${JSON.stringify(workflowId)},documentToken:${JSON.stringify(documentToken)},events:[],eventOverflow:false,clicks:[],submits:0,scrollY:0,maximumScrollY:0,heldKeys:[],heldButtons:[]};
 const render=()=>{state.scrollY=scrollY;state.maximumScrollY=Math.max(state.maximumScrollY,scrollY);document.querySelector('#state').textContent=JSON.stringify(state)};
-const record=e=>{if(state.events.length>=256){state.eventOverflow=true;return}const item={type:e.type,target:e.target?.id??'',trusted:e.isTrusted};if(e.type.startsWith('key')){item.key=e.key;item.code=e.code;item.repeat=e.repeat;if(e.type==='keydown'){if(!state.heldKeys.includes(e.code))state.heldKeys.push(e.code)}else state.heldKeys=state.heldKeys.filter(k=>k!==e.code)}if(e.type.startsWith('pointer')||e.type.startsWith('mouse')){item.button=e.button;item.buttons=e.buttons;item.x=e.clientX;item.y=e.clientY;if(e.type==='mousedown'&&!state.heldButtons.includes(e.button))state.heldButtons.push(e.button);if(e.type==='mouseup')state.heldButtons=state.heldButtons.filter(b=>b!==e.button)}if(e.type==='input'||e.type==='beforeinput'){item.inputType=e.inputType;item.data=e.data}if(e.type==='wheel'){item.deltaX=e.deltaX;item.deltaY=e.deltaY}state.events.push(item);render()};
-for(const name of ['keydown','keyup','pointerdown','pointerup','mousedown','mouseup','input','wheel',...${JSON.stringify(paste ? ["beforeinput", "paste", "copy", "cut"] : [])}])document.addEventListener(name,record,{capture:true,passive:true});
+const record=e=>{if(state.events.length>=256){state.eventOverflow=true;return}const item={type:e.type,target:e.target?.id??'',trusted:e.isTrusted};if(e.type.startsWith('key')){item.key=e.key;item.code=e.code;item.repeat=e.repeat;if(e.type==='keydown'){if(!state.heldKeys.includes(e.code))state.heldKeys.push(e.code)}else state.heldKeys=state.heldKeys.filter(k=>k!==e.code)}if(e.type.startsWith('pointer')||e.type.startsWith('mouse')){item.button=e.button;item.buttons=e.buttons;item.x=e.clientX;item.y=e.clientY;if(e.type==='mousedown'&&!state.heldButtons.includes(e.button))state.heldButtons.push(e.button);if(e.type==='mouseup')state.heldButtons=state.heldButtons.filter(b=>b!==e.button)}if(e.type==='input'||e.type==='beforeinput'){item.inputType=e.inputType;item.data=e.data}if(e.type.startsWith('composition'))item.data=e.data;if(e.type==='wheel'){item.deltaX=e.deltaX;item.deltaY=e.deltaY}state.events.push(item);render()};
+for(const name of ['keydown','keyup','pointerdown','pointerup','mousedown','mouseup','input','wheel',...${JSON.stringify(paste ? ["beforeinput", "paste", "copy", "cut"] : ime ? ["beforeinput", "compositionstart", "compositionupdate", "compositionend", "paste", "copy", "cut"] : [])}])document.addEventListener(name,record,{capture:true,passive:true});
 addEventListener('scroll',render,{passive:true});
 document.querySelector('#human-button').addEventListener('click',e=>{state.clicks.push({trusted:e.isTrusted,sequence:state.clicks.length+1});render()});
 document.querySelector('#form').addEventListener('submit',async e=>{e.preventDefault();state.submits++;render();const body=new URLSearchParams({workflowId:state.workflowId,documentToken:state.documentToken,draft:document.querySelector('#draft').value,humanClicks:String(state.clicks.length),humanTrusted:String(state.clicks.every(item=>item.trusted)),submitCount:String(state.submits),heldKeys:String(state.heldKeys.length),heldButtons:String(state.heldButtons.length),maximumScrollY:String(state.maximumScrollY)});const response=await fetch('/human-receipt',{method:'POST',body});document.querySelector('#result').textContent=await response.text()});render();
