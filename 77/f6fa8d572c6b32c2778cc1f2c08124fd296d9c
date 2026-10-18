@@ -1,0 +1,62 @@
+docs/references/managed-human-dialogs.md
+  s_08bbfd293d324f::t_d5bcbb7296e864 100-110,178
+  s_08bbfd293d324f::t_a19fdfd48abfcf 14,23-26,42,45,141-158,160-168,177
+  s_08bbfd293d324f::t_f1a0f8bbe7be2d 10,159,179
+  s_08bbfd293d324f::t_25868607516768 169-176
+apps/chrome-extension/managed-human-document-events.js
+  s_08bbfd293d324f::t_bda13d4a439a43 24,29,95,99,109,122,167,173-207
+  s_08bbfd293d324f::t_74eaa7d2dd7fdf 168-172
+apps/chrome-extension/managed-result-pages-journal.test.mjs
+  s_08bbfd293d324f::t_e9f458a1df271e 76-216
+  s_08bbfd293d324f::t_4ee17f26775828 1-75
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_b4be2ca664a03f 105,192,342-353
+scripts/browser-integration/managed-human-readiness-dialog-check.mjs
+  s_08bbfd293d324f::t_8436e13b9d1cd2 164,171-172,423
+  s_08bbfd293d324f::t_63c01244325a04 173-187,189,191-192,196-203,206,215-223,225,518
+  s_08bbfd293d324f::t_0cc45f7492aee4 165-170
+apps/chrome-extension/managed-human-document-graph.js
+  s_08bbfd293d324f::t_bda13d4a439a43 44,260-294
+apps/chrome-extension/managed-result-pages.js
+  s_08bbfd293d324f::t_dd1886b37012e9 3,12,63-102,158-159
+docs/histories/2026-10/20261018-2245-human-frame-dialogs.md
+  s_08bbfd293d324f::t_a19fdfd48abfcf 3-23,30-32
+  s_08bbfd293d324f::t_25868607516768 24-29
+scripts/browser-integration/managed-human-readiness-dialog-check.test.mjs
+  s_08bbfd293d324f::t_184a5039bbf706 6,8-9,203-209
+  s_08bbfd293d324f::t_13cdbd68892a34 210-224
+  s_08bbfd293d324f::t_ad4145dfb4b7e2 3,5,7,145-202
+apps/chrome-extension/managed-human-document-graph.test.mjs
+  s_08bbfd293d324f::t_cc5fbbbaba9830 363-385
+  s_08bbfd293d324f::t_53ef062c8f30a0 397-408
+  s_08bbfd293d324f::t_d83285c0cee7b7 304-362,386-396
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_a19fdfd48abfcf 176-182
+  s_08bbfd293d324f::t_d5bcbb7296e864 170-172,200-202
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_a19fdfd48abfcf 14-21
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_f7a7d313882233 337
+  s_08bbfd293d324f::t_3e954cc4498358 346-374
+  s_08bbfd293d324f::t_cf199688e803cf 320-336,338-345
+docs/exec-plans/active/2026-10-18-human-frame-dialogs.md
+  s_08bbfd293d324f::t_25868607516768 57-66
+  s_08bbfd293d324f::t_a19fdfd48abfcf 7-9,32-55
+  s_08bbfd293d324f::t_0b30c97f5dd996 14-31,56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "77f6fa8d572c6b32c2778cc1f2c08124fd296d9c",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
