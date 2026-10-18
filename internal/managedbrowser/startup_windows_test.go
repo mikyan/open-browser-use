@@ -4,6 +4,7 @@ package managedbrowser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ifuryst/open-browser-use/internal/host"
 	"golang.org/x/sys/windows"
 )
 
@@ -129,7 +131,7 @@ func TestPrivateBrowserPublicationRejectsNonPublicationErrors(t *testing.T) {
 }
 
 func TestEndpointCleanupRetainsUnconfirmedOriginalIdentity(t *testing.T) {
-	for _, identity := range []string{"unconfirmed", "foreign", "matching"} {
+	for _, identity := range []string{"unconfirmed", "pid-only", "foreign", "changed-start", "matching"} {
 		t.Run(identity, func(t *testing.T) {
 			dir := t.TempDir()
 			data := []byte(`{"socketPath":"\\\\.\\pipe\\original-private-host","pid":123,"startedAt":"2026-10-17T01:00:00Z"}`)
@@ -144,6 +146,17 @@ func TestEndpointCleanupRetainsUnconfirmedOriginalIdentity(t *testing.T) {
 			if identity == "foreign" {
 				s.info.NativePID++
 			}
+			if identity != "unconfirmed" && identity != "pid-only" {
+				var descriptor host.ActiveSocketRecord
+				if err := json.Unmarshal(data, &descriptor); err != nil {
+					t.Fatal(err)
+				}
+				descriptor.PID = s.info.NativePID
+				if identity == "changed-start" {
+					descriptor.StartedAt = descriptor.StartedAt.Add(time.Second)
+				}
+				s.nativeConnections = []*nativeConnection{{record: nativeConnectionRecord{Descriptor: descriptor}}}
+			}
 			err := s.cleanEndpointRecords()
 			if identity == "matching" {
 				if err != nil {
@@ -154,7 +167,7 @@ func TestEndpointCleanupRetainsUnconfirmedOriginalIdentity(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || identity == "unconfirmed" && !strings.Contains(err.Error(), "cannot confirm the original endpoint identity") || identity == "foreign" && !strings.Contains(err.Error(), "foreign endpoint") {
+			if err == nil || (identity == "unconfirmed" || identity == "pid-only") && !strings.Contains(err.Error(), "cannot confirm the original endpoint identity") || (identity == "foreign" || identity == "changed-start") && !strings.Contains(err.Error(), "foreign endpoint") {
 				t.Fatalf("incorrect cleanup diagnosis: %v", err)
 			}
 			if actual, readErr := os.ReadFile(path); readErr != nil || string(actual) != string(data) {

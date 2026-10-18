@@ -1099,3 +1099,52 @@ test("replacement delivery at the same tab retires the old selection and rejects
   assert.equal(result.status.view, null); assert.equal(result.status.selectedTabId, null);
   assert.equal(f.views[0].info.state, "released"); await assert.rejects(f.view(), /TAB/);
 });
+
+
+test("trusted replacement open forwards only the frozen recovery contract and returns its actual private receipt", async t => {
+  const f = fixture(t), recoveryState = { version: 1, browserIncarnation: "browser-A", journalId: "journal-A", workerEpoch: 2 };
+  const recovery = { kind: "worker-replacement", previousWorkerBootId: "old-worker", browserIncarnation: "browser-A",
+    expectedJournalId: "journal-A", expectedWorkerEpoch: 1, nonce: "original-recovery" };
+  const workerRecovery = { kind: recovery.kind, nonce: recovery.nonce, previousWorkerBootId: recovery.previousWorkerBootId,
+    workerBootId: "worker", browserIncarnation: "browser-A", journalId: "journal-A", fromWorkerEpoch: 1, toWorkerEpoch: 2,
+    inputRiskClear: true, paused: true, retiredViews: [{ leaseId: "original-view", targetId: "original-target",
+      outcome: "stopped-and-detached", stopAcknowledged: true, detachAcknowledged: true }] };
+  const admission = { recoveryState, workerRecovery };
+  f.backend.prepareManagedUserOpen = async (request, check) => {
+    assert.deepEqual(request, { workerBootId: "worker", recovery }); assert.equal(Object.isFrozen(request.recovery), true);
+    check(); f.state.state = "paused"; f.state.cleanupComplete = true; return admission;
+  };
+  f.backend.commitManagedUserOpen = token => { assert.equal(token, admission); f.openCommitted = true; };
+  const opened = await f.open({ recovery });
+  assert.deepEqual(opened.recoveryState, recoveryState); assert.deepEqual(opened.workerRecovery, workerRecovery);
+  assert.equal(f.openCommitted, true); assert.equal(opened.status.automation.state, "paused");
+  assert.equal(f.calls.some(([operation]) => operation === "resume"), false);
+});
+
+test("worker replacement schema rejects extra capabilities, same boot, invalid epoch and getters before backend admission", async t => {
+  const recovery = { kind: "worker-replacement", previousWorkerBootId: "old-worker", browserIncarnation: "browser-A",
+    expectedJournalId: "journal-A", expectedWorkerEpoch: 1, nonce: "recovery" };
+  for (const invalid of [{ ...recovery, inputRiskClear: true }, { ...recovery, previousWorkerBootId: "worker" },
+    { ...recovery, expectedWorkerEpoch: 0 }, { ...recovery, expectedWorkerEpoch: Number.MAX_SAFE_INTEGER + 1 },
+    Object.defineProperty({ ...recovery }, "nonce", { get() { throw Error("getter invoked"); } })]) {
+    const f = fixture(t); let entered = false;
+    f.backend.prepareManagedUserOpen = async () => { entered = true; };
+    await assert.rejects(f.open({ recovery: invalid }), /PROTOCOL|IDENTITY/);
+    assert.equal(entered, false);
+  }
+});
+
+test("replacement open cannot commit after original native proof changed or after unknown input rejection", async t => {
+  for (const kind of ["proof", "risk", "deadline"]) await t.test(kind, async t => {
+    const f = fixture(t); let committed = false;
+    f.backend.prepareManagedUserOpen = async (_request, check) => {
+      if (kind === "risk") throw Error("OBU_INPUT_RELEASE_UNCONFIRMED: original held input unknown");
+      if (kind === "proof") f.target.__obuNativeDownloadBinding = { ...f.target.__obuNativeDownloadBinding, portId: "other" };
+      else f.advance(10001);
+      check(); throw Error("unreachable admission");
+    };
+    f.backend.commitManagedUserOpen = () => { committed = true; };
+    await assert.rejects(f.open(), /IDENTITY|CLOSED|INPUT_RELEASE_UNCONFIRMED/);
+    assert.equal(committed, false); assert.equal(f.calls.some(([operation]) => operation === "resume"), false);
+  });
+});

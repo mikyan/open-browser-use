@@ -66,7 +66,7 @@ func (r *managedRuntime) statusLocked() managedMessage {
 	response := managedMessage{State: state, RunID: info.RunID, Info: &info, NativeEpoch: status.Epoch}
 	if state != "ready" {
 		info.SocketPath = ""
-		response.NextStep = "The task connection is unavailable. Use managed recover for an original-worker Native disconnect, or managed stop. Recovery does not replay actions or resume the Agent."
+		response.NextStep = "The task connection is unavailable. Use managed recover to verify and reconnect the original session, or managed stop. Unknown input or unconfirmed cleanup prevents recovery. Recovery does not replay actions or resume the Agent."
 	}
 	return response
 }
@@ -105,7 +105,7 @@ func (r *managedRuntime) recover(parent context.Context) (managedMessage, error)
 	}
 	if r.session.RecoveryStatus().State != "degraded" {
 		r.mu.Unlock()
-		return managedMessage{}, errors.New("managed recovery requires an ended original Native connection")
+		return managedMessage{}, errors.New("managed recovery requires an unavailable original connection")
 	}
 	ctx, cancel := context.WithCancel(parent)
 	r.recovering, r.recoverCancel = true, cancel
@@ -119,8 +119,10 @@ func (r *managedRuntime) recover(parent context.Context) (managedMessage, error)
 		close(done)
 		r.mu.Unlock()
 	}()
-	// Whole-channel retirement works even after the original Native proof is
-	// revoked. Both calls join actual resources; a timeout grants no permission.
+	// Retire the original controller and HTTP transport before preparing another.
+	// A verified worker execution end can retire that transport without proving
+	// its page attachment was released. Session.Recover separately waits for the
+	// original journal's native stop/detach receipts before a new viewer is exposed.
 	if err := previous.Close(ctx); err != nil {
 		return managedMessage{}, err
 	}

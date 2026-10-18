@@ -86,6 +86,7 @@ type Session struct {
 	browser                 *browserConnection
 	userRootURL             string
 	userMu                  sync.Mutex
+	nativeMu                sync.Mutex
 	userOpened              bool
 	userOpenDone            chan struct{}
 	userOpenCancel          context.CancelFunc
@@ -102,6 +103,8 @@ type Session struct {
 	ownerTerminated         chan struct{}
 	ownerOnce               sync.Once
 	recoveryHooks           *nativeRecoveryHooks
+	nativeObservationDone   chan struct{}
+	nativeObservationCancel context.CancelFunc
 	registration, lock      io.Closer
 	endpointDir             string
 	browserDone, nativeDone chan struct{}
@@ -371,6 +374,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 		s.beginClose()
 	}()
 	if !setup {
+		s.startNativeObservation()
 		go s.observeNative(s.currentNative)
 	}
 	return s, nil
@@ -495,6 +499,15 @@ func (s *Session) Close(ctx context.Context) error {
 func (s *Session) beginClose() {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
+		// A confirmed fault that led to this Stop remains in the lifecycle.
+		// It is not a failure of the subsequent owned-process cleanup.
+		for _, connection := range s.nativeConnections {
+			select {
+			case <-connection.done:
+				connection.exitBeforeStop = true
+			default:
+			}
+		}
 		s.recovery.State = "closing"
 		if s.recoveryCancel != nil {
 			s.recoveryCancel()
@@ -527,6 +540,12 @@ func (s *Session) shutdown() {
 		}
 	}
 	if s.process != nil {
+		// Capture a published replacement while its original process is still
+		// live, even when held-input risk prohibited any recovery admission.
+		// The background observer remains active until the original Job exits.
+		if s.nativeObservationDone != nil {
+			_ = s.observeNativeCandidate()
+		}
 		grace, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		// In setup the user may close the last visible window. The original
 		// process receipt is authoritative; sending CDP to an exited browser
@@ -575,6 +594,10 @@ func (s *Session) shutdown() {
 				close(s.ownerTerminated)
 			}
 		})
+		if s.nativeObservationCancel != nil {
+			s.nativeObservationCancel()
+			<-s.nativeObservationDone
+		}
 		s.record.BrowserExit = &s.browserExit
 		if s.browserExit.Error != "" {
 			failures = append(failures, errors.New(s.browserExit.Error))
@@ -583,8 +606,8 @@ func (s *Session) shutdown() {
 			<-connection.done
 			if !connection.record.ExitConfirmed || connection.record.Exit == nil || connection.record.Exit.Code == nil {
 				failures = append(failures, fmt.Errorf("native connection %d exit could not be confirmed", connection.record.Epoch))
-			} else if connection == s.currentNative && *connection.record.Exit.Code != 0 {
-				failures = append(failures, fmt.Errorf("current native connection exited with code %d", *connection.record.Exit.Code))
+			} else if !connection.exitBeforeStop && *connection.record.Exit.Code != 0 {
+				failures = append(failures, fmt.Errorf("native connection %d exited during Stop with code %d", connection.record.Epoch, *connection.record.Exit.Code))
 			}
 			if connection == s.currentNative {
 				s.record.NativeExit = connection.record.Exit
@@ -671,7 +694,7 @@ func (s *Session) cleanEndpointRecords() error {
 		if entry.Name() != "active.json" && !strings.HasSuffix(entry.Name(), host.EndpointRecordSuffix) {
 			return errors.New("managed native endpoint directory contains unknown entries")
 		}
-		if len(s.nativeConnections) == 0 && (s.info.SocketPath == "" || s.info.NativePID <= 0) {
+		if len(s.nativeConnections) == 0 {
 			return errors.New("managed native cleanup cannot confirm the original endpoint identity; records retained")
 		}
 		data, err := readSmallFile(filepath.Join(s.endpointDir, entry.Name()), 4096)
@@ -682,12 +705,9 @@ func (s *Session) cleanEndpointRecords() error {
 		matched := false
 		if json.Unmarshal(data, &record) == nil {
 			for _, connection := range s.nativeConnections {
-				if record.SocketPath == connection.record.Descriptor.SocketPath && record.PID == connection.record.Descriptor.PID {
+				if record == connection.record.Descriptor {
 					matched = true
 				}
-			}
-			if len(s.nativeConnections) == 0 {
-				matched = record.SocketPath == s.info.SocketPath && record.PID == s.info.NativePID
 			}
 		}
 		if !matched {

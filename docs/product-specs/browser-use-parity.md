@@ -12,7 +12,15 @@
 
 ## Baseline sources
 
-当前发布 `preview-20261017-a4e6b0c` 的同 worker Native 恢复已完成限定流程验收。首轮发现旧包推荐
+2026-10-18 开发源码完成专用会话的 worker 替换恢复限定验收，未发布新包。
+固定 Windows CfT 的正向 `mwr-r-esLC1h` 和独立 held-input `mwr-h-Fv7gx8`
+均六步 actual exit 0：原唯一 POST/结果保留，新权限保持暂停，旧权限拒绝；
+未知输入不重放或猜测释放，明确 Stop 能正常结束原会话。扩展 2,075 项、Go
+全包/vet/build 通过；原失败保留。持久事务、原 view 清理与当前身份校验的
+边界见[worker 恢复](../references/managed-worker-recovery.md)。这推进 P13，
+不证明浏览器进程重启、普通公司 Edge、完整任务或所有平台的能力持平。
+
+已发布基线 `preview-20261017-a4e6b0c` 的同 worker Native 恢复已完成限定流程验收。首轮发现旧包推荐
 CfT 155 缺少结果查看/人工接管所需的捕获时间字段，故推荐版本改为固定
 156.0.8078.12，并增加明确兼容错误。正式安装、旧缓存共存及离线复用通过，
 原旧文件与新官方 305 文件独审通过。最终 `A6UPE3` 六步实际 exit 0：15 项人工
@@ -20,7 +28,7 @@ CfT 155 缺少结果查看/人工接管所需的捕获时间字段，故推荐�
 及原清理通过。三轮失败保留；真正 worker/browser 重启与完整能力持平仍开放。
 上述修正已进入 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)。离线 CLI/MCP 30 工具、独立制品 5,510 项检查、4 个发布资产回下载哈希及本地副本核对通过。
 完整包/扩展/Skill 分别为 98/71/6 文件，499 项源码输入逐项匹配。
-本轮只从干净源码重建，未重跑网页业务；真正 worker 替换恢复仅设计、未实现。
+该轮只从干净源码重建，未重跑网页业务；当时真正 worker 替换恢复仅设计、未实现。
 见[隔离会话计划](../exec-plans/active/2026-10-16-managed-browser-session.md)。
 
 此前 81cfdae 包的专用浏览器获取提供 `managed browser install/status`，当时固定 CfT

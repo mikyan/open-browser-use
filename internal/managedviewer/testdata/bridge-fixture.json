@@ -42,6 +42,12 @@
       "eventSequence": 0,
       "human": null,
       "view": null
+    },
+    "recoveryState": {
+      "version": 1,
+      "browserIncarnation": "fixture-browser",
+      "journalId": "fixture-journal",
+      "workerEpoch": 1
     }
   },
   "select": {

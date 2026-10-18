@@ -76,6 +76,7 @@ export async function fixture(t, { managed = false } = {}) {
   const Backend = vm.runInNewContext(`${code}\nBrowserBackend`, { chrome, crypto, Date, URL, setTimeout, clearTimeout, managedConfig: managed ? { version: 1, nativeHostName: "com.openbrowseruse.managed.n0123456789abcdef0123456789abcdef" } : null });
   const backend = new Backend();
   await backend.controlReady;
+  if (managed) backend.commitManagedUserOpen(await backend.prepareManagedUserOpen({ workerBootId: "fixture-worker-A" }));
   backend.browserEngine = { async attach(tabId) { attached.add(tabId); backend.attachedTabs.add(tabId); if(!backend.attachmentEpochs.has(tabId)) backend.attachmentEpochs.set(tabId, {}); }, async detach(tabId){attached.delete(tabId);backend.releaseEngineAttachment(tabId);}, invalidate(){}, forget(){} };
   for (const [id, groupId, tabId] of [["task", 10, 7], ["other", 20, 9]]) {
     const state = await backend.store.getSession(id); state.chromeGroupId = groupId; state.tabOrigins = { [tabId]: "agent" };

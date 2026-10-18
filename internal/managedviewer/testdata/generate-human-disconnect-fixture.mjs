@@ -21,8 +21,12 @@ export async function captureHumanDisconnectFixture({ nativeLost = false } = {})
   const backend = {
     onManagedNativeLoss(listener) { lossListener = listener; },
     async waitManagedNativeRecovery(epoch) { await epoch?.promise; },
-    async prepareManagedUserOpen() { await this.waitManagedNativeRecovery(nativeEpoch); return nativeEpoch; },
-    commitManagedUserOpen(epoch) { assert.equal(epoch, nativeEpoch); if (epoch) assert.equal(automation.state, "paused"); },
+    async prepareManagedUserOpen({ workerBootId, recovery }, authority) {
+      assert.equal(workerBootId, identity.workerBootId); assert.equal(recovery, undefined);
+      await this.waitManagedNativeRecovery(nativeEpoch); authority();
+      return { epoch: nativeEpoch, workerBootId, recoveryState: { version: 1, browserIncarnation: "disconnect-browser", journalId: "disconnect-journal", workerEpoch: 1 } };
+    },
+    commitManagedUserOpen(admission) { assert.equal(admission.epoch, nativeEpoch); if (nativeEpoch) assert.equal(automation.state, "paused"); },
     async getAutomationControlStatus() { return { ...automation }; },
     async getManagedViewerTabs() { return automation.state === "running" ? [{ id: 7, title: "Synthetic disconnect page", url: "https://fixture.invalid/" }] : []; },
     async managedViewerSubscribe() { throw Error("Observation is outside this fixture"); },

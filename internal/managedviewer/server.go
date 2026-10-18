@@ -31,9 +31,10 @@ type Backend interface {
 	Done() <-chan struct{}
 }
 
-// A retired backend can prove whole-channel cleanup after ordinary commands
-// have been revoked. Close must join its original inputs, streams and replies;
-// transport loss or a canceled caller is not a successful retirement receipt.
+// Close joins the original controller transport after commands are revoked.
+// It rejects unresolved human input; an exact worker execution end may retire
+// that transport while native page-view cleanup remains the owning Session's
+// obligation. This interface alone never authorizes a replacement controller.
 type retiringBackend interface {
 	Close(context.Context) error
 }
@@ -239,8 +240,10 @@ func (s *Server) WaitStopReply(ctx context.Context) error {
 }
 
 // Close revokes admission immediately and waits for the actual HTTP/WS readers,
-// writers, backend calls and unsubscribe receipt. A caller deadline only bounds
-// its wait; cleanup continues and Done closes after those resources settle.
+// writers, backend calls and unsubscribe or original-channel retirement receipt.
+// Worker execution termination can retire that channel without releasing its
+// native page attachment; the owning Session must verify that separately before
+// publishing a replacement viewer. A caller deadline only bounds its wait.
 func (s *Server) Close(ctx context.Context) error {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()

@@ -16,6 +16,11 @@ import (
 
 const userBindingName = "__obuManagedViewerEvent"
 
+// ErrUserCleanupPendingOwnedExit means an ended worker cannot confirm its
+// original held-input cleanup. Only the owned Browser/Job's actual exit can
+// settle this wait. It is neither a cleanup receipt nor recovery permission.
+var ErrUserCleanupPendingOwnedExit = errors.New("original worker ended before human cleanup was confirmed; waiting for owned browser exit")
+
 type managedUserIdentity struct {
 	Version             int    `json:"version"`
 	RunID               string `json:"runId"`
@@ -49,6 +54,11 @@ type UserController struct {
 	closeOnce            sync.Once
 	workerGone           chan struct{}
 	workerOnce           sync.Once
+	executionEnd         *managedExecutionEnd
+	executionEndHook     func(managedExecutionEnd)
+	recoveryState        managedRecoveryState
+	workerAdmission      *managedWorkerAdmission
+	workerRecovery       json.RawMessage
 	cleanupDone          chan struct{}
 	cleanupFailed        chan struct{}
 	failureOnce          sync.Once
@@ -135,6 +145,16 @@ func (s *Session) OpenUserController(ctx context.Context) (*UserController, erro
 		} else {
 			s.userCurrent = c
 			s.currentNative.controller = c
+			worker := c.workerIdentity()
+			c.mu.Lock()
+			state := c.recoveryState
+			c.mu.Unlock()
+			s.currentNative.record.Worker, s.currentNative.record.RecoveryState = &worker, &state
+			if saveErr := s.saveLocked(); saveErr != nil {
+				s.recoveryUnconfirmed = true
+				err = saveErr
+			}
+			go s.observeController(c)
 		}
 		s.mu.Unlock()
 	}
@@ -149,8 +169,10 @@ func openUserController(ctx context.Context, root string, identity managedUserId
 }
 
 type managedWorkerIdentity struct {
-	TargetID, ContextUID, WorkerBootID string
-	ContextID                          int64
+	TargetID     string `json:"targetId"`
+	ContextUID   string `json:"contextUniqueId"`
+	WorkerBootID string `json:"workerBootId"`
+	ContextID    int64  `json:"contextId"`
 }
 
 func (c *UserController) workerIdentity() managedWorkerIdentity {
@@ -159,7 +181,7 @@ func (c *UserController) workerIdentity() managedWorkerIdentity {
 	return managedWorkerIdentity{c.targetID, c.contextUID, c.identity.WorkerBootID, c.contextID}
 }
 
-func openUserControllerRetained(ctx context.Context, root string, identity managedUserIdentity, ownerDone <-chan struct{}, expected *managedWorkerIdentity, retain func(*UserController)) (_ *UserController, err error) {
+func openUserControllerRetained(ctx context.Context, root string, identity managedUserIdentity, ownerDone <-chan struct{}, expected *managedWorkerAdmission, retain func(*UserController)) (_ *UserController, err error) {
 	key, err := randomID()
 	if err != nil {
 		return nil, err
@@ -168,7 +190,7 @@ func openUserControllerRetained(ctx context.Context, root string, identity manag
 	if err != nil {
 		return nil, err
 	}
-	c := &UserController{identity: identity, channelKey: key, ownerDone: ownerDone, contextReady: make(chan struct{}), done: make(chan struct{}), workerGone: make(chan struct{}),
+	c := &UserController{identity: identity, channelKey: key, ownerDone: ownerDone, workerAdmission: expected, contextReady: make(chan struct{}), done: make(chan struct{}), workerGone: make(chan struct{}),
 		cleanupDone: make(chan struct{}), cleanupFailed: make(chan struct{}), commands: make(map[*userCall]bool), events: make(chan json.RawMessage), wake: make(chan struct{}, 1),
 		acks: make(chan uint64, 2), retiredStreams: make(map[string]bool), heartbeatEvery: 3 * time.Second}
 	c.workers.Add(1)
@@ -222,7 +244,7 @@ func openUserControllerRetained(ctx context.Context, root string, identity manag
 	if targetID == "" {
 		return nil, errors.New("managed user exact worker target is unavailable")
 	}
-	if expected != nil && (expected.TargetID != targetID || expected.WorkerBootID != identity.WorkerBootID) {
+	if expected != nil && expected.Replacement == nil && (expected.Original.TargetID != targetID || expected.Original.WorkerBootID != identity.WorkerBootID) {
 		return nil, errors.New("managed recovery worker target or boot identity changed")
 	}
 	c.mu.Lock()
@@ -253,13 +275,21 @@ func openUserControllerRetained(ctx context.Context, root string, identity manag
 	contextID := c.contextID
 	contextUID := c.contextUID
 	c.mu.Unlock()
-	if expected != nil && (expected.ContextUID != contextUID || expected.ContextID != contextID) {
-		return nil, errors.New("managed recovery worker execution context changed")
+	if expected != nil {
+		if expected.Replacement == nil && (expected.Original.ContextUID != contextUID || expected.Original.ContextID != contextID) {
+			return nil, errors.New("managed recovery worker execution context changed")
+		}
+		if expected.Replacement != nil && (expected.Original.ContextUID == contextUID || expected.Original.WorkerBootID == identity.WorkerBootID) {
+			return nil, errors.New("replacement worker execution identity did not change")
+		}
 	}
 	if err = c.cdp.call(ctx, sessionID, "Runtime.addBinding", map[string]any{"name": userBindingName, "executionContextId": contextID}, nil); err != nil {
 		return nil, err
 	}
 	params := map[string]any{"version": 1, "runId": identity.RunID, "extensionId": identity.ExtensionID, "extensionInstanceId": identity.ExtensionInstanceID, "workerBootId": identity.WorkerBootID, "portId": identity.PortID, "channelKey": key}
+	if expected != nil && expected.Replacement != nil {
+		params["recovery"] = *expected.Replacement
+	}
 	c.mu.Lock()
 	c.openAttempt = true
 	c.openCall, err = c.evaluateLocked(ctx, "open", params)
@@ -366,6 +396,22 @@ func bridgeValue(data json.RawMessage) (json.RawMessage, error) {
 				break
 			}
 		}
+		if code == "UNKNOWN" {
+			// Recovery uses errors from several independent lifecycle modules.
+			// Admit only their fixed public codes; a new OBU_ prefix must not
+			// turn arbitrary browser text into a public diagnostic.
+			if candidate, _, found := strings.Cut(description, ":"); found {
+				switch candidate {
+				case "OBU_MANAGED_JOURNAL_UNCONFIRMED",
+					"OBU_MANAGED_WORKER_RECOVERY_REQUIRED", "OBU_MANAGED_WORKER_UNAVAILABLE",
+					"OBU_MANAGED_NATIVE_CHANGED", "OBU_MANAGED_NATIVE_PAUSE_INCOMPLETE", "OBU_MANAGED_NATIVE_RECOVERY_REQUIRED",
+					"OBU_NATIVE_RECOVERY_PENDING", "OBU_NATIVE_RECOVERY_FAILED", "OBU_NATIVE_CONNECTION_LOST",
+					"OBU_MANAGED_RESULT_UNAVAILABLE", "OBU_MANAGED_RESULT_STALE", "OBU_MANAGED_RESULT_CAPACITY",
+					"OBU_BROWSER_LIFETIME_INVALID", "OBU_INPUT_RELEASE_UNCONFIRMED", "OBU_INPUT_RISK_LIMIT":
+					code = candidate
+				}
+			}
+		}
 		return nil, &userBridgeError{code: code}
 	}
 	if result.Result.Type != "object" || len(result.Result.Value) == 0 || result.Result.Value[0] != '{' {
@@ -387,7 +433,9 @@ func (c *UserController) acceptOpen(data json.RawMessage) error {
 	}
 	var result struct {
 		managedUserIdentity
-		Status json.RawMessage `json:"status"`
+		Status         json.RawMessage `json:"status"`
+		RecoveryState  json.RawMessage `json:"recoveryState"`
+		WorkerRecovery json.RawMessage `json:"workerRecovery"`
 	}
 	if json.Unmarshal(value, &result) != nil {
 		return errors.New("invalid managed user open result")
@@ -400,10 +448,16 @@ func (c *UserController) acceptOpen(data json.RawMessage) error {
 	if c.opened && c.identity.ChannelID != result.ChannelID {
 		return errors.New("managed user channel changed")
 	}
+	state, err := c.validateRecoveryOpenLocked(result.RecoveryState, result.WorkerRecovery, result.Status)
+	if err != nil {
+		return err
+	}
 	c.identity.ChannelID = result.ChannelID
 	if err := c.validateStatusLocked(result.Status); err != nil {
 		return err
 	}
+	c.recoveryState = state
+	c.workerRecovery = append(json.RawMessage(nil), result.WorkerRecovery...)
 	c.opened = true
 	return nil
 }
@@ -839,7 +893,7 @@ func (c *UserController) shutdownUser() {
 		terminated, terminationProof, unsafeWorkerGone = c.ownerDone, "session-terminated", c.workerGone
 	}
 	waitOwnedExit := func() {
-		c.cleanupFailure(errors.New("original worker ended before human cleanup was confirmed; waiting for owned browser exit"))
+		c.cleanupFailure(ErrUserCleanupPendingOwnedExit)
 		<-c.ownerDone
 	}
 	var receipt json.RawMessage
@@ -929,7 +983,14 @@ func (c *UserController) shutdownUser() {
 	c.cdp.writers.Wait()
 	c.workers.Wait()
 	if len(receipt) == 0 || proof != "bridge-disconnect" {
-		receipt, _ = json.Marshal(map[string]any{"cleanupConfirmed": true, "cleanupProof": proof, "status": map[string]any{"connected": false, "selectedTabId": nil}})
+		c.mu.Lock()
+		executionEnded := c.executionEnd != nil
+		c.mu.Unlock()
+		if proof == "worker-terminated" && executionEnded {
+			receipt, _ = json.Marshal(map[string]any{"transportRetired": true, "cleanupConfirmed": false, "cleanupProof": "worker-execution-ended", "status": map[string]any{"connected": false, "selectedTabId": nil}})
+		} else {
+			receipt, _ = json.Marshal(map[string]any{"cleanupConfirmed": true, "cleanupProof": proof, "status": map[string]any{"connected": false, "selectedTabId": nil}})
+		}
 	}
 	c.mu.Lock()
 	c.cleanupReceipt = receipt
@@ -1011,10 +1072,11 @@ func (c *UserController) handleEvent(session, method string, params json.RawMess
 			var event struct {
 				TargetID string `json:"targetId"`
 			}
-			if json.Unmarshal(params, &event) != nil {
+			if _, parseErr := userObject(params); parseErr != nil || json.Unmarshal(params, &event) != nil || event.TargetID == "" {
 				return errors.New("invalid worker destruction")
 			}
 			if targetID != "" && event.TargetID == targetID {
+				c.recordExecutionEnd(method)
 				c.markWorkerGone()
 			}
 		case "Target.detachedFromTarget":
@@ -1055,7 +1117,7 @@ func (c *UserController) handleEvent(session, method string, params json.RawMess
 		}
 		c.mu.Unlock()
 	case "Runtime.executionContextDestroyed", "Runtime.executionContextsCleared":
-		c.unavailable(errors.New("original worker execution context ended"))
+		return c.acceptExecutionEnd(method, params)
 	case "Runtime.bindingCalled":
 		var event struct {
 			Name, Payload      string

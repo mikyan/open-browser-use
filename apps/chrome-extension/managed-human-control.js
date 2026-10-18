@@ -24,8 +24,8 @@ function clientGeometry(metrics) {
 // One native attachment belongs to an immutable view or human lease. Only a
 // human lease owns input intent and durable risk; both share document cleanup.
 export class ManagedHumanControl {
-  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, onFailure = () => {} }) {
-    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, onFailure });
+  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, viewJournal = null, onFailure = () => {} }) {
+    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, viewJournal, onFailure });
     this.current = null;
     this.recoveryTimeoutMs = 10000;
   }
@@ -137,7 +137,13 @@ export class ManagedHumanControl {
     this.check(record); await this.validate(record.candidate); this.check(record);
     if (record.mode === "human") { await this.markRisk(record.leaseId, record.tabId); record.riskMarked = true; }
     this.check(record);
+    if (record.mode === "view" && this.viewJournal) {
+      await this.viewJournal.intent(record); record.viewIntent = true;
+    }
+    this.check(record);
+    record.attachDispatched = true;
     await this.chrome.debugger.attach({ targetId: record.candidate.targetId }, "1.3"); record.attached = true;
+    if (record.viewIntent) await this.viewJournal.attached(record);
     record.lifecycle = (source, method, params) => {
       if (!this.ownsSource(record, source)) return;
       if (["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameDetached"].includes(method)) {
@@ -510,7 +516,15 @@ export class ManagedHumanControl {
           try { await this.chrome.debugger.detach({ targetId: record.candidate.targetId }); }
           finally { record.detaching = false; }
           record.attached = false;
+          record.detachAcknowledged = true;
         } else if (record.lost && !record.destroyed) throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
+        if (record.viewIntent) {
+          // Attach rejection is not proof that an in-flight native operation
+          // never acquired the target. Keep its durable intent when unknown.
+          if (record.attachDispatched && !record.detachAcknowledged && !record.destroyed)
+            throw fail("original view attachment outcome remains unknown", "CLEANUP_INCOMPLETE");
+          await this.viewJournal.released(record); record.viewIntent = false;
+        }
         if (record.riskMarked) await this.clearRisk(record.leaseId);
         if (record.lifecycle) this.chrome.debugger.onEvent.removeListener(record.lifecycle);
         record.state = "released";

@@ -49,7 +49,8 @@ async function loadBackend({ attachError, command, detach, frames = true, engine
     managedConfig: managed ? { version: 1, nativeHostName: "com.openbrowseruse.managed.n0123456789abcdef0123456789abcdef" } : null
   });
   const backend = new BrowserBackend();
-  await backend.store.ready;
+  await backend.controlReady;
+  if (managed) backend.commitManagedUserOpen(await backend.prepareManagedUserOpen({ workerBootId: "boot" }));
   (await backend.store.getSession(session.session_id)).chromeGroupId = 10;
   const attach = () => backend.attach({ ...session, tabId: 7 });
   const cdp = (method, commandParams = {}, extra = {}) => backend.executeCdp({

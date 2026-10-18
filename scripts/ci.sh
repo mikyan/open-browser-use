@@ -29,6 +29,9 @@ export OBU_TEST_HOST_BINARY="${host_test_dir}/open-browser-use$(go env GOEXE)"
   go test ./...
   go build -o "${OBU_TEST_HOST_BINARY}" ./cmd/open-browser-use
   node --test apps/chrome-extension/*.test.mjs
+  node --test internal/managedviewer/ui/*.test.mjs
+  node internal/managedviewer/testdata/generate-human-disconnect-fixture.mjs --check
+  node internal/managedviewer/testdata/generate-worker-recovery-fixture.mjs --check
   node --test scripts/*.test.mjs
   node --test scripts/browser-integration/*.test.mjs
   pnpm -r --if-present test

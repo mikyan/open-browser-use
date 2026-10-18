@@ -1,5 +1,42 @@
 # Browser integration acceptance
 
+## Managed worker replacement (Windows, experimental)
+
+Build the current host, extension and SDK. Set `OBU_TEST_HOST_BINARY`,
+`OBU_TEST_EXTENSION_DIR`, `OBU_TEST_CHROMIUM_BINARY` and the preserved build
+report `OBU_TEST_HOST_VALIDATION` as described below. Run the independent modes:
+
+```powershell
+node scripts/browser-integration/managed-worker-recovery-check.mjs
+node scripts/browser-integration/managed-worker-recovery-check.mjs --held-input
+```
+
+The default six-stage scenario keeps the original result view active after one
+business POST. A separate diagnostic target stops the original extension worker
+once; an automatic restart or at most one explicit Start must produce a real
+new running execution. Original execution end and Native EOF must be confirmed
+before explicit recovery. Worker target IDs may be reused; context unique IDs,
+boot IDs and Native identities must change. Recovery verifies the original view
+retirement receipt and attached-to-detached target state, issues a fresh delivery,
+rejects old permissions and leaves the Agent paused. New human input annotates
+the original result without resubmission, URL reopening or automatic Resume.
+
+The independent held-input mode has no business POST. It confirms real Shift
+and pointer down, preserves the exact document event list across replacement,
+and requires recovery rejection without synthetic release. Both modes require
+normal formal Stop, original Job/process and private-resource cleanup. Input
+observations end before Stop destroys the original document; session termination
+is not a keyup/mouseup receipt. Typed production cleanup receipts are not an
+independent packet trace. Placement assertions cover window/group/pinned state,
+not a complete history of movement while the worker was stopped.
+
+Final `mwr-r-esLC1h` and `mwr-h-Fv7gx8` each completed all six stages with actual
+exit 0 on fixed CfT 156.0.8078.12. Earlier failed attempts remain preserved.
+The runner uses short evidence/profile paths after a long Windows profile path
+prevented Chromium from creating its IndexedDB manifest; this does not establish
+a universal path-length threshold. See the [recovery contract](../../docs/references/managed-worker-recovery.md)
+and [execution plan](../../docs/exec-plans/active/2026-10-16-managed-browser-session.md).
+
 ## Managed Native recovery in the original worker (Windows, experimental)
 
 Build the current host, extension and SDK. Set `OBU_TEST_HOST_BINARY`,

@@ -84,16 +84,133 @@ lifecycle 字节、两代原 Native 回执和注册/pipe/endpoint 清理均匹�
 制品独审 SHA-256：`4bf6d55f5313d3c932d2910870369897a123f456563f1bcb7d2e92890bc4482d`。
 本轮只打包，未重跑网页业务；原验收与全部失败记录保持独立，不新增功能通过声明。
 
-### 待续：真正 worker 替换后的显式恢复（仅设计，未实现）
+### 真正 worker 替换后的显式恢复（限定场景已验、未入包）
 
-本次包不包含此能力。拟保留原 Browser/profile/result target/document，分别验证原
+已发布包不包含此能力。当前源码保留原 Browser/profile/result target/document，分别验证原
 执行上下文终结、新 context uniqueId/workerBootId 和新 Native 绑定；targetId 可能
 复用。worker 死亡不能替代截图流 stop/detach 或 held-input 释放。先实现无遗留
 输入风险的恢复，并为活动只读查看取得原目标实际清理回执；持键、指针或未知
-输入风险继续阻断，由 Stop 等待原 Browser/Job 退出。扩展需新增绑定 run/
+输入风险继续阻断，由 Stop 等待原 Browser/Job 退出。扩展新增绑定 run/
 incarnation/原文档的持久候选记录和启动暂停门禁；旧 task、human lease、viewer
 票据不恢复，不重开 URL 或重放输入。最低真实验收包括原页 worker 替换正例及
-held-input 恢复拒绝负例；持久提交与跨 worker 原资源清理证明仍待实现。
+held-input 恢复拒绝负例；以下记录实际实现、失败及最终限定验收。
+
+实施契约（2026-10-17）：
+
+- `ManagedResultJournal` 单独管理原结果与只读查看附件的持久记录，IndexedDB
+  事务以 run/incarnation/journalId/workerEpoch 约束所有写入。新 worker 只加载
+  隔离候选，不凭展示标记或空内存状态恢复权限。原 Go controller 保存首次可信
+  open 的 journal 身份；替换握手核验该身份及 fresh nonce，不允许丢失记录后
+  重新创建空 journal 并冒称原资源已清理。
+- finalize 在原 ending fence 内等待 durable commit，事务完成是结果交付的
+  线性点，随后同步发布；丢失返回值不等于事务未提交。任务重新取得页面前等待
+  持久撤销，原结果授权导航后的 currentDocument 必须在新代画面前持久更新。
+  旧 writer 的迟到写不得覆盖新 epoch。同 worker 观察的撤销立即禁用；已经
+  持久提交的撤销不因位置返回复活。强制结束前尚未提交的事件，不宣称其完整
+  历史可跨崩溃保存；新授权仍须通过下面的原 lineage 和当前身份校验。
+- 显式 recover 对原已提交 lineage、当前精确 target/document/placement 和当前
+  网站策略重新授权，返回新 deliveryId；旧 deliveryId 始终无效。此授权不声称
+  能证明 worker 停止间隙没有瞬时移位；它不是旧 capability 的延续。
+- 只读 view 在 attach 前记录 intent、实际 attach 后记录确认；新 worker 只用
+  原目标记录执行 stop/detach 并等待真实 ACK。未知 attach、未知输入或原清理
+  未确认继续拒绝。不得补发 keyup/mouseup 来猜测业务状态。
+- Go 将原执行上下文终结证明、旧 Native 真实退出、原传输退休和原页面资源
+  清理分开记录。新上下文与 boot 必须不同，targetId 允许原生复用；socket 断开、
+  flat session detach 或新 worker 的空 tracker 均不能替代这些证明。所有失败
+  候选仍由原 Session/Job 持有，Stop 取消并等待实际结算。
+- 未知人工输入阻断恢复时，新 worker 仍可能自动建立 Native 连接。Session
+  必须独立观察原私有 run 的候选，只经原 Job、确切程序和真实进程句柄登记
+  清理归属，不 bind/open 或提供任务权限；Recover 复用同一归属登记。Stop
+  等待原观察、进程和 Job，再清理已确认的 descriptor。未持有过的已退出
+  未知记录不能凭路径删除；短命进程的完整观察覆盖仍须独立证明。
+- 正向验收保持原唯一 POST 的结果只读 view 活动，真实 stop/start 原 worker 后
+  显式 recover，保留原 document/receipt 并人工追加内容，不再 POST。独立零业务
+  held-key/pointer 负例须持续拒绝；原位置变化负例拒绝旧结果且不自动搬回。
+  固定正式 EXE/扩展后再执行；失败原样保留。本片不自动发布新包或创建 PR。
+
+2026-10-17 接续状态：用户要求的新包已作为 `preview-20261017-6588984`
+交付，生产功能与 a4e6b0c 相同，排除了本节 WIP；文档提交为 0ca41a6。
+本节继续扩展 journal/backend/bridge 接线、Go recovery/清理归属和真实双场景
+runner。既有 journal 9 项、Go exact-context 反例和 runner helper 8 项只证明
+各自局部行为，不能代替完整接线或实际 worker 重启验收。
+
+2026-10-18 接续：本节接线后的完整扩展测试 2,071/2,071、Go 全包 test/vet/build、
+三份 bridge fixture 核对及 runner helper 10/10 已通过。旧的 27 项扩展失败保留；
+修正的是测试 fixture 的显式准入、真实结果登记器和策略写入期间的拒绝断言。
+另用先失败后通过的三类反例修复 journal 结构检查抛错后缺少 abort handler、
+导致原事务永久等待的问题。Native observer/Recover 共用句柄；未知 held input
+仍拒绝恢复，但 Stop 等待观察、原 Job 和新 Native 的实际退出。既有历史故障
+退出不改写，也不冒充这次 Stop 清理失败；Stop 期间新增异常仍报错。
+
+首个真实 `managed-worker-recovery-result-8COMjs` 实际 exit 1：初始 bridge open
+失败，零 fixture 请求，尚未发生 worker 故障或恢复。原 Browser/Native exit 0、
+Job 清空和正常清理已记录。Chrome 日志显示 IndexedDB 的 LevelDB manifest
+创建失败；原 manifest 绝对路径长 262 字符。随后 `wrd-anHKur` 同冻结 EXE、
+扩展和 CfT 的短目录零业务对照 actual exit 0：181 字符 manifest 实际创建、
+journal epoch 1 和 ready 确认，随即正式 Stop、原进程及资源清理通过。该对照
+支持此固定环境的路径长度诊断，不是 worker 恢复验收，也不宣称任意 Windows
+配置的统一长度阈值。Go 另补 15 个固定生命周期错误码，保持不输出任意浏览器
+消息、堆栈或通道凭据；新冻结构建的 Go 全包 test/vet/build 通过。
+
+缩短测试目录后的 `mwr-r-uxaaTx` actual exit 1：原唯一 POST、finalize、活动
+结果查看和真实 worker stop 均完成，原执行终结和 Native EOF exit 0 已确认。
+浏览器随即自行发出 `starting`，测试原先要求等显式 Start 的假设失败；未执行
+recover。原正式 Stop exit 0、Browser/Native/Job 清理已记录。原诊断 worker
+连接已由 helper 关闭，失败后的重复观察另报 Diagnostic CDP closed；该错误
+也保留。测试已分别记录浏览器自动启动和必要时的一次显式 Start，两者
+均须有原 stopped、新 running、新 context/boot 和新 Native 的实际证明；
+12 项 helper 反例及四文件语法检查通过，自动路径不伪造人工 Start 时间。
+
+随后 `mwr-r-awiD3K` 正向六阶段 actual exit 0：保留原唯一 POST 和结果文档，
+真实 worker 替换后明确 recover，原只读附件取得 stop/detach 回执，新 delivery
+及查看器保持暂停，旧权限拒绝；新人工接续不重复提交，正式 Stop 通过。
+这是正向有限场景，尚不能替代独立 held-input 负例和停止后独审。
+`mwr-h-DSpGDB` 前五阶段通过、最终 actual exit 1：原 Shift/鼠标按下保持不变，
+recover 正确拒绝，未补发 release 或重放输入。最终原 Browser、两代 Native
+均 exit 0，Job 归零且 controller 取得 session-terminated 回执，但 runtime
+无条件保留停止前“等待原 Browser 退出”的错误，使 Stop/supervisor 返回 1。
+该产品缺陷及失败证据保留，正在区分预期的暂时等待与真实清理失败。
+
+最终修复用确切的 pending-owned-exit 错误区分等待：只有原 Session 和同
+controller 最终清理均成功才消除该临时错误；其他失败、超时、包装或组合错误
+保持。11 场景及真实 WS 生命周期反例先红后绿，原会话终止仍不授权恢复。
+另一次只读审查复现 detach 后、journal finishView 提交期间接纳晚到原帧的
+清理竞态：旧源正式回归 4 项中 1 失败。修为 detach ACK 后同步封闭原监听，
+排空已接纳 ACK 后才删除 view 义务；相关 111 项通过。未知 ACK 保持拒绝。
+
+最终冻结 v3 的 Go 全包 test/vet/build、扩展 2,075/2,075 与构建均通过，
+输入前后哈希一致。扩展验证驱动首次在测试已 exit 0 后因 Windows 输出编码
+失败，未生成构建或完整 manifest；保留该日志，修正驱动并在新目录完整验证。
+三份跨层 fixture、UI 54 项和 runner helper 12 项的既有通过记录仍单独保留。
+最终两个独立真实场景各六阶段 actual exit 0，均使用浏览器自动启动路径：
+
+- `mwr-r-esLC1h`：同原 Browser/profile/页面与唯一 173 B POST，原只读 view
+  活动时停止 worker，新 context/boot/Native 后显式恢复，新 delivery/viewer
+  保持暂停，旧权限拒绝，9 项人工输入接续且不重复提交。11 原帧、3 张截图；
+  正式 Stop、两代 Native/Browser/viewer/supervisor exit 0，Job 与资源清理通过。
+  停止后独审 12 组通过，670 源/运行输入与验证来源核对、14 PNG 完整解码，
+  32 原进程身份现时退出；一个额外 favicon GET 单列，不算业务重复提交。
+- `mwr-h-Fv7gx8`：独立零 POST 场景，原 Shift 和指针按下经 3 项真实输入
+  ACK 确认；worker 替换后恢复持续拒绝，四次原文档观察事件不变，无补发
+  release 或输入重放。正式 Stop 与 supervisor exit 0，原 Job、Browser 及
+  两代 Native 清理通过，controller 的 session-terminated 不变成恢复权限。
+  停止后独审 8 组通过、4 PNG 完整解码，31 个去重原进程身份现时退出，
+  双注册、两条私有 pipe 和 endpoint 清空；构建与运行输入一致。
+
+正向恢复报告 SHA-256 `bf69cd50c50e8ec5d6ca047e9646507cbf9b58ec0bbb68eca962f1eb6b47804d`，
+held 报告 `16e229ce3de9cf5099ea9dc503065226006919dbc434ffe7de14af95ff17555c`。
+正向/held 独审 SHA-256 分别为
+`65db2dd170e28277b6f98217c77c3fa1803cd60a4742ad14dcbb09aa5e6ebec0`、
+`ee490e5b4dcae80b052d984195c61ef71f939958e8b29ee666295cb122de2024`。
+真实清理依据为生产 typed 回执及原 target attached 前后读数，不称独立逐条
+CDP 抓包；后续 placement 在 runner 断言中比较，未另存每次原始快照。输入
+不重放的文档证据截止于 Stop 前，不能观察已销毁文档。当前路径校验包含
+windowId/groupId/pinned，不证明完整停机事件历史或 tab index；详细边界见
+[worker 恢复契约](../../references/managed-worker-recovery.md)。
+
+用户的重新打包请求已由上一轮 `preview-20261017-6588984` 完成。本次上下文
+恢复时短暂误读历史请求，只生成了未执行的打包草稿；没有新制品或发布。
+继续本节开发不触发自动重打包，完整能力对齐仍未完成。
 
 ## 当前依据
 
@@ -291,8 +408,8 @@ Go 修正仍在源码中，未重新打包；原有 viewer/result 的浏览器�
 - 同一冻结运行源码的普通 viewer 回归 `managed-viewer-o6PuJl` 四步实际
   exit 0，原子页、暂停/继续和停止清理通过。报告 SHA-256：
   `b57bb329bf79d62b59f07c4160f8cbfa06394320ee5e98f3fed9853c8435cd11`。
-- 结果登记仍限定当前 worker/run；worker 重启恢复、Stop 后保留可见窗口、
-  真实登录/IME、公司 Edge 和跨平台仍未验收。整体目标保持开放。
+- 该轮结果登记仍限定当前 worker/run；当时 worker 重启恢复、Stop 后保留可见
+  窗口、真实登录/IME、公司 Edge 和跨平台均未验收。整体目标保持开放。
 - 停止后结果独审实际 exit 0：868 项原证据检查、44 PNG 完整解码；审计 SHA
   `7d29246e7edc110d1648dfd865118b17f813824581412944d22e453dc13181c3`。
   普通 viewer 独审 8 项通过、45 PNG 完整解码；审计 SHA

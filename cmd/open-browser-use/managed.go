@@ -501,7 +501,7 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 		child.Flags().StringVar(&name, "name", "default", "isolated session name")
 		if operation == "recover" {
 			child.Short = "Reconnect an ended Native connection in the original managed browser"
-			child.Long = "Explicitly retire the old connection and reconnect to the same original browser and extension worker. Returns a new one-use viewer URL. Pages remain in place and the Agent stays paused; Resume and a new turn are required for further automation. Worker replacement or unconfirmed cleanup cannot recover. No page navigation or input is replayed."
+			child.Long = "Explicitly retire the old connection and reconnect to the same original browser. A replacement extension worker must verify the original recovery journal and release its recorded page resources before issuing fresh result permissions. Returns a new one-use viewer URL and leaves the Agent paused; Resume and a new turn are required for further automation. Unknown input, missing original records or unconfirmed cleanup prevents recovery. No page navigation or input is replayed."
 		}
 		command.AddCommand(child)
 	}
@@ -509,18 +509,28 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 }
 
 func closeManagedRuntime(session *managedbrowser.Session, controller *managedbrowser.UserController) error {
+	return closeManagedRuntimeResources(session.Close, controller.Close)
+}
+
+func closeManagedRuntimeResources(closeSession, closeController func(context.Context) error) error {
 	// Revoke user commands and finish the original stream before normal browser
 	// closure. Even a failed/late controller cleanup must not orphan the process
 	// tree; a final wait observes the same controller after real browser exit.
 	controlCtx, controlCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	controlErr := controller.Close(controlCtx)
+	controlErr := closeController(controlCtx)
 	controlCancel()
 	sessionCtx, sessionCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	sessionErr := session.Close(sessionCtx)
+	sessionErr := closeSession(sessionCtx)
 	sessionCancel()
 	settledCtx, settledCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	settledErr := controller.Close(settledCtx)
+	settledErr := closeController(settledCtx)
 	settledCancel()
+	// Session.Close succeeds only after the original owned Browser/Job exits.
+	// The second controller wait must also settle. Only this exact temporary
+	// wait is superseded; a timeout, wrapped/joined cause or other failure stays.
+	if controlErr == managedbrowser.ErrUserCleanupPendingOwnedExit && sessionErr == nil && settledErr == nil {
+		controlErr = nil
+	}
 	return errors.Join(controlErr, sessionErr, settledErr)
 }
 

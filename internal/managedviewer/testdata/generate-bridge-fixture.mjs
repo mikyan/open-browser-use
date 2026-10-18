@@ -12,7 +12,11 @@ export async function captureFixture() {
   let frame, humanFrame, humanInfo, state = { state: "running", inputBlocked: false, revision: 0, cleanupComplete: false };
   const backend = {
     onManagedNativeLoss() {}, async waitManagedNativeRecovery() {},
-    async prepareManagedUserOpen() { return null; }, commitManagedUserOpen() {},
+    async prepareManagedUserOpen({ workerBootId, recovery }, authority) {
+      authority(); assert.equal(workerBootId, identity.workerBootId); assert.equal(recovery, undefined);
+      return { epoch: null, workerBootId, recoveryState: { version: 1, browserIncarnation: "fixture-browser", journalId: "fixture-journal", workerEpoch: 1 } };
+    },
+    commitManagedUserOpen(admission) { assert.equal(admission.workerBootId, identity.workerBootId); },
     async getAutomationControlStatus() { return { ...state }; },
     async getManagedViewerTabs() { return state.state === "running" ? [{ id: 7, title: "Fixture tab", url: "https://fixture.invalid/" }] : []; },
     async managedViewerSubscribe(id, callback) { frame = callback; return { async close() {} }; },
@@ -110,7 +114,11 @@ export async function captureResultFixture() {
   }
   const backend = {
     onManagedNativeLoss() {}, async waitManagedNativeRecovery() {},
-    async prepareManagedUserOpen() { return null; }, commitManagedUserOpen() {},
+    async prepareManagedUserOpen({ workerBootId, recovery }, authority) {
+      authority(); assert.equal(workerBootId, identity.workerBootId); assert.equal(recovery, undefined);
+      return { epoch: null, workerBootId, recoveryState: { version: 1, browserIncarnation: "result-browser", journalId: "result-journal", workerEpoch: 1 } };
+    },
+    commitManagedUserOpen(admission) { assert.equal(admission.workerBootId, identity.workerBootId); },
     async getAutomationControlStatus() { return { ...automation }; },
     async getManagedViewerTabs() { return [{ ...metadata(), kind: "result", deliveryId, watchable: true, takeover: true }]; },
     managedViewerSubscribe(id, onFrame, onState, options, authority) { return createLease("view", id, authority, onFrame, onState, options); },

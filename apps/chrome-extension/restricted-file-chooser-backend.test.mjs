@@ -214,8 +214,13 @@ test("a policy change during actual disable ACK cannot publish the earlier choos
   f.emit(); const collecting = f.backend.collectFileChooserWait(f.handle(ready)); collecting.catch(() => {});
   await entered.promise;
   const state = f.backend.siteAccess.status(); await f.backend.siteAccess.replace({ mode: "allow", origins: ["https://allowed.test"] }, state.revision, state.generation);
-  gate.resolve(); await assert.rejects(collecting, siteError);
+  // Collection may observe loaded=false during the actual policy write, before
+  // the later revision check. Both are typed denials of the old chooser.
+  gate.resolve(); await assert.rejects(collecting, new RegExp(`${siteError.source}|OBU_SITE_ACCESS_UNAVAILABLE:`));
+  assert.equal(f.backend.siteAccess.status().ready, true);
+  assert.equal(f.backend.siteAccess.status().revision, state.revision + 1);
   assert.equal(f.backend.fileChoosersById.size, 0);
+  assert.equal(f.calls.some(row => row.method === "DOM.setFileInputFiles"), false);
 });
 
 test("same URL document replacement after chooser collection never remints a submission token", async t => {

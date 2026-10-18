@@ -336,7 +336,7 @@ func TestResultPublicFixtureEqualsActualGoProjection(t *testing.T) {
 		t.Fatal("result public golden differs from actual Go projection")
 	}
 	encoded := string(jsonBytes(actual))
-	for _, private := range []string{"channelId", "portId", "runId", "extensionId", "lastInputSequence", "targetId"} {
+	for _, private := range []string{"channelId", "portId", "runId", "extensionId", "lastInputSequence", "targetId", "recoveryState", "workerRecovery", "browserIncarnation", "journalId", "workerEpoch", "retiredViews"} {
 		if strings.Contains(encoded, `"`+private+`"`) {
 			t.Fatalf("private field leaked: %s", private)
 		}

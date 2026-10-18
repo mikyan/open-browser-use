@@ -247,9 +247,10 @@ Agent 已暂停且清理完成时同样可用，完成接管后仍保持暂停�
 继续 Agent 或断开连接时，都要等待原查看资源的真实释放。页面被关闭、移动、
 替换或由新的合法任务重新取得控制后，旧结果选择失效。
 
-当前结果登记限定在原 managed worker/run 中，worker 重启后不会根据展示
-分组或旧磁盘记录自动恢复权限。这项恢复能力仍待实现。`managed stop` 仍会
-关闭整个浏览器，不提供停止后保留窗口；需先保存或导出结果。
+已发布预览的结果登记限定在原 managed worker/run 中，worker 重启后不会根据
+展示分组自动恢复权限。开发源码新增显式恢复原结果的路径，见
+[worker 替换恢复](managed-worker-recovery.md)，尚未进入上述安装包。
+`managed stop` 仍会关闭整个浏览器，不提供停止后保留窗口；需先保存或导出结果。
 
 固定 Windows Chromium 的 `managed-result-VGrDlV` 六步实际 exit 0：
 正式 finalize 原 A，运行和暂停时只读查看，50 项人工输入经过 302、子 frame
@@ -286,6 +287,9 @@ target 和 document，Agent 仍暂停；要继续自动操作，需在新查看�
 的 `A6UPE3` 六步验收通过：一次真实 Native 退出、显式恢复、原结果查看和人工
 接续、旧票据拒绝及最终清理均确认。原结果文档和唯一提交回执保留，恢复后未
 自动 Resume。该有限结果不包含真正 worker 替换、浏览器重启或在途输入恢复。
+
+以上为已发布预览的同 worker 恢复边界。开发源码的真正 worker 替换恢复另见
+[契约与验证入口](managed-worker-recovery.md)，不据此扩大发布包已有能力。
 
 Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运行目录、
 唯一 HKCU Native Messaging 注册和浏览器进程树。暂存扩展只变更公开 key

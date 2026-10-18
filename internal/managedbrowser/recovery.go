@@ -49,14 +49,19 @@ type nativeConnectionRecord struct {
 	Exit              *exitReceipt            `json:"exit,omitempty"`
 	ExitConfirmed     bool                    `json:"exitConfirmed"`
 	ControllerCleanup *acknowledgement        `json:"controllerCleanup,omitempty"`
+	ExecutionEnd      *managedExecutionEnd    `json:"executionEnd,omitempty"`
+	WorkerRecovery    *acknowledgement        `json:"workerRecovery,omitempty"`
+	Worker            *managedWorkerIdentity  `json:"worker,omitempty"`
+	RecoveryState     *managedRecoveryState   `json:"recoveryState,omitempty"`
 	Error             string                  `json:"error,omitempty"`
 }
 
 type nativeConnection struct {
-	handle     managedNativeHandle
-	done       chan struct{}
-	record     nativeConnectionRecord
-	controller *UserController
+	handle         managedNativeHandle
+	done           chan struct{}
+	record         nativeConnectionRecord
+	controller     *UserController
+	exitBeforeStop bool
 }
 
 // The unexported seam keeps process/transport ownership in this module. Tests
@@ -65,7 +70,7 @@ type nativeRecoveryHooks struct {
 	read func() (host.ActiveSocketRecord, error)
 	hold func(int) (managedNativeHandle, error)
 	call func(context.Context, string, string, any, any) error
-	open func(context.Context, string, managedUserIdentity, <-chan struct{}, *managedWorkerIdentity, func(*UserController)) (*UserController, error)
+	open func(context.Context, string, managedUserIdentity, <-chan struct{}, *managedWorkerAdmission, func(*UserController)) (*UserController, error)
 }
 
 func (s *Session) RecoveryStatus() RecoveryStatus {
@@ -132,9 +137,57 @@ func (s *Session) observeNative(connection *nativeConnection) {
 }
 
 func (s *Session) retainController(controller *UserController) {
+	controller.mu.Lock()
+	controller.executionEndHook = func(proof managedExecutionEnd) { s.recordControllerExecutionEnd(controller, proof) }
+	controller.mu.Unlock()
 	s.mu.Lock()
 	s.controllers = append(s.controllers, controller)
 	s.mu.Unlock()
+}
+
+func (s *Session) recordControllerExecutionEnd(controller *UserController, proof managedExecutionEnd) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, connection := range s.nativeConnections {
+		if connection.controller == controller {
+			copy := proof
+			connection.record.ExecutionEnd = &copy
+			if s.recovery.State != "closing" && s.recovery.State != "closed" {
+				if err := s.saveLocked(); err != nil {
+					s.recoveryUnconfirmed = true
+					s.recovery.Error = "worker execution end lifecycle could not be saved"
+				}
+			}
+			s.notifyLocked()
+			return
+		}
+	}
+}
+
+func (s *Session) observeController(controller *UserController) {
+	<-controller.Done()
+	controller.mu.Lock()
+	var ended *managedExecutionEnd
+	if controller.executionEnd != nil {
+		copy := *controller.executionEnd
+		ended = &copy
+	}
+	controller.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if controller != s.userCurrent || s.recovery.State != "ready" {
+		return
+	}
+	s.recovery.State, s.recovery.Error = "degraded", "original worker control ended; explicit recovery or Stop is required"
+	s.record.State = "degraded"
+	if s.currentNative != nil {
+		s.currentNative.record.ExecutionEnd = ended
+	}
+	if err := s.saveLocked(); err != nil {
+		s.recovery.Error = "worker loss lifecycle could not be saved"
+		s.recoveryUnconfirmed = true
+	}
+	s.notifyLocked()
 }
 
 func (s *Session) recoveryOperations() nativeRecoveryHooks {
@@ -248,12 +301,21 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 	if err = previous.Close(ctx); err != nil {
 		return nil, fmt.Errorf("original user cleanup is not confirmed: %w", err)
 	}
-	cleanup, err := previous.recoveryCleanup()
+	witness, err := previous.recoveryWitness()
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
+	previous.mu.Lock()
+	cleanup := append(json.RawMessage(nil), previous.cleanupReceipt...)
+	state := previous.recoveryState
+	viewLease := ""
+	if previous.viewStatus != nil && previous.viewStatus.State != "released" {
+		viewLease = previous.viewStatus.LeaseID
+	}
+	previous.mu.Unlock()
 	old.record.ControllerCleanup = receipt(cleanup, nil)
+	old.record.ExecutionEnd = witness.ExecutionEnd
 	s.mu.Unlock()
 	ops := s.recoveryOperations()
 	var descriptor host.ActiveSocketRecord
@@ -282,19 +344,17 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 			return nil, ctx.Err()
 		}
 	}
-	handle, err := ops.hold(descriptor.PID)
+	candidate, err = s.retainNativeCandidate(descriptor, ops)
 	if err != nil {
 		return nil, err
 	}
-	// A held original handle, not the descriptor timestamp, establishes this
-	// process identity. Retain even a rejected candidate for final accounting.
-	candidate = &nativeConnection{handle: handle, done: make(chan struct{}), record: nativeConnectionRecord{Epoch: old.record.Epoch + 1, Descriptor: descriptor, CreationTime: handle.CreationTime()}}
-	s.mu.Lock()
-	s.nativeConnections = append(s.nativeConnections, candidate)
-	s.mu.Unlock()
-	go s.waitNative(candidate)
 	if candidate.record.CreationTime <= old.record.CreationTime || descriptor.SocketPath == old.record.Descriptor.SocketPath {
 		return nil, errors.New("replacement native process or endpoint did not change")
+	}
+	select {
+	case <-candidate.done:
+		return nil, errors.New("replacement native process already exited")
+	default:
 	}
 	var backend struct {
 		Type     string `json:"type"`
@@ -325,8 +385,22 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 	if err = json.Unmarshal(binding, &identity); err != nil {
 		return nil, err
 	}
-	if identity.WorkerBootID != worker.WorkerBootID || identity.PortID == previous.identity.PortID {
-		return nil, errors.New("managed recovery requires the same original worker and a new native Port")
+	if identity.PortID == previous.identity.PortID {
+		return nil, errors.New("managed recovery requires a new native Port")
+	}
+	admission := &managedWorkerAdmission{Original: worker, State: state, ViewLeaseID: viewLease}
+	if witness.Kind == "worker-execution-ended" {
+		if identity.WorkerBootID == worker.WorkerBootID {
+			return nil, errors.New("replacement worker boot identity did not change")
+		}
+		nonce, nonceErr := randomID()
+		if nonceErr != nil {
+			return nil, nonceErr
+		}
+		admission.Replacement = &managedWorkerRecoveryRequest{Kind: "worker-replacement", PreviousWorkerBootID: worker.WorkerBootID,
+			BrowserIncarnation: state.BrowserIncarnation, ExpectedJournalID: state.JournalID, ExpectedWorkerEpoch: state.WorkerEpoch, Nonce: nonce}
+	} else if identity.WorkerBootID != worker.WorkerBootID {
+		return nil, errors.New("managed recovery worker changed without original execution end evidence")
 	}
 	var oldBinding, newBinding struct{ Generation string }
 	if json.Unmarshal(old.record.Binding, &oldBinding) != nil || json.Unmarshal(binding, &newBinding) != nil || oldBinding.Generation == "" || oldBinding.Generation == newBinding.Generation {
@@ -336,7 +410,7 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 	if err = s.recoveryAlive(ctx); err != nil {
 		return nil, err
 	}
-	prepared, err = ops.open(ctx, root, identity, s.ownerTerminated, &worker, func(controller *UserController) {
+	prepared, err = ops.open(ctx, root, identity, s.ownerTerminated, admission, func(controller *UserController) {
 		s.retainController(controller)
 		s.mu.Lock()
 		candidate.controller = controller
@@ -352,10 +426,25 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 	if err = recoveryPaused(status); err != nil {
 		return nil, err
 	}
+	if admission.Replacement != nil {
+		prepared.mu.Lock()
+		workerReceipt := append(json.RawMessage(nil), prepared.workerRecovery...)
+		prepared.mu.Unlock()
+		s.mu.Lock()
+		candidate.record.WorkerRecovery = receipt(workerReceipt, nil)
+		s.mu.Unlock()
+	}
 	observed, err := ops.read()
 	if err != nil || observed != descriptor {
 		return nil, errors.New("replacement native descriptor changed before commit")
 	}
+	preparedWorker := prepared.workerIdentity()
+	prepared.mu.Lock()
+	preparedState := prepared.recoveryState
+	prepared.mu.Unlock()
+	s.mu.Lock()
+	candidate.record.Worker, candidate.record.RecoveryState = &preparedWorker, &preparedState
+	s.mu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err = contextError(ctx); err != nil || s.recovery.State != "recovering" {
@@ -379,6 +468,7 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 	s.recovery = RecoveryStatus{State: "ready", Epoch: candidate.record.Epoch}
 	s.record.State = "ready"
 	go s.observeNative(candidate)
+	go s.observeController(prepared)
 	return prepared, nil
 }
 

@@ -50,6 +50,7 @@ async function fixture({ managed = true, command, write, detach, authority = () 
   const Backend = vm.runInNewContext(`${code}\nBrowserBackend;`, { chrome, Date, URL, setTimeout, clearTimeout,
     managedConfig: managed ? { version: 1, nativeHostName: "com.openbrowseruse.managed.n0123456789abcdef0123456789abcdef" } : null });
   const backend = new Backend(); await backend.controlReady;
+  if (managed) backend.commitManagedUserOpen(await backend.prepareManagedUserOpen({ workerBootId: "fixture-worker" }));
   const session = await backend.store.getSession("task"); session.chromeGroupId = 10; session.tabOrigins = { 7: "agent" }; await backend.store.save();
   const first = await backend.getControlState({ session_id: "task" });
   const params = { session_id: "task", turn_id: first.nextTurnId, control_epoch: first.controlEpoch, tabId: 7 };
@@ -142,9 +143,12 @@ test("worker restart preserves a human input risk instead of silently resuming",
   const f = await fixture(), handle = await f.begin();
   await input(handle, { type: "key", action: "down", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
   assert.equal(f.storage.OPEN_BROWSER_USE_INPUT_RISKS.risks.length, 1);
+  const before = f.calls.length;
   const restarted = new f.Backend(); await restarted.controlReady;
   assert.equal((await restarted.getAutomationControlStatus()).state, "error");
-  await assert.rejects(restarted.resumeAutomation(restarted.automationControl.revision), /PAUSE_INCOMPLETE/);
+  await assert.rejects(restarted.resumeAutomation(restarted.automationControl.revision), /OBU_MANAGED_WORKER_RECOVERY_REQUIRED/);
+  await assert.rejects(restarted.prepareManagedUserOpen({ workerBootId: "replacement-worker" }), /OBU_INPUT_RELEASE_UNCONFIRMED/);
+  assert.equal(f.calls.slice(before).some(([method]) => method.startsWith("Input.")), false);
   await handle.close();
 });
 

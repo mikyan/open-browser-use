@@ -24,28 +24,98 @@ type userTestRequest struct {
 	Arguments map[string]json.RawMessage
 }
 
+func TestManagedUserLifecycleDiagnosticsAreFixedCodesOnly(t *testing.T) {
+	known := []string{
+		"OBU_MANAGED_JOURNAL_UNCONFIRMED",
+		"OBU_MANAGED_WORKER_RECOVERY_REQUIRED", "OBU_MANAGED_WORKER_UNAVAILABLE",
+		"OBU_MANAGED_NATIVE_CHANGED", "OBU_MANAGED_NATIVE_PAUSE_INCOMPLETE", "OBU_MANAGED_NATIVE_RECOVERY_REQUIRED",
+		"OBU_NATIVE_RECOVERY_PENDING", "OBU_NATIVE_RECOVERY_FAILED", "OBU_NATIVE_CONNECTION_LOST",
+		"OBU_MANAGED_RESULT_UNAVAILABLE", "OBU_MANAGED_RESULT_STALE", "OBU_MANAGED_RESULT_CAPACITY",
+		"OBU_BROWSER_LIFETIME_INVALID", "OBU_INPUT_RELEASE_UNCONFIRMED", "OBU_INPUT_RISK_LIMIT",
+	}
+	check := func(description, expected string) {
+		t.Helper()
+		data, _ := json.Marshal(map[string]any{
+			"result":           map[string]any{"description": description},
+			"exceptionDetails": map[string]any{"text": "private-key", "exception": map[string]any{"description": "private stack and expression"}},
+		})
+		value, err := bridgeValue(data)
+		var rejected *userBridgeError
+		if value != nil || !errors.As(err, &rejected) || rejected.UserErrorCode() != expected || err.Error() != "managed user bridge rejected request: "+expected {
+			t.Fatalf("diagnostic did not retain only its fixed code: %v", err)
+		}
+	}
+	for _, code := range known {
+		t.Run(code, func(t *testing.T) {
+			check("Error: "+code+": private-key\n    at private-stack", code)
+			check(code+": private-key", code)
+			check("Error: "+code+"_PRIVATE_KEY: private diagnostic", "UNKNOWN")
+			check("Error: "+code+" : private diagnostic", "UNKNOWN")
+			check("Error: "+code+"\n: private diagnostic", "UNKNOWN")
+			check("Error: private diagnostic contains "+code+": misleading", "UNKNOWN")
+			check("Error: "+code, "UNKNOWN")
+		})
+	}
+	for _, code := range []string{"OBU_MANAGED_JOURNAL_PRIVATE_KEY", "OBU_MANAGED_WORKER_PRIVATE_KEY", "OBU_NATIVE_PRIVATE_KEY", "OBU_PRIVATE_KEY"} {
+		check("Error: "+code+": private diagnostic", "UNKNOWN")
+	}
+}
+
+func TestManagedUserInitialOpenRetainsFixedJournalFailure(t *testing.T) {
+	f := newUserFixture(t, func(f *userFixture, req userTestRequest) bool {
+		if req.Operation != "open" {
+			return false
+		}
+		if req.Arguments["recovery"] != nil {
+			t.Error("initial open unexpectedly sent replacement recovery")
+		}
+		f.rejected(req, "OBU_MANAGED_JOURNAL_UNCONFIRMED")
+		return true
+	}, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	identity := f.identity
+	identity.ChannelID = ""
+	var retained *UserController
+	controller, err := openUserControllerRetained(ctx, f.endpoint(), identity, f.owner, nil, func(c *UserController) { retained = c })
+	var rejected *userBridgeError
+	if controller != nil || retained == nil || !errors.As(err, &rejected) || rejected.UserErrorCode() != "OBU_MANAGED_JOURNAL_UNCONFIRMED" || strings.Contains(err.Error(), "private") {
+		t.Fatalf("initial open lost its bounded journal diagnostic: %v", err)
+	}
+	f.ownerOnce.Do(func() { close(f.owner) })
+	if retained != nil {
+		if err := retained.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 type userFixture struct {
-	t         *testing.T
-	server    *httptest.Server
-	conn      *websocket.Conn
-	ready     chan struct{}
-	owner     chan struct{}
-	ownerOnce sync.Once
-	mu        sync.Mutex
-	requests  []userTestRequest
-	identity  managedUserIdentity
-	sequence  uint64
-	selected  any
-	revision  uint64
-	paused    bool
-	intercept func(*userFixture, userTestRequest) bool
-	duplicate bool
+	t          *testing.T
+	server     *httptest.Server
+	conn       *websocket.Conn
+	ready      chan struct{}
+	owner      chan struct{}
+	ownerOnce  sync.Once
+	mu         sync.Mutex
+	requests   []userTestRequest
+	identity   managedUserIdentity
+	contextUID string
+	contextID  int64
+	targetID   string
+	sequence   uint64
+	selected   any
+	revision   uint64
+	paused     bool
+	intercept  func(*userFixture, userTestRequest) bool
+	duplicate  bool
 }
 
 func newUserFixture(t *testing.T, intercept func(*userFixture, userTestRequest) bool, duplicate bool) *userFixture {
 	t.Helper()
 	f := &userFixture{t: t, ready: make(chan struct{}), owner: make(chan struct{}), intercept: intercept, duplicate: duplicate,
-		identity: managedUserIdentity{Version: 1, RunID: strings.Repeat("a", 32), ExtensionID: strings.Repeat("b", 32), ExtensionInstanceID: "installation", WorkerBootID: "worker-boot", PortID: "native-port", ChannelID: "channel-id"}}
+		identity:   managedUserIdentity{Version: 1, RunID: strings.Repeat("a", 32), ExtensionID: strings.Repeat("b", 32), ExtensionInstanceID: "installation", WorkerBootID: "worker-boot", PortID: "native-port", ChannelID: "channel-id"},
+		contextUID: "original-context", contextID: 7, targetID: "owned-worker"}
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -71,7 +141,7 @@ func newUserFixture(t *testing.T, intercept func(*userFixture, userTestRequest) 
 					AwaitPromise, ReturnByValue bool
 				}
 				_ = json.Unmarshal(req.Params, &p)
-				if p.UniqueContextID != "original-context" || !p.AwaitPromise || !p.ReturnByValue {
+				if p.UniqueContextID != f.contextUID || !p.AwaitPromise || !p.ReturnByValue {
 					t.Errorf("unfenced evaluation: %s", req.Params)
 					return
 				}
@@ -169,7 +239,7 @@ func (f *userFixture) emit(kind string, extra map[string]any) uint64 {
 		value["status"] = f.status()
 	}
 	payload, _ := json.Marshal(value)
-	f.write(map[string]any{"method": "Runtime.bindingCalled", "sessionId": "worker-session", "params": map[string]any{"name": userBindingName, "executionContextId": 7, "payload": string(payload)}})
+	f.write(map[string]any{"method": "Runtime.bindingCalled", "sessionId": "worker-session", "params": map[string]any{"name": userBindingName, "executionContextId": f.contextID, "payload": string(payload)}})
 	return sequence
 }
 func (f *userFixture) frame(stream string, sequence uint64, body []byte) uint64 {
@@ -178,7 +248,7 @@ func (f *userFixture) frame(stream string, sequence uint64, body []byte) uint64 
 func (f *userFixture) respond(req userTestRequest) {
 	switch req.Method {
 	case "Target.getTargets":
-		targets := []any{map[string]any{"targetId": "page-must-not-attach", "type": "page", "url": "https://fixture.invalid"}, map[string]any{"targetId": "foreign-worker", "type": "service_worker", "url": "chrome-extension://foreign/background.js"}, map[string]any{"targetId": "owned-worker", "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"}}
+		targets := []any{map[string]any{"targetId": "page-must-not-attach", "type": "page", "url": "https://fixture.invalid"}, map[string]any{"targetId": "foreign-worker", "type": "service_worker", "url": "chrome-extension://foreign/background.js"}, map[string]any{"targetId": f.targetID, "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"}}
 		if f.duplicate {
 			targets = append(targets, map[string]any{"targetId": "duplicate-worker", "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"})
 		}
@@ -189,12 +259,12 @@ func (f *userFixture) respond(req userTestRequest) {
 			Flatten  bool
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		if p.TargetID != "owned-worker" || !p.Flatten {
+		if p.TargetID != f.targetID || !p.Flatten {
 			f.t.Errorf("foreign attach %s", req.Params)
 		}
 		f.reply(req, map[string]any{"sessionId": "worker-session"})
 	case "Runtime.enable":
-		f.write(map[string]any{"method": "Runtime.executionContextCreated", "sessionId": "worker-session", "params": map[string]any{"context": map[string]any{"id": 7, "uniqueId": "original-context", "origin": "chrome-extension://" + f.identity.ExtensionID}}})
+		f.write(map[string]any{"method": "Runtime.executionContextCreated", "sessionId": "worker-session", "params": map[string]any{"context": map[string]any{"id": f.contextID, "uniqueId": f.contextUID, "origin": "chrome-extension://" + f.identity.ExtensionID}}})
 		f.reply(req, map[string]any{})
 	case "Runtime.addBinding":
 		var p struct {
@@ -202,7 +272,7 @@ func (f *userFixture) respond(req userTestRequest) {
 			ExecutionContextID int64 `json:"executionContextId"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		if p.Name != userBindingName || p.ExecutionContextID != 7 {
+		if p.Name != userBindingName || p.ExecutionContextID != f.contextID {
 			f.t.Errorf("unscoped binding %s", req.Params)
 		}
 		f.reply(req, map[string]any{})
@@ -213,6 +283,7 @@ func (f *userFixture) respond(req userTestRequest) {
 			value := map[string]any{}
 			_ = json.Unmarshal(data, &value)
 			value["status"] = f.status()
+			value["recoveryState"] = map[string]any{"version": 1, "browserIncarnation": "original-browser-incarnation", "journalId": "original-journal", "workerEpoch": 1}
 			f.evaluated(req, value)
 		case "status":
 			f.evaluated(req, map[string]any{"status": f.status()})

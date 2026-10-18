@@ -80,10 +80,11 @@ func TestManagedHumanWorkerDeathIsNotHeldInputCleanup(t *testing.T) {
 	// replaced by the service worker disappearing while the renderer survives.
 	f.write(map[string]any{"method": "Target.targetDestroyed", "params": map[string]any{"targetId": "owned-worker"}})
 	userWait(t, c.Done())
+	userWait(t, c.cleanupFailed)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
-	if err := c.Close(ctx); err == nil {
+	if err := c.Close(ctx); err != ErrUserCleanupPendingOwnedExit {
 		cancel()
-		t.Fatal("worker death claimed human cleanup")
+		t.Fatalf("worker death did not retain the exact owned-exit wait: %v", err)
 	}
 	cancel()
 	select {
@@ -111,6 +112,12 @@ func TestManagedHumanWorkerDeathIsNotHeldInputCleanup(t *testing.T) {
 	result, err := c.Command(ctx, json.RawMessage(`{"operation":"select","tabId":null}`))
 	if err != nil || !strings.Contains(string(result), `"cleanupProof":"session-terminated"`) {
 		t.Fatalf("missing owned exit proof %s %v", result, err)
+	}
+	if _, err := c.recoveryWitness(); err == nil {
+		t.Fatal("owned Browser exit became worker recovery permission")
+	}
+	if _, err := c.recoveryCleanup(); err == nil {
+		t.Fatal("owned Browser exit became original native resource cleanup")
 	}
 }
 

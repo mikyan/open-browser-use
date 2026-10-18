@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "scope": "Production bridge output with simulated worker handoff, journal and native cleanup; no browser, IndexedDB durability or native ACK acceptance",
+  "oldOpen": {
+    "version": 1,
+    "channelId": "channel-original",
+    "runId": "0123456789abcdef0123456789abcdef",
+    "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "extensionInstanceId": "worker-recovery-instance",
+    "workerBootId": "worker-original",
+    "portId": "port-original",
+    "status": {
+      "version": 1,
+      "channelId": "channel-original",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-original",
+      "portId": "port-original",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 1,
+        "cleanupComplete": true
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Original delivered result",
+          "url": "https://fixture.invalid/result",
+          "kind": "result",
+          "deliveryId": "delivery-original",
+          "watchable": true,
+          "takeover": true
+        }
+      ],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 0,
+      "human": null,
+      "view": null
+    },
+    "recoveryState": {
+      "version": 1,
+      "browserIncarnation": "browser-original",
+      "journalId": "journal-original",
+      "workerEpoch": 1
+    }
+  },
+  "oldSelect": {
+    "status": {
+      "version": 1,
+      "channelId": "channel-original",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-original",
+      "portId": "port-original",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": 7,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 1,
+        "cleanupComplete": true
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Original delivered result",
+          "url": "https://fixture.invalid/result",
+          "kind": "result",
+          "deliveryId": "delivery-original",
+          "watchable": true,
+          "takeover": true
+        }
+      ],
+      "stream": {
+        "state": "starting",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 1,
+      "human": null,
+      "view": {
+        "state": "active",
+        "leaseId": "view-original",
+        "tabId": 7,
+        "generation": 0,
+        "viewport": null,
+        "lastInputSequence": 0
+      }
+    }
+  },
+  "recovery": {
+    "kind": "worker-replacement",
+    "previousWorkerBootId": "worker-original",
+    "browserIncarnation": "browser-original",
+    "expectedJournalId": "journal-original",
+    "expectedWorkerEpoch": 1,
+    "nonce": "manager-recovery-nonce"
+  },
+  "recoveredOpen": {
+    "version": 1,
+    "channelId": "channel-replacement",
+    "runId": "0123456789abcdef0123456789abcdef",
+    "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "extensionInstanceId": "worker-recovery-instance",
+    "workerBootId": "worker-replacement",
+    "portId": "port-replacement",
+    "status": {
+      "version": 1,
+      "channelId": "channel-replacement",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-replacement",
+      "portId": "port-replacement",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 2,
+        "cleanupComplete": true
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Original delivered result",
+          "url": "https://fixture.invalid/result",
+          "kind": "result",
+          "deliveryId": "delivery-replacement",
+          "watchable": true,
+          "takeover": true
+        }
+      ],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 0,
+      "human": null,
+      "view": null
+    },
+    "recoveryState": {
+      "version": 1,
+      "browserIncarnation": "browser-original",
+      "journalId": "journal-original",
+      "workerEpoch": 2
+    },
+    "workerRecovery": {
+      "kind": "worker-replacement",
+      "nonce": "manager-recovery-nonce",
+      "previousWorkerBootId": "worker-original",
+      "workerBootId": "worker-replacement",
+      "browserIncarnation": "browser-original",
+      "journalId": "journal-original",
+      "fromWorkerEpoch": 1,
+      "toWorkerEpoch": 2,
+      "inputRiskClear": true,
+      "paused": true,
+      "retiredViews": [
+        {
+          "leaseId": "view-original",
+          "targetId": "target-original",
+          "outcome": "stopped-and-detached",
+          "stopAcknowledged": true,
+          "detachAcknowledged": true
+        }
+      ]
+    }
+  },
+  "status": {
+    "status": {
+      "version": 1,
+      "channelId": "channel-replacement",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-replacement",
+      "portId": "port-replacement",
+      "connected": true,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000010000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 2,
+        "cleanupComplete": true
+      },
+      "tabs": [
+        {
+          "id": 7,
+          "title": "Original delivered result",
+          "url": "https://fixture.invalid/result",
+          "kind": "result",
+          "deliveryId": "delivery-replacement",
+          "watchable": true,
+          "takeover": true
+        }
+      ],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 0,
+      "human": null,
+      "view": null
+    }
+  },
+  "disconnect": {
+    "disconnected": true,
+    "status": {
+      "version": 1,
+      "channelId": "channel-replacement",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-replacement",
+      "portId": "port-replacement",
+      "connected": false,
+      "leaseMs": 10000,
+      "heartbeatMs": 3000,
+      "expiresAt": 1700000000000,
+      "selectedTabId": null,
+      "automation": {
+        "state": "paused",
+        "inputBlocked": true,
+        "revision": 2,
+        "cleanupComplete": true
+      },
+      "tabs": [],
+      "stream": {
+        "state": "idle",
+        "streamId": null
+      },
+      "cleanupPending": 0,
+      "eventSequence": 1,
+      "human": null,
+      "view": null
+    }
+  },
+  "oldEvents": [
+    {
+      "version": 1,
+      "channelId": "channel-original",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-original",
+      "portId": "port-original",
+      "type": "status",
+      "status": {
+        "version": 1,
+        "channelId": "channel-original",
+        "runId": "0123456789abcdef0123456789abcdef",
+        "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "extensionInstanceId": "worker-recovery-instance",
+        "workerBootId": "worker-original",
+        "portId": "port-original",
+        "connected": true,
+        "leaseMs": 10000,
+        "heartbeatMs": 3000,
+        "expiresAt": 1700000010000,
+        "selectedTabId": 7,
+        "automation": {
+          "state": "paused",
+          "inputBlocked": true,
+          "revision": 1,
+          "cleanupComplete": true
+        },
+        "tabs": [
+          {
+            "id": 7,
+            "title": "Original delivered result",
+            "url": "https://fixture.invalid/result",
+            "kind": "result",
+            "deliveryId": "delivery-original",
+            "watchable": true,
+            "takeover": true
+          }
+        ],
+        "stream": {
+          "state": "starting",
+          "streamId": null
+        },
+        "cleanupPending": 0,
+        "eventSequence": 1,
+        "human": null,
+        "view": {
+          "state": "active",
+          "leaseId": "view-original",
+          "tabId": 7,
+          "generation": 0,
+          "viewport": null,
+          "lastInputSequence": 0
+        }
+      },
+      "sequence": 1
+    }
+  ],
+  "newEvents": [
+    {
+      "version": 1,
+      "channelId": "channel-replacement",
+      "runId": "0123456789abcdef0123456789abcdef",
+      "extensionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extensionInstanceId": "worker-recovery-instance",
+      "workerBootId": "worker-replacement",
+      "portId": "port-replacement",
+      "type": "closed",
+      "reason": "manager disconnected",
+      "sequence": 1
+    }
+  ],
+  "calls": [
+    {
+      "operation": "simulatedAdmission",
+      "workerBootId": "worker-original"
+    },
+    {
+      "operation": "simulatedAdmissionCommitted",
+      "workerBootId": "worker-original"
+    },
+    {
+      "operation": "simulatedAdmission",
+      "workerBootId": "worker-replacement"
+    },
+    {
+      "operation": "simulatedAdmissionCommitted",
+      "workerBootId": "worker-replacement"
+    }
+  ]
+}

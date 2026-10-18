@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import vm from "./test-support/backend-vm.mjs";
 import assert from "node:assert/strict";
+import { ManagedResultPages } from "./managed-result-pages.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BG_PATH = path.join(HERE, "background.js");
@@ -214,6 +215,7 @@ function makeController(SessionStore, BrowserBackend) {
   controller.store = store;
   controller.browserLifetime = lifetime;
   controller.automationControl = { assertOpen() {} };
+  controller.managedResults = new ManagedResultPages({ runId: null, isCurrent: lifetime.isCurrent });
   controller.activeTabsBySession = new Map();
   return { controller, store };
 }

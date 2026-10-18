@@ -7,14 +7,22 @@
 
 ## 当前基线
 
-用户最新要求的新包 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c) 已从干净提交
+最新可下载包为 [preview-20261017-6588984](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-6588984)，
+运行功能与 a4e6b0c 相同。本轮继续开发，未自动制作新包。当前源码新增真正
+worker 替换恢复：固定 Windows 的 `mwr-r-esLC1h` 与独立 held-input
+`mwr-h-Fv7gx8` 各六步 actual exit 0；原结果保留、新权限保持暂停，未知输入
+拒绝恢复且可正常 Stop。扩展 2,075 项及 Go 全包/vet/build 通过，原失败保留。
+详细实现和证据见[隔离会话计划](2026-10-16-managed-browser-session.md)与
+[恢复契约](../../references/managed-worker-recovery.md)。整体目标仍 active。
+
+此前新包 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c) 已从干净提交
 `a4e6b0cb5142d7e34c94c2857e4420ce28804a61` 重建并发布。离线 CLI/MCP 30 工具、独立制品 5,510 项检查、4 个发布资产回下载哈希及本地副本核对通过。
 完整包/扩展/Skill 分别为 98/71/6 文件，499 项源码输入逐项匹配。
 功能包含固定 CfT 156.0.8078.12 的显式安装、离线默认选择，以及原 Browser/profile/
 worker/context 内的 `managed recover`；恢复保留原结果并保持暂停。`A6UPE3` 原始
 六步恢复和停止后独审已通过；本轮打包未重跑网页业务，原失败记录保持独立。
 已有连续导航人工接管、结果页接续和 managed 原下载的限定验收分别保留。
-真正 worker 替换恢复仅完成设计，尚未实现或验收；整体 P01–P15 保持 active。
+该包发布时真正 worker 替换恢复仅完成设计，尚未实现或验收；整体 P01–P15 保持 active。
 普通公司 Edge、独立 OS 前台行为、真实登录/IME/SSO/MFA、平台矩阵及完整能力
 比较仍开放。见[隔离会话计划](2026-10-16-managed-browser-session.md)。
 

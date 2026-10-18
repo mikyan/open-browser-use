@@ -19,6 +19,9 @@
 - [独立浏览器会话](managed-browser-session.md)：实验性 Windows launcher、
   CLI/MCP 选择、真实 Native Messaging 和进程清理，以及 viewer/登录边界。
 
+- [Managed worker 替换恢复](managed-worker-recovery.md)：原结果持久记录、
+  明确恢复与新权限、原查看附件清理、未知输入拒绝及原会话停止边界。
+
 - [两轮完整任务对照](paired-task-comparison.md)：固定 24 次原始尝试、失败保留、
   正式 API/业务/清理证据与有限结论；附脱敏 SHA 索引。
 

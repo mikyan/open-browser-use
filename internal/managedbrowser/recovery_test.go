@@ -125,11 +125,14 @@ type recoveryFixture struct {
 	bindCalls  int
 }
 
-func newRecoveryFixture(t *testing.T) *recoveryFixture {
+func newRecoveryFixture(t *testing.T, configure ...func(*recoveryFixture)) *recoveryFixture {
 	t.Helper()
 	f := &recoveryFixture{old: newUserFixture(t, nil, false), next: newUserFixture(t, nil, false)}
 	f.next.identity.PortID = "replacement-port"
 	f.next.paused = true
+	for _, setup := range configure {
+		setup(f)
+	}
 	info := Info{Name: "recovery", RunID: f.old.identity.RunID, RunDir: t.TempDir(), BrowserPID: 10, NativePID: 11, SocketPath: `\\.\pipe\original-native`, ExtensionID: f.old.identity.ExtensionID, ExtensionInstanceID: f.old.identity.ExtensionInstanceID, NativeHostName: "original-native-host"}
 	f.s = &Session{info: info, done: make(chan struct{}), browserDone: make(chan struct{}), ownerTerminated: make(chan struct{}), changes: make(chan struct{}, 1), userRootURL: f.old.endpoint(), recovery: RecoveryStatus{State: "degraded", Epoch: 1}, record: lifecycle{Version: 1, State: "degraded", Info: info}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -182,7 +185,7 @@ func newRecoveryFixture(t *testing.T) *recoveryFixture {
 			data, _ := json.Marshal(value)
 			return json.Unmarshal(data, output)
 		},
-		open: func(ctx context.Context, root string, id managedUserIdentity, owner <-chan struct{}, expected *managedWorkerIdentity, retain func(*UserController)) (*UserController, error) {
+		open: func(ctx context.Context, root string, id managedUserIdentity, owner <-chan struct{}, expected *managedWorkerAdmission, retain func(*UserController)) (*UserController, error) {
 			if root != f.s.userRootURL {
 				t.Errorf("changed root %s", root)
 			}
@@ -190,6 +193,10 @@ func newRecoveryFixture(t *testing.T) *recoveryFixture {
 		},
 	}
 	t.Cleanup(func() {
+		if f.s.nativeObservationCancel != nil {
+			f.s.nativeObservationCancel()
+			<-f.s.nativeObservationDone
+		}
 		f.handle.exit()
 		f.s.ownerOnce.Do(func() { close(f.s.ownerTerminated) })
 		for _, controller := range f.s.controllers {
@@ -496,8 +503,8 @@ func TestManagedRecoveryStopJoinsHeldRiskOnlyAfterOriginalJobExit(t *testing.T) 
 	default:
 	}
 	close(root.gate)
-	if err := userWait(t, closed); err == nil || !strings.Contains(err.Error(), "current native connection exited with code 1") {
-		t.Fatalf("original current native abnormal exit was hidden: %v", err)
+	if err := userWait(t, closed); err != nil {
+		t.Fatalf("historical native fault poisoned completed Stop: %v", err)
 	}
 	select {
 	case <-f.previous.cleanupDone:
@@ -518,6 +525,9 @@ func TestManagedRecoveryStopJoinsHeldRiskOnlyAfterOriginalJobExit(t *testing.T) 
 	}
 	if result.JobEmpty == nil || result.State != "closed" || result.NativeConnections[0].ControllerCleanup == nil || proof.CleanupProof != "session-terminated" {
 		t.Fatalf("original termination proof lost: %s", data)
+	}
+	if result.NativeConnections[0].Exit == nil || *result.NativeConnections[0].Exit.Code != 1 || !result.NativeConnections[0].ExitConfirmed {
+		t.Fatal("historical native fault was erased")
 	}
 }
 

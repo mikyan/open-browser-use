@@ -122,6 +122,10 @@ debugger、history 和 tab groups。
   经重新挑战后才能建立新的 controller 和 HTTP viewer；恢复后仍暂停。历史
   进程句柄、退出事实与故障错误均保留，Stop 取消并等待未决恢复。原 Browser
   Job 实际清空的通知独立于 Session.Done，避免失败 controller 的清理互等。
+  开发源码另支持真实 worker 执行替换：分别核对原执行终结与 Native 退出，
+  经新 context/boot 和连接挑战校验原 journal，再恢复已验证的原结果；仍暂停。
+  未知输入不恢复；被动 Native 观察只保留原 Job 内真实进程的清理归属，
+  不授予连接权限。详见[worker 恢复](references/managed-worker-recovery.md)。
   实验性的 `StartSetup` 与 `Start` 共用资料目录锁和进程生命周期；显式 setup
   打开可见浏览器但禁用扩展，不产生 native 注册或任务 endpoint。管理 status
   明确报告 setup，CLI/MCP 任务选择拒绝该模式；只有原树退出后才释放资料目录。
@@ -148,8 +152,10 @@ debugger、history 和 tab groups。
   分开，结果选择固定 deliveryId，重新取得任务控制会撤旧用户记录并等待原
   view 清理。只读 view 与 human 共用原 native/TimeTicks/generation 生命周期，
   但无输入、Pause、焦点模拟或输入风险标记；结果可在暂停完成时查看和接管。
-  user-view 的状态必须先于匹配帧穿过 Go/HTTP/UI。记录目前限定原 worker/run，
-  重启恢复及停止后保留窗口仍未实现；新结果流程的真实验收见隔离会话计划。
+  user-view 的状态必须先于匹配帧穿过 Go/HTTP/UI。开发源码以独立
+  `managed-result-journal.js` 事务持久化原结果 lineage、epoch 和 view 义务；
+  替换 worker 清理原 view 后重新校验当前精确页面并签发新 deliveryId，
+  旧权限不恢复。该功能尚未入包，停止后保留窗口仍未实现；验收见隔离会话计划。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker
   挑战和原Page GUID下载记录。Host私有Port通路接收扩展已授权的claim，路径
   仅来自该连接的原生completed事件；普通安装不自动建立此连接。

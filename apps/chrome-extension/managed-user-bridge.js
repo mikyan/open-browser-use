@@ -453,10 +453,16 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     } finally { channel.stateEpoch++; }
   }
   async function open(input) {
-    const value = fields(input, ["version", ...identityKeys, "channelKey"]);
+    const value = fields(input, ["version", ...identityKeys, "channelKey"], ["recovery"]);
     if (value.version !== 1 || value.runId !== runId || !text(value.extensionId, 32) || !/^[a-p]{32}$/.test(value.extensionId) ||
         !identityKeys.slice(2).every(key => text(value[key])) || !text(value.channelKey) || !/^[A-Za-z0-9_-]{32,256}$/.test(value.channelKey))
       throw failure("IDENTITY", "invalid managed worker identity or channel key");
+    if (value.recovery !== undefined) {
+      const recovery = fields(value.recovery, ["kind", "previousWorkerBootId", "browserIncarnation", "expectedJournalId", "expectedWorkerEpoch", "nonce"]);
+      if (recovery.kind !== "worker-replacement" || !["previousWorkerBootId", "browserIncarnation", "expectedJournalId", "nonce"].every(key => text(recovery[key])) ||
+          recovery.previousWorkerBootId === value.workerBootId || !Number.isSafeInteger(recovery.expectedWorkerEpoch) || recovery.expectedWorkerEpoch < 1)
+        throw failure("IDENTITY", "invalid original worker recovery identity");
+    }
     if (current) { try { assertCurrent(current); } catch { /* expired channel has been revoked */ } }
     if (current || opening) throw failure("BUSY", "one user channel is already open");
     if (cleanup.size || cleanupFailure) throw failure("CLEANUP", "previous viewer cleanup is incomplete");
@@ -468,9 +474,12 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     usedKeys.add(value.channelKey);
     const assertOpening = () => {
       if (now() >= deadline) throw failure("CLOSED", "original user open admission expired");
+      if (nativeProof() !== proof || target[BINDING] !== sink)
+        throw failure("IDENTITY", "original worker binding changed during open");
     };
     try {
-      const admission = await backend.prepareManagedUserOpen();
+      const admission = await backend.prepareManagedUserOpen({ workerBootId: value.workerBootId,
+        ...(value.recovery ? { recovery: Object.freeze({ ...value.recovery }) } : {}) }, assertOpening);
       assertOpening();
       if (await getInstanceId() !== value.extensionInstanceId || nativeProof() !== proof || target[BINDING] !== sink)
         throw failure("IDENTITY", "original worker identity changed during open");
@@ -483,7 +492,8 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         nativeEpoch: admission?.epoch ?? null };
       channels.set(channel.key, channel); current = latestChannel = channel; arm(channel);
       try {
-        const result = { ...identity(channel), status: await status(channel) };
+        const result = { ...identity(channel), status: await status(channel), recoveryState: admission?.recoveryState,
+          ...(admission?.workerRecovery ? { workerRecovery: admission.workerRecovery } : {}) };
         assertCurrent(channel);
         assertOpening();
         backend.commitManagedUserOpen(admission);

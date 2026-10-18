@@ -30,6 +30,7 @@ function fixture(options = {}) {
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
+    viewJournal: options.viewJournal,
     onFailure: error => calls.push(["failure", error.message])
   });
   const authority = () => { if (!authorized) throw new Error("lease expired"); };
@@ -927,4 +928,52 @@ test("ending a view during resize preparation joins the original native reply an
   reading.resolve({ metrics: [{ name: "Timestamp", value: 200 }] }); await closing;
   assert.equal(handle.info().state, "released"); assert.equal(f.frames.length, 1);
   assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1); assertViewOnly(f);
+});
+
+
+test("view journal intent precedes native attach and attached commit precedes native rendering", async () => {
+  const intent = defer(), attached = defer(), detached = defer(), released = defer();
+  const journal = [], f = fixture({ detach: () => detached.promise, viewJournal: {
+    async intent(record) { journal.push(["intent", record.leaseId]); await intent.promise; },
+    async attached(record) { journal.push(["attached", record.leaseId]); await attached.promise; },
+    async released(record) { journal.push(["released", record.leaseId]); await released.promise; }
+  } });
+  const pending = f.beginView();
+  await tick(); assert.equal(f.calls.some(([method]) => method === "attach"), false);
+  intent.resolve(); await tick(); assert.equal(f.calls.some(([method]) => method === "attach"), true);
+  assert.equal(f.calls.some(([method]) => method === "Page.startScreencast"), false);
+  attached.resolve(); const handle = await pending;
+  const closing = handle.close(); await tick();
+  assert.equal(journal.some(([kind]) => kind === "released"), false);
+  detached.resolve(); await tick(); assert.equal(journal.at(-1)[0], "released");
+  assert.equal(handle.info().state, "releasing");
+  released.resolve(); await closing;
+  assert.equal(handle.info().state, "released");
+  assert.equal(new Set(journal.map(([, lease]) => lease)).size, 1);
+});
+
+test("known unsent view attach cancels its durable intent, while unknown attach retains the cleanup barrier", async () => {
+  const intent = defer(), calls = [], f = fixture({ viewJournal: {
+    async intent() { await intent.promise; }, async attached() { calls.push("attached"); }, async released() { calls.push("released"); }
+  } });
+  const starting = f.beginView(); starting.catch(() => {}); await tick(); f.expire(); intent.resolve();
+  await assert.rejects(starting, /expired/);
+  assert.deepEqual(calls, ["released"]); assert.equal(f.calls.some(([method]) => method === "attach"), false);
+  const unknown = fixture({ attach: () => { throw Error("native attach outcome unknown"); }, viewJournal: {
+    async intent() {}, async attached() { throw Error("must not commit attached"); }, async released() { throw Error("must not clear intent"); }
+  } });
+  await assert.rejects(unknown.beginView(), error => error.viewerCleanupIncomplete === true);
+  assert.equal(unknown.control.status().state, "error");
+  assert.throws(() => unknown.control.assertReleased(), /BUSY/);
+});
+
+test("durable attached write failure still joins the actual attachment before acknowledging local cleanup", async () => {
+  const gate = defer(), calls = [], f = fixture({ detach: () => gate.promise, viewJournal: {
+    async intent() { calls.push("intent"); }, async attached() { throw Error("original IDB attached transaction aborted"); },
+    async released() { calls.push("released"); }
+  } });
+  const begin = f.beginView(); begin.catch(() => {}); await tick();
+  assert.deepEqual(calls, ["intent"]); assert.equal(f.control.status().state, "releasing");
+  gate.resolve(); await assert.rejects(begin, /original IDB/);
+  assert.deepEqual(calls, ["intent", "released"]); assert.equal(f.control.status(), null);
 });

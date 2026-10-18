@@ -934,3 +934,80 @@ its exclusive write; no previous report was overwritten. A new isolated director
 was used for the completed preparation and release. Ordinary company installation
 instructions remain in README-先看这里.md. True worker replacement and the broader
 unverified boundaries documented for a4e6b0c remain incomplete.
+
+### 2026-10-18: Explicit recovery after original worker execution ends
+
+Continue the existing parity goal without another package or PR. Add a private
+IndexedDB result journal, transactional epoch checks and durable view obligations.
+The replacement starts blocked, verifies the original journal through the trusted
+Go controller, waits for original view stop/detach and revalidates current exact
+page identity before issuing new delivery permissions. Old task/human/viewer
+capabilities stay retired; no URL or business input is replayed. Known durable
+revocations remain revoked. Uncommitted events and complete movement history
+across forced worker termination are not claimed recoverable.
+
+Go distinguishes original execution termination from Native exit, transport
+retirement and actual page cleanup. A passive Native observer retains cleanup
+ownership only for exact processes in the original Job; it does not bind or open
+tasks when original human risk prevents recovery. Normal Stop waits for the Job,
+all retained Native processes and the original controller. Only the exact temporary
+owned-exit wait is superseded when both final Session and controller cleanup
+succeed; other errors and timeouts remain failures.
+
+Preserved failures led to specific fixes: an IndexedDB schema error before abort
+handlers were installed left a transaction pending; a long test profile path
+prevented Chromium's LevelDB manifest creation; the first replacement harness
+incorrectly required manual Start although Chrome restarted automatically; and
+the initial held-input run retained the pre-exit wait error after successful Stop.
+A separate deterministic review exposed a late-frame admission window during
+durable view retirement. The fix seals frame admission after actual detach,
+drains already accepted ACKs, then commits retirement. The old-source regression
+failed before the fix; 111 related tests passed afterward. No real browser
+ordering equivalent to that controlled late-frame test is claimed observed.
+
+Final frozen v3 Go test/vet/build and all 2,075 extension tests passed with stable
+source hashes. The first extension validation driver failed printing Unicode
+after its test subprocess exited 0; it did not reach build or save a complete
+manifest. That log remains, and a corrected driver completed a new validation
+with persisted before/after hashes and a fresh extension build. Existing UI 54,
+three canonical bridge fixtures and harness helper 12 checks remain separate
+evidence; mocked backend/storage/native fixture ACKs are not browser acceptance.
+
+Two independent fixed-CfT scenarios each completed six stages with actual exit 0:
+
+- `mwr-r-esLC1h` retains the original Browser/profile/page and one 173-byte business
+  POST while an active result view survives an actual worker replacement. New
+  execution/Native identity, explicit recovery, paused fresh permissions, rejected
+  old permissions and nine human input receipts passed without resubmission.
+  Eleven native frames plus three viewer screenshots were retained. Independent
+  audit passed 12 groups, decoded all 14 PNGs and confirmed 32 original process
+  identities gone plus private registration/pipe/endpoint cleanup. One incidental
+  favicon GET is recorded separately.
+- `mwr-h-Fv7gx8` has zero business POSTs and three native input receipts establishing
+  Shift/pointer down. Four original-document observations stay unchanged, recovery
+  is rejected, and formal Stop/supervisor now exit 0. The final session-terminated
+  receipt confirms original Job destruction, not synthetic keyup/mouseup or a new
+  recovery permission. Input observations end before the original page is destroyed.
+  Independent audit passed eight groups, decoded all four PNGs and confirmed
+  31 deduplicated original process identities gone with private resources cleared.
+
+Raw lifecycle JSON preserves exact Native FILETIME values. Real acceptance checks
+typed production recovery receipts and original attached-to-detached target reads;
+it is not an independent command-packet capture. Placement assertions check current
+window/group/pinned state and do not retain every after-snapshot or prove tab index
+and complete history. Both final runs used Chrome's automatic restart path; the
+explicit-Start branch has helper coverage, not a separate real run in this slice.
+
+- Positive report SHA-256: `bf69cd50c50e8ec5d6ca047e9646507cbf9b58ec0bbb68eca962f1eb6b47804d`.
+- Held-input report SHA-256: `16e229ce3de9cf5099ea9dc503065226006919dbc434ffe7de14af95ff17555c`.
+- Positive audit SHA-256: `65db2dd170e28277b6f98217c77c3fa1803cd60a4742ad14dcbb09aa5e6ebec0`.
+- Held-input audit SHA-256: `ee490e5b4dcae80b052d984195c61ef71f939958e8b29ee666295cb122de2024`.
+- Go validation SHA-256: `ef04f2207a27fd1e1e89aec569fa31ef7af277b179d41bd17f863085896f43c6`.
+- Extension validation SHA-256: `57cab99fd064fd026ad137071f9e7a01810a21531ba8a9791b0c413736169b53`.
+
+Implementation lives in the managed journal/results/backend/bridge modules,
+`internal/managedbrowser`, `internal/managedviewer`, the managed CLI and the new
+worker recovery runner. Architecture, reference, quality, specification and active
+plans now distinguish this source-only capability from the unchanged 6588984
+package. Browser-process restart, retained windows after Stop, company Edge,
+real login/IME/SSO/MFA and complete parity remain open.

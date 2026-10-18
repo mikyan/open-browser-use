@@ -31,6 +31,7 @@ import managedConfig from "./managed-config.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanControl } from "./managed-human-control.js";
 import { ManagedResultPages } from "./managed-result-pages.js";
+import { ManagedResultJournal } from "./managed-result-journal.js";
 import { installManagedUserBridge } from "./managed-user-bridge.js";
 import { resolveManagedNativeHost } from "./managed-native-host.js";
 
@@ -851,7 +852,11 @@ class BrowserBackend {
       isCurrent: (tabId, attachment) => this.attachedTabs.has(tabId) && this.attachmentEpochs.get(tabId) === attachment,
       isExternal: tabId => this.externalScreencastTabs.has(tabId)
     });
-    this.managedResults = new ManagedResultPages({ runId: managedConfig?.nativeHostName?.slice(-32),
+    this.managedJournal = managedConfig ? new ManagedResultJournal({ indexedDB: globalThis.indexedDB, runId: managedConfig.nativeHostName.slice(-32),
+      incarnation: () => this.browserLifetime.incarnation }) : null;
+    this.managedWorkerOpened = !managedConfig;
+    this.managedStartupCleanup = true;
+    this.managedResults = new ManagedResultPages({ runId: managedConfig?.nativeHostName?.slice(-32), journal: this.managedJournal,
       isCurrent: incarnation => this.browserLifetime.isCurrent(incarnation) });
     this.managedHuman = new ManagedHumanControl({ chrome,
       capture: (tabId, options) => this.captureManagedHumanPage(tabId, options),
@@ -864,6 +869,17 @@ class BrowserBackend {
       },
       markRisk: (riskId, tabId) => durableInput(() => this.browserLifetime.markInputRisk({ riskId, tabId })),
       clearRisk: riskId => durableInput(() => this.browserLifetime.clearInputRisk(riskId)),
+      viewJournal: this.managedJournal ? {
+        intent: record => {
+          const result = record.candidate.resultRecord;
+          this.managedResults.assert(result);
+          return this.managedJournal.beginView({ leaseId: record.leaseId, recordId: result.recordId, tabId: record.tabId,
+            targetId: record.candidate.targetId, documentId: record.candidate.documentId },
+          () => { this.managedHuman.check(record); this.managedResults.assert(result); });
+        },
+        attached: record => this.managedJournal.attachedView(record.leaseId),
+        released: record => this.managedJournal.finishView(record.leaseId)
+      } : null,
       onFailure: error => { this.automationControl.fail(error); void this.automationControl.persist(true).catch(() => {}); }
     });
     this.downloadsById = new Map();
@@ -1095,7 +1111,7 @@ class BrowserBackend {
     chrome.tabs?.onDetached?.addListener(tabId => { this.managedResults.revoke(tabId); this.managedHuman.invalidateTab(tabId); });
     chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.managedResults.revoke(removed); this.managedHuman.invalidateTab(removed); });
     this.controlStartupState = "pending";
-    this.controlReady = this.recoverControlState();
+    this.controlReady = this.recoverControlState().finally(() => { this.managedStartupCleanup = false; });
     this.siteRecoveryReady = this.controlReady.then(async () => {
       // Pending admissions may themselves await controlReady. Let them leave
       // that barrier before waiting for the actual startup Pause to drain.
@@ -1236,10 +1252,12 @@ class BrowserBackend {
     await this.controlReady;
     this.automationControl.assertOpen();
     this.siteAccess.assertReady();
+    this.assertManagedWorkerAdmission();
     if (!bootstrap) this.assertNativeControl();
     const pending = Promise.resolve().then(() => {
       this.automationControl.assertOpen();
       this.siteAccess.assertReady();
+      this.assertManagedWorkerAdmission();
       if (!bootstrap) this.assertNativeControl();
       return operation();
     });
@@ -1253,6 +1271,13 @@ class BrowserBackend {
     this.automationControl.assertOpen();
     this.browserLifetime.assertInputRecoveryClear();
     this.assertNativeControl();
+    if (!this.managedStartupCleanup) this.assertManagedWorkerAdmission();
+  }
+
+  assertManagedWorkerAdmission() {
+    if (managedConfig && !this.managedWorkerOpened)
+      throw new Error("OBU_MANAGED_WORKER_RECOVERY_REQUIRED: explicitly open or recover this managed worker before task admission");
+    this.managedResults.assertSettled();
   }
 
   revokeManagedResultForTask(tabId) {
@@ -1263,10 +1288,12 @@ class BrowserBackend {
     this.managedResults.revoke(tabId);
     const release = this.managedHuman.revokeView(tabId);
     release.catch(() => {});
-    return release;
+    return Promise.all([release, this.managedResults.drain()]).then(() => {});
   }
 
-  assertManagedResultAccess() {
+  assertManagedResultAccess({ listing = false } = {}) {
+    if (!(listing && this.managedPreparedOpen)) this.assertManagedWorkerAdmission();
+    this.managedResults.assertSettled();
     this.assertNativeControl(); this.browserLifetime.assertInputRecoveryClear(); this.siteAccess.assertReady();
     const gate = this.automationControl;
     if (this.sitePolicyUpdate || !(gate.state === "running" && !gate.inputBlocked || gate.state === "paused" && gate.inputBlocked && gate.cleanupComplete))
@@ -1294,13 +1321,89 @@ class BrowserBackend {
     if (epoch) await epoch.recovery.promise;
   }
 
-  async prepareManagedUserOpen() {
+  async prepareManagedUserOpen({ workerBootId = this.managedWorkerBootId, recovery } = {}, assertAuthority = () => {}) {
+    if (this.managedWorkerRecoveryAttempted)
+      throw new Error("OBU_MANAGED_JOURNAL_UNCONFIRMED: this worker's original recovery attempt requires Stop after an unknown outcome");
     await this.controlReady;
     const epoch = this.managedNativeEpoch;
     await this.waitManagedNativeRecovery(epoch);
-    const token = Object.freeze({ epoch });
+    assertAuthority(); this.assertNativeControl(); this.browserLifetime.assertInputRecoveryClear();
+    if (!this.managedJournal) throw new Error("OBU_MANAGED_WORKER_UNAVAILABLE: ordinary browsers cannot admit a managed worker");
+    if (recovery) {
+      if (this.managedWorkerOpened || this.managedPreparedOpen)
+        throw new Error("OBU_MANAGED_WORKER_RECOVERY_REQUIRED: replacement recovery cannot reuse an admitted worker");
+      // Risk is checked before any orphan command. A new empty input tracker is
+      // never evidence that a prior native key or button was released.
+      await this.pauseAutomation();
+      assertAuthority(); this.browserLifetime.assertInputRecoveryClear();
+      this.managedWorkerRecoveryAttempted = true;
+    }
+    const check = () => { assertAuthority(); this.assertNativeControl(); this.browserLifetime.assertInputRecoveryClear();
+      if (epoch !== this.managedNativeEpoch) throw new Error("OBU_MANAGED_NATIVE_CHANGED: native generation changed during worker admission"); };
+    const saved = await this.managedJournal.claimWorker(workerBootId, recovery, check);
+    check();
+    let workerRecovery;
+    if (recovery) {
+      const retiredViews = await this.retireManagedOrphanViews(saved.views, check);
+      check();
+      for (const row of saved.records) {
+        const actual = await this.readManagedPageIdentity(row.tabId, check);
+        check();
+        this.managedResults.restore(row, actual);
+      }
+      const gate = this.automationControl;
+      if (gate.state !== "paused" || !gate.inputBlocked || !gate.cleanupComplete)
+        throw new Error("OBU_MANAGED_NATIVE_PAUSE_INCOMPLETE: worker recovery must remain paused after actual cleanup");
+      workerRecovery = Object.freeze({ kind: "worker-replacement", nonce: recovery.nonce,
+        previousWorkerBootId: recovery.previousWorkerBootId, workerBootId, browserIncarnation: saved.browserIncarnation,
+        journalId: saved.journalId, fromWorkerEpoch: recovery.expectedWorkerEpoch, toWorkerEpoch: saved.workerEpoch,
+        inputRiskClear: true, paused: true, retiredViews });
+    }
+    const token = Object.freeze({ epoch, workerBootId, recoveryState: this.managedJournal.identity(saved),
+      ...(workerRecovery ? { workerRecovery } : {}) });
     this.assertManagedUserOpen(token);
+    this.managedPreparedOpen = token;
     return token;
+  }
+
+  async retireManagedOrphanViews(views, check) {
+    const retired = [];
+    for (const view of views) {
+      check();
+      const targets = await chrome.debugger.getTargets(); check();
+      if (!targets.some(target => target.type === "page" && target.id === view.targetId && target.tabId === view.tabId && target.attached === true))
+        throw new Error("OBU_MANAGED_JOURNAL_UNCONFIRMED: original native view attachment cannot be proved");
+      const pending = new Set(); let failure, count = 0, accepting = true;
+      const listener = (source, method, params) => {
+        if (!accepting || method !== "Page.screencastFrame" || source.sessionId != null || source.extensionId != null ||
+            (source.targetId !== undefined ? source.targetId !== view.targetId || source.tabId !== undefined && source.tabId !== view.tabId : source.tabId !== view.tabId)) return;
+        if (++count > 1024 || !Number.isSafeInteger(params?.sessionId) || params.sessionId < 0) {
+          failure ??= new Error("OBU_MANAGED_JOURNAL_UNCONFIRMED: original frame cleanup exceeded its bounded protocol"); return;
+        }
+        const ack = chrome.debugger.sendCommand({ targetId: view.targetId }, "Page.screencastFrameAck", { sessionId: params.sessionId });
+        pending.add(ack); ack.then(() => pending.delete(ack), error => { failure ??= error; pending.delete(ack); });
+      };
+      chrome.debugger.onEvent.addListener(listener);
+      try {
+        // These are cleanup-only commands on the original persisted target.
+        // Once dispatched, finish their actual promises even if the new open
+        // expires; it may then fail admission, never fabricate a native ACK.
+        await chrome.debugger.sendCommand({ targetId: view.targetId }, "Page.stopScreencast");
+        while (pending.size) await Promise.all([...pending]);
+        if (failure) throw failure;
+        await chrome.debugger.detach({ targetId: view.targetId });
+        // Detach ends this attachment's frame admission. Drain only ACKs
+        // already accepted before its actual receipt, then retire the journal.
+        accepting = false;
+        chrome.debugger.onEvent.removeListener(listener);
+        while (pending.size) await Promise.all([...pending]);
+        if (failure) throw failure;
+        await this.managedJournal.finishView(view.leaseId);
+        retired.push(Object.freeze({ leaseId: view.leaseId, targetId: view.targetId,
+          outcome: "stopped-and-detached", stopAcknowledged: true, detachAcknowledged: true }));
+      } finally { accepting = false; chrome.debugger.onEvent.removeListener(listener); }
+    }
+    return Object.freeze(retired);
   }
 
   assertManagedUserOpen(token) {
@@ -1308,6 +1411,9 @@ class BrowserBackend {
       throw new Error("OBU_MANAGED_NATIVE_CHANGED: native connection changed during user open");
     this.assertNativeControl();
     this.browserLifetime.assertInputRecoveryClear();
+    this.managedResults.assertSettled();
+    if (token.workerRecovery && (this.automationControl.state !== "paused" || !this.automationControl.inputBlocked || !this.automationControl.cleanupComplete))
+      throw new Error("OBU_MANAGED_NATIVE_PAUSE_INCOMPLETE: replacement worker must remain paused");
     if (token.epoch && !token.epoch.opened) {
       const gate = this.automationControl;
       if (gate.state !== "paused" || !gate.inputBlocked || !gate.cleanupComplete)
@@ -1317,12 +1423,18 @@ class BrowserBackend {
 
   commitManagedUserOpen(token) {
     this.assertManagedUserOpen(token);
+    if (this.managedPreparedOpen !== token) throw new Error("OBU_MANAGED_WORKER_RECOVERY_REQUIRED: original worker admission changed");
+    this.managedWorkerBootId = token.workerBootId;
+    this.managedWorkerOpened = true;
+    this.managedWorkerRecoveryAttempted = false;
+    this.managedPreparedOpen = null;
     if (token.epoch) token.epoch.opened = true;
   }
 
   assertManagedNativeResume() {
     if (!managedConfig) return;
     this.assertNativeControl();
+    this.assertManagedWorkerAdmission();
     if (this.managedNativeEpoch && !this.managedNativeEpoch.opened)
       throw new Error("OBU_MANAGED_NATIVE_RECOVERY_REQUIRED: explicitly recover the original managed connection before resuming");
   }
@@ -1704,7 +1816,7 @@ class BrowserBackend {
     for (const tabId of [...downloadWaits.tabIds, ...pages.tabIds]) tabIds.add(tabId);
     for (const tabId of this.directoryUploads.tabIds()) tabIds.add(tabId);
     const fileInputPending = [...this.directoryUploads.operations, ...this.pageDownloadOperations.keys(), ...[...this.pageDownloadResources].map(record => record.releasePromise).filter(Boolean), ...this.pointerFeedbackReads.snapshot(), ...this.visualDeliveries.snapshot()];
-    return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...privatePointers.pending, ...privateStore.pending, ...(this.privatePointerRecovery?.pending ? [this.privatePointerRecovery.promise] : []), ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
+    return { tabIds, pending: [...this.acceptedRequests, ...fileInputPending, ...this.controlReleases.values(), ...this.auxiliaryReleases.values(), ...this.navigationSetups.values(), ...new Set([...this.renderingQueues.values(), ...this.renderingDrains]), ...engine.pending, ...input.pending, ...network.pending, ...dialogs.pending, ...[...this.nativeDialogOperations].map(value => value.promise), ...navigation.pending, ...chooser.pending, ...downloadWaits.pending, ...pages.pending, ...auxiliary.pending, ...downloads.pending, ...exports.pending, ...clipboard.pending, ...broker.pending, ...lifetime.pending, ...this.managedResults.pending, ...(this.managedJournal?.pending ?? []), ...privatePointers.pending, ...privateStore.pending, ...(this.privatePointerRecovery?.pending ? [this.privatePointerRecovery.promise] : []), ...[...this.sessionMutations.values()].flatMap(values => [...values])] };
   }
 
   cancelGlobalControl(error = new Error("OBU_AUTOMATION_PAUSED: browser automation was paused by the user"), managedHumanReservation) {
@@ -2758,11 +2870,13 @@ class BrowserBackend {
         // A later page's native query may have yielded while an earlier one
         // moved. Recheck all original tokens before leaving the end fence.
         for (const item of managedDeliveries) if (managedPositions.has(item.record.tabId)) this.managedResults.assert(item.record, { published: false });
-      } : undefined, commit: () => {
+      } : undefined, durableCommit: () => this.managedResults.durableCommit(
+        managedDeliveries.filter(item => managedPositions.has(item.record.tabId)).map(item => item.record), () => this.assertControlOpen()), commit: () => {
         this.managedResults.publish(managedDeliveries.filter(item => managedPositions.has(item.record.tabId)).map(item => item.record));
         managedPublished = true;
       }, rollback: deliveries.length || managedDeliveries.length ? async () => {
         for (const item of managedDeliveries) this.managedResults.revoke(item.record.tabId, item.record);
+        await this.managedResults.drain();
         await this.rollbackAuxiliaryDeliveries(deliveries);
       } : undefined });
       return result;
@@ -3689,7 +3803,7 @@ class BrowserBackend {
 
   async captureManagedResultPage(tabId, deliveryId, { listing = false } = {}) {
     const record = this.managedResults.get(tabId, deliveryId);
-    const check = () => { this.assertManagedResultAccess(); this.managedResults.assert(record); };
+    const check = () => { this.assertManagedResultAccess({ listing }); this.managedResults.assert(record); };
     const observedLease = () => {
       const owner = this.managedHuman.current;
       return listing && owner?.candidate?.resultRecord === record && this.managedHuman.ownsTab(tabId) ? owner : null;
@@ -3754,14 +3868,20 @@ class BrowserBackend {
       if (advance && (this.managedHuman.current !== owner || owner?.candidate?.resultRecord !== candidate.resultRecord ||
           owner.revoked || owner.epoch !== epoch || epoch?.retired))
         throw new Error("OBU_HUMAN_GENERATION_STALE: retired document proof cannot advance result authority");
-      this.managedResults.validate(candidate.resultRecord, verified, { advance });
+      if (advance) await this.managedResults.advance(candidate.resultRecord, verified, () => {
+        if (this.managedHuman.current !== owner || owner?.candidate?.resultRecord !== candidate.resultRecord ||
+            owner.revoked || owner.epoch !== epoch || epoch?.retired)
+          throw new Error("OBU_HUMAN_GENERATION_STALE: retired document proof cannot advance result authority");
+        this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
+      });
+      else this.managedResults.validate(candidate.resultRecord, verified);
     }
     return verified;
   }
 
   async getManagedViewerTabs() {
     if (managedConfig === null) throw new Error("OBU_VIEWER_FORBIDDEN: managed viewer is unavailable in an ordinary browser");
-    try { this.assertManagedResultAccess(); } catch { return []; }
+    try { this.assertManagedResultAccess({ listing: true }); } catch { return []; }
     const results = [];
     for (const [tabId, owner] of this.attachmentOwners) {
       try {
@@ -3782,7 +3902,7 @@ class BrowserBackend {
     for (const record of this.managedResults.entries()) {
       try {
         const candidate = await this.captureManagedResultPage(record.tabId, record.deliveryId, { listing: true });
-        this.assertManagedResultAccess(); this.managedResults.assert(record);
+        this.assertManagedResultAccess({ listing: true }); this.managedResults.assert(record);
         results.push({ id: record.tabId, title: candidate.title, url: candidate.url, kind: "result", deliveryId: record.deliveryId, watchable: true, takeover: true });
       } catch { /* Failed original proof withdraws the exact result authority. */ }
     }
@@ -6168,7 +6288,7 @@ class BrowserBackend {
     if (failures.length) throw new Error(`OBU_CONTROL_RELEASE_FAILED: ${failures.map(result => String(result.reason?.message ?? result.reason)).join("; ")}`);
   }
 
-  async endSessionControl(params, finish, { retainClosingOnFailure = false, complete, commit, rollback } = {}) {
+  async endSessionControl(params, finish, { retainClosingOnFailure = false, complete, durableCommit, commit, rollback } = {}) {
     if (this.endingSessions.has(params.session_id)) throw new Error("OBU_CONTROL_ENDING: browser control is still being released");
     const ending = {};
     this.endingSessions.set(params.session_id, ending);
@@ -6210,6 +6330,10 @@ class BrowserBackend {
       const result = await this.controlLedger.finishEnd(record);
       this.assertControlOpen();
       if (complete) await complete();
+      // A managed delivery becomes durable only at its IDB transaction commit.
+      // Keep this original ending fence through that real settlement. A lost
+      // response after commit is an unknown caller outcome, not an undo.
+      if (durableCommit) await durableCommit();
       this.assertControlOpen();
       if (this.controlLedger.records.get(params.session_id) !== record || record.status !== "idle" || record.epoch !== result.controlEpoch)
         throw new Error("OBU_CONTROL_ENDING: control changed before final acknowledgement");

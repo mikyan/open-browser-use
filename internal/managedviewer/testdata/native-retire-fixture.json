@@ -211,6 +211,12 @@
       "eventSequence": 0,
       "human": null,
       "view": null
+    },
+    "recoveryState": {
+      "version": 1,
+      "browserIncarnation": "disconnect-browser",
+      "journalId": "disconnect-journal",
+      "workerEpoch": 1
     }
   },
   "evidence": {
