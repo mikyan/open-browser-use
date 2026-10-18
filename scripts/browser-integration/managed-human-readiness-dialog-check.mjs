@@ -16,6 +16,7 @@ import { listenFixture } from "./fixture-listener.mjs";
 import { browserStartupOptions } from "./browser-startup.mjs";
 import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
 import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
+import { managedHumanSourceFiles } from "./managed-human-source-snapshot.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -358,9 +359,7 @@ export async function runManagedHumanReadinessDialogCheck() {
     })(); return stopPromise;
   }
   async function sourceFiles() {
-    const selectedPaths = mode === "acceptance" ? ["cmd", "internal", "apps/chrome-extension", "packages/open-browser-use-js", "packages/open-browser-use-go", "packages/open-browser-use-python", "scripts/browser-integration", "scripts/build-chrome-extension.mjs", ":(glob)scripts/patch-*.mjs", "go.mod", "go.sum", "package.json", "pnpm-lock.yaml"] : ["packages/open-browser-use-js", "scripts/browser-integration"];
-    const selected = await launch("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", ...selectedPaths], { timeoutMs: 15000 }).completed;
-    assert.equal(selected.code, 0); return [...new Set(selected.stdout.trim().split(/\r?\n/))].sort();
+    return managedHumanSourceFiles(mode, launch);
   }
   async function decodedHuman() {
     return wait(async () => {

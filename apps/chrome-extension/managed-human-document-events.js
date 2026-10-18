@@ -11,6 +11,11 @@ const rowFor = frame => {
       frame.securityOrigin !== undefined && typeof frame.securityOrigin !== "string") throw fail();
   return Object.freeze([frame.id, frame.parentId ?? null, frame.loaderId, frame.url, frame.urlFragment ?? "", frame.securityOrigin ?? null]);
 };
+const hintIdentity = value => {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !text(value.documentId) ||
+      typeof value.url !== "string" || !value.url || value.url.length > 8192) throw fail();
+  return Object.freeze({ documentId: value.documentId, url: value.url });
+};
 
 // This is an internal seam of the owned document graph, not a second native
 // observer. Sessions and context objects are supplied only by that graph. No
@@ -21,6 +26,7 @@ export class ManagedHumanDocumentEvents {
     Object.assign(this, { root, current, check, assertCandidate });
     this.frames = new Map(); this.seen = new Map(); this.pending = new Map();
     this.fences = new WeakMap(); this.proofs = new WeakMap(); this.bindings = new WeakMap();
+    this.rootHints = new WeakMap();
     this.preparations = new WeakMap(); this.preparationVersion = 0;
     this.rootDocuments = new Map(); this.revision = 0; this.identities = 0;
     this.rootReady = false; this.blocked = false;
@@ -233,13 +239,47 @@ export class ManagedHumanDocumentEvents {
     this.fences.set(fence, { path: Object.freeze(path), revision: this.revision, frameId: opening.frameId, url: opening.url });
     return fence;
   }
+  assertBrowserIdentity(root, candidate) {
+    if (candidate.url !== root.row[3] + root.row[4]) throw fail();
+    const prior = this.bindings.get(root), owner = this.rootDocuments.get(candidate.documentId);
+    if (this.rootDocuments.has(candidate.documentId) && owner === null && root.eventCommit ||
+        owner && owner !== root || prior && prior.documentId !== candidate.documentId) throw fail();
+  }
+  checkpointRootDocumentHint(value) {
+    this.check();
+    const browser = hintIdentity(value);
+    if (this.blocked) return null;
+    const roots = [...(this.frames.get(this.root)?.values() ?? [])].filter(record => record.row[1] === null);
+    if (!roots.length) return null;
+    if (roots.length !== 1) throw fail();
+    const root = roots[0], { context, session, row } = root;
+    if (!root.usable || !this.ready(session) || !context || session.contexts.blocked ||
+        !session.contexts.alive.has(context) || session.contexts.current.get(row[0]) !== context ||
+        session.contexts.records.get(context.uniqueId) !== context || !origin(context.origin)) return null;
+    this.assertPath([root]);
+    // A cold snapshot must already have its browser identity binding. Only
+    // an observed start/commit record can represent a proven successor before
+    // its normal readiness proof has bound the browser document.
+    if (!this.bindings.has(root) && !root.eventCommit) return null;
+    this.assertBrowserIdentity(root, browser);
+    const ticket = Object.freeze({});
+    this.rootHints.set(ticket, { root, row, context, browser }); return ticket;
+  }
+  assertRootDocumentHint(ticket, value) {
+    this.active();
+    const saved = this.rootHints.get(ticket), browser = hintIdentity(value);
+    if (!saved || saved.browser.documentId !== browser.documentId || saved.browser.url !== browser.url ||
+        saved.root.row !== saved.row || saved.root.context !== saved.context) throw fail();
+    this.assertPath([saved.root]); this.assertBrowserIdentity(saved.root, browser);
+    // This only verifies the pinned identity. It neither binds a browser
+    // document nor upgrades a candidate, site permission or result lineage.
+  }
   bindCandidate(root, candidate) {
     if (!candidate || !text(candidate.documentId) || !Number.isSafeInteger(candidate.navigationVersion) || candidate.navigationVersion < 0 ||
         candidate.url !== root.row[3] + root.row[4] || candidate.siteProof &&
         (candidate.siteProof.documentId !== candidate.documentId || candidate.siteProof.version !== candidate.navigationVersion)) throw fail();
-    const prior = this.bindings.get(root), owner = this.rootDocuments.get(candidate.documentId);
-    if (this.rootDocuments.has(candidate.documentId) && owner === null && root.eventCommit ||
-        owner && owner !== root || prior && prior.documentId !== candidate.documentId) throw fail();
+    this.assertBrowserIdentity(root, candidate);
+    const prior = this.bindings.get(root);
     // A child navigation can advance the browser-wide policy version while
     // this root document remains unchanged. Each proof pins its own version;
     // a new proof cannot migrate this root record to another document ID.

@@ -11,6 +11,69 @@ and failed runs below retain their historical scope. No PR is requested.
 
 ## Current continuation after the verified package
 
+### Late URL hints after 77f6fa8
+
+Previous turn is progress: two production races fixed, both fixed readiness cases
+and four stable layouts accepted, source committed and pushed. Full parity remains
+active. The user now explicitly requests another package; finish and verify this
+slice before creating the new preview. No PR is requested. Start from `77f6fa8`.
+
+Repair the remaining late `tabs.onUpdated.url` counterexample through the actual
+backend. A URL hint alone cannot identify a document. Only a fixed current native
+root/frame/loader/default context plus an original browser document identity can
+admit an asynchronous browser-only duplicate check. Use the original candidate for
+an established document or an already observed root web commit for its successor;
+never adopt an identity first returned by the hint's read. Missing evidence retains
+strict navigation handling. Native or web navigation and policy/placement changes
+still revoke immediately.
+
+Admitted hints synchronously gate new human input and human decisions before their
+final native dispatch, without incrementing the proved navigation version. The
+bounded original verification promises participate in cleanup. Explicit automatic
+cancel, release and other cleanup bypass the gate; already-dispatched operations
+retain their original ACKs. End must wake a claimed human decision so it can cancel
+its exact original dialog and return stale, while retaining the original pending
+browser read until it actually settles. No business or input replay is permitted.
+
+Root owns background/control/decision integration, native owner owns the narrow
+opaque root-hint ticket, and harness owner adds actual-backend regressions. Keep
+all original red results. Test same-document async proof, same-URL replacement,
+permission/placement changes, End, capacity and actual pending cleanup before a
+fresh frozen build and justified browser acceptance. One real navigation pass
+does not replace the deliberately late-event counterexample.
+
+Implemented dirty-gate semantics: a URL notification preserves the current modal
+and gates only new human dispatch. The caller supplies its already proved candidate;
+an opaque native root ticket and browser-only read with `advance: false` must both
+remain valid. A hint does not create a successor identity or write result lineage.
+One monotonic five-second deadline and eight-verification cap bound each dispatch.
+End/epoch retirement wakes admission; explicit cancel/release bypass it, while
+already sent operations retain their original receipts. No await separates the
+final dirty check from native dispatch.
+
+Independent review exposed fail-fast reads escaping cleanup: Promise.all rejection
+and the one-second restricted-policy timeout can settle before sibling platform
+reads. Two original backend counterexamples failed, then passed with each actual
+Chrome read and the original inspection loop retained in the lease's drains.
+Caller inspection stops new reads after retirement and prevents a late failure
+from revoking a successor. All nine backend and 195 controller/dialog/budget tests
+pass; native proof tests and independent review also pass. Fresh build
+`muh-build-fjcp877g` freezes 432 inputs and 77 extension files; fresh Go test/vet
+and all 2828 Node tests pass. The first preflight `mrd-z7qVck` failed before any
+browser launch because the runner omitted the newly snapshotted top-level script
+tests. Both runners now share the strict source selection; 55 related tests pass.
+No product rebuild was needed: these four harness files are outside build inputs.
+
+New `mrd-nHnhSe`, `mrd-LLcuP1`, and `mod-97DqRB` all have actual exit 0 and
+complete/featurePassed true, with original answers, unique POSTs, End and Stop.
+Independent event audits pass 1437/1458/426 checks; lifecycle audits pass 70/71/88.
+All 26/27/30 original process identities are gone and 6/6/20 PNGs decode. Original
+Stop and resource release are confirmed without forced termination. The native
+navigation URL hint preceded Opening, so only the backend counterexamples prove
+the deliberately late ordering. Current report hashes remain in the package
+manifest; all original failures are preserved. Prepare the newly requested release
+from the exact committed source, with independent artifact review before upload.
+
 ### Navigation dialog recovery after ff1d9d3 delivery
 
 The preceding turn completed the requested package and is progress. Start from

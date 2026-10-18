@@ -42,6 +42,7 @@ export class ManagedHumanDocumentGraph {
     this.sessions = new Map(); this.seen = new Set(); this.pending = new Set(); this.commands = new Set();
     this.snapshots = new WeakMap(); this.proofs = new WeakMap(); this.identities = new WeakMap();
     this.preparationIdentities = new WeakMap();
+    this.rootHints = new WeakMap();
     this.revision = 0; this.structure = 0; this.contextIdentities = 0; this.revoked = false; this.ended = false;
     this.failure = null; this.started = false; this.starting = null;
     this.root = this.createSession(undefined, null, null);
@@ -257,6 +258,19 @@ export class ManagedHumanDocumentGraph {
   }
   captureReadiness(fence, candidate, opening) { this.assertActive(); return this.events.capture(fence, candidate, opening); }
   assertReadiness(proof) { this.assertActive(); this.events.assert(proof); }
+  checkpointRootDocumentHint(expected) {
+    this.assertActive();
+    const root = this.events.checkpointRootDocumentHint(expected);
+    if (!this.started || !root) return null;
+    const ticket = Object.freeze({});
+    this.rootHints.set(ticket, { root, identity: this.captureIdentity() }); return ticket;
+  }
+  assertRootDocumentHint(ticket, actual) {
+    this.assertActive();
+    const saved = this.rootHints.get(ticket);
+    if (!saved) throw fail();
+    this.assertIdentity(saved.identity); this.events.assertRootDocumentHint(saved.root, actual);
+  }
   checkpointPreparationIdentity() {
     this.assertActive();
     const gaps = this.events.checkpointPreparation(), ticket = Object.freeze({});

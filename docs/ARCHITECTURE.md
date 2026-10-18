@@ -173,11 +173,18 @@ debugger、history 和 tab groups。
   上下文退役身份有界保留，后继不明 Opening 形成不可恢复的回答歧义，只有
   原 target 销毁可确认清理。撤权先阻止新 setup，再等待原实际 Promise；
   根 detach ACK 清理子 session，但不替代输入或回答 ACK。
-  当前内部构建的2791项Node及新一轮Go全包/vet通过；固定CfT的`mod-44Rx1T`
+  晚到的 `tabs.onUpdated.url` 只把当前 human 租约标为待核验，不撤销已证明的
+  弹窗或推进文档代次。新的人工输入/回答在最终发送前，用原调用者已证明的
+  candidate、原生根文档 ticket 和浏览器侧 documentId 复核；不会从 URL 采纳
+  后继身份或推进结果登记。每次发送共用五秒期限和八次读取上限，重复通知不续期。
+  End 立即唤醒等待并允许取消；每个实际 Chrome 读取和权限检查循环仍参与清理，
+  Promise.all 失败或检查超时不替代原读取结算。退役调用者不能续读或撤销后继。
+  显式释放/取消绕过门禁；已发操作只按原回执结算。
+  上一内部构建的2791项Node及新一轮Go全包/vet通过；固定CfT的`mod-44Rx1T`
   验证root/稳定同源/嵌套/单层OOPIF四个prompt回答与正式Stop。`mrd-R2RlH5`
   与`mrd-1yX7Xa`分别完成首帧前出现和导航时出现的原prompt回答、唯一POST及End。
   Opening早于原生首帧，回答时所见阶段分别为preparing/navigating；不宣称原生
-  回答也早于首帧。晚到URL提示撤代问题仍未修复，不能据单场通过宣布普遍支持。
+  回答也早于首帧。新提示门禁由实际后台时序反例验证，不能据单场通过宣布普遍支持。
   这些新修复未进入ff1d9d3安装包；来源展示、动态/继承文档、复杂跨进程嵌套、
   普通公司Edge及完整能力对齐仍未覆盖。
   查看器的释放进度按原 lease/UI epoch 绑定，匹配清理可先于 End 响应清除

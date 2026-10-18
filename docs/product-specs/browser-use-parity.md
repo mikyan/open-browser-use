@@ -12,6 +12,11 @@
 
 ## Baseline sources
 
+当前续轮修复晚到URL通知对人工接管的影响：复核原文档后才发送新的输入或
+回答，End保留原实际读取清理。2828项Node及Go test/vet通过，用户已再次请求
+包含这些改动的新包；完整能力对齐仍未完成。准备期与导航期的固定场景结果
+及新包交付范围见[人工网页弹窗](../references/managed-human-dialogs.md)。
+
 最新请求的重打包已发布为
 [preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)。
 产品功能与ecbda21相同；本轮只修正准备期测试时序和退役证据，31项定向检查

@@ -1698,6 +1698,12 @@ class BrowserBackend {
     // has any task/view owner. Retire only its currently pending reads; this
     // observation never grants ownership or grows the persistent tab ledger.
     for (const read of this.managedIdentityReads.get(tabId) ?? []) read.invalid = true;
+    // A tab URL notification has no document identity. For a current human
+    // lease it gates the next human dispatch until that caller's original
+    // proof is rechecked; it does not retire an already proved modal itself.
+    // Real web/native navigation and forbidden URLs keep the normal path.
+    if (phase === "updated" && !this.sitePolicyUpdate && !isOwnExtensionUrl(url) && this.siteAccess.allowsUrl(url) &&
+        this.managedHuman.navigationHint(tabId, details)) return;
     // Track only tabs this backend controls; user browsing never grows a ledger.
     const controlled = this.attachedTabs.has(tabId) || this.pendingAttachmentTabs.has(tabId) || this.siteRevokedTabs.has(tabId) || this.managedHuman.ownsTab(tabId);
     // Managed capture/finalization reads begin while the original task still
@@ -1740,7 +1746,8 @@ class BrowserBackend {
     });
   }
 
-  async assertSiteTab(tabId, { recover = false, allowBlank = false } = {}) {
+  async assertSiteTab(tabId, { recover = false, allowBlank = false, retain = value => value, inspect = () => {} } = {}) {
+    inspect();
     this.siteAccess.assertReady();
     if (!this.siteAccess.restricted) return;
     const wasRevoked = this.siteRevokedTabs.has(tabId);
@@ -1751,6 +1758,7 @@ class BrowserBackend {
     let expired = false;
     const timeout = () => { expired = true; return new Error("OBU_SITE_ACCESS_UNVERIFIED: document inspection timed out"); };
     const current = () => {
+      inspect();
       if (expired || performance.now() >= deadlineAt) throw timeout();
       this.siteAccess.assertReady();
       if (generation !== this.siteAccess.generation || revision !== this.siteAccess.status().revision)
@@ -1759,7 +1767,7 @@ class BrowserBackend {
         throw new Error("OBU_SITE_ACCESS_DENIED: document access was revoked");
     };
     try {
-      return await withTimeout(1000, async () => {
+      return await withTimeout(1000, () => retain((async () => {
         // An allowed frame may commit while Chrome answers these independent
         // reads. Reinspect only a valid but changed snapshot, never an input.
         // One original deadline and a read cap also bound synchronous churn.
@@ -1770,7 +1778,7 @@ class BrowserBackend {
             if (frameId !== 0 && ["about:blank", "about:srcdoc"].includes(url)) continue;
             this.siteAccess.assertUrl(url, { allowBlank: frameId === 0 && allowBlank });
           }
-          const [tab, frames] = await Promise.all([chrome.tabs.get(tabId), chrome.webNavigation.getAllFrames({ tabId })]);
+          const [tab, frames] = await Promise.all([retain(chrome.tabs.get(tabId)), retain(chrome.webNavigation.getAllFrames({ tabId }))]);
           current();
           assertSiteAccessFrames(this.siteAccess, tab, frames);
           if (!allowBlank && tab.url === "about:blank") throw new Error("OBU_SITE_ACCESS_UNVERIFIED: blank documents are available only for navigation to an allowed website");
@@ -1785,8 +1793,11 @@ class BrowserBackend {
           return { tabId, generation, revision, version, documentId: frames.find(frame => frame.frameId === 0)?.documentId };
         }
         throw new Error("OBU_SITE_ACCESS_UNVERIFIED: documents did not stabilize during permission inspection");
-      }, timeout);
+      })()), timeout);
     } catch (error) {
+      // A retired caller may still receive its original read failure. It no
+      // longer has authority to revoke a successor's control of this tab.
+      try { inspect(); } catch { throw error; }
       this.revokeSiteTab(tabId);
       if (/^OBU_SITE_ACCESS_/.test(error?.message)) throw error;
       throw new Error("OBU_SITE_ACCESS_UNVERIFIED: live documents could not be inspected");
@@ -3884,14 +3895,19 @@ class BrowserBackend {
     return this.readManagedPageIdentity(tabId, check);
   }
 
-  async validateManagedHumanPage(candidate, { advance = false } = {}) {
+  async validateManagedHumanPage(candidate, { advance = false, retain = value => value, inspect = () => {} } = {}) {
+    inspect();
     const owner = candidate.resultRecord ? this.managedHuman.current : null;
     const epoch = owner?.epoch;
     this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
     if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
     const navigationVersion = this.siteNavigationVersions.get(candidate.tabId) ?? 0;
-    const proof = await this.assertSiteTab(candidate.tabId, { allowBlank: true });
-    const [tab, frame, targets] = await Promise.all([chrome.tabs.get(candidate.tabId), chrome.webNavigation.getFrame({ tabId: candidate.tabId, frameId: 0 }), chrome.debugger.getTargets()]);
+    const proof = await this.assertSiteTab(candidate.tabId, { allowBlank: true, retain, inspect });
+    inspect();
+    // Retain each actual platform read: Promise.all and the policy deadline
+    // may settle while a sibling Chrome operation is still in flight.
+    const [tab, frame, targets] = await Promise.all([retain(chrome.tabs.get(candidate.tabId)), retain(chrome.webNavigation.getFrame({ tabId: candidate.tabId, frameId: 0 })), retain(chrome.debugger.getTargets())]);
+    inspect();
     this.assertSiteProof(proof); assertControllableTab(tab);
     if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
     if (proof && proof.documentId !== frame?.documentId)

@@ -76,3 +76,12 @@ export class ManagedHumanDialogDeadline extends Budget {
     super({ normal: 300000, error: () => new Error("OBU_HUMAN_DIALOG_TIMEOUT: original dialog exceeded its waiting deadline") }, onExpire, timing);
   }
 }
+
+// A hint check is browser metadata work, not time granted for a human decision.
+// Repeated hints share this one dispatch's deadline; expiry never settles reads.
+export class ManagedHumanHintDeadline extends Budget {
+  constructor({ onExpire, timing } = {}) {
+    super({ normal: 5000, error: () => new Error("OBU_HUMAN_HINT_TIMEOUT: original document hint verification exceeded its deadline") }, onExpire, timing);
+  }
+  assertAvailable() { if (!this.account()) throw this.error; }
+}

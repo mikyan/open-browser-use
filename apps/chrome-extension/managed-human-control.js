@@ -1,7 +1,7 @@
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
-import { ManagedHumanInputBudget, ManagedHumanPreparationBudget } from "./managed-human-budget.js";
+import { ManagedHumanInputBudget, ManagedHumanPreparationBudget, ManagedHumanHintDeadline } from "./managed-human-budget.js";
 import { ManagedHumanDocumentGraph } from "./managed-human-document-graph.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
@@ -93,7 +93,7 @@ export class ManagedHumanControl {
     if (Object.hasOwn(options, "deliveryId") && (typeof options.deliveryId !== "string" || !options.deliveryId)) throw fail("invalid delivery identity");
     assertAuthority();
     const record = { tabId, assertAuthority, onFrame, onState, leaseId: crypto.randomUUID(), state: "starting",
-      generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set(), dialogWaiters: new Set() };
+      generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set(), dialogWaiters: new Set(), hintReads: new Set() };
     Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
     this.current = record;
     if (mode === "human") record.documentGraph = new ManagedHumanDocumentGraph({
@@ -110,7 +110,8 @@ export class ManagedHumanControl {
     if (mode === "human") record.dialogs = new ManagedHumanDialogs({ leaseId: record.leaseId,
       capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
       attached: () => record.attached === true, destroyed: () => record.destroyed === true,
-      send: (params, check) => this.send(record, "Page.handleJavaScriptDialog", params, check),
+      send: (params, check, humanProof) => this.send(record, "Page.handleJavaScriptDialog", params, check, undefined,
+        humanProof ? { epoch: humanProof.epoch, candidate: humanProof.candidate, check: () => this.checkDialog(record, humanProof) } : undefined),
       timing: this.timing,
       onOpened: (proof, original) => {
         record.preparationBudget?.openModal(original);
@@ -142,7 +143,7 @@ export class ManagedHumanControl {
   }
 
   createGeneration(record) {
-    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map() };
+    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map(), retiredSignal: deferred() };
     if (record.mode === "human") {
       epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
         assertInput: () => this.checkInputGeometry(record, epoch) });
@@ -224,7 +225,7 @@ export class ManagedHumanControl {
     await this.recover(record);
   }
 
-  send(record, method, params, assertAdmission, sessionId) {
+  send(record, method, params, assertAdmission, sessionId, human) {
     if (record.mode === "view" && (method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled" || method === "Page.handleJavaScriptDialog"))
       throw fail("a view lease has no native input or focus authority", "UNAVAILABLE");
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
@@ -237,11 +238,36 @@ export class ManagedHumanControl {
         do { await this.waitForDialog(record); }
         while (record.dialogs?.hasOpen());
       }
-      if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
-      assertAdmission?.();
-      dispatched = true;
-      return this.chrome.debugger.sendCommand({ targetId: record.candidate.targetId,
-        ...(sessionId === undefined ? {} : { sessionId }) }, method, params);
+      let deadline, attempts = 0;
+      try {
+        // Only original human choices wait. Releases and automatic cancellation
+        // retain their explicit cleanup authority, even when a read is stalled.
+        while (human && record.urlHint && !record.revoked && !human.epoch.retired) {
+          deadline ??= new ManagedHumanHintDeadline({ timing: this.timing, onExpire: error => {
+            this.revoke(record, error); void this.close(record, error).catch(() => {});
+          } });
+          try {
+            deadline.assertAvailable();
+            if (++attempts > 8) throw fail("document hints exceeded verification capacity", "HINT_CAPACITY");
+            await this.verifyHint(record, human, deadline);
+          } catch (error) {
+            // A claimed decision must reach its original final guard, which
+            // converts a withdrawn human choice into cancellation and no ACK.
+            if (!record.revoked && !human.epoch.retired) { this.revoke(record, error); void this.close(record, error).catch(() => {}); }
+          }
+        }
+        // A new hint may arrive at any await above. The loop and final native
+        // call deliberately share this synchronous segment with no await gap.
+        if (deadline && !record.revoked && !human.epoch.retired) {
+          try { deadline.assertAvailable(); }
+          catch (error) { this.revoke(record, error); void this.close(record, error).catch(() => {}); }
+        }
+        if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
+        assertAdmission?.();
+        dispatched = true;
+        return this.chrome.debugger.sendCommand({ targetId: record.candidate.targetId,
+          ...(sessionId === undefined ? {} : { sessionId }) }, method, params);
+      } finally { deadline?.finish(); }
     });
     record.drains.add(actual);
     actual.then(() => record.drains.delete(actual), error => {
@@ -250,6 +276,46 @@ export class ManagedHumanControl {
       if (dispatched && !record.revoked) void this.close(record, error).catch(() => {});
     });
     return actual;
+  }
+
+  navigationHint(tabId, { url } = {}) {
+    const record = this.current;
+    if (!record || record.tabId !== tabId || record.mode !== "human" || record.revoked || !record.initialized || !record.attached ||
+        typeof url !== "string" || !url || url.length > 8192) return false;
+    // Constant-space dirty state. A later hint cannot be cleared by an earlier
+    // browser read; it never supplies a document ID or creates a new proof.
+    record.urlHint = Object.freeze({ url });
+    return true;
+  }
+
+  async verifyHint(record, human, deadline) {
+    const hint = record.urlHint, { candidate, epoch, check } = human;
+    check(); deadline.assertAvailable();
+    if (!hint || hint.url !== candidate.url) throw fail("URL hint does not match the original proved document", "HINT_STALE");
+    if (record.hintReads.size >= 8) throw fail("original hint reads are still pending", "HINT_CAPACITY");
+    const ticket = record.documentGraph.checkpointRootDocumentHint(candidate);
+    if (!ticket) throw fail("the original native document cannot verify this hint", "HINT_STALE");
+    const inspect = () => { check(); deadline.assertAvailable(); };
+    const retain = pending => {
+      const read = Promise.resolve(pending);
+      record.drains.add(read);
+      const settled = () => record.drains.delete(read);
+      read.then(settled, settled);
+      return read;
+    };
+    const actual = (async () => {
+      inspect();
+      const verified = await this.validate(candidate, { retain, inspect });
+      inspect();
+      record.documentGraph.assertRootDocumentHint(ticket, verified ?? candidate);
+      if (record.urlHint === hint) record.urlHint = null;
+    })();
+    record.hintReads.add(actual); record.drains.add(actual);
+    const settled = () => { record.hintReads.delete(actual); record.drains.delete(actual); };
+    actual.then(settled, settled);
+    // Retirement wakes admission, never the actual read. In particular End
+    // must let a claimed response reach its cancellation guard immediately.
+    await Promise.race([actual, record.closed.promise, epoch.retiredSignal.promise]);
   }
 
   frameTree(value) {
@@ -450,6 +516,7 @@ export class ManagedHumanControl {
   navigation(tabId, details = {}, phase = "committed", source = "web") {
     const record = this.current;
     if (!record || record.tabId !== tabId || record.revoked) return;
+    record.urlHint = null;
     if (!record.initialized || phase === "error") { this.invalidateTab(tabId); return; }
     const key = `${source}:${details.frameId ?? "unknown"}`;
     if (phase === "pending") record.pendingNavigations.add(key);
@@ -625,7 +692,7 @@ export class ManagedHumanControl {
             operation.budget.assertAvailable();
             if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
             this.checkInputGeometry(record, epoch); sent = true; operation.dispatched = true;
-          });
+          }, undefined, { epoch, candidate: epoch.candidate, check: () => this.checkInputGeometry(record, epoch) });
         });
         commit(); epoch.sequence = sequence;
         // An actual native ACK remains an ACK for its original tuple, even
@@ -660,6 +727,7 @@ export class ManagedHumanControl {
     if (epoch.retired) return;
     record.dialogs?.retire(epoch);
     epoch.retired = true;
+    epoch.retiredSignal.resolve();
     void epoch.rendering.cancel(record.tabId, epoch.token).catch(() => {});
   }
   releaseGeneration(record, epoch) {

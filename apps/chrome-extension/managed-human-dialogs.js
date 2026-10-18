@@ -146,7 +146,7 @@ export class ManagedHumanDialogs {
         catch { withdrawn = true; command.accept = false; delete command.promptText; }
       }
       record.dispatched = true;
-    })).then(() => {
+    }, human ? record.proof : undefined)).then(() => {
       record.acknowledged = true;
       if (withdrawn) { record.withdrawn = true; throw fail("STALE", "human choice was withdrawn; only original dialog cancellation was acknowledged"); }
       return human ? Object.freeze({ leaseId: record.info.leaseId, generation: record.info.generation,

@@ -416,3 +416,136 @@ test("a null dialog snapshot cannot repair the earlier input identity after cont
   const successor = f.graph.captureIdentity(); f.graph.assertIdentity(successor);
   assert.throws(() => f.graph.assertIdentity(original), /UNSUPPORTED/);
 });
+
+async function rootHintFixture({ remote = false, local = false } = {}) {
+  const f = fixture(), original = Object.freeze({ documentId: "browser-A", navigationVersion: 0, url: frame("root").url });
+  if (local) {
+    f.trees.set(undefined, tree(frame("root"), [frame("local-child", "root")]));
+    f.created(undefined, context("local-child", "https://root.test", { id: 2 }));
+  }
+  if (remote) f.child();
+  await f.graph.start(original); await f.graph.snapshot(original);
+  const commit = ({ url = original.url, loaderId = "loader-B", uniqueId = "context-B", create = true } = {}) => {
+    const next = { ...frame("root"), url, loaderId };
+    f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "root", loaderId, url });
+    f.graph.observe(undefined, "Page.frameNavigated", { frame: next });
+    f.trees.set(undefined, tree(next));
+    if (create) f.created(undefined, context("root", new URL(url).origin, { uniqueId }));
+    return Object.freeze({ documentId: "browser-B", navigationVersion: 1, url });
+  };
+  return Object.assign(f, { original, commit });
+}
+
+test("root URL hint pins the original bound document without native queries or authority mutation", async () => {
+  const f = await rootHintFixture(), count = f.calls.length, root = f.graph.events.frames.get(f.graph.root).get("root");
+  const binding = f.graph.events.bindings.get(root), documents = new Map(f.graph.events.rootDocuments);
+  const expected = { ...f.original }, ticket = f.graph.checkpointRootDocumentHint(expected);
+  assert.ok(ticket); expected.documentId = "changed-caller-object";
+  f.graph.assertRootDocumentHint(ticket, f.original);
+  assert.equal(f.calls.length, count);
+  assert.equal(f.graph.events.bindings.get(root), binding);
+  assert.deepEqual(f.graph.events.rootDocuments, documents);
+  assert.throws(() => f.graph.assertIdentity(ticket), /UNSUPPORTED/, "a hint ticket grants no input identity");
+  assert.throws(() => f.graph.captureReadiness(ticket, f.original, { frameId: "root", url: f.original.url }), /UNSUPPORTED/);
+});
+
+test("native successor B accepts proven browser B while original candidate A stays retired", async () => {
+  const f = await rootHintFixture(), next = f.commit(), count = f.calls.length;
+  const root = f.graph.events.frames.get(f.graph.root).get("root"), documents = new Map(f.graph.events.rootDocuments);
+  assert.throws(() => f.graph.checkpointRootDocumentHint(f.original), /UNSUPPORTED/);
+  const ticket = f.graph.checkpointRootDocumentHint(next); assert.ok(ticket);
+  f.graph.assertRootDocumentHint(ticket, next);
+  assert.equal(f.graph.events.bindings.get(root), undefined, "hint verification does not bind the new browser identity");
+  assert.deepEqual(f.graph.events.rootDocuments, documents);
+  assert.equal(f.calls.length, count);
+  await f.graph.snapshot(next);
+  f.graph.assertRootDocumentHint(ticket, next);
+});
+
+test("same-URL native A cannot adopt novel browser B, and late browser A cannot refill native B", async () => {
+  const f = await rootHintFixture(), ticket = f.graph.checkpointRootDocumentHint(f.original);
+  const novel = { ...f.original, documentId: "novel-browser-B" };
+  assert.throws(() => f.graph.checkpointRootDocumentHint(novel), /UNSUPPORTED/);
+  assert.throws(() => f.graph.assertRootDocumentHint(ticket, novel), /UNSUPPORTED/);
+  const next = f.commit();
+  assert.throws(() => f.graph.assertRootDocumentHint(ticket, f.original), /UNSUPPORTED/);
+  assert.throws(() => f.graph.checkpointRootDocumentHint(f.original), /UNSUPPORTED/);
+  const successor = f.graph.checkpointRootDocumentHint(next); f.graph.assertRootDocumentHint(successor, next);
+  assert.throws(() => f.graph.assertRootDocumentHint(successor, f.original), /UNSUPPORTED/);
+});
+
+test("missing root context or unbound cold snapshot has no hint ticket and cannot be repaired later", async () => {
+  const f = await rootHintFixture(), next = f.commit({ create: false });
+  const missing = f.graph.checkpointRootDocumentHint(next); assert.equal(missing, null);
+  f.created(undefined, context("root", "https://root.test", { uniqueId: "first-B" }));
+  assert.throws(() => f.graph.assertRootDocumentHint(missing, next), /UNSUPPORTED/);
+  const fresh = f.graph.checkpointRootDocumentHint(next); f.graph.assertRootDocumentHint(fresh, next);
+  const cold = fixture(); await cold.graph.start(); await cold.graph.snapshot();
+  assert.equal(cold.graph.checkpointRootDocumentHint(f.original), null, "a snapshot without any browser identity binding grants no hint proof");
+});
+
+test("same original seed and isolated worlds preserve a root hint, but do not permit another browser binding", async () => {
+  const f = await rootHintFixture(), next = f.commit(), ticket = f.graph.checkpointRootDocumentHint(next);
+  f.created(undefined, context("root", "https://isolated.test", { id: 2, uniqueId: "isolated-hint", auxData: { frameId: "root", isDefault: false } }));
+  await f.graph.snapshot(next); f.graph.assertRootDocumentHint(ticket, next);
+  const other = await rootHintFixture(), original = other.commit(), pending = other.graph.checkpointRootDocumentHint(original);
+  await other.graph.snapshot({ ...original, documentId: "other-browser-binding" });
+  assert.throws(() => other.graph.assertRootDocumentHint(pending, original), /UNSUPPORTED/);
+});
+
+for (const change of ["native-start", "same-url-commit", "context-destroy", "context-clear", "context-replace", "local-child-start", "remote-child-start", "target-attach", "target-detach", "blocked-events", "revoke", "detach", "owner-withdrawal"]) {
+  test(`root URL hint rejects ${change} before a late browser reply can clear the dirty gate`, async () => {
+    const f = await rootHintFixture({ remote: true, local: true }), ticket = f.graph.checkpointRootDocumentHint(f.original);
+    if (change === "native-start") f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "root", loaderId: "pending-B" });
+    if (change === "same-url-commit") f.commit();
+    if (change === "context-destroy") f.graph.observe(undefined, "Runtime.executionContextDestroyed", { executionContextId: 1, executionContextUniqueId: "context-root" });
+    if (change === "context-clear") f.graph.observe(undefined, "Runtime.executionContextsCleared");
+    if (change === "context-replace") f.created(undefined, context("root", "https://root.test", { uniqueId: "replacement-root" }));
+    if (change === "local-child-start") f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "local-child", loaderId: "child-B" });
+    if (change === "remote-child-start") f.graph.observe("child-session", "Page.frameStartedNavigating", { frameId: "child", loaderId: "child-B" });
+    if (change === "target-attach") f.child("other-session", undefined, "other", "root", "https://other.test");
+    if (change === "target-detach") f.graph.observe(undefined, "Target.detachedFromTarget", { sessionId: "child-session", targetId: "child" });
+    if (change === "blocked-events") f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "unknown" });
+    if (change === "revoke") f.graph.revoke();
+    if (change === "detach") f.graph.detached();
+    if (change === "owner-withdrawal") f.expire();
+    assert.throws(() => f.graph.assertRootDocumentHint(ticket, f.original), /UNSUPPORTED|revoked/);
+    await f.graph.drain();
+  });
+}
+
+test("root hint rejects foreign tickets and changed browser identity or URL without expanding original authority", async () => {
+  const first = await rootHintFixture(), second = await rootHintFixture(), ticket = first.graph.checkpointRootDocumentHint(first.original);
+  assert.throws(() => second.graph.assertRootDocumentHint(ticket, second.original), /UNSUPPORTED/);
+  assert.throws(() => first.graph.assertRootDocumentHint({}, first.original), /UNSUPPORTED/);
+  assert.throws(() => first.graph.assertRootDocumentHint(ticket, { ...first.original, url: first.original.url + "#later" }), /UNSUPPORTED/);
+  for (const invalid of [null, {}, [], { ...first.original, documentId: "" }, { ...first.original, documentId: "bad\nID" }, { ...first.original, url: 5 }]) {
+    assert.throws(() => first.graph.checkpointRootDocumentHint(invalid), /UNSUPPORTED/);
+    assert.throws(() => first.graph.assertRootDocumentHint(ticket, invalid), /UNSUPPORTED/);
+  }
+  first.graph.assertRootDocumentHint(ticket, first.original);
+});
+
+test("an initial unbound browser reservation cannot authorize a successor root hint", async () => {
+  const f = fixture(), original = { documentId: "reserved-A", url: frame("root").url };
+  await f.graph.start(original);
+  const next = { ...frame("root"), loaderId: "successor-B" };
+  f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "root", loaderId: next.loaderId });
+  f.graph.observe(undefined, "Page.frameNavigated", { frame: next });
+  f.created(undefined, context("root", "https://root.test", { uniqueId: "successor-default-B" }));
+  assert.equal(f.graph.events.rootDocuments.get(original.documentId), null);
+  assert.throws(() => f.graph.checkpointRootDocumentHint(original), /UNSUPPORTED/);
+  const browser = { ...original, documentId: "proven-B" }, ticket = f.graph.checkpointRootDocumentHint(browser);
+  f.graph.assertRootDocumentHint(ticket, browser);
+  assert.equal(f.graph.events.rootDocuments.get(original.documentId), null);
+  assert.equal(f.graph.events.rootDocuments.has(browser.documentId), false);
+});
+
+test("unavailable event evidence produces no new root hint without changing strict input identity", async () => {
+  const f = await rootHintFixture();
+  f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "unknown" });
+  assert.equal(f.graph.events.blocked, true);
+  assert.equal(f.graph.checkpointRootDocumentHint(f.original), null);
+  assert.throws(() => f.graph.checkpointRootDocumentHint(null), /UNSUPPORTED/);
+  const strict = f.graph.captureIdentity(); f.graph.assertIdentity(strict);
+});
