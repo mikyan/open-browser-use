@@ -1,19 +1,18 @@
 # Managed human dialogs from original child documents
 
 Status: active. Full Browser Use parity remains unproven. The newly requested
-package is published and verified as
-[preview-20261019-bcc8304](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-bcc8304).
-It includes the original-context readiness, result-journal concurrency and late URL
-hint fixes. Two fixed readiness scenarios and four stable layouts pass on the
-frozen build; clean release source and artifacts are independently bound to it.
-Earlier releases
-and failed runs below retain their historical scope. No PR is requested.
+package is published and verified as [preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0).
+It includes the original native dialog source label and matching Windows host,
+extension and Skill. The frozen build passed 2878 Node tests, Go test/vet and
+three original browser workflows; clean-release artifacts and uploaded downloads
+were independently verified. Earlier releases and failed runs below retain their
+historical scope. No PR is requested.
 
 ## Current continuation after the verified package
 
 ### Native emitter origin display after bcc8304
 
-Implemented and verified on one fresh 437-source/77-extension build with 2878 Node tests and complete Go test/vet. Original browser runs `mrd-tDRuyY`, `mrd-48B22h`, `mod-VSZqzi` passed source-label, original answer/POST, End and Stop checks; event and lifecycle audits passed. Package this exact slice on the user's new request. Full parity and the following paste/download work remain open.
+Implemented and verified on one fresh 437-source/77-extension build with 2878 Node tests and complete Go test/vet. Original browser runs `mrd-tDRuyY`, `mrd-48B22h`, `mod-VSZqzi` passed source-label, original answer/POST, End and Stop checks; event and lifecycle audits passed. This exact slice is now published as `preview-20261019-3241ff0` on the user's request. Full parity and the following paste/download work remain open.
 
 
 The preceding turn is progress: product fixes, original browser evidence and the

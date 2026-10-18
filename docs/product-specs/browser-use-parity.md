@@ -12,7 +12,7 @@
 
 ## Baseline sources
 
-当前来源展示切片通过2878项Node、Go test/vet和三场固定真实浏览器验收；原弹窗卡片独立显示原发起者来源，End清空。正在按新请求打包，完整P01-P15仍未完成。具体范围见[人工网页弹窗](../references/managed-human-dialogs.md)。
+当前来源展示切片通过2878项Node、Go test/vet和三场固定真实浏览器验收；原弹窗卡片独立显示原发起者来源，End清空。已发布 [preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0)，完整P01-P15仍未完成。具体范围见[人工网页弹窗](../references/managed-human-dialogs.md)。
 
 
 当前续轮修复晚到URL通知对人工接管的影响：复核原文档后才发送新的输入或

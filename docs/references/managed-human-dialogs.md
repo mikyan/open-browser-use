@@ -1,5 +1,8 @@
 # Managed 人工接管的网页弹窗
 
+本轮来源标签配套预览已发布：[preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0)。包含完整主机、扩展和Skill；安装与覆盖步骤在包内README。
+
+
 这是实验功能。已发布的 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)
 包含已完成接管、首帧已就绪的原主页面 `alert`、`confirm`、`prompt`，以及
 稳定同源子页和嵌套页的弹窗支持。95e7b29 预览仅包含主页面范围，853ea92 不包含人工弹窗。
@@ -39,7 +42,7 @@ Chrome 读取及权限检查循环仍等待原结果；超时或并行读取失�
 
 ## 使用与限制
 
-本轮来源标签已通过三场固定Windows CfT验收：`mrd-tDRuyY`、`mrd-48B22h`、`mod-VSZqzi`。与原默认上下文逐项对照、独立纯文字标签及End清空通过；当前源码尚待本轮配套预览发布。
+本轮来源标签已通过三场固定Windows CfT验收：`mrd-tDRuyY`、`mrd-48B22h`、`mod-VSZqzi`。与原默认上下文逐项对照、独立纯文字标签及End清空通过；本轮配套预览已发布，见本文开头。
 
 
 - 在原页面完成接管后操作；弹窗出现时暂停接收新的页面输入。已按下按键或
