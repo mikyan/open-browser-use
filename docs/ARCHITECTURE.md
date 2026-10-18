@@ -139,6 +139,11 @@ debugger、history 和 tab groups。
   输入单队列等待原回执，释放请求先撤销排队输入，再等待实际清理。扩展的
   `managed-human-control.js` 固定原页面 target，持有独立接管租约并跟踪
   原生按键、指针和 rendering 清理；桥接层负责与原任务暂停、选择及继续衔接。
+  源码的 `managed-human-dialogs.js` 独立持有原主页面的网页弹窗实例，
+  typed 回答越过输入队列，原 native ACK 与 Closed 分开确认。撤权先取消
+  未回答弹窗，再等待原输入和附件清理；只读 view 不取得回答权限。查看器
+  将消息作为纯文字显示，并保留原持键/按钮的真实释放；原 30 秒输入期限
+  不变，支持范围与真实六弹窗证据见[人工网页弹窗](references/managed-human-dialogs.md)。
   接管先等待原任务清理及首帧实际解码；结束后仍暂停，明确 Resume 后任务
   需要新轮次。当前源码可在原 tab/target 和同一人工租约内经过根/子 frame
   导航及 SPA；每次导航撤旧队列，等待原输入和渲染释放，再以原生 TimeTicks

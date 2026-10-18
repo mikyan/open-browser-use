@@ -29,6 +29,7 @@ function fixture(options = {}) {
     validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
+    assertDialog: candidate => options.assertDialog?.(candidate),
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
     viewJournal: options.viewJournal,
     onFailure: error => calls.push(["failure", error.message])
@@ -104,6 +105,99 @@ test("pending input and stale requests never trigger a second native business co
   await assert.rejects(input(handle, { type: "text", text: "second" }), /original input acknowledgement/);
   assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
   sent.resolve(); await first; await handle.close();
+});
+
+const opening = (f, extra = {}, source) => f.event("Page.javascriptDialogOpening", {
+  type: "confirm", message: "Continue original task?", url: "https://fixture.test/original-document", frameId: "root", ...extra
+}, source);
+const answer = (handle, extra = {}) => {
+  const { leaseId, generation, dialogId } = handle.pendingDialog();
+  return handle.respondDialog({ leaseId, generation, dialogId, accept: true, ...extra });
+};
+
+test("dialog response bypasses the native input whose ACK requires that same response", async () => {
+  const nativeInput = defer(), response = defer(); let f;
+  f = fixture({ command: method => {
+    if (method === "Input.insertText") { opening(f); return nativeInput.promise; }
+    if (method === "Page.handleJavaScriptDialog") { nativeInput.resolve(); return response.promise; }
+  } });
+  const handle = await f.begin(); const inserted = input(handle, { type: "text", text: "trigger once" }); await tick();
+  const dialog = handle.pendingDialog(); assert.equal(dialog.generation, 1);
+  const responding = answer(handle); await tick();
+  assert.equal((await inserted).acknowledged, true); assert.equal(handle.info().lastInputSequence, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 1);
+  await assert.rejects(input(handle, { type: "text", text: "must not cross modal" }), /DIALOG_BUSY/);
+  response.resolve(); assert.deepEqual(await responding, { leaseId: dialog.leaseId, generation: 1, dialogId: dialog.dialogId, acknowledged: true });
+  await assert.rejects(input(handle, { type: "text", text: "ACK is not Closed" }), /DIALOG_BUSY/);
+  f.event("Page.javascriptDialogClosed"); assert.equal(handle.pendingDialog(), null); await handle.close();
+});
+
+test("End cancels an original dialog before waiting for its triggering input and held release", async () => {
+  const nativeInput = defer(); let f;
+  f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") { opening(f, { type: "alert" }); return nativeInput.promise; }
+    if (method === "Page.handleJavaScriptDialog") { assert.deepEqual(params, { accept: false }); f.event("Page.javascriptDialogClosed"); nativeInput.resolve(); }
+  } });
+  const handle = await f.begin(), clicked = input(handle, { type: "pointer", action: "down", x: 20, y: 30, button: "left" }); await tick();
+  await handle.close(); assert.equal((await clicked).acknowledged, true);
+  const cancel = f.calls.findIndex(([method]) => method === "Page.handleJavaScriptDialog");
+  const release = f.calls.findIndex(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased");
+  assert.ok(cancel >= 0 && release > cancel); assert.equal(f.risks.size, 0); assert.equal(f.listeners.size, 0);
+});
+
+test("foreign native events cannot offer, close, or answer the original human dialog", async () => {
+  const f = fixture(), handle = await f.begin();
+  const sources = [{ targetId: "other", tabId: 7 }, { targetId: "original-target", tabId: 8 },
+    { targetId: "original-target", sessionId: "child" }, { tabId: 7, extensionId: "worker" }];
+  for (const source of sources) opening(f, {}, source);
+  assert.equal(handle.pendingDialog(), null); opening(f); const original = handle.pendingDialog();
+  for (const source of sources) f.event("Page.javascriptDialogClosed", {}, source);
+  assert.deepEqual(handle.pendingDialog(), original);
+  f.event("Page.javascriptDialogClosed"); await handle.close();
+  assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 0);
+});
+
+test("a read-only original view gains no dialog capability or native response", async () => {
+  const f = fixture(), handle = await f.beginView(); opening(f);
+  assert.equal(handle.pendingDialog, undefined); assert.equal(handle.respondDialog, undefined);
+  assert.throws(() => f.control.send(f.control.current, "Page.handleJavaScriptDialog", { accept: true }), /no native input/);
+  await handle.close(); assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 0);
+});
+
+test("beforeunload, unsupported emitter and malformed metadata cancel only the original and retire human control", async () => {
+  for (const extra of [{ type: "beforeunload" }, { url: "https://foreign.test/" }, { frameId: "other-frame" }, { frameId: undefined }, { message: "\ud800" }]) {
+    const f = fixture(), handle = await f.begin(); opening(f, extra); await handle.close();
+    assert.equal(handle.pendingDialog(), null);
+    assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(([, , params]) => params), [{ accept: false }]);
+    assert.equal(handle.info().state, "released"); assert.equal(f.risks.size, 0);
+  }
+});
+
+test("unknown dialog response keeps native risk until actual original close or Browser destruction", async () => {
+  const f = fixture({ command: method => { if (method === "Page.handleJavaScriptDialog") throw new Error("native response unknown"); } });
+  const handle = await f.begin(); opening(f);
+  await assert.rejects(answer(handle), /DIALOG_UNCONFIRMED/);
+  await assert.rejects(handle.close(), /DIALOG_CLEANUP_INCOMPLETE/); assert.equal(f.risks.size, 1);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  f.event("Page.javascriptDialogClosed"); await handle.close(); assert.equal(f.risks.size, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 1);
+});
+
+test("dialog admission rechecks original policy and lifetime at the actual native dispatch", async () => {
+  let permitted = true;
+  const f = fixture({ assertDialog: () => { if (!permitted) throw new Error("original policy revoked"); } }), handle = await f.begin(); opening(f);
+  const response = answer(handle), rejected = assert.rejects(response, /DIALOG_STALE/); permitted = false;
+  await rejected; await handle.close();
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(([, , params]) => params), [{ accept: false }]);
+});
+
+test("a modal opening during durable input admission prevents that unsent page command", async () => {
+  const durable = defer(); let marks = 0;
+  const f = fixture({ markRisk: () => ++marks === 2 ? durable.promise : undefined }), handle = await f.begin();
+  const pending = input(handle, { type: "text", text: "must stay unsent" }); const rejected = assert.rejects(pending, /DIALOG_BUSY/);
+  await tick(); opening(f); durable.resolve(); await rejected; await handle.close();
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(([, , params]) => params), [{ accept: false }]);
 });
 
 test("committed text permits only actual Shift holds without releasing or replaying them", async () => {

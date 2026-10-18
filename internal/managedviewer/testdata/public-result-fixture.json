@@ -3,6 +3,7 @@
     {
       "eventSequence": 1,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -38,6 +39,7 @@
     {
       "eventSequence": 2,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -92,6 +94,7 @@
     {
       "eventSequence": 4,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -124,6 +127,7 @@
     {
       "eventSequence": 5,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -183,6 +187,7 @@
     {
       "eventSequence": 8,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": null,
       "status": {
         "cleanupComplete": true,
@@ -209,6 +214,7 @@
     {
       "eventSequence": 9,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -244,6 +250,7 @@
     {
       "eventSequence": 10,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -312,6 +319,7 @@
           "width": 1
         }
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -347,6 +355,7 @@
           "width": 1
         }
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -401,6 +410,7 @@
           "width": 1
         }
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -433,6 +443,7 @@
         "tabId": 7,
         "viewport": null
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -468,6 +479,7 @@
           "width": 1
         }
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -522,6 +534,7 @@
         "cleanupConfirmed": true,
         "leaseId": "result-human-3"
       },
+      "pendingDialog": null,
       "selectedTabId": null,
       "status": {
         "cleanupComplete": true,
@@ -552,6 +565,7 @@
         "cleanupConfirmed": true,
         "leaseId": "result-human-3"
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -591,6 +605,7 @@
         "cleanupConfirmed": true,
         "leaseId": "result-human-3"
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -663,6 +678,7 @@
         "cleanupConfirmed": true,
         "leaseId": "result-human-3"
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -702,6 +718,7 @@
         "cleanupConfirmed": true,
         "leaseId": "result-human-3"
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -756,6 +773,7 @@
         "cleanupConfirmed": true,
         "leaseId": "result-human-5"
       },
+      "pendingDialog": null,
       "selectedTabId": null,
       "status": {
         "cleanupComplete": true,
@@ -797,6 +815,7 @@
         "width": 1
       }
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -826,6 +845,7 @@
       "cleanupConfirmed": true,
       "leaseId": "result-human-3"
     },
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -866,6 +886,7 @@
       "leaseId": "result-human-3",
       "sequence": 1
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -901,6 +922,7 @@
           "width": 1
         }
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -932,6 +954,7 @@
         "tabId": 7,
         "viewport": null
       },
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -958,6 +981,7 @@
   "open": {
     "eventSequence": 0,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": false,
@@ -983,6 +1007,7 @@
   "pause": {
     "eventSequence": 8,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -1021,6 +1046,7 @@
       "cleanupConfirmed": true,
       "leaseId": "result-human-3"
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1050,6 +1076,7 @@
       "cleanupConfirmed": true,
       "leaseId": "result-human-5"
     },
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -1079,6 +1106,7 @@
       "cleanupConfirmed": true,
       "leaseId": "result-human-3"
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1117,6 +1145,7 @@
       "cleanupConfirmed": true,
       "leaseId": "result-human-3"
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1152,6 +1181,7 @@
     "active": {
       "eventSequence": 6,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -1186,6 +1216,7 @@
     "navigating": {
       "eventSequence": 4,
       "human": null,
+      "pendingDialog": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -1218,6 +1249,7 @@
   "viewPaused": {
     "eventSequence": 9,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1252,6 +1284,7 @@
   "viewPausedStatus": {
     "eventSequence": 11,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1286,6 +1319,7 @@
   "viewRunning": {
     "eventSequence": 1,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": false,
@@ -1320,6 +1354,7 @@
   "viewRunningStatus": {
     "eventSequence": 3,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": false,

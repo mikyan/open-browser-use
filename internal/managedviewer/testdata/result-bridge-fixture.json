@@ -51,7 +51,8 @@
       "cleanupPending": 0,
       "eventSequence": 0,
       "human": null,
-      "view": null
+      "view": null,
+      "pendingDialog": null
     },
     "recoveryState": {
       "version": 1,
@@ -108,7 +109,8 @@
           "height": 1
         },
         "lastInputSequence": 0
-      }
+      },
+      "pendingDialog": null
     }
   },
   "viewRunningStatus": {
@@ -159,7 +161,8 @@
           "height": 1
         },
         "lastInputSequence": 0
-      }
+      },
+      "pendingDialog": null
     }
   },
   "viewNavigation": {
@@ -208,7 +211,8 @@
           "generation": 2,
           "viewport": null,
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       }
     },
     "active": {
@@ -259,7 +263,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       }
     }
   },
@@ -301,7 +306,8 @@
       "cleanupPending": 0,
       "eventSequence": 8,
       "human": null,
-      "view": null
+      "view": null,
+      "pendingDialog": null
     }
   },
   "viewPaused": {
@@ -352,7 +358,8 @@
           "height": 1
         },
         "lastInputSequence": 0
-      }
+      },
+      "pendingDialog": null
     }
   },
   "viewPausedStatus": {
@@ -403,7 +410,8 @@
           "height": 1
         },
         "lastInputSequence": 0
-      }
+      },
+      "pendingDialog": null
     }
   },
   "humanBegin": {
@@ -454,7 +462,8 @@
         },
         "lastInputSequence": 0
       },
-      "view": null
+      "view": null,
+      "pendingDialog": null
     }
   },
   "humanInput": {
@@ -505,7 +514,8 @@
         },
         "lastInputSequence": 1
       },
-      "view": null
+      "view": null,
+      "pendingDialog": null
     },
     "inputReceipt": {
       "leaseId": "result-human-3",
@@ -560,7 +570,8 @@
           "viewport": null,
           "lastInputSequence": 0
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       }
     },
     "active": {
@@ -611,7 +622,8 @@
           },
           "lastInputSequence": 0
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       }
     }
   },
@@ -654,6 +666,7 @@
       "eventSequence": 21,
       "human": null,
       "view": null,
+      "pendingDialog": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -709,6 +722,7 @@
         },
         "lastInputSequence": 0
       },
+      "pendingDialog": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -764,6 +778,7 @@
         },
         "lastInputSequence": 0
       },
+      "pendingDialog": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -819,6 +834,7 @@
         "lastInputSequence": 0
       },
       "view": null,
+      "pendingDialog": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -864,6 +880,7 @@
       "eventSequence": 30,
       "human": null,
       "view": null,
+      "pendingDialog": null,
       "humanCleanup": {
         "leaseId": "result-human-5",
         "cleanupConfirmed": true
@@ -900,6 +917,7 @@
       "eventSequence": 31,
       "human": null,
       "view": null,
+      "pendingDialog": null,
       "humanCleanup": {
         "leaseId": "result-human-5",
         "cleanupConfirmed": true
@@ -963,7 +981,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       },
       "sequence": 1
     },
@@ -1023,7 +1042,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       },
       "sequence": 2
     },
@@ -1106,7 +1126,8 @@
           "generation": 2,
           "viewport": null,
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       },
       "sequence": 4
     },
@@ -1166,7 +1187,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       },
       "sequence": 5
     },
@@ -1254,7 +1276,8 @@
         "cleanupPending": 0,
         "eventSequence": 8,
         "human": null,
-        "view": null
+        "view": null,
+        "pendingDialog": null
       },
       "sequence": 8
     },
@@ -1314,7 +1337,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       },
       "sequence": 9
     },
@@ -1374,7 +1398,8 @@
             "height": 1
           },
           "lastInputSequence": 0
-        }
+        },
+        "pendingDialog": null
       },
       "sequence": 10
     },
@@ -1472,7 +1497,8 @@
           },
           "lastInputSequence": 0
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       },
       "sequence": 13
     },
@@ -1532,7 +1558,8 @@
           },
           "lastInputSequence": 0
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       },
       "sequence": 14
     },
@@ -1618,7 +1645,8 @@
           },
           "lastInputSequence": 1
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       },
       "sequence": 16
     },
@@ -1675,7 +1703,8 @@
           "viewport": null,
           "lastInputSequence": 0
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       },
       "sequence": 17
     },
@@ -1735,7 +1764,8 @@
           },
           "lastInputSequence": 0
         },
-        "view": null
+        "view": null,
+        "pendingDialog": null
       },
       "sequence": 18
     },
@@ -1824,6 +1854,7 @@
         "eventSequence": 21,
         "human": null,
         "view": null,
+        "pendingDialog": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -1888,6 +1919,7 @@
           },
           "lastInputSequence": 0
         },
+        "pendingDialog": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -1952,6 +1984,7 @@
           },
           "lastInputSequence": 0
         },
+        "pendingDialog": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -2054,6 +2087,7 @@
           "lastInputSequence": 0
         },
         "view": null,
+        "pendingDialog": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -2118,6 +2152,7 @@
           "lastInputSequence": 0
         },
         "view": null,
+        "pendingDialog": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -2210,6 +2245,7 @@
         "eventSequence": 30,
         "human": null,
         "view": null,
+        "pendingDialog": null,
         "humanCleanup": {
           "leaseId": "result-human-5",
           "cleanupConfirmed": true

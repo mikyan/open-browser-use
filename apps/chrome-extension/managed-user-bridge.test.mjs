@@ -78,6 +78,7 @@ function fixture(t, options = {}) {
   t.after(async () => {
     f.resumeGate?.resolve(); f.subscribeGate?.resolve(); f.closeGate?.resolve();
     f.humanBeginGate?.resolve(); f.humanInputGate?.resolve(); f.humanCloseGate?.resolve();
+    for (const gate of f.dialogGates ?? []) gate.resolve();
     try { await f.request("disconnect"); } catch { /* already revoked */ }
     for (const timer of timers) clearTimeout(timer);
   });
@@ -86,13 +87,27 @@ function fixture(t, options = {}) {
 
 function humanFixture(t) {
   const f = fixture(t);
-  f.humans = [];
+  f.humans = []; f.dialogGates = []; let dialogCounter = 0;
   f.backend.beginManagedHuman = async (tabId, authority, onFrame, onState) => {
     f.calls.push(["humanBegin", tabId]); authority();
-    const closed = deferred(), record = { tabId, authority, onFrame, onState, closed, closeCalls: 0, inputCalls: 0,
+    const closed = deferred(), record = { tabId, authority, onFrame, onState, closed, closeCalls: 0, inputCalls: 0, dialogClaims: new Set(), dialogPending: new Set(),
       info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0 } };
     const handle = record.handle = {
       info: () => ({ ...record.info }), closed: closed.promise,
+      pendingDialog: () => record.dialog ?? null,
+      respondDialog(envelope) {
+        authority(); const original = record.dialog;
+        if (!original || original.dialogId !== envelope.dialogId || record.dialogClaims.has(original.dialogId)) throw new Error("OBU_HUMAN_DIALOG_STALE");
+        record.dialogClaims.add(original.dialogId); f.calls.push(["humanDialogRespond", envelope]);
+        const gate = f.dialogResponseGate;
+        const actual = (async () => {
+          await gate?.promise;
+          return { leaseId: original.leaseId, generation: original.generation, dialogId: original.dialogId, acknowledged: true, ...(f.dialogReplyOverride ?? {}) };
+        })();
+        record.dialogPending.add(actual);
+        actual.finally(() => record.dialogPending.delete(actual)).catch(() => {});
+        return actual;
+      },
       input(envelope) {
         authority(); record.inputCalls++; f.calls.push(["humanInput", envelope.sequence]);
         const pending = record.pending = (async () => {
@@ -107,7 +122,7 @@ function humanFixture(t) {
         if (record.closing) return record.closing;
         record.closeCalls++; record.info.state = "releasing"; closed.resolve({ reason: "released" });
         record.closing = (async () => {
-          await Promise.allSettled([record.pending].filter(Boolean));
+          await Promise.allSettled([record.pending, ...record.dialogPending].filter(Boolean));
           await f.humanCloseGate?.promise;
           if (f.humanCleanupError) throw f.humanCleanupError;
           record.info.state = "released"; f.calls.push(["humanReleased", tabId]);
@@ -142,6 +157,13 @@ function humanFixture(t) {
   };
   f.input = (sequence, extra = {}) => f.request("humanInput", {
     leaseId: f.humans.at(-1).info.leaseId, generation: 1, sequence, input: { type: "text", text: "synthetic" }, ...extra
+  });
+  f.dialog = (extra = {}, record = f.humans.at(-1)) => {
+    record.dialog = { leaseId: record.info.leaseId, generation: record.info.generation, dialogId: `dialog-${++dialogCounter}`, type: "confirm", message: "<b>Original?</b>", ...extra };
+    record.onState({ ...record.info }); return record.dialog;
+  };
+  f.answerDialog = (extra = {}, dialog = f.humans.at(-1).dialog) => f.request("humanDialogRespond", {
+    leaseId: dialog.leaseId, generation: dialog.generation, dialogId: dialog.dialogId, accept: true, ...extra
   });
   f.navigate = (generation, record = f.humans.at(-1)) => {
     Object.assign(record.info, { state: "navigating", generation, viewport: null, lastInputSequence: 0 });
@@ -1119,6 +1141,61 @@ test("trusted replacement open forwards only the frozen recovery contract and re
   assert.deepEqual(opened.recoveryState, recoveryState); assert.deepEqual(opened.workerRecovery, workerRecovery);
   assert.equal(f.openCommitted, true); assert.equal(opened.status.automation.state, "paused");
   assert.equal(f.calls.some(([operation]) => operation === "resume"), false);
+});
+
+test("pending dialog is persistent status metadata and publishes without a new encoded frame", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const frames = f.events.filter(value => value.type === "frame").length;
+  const dialog = f.dialog({ type: "prompt", defaultPrompt: "原值" }); await flush();
+  const status = (await f.request("status")).status;
+  assert.deepEqual(status.pendingDialog, dialog); assert.equal(f.events.filter(value => value.type === "frame").length, frames);
+  assert.deepEqual(f.events.filter(value => value.type === "status").at(-1).status.pendingDialog, dialog);
+  assert.equal(status.human.lastInputSequence, 0);
+  const ended = await f.request("humanEnd", { leaseId: dialog.leaseId }); assert.equal(ended.status.pendingDialog, null);
+  assert.equal((await f.request("disconnect")).status.pendingDialog, null);
+});
+
+test("typed dialog response bypasses a pending human input and owns a separate original receipt", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin(); f.humanInputGate = deferred();
+  const input = f.input(1); await flush(); const dialog = f.dialog();
+  const response = await f.answerDialog();
+  assert.deepEqual(response.dialogReceipt, { leaseId: dialog.leaseId, generation: 1, dialogId: dialog.dialogId, acknowledged: true });
+  assert.equal(Object.hasOwn(response, "inputReceipt"), false); assert.equal(response.status.human.lastInputSequence, 0);
+  assert.deepEqual(response.status.pendingDialog, dialog, "response ACK does not manufacture a closed event");
+  f.humanInputGate.resolve(); assert.equal((await input).inputReceipt.sequence, 1);
+});
+
+test("old dialog ACK cannot clear a newer dialog and the new decision does not queue behind it", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const oldGate = deferred(); f.dialogGates.push(oldGate); f.dialogResponseGate = oldGate;
+  const first = f.dialog(), old = f.answerDialog(); await flush();
+  f.dialogResponseGate = null; const second = f.dialog({ message: "Next native opening" });
+  assert.equal((await f.answerDialog()).dialogReceipt.dialogId, second.dialogId);
+  oldGate.resolve(); const late = await old;
+  assert.equal(late.dialogReceipt.dialogId, first.dialogId); assert.deepEqual(late.status.pendingDialog, second);
+  assert.equal(f.calls.filter(([name]) => name === "humanDialogRespond").length, 2);
+});
+
+test("stale, duplicate, malformed and non-human dialog requests cannot become native decisions", async t => {
+  const f = humanFixture(t); await f.open();
+  const fields = { leaseId: "human-1", generation: 1, dialogId: "missing", accept: true };
+  await assert.rejects(f.request("humanDialogRespond", fields), /DIALOG_STALE/);
+  await f.begin(); const dialog = f.dialog();
+  for (const extra of [{ leaseId: "view-1" }, { generation: 2 }, { dialogId: "old" }]) await assert.rejects(f.answerDialog(extra), /DIALOG_STALE/);
+  for (const extra of [{ accept: 1 }, { promptText: "\ud800" }, { accept: false, promptText: "no" }, { method: "Page.handleJavaScriptDialog" }])
+    await assert.rejects(f.answerDialog(extra), /DIALOG_INVALID|PROTOCOL/);
+  assert.equal(f.calls.some(([name]) => name === "humanDialogRespond"), false);
+  await f.answerDialog(); await assert.rejects(f.answerDialog(), /DIALOG_STALE/);
+  assert.equal(f.calls.filter(([name]) => name === "humanDialogRespond").length, 1);
+  await f.request("humanEnd", { leaseId: dialog.leaseId });
+  await assert.rejects(f.answerDialog({}, dialog), /DIALOG_STALE/);
+});
+
+test("dialog receipt mismatch retires the original lease without manufacturing acknowledgement", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin(); f.dialog(); f.dialogReplyOverride = { dialogId: "forged" };
+  await assert.rejects(f.answerDialog(), /DIALOG_UNCONFIRMED/);
+  const status = (await f.request("status")).status;
+  assert.equal(status.human, null); assert.equal(status.pendingDialog, null); assert.equal(f.humans[0].closeCalls, 1);
 });
 
 test("worker replacement schema rejects extra capabilities, same boot, invalid epoch and getters before backend admission", async t => {

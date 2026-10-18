@@ -1,5 +1,6 @@
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
+import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
@@ -24,8 +25,8 @@ function clientGeometry(metrics) {
 // One native attachment belongs to an immutable view or human lease. Only a
 // human lease owns input intent and durable risk; both share document cleanup.
 export class ManagedHumanControl {
-  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, viewJournal = null, onFailure = () => {} }) {
-    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, viewJournal, onFailure });
+  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, viewJournal = null, onFailure = () => {} }) {
+    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog, viewJournal, onFailure });
     this.current = null;
     this.recoveryTimeoutMs = 10000;
   }
@@ -90,8 +91,14 @@ export class ManagedHumanControl {
       generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set() };
     Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
     this.current = record;
+    if (mode === "human") record.dialogs = new ManagedHumanDialogs({ leaseId: record.leaseId,
+      capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
+      attached: () => record.attached === true, destroyed: () => record.destroyed === true,
+      send: (params, check) => this.send(record, "Page.handleJavaScriptDialog", params, check),
+      notify: () => this.notify(record), onFailure: error => { void this.close(record, error).catch(() => {}); } });
     record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record),
-      ...(mode === "human" ? { input: envelope => this.input(record, envelope) } : {}),
+      ...(mode === "human" ? { input: envelope => this.input(record, envelope), pendingDialog: () => record.dialogs.info(),
+        respondDialog: envelope => record.dialogs.respond(envelope) } : {}),
       close: () => this.close(record), closed: record.closed.promise });
     record.start = Promise.resolve().then(() => this.start(record));
     return record.start.then(() => record.handle, async error => {
@@ -146,6 +153,9 @@ export class ManagedHumanControl {
     if (record.viewIntent) await this.viewJournal.attached(record);
     record.lifecycle = (source, method, params) => {
       if (!this.ownsSource(record, source)) return;
+      if (["Page.javascriptDialogOpening", "Page.javascriptDialogClosed"].includes(method)) {
+        record.dialogs?.observe(method, params); return;
+      }
       if (["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameDetached"].includes(method)) {
         const frameId = params?.frame?.id ?? params?.frameId;
         this.navigation(record.tabId, { frameId, root: Boolean(params?.frame && !params.frame.parentId) },
@@ -161,7 +171,7 @@ export class ManagedHumanControl {
   }
 
   send(record, method, params, assertAdmission) {
-    if (record.mode === "view" && (method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled"))
+    if (record.mode === "view" && (method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled" || method === "Page.handleJavaScriptDialog"))
       throw fail("a view lease has no native input or focus authority", "UNAVAILABLE");
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
     let dispatched = false;
@@ -190,6 +200,24 @@ export class ManagedHumanControl {
       for (const child of node.childFrames ?? []) visit(child, frame.id);
     };
     visit(value?.frameTree); return JSON.stringify(entries);
+  }
+
+  captureDialog(record, params) {
+    this.check(record);
+    const epoch = record.epoch;
+    if (!epoch || epoch.retired || record.state !== "active" || !record.generation || !epoch.document)
+      throw fail("dialogs require the original active human document", "DIALOG_UNSUPPORTED");
+    this.assertDialog(epoch.candidate);
+    const root = JSON.parse(epoch.document)[0];
+    if (typeof params?.url !== "string" || params.url !== root[3] + root[4] || params.frameId !== root[0])
+      throw fail("dialog emitter is outside the verified root document", "DIALOG_UNSUPPORTED");
+    return { epoch, generation: epoch.id, document: epoch.document };
+  }
+  checkDialog(record, proof) {
+    this.checkGeneration(record, proof.epoch);
+    this.assertDialog(proof.epoch.candidate);
+    if (record.state !== "active" || proof.generation !== record.generation || proof.document !== proof.epoch.document)
+      throw fail("original dialog document changed", "DIALOG_STALE");
   }
 
   async prepare(record, epoch) {
@@ -325,6 +353,7 @@ export class ManagedHumanControl {
 
   checkInputGeometry(record, epoch) {
     this.checkGeneration(record, epoch);
+    if (record.dialogs?.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
     if (epoch.geometryPending) throw fail("original viewport resize check is still pending", "GEOMETRY");
   }
   checkClientGeometry(epoch, metrics) {
@@ -415,6 +444,7 @@ export class ManagedHumanControl {
         throw fail("input does not match the displayed human lease and generation; native input was not sent", "GENERATION_STALE");
       if (!Number.isSafeInteger(envelope.sequence) || envelope.sequence !== epoch.sequence + 1) throw fail("input does not match the displayed human lease sequence", "STALE");
       if (epoch.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
+      if (record.dialogs.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
       fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text"]);
       const [method, params, commit] = this.command(epoch, { ...envelope.input });
       const sequence = envelope.sequence;
@@ -459,6 +489,7 @@ export class ManagedHumanControl {
 
   retireGeneration(record, epoch) {
     if (epoch.retired) return;
+    record.dialogs?.retire(epoch);
     epoch.retired = true;
     void epoch.rendering.cancel(record.tabId, epoch.token).catch(() => {});
   }
@@ -467,7 +498,9 @@ export class ManagedHumanControl {
     if (epoch.cleaned) return Promise.resolve();
     if (!epoch.cleaning) {
       epoch.cleaning = (async () => {
+        await record.dialogs?.drain();
         await Promise.allSettled([epoch.start, epoch.inputPending, epoch.geometryPending].filter(Boolean));
+        await record.dialogs?.drain();
         if (record.attached) {
           if (epoch.tracker) await epoch.tracker.release(record.tabId, epoch.token, (_target, method, params) => this.send(record, method, params));
           await epoch.rendering.cancel(record.tabId, epoch.token);
@@ -490,6 +523,7 @@ export class ManagedHumanControl {
   revoke(record, error = fail("human control ended", "STALE")) {
     if (record.revoked) return;
     record.revoked = true; record.state = "releasing"; record.onFrame = null;
+    record.dialogs?.revoke();
     clearTimeout(record.recoveryTimer); record.recoveryTimer = null; record.wake?.();
     record.closed.resolve({ reason: String(error.message) });
     for (const epoch of record.epochs) this.retireGeneration(record, epoch);
@@ -507,8 +541,10 @@ export class ManagedHumanControl {
     this.revoke(record, error);
     if (!record.closing) {
       record.closing = (async () => {
+        await record.dialogs?.close();
         await Promise.allSettled([record.start, record.recovery].filter(Boolean));
         for (const epoch of record.epochs) await this.releaseGeneration(record, epoch);
+        await record.dialogs?.close();
         await Promise.allSettled([...record.drains]);
         if (record.attached) {
           if (record.mode === "human") await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: false });

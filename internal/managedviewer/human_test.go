@@ -650,6 +650,9 @@ func TestHumanPublicFixtureEqualsActualGoProjection(t *testing.T) {
 		actual["humanFrame"] = value
 		break
 	}
+	if updatePublicFixture(t, "testdata/public-human-fixture.json", actual) {
+		expected = actual
+	}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("UI public fixture drifted from real Go projection:\nactual %s\nexpected %s", jsonBytes(actual), jsonBytes(expected))
 	}

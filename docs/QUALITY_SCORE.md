@@ -11,6 +11,14 @@
 
 ## 当前评分
 
+2026-10-18 源码新增人工接管的主页面 alert/confirm/prompt：独立 typed
+回答、原 native ACK/Closed 分离、撤权取消与持键释放。正式 `mhd-ozO6fy`
+六步/六弹窗 actual exit 0，两个原结果页面各一次 POST，End 取消与正式
+Stop/原进程退出通过；首次第二页未交付的测试失败保留。Go 全包/vet及
+2495 项扩展/构建/UI 测试通过，后续仅 UI keyup 捕获修正重新通过64项并
+重建。长时间人工等待、接管前/导航/子frame弹窗与beforeunload仍开放，
+未打包，不等同完整能力持平。见[人工网页弹窗](references/managed-human-dialogs.md)。
+
 2026-10-18 的五入口组合测试发现并修复 Go SDK 原子页面 scope 的 epoch 类型丢失：
 下载、chooser、navigation、network typed API 现复用原 scope 的合法整数表示，
 新 turn 仍拒绝旧句柄。定向反例先失败后通过，Go SDK/全包/vet 和五入口 mock

@@ -51,6 +51,8 @@ func (c *connection) admitBegin(request *command) bool {
 	_ = json.Unmarshal(request.payload, &fields)
 	c.humanTabID = fields.TabID
 	c.humanCandidate = nil
+	c.pendingDialog = nil
+	c.dialogClaims = make(map[managedprotocol.DialogIdentity]bool)
 	c.humanCtx, c.humanCancel = context.WithCancel(c.ctx)
 	request.ctx, request.epoch = c.humanCtx, c.humanEpoch
 	return true
@@ -99,6 +101,7 @@ func (c *connection) revokeHuman() {
 func (c *connection) revokeHumanLocked() []command {
 	c.humanRevoked = true
 	c.humanActive = false
+	c.pendingDialog = nil
 	c.humanEpoch++
 	if c.humanCancel != nil {
 		c.humanCancel()
@@ -167,6 +170,13 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 			return errors.New("original human input receipt mismatch")
 		}
 	}
+	if request.operation == "humanDialogRespond" {
+		receipt, err := managedprotocol.ParseDialogReceipt(f["dialogReceipt"])
+		fields, _ := object(request.payload)
+		if err != nil || !managedprotocol.MatchDialogReceipt(fields, receipt) {
+			return errors.New("original human dialog receipt mismatch")
+		}
+	}
 	if request.operation == "humanEnd" {
 		cleanup, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"])
 		var fields struct {
@@ -226,9 +236,10 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 func (c *connection) observeHumanState(data json.RawMessage) {
 	c.observeViewState(data)
 	var value struct {
-		Human         *managedprotocol.HumanState   `json:"human"`
-		Cleanup       *managedprotocol.HumanCleanup `json:"humanCleanup"`
-		EventSequence uint64                        `json:"eventSequence"`
+		Human         *managedprotocol.HumanState    `json:"human"`
+		Cleanup       *managedprotocol.HumanCleanup  `json:"humanCleanup"`
+		EventSequence uint64                         `json:"eventSequence"`
+		PendingDialog *managedprotocol.PendingDialog `json:"pendingDialog"`
 	}
 	if json.Unmarshal(data, &value) != nil {
 		return
@@ -250,6 +261,11 @@ func (c *connection) observeHumanState(data json.RawMessage) {
 	var pending []command
 	if value.Human != nil && value.Human.LeaseID == c.humanLease && value.Human.TabID == c.humanTabID && !c.humanRevoked {
 		pending = c.applyHumanStateLocked(value.Human)
+	}
+	c.pendingDialog = nil
+	if !c.humanRevoked && value.Human != nil && value.Human.State == "active" && value.Human.TabID == c.humanTabID &&
+		(value.Human.LeaseID == c.humanLease || c.humanStarting) {
+		c.pendingDialog = value.PendingDialog
 	}
 	revoked := c.humanRevoked
 	c.controlMu.Unlock()

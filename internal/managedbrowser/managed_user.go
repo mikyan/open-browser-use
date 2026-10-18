@@ -86,6 +86,9 @@ type UserController struct {
 	humanRiskGeneration  uint64
 	humanStatus          *managedprotocol.HumanState
 	humanStatusSequence  uint64
+	pendingDialog        *managedprotocol.PendingDialog
+	dialogStatusSequence uint64
+	dialogClaims         map[managedprotocol.DialogIdentity]bool
 	viewStatus           *managedprotocol.HumanState
 	viewStatusSequence   uint64
 }
@@ -471,6 +474,10 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if err != nil {
 		return err
 	}
+	dialog, err := managedprotocol.ParsePendingDialog(f["pendingDialog"], human)
+	if err != nil {
+		return err
+	}
 	view, err := managedprotocol.ParseViewState(f["view"])
 	if err != nil || human != nil && view != nil {
 		return errors.New("managed user view and human state conflict")
@@ -515,6 +522,9 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 			}
 		}
 		c.humanStatus, c.humanStatusSequence = human, *value.EventSequence
+	}
+	if *value.EventSequence >= c.dialogStatusSequence {
+		c.pendingDialog, c.dialogStatusSequence = dialog, *value.EventSequence
 	}
 	return nil
 }
@@ -570,7 +580,7 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		if bytes.Equal(f["expectedRevision"], []byte("null")) || json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > 1<<53-1 || json.Unmarshal(f["expectedWorkerBootId"], &boot) != nil || boot == "" || len(boot) > 256 {
 			return nil, "", false, errors.New("invalid managed user resume identity")
 		}
-	case "humanBegin", "humanInput", "humanEnd":
+	case "humanBegin", "humanInput", "humanEnd", "humanDialogRespond":
 		if err := managedprotocol.ValidateHuman(operation, f); err != nil {
 			return nil, "", false, err
 		}
@@ -579,6 +589,9 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		}
 		if operation == "humanBegin" && f["deliveryId"] != nil {
 			allowed["deliveryId"] = true
+		}
+		if operation == "humanDialogRespond" && f["promptText"] != nil {
+			allowed["promptText"] = true
 		}
 	default:
 		return nil, "", false, errors.New("unsupported managed user operation")
@@ -628,6 +641,12 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 			return nil, errors.New("managed user Resume worker identity changed")
 		}
 	}
+	if operation == "humanDialogRespond" {
+		if err := c.claimDialogLocked(f); err != nil {
+			c.mu.Unlock()
+			return nil, err
+		}
+	}
 	key, _ := json.Marshal(c.channelKey)
 	f["channelKey"] = key
 	call, err := c.evaluateLocked(ctx, "request", f)
@@ -671,6 +690,12 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 		receipt, err := managedprotocol.ParseInputReceipt(responseFields["inputReceipt"])
 		if err != nil || !managedprotocol.MatchInputReceipt(f, receipt) {
 			return nil, errors.New("managed original human input receipt mismatch")
+		}
+	}
+	if operation == "humanDialogRespond" {
+		receipt, err := managedprotocol.ParseDialogReceipt(responseFields["dialogReceipt"])
+		if err != nil || !managedprotocol.MatchDialogReceipt(f, receipt) {
+			return nil, errors.New("managed original human dialog receipt mismatch")
 		}
 	}
 	var response struct {

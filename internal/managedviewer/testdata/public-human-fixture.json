@@ -8,6 +8,7 @@
       "tabId": 7,
       "viewport": null
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -36,6 +37,7 @@
       "cleanupConfirmed": true,
       "leaseId": "fixture-human-lease"
     },
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -84,6 +86,7 @@
       "leaseId": "fixture-human-lease",
       "sequence": 1
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -112,6 +115,7 @@
       "cleanupConfirmed": true,
       "leaseId": "fixture-human-lease"
     },
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": false,
@@ -145,6 +149,7 @@
         "width": 1
       }
     },
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -169,6 +174,7 @@
   "open": {
     "eventSequence": 0,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": false,
@@ -193,6 +199,7 @@
   "select": {
     "eventSequence": 1,
     "human": null,
+    "pendingDialog": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": false,

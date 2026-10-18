@@ -29,6 +29,8 @@ func HumanFields(operation string) []string {
 		return []string{"operation", "leaseId"}
 	case "humanInput":
 		return []string{"operation", "leaseId", "generation", "sequence", "input"}
+	case "humanDialogRespond":
+		return []string{"operation", "leaseId", "generation", "dialogId", "accept"}
 	}
 	return nil
 }
@@ -123,9 +125,14 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 	var optional []string
 	if operation == "humanBegin" {
 		optional = []string{"deliveryId"}
+	} else if operation == "humanDialogRespond" {
+		optional = []string{"promptText"}
 	}
 	if required == nil || !exact(f, required, optional) || !choice(f["operation"], operation) {
 		return bad
+	}
+	if operation == "humanDialogRespond" {
+		return validateDialogResponse(f)
 	}
 	if operation == "humanBegin" {
 		if !integer(f["tabId"], 1, MaxSafeInteger) || f["deliveryId"] != nil && !DeliveryID(f["deliveryId"]) {

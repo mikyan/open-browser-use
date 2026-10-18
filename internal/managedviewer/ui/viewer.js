@@ -5,7 +5,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   let ticket = fragment.get("ticket") || "";
   history.replaceState(null, "", location.pathname);
-  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input"].map(id => [id, document.getElementById(id)]));
+  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input", "page-dialog", "dialog-title", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
   let ws, connected = false, authenticated = false, available = false, stopped = false;
   let status = null, worker = "", pendingAction = null, nextId = 0, appliedId = 0;
   let selected = null, selectedOnce = false, tabs = [], lastFrameAt = 0, imageURL = null;
@@ -24,6 +24,7 @@
   let acknowledgedSequence = 0, composing = false, compositionScope = null;
   let retiredHumanGeneration = -1;
   let humanEndAttempted = false;
+  let pendingDialog = null, displayedDialog = "", claimedDialog = "";
   const inputQueue = [], pressedButtons = new Set(), pressedKeys = new Set(), capturedPointers = new Set();
   const maxQueuedInputs = 32;
   const pending = new Map();
@@ -55,8 +56,51 @@
   }
 
   function humanReserved() { return human && human.state !== "released"; }
-  function humanReady() {
+  const dialogKey = value => value ? JSON.stringify([value.leaseId, value.generation, value.dialogId]) : "";
+  function boundedText(value) {
+    return typeof value === "string" && value.isWellFormed() && new TextEncoder().encode(value).length <= 8192;
+  }
+  function validDialog(value, owner) {
+    if (value === null) return true;
+    return value && owner?.state === "active" && value.leaseId === owner.leaseId && value.generation === owner.generation &&
+      Number.isSafeInteger(value.generation) && value.generation > 0 && typeof value.dialogId === "string" && value.dialogId.length > 0 && value.dialogId.length <= 128 &&
+      !/[\x00-\x1f\x7f]/.test(value.dialogId) && ["alert", "confirm", "prompt"].includes(value.type) && boundedText(value.message) &&
+      (value.defaultPrompt === undefined || value.type === "prompt" && boundedText(value.defaultPrompt));
+  }
+  function dialogReady() {
     return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
+      pendingDialog && human?.state === "active" && human.leaseId === humanOwner &&
+      pendingDialog.leaseId === humanOwner && pendingDialog.generation === human.generation && dialogKey(pendingDialog) !== claimedDialog;
+  }
+  function renderDialog() {
+    const key = dialogKey(pendingDialog), visible = Boolean(key && !humanEnding && !revoked && !stopped && authenticated && available);
+    el["page-dialog"].hidden = !visible;
+    el["page-dialog"].dataset.dialogId = visible ? pendingDialog.dialogId : "";
+    if (key !== displayedDialog) {
+      displayedDialog = key;
+      el["dialog-prompt"].value = pendingDialog?.defaultPrompt ?? "";
+    }
+    el["dialog-title"].textContent = pendingDialog?.type === "prompt" ? "网页请求输入" : pendingDialog?.type === "confirm" ? "网页请求确认" : "网页提示";
+    el["dialog-message"].textContent = pendingDialog?.message ?? "";
+    el["dialog-prompt-label"].hidden = pendingDialog?.type !== "prompt";
+    el["dialog-prompt"].disabled = !dialogReady();
+    el["dialog-accept"].disabled = el["dialog-cancel"].disabled = !dialogReady();
+    el["dialog-cancel"].hidden = pendingDialog?.type === "alert";
+    el["dialog-status"].textContent = key && key === claimedDialog ? "正在等待网页确认…" : "以下内容来自网页。请及时处理；原操作超过 30 秒未确认时会结束接管。";
+  }
+  function respondDialog(accept) {
+    if (!dialogReady()) return;
+    const original = pendingDialog;
+    const promptText = original.type === "prompt" && accept ? el["dialog-prompt"].value : undefined;
+    if (promptText !== undefined && !boundedText(promptText)) { error("输入内容需为有效文字，且不超过 8192 字节。"); return; }
+    claimedDialog = dialogKey(original);
+    error();
+    send("humanDialogRespond", { leaseId: original.leaseId, generation: original.generation, dialogId: original.dialogId, accept,
+      ...(promptText !== undefined ? { promptText } : {}) });
+  }
+  function humanReady(releasingHeldInput = false) {
+    return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
+      (!pendingDialog || releasingHeldInput) &&
       human?.state === "active" && human.leaseId === humanOwner && decodedHuman?.leaseId === humanOwner &&
       human.generation > retiredHumanGeneration && human.generation > 0 && human.viewport?.width > 0 && human.viewport?.height > 0 &&
       decodedHuman.generation === human.generation && decodedHuman.tabId === human.tabId;
@@ -162,6 +206,8 @@
     el["human-input"].dataset.acknowledgedSequence = String(acknowledgedSequence);
     el["human-status"].hidden = !humanReserved() && !humanAction && !humanOwner;
     el["human-status"].textContent = humanAction === "humanBegin" || human?.state === "starting" ? "正在暂停 Agent 并等待原控制释放…" : humanEnding || human?.state === "releasing" ? "人工输入已禁用，正在等待释放确认；不会重试网页操作。" : human?.state === "error" ? "人工控制未完成释放。请完成接管或停止会话；Agent 保持暂停。" : human?.state === "navigating" || human && human.generation <= retiredHumanGeneration ? "页面正在跳转，输入已暂停；等待新画面后可继续，旧输入不会重放。" : ready ? "你正在操作 · 点击画面后输入；切换查看窗口会结束接管。完成后 Agent 仍保持暂停。" : "你正在接管 · 等待当前画面解码，暂不接收输入。";
+    if (pendingDialog && !humanEnding) el["human-status"].textContent = "网页弹窗等待处理，页面输入暂时暂停；Agent 保持暂停。";
+    renderDialog();
     freshness();
   }
 
@@ -209,6 +255,8 @@
     if (value.eventSequence < retiredSequence) return;
     if (value.eventSequence < controlSequence || status && next.revision < status.revision || responseId && responseId < appliedId) return;
     const nextHuman = value.human ?? null;
+    const nextDialog = value.pendingDialog ?? null;
+    if (!validDialog(nextDialog, nextHuman)) throw new Error("网页弹窗身份无效。");
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
     if (!validView(nextView) || nextView && nextHuman || nextView && (nextView.tabId !== value.selectedTabId || !nextTabs.some(tab => tab.id === nextView.tabId && tab.kind === "result"))) throw new Error("独立查看身份无效。");
     if (view && nextView && view.leaseId === nextView.leaseId && nextView.generation < view.generation) return;
@@ -246,6 +294,7 @@
       pendingFrame = null;
     }
     human = nextHuman;
+    pendingDialog = nextDialog;
     if (humanAction === "humanBegin" && human && !humanOwner) humanOwner = human.leaseId;
     if (humanOwner && human?.state !== "active" && value.humanCleanup?.leaseId === humanOwner && value.humanCleanup.cleanupConfirmed === true) {
       // A confirmed End joins native input too, including a reply whose local
@@ -291,6 +340,7 @@
     awaitingViewFrame = null;
     if (waitingReadOnly) frame(waitingReadOnly);
     if (humanEnding && human?.state === "active" && !humanEndAttempted) endHuman();
+    drainInput();
   }
 
   function retireThrough(sequence) {
@@ -413,8 +463,8 @@
     render();
   }
 
-  function enqueueInput(input) {
-    if (!humanReady()) return false;
+  function enqueueInput(input, releasingHeldInput = false) {
+    if (!humanReady(releasingHeldInput)) return false;
     const previous = inputQueue.at(-1);
     // Only an unsent move may be replaced; button/key transitions and text are never replayed or dropped.
     if (input.type === "pointer" && input.action === "move" && previous?.type === "pointer" && previous.action === "move") inputQueue[inputQueue.length - 1] = input;
@@ -427,8 +477,8 @@
 
   const modifiers = event => (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
   const buttons = ["left", "middle", "right"];
-  function point(event) {
-    if (!humanReady() || !decodedHuman?.width || !decodedHuman.height) return null;
+  function point(event, releasingHeldInput = false) {
+    if (!humanReady(releasingHeldInput) || !decodedHuman?.width || !decodedHuman.height) return null;
     const rect = el.frame.getBoundingClientRect();
     const scale = Math.min(rect.width / decodedHuman.width, rect.height / decodedHuman.height);
     if (!Number.isFinite(scale) || scale <= 0) return null;
@@ -439,11 +489,12 @@
   }
 
   function pointer(event, action) {
-    if (!humanReady()) return;
-    if (event.pointerType && event.pointerType !== "mouse") { endHuman("当前接管仅支持鼠标输入；已请求释放控制。"); return; }
-    const position = point(event);
-    if (!position) { if (pressedButtons.size) endHuman("指针已离开当前画面，正在释放按键和人工控制。"); return; }
     const button = buttons[event.button];
+    const releasingHeldInput = Boolean(pendingDialog) && action === "up" && pressedButtons.has(button);
+    if (!humanReady(releasingHeldInput)) return;
+    if (event.pointerType && event.pointerType !== "mouse") { endHuman("当前接管仅支持鼠标输入；已请求释放控制。"); return; }
+    const position = point(event, releasingHeldInput);
+    if (!position) { if (pressedButtons.size) endHuman("指针已离开当前画面，正在释放按键和人工控制。"); return; }
     if (action !== "move" && !button) return;
     event.preventDefault();
     if (action === "down") {
@@ -455,7 +506,9 @@
     } else if (action === "up") {
       if (!pressedButtons.delete(button)) return;
     }
-    enqueueInput({ type: "pointer", action, ...position, ...(action === "move" ? {} : { button }), modifiers: modifiers(event) });
+    // A dialog may be opened by the original down. Retain its real up, but
+    // drainInput will not dispatch it until the dialog and prior ACK settle.
+    enqueueInput({ type: "pointer", action, ...position, ...(action === "move" ? {} : { button }), modifiers: modifiers(event) }, releasingHeldInput);
     if (action === "up" && !pressedButtons.size) {
       if (el.frame.hasPointerCapture(event.pointerId)) el.frame.releasePointerCapture(event.pointerId);
       capturedPointers.delete(event.pointerId);
@@ -470,7 +523,8 @@
   }
 
   function keyboard(event, action) {
-    if (!humanReady() || event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key)) return;
+    const releasingHeldInput = Boolean(pendingDialog) && action === "up" && pressedKeys.has(event.code);
+    if (!humanReady(releasingHeldInput) || event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key)) return;
     const shortcut = event.ctrlKey || event.altKey || event.metaKey;
     const printable = Array.from(event.key || "").length === 1;
     if (printable && !shortcut && !pressedKeys.has(event.code)) return; // Committed text has exactly one path below.
@@ -480,7 +534,7 @@
       if (pressedKeys.has(event.code)) return;
       pressedKeys.add(event.code);
     } else if (!pressedKeys.delete(event.code)) return;
-    enqueueInput({ type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event) });
+    enqueueInput({ type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event) }, releasingHeldInput);
   }
 
   el["human-begin"].addEventListener("click", () => {
@@ -488,6 +542,7 @@
     humanEpoch++;
     error(); clearFrame();
     human = null; humanOwner = ""; humanEnding = humanEndAttempted = composing = false;
+    pendingDialog = null; displayedDialog = claimedDialog = "";
     retiredHumanGeneration = -1;
     compositionScope = null;
     humanSequence = acknowledgedSequence = 0;
@@ -495,6 +550,8 @@
     send("humanBegin", selectionFields());
   });
   el["human-end"].addEventListener("click", () => { if (!el["human-end"].disabled) endHuman("", true); });
+  el["dialog-accept"].addEventListener("click", () => respondDialog(true));
+  el["dialog-cancel"].addEventListener("click", () => respondDialog(false));
   for (const action of ["down", "move", "up"]) el.frame.addEventListener(`pointer${action}`, event => pointer(event, action));
   for (const event of ["pointercancel", "lostpointercapture"]) el.frame.addEventListener(event, () => { if (pressedButtons.size) endHuman("指针控制已中断，正在释放人工控制。"); });
   el.frame.addEventListener("contextmenu", event => { if (humanReady()) event.preventDefault(); });
@@ -508,6 +565,12 @@
   }, { passive: false });
   el["human-input"].addEventListener("keydown", event => keyboard(event, "down"));
   el["human-input"].addEventListener("keyup", event => keyboard(event, "up"));
+  // Disabling the page textarea moves real DOM focus to the dialog card. The
+  // original held key's release must still be observed there, once, before
+  // ordinary textarea handlers. No new keydown is admitted through this path.
+  window.addEventListener("keyup", event => {
+    if (pendingDialog && pressedKeys.has(event.code)) keyboard(event, "up");
+  }, true);
   el["human-input"].addEventListener("beforeinput", event => {
     if (!humanReady() || event.isComposing || composing || /Composition/.test(event.inputType)) return;
     event.preventDefault();
@@ -621,6 +684,12 @@
           // Wait for an authoritative successor state; never retry it.
           retiredHumanGeneration = Math.max(retiredHumanGeneration, entry.fields.generation);
           suspendHumanGeneration();
+        } else if (value.error && entry.operation === "humanDialogRespond" && ["HUMAN_DIALOG_STALE", "HUMAN_DIALOG_INVALID"].includes(value.error.code)) {
+          // These typed failures prove no decision was sent. Read current state
+          // without replaying the choice or revoking an unrelated successor.
+          if (value.error.code === "HUMAN_DIALOG_INVALID" && dialogKey(pendingDialog) === dialogKey(entry.fields)) claimedDialog = "";
+          error(value.error.message || "网页弹窗已变化，请确认当前弹窗后再操作。");
+          send("status");
         } else if (value.error) {
           if (entry.operation.startsWith("human")) {
             if (humanAction === entry.operation) humanAction = null;
@@ -631,6 +700,15 @@
         } else if (entry.operation === "stop" && value.result?.stopped === true) {
           stopped = true;
           error();
+        } else if (entry.operation === "humanDialogRespond") {
+          const receipt = value.result?.dialogReceipt;
+          if (!receipt || receipt.acknowledged !== true || receipt.leaseId !== entry.fields.leaseId || receipt.generation !== entry.fields.generation || receipt.dialogId !== entry.fields.dialogId) {
+            endHuman("网页弹窗回执不匹配，已禁用输入并请求释放；不会重试。");
+          } else {
+            // Dialog acknowledgements may arrive after a successor opened. Only
+            // the backend event sequence may update its state; input ACK is separate.
+            acceptState(value.result);
+          }
         } else if (entry.operation === "humanInput") {
           const receipt = value.result?.inputReceipt;
           if (!receipt || receipt.acknowledged !== true || receipt.leaseId !== entry.fields.leaseId || receipt.generation !== entry.fields.generation || receipt.sequence !== entry.fields.sequence) {

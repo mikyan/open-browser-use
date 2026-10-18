@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Managed 人工网页弹窗](managed-human-dialogs.md)：原生提示、确认和输入框的
+  人工回答、独立回执、结束接管清理及已知期限/范围。
+
 - [Managed 五入口完整流程](managed-entrypoint-workflow.md)：正式JS/Python/Go/
   CLI/MCP原业务、实时查看、原文件与只读OS观测，以及内部候选和发布边界。
 

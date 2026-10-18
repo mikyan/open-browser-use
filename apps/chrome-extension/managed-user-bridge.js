@@ -1,4 +1,5 @@
 import { resolveManagedNativeHost } from "./managed-native-host.js";
+import { validateHumanDialogResponse } from "./managed-human-dialogs.js";
 
 const API = "__obuManagedUser", BINDING = "__obuManagedViewerEvent";
 const LEASE_MS = 10000, HEARTBEAT_MS = 3000, MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -161,7 +162,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const disconnected = { ...identity(channel), connected: false, leaseMs: LEASE_MS, heartbeatMs: HEARTBEAT_MS,
       expiresAt: Math.ceil(wallNow()), selectedTabId: channel.selectedTabId, automation, tabs: [],
       stream: { ...channel.streamState }, cleanupPending: 0, eventSequence: channel.sequence, human: null,
-      view: null, ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
+      view: null, pendingDialog: null, ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
     if (JSON.stringify(disconnected).length > 1024 * 1024) throw failure("CAPACITY", "disconnected metadata status exceeds its bound");
     return { disconnected: true, status: disconnected };
   }
@@ -321,6 +322,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         eventSequence: channel.sequence + (publish ? 1 : 0),
         human: channel.stream?.human ? channel.stream.handle?.info() ?? null : null,
         view: channel.stream?.view ? channel.stream.handle?.info() ?? null : null,
+        pendingDialog: channel.stream?.human ? channel.stream.handle?.pendingDialog?.() ?? null : null,
         ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}),
         ...(cleanupFailure ? { cleanupError: String(cleanupFailure.message ?? cleanupFailure) } : {}) };
       if (JSON.stringify(value).length > 1024 * 1024) throw failure("CAPACITY", "live metadata status exceeds its bound");
@@ -516,9 +518,9 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       // heartbeat, acquire authority, or affect a newer channel.
       return disconnectedStatus(channel, true);
     }
-    const extra = ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : [];
-    const value = fields(input, ["channelKey", "operation", ...extra], ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : []);
-    if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd"].includes(operation) ||
+    const extra = ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : operation === "humanDialogRespond" ? ["leaseId", "generation", "dialogId", "accept"] : [];
+    const value = fields(input, ["channelKey", "operation", ...extra], ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : operation === "humanDialogRespond" ? ["promptText"] : []);
+    if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd", "humanDialogRespond"].includes(operation) ||
         typeof value.channelKey !== "string" || (operation === "select" && value.tabId !== null && !integer(value.tabId)) ||
         (operation === "humanBegin" && (!integer(value.tabId) || value.tabId < 1)) ||
         (value.deliveryId !== undefined && (!text(value.deliveryId, 128) || value.tabId === null)) ||
@@ -542,8 +544,22 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (operation === "disconnect") {
       return disconnectedStatus(channel);
     }
-    let inputReceipt;
-    if (operation === "humanInput") {
+    let inputReceipt, dialogReceipt;
+    if (operation === "humanDialogRespond") {
+      const envelope = Object.fromEntries([...extra, "promptText"].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
+      validateHumanDialogResponse(envelope);
+      const record = channel.stream, handle = record?.human && !record.retired && record.handle;
+      const before = handle?.info(), dialog = handle?.pendingDialog?.();
+      if (!before || before.state !== "active" || before.leaseId !== value.leaseId || before.generation !== value.generation ||
+          !dialog || dialog.leaseId !== value.leaseId || dialog.generation !== value.generation || dialog.dialogId !== value.dialogId || typeof handle.respondDialog !== "function")
+        throw failure("HUMAN_DIALOG_STALE", "original human dialog is no longer available; no response was sent");
+      const accepted = await handle.respondDialog(envelope);
+      if (accepted?.acknowledged !== true || accepted.leaseId !== value.leaseId || accepted.generation !== value.generation || accepted.dialogId !== value.dialogId) {
+        if (channel.stream === record) await retireStream(channel, "original dialog acknowledgement unavailable");
+        throw failure("HUMAN_DIALOG_UNCONFIRMED", "original native dialog receipt is unavailable; do not replay the response");
+      }
+      dialogReceipt = { leaseId: accepted.leaseId, generation: accepted.generation, dialogId: accepted.dialogId, acknowledged: true };
+    } else if (operation === "humanInput") {
       const record = channel.stream, handle = record?.human && !record.retired && record.handle;
       const before = handle?.info();
       if (before?.leaseId === value.leaseId && (before.generation > value.generation || before.state === "navigating" && before.generation === value.generation))
@@ -597,7 +613,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       finally { channel.pendingResumes--; channel.stateEpoch++; }
     }
     assertCurrent(channel);
-    return { status: await status(channel, operation !== "status"), ...(inputReceipt ? { inputReceipt } : {}) };
+    return { status: await status(channel, operation !== "status"), ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}) };
   }
   const api = Object.freeze({ open, request });
   Object.defineProperty(target, API, { value: api, configurable: false, writable: false, enumerable: false });

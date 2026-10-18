@@ -60,7 +60,7 @@ func parseCommand(data []byte) (command, error) {
 		if bytes.Equal(f["expectedRevision"], []byte("null")) || json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > maxSafeInteger || json.Unmarshal(f["expectedWorkerBootId"], &worker) != nil || worker == "" || len(worker) > 256 {
 			return c, errors.New("invalid resume identity")
 		}
-	case "humanBegin", "humanInput", "humanEnd":
+	case "humanBegin", "humanInput", "humanEnd", "humanDialogRespond":
 		human := make(map[string]json.RawMessage, len(f)-1)
 		for key, value := range f {
 			if key != "id" {
@@ -75,6 +75,9 @@ func parseCommand(data []byte) (command, error) {
 		}
 		if c.operation == "humanBegin" {
 			allowed["deliveryId"] = true
+		}
+		if c.operation == "humanDialogRespond" {
+			allowed["promptText"] = true
 		}
 	default:
 		return c, errors.New("unsupported operation")
@@ -161,6 +164,10 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	dialog, err := managedprotocol.ParsePendingDialog(f["pendingDialog"], human)
+	if err != nil {
+		return nil, err
+	}
 	if human != nil && (status.State == "running" || !*status.InputBlocked) {
 		return nil, errors.New("human control did not pause automation")
 	}
@@ -190,12 +197,20 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	dialogReceipt, err := managedprotocol.ParseDialogReceipt(envelope["dialogReceipt"])
+	if err != nil {
+		return nil, err
+	}
 	out := map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence, "human": human, "view": view}
+	out["pendingDialog"] = dialog
 	if cleanup != nil {
 		out["humanCleanup"] = cleanup
 	}
 	if input != nil {
 		out["inputReceipt"] = input
+	}
+	if dialogReceipt != nil {
+		out["dialogReceipt"] = dialogReceipt
 	}
 	return jsonBytes(out), nil
 }

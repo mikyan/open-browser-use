@@ -861,6 +861,15 @@ class BrowserBackend {
     this.managedHuman = new ManagedHumanControl({ chrome,
       capture: (tabId, options) => this.captureManagedHumanPage(tabId, options),
       validate: (candidate, options) => this.validateManagedHumanPage(candidate, options),
+      assertDialog: candidate => {
+        // Modal responses cannot wait on page reads. Fence the already verified
+        // document's native lifetime, original delivery and policy at dispatch.
+        this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
+        if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
+        if (!this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || this.siteRevokedTabs.has(candidate.tabId) ||
+            candidate.policyGeneration !== this.siteAccess.generation || candidate.policyRevision !== this.siteAccess.status().revision)
+          throw new Error("OBU_HUMAN_DIALOG_STALE: original dialog permission or browser lifetime ended");
+      },
       pause: reservation => this.pauseAutomation({ managedHumanReservation: reservation }),
       assertPaused: () => {
         this.assertNativeControl(); this.browserLifetime.assertInputRecoveryClear(); this.siteAccess.assertReady();

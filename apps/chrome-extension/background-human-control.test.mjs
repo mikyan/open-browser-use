@@ -58,10 +58,26 @@ async function fixture({ managed = true, command, write, detach, authority = () 
   const frames = [];
   const begin = () => backend.beginManagedHuman(7, authority, frame => frames.push(frame), state => states.push(state));
   return { backend, Backend, chrome, calls, storage, first, params, begin, frames, states, tab,
+    event: (method, params) => { for (const listener of [...listeners]) listener({ targetId: "original-target" }, method, params); },
     changeDocument: () => { documentId = "replacement-document"; },
     emitDetach: (source, reason) => { for (const fn of detachListeners) fn(source, reason); } };
 }
 function input(handle, value) { const info = handle.info(); return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value }); }
+
+test("real backend native dialog decisions retain original policy and browser lifetime without page re-reads", async () => {
+  for (const revoke of [backend => { Object.defineProperty(backend.siteAccess, "generation", { value: backend.siteAccess.generation + 1 }); },
+    backend => { backend.sitePolicyUpdate = {}; }, backend => { backend.browserLifetime.isCurrent = () => false; }]) {
+    const f = await fixture(), handle = await f.begin();
+    f.event("Page.javascriptDialogOpening", { type: "prompt", message: "Original?", defaultPrompt: "old", frameId: "root", url: f.tab.url });
+    const { leaseId, generation, dialogId } = handle.pendingDialog();
+    const response = handle.respondDialog({ leaseId, generation, dialogId, accept: true, promptText: "must not submit" });
+    const rejected = assert.rejects(response, /DIALOG_STALE/); revoke(f.backend); await rejected;
+    await handle.close();
+    assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(([, target, params]) => [target, params]),
+      [[{ targetId: "original-target" }, { accept: false }]]);
+    assert.equal(f.storage.OPEN_BROWSER_USE_INPUT_RISKS.risks.length, 0);
+  }
+});
 
 test("real backend human handoff invalidates old tasks and popup Resume remains fenced until actual close", async () => {
   const f = await fixture(), pending = f.begin();

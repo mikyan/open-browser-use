@@ -27,7 +27,7 @@ func TestManagedRetirementCloseRequiresExactOriginalCleanup(t *testing.T) {
 	}
 	first, _ := userObject(fixture.FirstEnd.Status)
 	second, _ := userObject(fixture.SecondBegin.Status)
-	for _, mutation := range []string{"valid", "running", "selected", "pending", "human", "view", "old-lease", "no-human", "no-view", "no-stream-id", "live-stream"} {
+	for _, mutation := range []string{"valid", "running", "selected", "pending", "human", "view", "old-lease", "no-human", "no-view", "no-stream-id", "live-stream", "pending-dialog"} {
 		t.Run(mutation, func(t *testing.T) {
 			response, _ := userObject(fixture.Disconnect)
 			state, _ := userObject(response["status"])
@@ -38,6 +38,8 @@ func TestManagedRetirementCloseRequiresExactOriginalCleanup(t *testing.T) {
 				state["selectedTabId"] = json.RawMessage(`7`)
 			case "pending":
 				state["cleanupPending"] = json.RawMessage(`1`)
+			case "pending-dialog":
+				state["pendingDialog"] = json.RawMessage(`{"leaseId":"unreleased","generation":1,"dialogId":"original","type":"alert","message":"still open"}`)
 			case "human":
 				state["human"] = second["human"]
 			case "view":

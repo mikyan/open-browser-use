@@ -326,6 +326,7 @@ func resultFixturePublic(t *testing.T) map[string]any {
 
 func TestResultPublicFixtureEqualsActualGoProjection(t *testing.T) {
 	actual := resultFixturePublic(t)
+	updatePublicFixture(t, "testdata/public-result-fixture.json", actual)
 	data, err := os.ReadFile("testdata/public-result-fixture.json")
 	if err != nil {
 		t.Fatal(err)

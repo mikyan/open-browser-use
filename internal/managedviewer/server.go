@@ -93,6 +93,8 @@ type connection struct {
 	humanEpoch             uint64
 	humanStateSequence     uint64
 	humanCandidate         *managedprotocol.HumanState
+	pendingDialog          *managedprotocol.PendingDialog
+	dialogClaims           map[managedprotocol.DialogIdentity]bool
 	humanCtx               context.Context
 	humanCancel            context.CancelFunc
 	humanTabID             uint64
@@ -491,6 +493,13 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			c.failure(request.id, "HUMAN_BUSY", "原人工控制尚未释放，请先完成接管。")
 			continue
 		}
+		if request.operation == "humanDialogRespond" {
+			if code := c.admitDialog(&request); code != "" {
+				<-c.work
+				c.failure(request.id, code, "原弹窗决策未提交，请等待最新状态；不会自动重试。")
+				continue
+			}
+		}
 		c.workers.Add(1)
 		go func(request command, release bool) {
 			defer c.workers.Done()
@@ -547,12 +556,18 @@ func (s *Server) command(c *connection, request command) {
 	}
 	if err != nil {
 		var coded interface{ UserErrorCode() string }
+		if request.operation == "humanDialogRespond" {
+			if code := dialogUnsentCode(err); code != "" {
+				c.failure(request.id, code, "原弹窗决策未提交，请等待最新状态；不会自动重试。")
+				return
+			}
+		}
 		if request.operation == "humanInput" && errors.As(err, &coded) && (coded.UserErrorCode() == "OBU_HUMAN_GENERATION_STALE" || coded.UserErrorCode() == "OBU_MANAGED_USER_HUMAN_GENERATION_STALE") {
 			c.retireInputGeneration(request)
 			c.failure(request.id, "HUMAN_GENERATION_STALE", "原页面代次已结束，此输入未提交；不会重放到新页面。")
 			return
 		}
-		if request.operation == "humanBegin" || request.operation == "humanInput" {
+		if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" {
 			s.releaseFailedHuman(c, request.epoch)
 		}
 		if (request.operation == "select" || request.operation == "humanBegin") && errors.As(err, &coded) && coded.UserErrorCode() == "OBU_HUMAN_CAPTURE_UNSUPPORTED" {
@@ -571,7 +586,7 @@ func (s *Server) command(c *connection, request command) {
 		return
 	}
 	if err := c.acceptHumanResult(request, result); err != nil {
-		if request.operation == "humanBegin" || request.operation == "humanInput" {
+		if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" {
 			s.releaseFailedHuman(c, request.epoch)
 		}
 		c.failure(request.id, "OPERATION_UNCONFIRMED", "人工控制原回执不匹配；输入已禁用，请完成接管或停止会话。")

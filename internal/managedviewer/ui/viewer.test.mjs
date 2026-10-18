@@ -186,7 +186,7 @@ function setup() {
     document: { getElementById: element, addEventListener(name, handler) { documentEvents[name] = handler; } },
     location: { hash: `#ticket=${ticket}`, host: "127.0.0.1:44555", pathname: "/" },
     history: { replaceState(...args) { replaced = args; } },
-    URLSearchParams, WebSocket: FakeSocket, Blob, Uint8Array,
+    URLSearchParams, WebSocket: FakeSocket, Blob, Uint8Array, TextEncoder,
     URL: { createObjectURL() { return `blob:${++nextBlob}`; }, revokeObjectURL(value) { revoked.push(value); } },
     Image: FakeImage, Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     atob: value => Buffer.from(value, "base64").toString("binary"),
@@ -373,6 +373,180 @@ test("a coalesced status retains the retirement barrier when Clear was replaced"
 
 const mouse = (extra = {}) => ({ pointerId: 1, pointerType: "mouse", clientX: 330, clientY: 200, button: 0, ...extra });
 const key = (extra = {}) => ({ key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true, ...extra });
+
+const dialog = (extra = {}) => ({ leaseId: "lease-a", generation: 1, dialogId: "original-dialog", type: "prompt", message: "<img onerror=bad>\n原网页消息", defaultPrompt: "原值", ...extra });
+function showDialog(h, value = dialog(), eventSequence = 20002) {
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence, pendingDialog: value }) });
+}
+function dialogReply(h, request, extra = {}) {
+  h.respond(request.id, h.humanState({ eventSequence: 20004, pendingDialog: null,
+    dialogReceipt: { leaseId: request.leaseId, generation: request.generation, dialogId: request.dialogId, acknowledged: true }, ...extra }));
+}
+
+test("human dialog decision bypasses pending input while preserving its separate ACK", () => {
+  const h = setup(); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "original-trigger" });
+  const input = h.socket.sent.at(-1);
+  showDialog(h);
+  assert.equal(h.element("dialog-message").textContent, dialog().message);
+  assert.equal(h.element("page-dialog").hidden, false);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("dialog-accept").disabled, false);
+  assert.equal(h.element("stop").disabled, false);
+  h.element("dialog-prompt").focus(); // Local focus transfer is not lease loss.
+  h.element("dialog-prompt").value = "人工输入 中文π 😀";
+  h.element("dialog-accept").click();
+  const response = h.socket.sent.at(-1);
+  assert.deepEqual(response, { id: 5, operation: "humanDialogRespond", leaseId: "lease-a", generation: 1, dialogId: "original-dialog", accept: true, promptText: "人工输入 中文π 😀" });
+  assert.equal(h.socket.sent.filter(value => value.operation === "humanEnd").length, 0);
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+  dialogReply(h, response);
+  assert.equal(h.element("human-input").dataset.pending, "1");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+  h.ackInput(input, { eventSequence: 20005, pendingDialog: null });
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "1");
+  assert.equal(h.element("human-input").dataset.pending, "0");
+  assert.equal(h.socket.sent.some(value => value.operation === "resume"), false);
+});
+
+test("same dialog state does not reset an edited prompt or allow duplicate decisions", () => {
+  const h = setup(); h.readyHuman(); showDialog(h);
+  h.element("dialog-prompt").value = "用户编辑";
+  showDialog(h, dialog(), 20003);
+  assert.equal(h.element("dialog-prompt").value, "用户编辑");
+  h.element("dialog-accept").click();
+  showDialog(h, dialog(), 20004);
+  h.element("dialog-accept").click(); h.element("dialog-cancel").click();
+  assert.equal(h.socket.sent.filter(value => value.operation === "humanDialogRespond").length, 1);
+  assert.equal(h.element("dialog-accept").disabled, true);
+});
+
+test("a dialog opened by held pointer or key preserves the real release behind original ACK", () => {
+  for (const kind of ["pointer", "key"]) {
+    const h = setup(); h.readyHuman();
+    if (kind === "pointer") h.event("frame", "pointerdown", mouse());
+    else h.event("human-input", "keydown", key());
+    const down = h.socket.sent.at(-1);
+    showDialog(h);
+    if (kind === "pointer") h.event("frame", "pointerup", mouse());
+    else {
+      assert.equal(h.element("human-input").disabled, true);
+      h.element("dialog-prompt").focus();
+      h.windowEvents.keyup({ ...key({ shiftKey: false }), preventDefault() {} });
+      // A bubbled duplicate from the original textarea cannot enqueue twice.
+      h.event("human-input", "keyup", key({ shiftKey: false }));
+    }
+    assert.equal(h.socket.sent.at(-1).id, down.id);
+    assert.equal(h.element("human-input").dataset.pending, "2");
+    assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+    h.element("dialog-accept").click(); const decision = h.socket.sent.at(-1);
+    // No original release may overtake the pending down ACK, even after Closed.
+    dialogReply(h, decision);
+    assert.equal(h.socket.sent.at(-1).id, decision.id);
+    h.ackInput(down, { eventSequence: 20005, pendingDialog: null });
+    const up = h.socket.sent.at(-1);
+    assert.equal(up.operation, "humanInput"); assert.equal(up.input.type, kind);
+    assert.equal(up.input.action, "up"); assert.equal(up.sequence, down.sequence + 1);
+    h.ackInput(up, { eventSequence: 20006, pendingDialog: null });
+    if (kind === "pointer") h.event("frame", "pointerdown", mouse());
+    else h.event("human-input", "keydown", key());
+    assert.equal(h.socket.sent.at(-1).input.action, "down");
+    assert.equal(h.socket.sent.at(-1).sequence, up.sequence + 1);
+  }
+});
+
+test("modal blocks new input and an out-of-frame held release ends control instead of guessing coordinates", () => {
+  const h = setup(); h.readyHuman(); h.event("frame", "pointerdown", mouse()); showDialog(h);
+  const before = h.socket.sent.length;
+  h.event("frame", "pointerdown", mouse({ button: 2 }));
+  h.event("human-input", "keydown", key());
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "not-sent" });
+  assert.equal(h.socket.sent.length, before);
+  h.event("frame", "pointerup", mouse({ clientX: -10 }));
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("successor dialog can be answered before old ACK without borrowing its prompt or choice", () => {
+  const h = setup(); h.readyHuman(); showDialog(h);
+  h.element("dialog-accept").click(); const first = h.socket.sent.at(-1);
+  const successor = dialog({ dialogId: "successor", defaultPrompt: "新值" });
+  showDialog(h, successor, 20004);
+  assert.equal(h.element("dialog-prompt").value, "新值");
+  assert.equal(h.element("dialog-cancel").disabled, false);
+  h.element("dialog-cancel").click(); const second = h.socket.sent.at(-1);
+  assert.equal(second.accept, false); assert.equal(second.promptText, undefined);
+  dialogReply(h, first, { eventSequence: 20003 });
+  assert.equal(h.element("page-dialog").dataset.dialogId, "successor");
+  assert.equal(h.element("dialog-accept").disabled, true);
+  dialogReply(h, second, { eventSequence: 20005 });
+  assert.equal(h.element("page-dialog").hidden, true);
+  showDialog(h, dialog(), 20002);
+  assert.equal(h.element("page-dialog").hidden, true);
+});
+
+test("dialog replies require their exact independent receipt and never retry unknown results", () => {
+  for (const mode of ["missing", "wrong", "error", "timeout"]) {
+    const h = setup(); h.readyHuman(); showDialog(h); h.element("dialog-accept").click();
+    const request = h.socket.sent.at(-1);
+    if (mode === "timeout") [...h.timers.values()].at(-1)();
+    else if (mode === "error") h.socket.message({ type: "response", id: request.id, error: { code: "OPERATION_UNCONFIRMED" } });
+    else dialogReply(h, request, { dialogReceipt: mode === "missing" ? undefined : { leaseId: request.leaseId, generation: 1, dialogId: "other", acknowledged: true } });
+    assert.equal(h.socket.sent.filter(value => value.operation === "humanDialogRespond").length, 1);
+    assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+    assert.equal(h.element("dialog-accept").disabled, true);
+  }
+});
+
+test("definite unsent stale dialog rejection refreshes state without ending its successor", () => {
+  const h = setup(); h.readyHuman(); showDialog(h); h.element("dialog-accept").click();
+  const first = h.socket.sent.at(-1);
+  showDialog(h, dialog({ dialogId: "next" }), 20004);
+  h.socket.message({ type: "response", id: first.id, error: { code: "HUMAN_DIALOG_STALE" } });
+  assert.equal(h.socket.sent.at(-1).operation, "status");
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+  assert.equal(h.element("dialog-accept").disabled, false);
+  assert.equal(h.element("page-dialog").dataset.dialogId, "next");
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanDialogRespond").length, 1);
+});
+
+test("invalid or foreign dialog state grants no decision; read-only view cannot answer", () => {
+  for (const extra of [{ leaseId: "foreign" }, { generation: 2 }, { type: "beforeunload" }, { message: "\ud800" }, { message: "界".repeat(2731) }, { dialogId: "" }]) {
+    const h = setup(); h.readyHuman(); showDialog(h, dialog(extra)); h.element("dialog-accept").click();
+    assert.equal(h.socket.sent.some(value => value.operation === "humanDialogRespond"), false);
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+  }
+  const h = setup(); readyResult(h);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, tabs: [resultTab()], view: viewState(), pendingDialog: dialog() }) });
+  h.element("dialog-accept").click();
+  assert.equal(h.socket.sent.some(value => value.operation === "humanDialogRespond"), false);
+});
+
+test("dialog prompt rejects malformed or oversized UTF-8 but supports empty and cancellation", () => {
+  const h = setup(); h.readyHuman(); showDialog(h);
+  for (const value of ["\ud800", "界".repeat(2731)]) {
+    h.element("dialog-prompt").value = value; h.element("dialog-accept").click();
+    assert.equal(h.socket.sent.some(row => row.operation === "humanDialogRespond"), false);
+  }
+  h.element("dialog-prompt").value = ""; h.element("dialog-accept").click();
+  assert.equal(h.socket.sent.at(-1).promptText, "");
+  const cancel = setup(); cancel.readyHuman(); showDialog(cancel);
+  cancel.element("dialog-prompt").value = "\ud800"; cancel.element("dialog-cancel").click();
+  assert.equal(cancel.socket.sent.at(-1).accept, false);
+  assert.equal(cancel.socket.sent.at(-1).promptText, undefined);
+});
+
+test("dialog controls stay independent of fresh image decode and are revoked by End or Stop", () => {
+  for (const action of ["human-end", "stop", "disconnect"]) {
+    const h = setup(); h.readyHuman(); showDialog(h, dialog({ type: "alert", defaultPrompt: undefined }));
+    assert.equal(h.element("dialog-prompt-label").hidden, true);
+    assert.equal(h.element("dialog-cancel").hidden, true);
+    if (action === "disconnect") h.socket.close(); else h.element(action).click();
+    h.element("dialog-accept").click();
+    assert.equal(h.socket.sent.some(row => row.operation === "humanDialogRespond"), false);
+    assert.equal(h.element("page-dialog").hidden, true);
+  }
+});
 
 test("human input requires a real decode of the matching lease and generation", () => {
   const h = setup(); h.beginHuman();

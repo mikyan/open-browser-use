@@ -12,6 +12,13 @@
 
 ## Baseline sources
 
+2026-10-18 managed 人工弹窗 `mhd-ozO6fy` 六步 actual exit 0：正式交付的
+两个原页面中，五种普通回答及未回答 prompt 的 End 取消通过，两个唯一
+POST、原文档/回执及正常 Stop 已验。固定 Windows CfT 与主frame active
+human lease 是本次边界；保留原30秒确认期限，beforeunload、首帧前、导航期
+和子frame等未覆盖。源码未发包，不代替全P01–P15或公司Edge验收，见
+[人工网页弹窗](../references/managed-human-dialogs.md)。
+
 2026-10-18 正式 managed 五入口 `mwf-6nmDto` 九步 actual exit 0：JS/Python/Go/
 CLI/MCP 各完成原子页获取、一次提交、原文件下载和结果交付，共20原请求/5POST。
 原查看窗口及全部五个结果、原文档/target/文件与正常Stop通过，独审1,978项；
