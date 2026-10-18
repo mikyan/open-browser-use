@@ -16,13 +16,13 @@ ecbda21源码加入两阶段 human Begin 与原生文档事件证明，但其首
 [preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21)
 发布，保留上述限制；下面区分当前实现、当前验证与历史已发布制品。
 
-最新重打包 [preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)
+历史重打包 [preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)
 保持ecbda21产品功能，包含完整安装件和Skill。源码只新增测试时序修正及记录，
 没有新增真实浏览器验收；8,974项独立制品检查与四资产回下载通过。
 
 其后的当前开发版修复原默认context准备和同记录并发journal写入；固定CfT的
-两场新验收分别完成首帧前出现、导航时出现的prompt回答与正常End。修复尚未
-进入上述安装包；本轮按用户新请求，准备包含这些修复的新包。
+两场新验收分别完成首帧前出现、导航时出现的prompt回答与正常End。
+本轮这些修复及晚到URL提示核验已进入 [preview-20261019-bcc8304](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-bcc8304)；旧ff1d9d3不包含。
 
 当前源码也修复晚到 URL 通知误取消有效弹窗的问题。通知只阻挡下一次人工
 操作；最终发送前复核原文档、原默认上下文和浏览器 documentId，不由网址补权。

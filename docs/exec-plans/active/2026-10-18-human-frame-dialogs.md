@@ -1,11 +1,11 @@
 # Managed human dialogs from original child documents
 
-Status: active. Full Browser Use parity remains unproven. The latest requested
+Status: active. Full Browser Use parity remains unproven. The newly requested
 package is published and verified as
-[preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3).
-It retains the ecbda21 experimental two-stage admission and document-identity fixes;
-first-frame and navigation dialog acceptance remain open for that package. The
-current unbundled development fixes pass the two fixed readiness scenarios below.
+[preview-20261019-bcc8304](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-bcc8304).
+It includes the original-context readiness, result-journal concurrency and late URL
+hint fixes. Two fixed readiness scenarios and four stable layouts pass on the
+frozen build; clean release source and artifacts are independently bound to it.
 Earlier releases
 and failed runs below retain their historical scope. No PR is requested.
 
