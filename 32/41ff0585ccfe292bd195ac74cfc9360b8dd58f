@@ -1,0 +1,116 @@
+internal/managedviewer/ui/viewer.css
+  s_08bbfd293d324f::t_e287537387de53 4
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_c3b4a2323537bb 97,599,745-746,749-750
+  s_08bbfd293d324f::t_cb751ffd43ba3c 596-598,747-748
+  s_08bbfd293d324f::t_34b49764a0fad1 751-752
+apps/chrome-extension/managed-human-document-events.js
+  s_08bbfd293d324f::t_02c4be8ceebee3 7-13
+  s_08bbfd293d324f::t_0ad1484d82c676 300,305
+apps/chrome-extension/managed-human-dialog-origin-independent.test.mjs
+  s_08bbfd293d324f::t_78108ee812e986 186,188-203
+  s_08bbfd293d324f::t_43c4c1ebe5615a 1-185,187,204
+internal/managedprotocol/dialog_source.go
+  s_08bbfd293d324f::t_7f0330ddc1975d 19,35-37,44-48,50-52,54-56,60-62,64-71,73-75,79-83,89-90,94-96,101-105
+  s_08bbfd293d324f::t_495d455f902a48 1-10,13-18,20,27-34,38-43,49,53,57-59,63,72,78,92-93,97-100,106-108
+  s_08bbfd293d324f::t_03b47c08e53d55 11-12,21-26,76-77,84-88,91
+  s_08bbfd293d324f::t_953eb866ccb4ba 109-110
+internal/managedviewer/ui/index.html
+  s_08bbfd293d324f::t_e287537387de53 26
+internal/managedprotocol/dialog_source_test.go
+  s_08bbfd293d324f::t_ae3b865e2906cd 1-10,14-18,20-21,25,29,39-45,49-52,56,61,86
+  s_08bbfd293d324f::t_d60650c621f05e 33-34,38
+  s_08bbfd293d324f::t_7f0330ddc1975d 11-13,22-24,26-28,30-32,35-37,53-55,57-60,62-64,70-71,75,79
+  s_08bbfd293d324f::t_03b47c08e53d55 19,46-48,65-69,72-74,76-78,80-85
+apps/chrome-extension/managed-human-dialogs.js
+  s_08bbfd293d324f::t_02c4be8ceebee3 111-112
+docs/exec-plans/active/2026-10-18-human-frame-dialogs.md
+  s_08bbfd293d324f::t_5d8acf29931553 14-19,23-51
+  s_08bbfd293d324f::t_6c873f44323665 20-22
+internal/managedviewer/dialog_source_test.go
+  s_08bbfd293d324f::t_0b585098dfd6ea 6,9,30-72,75-86,115-127
+  s_08bbfd293d324f::t_7f0330ddc1975d 8,14-20,22-26,29,73-74,87-88,90-102,106-114
+  s_08bbfd293d324f::t_44d7f5de7470ee 7
+  s_08bbfd293d324f::t_ae3b865e2906cd 1-5,10-13,21,27-28,89,103-105,128
+  s_08bbfd293d324f::t_d603c98b462dc0 129-135
+internal/managedbrowser/managed_user_dialog.go
+  s_08bbfd293d324f::t_c3b4a2323537bb 14,20-21,24-25
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_c3b4a2323537bb 91,473-485,501-502,506
+  s_08bbfd293d324f::t_b6430c24c95059 504-505,507-517
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_6c873f44323665 149-152
+internal/managedbrowser/managed_user_dialog_source_test.go
+  s_08bbfd293d324f::t_ae3b865e2906cd 1-3,5-15,30,52,62,77
+  s_08bbfd293d324f::t_7f0330ddc1975d 4,16-29,31-51,53-61,63-76
+  s_08bbfd293d324f::t_56952bba0e60a1 78-101
+internal/managedviewer/dialog.go
+  s_08bbfd293d324f::t_c3b4a2323537bb 13-16,33,39-40
+  s_08bbfd293d324f::t_cb751ffd43ba3c 9-12
+  s_08bbfd293d324f::t_75a2307d4883d7 43-44
+scripts/browser-integration/managed-human-oopif-dialog-evidence.mjs
+  s_08bbfd293d324f::t_daf6ff1c38e2ee 85
+  s_08bbfd293d324f::t_5f914716c6010f 78,83-84,86-108,170,174
+internal/managedprotocol/dialog.go
+  s_08bbfd293d324f::t_495d455f902a48 26-33,101,108-112
+  s_08bbfd293d324f::t_aeb1ab5cb01d9c 23-25,113-114
+apps/chrome-extension/managed-human-document-graph.js
+  s_08bbfd293d324f::t_02c4be8ceebee3 2,344-345
+docs/references/managed-human-dialogs.md
+  s_08bbfd293d324f::t_6c873f44323665 67-71
+  s_08bbfd293d324f::t_206d1d965bfdab 42-44
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_1cd6e2455985f8 190,495-548
+  s_08bbfd293d324f::t_e65fd6ea6e0105 549
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_1a863ac1ff5d7a 401,441,1814-1850
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_e287537387de53 8,32,79-95,101-102,118-119,317,595
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_02c4be8ceebee3 359,366-374,376-377
+scripts/browser-integration/managed-human-oopif-dialog-evidence.test.mjs
+  s_08bbfd293d324f::t_9de9a2ddbeddbc 5,126-143,145-175
+  s_08bbfd293d324f::t_daf6ff1c38e2ee 144
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_cb751ffd43ba3c 225-227,257-259,265-275
+  s_08bbfd293d324f::t_c3b4a2323537bb 56,244,252,261-264,301,307
+  s_08bbfd293d324f::t_0d4e49abe57e45 260
+scripts/browser-integration/managed-human-readiness-dialog-check.test.mjs
+  s_08bbfd293d324f::t_9de9a2ddbeddbc 146-160
+apps/chrome-extension/managed-human-dialogs.test.mjs
+  s_08bbfd293d324f::t_ce4552ff1e52e7 257-285
+apps/chrome-extension/managed-human-document-events.test.mjs
+  s_08bbfd293d324f::t_f37255f682e455 258-267
+apps/chrome-extension/managed-human-document-graph.test.mjs
+  s_08bbfd293d324f::t_4202f50e3bba28 552-589
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_89768ff3c82155 14-33
+docs/histories/2026-10/20261018-2245-human-frame-dialogs.md
+  s_08bbfd293d324f::t_7b06bf85efda1b 3-24
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_d3e9779e054a20 15-17
+go.mod
+  s_08bbfd293d324f::t_f65b778cd9c613 9,16
+go.sum
+  s_08bbfd293d324f::t_e01bb4672a8818 13-14,17-18
+scripts/browser-integration/managed-human-oopif-dialog-check.mjs
+  s_08bbfd293d324f::t_e7d604457387da 34,132-135,262-266,281-283,319
+scripts/browser-integration/managed-human-readiness-dialog-check.mjs
+  s_08bbfd293d324f::t_0e63db8207a02b 33,304-307,417-419,421,451,453
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "3241ff0585ccfe292bd195ac74cfc9360b8dd58f",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
