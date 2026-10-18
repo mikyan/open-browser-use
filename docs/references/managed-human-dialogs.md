@@ -16,6 +16,10 @@
 [preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21)
 发布，保留上述限制；下面区分当前实现、当前验证与历史已发布制品。
 
+最新重打包 [preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)
+保持ecbda21产品功能，包含完整安装件和Skill。源码只新增测试时序修正及记录，
+没有新增真实浏览器验收；8,974项独立制品检查与四资产回下载通过。
+
 ## 使用与限制
 
 - 在原页面完成接管后操作；弹窗出现时暂停接收新的页面输入。已按下按键或

@@ -12,6 +12,12 @@
 
 ## Baseline sources
 
+最新请求的重打包已发布为
+[preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)。
+产品功能与ecbda21相同；本轮只修正准备期测试时序和退役证据，31项定向检查
+通过。104/77/7文件、8,974项独立制品检查及四资产回下载通过。没有新增网页
+业务验收，首帧前与导航弹窗的原失败仍保留，完整能力对齐仍未结束。
+
 2026-10-19 准备阶段改动的当前构建通过 2,758 项 Node 检查和 Go test/vet，
 `mod-O0QjZc` 再次通过主/同源/嵌套/OOPIF 四布局 prompt 与正式 Stop。
 接管可先返回准备状态并允许结束，普通输入仍等当前画面就绪；同网址换页的

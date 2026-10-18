@@ -20,6 +20,15 @@ context 身份、随后默认 context 到达，可导致整租约撤权。均保
 原清理，无生产修改。原导航日志缺内部 ACK/error，不能声称已确定唯一原因。
 诊断报告 SHA256：`89167fee3a516c8c6ec7d732b265962d539e4e66f39420980382cc41d5cd9de2`。
 
+源码已提交并推送 `ff1d9d348bc630f0516e27e33f8b10383de44cc9`，新包发布为
+[preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)。
+完整包/扩展/Skill为104/77/7文件；411份生产构建输入、77份未加key扩展与原已测
+快照相同。发布EXE单独重建，离线CLI/MCP30工具、8,974项独立包审计、四资产
+上传回下载及108份本地副本核对通过。稳定扩展ID、安装与覆盖升级说明保留。
+完整包10,473,233字节，SHA256：`08706fa6f951d4813319b00444b39fa97c6f55d6b031eb07d1651ed95a74c542`。
+包审计报告SHA256：`0407db5447a82398a3a4a106830362286542fa3edfbdd330f624d86000cb3444`。
+本次打包请求完成，产品行为与ecbda21相同，没有新增真实浏览器验收或PR。
+
 ## 两阶段接管与ecbda21预览交付
 
 用户再次要求新包。本轮源码将human Begin改为在原Pause、风险记录、attachment

@@ -2,8 +2,8 @@
 
 Status: active. Full Browser Use parity remains unproven. The latest requested
 package is published and verified as
-[preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21).
-It includes experimental two-stage admission and document-identity fixes;
+[preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3).
+It retains the ecbda21 experimental two-stage admission and document-identity fixes;
 first-frame and navigation dialog acceptance remain open. Earlier releases
 and failed runs below retain their historical scope. No PR is requested.
 
@@ -31,9 +31,13 @@ the whole lease. Two ordered controls pass and two target-behavior assertions
 fail. The original navigation run lacks internal metadata ACK/error evidence,
 so neither is asserted to be its unique cause. Preserve all original evidence.
 
-Finish focused harness checks, commit the reviewed source/docs, rebuild from that
-clean commit, audit/copy the package and verify uploaded assets on the fork. No
-PR, browser business rerun or company-Edge setup is part of this refresh.
+The 31 focused harness/fixture checks pass. Reviewed source/docs are committed
+as `ff1d9d348bc630f0516e27e33f8b10383de44cc9` and pushed to the fork. The clean
+rebuild passes offline CLI/MCP (30 tools), 8,974 independent package checks,
+four uploaded-asset roundtrips and 108 local-file copy checks. The 104/77/7-file
+bundle is published under the tag above. No PR, browser business rerun or
+company-Edge setup was performed. The package request is complete; full parity
+and the unresolved production races remain active.
 
 ### Requested new package after the readiness implementation
 
