@@ -2926,6 +2926,34 @@ headed OS clipboard behavior or desktop focus. The temporary process currently
 uses `--no-sandbox`; no daily browser profile, installed extension or native
 clipboard is touched. See the [contract and limitations](../../docs/references/clipboard.md).
 
+### Local asynchronous clipboard diagnostic
+
+`managed-clipboard-local-probe.mjs` tests a synthetic loopback page, without the
+managed viewer, extension or remote task. It uses real browser Ctrl+C/Ctrl+X
+events to start a native `ClipboardItem` write with a pending data Promise.
+Three cases resolve copy, reject copy and resolve cut; original Ctrl+V into a
+neutral textarea checks the resulting text or unchanged synthetic seed.
+This is native browser feasibility evidence, not a managed copy/cut feature
+acceptance or a test of Windows desktop clipboard behavior.
+
+On Windows, supply the exact Chromium executable pinned by
+`memory-clipboard.mjs` (currently 156.0.8078.4) and opt into the memory guard:
+
+```powershell
+$env:OBU_TEST_CLIPBOARD_CHROMIUM_BINARY = 'C:\path\to\guarded\chrome.exe'
+$env:OBU_TEST_MEMORY_CLIPBOARD = '1'
+node scripts/browser-integration/managed-clipboard-local-probe.mjs
+```
+
+The script creates a fresh `clipboard-local-*` directory under
+`.tmp/browser-integration`, verifies the executable/version and actual headless
+command line before clipboard access, and uses only known synthetic text. It
+does not grant clipboard permissions, mock native APIs, read or restore the OS
+clipboard, or reuse a personal profile. `results.json` retains original command
+ACKs, trusted DOM events, Promise outcomes, normal Browser close/exit and exact
+original process-identity cleanup. Rejection before the data Promise resolves
+does not prove that End can cancel or roll back an already resolved local write.
+
 ## Image source downloads
 
 The media fixture exercises `locator.downloadMedia` through JS, Python, Go,
