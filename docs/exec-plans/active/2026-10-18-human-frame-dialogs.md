@@ -213,3 +213,13 @@ included merely by allowing child frames in the present active-generation path.
 - Historical fixed-runtime results include frameId in every inspected native
   Closed event (six original dialogs and two long-wait dialogs). New tests must
   still reject missing or foreign identity rather than relying on that sample.
+
+## Requested Windows preview delivery
+
+The verified implementation is committed at `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` and the fork branch was checked after push.
+The user-requested [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5) is now published and verified.
+A clean clone binds all 405 frozen source bytes to Git objects before rebuilding;
+75 unkeyed extension files match the accepted build. The EXE is rebuilt separately.
+Offline CLI/MCP, independent package review, all four remote asset roundtrips and
+local copies pass. No webpage workflow was replayed for packaging. The existing
+UI banner issue and unaccepted cases remain documented; this plan stays active.
