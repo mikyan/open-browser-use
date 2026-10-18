@@ -15,6 +15,11 @@
 可运行的本地异步写入诊断；三场实际通过，正常退出与清理已核对。远端原生
 版本研究保留两次错误预期失败；结论仅适用于浏览器共享clipboard，正式复制
 返回通道仍未实现。本轮按用户要求重新打包既有功能，生产输入没有变化。
+新包[preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8)
+已发布：干净提交重建、离线CLI/MCP、9213项独立制品检查和四资产回下载通过。
+完整ZIP为10,582,344字节，SHA256：
+`1ee63defd04a09f2ce4aad5a7989eafa1862dc423b48238c38aa845ed9234337`。
+未重跑原Go/Node或网页业务；普通公司Edge、系统剪贴板和完整能力对齐仍开放。
 
 当前源码支持人工接管真实重复按键，Go test/vet和2,926项Node检查通过。
 正式`mhr-rm5fRL`七步覆盖六场连续删除/移动/网页取消/持键End，原handoff唯一
@@ -22,7 +27,7 @@
 440份输入和77份扩展与实测构建绑定。范围见
 [人工重复按键](references/managed-human-key-repeat.md)，完整能力对齐仍开放。
 
-最新包已发布为 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，源提交 `534b88122b8e168d96be701e621fbbd7e7b820ea`。
+此前包已发布为 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，源提交 `534b88122b8e168d96be701e621fbbd7e7b820ea`。
 干净提交重建主机和扩展，440份输入与原测试及Git对象相符，77份扩展与实测
 字节一致。离线CLI/MCP、9231项独立制品检查、四资产回下载和112份本地副本
 校验通过。完整包108文件，完整ZIP10,582,573字节，SHA256：

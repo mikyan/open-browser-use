@@ -34,3 +34,13 @@
 - 本history；正式本地机制脚本为`scripts/browser-integration/managed-clipboard-local-probe.mjs`。
 
 本轮诊断未访问系统剪贴板或个人浏览器，未修改生产输入与剪贴板实现。
+
+### 按用户要求重新打包
+
+已发布[preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8)，
+源提交`0f65eb8faf5fb9e63dee206d603d453f1406720f`。产品与534b881保持相同，
+440份构建输入和77份扩展与原实测记录一致。新EXE单独重建，离线CLI/MCP、
+9213项独立制品检查通过；四项上传资产回下载及112份本地副本一致。
+完整包108文件、扩展77文件、Skill7文件。完整ZIP10,582,344字节，SHA256：
+`1ee63defd04a09f2ce4aad5a7989eafa1862dc423b48238c38aa845ed9234337`。
+仅推送用户fork，未创建PR；没有重跑原Go/Node或网页业务，也未宣称复制桥已实现。
