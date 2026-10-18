@@ -1,0 +1,31 @@
+docs/histories/2026-10/20261018-2245-human-frame-dialogs.md
+  s_08bbfd293d324f::t_a631a2b6505cd7 1-7,60
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_a631a2b6505cd7 7
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_624c47ecb6005d 14-19,28
+docs/exec-plans/active/2026-10-18-human-frame-dialogs.md
+  s_08bbfd293d324f::t_ea53da4eb8aca1 8-9,63-67
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_c7197dc2a1357a 20
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_edde9629ea4653 11-14,19
+docs/references/managed-human-dialogs.md
+  s_08bbfd293d324f::t_d7225d29a55489 10,117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "4916ee5cbff7e2614d150592cb3a7b96ea1f3757",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
