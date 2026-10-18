@@ -1,0 +1,47 @@
+docs/exec-plans/active/2026-10-18-human-frame-dialogs.md
+  s_08bbfd293d324f::t_217b17f0c0a4fa 51-58,62-69
+  s_08bbfd293d324f::t_ac8df48c4e5a9e 59-61
+  s_08bbfd293d324f::t_93ae9710d3ef0b 13-50
+scripts/browser-integration/managed-modal-boundary-fixture.mjs
+  s_08bbfd293d324f::t_87b2d27ad84f11 1-82
+scripts/browser-integration/managed-modal-boundary-check.mjs
+  s_08bbfd293d324f::t_1924ce392f4d9e 71,100
+  s_08bbfd293d324f::t_131ba8b130f6f1 153-154,156
+  s_08bbfd293d324f::t_b04248376792e5 78,110,184
+  s_08bbfd293d324f::t_c6121d8942f95c 119
+  s_08bbfd293d324f::t_cdc0b74f6680d2 1-33,35-40,42-43,50-55,57-70,72-77,82-99,101-109,111-118,121-152,155,157-183,185-186,200-202,204-208
+  s_08bbfd293d324f::t_ebc951ca5db6f8 187-199
+  s_08bbfd293d324f::t_5116e08a16c076 34,41,44-49,79-81,120
+  s_08bbfd293d324f::t_e6a8a7b227955f 56,203
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_217b17f0c0a4fa 14-19
+scripts/browser-integration/managed-modal-boundary-fixture.test.mjs
+  s_08bbfd293d324f::t_131ba8b130f6f1 1-20
+scripts/browser-integration/managed-modal-boundary-check.test.mjs
+  s_08bbfd293d324f::t_b04248376792e5 29
+  s_08bbfd293d324f::t_131ba8b130f6f1 1-17,19,22-28
+  s_08bbfd293d324f::t_5116e08a16c076 20-21
+  s_08bbfd293d324f::t_e6a8a7b227955f 18
+docs/histories/2026-10/20261018-2245-human-frame-dialogs.md
+  s_08bbfd293d324f::t_217b17f0c0a4fa 63-79
+docs/references/managed-modal-readiness-diagnostic.md
+  s_08bbfd293d324f::t_217b17f0c0a4fa 1-51,65-101,107-130
+  s_08bbfd293d324f::t_ac8df48c4e5a9e 60-63,102-106
+  s_08bbfd293d324f::t_a683980ff7ba19 52-59,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "5e830dc8d8c5da466cb6c48c15358008cfe74568",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
