@@ -1,0 +1,60 @@
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_54d16213ae1395 11-12,23-26,229-235
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_30853d87cd7604 15-20
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_30853d87cd7604 14-21
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_51b65a9f60806a 10,17-18,25-69,162-163,165,167-168,170-174,179
+  s_08bbfd293d324f::t_968f86d5ad7786 480-490
+  s_08bbfd293d324f::t_f8975ba5b9c8ed 278,325,337-340,343-355,372-373,375-379,383-395,413,442,444,447-448,454-460,475
+  s_08bbfd293d324f::t_04cb74c06c3795 416,498,501-502,507-512,515,520-533,549,553,556,558,582-585,625,629-635
+scripts/browser-integration/managed-human-check-fixture.mjs
+  s_08bbfd293d324f::t_0905e970c1abbe 8,10-12,24,33-35,43-44,48-49,68,79
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_54d16213ae1395 142-145
+scripts/browser-integration/managed-human-check-fixture.test.mjs
+  s_08bbfd293d324f::t_1105433f2fad3f 4-22
+docs/exec-plans/active/2026-10-19-managed-human-paste.md
+  s_08bbfd293d324f::t_54d16213ae1395 5-6,43-59
+  s_08bbfd293d324f::t_5d74d3a6e09a88 1-4,7-42,66-71
+  s_08bbfd293d324f::t_30853d87cd7604 60-65
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_64f52cff05f208 9,655-660
+docs/histories/2026-10/20261019-0220-managed-human-paste.md
+  s_08bbfd293d324f::t_3b9bd209b4e1f6 1-24
+  s_08bbfd293d324f::t_30853d87cd7604 25-35
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_3bcf4043a8cb59 868-872,874-900,902-904,979-980
+  s_08bbfd293d324f::t_759ad4bdce01eb 873,905-935,937,944,959-978
+  s_08bbfd293d324f::t_ca47d3901d29ff 901
+  s_08bbfd293d324f::t_664da418e125e2 936,938-943,945-958
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_759ad4bdce01eb 580-581,636-642
+  s_08bbfd293d324f::t_cd61da799d7c11 647
+  s_08bbfd293d324f::t_74206a57310941 577-579,582,631-635,643
+  s_08bbfd293d324f::t_664da418e125e2 574-576
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_30853d87cd7604 7
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_4e6609c4fc547c 901-947,969,973-977
+scripts/browser-integration/managed-human-check.test.mjs
+  s_08bbfd293d324f::t_e70aa41c19aaa6 5-16,18-49,104
+  s_08bbfd293d324f::t_ea1ef00b472345 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "119179c93730475ee00ea141214ddb0867924365",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
