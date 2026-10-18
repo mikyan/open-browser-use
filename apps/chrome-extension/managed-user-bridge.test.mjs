@@ -85,13 +85,14 @@ function fixture(t, options = {}) {
   return f;
 }
 
-function humanFixture(t) {
+function humanFixture(t, { inputBudgetVersion } = {}) {
   const f = fixture(t);
   f.humans = []; f.dialogGates = []; let dialogCounter = 0;
   f.backend.beginManagedHuman = async (tabId, authority, onFrame, onState) => {
     f.calls.push(["humanBegin", tabId]); authority();
     const closed = deferred(), record = { tabId, authority, onFrame, onState, closed, closeCalls: 0, inputCalls: 0, dialogClaims: new Set(), dialogPending: new Set(),
-      info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0 } };
+      info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0,
+        ...(inputBudgetVersion === undefined ? {} : { inputBudgetVersion }) } };
     const handle = record.handle = {
       info: () => ({ ...record.info }), closed: closed.promise,
       pendingDialog: () => record.dialog ?? null,
@@ -612,6 +613,19 @@ test("human takeover retires observation, publishes actual geometry and returns 
   assert.deepEqual(ended.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
   assert.equal(ended.status.automation.state, "paused");
   await assert.rejects(f.input(2), /HUMAN_STALE/);
+});
+
+test("human budget capability remains the original handle field through navigation while legacy handles omit it", async t => {
+  for (const inputBudgetVersion of [undefined, 1]) {
+    const f = humanFixture(t, { inputBudgetVersion }); await f.open(); await f.begin();
+    const first = (await f.request("status")).status;
+    assert.equal(first.human.inputBudgetVersion, inputBudgetVersion);
+    assert.equal(Object.hasOwn(first.human, "inputBudgetVersion"), inputBudgetVersion !== undefined);
+    f.navigate(2); await flush(); f.arrive(2); await flush();
+    const next = (await f.request("status")).status;
+    assert.equal(next.human.leaseId, first.human.leaseId); assert.equal(next.human.inputBudgetVersion, inputBudgetVersion);
+    assert.equal(next.human.generation, 2); assert.equal(next.view, null);
+  }
 });
 
 test("a first human frame during Begin is kept until the original handle becomes active", async t => {

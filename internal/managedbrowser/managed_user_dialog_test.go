@@ -157,10 +157,15 @@ func TestManagedDialogCanceledCallerCloseStillJoinsActualNativeResponse(t *testi
 // Only native ACKs are simulated; neither transport is replaced by a fake.
 func TestManagedDialogViewerAndControllerBypassInputAndRetainNewDialog(t *testing.T) {
 	held := make(chan userTestRequest, 8)
+	state := func(f *userFixture, id string, sequence uint64) map[string]any {
+		value := fixtureDialogState(f, id, sequence)
+		value["human"].(map[string]any)["inputBudgetVersion"] = 1
+		return value
+	}
 	f := newUserFixture(t, func(f *userFixture, req userTestRequest) bool {
 		switch req.Operation {
 		case "humanBegin":
-			f.evaluated(req, map[string]any{"status": fixtureDialogState(f, "", 0)})
+			f.evaluated(req, map[string]any{"status": state(f, "", 0)})
 			return true
 		case "humanInput", "humanDialogRespond":
 			held <- req
@@ -174,7 +179,8 @@ func TestManagedDialogViewerAndControllerBypassInputAndRetainNewDialog(t *testin
 		return false
 	}, false)
 	c := f.open()
-	s, err := managedviewer.Start(managedviewer.Config{RunID: f.identity.RunID, Backend: c, Stop: func(context.Context) error { return nil }})
+	deadlines := make(chan inputBudgetDeadline, 8)
+	s, err := managedviewer.Start(managedviewer.Config{RunID: f.identity.RunID, Backend: inputBudgetObservedController{c, deadlines}, Stop: func(context.Context) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,16 +236,20 @@ func TestManagedDialogViewerAndControllerBypassInputAndRetainNewDialog(t *testin
 	read("frame", 0)
 	write(map[string]any{"id": 2, "operation": "humanInput", "leaseId": "original-lease", "generation": 1, "sequence": 1, "input": map[string]any{"type": "pointer", "action": "move", "x": 10, "y": 10}})
 	input := userWait(t, held)
+	inputDeadline := userWait(t, deadlines)
+	if inputDeadline.operation != "humanInput" || inputDeadline.remaining > 335*time.Second || inputDeadline.remaining < 334*time.Second {
+		t.Fatalf("native budget not bound to original input: %+v", inputDeadline)
+	}
 	publish := func(id string, sequence uint64) {
 		t.Helper()
 		f.mu.Lock()
 		f.sequence = sequence
 		f.mu.Unlock()
-		state := fixtureDialogState(f, id, sequence)
+		status := state(f, id, sequence)
 		identity, _ := json.Marshal(f.identity)
 		var event map[string]any
 		_ = json.Unmarshal(identity, &event)
-		event["type"], event["sequence"], event["status"] = "status", sequence, state
+		event["type"], event["sequence"], event["status"] = "status", sequence, status
 		payload, _ := json.Marshal(event)
 		f.write(map[string]any{"method": "Runtime.bindingCalled", "sessionId": "worker-session", "params": map[string]any{"name": userBindingName, "executionContextId": f.contextID, "payload": string(payload)}})
 		for {
@@ -259,6 +269,10 @@ func TestManagedDialogViewerAndControllerBypassInputAndRetainNewDialog(t *testin
 	publish("first", 2)
 	decision(3, "first")
 	first := userWait(t, held)
+	firstDeadline := userWait(t, deadlines)
+	if firstDeadline.operation != "humanDialogRespond" || firstDeadline.remaining > 30*time.Second || firstDeadline.remaining < 29*time.Second {
+		t.Fatalf("dialog inherited original input budget: %+v", firstDeadline)
+	}
 	if first.Operation != "humanDialogRespond" {
 		t.Fatal("response did not bypass input")
 	}
@@ -268,7 +282,7 @@ func TestManagedDialogViewerAndControllerBypassInputAndRetainNewDialog(t *testin
 	if second.Operation != "humanDialogRespond" {
 		t.Fatal("new dialog blocked behind old native ACK")
 	}
-	f.evaluated(first, fixtureDialogResult(first, fixtureDialogState(f, "first", 2)))
+	f.evaluated(first, fixtureDialogResult(first, state(f, "first", 2)))
 	success(3)
 	c.mu.Lock()
 	current, risk := c.pendingDialog, c.humanRisk
@@ -276,8 +290,8 @@ func TestManagedDialogViewerAndControllerBypassInputAndRetainNewDialog(t *testin
 	if current == nil || current.DialogID != "second" || !risk {
 		t.Fatal("old ACK changed newer dialog or cleared risk")
 	}
-	f.evaluated(second, fixtureDialogResult(second, fixtureDialogState(f, "", 4)))
+	f.evaluated(second, fixtureDialogResult(second, state(f, "", 4)))
 	success(4)
-	f.evaluated(input, map[string]any{"status": fixtureDialogState(f, "", 4), "inputReceipt": map[string]any{"leaseId": "original-lease", "generation": 1, "sequence": 1, "acknowledged": true}})
+	f.evaluated(input, map[string]any{"status": state(f, "", 4), "inputReceipt": map[string]any{"leaseId": "original-lease", "generation": 1, "sequence": 1, "acknowledged": true}})
 	success(2)
 }

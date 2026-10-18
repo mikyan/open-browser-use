@@ -12,10 +12,22 @@
 
 ## Baseline sources
 
+2026-10-18 原生人工弹窗长等待 `mdb-r5BfFQ` 五步 actual exit 0：原输入
+等待40秒后仍可答复Unicode；另一原弹窗约300秒自然取消并完成原lease清理。
+两原document各一次POST，正常Stop和28原进程退出已验。普通30秒处理与累计
+300秒modal预算由原attachment单调时钟执行；Go/UI只按固定能力提供外层等待，
+旧会话不延长。Go全包/vet、2516Node及821项原事件独审通过；旧30秒自然失败
+诊断保留。有限固定Windows证据不覆盖首帧前/导航/子frame、公司Edge或全矩阵，
+源码未发包，见[人工弹窗等待](../references/managed-human-dialogs.md)。
+验收后补齐连续弹窗累计额度的回答前检查，三个迟回调反例先失败后通过，
+相关114项测试通过；只有控制模块及测试变化，真实运行未重跑，不能将上面
+的冻结运行作为最终修正的实测证明。
+最终内部重建与2519项Node测试通过，Go源码未变并沿用原全包/vet记录。
+
 2026-10-18 managed 人工弹窗 `mhd-ozO6fy` 六步 actual exit 0：正式交付的
 两个原页面中，五种普通回答及未回答 prompt 的 End 取消通过，两个唯一
 POST、原文档/回执及正常 Stop 已验。固定 Windows CfT 与主frame active
-human lease 是本次边界；保留原30秒确认期限，beforeunload、首帧前、导航期
+human lease 是该轮边界；当时保留原30秒确认期限，beforeunload、首帧前、导航期
 和子frame等未覆盖。源码未发包，不代替全P01–P15或公司Edge验收，见
 [人工网页弹窗](../references/managed-human-dialogs.md)。
 

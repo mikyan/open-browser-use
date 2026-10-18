@@ -516,6 +516,9 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 			return nil
 		}
+		if previous != nil && previous.LeaseID == human.LeaseID && previous.InputBudgetVersion != human.InputBudgetVersion {
+			return errors.New("managed human input budget changed within its original lease")
+		}
 		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
 			if err := c.retireStreamLocked(); err != nil {
 				return err

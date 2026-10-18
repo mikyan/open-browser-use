@@ -210,11 +210,12 @@ type Viewport struct {
 
 // HumanState deliberately omits document, target, channel and native handles.
 type HumanState struct {
-	State      string    `json:"state"`
-	LeaseID    string    `json:"leaseId"`
-	TabID      uint64    `json:"tabId"`
-	Generation uint64    `json:"generation"`
-	Viewport   *Viewport `json:"viewport"`
+	State              string    `json:"state"`
+	LeaseID            string    `json:"leaseId"`
+	TabID              uint64    `json:"tabId"`
+	Generation         uint64    `json:"generation"`
+	Viewport           *Viewport `json:"viewport"`
+	InputBudgetVersion uint64    `json:"inputBudgetVersion,omitempty"`
 }
 
 type HumanCleanup struct {
@@ -254,6 +255,11 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	}
 	if raw, ok := f["lastInputSequence"]; ok && !integer(raw, 0, MaxSafeInteger) {
 		return nil, errors.New("invalid human sequence")
+	}
+	// Only the native owner can advertise the fixed budget contract. Omission
+	// retains legacy timing; null, zero and unknown versions never enable it.
+	if raw, ok := f["inputBudgetVersion"]; ok && !integer(raw, 1, 1) {
+		return nil, errors.New("unsupported human input budget")
 	}
 	return &result, nil
 }

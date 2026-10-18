@@ -20,6 +20,9 @@ type command struct {
 	ctx        context.Context
 	epoch      uint64
 	generation uint64
+	// Captured from the accepted original human state at input admission,
+	// never parsed from a caller command or changed by subsequent status.
+	inputBudgetVersion uint64
 }
 
 // object rejects duplicate keys as well as trailing JSON. Silent last-key wins

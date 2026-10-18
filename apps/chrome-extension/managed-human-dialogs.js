@@ -1,3 +1,5 @@
+import { ManagedHumanDialogDeadline } from "./managed-human-budget.js";
+
 const encoder = new TextEncoder();
 const fail = (code, message) => new Error(`OBU_HUMAN_DIALOG_${code}: ${message}`);
 const types = ["alert", "confirm", "prompt"];
@@ -26,8 +28,9 @@ export function validateHumanDialogResponse(value) {
 // The original native attachment owns these records, not the serial input lane.
 // Chrome supplies no dialog ID: each opening gets a private object and one claim.
 export class ManagedHumanDialogs {
-  constructor({ leaseId, capture, assertCurrent, attached, destroyed, send, notify, onFailure }) {
-    Object.assign(this, { leaseId, capture, assertCurrent, attached, destroyed, send, notify, onFailure });
+  constructor({ leaseId, capture, assertCurrent, attached, destroyed, send, notify, onFailure,
+    onOpened = () => {}, onClosed = () => {}, timing }) {
+    Object.assign(this, { leaseId, capture, assertCurrent, attached, destroyed, send, notify, onFailure, onOpened, onClosed, timing });
     this.current = null; this.records = new Set(); this.operations = new Set(); this.revoked = false;
   }
   info() { const record = this.current; return !this.revoked && record?.open && !record.retired ? record.info : null; }
@@ -35,7 +38,11 @@ export class ManagedHumanDialogs {
   changed() { this.notify(); }
   observe(method, params) {
     if (method === "Page.javascriptDialogClosed") {
-      if (this.current) { this.current.open = false; this.prune(this.current); this.current = null; this.changed(); }
+      if (this.current) {
+        const original = this.current;
+        original.open = false; original.deadline?.account(); original.deadline?.finish(); this.onClosed(original.proof, original);
+        this.prune(original); this.current = null; this.changed();
+      }
       return;
     }
     if (method !== "Page.javascriptDialogOpening") return;
@@ -60,6 +67,9 @@ export class ManagedHumanDialogs {
       if (defaultPrompt !== undefined) text(defaultPrompt);
       record.info = Object.freeze({ leaseId: this.leaseId, generation: record.proof.generation, dialogId: crypto.randomUUID(),
         type: params.type, message: params.message, ...(defaultPrompt !== undefined ? { defaultPrompt } : {}) });
+      record.deadline = new ManagedHumanDialogDeadline({ timing: this.timing,
+        onExpire: error => { if (this.current === record && !this.revoked && !record.retired) this.onFailure(error); } });
+      this.onOpened(record.proof, record);
       if (this.revoked) this.cancel(record);
       else this.changed();
     } catch (error) {
@@ -76,6 +86,7 @@ export class ManagedHumanDialogs {
           value.leaseId !== info.leaseId || value.generation !== info.generation || value.dialogId !== info.dialogId)
         throw fail("STALE", "the original dialog decision is no longer available; no response was sent");
       if (value.promptText !== undefined && info.type !== "prompt") throw fail("INVALID", "prompt text requires a prompt dialog");
+      if (!record.deadline.account()) throw fail("STALE", "original dialog deadline ended; the human choice was not submitted");
       try { this.assertCurrent(record.proof); }
       catch {
         const reason = fail("STALE", "original dialog authority ended; the human choice was not submitted");
@@ -92,7 +103,10 @@ export class ManagedHumanDialogs {
       if (!this.attached() || this.current !== record || !record.open)
         throw fail("STALE", "original native dialog closed before dispatch; no response was sent");
       if (human) {
-        try { if (this.revoked) throw fail("STALE", "human dialog authority ended"); this.assertCurrent(record.proof); }
+        try {
+          if (this.revoked || !record.deadline.account()) throw fail("STALE", "human dialog authority ended");
+          this.assertCurrent(record.proof);
+        }
         catch { withdrawn = true; command.accept = false; delete command.promptText; }
       }
       record.dispatched = true;
@@ -118,9 +132,13 @@ export class ManagedHumanDialogs {
     if (!record?.open || record.claimed || record.capacityBlocked || !this.attached()) return;
     void this.dispatch(record, { accept: false }, false).catch(() => {});
   }
-  revoke() { this.revoked = true; this.cancel(this.current); }
+  revoke() {
+    this.revoked = true;
+    for (const record of this.records) record.deadline?.finish();
+    this.current?.deadline?.finish(); this.cancel(this.current);
+  }
   retire(epoch) {
-    if (this.current?.proof?.epoch === epoch) { this.current.retired = true; this.cancel(this.current); }
+    if (this.current?.proof?.epoch === epoch) { this.current.retired = true; this.current.deadline?.finish(); this.cancel(this.current); }
   }
   async drain() {
     while (this.operations.size) await Promise.allSettled([...this.operations]);

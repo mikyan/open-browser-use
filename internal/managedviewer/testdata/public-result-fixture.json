@@ -311,6 +311,7 @@
       "eventSequence": 13,
       "human": {
         "generation": 1,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "active",
         "tabId": 7,
@@ -347,6 +348,7 @@
       "eventSequence": 14,
       "human": {
         "generation": 1,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "active",
         "tabId": 7,
@@ -402,6 +404,7 @@
       "eventSequence": 16,
       "human": {
         "generation": 1,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "active",
         "tabId": 7,
@@ -438,6 +441,7 @@
       "eventSequence": 17,
       "human": {
         "generation": 2,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "navigating",
         "tabId": 7,
@@ -471,6 +475,7 @@
       "eventSequence": 18,
       "human": {
         "generation": 2,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "active",
         "tabId": 7,
@@ -666,6 +671,7 @@
       "eventSequence": 26,
       "human": {
         "generation": 1,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-5",
         "state": "active",
         "tabId": 7,
@@ -706,6 +712,7 @@
       "eventSequence": 27,
       "human": {
         "generation": 1,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-5",
         "state": "active",
         "tabId": 7,
@@ -807,6 +814,7 @@
     "eventSequence": 14,
     "human": {
       "generation": 1,
+      "inputBudgetVersion": 1,
       "leaseId": "result-human-3",
       "state": "active",
       "tabId": 7,
@@ -872,6 +880,7 @@
     "eventSequence": 16,
     "human": {
       "generation": 1,
+      "inputBudgetVersion": 1,
       "leaseId": "result-human-3",
       "state": "active",
       "tabId": 7,
@@ -914,6 +923,7 @@
       "eventSequence": 19,
       "human": {
         "generation": 2,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "active",
         "tabId": 7,
@@ -949,6 +959,7 @@
       "eventSequence": 17,
       "human": {
         "generation": 2,
+        "inputBudgetVersion": 1,
         "leaseId": "result-human-3",
         "state": "navigating",
         "tabId": 7,
@@ -1034,6 +1045,7 @@
     "eventSequence": 27,
     "human": {
       "generation": 1,
+      "inputBudgetVersion": 1,
       "leaseId": "result-human-5",
       "state": "active",
       "tabId": 7,

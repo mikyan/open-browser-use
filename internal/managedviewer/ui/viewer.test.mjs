@@ -148,9 +148,9 @@ test("result fixture records the real bridge lifecycle, including view navigatio
   assert.deepEqual(await captureResultFixture(), JSON.parse(readFileSync(new URL("../testdata/result-bridge-fixture.json", import.meta.url), "utf8")));
 });
 
-function setup() {
+function setup(inputBudgetVersion) {
   const nodes = new Map();
-  const images = [], revoked = [], timers = new Map();
+  const images = [], revoked = [], timers = new Map(), timerDelays = new Map();
   const windowEvents = {}, documentEvents = {};
   let timerId = 0, replaced, socket;
   let focused = null;
@@ -190,8 +190,8 @@ function setup() {
     URL: { createObjectURL() { return `blob:${++nextBlob}`; }, revokeObjectURL(value) { revoked.push(value); } },
     Image: FakeImage, Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     atob: value => Buffer.from(value, "base64").toString("binary"),
-    setTimeout(callback) { timers.set(++timerId, callback); return timerId; },
-    clearTimeout(id) { timers.delete(id); }, setInterval() {},
+    setTimeout(callback, delay) { timers.set(++timerId, callback); timerDelays.set(timerId, delay); return timerId; },
+    clearTimeout(id) { timers.delete(id); timerDelays.delete(id); }, setInterval() {},
     window: { addEventListener(name, handler) { windowEvents[name] = handler; } }
   });
   vm.runInContext(source, context);
@@ -204,12 +204,12 @@ function setup() {
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
   function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
-  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 } }, ...extra }); }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}) }, ...extra }); }
   function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
   function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
   function ackInput(request = socket.sent.at(-1), extra = {}) { respond(request.id, { ...humanState(), inputReceipt: { acknowledged: true, leaseId: request.leaseId, generation: request.generation, sequence: request.sequence }, ...extra }); }
-  return { element, socket, images, revoked, timers, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput };
+  return { element, socket, images, revoked, timers, timerDelays, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput };
 }
 
 test("ticket is removed before connecting and sent only in first WebSocket auth", () => {
@@ -382,6 +382,50 @@ function dialogReply(h, request, extra = {}) {
   h.respond(request.id, h.humanState({ eventSequence: 20004, pendingDialog: null,
     dialogReceipt: { leaseId: request.leaseId, generation: request.generation, dialogId: request.dialogId, acknowledged: true }, ...extra }));
 }
+
+test("negotiated human input has one bounded outer wait; modal states do not reset it", () => {
+  for (const version of [undefined, 1]) {
+    const h = setup(version); h.readyHuman();
+    const human = { ...h.humanState().human, ...(version ? { inputBudgetVersion: version } : {}) };
+    h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002, human }) });
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "trigger" });
+    const input = h.socket.sent.at(-1), originalTimer = [...h.timers.keys()].at(-1);
+    assert.equal(h.timerDelays.get(originalTimer), version ? 340000 : 35000);
+    for (const [index, dialogId] of ["original", "original", "successor"].entries()) {
+      h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20003 + index, human, pendingDialog: dialog({ dialogId }) }) });
+      assert.equal([...h.timers.keys()].at(-1), originalTimer);
+      assert.equal(h.timerDelays.get(originalTimer), version ? 340000 : 35000);
+      assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+    }
+    assert.match(h.element("dialog-status").textContent, version ? /5 分钟.*共用/ : /30 秒/);
+    h.element("dialog-accept").click();
+    assert.equal([...h.timerDelays.values()].at(-1), 35000, "native decision keeps its ordinary acknowledgement deadline");
+    assert.equal(h.socket.sent.filter(value => value.operation === "humanInput").length, 1);
+    h.timers.get(originalTimer)();
+    assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+    assert.equal([...h.timerDelays.values()].at(-1), 35000);
+    assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+    assert.equal(h.socket.sent.filter(value => value.id === input.id).length, 1);
+    assert.equal(h.socket.sent.some(value => value.operation === "resume"), false);
+  }
+});
+
+test("unknown or read-only budget claims grant no input waiting authority", () => {
+  for (const version of [0, 1, 2, "1", null]) {
+    const h = setup(); h.readyHuman();
+    const count = h.socket.sent.length;
+    h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002,
+      human: { ...h.humanState().human, inputBudgetVersion: version } }) });
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "never" });
+    assert.equal(h.socket.sent.slice(count).some(value => value.operation === "humanInput"), false);
+    assert.equal([...h.timerDelays.values()].includes(340000), false);
+  }
+  const h = setup(); readyResult(h);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, tabs: [resultTab()], selectedTabId: 1,
+    view: viewState({ inputBudgetVersion: 1 }) }) });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal([...h.timerDelays.values()].includes(340000), false);
+});
 
 test("human dialog decision bypasses pending input while preserving its separate ACK", () => {
   const h = setup(); h.readyHuman();

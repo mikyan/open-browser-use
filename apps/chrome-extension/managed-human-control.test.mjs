@@ -4,6 +4,14 @@ import { ManagedHumanControl } from "./managed-human-control.js";
 
 const defer = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+function manualTiming() {
+  let time = 0, id = 0; const timers = new Map();
+  return { now: () => time, skip: ms => { time += ms; }, setTimer: (fn, ms) => { const key = ++id; timers.set(key, { fn, at: time + ms }); return key; }, clearTimer: key => timers.delete(key),
+    advance: ms => { const end = time + ms; while (true) {
+      const entry = [...timers].filter(([, value]) => value.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!entry) break; timers.delete(entry[0]); time = entry[1].at; entry[1].fn();
+    } time = end; }, timers };
+}
 function fixture(options = {}) {
   const calls = [], frames = [], states = [], listeners = new Set(), risks = new Set();
   let paused = false, authorized = true, documentId = "original-document", loaderId = "loader-1", clock = 100;
@@ -32,6 +40,7 @@ function fixture(options = {}) {
     assertDialog: candidate => options.assertDialog?.(candidate),
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
     viewJournal: options.viewJournal,
+    timing: options.timing,
     onFailure: error => calls.push(["failure", error.message])
   });
   const authority = () => { if (!authorized) throw new Error("lease expired"); };
@@ -198,6 +207,163 @@ test("a modal opening during durable input admission prevents that unsent page c
   await tick(); opening(f); durable.resolve(); await rejected; await handle.close();
   assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0);
   assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(([, , params]) => params), [{ accept: false }]);
+});
+
+test("native input waits through 45 seconds of original modal thinking with one original ACK", async () => {
+  const timing = manualTiming(), native = defer(); let f;
+  f = fixture({ timing, command: method => {
+    if (method === "Input.insertText") { opening(f); return native.promise; }
+    if (method === "Page.handleJavaScriptDialog") { f.event("Page.javascriptDialogClosed"); native.resolve(); }
+  } });
+  const handle = await f.begin(); assert.equal(handle.info().inputBudgetVersion, 1);
+  const observed = input(handle, { type: "text", text: "original" }); await tick();
+  const actual = f.control.current.epoch.inputPending;
+  assert.notEqual(observed, actual); timing.advance(45000); assert.equal(handle.info().state, "active");
+  assert.equal(f.control.current.epoch.inputPending, actual); await answer(handle);
+  assert.equal((await observed).acknowledged, true); assert.equal(f.calls.filter(([m]) => m === "Input.insertText").length, 1);
+  await handle.close(); assert.equal(timing.timers.size, 0);
+});
+
+test("ordinary expiry revokes immediately while late down ACK and actual held release remain cleanup obligations", async () => {
+  const timing = manualTiming(), down = defer(), released = defer();
+  const f = fixture({ timing, command: (method, params) => {
+    if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") return down.promise;
+    if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased") return released.promise;
+  } });
+  const handle = await f.begin(), observed = input(handle, { type: "pointer", action: "down", x: 1, y: 1, button: "left" });
+  const rejected = assert.rejects(observed, /INPUT_TIMEOUT/); await tick();
+  const record = f.control.current, actual = record.epoch.inputPending; timing.advance(30000);
+  assert.equal(record.revoked, true); assert.equal(record.epoch.inputPending, actual); await rejected;
+  assert.equal(f.risks.size, 1); assert.equal(f.calls.some(([m]) => m === "detach"), false);
+  let closed = false; const closing = handle.close().then(() => { closed = true; });
+  down.resolve(); assert.equal((await actual).acknowledged, true); await tick();
+  assert.equal(closed, false); assert.equal(f.calls.filter(([m,,p]) => m === "Input.dispatchMouseEvent" && p.type === "mouseReleased").length, 1);
+  released.resolve(); await closing; assert.equal(f.risks.size, 0); assert.equal(timing.timers.size, 0);
+});
+
+test("an original dialog without pending input expires once and joins its real cancellation ACK", async () => {
+  const timing = manualTiming(), cancel = defer(), f = fixture({ timing, command: method => method === "Page.handleJavaScriptDialog" ? cancel.promise : undefined });
+  const handle = await f.begin(); opening(f); timing.advance(299999); assert.equal(handle.info().state, "active");
+  timing.advance(1); assert.equal(f.control.current.revoked, true); assert.equal(handle.pendingDialog(), null); await tick();
+  assert.deepEqual(f.calls.filter(([m]) => m === "Page.handleJavaScriptDialog").map(([, , p]) => p), [{ accept: false }]);
+  let closed = false; const closing = handle.close().then(() => { closed = true; }); await tick();
+  assert.equal(closed, false); assert.equal(f.risks.size, 1); cancel.resolve(); await closing;
+  assert.equal(f.risks.size, 0); assert.equal(timing.timers.size, 0);
+});
+
+test("two modal periods share the original input cap while old response ACK is independently pending", async () => {
+  const timing = manualTiming(), native = defer(), firstACK = defer(); let f, responses = 0;
+  f = fixture({ timing, command: method => {
+    if (method === "Input.insertText") { opening(f); return native.promise; }
+    if (method === "Page.handleJavaScriptDialog") {
+      if (++responses === 1) { f.event("Page.javascriptDialogClosed"); opening(f, { message: "second" }); return firstACK.promise; }
+      f.event("Page.javascriptDialogClosed"); native.resolve();
+    }
+  } });
+  const handle = await f.begin(), observed = input(handle, { type: "text", text: "one native command" });
+  const rejected = assert.rejects(observed, /INPUT_TIMEOUT.*modal/); await tick(); timing.advance(180000);
+  const first = answer(handle); await tick(); const second = handle.pendingDialog();
+  timing.advance(119999); assert.equal(handle.pendingDialog().dialogId, second.dialogId); timing.advance(1);
+  assert.equal(f.control.current.revoked, true); await rejected; await tick();
+  assert.equal(responses, 2); assert.equal(f.calls.filter(([m]) => m === "Input.insertText").length, 1);
+  let closed = false; const closing = handle.close().then(() => { closed = true; }); await tick(); assert.equal(closed, false);
+  firstACK.resolve(); assert.equal((await first).acknowledged, true); await closing; assert.equal(timing.timers.size, 0);
+});
+
+for (const boundary of ["response admission", "final native guard"]) {
+  test(`cumulative modal expiry withdraws a new choice at ${boundary} even before its timer runs`, async () => {
+    const timing = manualTiming(), native = defer(), firstACK = defer(); let f, responses = 0;
+    f = fixture({ timing, command: method => {
+      if (method === "Input.insertText") { opening(f); return native.promise; }
+      if (method === "Page.handleJavaScriptDialog") {
+        if (++responses === 1) { f.event("Page.javascriptDialogClosed"); opening(f, { message: "second" }); return firstACK.promise; }
+        f.event("Page.javascriptDialogClosed"); native.resolve();
+      }
+    } });
+    const handle = await f.begin(), observed = input(handle, { type: "text", text: "one original command" });
+    const inputOutcome = observed.then(value => ({ value }), error => ({ error }));
+    await tick(); timing.advance(180000); const first = answer(handle); await tick();
+    const second = handle.pendingDialog();
+    timing.skip(boundary === "response admission" ? 120001 : 119999);
+    const responseOutcome = answer(handle).then(value => ({ value }), error => ({ error }));
+    if (boundary === "final native guard") timing.skip(2);
+    const outcome = await responseOutcome;
+    await tick(); firstACK.resolve(); assert.equal((await first).acknowledged, true);
+    const expiredInput = await inputOutcome; await handle.close();
+    assert.deepEqual(f.calls.filter(([m]) => m === "Page.handleJavaScriptDialog").map(([, , p]) => p), [{ accept: true }, { accept: false }]);
+    assert.match(expiredInput.error?.message ?? "", /INPUT_TIMEOUT.*modal/);
+    assert.match(outcome.error?.message ?? "", /DIALOG_STALE/);
+    assert.ok(second.dialogId); assert.equal(f.calls.filter(([m]) => m === "Input.insertText").length, 1);
+    assert.equal(f.risks.size, 0); assert.equal(timing.timers.size, 0);
+  });
+}
+
+test("dialog response cannot extend an unsent input's ordinary budget when its timer runs late", async () => {
+  const timing = manualTiming(), durable = defer(); let f, marks = 0;
+  f = fixture({ timing, markRisk: () => ++marks === 2 ? durable.promise : undefined,
+    command: method => { if (method === "Page.handleJavaScriptDialog") f.event("Page.javascriptDialogClosed"); } });
+  const handle = await f.begin(), observed = input(handle, { type: "text", text: "must remain unsent" });
+  const inputOutcome = observed.then(value => ({ value }), error => ({ error }));
+  await tick(); opening(f); timing.skip(30001);
+  const outcome = await answer(handle).then(value => ({ value }), error => ({ error }));
+  await tick(); durable.resolve(); const expiredInput = await inputOutcome; await handle.close();
+  assert.deepEqual(f.calls.filter(([m]) => m === "Page.handleJavaScriptDialog").map(([, , p]) => p), [{ accept: false }]);
+  assert.match(outcome.error?.message ?? "", /DIALOG_STALE/);
+  assert.match(expiredInput.error?.message ?? "", /INPUT_TIMEOUT.*normal/);
+  assert.equal(f.calls.some(([m]) => m === "Input.insertText"), false);
+  assert.equal(f.risks.size, 0); assert.equal(timing.timers.size, 0);
+});
+
+test("a modal that closes during unsent durable admission cannot cause a late page input", async () => {
+  const timing = manualTiming(), durable = defer(); let marks = 0;
+  const f = fixture({ timing, markRisk: () => ++marks === 2 ? durable.promise : undefined }), handle = await f.begin();
+  const observed = input(handle, { type: "text", text: "must never dispatch" });
+  const rejected = assert.rejects(observed, /DIALOG_BUSY/); await tick(); opening(f); f.event("Page.javascriptDialogClosed");
+  durable.resolve(); await rejected; await handle.close();
+  assert.equal(f.calls.some(([m]) => m === "Input.insertText"), false); assert.equal(timing.timers.size, 0);
+});
+
+test("preflight receives no modal allowance and cannot dispatch after ordinary expiry", async () => {
+  const timing = manualTiming(), durable = defer(); let marks = 0;
+  const f = fixture({ timing, markRisk: () => ++marks === 2 ? durable.promise : undefined }), handle = await f.begin();
+  const observed = input(handle, { type: "text", text: "never sent" }), rejected = assert.rejects(observed, /INPUT_TIMEOUT.*normal/);
+  await tick(); opening(f); timing.advance(30000); assert.equal(f.control.current.revoked, true); await rejected;
+  const actual = f.control.current.epoch.inputPending; durable.resolve(); await assert.rejects(actual, /revoked|DIALOG_BUSY/); await handle.close();
+  assert.equal(f.calls.some(([m]) => m === "Input.insertText"), false); assert.equal(timing.timers.size, 0);
+});
+
+test("read-only view never advertises the longer input budget", async () => {
+  const f = fixture(), handle = await f.beginView(); assert.equal(Object.hasOwn(handle.info(), "inputBudgetVersion"), false); await handle.close();
+});
+
+test("final native guard refuses late preflight completion even before the timer callback runs", async () => {
+  const timing = manualTiming(), durable = defer(); let marks = 0;
+  const f = fixture({ timing, markRisk: () => ++marks === 2 ? durable.promise : undefined }), handle = await f.begin();
+  const observed = input(handle, { type: "text", text: "not dispatched" }), rejected = assert.rejects(observed, /INPUT_TIMEOUT/);
+  await tick(); timing.skip(30001); durable.resolve(); await rejected; await handle.close();
+  assert.equal(f.calls.some(([m]) => m === "Input.insertText"), false); assert.equal(timing.timers.size, 0);
+});
+
+test("late original Closed expires its dialog cap without cancelling an already closed modal", async () => {
+  const timing = manualTiming(), f = fixture({ timing }), handle = await f.begin(); opening(f);
+  timing.skip(300001); f.event("Page.javascriptDialogClosed"); assert.equal(f.control.current.revoked, true);
+  await handle.close(); assert.equal(f.calls.some(([m]) => m === "Page.handleJavaScriptDialog"), false);
+});
+
+test("late dialog choice is withdrawn at the final native guard, even when its timer callback is delayed", async () => {
+  const timing = manualTiming(), f = fixture({ timing }), handle = await f.begin(); opening(f);
+  const responding = answer(handle), rejected = assert.rejects(responding, /DIALOG_STALE/); timing.skip(300001);
+  await rejected; await handle.close();
+  assert.deepEqual(f.calls.filter(([m]) => m === "Page.handleJavaScriptDialog").map(([, , p]) => p), [{ accept: false }]);
+});
+
+test("dialog expiry joins an already dispatched decision and never sends a cancellation retry", async () => {
+  const timing = manualTiming(), native = defer(), f = fixture({ timing, command: method => method === "Page.handleJavaScriptDialog" ? native.promise : undefined });
+  const handle = await f.begin(); opening(f); timing.advance(299000); const responding = answer(handle); await tick();
+  timing.advance(1000); assert.equal(f.control.current.revoked, true);
+  let closed = false; const closing = handle.close().then(() => { closed = true; }); await tick();
+  assert.equal(closed, false); assert.deepEqual(f.calls.filter(([m]) => m === "Page.handleJavaScriptDialog").map(([, , p]) => p), [{ accept: true }]);
+  native.resolve(); assert.equal((await responding).acknowledged, true); await closing; assert.equal(timing.timers.size, 0);
 });
 
 test("committed text permits only actual Shift holds without releasing or replaying them", async () => {
@@ -611,7 +777,7 @@ test("tab metadata uses the final original validation without changing typed hum
   f.control.validate = async (...args) => ({ ...await validate(...args), title: f.control.current?.epoch?.document ? "Final title" : "Early title" });
   const handle = await f.begin(); t.after(() => handle.close());
   assert.equal(handle.tabInfo().title, "Final title");
-  assert.deepEqual(Object.keys(handle.info()).sort(), ["generation", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
+  assert.deepEqual(Object.keys(handle.info()).sort(), ["generation", "inputBudgetVersion", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
 });
 
 test("old down ACK remains its exact tuple and held release finishes before any successor stream", async () => {

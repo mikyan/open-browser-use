@@ -99,6 +99,8 @@ type connection struct {
 	humanCancel            context.CancelFunc
 	humanTabID             uint64
 	humanActive            bool
+	humanBudgetVersion     uint64
+	humanBudgetKnown       bool
 	humanFrameLease        string
 	humanFrameGeneration   uint64
 	humanFrameTabID        uint64
@@ -517,6 +519,11 @@ func (s *Server) command(c *connection, request command) {
 	budget := 30 * time.Second
 	if request.operation == "stop" {
 		budget = 50 * time.Second
+	} else if request.operation == "humanInput" && request.inputBudgetVersion == 1 {
+		// The native owner enforces 30s ordinary work plus at most 300s of
+		// verified modal waiting. This is only a transport backstop. Legacy
+		// workers and every other command keep their original deadlines.
+		budget = 335 * time.Second
 	}
 	parent := c.ctx
 	if request.ctx != nil {

@@ -84,7 +84,8 @@ export async function captureResultFixture() {
     if (mode === "human") await backend.pauseAutomation();
     authority();
     const record = { mode, authority, onFrame, onState,
-      info: { state: "active", leaseId: `result-${mode}-${++leases}`, tabId, generation: 1, viewport: { width: 1, height: 1 }, lastInputSequence: 0 } };
+      info: { state: "active", leaseId: `result-${mode}-${++leases}`, tabId, generation: 1, viewport: { width: 1, height: 1 }, lastInputSequence: 0,
+        ...(mode === "human" ? { inputBudgetVersion: 1 } : {}) } };
     active = record;
     backendCalls.push({ operation: `${mode}Begin`, deliveryId, documentId: page.documentId, leaseId: record.info.leaseId });
     let resolveClosed;

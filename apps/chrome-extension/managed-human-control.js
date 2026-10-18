@@ -1,6 +1,7 @@
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
+import { ManagedHumanInputBudget } from "./managed-human-budget.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
@@ -25,8 +26,8 @@ function clientGeometry(metrics) {
 // One native attachment belongs to an immutable view or human lease. Only a
 // human lease owns input intent and durable risk; both share document cleanup.
 export class ManagedHumanControl {
-  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, viewJournal = null, onFailure = () => {} }) {
-    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog, viewJournal, onFailure });
+  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, viewJournal = null, onFailure = () => {}, timing }) {
+    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog, viewJournal, onFailure, timing });
     this.current = null;
     this.recoveryTimeoutMs = 10000;
   }
@@ -41,6 +42,7 @@ export class ManagedHumanControl {
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
+      ...(record.mode === "human" ? { inputBudgetVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
   tabInfo(record) {
@@ -95,6 +97,14 @@ export class ManagedHumanControl {
       capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
       attached: () => record.attached === true, destroyed: () => record.destroyed === true,
       send: (params, check) => this.send(record, "Page.handleJavaScriptDialog", params, check),
+      timing: this.timing,
+      onOpened: (proof, original) => {
+        const operation = proof.epoch.inputOperation;
+        if (!operation) return;
+        if (operation.dispatched) { original.inputOperation = operation; operation.budget.openModal(original); }
+        else operation.modalInterrupted = true;
+      },
+      onClosed: (_proof, original) => original.inputOperation?.budget.closeModal(original),
       notify: () => this.notify(record), onFailure: error => { void this.close(record, error).catch(() => {}); } });
     record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record),
       ...(mode === "human" ? { input: envelope => this.input(record, envelope), pendingDialog: () => record.dialogs.info(),
@@ -215,6 +225,9 @@ export class ManagedHumanControl {
   }
   checkDialog(record, proof) {
     this.checkGeneration(record, proof.epoch);
+    // Both response admission and final native dispatch must account the same
+    // input's accumulated wait, even when its timer callback has not run yet.
+    proof.epoch.inputOperation?.budget.assertAvailable();
     this.assertDialog(proof.epoch.candidate);
     if (record.state !== "active" || proof.generation !== record.generation || proof.document !== proof.epoch.document)
       throw fail("original dialog document changed", "DIALOG_STALE");
@@ -448,6 +461,13 @@ export class ManagedHumanControl {
       fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text"]);
       const [method, params, commit] = this.command(epoch, { ...envelope.input });
       const sequence = envelope.sequence;
+      const operation = { dispatched: false, modalInterrupted: false };
+      operation.budget = new ManagedHumanInputBudget({ timing: this.timing, onExpire: error => {
+        // This observer deadline does not settle the actual native Promise.
+        // Fence late admission synchronously, then join the original cleanup.
+        this.revoke(record, error); void this.close(record, error).catch(() => {});
+      } });
+      epoch.inputOperation = operation;
       let sent = false;
       const pending = Promise.resolve().then(async () => {
         this.checkGeneration(record, epoch);
@@ -460,8 +480,13 @@ export class ManagedHumanControl {
           throw fail("native document changed before input", "DOCUMENT_CHANGED");
         this.checkGeneration(record, epoch);
         await epoch.tracker.send({ tabId: record.tabId }, epoch.token, method, params, () => {
+          if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
           this.checkInputGeometry(record, epoch);
-          return this.send(record, method, params, () => { this.checkInputGeometry(record, epoch); sent = true; });
+          return this.send(record, method, params, () => {
+            operation.budget.assertAvailable();
+            if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
+            this.checkInputGeometry(record, epoch); sent = true; operation.dispatched = true;
+          });
         });
         commit(); epoch.sequence = sequence;
         // An actual native ACK remains an ACK for its original tuple, even
@@ -478,12 +503,16 @@ export class ManagedHumanControl {
         throw error;
       });
       epoch.inputPending = pending;
-      pending.then(() => { if (epoch.inputPending === pending) epoch.inputPending = null; }, error => {
+      const settled = () => {
         if (epoch.inputPending === pending) epoch.inputPending = null;
+        if (epoch.inputOperation === operation) epoch.inputOperation = null;
+      };
+      pending.then(settled, error => {
+        settled();
         if (!sent && error?.message?.startsWith("OBU_HUMAN_GENERATION_STALE:")) return;
         void this.close(record, error).catch(() => {});
       });
-      return pending;
+      return operation.budget.observe(pending);
     } catch (error) { return Promise.reject(error); }
   }
 

@@ -86,7 +86,9 @@
     el["dialog-prompt"].disabled = !dialogReady();
     el["dialog-accept"].disabled = el["dialog-cancel"].disabled = !dialogReady();
     el["dialog-cancel"].hidden = pendingDialog?.type === "alert";
-    el["dialog-status"].textContent = key && key === claimedDialog ? "正在等待网页确认…" : "以下内容来自网页。请及时处理；原操作超过 30 秒未确认时会结束接管。";
+    el["dialog-status"].textContent = key && key === claimedDialog ? "正在等待网页确认…" : human?.inputBudgetVersion === 1 ?
+      "以下内容来自网页。弹窗最多等待 5 分钟；同一操作中的多个弹窗共用这段等待时间。超时会结束接管，尚未回答的弹窗会取消。" :
+      "以下内容来自网页。请及时处理；原操作超过 30 秒未确认时会结束接管。";
   }
   function respondDialog(accept) {
     if (!dialogReady()) return;
@@ -255,9 +257,12 @@
     if (value.eventSequence < retiredSequence) return;
     if (value.eventSequence < controlSequence || status && next.revision < status.revision || responseId && responseId < appliedId) return;
     const nextHuman = value.human ?? null;
+    if (nextHuman && Object.hasOwn(nextHuman, "inputBudgetVersion") && nextHuman.inputBudgetVersion !== 1) throw new Error("人工等待预算版本无效。");
+    if (human && nextHuman?.leaseId === human.leaseId && nextHuman.inputBudgetVersion !== human.inputBudgetVersion) throw new Error("原人工接管的等待预算发生变化。");
     const nextDialog = value.pendingDialog ?? null;
     if (!validDialog(nextDialog, nextHuman)) throw new Error("网页弹窗身份无效。");
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
+    if (nextView && Object.hasOwn(nextView, "inputBudgetVersion")) throw new Error("只读查看不能声明人工等待预算。");
     if (!validView(nextView) || nextView && nextHuman || nextView && (nextView.tabId !== value.selectedTabId || !nextTabs.some(tab => tab.id === nextView.tabId && tab.kind === "result"))) throw new Error("独立查看身份无效。");
     if (view && nextView && view.leaseId === nextView.leaseId && nextView.generation < view.generation) return;
     const waitingView = awaitingViewFrame;
@@ -355,6 +360,10 @@
   function send(operation, fields = {}) {
     if (!authenticated || ws.readyState !== WebSocket.OPEN) return;
     const id = ++nextId;
+    // Only the native owner accounts modal time. This immutable outer watchdog
+    // cannot be extended by repeated state, a successor dialog or a new lease.
+    const budgetedInput = operation === "humanInput" && human?.state === "active" && human.inputBudgetVersion === 1 &&
+      fields.leaseId === humanOwner && fields.leaseId === human.leaseId && fields.generation === human.generation;
     const timeout = setTimeout(() => {
       const entry = pending.get(id);
       if (!entry) return;
@@ -367,7 +376,7 @@
       available = false;
       error("等待确认超时，不能据此判断操作是否完成。请刷新状态；不会自动重试操作。");
       render();
-    }, operation === "stop" ? 55000 : 35000);
+    }, operation === "stop" ? 55000 : budgetedInput ? 340000 : 35000);
     pending.set(id, { operation, timeout, fields, ...(operation.startsWith("human") ? { humanEpoch } : {}), ...(operation === "select" ? { selectionEpoch } : {}) });
     if (operation === "select") { pendingSelectId = id; pendingSelectTab = fields.tabId; }
     if (["pause", "resume", "stop"].includes(operation)) pendingAction = operation;
