@@ -19,6 +19,9 @@
   let awaitingSelectionFrame = null;
   let view = null, awaitingViewFrame = null;
   let human = null, humanAction = null, humanOwner = "", humanEnding = false;
+  // Status and frames may precede Begin. Only its original successful response
+  // admits this UI epoch; navigation cannot replace that receipt.
+  let humanAdmitted = false;
   let humanEpoch = 0;
   let displayedNotice = null;
   let humanSequence = 0, humanInputId = null, decodedHuman = null, awaitingHumanFrame = null;
@@ -57,20 +60,31 @@
   }
 
   function humanReserved() { return human && human.state !== "released"; }
+  const admittedHumanState = value => value && ["preparing", "active", "navigating"].includes(value.state);
+  function validHuman(value) {
+    return value && ["starting", "preparing", "active", "navigating", "releasing", "released", "error"].includes(value.state) &&
+      typeof value.leaseId === "string" && value.leaseId && Number.isSafeInteger(value.tabId) && value.tabId > 0 &&
+      Number.isSafeInteger(value.generation) && value.generation >= 0 &&
+      (!Object.hasOwn(value, "inputBudgetVersion") || value.inputBudgetVersion === 1) &&
+      (value.state !== "preparing" || value.viewport === null) &&
+      (value.state !== "navigating" || value.generation > 0 && value.viewport === null) &&
+      (value.viewport === null ? value.state !== "active" || value.generation === 0 :
+        Number.isFinite(value.viewport?.width) && value.viewport.width > 0 && Number.isFinite(value.viewport?.height) && value.viewport.height > 0);
+  }
   const dialogKey = value => value ? JSON.stringify([value.leaseId, value.generation, value.dialogId]) : "";
   function boundedText(value) {
     return typeof value === "string" && value.isWellFormed() && new TextEncoder().encode(value).length <= 8192;
   }
   function validDialog(value, owner) {
     if (value === null) return true;
-    return value && owner?.state === "active" && value.leaseId === owner.leaseId && value.generation === owner.generation &&
+    return value && admittedHumanState(owner) && value.leaseId === owner.leaseId && value.generation === owner.generation &&
       Number.isSafeInteger(value.generation) && value.generation > 0 && typeof value.dialogId === "string" && value.dialogId.length > 0 && value.dialogId.length <= 128 &&
       !/[\x00-\x1f\x7f]/.test(value.dialogId) && ["alert", "confirm", "prompt"].includes(value.type) && boundedText(value.message) &&
       (value.defaultPrompt === undefined || value.type === "prompt" && boundedText(value.defaultPrompt));
   }
   function dialogReady() {
     return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
-      pendingDialog && human?.state === "active" && human.leaseId === humanOwner &&
+      humanAdmitted && pendingDialog && admittedHumanState(human) && human.leaseId === humanOwner &&
       pendingDialog.leaseId === humanOwner && pendingDialog.generation === human.generation && dialogKey(pendingDialog) !== claimedDialog;
   }
   function renderDialog() {
@@ -104,7 +118,7 @@
   function humanReady(releasingHeldInput = false) {
     return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
       (!pendingDialog || releasingHeldInput) &&
-      human?.state === "active" && human.leaseId === humanOwner && decodedHuman?.leaseId === humanOwner &&
+      humanAdmitted && human?.state === "active" && human.leaseId === humanOwner && decodedHuman?.leaseId === humanOwner &&
       human.generation > retiredHumanGeneration && human.generation > 0 && human.viewport?.width > 0 && human.viewport?.height > 0 &&
       decodedHuman.generation === human.generation && decodedHuman.tabId === human.tabId;
   }
@@ -129,7 +143,7 @@
     clearHumanInput();
   }
 
-  function suspendHumanGeneration(retireBegin = false) {
+  function suspendHumanGeneration() {
     const waiting = awaitingHumanFrame;
     clearHumanInput();
     // Retire the UI lane only. Original requests remain in pending until their
@@ -137,12 +151,6 @@
     humanInputId = null;
     humanSequence = acknowledgedSequence = 0;
     clearFrame();
-    if (retireBegin && humanAction === "humanBegin") {
-      for (const entry of pending.values()) {
-        if (entry.operation === "humanBegin" && entry.humanEpoch === humanEpoch) entry.generationRetired = true;
-      }
-      humanAction = null;
-    }
     return waiting;
   }
 
@@ -155,7 +163,7 @@
     const leaseId = human?.leaseId || humanOwner;
     blockHuman(); // Revoke admission before awaiting any original input or cleanup receipt.
     if (message) error(message, noticeKind, leaseId);
-    if (leaseId && (!humanEndAttempted || retryCleanup) && humanAction !== "humanEnd" && pendingAction !== "stop" && authenticated && !stopped) {
+    if (humanAdmitted && leaseId === humanOwner && (!humanEndAttempted || retryCleanup) && humanAction !== "humanEnd" && pendingAction !== "stop" && authenticated && !stopped) {
       humanEndAttempted = true;
       send("humanEnd", { leaseId });
     }
@@ -201,7 +209,7 @@
     el["human-begin"].textContent = selectedTab()?.kind === "result" ? "操作结果页" : "接管此页";
     el["human-begin"].hidden = Boolean(humanReserved()) || Boolean(humanAction) || Boolean(humanOwner);
     el["human-end"].hidden = !humanReserved() && !humanAction && !humanOwner;
-    el["human-end"].disabled = !authenticated || stopped || pendingAction === "stop" || !(human?.leaseId || humanOwner) || humanAction === "humanEnd";
+    el["human-end"].disabled = !authenticated || stopped || pendingAction === "stop" || !humanAdmitted || !humanOwner || humanAction === "humanEnd";
     el["human-end"].textContent = humanAction === "humanEnd" || human?.state === "releasing" ? "正在释放接管…" : "完成接管";
     const ready = humanReady();
     el.frame.dataset.interactive = String(ready);
@@ -273,31 +281,29 @@
     if (view && (!nextView || view.leaseId !== nextView.leaseId || view.generation !== nextView.generation || nextView.state !== "active") || !view && nextView) clearFrame();
     view = nextView;
     if (waitingView && view && waitingView.viewLeaseId === view.leaseId && waitingView.generation >= view.generation) awaitingViewFrame = waitingView;
-    if (nextHuman && (!["starting", "active", "navigating", "releasing", "released", "error"].includes(nextHuman.state) || typeof nextHuman.leaseId !== "string" || !nextHuman.leaseId || !Number.isSafeInteger(nextHuman.tabId) || nextHuman.tabId < 1 || !Number.isSafeInteger(nextHuman.generation) || nextHuman.generation < 0 ||
-      nextHuman.state === "navigating" && (nextHuman.generation < 1 || nextHuman.viewport !== null) ||
-      nextHuman.state === "active" && nextHuman.generation > 0 && nextHuman.viewport === null ||
-      nextHuman.viewport !== null && (!Number.isFinite(nextHuman.viewport?.width) || nextHuman.viewport.width <= 0 || !Number.isFinite(nextHuman.viewport?.height) || nextHuman.viewport.height <= 0))) throw new Error("人工控制状态格式无效。");
+    if (nextHuman && !validHuman(nextHuman)) throw new Error("人工控制状态格式无效。");
     if (humanAction === "humanBegin" && nextHuman && selected !== nextHuman.tabId) throw new Error("接管页面身份不匹配。");
-    // The first native frame supplies generation 1 after Begin may already
-    // have returned active/generation 0. This is readiness, not a successor
-    // document. Successor generations retire input without ending this lease.
+    // Initial geometry (including legacy active/generation 0) is readiness,
+    // not a successor document. It still cannot replace the Begin receipt.
+    // Successor generations retire input without ending this lease.
     const initialGeometry = human && nextHuman && human.leaseId === nextHuman.leaseId && human.tabId === nextHuman.tabId &&
       human.generation === 0 && !decodedHuman && humanSequence === 0 && !humanEnding &&
-      ["starting", "active"].includes(human.state) && ["starting", "active"].includes(nextHuman.state);
+      ["starting", "preparing", "active"].includes(human.state) && ["starting", "preparing", "active"].includes(nextHuman.state);
     const geometryChanged = human && nextHuman && (human.generation !== nextHuman.generation ||
       human.viewport?.width !== nextHuman.viewport?.width || human.viewport?.height !== nextHuman.viewport?.height);
     const sameHuman = human && nextHuman && human.leaseId === nextHuman.leaseId && human.tabId === nextHuman.tabId;
     if (sameHuman && nextHuman.generation < human.generation) return;
-    const navigation = sameHuman && !humanEnding && ["starting", "active", "navigating"].includes(human.state) &&
-      ["active", "navigating"].includes(nextHuman.state) && !initialGeometry &&
+    const navigation = sameHuman && !humanEnding && ["starting", "preparing", "active", "navigating"].includes(human.state) &&
+      ["preparing", "active", "navigating"].includes(nextHuman.state) && !initialGeometry &&
       (nextHuman.generation > human.generation || nextHuman.state === "navigating");
-    const navigationReady = sameHuman && human.state === "navigating" && nextHuman.state === "active" && nextHuman.generation === human.generation;
+    const firstGeometryReady = sameHuman && (["preparing", "navigating"].includes(human.state) || !humanAdmitted && human.state === "starting") &&
+      human.viewport === null && nextHuman.state === "active" && nextHuman.generation === human.generation;
     if (navigation) {
-      const waiting = suspendHumanGeneration(true);
+      const waiting = suspendHumanGeneration();
       retiredHumanGeneration = Math.max(retiredHumanGeneration, nextHuman.generation - 1);
       if (waiting?.humanLeaseId === nextHuman.leaseId && waiting.tabId === nextHuman.tabId && waiting.generation >= nextHuman.generation)
         awaitingHumanFrame = waiting;
-    } else if (human && (!nextHuman || !sameHuman || geometryChanged && !initialGeometry && !navigationReady || human.state === "active" && nextHuman.state !== "active" || ["releasing", "released", "error"].includes(nextHuman.state))) {
+    } else if (human && (!nextHuman || !sameHuman || geometryChanged && !initialGeometry && !firstGeometryReady || human.state === "active" && nextHuman.state !== "active" || ["releasing", "released", "error"].includes(nextHuman.state))) {
       blockHuman();
       imageGeneration++;
       pendingFrame = null;
@@ -316,6 +322,7 @@
       // timeout expired. Only this receipt may clear that outstanding marker.
       humanInputId = null;
       humanOwner = "";
+      humanAdmitted = false;
       humanAction = null;
       humanEpoch++; // All original Begin/Input/End callbacks are now retired.
     }
@@ -354,7 +361,7 @@
     const waitingReadOnly = awaitingViewFrame;
     awaitingViewFrame = null;
     if (waitingReadOnly) frame(waitingReadOnly);
-    if (humanEnding && human?.state === "active" && !humanEndAttempted) endHuman();
+    if (humanEnding && humanAdmitted && admittedHumanState(human) && !humanEndAttempted) endHuman();
     drainInput();
   }
 
@@ -415,8 +422,8 @@
     }
     if (value.controlMode === "human" && !humanEnding && Number.isSafeInteger(value.generation) && value.generation > retiredHumanGeneration && value.generation > 0 &&
         (humanAction === "humanBegin" && !human && selected === value.tabId ||
-         human?.leaseId === value.humanLeaseId && human.tabId === value.tabId && ["starting", "active", "navigating"].includes(human.state) &&
-           (value.generation > human.generation || human.state === "navigating" && value.generation === human.generation))) {
+         human?.leaseId === value.humanLeaseId && human.tabId === value.tabId && ["starting", "preparing", "active", "navigating"].includes(human.state) &&
+           (value.generation > human.generation || ["preparing", "navigating"].includes(human.state) && value.generation === human.generation))) {
       if (!awaitingHumanFrame || value.eventSequence > awaitingHumanFrame.eventSequence) awaitingHumanFrame = value;
       return;
     }
@@ -561,6 +568,7 @@
     humanEpoch++;
     error(); clearFrame();
     human = null; humanOwner = ""; humanEnding = humanEndAttempted = composing = false;
+    humanAdmitted = false;
     pendingDialog = null; displayedDialog = claimedDialog = "";
     retiredHumanGeneration = -1;
     compositionScope = null;
@@ -739,10 +747,20 @@
             drainInput();
           }
         } else {
+          if (entry.operation === "humanBegin") {
+            const original = value.result?.human;
+            if (!validHuman(original) || !admittedHumanState(original) || original.tabId !== entry.fields.tabId ||
+                humanOwner && original.leaseId !== humanOwner || human && original.inputBudgetVersion !== human.inputBudgetVersion)
+              throw new Error("原接管回执不匹配。");
+          }
           acceptState(value.result, value.id);
           if (entry.operation === "humanBegin") {
             if (humanAction === "humanBegin") humanAction = null;
-            if (!["active", "navigating"].includes(human?.state) || human.leaseId !== humanOwner) endHuman("接管尚未就绪，输入保持禁用。");
+            const original = value.result.human;
+            if (entry.humanEpoch === humanEpoch && admittedHumanState(human) && human.leaseId === original.leaseId && human.leaseId === humanOwner && human.generation >= original.generation) {
+              humanAdmitted = true;
+              if (humanEnding) endHuman();
+            } else endHuman("接管尚未就绪，输入保持禁用。");
           } else if (entry.operation === "humanEnd") {
             if (humanAction === "humanEnd") humanAction = null;
             const cleanup = value.result?.humanCleanup;

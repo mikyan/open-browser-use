@@ -1239,3 +1239,61 @@ test("replacement open cannot commit after original native proof changed or afte
     assert.equal(committed, false); assert.equal(f.calls.some(([operation]) => operation === "resume"), false);
   });
 });
+
+function preparingFixture(t, generation = 0) {
+  const f = humanFixture(t, { inputBudgetVersion: 1 }), original = f.backend.beginManagedHuman;
+  f.backend.beginManagedHuman = async (...args) => {
+    const handle = await original(...args);
+    Object.assign(f.humans.at(-1).info, { state: "preparing", generation, viewport: null });
+    return handle;
+  };
+  return f;
+}
+
+for (const generation of [0, 1]) test(`preparing owner generation ${generation} returns admission and End joins actual cleanup`, async t => {
+  const f = preparingFixture(t, generation); await f.open();
+  const result = await f.request("humanBegin", { tabId: 7 });
+  assert.equal(result.status.human.state, "preparing"); assert.equal(result.status.human.generation, generation);
+  assert.equal(result.status.human.inputBudgetVersion, 1); assert.equal(result.status.human.viewport, null);
+  assert.equal(f.events.some(x => x.type === "frame"), false);
+  await assert.rejects(f.input(1), /HUMAN_STALE/); assert.equal(f.humans[0].inputCalls, 0);
+  f.humanCloseGate = deferred(); let settled = false;
+  const end = f.request("humanEnd", { leaseId: result.status.human.leaseId }).then(value => { settled = true; return value; });
+  await flush(); assert.equal(settled, false); assert.equal(f.humans[0].closeCalls, 1);
+  f.humanCloseGate.resolve(); const closed = await end;
+  assert.equal(closed.status.humanCleanup.cleanupConfirmed, true);
+});
+
+test("preparing positive generation needs an original pending dialog, not just a generation", async t => {
+  const f = preparingFixture(t, 1); await f.open(); await f.request("humanBegin", { tabId: 7 });
+  await assert.rejects(f.request("humanDialogRespond", { leaseId: "human-1", generation: 1, dialogId: "missing", accept: true }), /DIALOG_STALE/);
+  const original = f.dialog({ type: "prompt", defaultPrompt: "原值" }); await flush();
+  assert.deepEqual(f.events.filter(x => x.type === "status").at(-1).status.pendingDialog, original);
+  const answer = await f.answerDialog({ promptText: "回答😀" });
+  assert.equal(answer.dialogReceipt.dialogId, original.dialogId); assert.equal(answer.dialogReceipt.acknowledged, true);
+  assert.equal(f.humans[0].inputCalls, 0);
+});
+
+test("preparing zero generation cannot submit a dialog decision", async t => {
+  const f = preparingFixture(t); await f.open(); await f.request("humanBegin", { tabId: 7 }); f.dialog();
+  await assert.rejects(f.answerDialog(), /DIALOG_INVALID/);
+  assert.equal(f.calls.some(([name]) => name === "humanDialogRespond"), false);
+});
+
+test("navigation dialog responds while the original input still owns its pending promise", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin(); f.humanInputGate = deferred();
+  let settled = false; const input = f.input(1).then(value => { settled = true; return value; }); await flush();
+  f.navigate(2); const original = f.dialog(); const answer = await f.answerDialog();
+  assert.equal(answer.dialogReceipt.generation, 2); assert.equal(answer.dialogReceipt.dialogId, original.dialogId);
+  assert.equal(settled, false); assert.equal(f.humans[0].inputCalls, 1);
+  f.humanInputGate.resolve(); assert.equal((await input).inputReceipt.generation, 1);
+});
+
+test("late preparing handle after disconnect is closed rather than granting a new owner", async t => {
+  const f = preparingFixture(t); await f.open(); f.humanBeginGate = deferred();
+  const begin = f.request("humanBegin", { tabId: 7 }); const rejected = assert.rejects(begin, /CLOSED|RETIRED|STALE|AUTHORITY/);
+  await flush(); const disconnect = f.request("disconnect"); await flush();
+  f.humanBeginGate.resolve(); await rejected; const closed = await disconnect;
+  assert.equal(closed.status.connected, false); assert.equal(f.humans[0].closeCalls, 1);
+  assert.equal(f.humans[0].info.state, "released");
+});

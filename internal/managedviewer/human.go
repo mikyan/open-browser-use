@@ -195,7 +195,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 			TabID uint64 `json:"tabId"`
 		}
 		_ = json.Unmarshal(request.payload, &fields)
-		if err != nil || human == nil || human.State != "active" && human.State != "navigating" || human.TabID != fields.TabID {
+		if err != nil || human == nil || human.State != "active" && human.State != "preparing" && human.State != "navigating" || human.TabID != fields.TabID {
 			return errors.New("original human begin receipt mismatch")
 		}
 		c.controlMu.Lock()
@@ -210,7 +210,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 				c.controlMu.Unlock()
 				return errors.New("human begin budget differs from its original status")
 			}
-			if latest.State != "active" && latest.State != "navigating" {
+			if latest.State != "active" && latest.State != "preparing" && latest.State != "navigating" {
 				c.controlMu.Unlock()
 				return errors.New("human begin already released")
 			}
@@ -273,7 +273,7 @@ func (c *connection) observeHumanState(data json.RawMessage) {
 		pending = c.applyHumanStateLocked(value.Human)
 	}
 	c.pendingDialog = nil
-	if !c.humanRevoked && value.Human != nil && value.Human.State == "active" && value.Human.TabID == c.humanTabID &&
+	if !c.humanRevoked && value.Human != nil && (value.Human.State == "active" || value.Human.State == "preparing" || value.Human.State == "navigating") && value.Human.Generation > 0 && value.Human.TabID == c.humanTabID &&
 		(value.Human.LeaseID == c.humanLease || c.humanStarting) {
 		c.pendingDialog = value.PendingDialog
 	}
@@ -298,7 +298,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 		// input's deadline or silently downgrade its original native contract.
 		return c.revokeHumanLocked()
 	}
-	if human.State != "active" && human.State != "navigating" {
+	if human.State != "active" && human.State != "preparing" && human.State != "navigating" {
 		return c.revokeHumanLocked()
 	}
 	var pending []command

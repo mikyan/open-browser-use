@@ -10,6 +10,79 @@ OOPIF implementation and release-notice UI fix; the requested package
 
 ## Current continuation after the verified package
 
+### Requested new package after the readiness implementation
+
+The user again requests a new Windows package. Full parity remains active; no
+PR is requested. The new candidate includes two-stage admission, End during
+preparation, original-operation cleanup and same-URL document identity fences.
+The frozen `mrd-build-fw1j0vrq` has 411 source inputs and 77 extension files.
+All 2,758 Node checks pass. Full Go test/vet passed in the preceding build;
+only the legacy native-recovery JavaScript test changed before this rebuild.
+Its original failed Node run is retained and does not count as a passing run.
+
+Current-build real-browser regression `mod-O0QjZc` passes all five steps:
+root, same-origin, nested and cross-site OOPIF prompts were answered through
+the viewer, followed by formal Stop. This does not prove the new readiness
+boundaries. In `mrd-BfhoHa`, the original preparing/null-viewport dialog state
+was observed, but the first frame arrived before the runner completed its
+preparing-stage answer assertion. In `mrd-yWnzNj`, the expected navigation
+dialog UI was not obtained. Both actual exit-1 runs are preserved and neither
+is accepted. The release must disclose these limits rather than advertise
+initial/navigation dialog support. Independent event/lifecycle and package
+checks remain part of this requested delivery.
+
+### Resumed implementation after 34bbbe8
+
+The user-requested `preview-20261019-5e830dc` was rebuilt from clean committed
+source, audited, downloaded back from the fork and published. Its product
+behavior is unchanged from e3fee2a. All 35 development files were retained with
+unchanged hashes; release records are committed and pushed as `34bbbe8`.
+That goal turn was progress. At that point no further package was requested;
+the newer request above supersedes that delivery status. No PR is requested.
+
+The implementation now separates actual Begin admission from readiness, and
+retains original preparation, input, dialog and rendering promises. Focused
+controller cases cover End before Page.enable ACK, a proved first-frame prompt
+with metadata still pending, End during its asynchronous proof, new-URL and
+same-URL navigation dialogs while old input/stop are pending, and the original
+input's cumulative modal budget across navigation. Native metadata dispatch
+waits for actual Closed; the separate response lane stays available. Rendering
+accounts its original preparation budget at final dispatch and before its first
+frame publication. No support claim follows from these mocked cases: full tests,
+formal viewer acceptance and independent evidence review are still required.
+
+### Implementation continuation after 5e830dc
+
+The preceding goal turn was progress: two original native diagnostics and their
+audits changed the design and were committed/pushed as `5e830dc`. The worktree
+was clean at this continuation's start; no new release is requested. The full
+parity objective remains active.
+
+Implement the complete preparing contract across controller, bridge, Go and UI:
+actual Pause/risk/attach/listener admission returns the original human handle;
+`preparing`, generation zero and null viewport grants End only. A positive
+generation still does not grant a dialog decision without its original opaque
+document proof. Active input additionally requires original native and decoded
+frames. Early status cannot replace the Begin receipt; read-only view remains
+outside this contract. Initial null-to-first-viewport readiness is distinct from
+a later geometry change.
+
+The document module freezes original native frame/loader/default-context and
+ancestor identities synchronously at Opening, then brackets browser-side
+document/policy validation with that same fence. It must not query the renderer
+while blocked by the modal or capture a replacement document on a later retry.
+Default policy also needs explicit browser document/navigation identities.
+Ordinary same-URL reload remains a target requirement; identity tombstones and
+event ordering, not a blanket URL blacklist, must govern reuse.
+
+Root owns controller, original dialog capture/cleanup, preparation budgets and
+background identity fencing. The document owner implements the graph seam and
+counterexamples; the protocol owner implements bridge/Go/UI and ordering tests;
+the fixture owner adds cold-Runtime and warm-document pre-first-frame diagnostics
+without editing historical fixtures. Root runs isolated browsers. Raw diagnostics
+remain separate from the required formal viewer acceptance. No production or
+release support is claimed by this plan or by mock tests alone.
+
 ### Next continuation: dialogs before rendering readiness
 
 The previous goal turn made progress: production `e3fee2a` and release record

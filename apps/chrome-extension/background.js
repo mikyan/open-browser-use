@@ -732,6 +732,7 @@ class BrowserBackend {
       }
     } });
     this.siteNavigationVersions = new Map();
+    this.managedIdentityReads = new Map();
     this.sitePendingFrames = new Map();
     this.siteRevokedTabs = new Set();
     this.sitePolicyUpdate = null;
@@ -869,6 +870,7 @@ class BrowserBackend {
         for (const origin of actualOrigins) this.siteAccess.assertUrl(origin);
         if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
         if (!this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || this.siteRevokedTabs.has(candidate.tabId) ||
+            candidate.navigationVersion !== (this.siteNavigationVersions.get(candidate.tabId) ?? 0) ||
             candidate.policyGeneration !== this.siteAccess.generation || candidate.policyRevision !== this.siteAccess.status().revision)
           throw new Error("OBU_HUMAN_DIALOG_STALE: original dialog permission or browser lifetime ended");
       },
@@ -1027,6 +1029,7 @@ class BrowserBackend {
       }
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
+      for (const read of this.managedIdentityReads.get(tabId) ?? []) read.invalid = true;
       this.managedResults.revoke(tabId);
       this.managedHuman.invalidateTab(tabId, { destroyed: true });
       const visualRecoveries = [...this.visualRecoverySessions.values()].map(recovery => ({ recovery, item: recovery.tabs.get(tabId) })).filter(({ item }) => item);
@@ -1690,11 +1693,24 @@ class BrowserBackend {
     const result = this.managedResults.records.get(tabId);
     if (frameId === 0 && result && !(this.managedHuman.current?.candidate?.resultRecord === result && this.managedHuman.ownsTab(tabId)))
       this.managedResults.revoke(tabId, result);
-    this.managedHuman.navigation(tabId, details, phase);
-    if (!this.siteAccess.restricted || !Number.isInteger(tabId) || tabId < 0) return;
+    if (!Number.isInteger(tabId) || tabId < 0) return;
+    // A replacement worker can inspect an original delivered page before it
+    // has any task/view owner. Retire only its currently pending reads; this
+    // observation never grants ownership or grows the persistent tab ledger.
+    for (const read of this.managedIdentityReads.get(tabId) ?? []) read.invalid = true;
     // Track only tabs this backend controls; user browsing never grows a ledger.
-    if (!this.attachedTabs.has(tabId) && !this.pendingAttachmentTabs.has(tabId) && !this.siteRevokedTabs.has(tabId) && !this.managedHuman.ownsTab(tabId)) return;
-    this.siteNavigationVersions.set(tabId, (this.siteNavigationVersions.get(tabId) ?? 0) + 1);
+    const controlled = this.attachedTabs.has(tabId) || this.pendingAttachmentTabs.has(tabId) || this.siteRevokedTabs.has(tabId) || this.managedHuman.ownsTab(tabId);
+    // Managed capture/finalization reads begin while the original task still
+    // owns the tab, before there is a human/view lease to fence navigation.
+    if (controlled && (this.siteAccess.restricted || managedConfig !== null)) {
+      const version = this.siteNavigationVersions.get(tabId) ?? 0;
+      if (version >= Number.MAX_SAFE_INTEGER) { this.revokeSiteTab(tabId); return; }
+      this.siteNavigationVersions.set(tabId, version + 1);
+    }
+    // A callback may synchronously admit a dialog proof. Its browser document
+    // fence must already reflect this event, including in Default policy mode.
+    this.managedHuman.navigation(tabId, details, phase);
+    if (!this.siteAccess.restricted || !controlled) return;
     const pending = this.sitePendingFrames.get(tabId) ?? new Map();
     if (frameId === 0 && phase === "committed") pending.clear();
     if (phase === "pending" && pending.size >= 1000 && !pending.has(frameId)) { this.revokeSiteTab(tabId); return; }
@@ -3798,18 +3814,30 @@ class BrowserBackend {
   }
 
   async readManagedPageIdentity(tabId, check) {
-    check();
-    const proof = await this.assertSiteTab(tabId, { allowBlank: true });
-    check();
-    const [tab, frame, targets] = await Promise.all([chrome.tabs.get(tabId), chrome.webNavigation.getFrame({ tabId, frameId: 0 }), chrome.debugger.getTargets()]);
-    check(); this.assertSiteProof(proof); assertControllableTab(tab);
-    const candidates = targets.filter(target => target.tabId === tabId && target.type === "page" && typeof target.id === "string" && target.id);
-    if (candidates.length !== 1 || typeof frame?.documentId !== "string" || !frame.documentId || proof && proof.documentId !== frame.documentId)
-      throw new Error("OBU_HUMAN_UNAVAILABLE: original page and document identity could not be proved");
-    return Object.freeze({ tabId, targetId: candidates[0].id, documentId: frame.documentId,
-      title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "",
-      windowId: tab.windowId, groupId: tab.groupId, pinned: Boolean(tab.pinned), incarnation: this.browserLifetime.incarnation,
-      policyGeneration: this.siteAccess.generation, policyRevision: this.siteAccess.status().revision });
+    const reads = this.managedIdentityReads.get(tabId) ?? new Set(), read = { invalid: false };
+    this.managedIdentityReads.set(tabId, reads); reads.add(read);
+    const current = () => {
+      check();
+      if (read.invalid) throw new Error("OBU_HUMAN_UNAVAILABLE: original document changed during identity inspection");
+    };
+    try {
+      current();
+      const navigationVersion = this.siteNavigationVersions.get(tabId) ?? 0;
+      const proof = await this.assertSiteTab(tabId, { allowBlank: true });
+      current();
+      const [tab, frame, targets] = await Promise.all([chrome.tabs.get(tabId), chrome.webNavigation.getFrame({ tabId, frameId: 0 }), chrome.debugger.getTargets()]);
+      current(); this.assertSiteProof(proof); assertControllableTab(tab);
+      const candidates = targets.filter(target => target.tabId === tabId && target.type === "page" && typeof target.id === "string" && target.id);
+      if (navigationVersion !== (this.siteNavigationVersions.get(tabId) ?? 0) || candidates.length !== 1 || typeof frame?.documentId !== "string" || !frame.documentId || proof && proof.documentId !== frame.documentId)
+        throw new Error("OBU_HUMAN_UNAVAILABLE: original page and document identity could not be proved");
+      return Object.freeze({ tabId, targetId: candidates[0].id, documentId: frame.documentId, navigationVersion,
+        title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "",
+        windowId: tab.windowId, groupId: tab.groupId, pinned: Boolean(tab.pinned), incarnation: this.browserLifetime.incarnation,
+        policyGeneration: this.siteAccess.generation, policyRevision: this.siteAccess.status().revision });
+    } finally {
+      reads.delete(read);
+      if (!reads.size && this.managedIdentityReads.get(tabId) === reads) this.managedIdentityReads.delete(tabId);
+    }
   }
 
   async captureManagedResultPage(tabId, deliveryId, { listing = false } = {}) {
@@ -3861,19 +3889,22 @@ class BrowserBackend {
     const epoch = owner?.epoch;
     this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
     if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
+    const navigationVersion = this.siteNavigationVersions.get(candidate.tabId) ?? 0;
     const proof = await this.assertSiteTab(candidate.tabId, { allowBlank: true });
     const [tab, frame, targets] = await Promise.all([chrome.tabs.get(candidate.tabId), chrome.webNavigation.getFrame({ tabId: candidate.tabId, frameId: 0 }), chrome.debugger.getTargets()]);
     this.assertSiteProof(proof); assertControllableTab(tab);
     if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
     if (proof && proof.documentId !== frame?.documentId)
       throw new Error("OBU_SITE_ACCESS_UNVERIFIED: document changed after human permission inspection");
-    if (!this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || candidate.policyGeneration !== this.siteAccess.generation ||
+    if (navigationVersion !== (this.siteNavigationVersions.get(candidate.tabId) ?? 0) ||
+        !advance && candidate.navigationVersion !== navigationVersion ||
+        !this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || candidate.policyGeneration !== this.siteAccess.generation ||
         candidate.policyRevision !== this.siteAccess.status().revision || typeof frame?.documentId !== "string" || !frame.documentId ||
         (!advance && frame.documentId !== candidate.documentId) ||
         tab.windowId !== candidate.windowId || tab.groupId !== candidate.groupId || tab.pinned !== candidate.pinned ||
         !targets.some(target => target.id === candidate.targetId && target.tabId === candidate.tabId && target.type === "page"))
       throw new Error("OBU_HUMAN_STALE: original document, ownership, or permission changed");
-    const verified = Object.freeze({ ...candidate, documentId: frame.documentId,
+    const verified = Object.freeze({ ...candidate, documentId: frame.documentId, navigationVersion,
       siteProof: proof ? Object.freeze({ ...proof }) : undefined,
       title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "" });
     if (candidate.resultRecord) {
@@ -3885,6 +3916,8 @@ class BrowserBackend {
             owner.revoked || owner.epoch !== epoch || epoch?.retired)
           throw new Error("OBU_HUMAN_GENERATION_STALE: retired document proof cannot advance result authority");
         this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
+        if (navigationVersion !== (this.siteNavigationVersions.get(candidate.tabId) ?? 0))
+          throw new Error("OBU_HUMAN_GENERATION_STALE: original navigation changed during document publication");
       });
       else this.managedResults.validate(candidate.resultRecord, verified);
     }

@@ -34,10 +34,7 @@ class Budget {
   }
 }
 
-export class ManagedHumanInputBudget extends Budget {
-  constructor({ onExpire, timing } = {}) {
-    super({ normal: 30000, modal: 300000, error: inputTimeout }, onExpire, timing);
-  }
+class ModalBudget extends Budget {
   openModal(original) {
     if (!this.account() || this.modal) return;
     this.modal = original; this.phase = "modal"; this.arm();
@@ -55,6 +52,22 @@ export class ManagedHumanInputBudget extends Budget {
       this.finish(); return value;
     }, error => { this.finish(); throw error; });
     return Promise.race([observer, this.expired]);
+  }
+}
+
+export class ManagedHumanInputBudget extends ModalBudget {
+  constructor({ onExpire, timing } = {}) {
+    super({ normal: 30000, modal: 300000, error: inputTimeout }, onExpire, timing);
+  }
+}
+
+// One preparation keeps its remaining ordinary time across redirects and
+// verified original dialogs. A first frame ends it; an event/status never
+// restarts it. Its expiry observes work, never settles a native Promise.
+export class ManagedHumanPreparationBudget extends ModalBudget {
+  constructor({ navigation = false, onExpire, timing } = {}) {
+    super({ normal: navigation ? 10000 : 5000, modal: 300000,
+      error: phase => new Error(`OBU_HUMAN_PREPARATION_TIMEOUT: original ${navigation ? "navigation" : "initial"} preparation exceeded its ${phase} wait budget`) }, onExpire, timing);
   }
 }
 

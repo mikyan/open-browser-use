@@ -5,11 +5,15 @@
 稳定同源子页和嵌套页的弹窗支持。95e7b29 预览仅包含主页面范围，853ea92 不包含人工弹窗。
 6a3bee5 的75个扩展文件与当时已测制品一致；发布 EXE 单独重建，发布时未重跑网页业务。
 
-当前源码另通过稳定跨站 OOPIF prompt 和完成接管后的提示清理验收。查看器
+此前版本另通过稳定跨站 OOPIF prompt 和完成接管后的提示清理验收。查看器
 仍通过原生弹窗的 typed 回答通道处理网页消息，不继续 Agent、不重放点击。
 最新重打包 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc) 的产品功能与e3fee2a相同；未验收的首帧/导航准备期改动未纳入。
 
 上述续轮已按用户要求发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束提示修复；旧6a3bee5不包含。
+
+当前源码加入两阶段 human Begin 与原生文档事件证明，但首帧准备期、导航期的
+正式查看器验收均未通过；不能据此声明这两类弹窗已可用。用户要求的新包正在
+准备，尚未发布；下面区分当前实现、当前验证与历史已发布制品。
 
 ## 使用与限制
 
@@ -24,10 +28,12 @@
   弹窗共用该额度。每个已验证弹窗另有 300 秒上限，即使没有未决输入也
   不会无限等待。界面提示五分钟上限；超时撤权并取消尚未回答的原弹窗。
   旧版未声明能力时仍为服务器 30 秒、查看端 35 秒，不作隐式升级。
-- 仅原主 frame 或当前源码已验证的子 frame、原文档和 active human generation 可回答。
+- 回答必须绑定原主 frame 或已证明的子 frame、原文档和精确原 human tuple。
+  当前源码允许具备完整证明的正 generation preparing/navigating 状态独立回答，
+  但该准备期行为尚未通过真实验收；generation 数值本身不授予回答权限。
   子 frame 的每一层祖先须有原生图谱关联及存活的默认执行上下文；实际源必须
   为非 opaque HTTP(S)。跨站路径逐层接受当前网站策略检查，不借父站权限放行。
-  接管前已有、首帧准备期、导航期间和 `beforeunload` 不在本次支持范围内。
+  接管前已有和 `beforeunload` 不支持；首帧准备期、导航期间仍不列为已验收能力。
   无法确认的 emitter 不取得回答权限；原 human attachment 可以取消并结束
   接管，但不会默认接受离开页面。只读 view 没有弹窗响应权限。
 - 静态 HTTP 同源子页、两层同源嵌套及单层跨站 OOPIF 的 prompt 已真实验收。
@@ -41,6 +47,12 @@
   验收覆盖。CDP 原输入没有 documentId 条件参数，仍不构成跨文档原子事务。
 
 ## 原对象与回执
+
+当前 human Begin 在原任务 Pause、风险记录、native attachment 和 listener 建立后
+返回 preparing handle；查看器必须收到原 Begin 成功响应，早到状态不能代替它。
+generation 0/null viewport 仅允许 End；具备原文档证明的正 generation/null viewport
+可携带 pendingDialog，页面输入仍等 active 与精确 native/decoded frame。同一代
+null→首个 viewport 是就绪转换，后续 resize 仍严格校验；只读 view 不接受 preparing。
 
 `managed-human-dialogs.js` 由唯一的原 managed attachment 持有，每个原生
 opening 建立一个独立实例。根 target/source、frameId、URL、epoch/document
@@ -63,7 +75,14 @@ frame、loader 和实际源。固定 Chromium 156 的 Page.Frame.securityOrigin 
 继承关系须由直接父 context 证明。父文档替换后，旧远程 session 不能凭迟到的
 新 context 重新取得文档权限，但仍由原附件负责清理。退役身份不复活，容量有界。
 受限网站在回答入口及最终发送前核对原 siteProof 的策略和导航版本，并检查每层
-祖先实际源；弹窗期间不重新执行页面脚本或异步读取页面以获得权限。
+祖先实际源；弹窗期间不重新执行页面脚本或新发 renderer 查询以获得权限。
+
+`managed-human-document-events.js` 在原 Opening 同步固定已观察的原 frame/loader、
+default context 与祖先链，再用浏览器侧 documentId、导航版本及策略完成异步证明。
+旧文档身份不能移交给新 loader。未发送的元数据查询等原 Closed 后重检再发送；
+回答绕过该等待和旧输入/渲染清理，新画面仍须等待旧清理完成。End 先取消未回答
+弹窗，再加入原异步证明与所有实际调用；退役证明的迟到失败不撤销后继文档，
+也不结算原取消 Promise。这些观察屏障不构成跨来源原子文档证明。
 
 普通输入另使用只证明身份的 fence：准备读取前固定原 session 和默认上下文集合，
 准备完成及最终原生发送前再次核对。它不授予弹窗 origin 权限；即使弹窗图谱快照
@@ -84,10 +103,13 @@ Closed 必须属于原 Opening 的 frame；缺失或外来身份不能解除弹�
 未发送的 stale/invalid 只更新状态，不重放选择、不撤销另一实例的权限。
 
 `managed-human-budget.js` 在原扩展 attachment 内用单调时钟记录工作及
-弹窗时间。只有已发出的同 epoch 输入能进入弹窗等待；准备中的输入遇到
+弹窗时间。只有固定到原 Opening 的已发送输入能进入弹窗等待；导航后的弹窗
+仍使用其原输入累计额度和原 tuple 回执。准备中的输入遇到
 弹窗后不会等人工回答完再补发。所有最终发送、原 Closed 和成功 ACK 都
 重新结算时间，迟到的定时器回调不能延长预算。调用方超时先撤权，原实际
 Promise、持键意图与清理责任仍保留至真实结算。
+首次准备另有5秒、导航准备10秒普通额度及累计300秒已验证弹窗额度；实际首帧
+结束该原预算。原 native setup/ACK、首帧发布前均结算，原 Promise 不被超时替换。
 
 能力声明固定在原 lease 内，未知版本、只读声明和调用方自选超时都被拒绝。
 支持此能力的原输入在 Go/查看端有固定 335/340 秒外层兜底，不依赖可合并的
@@ -96,7 +118,30 @@ Promise、持键意图与清理责任仍保留至真实结算。
 
 ## 验证记录
 
-### 当前源码的跨站 OOPIF 与结束提示
+### 当前两阶段实现与未通过的边界验收
+
+2026-10-19 内部构建 `mrd-build-fw1j0vrq` 绑定411份生产输入、77个扩展文件，
+2758项Node测试全部通过。Go主模块全包测试/vet本轮已通过，最终构建复用字节
+未变的Go与嵌入UI输入检查；此前仅旧测试误把Begin视为active的失败单独保留。
+构建报告 SHA256：`50bc6f0526ba6488f22283928e6c16d8fe4794e5da76e8e586295269a860dd3d`。
+
+同一构建在固定Windows CfT的`mod-O0QjZc`四布局回归中五步实际exit 0，
+completed及featurePassed均为true。root/same/nested/oopif四个原prompt均answered，
+正式Stop通过、原报告无cleanupErrors。这是本构建的新回归，不是把旧四布局结果
+移交新源码；范围仍限固定fixture与浏览器，不证明普通公司Edge或完整能力对齐。
+原事件与回执独审422项通过；生命周期独审另行记录，不把事件检查当作进程退出证明。
+报告 SHA256：`7c6ce67874530c45e25413093c22094c4d127e339422d3846e28d3805f34a777`。
+
+两场正式查看器运行均实际 exit 1、featurePassed false。`mrd-BfhoHa` 曾收到
+preparing/正generation/null viewport及pendingDialog，随后首帧使其进入active；
+runner读取到后继viewport并失败，未发回答，不能算准备阶段回答通过。
+`mrd-yWnzNj` 的新loader/frameNavigated、commit、default context和Opening均有原
+记录，约19ms后Closed=false；没有pendingDialog、humanDialogRespond或POST。
+等待原preparing/navigating弹窗界面状态超时，导航期回答未通过，不能仅凭该序列
+确定唯一失败原因。
+单测和构建通过不能替代这两场边界验收；原失败保留，旧四布局结果不归于新源码。
+
+### 历史跨站 OOPIF 与结束提示验收
 
 2026-10-18 `mod-BENPnK` 五步实际 exit 0，`featurePassed: true`。四个原交付页的
 root、same、nested、oopif prompt 均由查看器回答 Unicode，每页仅一次原点击和

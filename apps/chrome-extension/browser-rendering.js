@@ -28,36 +28,52 @@ export class BrowserRendering {
     return actual;
   }
 
-  async subscribe(tabId, attachment, check, onFrame, { acceptFrame = () => true } = {}) {
+  async subscribe(tabId, attachment, check, onFrame, { acceptFrame = () => true, startupBudget } = {}) {
     if (typeof onFrame !== "function") throw new Error("OBU_VIEWER_INVALID: a frame receiver is required");
     if (typeof acceptFrame !== "function") throw new Error("OBU_VIEWER_INVALID: a frame admission predicate is required");
+    if (startupBudget !== undefined && (typeof startupBudget?.assertAvailable !== "function" || typeof startupBudget?.expired?.then !== "function"))
+      throw new Error("OBU_VIEWER_INVALID: an original startup budget is required");
+    startupBudget?.assertAvailable();
     check();
     if (this.records.has(tabId)) throw new Error("OBU_VIEWER_BUSY: the original viewer must finish closing first");
     if (this.records.size >= 16) throw new Error("OBU_VIEWER_LIMIT: too many active viewer streams");
     if (this.isExternal(tabId)) throw new Error("OBU_VIEWER_UNAVAILABLE: the tab has a caller-owned screencast");
     const ready = deferred(), closed = deferred();
-    const record = { tabId, attachment, check, onFrame, acceptFrame, ready, closed,
+    const record = { tabId, attachment, check, onFrame, acceptFrame, ready, closed, startupBudget,
       streamId: crypto.randomUUID(), sequence: 0, published: 0, publishing: true,
       active: false, started: false, frameIds: [], acks: new Set(), borrowers: new Set() };
     this.records.set(tabId, record);
     record.cancel = () => this.revoke(record, new Error("Rendered action was cancelled because tab control ended"), true);
     record.listener = (source, method, params) => this.frame(record, source, method, params);
-    const timer = setTimeout(() => {
-      this.revoke(record, new Error("OBU_VIEWER_TIMEOUT: no committed browser frame arrived"));
+    let observingStartup = true;
+    const expire = error => {
+      if (!observingStartup || startupBudget && record.published > 0) return;
+      this.revoke(record, error);
       void this.close(record).catch(() => {});
-    }, this.startupTimeoutMs);
+    };
+    // Human preparation owns its bounded ordinary/modal clock. Ordinary views
+    // and all other rendering borrowers keep the existing five-second timer.
+    const timer = startupBudget ? null : setTimeout(() =>
+      expire(new Error("OBU_VIEWER_TIMEOUT: no committed browser frame arrived")), this.startupTimeoutMs);
+    if (startupBudget) startupBudget.expired.catch(expire);
     const startup = this.queue(tabId, async () => {
-      this.check(record);
+      this.checkStartup(record);
       if (this.isExternal(tabId)) throw new Error("OBU_VIEWER_UNAVAILABLE: the tab has a caller-owned screencast");
       this.streams.set(tabId, record);
       this.addListener(record.listener);
       record.listening = true;
-      await this.track(() => this.send({ tabId }, "Page.enable"));
-      this.check(record);
+      const setup = (method, params) => this.track(() => {
+        this.checkStartup(record);
+        // Owners which queue another native dispatch must repeat this fixed
+        // admission check at that dispatch, not borrow a successor budget.
+        return this.send({ tabId }, method, params, () => this.checkStartup(record));
+      });
+      await setup("Page.enable");
+      this.checkStartup(record);
       record.active = true;
-      await this.track(() => this.send({ tabId }, "Page.startScreencast", { format: "png", everyNthFrame: 1 }));
+      await setup("Page.startScreencast", { format: "png", everyNthFrame: 1 });
       record.started = true;
-      this.check(record);
+      this.checkStartup(record);
       await ready.promise;
       this.check(record);
     });
@@ -73,12 +89,19 @@ export class BrowserRendering {
         throw Object.assign(new Error(`OBU_VIEWER_CLEANUP_INCOMPLETE: ${String(cleanupError?.message ?? cleanupError)}`), { viewerCleanupIncomplete: true });
       }
       throw error;
-    } finally { clearTimeout(timer); }
+    } finally { observingStartup = false; clearTimeout(timer); }
   }
 
   check(record) {
     if (record.error) throw record.error;
     this.checkAttachment(record);
+  }
+
+  checkStartup(record) {
+    this.check(record);
+    // A first accepted frame may finish the owner's budget before the actual
+    // start ACK arrives. Keep that ACK in its drain without reusing the clock.
+    if (record.published === 0) record.startupBudget?.assertAvailable();
   }
 
   checkAttachment(record) {
@@ -117,11 +140,13 @@ export class BrowserRendering {
       catch (error) { this.revoke(record, error, true); void this.close(record).catch(() => {}); return; }
       if (!record.publishing || sequence <= record.published) return;
       try {
+        this.checkStartup(record);
         const frame = Object.freeze({ tabId: record.tabId, streamId: record.streamId, sequence, mimeType: "image/png", data, metadata: Object.freeze(metadata) });
         // A new stream ID alone does not prove a new capture. Consumers may
         // reject an old encoding's late frame, after its one native ACK, without
         // allowing that frame to complete startup or publish any coordinates.
         if (!record.acceptFrame(frame)) return;
+        this.checkStartup(record);
         record.onFrame(frame);
         record.published = sequence;
         record.ready.resolve();

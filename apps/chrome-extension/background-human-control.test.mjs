@@ -56,13 +56,112 @@ async function fixture({ managed = true, command, write, detach, authority = () 
   const params = { session_id: "task", turn_id: first.nextTurnId, control_epoch: first.controlEpoch, tabId: 7 };
   await backend.attach(params);
   const frames = [];
-  const begin = () => backend.beginManagedHuman(7, authority, frame => frames.push(frame), state => states.push(state));
+  const begin = () => {
+    const admitted = backend.beginManagedHuman(7, authority, frame => frames.push(frame), state => states.push(state));
+    const record = backend.managedHuman.current;
+    // These existing input tests require the original native preparation, not
+    // just the newly admitted preparing handle returned by Begin.
+    return admitted.then(async handle => { await record.start; return handle; });
+  };
   return { backend, Backend, chrome, calls, storage, first, params, begin, frames, states, tab,
     event: (method, params) => { for (const listener of [...listeners]) listener({ targetId: "original-target" }, method, params); },
     changeDocument: () => { documentId = "replacement-document"; },
     emitDetach: (source, reason) => { for (const fn of detachListeners) fn(source, reason); } };
 }
 function input(handle, value) { const info = handle.info(); return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value }); }
+
+test("Default identity capture rejects a same-URL document commit during an original task read", async t => {
+  const f = await fixture(); t.after(() => f.backend.pauseAutomation());
+  const entered = defer(), release = defer(), targets = f.chrome.debugger.getTargets;
+  f.chrome.debugger.getTargets = async () => { entered.resolve(); await release.promise; return targets(); };
+  const reading = f.backend.captureManagedHumanPage(7); reading.catch(() => {});
+  await entered.promise;
+  f.changeDocument();
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, documentId: "replacement-document", url: f.tab.url }, "committed");
+  release.resolve();
+  await assert.rejects(reading, /HUMAN_UNAVAILABLE/);
+  assert.equal(f.calls.some(([method, target]) => method === "attach" && target.targetId), false);
+});
+
+test("Default identity validation rejects navigation during both permission and native identity awaits", async t => {
+  for (const stage of ["permission", "identity"]) await t.test(stage, async t => {
+    const f = await fixture(); t.after(() => f.backend.pauseAutomation());
+    const original = await f.backend.captureManagedHumanPage(7), entered = defer(), release = defer();
+    if (stage === "permission") {
+      const inspect = f.backend.assertSiteTab.bind(f.backend);
+      f.backend.assertSiteTab = async (...args) => { entered.resolve(); await release.promise; return inspect(...args); };
+    } else {
+      const targets = f.chrome.debugger.getTargets;
+      f.chrome.debugger.getTargets = async () => { entered.resolve(); await release.promise; return targets(); };
+    }
+    const reading = f.backend.validateManagedHumanPage(original, { advance: true }); reading.catch(() => {});
+    await entered.promise; f.changeDocument();
+    f.backend.onSiteNavigation({ tabId: 7, frameId: 0, documentId: "replacement-document", url: f.tab.url }, "committed");
+    release.resolve();
+    await assert.rejects(reading, /HUMAN_STALE/);
+  });
+});
+
+test("Default navigation invalidates the old dialog fence before the controller callback", async t => {
+  const f = await fixture(), handle = await f.begin(); t.after(() => handle.close());
+  const candidate = f.backend.managedHuman.current.epoch.candidate;
+  f.backend.managedHuman.assertDialog(candidate, ["https://fixture.test"]);
+  const navigate = f.backend.managedHuman.navigation.bind(f.backend.managedHuman);
+  let observed = 0;
+  f.backend.managedHuman.navigation = (...args) => {
+    observed++;
+    assert.equal(f.backend.siteNavigationVersions.get(7), candidate.navigationVersion + 1);
+    assert.throws(() => f.backend.managedHuman.assertDialog(candidate, ["https://fixture.test"]), /DIALOG_STALE/);
+    return navigate(...args);
+  };
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: f.tab.url }, "pending");
+  assert.equal(observed, 1); assert.equal(handle.info().state, "navigating");
+  assert.equal(f.backend.sitePendingFrames.has(7), false);
+});
+
+test("Default navigation ledger excludes unrelated user tabs and never wraps its original version", async t => {
+  const f = await fixture(); t.after(() => f.backend.pauseAutomation());
+  for (const tabId of [-1, 8, 9]) f.backend.onSiteNavigation({ tabId, frameId: 0, url: "https://personal.test" }, "committed");
+  assert.equal(f.backend.siteNavigationVersions.size, 0);
+  f.backend.siteNavigationVersions.set(7, Number.MAX_SAFE_INTEGER);
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: f.tab.url }, "committed");
+  assert.equal(f.backend.siteNavigationVersions.get(7), Number.MAX_SAFE_INTEGER);
+  assert.equal(f.backend.siteRevokedTabs.has(7), true);
+});
+
+test("ordinary Default navigation does not create a managed document ledger", async t => {
+  const f = await fixture({ managed: false }); t.after(() => f.backend.pauseAutomation());
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, url: f.tab.url }, "committed");
+  assert.equal(f.backend.siteNavigationVersions.size, 0);
+  assert.equal(f.backend.sitePendingFrames.size, 0);
+  assert.equal(f.backend.attachedTabs.has(7), true);
+});
+
+test("Default stable successor validation returns a fresh fence without upgrading the old candidate", async t => {
+  const f = await fixture(); t.after(() => f.backend.pauseAutomation());
+  const original = await f.backend.captureManagedHumanPage(7);
+  f.changeDocument();
+  f.backend.onSiteNavigation({ tabId: 7, frameId: 0, documentId: "replacement-document", url: f.tab.url }, "committed");
+  await assert.rejects(f.backend.validateManagedHumanPage(original), /HUMAN_STALE/);
+  const successor = await f.backend.validateManagedHumanPage(original, { advance: true });
+  assert.equal(successor.navigationVersion, original.navigationVersion + 1);
+  assert.equal(successor.documentId, "replacement-document");
+  assert.equal(original.documentId, "original-document");
+  assert.equal(Object.isFrozen(successor), true);
+  assert.throws(() => f.backend.managedHuman.assertDialog(original), /DIALOG_STALE/);
+  f.backend.managedHuman.assertDialog(successor);
+});
+
+test("restricted successor validation retains the original site document proof", async t => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } });
+  t.after(() => f.backend.pauseAutomation());
+  const original = await f.backend.captureManagedHumanPage(7);
+  // The browser-only identity reply disagrees with the root document that
+  // passed the full restricted frame inspection. Advance cannot waive it.
+  f.chrome.webNavigation.getFrame = async () => ({ documentId: "uninspected-document" });
+  await assert.rejects(f.backend.validateManagedHumanPage(original, { advance: true }), /SITE_ACCESS_UNVERIFIED/);
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+});
 
 test("dialog dispatch retains the exact restricted navigation proof, not only policy revision", async () => {
   const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } }), handle = await f.begin();

@@ -1,12 +1,12 @@
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
-import { ManagedHumanInputBudget } from "./managed-human-budget.js";
+import { ManagedHumanInputBudget, ManagedHumanPreparationBudget } from "./managed-human-budget.js";
 import { ManagedHumanDocumentGraph } from "./managed-human-document-graph.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
-const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); promise.catch(() => {}); return { promise, resolve, reject }; };
 function fields(value, required, optional = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw fail("invalid input object");
   const descriptors = Object.getOwnPropertyDescriptors(value);
@@ -54,7 +54,7 @@ export class ManagedHumanControl {
     // capture or an abandoned preparation. It does not grant input authority.
     return Object.freeze({ id: record.tabId,
       title: candidate ? (typeof candidate.title === "string" ? candidate.title.slice(0, 512) : "") :
-        ["starting", "navigating"].includes(record.state) ? "页面正在跳转" : "",
+        record.state === "preparing" ? "页面正在准备" : ["starting", "navigating"].includes(record.state) ? "页面正在跳转" : "",
       url: candidate && typeof candidate.url === "string" ? candidate.url.slice(0, 8192) : "" });
   }
   notify(record) {
@@ -65,6 +65,7 @@ export class ManagedHumanControl {
     if (this.current !== record || record.revoked) throw fail("human lease was revoked", "STALE");
     record.assertAuthority();
     if (record.paused) this.assertPaused();
+    record.preparationBudget?.assertAvailable();
   }
   checkGeneration(record, epoch) {
     this.check(record);
@@ -92,12 +93,13 @@ export class ManagedHumanControl {
     if (Object.hasOwn(options, "deliveryId") && (typeof options.deliveryId !== "string" || !options.deliveryId)) throw fail("invalid delivery identity");
     assertAuthority();
     const record = { tabId, assertAuthority, onFrame, onState, leaseId: crypto.randomUUID(), state: "starting",
-      generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set() };
+      generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set(), dialogWaiters: new Set() };
     Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
     this.current = record;
     if (mode === "human") record.documentGraph = new ManagedHumanDocumentGraph({
       send: (sessionId, method, params, check) => this.send(record, method, params, check, sessionId),
       check: () => this.check(record),
+      assertCandidate: (candidate, origins) => { this.check(record); this.assertDialog(candidate, origins); },
       onFailure: error => { void this.close(record, error).catch(() => {}); },
       onChange: details => {
         record.dialogs?.recheck();
@@ -110,24 +112,32 @@ export class ManagedHumanControl {
       send: (params, check) => this.send(record, "Page.handleJavaScriptDialog", params, check),
       timing: this.timing,
       onOpened: (proof, original) => {
-        const operation = proof.epoch.inputOperation;
-        if (!operation) return;
+        record.preparationBudget?.openModal(original);
+        // A successor document can own the modal while the original navigation
+        // input is still awaiting its native ACK. Keep that one operation's
+        // budget and receipt; a new generation never creates a new input cap.
+        const operation = proof.inputOperation;
+        if (!operation || operation.settled) return;
         if (operation.dispatched) { original.inputOperation = operation; operation.budget.openModal(original); }
         else operation.modalInterrupted = true;
       },
-      onClosed: (_proof, original) => original.inputOperation?.budget.closeModal(original),
-      notify: () => this.notify(record), onFailure: error => { void this.close(record, error).catch(() => {}); } });
+      onClosed: (_proof, original) => { original.inputOperation?.budget.closeModal(original); record.preparationBudget?.closeModal(original); },
+      notify: () => { this.wakeDialogs(record); this.notify(record); }, onFailure: error => { void this.close(record, error).catch(() => {}); } });
     record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record),
       ...(mode === "human" ? { input: envelope => this.input(record, envelope), pendingDialog: () => record.dialogs.info(),
         respondDialog: envelope => record.dialogs.respond(envelope) } : {}),
       close: () => this.close(record), closed: record.closed.promise });
+    record.admission = deferred();
     record.start = Promise.resolve().then(() => this.start(record));
-    return record.start.then(() => record.handle, async error => {
+    const completed = record.start.then(() => record.handle, async error => {
       try { await this.close(record, error); }
       catch { throw Object.assign(fail("original user-page cleanup remains unconfirmed", "CLEANUP_INCOMPLETE"),
         mode === "human" ? { humanCleanupIncomplete: true } : { viewerCleanupIncomplete: true }); }
       throw error;
     });
+    if (mode === "view") return completed;
+    completed.catch(error => record.admission.reject(error));
+    return record.admission.promise;
   }
 
   createGeneration(record) {
@@ -140,8 +150,8 @@ export class ManagedHumanControl {
     let queue = Promise.resolve();
     epoch.rendering = new BrowserRendering({ streams: new Map(), drains: record.drains,
       queue: (_tabId, operation) => { const next = queue.catch(() => {}).then(operation); queue = next; return next; },
-      send: (_target, method, params) => this.send(record, method, params,
-        ["Page.enable", "Page.startScreencast"].includes(method) ? () => this.checkGeneration(record, epoch) : undefined),
+      send: (_target, method, params, finalCheck) => this.send(record, method, params,
+        ["Page.enable", "Page.startScreencast"].includes(method) ? () => { this.checkGeneration(record, epoch); finalCheck?.(); } : undefined),
       addListener: listener => {
         const wrapped = (source, method, params) => { if (this.ownsSource(record, source)) listener({ tabId: record.tabId }, method, params); };
         epoch.listeners.set(listener, wrapped); this.chrome.debugger.onEvent.addListener(wrapped);
@@ -198,14 +208,16 @@ export class ManagedHumanControl {
     this.chrome.debugger.onEvent.addListener(record.lifecycle);
     this.check(record); await this.validate(record.candidate); this.check(record);
     if (record.mode === "human") {
+      record.state = "preparing";
+      this.startPreparationBudget(record, false);
+      record.admission.resolve(record.handle); this.notify(record);
       // Observe navigation and actual default contexts before either tree read.
       await this.send(record, "Page.enable", undefined, () => this.check(record));
       await this.send(record, "Runtime.enable", undefined, () => this.check(record));
       this.check(record);
-      await record.documentGraph.start();
+      await record.documentGraph.start(record.candidate);
       await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
     }
-    await this.send(record, "Performance.enable", { timeDomain: "timeTicks" }, () => this.check(record));
     this.check(record); record.initialized = true;
     await this.recover(record);
   }
@@ -215,7 +227,14 @@ export class ManagedHumanControl {
       throw fail("a view lease has no native input or focus authority", "UNAVAILABLE");
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
     let dispatched = false;
-    const actual = Promise.resolve().then(() => {
+    const actual = Promise.resolve().then(async () => {
+      // Metadata queries can block behind a native modal. Keep their original
+      // preparation pending, but let the independently proved decision lane
+      // answer first. An already-dispatched query remains owned until its ACK.
+      if (record.mode === "human" && ["Runtime.enable", "Page.getFrameTree", "Page.getLayoutMetrics", "Performance.enable", "Performance.getMetrics"].includes(method)) {
+        do { await this.waitForDialog(record); }
+        while (record.dialogs?.hasOpen());
+      }
       if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
       assertAdmission?.();
       dispatched = true;
@@ -249,33 +268,89 @@ export class ManagedHumanControl {
 
   captureDialog(record, params) {
     this.check(record);
-    const epoch = record.epoch;
-    if (!epoch || epoch.retired || record.state !== "active" || !record.generation || !epoch.document)
-      throw fail("dialogs require the original active human document", "DIALOG_UNSUPPORTED");
+    let epoch = record.epoch;
+    if ((!epoch || epoch.retired) && record.initialized && !record.pendingNavigations.size) epoch = this.createGeneration(record);
+    if (!epoch || epoch.retired || !["preparing", "navigating", "active"].includes(record.state))
+      throw fail("dialogs require an original prepared human document", "DIALOG_UNSUPPORTED");
+    const pending = [...record.epochs].map(owner => owner.inputOperation).filter(operation => operation?.dispatched && !operation.settled);
+    if (pending.length > 1) throw fail("original dialog input ownership is ambiguous", "DIALOG_UNSUPPORTED");
+    const inputOperation = epoch.inputOperation ?? pending[0] ?? null;
+    if (record.state !== "active") {
+      // Freeze the original native identities at Opening, before the first
+      // asynchronous browser-side policy/document read. No renderer query is
+      // needed while that same modal blocks renderer work.
+      const fence = record.documentGraph.checkpointReadiness(params);
+      const opening = Object.freeze({ ...params });
+      const pending = (async () => {
+        const candidate = await this.validate(record.candidate, { advance: epoch.id > 1 });
+        this.checkGeneration(record, epoch);
+        const verified = candidate ?? record.candidate;
+        const contexts = record.documentGraph.captureReadiness(fence, verified, opening);
+        this.assertDialog(verified, contexts.actualOrigins);
+        record.generation = epoch.id;
+        return Object.freeze({ epoch, generation: epoch.id, candidate: verified, contexts, readiness: true, inputOperation });
+      })();
+      return { epoch, pending };
+    }
+    if (!record.generation || !epoch.document) throw fail("the active native document is unavailable", "DIALOG_UNSUPPORTED");
     const root = JSON.parse(epoch.document)[0];
     const isRoot = params?.frameId === root[0] && params?.url === root[3] + root[4];
     const contexts = isRoot ? null : record.documentGraph.capture(epoch.dialogContexts, params);
     this.assertDialog(epoch.candidate, contexts?.actualOrigins ?? []);
-    return Object.freeze({ epoch, generation: epoch.id, document: epoch.document, contexts });
+    return Object.freeze({ epoch, generation: epoch.id, document: epoch.document, contexts, candidate: epoch.candidate, inputOperation });
   }
   checkDialog(record, proof) {
     this.checkGeneration(record, proof.epoch);
     // Both response admission and final native dispatch must account the same
     // input's accumulated wait, even when its timer callback has not run yet.
-    proof.epoch.inputOperation?.budget.assertAvailable();
-    this.assertDialog(proof.epoch.candidate, proof.contexts?.actualOrigins ?? []);
-    if (record.state !== "active" || proof.generation !== record.generation || proof.document !== proof.epoch.document)
+    if (proof.inputOperation && !proof.inputOperation.settled) proof.inputOperation.budget.assertAvailable();
+    record.preparationBudget?.assertAvailable();
+    this.assertDialog(proof.candidate, proof.contexts?.actualOrigins ?? []);
+    if (!["preparing", "navigating", "active"].includes(record.state) || proof.generation !== record.generation)
       throw fail("original dialog document changed", "DIALOG_STALE");
-    if (proof.contexts) record.documentGraph.assert(proof.contexts);
+    if (proof.readiness) record.documentGraph.assertReadiness(proof.contexts);
+    else {
+      if (proof.document !== proof.epoch.document) throw fail("original dialog document changed", "DIALOG_STALE");
+      if (proof.contexts) record.documentGraph.assert(proof.contexts);
+    }
   }
 
-  async prepare(record, epoch) {
+  startPreparationBudget(record, navigation) {
+    if (record.mode !== "human" || record.preparationBudget) return;
+    record.preparationBudget = new ManagedHumanPreparationBudget({ navigation, timing: this.timing, onExpire: error => {
+      this.revoke(record, error); void this.close(record, error).catch(() => {});
+    } });
+  }
+  wakeDialogs(record) { for (const wake of record.dialogWaiters) wake(); }
+  async waitForDialog(record, epoch) {
+    while (record.dialogs?.hasOpen() && !record.revoked && !epoch?.retired) {
+      let wake;
+      try { await new Promise(resolve => { wake = resolve; record.dialogWaiters.add(wake); }); }
+      finally { record.dialogWaiters.delete(wake); }
+    }
+    if (epoch) this.checkGeneration(record, epoch); else this.check(record);
+    record.preparationBudget?.assertAvailable();
+  }
+  async prepareDocument(record, epoch) {
     const check = () => this.checkGeneration(record, epoch);
     check();
-    const candidate = await this.validate(record.candidate, { advance: record.generation > 0 });
+    await this.waitForDialog(record, epoch);
+    const candidate = await this.validate(record.candidate, { advance: epoch.id > 1 });
     check(); epoch.candidate = candidate ?? record.candidate;
     epoch.inputIdentity = record.documentGraph?.captureIdentity();
     epoch.document = this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check));
+    check();
+    epoch.dialogContexts = await record.documentGraph?.snapshot(epoch.candidate);
+    check();
+    if (epoch.dialogContexts && epoch.dialogContexts.rootDocument !== epoch.document)
+      throw fail("native root document changed during child preparation", "DOCUMENT_CHANGED");
+    if (epoch.inputIdentity) record.documentGraph.assertIdentity(epoch.inputIdentity);
+    if (record.mode === "human") { record.generation = epoch.id; this.notify(record); }
+  }
+  async prepareDisplay(record, epoch) {
+    const check = () => this.checkGeneration(record, epoch);
+    await this.waitForDialog(record, epoch);
+    await this.send(record, "Performance.enable", { timeDomain: "timeTicks" }, check);
     check();
     // A read-only view has no CSS input coordinates. Zoom, visual offsets and
     // scrollbars constrain human input only, not the original native image.
@@ -297,10 +372,6 @@ export class ManagedHumanControl {
     if (this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check)) !== epoch.document)
       throw fail("native document changed during capture preparation", "DOCUMENT_CHANGED");
     check();
-    epoch.dialogContexts = await record.documentGraph?.snapshot();
-    check();
-    if (epoch.dialogContexts && epoch.dialogContexts.rootDocument !== epoch.document)
-      throw fail("native root document changed during child preparation", "DOCUMENT_CHANGED");
     if (epoch.inputIdentity) record.documentGraph.assertIdentity(epoch.inputIdentity);
   }
 
@@ -308,21 +379,28 @@ export class ManagedHumanControl {
     if (record.recovery) return record.recovery;
     const work = (async () => {
       while (!record.revoked) {
-        if (record.epoch?.retired) await this.releaseGeneration(record, record.epoch);
         this.check(record);
         while (record.pendingNavigations.size) {
           await new Promise(resolve => { record.wake = resolve; }); record.wake = null;
           this.check(record);
         }
-        const epoch = this.createGeneration(record);
+        const epoch = record.epoch && !record.epoch.retired ? record.epoch : this.createGeneration(record);
+        const oldCleanup = Promise.all([...record.epochs].filter(old => old !== epoch && old.retired).map(old => this.releaseGeneration(record, old)));
+        oldCleanup.catch(() => {});
         try {
-          await this.prepare(record, epoch);
+          epoch.preparation ??= this.prepareDocument(record, epoch);
+          await epoch.preparation;
+          this.checkGeneration(record, epoch);
+          await oldCleanup;
+          this.checkGeneration(record, epoch);
+          await this.prepareDisplay(record, epoch);
           this.checkGeneration(record, epoch);
           epoch.start = epoch.rendering.subscribe(record.tabId, epoch.token,
             () => { if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE"); },
-            frame => this.frame(record, epoch, frame), { acceptFrame: frame => {
+            frame => this.frame(record, epoch, frame), { ...(record.mode === "human" ? { startupBudget: record.preparationBudget } : {}), acceptFrame: frame => {
               if (epoch.retired || record.revoked) return false;
               this.checkGeneration(record, epoch);
+              record.preparationBudget?.assertAvailable();
               const capture = frame.metadata.monotonicTimestamp;
               if (!Number.isFinite(capture) || capture <= 0)
                 throw fail("this browser does not provide the native frame capture timestamp; use the recommended compatible managed browser", "CAPTURE_UNSUPPORTED");
@@ -373,8 +451,10 @@ export class ManagedHumanControl {
     record.generation = Math.max(1, record.generation) + 1;
     record.viewport = null; record.state = "navigating";
     this.notify(record); record.wake?.();
+    this.wakeDialogs(record);
     if (record.revoked) return;
-    if (!record.recoveryTimer) record.recoveryTimer = setTimeout(() => {
+    if (record.mode === "human") this.startPreparationBudget(record, true);
+    else if (!record.recoveryTimer) record.recoveryTimer = setTimeout(() => {
       void this.close(record, fail("navigation did not produce a verified frame before its deadline", "NAVIGATION_TIMEOUT")).catch(() => {});
     }, this.recoveryTimeoutMs);
     void this.recover(record).catch(() => {});
@@ -399,6 +479,7 @@ export class ManagedHumanControl {
     }
     if (!epoch.viewport) epoch.viewport = Object.freeze({ width, height });
     record.viewport = epoch.viewport; record.generation = epoch.id;
+    record.preparationBudget?.finish(); record.preparationBudget = null;
     if (record.state !== "active") { record.state = "active"; this.notify(record); }
     this.checkGeneration(record, epoch);
     record.onFrame(Object.freeze({ ...frame, generation: epoch.id, ...(record.mode === "human"
@@ -549,6 +630,7 @@ export class ManagedHumanControl {
       });
       epoch.inputPending = pending;
       const settled = () => {
+        operation.settled = true;
         if (epoch.inputPending === pending) epoch.inputPending = null;
         if (epoch.inputOperation === operation) epoch.inputOperation = null;
       };
@@ -572,9 +654,9 @@ export class ManagedHumanControl {
     if (epoch.cleaned) return Promise.resolve();
     if (!epoch.cleaning) {
       epoch.cleaning = (async () => {
-        await record.dialogs?.drain();
-        await Promise.allSettled([epoch.start, epoch.inputPending, epoch.geometryPending].filter(Boolean));
-        await record.dialogs?.drain();
+        await record.dialogs?.drain(epoch);
+        await Promise.allSettled([epoch.preparation, epoch.start, epoch.inputPending, epoch.geometryPending].filter(Boolean));
+        await record.dialogs?.drain(epoch);
         if (record.attached) {
           if (epoch.tracker) await epoch.tracker.release(record.tabId, epoch.token, (_target, method, params) => this.send(record, method, params));
           await epoch.rendering.cancel(record.tabId, epoch.token);
@@ -599,6 +681,7 @@ export class ManagedHumanControl {
     record.revoked = true; record.state = "releasing"; record.onFrame = null;
     record.documentGraph?.revoke();
     record.dialogs?.revoke();
+    record.preparationBudget?.finish(); record.preparationBudget = null; this.wakeDialogs(record);
     clearTimeout(record.recoveryTimer); record.recoveryTimer = null; record.wake?.();
     record.closed.resolve({ reason: String(error.message) });
     for (const epoch of record.epochs) this.retireGeneration(record, epoch);

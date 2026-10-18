@@ -235,7 +235,7 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 		return nil, nil
 	}
 	f, err := Object(data)
-	if err != nil || !choice(f["state"], "starting", "active", "navigating", "releasing", "released", "error") || !text(f["leaseId"], 128, false) || !integer(f["tabId"], 1, MaxSafeInteger) || !integer(f["generation"], 0, MaxSafeInteger) || f["viewport"] == nil {
+	if err != nil || !choice(f["state"], "starting", "preparing", "active", "navigating", "releasing", "released", "error") || !text(f["leaseId"], 128, false) || !integer(f["tabId"], 1, MaxSafeInteger) || !integer(f["generation"], 0, MaxSafeInteger) || f["viewport"] == nil {
 		return nil, errors.New("invalid human status")
 	}
 	var result HumanState
@@ -244,6 +244,9 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	}
 	if result.State == "navigating" && (result.Generation == 0 || !bytes.Equal(f["viewport"], []byte("null"))) {
 		return nil, errors.New("invalid navigating human generation")
+	}
+	if result.State == "preparing" && !bytes.Equal(f["viewport"], []byte("null")) {
+		return nil, errors.New("preparing human viewport must be absent")
 	}
 	if !bytes.Equal(f["viewport"], []byte("null")) {
 		viewport, err := Object(f["viewport"])

@@ -30,6 +30,57 @@ async function replaceWorker(f) {
 }
 const recover = (f, next, check = () => {}) => next.prepareManagedUserOpen({ workerBootId: "fixture-worker-B", recovery: f.recovery }, check);
 
+test("replacement identity read rejects a same-URL document commit before restoring result authority", async t => {
+  const f = await delivered(t), next = await replaceWorker(f), entered = f.gate(), release = f.gate();
+  f.hooks.targets = async () => { entered.resolve(); await release.promise; };
+  const opening = recover(f, next); opening.catch(() => {});
+  await entered.promise;
+  assert.equal(next.managedIdentityReads.get(7).size, 1);
+  f.frameRecords.get(7)[0].documentId = "replacement-document";
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 0, documentId: "replacement-document", url: f.tabs.get(7).url });
+  release.resolve();
+  await assert.rejects(opening, /HUMAN_UNAVAILABLE/);
+  assert.equal(next.managedWorkerOpened, false);
+  assert.deepEqual(next.managedResults.entries(), []);
+  assert.equal(next.managedIdentityReads.size, 0);
+  assert.equal(next.siteNavigationVersions.size, 0);
+});
+
+test("independent unowned identity reads retain their own navigation fence and clean up on every settlement", async t => {
+  const f = await delivered(t), next = await replaceWorker(f), first = f.gate(), second = f.gate();
+  let reads = 0;
+  f.hooks.targets = () => (++reads === 1 ? first.promise : second.promise);
+  const a = next.readManagedPageIdentity(7, () => {}), b = next.readManagedPageIdentity(7, () => {}); b.catch(() => {});
+  await until(() => reads === 2);
+  assert.equal(next.managedIdentityReads.get(7).size, 2);
+  first.resolve(); assert.equal((await a).documentId, "root-one");
+  assert.equal(next.managedIdentityReads.get(7).size, 1);
+  f.frameRecords.get(7)[0].documentId = "replacement-document";
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 0, documentId: "replacement-document", url: f.tabs.get(7).url });
+  second.resolve(); await assert.rejects(b, /HUMAN_UNAVAILABLE/);
+  assert.equal(next.managedIdentityReads.size, 0); assert.equal(next.siteNavigationVersions.size, 0);
+  await assert.rejects(next.readManagedPageIdentity(7, () => { throw new Error("original caller ended"); }), /original caller ended/);
+  assert.equal(next.managedIdentityReads.size, 0);
+  f.hooks.targets = () => { throw new Error("original target inspection failed"); };
+  await assert.rejects(next.readManagedPageIdentity(7, () => {}), /original target inspection failed/);
+  assert.equal(next.managedIdentityReads.size, 0);
+  delete f.hooks.targets;
+  assert.equal((await next.readManagedPageIdentity(7, () => {})).documentId, "replacement-document");
+  assert.equal(next.managedIdentityReads.size, 0);
+  assert.deepEqual(next.managedResults.entries(), []);
+});
+
+test("tab removal retires an unowned identity read even when its original replies arrive late", async t => {
+  const f = await delivered(t), next = await replaceWorker(f), entered = f.gate(), release = f.gate();
+  f.hooks.targets = async () => { entered.resolve(); await release.promise; };
+  const reading = next.readManagedPageIdentity(7, () => {}); reading.catch(() => {});
+  await entered.promise;
+  f.chrome.tabs.onRemoved.emit(7, { windowId: 1, isWindowClosing: false });
+  release.resolve(); await assert.rejects(reading, /HUMAN_UNAVAILABLE/);
+  assert.equal(next.managedIdentityReads.size, 0);
+  assert.deepEqual(next.managedResults.entries(), []);
+});
+
 test("explicit replacement joins original view cleanup, issues fresh authority, and preserves the original page", async t => {
   const f = await delivered(t), handle = await f.view(), oldIdentity = f.backend.managedJournal.identity();
   const nativeView = clone(f.backend.managedJournal.state.views[0]);
@@ -200,6 +251,7 @@ test("a native attachment intent without its durable attached ACK refuses replac
 
 test("held human key and pointer survive only as unknown durable risk, never as an empty replacement tracker", async t => {
   const f = await delivered(t), handle = await f.backend.beginManagedHuman(7, () => {}, () => {}, () => {}, { deliveryId: f.original.deliveryId });
+  await f.backend.managedHuman.current.start;
   const info = handle.info();
   for (const [index, input] of [
     { type: "key", action: "down", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 },

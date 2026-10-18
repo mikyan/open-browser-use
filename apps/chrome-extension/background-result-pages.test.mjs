@@ -14,6 +14,12 @@ async function delivered(t, status = "deliverable") {
   return f;
 }
 const view = (f, frames = []) => f.backend.managedViewerSubscribe(7, frame => frames.push(frame), () => {}, { deliveryId: f.record.deliveryId }, () => {});
+async function human(f, frames = []) {
+  const admitted = f.backend.beginManagedHuman(7, () => {}, frame => frames.push(frame), () => {}, { deliveryId: f.record.deliveryId });
+  const record = f.backend.managedHuman.current, handle = await admitted;
+  await record.start;
+  return handle;
+}
 
 test("only successful explicit finalize publishes native result identity; turnEnded and markers do not", async t => {
   const f = await delivered(t);
@@ -135,7 +141,7 @@ test("Pause while a result listing awaits native proof hides it without deleting
 });
 
 test("result human operation advances the exact document and can be viewed again after End", async t => {
-  const f = await delivered(t), handle = await f.backend.beginManagedHuman(7, () => {}, () => {}, () => {}, { deliveryId: f.record.deliveryId });
+  const f = await delivered(t), handle = await human(f);
   assert.equal(f.backend.automationControl.state, "paused");
   f.frameRecords.get(7)[0].documentId = "B"; f.frameRecords.get(7)[0].url = "https://fixture.test/B"; f.tabs.get(7).url = "https://fixture.test/B";
   const candidate = await f.backend.validateManagedHumanPage(f.backend.managedHuman.current.candidate, { advance: true });
@@ -147,8 +153,7 @@ test("result human operation advances the exact document and can be viewed again
 test("real result lease navigation recovers native B frames and End permits a fresh view of B", async t => {
   for (const mode of ["view", "human"]) await t.test(mode, async t => {
     const f = await delivered(t), frames = [];
-    const handle = mode === "view" ? await view(f, frames) :
-      await f.backend.beginManagedHuman(7, () => {}, frame => frames.push(frame), () => {}, { deliveryId: f.record.deliveryId });
+    const handle = mode === "view" ? await view(f, frames) : await human(f, frames);
     const lease = handle.info().leaseId, generation = handle.info().generation;
     Object.assign(f.frameRecords.get(7)[0], { documentId: "B", url: "https://fixture.test/B" });
     f.tabs.get(7).url = "https://fixture.test/B";

@@ -14,7 +14,8 @@ function manualTiming() {
 }
 function fixture(options = {}) {
   const calls = [], frames = [], states = [], listeners = new Set(), risks = new Set();
-  let paused = false, authorized = true, documentId = "original-document", loaderId = "loader-1", clock = 100;
+  let paused = false, authorized = true, documentId = "original-document", loaderId = "loader-1", clock = 100, navigationVersion = 0;
+  const documentURL = () => options.documentURL ?? "https://fixture.test/" + documentId;
   const emit = (source = { targetId: "original-target" }, metadata = options.metadata ?? { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0 }) => {
     for (const listener of [...listeners]) listener(source, "Page.screencastFrame", { data: "cGl4ZWxz", metadata: options.nativeMetadata ?? { monotonicTimestamp: clock + 1, ...metadata }, sessionId: 42 });
   };
@@ -27,14 +28,14 @@ function fixture(options = {}) {
       const result = await options.command?.(method, params, target);
       if (method === "Page.startScreencast" && options.frames !== false) queueMicrotask(emit);
       if (result !== undefined) return result;
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root", loaderId, url: "https://fixture.test/" + documentId } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root", loaderId, url: documentURL() } } };
       if (method === "Performance.getMetrics") return { metrics: [{ name: "Timestamp", value: clock }] };
       return method === "Page.getLayoutMetrics" ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600, scale: 1, zoom: 1, offsetX: 0, offsetY: 0 } } : {};
     }
   } };
   const control = new ManagedHumanControl({ chrome,
-    capture: async (tabId, captureOptions) => { calls.push(["capture"]); await options.capture?.(tabId, captureOptions); return { tabId, targetId: "original-target", documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
-    validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
+    capture: async (tabId, captureOptions) => { calls.push(["capture"]); await options.capture?.(tabId, captureOptions); return { tabId, targetId: "original-target", documentId, navigationVersion, title: `Title ${documentId}`, url: documentURL() }; },
+    validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, navigationVersion, title: `Title ${documentId}`, url: documentURL() }; },
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
     assertDialog: (candidate, origins) => options.assertDialog?.(candidate, origins),
@@ -44,10 +45,19 @@ function fixture(options = {}) {
     onFailure: error => calls.push(["failure", error.message])
   });
   const authority = () => { if (!authorized) throw new Error("lease expired"); };
-  const begin = (request = {}) => control.begin(7, authority, frame => frames.push(frame), state => states.push(state), request);
+  const beginAdmitted = (request = {}) => control.begin(7, authority, frame => frames.push(frame), state => states.push(state), request);
+  // Most input/lifecycle cases require a displayed page. Keep that explicit
+  // test setup separate from the public two-stage Begin admission below.
+  const begin = (request = {}) => {
+    const admitted = beginAdmitted(request), original = control.current;
+    return admitted.then(async handle => {
+      try { await original.start; return handle; }
+      catch (error) { await handle.close(); throw error; }
+    });
+  };
   const beginView = (request = {}) => control.beginView(7, authority, frame => frames.push(frame), state => states.push(state), request);
-  return { control, chrome, calls, frames, states, risks, emit, listeners, begin, beginView,
-    changeDocument: (id = "next-document") => { documentId = id; loaderId = "loader-" + id; clock += 10; },
+  return { control, chrome, calls, frames, states, risks, emit, listeners, begin, beginAdmitted, beginView,
+    changeDocument: (id = "next-document") => { documentId = id; loaderId = "loader-" + id; clock += 10; navigationVersion++; },
     event: (method, params = {}, source = { targetId: "original-target" }) => { for (const listener of [...listeners]) listener(source, method, params); },
     expire: () => { authorized = false; } };
 }
@@ -290,6 +300,118 @@ const childContext = (f, frameId = "child", uniqueId = "replacement-child", id =
 });
 const childOpening = (f, frameId = "child") => opening(f, { frameId, url: `https://fixture.test/${frameId}` });
 const decisions = f => f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]);
+
+function readinessFixture(options = {}) {
+  let f;
+  f = fixture({ ...options, command: async (method, params, target) => {
+    if (method === "Runtime.enable") childContext(f, "root", "original-root", 1);
+    return options.command?.(method, params, target, f);
+  } });
+  return f;
+}
+function navigateOriginal(f, id = "B", url = `https://fixture.test/${id}`) {
+  f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "loader-" + id });
+  f.event("Runtime.executionContextsCleared");
+  f.changeDocument(id);
+  f.event("Page.frameNavigated", { frame: { id: "root", loaderId: "loader-" + id, url } });
+  childContext(f, "root", "context-" + id, 2);
+}
+
+test("actual Begin admits End before Page.enable ACK but grants no input or dialog", async () => {
+  const page = defer(), entered = defer();
+  const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });
+  const handle = await f.beginAdmitted(); await entered.promise;
+  assert.deepEqual({ ...handle.info(), leaseId: "original" }, {
+    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, lastInputSequence: 0
+  });
+  assert.equal(handle.pendingDialog(), null);
+  await assert.rejects(input(handle, { type: "text", text: "must not send" }), /GENERATION_STALE/);
+  let ended = false; const closing = handle.close().then(() => { ended = true; }); await tick();
+  assert.equal(ended, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  page.resolve(); await closing;
+  assert.equal(f.calls.some(([method]) => ["Runtime.enable", "Page.startScreencast"].includes(method) || method.startsWith("Input.")), false);
+  f.control.assertReleased(); assert.equal(f.risks.size, 0);
+});
+
+test("proved prompt before the first frame answers while original metadata ACK remains pending", async () => {
+  const metadata = defer(), entered = defer(), timing = manualTiming();
+  const f = readinessFixture({ timing, command: (method, params, _target, owner) => {
+    if (method === "Performance.enable") { entered.resolve(); return metadata.promise; }
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+  } });
+  const handle = await f.beginAdmitted(); await entered.promise;
+  assert.equal(handle.info().state, "preparing"); assert.equal(handle.info().generation, 1); assert.equal(handle.info().viewport, null);
+  opening(f, { type: "prompt", defaultPrompt: "before native frame" }); await tick();
+  assert.equal(handle.pendingDialog().generation, 1); assert.equal(f.frames.length, 0);
+  timing.advance(40000); assert.equal(handle.info().state, "preparing");
+  await assert.rejects(input(handle, { type: "text", text: "no page input" }), /GENERATION_STALE/);
+  const boundary = f.calls.length, receipt = await answer(handle, { promptText: "原始回答 ✅" });
+  assert.equal(receipt.acknowledged, true);
+  assert.deepEqual(f.calls.slice(boundary).map(([method]) => method), ["Page.handleJavaScriptDialog"]);
+  assert.equal(f.frames.length, 0); assert.equal(handle.info().viewport, null);
+  metadata.resolve(); await f.control.current.start;
+  assert.equal(handle.info().state, "active"); assert.equal(handle.info().generation, 1); assert.equal(f.frames.length, 1);
+  await handle.close(); f.control.assertReleased();
+});
+
+test("End cancels before joining the original pending readiness proof and never publishes it late", async () => {
+  const metadata = defer(), entered = defer(), proof = defer(), proofEntered = defer(); let holdProof = false;
+  const f = readinessFixture({ validate: () => { if (holdProof) { proofEntered.resolve(); return proof.promise; } },
+    command: (method, params, _target, owner) => {
+      if (method === "Performance.enable") { entered.resolve(); return metadata.promise; }
+      if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+    } });
+  const handle = await f.beginAdmitted(); await entered.promise; holdProof = true;
+  opening(f); await proofEntered.promise; assert.equal(handle.pendingDialog(), null);
+  let ended = false; const closing = handle.close().then(() => { ended = true; }); await tick();
+  assert.deepEqual(decisions(f), [{ accept: false }]); assert.equal(ended, false);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  proof.resolve(); metadata.resolve(); await closing;
+  assert.equal(handle.pendingDialog(), null); assert.equal(f.frames.length, 0); f.control.assertReleased();
+});
+
+for (const sameURL of [false, true]) test(`navigation prompt bypasses the old input ACK and old stop without changing their receipts (sameURL=${sameURL})`, async () => {
+  const native = defer(), sent = defer(), stop = defer(), stopEntered = defer(); let stops = 0;
+  const url = sameURL ? "https://fixture.test/original-document" : "https://fixture.test/B";
+  const f = readinessFixture({ documentURL: sameURL ? url : undefined, command: (method, params, _target, owner) => {
+    if (method === "Input.insertText") { sent.resolve(); return native.promise; }
+    if (method === "Page.stopScreencast" && ++stops === 1) { stopEntered.resolve(); return stop.promise; }
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+  } });
+  const handle = await f.begin(), originalGeneration = handle.info().generation;
+  const originalInput = input(handle, { type: "text", text: "one original native operation" }); await sent.promise;
+  navigateOriginal(f, "B", url); opening(f, { url, type: "prompt" }); await tick();
+  const dialog = handle.pendingDialog(); assert.ok(dialog); assert.ok(dialog.generation > originalGeneration);
+  assert.equal(handle.info().state, "navigating"); assert.equal(handle.info().viewport, null);
+  await stopEntered.promise;
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  const boundary = f.calls.length; await answer(handle, { promptText: "新页面，原始回答" });
+  assert.equal(f.calls[boundary][0], "Page.handleJavaScriptDialog");
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  const recovering = f.control.current.recovery; native.resolve();
+  const receipt = await originalInput; assert.equal(receipt.generation, originalGeneration); assert.equal(receipt.sequence, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  stop.resolve(); await recovering;
+  assert.equal(handle.info().state, "active"); assert.equal(handle.info().lastInputSequence, 0);
+  assert.equal(handle.info().generation, dialog.generation); assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
+  await handle.close();
+});
+
+test("a navigation dialog keeps the old input cumulative budget even when its timer callback is late", async () => {
+  const timing = manualTiming(), native = defer(), sent = defer();
+  const f = readinessFixture({ timing, command: (method, params, _target, owner) => {
+    if (method === "Input.insertText") { sent.resolve(); return native.promise; }
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+  } });
+  const handle = await f.begin(), pending = input(handle, { type: "text", text: "one original input" }); pending.catch(() => {}); await sent.promise;
+  opening(f); timing.advance(299000); await answer(handle);
+  navigateOriginal(f); opening(f, { url: "https://fixture.test/B" }); await tick();
+  assert.ok(handle.pendingDialog()); timing.skip(1001);
+  await assert.rejects(answer(handle), /DIALOG_STALE/); await assert.rejects(pending, /INPUT_TIMEOUT/);
+  assert.deepEqual(decisions(f), [{ accept: true }, { accept: false }]);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  native.resolve(); await handle.close(); f.control.assertReleased();
+});
 
 test("a context destroyed while Runtime.enable awaits its ACK cannot be seeded by the later tree", async () => {
   const enabled = defer(), f = childFixture({ command: method => method === "Runtime.enable" ? enabled.promise : undefined });
@@ -821,13 +943,14 @@ for (const boundary of ["capture", "pause", "markRisk", "attach", "Page.enable",
   });
 }
 
-test("a failed begin with unconfirmed cleanup reports its barrier instead of a resource-free rejection", async () => {
+test("an admitted startup failure retains the original unconfirmed cleanup barrier", async () => {
   const focus = defer(), entered = defer(); let failDetach = true;
   const f = fixture({ command: (method, params) => {
     if (method === "Emulation.setFocusEmulationEnabled" && params.enabled) { entered.resolve(); return focus.promise; }
   }, detach: () => { if (failDetach) throw new Error("original detach unconfirmed"); } });
-  const beginning = f.begin(); beginning.catch(() => {}); await entered.promise; f.expire(); focus.resolve();
-  await assert.rejects(beginning, error => error.humanCleanupIncomplete === true && /OBU_HUMAN_CLEANUP_INCOMPLETE/.test(error.message));
+  const handle = await f.beginAdmitted(); await entered.promise; f.expire(); focus.resolve();
+  assert.match((await handle.closed).reason, /lease expired/);
+  await assert.rejects(handle.close(), /original detach unconfirmed/);
   assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/); assert.equal(f.risks.size, 1);
   failDetach = false; await f.control.cancel(new Error("explicit cleanup")); f.control.assertReleased();
 });
@@ -910,7 +1033,7 @@ test("only an actual first frame establishes the full input surface, including s
   // RTL. Public coordinates do not infer which side contains the scrollbar.
   const f = fixture({ frames: false, command: method => method === "Page.getLayoutMetrics" ? metrics({ clientWidth: 763, clientHeight: 446 }) : undefined });
   const beginning = f.begin(); await tick();
-  assert.equal(f.control.status().viewport, null); assert.equal(f.control.status().generation, 0);
+  assert.equal(f.control.status().viewport, null); assert.equal(f.control.status().generation, 1);
   const metadata = { deviceWidth: 778, deviceHeight: 446, pageScaleFactor: 1, offsetTop: 0 };
   f.emit(undefined, metadata); const handle = await beginning;
   assert.deepEqual(handle.info().viewport, { width: 778, height: 446 });
@@ -1080,7 +1203,7 @@ test("tab metadata stays blank before a verified frame and after the original le
   t.after(async () => { f.emit(); try { await beginning; } finally { await f.control.current?.handle.close(); } });
   await tick();
   const original = f.control.current.handle;
-  assert.deepEqual(original.tabInfo(), { id: 7, title: "页面正在跳转", url: "" });
+  assert.deepEqual(original.tabInfo(), { id: 7, title: "页面正在准备", url: "" });
   f.emit(); const handle = await beginning;
   assert.deepEqual(handle.tabInfo(), { id: 7, title: "Title original-document", url: "https://fixture.test/original-document" });
   assert.equal(Object.isFrozen(handle.tabInfo()), true);
@@ -1270,13 +1393,13 @@ test("End during navigation keeps the original native preparation in cleanup and
 });
 
 test("a bounded navigation deadline revokes but never invents a pending native release ACK", async () => {
-  const releasing = defer(), entered = defer();
-  const f = fixture({ command: (method, params) => {
+  const releasing = defer(), entered = defer(), timing = manualTiming();
+  const f = fixture({ timing, command: (method, params) => {
     if (method === "Input.dispatchKeyEvent" && params.type === "keyUp") { entered.resolve(); return releasing.promise; }
-  } }), handle = await f.begin(); f.control.recoveryTimeoutMs = 15;
+  } }), handle = await f.begin();
   await input(handle, { type: "key", action: "down", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 });
-  f.control.navigation(7, { frameId: 0 }, "pending"); await entered.promise;
-  assert.match((await handle.closed).reason, /OBU_HUMAN_NAVIGATION_TIMEOUT/);
+  f.control.navigation(7, { frameId: 0 }, "pending"); timing.advance(10000); await entered.promise;
+  assert.match((await handle.closed).reason, /OBU_HUMAN_PREPARATION_TIMEOUT/);
   assert.equal(f.risks.size, 1); assert.throws(() => f.control.assertReleased(), /OBU_HUMAN_BUSY/);
   assert.equal(f.calls.some(([method]) => method === "detach"), false);
   releasing.resolve(); await handle.close(); assert.equal(f.risks.size, 0);
@@ -1586,4 +1709,48 @@ for (const event of ["destroy", "replace"]) test(`unsent input must not cross or
   await handle.close();
   assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0, `native call escaped old default context: ${JSON.stringify(settled)}`);
   assert.ok(settled.error, "caller must not receive an old-generation success");
+});
+
+test('metadata remains gated after a response ACK until the exact original Closed event', async () => {
+  const f = fixture(), handle = await f.begin(), record = f.control.current;
+  opening(f); const before = f.calls.filter(([method]) => method === 'Page.getLayoutMetrics').length;
+  const read = f.control.send(record, 'Page.getLayoutMetrics', undefined, () => f.control.check(record));
+  await tick(); assert.equal(f.calls.filter(([method]) => method === 'Page.getLayoutMetrics').length, before);
+  assert.equal((await answer(handle)).acknowledged, true);
+  await tick(); assert.equal(f.calls.filter(([method]) => method === 'Page.getLayoutMetrics').length, before);
+  f.event('Page.javascriptDialogClosed', {frameId:'root'}); await read;
+  assert.equal(f.calls.filter(([method]) => method === 'Page.getLayoutMetrics').length, before + 1);
+  await handle.close(); assert.equal(f.risks.size, 0);
+});
+test('End rejects queued metadata but still joins original metadata and cancellation ACKs', async () => {
+  const originalRead = defer(), cancellation = defer(); let holding = false;
+  const f = fixture({command:(method, params) => {
+    if (holding && method === 'Page.getLayoutMetrics') return originalRead.promise;
+    if (method === 'Page.handleJavaScriptDialog') { assert.equal(params.accept,false); return cancellation.promise; }
+  }});
+  const handle = await f.begin(), record = f.control.current; holding = true;
+  const read = f.control.send(record,'Page.getLayoutMetrics',undefined,()=>f.control.check(record));
+  await tick(); opening(f);
+  const before=f.calls.filter(([method])=>method==='Page.getLayoutMetrics').length;
+  const queued=f.control.send(record,'Page.getLayoutMetrics',undefined,()=>f.control.check(record));
+  const rejected=assert.rejects(queued,/revoked/); await tick();
+  let done=false; const closing=handle.close().then(()=>{done=true}); await rejected; await tick();
+  assert.equal(done,false); assert.equal(f.calls.filter(([method])=>method==='Page.getLayoutMetrics').length,before);
+  assert.equal(f.calls.some(([method])=>method==='detach'),false);
+  cancellation.resolve(); await tick(); assert.equal(done,false);
+  originalRead.resolve({}); await read; await closing;
+  assert.equal(f.risks.size,0); assert.equal(f.calls.filter(([method])=>method==='detach').length,1);
+});
+test('a modal Opening between the wait return and actual metadata dispatch remains gated', async () => {
+  const f=fixture(), handle=await f.begin(), record=f.control.current;
+  const before=f.calls.filter(([method])=>method==='Page.getLayoutMetrics').length;
+  const read=f.control.send(record,'Page.getLayoutMetrics',undefined,()=>f.control.check(record));
+  queueMicrotask(()=>opening(f));
+  await tick();
+  let caught;
+  try { assert.equal(f.calls.filter(([method])=>method==='Page.getLayoutMetrics').length,before); }
+  catch(error) { caught=error; }
+  await answer(handle); f.event('Page.javascriptDialogClosed',{frameId:'root'});
+  await read; await handle.close();
+  if(caught) throw caught;
 });

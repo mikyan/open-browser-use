@@ -212,6 +212,115 @@ function setup(inputBudgetVersion) {
   return { element, socket, images, revoked, timers, timerDelays, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput };
 }
 
+function beginPreparing(h, generation = 1, state = "preparing") {
+  h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
+  h.element("human-begin").click();
+  const begin = h.socket.sent.at(-1);
+  const original = h.humanState({ human: { ...h.humanState().human, state, generation, viewport: null } });
+  return { begin, original };
+}
+
+for (const generation of [0, 1]) test(`preparing generation ${generation} admits End only after its original Begin receipt`, () => {
+  const h = setup(1), { begin, original } = beginPreparing(h, generation);
+  h.socket.message({ type: "state", ...original });
+  assert.equal(h.element("human-end").disabled, true);
+  h.element("human-end").click();
+  assert.equal(h.socket.sent.at(-1), begin);
+  h.respond(begin.id, original);
+  assert.equal(h.element("connection").textContent, "已连接");
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("human-end").disabled, false);
+  h.element("human-end").click();
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.socket.sent.at(-1).leaseId, "lease-a");
+  h.respond(h.socket.sent.at(-1).id, releaseState(h));
+  assert.equal(h.element("human-end").hidden, true);
+});
+
+for (const stage of ["preparing", "navigating"]) test(`${stage} proven dialog is independent of viewport and requires Begin receipt`, () => {
+  const h = setup(1), { begin, original } = beginPreparing(h, 1, stage);
+  original.pendingDialog = dialog();
+  h.socket.message({ type: "state", ...original });
+  assert.equal(h.element("dialog-accept").disabled, true);
+  h.element("dialog-accept").click(); assert.equal(h.socket.sent.at(-1), begin);
+  h.respond(begin.id, original);
+  assert.equal(h.element("dialog-accept").disabled, false);
+  h.element("dialog-prompt").value = "原输入😀"; h.element("dialog-accept").click();
+  const answer = h.socket.sent.at(-1);
+  assert.equal(answer.operation, "humanDialogRespond"); assert.equal(answer.generation, 1);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.respond(answer.id, { ...original, eventSequence: 20002, pendingDialog: null,
+    dialogReceipt: { leaseId: "lease-a", generation: 1, dialogId: original.pendingDialog.dialogId, acknowledged: true } });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanInput" || x.operation === "humanEnd"), false);
+});
+
+for (const order of ["state-first", "frame-first"]) test(`preparing same-generation first viewport requires decoded frame: ${order}`, () => {
+  const h = setup(1), { begin, original } = beginPreparing(h);
+  h.respond(begin.id, original);
+  if (order === "frame-first") h.humanFrame(3, { eventSequence: 20003 });
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002 }) });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  if (order === "state-first") h.humanFrame(3, { eventSequence: 20003 });
+  assert.equal(h.images.length, 1); h.images[0].onload();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanEnd"), false);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20004,
+    human: { ...h.humanState().human, viewport: { width: 800, height: 600 } } }) });
+  assert.equal(h.element("human-input").dataset.enabled, "false", "later same-generation resize is not initial readiness");
+});
+
+test("navigating dialog response does not wait for the old input receipt or new frame", () => {
+  const h = setup(1); h.readyHuman();
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "original" });
+  const input = h.socket.sent.at(-1);
+  const next = generationState(h, 2, "navigating"); next.pendingDialog = dialog({ generation: 2 });
+  h.socket.message({ type: "state", ...next });
+  h.element("dialog-accept").click(); const answer = h.socket.sent.at(-1);
+  assert.equal(answer.operation, "humanDialogRespond"); assert.equal(answer.generation, 2);
+  h.ackInput(input);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.socket.sent.at(-1), answer); assert.equal(h.element("dialog-accept").disabled, true);
+});
+
+test("pre-admission starting geometry can become ready but cannot replace Begin", () => {
+  const h = setup(), { begin, original } = beginPreparing(h, 1, "starting");
+  h.socket.message({ type: "state", ...original });
+  const active = h.humanState({ eventSequence: 20002 });
+  h.socket.message({ type: "state", ...active });
+  h.humanFrame(3, { eventSequence: 20003 }); h.images.at(-1).onload();
+  assert.equal(h.element("human-end").disabled, true); assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.respond(begin.id, active);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanEnd"), false);
+});
+
+for (const wrong of ["starting", "zero-dialog", "foreign-lease", "readonly", "viewport"]) test(`preparing rejects invalid authority: ${wrong}`, () => {
+  const h = setup(), { begin, original } = beginPreparing(h);
+  if (wrong === "starting") original.human.state = "starting";
+  else if (wrong === "zero-dialog") { original.human.generation = 0; original.pendingDialog = dialog(); }
+  else if (wrong === "foreign-lease") { h.socket.message({ type: "state", ...original }); original.human.leaseId = "foreign"; }
+  else if (wrong === "readonly") { original.view = original.human; original.human = null; }
+  else original.human.viewport = { width: 1280, height: 720 };
+  h.respond(begin.id, original);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.element("human-end").disabled, true);
+  assert.equal(h.element("dialog-accept").disabled, true);
+  assert.equal(h.socket.sent.some(x => x.operation === "humanEnd" || x.operation === "humanDialogRespond"), false);
+});
+
+test("blur and disconnect during preparing retain the original admission and never enable late frame", () => {
+  for (const ended of ["blur", "disconnect"]) {
+    const h = setup(), { begin, original } = beginPreparing(h);
+    h.socket.message({ type: "state", ...original });
+    if (ended === "blur") h.windowEvents.blur(); else h.socket.close();
+    h.respond(begin.id, original);
+    h.humanFrame();
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+    assert.equal(h.socket.sent.filter(x => x.operation === "humanEnd").length, ended === "blur" ? 1 : 0);
+  }
+});
+
 test("ticket is removed before connecting and sent only in first WebSocket auth", () => {
   const h = setup();
   assert.deepEqual(h.replaced, [null, "", "/"]);
@@ -925,8 +1034,8 @@ test("human release notice from pending Begin is not revived after an error repl
   h.windowEvents.blur();
   h.socket.message({ type: "response", id: begin.id, error: { code: "OPERATION_UNCONFIRMED", message: "Original Begin outcome is unknown." } });
   h.socket.message({ type: "state", ...h.humanState({ tabs: [resultTab()], selectedTabId: 1, view: null, eventSequence: 20003, retiredSequence: 20001 }) });
-  const end = h.socket.sent.at(-1); assert.equal(end.operation, "humanEnd");
-  h.respond(end.id, releaseState(h));
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0, "late state cannot replace the failed Begin receipt");
+  h.socket.message({ type: "state", ...releaseState(h) });
   assert.equal(h.element("error").textContent, "Original Begin outcome is unknown.");
   assert.equal(h.element("error").hidden, false);
 });
@@ -1058,6 +1167,9 @@ test("retired Begin, Input and End callbacks cannot change a successor admission
         if (operation === "humanEnd") {
           old = end; timer = [...h.timers.values()].at(-1);
           h.socket.message({ type: "state", ...cleanup }); // Real cleanup can precede its command response.
+        } else if (operation === "humanBegin") {
+          assert.equal(h.element("human-end").disabled, true, "early status is not Begin admission");
+          h.socket.message({ type: "state", ...cleanup }); // Original backend cleanup may retire a still-pending Begin.
         } else h.respond(end.id, cleanup);
         assert.equal(h.element("control").disabled, false, label);
         h.element("control").click(); h.respond(h.socket.sent.at(-1).id, h.state(3));
@@ -1267,7 +1379,7 @@ test("navigation never overrides explicit End, Stop, blur or connection loss", (
   }
 });
 
-test("navigation retires a delayed Begin receipt once its original admission changes generation", () => {
+test("navigation cannot replace Begin admission and a valid late receipt cannot regress its generation", () => {
   for (const settlement of ["success", "error", "timeout"]) {
     const h = setup(); h.running(); h.choose();
     h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));
@@ -1276,15 +1388,19 @@ test("navigation retires a delayed Begin receipt once its original admission cha
     h.socket.message({ type: "state", ...h.humanState() });
     h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
     resumeGeneration(h);
+    assert.equal(h.element("human-input").dataset.enabled, "false", "state and decoded frame do not admit Begin");
+    assert.equal(h.element("human-end").disabled, true);
     if (settlement === "success") h.respond(begin.id, h.humanState());
     else if (settlement === "error") h.socket.message({ type: "response", id: begin.id, error: { code: "OPERATION_UNCONFIRMED", message: "old Begin" } });
     else timer();
-    assert.equal(h.element("human-input").dataset.enabled, "true", settlement);
-    assert.equal(h.element("connection").textContent, "已连接", settlement);
+    assert.equal(h.element("human-input").dataset.enabled, String(settlement === "success"), settlement);
+    assert.equal(h.element("connection").textContent, settlement === "success" ? "已连接" : "控制状态不可用", settlement);
     assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0, settlement);
     h.event("human-input", "beforeinput", { inputType: "insertText", data: "new" });
-    assert.equal(h.socket.sent.at(-1).generation, 2, settlement);
-    assert.equal(h.socket.sent.at(-1).sequence, 1, settlement);
+    if (settlement === "success") {
+      assert.equal(h.socket.sent.at(-1).generation, 2, settlement);
+      assert.equal(h.socket.sent.at(-1).sequence, 1, settlement);
+    } else assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 0);
   }
 });
 

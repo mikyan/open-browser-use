@@ -17,7 +17,10 @@ func (c *connection) admitDialog(request *command) string {
 	c.controlMu.Lock()
 	defer c.controlMu.Unlock()
 	dialog := c.pendingDialog
-	if !c.humanClaimed || c.humanStarting || c.humanRevoked || !c.humanActive || c.ctx.Err() != nil || dialog == nil ||
+	// A proved dialog can precede geometry or the successor frame. The exact
+	// pending tuple and original Begin admission authorize only this decision;
+	// ordinary input still requires humanActive and its native frame.
+	if !c.humanClaimed || c.humanStarting || c.humanRevoked || c.ctx.Err() != nil || dialog == nil ||
 		dialog.LeaseID != c.humanLease || dialog.Generation != c.humanGeneration || dialog.Generation <= c.humanRetiredGeneration ||
 		!managedprotocol.MatchDialogReceipt(fields, &managedprotocol.DialogReceipt{DialogIdentity: dialog.DialogIdentity, Acknowledged: true}) || c.dialogClaims[dialog.DialogIdentity] {
 		return "HUMAN_DIALOG_STALE"

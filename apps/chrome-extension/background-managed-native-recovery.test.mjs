@@ -40,6 +40,7 @@ test("managed native loss keeps the original result and requires recovered user 
 test("managed native recovery waits for actual original human mouse release and detach", async t => {
   const f = await delivered(t);
   const handle = await f.backend.beginManagedHuman(7, () => {}, () => {}, () => {}, { deliveryId: f.record.deliveryId });
+  await f.backend.managedHuman.current.start;
   const info = handle.info();
   await handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: 1,
     input: { type: "pointer", action: "down", button: "left", x: 10, y: 20, modifiers: 0 } });
@@ -79,6 +80,7 @@ test("failed managed Pause persistence keeps old results inaccessible and does n
 test("managed disconnect joins an already dispatched original down ACK before issuing its release", async t => {
   const f = await delivered(t);
   const handle = await f.backend.beginManagedHuman(7, () => {}, () => {}, () => {}, { deliveryId: f.record.deliveryId });
+  await f.backend.managedHuman.current.start;
   const info = handle.info(), dispatched = f.gate(); let entered = false;
   f.hooks.command = async (_target, method, params) => {
     if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") { entered = true; await dispatched.promise; }
@@ -97,6 +99,42 @@ test("managed disconnect joins an already dispatched original down ACK before is
   assert.equal(handle.info().state, "released");
   assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased").length, 1);
   assert.equal(f.attached.has(7), false);
+});
+
+test("managed disconnect during admitted preparation joins the original native setup before detach and re-admission", async t => {
+  for (const stage of ["Runtime.enable", "Page.startScreencast"]) await t.test(stage, async t => {
+    const f = await delivered(t), native = f.gate(); let entered = false;
+    const detach = f.chrome.debugger.detach, detachTargets = [];
+    f.chrome.debugger.detach = async target => { detachTargets.push({ ...target }); return detach(target); };
+    f.hooks.command = async (_target, method) => {
+      if (method === stage) { entered = true; await native.promise; }
+    };
+    const handle = await f.backend.beginManagedHuman(7, () => {}, () => {}, () => {}, { deliveryId: f.record.deliveryId });
+    await until(() => entered);
+    assert.equal(handle.info().state, "preparing"); assert.equal(handle.info().viewport, null);
+    assert.equal(f.attached.has(7), true);
+    const before = f.calls.length;
+    let recovered = false, admitted = false;
+    const recovery = f.backend.nativeDisconnected().then(() => { recovered = true; });
+    const opening = f.backend.prepareManagedUserOpen().then(token => { admitted = true; return token; });
+    await tick();
+    assert.equal(recovered, false); assert.equal(admitted, false);
+    assert.equal(f.backend.automationControl.cleanupComplete, false);
+    assert.equal(f.attached.has(7), true);
+    assert.equal(f.calls.slice(before).some(([method]) => method === "detach"), false);
+    native.resolve(); await recovery;
+    const token = await opening;
+    assert.equal(handle.info().state, "released"); assert.equal(f.attached.has(7), false);
+    assert.equal(f.backend.managedHuman.current, null);
+    assert.equal(detachTargets.filter(target => target.targetId === "target-7").length, 1, JSON.stringify(detachTargets));
+    assert.equal(f.calls.slice(before).some(([method]) => method.startsWith("Input.")), false);
+    if (stage === "Runtime.enable") assert.equal(f.calls.slice(before).some(([method]) => method === "Page.startScreencast"), false);
+    else assert.equal(f.calls.slice(before).filter(([method]) => method === "Page.stopScreencast").length, 1);
+    assert.equal(f.backend.browserLifetime.controlSnapshot().pending.length, 0);
+    f.backend.commitManagedUserOpen(token);
+    assert.equal(f.backend.automationControl.state, "paused");
+    assert.equal(f.backend.automationControl.cleanupComplete, true);
+  });
 });
 
 test("a second native loss invalidates a prepared open token without reopening automation", async t => {

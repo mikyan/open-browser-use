@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BrowserRendering } from "./browser-rendering.js";
+import { ManagedHumanPreparationBudget } from "./managed-human-budget.js";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
@@ -15,7 +16,7 @@ function fixture(command = async () => {}, { startupData = "aW1hZ2U=" } = {}) {
       const settled = () => { drains.delete(result); if (queues.get(tabId) === result) queues.delete(tabId); };
       result.then(settled, settled); return result;
     },
-    async send(target, method, params) { calls.push({ target, method, params }); await command(method); if (method === "Page.startScreencast") queueMicrotask(() => emit(startupData)); return {}; },
+    async send(target, method, params, finalCheck) { finalCheck?.(); calls.push({ target, method, params }); await command(method); if (method === "Page.startScreencast") queueMicrotask(() => emit(startupData)); return {}; },
     addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener),
     isCurrent: (_tabId, token) => token === attachment,
     isExternal: () => external
@@ -163,4 +164,111 @@ test("a failed capture proof retains native ACK and cleanup rather than publishi
   assert.equal(f.frames.length, 0); assert.equal(f.calls.filter(call => call.method === "Page.screencastFrameAck").length, 1);
   assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
   assert.equal(f.listeners.size, 0); assert.equal(f.drains.size, 0);
+});
+
+function startupClock() {
+  let now = 0, sequence = 0; const timers = new Map();
+  const timing = { now: () => now, setTimer: (fn, ms) => { timers.set(++sequence, { fn, at: now + ms }); return sequence; }, clearTimer: id => timers.delete(id) };
+  return { timing, skip: ms => { now += ms; }, advance(ms) { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } } };
+}
+
+test("an owner preparation budget replaces only the fixed startup timer and does not forget real start", async () => {
+  const start = deferred(), f = fixture(method => method === "Page.startScreencast" ? start.promise : undefined), clock = startupClock();
+  f.broker.startupTimeoutMs = 5;
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} }); budget.openModal({});
+  let settled = false;
+  const opening = f.broker.subscribe(7, f.token(), () => {}, frame => { f.frames.push(frame); budget.finish(); }, { startupBudget: budget }).then(value => { settled = true; return value; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(settled, false); assert.equal(f.listeners.size, 1); assert.ok(f.drains.size);
+  clock.advance(40000); start.resolve(); const subscription = await opening;
+  assert.equal(f.frames.length, 1); await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+test("owner expiry revokes delivery immediately but joins actual start and stop acknowledgements", async () => {
+  const start = deferred(), stop = deferred(), clock = startupClock();
+  const f = fixture(method => method === "Page.startScreencast" ? start.promise : method === "Page.stopScreencast" ? stop.promise : undefined);
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  let settled = false;
+  const failed = assert.rejects(f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame), { startupBudget: budget }), /PREPARATION_TIMEOUT/).then(() => { settled = true; });
+  await tick(); clock.advance(5000); await tick();
+  assert.equal(f.listeners.size, 0); assert.equal(settled, false); assert.ok(f.drains.size);
+  assert.equal(f.calls.some(call => call.method === "Page.stopScreencast"), false);
+  start.resolve(); await tick(); assert.equal(settled, false);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  stop.resolve(); await failed; assert.equal(f.frames.length, 0); assert.equal(f.drains.size, 0);
+});
+
+for (const boundary of ["Page.enable", "Page.screencastFrameAck"]) test(`delayed owner timer cannot authorize startup after ${boundary} ACK`, async () => {
+  const gate = deferred(), clock = startupClock(), f = fixture(method => method === boundary ? gate.promise : undefined);
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  const opening = f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame), { startupBudget: budget });
+  const outcome = opening.then(subscription => ({ subscription }), error => ({ error }));
+  await tick(); clock.skip(5001); gate.resolve(); const result = await outcome;
+  if (result.subscription) await result.subscription.close(); // Keep failed counterexample resource-clean.
+  budget.finish();
+  assert.match(String(result.error?.message), /PREPARATION_TIMEOUT/);
+  assert.equal(f.frames.length, 0, "a late real ACK is not permission to publish first geometry");
+  if (boundary === "Page.enable") assert.equal(f.calls.some(call => call.method === "Page.startScreencast"), false);
+  assert.equal(f.drains.size, 0);
+});
+
+test("an owner deadline after successful startup cannot close the established rendering subscription", async () => {
+  const f = fixture(), clock = startupClock();
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  const subscription = await f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame), { startupBudget: budget });
+  clock.advance(5000); await tick();
+  assert.equal(f.listeners.size, 1); assert.equal(f.calls.some(call => call.method === "Page.stopScreencast"), false);
+  await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+for (const method of ["Page.enable", "Page.startScreencast"]) test(`the original owner budget is checked at final ${method} native dispatch`, async () => {
+  const gate = deferred(), clock = startupClock(), f = fixture(), send = f.broker.send;
+  let queued = false;
+  f.broker.send = async (target, current, params, finalCheck) => {
+    if (current === method) { queued = true; await gate.promise; }
+    return send(target, current, params, finalCheck);
+  };
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  const outcome = f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame), { startupBudget: budget })
+    .then(subscription => ({ subscription }), error => ({ error }));
+  await tick(); assert.equal(queued, true); clock.skip(5001); gate.resolve();
+  const result = await outcome;
+  if (result.subscription) await result.subscription.close();
+  budget.finish();
+  assert.match(String(result.error?.message), /PREPARATION_TIMEOUT/);
+  assert.equal(f.calls.some(call => call.method === method), false, "queued setup is not actual native dispatch");
+  assert.equal(f.frames.length, 0); assert.equal(f.drains.size, 0);
+});
+
+test("a delayed startup queue cannot introduce native setup after the original owner deadline", async () => {
+  const gate = deferred(), clock = startupClock(), f = fixture(), queue = f.broker.queue;
+  let first = true;
+  f.broker.queue = (tabId, operation) => queue(tabId, async () => { if (first) { first = false; await gate.promise; } return operation(); });
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  const failed = assert.rejects(f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame), { startupBudget: budget }), /PREPARATION_TIMEOUT/);
+  await tick(); clock.skip(5001); gate.resolve(); await failed;
+  assert.deepEqual(f.calls, []); assert.equal(f.listeners.size, 0); assert.equal(f.drains.size, 0);
+});
+
+test("acceptFrame cannot cross the owner deadline and publish expired first geometry", async () => {
+  const clock = startupClock(), f = fixture();
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  await assert.rejects(f.broker.subscribe(7, f.token(), () => {}, frame => f.frames.push(frame), {
+    startupBudget: budget, acceptFrame: () => { clock.skip(5001); return true; }
+  }), /PREPARATION_TIMEOUT/);
+  assert.equal(f.frames.length, 0); assert.equal(f.calls.filter(call => call.method === "Page.screencastFrameAck").length, 1);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1); assert.equal(f.drains.size, 0);
+});
+
+test("a first published frame finishes the owner clock while the original start ACK remains pending", async () => {
+  const start = deferred(), clock = startupClock(), f = fixture(method => method === "Page.startScreencast" ? start.promise : undefined);
+  const budget = new ManagedHumanPreparationBudget({ timing: clock.timing, onExpire: () => {} });
+  let settled = false;
+  const opening = f.broker.subscribe(7, f.token(), () => {}, frame => { f.frames.push(frame); budget.finish(); }, { startupBudget: budget })
+    .then(subscription => { settled = true; return subscription; });
+  await tick(); f.emit(); await tick();
+  assert.equal(f.frames.length, 1); assert.equal(settled, false); assert.ok(f.drains.size);
+  clock.skip(5001); start.resolve(); const subscription = await opening;
+  assert.equal(f.frames.length, 2); assert.equal(f.listeners.size, 1);
+  await subscription.close(); assert.equal(f.drains.size, 0);
 });

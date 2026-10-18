@@ -1,4 +1,5 @@
 import { ManagedHumanDocumentContexts } from "./managed-human-document-contexts.js";
+import { ManagedHumanDocumentEvents } from "./managed-human-document-events.js";
 
 const fail = () => new Error("OBU_HUMAN_DIALOG_UNSUPPORTED: original remote document graph is unavailable");
 const cancelled = new Error("OBU_HUMAN_DIALOG_STALE: original graph setup withdrawn before native dispatch");
@@ -36,13 +37,15 @@ function readTree(value, session) {
 // IDs never select an independent chrome.debugger attachment. send must invoke
 // its synchronous admission check immediately before actual native dispatch.
 export class ManagedHumanDocumentGraph {
-  constructor({ send, check, onFailure = () => {}, onChange = () => {} }) {
+  constructor({ send, check, onFailure = () => {}, onChange = () => {}, assertCandidate = () => { throw fail(); } }) {
     Object.assign(this, { send, check, onFailure, onChange });
     this.sessions = new Map(); this.seen = new Set(); this.pending = new Set(); this.commands = new Set();
     this.snapshots = new WeakMap(); this.proofs = new WeakMap(); this.identities = new WeakMap();
     this.revision = 0; this.structure = 0; this.contextIdentities = 0; this.revoked = false; this.ended = false;
     this.failure = null; this.started = false; this.starting = null;
     this.root = this.createSession(undefined, null, null);
+    this.events = new ManagedHumanDocumentEvents({ root: this.root, current: session => this.current(session),
+      check: () => this.assertActive(), assertCandidate });
   }
   createSession(id, parent, targetId, parentFrameId) {
     const session = { id, parent, targetId, parentFrameId, token: Object.freeze({}), alive: true, eligible: true,
@@ -88,6 +91,7 @@ export class ManagedHumanDocumentGraph {
     if (method === "Target.attachedToTarget") {
       const childId = params.sessionId, target = params.targetInfo;
       this.advance(true);
+      this.events.advance();
       if (!text(childId) || target?.type !== "iframe" || !text(target?.targetId) || params.waitingForDebugger === true ||
           (target.parentFrameId !== undefined && !text(target.parentFrameId)) || this.seen.has(childId) ||
           this.seen.size >= 4096 || [...this.sessions.values()].filter(value => value.alive).length >= 1000 ||
@@ -104,7 +108,7 @@ export class ManagedHumanDocumentGraph {
       const child = this.sessions.get(params.sessionId);
       if (!child || child.parent !== session || !this.current(child) ||
           (params.targetId !== undefined && params.targetId !== child.targetId)) return false;
-      this.advance(true); this.retire(child); this.change(child, method); return true;
+      this.advance(true); this.events.advance(); this.retire(child); this.change(child, method); return true;
     }
     const value = params.context;
     if (method === "Runtime.executionContextCreated" && value?.auxData?.isDefault === true &&
@@ -125,6 +129,8 @@ export class ManagedHumanDocumentGraph {
         for (const child of this.sessions.values()) if (child.parent === session && child.alive &&
             (wholeSession || child.boundAncestors?.includes(frameId) || child.parentFrameId === frameId || !child.boundAncestors)) this.clearDocuments(child);
       }
+      try { this.events.observe(session, method, params); }
+      catch { this.events.blocked = true; }
     }
     return observed;
   }
@@ -153,10 +159,14 @@ export class ManagedHumanDocumentGraph {
     });
     return operation;
   }
-  start() {
+  start(initialCandidate) {
     if (this.starting) return this.starting;
     this.starting = (async () => {
       this.assertActive();
+      // The owner calls start only after this attachment's root Page and
+      // Runtime enable ACKs, with its lifecycle listener already installed.
+      this.events.reserve(initialCandidate);
+      this.events.rootReady = true;
       await this.command(this.root, "Target.setAutoAttach", AUTO_ATTACH);
       await this.drain(); this.assertActive(); this.started = true;
     })();
@@ -168,7 +178,7 @@ export class ManagedHumanDocumentGraph {
     // A cancelled public caller never removes the actual setup Promise.
     while (this.pending.size || this.commands.size) await Promise.allSettled([...this.pending, ...this.commands]);
   }
-  async snapshot() {
+  async snapshot(candidate) {
     this.assertActive();
     if (!this.started) throw fail();
     await this.drain(); this.assertActive();
@@ -232,8 +242,20 @@ export class ManagedHumanDocumentGraph {
       session.lineage ??= Object.freeze(lineage);
     }
     const snapshot = Object.freeze({ rootDocument: second.get(this.root).document });
-    this.snapshots.set(snapshot, { frames, ledgers, structure }); return snapshot;
+    this.snapshots.set(snapshot, { frames, ledgers, structure });
+    // The event-only readiness route is stricter about cold/ordered witnesses.
+    // Missing readiness evidence must not downgrade the existing active graph.
+    try { this.events.seed(frames, candidate); }
+    catch { this.events.blocked = true; }
+    return snapshot;
   }
+  checkpointReadiness(opening) {
+    this.assertActive();
+    if (!this.started) throw fail();
+    return this.events.checkpoint(opening);
+  }
+  captureReadiness(fence, candidate, opening) { this.assertActive(); return this.events.capture(fence, candidate, opening); }
+  assertReadiness(proof) { this.assertActive(); this.events.assert(proof); }
   captureIdentity() {
     this.assertActive();
     const path = [...this.sessions.values()].filter(session => this.current(session))

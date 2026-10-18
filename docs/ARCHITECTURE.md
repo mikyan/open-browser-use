@@ -139,12 +139,18 @@ debugger、history 和 tab groups。
   输入单队列等待原回执，释放请求先撤销排队输入，再等待实际清理。扩展的
   `managed-human-control.js` 固定原页面 target，持有独立接管租约并跟踪
   原生按键、指针和 rendering 清理；桥接层负责与原任务暂停、选择及继续衔接。
+  当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
+  返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
+  preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及
+  精确 pendingDialog 才可独立回答；页面输入仍要求 active 与匹配的真实解码帧。
   源码的 `managed-human-dialogs.js` 独立持有原主页面及已证明子页的网页弹窗实例，
   typed 回答越过输入队列，原 native ACK 与 Closed 分开确认。撤权先取消
   未回答弹窗，再等待原输入和附件清理；只读 view 不取得回答权限。查看器
   将消息作为纯文字显示，并保留原持键/按钮的真实释放。
   `managed-human-budget.js` 由原 attachment 以单调时钟执行30秒普通处理
   与累计300秒弹窗预算，另限制每个原弹窗；超时观察者不替代实际输入Promise。
+  准备期另有首次5秒、导航10秒普通额度及累计300秒已验证弹窗额度；首帧结束
+  原准备预算，状态更新和后继弹窗不刷新额度，迟到定时器不放行过期发送。
   `inputBudgetVersion: 1` 固定在原human lease，只有对应输入使用335/340秒
   transport/UI兜底，旧版及其他命令不延长。支持范围与验收证据见
   [人工网页弹窗](references/managed-human-dialogs.md)。
@@ -155,16 +161,22 @@ debugger、history 和 tab groups。
   必须与实际源一致，但 URL-derived securityOrigin 不授予权限。受限策略在
   回答入口和最终发送前同时核对原 siteProof 的导航版本及每层祖先实际源。
   父文档替换使旧远程 session 永久失去文档证明，实际清理归属仍保留。
+  `managed-human-document-events.js` 在原 Opening 固定已观察的 frame/loader、
+  default context 与祖先链，再核对浏览器侧 documentId/策略；不在弹窗中借新
+  renderer 查询补授权。未发送的元数据查询等待原 Closed，已发送的查询、旧输入、
+  旧渲染和异步证明仍保留实际 Promise。回答独立于旧清理，新画面仍等待旧清理。
   普通输入另在准备读取前固定原默认上下文集合，最终发送前复核；弹窗快照
   不可用也不能跨已毁灭或替换的上下文发送，隔离世界事件不扩大该权限。
   上下文退役身份有界保留，后继不明 Opening 形成不可恢复的回答歧义，只有
   原 target 销毁可确认清理。撤权先阻止新 setup，再等待原实际 Promise；
   根 detach ACK 清理子 session，但不替代输入或回答 ACK。
-  当前源码已验收稳定同源、嵌套及单层跨站 OOPIF prompt；来源站点尚未单独
-  显示在弹窗卡片中，动态/继承文档、复杂跨进程嵌套及首帧导航仍未完整覆盖。
+  当前构建的2758项Node及Go全包/vet通过；固定CfT的`mod-O0QjZc`重新验证了
+  root/稳定同源/嵌套/单层OOPIF四个prompt回答与正式Stop，未沿用旧源码结果。
+  首帧准备期和导航期两场真实验收未通过；来源展示、动态/继承文档、复杂跨进程
+  嵌套、普通公司Edge及完整能力对齐仍未覆盖。
   查看器的释放进度按原 lease/UI epoch 绑定，匹配清理可先于 End 响应清除
   旧提示；新错误、未知输入故障及后继租约不被旧响应覆盖。
-  接管先等待原任务清理及首帧实际解码；结束后仍暂停，明确 Resume 后任务
+  页面输入先等待原任务清理及首帧实际解码；结束后仍暂停，明确 Resume 后任务
   需要新轮次。当前源码可在原 tab/target 和同一人工租约内经过根/子 frame
   导航及 SPA；每次导航撤旧队列，等待原输入和渲染释放，再以原生 TimeTicks
   捕获屏障建立新代画面。明确未发送的旧输入返回 typed stale，已提交输入

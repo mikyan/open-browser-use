@@ -53,7 +53,7 @@ func TestHumanDialogStateAndIndependentReceipt(t *testing.T) {
 			t.Fatal("invalid dialog state accepted")
 		}
 	}
-	for _, owner := range []*HumanState{nil, {State: "active", LeaseID: "lease", Generation: 0}, {State: "navigating", LeaseID: "lease", Generation: 1}} {
+	for _, owner := range []*HumanState{nil, {State: "active", LeaseID: "lease", Generation: 0}, {State: "starting", LeaseID: "lease", Generation: 1}} {
 		if _, err := ParsePendingDialog(raw, owner); err == nil {
 			t.Fatal("dialog escaped active generation")
 		}

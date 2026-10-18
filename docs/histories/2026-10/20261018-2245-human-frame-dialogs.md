@@ -1,5 +1,35 @@
 # 子页面的人工弹窗
 
+## 两阶段接管与本次候选
+
+用户再次要求新包。本轮源码将human Begin改为在原Pause、风险记录、attachment
+及listener建立后返回preparing handle；原Begin响应以前，早到状态不开放End或回答。
+generation 0仅End，正generation还须原文档证明和精确pendingDialog，输入始终等
+active与真实首帧。新增原生文档事件门禁，Opening固定原frame/loader/default
+context后核浏览器侧身份；不借弹窗中的新renderer查询或旧URL补授权。
+
+回答旁路旧输入/渲染清理，后继画面仍等旧清理；End先取消原弹窗再join原证明。
+准备预算、元数据发送前Opening竞态和退役证明迟到失败均补了先红后绿反例，
+没有替换实际Promise、冒充Closed或释放回执。当前内部构建411份生产输入、77份
+扩展文件，2758项Node全部通过；本轮Go全包/vet通过，最终构建复用未变Go/UI输入
+的原检查。此前旧Begin测试假定active的失败保留。
+
+同一构建的`mod-O0QjZc`四布局回归五步实际exit 0，completed与featurePassed
+均为true；root/same/nested/oopif四个原prompt均answered，正式Stop通过且报告无
+cleanupErrors。这是固定Windows CfT与原fixture范围的新结果，不证明公司Edge
+或完整能力对齐，也不把旧构建验收自动归于新源码。原事件与回执独审422项通过；
+生命周期独审另行记录。
+
+正式`mrd-BfhoHa`与`mrd-yWnzNj`均实际exit 1，featurePassed false。前者确有
+preparing/正generation/null viewport及pendingDialog，后继首帧先于runner断言到达，
+未发回答；后者有新loader/default context和原Opening，约19ms后Closed=false，
+没有pendingDialog、回答命令或POST，不能唯一归因；等待导航期弹窗界面状态超时。
+两阶段实现不等于这两边界验收通过。
+原失败、原构建和已有发布记录保留；旧四布局通过结果不自动归于本次源码。
+本次新包尚在准备，不预填发布提交或标签。
+
+## 已发布的5e830dc重打包（历史）
+
 用户再次要求新包，已从干净提交 `5e830dc8d8c5da466cb6c48c15358008cfe74568` 发布 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc)。
 产品功能与上一包e3fee2a相同；其后提交只有文档及诊断，本轮首帧/导航弹窗开发仍未验收，全部未提交改动留在工作区、未入包。
 407份生产输入匹配已测快照和Git对象，76份扩展文件匹配已测制品；完整包/扩展/Skill为103/76/7文件。
@@ -82,6 +112,7 @@ sessions、每层实际默认 context/origin、两轮完整原生树和同一图
 已观察原进程身份与私有资源退出，原输入、文档、唯一POST和截图证据各自保留。
 这些是原生诊断，featurePassed始终false，不替代正式viewer验收。
 
-计划改为先验证原事件能否提供完整文档证明，不能假定弹窗中可以新读renderer
-元数据。独立controller、bridge、Go及UI反例和设计均保留，生产两阶段Begin仍待实现。
+该诊断轮次计划先验证原事件能否提供完整文档证明，不能假定弹窗中可以新读renderer
+元数据。独立controller、bridge、Go及UI反例和设计均保留；后续两阶段实现及未通过
+的正式边界验收见本页开头，不把旧诊断改写为功能通过。
 详见[诊断范围与序列](../../references/managed-modal-readiness-diagnostic.md)。

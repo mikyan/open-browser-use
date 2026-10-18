@@ -200,7 +200,7 @@ func TestHumanDialogDisconnectStartsCleanupBeforeJoiningResponse(t *testing.T) {
 }
 
 func TestHumanDialogProjectionRejectsForeignReadonlyAndUnknownFields(t *testing.T) {
-	for _, kind := range []string{"foreign", "readonly", "navigating", "unknown"} {
+	for _, kind := range []string{"foreign", "readonly", "starting", "unknown"} {
 		t.Run(kind, func(t *testing.T) {
 			f, _ := object(dialogState("first", 5))
 			state, _ := object(f["status"])
@@ -210,9 +210,9 @@ func TestHumanDialogProjectionRejectsForeignReadonlyAndUnknownFields(t *testing.
 				dialog["leaseId"] = jsonBytes("foreign")
 			case "readonly":
 				state["human"] = jsonBytes(nil)
-			case "navigating":
+			case "starting":
 				h, _ := object(state["human"])
-				h["state"], h["viewport"] = jsonBytes("navigating"), jsonBytes(nil)
+				h["state"], h["viewport"] = jsonBytes("starting"), jsonBytes(nil)
 				state["human"] = jsonBytes(h)
 			case "unknown":
 				dialog["nativeTarget"] = jsonBytes("secret")

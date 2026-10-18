@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ManagedHumanInputBudget, ManagedHumanDialogDeadline } from "./managed-human-budget.js";
+import { ManagedHumanInputBudget, ManagedHumanDialogDeadline, ManagedHumanPreparationBudget } from "./managed-human-budget.js";
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 function clock() {
@@ -79,4 +79,53 @@ test("a queued stale timer callback cannot expire a finished original clock", ()
     now: () => 999999, setTimer: fn => { callback = fn; return 1; }, clearTimer: () => {}
   } });
   deadline.finish(); callback(); assert.equal(expired, 0);
+});
+
+for (const navigation of [false, true]) test(`${navigation ? "navigation" : "initial"} preparation has an independent bounded ordinary clock and retains actual work`, async () => {
+  const c = clock(), native = deferred(), failures = [], limit = navigation ? 10000 : 5000;
+  const budget = new ManagedHumanPreparationBudget({ navigation, timing: c.timing, onExpire: error => failures.push(error) });
+  let actualSettled = false; native.promise.then(() => { actualSettled = true; });
+  const failed = assert.rejects(budget.observe(native.promise), /PREPARATION_TIMEOUT.*normal/);
+  c.advance(limit - 1); assert.equal(failures.length, 0); c.advance(1);
+  await failed; assert.equal(actualSettled, false); assert.equal(failures.length, 1);
+  native.resolve("original setup ACK"); assert.equal(await native.promise, "original setup ACK");
+});
+
+for (const navigation of [false, true]) test(`one ${navigation ? "navigation" : "initial"} preparation shares 300 seconds across original dialogs and redirects`, async () => {
+  const c = clock(), native = deferred(), failures = [], first = {}, second = {};
+  const budget = new ManagedHumanPreparationBudget({ navigation, timing: c.timing, onExpire: error => failures.push(error) });
+  const failed = assert.rejects(budget.observe(native.promise), /PREPARATION_TIMEOUT.*modal/);
+  c.advance(2000); budget.openModal(first); c.advance(180000);
+  budget.openModal({}); budget.closeModal({}); // Unrelated state/objects cannot reset the original cap.
+  budget.closeModal(first); c.advance(1000); budget.openModal(second);
+  c.advance(119999); assert.equal(failures.length, 0); c.advance(1); await failed;
+  assert.deepEqual(budget.used, { normal: 3000, modal: 300000 }); native.resolve();
+});
+
+test("preparation preserves its remaining ordinary time after a proved modal", async () => {
+  const c = clock(), native = deferred(), dialog = {};
+  const budget = new ManagedHumanPreparationBudget({ timing: c.timing, onExpire: () => {} });
+  const failed = assert.rejects(budget.observe(native.promise), /PREPARATION_TIMEOUT.*normal/);
+  c.advance(4900); budget.openModal(dialog); c.advance(40000); budget.closeModal(dialog);
+  c.advance(99); assert.equal(budget.finished, false); c.advance(1); await failed; native.resolve();
+});
+
+for (const boundary of ["opening", "guard", "actual ACK"]) test(`delayed preparation timer cannot authorize late ${boundary}`, async () => {
+  const c = clock(), native = deferred(), failures = [];
+  const budget = new ManagedHumanPreparationBudget({ timing: c.timing, onExpire: error => failures.push(error) });
+  const failed = assert.rejects(budget.observe(native.promise), /PREPARATION_TIMEOUT/);
+  c.skip(5001);
+  if (boundary === "opening") budget.openModal({});
+  if (boundary === "guard") assert.throws(() => budget.assertAvailable(), /PREPARATION_TIMEOUT/);
+  native.resolve("late ACK"); await failed;
+  assert.equal(failures.length, 1); assert.equal(await native.promise, "late ACK");
+});
+
+test("a real first frame completes only its original preparation clock", async () => {
+  const c = clock(); let expired = 0;
+  const old = new ManagedHumanPreparationBudget({ timing: c.timing, onExpire: () => { expired++; } });
+  c.advance(4000); const originalTimer = [...c.timers.values()][0].fn; old.finish();
+  const next = new ManagedHumanPreparationBudget({ navigation: true, timing: c.timing, onExpire: () => { expired++; } });
+  originalTimer(); c.advance(6000); assert.equal(expired, 0);
+  c.advance(4000); assert.equal(expired, 1); next.finish();
 });

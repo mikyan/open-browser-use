@@ -206,7 +206,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     // the newer document, even if it names the same durable human lease.
     if (!value || value.leaseId !== currentInfo.leaseId || value.tabId !== record.tabId ||
         value.generation !== currentInfo.generation || value.state !== currentInfo.state) return;
-    if (!["active", "navigating"].includes(value.state)) return;
+    if (!(record.human ? ["preparing", "active", "navigating"] : ["active", "navigating"]).includes(value.state)) return;
     if (!integer(value.generation) || value.generation < record.leaseGeneration)
       throw failure("HUMAN_UNCONFIRMED", "human generation regressed");
     if (value.generation > record.leaseGeneration) {
@@ -439,7 +439,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       if (!handle || ["info", "input", "close"].some(key => typeof handle[key] !== "function")) throw failure("HUMAN_UNAVAILABLE", "invalid human control handle");
       record.handle = handle;
       const info = handle.info();
-      if (!text(info?.leaseId, 128) || info.tabId !== tabId || !["active", "navigating"].includes(info.state)) throw failure("HUMAN_UNAVAILABLE", "human control did not become available");
+      if (!text(info?.leaseId, 128) || info.tabId !== tabId || !["preparing", "active", "navigating"].includes(info.state)) throw failure("HUMAN_UNAVAILABLE", "human control did not become available");
       if (handle.closed?.then) void handle.closed.then(() => {
         if (!record.retired && channel.stream === record) void retireStream(channel, "human control ended").catch(() => {});
       }, () => { if (!record.retired && channel.stream === record) void retireStream(channel, "human control failed").catch(() => {}); });
@@ -550,7 +550,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       validateHumanDialogResponse(envelope);
       const record = channel.stream, handle = record?.human && !record.retired && record.handle;
       const before = handle?.info(), dialog = handle?.pendingDialog?.();
-      if (!before || before.state !== "active" || before.leaseId !== value.leaseId || before.generation !== value.generation ||
+      if (!before || !["preparing", "active", "navigating"].includes(before.state) || before.leaseId !== value.leaseId || before.generation !== value.generation ||
           !dialog || dialog.leaseId !== value.leaseId || dialog.generation !== value.generation || dialog.dialogId !== value.dialogId || typeof handle.respondDialog !== "function")
         throw failure("HUMAN_DIALOG_STALE", "original human dialog is no longer available; no response was sent");
       const accepted = await handle.respondDialog(envelope);

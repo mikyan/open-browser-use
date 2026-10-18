@@ -97,8 +97,8 @@ func ParsePendingDialog(data json.RawMessage, human *HumanState) (*PendingDialog
 	}
 	var result PendingDialog
 	_ = json.Unmarshal(data, &result)
-	if human == nil || human.State != "active" || human.Generation == 0 || human.LeaseID != result.LeaseID || human.Generation != result.Generation {
-		return nil, errors.New("pending dialog has no original active human generation")
+	if human == nil || human.State != "active" && human.State != "preparing" && human.State != "navigating" || human.Generation == 0 || human.LeaseID != result.LeaseID || human.Generation != result.Generation {
+		return nil, errors.New("pending dialog has no original admitted human generation")
 	}
 	return &result, nil
 }

@@ -19,6 +19,95 @@ function fixture() {
   return Object.assign(f, { calls, failures, states, gates });
 }
 
+function pendingFixture() {
+  const f = fixture(), reads = [];
+  f.manager.capture = () => {
+    const read = defer(), epoch = f.epoch, generation = f.generation;
+    reads.push({ ...read, epoch, generation, proof: { epoch, generation } });
+    return { epoch, pending: read.promise };
+  };
+  return Object.assign(f, { reads });
+}
+
+test("End cancels a pending-proof native dialog before joining the original proof read", async () => {
+  const f = pendingFixture(); assert.equal(f.open(), null);
+  assert.equal(f.manager.captures.size, 1); assert.equal(f.manager.hasOpen(), true);
+  let closed = false; const ending = f.manager.close().then(() => { closed = true; }); await tick();
+  assert.deepEqual(f.calls, [{ accept: false }]); assert.equal(closed, false);
+  f.gates[0].resolve(); await tick(); assert.equal(closed, false, "native cancel ACK cannot forget pending proof");
+  f.reads[0].resolve(f.reads[0].proof); await ending;
+  assert.equal(f.manager.info(), null); assert.equal(f.manager.captures.size, 0);
+  assert.equal(f.states.some(Boolean), false, "late proof after End must not publish human authority");
+});
+
+for (const boundary of ["closed", "retired", "new-document", "ambiguous"]) test(`pending proof cannot publish after ${boundary}`, async () => {
+  const f = pendingFixture(); f.open(); const old = f.reads[0];
+  if (boundary === "closed") f.closed();
+  else if (boundary === "retired") f.manager.retire(f.epoch);
+  else if (boundary === "new-document") { f.closed(); f.epoch = {}; f.generation++; f.open({ message: "New native dialog" }); }
+  else f.open({ message: "Unpaired new Opening" });
+  old.resolve(old.proof); await tick();
+  assert.equal(f.manager.info(), null); assert.equal(f.states.some(Boolean), false);
+  if (boundary === "new-document") {
+    const current = f.reads[1]; current.resolve(current.proof); await tick();
+    assert.equal(f.manager.info().generation, 2); assert.equal(f.manager.info().message, "New native dialog");
+    f.closed();
+  }
+  if (boundary === "retired") { assert.deepEqual(f.calls, [{ accept: false }]); f.gates[0].resolve(); }
+  if (boundary === "ambiguous") { await assert.rejects(f.manager.close(), /CLEANUP_INCOMPLETE/); f.destroyed = true; }
+  await f.manager.close();
+});
+
+test("proof descriptor cannot import another epoch even when the new generation is current", async () => {
+  const f = pendingFixture(); f.open(); f.epoch = {}; f.generation++;
+  f.reads[0].resolve({ epoch: f.epoch, generation: f.generation }); await tick();
+  assert.equal(f.manager.info(), null); assert.equal(f.failures.length, 1);
+  assert.match(f.failures[0].message, /different original document owner/);
+  assert.deepEqual(f.calls, [{ accept: false }]); f.gates[0].resolve(); await f.manager.close();
+});
+
+test("a retired proof read failure joins its original cancel without revoking the successor", async () => {
+  const f = pendingFixture(); f.open(); const original = f.epoch;
+  f.manager.retire(original); f.epoch = {}; f.generation++;
+  f.reads[0].reject(new Error("old browser document retired")); await tick();
+  assert.deepEqual(f.calls, [{ accept: false }]);
+  assert.equal(f.failures.length, 0);
+  let drained = false; const cleanup = f.manager.drain(original).then(() => { drained = true; });
+  await tick(); assert.equal(drained, false);
+  f.gates[0].resolve(); await cleanup;
+  f.closed(); f.open({ message: "Current document" });
+  f.reads[1].resolve(f.reads[1].proof); await tick();
+  assert.equal(f.manager.info().generation, 2); assert.equal(f.manager.info().message, "Current document");
+  f.closed(); await f.manager.close();
+});
+
+test("old epoch drain joins its proof and actual decision but never the new dialog", async () => {
+  const f = pendingFixture(); f.open(); const oldEpoch = f.epoch;
+  f.reads[0].resolve(f.reads[0].proof); await tick();
+  const oldAnswer = f.respond(); await tick(); f.closed();
+  f.epoch = {}; f.generation++; f.open();
+  let oldDrained = false; const oldDrain = f.manager.drain(oldEpoch).then(() => { oldDrained = true; }); await tick();
+  assert.equal(oldDrained, false, "old actual native ACK remains owned");
+  f.gates[0].resolve(); await oldAnswer; await oldDrain;
+  assert.equal(f.manager.captures.size, 1, "new proof remains pending independently");
+  f.reads[1].resolve(f.reads[1].proof); await tick();
+  assert.equal(f.manager.info().generation, 2);
+  const newAnswer = f.respond(); await tick(); await f.manager.drain(oldEpoch);
+  assert.equal(f.manager.operations.size, 1, "new actual response is not settled by old drain");
+  f.gates[1].resolve(); await newAnswer; f.closed(); await f.manager.close();
+});
+
+test("late proof publication accounts the deadline from Opening even when its timer is delayed", async () => {
+  const f = pendingFixture(); let now = 0; const timers = new Map(); let sequence = 0;
+  f.manager.timing = { now: () => now, setTimer: fn => { timers.set(++sequence, fn); return sequence; }, clearTimer: id => timers.delete(id) };
+  f.open(); now = 300001; // Deliberately do not run the timer callback.
+  f.reads[0].resolve(f.reads[0].proof); await tick();
+  assert.equal(f.manager.info(), null); assert.equal(f.states.some(Boolean), false);
+  assert.ok(f.failures.some(error => /DIALOG_TIMEOUT/.test(error.message)));
+  assert.deepEqual(f.calls, [{ accept: false }]); f.gates[0].resolve(); await f.manager.close();
+  assert.equal(timers.size, 0);
+});
+
 test("one dialog claims once, preserves pending state until native Closed, and returns only native ACK", async () => {
   const f = fixture(), info = f.open({ type: "prompt", defaultPrompt: "初始值", message: "<b>plain text</b>" });
   const responding = f.respond({ promptText: "回答" }); await tick();
