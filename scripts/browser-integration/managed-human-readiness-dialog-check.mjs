@@ -59,6 +59,70 @@ export function managedReadinessGateCandidate({ beginRequest, beginResponse, sta
   return { beginRequestId: beginRequest.id, beginResponseAt: beginResponse.at, stateEventSequence: state.eventSequence, scope: { leaseId: original.leaseId, generation: state.human.generation } };
 }
 
+export function assertManagedReadinessAdmission(business) {
+  const { selection, admission, observerBoundary, tabId, delivery } = business;
+  assert.ok(selection && admission && observerBoundary);
+  assert.ok(typeof delivery?.deliveryId === "string" && delivery.deliveryId);
+  assert.ok(Number.isSafeInteger(observerBoundary.sequence) && observerBoundary.sequence >= 0);
+  for (const [entry, operation] of [[selection, "select"], [admission, "humanBegin"]]) {
+    assert.equal(entry.request.operation, operation); assert.equal(entry.request.tabId, tabId);
+    assert.equal(entry.request.deliveryId, delivery.deliveryId);
+    assert.equal(entry.response.type, "response"); assert.equal(entry.response.id, entry.request.id); assert.equal(entry.response.error, undefined);
+    assert.equal(entry.response.result.selectedTabId, tabId);
+    assert.ok(entry.request.at <= entry.response.at);
+  }
+  const selected = selection.response.result, admitted = admission.response.result;
+  assert.ok(typeof selected.workerBootId === "string" && selected.workerBootId);
+  assert.ok(selected.view?.leaseId); assert.equal(selected.view.tabId, tabId); assert.equal(selected.view.state, "active");
+  assert.ok(selection.response.at <= observerBoundary.at && observerBoundary.at <= admission.request.at);
+  assert.ok(selection.request.id < admission.request.id);
+  assert.equal(admitted.view, null); assert.equal(admitted.viewerCleanupComplete, true);
+  assert.equal(admitted.status.state, "paused"); assert.equal(admitted.status.cleanupComplete, true);
+  assert.equal(admitted.human.tabId, tabId); assert.ok(admitted.human.leaseId);
+  assert.notEqual(admitted.human.leaseId, selected.view.leaseId);
+  assert.equal(admitted.workerBootId, selected.workerBootId);
+  assert.ok(admitted.retiredSequence >= selected.eventSequence && admitted.eventSequence >= admitted.retiredSequence);
+  return { viewLeaseId: selected.view.leaseId, leaseId: admitted.human.leaseId, beginRequestId: admission.request.id,
+    beginEventSequence: admitted.eventSequence, retiredSequence: admitted.retiredSequence, observationBoundary: observerBoundary.sequence,
+    evidence: "Original select and Begin replies confirm view retirement; this is not an independently captured detach ACK." };
+}
+
+export function managedReadinessPendingObservation(messages, current, { business, scenario, generation }) {
+  const admission = assertManagedReadinessAdmission(business), begin = business.admission.response.result;
+  const beginIndex = messages.findIndex(message => message.type === "response" && message.id === business.admission.request.id);
+  assert.ok(beginIndex >= 0); assert.deepEqual(messages[beginIndex], business.admission.response);
+  const index = messages.findIndex((message, index) => {
+    if (index < beginIndex) return false;
+    const value = message.type === "state" ? message : message.type === "response" ? message.result : null;
+    return value?.eventSequence >= admission.beginEventSequence && value.pendingDialog?.leaseId === admission.leaseId;
+  });
+  if (index < 0) return null;
+  const message = messages[index], first = message.type === "state" ? message : message.result;
+  assert.equal(first.workerBootId, begin.workerBootId); assert.equal(first.status.state, "paused");
+  assert.equal(first.human?.tabId, business.tabId); assert.equal(first.human.leaseId, admission.leaseId);
+  assert.equal(first.pendingDialog.generation, first.human.generation);
+  assert.ok(Number.isSafeInteger(first.human.generation) && first.human.generation > 0);
+  if (scenario === "before-first-frame") assert.equal(first.human.generation, generation);
+  else { assert.equal(scenario, "navigation"); assert.ok(first.human.generation > generation); }
+  assert.equal(first.human.viewport, null, "first pending publication must prove the preparing boundary");
+  assert.ok(["preparing", "navigating"].includes(first.human.state));
+  assert.equal(messages.slice(0, index).filter(row => row.type === "frame" && row.humanLeaseId === admission.leaseId && row.generation === first.human.generation).length, 0);
+  assertManagedReadinessCurrentDialog(current, first);
+  return { messageIndex: index, messageAt: message.at, eventSequence: first.eventSequence,
+    firstPublicationPhase: first.human.state, pendingState: structuredClone(first) };
+}
+
+export function assertManagedReadinessCurrentDialog(current, first) {
+  assert.ok(current && current.human && current.pendingDialog, "original early dialog is no longer available");
+  assert.equal(current.workerBootId, first.workerBootId); assert.equal(current.status.state, "paused");
+  assert.ok(current.eventSequence >= first.eventSequence && current.status.revision >= first.status.revision);
+  for (const key of ["leaseId", "tabId", "generation"]) assert.equal(current.human[key], first.human[key]);
+  assert.deepEqual(current.pendingDialog, first.pendingDialog);
+  assert.ok(["preparing", "navigating", "active"].includes(current.human.state));
+  if (current.human.state === "active") assert.ok(current.human.viewport?.width > 0 && current.human.viewport?.height > 0);
+  else assert.equal(current.human.viewport, null);
+}
+
 export function assertManagedReadinessNativeBoundary(events, { scenario, business, opening, sourceURL, emitterURL }) {
   assert.ok(managedReadinessDialogCases.includes(scenario));
   let previous = business.observerBoundary.sequence;
@@ -67,11 +131,13 @@ export function assertManagedReadinessNativeBoundary(events, { scenario, busines
   assert.equal(opening.params.frameId, business.target.id); assert.equal(opening.params.url, emitterURL);
   let boundary;
   if (scenario === "before-first-frame") {
-    boundary = events.findLast(event => event.sequence < opening.sequence && event.method === "debugger.onDetach");
-    assert.ok(boundary, "original select/view detach must delimit the current human attachment");
+    assertManagedReadinessAdmission(business);
+    // Self-initiated native detach need not produce onDetach. Keep the actual
+    // typed retirement reply and the pre-Begin passive observation boundary.
+    boundary = business.observerBoundary;
     const defaults = events.filter(event => event.sequence > boundary.sequence && event.sequence < opening.sequence && event.method === "Runtime.executionContextCreated" && event.params.context?.auxData?.isDefault === true && event.params.context.auxData.frameId === business.target.id);
     assert.ok(defaults.length, "current human root context metadata required after view retirement");
-    assert.equal(defaults.at(-1).params.context.origin, new URL(sourceURL).origin);
+    assert.ok(defaults.at(-1).params.context.uniqueId); assert.equal(defaults.at(-1).params.context.origin, new URL(sourceURL).origin);
   } else {
     boundary = events.findLast(event => event.sequence < opening.sequence && event.method === "Page.frameNavigated" && event.params.frame?.id === business.target.id);
     assert.ok(boundary, "original root navigation event required"); assert.equal(boundary.params.frame.url, emitterURL);
@@ -128,8 +194,8 @@ export async function runManagedHumanReadinessDialogCheck() {
   const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/mrd-")), root = path.join(runDir, "r"), name = "n", viewerProfile = path.join(runDir, "v");
   const report = { runDir, mode, scenario, startedAt: Date.now(), steps: [], commands: [], probes: [], lifecycleSnapshots: [], processObservations: [], screenshots: [], frames: [],
     observerReads: [], documents: [], dialogs: [], viewerCommands: [], viewerMessages: [], viewerActions: [], uiObservations: [], nativeEvents: [], unexpectedRequests: [], cleanup: {}, cleanupErrors: [], featurePassed: false,
-    scope: "One original production viewer scenario, before-first-frame or navigation. Original Begin must succeed before a preparing positive-generation/null-viewport state can release the first-frame fixture gate. Navigation uses one real viewer link click. Only viewer dialog UI answers. No task attachment, native dialog response, task Runtime.enable, rendering suspension, OS input, personal profile, URL reopening or business replay.",
-    limits: "A gate is only sequencing. Exact original native Opening and current preparing/navigating generation prove the attempted boundary; a missed first-frame window fails and is never retried. Native observer data is passive metadata, not production authority. Raw uint64 lifecycle bytes are authoritative. This is bounded deterministic acceptance, not full Browser Use parity or ordinary Edge/focus validation." };
+    scope: "One original production viewer scenario, before-first-frame or navigation. Original Begin must succeed before a preparing positive-generation/null-viewport state can release the first-frame fixture gate. Navigation uses one real viewer link click. Only viewer dialog UI answers the same original early dialog, including after its generation becomes active. No task attachment, native dialog response, task Runtime.enable, rendering suspension, OS input, personal profile, URL reopening or business replay.",
+    limits: "A gate is only sequencing. Original native Opening must precede this human document's first observed native frame, and the first pending publication must be preparing/navigating with null viewport. Answering may follow the first frame; its observed publication phase is recorded, not claimed to be a native atomic timing fact. A missed opening boundary fails without retry. Native observer data is passive metadata, not production authority; typed view retirement is not an independent detach capture. Raw uint64 lifecycle bytes are authoritative. This is not full Browser Use parity or ordinary Edge/focus validation." };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [];
   const fixtures = [];
@@ -192,7 +258,7 @@ export async function runManagedHumanReadinessDialogCheck() {
       return { connection: document.querySelector("#connection")?.textContent, state: document.querySelector("#state")?.textContent,
         humanStatus: document.querySelector("#human-status")?.textContent, error: document.querySelector("#error")?.textContent,
         errorVisible: visible(document.querySelector("#error")), humanStatusHidden: document.querySelector("#human-status").hidden,
-        dialogVisible: visible(document.querySelector("#page-dialog")), endDisabled: document.querySelector("#human-end").disabled,
+        dialogVisible: visible(document.querySelector("#page-dialog")), dialogId: document.querySelector("#page-dialog").dataset.dialogId, endDisabled: document.querySelector("#human-end").disabled,
         input: { ...document.querySelector("#human-input")?.dataset },
         buttons: [...document.querySelectorAll("button")].map(el => ({ id: el.id, text: el.textContent, disabled: el.disabled, visible: visible(el) })),
         dialogUI: [...document.querySelectorAll("#page-dialog,dialog,[role=dialog]")].map(el => ({ id: el.id, visible: visible(el), text: el.textContent.slice(0, 2048) })) };
@@ -210,7 +276,7 @@ export async function runManagedHumanReadinessDialogCheck() {
     page.on("pageerror", error => { (report.viewerErrors ??= []).push(error.stack); captureError ??= error; });
     page.on("websocket", socket => {
       if (new URL(socket.url()).origin.replace("ws:", "http:") !== new URL(url).origin) { captureError ??= Error("Unexpected viewer socket"); return; }
-      socket.on("framesent", event => { try { const value = projectHumanDialogCommand(JSON.parse(String(event.payload))); if (value) { assert.ok(report.viewerCommands.length < 1024); report.viewerCommands.push({ ...value, at: Date.now() }); } } catch (error) { captureError ??= error; } });
+      socket.on("framesent", event => { try { const value = projectHumanDialogCommand(JSON.parse(String(event.payload))); if (value) { assert.ok(report.viewerCommands.length < 1024); report.viewerCommands.push({ ...value, at: Date.now(), ...(value.operation === "humanDialogRespond" ? { publishedStateAtSend: structuredClone(state) } : {}) }); } } catch (error) { captureError ??= error; } });
       socket.on("close", () => report.viewerMessages.push({ type: "socketClosed", at: Date.now() }));
       socket.on("framereceived", event => {
         try {
@@ -272,10 +338,14 @@ export async function runManagedHumanReadinessDialogCheck() {
   async function beginHuman(business) {
     const delivered=state.tabs.find(value=>value.id===tab.id);assert.equal(delivered?.kind,"result");assert.equal(delivered.takeover,true);assert.ok(delivered.deliveryId);business.delivery=structuredClone(delivered);
     await uiAction("#tabs","select",tab.id);
+    const selectRequest=report.viewerCommands.findLast(value=>value.operation==="select");
+    business.selection={request:structuredClone(selectRequest),response:structuredClone(report.viewerMessages.find(value=>value.type==="response"&&value.id===selectRequest.id))};
     business.observerBoundary=await worker.evaluate("__managedReadinessDialogDiagnostic.mark()",3000);
     if(scenario==="before-first-frame")await wait(()=>fixtures[0].stats().requests.some(row=>row.url===new URL(fixtures[0].urls.gate).pathname),"original first-frame gate request",5000);
     report.gateArmed=scenario==="before-first-frame";business.humanStartedAt=Date.now();business.humanBegin=await uiAction("#human-begin","humanBegin");
     const request=report.viewerCommands.findLast(value=>value.operation==="humanBegin");assert.equal(request.tabId,tab.id);assert.equal(request.deliveryId,delivered.deliveryId);assert.equal(business.humanBegin.status.state,"paused");
+    business.admission={request:structuredClone(request),response:structuredClone(report.viewerMessages.find(value=>value.type==="response"&&value.id===request.id))};
+    business.admissionProof=assertManagedReadinessAdmission(business);
     if(scenario==="before-first-frame")await wait(()=>report.gateRelease,"original admitted preparing gate window",10000);
     else business.decodedHuman=await decodedHuman();
   }
@@ -295,18 +365,22 @@ export async function runManagedHumanReadinessDialogCheck() {
     }
     record.opening=await wait(()=>dialogs().find(row=>row.method==="Page.javascriptDialogOpening"),"original readiness native Opening",12000);
     assert.equal(record.opening.params.url,fixture.urls[fixture.emitterRole]);assert.equal(record.opening.params.frameId,business.target.id);assert.equal(record.opening.params.type,"prompt");assert.equal(record.opening.params.message,fixture.prompt.message);assert.equal(record.opening.params.defaultPrompt,fixture.prompt.defaultPrompt);
-    await wait(()=>state?.pendingDialog,"original preparing/navigating dialog UI state",5000);
-    record.pendingState=structuredClone(state);record.pendingDialog=structuredClone(state.pendingDialog);record.originalScope={leaseId:record.pendingDialog.leaseId,generation:record.pendingDialog.generation};
-    assert.equal(record.originalScope.leaseId,record.originalLeaseId);assert.equal(state.human.viewport,null);assert.ok(["preparing","navigating"].includes(state.human.state));
+    record.pendingPublication=await wait(()=>managedReadinessPendingObservation(report.viewerMessages,state,{business,scenario,generation:scenario==="navigation"?record.inputScope.generation:report.gateProof.scope.generation}),"original preparing/navigating dialog publication",5000);
+    record.pendingState=record.pendingPublication.pendingState;record.pendingDialog=structuredClone(record.pendingState.pendingDialog);record.originalScope={leaseId:record.pendingDialog.leaseId,generation:record.pendingDialog.generation};
+    assert.equal(record.originalScope.leaseId,record.originalLeaseId);
     if(scenario==="navigation")assert.ok(record.originalScope.generation>record.inputScope.generation);
     else assert.deepEqual(record.originalScope,report.gateProof.scope);
     assert.deepEqual(record.pendingDialog,{...record.originalScope,dialogId:record.pendingDialog.dialogId,type:"prompt",message:fixture.prompt.message,defaultPrompt:fixture.prompt.defaultPrompt});
     record.boundary=assertManagedReadinessNativeBoundary(nativeEvents(),{scenario,business,opening:record.opening,sourceURL:fixture.urls.source,emitterURL:fixture.urls[fixture.emitterRole]});
     const pendingUI=await uiObservation("pending-"+scenario);record.pendingUI=pendingUI;
-    assert.equal(pendingUI.input.enabled,"false");assert.ok(pendingUI.buttons.some(row=>row.id==="dialog-accept"&&row.visible&&!row.disabled));assert.equal(pendingUI.endDisabled,false);
+    assert.equal(pendingUI.input.enabled,"false");assert.equal(pendingUI.dialogId,record.pendingDialog.dialogId);assert.ok(pendingUI.buttons.some(row=>row.id==="dialog-accept"&&row.visible&&!row.disabled));assert.equal(pendingUI.endDisabled,false);
     await page.locator("#dialog-prompt").fill(managedReadinessDialogUnicode,{timeout:1000});await screenshot("pending-filled-"+scenario);
     assert.ok(Date.now()-record.opening.at<5000,"response must start within original five-second case budget");
+    assertManagedReadinessCurrentDialog(state,record.pendingState);
     record.reply=await uiAction("#dialog-accept","humanDialogRespond");record.request=report.viewerCommands.slice(commandStart).find(row=>row.operation==="humanDialogRespond");
+    assertManagedReadinessCurrentDialog(record.request.publishedStateAtSend,record.pendingState);
+    assert.deepEqual({leaseId:record.request.leaseId,generation:record.request.generation,dialogId:record.request.dialogId,accept:record.request.accept,promptText:record.request.promptText},{...record.originalScope,dialogId:record.pendingDialog.dialogId,accept:true,promptText:managedReadinessDialogUnicode});
+    record.answerObservation={phase:record.request.publishedStateAtSend.human.state,eventSequence:record.request.publishedStateAtSend.eventSequence,at:record.request.at,note:"Latest original published state when the viewer request was observed; not proof that native answering preceded the first frame."};
     assert.deepEqual(record.reply.dialogReceipt,{...record.originalScope,dialogId:record.pendingDialog.dialogId,acknowledged:true});
     assert.ok(record.request.at>=record.opening.at&&record.request.at-record.opening.at<5000);
     record.closed=await wait(()=>dialogs().find(row=>row.method==="Page.javascriptDialogClosed"),"original readiness native Closed",10000);
@@ -332,6 +406,7 @@ export async function runManagedHumanReadinessDialogCheck() {
     await refreshObserver("original-readiness-completed");
     record.boundary=assertManagedReadinessNativeBoundary(nativeEvents(),{scenario,business,opening:record.opening,sourceURL:fixture.urls.source,emitterURL:fixture.urls[fixture.emitterRole]});
     assert.equal(dialogs().filter(row=>row.method==="Page.javascriptDialogOpening").length,1);assert.equal(dialogs().filter(row=>row.method==="Page.javascriptDialogClosed").length,1);
+    assert.equal(report.viewerCommands.slice(commandStart).filter(row=>row.operation==="humanDialogRespond").length,1);
     record.outcome="answered";record.endedAt=Date.now();await screenshot("ended-"+scenario);await save();
   }
   async function resources() {

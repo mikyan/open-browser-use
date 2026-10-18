@@ -9,6 +9,32 @@ and failed runs below retain their historical scope. No PR is requested.
 
 ## Current continuation after the verified package
 
+### Requested refresh after readiness harness review
+
+The user asks whether work is finished and requests another package. Full parity
+is still active. This refresh keeps the ecbda21 product behavior and the same
+411 frozen source inputs, 77 extension files and seven Skill files; production
+race fixes are deferred rather than included without acceptance.
+
+The readiness runner now preserves the original preparing/null-viewport pending
+publication and permits the same lease/generation/dialog to become active before
+the UI answer. Native Opening must still precede that document's first observed
+frame. Original select/Begin receipts prove view retirement; the runner no longer
+requires an onDetach event that neither original run recorded. Answer phase is
+reported separately. This corrects harness assumptions, not either original
+exit-1 result, and no new real-browser acceptance is claimed.
+
+Controller scratch cases reproduce two independent unresolved races: a same-
+document updated event can cancel an asynchronously captured dialog, and a first
+default context arriving after preparation captured an empty identity can revoke
+the whole lease. Two ordered controls pass and two target-behavior assertions
+fail. The original navigation run lacks internal metadata ACK/error evidence,
+so neither is asserted to be its unique cause. Preserve all original evidence.
+
+Finish focused harness checks, commit the reviewed source/docs, rebuild from that
+clean commit, audit/copy the package and verify uploaded assets on the fork. No
+PR, browser business rerun or company-Edge setup is part of this refresh.
+
 ### Requested new package after the readiness implementation
 
 The user again requests a new Windows package. Full parity remains active; no

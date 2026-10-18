@@ -1,5 +1,25 @@
 # 子页面的人工弹窗
 
+## 准备期测试修正与再次打包请求
+
+用户询问是否结束并再次要求新包。完整能力对齐仍未完成；本次保持 ecbda21
+产品功能，收尾测试与诊断记录后从新的干净提交重建，未加入未验收的竞态修复。
+
+runner 保存原 preparing/null viewport 的首次 pendingDialog 发布，而非要求
+后续读取时仍未就绪；同租约、代次、弹窗可在回答前正常进入 active。原 Opening
+仍须早于原生首帧，记录回答阶段但不声称回答早于首帧。原 select/Begin 回执确认
+旧 view 清理，不再依赖原记录中没有的 onDetach 通知。旧 latest/null 及 onDetach
+假设各有先失败反例；原两场真实失败不改写，本次不重新运行网页业务。
+修正后的 runner/fixture 定向测试31项全部通过；两份原运行的离线回执与状态
+检查、语法及 diff 检查通过。原成功回执的 active view、preparing human、
+清理状态和退役序号均逐项核对，没有用新协议假设替换原证据。
+
+独立 controller 诊断的四项测试实际 exit 1：两个对照通过，两个目标行为失败。
+同文档 updated 可取消异步捕获中的弹窗但不独自清空租约；准备时先固定空默认
+context 身份、随后默认 context 到达，可导致整租约撤权。均保留一次原输入与
+原清理，无生产修改。原导航日志缺内部 ACK/error，不能声称已确定唯一原因。
+诊断报告 SHA256：`89167fee3a516c8c6ec7d732b265962d539e4e66f39420980382cc41d5cd9de2`。
+
 ## 两阶段接管与ecbda21预览交付
 
 用户再次要求新包。本轮源码将human Begin改为在原Pause、风险记录、attachment
