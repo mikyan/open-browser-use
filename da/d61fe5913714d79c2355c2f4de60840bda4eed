@@ -1,0 +1,35 @@
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_2030b23c30aa3b 10-16,94,96,220-221
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_2030b23c30aa3b 11-17,19,256-258,297-299
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_6e88fcbd17ed95 125,155,158
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_ae4c15f4cbe338 14-19
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_f2e080d55e5bcb 10-11
+docs/histories/2026-10/20261016-0350-managed-headless-feasibility.md
+  s_08bbfd293d324f::t_6897ddaf3014c5 1014-1033
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_1a053385313e4c 15-16
+docs/references/managed-worker-recovery.md
+  s_08bbfd293d324f::t_6a4b710747237b 3-4
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_d739df15c78253 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "dad61fe5913714d79c2355c2f4de60840bda4eed",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
