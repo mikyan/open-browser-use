@@ -63,4 +63,7 @@ OBU_TEST_HUMAN_SCENARIO=keyboard 运行 scripts/browser-integration/managed-huma
 继续验证持键 End、明确 Resume、唯一提交及 Stop。
 
 本片不证明长按重复键、系统输入法/候选窗口、本地复制桥接、公司 Edge 或全部
-P01–P15。已发布 d07ae52 包仍是原生产映射；本修复需后续重新打包才进入安装包。
+P01–P15。本修复已进入 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，从干净99c1be1重建配套主机与扩展。
+437份输入与上述已测快照及提交对象一致，77份扩展与实测字节一致；
+离线CLI/MCP、独立制品审计、四资产回下载和本地副本核对通过。
+上述真实浏览器验收使用内部冻结构建，发布EXE单独重建，打包未重跑网页业务。

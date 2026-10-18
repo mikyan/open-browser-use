@@ -14,7 +14,14 @@
 当前源码修复人工 Enter 的原生字符阶段；新构建通过 Go test/vet 与2,898项
 Node检查。正式`mhk-9zc3G0`七步通过，七场编辑/取消/隐式提交及原handoff
 分别核原事件、唯一POST和Stop；28项验收脚本检查通过，详见
-[人工 Enter](references/managed-human-keyboard.md)。本片尚未进入d07ae52包。
+[人工 Enter](references/managed-human-keyboard.md)。
+
+用户要求的新包已发布为 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，源提交 `99c1be13a71d2b844f2f5c3cfb657540c109f1a1`。
+437份构建输入与上述已测快照及提交对象相同，77份重建扩展与实测字节一致。
+完整包包含主机、扩展、安装脚本及Skill；离线CLI/MCP、独立制品审计、
+四资产回下载及本地副本核对通过。发布EXE从干净提交重建，本次打包没有
+重跑Go/Node或网页业务。公司Edge、系统输入法及完整能力对齐仍开放。
+完整ZIP为10,580,608字节，SHA256：`4b7dd5835e9118988d8a9f334a2bc39cc50c1add9cad9469a74ee4f57e14c443`。
 
 已发布d07ae52包的实际EXE/77扩展通过`mhi-66idOk`六步浏览器组合输入流程。
 九阶段候选/确认/取消、两次原文字回执、唯一356字节POST及正式End/Stop已验。

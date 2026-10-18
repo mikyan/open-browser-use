@@ -8,14 +8,14 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-当前源码另修复人工 Enter 的自然换行、网页取消与单行表单提交，正式七场
-流程已通过，见[人工 Enter](managed-human-keyboard.md)；此修复尚未进入下述包。
-最新已发布完整包为 [preview-20261019-d07ae52](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-d07ae52)，
-是119179c的同功能重打包，保留本地纯文字粘贴、原生弹窗来源和既有接管能力。
-437份源输入与原测试相同；构建、离线CLI/MCP、独立制品核对及四资产回下载
-通过，未重新运行原Go/2888项Node检查。该发布EXE和扩展随后完成六步浏览器
-组合输入流程，见[组合输入验收](managed-human-ime.md)。原六步固定内存剪贴板
-流程仍是此前证据。普通系统剪贴板、真实输入法、公司Edge及完整对齐仍未完成。
+最新已发布完整包为 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，包含人工 Enter 的自然换行、网页取消和
+单行表单提交修复，保留本地纯文字粘贴、原生弹窗来源与既有接管能力。
+七场固定浏览器行为及原handoff/End/Stop通过，见[人工 Enter](managed-human-keyboard.md)。
+437份发布输入与原Go test/vet、2898项Node已测快照及提交对象相同；77份
+扩展逐字节一致。离线CLI/MCP、独立制品审计、四资产回下载及本地副本
+核对通过；发布EXE从干净99c1be1重建，打包未重跑上述测试或网页业务。
+历史d07ae52发布EXE与扩展的六步组合输入验收仍见[组合输入验收](managed-human-ime.md)，
+不算作新包重新实测。普通系统剪贴板、真实输入法、公司Edge及完整对齐仍未完成。
 弹窗的既有验证范围见[人工网页弹窗](managed-human-dialogs.md)。
 
 历史完整包为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束接管提示修复。

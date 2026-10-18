@@ -21,5 +21,10 @@ managed-human-control 仅对严格 Enter/NumpadEnter、VK13 和普通/Shift 状�
 前缀，原失败保留；新v2只修正这两处格式假设，没有重跑业务或改原结果。
 范围和证据见[人工 Enter](../../references/managed-human-keyboard.md)。
 
-修复尚未进入 d07ae52 发布包。没有创建 PR；完整能力对齐、重复键、公司 Edge
-和系统输入法仍开放。
+用户随后要求重新打包。已发布 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，源提交 `99c1be13a71d2b844f2f5c3cfb657540c109f1a1`。
+437份输入与原测试及提交对象相同，77份扩展与实测字节一致；从干净提交
+重建EXE，完整包108文件、扩展77文件、Skill7文件，安装脚本及依赖许可证
+配套保留。离线CLI/MCP、独立制品审计、四资产回下载和112份本地文件
+副本核对通过；本次没有重跑Go/Node或原网页业务。
+完整ZIP为10,580,608字节，SHA256：`4b7dd5835e9118988d8a9f334a2bc39cc50c1add9cad9469a74ee4f57e14c443`。
+没有创建PR；完整能力对齐、重复键、公司Edge和系统输入法仍开放。

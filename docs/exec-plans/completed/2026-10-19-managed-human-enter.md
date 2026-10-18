@@ -37,4 +37,8 @@ mhk-9zc3G0 七步 actual exit 0，键盘表单与原 handoff 分别唯一 POST�
 29个原进程身份、Job、注册和管道清理核验通过。最初原生失败与首轮审核
 脚本格式假设错误均保留。完整范围见[人工 Enter](../../references/managed-human-keyboard.md)。
 
+按用户后续要求，新包已发布为 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)；源码与已测输入绑定、配套制品、
+离线CLI/MCP、四资产回下载及本地副本核验通过。发布EXE单独重建，
+打包未重跑原浏览器业务。
+
 完整 P01–P15、公司 Edge、系统输入法、长按重复键和本地复制桥接仍开放。

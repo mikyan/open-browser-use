@@ -15,7 +15,10 @@
 2026-10-19，当前 Enter 映射修复完成正式`mhk-9zc3G0`七步流程：原生多行/
 可编辑区换行、网页取消和单行隐式提交通过；独立原handoff、持键End、Resume
 及Stop保留。新构建Go/2,898项Node与28项验收脚本检查通过；原失败保留，
-具体范围见[人工 Enter](../references/managed-human-keyboard.md)。该修复尚未发布。
+具体范围见[人工 Enter](../references/managed-human-keyboard.md)。
+该修复已进入 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)；配套主机、扩展、安装脚本和Skill已交付。
+发布前核对437份已测输入和77份扩展、离线CLI/MCP、制品及四资产回下载；
+EXE从干净提交重建，打包未重跑网页业务，完整能力对齐继续开放。
 
 2026-10-19，已发布d07ae52的实际EXE和77份扩展完成`mhi-66idOk`六步组合
 输入流程：候选不外发、两次相同确认各提交一次、取消不提交、原回执、持键
