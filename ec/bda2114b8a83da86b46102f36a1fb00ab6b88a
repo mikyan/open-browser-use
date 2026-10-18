@@ -1,0 +1,161 @@
+apps/chrome-extension/managed-human-budget.test.mjs
+  s_08bbfd293d324f::t_0ae7b719667289 3,83-131
+apps/chrome-extension/background-managed-native-recovery.test.mjs
+  s_08bbfd293d324f::t_53067e2de9eab0 116
+  s_08bbfd293d324f::t_3147f3b0ba5a12 107-108,129
+  s_08bbfd293d324f::t_21ff7f5464b0bb 43,83,104-106,109-115,117-128,130-137
+  s_08bbfd293d324f::t_69cda64ce9ff97 138-139
+internal/managedprotocol/preparing_test.go
+  s_08bbfd293d324f::t_05eca4cc917960 1-52
+apps/chrome-extension/managed-human-dialogs.test.mjs
+  s_08bbfd293d324f::t_0ae7b719667289 22-68,84-110
+  s_08bbfd293d324f::t_452a51d0f66575 69-83
+scripts/browser-integration/managed-early-modal-fixture.mjs
+  s_08bbfd293d324f::t_73f8759986b2fb 1-91
+docs/references/managed-human-dialogs.md
+  s_08bbfd293d324f::t_65e8ca4f4a0c9a 128-131,133-134
+  s_08bbfd293d324f::t_bad4cd44781e6e 8,14-17,31-33,36,51-56,78-85,106-107,111-112,121-127,135-137,142-144
+  s_08bbfd293d324f::t_19516f30e049f9 132,138-141
+internal/managedprotocol/view.go
+  s_08bbfd293d324f::t_2e193ed458927f 31
+internal/managedprotocol/dialog_test.go
+  s_08bbfd293d324f::t_df7f6ac5f7721f 56
+apps/chrome-extension/browser-rendering.js
+  s_08bbfd293d324f::t_c4c2c7fb413e24 42,50,60,65-72,74,76,100-106,143,149
+  s_08bbfd293d324f::t_b311d70a1c990e 31,34-36,48-49,51,53-58,92
+internal/managedviewer/dialog_test.go
+  s_08bbfd293d324f::t_df7f6ac5f7721f 203,213,215
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_083a7e062609f2 286-297
+  s_08bbfd293d324f::t_df7f6ac5f7721f 1037-1038,1170-1172,1382,1391-1392,1396-1397,1400-1403
+  s_08bbfd293d324f::t_94512e772374e2 215-285,298-323
+apps/chrome-extension/managed-human-budget.js
+  s_08bbfd293d324f::t_b311d70a1c990e 37,58-72
+  s_08bbfd293d324f::t_9140ca03c3cd45 73
+internal/managedprotocol/dialog.go
+  s_08bbfd293d324f::t_2e193ed458927f 100-101
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_84ec23d6a2d124 15-22
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_220e3752381864 22-24,63-73,80,87,121,146,166,212,284,291,296-297,302,325,364,425-426,571,750-755,759-763
+  s_08bbfd293d324f::t_083a7e062609f2 286-288,299-300,306
+apps/chrome-extension/browser-rendering.test.mjs
+  s_08bbfd293d324f::t_c4c2c7fb413e24 19,221-272,274
+  s_08bbfd293d324f::t_fa9ea729486743 4,168-220,273
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_ac22c0c838301d 539
+scripts/browser-integration/managed-early-modal-check.test.mjs
+  s_08bbfd293d324f::t_ee63d4417c3b9c 1-101
+apps/chrome-extension/background-result-pages.test.mjs
+  s_08bbfd293d324f::t_e8572dafc8cff1 17-22,144,156
+apps/chrome-extension/managed-human-document-events.js
+  s_08bbfd293d324f::t_e91f907c9eb143 10-11,133-136,138-141
+  s_08bbfd293d324f::t_d4c332242708a0 30-36,76,194-195
+  s_08bbfd293d324f::t_a61bb84ae02c1c 101,142,215
+  s_08bbfd293d324f::t_954f3ecfe17303 1-9,12-29,37-75,77-95,97-98,100,102-132,143-179,182-193,200-205,210,212-214,216-217,219-220
+  s_08bbfd293d324f::t_f40fcdcd4a7235 180-181
+  s_08bbfd293d324f::t_11545d1aeaae8d 96,99,196-199,218
+  s_08bbfd293d324f::t_61d124938bc223 137,206-209,211
+docs/histories/2026-10/20261018-2245-human-frame-dialogs.md
+  s_08bbfd293d324f::t_65e8ca4f4a0c9a 17-19,22
+  s_08bbfd293d324f::t_bad4cd44781e6e 3-16,23-24,28-32,115-117
+  s_08bbfd293d324f::t_19516f30e049f9 20-21,25-27
+apps/chrome-extension/background-worker-recovery.test.mjs
+  s_08bbfd293d324f::t_1501cfb5a5f38f 38,45-46,49-83,254
+  s_08bbfd293d324f::t_943a4613943282 33-37,39-44,47-48
+apps/chrome-extension/background-human-control.test.mjs
+  s_08bbfd293d324f::t_e8572dafc8cff1 132-165
+  s_08bbfd293d324f::t_bc228b943b9abc 59-65,73-131
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_c34f0eb3e333a5 18,31,37-38
+  s_08bbfd293d324f::t_2ce8653e114ab7 304-336,339-345,347-415
+  s_08bbfd293d324f::t_10db93efd32c8a 17,48-52,57,59-60
+  s_08bbfd293d324f::t_444f39761fee49 337-338,346
+  s_08bbfd293d324f::t_6edeef61dc1933 946,951-953,1206,1396-1397,1399,1401-1402
+  s_08bbfd293d324f::t_73aa01caebbf0d 53-56,1036
+  s_08bbfd293d324f::t_3245a7cc23d26f 1713-1756
+scripts/browser-integration/managed-early-modal-fixture.test.mjs
+  s_08bbfd293d324f::t_ee63d4417c3b9c 1-45
+internal/managedviewer/dialog.go
+  s_08bbfd293d324f::t_2e193ed458927f 23
+  s_08bbfd293d324f::t_3a04fecf563567 20-22
+apps/chrome-extension/managed-user-bridge.js
+  s_08bbfd293d324f::t_2e193ed458927f 209,442,553
+docs/exec-plans/active/2026-10-18-human-frame-dialogs.md
+  s_08bbfd293d324f::t_680ce4937ae690 34-39,42-53
+  s_08bbfd293d324f::t_da2b325102c1e1 54-85
+  s_08bbfd293d324f::t_4771879ef6ecee 13-33,40-41
+apps/chrome-extension/managed-user-bridge.test.mjs
+  s_08bbfd293d324f::t_258631bb10d274 1242-1299
+scripts/browser-integration/managed-human-readiness-dialog-check.test.mjs
+  s_08bbfd293d324f::t_09581470529aa9 1-68
+  s_08bbfd293d324f::t_92ea11c1e6851d 69-79
+apps/chrome-extension/managed-human-document-graph.js
+  s_08bbfd293d324f::t_d4c332242708a0 162,168
+  s_08bbfd293d324f::t_ab339979a62f5f 133
+  s_08bbfd293d324f::t_856cdcce7ba804 2,40,47-48,94,111,132,166-167,169,181,245,252-258
+  s_08bbfd293d324f::t_e91f907c9eb143 246-250
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_198d06eb6ea480 873,1696,1702,1706-1713,3892,3899-3901,3907,3919-3920
+  s_08bbfd293d324f::t_06b889ca9d3039 1703-1705
+  s_08bbfd293d324f::t_3ab7cf5aea80c5 735,1032,1697-1700,3817-3840
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_297a041d3d941c 234-237
+  s_08bbfd293d324f::t_1bf1be07ffec47 4,9,102,115-118,124,130,132,138-140,211-213,271-274,278-290,292-295,307-309,311-315,318-323,325,330,332-334,337-338,343-354,387-389,391-396,400,403,456-457,482,657-659
+  s_08bbfd293d324f::t_a636dccb826462 119-120,218,275-277,291,300,306,633
+  s_08bbfd293d324f::t_c34f0eb3e333a5 230-233,326,331
+  s_08bbfd293d324f::t_73aa01caebbf0d 57,68,96,125,153-154,324,327-329,454,684
+apps/chrome-extension/managed-human-document-events.test.mjs
+  s_08bbfd293d324f::t_f3531edfceebb0 21-24,207-235,242-243
+  s_08bbfd293d324f::t_84632de189032a 236-241
+  s_08bbfd293d324f::t_cbf38647ec95cd 195-206,244
+  s_08bbfd293d324f::t_ee0d0612644159 144-194
+  s_08bbfd293d324f::t_f40fcdcd4a7235 245-257
+  s_08bbfd293d324f::t_08e6f57a6b132e 1-20,25-143
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_2e193ed458927f 238,248-249
+  s_08bbfd293d324f::t_f3c2b1bfeafe0c 250
+scripts/browser-integration/managed-human-readiness-dialog-check.mjs
+  s_08bbfd293d324f::t_5ddeda79ad3a77 1-51,53-64,66-85,98-178,182-239,242-320,322-442,450-489
+  s_08bbfd293d324f::t_ea30e0ad306fb3 52,65,86-97,179-181,240-241,321,443-449
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_2e193ed458927f 198,213,276,301
+apps/chrome-extension/managed-human-dialogs.js
+  s_08bbfd293d324f::t_bd27f31dca13ad 89-92
+  s_08bbfd293d324f::t_b311d70a1c990e 34,76-78,81,86,93-94,101-103,106,108-115
+  s_08bbfd293d324f::t_c156362acfc47c 82-85,87-88,104-105,107,166,177,179-183,186-187,190-191
+scripts/browser-integration/managed-early-modal-check.mjs
+  s_08bbfd293d324f::t_da278f3bbdd8c6 1-240
+internal/managedviewer/preparing_test.go
+  s_08bbfd293d324f::t_05eca4cc917960 1-6,8-118,189
+  s_08bbfd293d324f::t_98aab124eec5e0 7,119-188
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_65e8ca4f4a0c9a 173-176
+  s_08bbfd293d324f::t_bad4cd44781e6e 142-145,152-153,164-167,179
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_198d06eb6ea480 26
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_4771879ef6ecee 7
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_4771879ef6ecee 14-22
+scripts/browser-integration/managed-human-readiness-dialog-fixture.mjs
+  s_08bbfd293d324f::t_2ac8a147ac7b88 1-83
+scripts/browser-integration/managed-human-readiness-dialog-fixture.test.mjs
+  s_08bbfd293d324f::t_192b71e2c5d27a 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "ecbda2114b8a83da86b46102f36a1fb00ab6b88a",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
