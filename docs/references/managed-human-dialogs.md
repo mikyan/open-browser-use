@@ -12,8 +12,9 @@
 上述续轮已按用户要求发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束提示修复；旧6a3bee5不包含。
 
 当前源码加入两阶段 human Begin 与原生文档事件证明，但首帧准备期、导航期的
-正式查看器验收均未通过；不能据此声明这两类弹窗已可用。用户要求的新包正在
-准备，尚未发布；下面区分当前实现、当前验证与历史已发布制品。
+正式查看器验收均未通过；不能据此声明这两类弹窗已可用。该实验实现已随
+[preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21)
+发布，保留上述限制；下面区分当前实现、当前验证与历史已发布制品。
 
 ## 使用与限制
 

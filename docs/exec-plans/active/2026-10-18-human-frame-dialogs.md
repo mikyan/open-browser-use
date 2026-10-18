@@ -1,12 +1,11 @@
 # Managed human dialogs from original child documents
 
-Status: active. Full Browser Use parity remains unproven. The earlier bounded
-waiting and stable same-origin child implementations were committed, packaged
-and published as the 95e7b29 and 6a3bee5 previews; their original evidence and
-release records below remain historical facts. The latest human request
-explicitly asks for another package. This continuation has verified the current
-OOPIF implementation and release-notice UI fix; the requested package
-[preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a) is published and verified. No PR is requested.
+Status: active. Full Browser Use parity remains unproven. The latest requested
+package is published and verified as
+[preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21).
+It includes experimental two-stage admission and document-identity fixes;
+first-frame and navigation dialog acceptance remain open. Earlier releases
+and failed runs below retain their historical scope. No PR is requested.
 
 ## Current continuation after the verified package
 
@@ -29,7 +28,15 @@ preparing-stage answer assertion. In `mrd-yWnzNj`, the expected navigation
 dialog UI was not obtained. Both actual exit-1 runs are preserved and neither
 is accepted. The release must disclose these limits rather than advertise
 initial/navigation dialog support. Independent event/lifecycle and package
-checks remain part of this requested delivery.
+checks are complete for this requested delivery: 422 event and 45 lifecycle
+checks pass for the current four-layout run, with 20 decoded PNGs and 30 original
+process identities gone. Source commit `ecbda2114b8a83da86b46102f36a1fb00ab6b88a`
+is pushed to the fork. The 104/77/7-file Windows/extension/Skill bundle passes
+offline CLI/MCP, 8,926 independent package checks, four remote asset roundtrips
+and 108 local-file copy checks. The packaging script's initial variable-shadowing
+failure and 1,243 completed source checks are preserved; continuation rechecks
+the frozen inputs and uses a separate command log. No product code changed.
+This completes the package request, not the full parity goal.
 
 ### Resumed implementation after 34bbbe8
 

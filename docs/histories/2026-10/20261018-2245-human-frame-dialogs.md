@@ -1,6 +1,6 @@
 # 子页面的人工弹窗
 
-## 两阶段接管与本次候选
+## 两阶段接管与ecbda21预览交付
 
 用户再次要求新包。本轮源码将human Begin改为在原Pause、风险记录、attachment
 及listener建立后返回preparing handle；原Begin响应以前，早到状态不开放End或回答。
@@ -26,7 +26,15 @@ preparing/正generation/null viewport及pendingDialog，后继首帧先于runner
 没有pendingDialog、回答命令或POST，不能唯一归因；等待导航期弹窗界面状态超时。
 两阶段实现不等于这两边界验收通过。
 原失败、原构建和已有发布记录保留；旧四布局通过结果不自动归于本次源码。
-本次新包尚在准备，不预填发布提交或标签。
+本次源码提交`ecbda2114b8a83da86b46102f36a1fb00ab6b88a`已推到fork，并发布为
+[preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21)。
+104/77/7文件、离线CLI/MCP30工具、8,926项独立制品检查、四资产回下载与108个
+本地副本校验通过。生命周期独审45项、20张PNG及30个原进程退出通过；两失败
+运行的清理也另行确认，没有据此修改其功能失败结论。
+打包脚本变量重名的初次失败与原1,243条成功命令保留，续跑重新核对411份冻结
+源码并使用独立日志。发布EXE从干净提交重建，77份未加key扩展匹配原实测制品。
+完整包SHA256：`b4b761cfe1d1c724d60b0c5bacb59b22ac3e8721e4bfbab580ed848ea4c0f42b`。
+本次打包请求已完成；首帧、导航弹窗和完整能力对齐仍未完成，未提PR。
 
 ## 已发布的5e830dc重打包（历史）
 
