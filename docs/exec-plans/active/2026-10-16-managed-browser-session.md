@@ -7,6 +7,13 @@
 不会占用系统鼠标。它是完整 Browser Use 目标的一条新部署路线；普通已登录
 浏览器的后台弹窗焦点问题仍按原计划处理，不能被此模式的结果替代。
 
+## 2026-10-18 用户要求的新包
+
+用户再次明确要求打包，已从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 发布 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，首次将已验证的 worker 替换恢复放入 Windows 包。
+离线 CLI/MCP 30 工具、独立制品 8,437 项检查、4 个资产回下载及 103 个本地文件校验通过。
+完整包/扩展/Skill 分别为 99/72/6 文件。本轮未重跑网页业务；发布 EXE 单独重建，原始功能验收和失败证据保留。
+下一轮 workflow/OS 观测脚本及 Skill 草稿未纳入本包；完整能力对齐仍未结束。
+
 ## 2026-10-17 同 worker 的 Native 连接恢复（限定流程已验）
 
 当前源码保留同一原 Browser、profile、worker target/context/workerBootId，在
@@ -84,9 +91,9 @@ lifecycle 字节、两代原 Native 回执和注册/pipe/endpoint 清理均匹�
 制品独审 SHA-256：`4bf6d55f5313d3c932d2910870369897a123f456563f1bcb7d2e92890bc4482d`。
 本轮只打包，未重跑网页业务；原验收与全部失败记录保持独立，不新增功能通过声明。
 
-### 真正 worker 替换后的显式恢复（限定场景已验、未入包）
+### 真正 worker 替换后的显式恢复（限定场景已验、已入 853ea92 包）
 
-已发布包不包含此能力。当前源码保留原 Browser/profile/result target/document，分别验证原
+853ea92 新包已包含此能力，旧 6588984 包不包含。当前源码保留原 Browser/profile/result target/document，分别验证原
 执行上下文终结、新 context uniqueId/workerBootId 和新 Native 绑定；targetId 可能
 复用。worker 死亡不能替代截图流 stop/detach 或 held-input 释放。先实现无遗留
 输入风险的恢复，并为活动只读查看取得原目标实际清理回执；持键、指针或未知
@@ -210,7 +217,8 @@ windowId/groupId/pinned，不证明完整停机事件历史或 tab index；详�
 
 用户的重新打包请求已由上一轮 `preview-20261017-6588984` 完成。本次上下文
 恢复时短暂误读历史请求，只生成了未执行的打包草稿；没有新制品或发布。
-继续本节开发不触发自动重打包，完整能力对齐仍未完成。
+上述为前一轮状态。2026-10-18 用户再次明确要求打包，已交付本页顶部的新包；
+后续开发不因此自动重打包，完整能力对齐仍未完成。
 
 ## 当前依据
 

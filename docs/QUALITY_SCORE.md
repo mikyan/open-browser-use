@@ -11,7 +11,12 @@
 
 ## 当前评分
 
-开发源码新增专用会话的真正 worker 替换恢复，尚未进入安装包。固定 Windows
+用户再次明确要求打包，已从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 发布 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，首次将已验证的 worker 替换恢复放入 Windows 包。
+离线 CLI/MCP 30 工具、独立制品 8,437 项检查、4 个资产回下载及 103 个本地文件校验通过。
+完整包/扩展/Skill 分别为 99/72/6 文件。本轮未重跑网页业务；发布 EXE 单独重建，原始功能验收和失败证据保留。
+下一轮 workflow/OS 观测脚本及 Skill 草稿未纳入本包；完整能力对齐仍未结束。
+
+专用会话的真正 worker 替换恢复已进入上述新包。原功能验收限定固定 Windows
 CfT 156.0.8078.12 的 `mwr-r-esLC1h` 与独立 held-input `mwr-h-Fv7gx8` 各六步
 实际 exit 0：原结果唯一 POST 保留、新 viewer 仍暂停、旧权限拒绝；未知持键
 不恢复且正式 Stop 正常结束。Go 全包/vet/build 和扩展 2,075 项通过。

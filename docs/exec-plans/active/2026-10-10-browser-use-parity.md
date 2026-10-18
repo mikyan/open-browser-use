@@ -7,8 +7,8 @@
 
 ## 当前基线
 
-最新可下载包为 [preview-20261017-6588984](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-6588984)，
-运行功能与 a4e6b0c 相同。本轮继续开发，未自动制作新包。当前源码新增真正
+最新可下载包为 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，
+按用户再次明确要求构建发布，包含已验证的真正
 worker 替换恢复：固定 Windows 的 `mwr-r-esLC1h` 与独立 held-input
 `mwr-h-Fv7gx8` 各六步 actual exit 0；原结果保留、新权限保持暂停，未知输入
 拒绝恢复且可正常 Stop。扩展 2,075 项及 Go 全包/vet/build 通过，原失败保留。

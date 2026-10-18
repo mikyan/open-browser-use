@@ -1,7 +1,7 @@
 # Managed worker 替换恢复
 
-这是 Windows 专用会话的开发功能；已发布的
-`preview-20261017-6588984` 不包含本功能。普通安装的浏览器连接与专用
+这是 Windows 专用会话的实验功能，已包含于
+[preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)。旧 6588984 包不包含本功能。普通安装的浏览器连接与专用
 会话不同，本契约不代表普通公司 Edge 已验收。
 
 ## 用户行为

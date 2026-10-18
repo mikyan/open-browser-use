@@ -8,9 +8,15 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261017-6588984](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-6588984)，
+最新完整包为 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，
+从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 重建，包含下文的 worker 替换恢复。
+离线 CLI/MCP 30 工具、独立制品 8,437 项检查、4 个资产回下载及 103 个本地文件校验通过。
+完整包/扩展/Skill 分别为 99/72/6 文件。本轮未重跑网页业务；发布 EXE 单独重建，原始功能验收和失败证据保留。
+下一轮 workflow/OS 观测脚本及 Skill 草稿未纳入本包；完整能力对齐仍未结束。
+
+历史完整包为 [preview-20261017-6588984](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-6588984)，
 从干净提交 `65889844f5266f2e2702f5ee9726ab9105ec2c1f` 重建。运行功能与 a4e6b0c 相同，
-本次提交差异仅文档；正在开发的扩展后台重启恢复未入包。离线 CLI/MCP
+该次提交差异仅文档；当时正在开发的扩展后台重启恢复未入该旧包。离线 CLI/MCP
 30 工具、独立制品 5,507 项检查、4 个资产回下载哈希及本地副本核对通过。
 本次打包未重跑网页业务，既有功能验收不计为发布 EXE 的新运行。
 上一同功能完整包为 [preview-20261017-a4e6b0c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261017-a4e6b0c)，
@@ -247,9 +253,9 @@ Agent 已暂停且清理完成时同样可用，完成接管后仍保持暂停�
 继续 Agent 或断开连接时，都要等待原查看资源的真实释放。页面被关闭、移动、
 替换或由新的合法任务重新取得控制后，旧结果选择失效。
 
-已发布预览的结果登记限定在原 managed worker/run 中，worker 重启后不会根据
-展示分组自动恢复权限。开发源码新增显式恢复原结果的路径，见
-[worker 替换恢复](managed-worker-recovery.md)，尚未进入上述安装包。
+新包支持在同一存活 Browser/run 中显式恢复 worker 替换前已验证的原结果，
+不会根据展示分组自动恢复权限；旧链接与租约失效，新查看器仍保持暂停。见
+[worker 替换恢复](managed-worker-recovery.md)。
 `managed stop` 仍会关闭整个浏览器，不提供停止后保留窗口；需先保存或导出结果。
 
 固定 Windows Chromium 的 `managed-result-VGrDlV` 六步实际 exit 0：
@@ -288,8 +294,9 @@ target 和 document，Agent 仍暂停；要继续自动操作，需在新查看�
 接续、旧票据拒绝及最终清理均确认。原结果文档和唯一提交回执保留，恢复后未
 自动 Resume。该有限结果不包含真正 worker 替换、浏览器重启或在途输入恢复。
 
-以上为已发布预览的同 worker 恢复边界。开发源码的真正 worker 替换恢复另见
-[契约与验证入口](managed-worker-recovery.md)，不据此扩大发布包已有能力。
+以上为 a4e6b0c 起的同 worker 恢复边界；853ea92 新包另包含真正 worker
+替换恢复，见[契约与验证入口](managed-worker-recovery.md)。两条路径均要求
+原 Browser 存活及确切清理，未知输入与浏览器重启仍不授权恢复。
 
 Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运行目录、
 唯一 HKCU Native Messaging 注册和浏览器进程树。暂存扩展只变更公开 key

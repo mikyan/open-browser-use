@@ -1011,3 +1011,23 @@ worker recovery runner. Architecture, reference, quality, specification and acti
 plans now distinguish this source-only capability from the unchanged 6588984
 package. Browser-process restart, retained windows after Stop, company Edge,
 real login/IME/SSO/MFA and complete parity remain open.
+
+### 2026-10-18: Requested 853ea92 Windows package
+
+用户再次明确要求打包，已从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 发布 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，首次将已验证的 worker 替换恢复放入 Windows 包。
+离线 CLI/MCP 30 工具、独立制品 8,437 项检查、4 个资产回下载及 103 个本地文件校验通过。
+完整包/扩展/Skill 分别为 99/72/6 文件。本轮未重跑网页业务；发布 EXE 单独重建，原始功能验收和失败证据保留。
+下一轮 workflow/OS 观测脚本及 Skill 草稿未纳入本包；完整能力对齐仍未结束。
+
+- Source commit: `853ea9211b15ccdebe84dd3fe0df955853b80a0b`.
+- Full ZIP: `open-browser-use-windows-x64-preview-20261018-853ea92.zip`, 10,480,112 bytes; SHA-256 `6f5a92f78398debedfd8d7442893291cc72560b77abd1b833de8ab493efbbef3`.
+- Release EXE SHA-256: `243d84e2a7ee972605baed53949cfc0df08640d8c957fea5ea7526ee874a11dd`.
+- Independent artifact audit SHA-256: `ab7dc08263809cdda45badaf290b00c053b29d62cbd3d3154129b781cadd9967`.
+- Upload roundtrip SHA-256: `3f2d0e6a2ed21f4fd1895a9675e1e0aa7c5132adba47ba1148b9408fc76ca217`.
+
+All production bytes came from the isolated clean source commit. Installation
+wrappers and licenses retain the previously audited layout; managed guide changes
+are recorded as exact publication edits with source-bound links. No installation,
+registry mutation, personal browser access or PR was performed for this release.
+Original worker positive/held-input acceptance, independent audits and historical
+failures remain distinct from this package build and offline validation.

@@ -12,7 +12,8 @@
 
 ## Baseline sources
 
-2026-10-18 开发源码完成专用会话的 worker 替换恢复限定验收，未发布新包。
+2026-10-18 专用会话的 worker 替换恢复完成限定验收，并按用户新请求发布
+[preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)；离线制品检查不计为新增浏览器验收。
 固定 Windows CfT 的正向 `mwr-r-esLC1h` 和独立 held-input `mwr-h-Fv7gx8`
 均六步 actual exit 0：原唯一 POST/结果保留，新权限保持暂停，旧权限拒绝；
 未知输入不重放或猜测释放，明确 Stop 能正常结束原会话。扩展 2,075 项、Go
