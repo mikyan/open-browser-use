@@ -4,10 +4,65 @@ Status: active. Full Browser Use parity remains unproven. The latest requested
 package is published and verified as
 [preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3).
 It retains the ecbda21 experimental two-stage admission and document-identity fixes;
-first-frame and navigation dialog acceptance remain open. Earlier releases
+first-frame and navigation dialog acceptance remain open for that package. The
+current unbundled development fixes pass the two fixed readiness scenarios below.
+Earlier releases
 and failed runs below retain their historical scope. No PR is requested.
 
 ## Current continuation after the verified package
+
+### Navigation dialog recovery after ff1d9d3 delivery
+
+The preceding turn completed the requested package and is progress. Start from
+clean `298ba16`; no further package or PR is requested. Keep the full parity goal.
+Resolve the actual-controller counterexamples without changing the old failed
+runs: preparation must wait for the original destination default context before
+fixing its input identity, and duplicate tab metadata must not retire a proved
+document while real navigation or permission changes still revoke it promptly.
+Do not capture a replacement context or grant authority from a matching URL.
+
+Also test concurrent result-document publication through the real journal:
+preparation and dialog proof can request the same durable advance simultaneously.
+Serialize original record writes, preserve actual transaction receipts and reject
+retired callers without corrupting lineage or weakening journal revision checks.
+Root owns control/background integration; the result owner owns the result-pages
+module/tests; independent reviewers examine context and browser event sequencing.
+After focused counterexamples, run a fresh frozen build and the corrected formal
+viewer scenarios, then independently audit their original events and cleanup.
+
+Implemented scope: the original event-commit preparation ticket and a bounded
+per-record result advance queue. Context replacement, navigation, End and timeout
+still revoke; only the original first default can complete the ticket. Real journal
+receipts update lineage before a retired caller rejects; revoke joins original
+commit and queue before exact-record deletion. The URL-hint design is deferred,
+not silently treated as solved. No background navigation permission path changed.
+
+Fresh `mnr-build-zduwf3am` passes Go test/vet and all 2,791 Node checks, with 412
+selected source inputs and 77 extension files. Binding review passes 2,736 checks;
+16 script tests outside that snapshot have only separate current-HEAD checks.
+The readiness observer adds bounded passive URL/status records. Original run
+`mrd-9Xezna` remains exit 1: its prompt reply succeeded, but the runner asserted a
+field deliberately removed by the existing redaction projector. A red/green
+regression fixes that assertion using exact byte count and hash; 36 focused checks
+pass, and native Closed/POST still require the complete exact Unicode string.
+
+Fresh `mrd-R2RlH5` (before-first-frame) and `mrd-1yX7Xa` (navigation) both complete
+with actual exit 0, original answer/POST/End and formal Stop. Opening precedes the
+original native frame; request-time published phases are preparing/navigating,
+not a claim that native answering preceded a frame. `mod-44Rx1T` separately passes
+all four existing layout prompts on the same build. Original failures remain
+unchanged; one navigation success does not resolve the late URL-hint race.
+These development fixes do not change the already published ff1d9d3 package.
+
+Independent original-event audits pass (1,411/1,432 checks, including frozen byte
+bindings), with 69 lifecycle checks and 25 original process identities gone per
+readiness run. The four-layout audit passes 426 event and 44 lifecycle checks,
+31 original process identities gone and 20 decoded PNGs. All original formal Stop
+results and exact resource cleanup are confirmed without force. The failed run
+retains its failure despite independently proved answer/POST and clean shutdown.
+In the passing navigation case, URL update 52 precedes Opening 56; it does not
+exercise the still-open late-hint counterexample. Next work should target that
+counterexample without rerunning or relabeling these completed original cases.
 
 ### Requested refresh after readiness harness review
 

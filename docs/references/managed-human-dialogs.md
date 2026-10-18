@@ -7,11 +7,11 @@
 
 此前版本另通过稳定跨站 OOPIF prompt 和完成接管后的提示清理验收。查看器
 仍通过原生弹窗的 typed 回答通道处理网页消息，不继续 Agent、不重放点击。
-最新重打包 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc) 的产品功能与e3fee2a相同；未验收的首帧/导航准备期改动未纳入。
+当时重打包 [preview-20261019-5e830dc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-5e830dc) 的产品功能与e3fee2a相同；未验收的首帧/导航准备期改动未纳入。
 
 上述续轮已按用户要求发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束提示修复；旧6a3bee5不包含。
 
-当前源码加入两阶段 human Begin 与原生文档事件证明，但首帧准备期、导航期的
+ecbda21源码加入两阶段 human Begin 与原生文档事件证明，但其首帧准备期、导航期的
 正式查看器验收均未通过；不能据此声明这两类弹窗已可用。该实验实现已随
 [preview-20261019-ecbda21](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ecbda21)
 发布，保留上述限制；下面区分当前实现、当前验证与历史已发布制品。
@@ -19,6 +19,10 @@
 最新重打包 [preview-20261019-ff1d9d3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-ff1d9d3)
 保持ecbda21产品功能，包含完整安装件和Skill。源码只新增测试时序修正及记录，
 没有新增真实浏览器验收；8,974项独立制品检查与四资产回下载通过。
+
+其后的当前开发版修复原默认context准备和同记录并发journal写入；固定CfT的
+两场新验收分别完成首帧前出现、导航时出现的prompt回答与正常End。修复尚未
+进入上述安装包，晚到URL提示撤代仍开放，不能据两个固定场景宣称所有导航可用。
 
 ## 使用与限制
 
@@ -35,10 +39,10 @@
   旧版未声明能力时仍为服务器 30 秒、查看端 35 秒，不作隐式升级。
 - 回答必须绑定原主 frame 或已证明的子 frame、原文档和精确原 human tuple。
   当前源码允许具备完整证明的正 generation preparing/navigating 状态独立回答，
-  但该准备期行为尚未通过真实验收；generation 数值本身不授予回答权限。
+  当前开发版已通过下面两个固定准备期场景；generation 数值本身不授予回答权限。
   子 frame 的每一层祖先须有原生图谱关联及存活的默认执行上下文；实际源必须
   为非 opaque HTTP(S)。跨站路径逐层接受当前网站策略检查，不借父站权限放行。
-  接管前已有和 `beforeunload` 不支持；首帧准备期、导航期间仍不列为已验收能力。
+  接管前已有和 `beforeunload` 不支持；已发布包的首帧准备期、导航期间仍未验收。
   无法确认的 emitter 不取得回答权限；原 human attachment 可以取消并结束
   接管，但不会默认接受离开页面。只读 view 没有弹窗响应权限。
 - 静态 HTTP 同源子页、两层同源嵌套及单层跨站 OOPIF 的 prompt 已真实验收。
@@ -93,6 +97,17 @@ default context 与祖先链，再用浏览器侧 documentId、导航版本及�
 准备完成及最终原生发送前再次核对。它不授予弹窗 origin 权限；即使弹窗图谱快照
 因事件变化不可用，原默认上下文被销毁、替换或新增也不能使旧输入穿过。普通隔离
 世界事件不改变该身份集合；实际已发送的输入仍保留原 Promise 和独立回执。
+原 start/commit 已完整观察、但该文档的首个默认 context 尚未到达时，准备阶段
+以固定 ticket 等待原缺口，避免先固定空集合再因正常首个 context 到达而撤权。
+ticket 固定原 frame/loader、祖先、session、图结构和已存在的 context；成熟后
+只能返回同一严格身份。新导航、context 销毁或替换、End、超时均不能补权。
+冷路径或起始可选事件证据不可用时仍保持原严格捕获，不允许后续增加 context。
+等待由原 Runtime/导航/撤权事件唤醒，原准备 Promise 与预算、清理责任不变。
+
+页面准备与弹窗证明并发推进同一结果文档时，`managed-result-pages.js` 对原记录
+串行执行有界 journal 写入。相同目标可使用前一实际提交的 lineage，旧异文档
+快照不能回退；真实回执先更新记录，再拒绝退役调用者。撤权立即阻止新操作，
+原记录删除等待 commit 和完整队列结算。未知存储错误保留且不自动重试。
 撤权阻止新的 child setup，等待全部原实际调用，再由原根 detach ACK 结束子 session
 归属；该 ACK 不冒充输入或弹窗响应的完成。
 
@@ -123,7 +138,45 @@ Promise、持键意图与清理责任仍保留至真实结算。
 
 ## 验证记录
 
-### 当前两阶段实现与未通过的边界验收
+### 当前开发版的原上下文等待与并发记录修复
+
+新冻结构建`mnr-build-zduwf3am`绑定412份输入和77个扩展文件；Go全包test/vet
+及2791项Node测试均在本次实际通过。manifest记录基础提交和原工作区快照，
+不冒充干净提交；16个scripts测试未纳入该selected snapshot，其当前HEAD内容
+另由独审核对。原输入及制品绑定2736项独审通过。
+构建报告SHA256：`5ec03eb845807fda445d813a3d793920217bcd79fa3e65dffd7c2ccd703facdf`。
+
+定向测试覆盖等待期间End/超时/再次导航、首个默认context与后继替换、真实
+IndexedDB journal的并发提交和撤权。首次controller可选事件回退失败、journal
+并发反例和后续修复记录均保留。URL提示方案仍只有设计，生产路径未修改。
+
+原`mrd-9Xezna`实际exit 1：共享命令投影将promptText替换为字节数与摘要，
+runner仍断言已删除字段。虽然原Closed和唯一POST含正确中文答案，后续完整
+页面和显式End验收未执行，整场仍失败。先红后绿修正只核对原投影的bytes/hash，
+原生Closed/POST仍逐字校验；包括被动tabs.onUpdated观察在内的36项定向测试通过。
+
+同一冻结产品的新`mrd-R2RlH5`与`mrd-1yX7Xa`均实际exit 0、featurePassed true。
+前者Opening41早于首帧43，后者原frameNavigated51、Opening56早于新文档首帧64；
+两场都经原查看器回答Unicode、原页面唯一POST、匹配回执、End及正式Stop。
+请求时最新发布阶段分别为preparing/navigating，不冒充原生回答早于首帧的证明。
+新`mod-44Rx1T`的root/same/nested/oopif四布局回归也实际exit 0，四个prompt均回答。
+所有旧失败保持原结论；单场导航通过不能消除晚到URL提示竞态或替代公司Edge验收。
+
+两场准备期报告SHA256分别为
+`1660bb891e0d2b25abb45bddc4e77195cf1c043e3935cbb889d253002b42ca35`、
+`7f6b52e8e0703de9db69390d70f752597ef4b23ef4bfcc74a76b7409c28e8f37`；
+四布局报告为`e38d98fe2a7a2ea8b70d20e0ec6d3d5c62da9cc61b88acb48a3af1874deb0f77`。
+
+两场准备期原事件独审分别1411/1432项通过（含冻结源字节核对），生命周期各69项
+通过，各25个原进程身份已退出、6张PNG完整解码。原失败9Xezna另经100项检查、
+27个原身份退出及5张PNG确认，但仍失败；审计器格式适配的两次失败也保留。
+四布局事件426项、生命周期44项通过，31个原身份退出、20张PNG解码与目视核对。
+四场均正式Stop、原Browser/Native/supervisor/viewer正常退出、Job为0、未强制终止，
+确切私有注册和管道清除、端点目录为空。Native FILETIME使用原始整数，不经JS浮点。
+导航原URL更新52位于Opening56之前，因此本轮未覆盖晚到URL更新竞态。
+本次不重新打包，不提PR；完整能力对齐仍未完成。
+
+### 历史ecbda21两阶段实现与未通过的边界验收
 
 2026-10-19 内部构建 `mrd-build-fw1j0vrq` 绑定411份生产输入、77个扩展文件，
 2758项Node测试全部通过。Go主模块全包测试/vet本轮已通过，最终构建复用字节

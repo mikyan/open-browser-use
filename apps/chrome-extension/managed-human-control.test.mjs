@@ -317,6 +317,61 @@ function navigateOriginal(f, id = "B", url = `https://fixture.test/${id}`) {
   childContext(f, "root", "context-" + id, 2);
 }
 
+test("destination default context is observed before preparation fixes input identity", async () => {
+  const f = readinessFixture({ command: (method, params, _target, owner) => {
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+  } });
+  const handle = await f.begin();
+  try {
+    f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "loader-B" });
+    f.event("Runtime.executionContextsCleared"); f.changeDocument("B");
+    f.event("Page.frameNavigated", { frame: { id: "root", loaderId: "loader-B", url: "https://fixture.test/B" } });
+    const boundary = f.calls.length;
+    await tick();
+    assert.equal(f.calls.slice(boundary).some(([method]) => method === "Page.getFrameTree"), false,
+      "do not start metadata reads with an empty destination default-context fence");
+    assert.equal(handle.info().state, "navigating");
+    childContext(f, "root", "context-B", 2);
+    opening(f, { url: "https://fixture.test/B", type: "prompt" });
+    await tick();
+    assert.ok(handle.pendingDialog()); assert.notEqual(f.control.current.revoked, true);
+    await answer(handle, { promptText: "原目标文档" });
+    await f.control.current.recovery;
+    assert.equal(handle.info().state, "active");
+    assert.deepEqual(decisions(f), [{ accept: true, promptText: "原目标文档" }]);
+  } finally { await handle.close(); }
+  assert.equal(f.risks.size, 0); assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+});
+
+for (const ending of ["End", "deadline", "successor"]) test(`destination context wait preserves ${ending} without a replacement read or input replay`, async () => {
+  const timing = manualTiming(), f = readinessFixture({ timing }), handle = await f.begin();
+  f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "loader-B" });
+  f.event("Runtime.executionContextsCleared"); f.changeDocument("B");
+  f.event("Page.frameNavigated", { frame: { id: "root", loaderId: "loader-B", url: "https://fixture.test/B" } });
+  const boundary = f.calls.length, record = f.control.current;
+  await tick();
+  try {
+    assert.equal(f.calls.slice(boundary).some(([method]) => method === "Page.getFrameTree"), false);
+    assert.equal(record.dialogWaiters.size, 1);
+    if (ending === "successor") {
+      const abandoned = handle.info().generation;
+      navigateOriginal(f, "C");
+      await record.recovery;
+      assert.equal(handle.info().state, "active");
+      assert.ok(handle.info().generation > abandoned);
+      assert.equal(handle.tabInfo().url, "https://fixture.test/C");
+      assert.equal(f.frames.some(frame => frame.generation === abandoned), false);
+    } else if (ending === "deadline") {
+      timing.advance(10001);
+      assert.match((await handle.closed).reason, /PREPARATION_TIMEOUT/);
+    }
+  } finally { await handle.close(); }
+  assert.equal(record.dialogWaiters.size, 0); assert.equal(f.risks.size, 0);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+  assert.equal(f.calls.filter(([method]) => method.startsWith("Input.")).length, 0);
+  if (ending !== "successor") assert.equal(f.calls.slice(boundary).some(([method]) => method === "Page.getFrameTree"), false);
+});
+
 test("actual Begin admits End before Page.enable ACK but grants no input or dialog", async () => {
   const page = defer(), entered = defer();
   const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });

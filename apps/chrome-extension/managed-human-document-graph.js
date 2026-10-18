@@ -41,6 +41,7 @@ export class ManagedHumanDocumentGraph {
     Object.assign(this, { send, check, onFailure, onChange });
     this.sessions = new Map(); this.seen = new Set(); this.pending = new Set(); this.commands = new Set();
     this.snapshots = new WeakMap(); this.proofs = new WeakMap(); this.identities = new WeakMap();
+    this.preparationIdentities = new WeakMap();
     this.revision = 0; this.structure = 0; this.contextIdentities = 0; this.revoked = false; this.ended = false;
     this.failure = null; this.started = false; this.starting = null;
     this.root = this.createSession(undefined, null, null);
@@ -256,6 +257,41 @@ export class ManagedHumanDocumentGraph {
   }
   captureReadiness(fence, candidate, opening) { this.assertActive(); return this.events.capture(fence, candidate, opening); }
   assertReadiness(proof) { this.assertActive(); this.events.assert(proof); }
+  checkpointPreparationIdentity() {
+    this.assertActive();
+    const gaps = this.events.checkpointPreparation(), ticket = Object.freeze({});
+    // No known committed gap means exactly the old strict contract, including
+    // cold/partial snapshots. It cannot be repaired by an unobserved document.
+    const saved = gaps ? { gaps, structure: this.structure,
+      path: [...this.sessions.values()].filter(session => this.current(session))
+        .map(session => ({ session, contexts: new Map(session.contexts.current) })) } : { identity: this.captureIdentity() };
+    this.preparationIdentities.set(ticket, saved);
+    this.capturePreparationIdentity(ticket); return ticket;
+  }
+  capturePreparationIdentity(ticket) {
+    this.assertActive();
+    const saved = this.preparationIdentities.get(ticket);
+    if (!saved) throw fail();
+    if (saved.identity) { this.assertIdentity(saved.identity); return saved.identity; }
+    if (saved.structure !== this.structure) throw fail();
+    const gaps = this.events.preparationContexts(saved.gaps);
+    let waiting = false;
+    for (const { session, contexts } of saved.path) {
+      if (!this.current(session) || session.contexts.blocked) throw fail();
+      const expected = new Map(contexts);
+      for (const [frameId, context] of gaps.get(session) ?? []) {
+        if (expected.has(frameId)) throw fail();
+        if (context) expected.set(frameId, context); else waiting = true;
+      }
+      if (expected.size !== session.contexts.current.size) throw fail();
+      for (const [frameId, context] of expected) if (session.contexts.current.get(frameId) !== context ||
+          !session.contexts.alive.has(context) || session.contexts.records.get(context.uniqueId) !== context) throw fail();
+    }
+    if (waiting) return null;
+    // The first complete set is fixed synchronously. Subsequent calls return
+    // that same strict fence; they never add another context to it.
+    saved.identity = this.captureIdentity(); return saved.identity;
+  }
   captureIdentity() {
     this.assertActive();
     const path = [...this.sessions.values()].filter(session => this.current(session))

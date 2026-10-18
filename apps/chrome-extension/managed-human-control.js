@@ -102,6 +102,7 @@ export class ManagedHumanControl {
       assertCandidate: (candidate, origins) => { this.check(record); this.assertDialog(candidate, origins); },
       onFailure: error => { void this.close(record, error).catch(() => {}); },
       onChange: details => {
+        this.wakeDialogs(record);
         record.dialogs?.recheck();
         if (record.initialized) this.navigation(record.tabId, details, "committed", "native-topology");
       }
@@ -188,6 +189,7 @@ export class ManagedHumanControl {
       if (sessionId !== undefined && !record.documentGraph?.owns(sessionId)) return;
       record.documentGraph?.observe(sessionId, method, params);
       if (method.startsWith("Runtime.")) {
+        this.wakeDialogs(record);
         record.dialogs?.recheck(); return;
       }
       if (["Page.javascriptDialogOpening", "Page.javascriptDialogClosed"].includes(method)) {
@@ -337,7 +339,18 @@ export class ManagedHumanControl {
     await this.waitForDialog(record, epoch);
     const candidate = await this.validate(record.candidate, { advance: epoch.id > 1 });
     check(); epoch.candidate = candidate ?? record.candidate;
-    epoch.inputIdentity = record.documentGraph?.captureIdentity();
+    if (record.documentGraph) {
+      // A committed destination can precede its first default-context event.
+      // Wait only for that original graph ticket; never fix an empty input
+      // identity and later replace it with whichever context happens to arrive.
+      const ticket = record.documentGraph.checkpointPreparationIdentity();
+      while ((epoch.inputIdentity = record.documentGraph.capturePreparationIdentity(ticket)) === null) {
+        let wake;
+        try { await new Promise(resolve => { wake = resolve; record.dialogWaiters.add(wake); }); }
+        finally { record.dialogWaiters.delete(wake); }
+        check();
+      }
+    }
     epoch.document = this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check));
     check();
     epoch.dialogContexts = await record.documentGraph?.snapshot(epoch.candidate);

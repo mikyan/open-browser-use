@@ -161,16 +161,49 @@ export function assertManagedReadinessInputOutcome(request, response, originalSc
   assertHumanInputReceipt(request, response); return { acknowledged: true, originalGeneration: request.generation };
 }
 
-function installReadinessObservation(chrome, target, project, webEvents) {
+export function assertManagedReadinessDialogRequest(request, scope, dialogId) {
+  assert.equal(request.operation, "humanDialogRespond");
+  // The shared command projector deliberately replaces prompt text with its
+  // original UTF-8 byte count and digest. Native Closed and POST remain exact.
+  assert.deepEqual({ leaseId: request.leaseId, generation: request.generation, dialogId: request.dialogId, accept: request.accept,
+    promptBytes: request.promptBytes, promptSHA256: request.promptSHA256 },
+  { ...scope, dialogId, accept: true, promptBytes: Buffer.byteLength(managedReadinessDialogUnicode), promptSHA256: hash(managedReadinessDialogUnicode) });
+}
+
+export function projectManagedReadinessTabUpdate(tabId, changeInfo) {
+  if (!Number.isSafeInteger(tabId) || tabId < 0 || !changeInfo || typeof changeInfo !== "object") throw Error("Invalid passive tab update metadata");
+  const params = {};
+  if (Object.hasOwn(changeInfo, "url")) {
+    if (typeof changeInfo.url !== "string" || changeInfo.url.length > 8192) throw Error("Passive tab update URL exceeds evidence bounds");
+    params.url = changeInfo.url;
+  }
+  if (Object.hasOwn(changeInfo, "status")) {
+    if (!["loading", "complete"].includes(changeInfo.status)) throw Error("Invalid passive tab update status");
+    params.status = changeInfo.status;
+  }
+  return Object.keys(params).length ? { source: { tabId }, method: "tabs.onUpdated", params } : null;
+}
+
+export function installReadinessObservation(chrome, target, project, webEvents, projectTabUpdate) {
   if (target.__managedReadinessDialogDiagnostic || typeof target.__obuManagedReadinessDialogEvent !== "function") throw Error("Original OOPIF observer unavailable");
+  if (!chrome.tabs?.onUpdated?.addListener || typeof projectTabUpdate !== "function") throw Error("Required passive tab update observer missing");
   let sequence = 0, overflow = false, active = true; const events = [], navigation = [];
-  const record = (source, method, params) => {
-    const value = method === "Page.screencastFrame" ? { source: structuredClone(source), method, params: { sessionId: params.sessionId, metadata: structuredClone(params.metadata) } } : project(source, method, params, webEvents); if (!value) return;
+  const append = value => {
+    if (!active || !value) return;
     if (events.length >= 4096) { overflow = true; return; }
     const item = { sequence: ++sequence, at: Date.now(), ...value }; events.push(item); target.__obuManagedReadinessDialogEvent(JSON.stringify(item));
   };
+  const record = (source, method, params) => {
+    if (!active) return;
+    append(method === "Page.screencastFrame" ? { source: structuredClone(source), method, params: { sessionId: params.sessionId, metadata: structuredClone(params.metadata) } } : project(source, method, params, webEvents));
+  };
+  const onUpdated = (tabId, changeInfo) => {
+    if (!active) return;
+    try { append(projectTabUpdate(tabId, changeInfo)); } catch { overflow = true; }
+  };
   const onDetach = (source, reason) => record(source, "debugger.onDetach", { reason });
   chrome.debugger.onEvent.addListener(record); chrome.debugger.onDetach.addListener(onDetach);
+  chrome.tabs.onUpdated.addListener(onUpdated);
   for (const name of webEvents) {
     if (!chrome.webNavigation[name]?.addListener) throw Error("Required webNavigation observer missing: " + name);
     const listener = details => record({ tabId: details.tabId }, "webNavigation." + name, details);
@@ -179,9 +212,17 @@ function installReadinessObservation(chrome, target, project, webEvents) {
   const snapshot = () => ({ sequence, events: structuredClone(events), overflow, active });
   Object.defineProperty(target, "__managedReadinessDialogDiagnostic", { value: {
     snapshot, mark() { return { sequence, at: Date.now(), kind: "passive-observer-boundary-before-humanBegin-request" }; },
-    stop() { chrome.debugger.onEvent.removeListener(record); chrome.debugger.onDetach.removeListener(onDetach); for (const { name, listener } of navigation) chrome.webNavigation[name].removeListener(listener); active = false; return snapshot(); }
+    stop() {
+      if (active) {
+        active = false;
+        chrome.debugger.onEvent.removeListener(record); chrome.debugger.onDetach.removeListener(onDetach);
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        for (const { name, listener } of navigation) chrome.webNavigation[name].removeListener(listener);
+      }
+      return snapshot();
+    }
   } });
-  return { installed: true, readOnly: true, webEvents: [...webEvents], scope: "Passive debugger and webNavigation metadata only. Never task attach, Runtime.enable, setAutoAttach, native response or authority creation." };
+  return { installed: true, readOnly: true, webEvents: [...webEvents], tabEvents: ["onUpdated"], scope: "Passive debugger, webNavigation and bounded tabs.onUpdated URL/status metadata only. Never task attach, Runtime.enable, setAutoAttach, native response or authority creation." };
 }
 
 export async function runManagedHumanReadinessDialogCheck() {
@@ -379,7 +420,7 @@ export async function runManagedHumanReadinessDialogCheck() {
     assertManagedReadinessCurrentDialog(state,record.pendingState);
     record.reply=await uiAction("#dialog-accept","humanDialogRespond");record.request=report.viewerCommands.slice(commandStart).find(row=>row.operation==="humanDialogRespond");
     assertManagedReadinessCurrentDialog(record.request.publishedStateAtSend,record.pendingState);
-    assert.deepEqual({leaseId:record.request.leaseId,generation:record.request.generation,dialogId:record.request.dialogId,accept:record.request.accept,promptText:record.request.promptText},{...record.originalScope,dialogId:record.pendingDialog.dialogId,accept:true,promptText:managedReadinessDialogUnicode});
+    assertManagedReadinessDialogRequest(record.request,record.originalScope,record.pendingDialog.dialogId);
     record.answerObservation={phase:record.request.publishedStateAtSend.human.state,eventSequence:record.request.publishedStateAtSend.eventSequence,at:record.request.at,note:"Latest original published state when the viewer request was observed; not proof that native answering preceded the first frame."};
     assert.deepEqual(record.reply.dialogReceipt,{...record.originalScope,dialogId:record.pendingDialog.dialogId,acknowledged:true});
     assert.ok(record.request.at>=record.opening.at&&record.request.at-record.opening.at<5000);
@@ -474,7 +515,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.workerTarget = { id: targets[0].id, url: targets[0].url }; report.workerConnection = {};
       worker = await connectNormalCDP(targets[0].webSocketDebuggerUrl, { record: report.workerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       await worker.call("Runtime.enable"); await worker.call("Runtime.addBinding", { name: "__obuManagedReadinessDialogEvent" });
-      report.nativeObserver = await worker.evaluate(`(${installReadinessObservation.toString()})(chrome,globalThis,${projectManagedOopifEvent.toString()},${JSON.stringify(managedOopifWebNavigationEvents)})`);
+      report.nativeObserver = await worker.evaluate(`(${installReadinessObservation.toString()})(chrome,globalThis,${projectManagedOopifEvent.toString()},${JSON.stringify(managedOopifWebNavigationEvents)},${projectManagedReadinessTabUpdate.toString()})`);
       const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(runDir, "sdk-input/index.js")));
       taskBrowser = await connectOpenBrowserUse({ socketPath: info.socketPath, sessionId: "managed-human-readiness-dialog", timeoutMs: 10000 });
       for (const current of fixtures) {

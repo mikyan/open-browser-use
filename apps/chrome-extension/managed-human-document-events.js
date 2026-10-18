@@ -21,10 +21,12 @@ export class ManagedHumanDocumentEvents {
     Object.assign(this, { root, current, check, assertCandidate });
     this.frames = new Map(); this.seen = new Map(); this.pending = new Map();
     this.fences = new WeakMap(); this.proofs = new WeakMap(); this.bindings = new WeakMap();
+    this.preparations = new WeakMap(); this.preparationVersion = 0;
     this.rootDocuments = new Map(); this.revision = 0; this.identities = 0;
     this.rootReady = false; this.blocked = false;
   }
   advance() { if (++this.revision >= Number.MAX_SAFE_INTEGER) this.blocked = true; }
+  retirePreparation() { if (++this.preparationVersion >= Number.MAX_SAFE_INTEGER) this.blocked = true; }
   active() { this.check(); if (this.blocked) throw fail(); }
   ready(session) { return this.current(session) && session.eligible && (session === this.root ? this.rootReady : session.ready); }
   reserve(candidate) {
@@ -90,9 +92,11 @@ export class ManagedHumanDocumentEvents {
       return;
     }
     if (["Runtime.executionContextDestroyed", "Runtime.executionContextsCleared"].includes(method)) {
+      this.retirePreparation();
       this.advance(); return;
     }
     if (method === "Page.frameStartedNavigating") {
+      this.retirePreparation();
       if (!text(params.frameId) || !text(params.loaderId)) throw fail();
       this.advance(); this.retire(session, params.frameId);
       this.pending.set(session, this.pending.get(session) ?? new Map());
@@ -102,6 +106,7 @@ export class ManagedHumanDocumentEvents {
       return;
     }
     if (["Page.frameNavigated", "Page.documentOpened"].includes(method)) {
+      this.retirePreparation();
       this.advance();
       const row = rowFor(params.frame), whole = session === this.root ? row[1] === null : row[0] === session.targetId;
       this.retire(session, row[0], whole);
@@ -114,6 +119,7 @@ export class ManagedHumanDocumentEvents {
       return;
     }
     if (["Page.frameAttached", "Page.frameDetached", "Page.navigatedWithinDocument"].includes(method)) {
+      this.retirePreparation();
       this.advance(); this.retire(session, params.frameId);
       this.pending.get(session)?.delete(params.frameId);
     }
@@ -157,6 +163,47 @@ export class ManagedHumanDocumentEvents {
     }
     if (!path.length || path.at(-1).session !== this.root || path.at(-1).row[1] !== null) throw fail();
     return path;
+  }
+  checkpointPreparation() {
+    this.check();
+    // Event-only readiness is optional. Incomplete event evidence must not
+    // disable the existing strict cold/input path; an already issued waiting
+    // ticket still fails through preparationContexts when this ledger blocks.
+    if (this.blocked) return null;
+    const paths = [];
+    for (const [session, rows] of this.frames) for (const record of rows.values()) {
+      if (!this.current(session) || record.source !== "event" || !record.usable || record.context) continue;
+      paths.push(Object.freeze(this.path(record)));
+    }
+    if (!paths.length) return null;
+    const ticket = Object.freeze({});
+    this.preparations.set(ticket, { version: this.preparationVersion, paths: Object.freeze(paths) });
+    this.preparationContexts(ticket); return ticket;
+  }
+  preparationContexts(ticket) {
+    this.active();
+    const saved = this.preparations.get(ticket);
+    if (!saved || saved.version !== this.preparationVersion) throw fail();
+    const contexts = new Map();
+    for (const path of saved.paths) {
+      for (let index = 0; index < path.length; index++) {
+        const record = path[index];
+        if (!record.usable || !this.ready(record.session) ||
+            this.frames.get(record.session)?.get(record.row[0]) !== record ||
+            record.parent !== (path[index + 1] ?? null)) throw fail();
+      }
+      const record = path[0], { session, context } = record;
+      if (record.source !== "event" || session.contexts.blocked ||
+          (context ? session.contexts.current.get(record.row[0]) !== context ||
+            !session.contexts.alive.has(context) || session.contexts.records.get(context.uniqueId) !== context :
+            session.contexts.current.has(record.row[0]))) throw fail();
+      let frames = contexts.get(session);
+      if (!frames) { frames = new Map(); contexts.set(session, frames); }
+      frames.set(record.row[0], context ?? null);
+    }
+    // This grants identity readiness only. Browser document, origin and site
+    // permission proofs still belong to their separate original interfaces.
+    return contexts;
   }
   assertPath(path) {
     this.active();

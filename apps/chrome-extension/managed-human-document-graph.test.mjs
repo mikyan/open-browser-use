@@ -301,6 +301,111 @@ test("identity fence survives isolated-world noise but never grants origin or em
   assert.throws(() => fixture().graph.assertIdentity(fence), /UNSUPPORTED/);
 });
 
+async function preparationFixture({ local = false, remote = false } = {}) {
+  const f = fixture();
+  if (local) {
+    f.trees.set(undefined, tree(frame("root"), [frame("local", "root")]));
+    f.created(undefined, context("local", "https://root.test", { id: 2 }));
+  }
+  if (remote) f.child();
+  await f.graph.start(); await f.graph.snapshot();
+  const id = remote ? "child" : local ? "local" : "root", session = remote ? "child-session" : undefined;
+  const next = { ...frame(id, id === "root" ? undefined : "root", remote ? "https://child.test" : "https://root.test"), loaderId: "new-original-loader" };
+  f.graph.observe(session, "Page.frameStartedNavigating", { frameId: id, loaderId: next.loaderId });
+  f.graph.observe(session, "Page.frameNavigated", { frame: next });
+  const first = () => f.created(session, context(id, remote ? "https://child.test" : "https://root.test", { id: 3, uniqueId: "first-original-context" }));
+  return Object.assign(f, { id, session, next, first });
+}
+
+for (const scope of ["root", "local", "remote"]) test(`preparation waits for the original committed ${scope} default once without renderer reads`, async () => {
+  const f = await preparationFixture({ local: scope === "local", remote: scope === "remote" }), count = f.calls.length;
+  const originalStrict = f.graph.captureIdentity(), ticket = f.graph.checkpointPreparationIdentity();
+  assert.equal(f.graph.capturePreparationIdentity(ticket), null);
+  f.created(f.session, context(f.id, "https://isolated.test", { uniqueId: "isolated", auxData: { frameId: f.id, isDefault: false } }));
+  assert.equal(f.graph.capturePreparationIdentity(ticket), null);
+  f.first(); const identity = f.graph.capturePreparationIdentity(ticket);
+  assert.ok(identity); f.graph.assertIdentity(identity);
+  assert.equal(f.graph.capturePreparationIdentity(ticket), identity, "a mature ticket returns its same immutable identity");
+  assert.throws(() => f.graph.assertIdentity(originalStrict), /UNSUPPORTED/, "the prior empty identity never accepts growth");
+  assert.equal(f.calls.length, count, "no metadata commands or input are dispatched while waiting");
+  f.created(f.session, context(f.id, "https://root.test", { uniqueId: "replacement-after-ready" }));
+  assert.throws(() => f.graph.capturePreparationIdentity(ticket), /UNSUPPORTED/);
+  assert.throws(() => f.graph.assertIdentity(identity), /UNSUPPORTED/);
+});
+
+for (const change of ["clear", "destroy", "commit", "start", "attach-frame", "detach-frame", "replace-existing", "new-unrelated-default", "target-attach", "target-detach", "revoke", "detach"]) {
+  test(`preparation cannot repair its original missing slot after ${change}`, async () => {
+    const f = await preparationFixture({ local: true });
+    const ticket = f.graph.checkpointPreparationIdentity();
+    assert.equal(f.graph.capturePreparationIdentity(ticket), null);
+    if (change === "clear") f.graph.observe(undefined, "Runtime.executionContextsCleared");
+    if (change === "destroy") f.graph.observe(undefined, "Runtime.executionContextDestroyed", { executionContextId: 999, executionContextUniqueId: "unknown-original" });
+    if (change === "commit") f.graph.observe(undefined, "Page.frameNavigated", { frame: { ...f.next, loaderId: "later-loader" } });
+    if (change === "start") f.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: f.id, loaderId: "later-loader" });
+    if (change === "attach-frame") f.graph.observe(undefined, "Page.frameAttached", { frameId: "new-frame", parentFrameId: "root" });
+    if (change === "detach-frame") f.graph.observe(undefined, "Page.frameDetached", { frameId: f.id });
+    if (change === "replace-existing") f.created(undefined, context("root", "https://root.test", { uniqueId: "replacement-root" }));
+    if (change === "new-unrelated-default") f.created(undefined, context("unrelated", "https://root.test", { uniqueId: "unrelated", id: 4 }));
+    if (change === "target-attach") { f.child(); await f.graph.drain(); }
+    if (change === "target-detach") { f.child(); await f.graph.drain(); f.graph.observe(undefined, "Target.detachedFromTarget", { sessionId: "child-session", targetId: "child" }); }
+    if (change === "revoke") f.graph.revoke();
+    if (change === "detach") f.graph.detached();
+    f.first(); assert.throws(() => f.graph.capturePreparationIdentity(ticket), /UNSUPPORTED/);
+  });
+}
+
+test("a default replaced before ticket polling cannot become the original first default", async () => {
+  const f = await preparationFixture(), ticket = f.graph.checkpointPreparationIdentity();
+  f.first(); f.created(undefined, context("root", "https://root.test", { uniqueId: "second-default" }));
+  assert.throws(() => f.graph.capturePreparationIdentity(ticket), /UNSUPPORTED/);
+});
+
+test("multiple original preparation gaps finish independently across session-local context IDs", async () => {
+  const f = await preparationFixture({ local: true }); f.child(); await f.graph.drain(); await f.graph.snapshot();
+  const next = { ...frame("child", "root", "https://child.test"), loaderId: "next-remote-loader" };
+  f.graph.observe("child-session", "Page.frameStartedNavigating", { frameId: "child", loaderId: next.loaderId });
+  f.graph.observe("child-session", "Page.frameNavigated", { frame: next });
+  const ticket = f.graph.checkpointPreparationIdentity(), count = f.calls.length;
+  assert.equal(f.graph.capturePreparationIdentity(ticket), null);
+  f.first(); assert.equal(f.graph.capturePreparationIdentity(ticket), null);
+  f.created("child-session", context("child", "https://child.test", { id: 3, uniqueId: "remote-first-original" }));
+  const identity = f.graph.capturePreparationIdentity(ticket); assert.ok(identity); f.graph.assertIdentity(identity);
+  assert.equal(f.calls.length, count);
+  assert.throws(() => f.graph.captureReadiness(identity, {}, { frameId: "child", url: next.url }), /UNSUPPORTED/,
+    "input identity maturity grants no original dialog or site permission proof");
+});
+
+test("a preparation ticket belongs only to its original graph attachment", async () => {
+  const first = await preparationFixture(), second = await preparationFixture();
+  const ticket = first.graph.checkpointPreparationIdentity();
+  second.first(); assert.throws(() => second.graph.capturePreparationIdentity(ticket), /UNSUPPORTED/);
+  assert.equal(first.graph.capturePreparationIdentity(ticket), null);
+  first.first(); first.graph.assertIdentity(first.graph.capturePreparationIdentity(ticket));
+});
+
+test("no explicit committed context gap preserves the existing strict cold identity contract", async () => {
+  const f = fixture(); await f.graph.start(); await f.graph.snapshot();
+  f.graph.observe(undefined, "Runtime.executionContextsCleared");
+  const ticket = f.graph.checkpointPreparationIdentity(), identity = f.graph.capturePreparationIdentity(ticket);
+  assert.ok(identity); f.graph.assertIdentity(identity);
+  f.created(undefined, context("root", "https://root.test", { uniqueId: "late-cold-context" }));
+  assert.throws(() => f.graph.capturePreparationIdentity(ticket), /UNSUPPORTED/);
+  assert.throws(() => f.graph.assertIdentity(identity), /UNSUPPORTED/);
+  assert.throws(() => f.graph.capturePreparationIdentity({}), /UNSUPPORTED/);
+});
+
+test("unavailable optional event evidence preserves new strict preparation but invalidates an existing wait ticket", async () => {
+  const waiting = await preparationFixture(), ticket = waiting.graph.checkpointPreparationIdentity();
+  waiting.graph.observe(undefined, "Page.frameStartedNavigating", { frameId: "unrelated" });
+  assert.equal(waiting.graph.events.blocked, true);
+  assert.throws(() => waiting.graph.capturePreparationIdentity(ticket), /UNSUPPORTED/);
+  const fallback = waiting.graph.checkpointPreparationIdentity();
+  const identity = waiting.graph.capturePreparationIdentity(fallback);
+  assert.ok(identity); waiting.graph.assertIdentity(identity);
+  waiting.first(); assert.throws(() => waiting.graph.capturePreparationIdentity(fallback), /UNSUPPORTED/,
+    "optional fallback never accepts subsequent default growth");
+});
+
 test("a null dialog snapshot cannot repair the earlier input identity after context churn between tree reads", async () => {
   let reads = 0; const f = fixture({ command(id, method, params, f) {
     if (method === "Page.getFrameTree" && ++reads === 2) f.created("child-session", context("child", "https://child.test", { uniqueId: "during-prepare" }));

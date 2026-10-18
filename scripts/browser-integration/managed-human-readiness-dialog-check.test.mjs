@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import vm from "node:vm";
 import { managedReadinessGateCandidate, managedReadinessSource, assertManagedReadinessNativeBoundary, assertManagedReadinessInputOutcome,
-  assertManagedReadinessAdmission, managedReadinessPendingObservation, assertManagedReadinessCurrentDialog } from "./managed-human-readiness-dialog-check.mjs";
+  assertManagedReadinessAdmission, managedReadinessPendingObservation, assertManagedReadinessCurrentDialog,
+  projectManagedReadinessTabUpdate, installReadinessObservation, assertManagedReadinessDialogRequest } from "./managed-human-readiness-dialog-check.mjs";
+import { projectManagedOopifEvent, managedOopifWebNavigationEvents } from "./managed-human-oopif-dialog-evidence.mjs";
+import { projectHumanDialogCommand } from "./managed-human-dialog-check.mjs";
+import { managedReadinessDialogUnicode } from "./managed-human-readiness-dialog-fixture.mjs";
 
 const business = { tabId: 7, target: { id: "root" }, observerBoundary: { sequence: 10 } };
 const source = { targetId: "root" }, sourceURL = "http://127.0.0.1:55000/source", emitterURL = "http://127.0.0.1:55000/destination";
@@ -136,4 +141,84 @@ test("original early publication cannot authorize a later lease, generation, wor
 test("current human frame before the first pending publication fails even if latest state looks ready", () => {
   const f = pendingSequence(); f.messages.splice(1, 0, { type: "frame", humanLeaseId: "original", generation: 1 });
   assert.throws(() => managedReadinessPendingObservation(f.messages, f.active, f.config));
+});
+
+test("passive tab updates preserve only bounded original URL/status and exact tab identity", () => {
+  assert.deepEqual(projectManagedReadinessTabUpdate(7, { url: sourceURL, status: "loading", title: "exclude", favIconUrl: "exclude", cookie: "exclude" }),
+    { source: { tabId: 7 }, method: "tabs.onUpdated", params: { url: sourceURL, status: "loading" } });
+  assert.deepEqual(projectManagedReadinessTabUpdate(7, { status: "complete" }).params, { status: "complete" });
+  assert.deepEqual(projectManagedReadinessTabUpdate(7, { url: sourceURL }).params, { url: sourceURL });
+  assert.equal(projectManagedReadinessTabUpdate(7, { title: "unneeded", favIconUrl: "unneeded" }), null);
+  assert.equal(projectManagedReadinessTabUpdate(7, { url: "x".repeat(8192) }).params.url.length, 8192);
+  for (const [tabId, changes] of [[-1, {}], [1.5, {}], [7, null], [7, { url: "x".repeat(8193) }], [7, { url: {} }], [7, { status: "unknown" }]])
+    assert.throws(() => projectManagedReadinessTabUpdate(tabId, changes));
+});
+
+function observerFixture() {
+  const event = () => {
+    const listeners = new Set();
+    return { listeners, addListener(listener) { listeners.add(listener); }, removeListener(listener) { listeners.delete(listener); },
+      emit(...args) { for (const listener of listeners) listener(...args); } };
+  };
+  const chrome = { debugger: { onEvent: event(), onDetach: event() }, tabs: { onUpdated: event() },
+    webNavigation: Object.fromEntries(managedOopifWebNavigationEvents.map(name => [name, event()])) };
+  const sent = [], target = { __obuManagedReadinessDialogEvent: raw => sent.push(JSON.parse(raw)) };
+  // Exercise the exact self-contained functions serialized into the worker.
+  const install = vm.runInNewContext(`(${installReadinessObservation.toString()})`, { structuredClone });
+  const projectTab = vm.runInNewContext(`(${projectManagedReadinessTabUpdate.toString()})`);
+  const projectNative = vm.runInNewContext(`(${projectManagedOopifEvent.toString()})`, { structuredClone });
+  const installed = install(chrome, target, projectNative, [...managedOopifWebNavigationEvents], projectTab);
+  return { chrome, sent, installed, observer: target.__managedReadinessDialogDiagnostic };
+}
+
+test("worker tab updates share the original native/web sequence and stop removes all listeners", () => {
+  const f = observerFixture();
+  assert.deepEqual([...f.installed.tabEvents], ["onUpdated"]);
+  f.chrome.debugger.onEvent.emit(source, "Runtime.executionContextsCleared", {});
+  f.chrome.tabs.onUpdated.emit(7, { url: emitterURL, status: "loading", title: "exclude" }, new Proxy({}, { get() { throw Error("full tab must not be read"); } }));
+  f.chrome.webNavigation.onCommitted.emit({ tabId: 7, frameId: 0, documentId: "new", url: emitterURL });
+  f.chrome.tabs.onUpdated.emit(7, { title: "not recorded" });
+  assert.deepEqual(f.sent.map(row => [row.sequence, row.method]), [[1, "Runtime.executionContextsCleared"], [2, "tabs.onUpdated"], [3, "webNavigation.onCommitted"]]);
+  assert.deepEqual(f.sent[1].source, { tabId: 7 });
+  assert.deepEqual(f.sent[1].params, { url: emitterURL, status: "loading" });
+  const lateUpdate = [...f.chrome.tabs.onUpdated.listeners][0], lateNative = [...f.chrome.debugger.onEvent.listeners][0];
+  assert.equal(f.observer.mark().sequence, 3);
+  const stopped = f.observer.stop();
+  assert.equal(stopped.active, false); assert.equal(stopped.overflow, false); assert.equal(stopped.sequence, 3);
+  for (const event of [f.chrome.tabs.onUpdated, f.chrome.debugger.onEvent, f.chrome.debugger.onDetach, ...Object.values(f.chrome.webNavigation)]) assert.equal(event.listeners.size, 0);
+  lateUpdate(7, { url: "late" }); lateNative(source, "Runtime.executionContextsCleared", {});
+  assert.equal(f.sent.length, 3); assert.equal(f.observer.stop().sequence, 3);
+});
+
+test("passive tab metadata cannot exceed the shared event cap or silently truncate required fields", () => {
+  const f = observerFixture();
+  for (let i = 0; i < 4096; i++) f.chrome.tabs.onUpdated.emit(7, { status: "loading" });
+  f.chrome.debugger.onEvent.emit(source, "Runtime.executionContextsCleared", {});
+  assert.equal(f.sent.length, 4096); assert.equal(f.observer.snapshot().sequence, 4096); assert.equal(f.observer.snapshot().overflow, true);
+  f.observer.stop();
+  const invalid = observerFixture();
+  invalid.chrome.tabs.onUpdated.emit(7, { url: "x".repeat(8193) });
+  assert.equal(invalid.sent.length, 0); assert.equal(invalid.observer.snapshot().overflow, true);
+  invalid.observer.stop();
+});
+
+test("the original viewer dialog command projection proves Unicode bytes without retaining promptText", () => {
+  const scope = { leaseId: "original", generation: 1 }, dialogId = "original-dialog";
+  const projected = projectHumanDialogCommand({ id: 5, operation: "humanDialogRespond", ...scope, dialogId, accept: true, promptText: managedReadinessDialogUnicode });
+  assert.equal(Object.hasOwn(projected, "promptText"), false);
+  assertManagedReadinessDialogRequest(projected, scope, dialogId);
+});
+
+test("projected answer proof still rejects missing, different or foreign original request data", () => {
+  const scope = { leaseId: "original", generation: 1 }, dialogId = "original-dialog";
+  const original = { id: 5, operation: "humanDialogRespond", ...scope, dialogId, accept: true, promptText: managedReadinessDialogUnicode };
+  const projected = projectHumanDialogCommand(original);
+  for (const fields of [{ operation: "humanInput" }, { leaseId: "other" }, { generation: 2 }, { dialogId: "other" },
+    { accept: false }, { promptBytes: undefined }, { promptBytes: projected.promptBytes + 1 },
+    { promptSHA256: undefined }, { promptSHA256: "0".repeat(64) }])
+    assert.throws(() => assertManagedReadinessDialogRequest({ ...projected, ...fields }, scope, dialogId));
+  for (const promptText of ["", managedReadinessDialogUnicode + "x", managedReadinessDialogUnicode.replace("原", "旧")])
+    assert.throws(() => assertManagedReadinessDialogRequest(projectHumanDialogCommand({ ...original, promptText }), scope, dialogId));
+  const { promptText: _omitted, ...missing } = original;
+  assert.throws(() => assertManagedReadinessDialogRequest(projectHumanDialogCommand(missing), scope, dialogId));
 });

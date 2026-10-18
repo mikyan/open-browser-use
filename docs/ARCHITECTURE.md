@@ -167,13 +167,19 @@ debugger、history 和 tab groups。
   旧渲染和异步证明仍保留实际 Promise。回答独立于旧清理，新画面仍等待旧清理。
   普通输入另在准备读取前固定原默认上下文集合，最终发送前复核；弹窗快照
   不可用也不能跨已毁灭或替换的上下文发送，隔离世界事件不扩大该权限。
+  已观察到原 start/commit、但首个默认 context 尚未到达时，准备 ticket 只等待
+  该原文档的缺口；成熟后固定原严格身份。新导航、替换 context、End 或超时
+  撤销等待，不能用迟到的后继身份补全；可选事件证据不可用仍保留原冷路径。
   上下文退役身份有界保留，后继不明 Opening 形成不可恢复的回答歧义，只有
   原 target 销毁可确认清理。撤权先阻止新 setup，再等待原实际 Promise；
   根 detach ACK 清理子 session，但不替代输入或回答 ACK。
-  当前构建的2758项Node及Go全包/vet通过；固定CfT的`mod-O0QjZc`重新验证了
-  root/稳定同源/嵌套/单层OOPIF四个prompt回答与正式Stop，未沿用旧源码结果。
-  首帧准备期和导航期两场真实验收未通过；来源展示、动态/继承文档、复杂跨进程
-  嵌套、普通公司Edge及完整能力对齐仍未覆盖。
+  当前内部构建的2791项Node及新一轮Go全包/vet通过；固定CfT的`mod-44Rx1T`
+  验证root/稳定同源/嵌套/单层OOPIF四个prompt回答与正式Stop。`mrd-R2RlH5`
+  与`mrd-1yX7Xa`分别完成首帧前出现和导航时出现的原prompt回答、唯一POST及End。
+  Opening早于原生首帧，回答时所见阶段分别为preparing/navigating；不宣称原生
+  回答也早于首帧。晚到URL提示撤代问题仍未修复，不能据单场通过宣布普遍支持。
+  这些新修复未进入ff1d9d3安装包；来源展示、动态/继承文档、复杂跨进程嵌套、
+  普通公司Edge及完整能力对齐仍未覆盖。
   查看器的释放进度按原 lease/UI epoch 绑定，匹配清理可先于 End 响应清除
   旧提示；新错误、未知输入故障及后继租约不被旧响应覆盖。
   页面输入先等待原任务清理及首帧实际解码；结束后仍暂停，明确 Resume 后任务
@@ -191,6 +197,9 @@ debugger、history 和 tab groups。
   但无输入、Pause、焦点模拟或输入风险标记；结果可在暂停完成时查看和接管。
   user-view 的状态必须先于匹配帧穿过 Go/HTTP/UI。当前实现以独立
   `managed-result-journal.js` 事务持久化原结果 lineage、epoch 和 view 义务；
+  同一结果记录的文档推进使用有界串行队列，同目标并发证明共享实际提交的
+  lineage；旧异文档读取不能回退记录。实际事务回执先更新 lineage，再拒绝
+  退役调用者；撤权立即生效，删除等原 commit 与完整队列结算，不重试未知写。
   替换 worker 清理原 view 后重新校验当前精确页面并签发新 deliveryId，
   旧权限不恢复。该功能已进入 853ea92 包，停止后保留窗口仍未实现；验收见隔离会话计划。
 - `internal/browserdownloads/`：显式绑定的 Browser root WebSocket、真实worker

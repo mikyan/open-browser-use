@@ -1,5 +1,6 @@
 const changed = () => new Error("OBU_MANAGED_RESULT_STALE: original delivered page identity or placement changed");
 const positionKeys = ["windowId", "groupId", "pinned"];
+const ADVANCE_LIMIT = 64;
 
 // Grants remain worker-local. The separate journal records committed lineage,
 // not capabilities; explicit recovery must verify the original live page and
@@ -8,6 +9,7 @@ export class ManagedResultPages {
   constructor({ runId, isCurrent, journal = null, limit = 256, newId = () => crypto.randomUUID() }) {
     Object.assign(this, { runId, isCurrent, journal, limit, newId });
     this.records = new Map();
+    this.advances = new WeakMap();
     this.pending = new Set(); this.error = null;
   }
 
@@ -58,12 +60,46 @@ export class ManagedResultPages {
 
   async advance(record, actual, check) {
     check(); this.validate(record, actual, { advance: true, apply: false });
-    if (record.currentDocument !== actual.documentId && this.journal) {
-      const row = await this.journal.advance(record.recordId, record.revision, actual.documentId,
-        () => { check(); this.assert(record); });
-      check(); this.assert(record); record.revision = row.revision;
-    }
-    check(); this.validate(record, actual, { advance: true });
+    actual = { ...actual };
+    const revision = record.revision, documentId = record.currentDocument;
+    let queue = this.advances.get(record);
+    if (!queue) { queue = { tail: Promise.resolve(), size: 0 }; this.advances.set(record, queue); }
+    if (queue.size >= ADVANCE_LIMIT) throw new Error("OBU_MANAGED_RESULT_CAPACITY: original document advances are still pending");
+    queue.size++;
+    const operation = queue.tail.then(async () => {
+      const verify = () => { check(); this.validate(record, actual, { advance: true, apply: false }); };
+      verify();
+      if (record.currentDocument !== actual.documentId) {
+        // A concurrent proof may reuse the same committed document, but an old
+        // different-document snapshot cannot advance from a newer lineage.
+        if (record.revision !== revision || record.currentDocument !== documentId) throw changed();
+        if (this.journal) {
+          let withdrawn, row;
+          try {
+            row = await this.journal.advance(record.recordId, revision, actual.documentId, () => {
+              try { verify(); } catch (error) { withdrawn = error; throw error; }
+            });
+          } catch (error) {
+            // A known permission withdrawal aborts the original transaction.
+            // Unknown storage failure remains terminal; never retry its CAS.
+            if (error !== withdrawn) this.error ??= error;
+            throw error;
+          }
+          // The actual transaction completed. Preserve its lineage even if the
+          // original caller or record was retired before this continuation.
+          record.revision = row.revision;
+          record.currentDocument = row.currentDocument;
+        } else record.currentDocument = actual.documentId;
+      }
+      check(); this.validate(record, actual);
+    });
+    // Cleanup waits for the full original operation, not a caller's permission
+    // result. Expected stale callers do not poison a live successor's queue.
+    const settled = operation.then(() => {}, () => {});
+    queue.tail = settled;
+    this.pending.add(settled);
+    settled.then(() => { queue.size--; this.pending.delete(settled); });
+    return operation;
   }
 
   restore(row, actual) {
@@ -119,7 +155,8 @@ export class ManagedResultPages {
     if (this.journal && record.commitPromise) {
       // Queue after this record's original commit, even if the caller has not
       // received its ACK. Never delete a successor by tab number.
-      record.revokedPromise = this.track(record.commitPromise.catch(() => {}).then(() => this.journal.revoke(record.recordId)));
+      record.revokedPromise = this.track(Promise.all([record.commitPromise.catch(() => {}), this.advances.get(record)?.tail])
+        .then(() => this.journal.revoke(record.recordId)));
     }
     return true;
   }
