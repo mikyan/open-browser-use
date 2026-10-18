@@ -1,0 +1,29 @@
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_8c6d1b4d43086f 11-17
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_8c6d1b4d43086f 17,20-26
+docs/histories/2026-10/20261019-0343-managed-human-key-repeat.md
+  s_08bbfd293d324f::t_8c6d1b4d43086f 18-24
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_8c6d1b4d43086f 7
+docs/references/managed-human-key-repeat.md
+  s_08bbfd293d324f::t_8c6d1b4d43086f 65-69
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_8c6d1b4d43086f 18-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "b963f05da176c0221257bb4d08f224460583d639",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
