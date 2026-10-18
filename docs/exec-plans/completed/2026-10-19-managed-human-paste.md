@@ -1,6 +1,6 @@
 # Text paste through the managed viewer
 
-Status: active. Full Browser Use parity remains unproven. Start from clean
+Status: completed for this paste-and-package slice. Full Browser Use parity remains unproven. Start from clean
 `ecda127`; the previous source-label slice and requested `3241ff0` package are
 complete progress. The user has now requested another package after this slice;
 build and publish it to the user's fork after validation. No PR is requested.
@@ -62,7 +62,9 @@ and their actual releases; no extra paste queue or synthetic release is needed.
   paste but failed subsequent wheel hit testing and remains failed. Only the
   harness targeting changed; new `mhp-hAL2oX` completed all six steps with one
   original text request, exact receipt/value, held-Shift End cleanup, unique POST
-  and formal Stop. Independent audits and requested package delivery are next.
+  and formal Stop. Independent event/lifecycle audits passed. The requested
+  `preview-20261019-119179c` package passed artifact/offline and upload-roundtrip
+  checks and is published on the user fork; the local copy is hash verified.
 
 ## Next broader work
 

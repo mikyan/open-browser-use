@@ -15,7 +15,7 @@
 本轮本地纯文字粘贴通过2888项Node、Go test/vet、16项验收脚手架检查及
 `mhp-hAL2oX`六步真实接管流程。可信Ctrl+V只产生一次原文本请求和匹配回执，
 原多行草稿、持键End、唯一POST和正常Stop均通过；仅固定Headless内存
-剪贴板，不代表普通系统剪贴板或完整输入法已验。用户已请求本轮新包，
+剪贴板，不代表普通系统剪贴板或完整输入法已验。新包已发布为[preview-20261019-119179c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-119179c)，
 完整P01-P15目标保持开放。
 
 当前来源展示切片通过2878项Node、Go test/vet和三场固定真实浏览器验收；原弹窗卡片独立显示原发起者来源，End清空。已发布 [preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0)，完整P01-P15仍未完成。具体范围见[人工网页弹窗](../references/managed-human-dialogs.md)。

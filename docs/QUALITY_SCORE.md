@@ -17,7 +17,8 @@
 剪贴板的可信Ctrl+V、一次47字节文本请求、原多行值、持Shift时End释放、
 唯一351字节POST及正常Stop。首轮`mhp-q6wHyJ`的后续滚动命中失败保留，
 只调整测试脚本的当前画面命中后新建独立验收；不重放原业务。
-用户请求的新包正在构建。普通系统剪贴板、公司Edge及完整能力对齐仍未完成。
+新包已发布为 [preview-20261019-119179c](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-119179c)，从干净提交`119179c93730475ee00ea141214ddb0867924365`重建；主程序、77份扩展、Skill和安装脚本配套交付。离线CLI/MCP、独立制品核对、四资产上传回下载及本地副本校验通过。发布EXE单独重建，未重跑网页业务。完整ZIP为10,580,189字节，SHA256：`8c2988013fb06daae169afb2cd14e58589f2f99cd133d944d1c1e2f0c89e68b8`。
+普通系统剪贴板、公司Edge及完整能力对齐仍未完成。
 
 用户再次要求的新包已发布为 [preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0)，源提交 `3241ff0585ccfe292bd195ac74cfc9360b8dd58f`。
 新增原生弹窗来源标签，完整包包含配套主机、扩展、安装脚本与Skill；旧主机
