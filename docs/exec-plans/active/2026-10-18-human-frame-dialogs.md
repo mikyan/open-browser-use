@@ -10,6 +10,63 @@ OOPIF implementation and release-notice UI fix; the requested package
 
 ## Current continuation after the verified package
 
+### Next continuation: dialogs before rendering readiness
+
+The previous goal turn made progress: production `e3fee2a` and release record
+`4916ee5` are committed and pushed, and the requested package is published with
+four verified asset roundtrips. No new package is requested in this continuation.
+The complete P01–P15 objective remains active, including ordinary installation
+and background behavior. This continuation addresses the initial/navigation
+modal gap rather than treating the last four stable layouts as completion.
+
+First obtain original native evidence for two different cases: a modal that
+already exists before Page.enable on the new attachment, and an Opening on the
+current attachment before its first rendered generation or during navigation.
+Pinned Chromium source keeps the dialog callback on the enabled PageHandler;
+Enable does not replay existing dialogs. Do not invent an Opening or reuse a
+retired SDK attachment to bridge that distinction. Browser command completion
+while a modal is open must be measured, not inferred from mocked async code.
+
+Use a separate native-transport diagnostic with exact command/event ledgers and
+bounded observations that leave actual Promises alive. It is not production
+acceptance. A separate managed-lifecycle run must later use formal viewer
+commands and original delivered pages, without replay, URL reopening, OS input,
+personal profiles, or an observer substituting for production authority.
+
+The candidate design separates document authority from rendering readiness.
+After actual Pause/risk/attachment admission, a preparing handle may permit End
+and an independently proved original dialog decision while page input stays
+disabled. A navigation document proof must not wait behind old input or rendering
+cleanup when the new modal can block that cleanup. New rendering and page input
+still require actual old drains and a matching new native frame. Preserve the
+original input receipt/budget and original modal identity across this split.
+Exact interfaces and deadlines depend on the native diagnostic; no support is
+claimed before that evidence and full extension/bridge/Go/UI validation.
+
+Ownership: root integrates and runs browsers; native owner investigates document
+authority/controller; protocol reviewer inspects bridge/Go/UI; fixture owner
+prepares independent diagnostics. Production remains frozen until these seams
+are agreed. The latest published package and all original failures remain intact.
+
+The original native diagnostics now complete with actual exit 0. In
+`mbd-q3T37z`, navigation-up ACK precedes Opening; stop/startScreencast acknowledge
+while the modal is open, but getFrameTree, getLayoutMetrics, warm Runtime.enable
+and Performance commands acknowledge only after the unique original cancel and
+Closed. In `mbd-Iw14Wg`, attach/Page.enable acknowledge without any original
+Opening, so no response is attempted and formal Stop follows. Both remain
+`featurePassed: false`; 14/15 original process identities and private resources
+are gone. See the [diagnostic and exact sequence evidence](../../references/managed-modal-readiness-diagnostic.md).
+The latter fixture already posted null about 289 ms before attach; it does not
+prove an already-open modal was present at the attachment boundary. Event audits
+pass 310/49 checks and lifecycle audits 55/51; original reports remain unchanged.
+
+The candidate design must therefore not require fresh renderer metadata reads
+to establish an early modal proof. Next investigate a complete original-event
+document proof, its policy/version fence and cold domain setup separately. An
+Opening URL, a server marker or an old default context cannot fill a missing
+proof. The same preparing protocol/UI and original-drain obligations remain;
+production and the released package are unchanged in this diagnostic slice.
+
 The human attachment owns a bounded recursive flat-session graph. Every child
 is admitted only by its current parent's native Target attachment event.
 Original Page/Runtime enables and recursive setup settle before two complete

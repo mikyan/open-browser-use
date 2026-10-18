@@ -60,3 +60,20 @@ sessions、每层实际默认 context/origin、两轮完整原生树和同一图
 新包现已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)。弹窗卡片没有单独显示子站来源；继承/动态及
 复杂 iframe、子页 alert/confirm、接管前/首帧/导航弹窗、beforeunload、公司 Edge
 和完整 Browser Use 能力对齐仍未全部覆盖，不以这四个通过案例替代完整验收。
+
+## 首帧与导航准备期诊断
+
+新增独立fixture、runner和23项纯测试，生产实现与已发布包未改动。原生请求、
+实际发送及ACK分别记录；附着确认前事件不给新附件权限，取消在实际发送前
+重检原对象。两个独立所有权反例先红后绿，原失败保留。事件截断不能算完成，
+观察期限不丢弃原Promise，失败仍执行正式Stop。
+
+两个不同原场景实际exit 0。导航时画面stop/start在弹窗期间确认，五个renderer
+元数据探针只在原取消/Closed后确认；该场原pointer-up已提前确认。附着前场景
+没有取得原Opening，未尝试取消，不能据此断言弹窗存在或不存在。两场共29个
+已观察原进程身份与私有资源退出，原输入、文档、唯一POST和截图证据各自保留。
+这些是原生诊断，featurePassed始终false，不替代正式viewer验收。
+
+计划改为先验证原事件能否提供完整文档证明，不能假定弹窗中可以新读renderer
+元数据。独立controller、bridge、Go及UI反例和设计均保留，生产两阶段Begin仍待实现。
+详见[诊断范围与序列](../../references/managed-modal-readiness-diagnostic.md)。

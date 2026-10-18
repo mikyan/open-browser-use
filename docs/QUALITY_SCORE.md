@@ -11,6 +11,12 @@
 
 ## 当前评分
 
+首帧/导航弹窗新增独立原生诊断，尚未增加生产支持。导航场景中，stop/start画面
+传输在弹窗期间确认，但页面树、布局及Runtime/Performance查询只在Closed后确认；
+该场原pointer-up在Opening前已确认，不证明输入互等。附着前场景没有取得原Opening，
+未发送取消。两场正式Stop及14/15个原进程和私有资源清理通过，均明确标记非功能验收。
+后续证明不能依赖弹窗期间的新renderer查询；详见[原生准备期诊断](references/managed-modal-readiness-diagnostic.md)。
+
 用户要求的新包已从干净提交 `e3fee2a35cb4b4d0e52b3c84e95314c867c7b33b` 发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)。
 包含跨站 OOPIF 人工prompt及结束接管提示修复，完整包/扩展/Skill为103/76/7文件。
 407份生产输入匹配冻结实测快照及Git对象，76个未加key的扩展文件与实测制品字节相同。
