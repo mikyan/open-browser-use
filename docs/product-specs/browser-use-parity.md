@@ -12,13 +12,23 @@
 
 ## Baseline sources
 
+2026-10-18 稳定同源子页面弹窗 `mfd-sH1gAh` 五步 actual exit 0：主/同源/
+两层嵌套 prompt 经正式查看器回答Unicode，四原页面各唯一POST及正式Stop通过。
+跨站OOPIF实际产生原生弹窗，但缺当前远程frame/default-context证明而取消，
+不能称浏览器抑制或能力完成。405生产输入、75扩展文件及882份验收源码冻结，
+2576项Node和独立289项聚焦通过。终结阶段P1反例先失败后修复，原已发Promise
+和歧义在detach前后仍需真实清理；见[人工网页弹窗](../references/managed-human-dialogs.md)。
+该子页扩展仅源码，继承源/动态iframe、跨域、首帧/导航和完整矩阵仍开放。
+上一用户打包请求已发布 `preview-20261018-95e7b29`（主页面弹窗及Skill更新），
+不包含当前子页改动。以下保留各原开发轮次的范围和历史发布状态。
+
 2026-10-18 原生人工弹窗长等待 `mdb-r5BfFQ` 五步 actual exit 0：原输入
 等待40秒后仍可答复Unicode；另一原弹窗约300秒自然取消并完成原lease清理。
 两原document各一次POST，正常Stop和28原进程退出已验。普通30秒处理与累计
 300秒modal预算由原attachment单调时钟执行；Go/UI只按固定能力提供外层等待，
 旧会话不延长。Go全包/vet、2516Node及821项原事件独审通过；旧30秒自然失败
 诊断保留。有限固定Windows证据不覆盖首帧前/导航/子frame、公司Edge或全矩阵，
-源码未发包，见[人工弹窗等待](../references/managed-human-dialogs.md)。
+该轮源码随后已进入95e7b29包，见[人工弹窗等待](../references/managed-human-dialogs.md)。
 验收后补齐连续弹窗累计额度的回答前检查，三个迟回调反例先失败后通过，
 相关114项测试通过；只有控制模块及测试变化，真实运行未重跑，不能将上面
 的冻结运行作为最终修正的实测证明。
@@ -28,7 +38,7 @@
 两个原页面中，五种普通回答及未回答 prompt 的 End 取消通过，两个唯一
 POST、原文档/回执及正常 Stop 已验。固定 Windows CfT 与主frame active
 human lease 是该轮边界；当时保留原30秒确认期限，beforeunload、首帧前、导航期
-和子frame等未覆盖。源码未发包，不代替全P01–P15或公司Edge验收，见
+和子frame等未覆盖。该主页面功能随后已进入95e7b29包，不代替全P01–P15或公司Edge验收，见
 [人工网页弹窗](../references/managed-human-dialogs.md)。
 
 2026-10-18 正式 managed 五入口 `mwf-6nmDto` 九步 actual exit 0：JS/Python/Go/
@@ -36,7 +46,7 @@ CLI/MCP 各完成原子页获取、一次提交、原文件下载和结果交付
 原查看窗口及全部五个结果、原文档/target/文件与正常Stop通过，独审1,978项；
 318次鼠标位置采样一致、0前台事件，覆盖本次原启动至退出观测，不扩大为连续
 指针轨迹或任意平台保证。修复Go scoped JSON复制中的epoch类型丢失，旧句柄
-仍拒绝跨轮使用。验证采用未发布的干净5d42f7a内部候选；公开下载仍853ea92。
+仍拒绝跨轮使用。验证采用未发布的干净5d42f7a内部候选；相关生产改动和Skill随后进入95e7b29包。
 这推进正式入口的完整任务证据，不代替模型对照、公司Edge或全P01–P15持平。
 详见[五入口验收](../references/managed-entrypoint-workflow.md)。
 

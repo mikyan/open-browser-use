@@ -1,9 +1,10 @@
 # Managed 人工接管的网页弹窗
 
 这是实验功能，已进入 [preview-20261018-95e7b29](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-95e7b29) 安装包；旧 `preview-20261018-853ea92` 不包含。
-它处理已完成接管、首帧已就绪的原主页面触发的 `alert`、`confirm` 和
+该包处理已完成接管、首帧已就绪的原主页面触发的 `alert`、`confirm` 和
 `prompt`。查看窗口在画面上方显示网页消息、确定/取消按钮和可编辑的输入值。
 网页内容使用纯文字显示；回答不会继续 Agent，也不会重放原点击。
+当前源码另支持有原生文档证明的稳定同源子页面和嵌套页面；该扩展尚未进入上述安装包。
 
 ## 使用与限制
 
@@ -18,10 +19,14 @@
   弹窗共用该额度。每个已验证弹窗另有 300 秒上限，即使没有未决输入也
   不会无限等待。界面提示五分钟上限；超时撤权并取消尚未回答的原弹窗。
   旧版未声明能力时仍为服务器 30 秒、查看端 35 秒，不作隐式升级。
-- 仅原主 frame、已验证文档和 active human generation 可回答。接管前已有、
-  首帧准备期、导航期间、子 frame 和 `beforeunload` 不在本次支持范围内。
+- 仅原主 frame 或当前源码已验证的同源子 frame、原文档和 active human generation 可回答。
+  子 frame 的每一层祖先必须具有原默认执行上下文和相同的非 opaque HTTP(S) 源。
+  接管前已有、首帧准备期、导航期间、跨源 frame 和 `beforeunload` 不在本次支持范围内。
   无法确认的 emitter 不取得回答权限；原 human attachment 可以取消并结束
   接管，但不会默认接受离开页面。只读 view 没有弹窗响应权限。
+- 静态 HTTP 同源子页和两层嵌套的 prompt 已真实验收。继承源的 blank/srcdoc、
+  动态创建子页、任意深度和子页 alert/confirm 尚未由本轮真实流程覆盖。
+  准备窗口内执行上下文发生变化时不授予子页弹窗证明；不会凭 URL 补授权。
 - 系统文件选择、认证 UI、真实登录、公司 Edge 及其他浏览器版本未由这轮
   验收覆盖。CDP 原输入没有 documentId 条件参数，仍不构成跨文档原子事务。
 
@@ -35,6 +40,18 @@ opening 建立一个独立实例。根 target/source、frameId、URL、epoch/doc
 回答或收到 `Page.handleJavaScriptDialog` ACK 不伪造 Closed。公开查看协议
 只接收 typed `humanDialogRespond`，不暴露原生 target、任意 CDP 或输入序号。
 响应走独立有界并发通道，因此不等待触发弹窗的 `humanInput` 先返回。
+
+`managed-human-document-contexts.js` 为原 attachment 记录浏览器原生默认上下文。
+监听先于 Page/Runtime enable 的实际 ACK，再在稳定事件窗口绑定原 frame、loader、
+context uniqueId 和完整祖先链。固定 Chromium 156 中的 Page.Frame.securityOrigin 来自 URL，不能替代真实
+context origin；已销毁、替换或清空的上下文不复活，4096 条身份记录达到上限后
+拒绝新增证明。导航及 frameAttached 使旧代失效，回答入口和最终发送前均复核。
+
+Closed 必须属于原 Opening 的 frame；缺失或外来身份不能解除弹窗等待。
+未确认原关闭又出现 Opening 时，原生无 frame 参数的回答命令已无法可靠归属，
+因此阻止所有尚未发送的回答和取消，保留已发 Promise；后续 Closed 不能消除该歧义。
+清理直到原 target 实际销毁才可确认。控制器在焦点模拟清理后及 detach 前后再次
+核对弹窗责任；detach ACK 终止旧附件的事件接纳，但不代替已发响应结算。
 
 成功需要独立 `dialogReceipt` 与原 lease/generation/dialogId 完全一致。
 输入仍需要自己的 `inputReceipt`。旧弹窗关闭、新弹窗开启可以早于旧 ACK；
@@ -53,6 +70,30 @@ Promise、持键意图与清理责任仍保留至真实结算。
 重复状态都不能重置旧请求。五分钟是有限思考时间，不是不限时保证。
 
 ## 验证记录
+
+2026-10-18 子页面续轮 `mfd-sH1gAh` 五步 actual exit 0：主页面、同源子页、
+两层嵌套叶页的原 prompt 分别通过查看器回答 Unicode。查看器回答请求记录距
+原 Opening 观测约176/154/145 ms；这是跨进程观测时间，并非原生命令发送时间。
+原 default contexts 数为1/2/3，原 frame/loader/document 和
+祖先真实源保持一致；三份 dialogReceipt、九份对应 inputReceipt 和各自唯一
+POST 均确认。跨站 OOPIF 具有不同原进程并实际产生 Opening，因缺当前远程
+文档证明被取消，唯一 POST 为 null，pointer-up 明确返回 OPERATION_UNCONFIRMED；
+它不是浏览器抑制，也不是回答成功。四份原 humanCleanup 和正常 Stop 已确认。
+
+本轮20份原生帧仅保存12张，另有7张查看器截图；19张保存图片均经独立完整解码。
+同源与嵌套的待回答窗口已目视核对，结束后的图片明确显示为保留画面，不能据此
+声称连续画面或最终回执像素。结束成功后仍残留“正在释放人工控制”的提示，
+属于后续查看器文案状态问题，不代表原清理未完成；原回执独立验证。
+事件、上下文和回执独审386项通过；31个原进程身份及私有资源清理独立确认。
+被动事件投影没有记录全部导航事件及原始enable命令ACK，不将未记录事件推定为未发生。
+
+最终内部构建405份生产输入、75个扩展文件，2576项Node测试无失败或跳过；
+Go源码未变，沿用原全包/vet。独审发现终结阶段遗漏晚到歧义的P1，原控制器
+反例先失败，修复后独立两例及289项聚焦检查通过。诊断/验收脚本22项通过。
+首轮旧版诊断 `mfd-fkihsa` 因测试误收上一租约的清理回执而失败；修正为等待
+当前原租约及完整清理后，旧版 `mfd-w8ou97` 五步诊断完成，明确复现子页取消。
+原失败、冻结源码和实际制品均保留。完整源码与验收证据见
+[子页面计划](../exec-plans/active/2026-10-18-human-frame-dialogs.md)。
 
 长等待续轮 `mdb-r5BfFQ` 五步 actual exit 0：两个原结果页各只点击一次、
 提交一次。第一个 prompt 保持原输入未确认，实际在 opening 后 40775 ms

@@ -33,12 +33,18 @@ export class ManagedHumanDialogs {
     Object.assign(this, { leaseId, capture, assertCurrent, attached, destroyed, send, notify, onFailure, onOpened, onClosed, timing });
     this.current = null; this.records = new Set(); this.operations = new Set(); this.revoked = false;
   }
-  info() { const record = this.current; return !this.revoked && record?.open && !record.retired ? record.info : null; }
+  info() { const record = this.current; return !this.revoked && !this.ambiguous && record?.open && !record.retired ? record.info : null; }
   hasOpen() { return Boolean(this.current?.open); }
   changed() { this.notify(); }
+  recheck() {
+    const record = this.current;
+    if (this.revoked || this.ambiguous || !record?.open || record.retired || !record.proof) return;
+    try { this.assertCurrent(record.proof); }
+    catch (error) { this.onFailure(error); }
+  }
   observe(method, params) {
     if (method === "Page.javascriptDialogClosed") {
-      if (this.current) {
+      if (this.current && typeof this.current.frameId === "string" && this.current.frameId && params?.frameId === this.current.frameId) {
         const original = this.current;
         original.open = false; original.deadline?.account(); original.deadline?.finish(); this.onClosed(original.proof, original);
         this.prune(original); this.current = null; this.changed();
@@ -47,11 +53,13 @@ export class ManagedHumanDialogs {
     }
     if (method !== "Page.javascriptDialogOpening") return;
     if (this.current?.open) {
-      // A duplicate/ambiguous opening cannot replace an unclosed native object.
+      // handleJavaScriptDialog has no frame/dialog parameter. An unpaired new
+      // opening makes even cancellation through the old record unsafe.
+      this.ambiguous = true; this.changed();
       this.onFailure(fail("UNCONFIRMED", "another dialog opened without the original close event"));
       return;
     }
-    const record = { open: true, claimed: false, dispatched: false, acknowledged: false, pending: null, info: null };
+    const record = { frameId: params?.frameId, open: true, claimed: false, dispatched: false, acknowledged: false, pending: null, info: null };
     this.current = record; this.records.add(record);
     if (this.records.size >= 64) {
       // Reserve the final bounded slot for the unhandled native object. Do not
@@ -61,6 +69,7 @@ export class ManagedHumanDialogs {
     }
     try {
       record.proof = this.capture(params);
+      text(record.frameId, 128, false);
       if (!types.includes(params.type)) throw fail("UNSUPPORTED", "only alert, confirm and prompt support human responses");
       text(params.message);
       const defaultPrompt = params.type === "prompt" ? params.defaultPrompt === undefined ? "" : params.defaultPrompt : undefined;
@@ -82,7 +91,7 @@ export class ManagedHumanDialogs {
     try {
       validateHumanDialogResponse(value);
       const record = this.current, info = record?.info;
-      if (this.revoked || !record?.open || record.retired || record.claimed || !info ||
+      if (this.revoked || this.ambiguous || !record?.open || record.retired || record.claimed || !info ||
           value.leaseId !== info.leaseId || value.generation !== info.generation || value.dialogId !== info.dialogId)
         throw fail("STALE", "the original dialog decision is no longer available; no response was sent");
       if (value.promptText !== undefined && info.type !== "prompt") throw fail("INVALID", "prompt text requires a prompt dialog");
@@ -100,6 +109,7 @@ export class ManagedHumanDialogs {
     let withdrawn = false;
     const command = { ...decision };
     const actual = Promise.resolve().then(() => this.send(command, () => {
+      if (this.ambiguous) throw fail("STALE", "original native dialog identity became ambiguous; no response was sent");
       if (!this.attached() || this.current !== record || !record.open)
         throw fail("STALE", "original native dialog closed before dispatch; no response was sent");
       if (human) {
@@ -129,7 +139,7 @@ export class ManagedHumanDialogs {
   settled(record, actual) { this.operations.delete(actual); record.pending = null; this.prune(record); }
   prune(record) { if (!record.pending && (!record.open || record.acknowledged || this.destroyed())) this.records.delete(record); }
   cancel(record) {
-    if (!record?.open || record.claimed || record.capacityBlocked || !this.attached()) return;
+    if (this.ambiguous || !record?.open || record.claimed || record.capacityBlocked || !this.attached()) return;
     void this.dispatch(record, { accept: false }, false).catch(() => {});
   }
   revoke() {
@@ -142,10 +152,15 @@ export class ManagedHumanDialogs {
   }
   async drain() {
     while (this.operations.size) await Promise.allSettled([...this.operations]);
+    this.assertDrained();
+    for (const record of this.records) this.prune(record);
+  }
+  assertDrained() {
+    if (this.operations.size) throw fail("CLEANUP_INCOMPLETE", "original native dialog responses are still pending");
+    if (this.ambiguous && !this.destroyed()) throw fail("CLEANUP_INCOMPLETE", "ambiguous original native dialog requires confirmed target destruction");
     for (const record of this.records) {
       if (record.open && !record.acknowledged && !this.destroyed())
         throw fail("CLEANUP_INCOMPLETE", "original native dialog cleanup is unconfirmed");
-      this.prune(record);
     }
   }
   close() { this.revoke(); return this.drain(); }

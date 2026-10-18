@@ -2,6 +2,7 @@ import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
 import { ManagedHumanInputBudget } from "./managed-human-budget.js";
+import { ManagedHumanDocumentContexts } from "./managed-human-document-contexts.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
@@ -93,6 +94,7 @@ export class ManagedHumanControl {
       generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set() };
     Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
     this.current = record;
+    if (mode === "human") record.documentContexts = new ManagedHumanDocumentContexts();
     if (mode === "human") record.dialogs = new ManagedHumanDialogs({ leaseId: record.leaseId,
       capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
       attached: () => record.attached === true, destroyed: () => record.destroyed === true,
@@ -163,10 +165,13 @@ export class ManagedHumanControl {
     if (record.viewIntent) await this.viewJournal.attached(record);
     record.lifecycle = (source, method, params) => {
       if (!this.ownsSource(record, source)) return;
+      if (record.documentContexts?.observe(method, params) && method.startsWith("Runtime.")) {
+        record.dialogs.recheck(); return;
+      }
       if (["Page.javascriptDialogOpening", "Page.javascriptDialogClosed"].includes(method)) {
         record.dialogs?.observe(method, params); return;
       }
-      if (["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameDetached"].includes(method)) {
+      if (["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameAttached", "Page.frameDetached"].includes(method)) {
         const frameId = params?.frame?.id ?? params?.frameId;
         this.navigation(record.tabId, { frameId, root: Boolean(params?.frame && !params.frame.parentId) },
           method === "Page.frameStartedNavigating" ? "pending" : "committed", "native");
@@ -174,7 +179,12 @@ export class ManagedHumanControl {
     };
     this.chrome.debugger.onEvent.addListener(record.lifecycle);
     this.check(record); await this.validate(record.candidate); this.check(record);
-    if (record.mode === "human") await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
+    if (record.mode === "human") {
+      // Observe navigation and actual default contexts before either tree read.
+      await this.send(record, "Page.enable", undefined, () => this.check(record));
+      await this.send(record, "Runtime.enable", undefined, () => this.check(record));
+      await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
+    }
     await this.send(record, "Performance.enable", { timeDomain: "timeTicks" }, () => this.check(record));
     this.check(record); record.initialized = true;
     await this.recover(record);
@@ -201,11 +211,15 @@ export class ManagedHumanControl {
   }
 
   frameTree(value) {
-    const entries = [], visit = (node, parent = null) => {
+    const entries = [], ids = new Set(), visit = (node, parent = null) => {
       const frame = node?.frame;
       if (entries.length >= 1000 || !frame || typeof frame.id !== "string" || !frame.id || typeof frame.loaderId !== "string" || !frame.loaderId || typeof frame.url !== "string")
         throw fail("native document and loader identity could not be proved", "UNAVAILABLE");
-      entries.push([frame.id, parent, frame.loaderId, frame.url, frame.urlFragment ?? ""]);
+      if (ids.has(frame.id) || (frame.parentId !== undefined && frame.parentId !== parent) ||
+          (frame.securityOrigin !== undefined && typeof frame.securityOrigin !== "string"))
+        throw fail("native frame identity or parent relationship is ambiguous", "UNAVAILABLE");
+      ids.add(frame.id);
+      entries.push([frame.id, parent, frame.loaderId, frame.url, frame.urlFragment ?? "", frame.securityOrigin ?? null]);
       if (node.childFrames !== undefined && !Array.isArray(node.childFrames)) throw fail("invalid native frame tree", "UNAVAILABLE");
       for (const child of node.childFrames ?? []) visit(child, frame.id);
     };
@@ -218,10 +232,11 @@ export class ManagedHumanControl {
     if (!epoch || epoch.retired || record.state !== "active" || !record.generation || !epoch.document)
       throw fail("dialogs require the original active human document", "DIALOG_UNSUPPORTED");
     this.assertDialog(epoch.candidate);
-    const root = JSON.parse(epoch.document)[0];
-    if (typeof params?.url !== "string" || params.url !== root[3] + root[4] || params.frameId !== root[0])
-      throw fail("dialog emitter is outside the verified root document", "DIALOG_UNSUPPORTED");
-    return { epoch, generation: epoch.id, document: epoch.document };
+    const frames = JSON.parse(epoch.document), emitter = frames.find(frame => frame[0] === params?.frameId);
+    if (!emitter || typeof params?.url !== "string" || params.url !== emitter[3] + emitter[4])
+      throw fail("dialog emitter is outside the verified original document", "DIALOG_UNSUPPORTED");
+    const contexts = emitter === frames[0] ? null : record.documentContexts.capture(epoch.dialogContexts, emitter[0]);
+    return Object.freeze({ epoch, generation: epoch.id, document: epoch.document, contexts });
   }
   checkDialog(record, proof) {
     this.checkGeneration(record, proof.epoch);
@@ -231,6 +246,7 @@ export class ManagedHumanControl {
     this.assertDialog(proof.epoch.candidate);
     if (record.state !== "active" || proof.generation !== record.generation || proof.document !== proof.epoch.document)
       throw fail("original dialog document changed", "DIALOG_STALE");
+    if (proof.contexts) record.documentContexts.assert(proof.contexts);
   }
 
   async prepare(record, epoch) {
@@ -238,6 +254,7 @@ export class ManagedHumanControl {
     check();
     const candidate = await this.validate(record.candidate, { advance: record.generation > 0 });
     check(); epoch.candidate = candidate ?? record.candidate;
+    const contextRevision = record.documentContexts?.checkpoint();
     epoch.document = this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check));
     check();
     // A read-only view has no CSS input coordinates. Zoom, visual offsets and
@@ -260,6 +277,9 @@ export class ManagedHumanControl {
     if (this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check)) !== epoch.document)
       throw fail("native document changed during capture preparation", "DOCUMENT_CHANGED");
     check();
+    // This is an attachment event observation barrier, not an atomic browser
+    // snapshot. A changed revision grants no child-dialog proof for this epoch.
+    epoch.dialogContexts = record.documentContexts?.snapshot(epoch.document, contextRevision);
   }
 
   recover(record) {
@@ -577,12 +597,20 @@ export class ManagedHumanControl {
         await Promise.allSettled([...record.drains]);
         if (record.attached) {
           if (record.mode === "human") await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: false });
+          await record.dialogs?.drain();
+          // No await separates this final admission from the original detach.
+          record.dialogs?.assertDrained();
           record.detaching = true;
           try { await this.chrome.debugger.detach({ targetId: record.candidate.targetId }); }
           finally { record.detaching = false; }
+          // Actual detach ACK ends this attachment's lifecycle-event admission.
+          // An ambiguity or response observed while detach awaited still owns
+          // its original cleanup obligation; ACK cannot settle either one.
           record.attached = false;
           record.detachAcknowledged = true;
         } else if (record.lost && !record.destroyed) throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
+        await record.dialogs?.drain();
+        record.dialogs?.assertDrained();
         if (record.viewIntent) {
           // Attach rejection is not proof that an in-flight native operation
           // never acquired the target. Keep its durable intent when unknown.

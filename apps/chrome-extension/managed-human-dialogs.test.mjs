@@ -13,8 +13,8 @@ function fixture() {
     attached: () => f.attached, destroyed: () => f.destroyed,
     send: async (params, check) => { check(); const gate = defer(); calls.push({ ...params }); gates.push(gate); return gate.promise; },
     notify: () => states.push(manager.info()), onFailure: error => failures.push(error) });
-  f.open = (params = {}) => { manager.observe("Page.javascriptDialogOpening", { type: "confirm", message: "Original?", ...params }); return manager.info(); };
-  f.closed = () => manager.observe("Page.javascriptDialogClosed", {});
+  f.open = (params = {}) => { manager.observe("Page.javascriptDialogOpening", { frameId: "root", type: "confirm", message: "Original?", ...params }); return manager.info(); };
+  f.closed = (params = { frameId: "root" }) => manager.observe("Page.javascriptDialogClosed", params);
   f.respond = (decision = {}, info = manager.info()) => manager.respond({ leaseId: info.leaseId, generation: info.generation, dialogId: info.dialogId, accept: true, ...decision });
   return Object.assign(f, { calls, failures, states, gates });
 }
@@ -38,6 +38,43 @@ test("a new native dialog is independent of a previous response whose ACK is sti
   f.gates[0].resolve(); assert.equal((await old).dialogId, first.dialogId);
   assert.deepEqual(f.manager.info(), second, "old receipt cannot retire the newer dialog");
   f.closed(); await f.manager.close();
+});
+
+test("Closed belongs to the exact original frame and cannot retire a successor in another frame", async () => {
+  const f = fixture(), root = f.open(), first = f.respond(); await tick();
+  f.closed(); const child = f.open({ frameId: "child", message: "Child?" });
+  for (const params of [{}, { frameId: "root" }, { frameId: "foreign" }]) f.closed(params);
+  assert.deepEqual(f.manager.info(), child); assert.equal(f.manager.hasOpen(), true);
+  assert.deepEqual(f.calls, [{ accept: true }]);
+  f.gates[0].resolve(); assert.equal((await first).dialogId, root.dialogId);
+  assert.deepEqual(f.manager.info(), child);
+  const next = f.respond({ accept: false }); await tick(); f.gates[1].resolve(); await next;
+  f.closed({ frameId: "child" }); await f.manager.close();
+});
+
+for (const closed of [{}, { frameId: "foreign" }]) {
+  test(`an unmatched Closed followed by Opening fences even queued cancellation (${JSON.stringify(closed)})`, async () => {
+    const f = fixture(), old = f.open(), answering = f.respond();
+    const rejected = assert.rejects(answering, /DIALOG_STALE/);
+    f.closed(closed); f.open({ frameId: "child", message: "Unpaired next?" });
+    assert.equal(f.manager.info(), null); await rejected;
+    await assert.rejects(f.manager.close(), /CLEANUP_INCOMPLETE/); assert.equal(f.calls.length, 0);
+    await assert.rejects(f.respond({}, old), /DIALOG_STALE/);
+    f.closed(); f.attached = false;
+    await assert.rejects(f.manager.close(), /CLEANUP_INCOMPLETE/, "external detach is not target destruction");
+    f.destroyed = true; await f.manager.close(); assert.equal(f.calls.length, 0);
+  });
+}
+
+test("ambiguous successor retains an already dispatched original response until its actual ACK", async () => {
+  const f = fixture(), old = f.open(), answering = f.respond(); await tick();
+  f.closed({ frameId: "foreign" }); f.open({ frameId: "child" });
+  let ended = false;
+  const closing = f.manager.close().then(() => { ended = true; }, error => { ended = true; throw error; });
+  const rejected = assert.rejects(closing, /CLEANUP_INCOMPLETE/); await tick();
+  assert.equal(ended, false); assert.deepEqual(f.calls, [{ accept: true }]);
+  f.gates[0].resolve(); assert.equal((await answering).dialogId, old.dialogId); await rejected;
+  f.destroyed = true; await f.manager.close(); assert.deepEqual(f.calls, [{ accept: true }]);
 });
 
 test("End cancels the original unclaimed dialog exactly once and joins its actual ACK", async () => {
@@ -92,13 +129,15 @@ test("UTF-8 and Unicode bounds apply to messages, defaults and prompt decisions"
   validateHumanDialogResponse({ leaseId: "l", generation: 1, dialogId: "d", accept: true, promptText: "😀".repeat(2048) });
 });
 
-test("beforeunload is never offered or accepted, and a duplicate opening cannot replace an original claim", async () => {
+test("beforeunload is never offered or accepted, and a duplicate opening cannot borrow an original claim", async () => {
   const f = fixture(); assert.equal(f.open({ type: "beforeunload" }), null); await tick();
   assert.deepEqual(f.calls, [{ accept: false }]); assert.match(f.failures[0].message, /UNSUPPORTED/);
   f.gates[0].resolve(); await f.manager.close();
   const other = fixture(), info = other.open(); other.open();
-  assert.equal(other.manager.info().dialogId, info.dialogId); assert.equal(other.failures.length, 1);
-  const closing = other.manager.close(); await tick(); assert.deepEqual(other.calls, [{ accept: false }]); other.gates[0].resolve(); await closing;
+  assert.equal(other.manager.info(), null); assert.equal(other.failures.length, 1);
+  await assert.rejects(other.respond({}, info), /DIALOG_STALE/);
+  await assert.rejects(other.manager.close(), /CLEANUP_INCOMPLETE/); assert.deepEqual(other.calls, []);
+  other.destroyed = true; await other.manager.close();
 });
 
 test("a closed dialog cannot send a queued choice, and a new dialog during End is independently cancelled", async () => {

@@ -124,6 +124,258 @@ const answer = (handle, extra = {}) => {
   return handle.respondDialog({ leaseId, generation, dialogId, accept: true, ...extra });
 };
 
+function childFixture(options = {}) {
+  const tree = { frameTree: { frame: { id: "root", loaderId: "root-loader", url: "https://fixture.test/original-document" }, childFrames: [
+    { frame: { id: "child", parentId: "root", loaderId: "child-loader", url: options.url ?? "https://fixture.test/child", securityOrigin: "https://fixture.test" },
+      childFrames: [{ frame: { id: "nested", parentId: "child", loaderId: "nested-loader", url: "https://fixture.test/nested" } }] }
+  ] } };
+  let f;
+  f = fixture({ command: async (method, params) => {
+    if (method === "Runtime.enable") {
+      for (const [index, frameId] of ["root", "child", "nested"].entries()) {
+        if (frameId === options.missing) continue;
+        f.event("Runtime.executionContextCreated", { context: { id: index + 1, uniqueId: `original-${frameId}`,
+          origin: frameId === "child" ? options.origin ?? "https://fixture.test" : "https://fixture.test", auxData: { frameId, isDefault: true } } }, options.source);
+      }
+    }
+    const result = await options.command?.(method, params, f, tree);
+    if (result !== undefined) return result;
+    if (method === "Page.getFrameTree") return tree;
+  } });
+  return Object.assign(f, { tree });
+}
+
+test("human Page and Runtime listeners and actual enable ACKs precede the first document snapshot", async () => {
+  const page = defer(), runtime = defer(); let f;
+  f = fixture({ command: method => {
+    if (["Page.enable", "Runtime.enable"].includes(method)) assert.ok(f.listeners.size > 0);
+    if (method === "Page.enable") return page.promise;
+    if (method === "Runtime.enable") return runtime.promise;
+  } });
+  const pending = f.begin(); await tick();
+  assert.equal(f.calls.some(([method]) => method === "Runtime.enable"), false);
+  assert.equal(f.calls.some(([method]) => method === "Page.getFrameTree"), false);
+  page.resolve(); await tick(); assert.equal(f.calls.some(([method]) => method === "Runtime.enable"), true);
+  assert.equal(f.calls.some(([method]) => method === "Page.getFrameTree"), false);
+  runtime.resolve(); const handle = await pending; await handle.close();
+});
+
+for (const [frameId, url] of [["child", "https://fixture.test/child"], ["nested", "https://fixture.test/nested"], ["child", "about:blank"], ["child", "about:srcdoc"]]) {
+  test(`original ${frameId} ${url} dialog bypasses its pending input using the frozen native context path`, async () => {
+    const native = defer();
+    const f = childFixture({ url: frameId === "child" ? url : undefined, command: (method, _params, owner) => {
+      if (method === "Input.insertText") { opening(owner, { frameId, url }); return native.promise; }
+      if (method === "Page.handleJavaScriptDialog") { owner.event("Page.javascriptDialogClosed", { frameId }); native.resolve(); }
+    } });
+    const handle = await f.begin(), pending = input(handle, { type: "text", text: "one original trigger" }); await tick();
+    const original = handle.pendingDialog(); assert.ok(original);
+    const boundary = f.calls.length, receipt = await answer(handle);
+    assert.equal(receipt.dialogId, original.dialogId); assert.equal((await pending).acknowledged, true);
+    assert.deepEqual(f.calls.slice(boundary).map(([method]) => method), ["Page.handleJavaScriptDialog"]);
+    await handle.close();
+  });
+}
+
+for (const options of [{ origin: "://" }, { origin: "https://foreign.test" }, { missing: "root" },
+  { source: { targetId: "original-target", sessionId: "remote-frame" } }]) {
+  test(`child default context is required independently of URL-derived origin ${JSON.stringify(options)}`, async () => {
+    const f = childFixture(options), handle = await f.begin();
+    opening(f, { frameId: "child", url: "https://fixture.test/child" });
+    assert.equal(handle.pendingDialog(), null); await handle.close();
+    assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept: false }]);
+  });
+}
+
+test("destroying an original child context withdraws an unsubmitted decision and only cancels once", async () => {
+  const f = childFixture(), handle = await f.begin(); opening(f, { frameId: "child", url: "https://fixture.test/child" });
+  const old = handle.pendingDialog(); assert.ok(old);
+  f.event("Runtime.executionContextDestroyed", { executionContextId: 2, executionContextUniqueId: "original-child" });
+  assert.equal(handle.pendingDialog(), null);
+  await assert.rejects(handle.respondDialog({ leaseId: old.leaseId, generation: old.generation, dialogId: old.dialogId, accept: true }), /DIALOG_STALE/);
+  await handle.close();
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept: false }]);
+});
+
+test("tree ambiguity cannot grant a child dialog identity", () => {
+  const f = childFixture(), tree = f.tree;
+  tree.frameTree.childFrames[0].frame.id = "root";
+  assert.throws(() => f.control.frameTree(tree), /ambiguous/);
+  tree.frameTree.childFrames[0].frame.id = "child";
+  tree.frameTree.childFrames[0].frame.parentId = "foreign";
+  assert.throws(() => f.control.frameTree(tree), /ambiguous/);
+});
+
+const childContext = (f, frameId = "child", uniqueId = "replacement-child", id = 2) => f.event("Runtime.executionContextCreated", {
+  context: { id, uniqueId, origin: "https://fixture.test", auxData: { frameId, isDefault: true } }
+});
+const childOpening = (f, frameId = "child") => opening(f, { frameId, url: `https://fixture.test/${frameId}` });
+const decisions = f => f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]);
+
+test("a context destroyed while Runtime.enable awaits its ACK cannot be seeded by the later tree", async () => {
+  const enabled = defer(), f = childFixture({ command: method => method === "Runtime.enable" ? enabled.promise : undefined });
+  const pending = f.begin(); await tick();
+  assert.equal(f.calls.some(([method]) => method === "Page.getFrameTree"), false);
+  f.event("Runtime.executionContextDestroyed", { executionContextId: 2, executionContextUniqueId: "original-child" });
+  childContext(f, "child", "original-child"); enabled.resolve();
+  const handle = await pending; childOpening(f); assert.equal(handle.pendingDialog(), null);
+  await handle.close(); assert.deepEqual(decisions(f), [{ accept: false }]);
+});
+
+test("native navigation before Runtime.enable ACK ends startup without seeding an old context", async () => {
+  const enabled = defer(), f = childFixture({ command: method => method === "Runtime.enable" ? enabled.promise : undefined });
+  const pending = f.begin(), rejected = assert.rejects(pending, /revoked/); await tick();
+  f.event("Page.frameNavigated", { frame: { id: "root", loaderId: "next-root", url: "https://fixture.test/next" } });
+  assert.equal(f.calls.some(([method]) => method === "detach"), false, "actual enable Promise still belongs to cleanup");
+  enabled.resolve(); await rejected;
+  assert.equal(f.calls.some(([method]) => method === "Page.getFrameTree"), false);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1); assert.equal(f.risks.size, 0);
+});
+
+test("a context change inside the two-tree observation window grants no late child proof", async () => {
+  let trees = 0;
+  const f = childFixture({ command: (method, _params, owner) => {
+    if (method === "Page.getFrameTree" && ++trees === 2) childContext(owner);
+  } });
+  const handle = await f.begin(); childOpening(f); assert.equal(handle.pendingDialog(), null);
+  await handle.close(); assert.deepEqual(decisions(f), [{ accept: false }]);
+});
+
+for (const replacement of [false, true]) test(`child navigation uses only contexts newly observed for the new loader (${replacement})`, async () => {
+  const f = childFixture(), handle = await f.begin(), lease = handle.info().leaseId;
+  const child = f.tree.frameTree.childFrames[0]; child.frame.loaderId = "next-child-loader";
+  f.event("Page.frameNavigated", { frame: { ...child.frame } });
+  childContext(f, "child", replacement ? "new-child" : "original-child");
+  childContext(f, "nested", replacement ? "new-nested" : "original-nested", 3);
+  assert.equal(handle.info().state, "navigating"); await tick();
+  assert.equal(handle.info().leaseId, lease); assert.equal(handle.info().generation, 2);
+  childOpening(f, "nested");
+  if (replacement) {
+    assert.ok(handle.pendingDialog()); await answer(handle); f.event("Page.javascriptDialogClosed", { frameId: "nested" });
+  } else assert.equal(handle.pendingDialog(), null);
+  await handle.close(); assert.deepEqual(decisions(f), [{ accept: replacement }]);
+});
+
+test("an attached blank child retires the frozen tree without waiting for a commit event", async () => {
+  const f = childFixture(), handle = await f.begin();
+  f.tree.frameTree.childFrames.push({ frame: { id: "blank", parentId: "root", loaderId: "blank-loader", url: "about:blank" } });
+  f.event("Page.frameAttached", { frameId: "blank", parentFrameId: "root" });
+  childContext(f, "blank", "original-blank", 4);
+  assert.equal(handle.info().state, "navigating"); await tick();
+  assert.equal(handle.info().state, "active"); assert.equal(handle.info().generation, 2);
+  opening(f, { frameId: "blank", url: "about:blank" }); assert.ok(handle.pendingDialog());
+  await answer(handle); f.event("Page.javascriptDialogClosed", { frameId: "blank" }); await handle.close();
+  assert.deepEqual(decisions(f), [{ accept: true }]);
+});
+
+test("same-document child navigation reuses only the alive context while binding the new URL generation", async () => {
+  const f = childFixture(), handle = await f.begin();
+  f.tree.frameTree.childFrames[0].frame.urlFragment = "#next";
+  f.event("Page.navigatedWithinDocument", { frameId: "child", url: "https://fixture.test/child#next" }); await tick();
+  assert.equal(handle.info().generation, 2);
+  opening(f, { frameId: "child", url: "https://fixture.test/child#next" }); assert.ok(handle.pendingDialog());
+  await answer(handle); f.event("Page.javascriptDialogClosed", { frameId: "child" }); await handle.close();
+});
+
+const invalidateChild = {
+  destroyed: f => f.event("Runtime.executionContextDestroyed", { executionContextId: 2, executionContextUniqueId: "original-child" }),
+  cleared: f => f.event("Runtime.executionContextsCleared"),
+  replacement: f => childContext(f),
+  navigation: f => f.event("Page.frameStartedNavigating", { frameId: "child" }),
+  attached: f => f.event("Page.frameAttached", { frameId: "new-child", parentFrameId: "root" })
+};
+for (const [name, invalidate] of Object.entries(invalidateChild)) test(`child ${name} before final native dispatch withdraws a queued choice`, async () => {
+  const cancelled = defer(), f = childFixture({ command: method => method === "Page.handleJavaScriptDialog" ? cancelled.promise : undefined });
+  const handle = await f.begin(); childOpening(f);
+  const response = answer(handle), rejected = assert.rejects(response, /DIALOG_STALE/);
+  await Promise.resolve(); assert.deepEqual(decisions(f), [], "response has entered send, but not native dispatch");
+  invalidate(f); await tick(); assert.deepEqual(decisions(f), [{ accept: false }]);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  f.event("Page.javascriptDialogClosed", { frameId: "child" }); cancelled.resolve(); await rejected; await handle.close();
+  assert.deepEqual(decisions(f), [{ accept: false }]); assert.equal(f.risks.size, 0);
+});
+
+for (const choice of ["answer", "cancel"]) test(`ambiguous successor blocks queued ${choice} and cleanup waits for original target destruction`, async () => {
+  const f = childFixture(), handle = await f.begin(); childOpening(f);
+  const pending = choice === "answer" ? answer(handle) : handle.close();
+  const rejected = assert.rejects(pending, choice === "answer" ? /DIALOG_STALE/ : /CLEANUP_INCOMPLETE/);
+  await Promise.resolve(); assert.deepEqual(decisions(f), []);
+  f.event("Page.javascriptDialogClosed", { frameId: "foreign" }); childOpening(f, "nested");
+  await rejected; await assert.rejects(handle.close(), /CLEANUP_INCOMPLETE/);
+  assert.deepEqual(decisions(f), []); assert.equal(f.risks.size, 1);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  f.event("Page.javascriptDialogClosed", { frameId: "child" });
+  f.control.observeDetach({ targetId: "original-target" }, "canceled_by_user");
+  await assert.rejects(handle.close(), /CLEANUP_INCOMPLETE/);
+  f.control.invalidateTab(7, { destroyed: true }); await tick(); await handle.close();
+  assert.deepEqual(decisions(f), []); assert.equal(f.risks.size, 0); assert.equal(f.listeners.size, 0);
+});
+
+test("ambiguous successor keeps an already dispatched child response and input in original cleanup", async () => {
+  const actual = defer(), native = defer();
+  const f = childFixture({ command: (method, _params, owner) => {
+    if (method === "Input.insertText") { childOpening(owner); return native.promise; }
+    if (method === "Page.handleJavaScriptDialog") return actual.promise;
+  } });
+  const handle = await f.begin(), inserted = input(handle, { type: "text", text: "one original trigger" }); await tick();
+  const info = handle.pendingDialog(), response = answer(handle); await tick();
+  f.event("Page.javascriptDialogClosed", {}); childOpening(f, "nested");
+  let done = false; const closing = handle.close().finally(() => { done = true; }), rejected = assert.rejects(closing, /CLEANUP_INCOMPLETE/);
+  await tick(); assert.equal(done, false); assert.deepEqual(decisions(f), [{ accept: true }]);
+  assert.equal(f.risks.size, 1); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  actual.resolve(); assert.equal((await response).dialogId, info.dialogId); await rejected;
+  f.control.invalidateTab(7, { destroyed: true }); await tick();
+  assert.equal(f.risks.size, 1, "destruction does not settle the original native input Promise");
+  native.resolve(); assert.equal((await inserted).acknowledged, true); await tick(); await handle.close();
+  assert.deepEqual(decisions(f), [{ accept: true }]); assert.equal(f.risks.size, 0);
+});
+
+for (const phase of ["focus", "detach"]) test(`late ambiguity during final ${phase} keeps cleanup unconfirmed until original destruction`, async () => {
+  const gate = defer(), entered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (phase === "focus" && method === "Emulation.setFocusEmulationEnabled" && !params.enabled) { entered.resolve(); return gate.promise; }
+  }, detach: () => { if (phase === "detach") { entered.resolve(); return gate.promise; } } });
+  const handle = await f.begin(); opening(f);
+  const closing = handle.close(), rejected = assert.rejects(closing, /CLEANUP_INCOMPLETE/);
+  await entered.promise; f.event("Page.javascriptDialogClosed", { frameId: "foreign" }); childOpening(f);
+  assert.equal(f.control.current.dialogs.ambiguous, true);
+  gate.resolve(); await rejected;
+  assert.equal(f.risks.size, 1); assert.notEqual(f.control.current, null);
+  assert.deepEqual(decisions(f), [{ accept: false }]);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, phase === "detach" ? 1 : 0);
+  await assert.rejects(handle.close(), /CLEANUP_INCOMPLETE/);
+  f.control.invalidateTab(7, { destroyed: true }); await tick(); await handle.close();
+  assert.equal(f.risks.size, 0); assert.equal(f.control.current, null);
+  assert.deepEqual(decisions(f), [{ accept: false }]);
+});
+
+test("original detach ACK ends lifecycle admission before asynchronous durable risk removal", async () => {
+  const cleared = defer(), entered = defer(), f = fixture({ clearRisk: () => { entered.resolve(); return cleared.promise; } });
+  const handle = await f.begin(); opening(f); const closing = handle.close(); await entered.promise;
+  const original = f.control.current;
+  assert.equal(original.attached, false); assert.equal(original.detachAcknowledged, true); assert.equal(f.risks.size, 1);
+  f.event("Page.javascriptDialogClosed", { frameId: "foreign" }); childOpening(f);
+  assert.notEqual(original.dialogs.ambiguous, true); assert.deepEqual(decisions(f), [{ accept: false }]);
+  cleared.resolve(); await closing; assert.equal(f.risks.size, 0); assert.equal(f.control.current, null);
+});
+
+for (const acknowledged of [true, false]) test(`detach ACK cannot settle a cancellation actually sent during detach (${acknowledged})`, async () => {
+  const detached = defer(), entered = defer(), cancelled = defer();
+  const f = fixture({ detach: () => { entered.resolve(); return detached.promise; },
+    command: method => method === "Page.handleJavaScriptDialog" ? cancelled.promise : undefined });
+  const handle = await f.begin(); let settled = false;
+  const closing = handle.close().finally(() => { settled = true; }); closing.catch(() => {});
+  await entered.promise; opening(f); await tick(); assert.deepEqual(decisions(f), [{ accept: false }]);
+  detached.resolve(); await tick(); assert.equal(settled, false); assert.equal(f.risks.size, 1);
+  if (acknowledged) { cancelled.resolve(); await closing; }
+  else {
+    const rejected = assert.rejects(closing, /CLEANUP_INCOMPLETE/); cancelled.reject(new Error("native cancellation outcome unknown")); await rejected;
+    assert.equal(f.risks.size, 1); assert.notEqual(f.control.current, null);
+    f.control.invalidateTab(7, { destroyed: true }); await tick(); await handle.close();
+  }
+  assert.equal(f.risks.size, 0); assert.deepEqual(decisions(f), [{ accept: false }]);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+});
+
 test("dialog response bypasses the native input whose ACK requires that same response", async () => {
   const nativeInput = defer(), response = defer(); let f;
   f = fixture({ command: method => {
@@ -138,14 +390,14 @@ test("dialog response bypasses the native input whose ACK requires that same res
   await assert.rejects(input(handle, { type: "text", text: "must not cross modal" }), /DIALOG_BUSY/);
   response.resolve(); assert.deepEqual(await responding, { leaseId: dialog.leaseId, generation: 1, dialogId: dialog.dialogId, acknowledged: true });
   await assert.rejects(input(handle, { type: "text", text: "ACK is not Closed" }), /DIALOG_BUSY/);
-  f.event("Page.javascriptDialogClosed"); assert.equal(handle.pendingDialog(), null); await handle.close();
+  f.event("Page.javascriptDialogClosed", { frameId: "root" }); assert.equal(handle.pendingDialog(), null); await handle.close();
 });
 
 test("End cancels an original dialog before waiting for its triggering input and held release", async () => {
   const nativeInput = defer(); let f;
   f = fixture({ command: (method, params) => {
     if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") { opening(f, { type: "alert" }); return nativeInput.promise; }
-    if (method === "Page.handleJavaScriptDialog") { assert.deepEqual(params, { accept: false }); f.event("Page.javascriptDialogClosed"); nativeInput.resolve(); }
+    if (method === "Page.handleJavaScriptDialog") { assert.deepEqual(params, { accept: false }); f.event("Page.javascriptDialogClosed", { frameId: "root" }); nativeInput.resolve(); }
   } });
   const handle = await f.begin(), clicked = input(handle, { type: "pointer", action: "down", x: 20, y: 30, button: "left" }); await tick();
   await handle.close(); assert.equal((await clicked).acknowledged, true);
@@ -162,7 +414,7 @@ test("foreign native events cannot offer, close, or answer the original human di
   assert.equal(handle.pendingDialog(), null); opening(f); const original = handle.pendingDialog();
   for (const source of sources) f.event("Page.javascriptDialogClosed", {}, source);
   assert.deepEqual(handle.pendingDialog(), original);
-  f.event("Page.javascriptDialogClosed"); await handle.close();
+  f.event("Page.javascriptDialogClosed", { frameId: "root" }); await handle.close();
   assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 0);
 });
 
@@ -188,7 +440,7 @@ test("unknown dialog response keeps native risk until actual original close or B
   await assert.rejects(answer(handle), /DIALOG_UNCONFIRMED/);
   await assert.rejects(handle.close(), /DIALOG_CLEANUP_INCOMPLETE/); assert.equal(f.risks.size, 1);
   assert.equal(f.calls.some(([method]) => method === "detach"), false);
-  f.event("Page.javascriptDialogClosed"); await handle.close(); assert.equal(f.risks.size, 0);
+  f.event("Page.javascriptDialogClosed", { frameId: "root" }); await handle.close(); assert.equal(f.risks.size, 0);
   assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 1);
 });
 
@@ -213,7 +465,7 @@ test("native input waits through 45 seconds of original modal thinking with one 
   const timing = manualTiming(), native = defer(); let f;
   f = fixture({ timing, command: method => {
     if (method === "Input.insertText") { opening(f); return native.promise; }
-    if (method === "Page.handleJavaScriptDialog") { f.event("Page.javascriptDialogClosed"); native.resolve(); }
+    if (method === "Page.handleJavaScriptDialog") { f.event("Page.javascriptDialogClosed", { frameId: "root" }); native.resolve(); }
   } });
   const handle = await f.begin(); assert.equal(handle.info().inputBudgetVersion, 1);
   const observed = input(handle, { type: "text", text: "original" }); await tick();
@@ -256,8 +508,8 @@ test("two modal periods share the original input cap while old response ACK is i
   f = fixture({ timing, command: method => {
     if (method === "Input.insertText") { opening(f); return native.promise; }
     if (method === "Page.handleJavaScriptDialog") {
-      if (++responses === 1) { f.event("Page.javascriptDialogClosed"); opening(f, { message: "second" }); return firstACK.promise; }
-      f.event("Page.javascriptDialogClosed"); native.resolve();
+      if (++responses === 1) { f.event("Page.javascriptDialogClosed", { frameId: "root" }); opening(f, { message: "second" }); return firstACK.promise; }
+      f.event("Page.javascriptDialogClosed", { frameId: "root" }); native.resolve();
     }
   } });
   const handle = await f.begin(), observed = input(handle, { type: "text", text: "one native command" });
@@ -276,8 +528,8 @@ for (const boundary of ["response admission", "final native guard"]) {
     f = fixture({ timing, command: method => {
       if (method === "Input.insertText") { opening(f); return native.promise; }
       if (method === "Page.handleJavaScriptDialog") {
-        if (++responses === 1) { f.event("Page.javascriptDialogClosed"); opening(f, { message: "second" }); return firstACK.promise; }
-        f.event("Page.javascriptDialogClosed"); native.resolve();
+        if (++responses === 1) { f.event("Page.javascriptDialogClosed", { frameId: "root" }); opening(f, { message: "second" }); return firstACK.promise; }
+        f.event("Page.javascriptDialogClosed", { frameId: "root" }); native.resolve();
       }
     } });
     const handle = await f.begin(), observed = input(handle, { type: "text", text: "one original command" });
@@ -301,7 +553,7 @@ for (const boundary of ["response admission", "final native guard"]) {
 test("dialog response cannot extend an unsent input's ordinary budget when its timer runs late", async () => {
   const timing = manualTiming(), durable = defer(); let f, marks = 0;
   f = fixture({ timing, markRisk: () => ++marks === 2 ? durable.promise : undefined,
-    command: method => { if (method === "Page.handleJavaScriptDialog") f.event("Page.javascriptDialogClosed"); } });
+    command: method => { if (method === "Page.handleJavaScriptDialog") f.event("Page.javascriptDialogClosed", { frameId: "root" }); } });
   const handle = await f.begin(), observed = input(handle, { type: "text", text: "must remain unsent" });
   const inputOutcome = observed.then(value => ({ value }), error => ({ error }));
   await tick(); opening(f); timing.skip(30001);
@@ -318,7 +570,7 @@ test("a modal that closes during unsent durable admission cannot cause a late pa
   const timing = manualTiming(), durable = defer(); let marks = 0;
   const f = fixture({ timing, markRisk: () => ++marks === 2 ? durable.promise : undefined }), handle = await f.begin();
   const observed = input(handle, { type: "text", text: "must never dispatch" });
-  const rejected = assert.rejects(observed, /DIALOG_BUSY/); await tick(); opening(f); f.event("Page.javascriptDialogClosed");
+  const rejected = assert.rejects(observed, /DIALOG_BUSY/); await tick(); opening(f); f.event("Page.javascriptDialogClosed", { frameId: "root" });
   durable.resolve(); await rejected; await handle.close();
   assert.equal(f.calls.some(([m]) => m === "Input.insertText"), false); assert.equal(timing.timers.size, 0);
 });
@@ -346,7 +598,7 @@ test("final native guard refuses late preflight completion even before the timer
 
 test("late original Closed expires its dialog cap without cancelling an already closed modal", async () => {
   const timing = manualTiming(), f = fixture({ timing }), handle = await f.begin(); opening(f);
-  timing.skip(300001); f.event("Page.javascriptDialogClosed"); assert.equal(f.control.current.revoked, true);
+  timing.skip(300001); f.event("Page.javascriptDialogClosed", { frameId: "root" }); assert.equal(f.control.current.revoked, true);
   await handle.close(); assert.equal(f.calls.some(([m]) => m === "Page.handleJavaScriptDialog"), false);
 });
 
