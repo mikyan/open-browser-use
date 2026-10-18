@@ -64,6 +64,29 @@ async function fixture({ managed = true, command, write, detach, authority = () 
 }
 function input(handle, value) { const info = handle.info(); return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value }); }
 
+test("dialog dispatch retains the exact restricted navigation proof, not only policy revision", async () => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } }), handle = await f.begin();
+  assert.ok(f.backend.managedHuman.current.epoch.candidate.siteProof);
+  f.event("Page.javascriptDialogOpening", { type: "confirm", message: "Original?", frameId: "root", url: f.tab.url });
+  const { leaseId, generation, dialogId } = handle.pendingDialog();
+  const response = handle.respondDialog({ leaseId, generation, dialogId, accept: true });
+  const rejected = assert.rejects(response, /DIALOG_STALE/);
+  f.backend.siteNavigationVersions.set(7, (f.backend.siteNavigationVersions.get(7) ?? 0) + 1);
+  await rejected; await handle.close();
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(row => row[2]), [{ accept: false }]);
+});
+
+test("dialog policy checks every actual ancestor origin without asynchronous page reads", async () => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test", "https://remote.test"] } }), handle = await f.begin();
+  const candidate = f.backend.managedHuman.current.epoch.candidate;
+  f.chrome.webNavigation.getAllFrames = () => { throw new Error("Modal policy must not read the page"); };
+  f.backend.managedHuman.assertDialog(candidate, ["https://fixture.test", "https://remote.test"]);
+  for (const denied of [["https://remote.test", "https://denied.test"], ["https://denied.test", "https://remote.test"], ["null"]])
+    assert.throws(() => f.backend.managedHuman.assertDialog(candidate, denied), /SITE_ACCESS_DENIED/);
+  assert.equal(f.calls.some(([method]) => method === "Page.handleJavaScriptDialog"), false);
+  await handle.close();
+});
+
 test("real backend native dialog decisions retain original policy and browser lifetime without page re-reads", async () => {
   for (const revoke of [backend => { Object.defineProperty(backend.siteAccess, "generation", { value: backend.siteAccess.generation + 1 }); },
     backend => { backend.sitePolicyUpdate = {}; }, backend => { backend.browserLifetime.isCurrent = () => false; }]) {

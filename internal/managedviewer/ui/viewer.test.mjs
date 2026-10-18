@@ -881,6 +881,112 @@ test("explicit retirement or blur discards an early frame before first geometry 
   }
 });
 
+function readyResultHuman() {
+  const h = setup(); readyResult(h); h.element("human-begin").click();
+  h.respond(h.socket.sent.at(-1).id, h.humanState({ tabs: [resultTab()], selectedTabId: 1, view: null, eventSequence: 20002, retiredSequence: 20001 }));
+  h.humanFrame(1, { eventSequence: 20003, retiredSequence: 20001 }); h.images.at(-1).onload();
+  return h;
+}
+const releaseClear = (h, sequence = 20010) => h.socket.message({ type: "clear", eventSequence: sequence, retiredSequence: sequence });
+const releaseState = (h, extra = {}) => h.state(2, "paused", true, { tabs: [resultTab()], human: null, view: null,
+  eventSequence: 20011, retiredSequence: 20010, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true }, ...extra });
+
+for (const order of ["state-first", "response-first"]) test(`human release notice clears on its exact cleanup in ${order} order`, () => {
+  const h = readyResultHuman(); h.element("human-end").click(); const end = h.socket.sent.at(-1);
+  releaseClear(h); assert.match(h.element("error").textContent, /正在释放人工控制/);
+  const cleanup = releaseState(h);
+  if (order === "state-first") h.socket.message({ type: "state", ...cleanup });
+  h.respond(end.id, cleanup);
+  if (order === "response-first") h.socket.message({ type: "state", ...cleanup });
+  assert.equal(h.element("error").hidden, true); assert.equal(h.element("error").textContent, "");
+  assert.equal(h.element("watch").disabled, false); assert.equal(h.element("human-begin").disabled, false);
+  assert.equal(h.element("control").disabled, false); assert.equal(h.element("human-end").hidden, true);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 1);
+});
+
+for (const beginOrder of ["state-first", "response-first"]) test(`human release notice binds a pending Begin only when its original lease is confirmed ${beginOrder}`, () => {
+  const h = setup(); readyResult(h); h.element("human-begin").click(); const begin = h.socket.sent.at(-1);
+  h.windowEvents.blur(); const notice = h.element("error").textContent;
+  assert.match(notice, /正在释放人工控制/);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 0);
+  h.socket.message({ type: "state", ...releaseState(h, { eventSequence: 20002, retiredSequence: 20001, humanCleanup: { leaseId: "old-lease", cleanupConfirmed: true } }) });
+  assert.equal(h.element("error").textContent, notice, "a cleanup cannot guess the pending Begin lease");
+  const active = h.humanState({ tabs: [resultTab()], selectedTabId: 1, view: null, eventSequence: 20003, retiredSequence: 20001 });
+  if (beginOrder === "state-first") h.socket.message({ type: "state", ...active });
+  h.respond(begin.id, active);
+  const end = h.socket.sent.at(-1); assert.equal(end.operation, "humanEnd"); assert.equal(end.leaseId, "lease-a");
+  h.socket.message({ type: "state", ...releaseState(h) }); h.respond(end.id, releaseState(h));
+  assert.equal(h.element("error").hidden, true); assert.equal(h.element("human-begin").disabled, false);
+  assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 1);
+});
+
+test("human release notice from pending Begin is not revived after an error replaces it", () => {
+  const h = setup(); readyResult(h); h.element("human-begin").click(); const begin = h.socket.sent.at(-1);
+  h.windowEvents.blur();
+  h.socket.message({ type: "response", id: begin.id, error: { code: "OPERATION_UNCONFIRMED", message: "Original Begin outcome is unknown." } });
+  h.socket.message({ type: "state", ...h.humanState({ tabs: [resultTab()], selectedTabId: 1, view: null, eventSequence: 20003, retiredSequence: 20001 }) });
+  const end = h.socket.sent.at(-1); assert.equal(end.operation, "humanEnd");
+  h.respond(end.id, releaseState(h));
+  assert.equal(h.element("error").textContent, "Original Begin outcome is unknown.");
+  assert.equal(h.element("error").hidden, false);
+});
+
+for (const cleanup of [undefined, { leaseId: "other-lease", cleanupConfirmed: true }, { leaseId: "lease-a", cleanupConfirmed: false }]) {
+  test(`human release notice requires its own confirmed receipt ${JSON.stringify(cleanup)}`, () => {
+    const h = readyResultHuman(); releaseClear(h); const notice = h.element("error").textContent;
+    h.socket.message({ type: "state", ...releaseState(h, { humanCleanup: cleanup }) });
+    assert.equal(h.element("error").textContent, notice); assert.equal(h.element("error").hidden, false);
+    assert.equal(h.element("control").disabled, true); assert.equal(h.element("human-begin").disabled, true);
+    h.socket.message({ type: "state", ...releaseState(h, { eventSequence: 20012 }) });
+    assert.equal(h.element("error").hidden, true); assert.equal(h.element("control").disabled, false);
+  });
+}
+
+for (const errorOrder of ["before-clear", "after-clear"]) for (const cleanupOrder of ["state-first", "response-first"]) {
+  test(`human release notice cannot hide an unknown input outcome ${errorOrder}/${cleanupOrder}`, () => {
+    const h = readyResultHuman(); h.event("human-input", "beforeinput", { inputType: "insertText", data: "one original input" });
+    const original = h.socket.sent.at(-1);
+    h.element("human-end").click(); const end = h.socket.sent.at(-1);
+    if (errorOrder === "after-clear") releaseClear(h);
+    h.socket.message({ type: "response", id: original.id, error: { code: "OPERATION_UNCONFIRMED", message: "Original input outcome is unknown; do not replay." } });
+    if (errorOrder === "before-clear") releaseClear(h);
+    assert.equal(h.element("error").textContent, "Original input outcome is unknown; do not replay.");
+    if (cleanupOrder === "state-first") h.socket.message({ type: "state", ...releaseState(h) });
+    h.respond(end.id, releaseState(h));
+    if (cleanupOrder === "response-first") h.socket.message({ type: "state", ...releaseState(h) });
+    assert.equal(h.element("error").textContent, "Original input outcome is unknown; do not replay.");
+    assert.equal(h.element("error").hidden, false); assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+    assert.equal(h.socket.sent.filter(command => command.operation === "humanInput").length, 1);
+    assert.equal(h.socket.sent.filter(command => command.operation === "humanEnd").length, 1);
+  });
+}
+
+for (const settlement of ["success", "error", "timeout"]) for (const currentNotice of ["progress", "error"]) {
+  test(`human release notice and errors belong to the current lease, not old ${settlement}/${currentNotice}`, () => {
+    const h = readyResultHuman(); releaseClear(h); const old = h.socket.sent.at(-1), timer = [...h.timers.values()].at(-1);
+    h.socket.message({ type: "state", ...releaseState(h) });
+    h.element("human-begin").click();
+    h.respond(h.socket.sent.at(-1).id, h.humanState({ tabs: [resultTab()], selectedTabId: 1, view: null, eventSequence: 30000, retiredSequence: 29999,
+      human: { ...h.humanState().human, leaseId: "lease-b" } }));
+    h.humanFrame(1, { eventSequence: 30001, retiredSequence: 29999, streamId: "successor", humanLeaseId: "lease-b" }); h.images.at(-1).onload();
+    if (currentNotice === "error") {
+      h.event("human-input", "beforeinput", { inputType: "insertText", data: "one successor input" });
+      h.socket.message({ type: "response", id: h.socket.sent.at(-1).id, error: { code: "OPERATION_UNCONFIRMED", message: "Successor input outcome is unknown." } });
+    } else releaseClear(h, 30002);
+    const notice = h.element("error").textContent, sent = h.socket.sent.length;
+    if (settlement === "timeout") timer();
+    else if (settlement === "error") h.socket.message({ type: "response", id: old.id, error: { code: "OPERATION_UNCONFIRMED", message: "Retired End failed." } });
+    else h.respond(old.id, releaseState(h));
+    assert.equal(h.element("error").textContent, notice); assert.equal(h.element("error").hidden, false);
+    assert.equal(h.socket.sent.length, sent);
+    h.socket.message({ type: "state", ...releaseState(h, { eventSequence: 30003, retiredSequence: 30002 }) });
+    assert.equal(h.element("error").textContent, notice, "a foreign lease cleanup cannot clear the current message");
+    h.socket.message({ type: "state", ...releaseState(h, { eventSequence: 30004, retiredSequence: 30002, humanCleanup: { leaseId: "lease-b", cleanupConfirmed: true } }) });
+    assert.equal(h.element("error").hidden, currentNotice === "progress");
+    if (currentNotice === "error") assert.equal(h.element("error").textContent, notice);
+  });
+}
+
 test("human release needs the original cleanup receipt before enabling Agent Resume", () => {
   const h = setup(); h.readyHuman();
   h.element("human-end").click();

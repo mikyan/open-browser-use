@@ -11,7 +11,17 @@
 
 ## 当前评分
 
-用户最新要求的新包已从干净提交 `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` 发布为 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)。
+2026-10-18 当前源码通过稳定跨站 OOPIF 人工 prompt 与 End 提示修复验收。
+`mod-BENPnK` 五步实际 exit 0，root/same/nested/oopif 四个原页面均回答成功，
+每页一次点击和唯一 POST，四次原清理确认后界面没有残留释放提示；正式 Stop 通过。
+完整内部构建407份生产输入、76个扩展文件，2656项 Node 测试及本轮 Go 主模块
+全包/vet 全部通过。独立输入身份反例先红后绿，空弹窗快照仍有原上下文保护。
+事件独审417项、生命周期独审40项通过；20张保存图片解码及29个原进程退出已核实。
+跨站来源未在弹窗卡片单独显示；初始/导航、动态或
+复杂 iframe、子页 alert/confirm、公司 Edge 及完整能力对齐仍未全部验收。
+用户最新明确要求再打新包；新包尚未发布，当前公开版本仍是下面的6a3bee5。
+
+上一轮用户要求的新包已从干净提交 `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` 发布为 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)。
 本包新增已验收的稳定同源及两层嵌套页面人工prompt；完整包/扩展/Skill为102/75/7文件。
 405份生产输入逐项匹配已测快照及提交，重建扩展75文件与已测制品字节相同；
 发布EXE单独重建，离线CLI/MCP30工具、独立制品审计及四资产上传回下载校验通过。

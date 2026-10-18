@@ -12,6 +12,14 @@
 
 ## Baseline sources
 
+2026-10-18 当前源码的 `mod-BENPnK` 五步 actual exit 0，主/同源/两层同源嵌套/
+单层跨站 OOPIF prompt 均从正式查看器回答；每个原文档一次点击、唯一 POST，
+原 End 清理及旧释放提示清除、正式 Stop 通过。当前原附件的远程 session 图谱
+和默认 context 证明替代缺失的远程见证；原输入另有准备前身份 fence。
+407份生产输入、76扩展文件、2656项Node和本轮Go主模块全包/vet通过。
+用户新请求包尚未发布。子站来源展示、初始/导航、复杂iframe及完整矩阵仍开放；
+以下旧OOPIF取消结果仍作为历史证据保留，见[人工网页弹窗](../references/managed-human-dialogs.md)。
+
 2026-10-18 稳定同源子页面弹窗 `mfd-sH1gAh` 五步 actual exit 0：主/同源/
 两层嵌套 prompt 经正式查看器回答Unicode，四原页面各唯一POST及正式Stop通过。
 跨站OOPIF实际产生原生弹窗，但缺当前远程frame/default-context证明而取消，
@@ -20,7 +28,7 @@
 和歧义在detach前后仍需真实清理；见[人工网页弹窗](../references/managed-human-dialogs.md)。
 该子页扩展已按用户新请求进入 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)，发布EXE单独重建，
 离线CLI/MCP、制品独审及四资产回下载校验通过；发布不计为新的网页实测。
-继承源/动态iframe、跨域、首帧/导航和完整矩阵仍开放。旧95e7b29包只包含
+该轮仍未覆盖继承源/动态iframe、跨域、首帧/导航和完整矩阵。旧95e7b29包只包含
 主页面弹窗及Skill更新。以下保留各原开发轮次的范围和历史发布状态。
 
 2026-10-18 原生人工弹窗长等待 `mdb-r5BfFQ` 五步 actual exit 0：原输入

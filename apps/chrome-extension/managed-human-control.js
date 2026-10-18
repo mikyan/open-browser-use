@@ -2,7 +2,7 @@ import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
 import { ManagedHumanInputBudget } from "./managed-human-budget.js";
-import { ManagedHumanDocumentContexts } from "./managed-human-document-contexts.js";
+import { ManagedHumanDocumentGraph } from "./managed-human-document-graph.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
@@ -71,12 +71,13 @@ export class ManagedHumanControl {
     if (record.epoch !== epoch || epoch.retired || (record.generation && record.generation !== epoch.id))
       throw fail("input does not match the displayed human lease and generation; native input was not sent", "GENERATION_STALE");
   }
-  ownsSource(record, source) {
-    if (!record.attached || !source || typeof source !== "object" || source.sessionId != null || source.extensionId != null) return false;
+  ownsAttachmentEnvelope(record, source) {
+    if (!record.attached || !source || typeof source !== "object" || source.extensionId != null) return false;
     if (Object.hasOwn(source, "targetId")) return source.targetId === record.candidate.targetId &&
       (source.tabId === undefined || source.tabId === record.tabId);
     return source.tabId === record.tabId;
   }
+  ownsSource(record, source) { return this.ownsAttachmentEnvelope(record, source) && source.sessionId == null; }
 
   begin(tabId, assertAuthority, onFrame, onState = () => {}, options = {}) {
     return this.beginLease("human", tabId, assertAuthority, onFrame, onState, options);
@@ -94,7 +95,15 @@ export class ManagedHumanControl {
       generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set() };
     Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
     this.current = record;
-    if (mode === "human") record.documentContexts = new ManagedHumanDocumentContexts();
+    if (mode === "human") record.documentGraph = new ManagedHumanDocumentGraph({
+      send: (sessionId, method, params, check) => this.send(record, method, params, check, sessionId),
+      check: () => this.check(record),
+      onFailure: error => { void this.close(record, error).catch(() => {}); },
+      onChange: details => {
+        record.dialogs?.recheck();
+        if (record.initialized) this.navigation(record.tabId, details, "committed", "native-topology");
+      }
+    });
     if (mode === "human") record.dialogs = new ManagedHumanDialogs({ leaseId: record.leaseId,
       capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
       attached: () => record.attached === true, destroyed: () => record.destroyed === true,
@@ -164,18 +173,27 @@ export class ManagedHumanControl {
     await this.chrome.debugger.attach({ targetId: record.candidate.targetId }, "1.3"); record.attached = true;
     if (record.viewIntent) await this.viewJournal.attached(record);
     record.lifecycle = (source, method, params) => {
-      if (!this.ownsSource(record, source)) return;
-      if (record.documentContexts?.observe(method, params) && method.startsWith("Runtime.")) {
-        record.dialogs.recheck(); return;
+      if (!this.ownsAttachmentEnvelope(record, source)) return;
+      const sessionId = source.sessionId ?? undefined;
+      if (sessionId !== undefined && !record.documentGraph?.owns(sessionId)) return;
+      record.documentGraph?.observe(sessionId, method, params);
+      if (method.startsWith("Runtime.")) {
+        record.dialogs?.recheck(); return;
       }
       if (["Page.javascriptDialogOpening", "Page.javascriptDialogClosed"].includes(method)) {
-        record.dialogs?.observe(method, params); return;
+        // Native modal handling is routed through the original root target.
+        // A child session may prove its document, never claim another dialog.
+        if (sessionId === undefined) record.dialogs?.observe(method, params);
+        return;
       }
       if (["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameAttached", "Page.frameDetached"].includes(method)) {
+        // Initial child-domain observations seed the first graph. Root events
+        // retain the existing initial-document invalidation boundary.
+        if (sessionId !== undefined && !record.initialized) return;
         const frameId = params?.frame?.id ?? params?.frameId;
-        this.navigation(record.tabId, { frameId, root: Boolean(params?.frame && !params.frame.parentId) },
+        this.navigation(record.tabId, { frameId, root: sessionId === undefined && Boolean(params?.frame && !params.frame.parentId) },
           method === "Page.frameStartedNavigating" ? "pending" : "committed", "native");
-      } else if (method === "Page.frameResized") this.recheckResize(record, record.epoch);
+      } else if (sessionId === undefined && method === "Page.frameResized") this.recheckResize(record, record.epoch);
     };
     this.chrome.debugger.onEvent.addListener(record.lifecycle);
     this.check(record); await this.validate(record.candidate); this.check(record);
@@ -183,6 +201,8 @@ export class ManagedHumanControl {
       // Observe navigation and actual default contexts before either tree read.
       await this.send(record, "Page.enable", undefined, () => this.check(record));
       await this.send(record, "Runtime.enable", undefined, () => this.check(record));
+      this.check(record);
+      await record.documentGraph.start();
       await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: true }, () => this.check(record));
     }
     await this.send(record, "Performance.enable", { timeDomain: "timeTicks" }, () => this.check(record));
@@ -190,7 +210,7 @@ export class ManagedHumanControl {
     await this.recover(record);
   }
 
-  send(record, method, params, assertAdmission) {
+  send(record, method, params, assertAdmission, sessionId) {
     if (record.mode === "view" && (method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled" || method === "Page.handleJavaScriptDialog"))
       throw fail("a view lease has no native input or focus authority", "UNAVAILABLE");
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
@@ -199,7 +219,8 @@ export class ManagedHumanControl {
       if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
       assertAdmission?.();
       dispatched = true;
-      return this.chrome.debugger.sendCommand({ targetId: record.candidate.targetId }, method, params);
+      return this.chrome.debugger.sendCommand({ targetId: record.candidate.targetId,
+        ...(sessionId === undefined ? {} : { sessionId }) }, method, params);
     });
     record.drains.add(actual);
     actual.then(() => record.drains.delete(actual), error => {
@@ -231,11 +252,10 @@ export class ManagedHumanControl {
     const epoch = record.epoch;
     if (!epoch || epoch.retired || record.state !== "active" || !record.generation || !epoch.document)
       throw fail("dialogs require the original active human document", "DIALOG_UNSUPPORTED");
-    this.assertDialog(epoch.candidate);
-    const frames = JSON.parse(epoch.document), emitter = frames.find(frame => frame[0] === params?.frameId);
-    if (!emitter || typeof params?.url !== "string" || params.url !== emitter[3] + emitter[4])
-      throw fail("dialog emitter is outside the verified original document", "DIALOG_UNSUPPORTED");
-    const contexts = emitter === frames[0] ? null : record.documentContexts.capture(epoch.dialogContexts, emitter[0]);
+    const root = JSON.parse(epoch.document)[0];
+    const isRoot = params?.frameId === root[0] && params?.url === root[3] + root[4];
+    const contexts = isRoot ? null : record.documentGraph.capture(epoch.dialogContexts, params);
+    this.assertDialog(epoch.candidate, contexts?.actualOrigins ?? []);
     return Object.freeze({ epoch, generation: epoch.id, document: epoch.document, contexts });
   }
   checkDialog(record, proof) {
@@ -243,10 +263,10 @@ export class ManagedHumanControl {
     // Both response admission and final native dispatch must account the same
     // input's accumulated wait, even when its timer callback has not run yet.
     proof.epoch.inputOperation?.budget.assertAvailable();
-    this.assertDialog(proof.epoch.candidate);
+    this.assertDialog(proof.epoch.candidate, proof.contexts?.actualOrigins ?? []);
     if (record.state !== "active" || proof.generation !== record.generation || proof.document !== proof.epoch.document)
       throw fail("original dialog document changed", "DIALOG_STALE");
-    if (proof.contexts) record.documentContexts.assert(proof.contexts);
+    if (proof.contexts) record.documentGraph.assert(proof.contexts);
   }
 
   async prepare(record, epoch) {
@@ -254,7 +274,7 @@ export class ManagedHumanControl {
     check();
     const candidate = await this.validate(record.candidate, { advance: record.generation > 0 });
     check(); epoch.candidate = candidate ?? record.candidate;
-    const contextRevision = record.documentContexts?.checkpoint();
+    epoch.inputIdentity = record.documentGraph?.captureIdentity();
     epoch.document = this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check));
     check();
     // A read-only view has no CSS input coordinates. Zoom, visual offsets and
@@ -277,9 +297,11 @@ export class ManagedHumanControl {
     if (this.frameTree(await this.send(record, "Page.getFrameTree", undefined, check)) !== epoch.document)
       throw fail("native document changed during capture preparation", "DOCUMENT_CHANGED");
     check();
-    // This is an attachment event observation barrier, not an atomic browser
-    // snapshot. A changed revision grants no child-dialog proof for this epoch.
-    epoch.dialogContexts = record.documentContexts?.snapshot(epoch.document, contextRevision);
+    epoch.dialogContexts = await record.documentGraph?.snapshot();
+    check();
+    if (epoch.dialogContexts && epoch.dialogContexts.rootDocument !== epoch.document)
+      throw fail("native root document changed during child preparation", "DOCUMENT_CHANGED");
+    if (epoch.inputIdentity) record.documentGraph.assertIdentity(epoch.inputIdentity);
   }
 
   recover(record) {
@@ -386,6 +408,9 @@ export class ManagedHumanControl {
 
   checkInputGeometry(record, epoch) {
     this.checkGeneration(record, epoch);
+    // Recheck the original displayed child identities after every asynchronous
+    // admission step. A new snapshot must never authorize this old input.
+    if (epoch.inputIdentity) record.documentGraph.assertIdentity(epoch.inputIdentity);
     if (record.dialogs?.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
     if (epoch.geometryPending) throw fail("original viewport resize check is still pending", "GEOMETRY");
   }
@@ -572,6 +597,7 @@ export class ManagedHumanControl {
   revoke(record, error = fail("human control ended", "STALE")) {
     if (record.revoked) return;
     record.revoked = true; record.state = "releasing"; record.onFrame = null;
+    record.documentGraph?.revoke();
     record.dialogs?.revoke();
     clearTimeout(record.recoveryTimer); record.recoveryTimer = null; record.wake?.();
     record.closed.resolve({ reason: String(error.message) });
@@ -592,6 +618,9 @@ export class ManagedHumanControl {
       record.closing = (async () => {
         await record.dialogs?.close();
         await Promise.allSettled([record.start, record.recovery].filter(Boolean));
+        // Read/domain setup failures revoke admission. Once their real calls
+        // settle, root detach still has to dispose the original child sessions.
+        await Promise.allSettled([record.documentGraph?.drain()]);
         for (const epoch of record.epochs) await this.releaseGeneration(record, epoch);
         await record.dialogs?.close();
         await Promise.allSettled([...record.drains]);
@@ -608,6 +637,7 @@ export class ManagedHumanControl {
           // its original cleanup obligation; ACK cannot settle either one.
           record.attached = false;
           record.detachAcknowledged = true;
+          record.documentGraph?.detached();
         } else if (record.lost && !record.destroyed) throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
         await record.dialogs?.drain();
         record.dialogs?.assertDrained();
@@ -632,6 +662,7 @@ export class ManagedHumanControl {
     if (!record || record.tabId !== tabId) return;
     if (destroyed) {
       record.destroyed = true; record.attached = false;
+      record.documentGraph?.detached();
       for (const epoch of record.epochs) epoch.rendering.released(tabId, epoch.token);
     }
     void this.close(record, fail(destroyed ? "original tab closed" : "original page or ownership changed", "STALE")).catch(() => {});
@@ -641,6 +672,7 @@ export class ManagedHumanControl {
     if (!record || !this.ownsSource(record, source)) return false;
     if (record.detaching) return true;
     record.attached = false; record.lost = true; record.destroyed = reason === "target_closed";
+    if (record.destroyed) record.documentGraph?.detached();
     for (const epoch of record.epochs) epoch.rendering.released(record.tabId, epoch.token);
     void this.close(record, fail("original debugger attachment ended", "UNAVAILABLE")).catch(() => {});
     return true;

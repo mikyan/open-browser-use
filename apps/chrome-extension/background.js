@@ -861,10 +861,12 @@ class BrowserBackend {
     this.managedHuman = new ManagedHumanControl({ chrome,
       capture: (tabId, options) => this.captureManagedHumanPage(tabId, options),
       validate: (candidate, options) => this.validateManagedHumanPage(candidate, options),
-      assertDialog: candidate => {
+      assertDialog: (candidate, actualOrigins = []) => {
         // Modal responses cannot wait on page reads. Fence the already verified
         // document's native lifetime, original delivery and policy at dispatch.
         this.assertNativeControl(); this.siteAccess.assertReady(); this.browserLifetime.assertInputRecoveryClear();
+        this.assertSiteProof(candidate.siteProof);
+        for (const origin of actualOrigins) this.siteAccess.assertUrl(origin);
         if (candidate.resultRecord) this.managedResults.assert(candidate.resultRecord);
         if (!this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || this.siteRevokedTabs.has(candidate.tabId) ||
             candidate.policyGeneration !== this.siteAccess.generation || candidate.policyRevision !== this.siteAccess.status().revision)
@@ -3872,6 +3874,7 @@ class BrowserBackend {
         !targets.some(target => target.id === candidate.targetId && target.tabId === candidate.tabId && target.type === "page"))
       throw new Error("OBU_HUMAN_STALE: original document, ownership, or permission changed");
     const verified = Object.freeze({ ...candidate, documentId: frame.documentId,
+      siteProof: proof ? Object.freeze({ ...proof }) : undefined,
       title: typeof tab.title === "string" ? tab.title.slice(0, 512) : "", url: typeof tab.url === "string" ? tab.url.slice(0, 8192) : "" });
     if (candidate.resultRecord) {
       if (advance && (this.managedHuman.current !== owner || owner?.candidate?.resultRecord !== candidate.resultRecord ||

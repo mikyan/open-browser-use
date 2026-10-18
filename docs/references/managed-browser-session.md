@@ -11,7 +11,10 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 最新完整包为 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)，
 从干净提交 `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` 重建，新增稳定同源及嵌套子页面的人工prompt回答。
 完整包/扩展/Skill为102/75/7文件；离线CLI/MCP、独立制品、上传回下载和本地副本校验通过。
-发布EXE未重跑网页业务；当前OOPIF、首帧导航及完整能力对齐仍开放。
+发布EXE未重跑网页业务；该包不包含下面续轮的 OOPIF 和 End 提示修复。
+当前源码的 `mod-BENPnK` 已通过主/同源/嵌套/单层跨站 OOPIF prompt 及正常
+End/Stop 验收；新请求包尚未发布。初始/导航弹窗、复杂 iframe 和完整能力对齐
+仍开放，弹窗卡片尚不单独显示子站来源，见[人工网页弹窗](managed-human-dialogs.md)。
 
 历史完整包为 [preview-20261018-95e7b29](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-95e7b29)，
 从干净提交 `95e7b29e3c079506445c52d3db192561adca6ced` 重建，新增主页面人工网页弹窗及五分钟累计等待预算、更新后的Skill。

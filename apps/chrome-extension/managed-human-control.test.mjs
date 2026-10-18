@@ -24,7 +24,7 @@ function fixture(options = {}) {
     async detach(target) { calls.push(["detach", target]); await options.detach?.(); },
     async sendCommand(target, method, params) {
       calls.push([method, target, params]);
-      const result = await options.command?.(method, params);
+      const result = await options.command?.(method, params, target);
       if (method === "Page.startScreencast" && options.frames !== false) queueMicrotask(emit);
       if (result !== undefined) return result;
       if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root", loaderId, url: "https://fixture.test/" + documentId } } };
@@ -37,7 +37,7 @@ function fixture(options = {}) {
     validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, title: `Title ${documentId}`, url: `https://fixture.test/${documentId}` }; },
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
-    assertDialog: candidate => options.assertDialog?.(candidate),
+    assertDialog: (candidate, origins) => options.assertDialog?.(candidate, origins),
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
     viewJournal: options.viewJournal,
     timing: options.timing,
@@ -55,6 +55,86 @@ const input = (handle, value, extra = {}) => {
   const info = handle.info();
   return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value, ...extra });
 };
+
+function remoteFixture(options = {}) {
+  let f;
+  const root = { id: "root", loaderId: "loader-1", url: "https://fixture.test/original-document" };
+  const child = { id: "remote", parentId: "root", loaderId: "remote-loader", url: "https://remote.test/form" };
+  const nested = { id: "nested-remote", parentId: "remote", loaderId: "nested-loader", url: "https://nested.test/form" };
+  const source = sessionId => ({ targetId: "original-target", ...(sessionId ? { sessionId } : {}) });
+  f = fixture({ assertDialog: options.assertDialog, command: async (method, params, target) => {
+    const sessionId = target.sessionId, frame = sessionId === "child-session" ? child : sessionId === "nested-session" ? nested : root;
+    if (method === "Runtime.enable") f.event("Runtime.executionContextCreated", { context: {
+      id: 1, uniqueId: `context-${frame.id}`, origin: new URL(frame.url).origin, auxData: { isDefault: true, frameId: frame.id }
+    } }, source(sessionId));
+    if (method === "Target.setAutoAttach" && params.autoAttach && (!sessionId || options.nested && sessionId === "child-session")) {
+      const next = sessionId ? nested : child;
+      f.event("Target.attachedToTarget", { sessionId: sessionId ? "nested-session" : "child-session", waitingForDebugger: false,
+        targetInfo: { type: "iframe", targetId: next.id, url: next.url } }, source(sessionId));
+    }
+    const result = await options.command?.(method, params, target, f);
+    if (result !== undefined) return result;
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { ...frame } } };
+  } });
+  return Object.assign(f, { remoteSource: source, remoteFrame: options.nested ? nested : child });
+}
+
+for (const nested of [false, true]) test(`current owned remote graph answers through the root once (nested=${nested})`, async () => {
+  const native = defer(), permissions = [];
+  const f = remoteFixture({ nested, assertDialog: (_candidate, origins) => permissions.push(origins), command: (method, params, _target, owner) => {
+    if (method === "Input.insertText") {
+      opening(owner, { frameId: owner.remoteFrame.id, url: owner.remoteFrame.url }); return native.promise;
+    }
+    if (method === "Page.handleJavaScriptDialog") {
+      owner.event("Page.javascriptDialogClosed", { frameId: owner.remoteFrame.id, result: params.accept }); native.resolve();
+    }
+  } });
+  const handle = await f.begin(), pending = input(handle, { type: "text", text: "one original trigger" }); await tick();
+  assert.ok(handle.pendingDialog()); const receipt = await answer(handle);
+  assert.equal(receipt.acknowledged, true); assert.equal((await pending).acknowledged, true);
+  const expected = nested ? ["https://fixture.test", "https://remote.test", "https://nested.test"] : ["https://fixture.test", "https://remote.test"];
+  assert.ok(permissions.length >= 2); for (const origins of permissions) assert.deepEqual([...origins].sort(), [...expected].sort());
+  const replies = f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog");
+  assert.equal(replies.length, 1); assert.deepEqual(replies[0][1], { targetId: "original-target" });
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
+  await handle.close(); assert.equal(f.risks.size, 0);
+  assert.deepEqual(f.calls.filter(([method]) => method === "detach").map(row => row[1]), [{ targetId: "original-target" }]);
+});
+
+test("child-session modal and screencast events cannot impersonate root delivery", async () => {
+  const f = remoteFixture(), handle = await f.begin(), count = f.frames.length;
+  opening(f, { frameId: "remote", url: f.remoteFrame.url }, f.remoteSource("child-session"));
+  assert.equal(handle.pendingDialog(), null); f.emit(f.remoteSource("child-session"));
+  assert.equal(f.frames.length, count); assert.equal(f.calls.some(([method]) => method === "Page.handleJavaScriptDialog"), false);
+  await handle.close();
+});
+
+test("remote context retirement before dispatch cancels only the original root-routed dialog", async () => {
+  const f = remoteFixture(), handle = await f.begin(); opening(f, { frameId: "remote", url: f.remoteFrame.url });
+  assert.ok(handle.pendingDialog()); const pending = answer(handle), rejected = assert.rejects(pending, /DIALOG_STALE/);
+  f.event("Runtime.executionContextDestroyed", { executionContextId: 1, executionContextUniqueId: "context-remote" }, f.remoteSource("child-session"));
+  await rejected; await handle.close();
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(row => [row[1], row[2]]),
+    [[{ targetId: "original-target" }, { accept: false }]]);
+});
+
+test("foreign roots and retired SDK sessions cannot clear the current remote context", async () => {
+  const f = remoteFixture(), handle = await f.begin();
+  f.event("Runtime.executionContextsCleared", {}, { targetId: "foreign-target", sessionId: "child-session" });
+  f.event("Runtime.executionContextsCleared", {}, f.remoteSource("old-sdk-session"));
+  opening(f, { frameId: "remote", url: f.remoteFrame.url }); assert.ok(handle.pendingDialog());
+  await answer(handle); f.event("Page.javascriptDialogClosed", { frameId: "remote" }); await handle.close();
+});
+
+test("revoked startup joins actual child setup before detaching the original root", async () => {
+  const enabled = defer(), f = remoteFixture({ command: (method, _params, target) => method === "Page.enable" && target.sessionId ? enabled.promise : undefined });
+  const beginning = f.begin(), rejected = assert.rejects(beginning, /revoked/);
+  await tick(); assert.ok(f.calls.some(([method, target]) => method === "Page.enable" && target.sessionId));
+  const closing = f.control.cancel(); await tick(); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  enabled.resolve(); await rejected; await closing;
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1); assert.equal(f.risks.size, 0);
+});
 
 test("human attachment starts only after the original Pause and uses only the frozen target", async () => {
   const pause = defer(), f = fixture({ pause: () => pause.promise });
@@ -231,13 +311,15 @@ test("native navigation before Runtime.enable ACK ends startup without seeding a
   assert.equal(f.calls.filter(([method]) => method === "detach").length, 1); assert.equal(f.risks.size, 0);
 });
 
-test("a context change inside the two-tree observation window grants no late child proof", async () => {
+test("a new default context inside the complete observation window cannot authorize an old preparation", async () => {
   let trees = 0;
   const f = childFixture({ command: (method, _params, owner) => {
-    if (method === "Page.getFrameTree" && ++trees === 2) childContext(owner);
+    // Two preliminary root reads precede the graph's two complete tree reads.
+    if (method === "Page.getFrameTree" && ++trees === 4) childContext(owner);
   } });
-  const handle = await f.begin(); childOpening(f); assert.equal(handle.pendingDialog(), null);
-  await handle.close(); assert.deepEqual(decisions(f), [{ accept: false }]);
+  await assert.rejects(f.begin(), /original.*(identity|context|document)/);
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
 });
 
 for (const replacement of [false, true]) test(`child navigation uses only contexts newly observed for the new loader (${replacement})`, async () => {
@@ -1488,4 +1570,20 @@ test("durable attached write failure still joins the actual attachment before ac
   assert.deepEqual(calls, ["intent"]); assert.equal(f.control.status().state, "releasing");
   gate.resolve(); await assert.rejects(begin, /original IDB/);
   assert.deepEqual(calls, ["intent", "released"]); assert.equal(f.control.status(), null);
+});
+for (const event of ["destroy", "replace"]) test(`unsent input must not cross original remote default-context ${event}`, async () => {
+  const f = remoteFixture(), handle = await f.begin(), durability = defer();
+  const original = f.control.markRisk;
+  let marked = false;
+  f.control.markRisk = async (...args) => { await original(...args); marked = true; await durability.promise; };
+  const pending = input(handle, { type: "text", text: "must not reach a replacement child" });
+  const result = pending.then(value => ({ value }), error => ({ error: error.message }));
+  await tick(); assert.equal(marked, true);
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0);
+  if (event === "destroy") f.event("Runtime.executionContextDestroyed", { executionContextId: 1, executionContextUniqueId: "context-remote" }, f.remoteSource("child-session"));
+  else f.event("Runtime.executionContextCreated", { context: { id: 2, uniqueId: "replacement-remote", origin: "https://remote.test", auxData: { isDefault: true, frameId: "remote" } } }, f.remoteSource("child-session"));
+  durability.resolve(); const settled = await result;
+  await handle.close();
+  assert.equal(f.calls.filter(([method]) => method === "Input.insertText").length, 0, `native call escaped old default context: ${JSON.stringify(settled)}`);
+  assert.ok(settled.error, "caller must not receive an old-generation success");
 });

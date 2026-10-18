@@ -20,6 +20,7 @@
   let view = null, awaitingViewFrame = null;
   let human = null, humanAction = null, humanOwner = "", humanEnding = false;
   let humanEpoch = 0;
+  let displayedNotice = null;
   let humanSequence = 0, humanInputId = null, decodedHuman = null, awaitingHumanFrame = null;
   let acknowledgedSequence = 0, composing = false, compositionScope = null;
   let retiredHumanGeneration = -1;
@@ -150,10 +151,10 @@
       entry.fields.generation === human?.generation && entry.fields.generation > retiredHumanGeneration;
   }
 
-  function endHuman(message = "", retryCleanup = false) {
+  function endHuman(message = "", retryCleanup = false, noticeKind = "error") {
     const leaseId = human?.leaseId || humanOwner;
     blockHuman(); // Revoke admission before awaiting any original input or cleanup receipt.
-    if (message) error(message);
+    if (message) error(message, noticeKind, leaseId);
     if (leaseId && (!humanEndAttempted || retryCleanup) && humanAction !== "humanEnd" && pendingAction !== "stop" && authenticated && !stopped) {
       humanEndAttempted = true;
       send("humanEnd", { leaseId });
@@ -161,7 +162,10 @@
     render();
   }
 
-  function error(message = "") {
+  function error(message = "", kind = "error", leaseId = "") {
+    // Release progress cannot replace an operation whose outcome is unknown.
+    if (kind === "human-release" && displayedNotice?.kind === "error") return;
+    displayedNotice = message ? { kind, leaseId, humanEpoch } : null;
     el.error.textContent = message;
     el.error.hidden = !message;
   }
@@ -300,8 +304,14 @@
     }
     human = nextHuman;
     pendingDialog = nextDialog;
-    if (humanAction === "humanBegin" && human && !humanOwner) humanOwner = human.leaseId;
+    if (humanAction === "humanBegin" && human && !humanOwner) {
+      humanOwner = human.leaseId;
+      // Blur can precede Begin's lease. Bind its progress only at the original
+      // admission; a cleanup receipt or a later lease cannot supply this identity.
+      if (displayedNotice?.kind === "human-release" && !displayedNotice.leaseId && displayedNotice.humanEpoch === humanEpoch) displayedNotice.leaseId = humanOwner;
+    }
     if (humanOwner && human?.state !== "active" && value.humanCleanup?.leaseId === humanOwner && value.humanCleanup.cleanupConfirmed === true) {
+      if (displayedNotice?.kind === "human-release" && displayedNotice.leaseId === humanOwner && displayedNotice.humanEpoch === humanEpoch) error();
       // A confirmed End joins native input too, including a reply whose local
       // timeout expired. Only this receipt may clear that outstanding marker.
       humanInputId = null;
@@ -503,7 +513,7 @@
     if (!humanReady(releasingHeldInput)) return;
     if (event.pointerType && event.pointerType !== "mouse") { endHuman("当前接管仅支持鼠标输入；已请求释放控制。"); return; }
     const position = point(event, releasingHeldInput);
-    if (!position) { if (pressedButtons.size) endHuman("指针已离开当前画面，正在释放按键和人工控制。"); return; }
+    if (!position) { if (pressedButtons.size) endHuman("指针已离开当前画面，正在释放按键和人工控制。", false, "human-release"); return; }
     if (action !== "move" && !button) return;
     event.preventDefault();
     if (action === "down") {
@@ -562,7 +572,7 @@
   el["dialog-accept"].addEventListener("click", () => respondDialog(true));
   el["dialog-cancel"].addEventListener("click", () => respondDialog(false));
   for (const action of ["down", "move", "up"]) el.frame.addEventListener(`pointer${action}`, event => pointer(event, action));
-  for (const event of ["pointercancel", "lostpointercapture"]) el.frame.addEventListener(event, () => { if (pressedButtons.size) endHuman("指针控制已中断，正在释放人工控制。"); });
+  for (const event of ["pointercancel", "lostpointercapture"]) el.frame.addEventListener(event, () => { if (pressedButtons.size) endHuman("指针控制已中断，正在释放人工控制。", false, "human-release"); });
   el.frame.addEventListener("contextmenu", event => { if (humanReady()) event.preventDefault(); });
   el.frame.addEventListener("wheel", event => {
     const position = point(event);
@@ -598,10 +608,10 @@
     // Navigating disables this focused textarea. That local blur is not a user
     // request to terminate the lease; window blur/End/Stop remain independent.
     if (humanReady())
-      endHuman("输入区域已失焦，正在释放人工控制；Agent 保持暂停。");
+      endHuman("输入区域已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release");
   });
-  window.addEventListener("blur", () => { if ((humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。"); });
-  document.addEventListener("visibilitychange", () => { if (document.hidden && (humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已隐藏，正在释放人工控制；Agent 保持暂停。"); });
+  window.addEventListener("blur", () => { if ((humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && (humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已隐藏，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
 
   el.refresh.addEventListener("click", () => { error(); send("status"); });
   el.control.addEventListener("click", () => {
@@ -663,7 +673,7 @@
         imageGeneration++;
         pendingFrame = null;
         awaitingSelectionFrame = null;
-        if (humanReserved()) endHuman("当前接管画面已撤销，正在释放人工控制。");
+        if (humanReserved()) endHuman("当前接管画面已撤销，正在释放人工控制。", false, "human-release");
         render();
       } else if (value.type === "unavailable") {
         available = false;
@@ -737,7 +747,7 @@
             if (humanAction === "humanEnd") humanAction = null;
             const cleanup = value.result?.humanCleanup;
             if (!cleanup || cleanup.leaseId !== entry.fields.leaseId || cleanup.cleanupConfirmed !== true) error("人工控制释放尚未确认；Agent 保持暂停，请刷新状态或停止会话。");
-            else { if (humanOwner === entry.fields.leaseId) humanOwner = ""; error(); }
+            else if (humanOwner === entry.fields.leaseId) humanOwner = "";
           }
         }
         render();

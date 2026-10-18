@@ -1,18 +1,74 @@
 # Managed human dialogs from original child documents
 
-Status: active. The preceding goal turn made concrete progress at `95e7b29`:
-bounded native-dialog waiting, exact input ownership and delayed-timer response
-checks are committed and pushed. Full Browser Use parity remains unproven.
-The user subsequently requested a new package. That request takes priority:
-release the verified committed `95e7b29` snapshot, excluding this unfinished
-child-dialog implementation. That package is now published and verified, with
-release documentation committed at `ddf5ff4`. This was concrete progress in
-the previous goal turn. The parity goal and this plan remain active; this turn
-resumes child-dialog development. The latest user request asks for another
-package; after the verified continuation below, build that package from its
-committed source. No PR is requested.
+Status: active. Full Browser Use parity remains unproven. The earlier bounded
+waiting and stable same-origin child implementations were committed, packaged
+and published as the 95e7b29 and 6a3bee5 previews; their original evidence and
+release records below remain historical facts. The latest human request
+explicitly asks for another package. This continuation has verified the current
+OOPIF implementation and release-notice UI fix; the newly requested package is
+not published yet. No PR is requested.
 
-## Checkpoint for the requested package
+## Current continuation after the verified package
+
+The human attachment owns a bounded recursive flat-session graph. Every child
+is admitted only by its current parent's native Target attachment event.
+Original Page/Runtime enables and recursive setup settle before two complete
+native tree reads under one global graph revision. Each child's root and parent
+must join its original parent session tree; every session has its own default
+context ledger. Retired session IDs cannot resurrect. Root rendering and modal
+commands remain on the original target; child events cannot impersonate them.
+
+The original website proof includes navigation version. Admission and final
+response dispatch synchronously check that proof and every ancestor's actual
+HTTP(S) origin. URL origins must agree but do not grant authority. A parent
+document replacement makes its old remote sessions document-ineligible while
+preserving their actual cleanup ownership. Revoke prevents new setup, joins
+original work and lets the actual root detach ACK end child ownership; it does
+not substitute for an input or dialog ACK.
+
+Independent actual-controller counterexamples found input could cross a remote
+default-context destruction/replacement while its original risk write awaited.
+Both originally failed. An identity-only fence is now captured before preparation
+reads, checked at completion and at final native input dispatch. It freezes the
+original sessions/default-context set even when the dialog snapshot is null;
+new contexts cannot replace it, and isolated-world noise does not change that
+set. The same two regressions and the null-path case pass. Review SHA256:
+`106ccc23bd2a7815cba205d03543a55da78bb1939a27b65c6abd72f3f9b756d7`.
+
+The UI binds release progress to the original lease and UI epoch. Exact cleanup
+may clear that progress regardless of response/state order. New errors,
+unknown input outcomes and successor leases are retained. Eighteen added
+regressions and all 84 UI tests pass; original red tests remain available.
+
+Current build `mof-build-0gxew513` has actual exit 0, 407 production inputs,
+76 extension files, 2656 Node tests with no skips, and newly rerun root Go
+full-package tests/vet. Manifest SHA256:
+`e786c4675e7fb79f1f8995aec85b5aa19bcff9bda80a6f62da1a32d388efae5e`.
+Acceptance `mod-BENPnK` completes five steps with actual exit 0 and
+`featurePassed: true`: root, same-origin, nested same-origin and cross-site OOPIF
+original prompts all answer through the viewer. Each original emitter posts
+once after one click; original receipts and documents remain independently
+recorded. All four End cleanups and UI progress clearing pass, followed by
+formal Stop. Report SHA256:
+`16043df93c27a784a997c8e203bd0bdc4448c44086b2d632e172163e7f060fe4`.
+Post-run independent audits pass: 417 event/receipt checks and 40 lifecycle/source
+checks, all 20 saved PNGs decoded and all 29 original process identities gone.
+Event audit SHA256: `6cd0db7e8a57dc202a3d5e386c92ada04ae90a7580ba7cfd7a7c55a27f1f3697`.
+Lifecycle audit SHA256: `6c03b46bb577d76650a0b4654b1128da4bc7e3b6673d8399eae4d858ba624df1`.
+Only 12 of 23 observed native frames were saved; the other eight images are
+viewer screenshots. The first lifecycle audit used the wrong Stop wire-state
+expectation; that script failure is retained and corrected against the actual
+protocol, without changing the original browser run.
+
+The requested new package will include only verified committed source after
+these checks. The dialog card still does not separately display the proved
+child origin; a parent page title/URL is not the child message's source. Initial
+and navigation dialogs, inherited/dynamic documents, complex remote nesting,
+child alert/confirm, ordinary company Edge and full parity remain open. Earlier
+unsupported OOPIF/cancelled diagnostic cases below are preserved, not rewritten
+as success. The root owns browser runs, commit/push and package publication.
+
+## Historical checkpoint before the 95e7b29 package
 
 All eight implementation/build WIP files are frozen. Focused checks pass
 269/269, syntax and diff checks pass; the original record is
@@ -25,10 +81,10 @@ browser acceptance has run. These checks do not authorize publication of WIP.
 That checkpoint is preserved as history. The continuation below completed
 independent review, stronger lifecycle/dispatch counterexamples, baseline
 diagnosis and real stable HTTP child/nested acceptance. Inherited documents,
-dynamic children and remote-frame continuation remain open; the overall goal
-has not been narrowed to these passing cases.
+dynamic children remained open at that checkpoint; remote continuation is
+recorded above. The overall goal has not been narrowed to these passing cases.
 
-## Verified continuation and remaining work
+## Historical stable-child continuation and remaining work
 
 - Baseline `mfd-w8ou97` completed five steps with actual exit 0. Root answered;
   same/nested/OOPIF native prompts were cancelled without a human answer.
@@ -57,12 +113,12 @@ has not been narrowed to these passing cases.
   The run records 31 original process identities, 882 unchanged acceptance
   inputs, 20 observed frames (12 saved), and seven viewer PNGs. Retained end
   screenshots are not proof of the final receipt pixels or continuous frames.
-- Remaining native coverage: inherited blank/srcdoc, dynamic frame creation
+- Remaining native coverage at that checkpoint: inherited blank/srcdoc, dynamic frame creation
   (including context arriving during preparation), child alert/confirm,
   cross-origin/OOPIF current context and root-routed modal ownership, plus the
   initial/navigation design below. The historical SDK OOPIF session is already
   detached before human takeover and cannot authorize current dialog handling.
-- Visual inspection also finds a stale releasing banner after confirmed End.
+- Historical visual inspection found a stale releasing banner after confirmed End.
   This is recorded separately for a receipt-bound UI fix; original cleanup is
   confirmed. The requested package must describe this remaining UI issue and
   include only the verified committed implementation.
@@ -80,8 +136,8 @@ that unrecorded events could never have occurred.
 
 ## Problem and intended behavior
 
-An active, verified human page already freezes its native frame tree, but dialog
-capture accepts only the root entry. A same-origin embedded form can therefore
+At the original baseline an active, verified human page froze its native frame
+tree, but dialog capture accepted only the root entry. A same-origin embedded form can therefore
 open a legitimate prompt and immediately lose human control. Child documents
 must retain their own native identity; matching a URL or the top-level target
 alone is not sufficient.
@@ -214,12 +270,13 @@ included merely by allowing child frames in the present active-generation path.
   Closed event (six original dialogs and two long-wait dialogs). New tests must
   still reject missing or foreign identity rather than relying on that sample.
 
-## Requested Windows preview delivery
+## Historical requested 6a3bee5 Windows preview delivery
 
 The verified implementation is committed at `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` and the fork branch was checked after push.
 The user-requested [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5) is now published and verified.
 A clean clone binds all 405 frozen source bytes to Git objects before rebuilding;
 75 unkeyed extension files match the accepted build. The EXE is rebuilt separately.
 Offline CLI/MCP, independent package review, all four remote asset roundtrips and
-local copies pass. No webpage workflow was replayed for packaging. The existing
-UI banner issue and unaccepted cases remain documented; this plan stays active.
+local copies pass. No webpage workflow was replayed for packaging. The then-existing
+UI banner issue and unaccepted cases remain documented as release history; the
+current source fix and OOPIF acceptance are recorded above. This plan stays active.

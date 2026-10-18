@@ -24,6 +24,15 @@ test("child and nested proofs bind the entire original alive context path", () =
   assert.throws(() => f.ledger.capture(snapshot, "nested"), /UNSUPPORTED/);
 });
 
+test("frame-only proofs expose actual origin without weakening the existing same-origin path", () => {
+  const f = fixture(); f.created(context("child", { uniqueId: "cross-origin-child", origin: "https://child.test" }));
+  const snapshot = f.snapshot(); assert.throws(() => f.ledger.capture(snapshot, "child"), /UNSUPPORTED/);
+  const proof = f.ledger.captureFrame(snapshot, "child"); f.ledger.assert(proof);
+  assert.equal(proof.actualOrigin, "https://child.test");
+  f.ledger.observe("Runtime.executionContextsCleared"); assert.throws(() => f.ledger.assert(proof), /UNSUPPORTED/);
+  assert.throws(() => f.ledger.captureFrame(snapshot, "child"), /UNSUPPORTED/);
+});
+
 for (const url of ["about:blank", "about:srcdoc"]) test(`inherited ${url} uses actual context origin instead of its loader URL field`, () => {
   const values = rows(); values[1][3] = url; values[1][5] = "://";
   const f = fixture(values); f.ledger.assert(f.ledger.capture(f.snapshot(), "child"));

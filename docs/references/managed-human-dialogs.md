@@ -1,11 +1,13 @@
 # Managed 人工接管的网页弹窗
 
-这是实验功能，已进入 [preview-20261018-95e7b29](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-95e7b29) 安装包；旧 `preview-20261018-853ea92` 不包含。
-该包处理已完成接管、首帧已就绪的原主页面触发的 `alert`、`confirm` 和
-`prompt`。查看窗口在画面上方显示网页消息、确定/取消按钮和可编辑的输入值。
-网页内容使用纯文字显示；回答不会继续 Agent，也不会重放原点击。
-当前稳定同源子页面和嵌套页面支持已进入 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)；旧95e7b29包仅支持上述主页面范围。
-新包扩展与已测75文件一致，发布EXE单独重建并完成离线制品核对，未为发布重跑网页业务。
+这是实验功能。已发布的 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)
+包含已完成接管、首帧已就绪的原主页面 `alert`、`confirm`、`prompt`，以及
+稳定同源子页和嵌套页的弹窗支持。95e7b29 预览仅包含主页面范围，853ea92 不包含人工弹窗。
+6a3bee5 的75个扩展文件与当时已测制品一致；发布 EXE 单独重建，发布时未重跑网页业务。
+
+当前源码另通过稳定跨站 OOPIF prompt 和完成接管后的提示清理验收。查看器
+仍通过原生弹窗的 typed 回答通道处理网页消息，不继续 Agent、不重放点击。
+用户最新明确要求再打新包；该新包尚未发布，不将当前源码能力写成旧包已有功能。
 
 ## 使用与限制
 
@@ -20,14 +22,19 @@
   弹窗共用该额度。每个已验证弹窗另有 300 秒上限，即使没有未决输入也
   不会无限等待。界面提示五分钟上限；超时撤权并取消尚未回答的原弹窗。
   旧版未声明能力时仍为服务器 30 秒、查看端 35 秒，不作隐式升级。
-- 仅原主 frame 或当前源码已验证的同源子 frame、原文档和 active human generation 可回答。
-  子 frame 的每一层祖先必须具有原默认执行上下文和相同的非 opaque HTTP(S) 源。
-  接管前已有、首帧准备期、导航期间、跨源 frame 和 `beforeunload` 不在本次支持范围内。
+- 仅原主 frame 或当前源码已验证的子 frame、原文档和 active human generation 可回答。
+  子 frame 的每一层祖先须有原生图谱关联及存活的默认执行上下文；实际源必须
+  为非 opaque HTTP(S)。跨站路径逐层接受当前网站策略检查，不借父站权限放行。
+  接管前已有、首帧准备期、导航期间和 `beforeunload` 不在本次支持范围内。
   无法确认的 emitter 不取得回答权限；原 human attachment 可以取消并结束
   接管，但不会默认接受离开页面。只读 view 没有弹窗响应权限。
-- 静态 HTTP 同源子页和两层嵌套的 prompt 已真实验收。继承源的 blank/srcdoc、
-  动态创建子页、任意深度和子页 alert/confirm 尚未由本轮真实流程覆盖。
-  准备窗口内执行上下文发生变化时不授予子页弹窗证明；不会凭 URL 补授权。
+- 静态 HTTP 同源子页、两层同源嵌套及单层跨站 OOPIF 的 prompt 已真实验收。
+  继承源的 blank/srcdoc、动态创建子页、复杂跨进程嵌套、任意深度和子页
+  alert/confirm 尚未由本轮真实流程覆盖。准备窗口变化不能凭 URL 补授权。
+- 当前弹窗卡片没有单独显示已验证的子站来源。跨站弹窗仍显示网页消息，
+  旁边的父页面标题或 URL 不能当作消息来源；完整来源展示仍待补齐。
+- 成功结束接管后，匹配原租约的释放进度会清除，不再残留“正在释放”的旧提示。
+  未确认输入结果等实际错误继续保留，旧租约回执不能清除新错误。
 - 系统文件选择、认证 UI、真实登录、公司 Edge 及其他浏览器版本未由这轮
   验收覆盖。CDP 原输入没有 documentId 条件参数，仍不构成跨文档原子事务。
 
@@ -42,11 +49,26 @@ opening 建立一个独立实例。根 target/source、frameId、URL、epoch/doc
 只接收 typed `humanDialogRespond`，不暴露原生 target、任意 CDP 或输入序号。
 响应走独立有界并发通道，因此不等待触发弹窗的 `humanInput` 先返回。
 
-`managed-human-document-contexts.js` 为原 attachment 记录浏览器原生默认上下文。
-监听先于 Page/Runtime enable 的实际 ACK，再在稳定事件窗口绑定原 frame、loader、
-context uniqueId 和完整祖先链。固定 Chromium 156 中的 Page.Frame.securityOrigin 来自 URL，不能替代真实
-context origin；已销毁、替换或清空的上下文不复活，4096 条身份记录达到上限后
-拒绝新增证明。导航及 frameAttached 使旧代失效，回答入口和最终发送前均复核。
+`managed-human-document-graph.js` 只接纳原父 session 的 native Target attachment
+事件，递归拥有当前 flat iframe sessions。原 listener 先安装，Page/Runtime enable
+和子 session setup 的实际调用完成后，在单一全图 revision 下读取两轮所有原树。
+远程子树必须接回原父 session；根树还须等于接管 epoch 的原文档。这是跨事件与
+顺序读取的观察屏障，不宣称浏览器原子快照，也不复用旧 SDK 子 session。
+
+每个 session 的 `managed-human-document-contexts.js` 固定原默认 context uniqueId、
+frame、loader 和实际源。固定 Chromium 156 的 Page.Frame.securityOrigin 来自 URL，
+不能替代真实 context origin。HTTP(S) URL 与实际源还必须一致；blank/srcdoc 的
+继承关系须由直接父 context 证明。父文档替换后，旧远程 session 不能凭迟到的
+新 context 重新取得文档权限，但仍由原附件负责清理。退役身份不复活，容量有界。
+受限网站在回答入口及最终发送前核对原 siteProof 的策略和导航版本，并检查每层
+祖先实际源；弹窗期间不重新执行页面脚本或异步读取页面以获得权限。
+
+普通输入另使用只证明身份的 fence：准备读取前固定原 session 和默认上下文集合，
+准备完成及最终原生发送前再次核对。它不授予弹窗 origin 权限；即使弹窗图谱快照
+因事件变化不可用，原默认上下文被销毁、替换或新增也不能使旧输入穿过。普通隔离
+世界事件不改变该身份集合；实际已发送的输入仍保留原 Promise 和独立回执。
+撤权阻止新的 child setup，等待全部原实际调用，再由原根 detach ACK 结束子 session
+归属；该 ACK 不冒充输入或弹窗响应的完成。
 
 Closed 必须属于原 Opening 的 frame；缺失或外来身份不能解除弹窗等待。
 未确认原关闭又出现 Opening 时，原生无 frame 参数的回答命令已无法可靠归属，
@@ -72,6 +94,30 @@ Promise、持键意图与清理责任仍保留至真实结算。
 
 ## 验证记录
 
+### 当前源码的跨站 OOPIF 与结束提示
+
+2026-10-18 `mod-BENPnK` 五步实际 exit 0，`featurePassed: true`。四个原交付页的
+root、same、nested、oopif prompt 均由查看器回答 Unicode，每页仅一次原点击和
+一次原 emitter POST。OOPIF 使用当前人工附件拥有的远程 session/default context
+证明，回答仍从原 root target 发出；原 Opening/Closed、typed dialog/input 回执和
+原文档结果分别保留。四次 End 后均确认原 cleanup，界面没有残留释放进度错误。
+正式 Stop 正常完成，原报告没有清理错误。
+
+内部构建 `mof-build-0gxew513` 冻结407份生产输入、76个扩展文件，2656项 Node
+测试通过且无跳过；本轮重新执行 Go 主模块全包测试和 vet，均实际 exit 0。
+构建报告 SHA256：`e786c4675e7fb79f1f8995aec85b5aa19bcff9bda80a6f62da1a32d388efae5e`。
+真实验收报告 SHA256：`16043df93c27a784a997c8e203bd0bdc4448c44086b2d632e172163e7f060fe4`。
+
+独审的两个输入反例先失败：原输入等待风险记录时，远程默认 context 失效后仍会
+发送。补上准备前身份 fence 后，同两例及空弹窗快照反例共3项通过。查看器18个新
+回归覆盖回执/状态顺序、缺失或外来清理、新错误及旧回调，完整84项通过。原失败、
+中间接口未完成的测试错误及历史浏览器诊断均单独保留，不改写成成功。
+本轮事件417项及生命周期40项独审通过；20张保存PNG全部解码，29个原进程身份退出。
+初始/导航弹窗、复杂 iframe、
+来源展示和普通公司 Edge 等限制仍开放；新的用户请求包尚未发布。
+
+### 历史稳定同源子页验收
+
 2026-10-18 子页面续轮 `mfd-sH1gAh` 五步 actual exit 0：主页面、同源子页、
 两层嵌套叶页的原 prompt 分别通过查看器回答 Unicode。查看器回答请求记录距
 原 Opening 观测约176/154/145 ms；这是跨进程观测时间，并非原生命令发送时间。
@@ -81,7 +127,7 @@ POST 均确认。跨站 OOPIF 具有不同原进程并实际产生 Opening，因
 文档证明被取消，唯一 POST 为 null，pointer-up 明确返回 OPERATION_UNCONFIRMED；
 它不是浏览器抑制，也不是回答成功。四份原 humanCleanup 和正常 Stop 已确认。
 
-本轮20份原生帧仅保存12张，另有7张查看器截图；19张保存图片均经独立完整解码。
+该次20份原生帧仅保存12张，另有7张查看器截图；19张保存图片均经独立完整解码。
 同源与嵌套的待回答窗口已目视核对，结束后的图片明确显示为保留画面，不能据此
 声称连续画面或最终回执像素。结束成功后仍残留“正在释放人工控制”的提示，
 属于后续查看器文案状态问题，不代表原清理未完成；原回执独立验证。

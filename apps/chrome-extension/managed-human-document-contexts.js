@@ -13,10 +13,23 @@ function origin(value) {
 export class ManagedHumanDocumentContexts {
   constructor() {
     this.records = new Map(); this.current = new Map(); this.alive = new Set();
-    this.bindings = new WeakMap(); this.snapshots = new WeakSet(); this.proofs = new WeakSet();
+    this.bindings = new WeakMap(); this.snapshots = new WeakSet(); this.proofs = new WeakSet(); this.identities = new WeakMap();
     this.revision = 0; this.blocked = false;
   }
   checkpoint() { return this.revision; }
+  // Identity-only fences do not grant dialog origin or document authority.
+  // Capture before preparation reads and assert the same fence afterwards;
+  // a first new default context is a change too, isolated worlds are not.
+  captureIdentity() {
+    if (this.blocked) throw fail();
+    const fence = Object.freeze({}); this.identities.set(fence, new Map(this.current)); return fence;
+  }
+  assertIdentity(fence) {
+    const contexts = this.identities.get(fence);
+    if (!contexts || this.blocked || contexts.size !== this.current.size) throw fail();
+    for (const [frameId, context] of contexts) if (this.current.get(frameId) !== context ||
+        !this.alive.has(context) || this.records.get(context.uniqueId) !== context) throw fail();
+  }
   retire(context) {
     this.alive.delete(context);
     if (this.current.get(context.frameId) === context) this.current.delete(context.frameId);
@@ -89,6 +102,16 @@ export class ManagedHumanDocumentContexts {
     const actualOrigin = origin(path.at(-1).context.origin);
     if (!actualOrigin || path.some(item => item.context.origin !== actualOrigin)) throw fail();
     const proof = Object.freeze({ path: Object.freeze(path) }); this.proofs.add(proof); this.assert(proof); return proof;
+  }
+  // A document graph owns cross-session ancestry. This narrower proof grants
+  // one original frame only; it never infers ancestors or changes capture's
+  // existing same-origin path contract.
+  captureFrame(snapshot, frameId) {
+    if (!snapshot || !this.snapshots.has(snapshot) || this.blocked) throw fail();
+    const context = snapshot.contexts.get(frameId), actualOrigin = origin(context?.origin);
+    if (!context || !actualOrigin) throw fail();
+    const proof = Object.freeze({ path: Object.freeze([Object.freeze({ context, binding: this.bindings.get(context) })]), actualOrigin });
+    this.proofs.add(proof); this.assert(proof); return proof;
   }
   assert(proof) {
     if (!proof || !this.proofs.has(proof) || this.blocked) throw fail();
