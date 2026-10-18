@@ -1,0 +1,29 @@
+docs/histories/2026-10/20261018-1250-dialog-preview.md
+  s_08bbfd293d324f::t_0dd7b4c4a248b6 1-18
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_6e5414d0ec0663 14-22
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_0e97ec2247f3c5 11-16
+docs/references/managed-entrypoint-workflow.md
+  s_08bbfd293d324f::t_52555312c56227 70-71
+docs/references/managed-human-dialogs.md
+  s_08bbfd293d324f::t_648d43cc80b76a 3,81-82
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_aedada6bd62ee6 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "ddf5ff44bd84bf9a8c7ca120ef04584f2b427eb4",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
