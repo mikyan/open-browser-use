@@ -17,7 +17,7 @@
 原 End 清理及旧释放提示清除、正式 Stop 通过。当前原附件的远程 session 图谱
 和默认 context 证明替代缺失的远程见证；原输入另有准备前身份 fence。
 407份生产输入、76扩展文件、2656项Node和本轮Go主模块全包/vet通过。
-用户新请求包尚未发布。子站来源展示、初始/导航、复杂iframe及完整矩阵仍开放；
+用户新请求包已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，制品核对及四资产回下载通过；发布不计为新网页实测。子站来源展示、初始/导航、复杂iframe及完整矩阵仍开放；
 以下旧OOPIF取消结果仍作为历史证据保留，见[人工网页弹窗](../references/managed-human-dialogs.md)。
 
 2026-10-18 稳定同源子页面弹窗 `mfd-sH1gAh` 五步 actual exit 0：主/同源/

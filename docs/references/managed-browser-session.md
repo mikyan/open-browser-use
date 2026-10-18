@@ -8,12 +8,15 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)，
+最新完整包为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束接管提示修复。
+407份源码及76个扩展文件与实测构建绑定，离线CLI/MCP、独立包审计和四资产回下载通过；发布EXE单独重建。
+
+历史完整包为 [preview-20261018-6a3bee5](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-6a3bee5)，
 从干净提交 `6a3bee5b1c05c154bce945fa35abce2fbe3422c2` 重建，新增稳定同源及嵌套子页面的人工prompt回答。
 完整包/扩展/Skill为102/75/7文件；离线CLI/MCP、独立制品、上传回下载和本地副本校验通过。
 发布EXE未重跑网页业务；该包不包含下面续轮的 OOPIF 和 End 提示修复。
 当前源码的 `mod-BENPnK` 已通过主/同源/嵌套/单层跨站 OOPIF prompt 及正常
-End/Stop 验收；新请求包尚未发布。初始/导航弹窗、复杂 iframe 和完整能力对齐
+End/Stop 验收；该续轮已进入上述e3fee2a包。初始/导航弹窗、复杂 iframe 和完整能力对齐
 仍开放，弹窗卡片尚不单独显示子站来源，见[人工网页弹窗](managed-human-dialogs.md)。
 
 历史完整包为 [preview-20261018-95e7b29](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-95e7b29)，

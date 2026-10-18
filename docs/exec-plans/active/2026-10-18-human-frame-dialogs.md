@@ -5,8 +5,8 @@ waiting and stable same-origin child implementations were committed, packaged
 and published as the 95e7b29 and 6a3bee5 previews; their original evidence and
 release records below remain historical facts. The latest human request
 explicitly asks for another package. This continuation has verified the current
-OOPIF implementation and release-notice UI fix; the newly requested package is
-not published yet. No PR is requested.
+OOPIF implementation and release-notice UI fix; the requested package
+[preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a) is published and verified. No PR is requested.
 
 ## Current continuation after the verified package
 
@@ -60,8 +60,11 @@ viewer screenshots. The first lifecycle audit used the wrong Stop wire-state
 expectation; that script failure is retained and corrected against the actual
 protocol, without changing the original browser run.
 
-The requested new package will include only verified committed source after
-these checks. The dialog card still does not separately display the proved
+The requested new package contains verified committed source at `e3fee2a35cb4b4d0e52b3c84e95314c867c7b33b`.
+The rebuilt EXE passes offline CLI/MCP and independent artifact checks; all
+four uploaded assets roundtrip with exact hashes and local copies match. All
+407 tested source inputs bind to Git objects and 76 unkeyed extension files
+match the tested build. Packaging does not replay webpage workflows. The dialog card still does not separately display the proved
 child origin; a parent page title/URL is not the child message's source. Initial
 and navigation dialogs, inherited/dynamic documents, complex remote nesting,
 child alert/confirm, ordinary company Edge and full parity remain open. Earlier

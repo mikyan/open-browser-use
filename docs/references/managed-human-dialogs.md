@@ -7,7 +7,7 @@
 
 当前源码另通过稳定跨站 OOPIF prompt 和完成接管后的提示清理验收。查看器
 仍通过原生弹窗的 typed 回答通道处理网页消息，不继续 Agent、不重放点击。
-用户最新明确要求再打新包；该新包尚未发布，不将当前源码能力写成旧包已有功能。
+上述续轮已按用户要求发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，包含跨站prompt及结束提示修复；旧6a3bee5不包含。
 
 ## 使用与限制
 
@@ -114,7 +114,7 @@ root、same、nested、oopif prompt 均由查看器回答 Unicode，每页仅一
 中间接口未完成的测试错误及历史浏览器诊断均单独保留，不改写成成功。
 本轮事件417项及生命周期40项独审通过；20张保存PNG全部解码，29个原进程身份退出。
 初始/导航弹窗、复杂 iframe、
-来源展示和普通公司 Edge 等限制仍开放；新的用户请求包尚未发布。
+来源展示和普通公司 Edge 等限制仍开放；新包已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)。发布EXE单独重建，未重跑网页业务。
 
 ### 历史稳定同源子页验收
 

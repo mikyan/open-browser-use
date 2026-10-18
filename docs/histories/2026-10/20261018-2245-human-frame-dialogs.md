@@ -1,4 +1,10 @@
-# 原子页面的人工弹窗
+# 子页面的人工弹窗
+
+最新交付已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)，源提交 `e3fee2a35cb4b4d0e52b3c84e95314c867c7b33b`。
+完整包/扩展/Skill为103/76/7文件，407份源码输入匹配冻结实测快照及Git对象，76个未加key扩展文件字节相同。
+发布EXE单独重建，离线CLI/MCP30工具、8417项独立包审计、四资产回下载及107本地文件副本核对通过。
+完整包SHA256：`ab4e6107ec9b7f69e602fba0f499ac2adce00d3b3805aee9d56b4677da84dbe1`。未为打包重跑网页业务，未提PR。
+覆盖升级仍先结束旧会话，覆盖文件后重跑安装脚本并重新加载扩展及更新Skill。普通公司Edge和完整能力对齐仍待完成。
 
 继续推进 Browser Use 能力对齐，不提PR。首轮用户要求再打新包，在已验证实现提交后单独构建，发布记录保留如下。原版本只接受主frame弹窗，同源子页的原生prompt会立即取消并结束接管。
 
@@ -51,6 +57,6 @@ sessions、每层实际默认 context/origin、两轮完整原生树和同一图
 事件417项及生命周期40项独审通过，20张保存PNG均解码，29个原进程身份与私有资源退出确认。
 首次生命周期审计脚本误用Stop wire状态的失败已保留，修正依据原协议，未改浏览器结果。
 
-新包尚未发布，不预填提交或 tag。弹窗卡片没有单独显示子站来源；继承/动态及
+新包现已发布为 [preview-20261018-e3fee2a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-e3fee2a)。弹窗卡片没有单独显示子站来源；继承/动态及
 复杂 iframe、子页 alert/confirm、接管前/首帧/导航弹窗、beforeunload、公司 Edge
 和完整 Browser Use 能力对齐仍未全部覆盖，不以这四个通过案例替代完整验收。
