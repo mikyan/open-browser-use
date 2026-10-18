@@ -1,0 +1,65 @@
+scripts/browser-integration/managed-human-keyboard-fixture.test.mjs
+  s_08bbfd293d324f::t_67e5067d115143 1-41
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_80e1f6f0d98867 146-148
+scripts/browser-integration/managed-human-keyboard.mjs
+  s_08bbfd293d324f::t_b79942f3a2e7d7 32-33,46,68-70
+  s_08bbfd293d324f::t_f496dabefa3bc1 103-161
+  s_08bbfd293d324f::t_67e5067d115143 25,83-84,97
+  s_08bbfd293d324f::t_cbb290839f91da 1-24,26-31,34-45,47-67,71-82,85-96,98-102
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_7da28ae42543e1 15-19
+docs/exec-plans/completed/2026-10-19-managed-human-enter.md
+  s_08bbfd293d324f::t_3fc665995a3005 1-40
+docs/histories/2026-10/20261019-0316-managed-human-enter.md
+  s_08bbfd293d324f::t_3fc665995a3005 18-21
+  s_08bbfd293d324f::t_7da28ae42543e1 1-17,22-25
+docs/references/README.md
+  s_08bbfd293d324f::t_80e1f6f0d98867 19-21
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_e6050839924f99 540,697-701,770-777
+  s_08bbfd293d324f::t_67075524a173eb 177-178,182,185-186,190,195-198,317,506-532,538-539,543-550,563,724-726,781
+  s_08bbfd293d324f::t_b1cb8acca0c577 19,541-542
+  s_08bbfd293d324f::t_b78be5bfe4fef7 533-537
+scripts/browser-integration/managed-human-keyboard.test.mjs
+  s_08bbfd293d324f::t_67e5067d115143 1-2,4-16,18-20,24-72,101
+  s_08bbfd293d324f::t_f496dabefa3bc1 3,73-100
+  s_08bbfd293d324f::t_b79942f3a2e7d7 17,21-23
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_7da28ae42543e1 14-18
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_7f6262f02bd482 648-655
+scripts/browser-integration/managed-human-keyboard-fixture.mjs
+  s_08bbfd293d324f::t_38967c025a1e28 32,35,37
+  s_08bbfd293d324f::t_f496dabefa3bc1 4
+  s_08bbfd293d324f::t_cbb290839f91da 1-3,5-31,33-34,36,39-71
+  s_08bbfd293d324f::t_67e5067d115143 38
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_7da28ae42543e1 11-12
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_746db3310c8d30 1113-1159,1163-1191
+  s_08bbfd293d324f::t_6cc391db4ed512 1160-1162
+  s_08bbfd293d324f::t_7900a7f2f17430 1192-1247
+docs/references/managed-human-keyboard.md
+  s_08bbfd293d324f::t_7da28ae42543e1 29-45
+  s_08bbfd293d324f::t_3fc665995a3005 46-55
+  s_08bbfd293d324f::t_6779c8562e7357 1-28,56-66
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_5eabe65b588238 201-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "99c1be13a71d2b844f2f5c3cfb657540c109f1a1",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
