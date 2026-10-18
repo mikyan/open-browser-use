@@ -187,7 +187,7 @@ function setup(inputBudgetVersion) {
     location: { hash: `#ticket=${ticket}`, host: "127.0.0.1:44555", pathname: "/" },
     history: { replaceState(...args) { replaced = args; } },
     URLSearchParams, WebSocket: FakeSocket, Blob, Uint8Array, TextEncoder,
-    URL: { createObjectURL() { return `blob:${++nextBlob}`; }, revokeObjectURL(value) { revoked.push(value); } },
+    URL: class extends URL { static createObjectURL() { return `blob:${++nextBlob}`; } static revokeObjectURL(value) { revoked.push(value); } },
     Image: FakeImage, Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     atob: value => Buffer.from(value, "base64").toString("binary"),
     setTimeout(callback, delay) { timers.set(++timerId, callback); timerDelays.set(timerId, delay); return timerId; },
@@ -491,6 +491,61 @@ function dialogReply(h, request, extra = {}) {
   h.respond(request.id, h.humanState({ eventSequence: 20004, pendingDialog: null,
     dialogReceipt: { leaseId: request.leaseId, generation: request.generation, dialogId: request.dialogId, acknowledged: true }, ...extra }));
 }
+
+test("dialog source is separate plain text from page messages and absent legacy metadata", () => {
+  for (const source of [undefined, { origin: "https://child.example:8443", frame: "child" }, { origin: "https://xn--bcher-kva.example", frame: "top-level" }]) {
+    const h = setup(); h.readyHuman();
+    const message = "来源：https://pretend.example <img onerror=bad>";
+    showDialog(h, dialog({ message, ...(source ? { source } : {}) }));
+    assert.equal(h.element("dialog-source").textContent, source ? `来源：${source.frame === "child" ? "子页面" : "主页面"} · ${source.origin}` : "来源未提供");
+    assert.equal(h.element("dialog-message").textContent, message);
+    assert.equal(h.element("dialog-source").innerHTML, undefined);
+    h.element("dialog-accept").click();
+    const answer = h.socket.sent.at(-1);
+    assert.equal(answer.operation, "humanDialogRespond");
+    assert.equal(Object.hasOwn(answer, "source"), false);
+  }
+});
+
+test("dialog source rejects malformed or noncanonical origin metadata before any choice", () => {
+  const invalid = [null, {}, { origin: "https://site.test" }, { origin: "https://site.test", frame: "other" },
+    { origin: "https://site.test", frame: "child", url: "https://other.test" },
+    ...["null", "data:text/plain,x", "https://user@site.test", "https://site.test/", "https://site.test?", "https://site.test#", "HTTPS://site.test", "https://SITE.test", "https://site.test:443", "https://site.test:", "https://site.test:0444", "https://bücher.test", "https://site.test\n", "https://" + "a".repeat(2048)].map(origin => ({ origin, frame: "child" }))];
+  for (const source of invalid) {
+    const h = setup(); h.readyHuman(); showDialog(h, dialog({ source }));
+    h.element("dialog-accept").click();
+    assert.equal(h.socket.sent.some(value => value.operation === "humanDialogRespond"), false, JSON.stringify(source));
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+  }
+});
+
+test("dialog source is pinned including absence without resetting the original choice", () => {
+  const original = { origin: "https://child.test", frame: "child" };
+  for (const [before, after] of [[original, { ...original, origin: "https://other.test" }], [original, { ...original, frame: "top-level" }], [undefined, original], [original, undefined]]) {
+    const h = setup(); h.readyHuman();
+    showDialog(h, dialog(before ? { source: before } : {}));
+    h.element("dialog-prompt").value = "original answer";
+    showDialog(h, dialog(after ? { source: after } : {}), 20003);
+    h.element("dialog-accept").click();
+    assert.equal(h.socket.sent.some(value => value.operation === "humanDialogRespond"), false);
+    assert.equal(h.element("dialog-source").textContent, "");
+  }
+});
+
+test("dialog source ignores old state and keeps duplicate metadata from resetting edits or claims", () => {
+  const h = setup(); h.readyHuman(); const source = { origin: "http://[::1]:8080", frame: "child" };
+  showDialog(h, dialog({ source }), 20005);
+  h.element("dialog-prompt").value = "edited";
+  showDialog(h, dialog({ source: { origin: "https://old.test", frame: "child" } }), 20004);
+  showDialog(h, dialog({ source }), 20006);
+  assert.equal(h.element("dialog-source").textContent, "来源：子页面 · http://[::1]:8080");
+  assert.equal(h.element("dialog-prompt").value, "edited");
+  h.element("dialog-accept").click();
+  showDialog(h, dialog({ source }), 20007); h.element("dialog-accept").click();
+  assert.equal(h.socket.sent.filter(value => value.operation === "humanDialogRespond").length, 1);
+  h.element("human-end").click();
+  assert.equal(h.element("dialog-source").textContent, "");
+});
 
 test("negotiated human input has one bounded outer wait; modal states do not reset it", () => {
   for (const version of [undefined, 1]) {

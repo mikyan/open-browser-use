@@ -53,7 +53,7 @@ func (c *connection) admitBegin(request *command) bool {
 	c.humanTabID = fields.TabID
 	c.humanCandidate = nil
 	c.pendingDialog = nil
-	c.dialogClaims = make(map[managedprotocol.DialogIdentity]bool)
+	c.dialogClaims = make(map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim)
 	c.humanCtx, c.humanCancel = context.WithCancel(c.ctx)
 	request.ctx, request.epoch = c.humanCtx, c.humanEpoch
 	return true
@@ -222,7 +222,9 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 		c.controlMu.Unlock()
 		c.rejectGenerationInputs(pending)
 	}
-	c.observeHumanState(result)
+	if err := c.observeHumanState(result); err != nil {
+		return err
+	}
 	if request.operation == "pause" || request.operation == "select" && bytesNullTab(request.payload) {
 		// A successful explicit unsubscribe/pause is also a cleanup barrier for
 		// a Begin revoked before it could issue a lease. A mere status is not.
@@ -239,8 +241,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 	return nil
 }
 
-func (c *connection) observeHumanState(data json.RawMessage) {
-	c.observeViewState(data)
+func (c *connection) observeHumanState(data json.RawMessage) error {
 	var value struct {
 		Human         *managedprotocol.HumanState    `json:"human"`
 		Cleanup       *managedprotocol.HumanCleanup  `json:"humanCleanup"`
@@ -248,12 +249,30 @@ func (c *connection) observeHumanState(data json.RawMessage) {
 		PendingDialog *managedprotocol.PendingDialog `json:"pendingDialog"`
 	}
 	if json.Unmarshal(data, &value) != nil {
-		return
+		return errors.New("invalid human display state")
 	}
 	c.controlMu.Lock()
 	if value.EventSequence < c.humanStateSequence {
 		c.controlMu.Unlock()
-		return
+		return nil
+	}
+	if value.Human != nil && value.Human.LeaseID == c.humanLease && value.Human.Generation < c.humanGeneration {
+		c.controlMu.Unlock()
+		return nil
+	}
+	if dialog := value.PendingDialog; dialog != nil {
+		original, seen := c.dialogClaims[dialog.DialogIdentity]
+		if seen && original.Source != dialog.Source || !seen && len(c.dialogClaims) >= 1024 {
+			err := &dialogSourceStateError{epoch: c.humanEpoch}
+			c.controlMu.Unlock()
+			return err
+		}
+		if c.dialogClaims == nil {
+			c.dialogClaims = make(map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim)
+		}
+		if !seen {
+			c.dialogClaims[dialog.DialogIdentity] = managedprotocol.DialogClaim{Source: dialog.Source}
+		}
 	}
 	c.humanStateSequence = value.EventSequence
 	var pending []command
@@ -279,11 +298,13 @@ func (c *connection) observeHumanState(data json.RawMessage) {
 	}
 	revoked := c.humanRevoked
 	c.controlMu.Unlock()
+	c.observeViewState(data)
 	if revoked {
 		c.rejectRevokedInputs(pending)
 	} else {
 		c.rejectGenerationInputs(pending)
 	}
+	return nil
 }
 
 // A generation is retired without retiring its lease. Its queued inputs are

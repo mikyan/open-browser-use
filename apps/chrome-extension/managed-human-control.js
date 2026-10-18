@@ -356,16 +356,25 @@ export class ManagedHumanControl {
         const contexts = record.documentGraph.captureReadiness(fence, verified, opening);
         this.assertDialog(verified, contexts.actualOrigins);
         record.generation = epoch.id;
-        return Object.freeze({ epoch, generation: epoch.id, candidate: verified, contexts, readiness: true, inputOperation });
+        return Object.freeze({ epoch, generation: epoch.id, candidate: verified, contexts, source: contexts.source, readiness: true, inputOperation });
       })();
       return { epoch, pending };
     }
     if (!record.generation || !epoch.document) throw fail("the active native document is unavailable", "DIALOG_UNSUPPORTED");
     const root = JSON.parse(epoch.document)[0];
     const isRoot = params?.frameId === root[0] && params?.url === root[3] + root[4];
-    const contexts = isRoot ? null : record.documentGraph.capture(epoch.dialogContexts, params);
+    let contexts = null;
+    if (!isRoot) contexts = record.documentGraph.capture(epoch.dialogContexts, params);
+    else if (epoch.dialogContexts) {
+      // Root decisions retain their existing native tree/URL contract when no
+      // context proof was saved. Never query or adopt a later snapshot merely
+      // to fill display metadata. Once captured, this proof stays mandatory.
+      try { contexts = record.documentGraph.capture(epoch.dialogContexts, params); }
+      catch { this.checkGeneration(record, epoch); }
+    }
     this.assertDialog(epoch.candidate, contexts?.actualOrigins ?? []);
-    return Object.freeze({ epoch, generation: epoch.id, document: epoch.document, contexts, candidate: epoch.candidate, inputOperation });
+    return Object.freeze({ epoch, generation: epoch.id, document: epoch.document, contexts,
+      ...(contexts ? { source: contexts.source } : {}), candidate: epoch.candidate, inputOperation });
   }
   checkDialog(record, proof) {
     this.checkGeneration(record, proof.epoch);

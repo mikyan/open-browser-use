@@ -75,11 +75,37 @@ function defaultContext(events, business, source, nativeFrameId, origin, through
   const matches = [...active.values()].filter(item => item.context.auxData.frameId === nativeFrameId);
   assert.equal(matches.length, 1, "one current native default context is required");
   assert.equal(matches[0].context.auxData.type, "default");
-  assert.equal(matches[0].context.origin, origin, "use actual default-context origin, never URL-derived securityOrigin");
+  if (origin !== undefined) assert.equal(matches[0].context.origin, origin, "use actual default-context origin, never URL-derived securityOrigin");
   return matches[0];
 }
 const invalidatingPage = new Set(["Page.frameStartedNavigating", "Page.frameNavigated", "Page.documentOpened", "Page.navigatedWithinDocument", "Page.frameDetached", "Page.frameSubtreeWillBeDetached"]);
 const invalidatingWeb = new Set(["webNavigation.onBeforeNavigate", "webNavigation.onCommitted", "webNavigation.onErrorOccurred", "webNavigation.onHistoryStateUpdated", "webNavigation.onReferenceFragmentUpdated", "webNavigation.onTabReplaced"]);
+export function assertManagedDialogSource(record, business, events, { nativeSource, rootFrameId, through = record.opening.sequence }) {
+  const opening = record.opening, frameId = opening.params.frameId;
+  assert.ok(Number.isSafeInteger(through) && through >= opening.sequence);
+  assert.equal(opening.method, "Page.javascriptDialogOpening");
+  assert.ok(sourceMatches(opening.source, business, undefined), "the original dialog is delivered by its root attachment");
+  assert.ok(typeof rootFrameId === "string" && rootFrameId && typeof frameId === "string" && frameId);
+  assert.ok(sourceMatches(nativeSource, business, nativeSource.sessionId));
+  const original = defaultContext(events, business, nativeSource, frameId, undefined, opening.sequence);
+  assert.ok(original.sequence < opening.sequence);
+  const current = defaultContext(events, business, nativeSource, frameId, undefined, through);
+  assert.deepEqual(current, original, "a later context cannot replace the original displayed source");
+  for (const row of windowEvents(events, business, through)) {
+    if (row.sequence <= original.sequence || !invalidatingPage.has(row.method)) continue;
+    if ((sourceMatches(row.source, business, undefined) || sourceMatches(row.source, business, nativeSource.sessionId)) &&
+        (row.params.frameId ?? row.params.frame?.id) === frameId) assert.fail("original emitter changed after its context source was observed");
+  }
+  const origin = original.context.origin, url = new URL(origin);
+  assert.ok(["http:", "https:"].includes(url.protocol) && url.origin === origin && Buffer.byteLength(origin) <= 2048);
+  const source = { origin, frame: frameId === rootFrameId ? "top-level" : "child" };
+  assert.deepEqual(record.pendingDialog.source, source, "display source must equal the original default context, never the tab URL");
+  return source;
+}
+export function assertManagedDialogSourceUI(ui, source) {
+  assert.equal(ui.dialogSource, `来源：${source.frame === "child" ? "子页面" : "主页面"} · ${source.origin}`);
+  assert.equal(ui.dialogSourcePureText, true); assert.equal(ui.dialogSourceInCard, true); assert.equal(ui.dialogSourceVisible, true);
+}
 export function proveCurrentManagedRemoteDialog(events, business, treeRead, through = Infinity) {
   assert.equal(business.layout, "oopif");
   const root = business.proof[0], leaf = business.proof.at(-1);
@@ -141,11 +167,11 @@ function ended(value, leaseId) {
   return value?.human === null && value?.pendingDialog === null && value?.status?.state === "paused" &&
     value?.viewerCleanupComplete === true && value?.humanCleanup?.leaseId === leaseId && value?.humanCleanup?.cleanupConfirmed === true;
 }
-export function managedOopifCleanupObservation({ state, response, explicitEnd, leaseId, ui }) {
+export function managedOopifCleanupObservation({ state, response, explicitEnd, leaseId, ui, requireSource = false }) {
   assert.ok(typeof leaseId === "string" && leaseId);
   if (!ended(state, leaseId) || explicitEnd && !ended(response, leaseId)) return null;
   const uiCleared = Boolean(ui && ui.error === "" && ui.errorVisible === false && ui.humanStatusHidden === true &&
-    ui.input?.enabled === "false" && ui.dialogVisible === false && ui.endDisabled === true);
+    ui.input?.enabled === "false" && ui.dialogVisible === false && ui.endDisabled === true && (!requireSource || ui.dialogSource === ""));
   return { cleanupConfirmed: true, leaseId, responseObserved: Boolean(response), uiCleared, ui: structuredClone(ui ?? null) };
 }
 export function assertManagedOopifMode(mode, outcomes) {

@@ -1,5 +1,5 @@
 import { ManagedHumanDocumentContexts } from "./managed-human-document-contexts.js";
-import { ManagedHumanDocumentEvents } from "./managed-human-document-events.js";
+import { ManagedHumanDocumentEvents, humanDialogSource } from "./managed-human-document-events.js";
 
 const fail = () => new Error("OBU_HUMAN_DIALOG_UNSUPPORTED: original remote document graph is unavailable");
 const cancelled = new Error("OBU_HUMAN_DIALOG_STALE: original graph setup withdrawn before native dispatch");
@@ -341,7 +341,8 @@ export class ManagedHumanDocumentGraph {
       } else if (!["about:blank", "about:srcdoc"].includes(row[3]) ||
           !path[index + 1] || path[index + 1].proof.actualOrigin !== context.actualOrigin) throw fail();
     }
-    const proof = Object.freeze({ actualOrigins: Object.freeze(path.map(value => value.proof.actualOrigin)) });
+    const actualOrigins = Object.freeze(path.map(value => value.proof.actualOrigin));
+    const proof = Object.freeze({ actualOrigins, source: humanDialogSource(actualOrigins) });
     this.proofs.set(proof, { path, structure: saved.structure }); this.assert(proof); return proof;
   }
   assert(proof) {

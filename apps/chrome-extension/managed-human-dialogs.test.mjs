@@ -254,3 +254,32 @@ test("retiring the original document withdraws its metadata and joins its one ca
   await tick(); assert.deepEqual(f.calls, [{ accept: false }]);
   f.gates[0].resolve(); await f.manager.drain(); f.closed(); await f.manager.close();
 });
+
+
+test("published dialog source comes only from its captured proof", async t => {
+  const f = fixture(), source = Object.freeze({ origin: "https://actual-child.test", frame: "child" });
+  t.after(async () => { f.closed(); for (const gate of f.gates) gate.resolve(); await f.manager.close(); });
+  f.manager.capture = () => ({ generation: f.generation, epoch: f.epoch, source });
+  const info = f.open({ url: "https://parent.test/", message: "This message claims https://spoof.test" });
+  assert.deepEqual(info.source, source); assert.ok(Object.isFrozen(info.source));
+  assert.deepEqual(Object.keys(info.source).sort(), ["frame", "origin"]);
+});
+
+
+test("legacy proof never acquires a display source from native URL or message", async t => {
+  const f = fixture(); t.after(async () => { f.closed(); for (const gate of f.gates) gate.resolve(); await f.manager.close(); });
+  const info = f.open({ url: "https://spoof.test/", source: { origin: "https://spoof.test", frame: "top-level" }, message: "From https://spoof.test" });
+  assert.equal(Object.hasOwn(info, "source"), false);
+});
+
+test("late original answer ACK cannot replace a successor dialog source", async t => {
+  const f = fixture(); t.after(async () => { f.closed(); for (const gate of f.gates) gate.resolve(); await f.manager.close(); });
+  let source = Object.freeze({ origin: "https://first.test", frame: "child" });
+  f.manager.capture = () => ({ epoch: f.epoch, generation: f.generation, source });
+  const first = f.open(), pending = f.respond(); await tick(); f.closed();
+  source = Object.freeze({ origin: "https://next.test", frame: "child" }); const second = f.open();
+  f.gates[0].resolve(); const receipt = await pending;
+  assert.equal(receipt.dialogId, first.dialogId); assert.equal(f.manager.info(), second);
+  assert.deepEqual(second.source, { origin: "https://next.test", frame: "child" });
+  assert.deepEqual(Object.keys(receipt).sort(), ["acknowledged", "dialogId", "generation", "leaseId"]);
+});

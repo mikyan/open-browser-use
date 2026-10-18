@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 import { managedDialogUnicode } from "./managed-dialog-fixture.mjs";
-import { projectManagedOopifEvent, managedOopifWebNavigationEvents, currentManagedRemoteAttachments, proveCurrentManagedRemoteDialog, assertManagedRemoteDialogPair, managedOopifCleanupObservation, assertManagedOopifMode } from "./managed-human-oopif-dialog-evidence.mjs";
+import { assertManagedDialogSource, assertManagedDialogSourceUI, projectManagedOopifEvent, managedOopifWebNavigationEvents, currentManagedRemoteAttachments, proveCurrentManagedRemoteDialog, assertManagedRemoteDialogPair, managedOopifCleanupObservation, assertManagedOopifMode } from "./managed-human-oopif-dialog-evidence.mjs";
 
 function original() {
   const root = { targetId: "root" }, child = { targetId: "root", sessionId: "child-session" };
@@ -122,4 +122,54 @@ test("diagnostic cancellation or missing event is never OOPIF acceptance and sta
   assert.equal(assertManagedOopifMode("acceptance", rows).acceptedLayouts.length, 4);
   for (const outcome of ["native-dialog-cancelled-without-answer", "native-dialog-not-observed"]) { const copy = structuredClone(rows); copy[3].outcome = outcome; assert.throws(() => assertManagedOopifMode("acceptance", copy)); assert.equal(assertManagedOopifMode("diagnostic", copy).diagnosticCompleted, true); }
   for (const change of [{ remoteWitness: null }, { cleanupUI: { uiCleared: false } }]) { const copy = structuredClone(rows); Object.assign(copy[3], change); assert.throws(() => assertManagedOopifMode("acceptance", copy)); }
+});
+
+test("display source uses the original remote default context rather than root or dialog URL", () => {
+  const x = original(), source = { origin: "http://localhost:50000", frame: "child" };
+  x.record.pendingDialog = { source }; x.record.opening.params.url = "http://untrusted.example/message-source";
+  assert.deepEqual(assertManagedDialogSource(x.record, x.business, x.events, { nativeSource: x.child, rootFrameId: "root" }), source);
+  x.record.pendingDialog.source = { ...source, origin: "http://127.0.0.1:50000" };
+  assert.throws(() => assertManagedDialogSource(x.record, x.business, x.events, { nativeSource: x.child, rootFrameId: "root" }));
+});
+test("root and same-origin child labels follow original frame identity, never origin equality", () => {
+  for (const frameId of ["root", "leaf"]) {
+    const x = original(), source = { origin: "http://127.0.0.1:50000", frame: frameId === "root" ? "top-level" : "child" };
+    x.record.opening.params.frameId = frameId; x.record.pendingDialog = { source };
+    x.events[3].params.context.origin = source.origin;
+    assert.deepEqual(assertManagedDialogSource(x.record, x.business, x.events, { nativeSource: frameId === "root" ? x.root : x.child, rootFrameId: "root" }), source);
+  }
+});
+test("missing, isolated, foreign or opaque context cannot prove a displayed source", () => {
+  for (const mutate of [x => x.events.pop(), x => x.events[3].params.context.auxData.isDefault = false,
+    x => x.events[3].source = { ...x.child, sessionId: "old-session" }, x => x.events[3].params.context.origin = "null",
+    x => x.events[3].params.context.origin = "http://localhost:50000/path", x => x.events[3].params.context.uniqueId = ""]) {
+    const x = original(); x.record.pendingDialog = { source: { origin: "http://localhost:50000", frame: "child" } }; mutate(x);
+    assert.throws(() => assertManagedDialogSource(x.record, x.business, x.events, { nativeSource: x.child, rootFrameId: "root" }));
+  }
+});
+test("source remains tied to the original context until Closed, without borrowing a later replacement", () => {
+  for (const method of ["Runtime.executionContextDestroyed", "Runtime.executionContextsCleared", "Page.frameNavigated"]) {
+    const x = original(); x.record.pendingDialog = { source: { origin: "http://localhost:50000", frame: "child" } };
+    x.record.closed.sequence = 18;
+    x.events.push({ sequence: 16, source: x.child, method, params: { executionContextId: 2, frame: { id: "leaf" } } });
+    const options = { nativeSource: x.child, rootFrameId: "root", through: 18 };
+    assert.throws(() => assertManagedDialogSource(x.record, x.business, x.events, options));
+    x.events.at(-1).sequence = 19;
+    assert.ok(assertManagedDialogSource(x.record, x.business, x.events, options));
+  }
+});
+test("source UI must contain its own visible plain-text provenance line", () => {
+  const source = { origin: "http://localhost:50000", frame: "child" };
+  const ui = { dialogSource: "来源：子页面 · http://localhost:50000", dialogSourcePureText: true, dialogSourceInCard: true, dialogSourceVisible: true };
+  assertManagedDialogSourceUI(ui, source);
+  for (const change of [{ dialogSource: "来源：主页面 · http://localhost:50000" }, { dialogSource: "来源未提供" },
+    { dialogSourcePureText: false }, { dialogSourceInCard: false }, { dialogSourceVisible: false }])
+    assert.throws(() => assertManagedDialogSourceUI({ ...ui, ...change }, source));
+});
+test("current End acceptance requires an empty source label while legacy observations remain compatible", () => {
+  const input = { leaseId: "original", explicitEnd: true, state: ended(), response: ended(), ui: cleanUI() };
+  assert.equal(managedOopifCleanupObservation(input).uiCleared, true);
+  for (const dialogSource of [undefined, "来源未提供", "来源：子页面 · http://localhost:50000"])
+    assert.equal(managedOopifCleanupObservation({ ...input, requireSource: true, ui: { ...cleanUI(), dialogSource } }).uiCleared, false);
+  assert.equal(managedOopifCleanupObservation({ ...input, requireSource: true, ui: { ...cleanUI(), dialogSource: "" } }).uiCleared, true);
 });

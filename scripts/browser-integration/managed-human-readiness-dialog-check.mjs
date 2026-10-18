@@ -30,7 +30,7 @@ async function treeHashes(root) {
 
 // Reuse stable fixture/geometry/lifecycle assertions without editing historical inputs.
 import { assertManagedFrameDialogSourceBinding } from "./managed-human-frame-dialog-check.mjs";
-import { projectManagedOopifEvent, managedOopifWebNavigationEvents, managedOopifCleanupObservation } from "./managed-human-oopif-dialog-evidence.mjs";
+import { assertManagedDialogSource, assertManagedDialogSourceUI, projectManagedOopifEvent, managedOopifWebNavigationEvents, managedOopifCleanupObservation } from "./managed-human-oopif-dialog-evidence.mjs";
 
 export function managedReadinessSource(source, business) {
   if (!source || source.targetId !== business.target.id && source.tabId !== business.tabId) return false;
@@ -301,6 +301,10 @@ export async function runManagedHumanReadinessDialogCheck() {
         humanStatus: document.querySelector("#human-status")?.textContent, error: document.querySelector("#error")?.textContent,
         errorVisible: visible(document.querySelector("#error")), humanStatusHidden: document.querySelector("#human-status").hidden,
         dialogVisible: visible(document.querySelector("#page-dialog")), dialogId: document.querySelector("#page-dialog").dataset.dialogId, endDisabled: document.querySelector("#human-end").disabled,
+        dialogSource: document.querySelector("#dialog-source")?.textContent,
+        dialogSourcePureText: document.querySelectorAll("#dialog-source").length === 1 && document.querySelector("#dialog-source").childElementCount === 0,
+        dialogSourceInCard: document.querySelector("#dialog-source")?.parentElement === document.querySelector("#page-dialog"),
+        dialogSourceVisible: Boolean(document.querySelector("#dialog-source") && visible(document.querySelector("#dialog-source"))),
         input: { ...document.querySelector("#human-input")?.dataset },
         buttons: [...document.querySelectorAll("button")].map(el => ({ id: el.id, text: el.textContent, disabled: el.disabled, visible: visible(el) })),
         dialogUI: [...document.querySelectorAll("#page-dialog,dialog,[role=dialog]")].map(el => ({ id: el.id, visible: visible(el), text: el.textContent.slice(0, 2048) })) };
@@ -410,9 +414,11 @@ export async function runManagedHumanReadinessDialogCheck() {
     assert.equal(record.originalScope.leaseId,record.originalLeaseId);
     if(scenario==="navigation")assert.ok(record.originalScope.generation>record.inputScope.generation);
     else assert.deepEqual(record.originalScope,report.gateProof.scope);
-    assert.deepEqual(record.pendingDialog,{...record.originalScope,dialogId:record.pendingDialog.dialogId,type:"prompt",message:fixture.prompt.message,defaultPrompt:fixture.prompt.defaultPrompt});
+    const sourceOptions={nativeSource:{targetId:business.target.id},rootFrameId:business.target.id};
+    const source=assertManagedDialogSource(record,business,nativeEvents(),sourceOptions);
+    assert.deepEqual(record.pendingDialog,{...record.originalScope,dialogId:record.pendingDialog.dialogId,type:"prompt",message:fixture.prompt.message,defaultPrompt:fixture.prompt.defaultPrompt,source});
     record.boundary=assertManagedReadinessNativeBoundary(nativeEvents(),{scenario,business,opening:record.opening,sourceURL:fixture.urls.source,emitterURL:fixture.urls[fixture.emitterRole]});
-    const pendingUI=await uiObservation("pending-"+scenario);record.pendingUI=pendingUI;
+    const pendingUI=await uiObservation("pending-"+scenario);record.pendingUI=pendingUI;assertManagedDialogSourceUI(pendingUI,source);
     assert.equal(pendingUI.input.enabled,"false");assert.equal(pendingUI.dialogId,record.pendingDialog.dialogId);assert.ok(pendingUI.buttons.some(row=>row.id==="dialog-accept"&&row.visible&&!row.disabled));assert.equal(pendingUI.endDisabled,false);
     await page.locator("#dialog-prompt").fill(managedReadinessDialogUnicode,{timeout:1000});await screenshot("pending-filled-"+scenario);
     assert.ok(Date.now()-record.opening.at<5000,"response must start within original five-second case budget");
@@ -442,8 +448,9 @@ export async function runManagedHumanReadinessDialogCheck() {
     await screenshot("answered-"+scenario);business.humanEnd=await uiAction("#human-end","humanEnd");
     const endRequest=report.viewerCommands.findLast(row=>row.operation==="humanEnd"&&row.leaseId===record.originalLeaseId),endResponse=()=>report.viewerMessages.find(row=>row.type==="response"&&row.id===endRequest.id)?.result;
     await wait(()=>managedOopifCleanupObservation({state,response:endResponse(),explicitEnd:true,leaseId:record.originalLeaseId}),"original lease complete End",15000);assertManagedDialogEnded(state,record.originalLeaseId);
-    record.cleanupUI=await wait(async()=>{const value=managedOopifCleanupObservation({state,response:endResponse(),explicitEnd:true,leaseId:record.originalLeaseId,ui:await uiObservation("ended-"+scenario)});return value?.uiCleared&&value;},"original End clears UI",2000);
+    record.cleanupUI=await wait(async()=>{const value=managedOopifCleanupObservation({state,response:endResponse(),explicitEnd:true,leaseId:record.originalLeaseId,requireSource:true,ui:await uiObservation("ended-"+scenario)});return value?.uiCleared&&value;},"original End clears UI",2000);
     await refreshObserver("original-readiness-completed");
+    assertManagedDialogSource(record,business,nativeEvents(),{...sourceOptions,through:record.closed.sequence});
     record.boundary=assertManagedReadinessNativeBoundary(nativeEvents(),{scenario,business,opening:record.opening,sourceURL:fixture.urls.source,emitterURL:fixture.urls[fixture.emitterRole]});
     assert.equal(dialogs().filter(row=>row.method==="Page.javascriptDialogOpening").length,1);assert.equal(dialogs().filter(row=>row.method==="Page.javascriptDialogClosed").length,1);
     assert.equal(report.viewerCommands.slice(commandStart).filter(row=>row.operation==="humanDialogRespond").length,1);

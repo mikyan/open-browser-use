@@ -4,6 +4,13 @@ const origin = value => {
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && url.origin === value ? value : null; }
   catch { return null; }
 };
+// This display value is made only after the original native context path is
+// proved. It carries no target, session or permission authority to the viewer.
+export function humanDialogSource(actualOrigins) {
+  const emitter = actualOrigins[0];
+  if (!origin(emitter) || new TextEncoder().encode(emitter).length > 2048) throw fail();
+  return Object.freeze({ origin: emitter, frame: actualOrigins.length === 1 ? "top-level" : "child" });
+}
 const rowFor = frame => {
   if (!frame || !text(frame.id) || !text(frame.loaderId) ||
       frame.parentId !== undefined && !text(frame.parentId) || typeof frame.url !== "string" || frame.url.length > 8192 ||
@@ -290,11 +297,12 @@ export class ManagedHumanDocumentEvents {
     if (!saved || saved.revision !== this.revision || saved.frameId !== opening?.frameId || saved.url !== opening?.url) throw fail();
     this.assertPath(saved.path);
     const actualOrigins = Object.freeze(saved.path.map(record => record.context.origin));
+    const source = humanDialogSource(actualOrigins);
     this.assertCandidate(candidate, actualOrigins);
     const originalCandidate = Object.freeze({ ...candidate,
       ...(candidate?.siteProof ? { siteProof: Object.freeze({ ...candidate.siteProof }) } : {}) });
     this.bindCandidate(saved.path.at(-1), originalCandidate);
-    const proof = Object.freeze({ actualOrigins });
+    const proof = Object.freeze({ actualOrigins, source });
     this.proofs.set(proof, { ...saved, candidate: originalCandidate }); this.assert(proof); return proof;
   }
   assert(proof) {

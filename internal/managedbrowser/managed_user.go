@@ -88,7 +88,7 @@ type UserController struct {
 	humanStatusSequence  uint64
 	pendingDialog        *managedprotocol.PendingDialog
 	dialogStatusSequence uint64
-	dialogClaims         map[managedprotocol.DialogIdentity]bool
+	dialogClaims         map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim
 	viewStatus           *managedprotocol.HumanState
 	viewStatusSequence   uint64
 }
@@ -470,6 +470,19 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if err != nil {
 		return err
 	}
+	var value struct {
+		managedUserIdentity
+		EventSequence *uint64 `json:"eventSequence"`
+		Connected     *bool   `json:"connected"`
+	}
+	if len(data) > 4<<20 || json.Unmarshal(data, &value) != nil || !c.matches(value.managedUserIdentity, true) || value.EventSequence == nil || *value.EventSequence > 1<<53-1 || value.Connected == nil {
+		return errors.New("managed user status identity mismatch")
+	}
+	// An old reply can still own its independent ACK, but never changes or
+	// contradicts the current dialog's display metadata.
+	if *value.EventSequence < c.dialogStatusSequence {
+		return nil
+	}
 	human, err := managedprotocol.ParseHumanState(f["human"])
 	if err != nil {
 		return err
@@ -485,13 +498,23 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if _, err := managedprotocol.ParseHumanCleanup(f["humanCleanup"]); err != nil {
 		return err
 	}
-	var value struct {
-		managedUserIdentity
-		EventSequence *uint64 `json:"eventSequence"`
-		Connected     *bool   `json:"connected"`
+	if previous := c.humanStatus; previous != nil && human != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
+		return nil
 	}
-	if len(data) > 4<<20 || json.Unmarshal(data, &value) != nil || !c.matches(value.managedUserIdentity, true) || value.EventSequence == nil || *value.EventSequence > 1<<53-1 || value.Connected == nil {
-		return errors.New("managed user status identity mismatch")
+	if dialog != nil {
+		original, seen := c.dialogClaims[dialog.DialogIdentity]
+		if seen && original.Source != dialog.Source {
+			return errors.New("managed human dialog source changed")
+		}
+		if !seen && len(c.dialogClaims) >= 1024 {
+			return errors.New("managed human dialog identity capacity exhausted")
+		}
+		if c.dialogClaims == nil {
+			c.dialogClaims = make(map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim)
+		}
+		if !seen {
+			c.dialogClaims[dialog.DialogIdentity] = managedprotocol.DialogClaim{Source: dialog.Source}
+		}
 	}
 	if *value.EventSequence >= c.viewStatusSequence {
 		previous := c.viewStatus

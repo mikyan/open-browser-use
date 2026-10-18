@@ -108,7 +108,8 @@ export class ManagedHumanDialogs {
     if (!record.deadline.account()) throw fail("STALE", "the original dialog deadline ended before proof publication");
     this.assertCurrent(proof);
     record.proof = proof;
-    record.info = Object.freeze({ leaseId: this.leaseId, generation: proof.generation, dialogId: crypto.randomUUID(), ...metadata });
+    record.info = Object.freeze({ leaseId: this.leaseId, generation: proof.generation, dialogId: crypto.randomUUID(), ...metadata,
+      ...(proof.source ? { source: proof.source } : {}) });
     this.onOpened(proof, record);
     if (this.revoked) this.cancel(record);
     else this.changed();

@@ -549,3 +549,41 @@ test("unavailable event evidence produces no new root hint without changing stri
   assert.throws(() => f.graph.checkpointRootDocumentHint(null), /UNSUPPORTED/);
   const strict = f.graph.captureIdentity(); f.graph.assertIdentity(strict);
 });
+
+
+test("dialog source identifies the original emitter rather than its ancestor origin", async () => {
+  const f = fixture(); f.child(); await f.graph.start(); const snapshot = await f.graph.snapshot();
+  const child = f.capture(snapshot), root = f.capture(snapshot, "root", "https://root.test/root");
+  assert.deepEqual(child.actualOrigins, ["https://child.test", "https://root.test"]);
+  assert.deepEqual(child.source, { origin: "https://child.test", frame: "child" });
+  assert.deepEqual(root.source, { origin: "https://root.test", frame: "top-level" });
+  assert.ok(Object.isFrozen(child.source)); assert.ok(Object.isFrozen(root.source));
+});
+
+
+for (const actualOrigin of ["http://127.0.0.1:65535", "https://[2001:db8::1]:8443", "https://xn--bcher-kva.example", "https://" + "a".repeat(2040)]) {
+  test(`source preserves the exact canonical native origin (${actualOrigin.length} bytes)`, async () => {
+    const f = fixture(); f.trees.set(undefined, tree(frame("root", undefined, actualOrigin)));
+    f.created(undefined, context("root", actualOrigin, { uniqueId: "exact-original" })); await f.graph.start();
+    const proof = f.capture(await f.graph.snapshot(), "root", actualOrigin + "/root");
+    assert.deepEqual(proof.source, { origin: actualOrigin, frame: "top-level" });
+  });
+}
+
+for (const actualOrigin of ["null", "file://", "https://user@root.test", "https://root.test/", "https://root.test?q", "https://root.test#x", "HTTPS://root.test", "https://root.test:443", "https://bücher.example", "https://root.test\n", "https://" + "a".repeat(2041)]) {
+  test(`source refuses noncanonical or oversized native origin ${actualOrigin.slice(0, 35)}`, async () => {
+    const f = fixture(), urlOrigin = actualOrigin.startsWith("https://aaaa") ? actualOrigin : "https://root.test";
+    f.trees.set(undefined, tree(frame("root", undefined, urlOrigin)));
+    f.created(undefined, context("root", actualOrigin, { uniqueId: "invalid-original" })); await f.graph.start();
+    const awaitedSnapshot = await f.graph.snapshot();
+    assert.throws(() => f.capture(awaitedSnapshot, "root", urlOrigin + "/root"), /UNSUPPORTED/);
+  });
+}
+
+test("inherited same-origin child remains a child and retains its actual inherited origin", async () => {
+  const f = fixture(); f.child("child-session", undefined, "child", "root", "https://root.test");
+  f.trees.set("child-session", tree({ ...frame("child", "root"), url: "about:srcdoc", securityOrigin: "https://claimed.test" }));
+  await f.graph.start(); const proof = f.capture(await f.graph.snapshot(), "child", "about:srcdoc");
+  assert.deepEqual(proof.source, { origin: "https://root.test", frame: "child" });
+  assert.deepEqual(proof.actualOrigins, ["https://root.test", "https://root.test"]);
+});

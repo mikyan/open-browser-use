@@ -20,9 +20,17 @@ type DialogIdentity struct {
 
 type PendingDialog struct {
 	DialogIdentity
-	Type          string  `json:"type"`
-	Message       string  `json:"message"`
-	DefaultPrompt *string `json:"defaultPrompt,omitempty"`
+	Type          string       `json:"type"`
+	Message       string       `json:"message"`
+	DefaultPrompt *string      `json:"defaultPrompt,omitempty"`
+	Source        DialogSource `json:"source,omitzero"`
+}
+
+// DialogClaim pins display metadata even before the one permitted decision.
+// A zero Source means the original producer did not provide provenance.
+type DialogClaim struct {
+	Source  DialogSource
+	Claimed bool
 }
 
 type DialogReceipt struct {
@@ -90,13 +98,20 @@ func ParsePendingDialog(data json.RawMessage, human *HumanState) (*PendingDialog
 		return nil, nil
 	}
 	f, err := Object(data)
-	if err != nil || !exact(f, []string{"leaseId", "generation", "dialogId", "type", "message"}, []string{"defaultPrompt"}) || !dialogIdentity(f) ||
+	if err != nil || !exact(f, []string{"leaseId", "generation", "dialogId", "type", "message"}, []string{"defaultPrompt", "source"}) || !dialogIdentity(f) ||
 		!choice(f["type"], "alert", "confirm", "prompt") || !dialogText(f["message"], MaxDialogTextBytes, true, true) ||
 		f["defaultPrompt"] != nil && (!choice(f["type"], "prompt") || !dialogText(f["defaultPrompt"], MaxDialogTextBytes, true, true)) {
 		return nil, errors.New("invalid pending human dialog")
 	}
 	var result PendingDialog
 	_ = json.Unmarshal(data, &result)
+	if raw, present := f["source"]; present {
+		source, err := parseDialogSource(raw)
+		if err != nil {
+			return nil, err
+		}
+		result.Source = source
+	}
 	if human == nil || human.State != "active" && human.State != "preparing" && human.State != "navigating" || human.Generation == 0 || human.LeaseID != result.LeaseID || human.Generation != result.Generation {
 		return nil, errors.New("pending dialog has no original admitted human generation")
 	}

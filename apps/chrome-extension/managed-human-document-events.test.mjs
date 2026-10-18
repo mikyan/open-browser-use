@@ -255,3 +255,13 @@ test("a detached remote session stays retired while a fresh owned session may pr
   assert.throws(() => f.graph.assertReadiness(original), /UNSUPPORTED/);
   assert.equal(f.emit("remote", "Runtime.executionContextCreated", { context: context("child", "late-original") }), false);
 });
+
+
+test("readiness source carries the current original emitter before any renderer command", async () => {
+  const f = await fixture({ remote: true }), count = f.calls.length;
+  const child = f.capture(f.opening("child", "https://child.test/child")), root = f.capture();
+  assert.deepEqual(child.source, { origin: "https://child.test", frame: "child" });
+  assert.deepEqual(root.source, { origin: "https://root.test", frame: "top-level" });
+  assert.deepEqual(child.actualOrigins, ["https://child.test", "https://root.test"]);
+  assert.ok(Object.isFrozen(child.source)); assert.equal(f.calls.length, count);
+});

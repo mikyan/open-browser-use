@@ -5,7 +5,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   let ticket = fragment.get("ticket") || "";
   history.replaceState(null, "", location.pathname);
-  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input", "page-dialog", "dialog-title", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
+  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
   let ws, connected = false, authenticated = false, available = false, stopped = false;
   let status = null, worker = "", pendingAction = null, nextId = 0, appliedId = 0;
   let selected = null, selectedOnce = false, tabs = [], lastFrameAt = 0, imageURL = null;
@@ -29,6 +29,7 @@
   let retiredHumanGeneration = -1;
   let humanEndAttempted = false;
   let pendingDialog = null, displayedDialog = "", claimedDialog = "";
+  const dialogSources = new Map();
   const inputQueue = [], pressedButtons = new Set(), pressedKeys = new Set(), capturedPointers = new Set();
   const maxQueuedInputs = 32;
   const pending = new Map();
@@ -75,12 +76,30 @@
   function boundedText(value) {
     return typeof value === "string" && value.isWellFormed() && new TextEncoder().encode(value).length <= 8192;
   }
+  function validDialogSource(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 ||
+        !Object.hasOwn(value, "origin") || !Object.hasOwn(value, "frame") || !["top-level", "child"].includes(value.frame) ||
+        typeof value.origin !== "string" || value.origin.length > 2048 || !/^[\x21-\x7e]+$/.test(value.origin)) return false;
+    try { const url = new URL(value.origin); return ["http:", "https:"].includes(url.protocol) && url.origin === value.origin; }
+    catch { return false; }
+  }
+  function rememberDialogSource(value) {
+    if (!value) return;
+    const key = dialogKey(value), source = value.source === undefined ? "" : JSON.stringify([value.source.origin, value.source.frame]);
+    if (dialogSources.has(key)) {
+      if (dialogSources.get(key) !== source) throw new Error("原网页弹窗的来源发生变化，已禁用回答。");
+    } else {
+      if (dialogSources.size >= 1024) throw new Error("网页弹窗记录已达上限，请结束后重新接管。");
+      dialogSources.set(key, source);
+    }
+  }
   function validDialog(value, owner) {
     if (value === null) return true;
     return value && admittedHumanState(owner) && value.leaseId === owner.leaseId && value.generation === owner.generation &&
       Number.isSafeInteger(value.generation) && value.generation > 0 && typeof value.dialogId === "string" && value.dialogId.length > 0 && value.dialogId.length <= 128 &&
       !/[\x00-\x1f\x7f]/.test(value.dialogId) && ["alert", "confirm", "prompt"].includes(value.type) && boundedText(value.message) &&
-      (value.defaultPrompt === undefined || value.type === "prompt" && boundedText(value.defaultPrompt));
+      (value.defaultPrompt === undefined || value.type === "prompt" && boundedText(value.defaultPrompt)) &&
+      (!Object.hasOwn(value, "source") || validDialogSource(value.source));
   }
   function dialogReady() {
     return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
@@ -96,6 +115,8 @@
       el["dialog-prompt"].value = pendingDialog?.defaultPrompt ?? "";
     }
     el["dialog-title"].textContent = pendingDialog?.type === "prompt" ? "网页请求输入" : pendingDialog?.type === "confirm" ? "网页请求确认" : "网页提示";
+    const source = pendingDialog?.source;
+    el["dialog-source"].textContent = !visible ? "" : source ? `来源：${source.frame === "child" ? "子页面" : "主页面"} · ${source.origin}` : "来源未提供";
     el["dialog-message"].textContent = pendingDialog?.message ?? "";
     el["dialog-prompt-label"].hidden = pendingDialog?.type !== "prompt";
     el["dialog-prompt"].disabled = !dialogReady();
@@ -293,6 +314,7 @@
       human.viewport?.width !== nextHuman.viewport?.width || human.viewport?.height !== nextHuman.viewport?.height);
     const sameHuman = human && nextHuman && human.leaseId === nextHuman.leaseId && human.tabId === nextHuman.tabId;
     if (sameHuman && nextHuman.generation < human.generation) return;
+    rememberDialogSource(nextDialog);
     const navigation = sameHuman && !humanEnding && ["starting", "preparing", "active", "navigating"].includes(human.state) &&
       ["preparing", "active", "navigating"].includes(nextHuman.state) && !initialGeometry &&
       (nextHuman.generation > human.generation || nextHuman.state === "navigating");
@@ -570,6 +592,7 @@
     human = null; humanOwner = ""; humanEnding = humanEndAttempted = composing = false;
     humanAdmitted = false;
     pendingDialog = null; displayedDialog = claimedDialog = "";
+    dialogSources.clear();
     retiredHumanGeneration = -1;
     compositionScope = null;
     humanSequence = acknowledgedSequence = 0;

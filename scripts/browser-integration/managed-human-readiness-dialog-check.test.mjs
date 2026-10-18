@@ -143,6 +143,21 @@ test("current human frame before the first pending publication fails even if lat
   assert.throws(() => managedReadinessPendingObservation(f.messages, f.active, f.config));
 });
 
+test("readiness source stays fixed across preparing-to-active publication, including missing provenance", () => {
+  for (const scenario of ["before-first-frame", "navigation"]) {
+    const f = pendingSequence(scenario), original = { origin: "http://127.0.0.1:55000", frame: "top-level" };
+    f.first.pendingDialog.source = structuredClone(original); f.active.pendingDialog.source = structuredClone(original);
+    assertManagedReadinessCurrentDialog(f.active, f.first);
+    for (const changed of [undefined, { ...original, origin: "http://localhost:55000" }, { ...original, frame: "child" }]) {
+      const current = structuredClone(f.active);
+      if (changed === undefined) delete current.pendingDialog.source; else current.pendingDialog.source = changed;
+      assert.throws(() => assertManagedReadinessCurrentDialog(current, f.first));
+    }
+    const legacy = structuredClone(f.first); delete legacy.pendingDialog.source;
+    assert.throws(() => assertManagedReadinessCurrentDialog(f.active, legacy));
+  }
+});
+
 test("passive tab updates preserve only bounded original URL/status and exact tab identity", () => {
   assert.deepEqual(projectManagedReadinessTabUpdate(7, { url: sourceURL, status: "loading", title: "exclude", favIconUrl: "exclude", cookie: "exclude" }),
     { source: { tabId: 7 }, method: "tabs.onUpdated", params: { url: sourceURL, status: "loading" } });

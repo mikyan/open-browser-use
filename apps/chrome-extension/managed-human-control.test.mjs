@@ -398,6 +398,7 @@ test("proved prompt before the first frame answers while original metadata ACK r
   assert.equal(handle.info().state, "preparing"); assert.equal(handle.info().generation, 1); assert.equal(handle.info().viewport, null);
   opening(f, { type: "prompt", defaultPrompt: "before native frame" }); await tick();
   assert.equal(handle.pendingDialog().generation, 1); assert.equal(f.frames.length, 0);
+  assert.deepEqual(handle.pendingDialog().source, { origin: "https://fixture.test", frame: "top-level" });
   timing.advance(40000); assert.equal(handle.info().state, "preparing");
   await assert.rejects(input(handle, { type: "text", text: "no page input" }), /GENERATION_STALE/);
   const boundary = f.calls.length, receipt = await answer(handle, { promptText: "原始回答 ✅" });
@@ -437,6 +438,7 @@ for (const sameURL of [false, true]) test(`navigation prompt bypasses the old in
   const originalInput = input(handle, { type: "text", text: "one original native operation" }); await sent.promise;
   navigateOriginal(f, "B", url); opening(f, { url, type: "prompt" }); await tick();
   const dialog = handle.pendingDialog(); assert.ok(dialog); assert.ok(dialog.generation > originalGeneration);
+  assert.deepEqual(dialog.source, { origin: "https://fixture.test", frame: "top-level" });
   assert.equal(handle.info().state, "navigating"); assert.equal(handle.info().viewport, null);
   await stopEntered.promise;
   assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
@@ -1808,4 +1810,41 @@ test('a modal Opening between the wait return and actual metadata dispatch remai
   await answer(handle); f.event('Page.javascriptDialogClosed',{frameId:'root'});
   await read; await handle.close();
   if(caught) throw caught;
+});
+
+
+test("active root source uses its original graph context and retires with that proof", async t => {
+  const f = remoteFixture(), handle = await f.begin(); t.after(() => handle.close());
+  opening(f); const original = handle.pendingDialog();
+  assert.deepEqual(original.source, { origin: "https://fixture.test", frame: "top-level" });
+  const pending = answer(handle), rejected = assert.rejects(pending, /DIALOG_STALE/);
+  f.event("Runtime.executionContextDestroyed", { executionContextId: 1, executionContextUniqueId: "context-root" });
+  await rejected;
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(row => row[2]), [{ accept: false }]);
+});
+
+
+test("missing root context keeps its original answer contract without URL-derived or late-filled source", async t => {
+  const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
+  const count = f.calls.length; opening(f, { source: { origin: "https://forged.test", frame: "child" }, message: "https://forged.test asks" });
+  const original = handle.pendingDialog(); assert.ok(original); assert.equal(Object.hasOwn(original, "source"), false);
+  childContext(f, "root", "late-default", 1);
+  assert.equal(handle.pendingDialog(), original); assert.equal(Object.hasOwn(handle.pendingDialog(), "source"), false);
+  const receipt = await answer(handle); assert.equal(receipt.acknowledged, true);
+  assert.deepEqual(f.calls.slice(count).map(([method]) => method), ["Page.handleJavaScriptDialog"]);
+  f.event("Page.javascriptDialogClosed", { frameId: "root" });
+});
+
+for (const which of ["root", "child", "nested"]) test(`same-origin ${which} reports its native frame role without new reads`, async t => {
+  const f = childFixture(), handle = await f.begin(); t.after(() => handle.close()); const count = f.calls.length;
+  opening(f, { frameId: which, url: which === "root" ? "https://fixture.test/original-document" : `https://fixture.test/${which}` });
+  assert.deepEqual(handle.pendingDialog().source, { origin: "https://fixture.test", frame: which === "root" ? "top-level" : "child" });
+  assert.equal(f.calls.length, count); await answer(handle); f.event("Page.javascriptDialogClosed", { frameId: which });
+});
+
+for (const nested of [false, true]) test(`remote emitter source stays distinct from the ancestor (nested=${nested})`, async t => {
+  const f = remoteFixture({ nested }), handle = await f.begin(); t.after(() => handle.close());
+  opening(f, { frameId: f.remoteFrame.id, url: f.remoteFrame.url });
+  assert.deepEqual(handle.pendingDialog().source, { origin: nested ? "https://nested.test" : "https://remote.test", frame: "child" });
+  await answer(handle); f.event("Page.javascriptDialogClosed", { frameId: f.remoteFrame.id });
 });

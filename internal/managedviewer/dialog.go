@@ -6,6 +6,14 @@ import (
 	"github.com/ifuryst/open-browser-use/internal/managedprotocol"
 )
 
+// Keep the admission which observed the inconsistency. Cleanup of this error
+// must never sample and revoke a successor Begin's epoch.
+type dialogSourceStateError struct{ epoch uint64 }
+
+func (e *dialogSourceStateError) Error() string {
+	return "original human dialog source is inconsistent"
+}
+
 // Dialog decisions use the bounded concurrent work lane, not the input lane:
 // the dialog itself may prevent the original input's native ACK from arriving.
 // A newer dialog also must not wait for a closed dialog's outstanding ACK.
@@ -22,19 +30,18 @@ func (c *connection) admitDialog(request *command) string {
 	// ordinary input still requires humanActive and its native frame.
 	if !c.humanClaimed || c.humanStarting || c.humanRevoked || c.ctx.Err() != nil || dialog == nil ||
 		dialog.LeaseID != c.humanLease || dialog.Generation != c.humanGeneration || dialog.Generation <= c.humanRetiredGeneration ||
-		!managedprotocol.MatchDialogReceipt(fields, &managedprotocol.DialogReceipt{DialogIdentity: dialog.DialogIdentity, Acknowledged: true}) || c.dialogClaims[dialog.DialogIdentity] {
+		!managedprotocol.MatchDialogReceipt(fields, &managedprotocol.DialogReceipt{DialogIdentity: dialog.DialogIdentity, Acknowledged: true}) || c.dialogClaims[dialog.DialogIdentity].Claimed {
 		return "HUMAN_DIALOG_STALE"
 	}
 	if !managedprotocol.MatchDialogResponse(fields, dialog) {
 		return "HUMAN_DIALOG_INVALID"
 	}
-	if len(c.dialogClaims) >= 1024 {
+	original, seen := c.dialogClaims[dialog.DialogIdentity]
+	if !seen || original.Source != dialog.Source {
 		return "HUMAN_DIALOG_STALE"
 	}
-	if c.dialogClaims == nil {
-		c.dialogClaims = make(map[managedprotocol.DialogIdentity]bool)
-	}
-	c.dialogClaims[dialog.DialogIdentity] = true
+	original.Claimed = true
+	c.dialogClaims[dialog.DialogIdentity] = original
 	// Generation changes revoke unsent decisions at the native boundary. A
 	// submitted response retains its own receipt; it never borrows input ACKs.
 	request.ctx, request.epoch, request.generation = c.humanCtx, c.humanEpoch, c.humanGeneration

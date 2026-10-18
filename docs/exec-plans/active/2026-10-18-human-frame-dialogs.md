@@ -11,6 +11,44 @@ and failed runs below retain their historical scope. No PR is requested.
 
 ## Current continuation after the verified package
 
+### Native emitter origin display after bcc8304
+
+Implemented and verified on one fresh 437-source/77-extension build with 2878 Node tests and complete Go test/vet. Original browser runs `mrd-tDRuyY`, `mrd-48B22h`, `mod-VSZqzi` passed source-label, original answer/POST, End and Stop checks; event and lifecycle audits passed. Package this exact slice on the user's new request. Full parity and the following paste/download work remain open.
+
+
+The preceding turn is progress: product fixes, original browser evidence and the
+requested preview were delivered and verified. Begin from clean `a53c133`. The user
+has now requested another package; finish this slice, verify and publish a matching
+Windows preview. No PR is requested. Full P01-P15 parity stays active. A current global
+audit prioritizes visible original dialog provenance, then a real local-paste
+diagnostic, then restricted original HTTP/POST download association; platform and
+company-Edge checks remain open without blocking independently useful development.
+
+The viewer currently lets a user answer a cross-site frame but gives no trusted
+emitter label. Add optional `pendingDialog.source = {origin, frame}` where frame
+is `top-level` or `child`. Project only the first actual default-context origin
+from the original native emitter-to-root proof, never the parent tab URL, Opening
+URL, page message, or a newly acquired replacement snapshot. Origins are bounded
+canonical HTTP(S) origins. For an active root, use only its already saved graph
+snapshot when available; otherwise omit source and display "来源未提供" while
+preserving the existing root answer contract. A proof once published cannot
+silently degrade after retirement.
+
+The original lease/generation/dialog identity pins the source, including absence.
+Older state observations retain the existing sequence gates; metadata cannot
+replace a claimed choice or become part of a new decision identity. Go accepts
+legacy omission, rejects malformed/null source, and copies metadata without aliasing.
+The UI renders a separate plain-text source label; webpage text cannot replace it.
+An older strict Go reader cannot accept the new field, so matching source builds
+are required; this is not an assertion of reverse compatibility.
+
+Native owner implements the extension proof projection, protocol owner the Go
+transport/state checks, root the UI and formal runner, and an independent reviewer
+checks adversarial provenance. Preserve initial failing tests, run focused checks
+and a fresh complete build, then use actual original root/same/nested/OOPIF dialogs
+and readiness regression with exact answer/POST/End/Stop evidence. Keep original
+failed runs and the released bcc8304 package immutable.
+
 ### Late URL hints after 77f6fa8
 
 Previous turn is progress: two production races fixed, both fixed readiness cases

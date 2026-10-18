@@ -94,7 +94,7 @@ type connection struct {
 	humanStateSequence     uint64
 	humanCandidate         *managedprotocol.HumanState
 	pendingDialog          *managedprotocol.PendingDialog
-	dialogClaims           map[managedprotocol.DialogIdentity]bool
+	dialogClaims           map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim
 	humanCtx               context.Context
 	humanCancel            context.CancelFunc
 	humanTabID             uint64
@@ -593,7 +593,10 @@ func (s *Server) command(c *connection, request command) {
 		return
 	}
 	if err := c.acceptHumanResult(request, result); err != nil {
-		if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" {
+		var sourceErr *dialogSourceStateError
+		if errors.As(err, &sourceErr) {
+			s.releaseFailedHuman(c, sourceErr.epoch)
+		} else if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" {
 			s.releaseFailedHuman(c, request.epoch)
 		}
 		c.failure(request.id, "OPERATION_UNCONFIRMED", "人工控制原回执不匹配；输入已禁用，请完成接管或停止会话。")
@@ -739,7 +742,14 @@ func (s *Server) events() {
 			s.mu.Lock()
 			if c := s.active; c != nil {
 				if kind != "frame" {
-					c.observeHumanState(public)
+					if err := c.observeHumanState(public); err != nil {
+						s.mu.Unlock()
+						var sourceErr *dialogSourceStateError
+						if errors.As(err, &sourceErr) {
+							s.releaseFailedHuman(c, sourceErr.epoch)
+						}
+						continue
+					}
 				} else if !c.observeHumanFrame(public) {
 					s.mu.Unlock()
 					continue

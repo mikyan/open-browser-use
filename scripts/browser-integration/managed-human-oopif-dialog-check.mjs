@@ -31,7 +31,7 @@ async function treeHashes(root) {
 
 // Reuse stable fixture/geometry/lifecycle assertions without editing historical inputs.
 import { proveManagedFrameDialogDocuments, managedFrameDialogRootPoint, assertManagedFrameDialogOpening, assertManagedFrameDialogPair, classifyManagedFrameDialog, assertManagedFrameDialogSourceBinding, managedFrameDialogDocumentsReady } from "./managed-human-frame-dialog-check.mjs";
-import { projectManagedOopifEvent, managedOopifWebNavigationEvents, currentManagedRemoteAttachments, proveCurrentManagedRemoteDialog, assertManagedRemoteDialogPair, managedOopifCleanupObservation, assertManagedOopifMode } from "./managed-human-oopif-dialog-evidence.mjs";
+import { assertManagedDialogSource, assertManagedDialogSourceUI, projectManagedOopifEvent, managedOopifWebNavigationEvents, currentManagedRemoteAttachments, proveCurrentManagedRemoteDialog, assertManagedRemoteDialogPair, managedOopifCleanupObservation, assertManagedOopifMode } from "./managed-human-oopif-dialog-evidence.mjs";
 
 function installOopifObservation(chrome, target, project, webEvents) {
   if (target.__managedOopifDialogDiagnostic || typeof target.__obuManagedOopifDialogEvent !== "function") throw Error("Original OOPIF observer unavailable");
@@ -129,6 +129,10 @@ export async function runManagedHumanOopifDialogCheck() {
         humanStatus: document.querySelector("#human-status")?.textContent, error: document.querySelector("#error")?.textContent,
         errorVisible: visible(document.querySelector("#error")), humanStatusHidden: document.querySelector("#human-status").hidden,
         dialogVisible: visible(document.querySelector("#page-dialog")), endDisabled: document.querySelector("#human-end").disabled,
+        dialogSource: document.querySelector("#dialog-source")?.textContent,
+        dialogSourcePureText: document.querySelectorAll("#dialog-source").length === 1 && document.querySelector("#dialog-source").childElementCount === 0,
+        dialogSourceInCard: document.querySelector("#dialog-source")?.parentElement === document.querySelector("#page-dialog"),
+        dialogSourceVisible: Boolean(document.querySelector("#dialog-source") && visible(document.querySelector("#dialog-source"))),
         input: { ...document.querySelector("#human-input")?.dataset },
         buttons: [...document.querySelectorAll("button")].map(el => ({ id: el.id, text: el.textContent, disabled: el.disabled, visible: visible(el) })),
         dialogUI: [...document.querySelectorAll("#page-dialog,dialog,[role=dialog]")].map(el => ({ id: el.id, visible: visible(el), text: el.textContent.slice(0, 2048) })) };
@@ -255,7 +259,11 @@ export async function runManagedHumanOopifDialogCheck() {
       try { await wait(() => state?.pendingDialog || dialogs().some(row => row.method === "Page.javascriptDialogClosed"), "published original frame dialog or original cancellation", 2000); } catch (error) { record.publicationTimeout = error.message; }
       if (state?.pendingDialog) {
         record.pendingSeen = true; record.pendingDialog = structuredClone(state.pendingDialog);
-        assert.deepEqual(record.pendingDialog, { ...record.originalScope, dialogId: record.pendingDialog.dialogId, type: "prompt", message: fixture.prompt.message, defaultPrompt: fixture.prompt.defaultValue });
+        const sourceOptions = { nativeSource: fixture.layout === "oopif" ? record.remoteWitness?.attachment.source : { targetId: business.target.id }, rootFrameId: business.proof[0].nativeFrameId };
+        assert.ok(sourceOptions.nativeSource, "current remote source proof required before showing an answer");
+        const source = assertManagedDialogSource(record, business, observedEvents(), sourceOptions);
+        assert.deepEqual(record.pendingDialog, { ...record.originalScope, dialogId: record.pendingDialog.dialogId, type: "prompt", message: fixture.prompt.message, defaultPrompt: fixture.prompt.defaultValue, source });
+        record.pendingUI = await uiObservation("pending-" + fixture.layout); assertManagedDialogSourceUI(record.pendingUI, source);
         await screenshot('pending-'+fixture.layout);
         if (record.emitterProved) {
           await page.locator("#dialog-prompt").fill(managedDialogUnicode, { timeout: 1000 });
@@ -270,6 +278,9 @@ export async function runManagedHumanOopifDialogCheck() {
       }
       record.closed = await wait(() => dialogs().find(row => row.method === "Page.javascriptDialogClosed"), "original native Closed", 15000);
       if (record.emitterProved) record.nativePair = fixture.layout === "oopif" ? assertManagedRemoteDialogPair(record, business, observedEvents()) : assertManagedFrameDialogPair(record, business, observedEvents());
+      if (record.pendingDialog) assertManagedDialogSource(record, business, observedEvents(), {
+        nativeSource: fixture.layout === "oopif" ? record.remoteWitness.attachment.source : { targetId: business.target.id },
+        rootFrameId: business.proof[0].nativeFrameId, through: record.closed.sequence });
     }
     await bound(gesture, 5000, "single original viewer gesture"); assert.equal(record.gestureError, undefined);
     const inputs = report.viewerCommands.slice(commandStart).filter(row => row.operation === "humanInput");
@@ -305,7 +316,7 @@ export async function runManagedHumanOopifDialogCheck() {
     const endResponse = () => endRequest ? report.viewerMessages.find(row => row.type === "response" && row.id === endRequest.id)?.result : undefined;
     await wait(() => managedOopifCleanupObservation({ state, response: endResponse(), explicitEnd: Boolean(endRequest), leaseId: record.originalScope.leaseId }), "current lease state and original End response cleanup", 15000);
     business.humanEnd = structuredClone(state); assertManagedDialogEnded(business.humanEnd, record.originalScope.leaseId);
-    const readEndUI = async () => managedOopifCleanupObservation({ state, response: endResponse(), explicitEnd: Boolean(endRequest), leaseId: record.originalScope.leaseId, ui: await uiObservation("ended-" + fixture.layout) });
+    const readEndUI = async () => managedOopifCleanupObservation({ state, response: endResponse(), explicitEnd: Boolean(endRequest), leaseId: record.originalScope.leaseId, requireSource: true, ui: await uiObservation("ended-" + fixture.layout) });
     try { record.cleanupUI = await wait(async () => { const value = await readEndUI(); record.cleanupUI = value; return value?.uiCleared && value; }, "current completed End clears stale UI without refresh", 2000); }
     catch (error) { record.cleanupUIGap = error.message; if (mode === "acceptance") throw error; }
     assert.equal(dialogs().filter(row => row.method === "Page.javascriptDialogOpening").length, record.opening ? 1 : 0);
