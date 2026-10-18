@@ -645,7 +645,14 @@ export class ManagedHumanControl {
       // release uses the original acknowledged key, never an unrelated keyUp
       // that would incorrectly clear the input tracker's held intent.
       const key = input.action === "up" ? held : { key: input.key, code: input.code, windowsVirtualKeyCode: input.windowsVirtualKeyCode };
-      return ["Input.dispatchKeyEvent", { ...key, type: input.action === "down" ? "rawKeyDown" : "keyUp", modifiers: modifier() },
+      const modifiers = modifier();
+      // Enter needs the native character phase for default editing/submission.
+      // One combined down preserves the page's keydown cancellation; a separate
+      // insertText would bypass it. Releases never carry character data.
+      const enter = input.action === "down" && key.key === "Enter" && ["Enter", "NumpadEnter"].includes(key.code) &&
+        key.windowsVirtualKeyCode === 13 && (modifiers & 7) === 0;
+      return ["Input.dispatchKeyEvent", { ...key, type: input.action === "up" ? "keyUp" : enter ? "keyDown" : "rawKeyDown", modifiers,
+        ...(enter ? { text: "\r", unmodifiedText: "\r" } : {}) },
         () => { if (input.action === "down") record.keys.set(input.code, key); else record.keys.delete(input.code); }];
     }
     if (input?.type === "text") {

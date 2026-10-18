@@ -16,6 +16,7 @@ import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
 import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
 import { verifyMemoryClipboard } from "./memory-clipboard.mjs";
 import { managedHumanSourceFiles } from "./managed-human-source-snapshot.mjs";
+import { humanKeyboardCases, createManagedHumanKeyboardFixture, readManagedHumanKeyboardDocument, assertManagedHumanKeyboardCase, assertManagedHumanKeyboardReceipt, assertManagedHumanKeyboardLedger } from "./managed-human-keyboard-fixture.mjs";
 import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger } from "./managed-human-ime.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -173,26 +174,28 @@ async function treeHashes(root) {
 
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
-  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime"].includes(scenario));
-  const paste = scenario === "local-paste", ime = scenario === "ime", explicitEnd = paste || ime;
+  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard"].includes(scenario));
+  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", explicitEnd = paste || ime || keyboard;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const viewerChromium = paste ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
-  assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME requires a build manifest; local paste also requires an explicit guarded viewer binary");
+  assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME/keyboard requires a build manifest; local paste also requires an explicit guarded viewer binary");
   await Promise.all([executable, chromium, viewerChromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : "managed-human-"));
-  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
+  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : "managed-human-"));
+  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
     scope: paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
       : ime ? "Production managed human viewer with browser-native CDP IME composition on the isolated headless viewer only. Candidate updates, two identical commits and cancellation; original task text receipts/document/one POST, held-Shift End and Stop. No Windows OS input method, clipboard, synthetic DOM event, task CDP input or business replay."
+      : keyboard ? "Production managed viewer native Enter/Shift+Enter/NumpadEnter editing, prevented default, one original implicit form POST; independent original handoff POST, held-Shift End, explicit Resume and Stop. No OS input, clipboard, task CDP input or business replay."
       : "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
-  let oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
-  const fixture = createManagedHumanFixture({ scenario });
-  const server = createServer((request, response) => { if (!fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
+  let keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
+  const fixture = createManagedHumanFixture({ scenario: keyboard ? "handoff" : scenario });
+  const keyboardFixture = keyboard ? createManagedHumanKeyboardFixture() : null;
+  const server = createServer((request, response) => { if (!keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
     const child = launch(executable, args, { timeoutMs: args[0] === "managed" && args[1] === "stop" ? 55000 : 45000 });
@@ -311,6 +314,7 @@ export async function runManagedHumanCheck() {
     assert.deepEqual(state.humanCleanup, { leaseId: lease.leaseId, cleanupConfirmed: true });
   }
   const documentRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
+  const keyboardRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanKeyboardDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous keyboard root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const observerSnapshot = () => worker.evaluate("__managedHumanAcceptance.snapshot()");
   const posts = () => fixture.stats().requests.filter(item => item.method === "POST");
@@ -499,6 +503,51 @@ export async function runManagedHumanCheck() {
       await denied("nonbusiness original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, originalAuthority), /OBU_STALE_CONTROL_EPOCH/);
     });
 
+    if (keyboard) await step("native-keyboard-editing-and-one-implicit-submit", async () => {
+      keyboardTab = await taskBrowser.newTab({ url: fixtureURL + "/human-keyboard-form", backgroundWindow: true });
+      await keyboardTab.domSnapshot({ timeoutMs: 10000 });
+      const authority = captureTaskAuthority(taskBrowser.client, keyboardTab.id);
+      const detail = report.keyboard = { tabId: keyboardTab.id, original: await keyboardRead(keyboardTab.id), authority, cases: [] };
+      detail.originalTargets = await nativeMap(keyboardTab.id); assert.equal(detail.originalTargets.length, 1);
+      await uiAction("#refresh", "status"); await uiAction("#tabs", "select", keyboardTab.id);
+      detail.begin = await uiAction("#human-begin", "humanBegin"); assert.equal(detail.begin.status.state, "paused");
+      detail.firstFrame = await decodeHumanFrame(detail.begin.human); const lease = { ...state.human }; detail.lease = lease;
+      for (const definition of humanKeyboardCases) {
+        const row = { definition, startedAt: Date.now() }; detail.cases.push(row);
+        const document = await keyboardRead(keyboardTab.id), position = await viewerPoint(document.boxes[definition.id]);
+        row.focusCommands = await inputAction(`focus original keyboard field ${definition.id}`, () => page.mouse.click(position.x, position.y));
+        row.endCommands = await inputAction(`position original keyboard caret ${definition.id}`, () => page.keyboard.press("End"));
+        row.before = await keyboardRead(keyboardTab.id); row.wireStart = report.viewerCommands.length;
+        row.commands = await inputAction(`original keyboard gesture ${definition.key}`, () => page.keyboard.press(definition.key));
+        row.after = await keyboardRead(keyboardTab.id);
+        row.proof = assertManagedHumanKeyboardCase({ case: definition, before: row.before, after: row.after,
+          commands: row.commands, replies: report.viewerMessages, scope: lease });
+        row.completedAt = Date.now();
+      }
+      detail.after = await wait(async () => { const value = await keyboardRead(keyboardTab.id); return value.state.receipt && value; }, "original implicit-submit response");
+      detail.receiptProof = assertManagedHumanKeyboardReceipt({ stats: keyboardFixture.stats(), original: detail.original, after: detail.after });
+      detail.screenshot = await screenshot("viewer-native-keyboard.png");
+      detail.end = await uiAction("#human-end", "humanEnd"); assert.equal(detail.end.human, null);
+      assert.deepEqual(detail.end.humanCleanup, { leaseId: lease.leaseId, cleanupConfirmed: true });
+      assert.equal(detail.end.status.state, "paused"); assert.equal(detail.end.status.cleanupComplete, true);
+      const originalInputs = detail.cases.flatMap(row => [...row.focusCommands, ...row.endCommands, ...row.commands]);
+      const leaseInputs = report.viewerCommands.filter(row => row.operation === "humanInput" && row.leaseId === lease.leaseId);
+      assert.deepEqual(leaseInputs, originalInputs, "The entire original keyboard lease must contain only the recorded gestures");
+      assert.equal(leaseInputs.some(row => row.input.type === "text"), false, "Enter must not be replaced by a text insertion");
+      detail.endLedger = { leaseId: lease.leaseId, generation: lease.generation, requestIds: leaseInputs.map(row => row.id) };
+      detail.released = await keyboardRead(keyboardTab.id); assert.equal(detail.released.documentId, detail.original.documentId);
+      assert.deepEqual(detail.released.state.heldKeys, []); assert.deepEqual(detail.released.state.heldButtons, []);
+      assert.deepEqual(detail.released.state.events, detail.after.state.events, "End must not create extra keyboard edits or submits");
+      detail.eventLedger = assertManagedHumanKeyboardLedger({ original: detail.original, after: detail.released,
+        commands: detail.cases.flatMap(row => row.commands), replies: report.viewerMessages, scope: lease });
+      detail.afterTargets = await nativeMap(keyboardTab.id); assert.equal(detail.afterTargets[0].attached, false);
+      await deniedHuman(lease, "ended keyboard lease cannot send input");
+      detail.resume = await uiAction("#control", "resume"); assert.equal(detail.resume.status.state, "running");
+      await denied("keyboard original request before explicit new turn", () => keyboardTab.domSnapshot({ timeoutMs: 1500 }), /OBU_STALE_CONTROL_EPOCH/);
+      detail.newTurn = await taskBrowser.client.beginTurn("original-handoff-after-keyboard");
+      await denied("keyboard original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, authority), /OBU_STALE_CONTROL_EPOCH/);
+    });
+
     await step("original-agent-document-and-unsubmitted-draft", async () => {
       oldTaskTab = await taskBrowser.newTab({ url: fixtureURL + "/human-form", backgroundWindow: true });
       await oldTaskTab.getByLabel("Original draft", { exact: true }).fill(fixture.draft, { timeoutMs: 10000 });
@@ -511,7 +560,7 @@ export async function runManagedHumanCheck() {
       assert.equal(posts().length, 0); report.agentDraft = await screenshot("viewer-agent-draft.png");
     });
 
-    await step(paste ? "same-document-native-local-paste-and-held-key-End" : ime ? "same-document-native-IME-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
+    await step(paste ? "same-document-native-local-paste-and-held-key-End" : ime ? "same-document-native-IME-and-held-key-End" : keyboard ? "same-document-original-handoff-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
       const eventStart = (await observerSnapshot()).events.length;
       const begun = await uiAction("#human-begin", "humanBegin"); assert.equal(begun.status.state, "paused"); assert.ok(["preparing", "active"].includes(begun.human.state));
       businessLease = begun.human; report.business.humanBegin = begun;
@@ -645,6 +694,11 @@ export async function runManagedHumanCheck() {
       assert.equal(after.documentId, original.documentId); report.business.finalFrames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${oldTaskTab.id}})`);
       assert.equal(report.business.finalFrames.find(value => value.frameId === 0).documentId, original.documentId);
       await uiAction("#refresh", "status"); await uiAction("#tabs", "select", oldTaskTab.id); report.business.receiptScreenshot = await screenshot("viewer-original-receipt.png");
+      if (keyboard) {
+        report.keyboard.finalDocument = await keyboardRead(keyboardTab.id);
+        assert.deepEqual(report.keyboard.finalDocument.state.events, report.keyboard.released.state.events, "Released keyboard page must not receive late input");
+        report.keyboard.finalReceiptProof = assertManagedHumanKeyboardReceipt({ stats: keyboardFixture.stats(), original: report.keyboard.original, after: report.keyboard.finalDocument });
+      }
       report.observerFinal = await worker.evaluate("__managedHumanAcceptance.stop()"); assert.equal(report.observerFinal.listenerPresent, false); assert.equal(report.observerFinal.overflow, false);
       await worker.close(); worker = null;
     });
@@ -667,6 +721,9 @@ export async function runManagedHumanCheck() {
     console.error(redact(error.stack ?? error));
     // Observe the same failed document before original cleanup. These bounded
     // reads run only after failure; they cannot change prior input/ACK ordering.
+    if (worker && keyboardTab) try {
+      report.failureKeyboardDocument = { at: Date.now(), value: await bound(keyboardRead(keyboardTab.id), 5000, "failed original keyboard document observation") };
+    } catch (failure) { report.failureKeyboardDocumentError = redact(String(failure)); }
     if (worker && oldTaskTab) try {
       report.failureDocument = { at: Date.now(), value: await bound(documentRead(oldTaskTab.id), 5000, "failed original document observation") };
     } catch (failure) { report.failureDocumentError = redact(String(failure)); }
@@ -710,11 +767,18 @@ export async function runManagedHumanCheck() {
         }
       }
     } catch (error) { report.cleanup.sourceChanged = error.stack; }
-    report.fixture = fixture.stats(); report.screenshots = screenshots; report.endedAt = Date.now();
+    report.fixture = fixture.stats();
+    if (keyboardFixture) {
+      report.keyboardFixture = keyboardFixture.stats();
+      if (report.keyboard?.finalDocument) try {
+        report.keyboard.terminalReceiptProof = assertManagedHumanKeyboardReceipt({ stats: report.keyboardFixture, original: report.keyboard.original, after: report.keyboard.finalDocument });
+      } catch (error) { report.cleanup.keyboardReceipt = error.stack; }
+    }
+    report.screenshots = screenshots; report.endedAt = Date.now();
     report.frameRetention = { observedFrames: report.frames.length, savedPNGs: report.frames.filter(frame => frame.file).length, maximumSavedPNGs: 96, metadataOnlyFrames: report.frames.filter(frame => !frame.file).length,
       policy: "The first 96 actual native PNG payloads are retained for independent decoding; all received frames retain hash/header metadata. viewerDecodedFrames identifies actual browser decodes, not unperformed decodes of every frame." };
     report.liveRunnerChildren = [...registry].map(value => value.pid);
-    report.passed = !report.error && report.steps.length === 6 && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    report.passed = !report.error && report.steps.length === (keyboard ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
     await save(); console.log("RESULT", JSON.stringify({ runDir, passed: report.passed }));
   }
   return report;

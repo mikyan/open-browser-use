@@ -11,6 +11,11 @@
 
 ## 当前评分
 
+当前源码修复人工 Enter 的原生字符阶段；新构建通过 Go test/vet 与2,898项
+Node检查。正式`mhk-9zc3G0`七步通过，七场编辑/取消/隐式提交及原handoff
+分别核原事件、唯一POST和Stop；28项验收脚本检查通过，详见
+[人工 Enter](references/managed-human-keyboard.md)。本片尚未进入d07ae52包。
+
 已发布d07ae52包的实际EXE/77扩展通过`mhi-66idOk`六步浏览器组合输入流程。
 九阶段候选/确认/取消、两次原文字回执、唯一356字节POST及正式End/Stop已验。
 新增验收脚本21项聚焦检查通过，437份产品输入与此前Go/2888项Node测试相同，

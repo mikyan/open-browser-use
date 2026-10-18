@@ -143,6 +143,9 @@ debugger、history 和 tab groups。
   事件同步读取纯文字，经已有队列和原回执插入；不向被控浏览器发送粘贴键。
   直接文字允许严格匹配的 Shift/Control/Meta 持键，保留原持有状态及实际释放；
   其他持键或按钮仍拒绝。组合输入过滤不会吞掉原已登记按键的释放。
+  严格 Enter/NumpadEnter 在普通或 Shift 情况下以单次带 CR 的 keyDown 保留
+  原生编辑和表单语义；原抬键与清理不携带文本，不额外 insertText。对应
+  身份条件、网页取消和验收边界见[人工 Enter](references/managed-human-keyboard.md)。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

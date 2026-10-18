@@ -1110,6 +1110,141 @@ test("failed detach does not hide a later external detach from the original leas
   f.control.invalidateTab(7, { destroyed: true }); await handle.close();
 });
 
+for (const code of ["Enter", "NumpadEnter"]) for (const shifted of [false, true])
+test(`native Enter editing uses one combined down and original up (${code}, Shift=${shifted})`, async () => {
+  const f = fixture(), handle = await f.begin();
+  const key = { key: "Enter", code, windowsVirtualKeyCode: 13 }, modifiers = shifted ? 8 : 0;
+  const shift = { type: "key", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16 };
+  try {
+    if (shifted) await input(handle, { ...shift, action: "down", modifiers });
+    const before = handle.info();
+    const receipt = await input(handle, { type: "key", action: "down", ...key, modifiers });
+    assert.deepEqual(receipt, { leaseId: before.leaseId, generation: before.generation, sequence: before.lastInputSequence + 1, acknowledged: true });
+    await assert.rejects(input(handle, { type: "key", action: "down", ...key, modifiers }), /key hold does not match/);
+    await input(handle, { type: "key", action: "up", ...key, modifiers });
+    if (shifted) await input(handle, { ...shift, action: "up", modifiers: 0 });
+    const events = f.calls.filter(([method, , params]) => method === "Input.dispatchKeyEvent" && params.code === code);
+    assert.deepEqual(events.map(row => row[2]), [
+      { ...key, type: "keyDown", modifiers, text: "\r", unmodifiedText: "\r" },
+      { ...key, type: "keyUp", modifiers }
+    ]);
+    assert.ok(events.every(row => row[1].targetId === "original-target"));
+    assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false, "Native Enter must not synthesize a separate text commit");
+  } finally { await handle.close(); }
+  assert.equal(f.risks.size, 0); assert.equal(f.listeners.size, 0);
+});
+
+test("native Enter special semantics require the exact key/code/VK identity and no shortcut modifiers", async () => {
+  const f = fixture(), handle = await f.begin();
+  const base = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 };
+  const candidates = [
+    { ...base, key: "Return" }, { ...base, key: "enter" },
+    { ...base, code: "KeyA" }, { ...base, code: "NumpadAdd" },
+    { ...base, windowsVirtualKeyCode: 65 }, { ...base, code: "NumpadEnter", windowsVirtualKeyCode: 108 },
+    ...Array.from({ length: 16 }, (_, modifiers) => modifiers).filter(value => value !== 0 && value !== 8).map(modifiers => ({ ...base, modifiers }))
+  ];
+  try {
+    for (const value of candidates) {
+      const { modifiers = 0, ...key } = value;
+      await input(handle, { type: "key", action: "down", ...value });
+      await input(handle, { type: "key", action: "up", ...value });
+      assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").slice(-2).map(row => row[2]), [
+        { ...key, type: "rawKeyDown", modifiers }, { ...key, type: "keyUp", modifiers }
+      ]);
+    }
+    assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+  } finally { await handle.close(); }
+});
+
+test("native Enter cancelled before actual dispatch emits neither key nor text", async () => {
+  const gate = defer(), entered = defer(); let held = false;
+  const f = fixture({ validate: () => { if (held) { entered.resolve(); return gate.promise; } } }), handle = await f.begin();
+  held = true;
+  const pending = input(handle, { type: "key", action: "down", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+  const rejected = assert.rejects(pending, /revoked|cancelled/); await entered.promise;
+  const closing = handle.close(); await handle.closed; gate.resolve(); await rejected; await closing;
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+  assert.equal(f.risks.size, 0); f.control.assertReleased();
+});
+
+test("native Enter End joins its original pending down ACK before exact key release and detach", async () => {
+  const down = defer(), entered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchKeyEvent" && params.type !== "keyUp") { entered.resolve(); return down.promise; }
+  } }), handle = await f.begin(), info = handle.info();
+  const key = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 };
+  const pending = input(handle, { type: "key", action: "down", ...key }); await entered.promise;
+  let closed = false; const closing = handle.close().then(() => { closed = true; }); await handle.closed; await tick();
+  assert.equal(closed, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  assert.equal(f.calls.filter(([method]) => method.startsWith("Input.")).length, 1);
+  down.resolve(); assert.deepEqual(await pending, { leaseId: info.leaseId, generation: info.generation, sequence: 1, acknowledged: true });
+  await closing;
+  const events = f.calls.filter(([method]) => method === "Input.dispatchKeyEvent");
+  assert.deepEqual(events.map(row => row[2]), [
+    { ...key, type: "keyDown", modifiers: 0, text: "\r", unmodifiedText: "\r" },
+    { ...key, type: "keyUp", modifiers: 0 }
+  ]);
+  assert.ok(f.calls.indexOf(events[1]) < f.calls.findIndex(([method]) => method === "detach"));
+  assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+  assert.equal(f.risks.size, 0); f.control.assertReleased();
+});
+
+test("native Enter navigation keeps its original late ACK and finishes one keyUp before the next stream", async () => {
+  const down = defer(), downEntered = defer(), release = defer(), releaseEntered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (method !== "Input.dispatchKeyEvent") return;
+    if (params.type === "keyUp") { releaseEntered.resolve(); return release.promise; }
+    downEntered.resolve(); return down.promise;
+  } }), handle = await f.begin(), original = handle.info();
+  const key = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 };
+  const pending = input(handle, { type: "key", action: "down", ...key }); await downEntered.promise;
+  f.changeDocument("B"); f.control.navigation(7, { frameId: 0 }, "committed");
+  await tick(); assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  down.resolve(); assert.deepEqual(await pending, { leaseId: original.leaseId, generation: original.generation, sequence: 1, acknowledged: true });
+  await releaseEntered.promise; assert.equal(handle.info().lastInputSequence, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  release.resolve(); await f.control.current.recovery;
+  assert.equal(handle.info().generation, 2); assert.equal(handle.info().lastInputSequence, 0);
+  await assert.rejects(input(handle, { type: "key", action: "up", ...key }), /key hold does not match/);
+  await handle.close();
+  assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]), [
+    { ...key, type: "keyDown", modifiers: 0, text: "\r", unmodifiedText: "\r" }, { ...key, type: "keyUp", modifiers: 0 }
+  ]);
+  assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false); assert.equal(f.risks.size, 0);
+});
+
+test("native Enter dialog-triggering down is cancelled before its original ACK and single held release", async () => {
+  const down = defer(), entered = defer(); let f;
+  f = fixture({ command: (method, params) => {
+    if (method === "Input.dispatchKeyEvent" && params.type !== "keyUp") { opening(f, { type: "alert" }); entered.resolve(); return down.promise; }
+    if (method === "Page.handleJavaScriptDialog") {
+      assert.deepEqual(params, { accept: false }); f.event("Page.javascriptDialogClosed", { frameId: "root" }); down.resolve();
+    }
+  } });
+  const handle = await f.begin(), original = handle.info(), key = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 };
+  const pending = input(handle, { type: "key", action: "down", ...key }); await entered.promise;
+  assert.ok(handle.pendingDialog()); await handle.close();
+  assert.deepEqual(await pending, { leaseId: original.leaseId, generation: original.generation, sequence: 1, acknowledged: true });
+  const events = f.calls.filter(([method]) => method === "Input.dispatchKeyEvent");
+  assert.deepEqual(events.map(row => row[2]), [
+    { ...key, type: "keyDown", modifiers: 0, text: "\r", unmodifiedText: "\r" }, { ...key, type: "keyUp", modifiers: 0 }
+  ]);
+  assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 1);
+  assert.ok(f.calls.findIndex(([method]) => method === "Page.handleJavaScriptDialog") < f.calls.indexOf(events[1]));
+  assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false); assert.equal(f.risks.size, 0);
+});
+
+test("native Enter unknown down failure is never replayed and cleanup contains only original keyUp", async () => {
+  const failure = new Error("original Enter result unknown"), key = { key: "Enter", code: "NumpadEnter", windowsVirtualKeyCode: 13 };
+  const f = fixture({ command: (method, params) => { if (method === "Input.dispatchKeyEvent" && params.type !== "keyUp") throw failure; } }), handle = await f.begin();
+  await assert.rejects(input(handle, { type: "key", action: "down", ...key }), error => error === failure);
+  await handle.close();
+  assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]), [
+    { ...key, type: "keyDown", modifiers: 0, text: "\r", unmodifiedText: "\r" }, { ...key, type: "keyUp", modifiers: 0 }
+  ]);
+  assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false); assert.equal(f.risks.size, 0);
+});
+
 test("key release binds the original virtual key and retains its acknowledged key identity", async () => {
   const f = fixture(), handle = await f.begin();
   await input(handle, { type: "key", action: "down", key: "C", code: "KeyC", windowsVirtualKeyCode: 67, modifiers: 8 });

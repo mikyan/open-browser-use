@@ -198,6 +198,14 @@ separate evidence. See [IME acceptance](../../docs/references/managed-human-ime.
 Published manifests may differ only by the exact beta public key declared in
 the current CLI source; all other fields and production files must match.
 
+Set `OBU_TEST_HUMAN_SCENARIO=keyboard` with a matching build manifest to test
+Enter, Shift+Enter and NumpadEnter through the production viewer. Seven original
+fields cover textarea and contenteditable editing, page cancellation and a single
+implicit form submission. A separate original handoff still exercises held-key
+End, explicit Resume, its own unique POST and Stop. No task-page CDP input,
+clipboard access or synthetic DOM keyboard events are used. NumpadEnter retains
+its code; the human input protocol does not expose keypad location.
+
 Six stages use the actual managed supervisor, task SDK and production viewer
 inside a separate headless test browser. A nonbusiness page exercises explicit
 Begin/End. One original form then retains the Agent's unsubmitted draft while

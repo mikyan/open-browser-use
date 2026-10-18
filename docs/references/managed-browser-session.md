@@ -8,6 +8,8 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
+当前源码另修复人工 Enter 的自然换行、网页取消与单行表单提交，正式七场
+流程已通过，见[人工 Enter](managed-human-keyboard.md)；此修复尚未进入下述包。
 最新已发布完整包为 [preview-20261019-d07ae52](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-d07ae52)，
 是119179c的同功能重打包，保留本地纯文字粘贴、原生弹窗来源和既有接管能力。
 437份源输入与原测试相同；构建、离线CLI/MCP、独立制品核对及四资产回下载

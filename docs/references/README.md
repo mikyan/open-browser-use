@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Managed 人工 Enter](managed-human-keyboard.md)：原生换行、网页取消和单行
+  表单提交的映射、原始失败及正式入口验收。
+
 - [Managed 人工组合输入](managed-human-ime.md)：已发布包的浏览器原生候选、
   确认、取消与原回执验收，以及系统输入法仍待验证的边界。
 
