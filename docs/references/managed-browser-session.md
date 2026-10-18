@@ -8,9 +8,13 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-当前源码另增加人工接管真实重复按键，正式七步流程及原清理通过；新增能力
-要求配套更新主机与扩展。用户已要求新包，结果另记，见[重复按键](managed-human-key-repeat.md)。
-最新已发布完整包为 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，包含人工 Enter 的自然换行、网页取消和
+最新已发布完整包为 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，包含人工接管真实重复按键，正式七步流程及原清理通过。
+440份输入与原Go test/vet、2926项Node已测快照及提交对象相符，77份扩展
+与实测字节一致。离线CLI/MCP、9231项独立制品检查、四资产回下载及本地
+副本核对通过。发布EXE单独重建，打包未重跑原网页业务。主机和扩展需配套
+更新，范围见[重复按键](managed-human-key-repeat.md)。
+
+此前完整包为 [preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，包含人工 Enter 的自然换行、网页取消和
 单行表单提交修复，保留本地纯文字粘贴、原生弹窗来源与既有接管能力。
 七场固定浏览器行为及原handoff/End/Stop通过，见[人工 Enter](managed-human-keyboard.md)。
 437份发布输入与原Go test/vet、2898项Node已测快照及提交对象相同；77份

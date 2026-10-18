@@ -14,8 +14,15 @@
 当前源码支持人工接管真实重复按键，Go test/vet和2,926项Node检查通过。
 正式`mhr-rm5fRL`七步覆盖六场连续删除/移动/网页取消/持键End，原handoff唯一
 提交和Stop通过；独立事件及生命周期核验通过，70张PNG解码、30原进程退出。
-440份输入和77份扩展与实测构建绑定；用户已要求新包，交付另记。范围见
+440份输入和77份扩展与实测构建绑定。范围见
 [人工重复按键](references/managed-human-key-repeat.md)，完整能力对齐仍开放。
+
+最新包已发布为 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，源提交 `534b88122b8e168d96be701e621fbbd7e7b820ea`。
+干净提交重建主机和扩展，440份输入与原测试及Git对象相符，77份扩展与实测
+字节一致。离线CLI/MCP、9231项独立制品检查、四资产回下载和112份本地副本
+校验通过。完整包108文件，完整ZIP10,582,573字节，SHA256：
+`37fa0e42a0bce536e8a5a35412ead6d1f9aae982a30ad40977d875674776f6e4`。
+发布EXE单独重建，打包没有重跑原Go/Node测试或网页业务；公司Edge仍待验。
 
 当前源码修复人工 Enter 的原生字符阶段；新构建通过 Go test/vet 与2,898项
 Node检查。正式`mhk-9zc3G0`七步通过，七场编辑/取消/隐式提交及原handoff

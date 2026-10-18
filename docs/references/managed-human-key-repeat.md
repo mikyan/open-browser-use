@@ -62,6 +62,8 @@ managed 入口完成七步流程，实际退出0。六场页面行为使用各�
 `OBU_TEST_HUMAN_SCENARIO=key-repeat` 运行
 `scripts/browser-integration/managed-human-check.mjs`。
 
-用户已要求包含本轮修复的新包；上述验收绑定内部冻结构建，发布包需要从对应
-干净提交重建并核对，交付结果另行补记。系统输入法、本地复制、普通公司Edge
-及完整P01–P15能力对齐保持开放。
+本修复已进入 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，从干净提交534b881重建配套主机与扩展。
+440份输入与原已测快照及Git对象相符，77份扩展与实测字节一致；离线CLI/MCP、
+9231项独立制品检查、四资产回下载和112份本地文件副本核对通过。
+上述网页验收绑定内部冻结构建，发布EXE单独重建，打包未重跑原测试或业务。
+系统输入法、本地复制、普通公司Edge及完整P01–P15能力对齐保持开放。
