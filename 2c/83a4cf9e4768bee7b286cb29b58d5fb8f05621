@@ -1,0 +1,54 @@
+docs/references/managed-human-ime.md
+  s_08bbfd293d324f::t_b3170a9421ddcb 25-31
+  s_08bbfd293d324f::t_44e55c7e273346 1-24,32-64
+scripts/browser-integration/managed-human-check-fixture.test.mjs
+  s_08bbfd293d324f::t_9eb5da5a8a7fa4 6-25
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_0dd711d98dbdd2 207-209
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_0dd711d98dbdd2 15-20
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_44e55c7e273346 191-200
+scripts/browser-integration/managed-human-check-fixture.mjs
+  s_08bbfd293d324f::t_23ac81f2008baa 4,12-13,49-50
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_0dd711d98dbdd2 14-19
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_0dd711d98dbdd2 11-16
+scripts/browser-integration/managed-human-ime.mjs
+  s_08bbfd293d324f::t_1682853076f402 34,36-39,46-49,85-101
+  s_08bbfd293d324f::t_76dd9f86a97752 1-33,35,40-43,45,53,55-84,102
+  s_08bbfd293d324f::t_d285a61bf2b386 44,50-52,54
+docs/references/README.md
+  s_08bbfd293d324f::t_44e55c7e273346 19-21
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_d285a61bf2b386 240,242-249,251-257,259-260,262-291,514,532-533,554,572,575-576,581,596,625,632,634
+  s_08bbfd293d324f::t_23ac81f2008baa 26-38,176-177,181,184-185,188,346,401-403
+  s_08bbfd293d324f::t_1682853076f402 19,241,250,258,261,586-587
+  s_08bbfd293d324f::t_a689a9bdacdc40 416,424-426
+docs/histories/2026-10/20261019-0300-managed-human-ime.md
+  s_08bbfd293d324f::t_b3170a9421ddcb 18-20
+  s_08bbfd293d324f::t_44e55c7e273346 1-17,21-22
+scripts/browser-integration/managed-human-ime.test.mjs
+  s_08bbfd293d324f::t_9eb5da5a8a7fa4 1-83
+scripts/browser-integration/managed-human-check.test.mjs
+  s_08bbfd293d324f::t_9eb5da5a8a7fa4 5,9-22
+docs/exec-plans/completed/2026-10-19-managed-human-ime.md
+  s_08bbfd293d324f::t_b3170a9421ddcb 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "2c83a4cf9e4768bee7b286cb29b58d5fb8f05621",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
