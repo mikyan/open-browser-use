@@ -1,0 +1,85 @@
+apps/chrome-extension/browser-input-adapter.js
+  s_08bbfd293d324f::t_5bbcbc1956cf31 268-276,412
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_5bbcbc1956cf31 47,638,641-642,644-645,648-649,658-659,688
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_6949b43081dd1d 15-20
+scripts/browser-integration/managed-human-key-repeat-fixture.test.mjs
+  s_08bbfd293d324f::t_4d02a2dd239c95 1-19
+internal/managedprotocol/view.go
+  s_08bbfd293d324f::t_bf3c4bd807d818 31
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_e799c76c669443 20-21,103,108,179-180,184,187-188,192,198-200,202,322,511-576,634,773-783,806-808,856-865,876
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_bf3c4bd807d818 89,543-544,555-557,680-695
+  s_08bbfd293d324f::t_b5bad2551a05c9 696
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_b0aa6da6027cd7 978-981
+  s_08bbfd293d324f::t_a16a016bd8f083 151,207,868-977,982-990
+  s_08bbfd293d324f::t_c6cbc4e2cd8775 991,993-1014
+  s_08bbfd293d324f::t_9bf8e60c2154dd 992
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_aad4036732bc5a 209-228
+docs/histories/2026-10/20261019-0343-managed-human-key-repeat.md
+  s_08bbfd293d324f::t_6949b43081dd1d 1-19
+scripts/browser-integration/managed-human-key-repeat.mjs
+  s_08bbfd293d324f::t_45b250afe96973 1-92,95-113,123-134
+  s_08bbfd293d324f::t_4d02a2dd239c95 93-94,114-122
+scripts/browser-integration/managed-human-check.test.mjs
+  s_08bbfd293d324f::t_38d4f02bcb92d3 153-161
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_a6a515fcdc0c9c 1248-1381
+  s_08bbfd293d324f::t_5bbcbc1956cf31 380,1613
+docs/references/managed-human-key-repeat.md
+  s_08bbfd293d324f::t_6949b43081dd1d 1-67
+scripts/browser-integration/managed-human-key-repeat-fixture.mjs
+  s_08bbfd293d324f::t_45b250afe96973 1-37
+apps/chrome-extension/native-input-tracker.test.mjs
+  s_08bbfd293d324f::t_a6a515fcdc0c9c 13-49
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_3c29de16be9366 70,296-297,302,605,607-615,617,821-822
+  s_08bbfd293d324f::t_2afc62b523da9f 586-599
+docs/exec-plans/completed/2026-10-19-managed-human-key-repeat.md
+  s_08bbfd293d324f::t_5a1aa475d2fadb 1-35
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_bf3c4bd807d818 179-182,222,271-272
+  s_08bbfd293d324f::t_90fee9cadb1356 273
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_6949b43081dd1d 149-152
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_6949b43081dd1d 11-12
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_bf3c4bd807d818 47,68-70,82-85,217,219,289,325,352
+docs/references/README.md
+  s_08bbfd293d324f::t_6949b43081dd1d 19-21
+scripts/browser-integration/managed-human-key-repeat.test.mjs
+  s_08bbfd293d324f::t_4d02a2dd239c95 1-83
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_bf3c4bd807d818 104
+apps/chrome-extension/browser-input-adapter.test.mjs
+  s_08bbfd293d324f::t_a6a515fcdc0c9c 11-18
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_6949b43081dd1d 14-19
+internal/managedbrowser/managed_user_key_repeat_test.go
+  s_08bbfd293d324f::t_294483a73fcbf9 1-186
+internal/managedprotocol/key_repeat_test.go
+  s_08bbfd293d324f::t_9c8f1ccb5d46e8 1-75
+internal/managedviewer/key_repeat_test.go
+  s_08bbfd293d324f::t_0dfd2e77707494 1-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "534b88122b8e168d96be701e621fbbd7e7b820ea",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
