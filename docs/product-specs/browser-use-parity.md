@@ -12,6 +12,15 @@
 
 ## Baseline sources
 
+2026-10-18 正式 managed 五入口 `mwf-6nmDto` 九步 actual exit 0：JS/Python/Go/
+CLI/MCP 各完成原子页获取、一次提交、原文件下载和结果交付，共20原请求/5POST。
+原查看窗口及全部五个结果、原文档/target/文件与正常Stop通过，独审1,978项；
+318次鼠标位置采样一致、0前台事件，覆盖本次原启动至退出观测，不扩大为连续
+指针轨迹或任意平台保证。修复Go scoped JSON复制中的epoch类型丢失，旧句柄
+仍拒绝跨轮使用。验证采用未发布的干净5d42f7a内部候选；公开下载仍853ea92。
+这推进正式入口的完整任务证据，不代替模型对照、公司Edge或全P01–P15持平。
+详见[五入口验收](../references/managed-entrypoint-workflow.md)。
+
 2026-10-18 专用会话的 worker 替换恢复完成限定验收，并按用户新请求发布
 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)；离线制品检查不计为新增浏览器验收。
 固定 Windows CfT 的正向 `mwr-r-esLC1h` 和独立 held-input `mwr-h-Fv7gx8`

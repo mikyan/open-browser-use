@@ -24,17 +24,21 @@ node "${repo_root}/scripts/generate-chrome-extension-icons.mjs"
 host_test_dir="${repo_root}/.tmp/ci-sdk-host"
 mkdir -p "${host_test_dir}"
 export OBU_TEST_HOST_BINARY="${host_test_dir}/open-browser-use$(go env GOEXE)"
+export OBU_WORKFLOW_GO_HELPER="${host_test_dir}/managed-workflow-helper$(go env GOEXE)"
+export OBU_WORKFLOW_PYTHON="${python_bin}"
 (
   cd "${repo_root}"
   go test ./...
   go build -o "${OBU_TEST_HOST_BINARY}" ./cmd/open-browser-use
+  go build -o "${OBU_WORKFLOW_GO_HELPER}" ./scripts/browser-integration/go-managed-workflow-helper
   node --test apps/chrome-extension/*.test.mjs
   node --test internal/managedviewer/ui/*.test.mjs
   node internal/managedviewer/testdata/generate-human-disconnect-fixture.mjs --check
   node internal/managedviewer/testdata/generate-worker-recovery-fixture.mjs --check
+  pnpm -r --if-present test
   node --test scripts/*.test.mjs
   node --test scripts/browser-integration/*.test.mjs
-  pnpm -r --if-present test
+  "${python_bin}" -m unittest discover -s scripts/browser-integration -p 'test_managed_workflow_helper.py'
 )
 (
   cd "${repo_root}/packages/open-browser-use-python"

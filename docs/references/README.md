@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Managed 五入口完整流程](managed-entrypoint-workflow.md)：正式JS/Python/Go/
+  CLI/MCP原业务、实时查看、原文件与只读OS观测，以及内部候选和发布边界。
+
 - [独立浏览器会话](managed-browser-session.md)：实验性 Windows launcher、
   CLI/MCP 选择、真实 Native Messaging 和进程清理，以及 viewer/登录边界。
 

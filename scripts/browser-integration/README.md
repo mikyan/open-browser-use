@@ -1,5 +1,15 @@
 # Browser integration acceptance
 
+## Five managed entrypoints (Windows, experimental)
+
+The deterministic workflow runner exercises original child-page acquisition,
+form submission, original-file download and result finalization through JS,
+Python, Go, CLI and MCP, using the actual packaged managed supervisor. It also
+observes the real viewer and records read-only OS foreground/cursor evidence.
+Build its two helpers with `build-managed-workflow-helpers.mjs`, then run
+`managed-workflow-check.mjs` with explicit release and helper provenance inputs.
+See [setup, evidence rules and limits](../../docs/references/managed-entrypoint-workflow.md).
+
 ## Managed worker replacement (Windows, experimental)
 
 Build the current host, extension and SDK. Set `OBU_TEST_HOST_BINARY`,

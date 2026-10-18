@@ -7,6 +7,14 @@
 
 ## 当前基线
 
+源码已完成正式 managed 五入口的同类原始业务流程：`mwf-6nmDto` 九步 actual
+exit 0，20原请求/5POST、五原子页/原下载/结果查看与Stop清理通过，独审1,978项。
+同时修复Go typed新页组合中的epoch类型丢失，并更新已有Skill。318次鼠标位置
+采样相同、0前台事件，只覆盖本轮有限观测。采用5d42f7a内部候选，未另行发布；
+最新下载仍下述853ea92。详见[五入口验收](../../references/managed-entrypoint-workflow.md)。
+下一项先复现managed查看窗口的真实JS对话框交互，再设计有原租约归属的响应；
+公司Edge、SSO/IME、浏览器重启、平台与完整对照仍保持开放。
+
 最新可下载包为 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，
 按用户再次明确要求构建发布，包含已验证的真正
 worker 替换恢复：固定 Windows 的 `mwr-r-esLC1h` 与独立 held-input
