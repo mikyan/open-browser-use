@@ -1,0 +1,27 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_c5b05e08c662c7 14-19
+docs/histories/2026-10/20261018-2245-human-frame-dialogs.md
+  s_08bbfd293d324f::t_4563b161329c23 3-11
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_18b15994b1cfdc 20
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_2eee30811d39d0 11-14
+docs/references/managed-human-dialogs.md
+  s_08bbfd293d324f::t_8325ceea8f193b 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "34bbbe8d73181ab8d5abb3f0e2da9541e3ac509f",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
