@@ -67,7 +67,8 @@ Real SSO/IME, browser restart and the broader task/platform matrix remain open.
 `mwf-6nmDto` completed all nine stages with actual runner exit 0 on
 2026-10-18. It used the internal clean-source `5d42f7a` candidate EXE and
 extension with fixed CfT 156.0.8078.12. This candidate was not uploaded or
-published; the current user download remains `preview-20261018-853ea92`.
+published at that time. Its production changes and updated Skill are now included
+in `preview-20261018-95e7b29`, rebuilt separately without rerunning this workflow.
 
 The five entrypoints produced 20 original HTTP requests, exactly five POSTs,
 five acquired children and five original report files totaling 1,112 bytes.

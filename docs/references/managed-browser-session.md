@@ -8,7 +8,12 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，
+最新完整包为 [preview-20261018-95e7b29](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-95e7b29)，
+从干净提交 `95e7b29e3c079506445c52d3db192561adca6ced` 重建，新增主页面人工网页弹窗及五分钟累计等待预算、更新后的Skill。
+完整包/扩展/Skill为101/74/7文件；离线CLI/MCP30工具、独立制品、四资产回下载及本地副本校验通过。
+本次未重跑网页业务；子frame弹窗WIP未入包，完整能力对齐仍在进行。
+
+历史完整包为 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，
 从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 重建，包含下文的 worker 替换恢复。
 离线 CLI/MCP 30 工具、独立制品 8,437 项检查、4 个资产回下载及 103 个本地文件校验通过。
 完整包/扩展/Skill 分别为 99/72/6 文件。本轮未重跑网页业务；发布 EXE 单独重建，原始功能验收和失败证据保留。
