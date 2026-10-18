@@ -578,6 +578,12 @@ func (c *Client) requestInScope(method string, params Params, timeout time.Durat
 			return nil, errors.New("OBU_RESPONSE_BODY_UNSUPPORTED: extension does not advertise responseBodyVersion 1")
 		}
 	}
+	// Freezing explicit scope parameters through JSON turns their epoch into a
+	// float64. Restore the same internal type supplied by the normal handshake
+	// before typed helpers consume it; keep the captured value and authority.
+	if epoch, valid := pageEpoch(merged["control_epoch"]); valid {
+		merged["control_epoch"] = epoch
+	}
 	result, err := execute(merged, deadline)
 	if err != nil {
 		return nil, err

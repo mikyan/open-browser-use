@@ -1,6 +1,6 @@
 ---
 name: open-browser-use
-description: Platform-neutral guidance for using Open Browser Use, the open-source Chrome automation stack for AI agents. Use when an agent needs to install, verify, troubleshoot, or operate Open Browser Use through its browser extension, native CLI, JavaScript SDK, Python SDK, Go SDK, or Browser Use style JSON-RPC methods; use for tasks involving real Chrome tabs, user tab claiming, CDP commands, downloads, file choosers, clipboard helpers, or session cleanup.
+description: Platform-neutral guidance for using Open Browser Use, the open-source Chrome automation stack for AI agents. Use when an agent needs to install, verify, troubleshoot, or operate Open Browser Use through its browser extension, native CLI, MCP server, JavaScript SDK, Python SDK, Go SDK, or Browser Use style JSON-RPC methods; use for ordinary browser profiles, isolated managed sessions, real tabs, user tab claiming, CDP commands, downloads, file choosers, clipboard helpers, or session cleanup.
 ---
 
 # Open Browser Use
@@ -11,8 +11,8 @@ Open Browser Use connects an MV3 Chrome extension, a local native messaging host
 
 ## Core Workflow
 
-1. Check setup with `open-browser-use ping` or `obu ping`. If it fails because setup is missing, read [references/installation.md](references/installation.md).
-2. Pick the right browser/profile from the connected targets. See "Browser and profile handling" below before issuing browser commands.
+1. Select the connection mode before discovery or `ping`. If the user or runtime specifies a managed session name/root, or requests creating an isolated managed session, read [references/managed-session.md](references/managed-session.md) now. Follow its startup, exact routing, viewer, and recovery workflow; skip ordinary profile discovery. Otherwise select an ordinary browser/profile using "Browser and profile handling" below.
+2. Verify the selected connection with `open-browser-use ping` or `obu ping`, including that branch's selectors. For missing ordinary-profile setup, read [references/installation.md](references/installation.md). For a managed connection failure, follow the managed reference without switching targets.
 3. Choose a unique browser session id for the current agent task before opening or claiming tabs. Prefer the surrounding runtime's conversation/session id when available; otherwise create a short unique id such as `obu-<task-slug>-<timestamp>`. Reuse that same id for every Open Browser Use command in this task.
 4. Name the current browser task group before opening or claiming tabs. Use a short task label followed by ` - OBU`; if no better task label is available, use `Task - OBU`.
 5. Before opening a new tab, run `user-tabs` / `user_tabs` and check whether the task continues from an existing tab, including tabs in `✅ Open Browser Use` or an earlier `handoff` task group. If the URL/title/group clearly matches the current task, claim that tab and continue from it instead of opening a duplicate. When verifying or accepting a local change, this also covers a dev server tab the user already has open (for example `localhost`, `127.0.0.1`, or a `*.local` / `*.test` host): claim and reuse it rather than opening a second copy of the same app.
@@ -23,24 +23,27 @@ Open Browser Use connects an MV3 Chrome extension, a local native messaging host
    For file or directory uploads, read its Direct File Inputs and File Chooser Pattern sections before creating the task page; directory selection may require an explicit background window.
    For native confirmation or text-prompt dialogs, read its Native JavaScript Dialogs section before triggering the page action.
 10. Before ending browser work, release or keep session tabs with `open-browser-use finalize-tabs --session-id "$OBU_SESSION_ID" --keep '<json-array>'`, the MCP `finalize_tabs` tool, or the SDK `finalizeTabs` / `finalize_tabs` / `FinalizeTabs` method.
-11. If communication fails after setup, read [references/troubleshooting.md](references/troubleshooting.md).
+11. For ordinary-profile communication failures after setup, read [references/troubleshooting.md](references/troubleshooting.md). For managed failures, return to the managed reference's explicit recovery workflow.
 
 ## Operating Rules
 
 - Treat the browser as the user's real Chrome profile. Do not inspect cookies, passwords, session stores, or unrelated browser data.
-- Ask the user before installing the extension, opening Chrome for them, enabling extension permissions, uploading local files, reading/writing clipboard data, submitting forms, purchasing, deleting, sending, or making other externally visible changes.
+- Carry out actions within the user's existing authorization, including authorized installation, browser startup, uploads, clipboard access, and website changes. Ask only when the intended action or its scope is not yet authorized; do not repeat an approval already given.
 - Do not assume Codex.app helpers, Node REPL globals, or a bundled plugin UI are available. Use the installed `open-browser-use` / `obu` CLI or the published SDKs.
 - Do not guess tab ids. List tabs first, then use ids returned by `tabs`, `user-tabs`, `open-tab`, or SDK calls.
 - Prefer `claim-tab` / `claimUserTab` for existing user tabs. Claiming should be based on the current `user-tabs` result and visible evidence such as URL, title, recency, or group.
 - For follow-up tasks, inspect `user-tabs` before opening a tab and reuse a matching tab from `✅ Open Browser Use` or a previous handoff group. A deliverable tab can be claimed back into the new task session, worked on, and finalized as `deliverable` again when it remains the user-facing result. This keeps repeated work on the same page converged to one live tab.
 - Do not claim unrelated deliverable tabs just because they are in `✅ Open Browser Use`. If several tabs plausibly match, prefer the most recent exact URL/title match; ask the user when the match is ambiguous.
 - When verifying or accepting a local code change, prefer reusing a dev server tab the user already has open (matching host, port, and app, such as `localhost:<port>`) over opening a new one. Match on host, port, and path or title; if several plausibly match or the match is ambiguous, ask the user instead of opening a duplicate.
-- Use `--socket` only when the user or runtime provides an explicit socket. Otherwise let the CLI and SDKs discover the active socket registry.
+- For ordinary profiles, use `--socket` only when the user or runtime provides an explicit socket; otherwise use profile-aware discovery. For managed sessions, use the name/root selectors or the current status endpoint described in the managed reference. Its routing takes precedence over ordinary active-registry examples in other references.
 - Do not rely on the CLI fallback session `obu-cli` for agent tasks. Always pass a task-unique `--session-id` to CLI and MCP commands, or set `sessionId` / `session_id` / `SessionID` in SDK clients. The fallback exists for quick manual use and can reuse stale task groups across unrelated agent sessions.
 - Direct CLI subcommands and `open-browser-use run` can share the same browser session only when they use the same explicit `--session-id`. Finalize that same session before ending browser work.
 - Use `call --method <method> --params '<json>'` only when no safer convenience command or SDK wrapper exists.
 
 ## Browser and profile handling
+
+This section applies only to ordinary installed profiles. A specified managed
+session uses [managed-session.md](references/managed-session.md) instead.
 
 Some users run several supported browsers (for example Google Chrome, Google
 Chrome Beta, or BitBrowser) and may also have multiple profiles inside them.
@@ -107,6 +110,10 @@ the agent needs to ask which target this task should operate on.
 
 ## Common CLI Actions
 
+These are task operations after connection selection. Include the selected
+ordinary `--browser` / `--profile` or managed `--managed` / `--managed-root` flags
+on every invocation, including `run` and `finalize-tabs`.
+
 ```sh
 export OBU_SESSION_ID="obu-docs-scan-$(date +%Y%m%d%H%M%S)"
 open-browser-use ping --session-id "$OBU_SESSION_ID"
@@ -142,12 +149,14 @@ Use `obu` as the short alias when available.
 
 ## MCP Usage
 
-For runtimes that can launch local MCP servers over stdio, use:
+For an ordinary profile, pin the selected target when launching the local stdio
+server. For a managed session, use the configuration in
+[managed-session.md](references/managed-session.md#connect-through-the-five-entry-points).
 
 ```toml
 [mcp_servers.open_browser_use]
 command = "obu"
-args = ["mcp", "--session-id", "obu-<task-or-conversation-id>"]
+args = ["mcp", "--session-id", "obu-<task-or-conversation-id>", "--browser", "<browser>", "--profile", "<profile>"]
 ```
 
 Use a fresh `--session-id` value per agent task or conversation. If the runtime
@@ -182,6 +191,7 @@ each individual browser operation.
 
 ## References
 
+- [references/managed-session.md](references/managed-session.md): read first for a specified or requested isolated managed session; covers startup, all five connection entry points, viewing, paused work, recovery, and shutdown.
 - [references/installation.md](references/installation.md): one-time CLI and browser extension setup, including cases where user cooperation is required.
 - [references/sdk-and-protocol.md](references/sdk-and-protocol.md): JavaScript, Python, Go, socket, and JSON-RPC usage details.
 - [references/browser-actions.md](references/browser-actions.md): semantic locators, automatic waits, forms, frames, screenshots, and action deadlines.

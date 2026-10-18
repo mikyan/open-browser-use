@@ -860,6 +860,17 @@ listening handler; the corrected test compares with a normal successful bind.
 
 ## Remaining work
 
+The 2026-10-18 Go SDK composition regression fixes an internal type mismatch
+after `PageWait.Result`: JSON parameter freezing converted the captured epoch
+to `float64`, while typed download, chooser, navigation and network helpers
+required the handshake's `int64` representation. The shared request boundary
+now restores only a valid protocol epoch before invoking those helpers. It
+retains the original child and scope; a new turn still invalidates old handles.
+Actual IPC/JSON tests first reproduced all five affected paths, then passed
+the original download GUID/path and four related compositions. Go SDK tests,
+all-package tests and vet passed. Five-caller mock workflows passed 18 checks;
+these are transport/composition tests, not real-browser acceptance.
+
 Complete the unowned-child layout/focus matrix and extend overlapping/unrelated creation,
 source/frame navigation, child movement/
 closure, cancellation, deadline, pause and worker/host-loss browser cases beyond

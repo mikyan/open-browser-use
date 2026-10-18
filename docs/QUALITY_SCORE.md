@@ -11,6 +11,12 @@
 
 ## 当前评分
 
+2026-10-18 的五入口组合测试发现并修复 Go SDK 原子页面 scope 的 epoch 类型丢失：
+下载、chooser、navigation、network typed API 现复用原 scope 的合法整数表示，
+新 turn 仍拒绝旧句柄。定向反例先失败后通过，Go SDK/全包/vet 和五入口 mock
+18 项通过；Skill 增加专用会话连接与恢复说明。新包及真实五入口网页验收仍待
+本轮完成，不把这些 mock 检查计作浏览器或完整持平证据。
+
 用户再次明确要求打包，已从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 发布 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，首次将已验证的 worker 替换恢复放入 Windows 包。
 离线 CLI/MCP 30 工具、独立制品 8,437 项检查、4 个资产回下载及 103 个本地文件校验通过。
 完整包/扩展/Skill 分别为 99/72/6 文件。本轮未重跑网页业务；发布 EXE 单独重建，原始功能验收和失败证据保留。
