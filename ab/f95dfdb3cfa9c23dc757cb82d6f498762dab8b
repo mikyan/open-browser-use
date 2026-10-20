@@ -1,0 +1,25 @@
+docs/exec-plans/active/2026-10-19-managed-human-copy.md
+  s_08bbfd293d324f::t_fe1ef9f47b91a1 38-40
+docs/histories/2026-10/20261021-0100-managed-human-clipboard.md
+  s_08bbfd293d324f::t_fe1ef9f47b91a1 90-102
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_fe1ef9f47b91a1 7
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_fe1ef9f47b91a1 19-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "abf95dfdb3cfa9c23dc757cb82d6f498762dab8b",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
