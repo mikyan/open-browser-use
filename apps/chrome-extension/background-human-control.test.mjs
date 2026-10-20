@@ -56,8 +56,8 @@ async function fixture({ managed = true, command, write, detach, authority = () 
   const params = { session_id: "task", turn_id: first.nextTurnId, control_epoch: first.controlEpoch, tabId: 7 };
   await backend.attach(params);
   const frames = [];
-  const begin = () => {
-    const admitted = backend.beginManagedHuman(7, authority, frame => frames.push(frame), state => states.push(state));
+  const begin = (options = {}) => {
+    const admitted = backend.beginManagedHuman(7, authority, frame => frames.push(frame), state => states.push(state), options);
     const record = backend.managedHuman.current;
     // These existing input tests require the original native preparation, not
     // just the newly admitted preparing handle returned by Begin.
@@ -69,6 +69,45 @@ async function fixture({ managed = true, command, write, detach, authority = () 
     emitDetach: (source, reason) => { for (const fn of detachListeners) fn(source, reason); } };
 }
 function input(handle, value) { const info = handle.info(); return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value }); }
+
+const humanCopyKey = { type: "key", action: "down", key: "c", code: "KeyC", windowsVirtualKeyCode: 67, modifiers: 2, clipboardTransfer: "copy" };
+test("human clipboard broker receives original human authority while Agent access remains paused", async () => {
+  const browserVersion = Object.freeze({ product: "Chrome/156.0.8078.4", revision: "@f842f52ef39fd97b449eb27cff414bf05a98ddce" });
+  const f = await fixture(), handle = await f.begin({ browserVersion }), scopes = [];
+  f.backend.clipboardBroker.transfer = async (scope, operation, options) => {
+    assert.deepEqual(clone(options.browserVersion), browserVersion);
+    assert.equal(Object.isFrozen(options.browserVersion), true);
+    scopes.push(scope); options.check(); await options.validateScope(scope); await options.dispatch(); options.check();
+    assert.equal(f.backend.automationControl.state, "paused");
+    return { operation, status: "ready", text: "shared managed clipboard" };
+  };
+  const result = await input(handle, humanCopyKey);
+  assert.equal(result.acknowledged, true);
+  assert.deepEqual(result.clipboardTransfer, { operation: "copy", status: "ready", text: "shared managed clipboard" });
+  assert.deepEqual(clone(scopes), [{ kind: "human", leaseId: handle.info().leaseId, tabId: 7 }]);
+  await handle.close();
+});
+
+test("human clipboard transfer does not bypass website restrictions", async () => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } });
+  const handle = await f.begin();
+  f.backend.clipboardBroker.transfer = () => assert.fail("restricted clipboard must not enter the broker");
+  await assert.rejects(input(handle, humanCopyKey), /SITE_ACCESS_UNSUPPORTED/);
+  assert.equal(f.calls.some(([method]) => method === "Input.dispatchKeyEvent"), false);
+  await handle.close();
+});
+
+test("human clipboard preparation cannot adopt a successor page candidate", async () => {
+  const f = await fixture(), handle = await f.begin(), prepared = defer(), finish = defer();
+  f.backend.clipboardBroker.transfer = async (_scope, operation, options) => {
+    prepared.resolve(); await finish.promise; options.check(); await options.dispatch();
+    return { operation, status: "unchanged" };
+  };
+  const pending = input(handle, humanCopyKey); pending.catch(() => {});
+  await prepared.promise; const closing = handle.close(); finish.resolve();
+  await assert.rejects(pending, /CANCELLED|STALE/); await closing;
+  assert.equal(f.calls.some(([method]) => method === "Input.dispatchKeyEvent"), false);
+});
 
 test("Default identity capture rejects a same-URL document commit during an original task read", async t => {
   const f = await fixture(); t.after(() => f.backend.pauseAutomation());

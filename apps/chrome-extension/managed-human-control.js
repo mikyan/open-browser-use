@@ -3,6 +3,7 @@ import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
 import { ManagedHumanInputBudget, ManagedHumanPreparationBudget, ManagedHumanHintDeadline } from "./managed-human-budget.js";
 import { ManagedHumanDocumentGraph } from "./managed-human-document-graph.js";
+import { validateHumanClipboardInput, validateHumanClipboardResult, clipboardFailure } from "./managed-human-clipboard.js";
 
 const fail = (message, code = "INVALID") => new Error(`OBU_HUMAN_${code}: ${message}`);
 const buttons = { left: 1, right: 2, middle: 4 };
@@ -28,8 +29,8 @@ function clientGeometry(metrics) {
 // One native attachment belongs to an immutable view or human lease. Only a
 // human lease owns input intent and durable risk; both share document cleanup.
 export class ManagedHumanControl {
-  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, viewJournal = null, onFailure = () => {}, timing }) {
-    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog, viewJournal, onFailure, timing });
+  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, clipboardTransfer = null, viewJournal = null, onFailure = () => {}, timing }) {
+    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog, clipboardTransfer, viewJournal, onFailure, timing });
     this.current = null;
     this.recoveryTimeoutMs = 10000;
   }
@@ -45,6 +46,7 @@ export class ManagedHumanControl {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
       ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1 } : {}),
+      ...(record.clipboardTransferVersion === 1 ? { clipboardTransferVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
   tabInfo(record) {
@@ -90,12 +92,19 @@ export class ManagedHumanControl {
   beginLease(mode, tabId, assertAuthority, onFrame, onState, options) {
     this.assertReleased();
     if (!["human", "view"].includes(mode) || !Number.isSafeInteger(tabId) || tabId < 0 || typeof assertAuthority !== "function" || typeof onFrame !== "function" || typeof onState !== "function") throw fail("invalid human control request");
-    fields(options, [], ["deliveryId"]);
+    fields(options, [], mode === "human" ? ["deliveryId", "browserVersion"] : ["deliveryId"]);
     if (Object.hasOwn(options, "deliveryId") && (typeof options.deliveryId !== "string" || !options.deliveryId)) throw fail("invalid delivery identity");
+    if (Object.hasOwn(options, "browserVersion")) {
+      fields(options.browserVersion, ["product", "revision"]);
+      if (![options.browserVersion.product, options.browserVersion.revision].every(value => typeof value === "string" && /^[\x21-\x7e]{1,256}$/.test(value)))
+        throw fail("invalid original native browser version");
+      options = { ...options, browserVersion: Object.freeze({ ...options.browserVersion }) };
+    }
     assertAuthority();
     const record = { tabId, assertAuthority, onFrame, onState, leaseId: crypto.randomUUID(), state: "starting",
       generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set(), dialogWaiters: new Set(), hintReads: new Set() };
-    Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) } });
+    Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) },
+      clipboardTransferVersion: { value: mode === "human" && typeof this.clipboardTransfer === "function" ? 1 : undefined } });
     this.current = record;
     if (mode === "human") record.documentGraph = new ManagedHumanDocumentGraph({
       send: (sessionId, method, params, check) => this.send(record, method, params, check, sessionId),
@@ -144,7 +153,7 @@ export class ManagedHumanControl {
   }
 
   createGeneration(record) {
-    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map(), retiredSignal: deferred() };
+    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map(), retiredSignal: deferred(), clipboardOperations: new Set() };
     if (record.mode === "human") {
       epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
         assertInput: () => this.checkInputGeometry(record, epoch) });
@@ -635,7 +644,7 @@ export class ManagedHumanControl {
       return ["Input.dispatchMouseEvent", { ...point(), type: "mouseWheel", deltaX: finite(input.deltaX, -4096, 4096), deltaY: finite(input.deltaY, -4096, 4096), modifiers: modifier() }, () => {}];
     }
     if (input?.type === "key") {
-      fields(input, ["type", "action", "key", "code", "windowsVirtualKeyCode"], ["modifiers", "repeat"]);
+      fields(input, ["type", "action", "key", "code", "windowsVirtualKeyCode"], ["modifiers", "repeat", "clipboardTransfer"]);
       if (!["down", "up"].includes(input.action) || typeof input.key !== "string" || !input.key.length || input.key.length > 64 || typeof input.code !== "string" || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(input.code) ||
           !Number.isInteger(input.windowsVirtualKeyCode) || input.windowsVirtualKeyCode < 0 || input.windowsVirtualKeyCode > 255) throw fail("invalid key input");
       if (Object.hasOwn(input, "repeat") && (input.repeat !== true || input.action !== "down")) throw fail("repeat requires a key down and true");
@@ -685,17 +694,31 @@ export class ManagedHumanControl {
       if (!Number.isSafeInteger(envelope.sequence) || envelope.sequence !== epoch.sequence + 1) throw fail("input does not match the displayed human lease sequence", "STALE");
       if (epoch.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
       if (record.dialogs.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
-      fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat"]);
+      fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat", "clipboardTransfer"]);
+      const clipboardOperation = validateHumanClipboardInput(envelope.input);
+      if (clipboardOperation && record.clipboardTransferVersion !== 1) throw fail("clipboard transfer is unavailable for this original lease", "UNAVAILABLE");
       const [method, params, commit] = this.command(epoch, { ...envelope.input });
       const sequence = envelope.sequence;
-      const operation = { dispatched: false, modalInterrupted: false };
+      const operation = { dispatched: false, modalInterrupted: false, clipboardOperation, nativeDone: deferred(), transferResponse: deferred() };
+      const cancelTransfer = code => {
+        operation.clipboardCancelled = true;
+        operation.clipboardCancelCode ??= code;
+        if (operation.receipt) operation.transferResponse.resolve(Object.freeze({ ...operation.receipt,
+          clipboardTransfer: { operation: clipboardOperation, status: "failed", code: operation.clipboardCancelCode } }));
+      };
+      operation.cancelTransfer = cancelTransfer;
       operation.budget = new ManagedHumanInputBudget({ timing: this.timing, onExpire: error => {
         // This observer deadline does not settle the actual native Promise.
         // Fence late admission synchronously, then join the original cleanup.
+        if (operation.receipt && clipboardOperation) { cancelTransfer("TIMEOUT"); return; }
         this.revoke(record, error); void this.close(record, error).catch(() => {});
       } });
       epoch.inputOperation = operation;
       let sent = false;
+      const releaseInputSlot = () => {
+        if (epoch.inputOperation === operation) epoch.inputOperation = null;
+        if (epoch.inputPending === operation.actual) epoch.inputPending = null;
+      };
       const pending = Promise.resolve().then(async () => {
         this.checkGeneration(record, epoch);
         if (epoch.geometryPending) await epoch.geometryPending;
@@ -706,20 +729,54 @@ export class ManagedHumanControl {
         if (this.frameTree(await this.send(record, "Page.getFrameTree", undefined, () => this.checkGeneration(record, epoch))) !== epoch.document)
           throw fail("native document changed before input", "DOCUMENT_CHANGED");
         this.checkGeneration(record, epoch);
-        await epoch.tracker.send({ tabId: record.tabId }, epoch.token, method, params, () => {
-          if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
+        const dispatch = async () => {
+          if (operation.dispatchStarted) throw fail("original input cannot be dispatched twice");
+          operation.dispatchStarted = true;
+          try {
+            await epoch.tracker.send({ tabId: record.tabId }, epoch.token, method, params, () => {
+              if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
+              this.checkInputGeometry(record, epoch);
+              return this.send(record, method, params, () => {
+                operation.budget.assertAvailable();
+                if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
+                this.checkInputGeometry(record, epoch); sent = true; operation.dispatched = true;
+              }, undefined, { epoch, candidate: epoch.candidate, check: () => this.checkInputGeometry(record, epoch) });
+            });
+            commit(); epoch.sequence = sequence;
+            // Retain the native fact before any clipboard read or cleanup.
+            operation.receipt = Object.freeze({ leaseId: record.leaseId, generation: epoch.id, sequence, acknowledged: true });
+            if (clipboardOperation) {
+              releaseInputSlot();
+              if (epoch.retired || record.revoked) cancelTransfer("CANCELLED");
+              else {
+                operation.transferDeadline = (this.timing?.now ?? (() => performance.now()))() + 3000;
+                const setTimer = this.timing?.setTimer ?? setTimeout;
+                operation.transferTimer = setTimer(() => cancelTransfer("TIMEOUT"), 3000);
+                operation.transferTimer?.unref?.();
+              }
+            }
+            return operation.receipt;
+          } finally { operation.nativeDone.resolve(); }
+        };
+        if (!clipboardOperation) return dispatch();
+        const check = () => {
+          if (operation.transferDeadline !== undefined && (this.timing?.now ?? (() => performance.now()))() >= operation.transferDeadline)
+            cancelTransfer("TIMEOUT");
+          if (operation.clipboardCancelled) throw new Error("OBU_CLIPBOARD_CANCELLED: original human transfer retired");
           this.checkInputGeometry(record, epoch);
-          return this.send(record, method, params, () => {
-            operation.budget.assertAvailable();
-            if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
-            this.checkInputGeometry(record, epoch); sent = true; operation.dispatched = true;
-          }, undefined, { epoch, candidate: epoch.candidate, check: () => this.checkInputGeometry(record, epoch) });
-        });
-        commit(); epoch.sequence = sequence;
-        // An actual native ACK remains an ACK for its original tuple, even
-        // after navigation or End. It never advances a successor generation.
-        return Object.freeze({ leaseId: record.leaseId, generation: epoch.id, sequence, acknowledged: true });
+        };
+        const result = await this.clipboardTransfer(
+          { kind: "human", leaseId: record.leaseId, tabId: record.tabId, candidate: epoch.candidate },
+          clipboardOperation, { check, dispatch, deadlineAt: Date.now() + 30000 });
+        check();
+        if (!operation.receipt) throw fail("clipboard transfer omitted the original native input", "UNCONFIRMED");
+        return Object.freeze({ ...operation.receipt, clipboardTransfer: validateHumanClipboardResult(result, clipboardOperation) });
       }).catch(error => {
+        if (operation.receipt && clipboardOperation) {
+          const result = epoch.retired || record.revoked || operation.clipboardCancelled ?
+            { operation: clipboardOperation, status: "failed", code: operation.clipboardCancelCode ?? "CANCELLED" } : clipboardFailure(error, clipboardOperation);
+          return Object.freeze({ ...operation.receipt, clipboardTransfer: result });
+        }
         // Independent document reads can reject while the observed navigation
         // fence wins. The dispatch marker, not an error-text guess, proves this
         // old request was never delivered. Native failures revoke in send().
@@ -729,18 +786,28 @@ export class ManagedHumanControl {
         }
         throw error;
       });
+      operation.actual = pending;
+      if (clipboardOperation) epoch.clipboardOperations.add(operation);
       epoch.inputPending = pending;
       const settled = () => {
         operation.settled = true;
-        if (epoch.inputPending === pending) epoch.inputPending = null;
-        if (epoch.inputOperation === operation) epoch.inputOperation = null;
+        operation.nativeDone.resolve();
+        releaseInputSlot();
+        epoch.clipboardOperations.delete(operation);
+        (this.timing?.clearTimer ?? clearTimeout)(operation.transferTimer);
       };
       pending.then(settled, error => {
         settled();
         if (!sent && error?.message?.startsWith("OBU_HUMAN_GENERATION_STALE:")) return;
         void this.close(record, error).catch(() => {});
       });
-      return operation.budget.observe(pending);
+      const response = clipboardOperation ? Promise.race([pending, operation.transferResponse.promise]) : pending;
+      return operation.budget.observe(response).catch(error => {
+        // Observing a late clipboard timeout must never erase an actual key ACK.
+        if (clipboardOperation && operation.receipt) return Object.freeze({ ...operation.receipt,
+          clipboardTransfer: { operation: clipboardOperation, status: "failed", code: "TIMEOUT" } });
+        throw error;
+      }).finally(() => { (this.timing?.clearTimer ?? clearTimeout)(operation.transferTimer); });
     } catch (error) { return Promise.reject(error); }
   }
 
@@ -749,6 +816,7 @@ export class ManagedHumanControl {
     record.dialogs?.retire(epoch);
     epoch.retired = true;
     epoch.retiredSignal.resolve();
+    for (const operation of epoch.clipboardOperations) operation.cancelTransfer("CANCELLED");
     void epoch.rendering.cancel(record.tabId, epoch.token).catch(() => {});
   }
   releaseGeneration(record, epoch) {
@@ -757,7 +825,9 @@ export class ManagedHumanControl {
     if (!epoch.cleaning) {
       epoch.cleaning = (async () => {
         await record.dialogs?.drain(epoch);
-        await Promise.allSettled([epoch.preparation, epoch.start, epoch.inputPending, epoch.geometryPending].filter(Boolean));
+        const operation = epoch.inputOperation;
+        const nativePending = operation?.clipboardOperation ? operation.dispatched && operation.nativeDone.promise : epoch.inputPending;
+        await Promise.allSettled([epoch.preparation, epoch.start, nativePending, epoch.geometryPending].filter(Boolean));
         await record.dialogs?.drain(epoch);
         if (record.attached) {
           if (epoch.tracker) await epoch.tracker.release(record.tabId, epoch.token, (_target, method, params) => this.send(record, method, params));
@@ -772,6 +842,9 @@ export class ManagedHumanControl {
             epoch.tracker.forget(record.tabId, epoch.token, { destroyed: true });
           }
         } else throw fail("external debugger loss did not confirm original input release", "CLEANUP_INCOMPLETE");
+        // Release original held keys before awaiting optional clipboard reads.
+        // The private helper still owns its actual Promise until it settles.
+        await Promise.allSettled([...epoch.clipboardOperations].map(operation => operation.actual));
         epoch.cleaned = true; record.epochs.delete(epoch);
       })();
       epoch.cleaning.catch(() => { epoch.cleaning = null; });

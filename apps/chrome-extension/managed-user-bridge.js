@@ -1,5 +1,6 @@
 import { resolveManagedNativeHost } from "./managed-native-host.js";
 import { validateHumanDialogResponse } from "./managed-human-dialogs.js";
+import { validateHumanClipboardInput, validateHumanClipboardResult } from "./managed-human-clipboard.js";
 
 const API = "__obuManagedUser", BINDING = "__obuManagedViewerEvent";
 const LEASE_MS = 10000, HEARTBEAT_MS = 3000, MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -432,7 +433,10 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       return backend.beginManagedHuman(tabId, authority, value => {
         if (!record.handle) { record.earlyFrame = value; return; }
         receiveFrame(channel, record, value);
-      }, value => leaseStateChanged(channel, record, value), deliveryId === undefined ? {} : { deliveryId });
+      }, value => leaseStateChanged(channel, record, value), {
+        ...(deliveryId === undefined ? {} : { deliveryId }),
+        ...(channel.browserVersion ? { browserVersion: channel.browserVersion } : {})
+      });
     });
     try {
       const handle = await record.started;
@@ -455,10 +459,19 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     } finally { channel.stateEpoch++; }
   }
   async function open(input) {
-    const value = fields(input, ["version", ...identityKeys, "channelKey"], ["recovery"]);
+    const value = fields(input, ["version", ...identityKeys, "channelKey"], ["recovery", "browserVersion"]);
     if (value.version !== 1 || value.runId !== runId || !text(value.extensionId, 32) || !/^[a-p]{32}$/.test(value.extensionId) ||
         !identityKeys.slice(2).every(key => text(value[key])) || !text(value.channelKey) || !/^[A-Za-z0-9_-]{32,256}$/.test(value.channelKey))
       throw failure("IDENTITY", "invalid managed worker identity or channel key");
+    let browserVersion;
+    if (Object.hasOwn(value, "browserVersion")) {
+      const native = fields(value.browserVersion, ["product", "revision"]);
+      if (![native.product, native.revision].every(value => typeof value === "string" && /^[\x21-\x7e]{1,256}$/.test(value)))
+        throw failure("IDENTITY", "invalid original native browser version");
+      // The manager reads these values on this original Browser root, then
+      // supplies them through the same authenticated worker/port admission.
+      browserVersion = Object.freeze({ product: native.product, revision: native.revision });
+    }
     if (value.recovery !== undefined) {
       const recovery = fields(value.recovery, ["kind", "previousWorkerBootId", "browserIncarnation", "expectedJournalId", "expectedWorkerEpoch", "nonce"]);
       if (recovery.kind !== "worker-replacement" || !["previousWorkerBootId", "browserIncarnation", "expectedJournalId", "nonce"].every(key => text(recovery[key])) ||
@@ -491,7 +504,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       const channel = { id, key: value.channelKey, identity: Object.fromEntries(identityKeys.map(key => [key, value[key]])), proof, nonce: proof.nonce, sink,
         deadline, closed: false, timer: null, sequence: 0, stateEpoch: 0, selectedTabId: null, stream: null,
         streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, retiredAcks: new Set(), pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve(),
-        nativeEpoch: admission?.epoch ?? null };
+        nativeEpoch: admission?.epoch ?? null, browserVersion };
       channels.set(channel.key, channel); current = latestChannel = channel; arm(channel);
       try {
         const result = { ...identity(channel), status: await status(channel), recoveryState: admission?.recoveryState,
@@ -544,7 +557,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (operation === "disconnect") {
       return disconnectedStatus(channel);
     }
-    let inputReceipt, dialogReceipt;
+    let inputReceipt, dialogReceipt, checkClipboardPublication;
     if (operation === "humanDialogRespond") {
       const envelope = Object.fromEntries([...extra, "promptText"].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
       validateHumanDialogResponse(envelope);
@@ -566,6 +579,9 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         throw failure("HUMAN_GENERATION_STALE", "original document input was not dispatched; wait for the current frame");
       if (!before || before.state !== "active" || before.leaseId !== value.leaseId || before.generation !== value.generation)
         throw failure("HUMAN_STALE", "original human lease and geometry are no longer active");
+      const clipboardOperation = validateHumanClipboardInput(value.input);
+      if (clipboardOperation && before.clipboardTransferVersion !== 1)
+        throw failure("HUMAN_STALE", "original human lease does not support clipboard transfer");
       const accepted = await handle.input({ leaseId: value.leaseId, generation: value.generation, sequence: value.sequence, input: value.input });
       if (accepted?.acknowledged !== true || accepted.leaseId !== value.leaseId || accepted.generation !== value.generation || accepted.sequence !== value.sequence) {
         if (channel.stream === record) await retireStream(channel, "original input acknowledgement unavailable");
@@ -574,6 +590,20 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       // The click's actual receipt and the current page status are different
       // facts. A click which caused navigation still owns its original ACK.
       inputReceipt = { leaseId: accepted.leaseId, generation: accepted.generation, sequence: accepted.sequence, acknowledged: true };
+      if (clipboardOperation) {
+        try { inputReceipt.clipboardTransfer = validateHumanClipboardResult(accepted.clipboardTransfer, clipboardOperation); }
+        catch {
+          // A malformed optional payload cannot erase the proven native key
+          // ACK or authorize replaying a cut. Never expose its untrusted text.
+          inputReceipt.clipboardTransfer = { operation: clipboardOperation, status: "failed", code: "READ_FAILED" };
+        }
+        checkClipboardPublication = () => {
+          const current = handle.info();
+          if (inputReceipt.clipboardTransfer.status === "ready" && (channel.stream !== record || record.retired ||
+              current?.state !== "active" || current.leaseId !== value.leaseId || current.generation !== value.generation))
+            inputReceipt.clipboardTransfer = { operation: clipboardOperation, status: "failed", code: "CANCELLED" };
+        };
+      }
     } else if (operation === "humanEnd") {
       const record = channel.stream;
       if (!record?.human || !record.handle || record.handle.info().leaseId !== value.leaseId) throw failure("HUMAN_STALE", "original human lease is no longer active");
@@ -613,7 +643,11 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       finally { channel.pendingResumes--; channel.stateEpoch++; }
     }
     assertCurrent(channel);
-    return { status: await status(channel, operation !== "status"), ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}) };
+    const currentStatus = await status(channel, operation !== "status");
+    // Status collection can cross a navigation or End. Publish clipboard text
+    // only after that final asynchronous boundary, keeping the original ACK.
+    checkClipboardPublication?.();
+    return { status: currentStatus, ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}) };
   }
   const api = Object.freeze({ open, request });
   Object.defineProperty(target, API, { value: api, configurable: false, writable: false, enumerable: false });

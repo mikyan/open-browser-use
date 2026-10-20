@@ -862,6 +862,7 @@ class BrowserBackend {
     this.managedHuman = new ManagedHumanControl({ chrome,
       capture: (tabId, options) => this.captureManagedHumanPage(tabId, options),
       validate: (candidate, options) => this.validateManagedHumanPage(candidate, options),
+      clipboardTransfer: managedConfig ? (...args) => this.transferManagedHumanClipboard(...args) : null,
       assertDialog: (candidate, actualOrigins = []) => {
         // Modal responses cannot wait on page reads. Fence the already verified
         // document's native lifetime, original delivery and policy at dispatch.
@@ -3819,9 +3820,34 @@ class BrowserBackend {
       const record = this.managedResults.get(tabId, options.deliveryId);
       const check = () => { assertAuthority(); this.assertManagedResultAccess(); this.managedResults.assert(record); };
       check();
-      return this.managedHuman.begin(tabId, check, onFrame, onState, { deliveryId: record.deliveryId });
+      return this.managedHuman.begin(tabId, check, onFrame, onState, {
+        deliveryId: record.deliveryId,
+        ...(options.browserVersion ? { browserVersion: options.browserVersion } : {})
+      });
     }
     return this.managedHuman.begin(tabId, assertAuthority, onFrame, onState, options);
+  }
+
+  transferManagedHumanClipboard(scope, operation, options) {
+    const original = this.managedHuman.current;
+    const check = () => {
+      options.check();
+      this.assertSiteMethod("readClipboardText", { tabId: scope.tabId });
+      if (!managedConfig || !original || original.mode !== "human" || this.managedHuman.current !== original ||
+          original.leaseId !== scope.leaseId || original.tabId !== scope.tabId || original.epoch?.candidate !== scope.candidate)
+        throw new Error("OBU_CLIPBOARD_CANCELLED: original human clipboard authority ended");
+      this.managedHuman.check(original);
+    };
+    const validateScope = async () => {
+      check();
+      await this.validateManagedHumanPage(scope.candidate);
+      check();
+    };
+    check();
+    // A human lease is its own authority. Never invent an Agent turn to use
+    // the paused task API; both routes still share the same private broker.
+    return this.clipboardBroker.transfer({ kind: "human", leaseId: scope.leaseId, tabId: scope.tabId },
+      operation, { ...options, browserVersion: original.options.browserVersion, check, validateScope });
   }
 
   async readManagedPageIdentity(tabId, check) {

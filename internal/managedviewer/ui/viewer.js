@@ -5,7 +5,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   let ticket = fragment.get("ticket") || "";
   history.replaceState(null, "", location.pathname);
-  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
+  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input", "clipboard-status", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
   let ws, connected = false, authenticated = false, available = false, stopped = false;
   let status = null, worker = "", pendingAction = null, nextId = 0, appliedId = 0;
   let selected = null, selectedOnce = false, tabs = [], lastFrameAt = 0, imageURL = null;
@@ -33,6 +33,115 @@
   const inputQueue = [], pressedButtons = new Set(), pressedKeys = new Set(), capturedPointers = new Set();
   const maxQueuedInputs = 32;
   const pending = new Map();
+  // A real local write outlives input queue retirement. Rejecting its data is
+  // not proof of native settlement, and resolved data cannot be retracted.
+  let localClipboard = null, clipboardNotice = "";
+  const clipboardInputs = new WeakMap();
+  const clipboardKeys = new Set();
+  const transferFailures = new Set(["UNSUPPORTED", "DENIED", "BUSY", "CANCELLED", "TIMEOUT", "CHANGED", "LIMIT", "READ_FAILED"]);
+
+  function renderClipboard() {
+    const record = localClipboard;
+    el["clipboard-status"].dataset.pending = String(Boolean(record?.writePending));
+    el["clipboard-status"].dataset.dataState = record?.dataState || "";
+    el["clipboard-status"].hidden = !clipboardNotice;
+    el["clipboard-status"].textContent = clipboardNotice +
+      (record?.writePending && record.dataState === "rejected" && !record.retired ? " 本地写入尚待结束。" : "");
+  }
+  function rejectClipboardData(record, message) {
+    if (record.dataState !== "pending") return;
+    record.dataState = "rejected";
+    record.reject(new Error(message));
+  }
+  function retireClipboard() {
+    const record = localClipboard;
+    if (!record || !record.writePending) return;
+    record.retired = true;
+    rejectClipboardData(record, "Original human input retired");
+    clipboardNotice = record.dataState === "resolved"
+      ? "本地剪贴板写入仍待确认；内容已交给浏览器，不能撤回。"
+      : "待传文字已取消；仍在等待本地剪贴板写入结束。";
+    renderClipboard();
+  }
+  function startClipboard(operation, event) {
+    if (localClipboard?.writePending) {
+      clipboardNotice = "上一次本地剪贴板写入尚未结束；本次复制或剪切未发送。";
+      renderClipboard(); return null;
+    }
+    if (event.isTrusted !== true || typeof ClipboardItem !== "function" ||
+        typeof navigator === "undefined" || typeof navigator.clipboard?.write !== "function") {
+      clipboardNotice = "当前浏览器不能接收剪贴板文字；本次复制或剪切未发送。";
+      renderClipboard(); return null;
+    }
+    const record = { operation, humanEpoch, leaseId: human.leaseId, generation: human.generation,
+      dataState: "pending", writePending: true, retired: false, requestId: null, sequence: null };
+    const data = new Promise((resolve, reject) => { record.resolve = resolve; record.reject = reject; });
+    // Construction/write may fail before a browser consumes this promise.
+    data.catch(() => {});
+    try {
+      const item = new ClipboardItem({ "text/plain": data });
+      record.actual = navigator.clipboard.write([item]); // Still in the original trusted keydown.
+      if (!record.actual || typeof record.actual.then !== "function") throw new Error("Missing native write promise");
+    } catch {
+      record.writePending = false;
+      rejectClipboardData(record, "Local clipboard unavailable");
+      clipboardNotice = "本地剪贴板未就绪；本次复制或剪切未发送。";
+      renderClipboard(); return null;
+    }
+    localClipboard = record;
+    clipboardNotice = "正在等待原复制或剪切结果写入本地剪贴板。";
+    record.actual.then(() => {
+      record.writePending = false;
+      if (record.dataState === "resolved") clipboardNotice = "文字已写入本地剪贴板。";
+      else {
+        rejectClipboardData(record, "Local write settled without original data");
+        clipboardNotice = "本地剪贴板结果未确认；不会重试复制或剪切。";
+      }
+      renderClipboard();
+    }, () => {
+      record.writePending = false;
+      const hadData = record.dataState === "resolved";
+      rejectClipboardData(record, "Local clipboard write rejected");
+      if (hadData || !record.retired && record.notice === undefined)
+        clipboardNotice = "本地剪贴板写入失败；网页按键不会重试，剪切不会回滚。";
+      else if (record.retired) clipboardNotice = "本地剪贴板写入已结束；待传文字未提交。";
+      else clipboardNotice = record.notice;
+      renderClipboard();
+    });
+    renderClipboard();
+    return record;
+  }
+  function completeClipboard(entry, id, receipt) {
+    const record = clipboardInputs.get(entry.fields.input);
+    if (!record || record.dataState !== "pending" || record.retired || !record.writePending) return;
+    const current = record === localClipboard && record.requestId === id && record.sequence === receipt.sequence &&
+      record.humanEpoch === humanEpoch && record.leaseId === humanOwner && record.leaseId === receipt.leaseId &&
+      record.generation === receipt.generation && human?.generation === record.generation &&
+      human.clipboardTransferVersion === 1 && !humanEnding && humanAdmitted && !revoked;
+    const transfer = receipt.clipboardTransfer;
+    const keys = transfer && typeof transfer === "object" && !Array.isArray(transfer) ? Object.keys(transfer).sort().join(",") : "";
+    const ready = keys === "operation,status,text" && transfer.status === "ready" &&
+      typeof transfer.text === "string" && transfer.text.length <= 65536 &&
+      !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(transfer.text) &&
+      new TextEncoder().encode(transfer.text).byteLength <= 65536;
+    const unchanged = keys === "operation,status" && transfer.status === "unchanged";
+    const failed = keys === "code,operation,status" && transfer.status === "failed" && transferFailures.has(transfer.code);
+    if (!current || transfer?.operation !== record.operation || !(ready || unchanged || failed)) {
+      record.notice = "剪贴板回执无法确认；不会重试原按键。";
+    } else if (ready) {
+      // No await between the original authority check and supplying native data.
+      try {
+        const blob = new Blob([transfer.text], { type: "text/plain" });
+        record.dataState = "resolved";
+        record.resolve(blob);
+        clipboardNotice = "文字已交给浏览器，正在等待本地剪贴板写入确认。";
+        renderClipboard(); return;
+      } catch { record.notice = "本地剪贴板文字处理失败；原按键已确认，不会重试。"; }
+    } else record.notice = unchanged ? "未观察到新的可复制文字；本地剪贴板未更新。" : "远端剪贴板文字未能传回；原按键已确认，不会重试。";
+    rejectClipboardData(record, "Clipboard transfer unavailable");
+    clipboardNotice = record.notice;
+    renderClipboard();
+  }
 
   const selectedTab = () => tabs.find(tab => tab.id === selected && (tab.deliveryId || "") === selectedDeliveryId);
   const userControlReady = () => status?.state === "running" || status?.state === "paused" && status.cleanupComplete && viewerCleanupComplete;
@@ -68,6 +177,7 @@
       Number.isSafeInteger(value.generation) && value.generation >= 0 &&
       (!Object.hasOwn(value, "inputBudgetVersion") || value.inputBudgetVersion === 1) &&
       (!Object.hasOwn(value, "keyRepeatVersion") || value.keyRepeatVersion === 1) &&
+      (!Object.hasOwn(value, "clipboardTransferVersion") || value.clipboardTransferVersion === 1) &&
       (value.state !== "preparing" || value.viewport === null) &&
       (value.state !== "navigating" || value.generation > 0 && value.viewport === null) &&
       (value.viewport === null ? value.state !== "active" || value.generation === 0 :
@@ -146,10 +256,12 @@
   }
 
   function clearHumanInput() {
+    retireClipboard();
     decodedHuman = null;
     awaitingHumanFrame = null;
     inputQueue.length = 0;
     pressedKeys.clear();
+    clipboardKeys.clear();
     pressedButtons.clear();
     composing = false;
     compositionScope = null;
@@ -243,6 +355,7 @@
     el["human-status"].hidden = !humanReserved() && !humanAction && !humanOwner;
     el["human-status"].textContent = humanAction === "humanBegin" || human?.state === "starting" ? "正在暂停 Agent 并等待原控制释放…" : humanEnding || human?.state === "releasing" ? "人工输入已禁用，正在等待释放确认；不会重试网页操作。" : human?.state === "error" ? "人工控制未完成释放。请完成接管或停止会话；Agent 保持暂停。" : human?.state === "navigating" || human && human.generation <= retiredHumanGeneration ? "页面正在跳转，输入已暂停；等待新画面后可继续，旧输入不会重放。" : ready ? "你正在操作 · 点击画面后输入；切换查看窗口会结束接管。完成后 Agent 仍保持暂停。" : "你正在接管 · 等待当前画面解码，暂不接收输入。";
     if (pendingDialog && !humanEnding) el["human-status"].textContent = "网页弹窗等待处理，页面输入暂时暂停；Agent 保持暂停。";
+    renderClipboard();
     renderDialog();
     freshness();
   }
@@ -295,11 +408,14 @@
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.inputBudgetVersion !== human.inputBudgetVersion) throw new Error("原人工接管的等待预算发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "keyRepeatVersion") && nextHuman.keyRepeatVersion !== 1) throw new Error("人工重复按键版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.keyRepeatVersion !== human.keyRepeatVersion) throw new Error("原人工接管的重复按键能力发生变化。");
+    if (nextHuman && Object.hasOwn(nextHuman, "clipboardTransferVersion") && nextHuman.clipboardTransferVersion !== 1) throw new Error("人工剪贴板传输版本无效。");
+    if (human && nextHuman?.leaseId === human.leaseId && nextHuman.clipboardTransferVersion !== human.clipboardTransferVersion) throw new Error("原人工接管的剪贴板传输能力发生变化。");
     const nextDialog = value.pendingDialog ?? null;
     if (!validDialog(nextDialog, nextHuman)) throw new Error("网页弹窗身份无效。");
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
     if (nextView && Object.hasOwn(nextView, "inputBudgetVersion")) throw new Error("只读查看不能声明人工等待预算。");
     if (nextView && Object.hasOwn(nextView, "keyRepeatVersion")) throw new Error("只读查看不能声明人工重复按键。");
+    if (nextView && Object.hasOwn(nextView, "clipboardTransferVersion")) throw new Error("只读查看不能声明人工剪贴板传输。");
     if (!validView(nextView) || nextView && nextHuman || nextView && (nextView.tabId !== value.selectedTabId || !nextTabs.some(tab => tab.id === nextView.tabId && tab.kind === "result"))) throw new Error("独立查看身份无效。");
     if (view && nextView && view.leaseId === nextView.leaseId && nextView.generation < view.generation) return;
     const waitingView = awaitingViewFrame;
@@ -512,6 +628,8 @@
     if (!humanReady() || humanInputId !== null || !inputQueue.length) return;
     const input = inputQueue.shift();
     humanInputId = send("humanInput", { leaseId: human.leaseId, generation: human.generation, sequence: ++humanSequence, input });
+    const clipboard = clipboardInputs.get(input);
+    if (clipboard) { clipboard.requestId = humanInputId; clipboard.sequence = humanSequence; }
     render();
   }
 
@@ -602,6 +720,18 @@
     if (printable && !shortcut && !pressedKeys.has(event.code)) return; // Committed text has exactly one path below.
     if (!event.code || !Number.isInteger(event.keyCode) || event.keyCode < 1 || event.keyCode > 255) return;
     event.preventDefault();
+    if (action === "down" && clipboardKeys.has(event.code)) return;
+    const transferKey = (event.code === "KeyC" && event.keyCode === 67 && event.key?.toLowerCase() === "c") ||
+      (event.code === "KeyX" && event.keyCode === 88 && event.key?.toLowerCase() === "x");
+    const transferShortcut = transferKey && [2, 4].includes(modifiers(event)) && human.clipboardTransferVersion === 1;
+    let clipboard = null;
+    if (action === "down" && transferShortcut) {
+      // Repeats never become additional copy/cut operations; original up remains.
+      if (event.repeat === true || pressedKeys.has(event.code)) return;
+      clipboard = startClipboard(event.code === "KeyC" ? "copy" : "cut", event);
+      if (!clipboard) return;
+      clipboardKeys.add(event.code);
+    }
     let repeat = false;
     if (action === "down") {
       if (event.repeat === true) {
@@ -613,8 +743,13 @@
         if (pressedKeys.has(event.code)) return;
         pressedKeys.add(event.code);
       }
-    } else if (!pressedKeys.delete(event.code)) return;
-    enqueueInput({ type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event), ...(repeat ? { repeat: true } : {}) }, releasingHeldInput);
+    } else {
+      clipboardKeys.delete(event.code);
+      if (!pressedKeys.delete(event.code)) return;
+    }
+    const input = { type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event), ...(repeat ? { repeat: true } : {}), ...(clipboard ? { clipboardTransfer: clipboard.operation } : {}) };
+    if (clipboard) clipboardInputs.set(input, clipboard);
+    if (!enqueueInput(input, releasingHeldInput) && clipboard) retireClipboard();
   }
 
   el["human-begin"].addEventListener("click", () => {
@@ -812,6 +947,7 @@
             acceptState(value.result, value.id);
             if (!humanEnding && human?.state === "active" && human.leaseId === receipt.leaseId && human.generation === receipt.generation && human.generation > retiredHumanGeneration)
               acknowledgedSequence = receipt.sequence;
+            completeClipboard(entry, value.id, receipt);
             drainInput();
           }
         } else {
@@ -819,7 +955,7 @@
             const original = value.result?.human;
             if (!validHuman(original) || !admittedHumanState(original) || original.tabId !== entry.fields.tabId ||
                 humanOwner && original.leaseId !== humanOwner || human &&
-                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion))
+                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion))
               throw new Error("原接管回执不匹配。");
           }
           acceptState(value.result, value.id);

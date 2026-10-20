@@ -85,14 +85,15 @@ function fixture(t, options = {}) {
   return f;
 }
 
-function humanFixture(t, { inputBudgetVersion } = {}) {
+function humanFixture(t, { inputBudgetVersion, clipboardTransferVersion } = {}) {
   const f = fixture(t);
   f.humans = []; f.dialogGates = []; let dialogCounter = 0;
-  f.backend.beginManagedHuman = async (tabId, authority, onFrame, onState) => {
+  f.backend.beginManagedHuman = async (tabId, authority, onFrame, onState, options = {}) => {
     f.calls.push(["humanBegin", tabId]); authority();
-    const closed = deferred(), record = { tabId, authority, onFrame, onState, closed, closeCalls: 0, inputCalls: 0, dialogClaims: new Set(), dialogPending: new Set(),
+    const closed = deferred(), record = { tabId, authority, onFrame, onState, options, closed, closeCalls: 0, inputCalls: 0, dialogClaims: new Set(), dialogPending: new Set(),
       info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0,
-        ...(inputBudgetVersion === undefined ? {} : { inputBudgetVersion }) } };
+        ...(inputBudgetVersion === undefined ? {} : { inputBudgetVersion }),
+        ...(clipboardTransferVersion === undefined ? {} : { clipboardTransferVersion }) } };
     const handle = record.handle = {
       info: () => ({ ...record.info }), closed: closed.promise,
       pendingDialog: () => record.dialog ?? null,
@@ -177,6 +178,80 @@ function humanFixture(t, { inputBudgetVersion } = {}) {
   };
   return f;
 }
+
+const transferInput = { type: "key", action: "down", key: "x", code: "KeyX", windowsVirtualKeyCode: 88, modifiers: 2, clipboardTransfer: "cut" };
+test("human authority retains only its authenticated channel's immutable native browser version", async t => {
+  const f = humanFixture(t);
+  const browserVersion = { product: "Chrome/156.0.8078.4", revision: "@f842f52ef39fd97b449eb27cff414bf05a98ddce" };
+  const expected = { ...browserVersion };
+  await f.open({ browserVersion });
+  browserVersion.product = "forged successor";
+  await f.begin();
+  assert.deepEqual(f.humans[0].options.browserVersion, expected);
+  assert.equal(Object.isFrozen(f.humans[0].options.browserVersion), true);
+});
+
+test("malformed native browser metadata cannot open a user channel or invoke an accessor", async t => {
+  let reads = 0;
+  for (const browserVersion of [null, {}, { product: "Chrome/x", revision: "@x", userAgent: "forged" },
+    { product: "Chrome x", revision: "@x" },
+    Object.defineProperty({ revision: "@x" }, "product", { enumerable: true, get() { reads++; return "Chrome/x"; } })]) {
+    const f = humanFixture(t);
+    await assert.rejects(f.open({ browserVersion }), /IDENTITY|PROTOCOL/);
+    assert.equal(f.openCommitted, undefined);
+  }
+  assert.equal(reads, 0);
+});
+
+test("clipboard transfer requires the actual advertised lease and preserves the native receipt", async t => {
+  const f = humanFixture(t, { inputBudgetVersion: 1, clipboardTransferVersion: 1 });
+  await f.open(); await f.begin();
+  assert.equal((await f.request("status")).status.human.clipboardTransferVersion, 1);
+  f.inputReplyOverride = { clipboardTransfer: { operation: "cut", status: "ready", text: "中文\ncopy" } };
+  const result = await f.input(1, { input: transferInput });
+  assert.equal(result.inputReceipt.acknowledged, true);
+  assert.deepEqual(result.inputReceipt.clipboardTransfer, f.inputReplyOverride.clipboardTransfer);
+});
+
+test("navigation during final status collection suppresses retired clipboard text but retains the native ACK", async t => {
+  const f = humanFixture(t, { inputBudgetVersion: 1, clipboardTransferVersion: 1 });
+  await f.open(); await f.begin();
+  f.inputReplyOverride = { clipboardTransfer: { operation: "cut", status: "ready", text: "retired source text" } };
+  const entered = deferred(), release = deferred(), original = f.backend.getAutomationControlStatus;
+  let first = true;
+  f.backend.getAutomationControlStatus = async () => {
+    if (first) { first = false; entered.resolve(); await release.promise; }
+    return original();
+  };
+  const pending = f.input(1, { input: transferInput });
+  await entered.promise;
+  f.navigate(2); release.resolve();
+  const result = await pending;
+  assert.equal(result.status.human.generation, 2);
+  assert.equal(result.inputReceipt.acknowledged, true);
+  assert.deepEqual(result.inputReceipt.clipboardTransfer, { operation: "cut", status: "failed", code: "CANCELLED" });
+});
+
+test("clipboard receipt corruption cannot erase an actual cut ACK or expose unrelated contents", async t => {
+  const f = humanFixture(t, { inputBudgetVersion: 1, clipboardTransferVersion: 1 });
+  await f.open(); await f.begin();
+  for (const [index, invalid] of [undefined, null, { operation: "copy", status: "ready", text: "wrong operation" },
+    { operation: "cut", status: "ready", text: "hidden", private: true }].entries()) {
+    f.inputReplyOverride = invalid === undefined ? {} : { clipboardTransfer: invalid };
+    const result = await f.input(index + 1, { input: transferInput });
+    assert.equal(result.inputReceipt.acknowledged, true);
+    assert.deepEqual(result.inputReceipt.clipboardTransfer, { operation: "cut", status: "failed", code: "READ_FAILED" });
+  }
+  f.inputReplyOverride = { clipboardTransfer: { operation: "cut", status: "ready", text: "unsolicited" } };
+  const ordinary = await f.input(5);
+  assert.equal(Object.hasOwn(ordinary.inputReceipt, "clipboardTransfer"), false);
+});
+
+test("legacy human lease rejects transfer before the native shortcut", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  await assert.rejects(f.input(1, { input: transferInput }), /HUMAN_STALE/);
+  assert.equal(f.humans[0].inputCalls, 0);
+});
 
 test("native loss retires the exact channel synchronously and only its full identity can join original cleanup", async t => {
   const f = humanFixture(t), opened = await f.open();

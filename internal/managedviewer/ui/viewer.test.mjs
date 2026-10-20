@@ -7,6 +7,228 @@ import { captureFixture, captureResultFixture } from "../testdata/generate-bridg
 const source = readFileSync(new URL("./viewer.js", import.meta.url), "utf8");
 const ticket = "a".repeat(43);
 
+function clipboardHarness(options = {}) {
+  const writes = [];
+  const api = {
+    version: 1,
+    ClipboardItem: class { constructor(data) { if (options.itemThrows) throw Error("item unavailable"); this.data = data; } },
+    navigator: { clipboard: { write(items) {
+      if (options.writeThrows) throw Error("write unavailable");
+      const call = { items, blob: null, dataError: null };
+      call.data = items[0].data["text/plain"].then(blob => { call.blob = blob; }, error => { call.dataError = error; });
+      call.actual = new Promise((resolve, reject) => { call.resolve = resolve; call.reject = reject; });
+      writes.push(call);
+      return call.actual;
+    } } },
+    ...options
+  };
+  if (options.unavailable) api.navigator = {};
+  const h = setup(1, 1, api); h.readyHuman();
+  const key = (action = "keydown", extra = {}) => h.event("human-input", action, { isTrusted: true, key: "c", code: "KeyC", keyCode: 67, ctrlKey: true, ...extra });
+  const receipt = (request, transfer, extra = {}) => h.ackInput(request, {
+    inputReceipt: { acknowledged: true, leaseId: request.leaseId, generation: request.generation, sequence: request.sequence,
+      ...(transfer === undefined ? {} : { clipboardTransfer: transfer }) }, ...extra
+  });
+  return { ...h, writes, key, receipt };
+}
+const flushClipboard = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+
+test("clipboard transfer starts synchronously in trusted keydown and resolves only its exact ACK", async () => {
+  const h = clipboardHarness(); const event = h.key();
+  assert.equal(event.prevented, true);
+  assert.equal(h.writes.length, 1, "native write starts before leaving keydown");
+  const request = h.socket.sent.at(-1);
+  assert.equal(request.input.clipboardTransfer, "copy");
+  assert.equal(h.writes[0].blob, null);
+  h.key("keyup");
+  h.receipt(request, { operation: "copy", status: "ready", text: "原文\n😀" });
+  await flushClipboard();
+  assert.equal(await h.writes[0].blob.text(), "原文\n😀");
+  assert.equal(h.socket.sent.at(-1).input.action, "up");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, String(request.sequence));
+  assert.equal(h.element("clipboard-status").dataset.pending, "true");
+  h.writes[0].resolve(); await flushClipboard();
+  assert.equal(h.element("clipboard-status").dataset.pending, "false");
+  assert.match(h.element("clipboard-status").textContent, /已写入/);
+});
+
+for (const option of ["unavailable", "itemThrows", "writeThrows"]) test(`clipboard transfer blocks cut on local synchronous failure: ${option}`, async () => {
+  const h = clipboardHarness({ [option]: true });
+  const count = h.socket.sent.length;
+  h.key("keydown", { key: "x", code: "KeyX", keyCode: 88 }); h.key("keyup", { key: "x", code: "KeyX", keyCode: 88 });
+  await flushClipboard();
+  assert.equal(h.socket.sent.length, count);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.match(h.element("clipboard-status").textContent, /未发送/);
+});
+
+for (const transfer of [
+  { operation: "copy", status: "unchanged" },
+  { operation: "copy", status: "failed", code: "CHANGED" },
+  undefined,
+  { operation: "cut", status: "ready", text: "wrong" },
+  { operation: "copy", status: "ready", text: "\ud800" },
+  { operation: "copy", status: "ready", text: "😀".repeat(16385) },
+  { operation: "copy", status: "ready", text: "x", code: "CHANGED" },
+  { operation: "copy", status: "failed", code: "OTHER" }
+]) test(`clipboard transfer post-ACK ${transfer?.status || "missing"}/${transfer?.code || transfer?.operation || ""} preserves input ACK and original up`, async () => {
+  const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1); h.key("keyup");
+  h.receipt(request, transfer); await flushClipboard();
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "1");
+  assert.equal(h.socket.sent.at(-1).input.action, "up");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanEnd"), false);
+  assert.equal(h.writes[0].blob, null); assert.ok(h.writes[0].dataError);
+  h.writes[0].reject(Error("data rejected")); await flushClipboard();
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+});
+
+test("clipboard transfer permits exactly 64 KiB and explicit empty text", async () => {
+  for (const text of ["", "😀".repeat(16384)]) {
+    const h = clipboardHarness(); h.key(); h.receipt(h.socket.sent.at(-1), { operation: "copy", status: "ready", text });
+    await flushClipboard(); assert.equal(await h.writes[0].blob.text(), text);
+    h.writes[0].resolve(); await flushClipboard();
+  }
+});
+
+for (const reason of ["End", "blur", "navigation", "disconnect"]) test(`clipboard transfer rejects unresolved data at ${reason} but retains actual local write`, async () => {
+  const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1);
+  if (reason === "End") h.element("human-end").click();
+  else if (reason === "blur") h.windowEvents.blur();
+  else if (reason === "navigation") h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  else h.socket.close();
+  await flushClipboard();
+  assert.ok(h.writes[0].dataError); assert.equal(h.element("clipboard-status").dataset.pending, "true");
+  h.receipt(request, { operation: "copy", status: "ready", text: "late" }); await flushClipboard();
+  assert.equal(h.writes[0].blob, null);
+  h.writes[0].reject(Error("cancelled data")); await flushClipboard();
+  assert.equal(h.element("clipboard-status").dataset.pending, "false");
+});
+
+test("clipboard transfer End after data resolution cannot claim rollback or admit a second pending write", async () => {
+  const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1); h.key("keyup");
+  h.receipt(request, { operation: "copy", status: "ready", text: "committed payload" }); await flushClipboard();
+  h.ackInput(); const count = h.socket.sent.length;
+  h.key(); assert.equal(h.socket.sent.length, count); assert.equal(h.writes.length, 1);
+  h.element("human-end").click(); assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.element("clipboard-status").dataset.pending, "true");
+  assert.match(h.element("clipboard-status").textContent, /不能撤回/);
+  h.writes[0].resolve(); await flushClipboard();
+  assert.match(h.element("clipboard-status").textContent, /已写入/);
+});
+
+test("clipboard transfer queued behind an input is cancelled before sequence assignment", async () => {
+  const h = clipboardHarness();
+  h.event("human-input", "keydown", { key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true });
+  const modifier = h.socket.sent.at(-1);
+  h.key(); assert.equal(h.writes.length, 1); assert.equal(h.socket.sent.at(-1), modifier);
+  h.element("human-end").click(); h.ackInput(modifier); await flushClipboard();
+  assert.ok(h.writes[0].dataError);
+  assert.equal(h.socket.sent.filter(x => x.input?.clipboardTransfer).length, 0);
+  h.writes[0].reject(Error("cancelled")); await flushClipboard();
+});
+
+test("clipboard transfer local asynchronous denial cannot lose original keyup or revoke native ACK", async () => {
+  const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1);
+  h.writes[0].reject(Error("denied")); await flushClipboard();
+  h.key("keyup"); h.receipt(request, { operation: "copy", status: "ready", text: "remote cut cannot be retried" }); await flushClipboard();
+  assert.equal(h.writes[0].blob, null); assert.equal(h.socket.sent.at(-1).input.action, "up");
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, "1");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanEnd"), false);
+});
+
+test("clipboard transfer suppresses repeats and untrusted initiation without altering legacy key path", async () => {
+  const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1);
+  h.key("keydown", { repeat: true }); h.key("keyup");
+  h.receipt(request, { operation: "copy", status: "unchanged" }); await flushClipboard();
+  assert.equal(h.writes.length, 1); assert.equal(h.socket.sent.filter(x => x.input?.repeat).length, 0);
+  const untrusted = clipboardHarness(); untrusted.key("keydown", { isTrusted: false });
+  assert.equal(untrusted.writes.length, 0); assert.equal(untrusted.socket.sent.some(x => x.operation === "humanInput"), false);
+  const legacy = clipboardHarness({ version: undefined }); const e = legacy.key();
+  assert.equal(e.prevented, true); assert.equal(legacy.writes.length, 0); assert.equal(legacy.socket.sent.at(-1).input.clipboardTransfer, undefined);
+});
+
+test("clipboard transfer binds exact Ctrl/Meta C/X and preserves two equal payloads as two operations", async () => {
+  for (const meta of [false, true]) for (const operation of ["copy", "cut"]) {
+    const h = clipboardHarness(), key = operation === "copy" ? "c" : "x";
+    const fields = { key, code: `Key${key.toUpperCase()}`, keyCode: operation === "copy" ? 67 : 88, ctrlKey: !meta, metaKey: meta };
+    for (let i = 0; i < 2; i++) {
+      h.key("keydown", fields); const request = h.socket.sent.at(-1);
+      assert.equal(request.input.clipboardTransfer, operation);
+      assert.equal(request.input.modifiers, meta ? 4 : 2);
+      h.key("keydown", { ...fields, shiftKey: true, repeat: true });
+      h.key("keyup", fields);
+      h.receipt(request, { operation, status: "ready", text: "相同原文" }); await flushClipboard();
+      assert.equal(await h.writes[i].blob.text(), "相同原文");
+      h.ackInput(); h.writes[i].resolve(); await flushClipboard();
+    }
+    assert.equal(h.writes.length, 2);
+    assert.equal(h.socket.sent.filter(x => x.input?.clipboardTransfer).length, 2);
+    assert.equal(h.socket.sent.filter(x => x.input?.repeat).length, 0);
+  }
+});
+
+test("clipboard transfer rejects mismatched base receipts, unsolicited contents and retired-generation replies", async () => {
+  for (const field of ["leaseId", "generation", "sequence", "acknowledged"]) {
+    const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1);
+    const receipt = { leaseId: request.leaseId, generation: 1, sequence: 1, acknowledged: true,
+      clipboardTransfer: { operation: "copy", status: "ready", text: "wrong original" } };
+    receipt[field] = field === "leaseId" ? "foreign" : field === "acknowledged" ? false : 2;
+    h.ackInput(request, { inputReceipt: receipt }); await flushClipboard();
+    assert.equal(h.writes[0].blob, null); assert.ok(h.writes[0].dataError);
+    assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+    h.writes[0].reject(Error("cancel")); await flushClipboard();
+  }
+  const ordinary = clipboardHarness(); ordinary.event("human-input", "keydown", { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 });
+  ordinary.receipt(ordinary.socket.sent.at(-1), { operation: "copy", status: "ready", text: "unsolicited" });
+  assert.equal(ordinary.writes.length, 0);
+  const h = clipboardHarness(); h.key(); const original = h.socket.sent.at(-1);
+  h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  resumeGeneration(h, 2);
+  h.receipt(original, { operation: "copy", status: "ready", text: "retired" }); await flushClipboard();
+  assert.equal(h.writes[0].blob, null);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  const count = h.socket.sent.length; h.key(); assert.equal(h.socket.sent.length, count, "actual old local write still owns capacity");
+  h.writes[0].reject(Error("cancelled")); await flushClipboard();
+});
+
+test("clipboard transfer capability is fixed for the original lease and original Begin receipt", () => {
+  for (const version of [undefined, 1]) {
+    for (const next of [undefined, 0, 1, 2, null, "1"]) {
+      if (next === version) continue;
+      const h = clipboardHarness({ version });
+      const human = { ...h.humanState().human }; delete human.clipboardTransferVersion;
+      if (next !== undefined) human.clipboardTransferVersion = next;
+      // An older event cannot revoke valid current capability.
+      h.socket.message({ type: "state", ...h.humanState({ human, eventSequence: 19998 }) });
+      assert.equal(h.element("human-input").dataset.enabled, "true");
+      h.socket.message({ type: "state", ...h.humanState({ human, eventSequence: 20002 }) });
+      assert.equal(h.element("human-input").dataset.enabled, "false");
+      assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+    }
+    const h = setup(1, 1, { version }), { begin, original } = beginPreparing(h);
+    h.socket.message({ type: "state", ...original, eventSequence: 20003 });
+    const human = { ...original.human }; delete human.clipboardTransferVersion;
+    if (version === undefined) human.clipboardTransferVersion = 1;
+    h.respond(begin.id, { ...original, human });
+    assert.equal(h.element("connection").textContent, "控制状态不可用");
+    assert.equal(h.socket.sent.some(x => x.operation === "humanInput"), false);
+  }
+  const h = setup(); readyResult(h);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, tabs: [resultTab()], selectedTabId: 1,
+    view: viewState({ clipboardTransferVersion: 1 }) }) });
+  assert.equal(h.element("watch").disabled, true);
+});
+
+test("clipboard transfer local settlement cannot replace a newer unknown-input error", async () => {
+  const h = clipboardHarness(); h.key(); const original = h.socket.sent.at(-1); h.key("keyup");
+  h.receipt(original, { operation: "copy", status: "ready", text: "original" }); await flushClipboard();
+  const release = h.socket.sent.at(-1);
+  h.socket.message({ type: "response", id: release.id, error: { code: "OPERATION_UNCONFIRMED", message: "原松键结果未知" } });
+  h.writes[0].reject(Error("local denied")); await flushClipboard();
+  assert.equal(h.element("error").textContent, "原松键结果未知");
+  assert.match(h.element("clipboard-status").textContent, /写入失败/);
+});
+
 const resultTab = (extra = {}) => ({ id: 1, title: "Result", url: "https://example.test/result", kind: "result", deliveryId: "original-delivery", watchable: true, takeover: true, ...extra });
 const viewState = (extra = {}) => ({ state: "active", leaseId: "view-a", tabId: 1, generation: 1, viewport: { width: 1280, height: 720 }, ...extra });
 function readyResult(h, mode = "paused") {
@@ -148,7 +370,7 @@ test("result fixture records the real bridge lifecycle, including view navigatio
   assert.deepEqual(await captureResultFixture(), JSON.parse(readFileSync(new URL("../testdata/result-bridge-fixture.json", import.meta.url), "utf8")));
 });
 
-function setup(inputBudgetVersion, keyRepeatVersion) {
+function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   const nodes = new Map();
   const images = [], revoked = [], timers = new Map(), timerDelays = new Map();
   const windowEvents = {}, documentEvents = {};
@@ -187,6 +409,7 @@ function setup(inputBudgetVersion, keyRepeatVersion) {
     location: { hash: `#ticket=${ticket}`, host: "127.0.0.1:44555", pathname: "/" },
     history: { replaceState(...args) { replaced = args; } },
     URLSearchParams, WebSocket: FakeSocket, Blob, Uint8Array, TextEncoder,
+    navigator: clipboard.navigator, ClipboardItem: clipboard.ClipboardItem,
     URL: class extends URL { static createObjectURL() { return `blob:${++nextBlob}`; } static revokeObjectURL(value) { revoked.push(value); } },
     Image: FakeImage, Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     atob: value => Buffer.from(value, "base64").toString("binary"),
@@ -204,7 +427,7 @@ function setup(inputBudgetVersion, keyRepeatVersion) {
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
   function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
-  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}) }, ...extra }); }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}) }, ...extra }); }
   function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
   function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }

@@ -1,4 +1,5 @@
 import { validateClipboardRequest, validateClipboardResult } from "./browser-clipboard.js";
+import { HUMAN_CLIPBOARD_MAX_BYTES, HUMAN_CLIPBOARD_PROBE_TYPE, validateHumanClipboardResult, validateHumanClipboardText } from "./managed-human-clipboard.js";
 
 const PORT_NAME = "obu.clipboard.private.v1";
 const MAX_PIXELS = 16 * 1024 * 1024;
@@ -44,6 +45,19 @@ export class ClipboardOffscreen {
   }
 
   async prepare(operation) {
+    if (operation.method === "humanClipboardTransfer") {
+      if (!own(operation.params, ["operation"]) || !["copy", "cut"].includes(operation.params.operation)) throw fail("INVALID");
+      if (typeof this.clipboard?.read !== "function" || typeof this.ClipboardItem !== "function") throw fail("UNSUPPORTED");
+      this.check(operation);
+      const items = await this.clipboard.read();
+      this.check(operation);
+      if (!Array.isArray(items) || items.length !== 1 || typeof items[0]?.getType !== "function" ||
+          !Array.isArray(items[0].types) || items[0].types.includes(HUMAN_CLIPBOARD_PROBE_TYPE)) throw fail("UNSUPPORTED");
+      operation.oldItem = items[0];
+      if (await this.probe(operation.oldItem) !== "current") throw fail("CHANGED");
+      this.check(operation);
+      return;
+    }
     const params = validateClipboardRequest(operation.method, operation.params);
     operation.params = params;
     if (!this.clipboard || typeof this.clipboard.read !== "function" || typeof this.ClipboardItem !== "function") throw fail("UNSUPPORTED");
@@ -71,6 +85,45 @@ export class ClipboardOffscreen {
       }
       operation.nativeItems.push(new this.ClipboardItem(data, { presentationStyle: item.presentation_style }));
     }
+  }
+
+  async probe(item) {
+    try { await item.getType(HUMAN_CLIPBOARD_PROBE_TYPE); }
+    catch (error) {
+      if (error?.name === "NotFoundError") return "current";
+      if (error?.name === "InvalidStateError") return "changed";
+      throw error;
+    }
+    throw fail("UNSUPPORTED");
+  }
+
+  async transfer(operation) {
+    this.check(operation);
+    const previous = await this.probe(operation.oldItem);
+    this.check(operation);
+    if (previous === "current") return { operation: operation.params.operation, status: "unchanged" };
+    const items = await this.clipboard.read();
+    this.check(operation);
+    if (!Array.isArray(items) || items.length !== 1) throw fail("UNSUPPORTED");
+    const item = items[0];
+    if (!Array.isArray(item?.types) || !item.types.includes("text/plain") || item.types.includes(HUMAN_CLIPBOARD_PROBE_TYPE)) throw fail("UNSUPPORTED");
+    if (await this.probe(item) !== "current") throw fail("CHANGED");
+    this.check(operation);
+    const blob = await item.getType("text/plain");
+    this.check(operation);
+    if (!Number.isSafeInteger(blob?.size) || blob.size < 0 || blob.size > HUMAN_CLIPBOARD_MAX_BYTES) throw fail("LIMIT");
+    // Blob.text() replaces malformed bytes. Decode strictly, after the size
+    // bound, so a replacement string cannot silently become copied content.
+    const bytes = await blob.arrayBuffer();
+    this.check(operation);
+    if (!(bytes instanceof ArrayBuffer) || bytes.byteLength !== blob.size) throw fail("INVALID");
+    let text;
+    try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
+    catch { throw fail("INVALID"); }
+    validateHumanClipboardText(text);
+    if (await this.probe(item) !== "current") throw fail("CHANGED");
+    this.check(operation);
+    return { operation: operation.params.operation, status: "ready", text };
   }
 
   async readItems(items, maxBytes) {
@@ -111,6 +164,7 @@ export class ClipboardOffscreen {
     let native;
     try {
       switch (operation.method) {
+        case "humanClipboardTransfer": native = this.transfer(operation); break;
         case "readClipboardText": native = this.clipboard.readText(); break;
         case "writeClipboardText": native = this.clipboard.writeText(operation.params.text); break;
         case "readClipboard": native = this.clipboard.read(); break;
@@ -119,10 +173,13 @@ export class ClipboardOffscreen {
       }
     } catch (error) { native = Promise.reject(error); }
     operation.settlement = Promise.resolve(native).then(async value => {
+      if (operation.method === "humanClipboardTransfer") return value;
       if (operation.method === "readClipboardText") return { text: value };
       if (operation.method === "readClipboard") return this.readItems(value, operation.params.maxBytes);
       return {};
-    }).then(result => validateClipboardResult(operation.method, result, operation.params.maxBytes));
+    }).then(result => operation.method === "humanClipboardTransfer" ?
+      validateHumanClipboardResult(result, operation.params.operation) :
+      validateClipboardResult(operation.method, result, operation.params.maxBytes));
     // The native promise is never raced against a timeout. The caller owns its
     // response deadline; this actual promise is needed for end/Pause draining.
     operation.settlement.catch(() => {});
@@ -133,6 +190,7 @@ export class ClipboardOffscreen {
     if (!operation) return;
     operation.params = null;
     operation.nativeItems = null;
+    operation.oldItem = null;
     operation.settlement = null;
     if (this.operation === operation) this.operation = null;
   }
@@ -179,6 +237,7 @@ export class ClipboardOffscreen {
         // returned read data to a replacement worker during its bind.
         operation.params = null;
         operation.nativeItems = null;
+        operation.oldItem = null;
         operation.settlement = Promise.resolve();
         this.reply(port, { ...response, ok: true, value: result });
       } else if (message.type === "abort") {
@@ -188,7 +247,9 @@ export class ClipboardOffscreen {
         this.reply(port, { ...response, ok: true, value: {} });
       } else throw fail("INVALID");
     } catch (error) {
-      const code = /^OBU_CLIPBOARD_(?:INVALID|LIMIT|TIMEOUT|CANCELLED|BUSY|UNSUPPORTED):/.exec(error?.message ?? "")?.[0]?.slice(0, -1) ?? "OBU_CLIPBOARD_FAILED";
+      const code = /^OBU_CLIPBOARD_(?:INVALID|LIMIT|TIMEOUT|CANCELLED|BUSY|UNSUPPORTED|CHANGED):/.exec(error?.message ?? "")?.[0]?.slice(0, -1) ??
+        (error?.name === "InvalidStateError" ? "OBU_CLIPBOARD_CHANGED" :
+          ["NotAllowedError", "SecurityError"].includes(error?.name) ? "OBU_CLIPBOARD_DENIED" : "OBU_CLIPBOARD_FAILED");
       this.reply(port, { ...response, ok: false, error: `${code}: private clipboard operation failed` });
     }
   }

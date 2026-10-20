@@ -226,6 +226,10 @@ func openUserControllerRetained(ctx context.Context, root string, identity manag
 			c.unavailable(err)
 		}
 	}()
+	browserVersion, err := c.readOriginalBrowserVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if err = c.cdp.call(ctx, "", "Target.setDiscoverTargets", map[string]any{"discover": true}, nil); err != nil {
 		return nil, err
 	}
@@ -290,7 +294,7 @@ func openUserControllerRetained(ctx context.Context, root string, identity manag
 	if err = c.cdp.call(ctx, sessionID, "Runtime.addBinding", map[string]any{"name": userBindingName, "executionContextId": contextID}, nil); err != nil {
 		return nil, err
 	}
-	params := map[string]any{"version": 1, "runId": identity.RunID, "extensionId": identity.ExtensionID, "extensionInstanceId": identity.ExtensionInstanceID, "workerBootId": identity.WorkerBootID, "portId": identity.PortID, "channelKey": key}
+	params := map[string]any{"version": 1, "runId": identity.RunID, "extensionId": identity.ExtensionID, "extensionInstanceId": identity.ExtensionInstanceID, "workerBootId": identity.WorkerBootID, "portId": identity.PortID, "channelKey": key, "browserVersion": browserVersion}
 	if expected != nil && expected.Replacement != nil {
 		params["recovery"] = *expected.Replacement
 	}
@@ -540,7 +544,7 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 			return nil
 		}
-		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion) {
+		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion) {
 			return errors.New("managed human capabilities changed within their original lease")
 		}
 		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
@@ -679,18 +683,22 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	}
 	if operation == "humanInput" {
 		var input struct {
-			Repeat bool `json:"repeat"`
+			Repeat            bool   `json:"repeat"`
+			ClipboardTransfer string `json:"clipboardTransfer"`
 		}
 		_ = json.Unmarshal(f["input"], &input)
-		if input.Repeat {
+		if input.Repeat || input.ClipboardTransfer != "" {
 			var lease string
 			var generation uint64
 			_ = json.Unmarshal(f["leaseId"], &lease)
 			_ = json.Unmarshal(f["generation"], &generation)
 			human := c.humanStatus
-			if !c.humanStatusCurrent || human == nil || human.State != "active" || human.KeyRepeatVersion != 1 || human.LeaseID != lease || human.Generation != generation {
+			if !c.humanStatusCurrent || human == nil || human.State != "active" ||
+				input.Repeat && human.KeyRepeatVersion != 1 ||
+				input.ClipboardTransfer != "" && human.ClipboardTransferVersion != 1 ||
+				human.LeaseID != lease || human.Generation != generation {
 				c.mu.Unlock()
-				return nil, errors.New("managed key repeat lacks its current native capability")
+				return nil, errors.New("managed key input lacks its current native capability")
 			}
 		}
 	}

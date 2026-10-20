@@ -1,5 +1,22 @@
 # Browser integration acceptance
 
+## Managed human clipboard return (Windows, experimental)
+
+Run `managed-human-check.mjs` with `OBU_TEST_HUMAN_SCENARIO=human-copy`,
+`OBU_TEST_MEMORY_CLIPBOARD=1`, and explicit `OBU_TEST_HOST_BINARY`,
+`OBU_TEST_EXTENSION_DIR`, `OBU_TEST_BUILD_MANIFEST`, `OBU_TEST_CHROMIUM_BINARY`
+and `OBU_TEST_VIEWER_CHROMIUM_BINARY`. Both browser paths must identify the
+exact Chromium `.4` executable accepted by `memory-clipboard.mjs`; a separate
+profile alone does not isolate the operating system clipboard.
+
+The seven-step production workflow covers default copy, the same text copied
+again, no selection, a page's custom copy handler and default cut. Each original
+lease ends before a trusted local paste checks the result. It also checks the
+original native ACKs, unchanged document identities, explicit Resume, one
+independent handoff POST and Stop. No clipboard API is substituted and no
+operating system clipboard is read, written or restored. This does not verify
+headed browser clipboard permissions or hardware keyboard behavior.
+
 ## Five managed entrypoints (Windows, experimental)
 
 The deterministic workflow runner exercises original child-page acquisition,

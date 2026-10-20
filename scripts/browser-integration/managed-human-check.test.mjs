@@ -20,6 +20,25 @@ test("published extension accepts only the exact declared public-key addition", 
   assert.throws(() => assertManagedExtensionManifest(published, source, declaration.repeat(2)));
 });
 
+test("clipboard command projection and original receipt retain exact transfer and reject broad shortcuts", () => {
+  const request = { id: 1, operation: "humanInput", leaseId: "original", generation: 1, sequence: 1,
+    input: { type: "key", action: "down", key: "c", code: "KeyC", windowsVirtualKeyCode: 67, modifiers: 2, clipboardTransfer: "copy" } };
+  assert.deepEqual(projectHumanCommand(request), request);
+  const base = { leaseId: "original", generation: 1, sequence: 1, acknowledged: true };
+  for (const transfer of [{ operation: "copy", status: "ready", text: "" }, { operation: "copy", status: "unchanged" },
+    { operation: "copy", status: "failed", code: "CHANGED" }]) {
+    assert.doesNotThrow(() => assertHumanInputReceipt(request, { type: "response", id: 1, result: { inputReceipt: { ...base, clipboardTransfer: transfer } } }));
+  }
+  for (const input of [
+    { ...request.input, action: "up" }, { ...request.input, repeat: true }, { ...request.input, modifiers: 10 },
+    { ...request.input, clipboardTransfer: "cut" }, { ...request.input, code: "KeyA" }, { ...request.input, clipboardTransfer: null }
+  ]) assert.throws(() => projectHumanCommand({ ...request, input }));
+  for (const transfer of [undefined, { operation: "cut", status: "ready", text: "wrong" },
+    { operation: "copy", status: "unchanged", text: "old" }, { operation: "copy", status: "ready", text: "\ud800" }]) {
+    assert.throws(() => assertHumanInputReceipt(request, { type: "response", id: 1, result: { inputReceipt: { ...base, ...(transfer ? { clipboardTransfer: transfer } : {}) } } }));
+  }
+});
+
 function pasteProof() {
   const leaseId = "original", generation = 2, connection = 1, raw = humanPasteText.replaceAll("\n", "\r\n");
   const commands = [

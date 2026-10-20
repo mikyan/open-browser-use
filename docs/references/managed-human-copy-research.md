@@ -1,9 +1,9 @@
 # 人工复制和剪切的机制研究
 
-当前生产查看器已有本地文字粘贴，但没有把人工Ctrl/Meta+C/X的结果返回本地
-的通道。本次只完成机制研究，没有实现复制桥；用户再次要求新包后，先收口
-并交付已完成的生产功能。完整目标和[实施计划](../exec-plans/active/2026-10-19-managed-human-copy.md)
-仍开放。
+本文保留实现前的机制研究和原始失败结论。2026-10-21 已实现正式查看器的
+纯文本返回通道，当前接口与验证状态见[人工复制与剪切](managed-human-clipboard.md)。
+下列旧诊断不作为新生产通道的验收；完整目标和
+[实施计划](../exec-plans/active/2026-10-19-managed-human-copy.md)仍开放。
 
 ## 本地写入可行，远端事件读取不完整
 
@@ -79,5 +79,5 @@ SHA256：`50e5f5a6d30f6dba44207bbb59a396354d141780925e47368b115799cdff9dc5`。
 和仓库的[memory clipboard guard](../../scripts/browser-integration/memory-clipboard.mjs)，
 不是“不同profile天然隔离系统clipboard”。远端版本诊断仅向原合成loopback
 origin授予读写权限；本地正式诊断不预授予权限。没有系统clipboard读写或恢复。
-生产通道、权限/focus集成、iframe/OOPIF、真实硬件快捷键、公司Edge和完整能力
-对齐仍未验收；当前包不能宣称已支持本地复制/剪切桥接。
+生产通道后续进展见[人工复制与剪切](managed-human-clipboard.md)。这些旧诊断
+未验收正式权限/focus集成、iframe/OOPIF、真实硬件快捷键、公司Edge或完整能力对齐。

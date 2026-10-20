@@ -176,10 +176,13 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 			return bad
 		}
 	case "key":
-		if !exact(input, []string{"type", "action", "key", "code", "windowsVirtualKeyCode"}, []string{"modifiers", "repeat"}) || !choice(input["action"], "down", "up") || !text(input["key"], 64, false) || !text(input["code"], 64, false) || !integer(input["windowsVirtualKeyCode"], 0, 255) {
+		if !exact(input, []string{"type", "action", "key", "code", "windowsVirtualKeyCode"}, []string{"modifiers", "repeat", "clipboardTransfer"}) || !choice(input["action"], "down", "up") || !text(input["key"], 64, false) || !text(input["code"], 64, false) || !integer(input["windowsVirtualKeyCode"], 0, 255) {
 			return bad
 		}
 		if raw, exists := input["repeat"]; exists && (!bytes.Equal(raw, []byte("true")) || !choice(input["action"], "down")) {
+			return bad
+		}
+		if _, exists := input["clipboardTransfer"]; exists && !validClipboardShortcut(input) {
 			return bad
 		}
 		var code string
@@ -213,13 +216,14 @@ type Viewport struct {
 
 // HumanState deliberately omits document, target, channel and native handles.
 type HumanState struct {
-	State              string    `json:"state"`
-	LeaseID            string    `json:"leaseId"`
-	TabID              uint64    `json:"tabId"`
-	Generation         uint64    `json:"generation"`
-	Viewport           *Viewport `json:"viewport"`
-	InputBudgetVersion uint64    `json:"inputBudgetVersion,omitempty"`
-	KeyRepeatVersion   uint64    `json:"keyRepeatVersion,omitempty"`
+	State                    string    `json:"state"`
+	LeaseID                  string    `json:"leaseId"`
+	TabID                    uint64    `json:"tabId"`
+	Generation               uint64    `json:"generation"`
+	Viewport                 *Viewport `json:"viewport"`
+	InputBudgetVersion       uint64    `json:"inputBudgetVersion,omitempty"`
+	KeyRepeatVersion         uint64    `json:"keyRepeatVersion,omitempty"`
+	ClipboardTransferVersion uint64    `json:"clipboardTransferVersion,omitempty"`
 }
 
 type HumanCleanup struct {
@@ -228,10 +232,11 @@ type HumanCleanup struct {
 }
 
 type InputReceipt struct {
-	LeaseID      string `json:"leaseId"`
-	Generation   uint64 `json:"generation"`
-	Sequence     uint64 `json:"sequence"`
-	Acknowledged bool   `json:"acknowledged"`
+	LeaseID           string                    `json:"leaseId"`
+	Generation        uint64                    `json:"generation"`
+	Sequence          uint64                    `json:"sequence"`
+	Acknowledged      bool                      `json:"acknowledged"`
+	ClipboardTransfer *ClipboardTransferReceipt `json:"clipboardTransfer,omitempty"`
 }
 
 func ParseHumanState(data json.RawMessage) (*HumanState, error) {
@@ -271,6 +276,9 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	if raw, ok := f["keyRepeatVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human key repeat")
 	}
+	if raw, ok := f["clipboardTransferVersion"]; ok && !integer(raw, 1, 1) {
+		return nil, errors.New("unsupported human clipboard transfer")
+	}
 	return &result, nil
 }
 
@@ -297,12 +305,18 @@ func ParseInputReceipt(data json.RawMessage) (*InputReceipt, error) {
 	}
 	var result InputReceipt
 	_ = json.Unmarshal(data, &result)
+	if raw, exists := f["clipboardTransfer"]; exists {
+		result.ClipboardTransfer, err = parseClipboardTransfer(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &result, nil
 }
 
 // MatchInputReceipt never manufactures acknowledgement from a submitted request.
 func MatchInputReceipt(request map[string]json.RawMessage, receipt *InputReceipt) bool {
-	if receipt == nil {
+	if receipt == nil || !matchClipboardTransfer(request, receipt.ClipboardTransfer) {
 		return false
 	}
 	var lease string

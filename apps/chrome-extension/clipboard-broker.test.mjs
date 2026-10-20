@@ -75,6 +75,7 @@ function fixture() {
         if (!state.owned) throw new Error("another debugger owns this target");
         state.calls.push(method);
         if (method === "Runtime.evaluate") { assert.equal(params.expression, "globalThis.__obuClipboardDocumentNonce"); return { result: { value: state.hooks.nonce ?? state.controller.nonce } }; }
+        if (method === "Browser.getVersion") throw new Error('{"code":-32601,"message":"Browser.getVersion was not found"}');
         assert.equal(method, "Emulation.setFocusEmulationEnabled"); assert.deepEqual(params, { enabled: true });
       },
       detach: async () => { assert.equal(state.owned, true); state.calls.push("detach"); state.owned = false; state.targets[0].attached = false; }
@@ -452,5 +453,263 @@ test("native unsupported formats cannot silently become an empty successful read
     f.state.hooks.native = () => Promise.resolve([{ types, getType: async () => { throw new Error("must not allocate"); } }]);
     await assert.rejects(f.launch("readClipboard"), /UNSUPPORTED/);
     assert.equal(f.state.storage[KEY], null);
+  }
+});
+
+const trustedBrowserVersion = () => ({ product: "Chrome/156.0.8078.4", revision: "@f842f52ef39fd97b449eb27cff414bf05a98ddce" });
+
+function humanFixture() {
+  const f = fixture();
+  f.human = { kind: "human", leaseId: "real-human-lease", tabId: 7 };
+  f.version = 0; f.reads = 0; f.probes = []; f.textReads = 0; f.dispatches = 0;
+  f.text = "原共享文本\nsecond line";
+  f.state.hooks.native = async () => {
+    f.reads++;
+    await f.readGate?.();
+    const version = f.version;
+    return [{ types: f.types ?? ["text/plain"], async getType(type) {
+      if (type !== "text/plain") {
+        f.probes.push({ version, current: f.version });
+        if (f.probeError) throw f.probeError;
+        throw new DOMException("synthetic native probe", version === f.version ? "NotFoundError" : "InvalidStateError");
+      }
+      assert.notEqual(version, 0, "old clipboard contents must never be read");
+      f.textReads++;
+      await f.blobGate?.();
+      return f.blob ?? new Blob([f.text], { type: "text/plain" });
+    } }];
+  };
+  f.transfer = (options = {}) => f.broker.transfer(f.human, "copy", {
+    browserVersion: trustedBrowserVersion(),
+    check: () => { if (f.revoked) throw new Error("OBU_CLIPBOARD_CANCELLED: original human retired"); },
+    validateScope: async scope => { assert.deepEqual(scope, f.human); await f.validateGate?.(); },
+    deadlineAt: Date.now() + 10000,
+    dispatch: async () => { f.dispatches++; f.version++; await f.dispatchGate?.(); },
+    ...options
+  });
+  return f;
+}
+
+test("human transfer binds real lease, reads only changed text, dispatches once and shares agent exclusion", async () => {
+  const f = humanFixture(), dispatched = deferred();
+  f.dispatchGate = () => dispatched.promise;
+  const result = f.transfer();
+  await until(() => f.dispatches === 1);
+  assert.equal(f.reads, 1); assert.equal(f.textReads, 0);
+  assert.equal(f.state.storage[KEY].owner, "human");
+  assert.equal(f.state.storage[KEY].leaseId, f.human.leaseId);
+  assert.equal(Object.hasOwn(f.state.storage[KEY], "session_id"), false);
+  await assert.rejects(f.launch(), /BUSY/);
+  await assert.rejects(f.transfer(), /BUSY/);
+  let drained = false;
+  void f.broker.waitForTab(7).then(() => { drained = true; });
+  await tick(); assert.equal(drained, false);
+  dispatched.resolve();
+  assert.deepEqual(await result, { operation: "copy", status: "ready", text: f.text });
+  assert.equal(f.dispatches, 1); assert.equal(f.textReads, 1); assert.equal(f.reads, 2);
+  assert.equal(f.state.storage[KEY], null);
+  assert.equal(f.broker.controlSnapshot().pending.length, 0);
+  assert.equal(JSON.stringify(f.state.storage).includes(f.text), false);
+});
+
+test("unchanged clipboard never reads or exports previous contents", async () => {
+  const f = humanFixture();
+  assert.deepEqual(await f.transfer({ dispatch: async () => { f.dispatches++; } }), { operation: "copy", status: "unchanged" });
+  assert.equal(f.dispatches, 1); assert.equal(f.reads, 1); assert.equal(f.textReads, 0);
+});
+
+for (const version of [
+  { product: "Chrome/156.0.8078.5", revision: "@f842f52ef39fd97b449eb27cff414bf05a98ddce" },
+  { product: "Chrome/156.0.8078.4", revision: "@foreign" },
+  { product: "Edg/156.0.8078.4", revision: "@f842f52ef39fd97b449eb27cff414bf05a98ddce" }
+]) test(`unreviewed native runtime ${version.product}/${version.revision} cannot dispatch copy`, async () => {
+  const f = humanFixture();
+  await assert.rejects(f.transfer({ browserVersion: version }), /UNSUPPORTED/);
+  assert.equal(f.dispatches, 0); assert.equal(f.reads, 0);
+});
+
+test("trusted root version permits transfer without the unavailable offscreen Browser.getVersion command", async () => {
+  for (const browserVersion of [trustedBrowserVersion(), { product: "Chrome/156.0.8078.12", revision: "@634b046faf2137b83af71c87baf362b533af9104" }]) {
+    const f = humanFixture();
+    assert.deepEqual(await f.transfer({ browserVersion }), { operation: "copy", status: "ready", text: f.text });
+    assert.equal(f.dispatches, 1); assert.equal(f.reads, 2);
+    assert.equal(f.state.calls.includes("Browser.getVersion"), false);
+    assert.equal(f.state.storage[KEY], null);
+  }
+});
+
+test("missing, inherited, accessor or extended root version cannot prepare or dispatch", async () => {
+  let accessed = 0;
+  for (const browserVersion of [undefined, null, {}, [], "Chrome/156.0.8078.4", Object.create(trustedBrowserVersion()),
+    { ...trustedBrowserVersion(), userAgent: "not authority" },
+    { get product() { accessed++; return trustedBrowserVersion().product; }, revision: trustedBrowserVersion().revision },
+    { product: { toString() { accessed++; return trustedBrowserVersion().product; } }, revision: trustedBrowserVersion().revision },
+    { product: trustedBrowserVersion().product, revision: null },
+    { ...trustedBrowserVersion(), [Symbol("foreign")]: true }]) {
+    const f = humanFixture();
+    await assert.rejects(f.transfer({ browserVersion }), /UNSUPPORTED/);
+    assert.equal(f.dispatches, 0); assert.equal(f.reads, 0);
+    assert.deepEqual(f.state.calls, []); assert.deepEqual(f.state.messages, []);
+  }
+  assert.equal(accessed, 0, "Version accessors cannot supply runtime proof");
+});
+
+test("root version is fixed before the original asynchronous transfer begins", async () => {
+  const f = humanFixture(), browserVersion = trustedBrowserVersion();
+  const original = f.transfer({ browserVersion });
+  browserVersion.product = "Chrome/0.0.0.0"; browserVersion.revision = "@foreign";
+  assert.deepEqual(await original, { operation: "copy", status: "ready", text: f.text });
+  assert.equal(f.dispatches, 1);
+  const invalid = humanFixture(), wrong = { ...trustedBrowserVersion(), revision: "@wrong" };
+  const rejected = invalid.transfer({ browserVersion: wrong });
+  wrong.revision = trustedBrowserVersion().revision;
+  await assert.rejects(rejected, /UNSUPPORTED/);
+  assert.equal(invalid.dispatches, 0); assert.equal(invalid.reads, 0);
+  assert.deepEqual(invalid.state.calls, []);
+});
+
+test("invalid initial lazy-item probe rejects before original cut", async () => {
+  const f = humanFixture(); f.probeError = new DOMException("unsupported behavior", "InvalidStateError");
+  await assert.rejects(f.transfer(), /CHANGED/);
+  assert.equal(f.dispatches, 0); assert.equal(f.textReads, 0);
+});
+
+test("retirement while original old-item read is pending retains cleanup and never dispatches", async () => {
+  const f = humanFixture(), gate = deferred();
+  f.readGate = () => gate.promise;
+  const result = f.transfer(); result.catch(() => {});
+  await until(() => f.reads === 1);
+  f.revoked = true;
+  let done = false; void f.broker.waitForTab(7).then(() => { done = true; });
+  await tick(); assert.equal(done, false); assert.equal(f.state.calls.includes("close"), false);
+  gate.resolve();
+  await assert.rejects(result, /CANCELLED/);
+  assert.equal(f.dispatches, 0); assert.equal(f.textReads, 0);
+});
+
+test("retirement after native ACK suppresses text but joins original Blob read", async () => {
+  const f = humanFixture(), gate = deferred();
+  f.blobGate = () => gate.promise;
+  const result = f.transfer(); result.catch(() => {});
+  await until(() => f.textReads === 1);
+  f.revoked = true;
+  let done = false; void f.broker.waitForTab(7).then(() => { done = true; });
+  await tick(); assert.equal(done, false);
+  gate.resolve();
+  await assert.rejects(result, /CANCELLED/);
+  assert.equal(f.dispatches, 1); assert.equal(f.state.storage[KEY], null);
+});
+
+test("native failure never commits clipboard read or retries original key", async () => {
+  const f = humanFixture(), original = new Error("native ACK unknown");
+  await assert.rejects(f.transfer({ dispatch: async () => { f.dispatches++; throw original; } }), error => error === original);
+  assert.equal(f.dispatches, 1); assert.equal(f.reads, 1); assert.equal(f.textReads, 0);
+});
+
+test("version change during Blob reading rejects without re-reading or re-dispatch", async () => {
+  const f = humanFixture();
+  f.blob = { size: 1, type: "text/plain", async arrayBuffer() { f.version++; return Uint8Array.of(65).buffer; } };
+  await assert.rejects(f.transfer(), /CHANGED/);
+  assert.equal(f.dispatches, 1); assert.equal(f.reads, 2); assert.equal(f.textReads, 1);
+});
+
+test("no plain format, oversized and malformed UTF8 are not guessed into valid text", async () => {
+  for (const mode of ["empty", "other", "large", "utf8"]) {
+    const f = humanFixture();
+    if (mode === "empty") f.types = [];
+    if (mode === "other") f.types = ["text/html"];
+    if (mode === "large") f.blob = { size: 65537, arrayBuffer() { throw new Error("must not allocate"); } };
+    if (mode === "utf8") f.blob = new Blob([Uint8Array.of(0xff)], { type: "text/plain" });
+    await assert.rejects(f.transfer(), mode === "large" ? /LIMIT/ : mode === "utf8" ? /INVALID/ : /UNSUPPORTED/);
+    assert.equal(f.dispatches, 1);
+  }
+});
+
+test("lost private Port joins same preparation without replay and recovered human marker has no agent owner", async () => {
+  const f = humanFixture(), gate = deferred();
+  f.readGate = () => gate.promise;
+  const result = f.transfer(); result.catch(() => {});
+  await until(() => f.reads === 1);
+  const original = f.state.controller.operation;
+  f.state.lastPort.disconnect();
+  await until(() => f.state.messages.filter(message => message.type === "bind").length === 2);
+  assert.equal(f.state.calls.includes("close"), false);
+  gate.resolve();
+  await assert.rejects(result, /CHANNEL_LOST/);
+  assert.equal(original.revoked, true); assert.equal(f.dispatches, 0); assert.equal(f.reads, 1);
+  assert.equal(f.state.storage[KEY], null);
+});
+
+test("recovery understands human metadata and joins original committed read without reproducing key input", async () => {
+  const f = humanFixture(), gate = deferred();
+  f.blobGate = () => gate.promise;
+  const result = f.transfer(); result.catch(() => {});
+  await until(() => f.textReads === 1);
+  const previous = f.state.controller.operation;
+  // Terminate only the original worker's reconnect ability; the offscreen
+  // original promise survives and must be drained by the replacement worker.
+  const originalRecover = f.broker.reconcile.bind(f.broker);
+  const reconcileGate = deferred();
+  f.broker.reconcile = async metadata => { await reconcileGate.promise; return originalRecover(metadata); };
+  const replacement = f.restart();
+  const recovery = replacement.recover();
+  await until(() => f.state.messages.filter(message => message.type === "bind").length === 2);
+  assert.equal(f.dispatches, 1); assert.equal(f.textReads, 1);
+  assert.equal(f.state.calls.includes("close"), false);
+  assert.deepEqual([...replacement.controlSnapshot().tabIds], [7]);
+  let drained = false; void replacement.waitForTab(7).then(() => { drained = true; });
+  await tick(); assert.equal(drained, false);
+  gate.resolve(); await recovery; await tick();
+  assert.equal(drained, true); assert.equal(previous.oldItem, null);
+  assert.equal(f.dispatches, 1); assert.equal(f.reads, 2); assert.equal(f.state.storage[KEY], null);
+  // Original worker is gone. Its callback is deliberately not resumed into a
+  // replacement worker; it cannot deliver the text or replay native input.
+});
+
+test("retirement during final private-document cleanup cannot leak text or invent another cleanup failure", async () => {
+  const f = humanFixture();
+  f.state.hooks.close = () => { f.revoked = true; };
+  await assert.rejects(f.transfer(), /CANCELLED/);
+  assert.equal(f.broker.unknown, null);
+  assert.equal(f.state.storage[KEY], null);
+  assert.equal(f.state.calls.filter(value => value === "close").length, 1);
+});
+
+test("post-ACK deadline expiry joins actual clipboard work and returns no stale text", async () => {
+  const f = humanFixture(), gate = deferred();
+  f.blobGate = () => gate.promise;
+  const result = f.transfer(); result.catch(() => {});
+  await until(() => f.textReads === 1);
+  f.state.controller.operation.deadlineAt = Date.now() - 1;
+  gate.resolve();
+  await assert.rejects(result, /TIMEOUT/);
+  assert.equal(f.dispatches, 1); assert.equal(f.state.storage[KEY], null);
+});
+
+test("scope and prepare failures cannot run the original copy shortcut", async () => {
+  for (const stage of ["scope", "permission", "probeType", "probeSuccess"]) {
+    const f = humanFixture();
+    if (stage === "scope") f.validateGate = async () => { throw new Error("human scope retired"); };
+    if (stage === "permission") f.readGate = async () => { throw new DOMException("denied", "NotAllowedError"); };
+    if (stage === "probeType") f.types = ["application/x-obu-version-probe"];
+    if (stage === "probeSuccess") f.state.hooks.native = async () => [{ types: [], getType: async () => new Blob(["must not be read"]) }];
+    await assert.rejects(f.transfer(), /scope retired|DENIED|UNSUPPORTED/);
+    assert.equal(f.dispatches, 0); assert.equal(f.textReads, 0);
+  }
+});
+
+test("genuine text/plain empty blob can be delivered, independently of unsupported empty-format clipboard", async () => {
+  const f = humanFixture(); f.text = "";
+  assert.deepEqual(await f.transfer(), { operation: "copy", status: "ready", text: "" });
+  assert.equal(f.textReads, 1);
+});
+
+test("malformed or Agent-like transfer scope cannot create a human clipboard operation", async () => {
+  for (const change of [{ session_id: "forged" }, { kind: "agent" }, { leaseId: "" }, { tabId: -1 }, { leaseId: "invalid\nlease" }]) {
+    const f = humanFixture();
+    await assert.rejects(f.broker.transfer({ ...f.human, ...change }, "cut", {
+      check() {}, validateScope: async () => {}, deadlineAt: Date.now() + 10000, dispatch: async () => { f.dispatches++; }
+    }), /INVALID/);
+    assert.equal(f.dispatches, 0); assert.equal(f.state.calls.length, 0);
   }
 });

@@ -11,10 +11,16 @@
 
 ## 当前评分
 
-人工复制/剪切已完成[机制研究](references/managed-human-copy-research.md)，并新增
+2026-10-21，[人工复制和剪切](references/managed-human-clipboard.md)已接入正式
+查看器、Go协议与扩展。冻结构建448份输入、78份扩展，Go test/vet和2,999项
+Node检查通过；正式未插桩`mhc-4Ft36v`七步通过，覆盖普通/重复/自定义复制、
+无选区保持原内容和默认剪切，含原回执、本地原生粘贴、唯一业务提交与Stop。
+两端使用固定HeadlessClipboard；系统剪贴板、公司Edge和完整能力对齐仍开放。
+
+上一轮人工复制/剪切完成[机制研究](references/managed-human-copy-research.md)，并新增
 可运行的本地异步写入诊断；三场实际通过，正常退出与清理已核对。远端原生
 版本研究保留两次错误预期失败；结论仅适用于浏览器共享clipboard，正式复制
-返回通道仍未实现。本轮按用户要求重新打包既有功能，生产输入没有变化。
+返回通道当时仍未实现。该轮按用户要求重新打包既有功能，生产输入没有变化。
 新包[preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8)
 已发布：干净提交重建、离线CLI/MCP、9213项独立制品检查和四资产回下载通过。
 完整ZIP为10,582,344字节，SHA256：

@@ -12,6 +12,12 @@
 
 ## Baseline sources
 
+2026-10-21，正式人工复制/剪切纯文本通道已实现。全新冻结构建通过完整
+Go test/vet和2,999项Node检查；真实双浏览器`mhc-4Ft36v`七步通过，覆盖五种
+复制/剪切行为、原回执、本地原生粘贴与End/Resume/Stop。两端为固定
+HeadlessClipboard，不代表普通Windows系统剪贴板或公司Edge已验；
+详见[人工剪贴板](../references/managed-human-clipboard.md)。这不代表完整能力对齐。
+
 2026-10-19，当前重复按键修复通过正式`mhr-rm5fRL`七步流程：六场原生连续
 删除、方向键、网页取消和持键End，逐次回执及完整事件账本通过；原handoff
 唯一提交和Stop保留。新构建Go/2,926项Node与30项脚手架检查通过，独立事件

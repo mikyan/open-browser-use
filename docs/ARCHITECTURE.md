@@ -150,6 +150,10 @@ debugger、history 和 tab groups。
   接纳已有原持键的真实重复 down，逐次等待ACK且保留最初释放身份。原生
   `autoRepeat` 不替换持键或确认未知首次输入；End取消队列并等待实际清理。
   持键后变为本地粘贴组合时须先松键，见[重复按键](references/managed-human-key-repeat.md)。
+  人工复制/剪切复用同一私有 clipboard broker，先验证原生版本并保留旧 item，
+  再发送原快捷键；新纯文本随原 ACK 返回，失败不撤销 ACK。结束先释放持键，
+  再等待实际读取；viewer 的本地写入独立保留至结算，见
+  [人工剪贴板](references/managed-human-clipboard.md)。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

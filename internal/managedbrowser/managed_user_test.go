@@ -247,6 +247,8 @@ func (f *userFixture) frame(stream string, sequence uint64, body []byte) uint64 
 }
 func (f *userFixture) respond(req userTestRequest) {
 	switch req.Method {
+	case "Browser.getVersion":
+		f.reply(req, map[string]any{"protocolVersion": "1.3", "product": "Chrome/156.0.8078.12", "revision": "@634b046faf2137b83af71c87baf362b533af9104", "userAgent": "fixture only", "jsVersion": "fixture only"})
 	case "Target.getTargets":
 		targets := []any{map[string]any{"targetId": "page-must-not-attach", "type": "page", "url": "https://fixture.invalid"}, map[string]any{"targetId": "foreign-worker", "type": "service_worker", "url": "chrome-extension://foreign/background.js"}, map[string]any{"targetId": f.targetID, "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"}}
 		if f.duplicate {

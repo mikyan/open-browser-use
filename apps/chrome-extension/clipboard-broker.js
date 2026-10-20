@@ -1,4 +1,5 @@
 import { validateClipboardRequest, validateClipboardResult } from "./browser-clipboard.js";
+import { assertHumanClipboardRuntime, validateHumanClipboardResult } from "./managed-human-clipboard.js";
 
 const PORT_NAME = "obu.clipboard.private.v1";
 const STORAGE_KEY = "obuClipboardPendingV1";
@@ -245,7 +246,10 @@ export class BrowserClipboardBroker {
       else { this.unknown.metadata = metadata; this.unknown.markerUnread = false; }
     }
     if (metadata == null) return;
-    if (!this.supported() || !metadata || metadata.version !== 1 || !uuid(metadata.documentNonce) || !uuid(metadata.operationId) || typeof metadata.documentId !== "string" || !metadata.documentId || typeof metadata.session_id !== "string" || !metadata.session_id || !Number.isSafeInteger(metadata.tabId) || metadata.tabId < 0 || typeof metadata.targetId !== "string" || !metadata.targetId) throw this.markUnknown(metadata);
+    const agent = metadata.version === 1 && typeof metadata.session_id === "string" && metadata.session_id && !Object.hasOwn(metadata, "owner") && !Object.hasOwn(metadata, "leaseId");
+    const human = metadata.version === 2 && metadata.owner === "human" && typeof metadata.leaseId === "string" && metadata.leaseId &&
+      !Object.hasOwn(metadata, "session_id");
+    if (!this.supported() || !(agent || human) || !uuid(metadata.documentNonce) || !uuid(metadata.operationId) || typeof metadata.documentId !== "string" || !metadata.documentId || !Number.isSafeInteger(metadata.tabId) || metadata.tabId < 0 || typeof metadata.targetId !== "string" || !metadata.targetId) throw this.markUnknown(metadata);
     await this.reconcile(metadata);
   }
 
@@ -273,10 +277,39 @@ export class BrowserClipboardBroker {
   }
 
   execute(scope, method, request, { check, deadlineAt }) {
+    return this.reserve(scope, () => this.produce(scope, method, request, { check, deadlineAt }));
+  }
+
+  transfer(scope, operation, { check, validateScope, deadlineAt, dispatch, browserVersion }) {
+    if (!scope || Object.keys(scope).some(key => !["kind", "leaseId", "tabId"].includes(key)) || scope.kind !== "human" ||
+        typeof scope.leaseId !== "string" || !scope.leaseId || scope.leaseId.length > 256 || /[\u0000-\u001f\u007f]/u.test(scope.leaseId) ||
+        !Number.isSafeInteger(scope.tabId) || scope.tabId < 0 || !["copy", "cut"].includes(operation) ||
+        typeof check !== "function" || typeof validateScope !== "function" || typeof dispatch !== "function") return Promise.reject(failure("INVALID"));
+    // Only the authenticated managed Browser-root channel supplies this
+    // identity. chrome.debugger's offscreen route lacks Browser.getVersion.
+    // Snapshot own data fields before any asynchronous work or clipboard read.
+    let version;
+    try {
+      if (!browserVersion || typeof browserVersion !== "object" || Array.isArray(browserVersion)) throw failure("UNSUPPORTED");
+      const descriptors = Object.getOwnPropertyDescriptors(browserVersion);
+      if (Reflect.ownKeys(descriptors).length !== 2 ||
+          !["product", "revision"].every(key => Object.hasOwn(descriptors, key) && Object.hasOwn(descriptors[key], "value")))
+        throw failure("UNSUPPORTED");
+      if (typeof descriptors.product.value !== "string" || typeof descriptors.revision.value !== "string") throw failure("UNSUPPORTED");
+      version = Object.freeze({ product: descriptors.product.value, revision: descriptors.revision.value });
+      assertHumanClipboardRuntime(version);
+    } catch (error) { return Promise.reject(error); }
+    const original = Object.freeze({ kind: "human", leaseId: scope.leaseId, tabId: scope.tabId });
+    return this.reserve(original, () => this.produce(original, "humanClipboardTransfer", { operation }, {
+      check, deadlineAt, human: { validateScope, dispatch, browserVersion: version }
+    }));
+  }
+
+  reserve(scope, produce) {
     if (this.operation || this.unknown) return Promise.reject(failure(this.unknown ? "CLEANUP_UNKNOWN" : "BUSY"));
     const operation = { scope, promise: null };
     this.operation = operation;
-    operation.promise = this.produce(scope, method, request, { check, deadlineAt }).catch(async error => {
+    operation.promise = Promise.resolve().then(produce).catch(async error => {
       // A missing document is not evidence that the native operation settled.
       // Keep the actual adapter flow in end/Pause drains until reconciliation.
       if (this.unknown) await this.unknown.pending;
@@ -285,13 +318,14 @@ export class BrowserClipboardBroker {
     return operation.promise;
   }
 
-  async produce(scope, method, request, { check, deadlineAt }) {
+  async produce(scope, method, request, { check, deadlineAt, human }) {
+    if (human) assertHumanClipboardRuntime(human.browserVersion);
     await this.recover();
     if (!this.supported()) throw failure("UNSUPPORTED");
-    const params = validateClipboardRequest(method, request);
+    const params = human ? request : validateClipboardRequest(method, request);
     const assert = () => { check(); if (!Number.isFinite(deadlineAt) || Date.now() >= deadlineAt) throw failure("TIMEOUT"); };
     assert();
-    let metadata, channel, marked = false;
+    let metadata, channel, marked = false, cleaned = false;
     try {
       let contexts = await this.contexts();
       assert();
@@ -303,9 +337,17 @@ export class BrowserClipboardBroker {
       if (contexts.length !== 1) throw failure("UNSUPPORTED");
       ({ channel } = await this.bind(contexts[0].documentId, deadlineAt));
       assert();
-      metadata = { version: 1, documentId: channel.documentId, documentNonce: channel.documentNonce, operationId: crypto.randomUUID(), targetId: null, session_id: params.session_id, tabId: params.tabId };
+      metadata = {
+        version: human ? 2 : 1, documentId: channel.documentId, documentNonce: channel.documentNonce,
+        operationId: crypto.randomUUID(), targetId: null, tabId: scope.tabId,
+        ...(human ? { owner: "human", leaseId: scope.leaseId } : { session_id: params.session_id })
+      };
       await this.attach(channel, metadata);
       assert();
+      if (human) {
+        await human.validateScope(scope);
+        assert();
+      }
       // No contents are persisted. Await this write before dispatching any
       // payload or native call; a suspended write stays in the real promise.
       marked = true;
@@ -313,20 +355,35 @@ export class BrowserClipboardBroker {
       assert();
       await this.request(channel, "prepare", { operationId: metadata.operationId, method, params, deadlineAt });
       assert();
-      await this.validateScope(scope);
+      await (human ? human.validateScope(scope) : this.validateScope(scope));
       assert();
+      if (human) {
+        // This callback is the original tracked native key. Never repeat it,
+        // even after channel loss, stale scope, or a failed clipboard read.
+        await human.dispatch();
+        assert();
+        await human.validateScope(scope);
+        assert();
+      }
       const result = await this.request(channel, "commit", { operationId: metadata.operationId });
-      const validated = validateClipboardResult(method, result, params.maxBytes);
+      const validated = human ? validateHumanClipboardResult(result, params.operation) : validateClipboardResult(method, result, params.maxBytes);
+      if (human) {
+        assert();
+        await human.validateScope(scope);
+        assert();
+      }
       await this.clean(metadata);
+      cleaned = true;
+      if (human) assert();
       return validated;
     } catch (error) {
-      if (metadata && marked) {
+      if (metadata && marked && !cleaned) {
         try {
           // Bind revokes preparation and waits for a committed native promise;
           // it never issues the native action a second time.
           await this.reconcile(metadata);
         } catch (cleanupError) { throw cleanupError; }
-      } else if (metadata?.targetId) {
+      } else if (metadata?.targetId && !cleaned) {
         try { await this.clean(metadata); } catch { throw this.markUnknown(metadata); }
       }
       // Before ownership is proven, leave the idle offscreen document alone.

@@ -41,6 +41,7 @@ function fixture(options = {}) {
     assertDialog: (candidate, origins) => options.assertDialog?.(candidate, origins),
     markRisk: async id => { risks.add(id); await options.markRisk?.(); }, clearRisk: async id => { await options.clearRisk?.(); risks.delete(id); },
     viewJournal: options.viewJournal,
+    clipboardTransfer: options.clipboardTransfer,
     timing: options.timing,
     onFailure: error => calls.push(["failure", error.message])
   });
@@ -65,6 +66,150 @@ const input = (handle, value, extra = {}) => {
   const info = handle.info();
   return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value, ...extra });
 };
+
+const clipboardKey = (operation = "copy", extra = {}) => ({ type: "key", action: "down",
+  key: operation === "copy" ? "c" : "x", code: operation === "copy" ? "KeyC" : "KeyX",
+  windowsVirtualKeyCode: operation === "copy" ? 67 : 88, modifiers: 2, clipboardTransfer: operation, ...extra });
+const clipboardKeyUp = operation => {
+  const { clipboardTransfer, ...key } = clipboardKey(operation, { action: "up" }); return key;
+};
+
+test("clipboard capability belongs to the original human lease, never a view", async () => {
+  const f = fixture({ clipboardTransfer: async () => assert.fail("no clipboard action during Begin") });
+  const handle = await f.begin();
+  assert.equal(handle.info().clipboardTransferVersion, 1);
+  assert.ok(f.states.every(state => state.clipboardTransferVersion === 1));
+  await handle.close();
+  const view = await f.beginView();
+  assert.equal(Object.hasOwn(view.info(), "clipboardTransferVersion"), false);
+  await view.close();
+});
+
+for (const operation of ["copy", "cut"]) test(`original ${operation} ACK survives collection failure and accepts its real key up`, async () => {
+  let dispatches = 0;
+  const f = fixture({ clipboardTransfer: async (scope, requested, { check, dispatch }) => {
+    assert.equal(scope.kind, "human"); assert.equal(scope.tabId, 7); assert.equal(requested, operation);
+    check(); await dispatch(); dispatches++;
+    throw new Error("OBU_CLIPBOARD_CHANGED: original item changed during read");
+  } });
+  const handle = await f.begin(), receipt = await input(handle, clipboardKey(operation));
+  assert.equal(receipt.acknowledged, true);
+  assert.deepEqual(receipt.clipboardTransfer, { operation, status: "failed", code: "CHANGED" });
+  assert.equal((await input(handle, clipboardKeyUp(operation))).acknowledged, true);
+  assert.equal(dispatches, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").length, 2);
+  await handle.close();
+});
+
+test("clipboard timeout retains the original read but does not block the acknowledged key release", async () => {
+  const timing = manualTiming(), read = defer(), ack = defer();
+  const f = fixture({ timing, clipboardTransfer: async (_scope, operation, { check, dispatch }) => {
+    await dispatch(); ack.resolve(); await read.promise; check();
+    return { operation, status: "ready", text: "late private text" };
+  } });
+  const handle = await f.begin(), transfer = input(handle, clipboardKey("cut"));
+  await ack.promise; timing.advance(3000);
+  const result = await transfer;
+  assert.equal(result.acknowledged, true);
+  assert.deepEqual(result.clipboardTransfer, { operation: "cut", status: "failed", code: "TIMEOUT" });
+  assert.equal((await input(handle, clipboardKeyUp("cut"))).acknowledged, true);
+  let closed = false;
+  const closing = handle.close().then(() => { closed = true; });
+  await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  read.resolve(); await closing; assert.equal(closed, true);
+});
+
+test("a delayed clipboard timeout callback cannot publish text after the original ACK deadline", async () => {
+  const timing = manualTiming(), read = defer(), ack = defer();
+  const f = fixture({ timing, clipboardTransfer: async (_scope, operation, { check, dispatch }) => {
+    await dispatch(); ack.resolve(); await read.promise; check();
+    return { operation, status: "ready", text: "expired private text" };
+  } });
+  const handle = await f.begin(), transfer = input(handle, clipboardKey());
+  await ack.promise;
+  timing.skip(3001); // Native time advances while timer callbacks remain queued.
+  read.resolve();
+  try {
+    const result = await transfer;
+    assert.equal(result.acknowledged, true);
+    assert.deepEqual(result.clipboardTransfer, { operation: "copy", status: "failed", code: "TIMEOUT" });
+    assert.equal(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").length, 1);
+  } finally { await handle.close(); }
+});
+
+test("End after native copy ACK revokes text immediately and releases its key before the read settles", async () => {
+  const read = defer(), ack = defer();
+  const f = fixture({ clipboardTransfer: async (_scope, operation, { dispatch }) => {
+    await dispatch(); ack.resolve(); await read.promise;
+    // Deliberately ignore the helper's check: controller still fences this data.
+    return { operation, status: "ready", text: "retired payload" };
+  } });
+  const handle = await f.begin(), transfer = input(handle, clipboardKey());
+  await ack.promise;
+  let closed = false; const closing = handle.close().then(() => { closed = true; });
+  const result = await transfer;
+  assert.equal(result.acknowledged, true);
+  assert.deepEqual(result.clipboardTransfer, { operation: "copy", status: "failed", code: "CANCELLED" });
+  await tick();
+  assert.equal(closed, false);
+  assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp").length, 1);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  read.resolve(); await closing;
+});
+
+test("End while clipboard preparation is pending releases earlier held input without dispatching cut", async () => {
+  const preparing = defer(), started = defer();
+  const f = fixture({ clipboardTransfer: async (_scope, operation, { dispatch, check }) => {
+    started.resolve(); await preparing.promise; check(); await dispatch();
+    return { operation, status: "unchanged" };
+  } });
+  const handle = await f.begin();
+  await input(handle, { type: "key", action: "down", key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, modifiers: 2 });
+  const transfer = input(handle, clipboardKey("cut")); transfer.catch(() => {});
+  await started.promise; const closing = handle.close();
+  await tick();
+  const keys = f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]);
+  assert.deepEqual(keys.map(key => [key.code, key.type]), [["ControlLeft", "rawKeyDown"], ["ControlLeft", "keyUp"]]);
+  preparing.resolve(); await assert.rejects(transfer, /CANCELLED|STALE/); await closing;
+});
+
+test("clipboard preparation failure never dispatches the original cut", async () => {
+  const f = fixture({ clipboardTransfer: async () => { throw new Error("OBU_CLIPBOARD_UNSUPPORTED: native version unavailable"); } });
+  const handle = await f.begin();
+  await assert.rejects(input(handle, clipboardKey("cut")), /UNSUPPORTED/);
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+  await handle.close();
+});
+
+test("a transfer implementation cannot dispatch an acknowledged cut twice", async () => {
+  const f = fixture({ clipboardTransfer: async (_scope, _operation, { dispatch }) => { await dispatch(); await dispatch(); } });
+  const handle = await f.begin(), result = await input(handle, clipboardKey("cut"));
+  assert.equal(result.acknowledged, true);
+  assert.equal(result.clipboardTransfer.status, "failed");
+  assert.equal(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").length, 1);
+  await handle.close();
+});
+
+for (const result of [{ operation: "copy", status: "unchanged" }, { operation: "copy", status: "ready", text: "" },
+  { operation: "copy", status: "ready", text: "中文\n🧭" }]) test(`clipboard actual ${result.status} result is bound to its original ACK (${JSON.stringify(result.text)})`, async () => {
+  const f = fixture({ clipboardTransfer: async (_scope, _operation, { dispatch }) => { await dispatch(); return result; } });
+  const handle = await f.begin(), receipt = await input(handle, clipboardKey());
+  assert.equal(receipt.sequence, 1); assert.equal(receipt.leaseId, handle.info().leaseId);
+  assert.deepEqual(receipt.clipboardTransfer, result);
+  await handle.close();
+});
+
+test("clipboard requests reject unsupported capability and mismatched native shortcuts before dispatch", async () => {
+  const legacy = fixture(), old = await legacy.begin();
+  await assert.rejects(input(old, clipboardKey()), /UNAVAILABLE/); await old.close();
+  const f = fixture({ clipboardTransfer: async () => assert.fail("invalid shortcut must not reach clipboard") });
+  const handle = await f.begin();
+  for (const extra of [{ modifiers: 10 }, { modifiers: 6 }, { action: "up" }, { repeat: true }, { code: "KeyV" }, { key: "x" }])
+    await assert.rejects(input(handle, clipboardKey("copy", extra)));
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+  await handle.close();
+});
 
 function remoteFixture(options = {}) {
   let f;

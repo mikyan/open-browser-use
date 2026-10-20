@@ -20,6 +20,7 @@ import { humanKeyboardCases, createManagedHumanKeyboardFixture, readManagedHuman
 import { humanKeyRepeatCases, nativeKeyRepeatGesture, installManagedKeyRepeatObserver, assertManagedKeyRepeatCase, assertManagedKeyRepeatLedger } from "./managed-human-key-repeat.mjs";
 import { createManagedKeyRepeatFixture, readManagedKeyRepeatDocument } from "./managed-human-key-repeat-fixture.mjs";
 import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger } from "./managed-human-ime.mjs";
+import { humanCopyCases, createManagedHumanCopyFixture, readManagedHumanCopyDocument, installManagedCopyReadbackObserver, assertManagedHumanCopyCase } from "./managed-human-copy-fixture.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -100,13 +101,18 @@ export function projectHumanCommand(message) {
   assert.ok(Number.isSafeInteger(message.generation) && message.generation > 0);
   assert.ok(Number.isSafeInteger(message.sequence) && message.sequence > 0);
   const input = message.input; assert.ok(input && typeof input === "object" && !Array.isArray(input));
-  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat"], text: ["type", "text"] }[input.type];
+  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat", "clipboardTransfer"], text: ["type", "text"] }[input.type];
   assert.ok(fields); assert.ok(Object.keys(input).every(key => fields.includes(key)));
   if (input.type === "pointer") { assert.ok(["move", "down", "up"].includes(input.action)); assert.ok(input.button === undefined || ["left", "middle", "right"].includes(input.button)); }
   if (["pointer", "wheel"].includes(input.type)) for (const key of ["x", "y"]) assert.ok(Number.isFinite(input[key]) && input[key] >= 0);
   if (input.type === "wheel") for (const key of ["deltaX", "deltaY"]) assert.ok(Number.isFinite(input[key]));
   if (input.type === "key") { assert.ok(["down", "up"].includes(input.action)); assert.equal(typeof input.key, "string"); assert.equal(typeof input.code, "string"); assert.ok(Number.isInteger(input.windowsVirtualKeyCode)); if (Object.hasOwn(input, "repeat")) { assert.equal(input.repeat, true); assert.equal(input.action, "down"); } }
   if (input.modifiers !== undefined) assert.ok(Number.isInteger(input.modifiers) && input.modifiers >= 0 && input.modifiers <= 15);
+  if (Object.hasOwn(input, "clipboardTransfer")) {
+    assert.equal(input.action, "down"); assert.equal(input.repeat, undefined); assert.ok([2, 4].includes(input.modifiers));
+    const key = input.clipboardTransfer === "copy" ? ["c", "KeyC", 67] : input.clipboardTransfer === "cut" ? ["x", "KeyX", 88] : null;
+    assert.ok(key); assert.deepEqual([input.key.toLowerCase(), input.code, input.windowsVirtualKeyCode], key);
+  }
   if (input.type === "text") { assert.ok(typeof input.text === "string" && Buffer.byteLength(input.text) <= 8192); return { ...message, input: { type: "text", textBytes: Buffer.byteLength(input.text), textSHA256: hash(input.text) } }; }
   return structuredClone(message);
 }
@@ -114,7 +120,20 @@ export function projectHumanCommand(message) {
 export function assertHumanInputReceipt(request, reply) {
   assert.equal(reply.type, "response"); assert.equal(reply.id, request.id);
   assert.equal(reply.error, undefined, serialize(reply.error));
-  assert.deepEqual(reply.result?.inputReceipt, { leaseId: request.leaseId, generation: request.generation, sequence: request.sequence, acknowledged: true }, "The exact original native input acknowledgement is required");
+  const { clipboardTransfer, ...base } = reply.result?.inputReceipt ?? {};
+  assert.deepEqual(base, { leaseId: request.leaseId, generation: request.generation, sequence: request.sequence, acknowledged: true }, "The exact original native input acknowledgement is required");
+  if (request.input?.clipboardTransfer) {
+    assert.equal(clipboardTransfer?.operation, request.input.clipboardTransfer);
+    if (clipboardTransfer.status === "ready") {
+      assert.deepEqual(Object.keys(clipboardTransfer).sort(), ["operation", "status", "text"]);
+      assert.equal(typeof clipboardTransfer.text, "string"); assert.equal(clipboardTransfer.text.isWellFormed(), true);
+      assert.ok(Buffer.byteLength(clipboardTransfer.text) <= 65536);
+    } else if (clipboardTransfer.status === "unchanged") assert.deepEqual(clipboardTransfer, { operation: request.input.clipboardTransfer, status: "unchanged" });
+    else {
+      assert.equal(clipboardTransfer.status, "failed"); assert.deepEqual(Object.keys(clipboardTransfer).sort(), ["code", "operation", "status"]);
+      assert.ok(["UNSUPPORTED", "DENIED", "BUSY", "CANCELLED", "TIMEOUT", "CHANGED", "LIMIT", "READ_FAILED"].includes(clipboardTransfer.code));
+    }
+  } else assert.equal(clipboardTransfer, undefined, "Ordinary inputs cannot return unsolicited clipboard text");
 }
 
 export function captureTaskAuthority(client, tabId) {
@@ -176,18 +195,19 @@ async function treeHashes(root) {
 
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
-  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat"].includes(scenario));
-  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", explicitEnd = paste || ime || keyboard || keyRepeat;
+  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy"].includes(scenario));
+  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
-  const viewerChromium = paste ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
+  const viewerChromium = paste || humanCopy ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
   assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME/keyboard/key-repeat requires a build manifest; local paste also requires an explicit guarded viewer binary");
   await Promise.all([executable, chromium, viewerChromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : "managed-human-"));
-  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
+  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : humanCopy ? "mhc-" : "managed-human-"));
+  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : humanCopy ? "c" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
-    scope: paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
+    scope: humanCopy ? "Production Go/UI/extension clipboard transfer with independently guarded task and viewer HeadlessClipboard. Five original copy/cut cases, exact native receipts, End before trusted local paste readback, explicit Resume and original handoff one POST/Stop. No OS clipboard, permission grant, task CDP attachment, clipboard API substitution or business replay. Shared managed clipboard is not page-origin provenance."
+      : paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
       : ime ? "Production managed human viewer with browser-native CDP IME composition on the isolated headless viewer only. Candidate updates, two identical commits and cancellation; original task text receipts/document/one POST, held-Shift End and Stop. No Windows OS input method, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyRepeat ? "Production managed viewer native key down plus explicit autoRepeat key events for Backspace/Delete/ArrowLeft/ArrowRight, prevented defaults and End-held-repeat cleanup. Original task values/selections/receipts and independent handoff one POST. CDP keyboard simulation targets only the viewer; no OS input, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyboard ? "Production managed viewer native Enter/Shift+Enter/NumpadEnter editing, prevented default, one original implicit form POST; independent original handoff POST, held-Shift End, explicit Resume and Stop. No OS input, clipboard, task CDP input or business replay."
@@ -195,11 +215,12 @@ export async function runManagedHumanCheck() {
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
-  let repeatTab, keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
-  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat ? "handoff" : scenario });
+  let copyTab, repeatTab, keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
+  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy ? "handoff" : scenario });
+  const copyFixture = humanCopy ? createManagedHumanCopyFixture() : null;
   const repeatFixture = keyRepeat ? createManagedKeyRepeatFixture() : null;
   const keyboardFixture = keyboard ? createManagedHumanKeyboardFixture() : null;
-  const server = createServer((request, response) => { if (!repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
+  const server = createServer((request, response) => { if (!copyFixture?.handle(request, response) && !repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
     const child = launch(executable, args, { timeoutMs: args[0] === "managed" && args[1] === "stop" ? 55000 : 45000 });
@@ -320,6 +341,7 @@ export async function runManagedHumanCheck() {
   const documentRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const keyboardRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanKeyboardDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous keyboard root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const repeatRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedKeyRepeatDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous repeat root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
+  const copyRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanCopyDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous copy root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const observerSnapshot = () => worker.evaluate("__managedHumanAcceptance.snapshot()");
   const posts = () => fixture.stats().requests.filter(item => item.method === "POST");
@@ -450,10 +472,17 @@ export async function runManagedHumanCheck() {
       assert.equal(info.name, name); assert.ok(info.runId && info.browserPID > 0 && info.nativePID > 0);
       report.originalProcesses = descendants(await processTable(), info.browserPID); assert.ok(report.originalProcesses.some(item => item.ProcessId === info.nativePID));
       const status = JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout); assert.deepEqual(status.info, info);
-      const startup = browserStartupOptions([`--user-data-dir=${viewerProfile}`, "--headless=new", ...(paste ? ["--enable-automation"] : []), "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
+      if (humanCopy) {
+        const endpoint = await endpointFor(info.profileDir, launcher); report.taskClipboardGuardConnection = {};
+        const guardConnection = await connectNormalCDP(endpoint.url, { record: report.taskClipboardGuardConnection, authorizationRequired: false });
+        try { report.taskClipboardGuard = await verifyMemoryClipboard(guardConnection, chromium); }
+        finally { await guardConnection.close(); }
+        assert.equal(report.taskClipboardGuard.verified, true);
+      }
+      const startup = browserStartupOptions([`--user-data-dir=${viewerProfile}`, "--headless=new", ...(paste || humanCopy ? ["--enable-automation"] : []), "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], process.env.OBU_TEST_FIELD_TRIAL_CONFIG);
       report.viewerStartup = startup; viewerProcess = launch(viewerChromium, startup.args);
       viewerBrowser = await playwrightChromium.connectOverCDP((await endpointFor(viewerProfile, viewerProcess)).url);
-      if (paste) {
+      if (paste || humanCopy) {
         const session = await viewerBrowser.newBrowserCDPSession();
         try { report.clipboardGuard = await verifyMemoryClipboard({ call: (method, params) => session.send(method, params) }, viewerChromium); }
         finally { await session.detach(); }
@@ -461,15 +490,18 @@ export async function runManagedHumanCheck() {
       viewerContext = await viewerBrowser.newContext({ viewport: { width: 1280, height: 1000 } });
       report.viewerProcesses = descendants(await processTable(), viewerProcess.record.pid);
       assert.ok(!report.viewerProcesses.some(item => item.ProcessId === info.browserPID));
-      if (paste) {
+      if (paste || humanCopy) {
         assert.equal(report.clipboardGuard.verified, true);
+        const seedText = humanCopy ? "Original synthetic viewer clipboard seed" : humanPasteText;
         const donor = await viewerContext.newPage(); await donor.addInitScript(installManagedPasteObserver);
         try {
-          await donor.goto(fixtureURL + "/human-clipboard-donor");
-          await donor.evaluate(text => { const el = document.getElementById("donor"); el.value = text; el.focus(); el.select(); }, humanPasteText);
+          const donorResponse = await donor.goto(fixtureURL + "/human-clipboard-donor");
+          assert.equal(donorResponse.status(), 200);
+          assert.equal(await donor.locator("#donor").count(), 1); assert.equal(await donor.locator("#neutral").count(), 1);
+          await donor.evaluate(text => { const el = document.getElementById("donor"); el.value = text; el.focus(); el.select(); }, seedText);
           await donor.keyboard.press("Control+C"); await donor.locator("#neutral").focus(); await donor.keyboard.press("Control+V");
           report.clipboardSeed = await donor.evaluate(() => ({ value: document.getElementById("neutral").value, ...__managedPasteObservation.stop() }));
-          assert.equal(report.clipboardSeed.value, humanPasteText); assert.equal(report.clipboardSeed.overflow, false); assert.equal(report.clipboardSeed.active, false);
+          assert.equal(report.clipboardSeed.value, seedText); assert.equal(report.clipboardSeed.overflow, false); assert.equal(report.clipboardSeed.active, false);
           for (const type of ["copy", "paste", "beforeinput", "input"]) assert.ok(report.clipboardSeed.events.some(event => event.type === type && event.trusted));
           assert.equal(report.clipboardSeed.events.filter(event => event.type === "paste").length, 1);
         } finally { await donor.close(); }
@@ -506,6 +538,72 @@ export async function runManagedHumanCheck() {
       await denied("nonbusiness original request before explicit new turn", () => tab.domSnapshot({ timeoutMs: 1500 }), /OBU_STALE_CONTROL_EPOCH/);
       report.originalTurn = await taskBrowser.client.beginTurn("original-unsaved-form");
       await denied("nonbusiness original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, originalAuthority), /OBU_STALE_CONTROL_EPOCH/);
+    });
+
+    if (humanCopy) await step("original-copy-cut-and-local-native-paste", async () => {
+      assert.equal(report.taskClipboardGuard.verified, true); assert.equal(report.clipboardGuard.verified, true);
+      copyTab = await taskBrowser.newTab({ url: fixtureURL + "/human-copy", backgroundWindow: true });
+      await copyTab.domSnapshot({ timeoutMs: 10000 });
+      const authority = captureTaskAuthority(taskBrowser.client, copyTab.id);
+      const detail = report.humanCopy = { tabId: copyTab.id, original: await copyRead(copyTab.id), authority, cases: [] };
+      detail.originalTargets = await nativeMap(copyTab.id); assert.equal(detail.originalTargets.length, 1);
+      detail.remoteSeed = { text: "Original synthetic managed clipboard seed", startedAt: Date.now() };
+      detail.remoteSeed.result = await taskBrowser.client.writeClipboardText(copyTab.id, detail.remoteSeed.text, { timeoutMs: 10000 });
+      detail.remoteSeed.completedAt = Date.now();
+      detail.finalize = await taskBrowser.client.finalizeTabs([{ tabId: copyTab.id, status: "deliverable" }]);
+      await uiAction("#refresh", "status"); await uiAction("#tabs", "select", copyTab.id);
+      for (const definition of humanCopyCases) {
+        const row = { definition, startedAt: Date.now(), connection }; detail.cases.push(row);
+        row.begin = await uiAction("#human-begin", "humanBegin"); assert.equal(row.begin.status.state, "paused");
+        row.frame = await decodeHumanFrame(row.begin.human); row.lease = { ...state.human };
+        assert.equal(row.lease.clipboardTransferVersion, 1);
+        const document = await copyRead(copyTab.id), position = await viewerPoint(document.boxes[definition.target]);
+        row.focusCommands = await inputAction(`focus original clipboard field ${definition.id}`, () => page.mouse.click(position.x, position.y));
+        row.selectionCommands = definition.selected
+          ? await inputAction(`select original clipboard field ${definition.id}`, () => page.keyboard.press("Control+A")) : [];
+        row.before = await copyRead(copyTab.id);
+        const selected = row.before.state.controls[definition.target];
+        assert.equal(row.before.activeElement, definition.target);
+        assert.equal(selected.selectionStart, 0); assert.equal(selected.selectionEnd, definition.selected ? selected.value.length : 0);
+        row.commands = await inputAction(`original clipboard shortcut ${definition.id}`, () => page.keyboard.press(definition.operation === "cut" ? "Control+X" : "Control+C"));
+        row.after = await copyRead(copyTab.id);
+        row.localBeforeEnd = await page.locator("#clipboard-status").evaluate(element => ({ text: element.textContent, ...element.dataset }));
+        row.end = await uiAction("#human-end", "humanEnd"); assert.equal(row.end.human, null);
+        assert.deepEqual(row.end.humanCleanup, { leaseId: row.lease.leaseId, cleanupConfirmed: true });
+        row.localSettled = await wait(async () => {
+          const value = await page.locator("#clipboard-status").evaluate(element => ({ text: element.textContent, ...element.dataset }));
+          return value.pending === "false" && value;
+        }, "actual local clipboard write settlement");
+        if (definition.status === "ready") { assert.equal(row.localSettled.dataState, "resolved"); assert.match(row.localSettled.text, /已写入/); }
+        else assert.equal(row.localSettled.dataState, "rejected");
+        row.released = await copyRead(copyTab.id);
+        assert.deepEqual(row.released.state.events, row.after.state.events, "End after original up cannot add task input");
+        const inputs = report.viewerCommands.filter(command => command.operation === "humanInput" && command.leaseId === row.lease.leaseId);
+        assert.deepEqual(inputs, [...row.focusCommands, ...row.selectionCommands, ...row.commands], "Entire lease contains only original focus, selection and shortcut");
+        row.leaseLedger = inputs.map(command => command.id);
+        // Local readback gets focus only after the original End. It cannot
+        // silently terminate a live human lease or substitute a clipboard API.
+        const wireEnd = report.viewerCommands.length, localPage = await viewerContext.newPage();
+        try {
+          await localPage.addInitScript(installManagedCopyReadbackObserver);
+          await localPage.goto(fixtureURL + "/human-copy-local", { waitUntil: "domcontentloaded" });
+          await localPage.locator("#neutral").focus();
+          assert.equal(await localPage.locator("#neutral").inputValue(), "");
+          row.localPasteStartedAt = Date.now(); await localPage.keyboard.press("Control+V");
+          row.local = await localPage.evaluate(() => __managedCopyReadback.stop()); row.localPasteCompletedAt = Date.now();
+        } finally { await localPage.close(); }
+        await page.bringToFront();
+        assert.equal(report.viewerCommands.length, wireEnd, "Local readback must not create remote human input");
+        assert.deepEqual((await copyRead(copyTab.id)).state.events, row.released.state.events);
+        row.proof = assertManagedHumanCopyCase({ ...row, original: detail.original, replies: report.viewerMessages, scope: row.lease });
+        row.completedAt = Date.now(); row.screenshot = await screenshot(`viewer-human-${definition.id}.png`);
+      }
+      detail.released = await copyRead(copyTab.id);
+      detail.afterTargets = await nativeMap(copyTab.id);
+      assert.equal(detail.afterTargets[0].id, detail.originalTargets[0].id); assert.equal(detail.afterTargets[0].attached, false);
+      detail.resume = await uiAction("#control", "resume"); assert.equal(detail.resume.status.state, "running");
+      detail.newTurn = await taskBrowser.client.beginTurn("original-handoff-after-clipboard");
+      await denied("clipboard original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, authority), /OBU_STALE_CONTROL_EPOCH/);
     });
 
     if (keyRepeat) await step("native-key-repeat-and-original-held-End", async () => {
@@ -765,6 +863,14 @@ export async function runManagedHumanCheck() {
       assert.equal(after.documentId, original.documentId); report.business.finalFrames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${oldTaskTab.id}})`);
       assert.equal(report.business.finalFrames.find(value => value.frameId === 0).documentId, original.documentId);
       await uiAction("#refresh", "status"); await uiAction("#tabs", "select", oldTaskTab.id); report.business.receiptScreenshot = await screenshot("viewer-original-receipt.png");
+      if (humanCopy) {
+        report.humanCopy.finalDocument = await copyRead(copyTab.id);
+        assert.deepEqual(report.humanCopy.finalDocument.state.events, report.humanCopy.released.state.events, "Original copy page cannot receive late task input");
+        for (const row of report.humanCopy.cases) {
+          const inputs = report.viewerCommands.filter(command => command.operation === "humanInput" && command.leaseId === row.lease.leaseId);
+          assert.deepEqual(inputs.map(command => command.id), row.leaseLedger, "No late clipboard lease input after handoff");
+        }
+      }
       if (keyboard) {
         report.keyboard.finalDocument = await keyboardRead(keyboardTab.id);
         assert.deepEqual(report.keyboard.finalDocument.state.events, report.keyboard.released.state.events, "Released keyboard page must not receive late input");
@@ -809,6 +915,9 @@ export async function runManagedHumanCheck() {
     if (worker && keyboardTab) try {
       report.failureKeyboardDocument = { at: Date.now(), value: await bound(keyboardRead(keyboardTab.id), 5000, "failed original keyboard document observation") };
     } catch (failure) { report.failureKeyboardDocumentError = redact(String(failure)); }
+    if (worker && copyTab) try {
+      report.failureCopyDocument = { at: Date.now(), value: await bound(copyRead(copyTab.id), 5000, "failed original copy document observation") };
+    } catch (failure) { report.failureCopyDocumentError = redact(String(failure)); }
     if (worker && oldTaskTab) try {
       report.failureDocument = { at: Date.now(), value: await bound(documentRead(oldTaskTab.id), 5000, "failed original document observation") };
     } catch (failure) { report.failureDocumentError = redact(String(failure)); }
@@ -853,6 +962,21 @@ export async function runManagedHumanCheck() {
       }
     } catch (error) { report.cleanup.sourceChanged = error.stack; }
     report.fixture = fixture.stats();
+    if (copyFixture) {
+      report.copyFixture = copyFixture.stats();
+      if (report.humanCopy?.finalDocument) try {
+        assert.equal(report.copyFixture.overflow, false);
+        assert.equal(report.copyFixture.requests.length, 2 + humanCopyCases.length);
+        assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-copy").length, 1);
+        assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-clipboard-donor").length, 1);
+        assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-copy-local").length, humanCopyCases.length);
+        for (const hit of report.copyFixture.requests) {
+          assert.equal(hit.method, "GET"); assert.equal(hit.status, 200); assert.equal(hit.finished, true); assert.equal(hit.aborted, false);
+        }
+        assert.equal(report.copyFixture.requests.find(row => row.path === "/human-copy").documentToken, report.humanCopy.original.state.documentToken);
+        assert.equal(report.fixture.requests.filter(row => row.method === "POST").length, 1);
+      } catch (error) { report.cleanup.copyLedger = error.stack; }
+    }
     if (repeatFixture) {
       report.keyRepeatFixture = repeatFixture.stats();
       if (report.keyRepeat?.finalDocument) try {
@@ -873,7 +997,7 @@ export async function runManagedHumanCheck() {
     report.frameRetention = { observedFrames: report.frames.length, savedPNGs: report.frames.filter(frame => frame.file).length, maximumSavedPNGs: 96, metadataOnlyFrames: report.frames.filter(frame => !frame.file).length,
       policy: "The first 96 actual native PNG payloads are retained for independent decoding; all received frames retain hash/header metadata. viewerDecodedFrames identifies actual browser decodes, not unperformed decodes of every frame." };
     report.liveRunnerChildren = [...registry].map(value => value.pid);
-    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat || humanCopy ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
     await save(); console.log("RESULT", JSON.stringify({ runDir, passed: report.passed }));
   }
   return report;

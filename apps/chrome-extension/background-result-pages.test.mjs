@@ -14,12 +14,22 @@ async function delivered(t, status = "deliverable") {
   return f;
 }
 const view = (f, frames = []) => f.backend.managedViewerSubscribe(7, frame => frames.push(frame), () => {}, { deliveryId: f.record.deliveryId }, () => {});
-async function human(f, frames = []) {
-  const admitted = f.backend.beginManagedHuman(7, () => {}, frame => frames.push(frame), () => {}, { deliveryId: f.record.deliveryId });
+async function human(f, frames = [], options = {}) {
+  const admitted = f.backend.beginManagedHuman(7, () => {}, frame => frames.push(frame), () => {}, { ...options, deliveryId: f.record.deliveryId });
   const record = f.backend.managedHuman.current, handle = await admitted;
   await record.start;
   return handle;
 }
+
+test("a result takeover retains its original native browser version for clipboard preparation", async t => {
+  const f = await delivered(t);
+  const browserVersion = Object.freeze({ product: "Chrome/156.0.8078.4", revision: "@f842f52ef39fd97b449eb27cff414bf05a98ddce" });
+  const handle = await human(f, [], { browserVersion });
+  assert.deepEqual(clone(f.backend.managedHuman.current.options.browserVersion), browserVersion);
+  assert.equal(Object.isFrozen(f.backend.managedHuman.current.options.browserVersion), true);
+  assert.equal(f.backend.managedHuman.current.options.deliveryId, f.record.deliveryId);
+  await handle.close();
+});
 
 test("only successful explicit finalize publishes native result identity; turnEnded and markers do not", async t => {
   const f = await delivered(t);

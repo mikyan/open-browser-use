@@ -8,7 +8,11 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新已发布完整包为 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，包含人工接管真实重复按键，正式七步流程及原清理通过。
+上一轮已发布完整包为 [preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8)，与此前534b881的生产功能相同。
+当前源码新增[人工复制和剪切](managed-human-clipboard.md)，正式双浏览器五种
+行为及七步生命周期通过，配套新包正在准备。
+
+此前 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881) 包含人工接管真实重复按键，正式七步流程及原清理通过。
 440份输入与原Go test/vet、2926项Node已测快照及提交对象相符，77份扩展
 与实测字节一致。离线CLI/MCP、9231项独立制品检查、四资产回下载及本地
 副本核对通过。发布EXE单独重建，打包未重跑原网页业务。主机和扩展需配套
@@ -243,6 +247,11 @@ SDK 继续使用自己的确切 endpoint 参数。例如 JavaScript SDK 的
 不支持的控制字符和孤立surrogate整体拒绝。多行内容遵循目标输入控件的
 换行规则。验证范围仅为隔离浏览器内存剪贴板，普通可见浏览器的系统剪贴板、
 完整输入法和非Windows平台仍待验收。
+
+新源码还接入 Ctrl+C / Ctrl+X 的纯文本返回，最多 64 KiB UTF-8；要求配套
+主程序、扩展及核准的专用浏览器版本。成功、失败和仍在等待的本地写入分别
+显示；已经执行的远端剪切不能因本地写入失败而撤回。具体适用范围和本轮
+验收状态见[人工复制和剪切](managed-human-clipboard.md)。
 
 输入区失焦、查看窗口失焦或页面被隐藏都会结束接管。源码新增的网页弹窗
 交互会临时停用页面输入框，其本地失焦不会结束接管；可在画面上方确认、
