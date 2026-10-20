@@ -1,0 +1,21 @@
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_4af58af8780278 7
+docs/histories/2026-10/20261021-0400-managed-human-pages.md
+  s_08bbfd293d324f::t_4af58af8780278 96-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "1eef185a2b0d56c475eea6f93034fa952d4428cb",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
