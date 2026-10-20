@@ -1,0 +1,27 @@
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_dc03d0e44436c9 11-17
+docs/histories/2026-10/20261021-0200-managed-human-files.md
+  s_08bbfd293d324f::t_dc03d0e44436c9 98-106
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_dc03d0e44436c9 7
+docs/exec-plans/completed/2026-10-21-managed-human-file-chooser.md
+  s_08bbfd293d324f::t_dc03d0e44436c9 49-51
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_dc03d0e44436c9 24-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "faabd037105efe746db6407f092308730f0dd088",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
