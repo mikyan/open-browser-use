@@ -1,0 +1,241 @@
+scripts/browser-integration/managed-human-file-chooser-fixture.test.mjs
+  s_08bbfd293d324f::t_44f7069b23a7e6 5,79-83,85-141
+  s_08bbfd293d324f::t_12765370f9610a 1-3,7-10,12-60,142
+  s_08bbfd293d324f::t_2de6566cbb2972 4,61-78
+  s_08bbfd293d324f::t_4ba38c3b0cf645 6,11,84
+scripts/browser-integration/managed-human-file-chooser-fixture.mjs
+  s_08bbfd293d324f::t_8c0a33c125a9e8 165
+  s_08bbfd293d324f::t_43a639448da6cc 2,74-80,82-164,167,170-171,176
+  s_08bbfd293d324f::t_60682ba58ace52 81
+  s_08bbfd293d324f::t_f825dfc118a900 1,3-73,177
+  s_08bbfd293d324f::t_f23668d60912ae 166,168-169,172-175
+docs/histories/2026-10/20261021-0200-managed-human-files.md
+  s_08bbfd293d324f::t_d0bae6bbf5695a 1-35,99
+  s_08bbfd293d324f::t_9ed262c997853f 67-75
+  s_08bbfd293d324f::t_33317d939c3780 76-86
+  s_08bbfd293d324f::t_99e1b24f651d4e 87-93
+  s_08bbfd293d324f::t_fa510af22ab39f 60-66
+  s_08bbfd293d324f::t_93a85d49f5696c 94-98
+  s_08bbfd293d324f::t_5f3c03f246227b 36-40
+  s_08bbfd293d324f::t_d77de987bac1e0 47-59
+  s_08bbfd293d324f::t_f616bdfa66be41 41-46
+internal/managedbrowser/managed_user_files.go
+  s_08bbfd293d324f::t_2fdd32a68c250a 1-52,54-66,68-101,103-115,117,119-225,237-254,300
+  s_08bbfd293d324f::t_a84fb2c08553f1 53,67,102,116,118,226-236,255-299
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_8c56254ae3f0c8 539
+apps/chrome-extension/managed-result-reclaim.test.mjs
+  s_08bbfd293d324f::t_1e37396d081d67 1-19,21-54,56-104,106-111,158
+  s_08bbfd293d324f::t_7529489ca06ca0 20
+  s_08bbfd293d324f::t_ca2ea7758dae09 55,105,112-157
+  s_08bbfd293d324f::t_07868e0266a4d4 159-188
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_f0c0940f3424c1 4,49,113,119,123-127,129-136,139-140,161-163,225-226,717-738,752,794,798,873,916,940,943
+  s_08bbfd293d324f::t_c9edc84231ea25 128
+  s_08bbfd293d324f::t_6d775adbe728c4 137-138,263-265,313-318
+scripts/browser-integration/managed-human-file-chooser-diagnostic.test.mjs
+  s_08bbfd293d324f::t_fa8ce831ad291b 1-56
+  s_08bbfd293d324f::t_2de6566cbb2972 57-89
+internal/managedviewer/ui/viewer.css
+  s_08bbfd293d324f::t_69c99790c13104 5
+apps/chrome-extension/managed-human-file-chooser.test.mjs
+  s_08bbfd293d324f::t_46e886bfb1a63b 1-29
+docs/FRONTEND.md
+  s_08bbfd293d324f::t_9c8ccae105314e 21-25
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_07868e0266a4d4 2545-2546,2551-2553,2555-2557,2559-2562,2564-2568,2570-2582,2584-2587,2592-2604,2607-2650,2653,2655
+  s_08bbfd293d324f::t_8989be4c540f41 2656-2658
+  s_08bbfd293d324f::t_34b60b29187833 1068,1091,1096,1102,1104-1105,2503,2509-2510,2541-2544,2547-2550,2558,2569,2654,2659-2662,2665-2668,2857,5564,6221,6562,6574,6581
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_68fd784b230c38 387
+  s_08bbfd293d324f::t_b7e5ac08a81d67 32,43-51,205,277,284,384,388-389,443-446,453,490-499,564,575,585,674-675,710,744,809,837,872,952-962,1017,1049-1052
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_4f23f68ce5521d 265-270,287-288
+  s_08bbfd293d324f::t_fabb6a8e55c090 324-330
+  s_08bbfd293d324f::t_222d44f011f77c 11-16
+internal/managedbrowser/managed_user_files_test.go
+  s_08bbfd293d324f::t_b6caa25360685a 1-5,7-285,374-375
+  s_08bbfd293d324f::t_da32c0fa218dd3 6,286-373
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_a84fb2c08553f1 37-42,72,506-509,520-522,561,577,632,642-644,688-694,735,747-749,934-939,951,970,983,996,1101-1113
+docs/references/README.md
+  s_08bbfd293d324f::t_41a90eb1cfd474 19-20
+scripts/browser-integration/managed-human-file-chooser-workflow.test.mjs
+  s_08bbfd293d324f::t_44f7069b23a7e6 1-3,5-62,70-77,81-82,86,231
+  s_08bbfd293d324f::t_47d8be5fc8bea6 4,133-134,139,141-142,145-154,156-201
+  s_08bbfd293d324f::t_e306f7bbc27e93 155
+  s_08bbfd293d324f::t_379a758012564f 135-138,140,143-144,202-230
+  s_08bbfd293d324f::t_0482d8f0d60cb6 63-69,78-80,83-85,87-132
+scripts/browser-integration/managed-human-file-chooser-workflow.mjs
+  s_08bbfd293d324f::t_0482d8f0d60cb6 95,135-139
+  s_08bbfd293d324f::t_e1ec3d5b1d081d 192
+  s_08bbfd293d324f::t_bb0fd7a5462695 208
+  s_08bbfd293d324f::t_b481018b696765 270-272
+  s_08bbfd293d324f::t_870bd96badb5f7 1-6,33-56,58-62,64-79,81-87,89-94,98-102,108-118,150,152-153,203-207,209-215,217-233,236-264,268-269,273-279
+  s_08bbfd293d324f::t_8c0a33c125a9e8 57,63,80,88,96-97,216,234-235,266-267
+  s_08bbfd293d324f::t_8020800008e18a 7-32,103-107,119-134,140-149,151
+  s_08bbfd293d324f::t_379a758012564f 157-167,175,188-190
+  s_08bbfd293d324f::t_47d8be5fc8bea6 154-156,168-174,176-187,191,193-202,265
+internal/managedviewer/files_test.go
+  s_08bbfd293d324f::t_3db974d6a88e74 289
+  s_08bbfd293d324f::t_014877c5819919 1-5,7,10-12,15-209,216-218,295,298
+  s_08bbfd293d324f::t_1bf26c79fb5bea 6,13-14,262-288,290-294,296-297
+  s_08bbfd293d324f::t_fdf8c2c54d37e3 8-9,219-261
+  s_08bbfd293d324f::t_83d943fabcd7f2 210-215
+internal/managedviewer/ui/human-files.js
+  s_08bbfd293d324f::t_00733403acc1bb 62,69
+  s_08bbfd293d324f::t_d94c5322088e95 1-32,34-53,55-61,63-64,66-68,70-97,99-105,111-120,122,127-159,162-169,172-177,179-209,211-215
+  s_08bbfd293d324f::t_300c3a43620a06 33
+  s_08bbfd293d324f::t_68fd784b230c38 54,65,98,106-110,121,123-126,160-161,170-171,178,210
+internal/managedviewer/ui/index.html
+  s_08bbfd293d324f::t_b7e5ac08a81d67 8,26-33
+  s_08bbfd293d324f::t_722d6825289678 44
+apps/chrome-extension/auxiliary-tab-ownership.js
+  s_08bbfd293d324f::t_34b60b29187833 30-32,62,65,72,97,179,189,191
+internal/managedprotocol/file_chooser.go
+  s_08bbfd293d324f::t_2e65a9c69c9304 1-11,13-82,84-266
+  s_08bbfd293d324f::t_014877c5819919 12,83
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_86c37eda789a3c 360-373
+  s_08bbfd293d324f::t_eb6ebea5822c7e 90-213
+  s_08bbfd293d324f::t_3de908d1e8537d 287-339
+  s_08bbfd293d324f::t_1a86543aba94a4 214-255,340-359
+  s_08bbfd293d324f::t_ef0a6ac6e1c841 822,2055
+  s_08bbfd293d324f::t_0e3e982ac34aff 256-286
+  s_08bbfd293d324f::t_84a04b25930d3f 77-89
+apps/chrome-extension/managed-human-document-graph.test.mjs
+  s_08bbfd293d324f::t_86c37eda789a3c 89-116,128
+  s_08bbfd293d324f::t_46e886bfb1a63b 19,64-88,117-127
+  s_08bbfd293d324f::t_59d8d236ac4792 129
+apps/chrome-extension/managed-human-file-chooser.js
+  s_08bbfd293d324f::t_c9edc84231ea25 43,170-171
+  s_08bbfd293d324f::t_8c56254ae3f0c8 83,87-88,162
+  s_08bbfd293d324f::t_ef0a6ac6e1c841 20-31
+  s_08bbfd293d324f::t_6d775adbe728c4 41-42,48
+  s_08bbfd293d324f::t_c38904490187e7 1-19,32-40,44-46,49-82,84-86,89-154,157-161,163-169,172-191
+  s_08bbfd293d324f::t_a8b2d8dfaef2b4 47
+  s_08bbfd293d324f::t_f0c0940f3424c1 155-156
+scripts/browser-integration/managed-human-file-chooser-check.test.mjs
+  s_08bbfd293d324f::t_2de6566cbb2972 3-16
+  s_08bbfd293d324f::t_e1ec3d5b1d081d 17-54
+  s_08bbfd293d324f::t_12765370f9610a 1-2,63-97,110-154
+  s_08bbfd293d324f::t_e76da9fc4607dc 55-62
+  s_08bbfd293d324f::t_0482d8f0d60cb6 98-109
+apps/chrome-extension/browser-directory-upload.js
+  s_08bbfd293d324f::t_6d775adbe728c4 89,93,332,335,340
+  s_08bbfd293d324f::t_a8b2d8dfaef2b4 167
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_f0c0940f3424c1 26
+docs/exec-plans/active/2026-10-21-managed-human-file-chooser.md
+  s_08bbfd293d324f::t_c5f55ed1e4ca9f 39-40,82,86-89
+  s_08bbfd293d324f::t_3206548d35608d 1-7,11-36,38,42,44,50-53
+  s_08bbfd293d324f::t_2fc2300c71aa4e 72-73
+  s_08bbfd293d324f::t_93a85d49f5696c 48-49
+  s_08bbfd293d324f::t_39ce5696b1e805 57-62
+  s_08bbfd293d324f::t_6f3f96531f2ad0 8-10,37,54-56,63-71,74-81
+  s_08bbfd293d324f::t_f603ca5f9da275 46-47
+  s_08bbfd293d324f::t_3ac86fb84f2cbf 84-85
+  s_08bbfd293d324f::t_028b3a7693a251 41,43,45,83
+internal/managedviewer/files.go
+  s_08bbfd293d324f::t_d81f786536d389 1-122
+internal/managedprotocol/file_chooser_test.go
+  s_08bbfd293d324f::t_ffc1e971d5c105 1-33,35-91
+  s_08bbfd293d324f::t_014877c5819919 34
+docs/references/managed-human-files.md
+  s_08bbfd293d324f::t_c0507d1bd6aea2 69-76,78-79
+  s_08bbfd293d324f::t_9c8ccae105314e 1-46,68,80-82
+  s_08bbfd293d324f::t_e07e19975508a5 56,64-67
+  s_08bbfd293d324f::t_99e1b24f651d4e 47-52,57-63,77
+  s_08bbfd293d324f::t_93a85d49f5696c 53-55
+scripts/browser-integration/managed-human-file-chooser-diagnostic.mjs
+  s_08bbfd293d324f::t_044a07ca9082fb 52-57
+  s_08bbfd293d324f::t_f23668d60912ae 7-8,16-21,59,61,68,70,73-74,88-90,94,96,102-111,115-123,143-144,146
+  s_08bbfd293d324f::t_fa8ce831ad291b 1-6,9-15,22-51,58,60,62-67,69,71-72,75-87,91-93,95,97-101,112-114,124-142,145,147-155
+apps/chrome-extension/auxiliary-tab-ownership.test.mjs
+  s_08bbfd293d324f::t_ca2ea7758dae09 23-61
+  s_08bbfd293d324f::t_d201e38cbdd8e3 276,278,296,350
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_8aa600ce61b42c 11-76,78-79,83-107,109-172
+  s_08bbfd293d324f::t_300c3a43620a06 108
+  s_08bbfd293d324f::t_dd8d1e65760a9d 207-218
+  s_08bbfd293d324f::t_5f239f4f32d6ac 8,709,714,725
+  s_08bbfd293d324f::t_f5925055905eb1 77,80-82,173-206,730-731
+scripts/browser-integration/managed-human-file-chooser-check.mjs
+  s_08bbfd293d324f::t_5440fe9278c5b7 12,441
+  s_08bbfd293d324f::t_2de6566cbb2972 121-129,313,542
+  s_08bbfd293d324f::t_379a758012564f 147-148
+  s_08bbfd293d324f::t_bb0fd7a5462695 317,606-607
+  s_08bbfd293d324f::t_b481018b696765 345-352
+  s_08bbfd293d324f::t_60682ba58ace52 357-360,366-367,369,381-383
+  s_08bbfd293d324f::t_e306f7bbc27e93 106-107
+  s_08bbfd293d324f::t_8c0a33c125a9e8 308-310,398
+  s_08bbfd293d324f::t_8020800008e18a 11,40,46-49,588-593
+  s_08bbfd293d324f::t_98d3126f1f5e33 197-200
+  s_08bbfd293d324f::t_9dfd375e756314 2-8,13-38,42-44,50-90,130-131,136-140,142-145,157-192,207-227,229-252,254-271,273-305,406,408-411,413-415,417-425,427,429-439,444,460-464,466-472,480-528,556-576,582-587,594-603,610-617
+  s_08bbfd293d324f::t_d53fb846a3e5cf 9-10,39,41,45,132-133,146,149,155-156,228,272
+  s_08bbfd293d324f::t_47d8be5fc8bea6 401-402
+  s_08bbfd293d324f::t_e1ec3d5b1d081d 99-105,108-120,403,529-541,543-554
+  s_08bbfd293d324f::t_a9b4494d670201 202-203
+  s_08bbfd293d324f::t_db0926f80f412c 91-98,134-135,141,150-154,193-196,201,204-206,253,440,442-443,555,608
+  s_08bbfd293d324f::t_52767e5d57a3ce 1,306-307,311-312,314-316,318-344,353-356,361-365,368,370-380,384-397,399-400,404-405,412,416,426,446-459,473-479,577-581,604-605,609
+  s_08bbfd293d324f::t_22b516b027c6cc 407,428,445,465
+apps/chrome-extension/managed-user-bridge.test.mjs
+  s_08bbfd293d324f::t_b62042a1b2e89b 88,96,101-120,203-249
+apps/chrome-extension/managed-human-document-graph.js
+  s_08bbfd293d324f::t_c38904490187e7 40-41,167,187,373-383
+  s_08bbfd293d324f::t_c9edc84231ea25 54,122-135,384-391
+internal/managedbrowser/human_files_test.go
+  s_08bbfd293d324f::t_ffc1e971d5c105 1-149
+  s_08bbfd293d324f::t_359eaf91760987 150-153
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_93a85d49f5696c 20-21
+  s_08bbfd293d324f::t_d0a20ae2ee5408 14-19,22-24
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_9c8ccae105314e 157-159
+  s_08bbfd293d324f::t_fabb6a8e55c090 594-597
+apps/chrome-extension/managed-user-bridge.js
+  s_08bbfd293d324f::t_8c56254ae3f0c8 167,536
+  s_08bbfd293d324f::t_b62042a1b2e89b 572
+  s_08bbfd293d324f::t_a8b2d8dfaef2b4 3,328,537-541,565-571,573-586,675
+internal/managedbrowser/human_files.go
+  s_08bbfd293d324f::t_94186b9e200679 1-3,5-47,49-86,89-96,98,100-115,119-180,182-263,265-302,327-329
+  s_08bbfd293d324f::t_014877c5819919 4,48,87-88,97,99,116-118,181,264,303-326
+internal/managedbrowser/recovery.go
+  s_08bbfd293d324f::t_5832ffda7d3f35 144
+internal/managedbrowser/session.go
+  s_08bbfd293d324f::t_6e374e8df0fda2 81,204,644-648
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_a5842e600f12d8 34-41,138-139,147-149,232,296-298
+internal/managedprotocol/view.go
+  s_08bbfd293d324f::t_f6b7b5fb255bce 31
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_71e9195806adea 49,59-60,181-185,227,264-268,282-285,304,340,369
+internal/managedviewer/protocol.go
+  s_08bbfd293d324f::t_7c97e9f170e1e3 66,82-84,177-180,216-227
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_4160aa10bf84b9 25,74-78,336-337,390,473-497,600-605,617,639
+internal/managedviewer/testdata/bridge-fixture.json
+  s_08bbfd293d324f::t_3757c7eae44f03 45-46,90-91,129-130,162-163,201-202,247-248,296-297,345-346,385,428,466,517-518,593-594,641-642,696-697,754-755,837-838,892,944
+internal/managedviewer/testdata/public-human-fixture.json
+  s_08bbfd293d324f::t_916c11c3236ed5 12,42,92,122,157,183,209
+internal/managedviewer/testdata/public-result-fixture.json
+  s_08bbfd293d324f::t_6d565addc7ac49 7,44,100,134,195,223,260,331,369,426,461,499,555,587,628,703,745,801,845,876,919,957,991,1019,1046,1087,1118,1149,1189,1226,1262,1296,1332,1368,1404
+internal/managedviewer/testdata/result-bridge-fixture.json
+  s_08bbfd293d324f::t_faa6233d24f279 55-56,114-115,167-168,218-219,271-272,315-316,368-369,421-422,475-476,529-530,587-588,641-642,686,743,800,858,905,943,1008-1009,1070-1071,1155-1156,1217-1218,1307-1308,1369-1370,1431-1432,1532-1533,1595-1596,1684-1685,1744-1745,1807-1808,1898,1964,2030,2135,2202,2296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "748af2f6115d9c15882b086b7c3f7c4d7c36a958",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
