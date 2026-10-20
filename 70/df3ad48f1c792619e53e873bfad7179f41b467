@@ -1,0 +1,32 @@
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 7
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 11-13,15-22
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 22-29
+docs/histories/2026-10/20261021-0300-managed-human-multi-click.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 6-7,65-79
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 19-24
+docs/references/managed-human-multi-click.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 29-31,49-55
+  s_08bbfd293d324f::t_0324bec2b0af36 56
+docs/exec-plans/completed/2026-10-21-managed-human-multi-click.md
+  s_08bbfd293d324f::t_05dd4ee99b5ded 5,9,39-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "70df3ad48f1c792619e53e873bfad7179f41b467",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
