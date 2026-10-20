@@ -160,6 +160,11 @@ debugger、history 和 tab groups。
   人工文件选择由独立 chooser 模块绑定原 Opening、节点和文档证明；查看器
   只传名称与字节，Go 在原 Session 私有目录分块暂存。已提交文件保留到实际
   浏览器退出，未提交传输在撤权时清理，见[人工上传](references/managed-human-files.md)。
+  当前开发版的 `managed-human-pages.js` 管理原独立 Browser 的只读目录和
+  用户显式选择。切页等待原 human End 后，以真实 IDB 结果登记交接原页；
+  Agent 仍暂停，不调用 finalize 或改变窗口位置。channel 固定选择能力，
+  原回执匹配后才进入新租约；目录不授予任务成员权，见
+  [人工新页面选择](references/managed-human-pages.md)。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

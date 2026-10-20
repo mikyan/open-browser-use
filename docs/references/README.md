@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Managed 人工新页面选择](managed-human-pages.md)：独立浏览器目录、显式切页、
+  实际结果交接和清理；当前开发与验收状态。
 - [Managed 人工双击与三击](managed-human-multi-click.md)：原本地计数、逐次
   输入回执、原按钮释放及导航/结束后的序列隔离。
 - [Managed 人工文件选择](managed-human-files.md)：原网页文件请求、本地选择、

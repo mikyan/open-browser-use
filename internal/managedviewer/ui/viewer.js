@@ -5,11 +5,12 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   let ticket = fragment.get("ticket") || "";
   history.replaceState(null, "", location.pathname);
-  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-status", "human-input", "clipboard-status", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
+  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-switch", "human-status", "human-input", "clipboard-status", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
   let ws, connected = false, authenticated = false, available = false, stopped = false;
   let status = null, worker = "", pendingAction = null, nextId = 0, appliedId = 0;
   let selected = null, selectedOnce = false, tabs = [], lastFrameAt = 0, imageURL = null;
   let selectedDeliveryId = "", selectionEpoch = 0;
+  let selectedPageSelectionId = "", pageSelectionVersion, pageSelectionKnown = false, pageSwitch = null;
   let watching = null, pendingSelectTab = null, pendingSelectId = null;
   let viewerCleanupComplete = false;
   let controlSequence = -1, retiredSequence = -1, lastFrameEvent = -1, revoked = false;
@@ -169,21 +170,23 @@
     renderClipboard();
   }
 
-  const selectedTab = () => tabs.find(tab => tab.id === selected && (tab.deliveryId || "") === selectedDeliveryId);
+  const selectedTab = () => tabs.find(tab => tab.id === selected && (tab.deliveryId || "") === selectedDeliveryId && (tab.pageSelectionId || "") === selectedPageSelectionId);
   const userControlReady = () => status?.state === "running" || status?.state === "paused" && status.cleanupComplete && viewerCleanupComplete;
   const canUseTab = (tab, operation) => Boolean(tab && tab[operation] && (tab.kind === "task" ? status?.state === "running" : userControlReady()));
-  const selectionFields = () => ({ tabId: selected, ...(selectedDeliveryId ? { deliveryId: selectedDeliveryId } : {}) });
+  const selectionFields = () => ({ tabId: selected, ...(selectedDeliveryId ? { deliveryId: selectedDeliveryId } : {}), ...(selectedPageSelectionId ? { pageSelectionId: selectedPageSelectionId } : {}) });
+  const validSelectionId = value => typeof value === "string" && value.length > 0 && value.length <= 128 && !/[\x00-\x1f\x7f]/.test(value);
   function normalizedTabs(values, next) {
     if (!Array.isArray(values) || values.length > 4096) throw new Error("标签页列表无效。");
     const seen = new Set();
     return values.map(tab => {
       if (!Number.isSafeInteger(tab.id) || tab.id < 1 || seen.has(tab.id) || typeof tab.title !== "string" || typeof tab.url !== "string") throw new Error("标签页身份无效。");
       seen.add(tab.id);
-      const legacy = tab.kind === undefined && tab.watchable === undefined && tab.takeover === undefined && tab.deliveryId === undefined;
+      const legacy = tab.kind === undefined && tab.watchable === undefined && tab.takeover === undefined && tab.deliveryId === undefined && tab.pageSelectionId === undefined;
       if (legacy) return { ...tab, kind: "task", watchable: next.state === "running", takeover: next.state === "running" };
-      if (!["task", "result"].includes(tab.kind) || typeof tab.watchable !== "boolean" || typeof tab.takeover !== "boolean" ||
-        tab.kind === "result" && (typeof tab.deliveryId !== "string" || !tab.deliveryId || tab.deliveryId.length > 128 || /[\x00-\x1f\x7f]/.test(tab.deliveryId)) ||
-        tab.kind === "task" && tab.deliveryId !== undefined) throw new Error("结果页身份无效。");
+      if (!["task", "result", "browser"].includes(tab.kind) || typeof tab.watchable !== "boolean" || typeof tab.takeover !== "boolean" ||
+        tab.kind === "result" && (!validSelectionId(tab.deliveryId) || tab.pageSelectionId !== undefined) ||
+        tab.kind === "browser" && (pageSelectionVersion !== 1 || !validSelectionId(tab.pageSelectionId) || tab.deliveryId !== undefined) ||
+        tab.kind === "task" && (tab.deliveryId !== undefined || tab.pageSelectionId !== undefined)) throw new Error("页面选择身份无效。");
       return tab;
     });
   }
@@ -330,7 +333,7 @@
     if (message) error(message, noticeKind, leaseId);
     if (humanAdmitted && leaseId === humanOwner && (!humanEndAttempted || retryCleanup) && humanAction !== "humanEnd" && pendingAction !== "stop" && authenticated && !stopped) {
       humanEndAttempted = true;
-      send("humanEnd", { leaseId });
+      return send("humanEnd", { leaseId });
     }
     render();
   }
@@ -363,11 +366,11 @@
     const canResume = available && status.state === "paused" && status.cleanupComplete && viewerCleanupComplete;
     const retry = available && (status.state === "error" || status.state === "paused" && (!status.cleanupComplete || !viewerCleanupComplete));
     el.control.textContent = pendingAction === "pause" ? "正在暂停…" : pendingAction === "resume" ? "正在继续…" : canResume ? "继续操作" : retry ? "重试暂停" : "暂停操作";
-    el.control.disabled = !authenticated || !available || stopped || Boolean(pendingAction) || Boolean(humanAction) || Boolean(humanOwner) || Boolean(humanReserved()) || status.state === "pausing";
+    el.control.disabled = !authenticated || !available || stopped || Boolean(pageSwitch) || Boolean(pendingAction) || Boolean(humanAction) || Boolean(humanOwner) || Boolean(humanReserved()) || status.state === "pausing";
     el.stop.disabled = !authenticated || stopped || pendingAction === "stop";
     if (pendingAction === "stop") el.stop.textContent = "正在停止…";
     else el.stop.textContent = "停止会话";
-    el.tabs.disabled = !authenticated || !available || !userControlReady() || Boolean(pendingAction) || Boolean(humanAction) || Boolean(humanReserved()) || pendingSelectId !== null || stopped;
+    el.tabs.disabled = !authenticated || !available || !userControlReady() || Boolean(pendingAction) || Boolean(humanAction) || Boolean(humanReserved()) || pendingSelectId !== null || stopped || pageSwitch?.phase === "ending";
     el.watch.disabled = el.tabs.disabled || selected === null || watching !== selected && !canUseTab(selectedTab(), "watchable");
     el.watch.textContent = pendingSelectId !== null ? "正在确认…" : watching === selected && selected !== null ? "停止查看" : "开始查看";
     el["human-begin"].disabled = el.tabs.disabled || !canUseTab(selectedTab(), "takeover");
@@ -376,6 +379,10 @@
     el["human-end"].hidden = !humanReserved() && !humanAction && !humanOwner;
     el["human-end"].disabled = !authenticated || stopped || pendingAction === "stop" || !humanAdmitted || !humanOwner || humanAction === "humanEnd";
     el["human-end"].textContent = humanAction === "humanEnd" || human?.state === "releasing" ? "正在释放接管…" : "完成接管";
+    el["human-switch"].hidden = pageSelectionVersion !== 1 || !humanOwner && !pageSwitch;
+    el["human-switch"].disabled = !authenticated || !available || stopped || Boolean(pendingAction) ||
+      Boolean(pageSwitch && pageSwitch.phase !== "choosing") || !pageSwitch && (!humanAdmitted || humanEnding || Boolean(humanAction));
+    el["human-switch"].textContent = pageSwitch?.phase === "ending" ? "正在释放原页面…" : pageSwitch?.phase === "selecting" ? "正在切换…" : pageSwitch?.phase === "choosing" ? "取消切换" : "切换页面";
     const ready = humanReady();
     el.frame.dataset.interactive = String(ready);
     el["human-input"].disabled = !ready;
@@ -383,10 +390,11 @@
     el["human-input"].dataset.pending = String(inputQueue.length + (humanInputId === null ? 0 : 1));
     el["human-input"].dataset.sequence = String(humanSequence);
     el["human-input"].dataset.acknowledgedSequence = String(acknowledgedSequence);
-    el["human-status"].hidden = !humanReserved() && !humanAction && !humanOwner;
+    el["human-status"].hidden = !humanReserved() && !humanAction && !humanOwner && !pageSwitch;
     el["human-status"].textContent = humanAction === "humanBegin" || human?.state === "starting" ? "正在暂停 Agent 并等待原控制释放…" : humanEnding || human?.state === "releasing" ? "人工输入已禁用，正在等待释放确认；不会重试网页操作。" : human?.state === "error" ? "人工控制未完成释放。请完成接管或停止会话；Agent 保持暂停。" : human?.state === "navigating" || human && human.generation <= retiredHumanGeneration ? "页面正在跳转，输入已暂停；等待新画面后可继续，旧输入不会重放。" : ready ? "你正在操作 · 点击画面后输入；切换查看窗口会结束接管。完成后 Agent 仍保持暂停。" : "你正在接管 · 等待当前画面解码，暂不接收输入。";
     if (pendingDialog && !humanEnding) el["human-status"].textContent = "网页弹窗等待处理，页面输入暂时暂停；Agent 保持暂停。";
     if (pendingFileChooser && !humanEnding) el["human-status"].textContent = "网页等待选择文件，页面输入暂时暂停；Agent 保持暂停。";
+    if (pageSwitch?.phase === "choosing") el["human-status"].textContent = "原页面已释放。请在上方选择要接管的页面；Agent 保持暂停。";
     renderClipboard();
     renderDialog();
     humanFiles.update(Boolean(authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding && !pendingDialog &&
@@ -423,7 +431,7 @@
 
   function renderTabs() {
     const options = [new Option("选择标签页", "")];
-    for (const tab of tabs) options.push(new Option((tab.kind === "result" ? "已交付结果 · " : "") + (tab.title || tab.url || `标签页 ${tab.id}`), String(tab.id)));
+    for (const tab of tabs) options.push(new Option((tab.kind === "result" ? "已交付结果 · " : tab.kind === "browser" ? "浏览器页面 · " : "") + (tab.title || tab.url || `标签页 ${tab.id}`), String(tab.id)));
     el.tabs.replaceChildren(...options);
     el.tabs.value = selected === null ? "" : String(selected);
     const tab = tabs.find(t => t.id === selected);
@@ -438,6 +446,9 @@
     retireThrough(value.retiredSequence);
     if (value.eventSequence < retiredSequence) return;
     if (value.eventSequence < controlSequence || status && next.revision < status.revision || responseId && responseId < appliedId) return;
+    if (Object.hasOwn(value, "pageSelectionVersion") && value.pageSelectionVersion !== 1 ||
+        pageSelectionKnown && value.pageSelectionVersion !== pageSelectionVersion) throw new Error("原查看连接的页面选择能力发生变化。请获取新的查看链接。");
+    pageSelectionKnown = true; pageSelectionVersion = value.pageSelectionVersion;
     const nextHuman = value.human ?? null;
     if (nextHuman && Object.hasOwn(nextHuman, "inputBudgetVersion") && nextHuman.inputBudgetVersion !== 1) throw new Error("人工等待预算版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.inputBudgetVersion !== human.inputBudgetVersion) throw new Error("原人工接管的等待预算发生变化。");
@@ -539,12 +550,17 @@
     if (!selectedOnce) {
       selected = value.selectedTabId ?? null;
       selectedDeliveryId = tabs.find(tab => tab.id === selected)?.deliveryId || "";
+      selectedPageSelectionId = tabs.find(tab => tab.id === selected)?.pageSelectionId || "";
       selectedOnce = true;
     }
-    const deliveryChanged = selected !== null && tabs.some(t => t.id === selected && (t.deliveryId || "") !== selectedDeliveryId);
+    // A status may announce promotion before its original response. Preserve
+    // the pending choice, but do not adopt the new delivery or enable Begin.
+    const awaitingChoice = [...pending.values()].some(entry => ["select", "humanBegin"].includes(entry.operation) && entry.fields.tabId === selected && entry.fields.pageSelectionId === selectedPageSelectionId && selectedPageSelectionId);
+    const deliveryChanged = !awaitingChoice && selected !== null && tabs.some(t => t.id === selected && ((t.deliveryId || "") !== selectedDeliveryId || (t.pageSelectionId || "") !== selectedPageSelectionId));
     if (selected !== null && (!tabs.some(t => t.id === selected) && human?.tabId !== selected && humanAction !== "humanBegin" || deliveryChanged)) {
+      if (pageSwitch?.phase === "selecting") pageSwitch = null;
       selected = null;
-      selectedDeliveryId = ""; selectionEpoch++;
+      selectedDeliveryId = selectedPageSelectionId = ""; selectionEpoch++;
       pendingSelectId = pendingSelectTab = null;
       if (deliveryChanged) clearFrame();
       else { imageGeneration++; pendingFrame = null; }
@@ -584,6 +600,7 @@
       const entry = pending.get(id);
       if (!entry) return;
       pending.delete(id);
+      if (pageSwitch && (pageSwitch.endId === id || pageSwitch.selectId === id)) pageSwitch = null;
       entry.completion?.reject(new Error("Original command confirmation timed out"));
       if (entry.generationRetired || entry.selectionEpoch !== undefined && entry.selectionEpoch !== selectionEpoch || entry.humanEpoch !== undefined && entry.humanEpoch !== humanEpoch || entry.operation === "humanInput" && !currentInput(entry, id)) return;
       if (pendingSelectId === id) { pendingSelectId = null; pendingSelectTab = null; }
@@ -871,7 +888,7 @@
     if (!enqueueInput(input, releasingHeldInput) && clipboard) retireClipboard();
   }
 
-  el["human-begin"].addEventListener("click", () => {
+  function beginSelectedHuman() {
     if (el["human-begin"].disabled) return;
     humanEpoch++;
     error(); clearFrame();
@@ -885,8 +902,21 @@
     humanSequence = acknowledgedSequence = 0;
     inputQueue.length = 0; humanInputId = null;
     send("humanBegin", selectionFields());
+  }
+  el["human-begin"].addEventListener("click", beginSelectedHuman);
+  el["human-end"].addEventListener("click", () => { if (!el["human-end"].disabled) { pageSwitch = null; endHuman("", true); } });
+  // Keep the keyboard sink focused until the explicit click starts End. Its
+  // normal blur guard remains unchanged for every other destination.
+  el["human-switch"].addEventListener("mousedown", event => event.preventDefault());
+  el["human-switch"].addEventListener("click", () => {
+    if (el["human-switch"].disabled) return;
+    if (pageSwitch) { pageSwitch = null; render(); return; }
+    const original = { phase: "ending", leaseId: humanOwner, endId: null };
+    pageSwitch = original;
+    original.endId = endHuman();
+    if (original.endId === undefined) pageSwitch = null;
+    render();
   });
-  el["human-end"].addEventListener("click", () => { if (!el["human-end"].disabled) endHuman("", true); });
   el["dialog-accept"].addEventListener("click", () => respondDialog(true));
   el["dialog-cancel"].addEventListener("click", () => respondDialog(false));
   for (const action of ["down", "move", "up"]) el.frame.addEventListener(`pointer${action}`, event => pointer(event, action));
@@ -953,8 +983,8 @@
     if (humanReady())
       endHuman("输入区域已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release");
   });
-  window.addEventListener("blur", () => { if ((humanReserved() || humanAction === "humanBegin") && !humanEnding && !humanFiles.pickerActive()) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
-  document.addEventListener("visibilitychange", () => { if (document.hidden && (humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已隐藏，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
+  window.addEventListener("blur", () => { pageSwitch = null; if ((humanReserved() || humanAction === "humanBegin") && !humanEnding && !humanFiles.pickerActive()) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release"); render(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pageSwitch = null; if (document.hidden && (humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已隐藏，正在释放人工控制；Agent 保持暂停。", false, "human-release"); render(); });
 
   el.refresh.addEventListener("click", () => { error(); send("status"); });
   el.control.addEventListener("click", () => {
@@ -963,7 +993,7 @@
     if (status.state === "paused" && status.cleanupComplete && viewerCleanupComplete) send("resume", { expectedRevision: status.revision, expectedWorkerBootId: worker });
     else send("pause");
   });
-  el.stop.addEventListener("click", () => { if (!el.stop.disabled) { blockHuman(); error(); send("stop"); } });
+  el.stop.addEventListener("click", () => { if (!el.stop.disabled) { pageSwitch = null; blockHuman(); error(); send("stop"); } });
   el.watch.addEventListener("click", () => {
     if (el.watch.disabled) return;
     error();
@@ -974,12 +1004,19 @@
     if (el.tabs.disabled) return;
     selected = el.tabs.value === "" ? null : Number(el.tabs.value);
     selectedDeliveryId = tabs.find(tab => tab.id === selected)?.deliveryId || "";
+    selectedPageSelectionId = tabs.find(tab => tab.id === selected)?.pageSelectionId || "";
     selectionEpoch++;
     selectedOnce = true;
     clearFrame();
     renderTabs();
     error();
-    if (selected === null || canUseTab(selectedTab(), "watchable")) send("select", selectionFields());
+    if (selected === null || canUseTab(selectedTab(), "watchable")) {
+      const switching = pageSwitch?.phase === "choosing" && selected !== null;
+      if (selected === null) pageSwitch = null;
+      const fields = selectionFields(), id = send("select", fields);
+      if (switching) pageSwitch = { phase: "selecting", selectId: id, tabId: selected, selectionEpoch };
+      render();
+    }
     else render();
   });
 
@@ -1019,6 +1056,7 @@
         if (humanReserved()) endHuman("当前接管画面已撤销，正在释放人工控制。", false, "human-release");
         render();
       } else if (value.type === "unavailable") {
+        pageSwitch = null;
         available = false;
         revoked = true;
         imageGeneration++;
@@ -1033,6 +1071,20 @@
         if (!entry) return;
         clearTimeout(entry.timeout);
         pending.delete(value.id);
+        if (pageSwitch?.phase === "ending" && pageSwitch.endId === value.id) {
+          const original = pageSwitch, cleanup = value.result?.humanCleanup;
+          if (value.error || entry.operation !== "humanEnd" || cleanup?.leaseId !== original.leaseId || cleanup.cleanupConfirmed !== true ||
+              value.result?.viewerCleanupComplete !== true || value.result.human != null || value.result.view != null) {
+            pageSwitch = null; throw new Error("原页面释放未确认。");
+          }
+          // The matching response is required even when a coalesced state has
+          // already retired its human epoch. No state can stand in for this ACK.
+          acceptState(value.result, value.id);
+          if (!available || revoked || stopped || humanReserved() || humanOwner || !viewerCleanupComplete || status?.state !== "paused" || !status.cleanupComplete) {
+            pageSwitch = null; throw new Error("原页面释放状态已变化。");
+          }
+          pageSwitch = { phase: "choosing" }; render(); return;
+        }
         if (entry.completion) {
           // File receipts settle their original promise even after End or
           // navigation. Their callback cannot revive the retired transfer.
@@ -1045,6 +1097,17 @@
           return;
         }
         if (entry.generationRetired || entry.selectionEpoch !== undefined && entry.selectionEpoch !== selectionEpoch || entry.humanEpoch !== undefined && entry.humanEpoch !== humanEpoch) return;
+        if (!value.error && ["select", "humanBegin"].includes(entry.operation)) {
+          const receipt = value.result?.pageSelectionReceipt, choice = entry.fields.pageSelectionId;
+          if (choice !== undefined) {
+            if (pageSelectionVersion !== 1 || !receipt || Object.keys(receipt).sort().join(",") !== "deliveryId,pageSelectionId,retained,tabId" ||
+                receipt.tabId !== entry.fields.tabId || receipt.pageSelectionId !== choice || !validSelectionId(receipt.deliveryId) || receipt.retained !== true)
+              throw new Error("原页面保留回执不匹配。");
+            if (selected === entry.fields.tabId && selectedPageSelectionId === choice) {
+              selectedDeliveryId = receipt.deliveryId; selectedPageSelectionId = "";
+            }
+          } else if (receipt !== undefined) throw new Error("未请求的页面保留回执。");
+        }
         if (pendingSelectId === value.id) { pendingSelectId = null; pendingSelectTab = null; }
         if (pendingAction === entry.operation) pendingAction = null;
         if (entry.operation === "humanInput") {
@@ -1064,6 +1127,7 @@
           error(value.error.message || "网页弹窗已变化，请确认当前弹窗后再操作。");
           send("status");
         } else if (value.error) {
+          pageSwitch = null;
           if (entry.operation.startsWith("human")) {
             if (humanAction === entry.operation) humanAction = null;
             endHuman(value.error.message || "人工操作结果未确认，已禁用输入并请求释放。");
@@ -1117,8 +1181,16 @@
           }
         }
         render();
+        if (pageSwitch?.phase === "selecting" && pageSwitch.selectId === value.id) {
+          const original = pageSwitch; pageSwitch = null;
+          const tab = selectedTab();
+          if (!value.error && original.selectionEpoch === selectionEpoch && selected === original.tabId && watching === selected &&
+              tab?.kind === "result" && validSelectionId(tab.deliveryId) && !humanOwner && !humanReserved() && viewerCleanupComplete && userControlReady()) beginSelectedHuman();
+          else { error("所选页面已变化，请刷新列表后重新选择；不会自动重试。"); render(); }
+        }
       }
     } catch {
+      pageSwitch = null;
       if (humanReserved()) endHuman("人工控制状态无法确认，已禁用输入并请求释放。");
       available = false;
       error("未能读取浏览器状态。请刷新状态后再操作。");
@@ -1126,6 +1198,7 @@
     }
   });
   ws.addEventListener("close", () => {
+    pageSwitch = null;
     connected = authenticated = available = false;
     blockHuman();
     pendingAction = null;

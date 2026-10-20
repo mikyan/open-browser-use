@@ -20,7 +20,7 @@
     </section>
     <p id="error" class="error" role="alert" hidden></p>
     <section class="viewer" aria-label="浏览器画面">
-      <div class="toolbar"><label for="tabs">查看标签页</label><select id="tabs" disabled><option value="">选择标签页</option></select><button id="watch" type="button" disabled>开始查看</button><button id="human-begin" type="button" disabled>接管此页</button><button id="human-end" type="button" disabled hidden>完成接管</button><span id="freshness">尚无画面</span></div>
+      <div class="toolbar"><label for="tabs">查看标签页</label><select id="tabs" disabled><option value="">选择标签页</option></select><button id="watch" type="button" disabled>开始查看</button><button id="human-begin" type="button" disabled>接管此页</button><button id="human-end" type="button" disabled hidden>完成接管</button><button id="human-switch" type="button" disabled hidden>切换页面</button><span id="freshness">尚无画面</span></div>
       <p id="human-status" class="human-status" role="status" hidden></p>
       <p id="clipboard-status" class="human-status" role="status" hidden></p>
       <section id="file-chooser" class="page-dialog" aria-labelledby="file-title" hidden>
@@ -41,7 +41,7 @@
       <div class="screen"><img id="frame" alt="所选标签页的浏览器画面，包含可用的 AI 光标和元素高亮" draggable="false" hidden><textarea id="human-input" class="human-input" aria-label="接管页面键盘输入" autocomplete="off" autocapitalize="off" spellcheck="false" tabindex="-1" disabled></textarea><div id="placeholder"><strong>选择一个标签页查看</strong><span>普通查看不传递输入；点击“接管此页”后可在画面内操作。</span></div></div>
       <div class="caption"><span id="page-title">未选择标签页</span><span id="dimensions"></span></div>
     </section>
-    <footer><p>接管会先暂停 Agent。点击画面后可输入文字、使用按键或滚动；页面跳转时暂停输入，等新画面后可继续，旧输入不会重放。接管期间触发的网页提示、确认框和输入框会显示在画面上方。切换查看窗口会结束接管，尚未回答的弹窗会取消。完成后保持暂停；已交付结果仍可查看或再次操作。只有要让 Agent 发起新操作时才点击“继续操作”。网页请求文件时，可在上方选择本地文件或取消；选择本地文件期间允许文件选择窗口获得焦点。离开页面确认、目录选择和其他原生系统弹窗暂不支持。</p><p>支持剪贴板传输时，Ctrl/Cmd+C、X 会将独立浏览器共享剪贴板中的纯文本传回本地；内容可能来自该浏览器的其他页面。结束接管不会撤回已交给浏览器的本地写入。</p><p>暂停会阻止 Agent 的新操作，并等待现有控制释放；网页自身的脚本仍可运行。停止会关闭此独立浏览器。普通查看断开不会自动暂停或继续；接管断开会释放人工控制。</p></footer>
+    <footer><p>接管会先暂停 Agent。点击画面后可输入文字、使用按键或滚动；页面跳转时暂停输入，等新画面后可继续，旧输入不会重放。接管期间触发的网页提示、确认框和输入框会显示在画面上方。切换查看窗口会结束接管，尚未回答的弹窗会取消。网页打开新页面时，点击“切换页面”，等原接管释放后从列表选择；完成后可切回原页。完成后保持暂停；已交付结果仍可查看或再次操作。只有要让 Agent 发起新操作时才点击“继续操作”。网页请求文件时，可在上方选择本地文件或取消；选择本地文件期间允许文件选择窗口获得焦点。离开页面确认、目录选择和其他原生系统弹窗暂不支持。</p><p>支持剪贴板传输时，Ctrl/Cmd+C、X 会将独立浏览器共享剪贴板中的纯文本传回本地；内容可能来自该浏览器的其他页面。结束接管不会撤回已交给浏览器的本地写入。</p><p>暂停会阻止 Agent 的新操作，并等待现有控制释放；网页自身的脚本仍可运行。停止会关闭此独立浏览器。普通查看断开不会自动暂停或继续；接管断开会释放人工控制。</p></footer>
   </main>
 </body>
 </html>

@@ -34,6 +34,7 @@ import { resolveManagedNativeHost } from "../managed-native-host.js";
 import { BrowserRendering } from "../browser-rendering.js";
 import { ManagedHumanControl } from "../managed-human-control.js";
 import { ManagedResultPages } from "../managed-result-pages.js";
+import { ManagedHumanPages } from "../managed-human-pages.js";
 import { ManagedResultJournal } from "../managed-result-journal.js";
 import { installManagedUserBridge } from "../managed-user-bridge.js";
 
@@ -76,6 +77,7 @@ function extendLegacyFixture(chrome) {
 const source = code => code
   .replace('import { ManagedResultJournal } from "./managed-result-journal.js";', "")
   .replace('import { ManagedResultPages } from "./managed-result-pages.js";', "")
+  .replace('import { ManagedHumanPages } from "./managed-human-pages.js";', "")
   .replace('import { ManagedHumanControl } from "./managed-human-control.js";', "")
   .replace('import { installManagedUserBridge } from "./managed-user-bridge.js";', "")
   .replace('import { BrowserRendering } from "./browser-rendering.js";', "")
@@ -111,7 +113,7 @@ const source = code => code
 const globals = sandbox => {
   let indexedDB = databasesByChrome.get(sandbox?.chrome);
   if (!indexedDB && sandbox?.chrome) { indexedDB = new IDBFactory(); databasesByChrome.set(sandbox.chrome, indexedDB); }
-  sandbox = { ManagedHumanControl, ManagedResultPages, ManagedResultJournal, indexedDB, ...sandbox };
+  sandbox = { ManagedHumanControl, ManagedHumanPages, ManagedResultPages, ManagedResultJournal, indexedDB, ...sandbox };
   extendLegacyFixture(sandbox?.chrome);
   return { BrowserRendering, installManagedUserBridge, NATIVE_POINTER_KERNEL_ABI, PointerRealmIdentity, VisualDeliveries, PassivePointerReads, createNativePointerRoute, PrivateTargetRegistry, PrivateTargetStore, crypto: globalThis.crypto, TextEncoder, BrowserLifetime, structuredClone, BrowserNetworkWaits, BrowserDialogs, BrowserNavigationWaits, BrowserFileChooserWaits, DirectoryUploadRegistry, BrowserDownloadWaits, BrowserPageWaits, BrowserDownloads, validateMediaDownload, MEDIA_CANCEL_FUNCTION, MediaContextLifetimes, BrowserPageExports, BrowserClipboard, BrowserClipboardBroker, downloadDeadline, BROWSER_ENGINE_INFO, validateBrowserAction, performance, NativeMessageReceiver, NativePageDownloads, SiteAccessPolicy, normalizeSiteAccessPolicy, assertSiteAccessFrames, managedConfig, resolveManagedNativeHost, ...sandbox, AuxiliaryTabOwnership };
 };

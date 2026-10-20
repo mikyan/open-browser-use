@@ -180,6 +180,11 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 	if err != nil {
 		return err
 	}
+	selection, err := managedprotocol.ParsePageSelectionReceipt(f["pageSelectionReceipt"])
+	selectionFields, _ := object(request.payload)
+	if err != nil || !managedprotocol.MatchPageSelectionReceipt(selectionFields, selection) {
+		return errors.New("original browser page selection receipt mismatch")
+	}
 	if managedprotocol.IsHumanFileOperation(request.operation) {
 		if err := c.acceptFileResult(request, f); err != nil {
 			return err
@@ -276,6 +281,23 @@ func (c *connection) observeHumanState(data json.RawMessage) error {
 	if value.EventSequence < c.humanStateSequence {
 		c.controlMu.Unlock()
 		return nil
+	}
+	fields, err := object(data)
+	if err != nil {
+		c.controlMu.Unlock()
+		return err
+	}
+	// Clear/unavailable events have no channel capability snapshot.
+	if fields["status"] != nil {
+		pageVersion, err := managedprotocol.ParsePageSelectionVersion(fields["pageSelectionVersion"])
+		if err != nil || c.pageSelectionKnown && pageVersion != c.pageSelectionVersion {
+			c.controlMu.Unlock()
+			if c.cancel != nil {
+				c.cancel()
+			}
+			return errors.New("browser page capability changed within its original viewer channel")
+		}
+		c.pageSelectionKnown, c.pageSelectionVersion = true, pageVersion
 	}
 	if value.Human != nil && value.Human.LeaseID == c.humanLease && value.Human.Generation < c.humanGeneration {
 		c.controlMu.Unlock()

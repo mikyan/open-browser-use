@@ -99,6 +99,8 @@ type UserController struct {
 	dialogClaims         map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim
 	viewStatus           *managedprotocol.HumanState
 	viewStatusSequence   uint64
+	pageSelectionKnown   bool
+	pageSelectionVersion uint64
 }
 
 // OpenUserController binds once to this run's already authenticated worker.
@@ -495,6 +497,14 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if *value.EventSequence < c.dialogStatusSequence {
 		return nil
 	}
+	pageVersion, err := managedprotocol.ParsePageSelectionVersion(f["pageSelectionVersion"])
+	if err != nil {
+		return err
+	}
+	if c.pageSelectionKnown && pageVersion != c.pageSelectionVersion {
+		return errors.New("managed browser page capability changed within its original channel")
+	}
+	c.pageSelectionKnown, c.pageSelectionVersion = true, pageVersion
 	human, err := managedprotocol.ParseHumanState(f["human"])
 	if err != nil {
 		return err
@@ -619,6 +629,9 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		if f["deliveryId"] != nil {
 			allowed["deliveryId"] = true
 		}
+		if f["pageSelectionId"] != nil {
+			allowed["pageSelectionId"] = true
+		}
 		if err := managedprotocol.ValidateSelection(f); err != nil {
 			return nil, "", false, err
 		}
@@ -638,6 +651,9 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		}
 		if operation == "humanBegin" && f["deliveryId"] != nil {
 			allowed["deliveryId"] = true
+		}
+		if operation == "humanBegin" && f["pageSelectionId"] != nil {
+			allowed["pageSelectionId"] = true
 		}
 		if operation == "humanFileCancel" && f["transferId"] != nil {
 			allowed["transferId"] = true
@@ -688,6 +704,10 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	if managedprotocol.IsHumanFileOperation(operation) {
 		c.mu.Unlock()
 		return c.fileCommand(ctx, f, operation)
+	}
+	if f["pageSelectionId"] != nil && (!c.pageSelectionKnown || c.pageSelectionVersion != 1) {
+		c.mu.Unlock()
+		return nil, errors.New("managed browser page selection lacks its original channel capability")
 	}
 	if operation == "humanEnd" || operation == "pause" || unselect {
 		c.retireFilesLocked()
@@ -771,6 +791,10 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	responseFields, err := userObject(value)
 	if err != nil {
 		return nil, err
+	}
+	selection, err := managedprotocol.ParsePageSelectionReceipt(responseFields["pageSelectionReceipt"])
+	if err != nil || !managedprotocol.MatchPageSelectionReceipt(f, selection) {
+		return nil, errors.New("managed original browser page selection receipt mismatch")
 	}
 	if operation == "humanInput" {
 		receipt, err := managedprotocol.ParseInputReceipt(responseFields["inputReceipt"])

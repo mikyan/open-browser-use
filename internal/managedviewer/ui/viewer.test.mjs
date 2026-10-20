@@ -715,7 +715,7 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   vm.runInContext(source, context);
   function authenticate() { socket.open(); socket.message({ type: "authenticated" }); }
   function state(revision = 1, mode = "running", cleanupComplete = false, extra = {}) {
-    return { status: { state: mode, inputBlocked: mode !== "running", revision, cleanupComplete }, workerBootId: "worker-a", eventSequence: revision * 10000, retiredSequence: 0, viewerCleanupComplete: true, selectedTabId: null, tabs: [{ id: 1, title: "<img onerror=bad>", url: "https://example.test" }], ...extra };
+    return { status: { state: mode, inputBlocked: mode !== "running", revision, cleanupComplete }, workerBootId: "worker-a", eventSequence: revision * 10000, retiredSequence: 0, viewerCleanupComplete: true, selectedTabId: null, tabs: [{ id: 1, title: "<img onerror=bad>", url: "https://example.test" }], ...(clipboard.pageSelectionVersion !== undefined ? { pageSelectionVersion: clipboard.pageSelectionVersion } : {}), ...extra };
   }
   function respond(id, result) { socket.message({ type: "response", id, result }); }
   function running() { authenticate(); respond(1, state()); }
@@ -730,6 +730,123 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   return { element, socket, images, revoked, timers, timerDelays, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput,
     setHidden(hidden) { context.document.hidden = hidden; documentEvents.visibilitychange?.(); } };
 }
+
+const browserChoice = (id = 2, pageSelectionId = "choice-child") => ({ id, title: "Child", url: "https://child.example/", kind: "browser", pageSelectionId, watchable: true, takeover: true });
+const retainedChoice = (id = 2, deliveryId = "delivery-child") => ({ id, title: "Child", url: "https://child.example/", kind: "result", deliveryId, watchable: true, takeover: true });
+const choiceReceipt = (tabId = 2, pageSelectionId = "choice-child", deliveryId = "delivery-child") => ({ tabId, pageSelectionId, deliveryId, retained: true });
+
+test("browser choice becomes a result only through its original selection receipt", () => {
+  const h = setup(undefined, undefined, { pageSelectionVersion: 1 }); h.authenticate();
+  h.respond(1, h.state(2, "paused", true, { tabs: [browserChoice()] })); h.choose(2);
+  const selection = h.socket.sent.at(-1);
+  assert.equal(selection.operation, "select"); assert.equal(selection.pageSelectionId, "choice-child");
+  h.respond(selection.id, h.state(2, "paused", true, { eventSequence: 20001, selectedTabId: 2, tabs: [retainedChoice()], pageSelectionReceipt: choiceReceipt() }));
+  assert.equal(h.element("human-begin").disabled, false);
+  h.element("human-begin").click();
+  assert.equal(h.socket.sent.at(-1).deliveryId, "delivery-child");
+  assert.equal(h.socket.sent.at(-1).pageSelectionId, undefined);
+});
+
+test("browser switching waits for exact End response even if cleanup state arrives first", () => {
+  const h = setup(undefined, undefined, { pageSelectionVersion: 1 }); h.readyHuman();
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002, tabs: [...h.state().tabs, browserChoice()] }) });
+  h.element("human-switch").click();
+  const end = h.socket.sent.at(-1); assert.equal(end.operation, "humanEnd");
+  const clean = h.state(2, "paused", true, { eventSequence: 20003, human: null, tabs: [browserChoice()], humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+  h.socket.message({ type: "state", ...clean }); h.choose(2);
+  assert.equal(h.socket.sent.at(-1), end, "status alone cannot dispatch the next selection");
+  h.respond(end.id, clean); h.choose(2);
+  const selection = h.socket.sent.at(-1); assert.equal(selection.pageSelectionId, "choice-child");
+  h.respond(selection.id, h.state(2, "paused", true, { eventSequence: 20004, selectedTabId: 2, tabs: [retainedChoice()], pageSelectionReceipt: choiceReceipt() }));
+  const begin = h.socket.sent.at(-1);
+  assert.equal(begin.operation, "humanBegin"); assert.equal(begin.deliveryId, "delivery-child");
+  assert.equal(h.socket.sent.filter(x => x.operation === "humanBegin").length, 2);
+});
+
+function switchingBrowserPage() {
+  const h = setup(undefined, undefined, { pageSelectionVersion: 1 }); h.readyHuman();
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002, tabs: [...h.state().tabs, browserChoice()] }) });
+  h.element("human-switch").click();
+  const end = h.socket.sent.at(-1);
+  const clean = h.state(2, "paused", true, { eventSequence: 20003, human: null, view: null, tabs: [browserChoice()], humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+  const promoted = h.state(2, "paused", true, { eventSequence: 20004, selectedTabId: 2, human: null, view: null, tabs: [retainedChoice()], pageSelectionReceipt: choiceReceipt() });
+  return { h, end, clean, promoted };
+}
+
+test("browser switch response-first orders End, select receipt and delivery Begin", () => {
+  const { h, end, clean, promoted } = switchingBrowserPage();
+  h.respond(end.id, clean); h.choose(2);
+  const select = h.socket.sent.at(-1);
+  h.socket.message({ type: "state", ...promoted, pageSelectionReceipt: undefined });
+  assert.equal(h.element("human-begin").disabled, true, "promotion status is not a choice receipt");
+  assert.equal(h.socket.sent.filter(x => x.operation === "humanBegin").length, 1);
+  h.respond(select.id, promoted);
+  assert.deepEqual(h.socket.sent.slice(-3).map(x => x.operation), ["humanEnd", "select", "humanBegin"]);
+  assert.equal(h.socket.sent.at(-1).deliveryId, "delivery-child");
+  assert.equal(h.socket.sent.at(-1).pageSelectionId, undefined);
+  assert.equal(h.socket.sent.filter(x => x.operation === "resume").length, 0);
+});
+
+for (const fault of ["missing", "foreign", "unconfirmed", "pending", "error", "timeout"]) test(`browser switch refuses ${fault} End`, () => {
+  const { h, end, clean } = switchingBrowserPage();
+  if (fault === "missing") delete clean.humanCleanup;
+  if (fault === "foreign") clean.humanCleanup.leaseId = "successor";
+  if (fault === "unconfirmed") clean.humanCleanup.cleanupConfirmed = false;
+  if (fault === "pending") clean.viewerCleanupComplete = false;
+  if (fault === "error") h.socket.message({ type: "response", id: end.id, error: { code: "OPERATION_UNCONFIRMED" } });
+  else if (fault === "timeout") [...h.timers.values()].at(-1)();
+  else h.respond(end.id, clean);
+  h.choose(2); h.element("human-begin").click();
+  assert.equal(h.socket.sent.filter(x => x.operation === "select").length, 1);
+  assert.equal(h.socket.sent.filter(x => x.operation === "humanBegin").length, 1);
+});
+
+for (const fault of ["missing", "foreign-tab", "foreign-choice", "extra", "different-delivery", "gone", "successor-choice"]) test(`browser switch refuses ${fault} promotion`, () => {
+  const { h, end, clean, promoted } = switchingBrowserPage();
+  h.respond(end.id, clean); h.choose(2); const select = h.socket.sent.at(-1);
+  if (fault === "missing") delete promoted.pageSelectionReceipt;
+  if (fault === "foreign-tab") promoted.pageSelectionReceipt.tabId = 3;
+  if (fault === "foreign-choice") promoted.pageSelectionReceipt.pageSelectionId = "new-choice";
+  if (fault === "extra") promoted.pageSelectionReceipt.nativeTarget = "private";
+  if (fault === "different-delivery") promoted.tabs = [retainedChoice(2, "different-delivery")];
+  if (fault === "gone") h.socket.message({ type: "state", ...clean, eventSequence: 20005, tabs: [] });
+  if (fault === "successor-choice") h.socket.message({ type: "state", ...clean, eventSequence: 20005, tabs: [browserChoice(2, "new-choice")] });
+  h.respond(select.id, promoted);
+  assert.equal(h.socket.sent.filter(x => x.operation === "humanBegin").length, 1, "no late or foreign auto-Begin");
+  assert.notEqual(h.element("human-switch").textContent, "正在切换…", "retired choice does not strand the switch workflow");
+});
+
+for (const phase of ["ending", "selecting"]) for (const cancel of ["disconnect", "blur", "stop", "hidden"]) test(`browser switch ${phase} cannot survive ${cancel}`, () => {
+  const { h, end, clean, promoted } = switchingBrowserPage();
+  let request = end, result = clean;
+  if (phase === "selecting") { h.respond(end.id, clean); h.choose(2); request = h.socket.sent.at(-1); result = promoted; }
+  if (cancel === "disconnect") h.socket.close();
+  if (cancel === "blur") h.windowEvents.blur();
+  if (cancel === "stop") h.element("stop").click();
+  if (cancel === "hidden") h.setHidden(true);
+  h.respond(request.id, result);
+  assert.equal(h.socket.sent.filter(x => x.operation === "humanBegin").length, 1);
+});
+
+test("browser page capability is channel-fixed and older states cannot change it", () => {
+  for (const initial of [undefined, 1]) {
+    const h = setup(undefined, undefined, { pageSelectionVersion: initial }); h.running();
+    h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20000 }) });
+    h.socket.message({ type: "state", ...h.state(1, "running", false, { eventSequence: 9999, pageSelectionVersion: initial === 1 ? undefined : 1 }) });
+    assert.equal(h.element("connection").textContent, "已连接");
+    h.socket.message({ type: "state", ...h.state(3, "paused", true, { eventSequence: 30000, pageSelectionVersion: initial === 1 ? undefined : 1 }) });
+    assert.equal(h.element("tabs").disabled, true);
+  }
+});
+
+test("legacy channel hides page switching and ordinary End does not arm auto-Begin", () => {
+  const legacy = setup(); legacy.readyHuman(); assert.equal(legacy.element("human-switch").hidden, true);
+  const { h, end, clean, promoted } = switchingBrowserPage();
+  h.respond(end.id, clean); h.element("human-switch").click(); // cancel choosing
+  h.choose(2); h.respond(h.socket.sent.at(-1).id, promoted);
+  assert.equal(h.socket.sent.filter(x => x.operation === "humanBegin").length, 1);
+  assert.equal(h.element("human-begin").disabled, false);
+});
 
 function beginPreparing(h, generation = 1, state = "preparing") {
   h.running(); h.choose(); h.respond(2, h.state(1, "running", false, { selectedTabId: 1 }));

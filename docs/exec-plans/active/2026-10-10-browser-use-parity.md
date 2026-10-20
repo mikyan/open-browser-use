@@ -7,6 +7,14 @@
 
 ## 当前基线
 
+2026-10-21，源码新增[人工新页面选择](2026-10-21-managed-human-pages.md)：
+原 End 确认后显式选择独立浏览器子页，经实际结果登记接管，再返回原父页。
+新构建 468 输入/80 扩展、完整 Go test/vet 和 3,161 项 Node 通过；
+`mnp-vSEJQb`、`mnp-SLnf2u` 各七步实际退出 0、featurePassed true，覆盖
+window.open 与实际无 opener 子页、唯一 callback、父页草稿保持、显式
+Resume 后 SDK 原父页认领读取，以及独立 handoff 唯一 POST/Stop。
+该功能尚未发布；iframe 开页、父页导航与子页关闭回传继续在本片计划推进。
+
 2026-10-21，最新交付为
 [preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)，
 源码 `5b3d2f4329564e064419c1f2c82c5ddb2e2dd902`。
@@ -18,7 +26,7 @@
 SHA256 `c7c7859f7e89617cb4d9cb15b98f3485be4598db79c2e367ad0c7ce9212de472`。
 此前已发布的[人工文件上传](../../references/managed-human-files.md)与
 [人工剪贴板](../../references/managed-human-clipboard.md)继续保留。
-完整目标仍 active，下一项是人工接管的新窗口接续。普通公司 Edge 人工
+完整目标仍 active，继续完成新页面接续的剩余变体。普通公司 Edge 人工
 验收仍按用户要求延期。
 
 以下为各历史阶段记录，旧“尚未实现”只描述当时状态。

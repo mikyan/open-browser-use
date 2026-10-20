@@ -88,6 +88,8 @@ type connection struct {
 	sequenceMu             sync.Mutex
 	retiredSequence        uint64
 	controlMu              sync.Mutex
+	pageSelectionKnown     bool
+	pageSelectionVersion   uint64
 	humanClaimed           bool
 	humanStarting          bool
 	humanRevoked           bool
@@ -449,8 +451,17 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		}
 		lastID = request.id
 		c.controlMu.Lock()
-		claimed, lease := c.humanClaimed, c.humanLease
+		claimed, lease := c.humanClaimed || len(c.releases) != 0, c.humanLease
+		pageSelectionReady := c.pageSelectionKnown && c.pageSelectionVersion == 1
 		c.controlMu.Unlock()
+		var selection struct {
+			PageSelectionID string `json:"pageSelectionId"`
+		}
+		_ = json.Unmarshal(request.payload, &selection)
+		if selection.PageSelectionID != "" && !pageSelectionReady {
+			c.failure(request.id, "PAGE_SELECTION_UNAVAILABLE", "当前查看连接不支持浏览器页面选择。请获取新的查看链接。")
+			continue
+		}
 		if claimed && (request.operation == "resume" || request.operation == "select" && !bytesNullTab(request.payload)) {
 			c.failure(request.id, "HUMAN_BUSY", "请先确认原人工控制已释放，再继续 Agent。")
 			continue
@@ -541,7 +552,9 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		go func(request command, release bool) {
 			defer c.workers.Done()
 			if release {
-				defer func() { <-c.releases }()
+				var once sync.Once
+				request.releaseDone = func() { once.Do(func() { <-c.releases }) }
+				defer request.releaseDone()
 			} else if request.operation != "stop" {
 				defer func() { <-c.work }()
 			}
@@ -644,6 +657,12 @@ func (s *Server) command(c *connection, request command) {
 		return
 	}
 	result = c.displayData(result)
+	// Cleanup and its original receipt are now confirmed. Retire the admission
+	// barrier before the writer can deliver this ACK and receive a new selection.
+	// The worker's deferred fallback still owns every failed/early-return path.
+	if request.releaseDone != nil {
+		request.releaseDone()
+	}
 	c.reply(jsonBytes(map[string]any{"type": "response", "id": request.id, "result": result}))
 }
 

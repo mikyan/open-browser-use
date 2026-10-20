@@ -11,6 +11,17 @@
 
 ## 当前评分
 
+2026-10-21，[人工新页面选择](references/managed-human-pages.md)接通正式查看器。
+旧版 `mnp-zusBw5` 七步诊断及 291 项独审确认真实子页不可选；45 张 PNG
+解码，原父子身份保留，End/Resume 后唯一独立业务 POST 和 Stop 清理通过。
+该基线的 `featurePassed` 明确为 false。新构建绑定 468 输入/80 扩展，
+完整 Go test/vet 与 3,161 项 Node 检查通过。正式 `mnp-vSEJQb` 和
+`mnp-SLnf2u` 各七步、实际退出 0，普通 window.open 与无 opener 新页
+均完成子页操作回传、原父页草稿保持和 Agent 重新认领读取；唯一 callback、
+独立业务 POST、End/Resume/Stop 通过。事件独审 510/511 项、生命周期
+独审 190/188 项通过，各 30 原进程退出、51/50 张 PNG 解码。新功能尚未发布，复杂 SSO/iframe
+开页/关闭回传及公司 Edge 继续开放。
+
 2026-10-21，[人工双击与三击](references/managed-human-multi-click.md)已接通
 真实本地点击次数、Go 能力固定与原 native 持键记录。冻结构建 463 份输入、
 79 份扩展，完整 Go test/vet 和 3,102 项 Node 检查通过。正式

@@ -20,6 +20,8 @@ type command struct {
 	ctx        context.Context
 	epoch      uint64
 	generation uint64
+	// Set only by the original cleanup lane, never by public JSON.
+	releaseDone func()
 	// Captured from the accepted original human state at input admission,
 	// never parsed from a caller command or changed by subsequent status.
 	inputBudgetVersion uint64
@@ -49,9 +51,13 @@ func parseCommand(data []byte) (command, error) {
 	case "select":
 		allowed["tabId"] = true
 		allowed["deliveryId"] = true
+		allowed["pageSelectionId"] = true
 		selection := map[string]json.RawMessage{"operation": f["operation"], "tabId": f["tabId"]}
 		if raw, ok := f["deliveryId"]; ok {
 			selection["deliveryId"] = raw
+		}
+		if raw, ok := f["pageSelectionId"]; ok {
+			selection["pageSelectionId"] = raw
 		}
 		if err := managedprotocol.ValidateSelection(selection); err != nil {
 			return c, err
@@ -78,6 +84,7 @@ func parseCommand(data []byte) (command, error) {
 		}
 		if c.operation == "humanBegin" {
 			allowed["deliveryId"] = true
+			allowed["pageSelectionId"] = true
 		}
 		if c.operation == "humanFileCancel" {
 			allowed["transferId"] = true
@@ -158,8 +165,15 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	pageVersion, err := managedprotocol.ParsePageSelectionVersion(f["pageSelectionVersion"])
+	if err != nil {
+		return nil, err
+	}
 	seenTabs := map[uint64]bool{}
 	for _, t := range tabs {
+		if t.Kind == "browser" && pageVersion != 1 {
+			return nil, errors.New("browser pages lack their channel capability")
+		}
 		seenTabs[t.ID] = true
 	}
 	var selected *uint64
@@ -212,6 +226,16 @@ func publicState(data []byte) (json.RawMessage, error) {
 		return nil, err
 	}
 	out := map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence, "human": human, "view": view}
+	if pageVersion != 0 {
+		out["pageSelectionVersion"] = pageVersion
+	}
+	selection, err := managedprotocol.ParsePageSelectionReceipt(envelope["pageSelectionReceipt"])
+	if err != nil {
+		return nil, err
+	}
+	if selection != nil {
+		out["pageSelectionReceipt"] = selection
+	}
 	out["pendingDialog"] = dialog
 	if f["pendingFileChooser"] != nil || human != nil && human.FileChooserVersion == 1 {
 		out["pendingFileChooser"] = chooser

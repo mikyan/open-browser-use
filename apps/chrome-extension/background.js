@@ -31,6 +31,7 @@ import managedConfig from "./managed-config.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanControl } from "./managed-human-control.js";
 import { ManagedResultPages } from "./managed-result-pages.js";
+import { ManagedHumanPages } from "./managed-human-pages.js";
 import { ManagedResultJournal } from "./managed-result-journal.js";
 import { installManagedUserBridge } from "./managed-user-bridge.js";
 import { resolveManagedNativeHost } from "./managed-native-host.js";
@@ -733,6 +734,7 @@ class BrowserBackend {
     } });
     this.siteNavigationVersions = new Map();
     this.managedIdentityReads = new Map();
+    this.managedPageChoices = new Set();
     this.sitePendingFrames = new Map();
     this.siteRevokedTabs = new Set();
     this.sitePolicyUpdate = null;
@@ -1031,6 +1033,7 @@ class BrowserBackend {
     });
     chrome.tabs?.onRemoved?.addListener(tabId => {
       for (const read of this.managedIdentityReads.get(tabId) ?? []) read.invalid = true;
+      for (const choices of this.managedPageChoices) choices.invalidate(tabId);
       this.managedResults.revoke(tabId);
       this.managedHuman.invalidateTab(tabId, { destroyed: true });
       const visualRecoveries = [...this.visualRecoverySessions.values()].map(recovery => ({ recovery, item: recovery.tabs.get(tabId) })).filter(({ item }) => item);
@@ -1701,6 +1704,7 @@ class BrowserBackend {
     // has any task/view owner. Retire only its currently pending reads; this
     // observation never grants ownership or grows the persistent tab ledger.
     for (const read of this.managedIdentityReads.get(tabId) ?? []) read.invalid = true;
+    for (const choices of this.managedPageChoices) choices.invalidate(tabId);
     // A tab URL notification has no document identity. For a current human
     // lease it gates the next human dispatch until that caller's original
     // proof is rechecked; it does not retire an already proved modal itself.
@@ -2665,7 +2669,8 @@ class BrowserBackend {
   }
 
   invalidateManagedResultReclaim(tabId) {
-    for (const read of this.managedIdentityReads.get(tabId) ?? []) if (read.reclaim) read.invalid = true;
+    for (const read of this.managedIdentityReads.get(tabId) ?? []) if (read.reclaim || read.pageChoice) read.invalid = true;
+    for (const choices of this.managedPageChoices) choices.invalidate(tabId);
   }
 
   async resetClaimedColdAttachment(tab, check) {
@@ -3908,7 +3913,65 @@ class BrowserBackend {
       operation, { ...options, browserVersion: original.options.browserVersion, check, validateScope });
   }
 
-  async readManagedPageIdentity(tabId, check) {
+  createManagedPageChoices({ check }) {
+    if (!managedConfig || typeof check !== "function") throw new Error("OBU_HUMAN_PAGE_UNAVAILABLE: managed user channel is required");
+    const incarnation = this.browserLifetime.incarnation;
+    const authority = () => {
+      check();
+      if (!this.browserLifetime.isCurrent(incarnation)) throw new Error("OBU_HUMAN_PAGE_STALE: original browser changed");
+      if (!this.managedPreparedOpen) this.assertManagedWorkerAdmission();
+      this.assertNativeControl();
+    };
+    const access = () => {
+      authority();
+      this.assertManagedResultAccess({ listing: true });
+    };
+    const assertPaused = () => {
+      access();
+      const gate = this.automationControl;
+      if (gate.state !== "paused" || !gate.inputBlocked || !gate.cleanupComplete || this.managedHuman.current)
+        throw new Error("OBU_HUMAN_PAGE_UNAVAILABLE: completed Pause and original human cleanup are required");
+    };
+    const choices = new ManagedHumanPages({
+      check: authority,
+      available: () => { authority(); try { this.assertManagedResultAccess({ listing: true }); return true; } catch { return false; } },
+      assertPaused, results: this.managedResults,
+      listTabs: async (inspect, retain) => {
+        inspect();
+        const tabs = await retain(chrome.tabs.query({}));
+        inspect();
+        return tabs.filter(tab => Number.isSafeInteger(tab.id) && tab.id >= 0).slice(0, MAX_USER_TABS).map(tab => tab.id);
+      },
+      read: (tabId, inspect, retain) => this.readManagedPageIdentity(tabId, inspect, { retain }),
+      fence: tabId => {
+        const reads = this.managedIdentityReads.get(tabId) ?? new Set();
+        const original = { pageChoice: true, invalid: false };
+        const generation = this.siteAccess.generation, revision = this.siteAccess.status().revision;
+        this.managedIdentityReads.set(tabId, reads); reads.add(original);
+        return {
+          check: () => {
+            // Caller/channel admission may disappear after IDB completion.
+            // Only the original browser, page, and policy decide whether that
+            // already committed result can still be published.
+            this.siteAccess.assertReady();
+            if (!this.browserLifetime.isCurrent(incarnation) || this.sitePolicyUpdate)
+              throw new Error("OBU_HUMAN_PAGE_STALE: original browser or policy changed during selection");
+            if (original.invalid || generation !== this.siteAccess.generation || revision !== this.siteAccess.status().revision)
+              throw new Error("OBU_HUMAN_PAGE_STALE: original page or policy changed during selection");
+          },
+          release: () => {
+            reads.delete(original);
+            if (!reads.size && this.managedIdentityReads.get(tabId) === reads) this.managedIdentityReads.delete(tabId);
+          }
+        };
+      },
+      released: () => this.managedPageChoices.delete(choices)
+    });
+    this.managedPageChoices.add(choices);
+    return choices;
+  }
+
+  async readManagedPageIdentity(tabId, check, { retain = promise => promise } = {}) {
     const reads = this.managedIdentityReads.get(tabId) ?? new Set(), read = { invalid: false };
     this.managedIdentityReads.set(tabId, reads); reads.add(read);
     const current = () => {
@@ -3918,9 +3981,9 @@ class BrowserBackend {
     try {
       current();
       const navigationVersion = this.siteNavigationVersions.get(tabId) ?? 0;
-      const proof = await this.assertSiteTab(tabId, { allowBlank: true });
+      const proof = await this.assertSiteTab(tabId, { allowBlank: true, retain, inspect: current });
       current();
-      const [tab, frame, targets] = await Promise.all([chrome.tabs.get(tabId), chrome.webNavigation.getFrame({ tabId, frameId: 0 }), chrome.debugger.getTargets()]);
+      const [tab, frame, targets] = await Promise.all([retain(chrome.tabs.get(tabId)), retain(chrome.webNavigation.getFrame({ tabId, frameId: 0 })), retain(chrome.debugger.getTargets())]);
       current(); this.assertSiteProof(proof); assertControllableTab(tab);
       const candidates = targets.filter(target => target.tabId === tabId && target.type === "page" && typeof target.id === "string" && target.id);
       if (navigationVersion !== (this.siteNavigationVersions.get(tabId) ?? 0) || candidates.length !== 1 || typeof frame?.documentId !== "string" || !frame.documentId || proof && proof.documentId !== frame.documentId)
@@ -4024,11 +4087,12 @@ class BrowserBackend {
     return verified;
   }
 
-  async getManagedViewerTabs() {
+  async getManagedViewerTabs({ excludeTabId } = {}) {
     if (managedConfig === null) throw new Error("OBU_VIEWER_FORBIDDEN: managed viewer is unavailable in an ordinary browser");
     try { this.assertManagedResultAccess({ listing: true }); } catch { return []; }
     const results = [];
     for (const [tabId, owner] of this.attachmentOwners) {
+      if (tabId === excludeTabId) continue;
       try {
         this.assertTransferScope(owner);
         this.assertAttachmentAdmission(tabId, owner.attachment);
@@ -4045,6 +4109,7 @@ class BrowserBackend {
       } catch { /* Only live eligible original attachments are selectable. */ }
     }
     for (const record of this.managedResults.entries()) {
+      if (record.tabId === excludeTabId) continue;
       try {
         const candidate = await this.captureManagedResultPage(record.tabId, record.deliveryId, { listing: true });
         this.assertManagedResultAccess({ listing: true }); this.managedResults.assert(record);

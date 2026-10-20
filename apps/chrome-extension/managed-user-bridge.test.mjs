@@ -78,6 +78,7 @@ function fixture(t, options = {}) {
   t.after(async () => {
     f.resumeGate?.resolve(); f.subscribeGate?.resolve(); f.closeGate?.resolve();
     f.humanBeginGate?.resolve(); f.humanInputGate?.resolve(); f.humanCloseGate?.resolve();
+    for (const name of ["pageListGate", "pageCommitGate", "pageDeliveryGate", "catalogDrainGate"]) f[name]?.resolve();
     for (const gate of f.dialogGates ?? []) gate.resolve();
     try { await f.request("disconnect"); } catch { /* already revoked */ }
     for (const timer of timers) clearTimeout(timer);
@@ -1139,7 +1140,7 @@ function resultFixture(t) {
   f.views = [];
   f.liveTabs = [{ id: 7, kind: "result", deliveryId: "delivery-original", watchable: true, takeover: true, title: "Original result", url: "https://example.test/result" }];
   f.backend.managedViewerSubscribe = async (tabId, onFrame, onState, options, authority) => {
-    authority(); assert.deepEqual(options, { deliveryId: "delivery-original" });
+    authority(); assert.deepEqual(options, { deliveryId: f.liveTabs.find(tab => tab.id === tabId)?.deliveryId });
     const closed = deferred(), record = { tabId, onFrame, onState, authority, closeCalls: 0,
       info: { state: "active", leaseId: `view-${f.views.length + 1}`, tabId, generation: 1, viewport: { width: 800, height: 600 }, lastInputSequence: 0 } };
     record.handle = { info: () => ({ ...record.info }), tabInfo: () => ({ id: tabId, title: "Original result", url: "https://example.test/result" }), closed: closed.promise,
@@ -1439,4 +1440,182 @@ test("late preparing handle after disconnect is closed rather than granting a ne
   f.humanBeginGate.resolve(); await rejected; const closed = await disconnect;
   assert.equal(closed.status.connected, false); assert.equal(f.humans[0].closeCalls, 1);
   assert.equal(f.humans[0].info.state, "released");
+});
+
+function pageChoicesFixture(t) {
+  const f = resultFixture(t);
+  f.pageTabs = [{ id: 8, kind: "browser", pageSelectionId: "original-choice", title: "Native child", url: "https://child.test/",
+    watchable: true, takeover: true }];
+  f.catalogs = []; f.pageSelectCalls = [];
+  f.pageSelectEntered = deferred(); f.pageCommitted = deferred();
+  f.backend.getManagedViewerTabs = async ({ excludeTabId } = {}) => {
+    f.listExclusions ??= []; f.listExclusions.push(excludeTabId);
+    return f.liveTabs.filter(tab => tab.id !== excludeTabId);
+  };
+  f.backend.createManagedPageChoices = ({ check }) => {
+    const owner = { revoked: false, pending: new Set() }; f.catalogs.push(owner);
+    const current = () => { check(); if (owner.revoked) throw new Error("catalog revoked"); };
+    return {
+      async list() { current(); await f.pageListGate?.promise; current(); return f.pageTabs; },
+      select(tabId, pageSelectionId, { check: selectionCheck }) {
+        const actual = (async () => {
+          current(); selectionCheck();
+          assert.equal(f.state.state, "paused"); assert.equal(f.state.cleanupComplete, true);
+          assert.ok(f.pageTabs.some(tab => tab.id === tabId && tab.pageSelectionId === pageSelectionId));
+          f.pageSelectCalls.push({ tabId, pageSelectionId });
+          f.pageSelectEntered.resolve();
+          await f.pageCommitGate?.promise; current(); selectionCheck();
+          const deliveryId = `retained-${tabId}`;
+          const { pageSelectionId: _, ...tab } = f.pageTabs.find(tab => tab.id === tabId);
+          f.liveTabs.push({ ...tab, kind: "result", deliveryId });
+          f.pageTabs = f.pageTabs.filter(tab => tab.id !== tabId);
+          f.calls.push(["pageCommitted", tabId]);
+          f.pageCommitted.resolve();
+          await f.pageDeliveryGate?.promise; current(); selectionCheck();
+          return { tabId, pageSelectionId, deliveryId, retained: true, ...f.pageReceiptOverride };
+        })();
+        owner.pending.add(actual);
+        actual.then(() => owner.pending.delete(actual), () => owner.pending.delete(actual));
+        return actual;
+      },
+      revoke() { owner.revoked = true; },
+      async drain() {
+        await Promise.allSettled([...owner.pending]); await f.catalogDrainGate?.promise;
+        if (f.catalogCleanupError) throw f.catalogCleanupError;
+      }
+    };
+  };
+  f.choose = (operation = "select", extra = {}) => f.request(operation, { tabId: 8, pageSelectionId: "original-choice", ...extra });
+  return f;
+}
+
+test("a channel pins browser-page capability and projects only original catalog metadata", async t => {
+  const f = pageChoicesFixture(t);
+  f.pageTabs[0].secret = "not-public";
+  const opened = await f.open();
+  assert.equal(opened.status.pageSelectionVersion, 1);
+  assert.equal(opened.status.tabs.length, 2);
+  assert.equal(opened.status.tabs[1].pageSelectionId, "original-choice");
+  assert.equal(opened.status.tabs[1].secret, undefined);
+  delete f.backend.createManagedPageChoices;
+  assert.equal((await f.request("status")).status.pageSelectionVersion, 1);
+  const closed = await f.request("disconnect");
+  assert.equal(closed.status.pageSelectionVersion, 1); assert.equal(f.catalogs[0].revoked, true);
+  assert.equal((await f.open({ channelKey: "b".repeat(64) })).status.pageSelectionVersion, undefined);
+});
+
+test("a native browser choice pauses the Agent and returns the exact committed result receipt", async t => {
+  const f = pageChoicesFixture(t); await f.open(); f.calls.length = 0;
+  const reply = await f.choose();
+  assert.deepEqual(reply.pageSelectionReceipt, { tabId: 8, pageSelectionId: "original-choice", deliveryId: "retained-8", retained: true });
+  assert.deepEqual(f.calls, [["pause"], ["pageCommitted", 8], ["viewBegin", 8]]);
+  assert.equal(reply.status.automation.state, "paused"); assert.equal(reply.status.human, null);
+  assert.equal(reply.status.tabs.find(tab => tab.id === 8).kind, "result");
+  assert.equal(reply.status.tabs.find(tab => tab.id === 8).pageSelectionId, undefined);
+  await assert.rejects(f.choose(), /TAB/);
+  const old = await f.request("select", { tabId: 8, deliveryId: "retained-8" });
+  assert.equal(old.pageSelectionReceipt, undefined); assert.equal(f.pageSelectCalls.length, 1);
+});
+
+test("direct human Begin on a browser choice uses the real retained delivery after prior view cleanup", async t => {
+  const f = pageChoicesFixture(t); await f.open(); await f.view(); f.closeGate = deferred();
+  const begun = f.choose("humanBegin"); await flush();
+  assert.equal(f.pageSelectCalls.length, 0); assert.equal(f.humans.length, 0);
+  f.closeGate.resolve(); const reply = await begun;
+  assert.equal(reply.pageSelectionReceipt.deliveryId, "retained-8");
+  assert.deepEqual(f.humans[0].options, { deliveryId: "retained-8" });
+  assert.ok(f.calls.findIndex(call => call[0] === "viewReleased") < f.calls.findIndex(call => call[0] === "pageCommitted"));
+});
+
+test("active human metadata coexists with other native pages without validating that human result again", async t => {
+  const f = pageChoicesFixture(t); await f.open();
+  await f.request("humanBegin", { tabId: 7, deliveryId: "delivery-original" });
+  f.humans[0].handle.tabInfo = () => ({ id: 7, title: "Current human document", url: "https://callback.test/" });
+  f.pageTabs.push({ ...f.pageTabs[0], id: 7, pageSelectionId: "duplicate-human" });
+  const reply = await f.request("status");
+  assert.equal(f.listExclusions.at(-1), 7);
+  assert.deepEqual(reply.status.tabs.map(tab => tab.id), [7, 8]);
+  assert.equal(reply.status.tabs[0].title, "Current human document");
+  assert.equal(reply.status.tabs[0].kind, "result");
+  for (const operation of ["select", "humanBegin"]) await assert.rejects(f.choose(operation), /HUMAN_BUSY/);
+  assert.equal(f.pageSelectCalls.length, 0);
+});
+
+test("switching after End cannot publish another page before the original human cleanup settles", async t => {
+  const f = pageChoicesFixture(t); await f.open();
+  await f.request("humanBegin", { tabId: 7, deliveryId: "delivery-original" });
+  f.humanCloseGate = deferred();
+  const ended = f.request("humanEnd", { leaseId: "human-1" }); await flush();
+  const chosen = f.choose(); await flush(); assert.equal(f.pageSelectCalls.length, 0);
+  f.humanCloseGate.resolve(); const end = await ended, choice = await chosen;
+  assert.deepEqual(end.status.humanCleanup, { leaseId: "human-1", cleanupConfirmed: true });
+  assert.equal(choice.pageSelectionReceipt.deliveryId, "retained-8");
+  assert.ok(f.calls.findIndex(call => call[0] === "humanReleased") < f.calls.findIndex(call => call[0] === "pageCommitted"));
+});
+
+test("invalid selector combinations and unadvertised page choices never reach the catalog", async t => {
+  const f = pageChoicesFixture(t); await f.open();
+  for (const operation of ["select", "humanBegin"]) {
+    for (const change of [{ deliveryId: "delivery-original" }, { pageSelectionId: "wrong" }, { pageSelectionId: "" },
+      { pageSelectionId: undefined }, { tabId: null }, { tabId: 7 }]) await assert.rejects(f.choose(operation, change), /TAB|PROTOCOL/);
+  }
+  assert.equal(f.pageSelectCalls.length, 0);
+  const legacy = fixture(t); await legacy.open();
+  await assert.rejects(legacy.request("select", { tabId: 7, pageSelectionId: "unexpected" }), /PROTOCOL/);
+});
+
+test("catalog capabilities cannot smuggle a delivery, duplicate an original ID or omit its choice", async t => {
+  const f = pageChoicesFixture(t); await f.open();
+  const original = { ...f.pageTabs[0] };
+  for (const change of [{ deliveryId: "forged" }, { pageSelectionId: undefined }, { kind: "result" }, { watchable: "yes" }]) {
+    f.pageTabs = [{ ...original, ...change }]; await assert.rejects(f.request("status"), /TABS/);
+  }
+  f.pageTabs = [original, { ...original }]; await assert.rejects(f.request("status"), /TABS/);
+});
+
+test("a mismatched or unsolicited retention receipt never starts a view or human lease", async t => {
+  for (const change of [{ tabId: 9 }, { pageSelectionId: "foreign" }, { deliveryId: "" }, { retained: false }, { extra: true }]) {
+    const f = pageChoicesFixture(t); await f.open(); f.pageReceiptOverride = change;
+    await assert.rejects(f.choose("humanBegin"), /PAGE_UNCONFIRMED|PROTOCOL/);
+    assert.equal(f.humans.length, 0); assert.equal(f.views.length, 0);
+    assert.equal(f.liveTabs.find(tab => tab.id === 8).deliveryId, "retained-8");
+  }
+});
+
+test("Resume cannot cross an in-flight browser selection or its actual commit", async t => {
+  const f = pageChoicesFixture(t); await f.open(); f.pageCommitGate = deferred();
+  const chosen = f.choose(); await f.pageSelectEntered.promise;
+  assert.equal(f.pageSelectCalls.length, 1);
+  await assert.rejects(f.request("resume", { expectedRevision: f.state.revision, expectedWorkerBootId: "worker" }), /BUSY/);
+  assert.equal(f.calls.some(call => call[0] === "resume"), false);
+  f.pageCommitGate.resolve(); await chosen;
+});
+
+test("disconnect joins an actual committed selection but never delivers or starts its late lease", async t => {
+  const f = pageChoicesFixture(t); await f.open(); f.pageDeliveryGate = deferred();
+  const chosen = assert.rejects(f.choose(), /CLOSED|revoked/); await f.pageCommitted.promise;
+  assert.equal(f.liveTabs.find(tab => tab.id === 8).deliveryId, "retained-8");
+  let settled = false;
+  const closed = f.request("disconnect").then(value => { settled = true; return value; }); await flush();
+  assert.equal(settled, false); assert.equal(f.catalogs[0].revoked, true);
+  f.pageDeliveryGate.resolve(); await chosen;
+  assert.equal((await closed).status.connected, false);
+  assert.equal(f.views.length, 0); assert.equal(f.humans.length, 0);
+  assert.equal(f.liveTabs.find(tab => tab.id === 8).deliveryId, "retained-8");
+});
+
+test("clear selection during original commit fences its late receipt and waits for actual settlement", async t => {
+  const f = pageChoicesFixture(t); await f.open(); f.pageDeliveryGate = deferred();
+  const chosen = assert.rejects(f.choose(), /CLOSED/); await f.pageCommitted.promise;
+  let settled = false;
+  const cleared = f.request("select", { tabId: null }).then(value => { settled = true; return value; }); await flush();
+  assert.equal(settled, false); assert.equal(f.views.length, 0);
+  f.pageDeliveryGate.resolve(); await chosen;
+  assert.equal((await cleared).status.selectedTabId, null);
+});
+
+test("catalog drain failure remains a cleanup barrier for channel replacement", async t => {
+  const f = pageChoicesFixture(t); await f.open(); f.catalogCleanupError = new Error("original catalog cleanup unconfirmed");
+  await assert.rejects(f.request("disconnect"), /cleanup unconfirmed/);
+  await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
 });

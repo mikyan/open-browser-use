@@ -24,11 +24,21 @@ import { humanCopyCases, createManagedHumanCopyFixture, readManagedHumanCopyDocu
 import { installManagedCopyRejectionRoute } from "./managed-human-copy-rejection.mjs";
 import { createManagedMultiClickFixture, readManagedMultiClickDocument } from "./managed-human-multi-click-fixture.mjs";
 import { humanMultiClickCases, managedMultiClickMode, installManagedMultiClickObserver, nativeMultiClickGesture, assertManagedMultiClickCase, assertManagedMultiClickLedger, assertManagedMultiClickTerminal } from "./managed-human-multi-click-workflow.mjs";
+import { installCreatedPageObserver } from "./created-page-provenance.mjs";
+import { createManagedHumanNewPageFixture, readManagedHumanNewPageDocument } from "./managed-human-new-page-fixture.mjs";
+import { managedHumanNewPageTrigger, managedHumanNewPageMode, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageInputs, assertManagedHumanNewPageTerminal } from "./managed-human-new-page-workflow.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const redact = text => String(text).replace(/(#ticket=)[A-Za-z0-9_-]+/g, "$1[redacted]");
 const serialize = value => JSON.stringify(value, (_key, item) => typeof item === "string" ? redact(item) : item, 2);
+
+export function managedNewPageDiagnosticOutcome(passed, detail) {
+  if (detail?.mode === "acceptance") return { featurePassed: passed === true && detail.proof?.featurePassed === true && detail.agentProof?.originalPlacementPreserved === true && detail.terminalProof?.childCallbackPOSTs === 1,
+    diagnosticCompleted: false, diagnosticGapConfirmed: false };
+  return { featurePassed: false, diagnosticCompleted: passed === true,
+    diagnosticGapConfirmed: passed === true && detail?.proof?.classification === "native-child-created-not-selectable" && detail.proof.diagnosticGapConfirmed === true };
+}
 
 export function managedCopyRejectionEnabled(scenario, value) {
   assert.ok(value === undefined || value === "0" || value === "1", "OBU_TEST_HUMAN_CLIPBOARD_REJECTION must be 0 or 1");
@@ -158,6 +168,12 @@ export function assertManagedPasteEvidence({ viewer, commands, replies, before, 
 }
 
 export function projectHumanCommand(message) {
+  if (["select", "humanBegin"].includes(message?.operation) && Object.hasOwn(message, "pageSelectionId")) {
+    assert.equal(message.deliveryId, undefined);
+    assert.ok(typeof message.pageSelectionId === "string" && message.pageSelectionId.length > 0 && message.pageSelectionId.length <= 128 && !/[\x00-\x1f\x7f]/.test(message.pageSelectionId));
+    const { pageSelectionId, ...ordinary } = message;
+    return { ...projectHumanCommand(ordinary), pageSelectionId };
+  }
   if (!message?.operation?.startsWith("human")) return projectViewerCommand(message);
   assert.ok(Number.isSafeInteger(message.id) && message.id > 0);
   assert.ok(["humanBegin", "humanInput", "humanEnd"].includes(message.operation));
@@ -268,18 +284,20 @@ async function treeHashes(root) {
 
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
-  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy", "multi-click"].includes(scenario));
+  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy", "multi-click", "new-page"].includes(scenario));
   const multiClickMode = managedMultiClickMode(scenario, process.env.OBU_TEST_HUMAN_MULTI_CLICK_MODE);
+  const newPageTrigger = managedHumanNewPageTrigger(scenario, process.env.OBU_TEST_HUMAN_NEW_PAGE_TRIGGER);
+  const newPageMode = managedHumanNewPageMode(scenario, process.env.OBU_TEST_HUMAN_NEW_PAGE_MODE);
   const clipboardRejection = managedCopyRejectionEnabled(scenario, process.env.OBU_TEST_HUMAN_CLIPBOARD_REJECTION);
-  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", multiClick = scenario === "multi-click", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy || multiClick;
+  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", multiClick = scenario === "multi-click", newPage = scenario === "new-page", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy || multiClick || newPage;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const viewerChromium = paste || humanCopy ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
   assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME/keyboard/key-repeat requires a build manifest; local paste also requires an explicit guarded viewer binary");
   await Promise.all([executable, chromium, viewerChromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : humanCopy ? "mhc-" : multiClick ? "mmc-" : "managed-human-"));
-  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : humanCopy ? "c" : multiClick ? "m" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
+  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : humanCopy ? "mhc-" : multiClick ? "mmc-" : newPage ? "mnp-" : "managed-human-"));
+  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : humanCopy ? "c" : multiClick ? "m" : newPage ? "n" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
     scope: humanCopy ? `Production Go/UI/extension clipboard transfer with independently guarded task and viewer HeadlessClipboard. Seven original copy/cut cases, including cancelled copy/cut, exact native receipts, End before trusted local paste readback, explicit Resume and original handoff one POST/Stop. No OS clipboard, task CDP attachment, clipboard API substitution or business replay. Shared managed clipboard is not page-origin provenance.${clipboardRejection ? " An additional explicitly instrumented case denies viewer clipboard permission and delays one original Ctrl ACK through a WebSocket route; actual UI message delivery is observed on its original socket." : " No permission override or WebSocket route."}`
       : paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
@@ -287,18 +305,21 @@ export async function runManagedHumanCheck() {
       : keyRepeat ? "Production managed viewer native key down plus explicit autoRepeat key events for Backspace/Delete/ArrowLeft/ArrowRight, prevented defaults and End-held-repeat cleanup. Original task values/selections/receipts and independent handoff one POST. CDP keyboard simulation targets only the viewer; no OS input, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyboard ? "Production managed viewer native Enter/Shift+Enter/NumpadEnter editing, prevented default, one original implicit form POST; independent original handoff POST, held-Shift End, explicit Resume and Stop. No OS input, clipboard, task CDP input or business replay."
       : multiClick ? `Production managed viewer receives original native mouse down/up counts 1/2/3. Original textarea word/line selection, trusted task dblclick, exact input receipts, End/Resume and independent original handoff one POST/Stop. No task input injection, selection mutation, OS mouse or business replay. Mode=${multiClickMode}; baseline completion is not feature acceptance.`
+      : newPage ? newPageMode === "diagnostic" ? `Diagnostic only: one real viewer click (${newPageTrigger}) opens a cross-site native child. Passive native source event, original parent/child documents and authoritative viewer inventory are observed without arming a waiter, adopting a child, or injecting task/child input. The untouched child cannot callback; the independent original handoff still performs its one POST after End/Resume. No OS input or personal profile. Completion is not feature acceptance or proof of window focus behavior.`
+        : `Production viewer explicit page switching (${newPageTrigger}): native cross-site child, original End cleanup, user selection receipt and automatic Begin, one trusted child callback, return to original parent with unsaved draft, End/Resume/new turn and public SDK claim/read of that original parent, independent handoff POST and Stop. Native opener provenance only locates; selection grants authority. No task/child input injection, URL reopening, OS input, personal profile or full SSO/OS-focus claim.`
       : "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
   let copyTab, repeatTab, keyboardTab, multiClickTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
   let copyRejectionRoute, restoreCopyPermissions = false;
-  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy || multiClick ? "handoff" : scenario });
+  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy || multiClick || newPage ? "handoff" : scenario });
+  const newPageFixture = newPage ? createManagedHumanNewPageFixture({ trigger: newPageTrigger }) : null;
   const multiClickFixture = multiClick ? createManagedMultiClickFixture() : null;
   const copyFixture = humanCopy ? createManagedHumanCopyFixture() : null;
   const repeatFixture = keyRepeat ? createManagedKeyRepeatFixture() : null;
   const keyboardFixture = keyboard ? createManagedHumanKeyboardFixture() : null;
-  const server = createServer((request, response) => { if (!multiClickFixture?.handle(request, response) && !copyFixture?.handle(request, response) && !repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
+  const server = createServer((request, response) => { if (!newPageFixture?.handle(request, response) && !multiClickFixture?.handle(request, response) && !copyFixture?.handle(request, response) && !repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
     const child = launch(executable, args, { timeoutMs: args[0] === "managed" && args[1] === "stop" ? 55000 : 45000 });
@@ -421,6 +442,8 @@ export async function runManagedHumanCheck() {
   const repeatRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedKeyRepeatDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous repeat root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const copyRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanCopyDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous copy root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const multiClickRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedMultiClickDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous multi-click root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
+  const newPageRead = (tabId, documentId) => worker.evaluate(`chrome.scripting.executeScript({target:${JSON.stringify({ tabId, ...(documentId ? { documentIds: [documentId] } : {}) })},func:${readManagedHumanNewPageDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous original new-page root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
+  const newPageNative = tabId => worker.evaluate(`(async()=>{const tab=await chrome.tabs.get(${tabId}),win=await chrome.windows.get(tab.windowId);return {targets:(await chrome.debugger.getTargets()).filter(t=>t.type==='page'&&t.tabId===tab.id).map(t=>({id:t.id,tabId:t.tabId,type:t.type,attached:t.attached,url:t.url})),frames:await chrome.webNavigation.getAllFrames({tabId:tab.id}),tab:{id:tab.id,url:tab.url,windowId:tab.windowId,groupId:tab.groupId,active:tab.active,pinned:tab.pinned,openerTabId:tab.openerTabId},window:{id:win.id,type:win.type,state:win.state,focused:win.focused}}})()`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const observerSnapshot = () => worker.evaluate("__managedHumanAcceptance.snapshot()");
   const posts = () => fixture.stats().requests.filter(item => item.method === "POST");
@@ -723,6 +746,63 @@ export async function runManagedHumanCheck() {
       await denied("nonbusiness original request before explicit new turn", () => tab.domSnapshot({ timeoutMs: 1500 }), /OBU_STALE_CONTROL_EPOCH/);
       report.originalTurn = await taskBrowser.client.beginTurn("original-unsaved-form");
       await denied("nonbusiness original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, originalAuthority), /OBU_STALE_CONTROL_EPOCH/);
+    });
+
+    if (newPage) await step(newPageMode === "acceptance" ? "human-created-native-child-switch-return" : "human-created-native-child-diagnostic", async () => {
+      const detail = report.newPage = { mode: newPageMode, trigger: newPageTrigger, urls: newPageFixture.urls(fixtureURL) };
+      const trace = () => worker.evaluate("__createdPageProvenance.snapshot()");
+      const run = newPageMode === "acceptance" ? runManagedHumanNewPageAcceptance : runManagedHumanNewPageDiagnostic;
+      await run({
+        createParent: async url => { const tab = await taskBrowser.newTab({ url, backgroundWindow: true }); await tab.domSnapshot({ timeoutMs: 10000 }); return tab.id; },
+        read: newPageRead, native: newPageNative,
+        installObserver: () => worker.evaluate(`(${installCreatedPageObserver.toString()})(chrome,globalThis,{maxSources:1})`),
+        register: tabId => worker.evaluate(`__createdPageProvenance.register(${tabId})`), trace,
+        select: async tabId => { await uiAction("#refresh", "status"); await uiAction("#tabs", "select", tabId); },
+        begin: () => uiAction("#human-begin", "humanBegin"), frame: decodeHumanFrame,
+        state: () => structuredClone(state), messages: () => structuredClone(report.viewerMessages), point: viewerPoint,
+        position: point => inputAction("position original new-page trigger", () => page.mouse.move(point.x, point.y)),
+        click: () => inputAction("one original new-page trigger", async () => { await page.mouse.down({ button: "left", clickCount: 1 }); await page.mouse.up({ button: "left", clickCount: 1 }); }),
+        waitCreated: tabId => wait(async () => { const value = await trace(); assert.equal(value.overflow, false); return value.events.some(event => event.details.sourceTabId === tabId) && value; }, "original native human-created child", 10000),
+        waitChild: (tabId, url) => wait(async () => { const native = await worker.evaluate(`(async()=>({status:(await chrome.tabs.get(${tabId})).status,frames:await chrome.webNavigation.getAllFrames({tabId:${tabId}})}))()`); const root = native.frames?.find(frame => frame.frameId === 0 && frame.url === url); if (native.status !== "complete" || !root) return false; const value = await newPageRead(tabId, root.documentId); return value?.state?.role === "child" && value; }, "original child document ready", 10000),
+        options: () => page.locator("#tabs").evaluate(element => [...element.options].map(option => ({ value: option.value, text: option.textContent }))),
+        screenshot, end: () => uiAction("#human-end", "humanEnd"), refresh: () => uiAction("#refresh", "status"),
+        lastCommand: operation => structuredClone(report.viewerCommands.findLast(command => command.operation === operation)),
+        resume: () => uiAction("#control", "resume"), newTurn: () => taskBrowser.client.beginTurn("original-handoff-after-new-page"),
+        switchPage: async (tabId, value) => {
+          Object.assign(value, { tabId, startedAt: Date.now() });
+          value.end = await uiAction("#human-switch", "humanEnd");
+          value.endRequest = structuredClone(report.viewerCommands.findLast(command => command.operation === "humanEnd"));
+          value.endCompletedAt = (await replyFor(value.endRequest.id)).at;
+          await wait(async () => !(await page.locator("#tabs").isDisabled()), "original End enables page selection");
+          value.status = structuredClone(state);
+          value.options = await page.locator("#tabs").evaluate(element => [...element.options].map(option => ({ value: option.value, text: option.textContent })));
+          const start = report.viewerCommands.length;
+          value.selected = await uiAction("#tabs", "select", tabId);
+          value.selectRequest = structuredClone(report.viewerCommands.slice(start).find(command => command.operation === "select"));
+          value.selectCompletedAt = (await replyFor(value.selectRequest.id)).at;
+          value.beginRequest = structuredClone(await wait(() => report.viewerCommands.slice(start).find(command => command.operation === "humanBegin" && command.tabId === tabId), "one automatic Begin for original selection"));
+          const reply = await replyFor(value.beginRequest.id); assert.equal(reply.error, undefined, serialize(reply.error)); value.begin = reply.result;
+          value.frame = await decodeHumanFrame(value.begin.human); value.lease = structuredClone(state.human);
+          assert.deepEqual(report.viewerCommands.slice(start).map(command => command.operation), ["select", "humanBegin"], "One selection causes exactly one automatic Begin and no input");
+          return value;
+        },
+        waitCallback: (tabId, documentId) => wait(async () => { const value = await newPageRead(tabId, documentId); return value.state.receipt !== null && value; }, "original trusted child callback receipt", 10000),
+        waitParent: (tabId, documentId) => wait(async () => { const value = await newPageRead(tabId, documentId); return value.state.callbacks.length > 0 && value; }, "original parent callback", 10000),
+        claimAndRead: async (tabId, documentId, value) => {
+          value.startedAt = Date.now(); value.beforeNative = await newPageNative(tabId); value.before = await newPageRead(tabId, documentId);
+          value.receipt = await taskBrowser.client.claimUserTab(tabId); value.claimCompletedAt = Date.now();
+          const tab = taskBrowser.tab(tabId); value.readStartedAt = Date.now();
+          const text = await tab.playwright.locator("#state").textContent({ timeoutMs: 10000 });
+          assert.equal(typeof text, "string"); assert.ok(Buffer.byteLength(text) <= 8192); value.state = JSON.parse(text);
+          value.draft = await tab.playwright.locator("#draft").inputValue({ timeoutMs: 10000 });
+          assert.ok(Buffer.byteLength(value.draft) <= 8192); value.readCompletedAt = Date.now();
+          value.afterNative = await newPageNative(tabId); value.after = await newPageRead(tabId, documentId);
+          return value;
+        }
+      }, detail);
+      if (newPageMode === "diagnostic") assert.equal(newPageFixture.stats().callback, null);
+      else assert.deepEqual(newPageFixture.stats().callback, detail.callback);
+      assert.equal(posts().length, 0);
     });
 
     if (humanCopy) await step("original-copy-cut-and-local-native-paste", async () => {
@@ -1124,6 +1204,15 @@ export async function runManagedHumanCheck() {
         assert.deepEqual(entireLease.map(row => row.id), [...detail.endLedger.requestIds, negatives[0].request.id]);
         detail.finalWireLedger = { requestIds: entireLease.map(row => row.id), rejectedProbeId: negatives[0].request.id };
       }
+      if (newPage) {
+        const detail = report.newPage;
+        detail.finalParent = await newPageRead(detail.tabId, detail.original.documentId);
+        detail.finalChild = await newPageRead(detail.sourceProof.childTabId, detail.child.documentId);
+        detail.finalParentNative = await newPageNative(detail.tabId); detail.finalChildNative = await newPageNative(detail.sourceProof.childTabId);
+        detail.observerFinal = await worker.evaluate("__createdPageProvenance.stop()");
+        detail.finalInputLedger = assertManagedHumanNewPageInputs(detail, report.viewerCommands, report.viewerMessages);
+        detail.finalInputIds = detail.finalInputLedger.flatMap(scope => scope.requestIds);
+      }
       if (keyRepeat) {
         report.keyRepeat.finalDocument = await repeatRead(repeatTab.id);
         assert.deepEqual(report.keyRepeat.finalDocument.state.events, report.keyRepeat.released.state.events, "Released repeat page cannot receive late input");
@@ -1155,6 +1244,10 @@ export async function runManagedHumanCheck() {
   } catch (error) {
     report.error = error.stack; report.firstFailure ??= { at: Date.now(), error: error.stack };
     console.error(redact(error.stack ?? error));
+    if (newPage && worker && report.newPage) try {
+      report.newPage.failureObserver = await worker.evaluate("globalThis.__createdPageProvenance?.snapshot() ?? null");
+      report.newPage.classification = report.newPage.proof?.classification ?? (report.newPage.failureObserver?.events?.length ? "native-child-observed-diagnostic-incomplete" : "native-child-unobserved");
+    } catch (failure) { report.newPage.failureObserverError = redact(String(failure)); }
     // Observe the same failed document before original cleanup. These bounded
     // reads run only after failure; they cannot change prior input/ACK ordering.
     if (worker && repeatTab) try {
@@ -1188,6 +1281,7 @@ export async function runManagedHumanCheck() {
       await viewerContext.clearPermissions(); restoreCopyPermissions = false;
       if (report.humanCopy?.localWriteRejection) report.humanCopy.localWriteRejection.permissionsRestoredInFinalCleanup = true;
     } catch (error) { report.cleanup.copyRejectionPermissions = error.stack; }
+    if (worker && newPage) try { report.newPageObserverCleanup = await worker.evaluate("globalThis.__createdPageProvenance?.stop() ?? null"); } catch (error) { report.cleanup.newPageObserverError = error.stack; }
     if (worker) try { report.cleanup.observerStop = await worker.evaluate("__managedHumanAcceptance.stop()"); await worker.close(); } catch (error) { report.cleanup.observerError = error.stack; }
     taskBrowser?.close();
     if (launcher && !launcher.record.closedAt) {
@@ -1202,6 +1296,7 @@ export async function runManagedHumanCheck() {
     if (report.viewerProcesses) try {
       report.viewerProcessesGone = await poll(async () => { const table = await processTable(), originals = [...report.viewerProcesses, ...(report.viewerPreCloseProcesses ?? [])]; const remaining = originals.filter(before => table.some(after => before.ProcessId === after.ProcessId && before.CreationDate === after.CreationDate)); return !remaining.length && { at: Date.now(), originalIdentities: originals.length, remaining }; }, { timeoutMs: 15000, intervalMs: 100, label: "independent viewer original process identities gone" });
     } catch (error) { report.cleanup.viewerProcessesError = error.stack; }
+    newPageFixture?.close();
     server.closeAllConnections(); if (server.listening) await new Promise(resolve => server.close(resolve));
     try { await Promise.all(frameWrites); checkCapture(); } catch (error) { report.cleanup.frameWriteError = error.stack; }
     try {
@@ -1219,6 +1314,12 @@ export async function runManagedHumanCheck() {
       }
     } catch (error) { report.cleanup.sourceChanged = error.stack; }
     report.fixture = fixture.stats();
+    if (newPageFixture) {
+      report.newPageFixture = newPageFixture.stats();
+      if (report.newPage?.finalParent) try {
+        report.newPage.terminalProof = assertManagedHumanNewPageTerminal(report.newPage, report.newPageFixture, report.fixture);
+      } catch (error) { report.cleanup.newPageLedger = error.stack; }
+    }
     if (multiClickFixture) {
       report.multiClickFixture = multiClickFixture.stats();
       if (report.multiClick?.finalDocument) try {
@@ -1260,10 +1361,13 @@ export async function runManagedHumanCheck() {
     report.frameRetention = { observedFrames: report.frames.length, savedPNGs: report.frames.filter(frame => frame.file).length, maximumSavedPNGs: 96, metadataOnlyFrames: report.frames.filter(frame => !frame.file).length,
       policy: "The first 96 actual native PNG payloads are retained for independent decoding; all received frames retain hash/header metadata. viewerDecodedFrames identifies actual browser decodes, not unperformed decodes of every frame." };
     report.liveRunnerChildren = [...registry].map(value => value.pid);
-    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat || humanCopy || multiClick ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat || humanCopy || multiClick || newPage ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
     if (multiClick) {
       report.featurePassed = report.passed && multiClickMode === "acceptance";
       report.diagnosticGapConfirmed = report.passed && multiClickMode === "baseline" && report.multiClick.cases.every(row => row.proof.gapConfirmed);
+    }
+    if (newPage) {
+      Object.assign(report, managedNewPageDiagnosticOutcome(report.passed, report.newPage));
     }
     await save(); console.log("RESULT", JSON.stringify({ runDir, passed: report.passed }));
   }

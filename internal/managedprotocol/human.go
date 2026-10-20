@@ -132,7 +132,7 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 	required := HumanFields(operation)
 	var optional []string
 	if operation == "humanBegin" {
-		optional = []string{"deliveryId"}
+		optional = []string{"deliveryId", "pageSelectionId"}
 	} else if operation == "humanDialogRespond" {
 		optional = []string{"promptText"}
 	} else if operation == "humanFileCancel" {
@@ -148,7 +148,7 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 		return validateHumanFileCommand(operation, f)
 	}
 	if operation == "humanBegin" {
-		if !integer(f["tabId"], 1, MaxSafeInteger) || f["deliveryId"] != nil && !DeliveryID(f["deliveryId"]) {
+		if !integer(f["tabId"], 1, MaxSafeInteger) || !selectionTokens(f) {
 			return bad
 		}
 		return nil

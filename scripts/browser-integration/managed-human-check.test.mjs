@@ -2,9 +2,36 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import fs from "node:fs/promises";
-import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint, assertManagedExtensionManifest, managedCopyRejectionEnabled, assertManagedCopyRejectionEvidence } from "./managed-human-check.mjs";
+import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint, assertManagedExtensionManifest, managedCopyRejectionEnabled, assertManagedCopyRejectionEvidence, managedNewPageDiagnosticOutcome } from "./managed-human-check.mjs";
 import { humanPasteText } from "./managed-human-check-fixture.mjs";
 import vm from "node:vm";
+
+test("new-page baseline completion never becomes product acceptance, and incomplete cleanup cannot confirm the gap", () => {
+  const detail = { proof: { classification: "native-child-created-not-selectable", diagnosticGapConfirmed: true } };
+  assert.deepEqual(managedNewPageDiagnosticOutcome(true, detail), { featurePassed: false, diagnosticCompleted: true, diagnosticGapConfirmed: true });
+  assert.deepEqual(managedNewPageDiagnosticOutcome(false, detail), { featurePassed: false, diagnosticCompleted: false, diagnosticGapConfirmed: false });
+  for (const value of [undefined, {}, { proof: { classification: "native-child-unobserved", diagnosticGapConfirmed: true } }]) {
+    assert.equal(managedNewPageDiagnosticOutcome(true, value).diagnosticGapConfirmed, false);
+    assert.equal(managedNewPageDiagnosticOutcome(true, value).featurePassed, false);
+  }
+});
+
+test("new-page acceptance needs original SDK claim and final callback ledger as well as overall cleanup", () => {
+  const detail = { mode: "acceptance", proof: { featurePassed: true }, agentProof: { originalPlacementPreserved: true }, terminalProof: { childCallbackPOSTs: 1 } };
+  assert.deepEqual(managedNewPageDiagnosticOutcome(true, detail), { featurePassed: true, diagnosticCompleted: false, diagnosticGapConfirmed: false });
+  assert.equal(managedNewPageDiagnosticOutcome(false, detail).featurePassed, false);
+  for (const key of ["proof", "agentProof", "terminalProof"]) { const broken = structuredClone(detail); delete broken[key]; assert.equal(managedNewPageDiagnosticOutcome(true, broken).featurePassed, false); }
+});
+
+test("viewer page choices preserve exact IDs without accepting combined or malformed identities", () => {
+  for (const operation of ["select", "humanBegin"]) {
+    const command = { id: 10, operation, tabId: 20, pageSelectionId: "original-page-choice" };
+    assert.deepEqual(projectHumanCommand(command), command);
+    for (const pageSelectionId of [null, "", "bad\nvalue", "x".repeat(129)]) assert.throws(() => projectHumanCommand({ ...command, pageSelectionId }));
+    assert.throws(() => projectHumanCommand({ ...command, deliveryId: "other" }));
+    assert.throws(() => projectHumanCommand({ ...command, extra: true }));
+  }
+});
 
 test("multi-click wire projection preserves exact bounded down/up count but refuses count on move", () => {
   const base = { id: 1, operation: "humanInput", leaseId: "original", generation: 1, sequence: 1,

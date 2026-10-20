@@ -72,7 +72,15 @@ Disconnection and lost viewer focus revoke input.
 Release does not resume the Agent. A terminated worker alone cannot prove that
 held renderer input was released; unresolved cleanup requires the original owned
 browser to exit. Finalized result pages require a separate explicit selection
-and lease while the task remains paused. This is not complete login or SSO/MFA
+and lease while the task remains paused. The development branch also lets the
+trusted human explicitly select an eligible original page in that same owned
+managed Browser. Channel-bound choices are revalidated after Pause and old
+lease cleanup, then retained through the actual result journal transaction.
+This does not add task membership, expose the catalog in Agent RPC, or infer
+authority from opener metadata. Switching requires the original End receipt;
+lost callers do not undo a completed valid commit or acquire a late lease.
+See [human page selection](references/managed-human-pages.md).
+This is not complete login or SSO/MFA
 acceptance, and worker replacement does not restore result authority.
 Its profile and native environment are separate from ordinary
 installed profiles, but are not a sandbox against arbitrary code running as the

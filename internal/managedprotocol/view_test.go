@@ -64,6 +64,39 @@ func TestResultTabsKeepCapabilitiesAndLegacyTaskSemantics(t *testing.T) {
 	}
 }
 
+func TestBrowserPageSelectionKeepsChoiceSeparateFromDelivery(t *testing.T) {
+	for _, operation := range []string{"select", "humanBegin"} {
+		for _, fields := range []string{`"tabId":7,"pageSelectionId":"original-choice"`, `"tabId":7,"pageSelectionId":"` + strings.Repeat("x", 128) + `"`} {
+			f, _ := Object([]byte(`{"operation":"` + operation + `",` + fields + `}`))
+			var err error
+			if operation == "select" {
+				err = ValidateSelection(f)
+			} else {
+				err = ValidateHuman(operation, f)
+			}
+			if err != nil {
+				t.Fatalf("original browser choice rejected: %s: %v", operation, err)
+			}
+		}
+		for _, fields := range []string{`"tabId":7,"pageSelectionId":null`, `"tabId":7,"pageSelectionId":""`, `"tabId":7,"pageSelectionId":"choice","deliveryId":"result"`, `"tabId":null,"pageSelectionId":"choice"`} {
+			f, _ := Object([]byte(`{"operation":"` + operation + `",` + fields + `}`))
+			var err error
+			if operation == "select" {
+				err = ValidateSelection(f)
+			} else {
+				err = ValidateHuman(operation, f)
+			}
+			if err == nil {
+				t.Fatalf("invalid choice accepted: %s", fields)
+			}
+		}
+	}
+	tabs, err := ParseViewerTabs([]byte(`[{"id":7,"title":"Child","url":"https://child.example/","kind":"browser","watchable":true,"takeover":true,"pageSelectionId":"original-choice"}]`), false)
+	if err != nil || len(tabs) != 1 || !strings.Contains(string(mustJSON(tabs)), `"pageSelectionId":"original-choice"`) {
+		t.Fatalf("browser choice not preserved: %v %v", tabs, err)
+	}
+}
+
 func TestReadOnlyViewCannotCarryNativeInputOrHumanFrameIdentity(t *testing.T) {
 	state := map[string]any{"state": "active", "leaseId": "view", "tabId": 1, "generation": 1, "viewport": map[string]any{"width": 800, "height": 600}, "lastInputSequence": 0}
 	if _, err := ParseViewState(mustJSON(state)); err != nil {

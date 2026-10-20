@@ -130,6 +130,12 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     clearTimer(channel.timer);
     const retired = cancelSelections(channel, reason, false);
     const releases = [...cleanup, retired];
+    if (channel.pageChoices) {
+      // Cancelling the caller does not settle native reads or an IDB commit.
+      // The catalog drains those original operations before close is confirmed.
+      try { channel.pageChoices.revoke(reason); releases.push(channel.pageChoices.drain()); }
+      catch (error) { releases.push(Promise.reject(error)); }
+    }
     // Fence a pending Resume before it can later unblock input. This does not
     // undo an already completed Resume or browser action. The backend checks
     // its authority callback at the actual asynchronous unblock boundary.
@@ -164,6 +170,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const disconnected = { ...identity(channel), connected: false, leaseMs: LEASE_MS, heartbeatMs: HEARTBEAT_MS,
       expiresAt: Math.ceil(wallNow()), selectedTabId: channel.selectedTabId, automation, tabs: [],
       stream: { ...channel.streamState }, cleanupPending: 0, eventSequence: channel.sequence, human: null,
+      ...(channel.pageSelectionVersion ? { pageSelectionVersion: channel.pageSelectionVersion } : {}),
       view: null, pendingDialog: null, pendingFileChooser: null, ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
     if (JSON.stringify(disconnected).length > 1024 * 1024) throw failure("CAPACITY", "disconnected metadata status exceeds its bound");
     return { disconnected: true, status: disconnected };
@@ -283,24 +290,42 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
   async function tabs(channel) {
     assertCurrent(channel);
     const human = channel.stream?.human && !channel.stream.retired ? channel.stream : null;
-    const result = human ? [{ ...human.tab, ...(human.handle?.tabInfo?.() ?? {}) }] : await backend.getManagedViewerTabs();
+    const humanTab = human ? { ...human.tab, ...(human.handle?.tabInfo?.() ?? {}) } : null;
+    let result, choices = [];
+    if (channel.pageChoices) {
+      const reads = await Promise.allSettled([
+        backend.getManagedViewerTabs(human ? { excludeTabId: human.tabId } : {}), channel.pageChoices.list()
+      ]);
+      for (const read of reads) if (read.status === "rejected") throw read.reason;
+      result = reads[0].value; choices = reads[1].value;
+      if (humanTab && Array.isArray(result)) result = [humanTab, ...result.filter(tab => tab.id !== human.tabId)];
+    } else result = human ? [humanTab] : await backend.getManagedViewerTabs();
     assertCurrent(channel);
-    if (human && result[0]?.id !== human.tabId) throw failure("TABS", "human metadata belongs to a different tab");
+    if (human && humanTab?.id !== human.tabId) throw failure("TABS", "human metadata belongs to a different tab");
     if (!Array.isArray(result) || result.length > 4096) throw failure("TABS", "invalid live attachment list");
-    const ids = new Set();
-    return result.map(tab => {
+    if (!Array.isArray(choices) || choices.length > 4096) throw failure("TABS", "invalid browser page list");
+    const project = (tab, ids, catalog) => {
       if (!integer(tab.id) || ids.has(tab.id)) throw failure("TABS", "invalid live attachment identity");
       ids.add(tab.id);
       const result = tab.kind === "result", task = tab.kind === undefined || tab.kind === "task";
-      if (!task && !result || result && (!text(tab.deliveryId, 128) || typeof tab.watchable !== "boolean" || typeof tab.takeover !== "boolean") ||
+      const browser = tab.kind === "browser";
+      if (catalog !== browser || !task && !result && !browser || result && (!text(tab.deliveryId, 128) || typeof tab.watchable !== "boolean" || typeof tab.takeover !== "boolean") ||
+          browser && (!channel.pageSelectionVersion || !text(tab.pageSelectionId, 128) || typeof tab.watchable !== "boolean" || typeof tab.takeover !== "boolean") ||
+          !browser && tab.pageSelectionId !== undefined ||
           !result && tab.deliveryId !== undefined || tab.watchable !== undefined && typeof tab.watchable !== "boolean" || tab.takeover !== undefined && typeof tab.takeover !== "boolean")
         throw failure("TABS", "invalid user page capabilities");
       const activeView = channel.stream?.view && !channel.stream.retired && channel.stream.tabId === tab.id && channel.stream.tab.deliveryId === tab.deliveryId ? channel.stream : null;
       const current = activeView?.handle?.tabInfo?.() ?? tab;
       return { id: tab.id, title: typeof current.title === "string" ? current.title.slice(0, 512) : "", url: typeof current.url === "string" ? current.url.slice(0, 8192) : "",
         ...(tab.kind !== undefined ? { kind: tab.kind } : {}), ...(result ? { deliveryId: tab.deliveryId } : {}),
+        ...(browser ? { pageSelectionId: tab.pageSelectionId } : {}),
         ...(tab.watchable !== undefined ? { watchable: tab.watchable } : {}), ...(tab.takeover !== undefined ? { takeover: tab.takeover } : {}) };
-    });
+    };
+    const ids = new Set(), catalogIds = new Set();
+    const projected = result.map(tab => project(tab, ids, false));
+    for (const tab of choices.map(tab => project(tab, catalogIds, true))) if (!ids.has(tab.id)) projected.push(tab);
+    if (projected.length > 4096) throw failure("TABS", "combined page list exceeds its bound");
+    return projected;
   }
   async function status(channel, publish = false) {
     // Tab inspection can outlive a Pause/Resume or a viewer retirement. Read
@@ -322,6 +347,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         expiresAt: Math.ceil(wallNow() + Math.max(0, channel.deadline - now())), selectedTabId: channel.selectedTabId,
         automation, tabs: liveTabs, stream: { ...channel.streamState }, cleanupPending: cleanup.size,
         eventSequence: channel.sequence + (publish ? 1 : 0),
+        ...(channel.pageSelectionVersion ? { pageSelectionVersion: channel.pageSelectionVersion } : {}),
         human: channel.stream?.human ? channel.stream.handle?.info() ?? null : null,
         view: channel.stream?.view ? channel.stream.handle?.info() ?? null : null,
         pendingDialog: channel.stream?.human ? channel.stream.handle?.pendingDialog?.() ?? null : null,
@@ -355,15 +381,33 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     channel.selections = cancelled;
     return cancelled;
   }
-  function checkTabSelection(tab, deliveryId, capability) {
-    if (!tab || tab[capability] === false || (tab.kind === "result" ? deliveryId !== tab.deliveryId : deliveryId !== undefined))
+  function checkTabSelection(tab, deliveryId, capability, pageSelectionId) {
+    if (!tab || tab[capability] === false || (tab.kind === "result" ? deliveryId !== tab.deliveryId : deliveryId !== undefined) ||
+        (tab.kind === "browser" ? pageSelectionId !== tab.pageSelectionId : pageSelectionId !== undefined))
       throw failure("TAB", "original page selection or capability is no longer available");
   }
-  async function select(channel, tabId, epoch, deliveryId) {
+  async function retainSelectedPage(channel, tab, epoch, pageSelectionId) {
+    if (tab.kind !== "browser") return { tab };
+    const check = () => assertSelection(channel, epoch);
+    check(); channel.stateEpoch++;
+    try {
+      // An explicit browser-page selection pauses task admission and finishes
+      // its original cleanup before publishing any new result authority.
+      await backend.pauseAutomation(); check();
+      const receipt = fields(await channel.pageChoices.select(tab.id, pageSelectionId, { check }),
+        ["tabId", "pageSelectionId", "deliveryId", "retained"]);
+      check();
+      if (receipt.tabId !== tab.id || receipt.pageSelectionId !== pageSelectionId || !text(receipt.deliveryId, 128) || receipt.retained !== true)
+        throw failure("PAGE_UNCONFIRMED", "original page retention receipt does not match");
+      const { pageSelectionId: retiredChoice, ...metadata } = tab;
+      return { tab: { ...metadata, kind: "result", deliveryId: receipt.deliveryId }, receipt };
+    } finally { channel.stateEpoch++; }
+  }
+  async function select(channel, tabId, epoch, deliveryId, pageSelectionId) {
     assertSelection(channel, epoch);
     if (channel.stream?.human && tabId !== null) throw failure("HUMAN_BUSY", "finish the original human control before changing selection");
-    const tab = tabId === null ? null : (await tabs(channel)).find(tab => tab.id === tabId);
-    if (tabId !== null) checkTabSelection(tab, deliveryId, "watchable");
+    let tab = tabId === null ? null : (await tabs(channel)).find(tab => tab.id === tabId);
+    if (tabId !== null) checkTabSelection(tab, deliveryId, "watchable", pageSelectionId);
     assertSelection(channel, epoch);
     if (channel.selectedTabId === tabId && channel.stream?.tab?.deliveryId === deliveryId && !cleanup.size && !cleanupFailure) return;
     await retireStream(channel, "selection changed");
@@ -372,6 +416,9 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     assertSelection(channel, epoch);
     if (cleanupFailure) throw failure("CLEANUP", String(cleanupFailure.message ?? cleanupFailure));
     if (tabId === null) return;
+    const retained = await retainSelectedPage(channel, tab, epoch, pageSelectionId);
+    assertSelection(channel, epoch);
+    tab = retained.tab; deliveryId = tab.deliveryId;
     const record = { tabId, tab, view: tab.kind === "result", retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null,
       handle: null, earlyFrame: null, earlyState: null, leaseGeneration: 0 };
     channel.stateEpoch++;
@@ -406,23 +453,27 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       authority();
       if (record.earlyState) { const value = record.earlyState; record.earlyState = null; leaseStateChanged(channel, record, value); }
       if (record.earlyFrame) { const value = record.earlyFrame; record.earlyFrame = null; receiveFrame(channel, record, value); }
+      return retained.receipt;
     } catch (error) {
       if (channel.stream === record) await retireStream(channel, "subscription unavailable");
       throw error;
     }
   }
-  async function beginHuman(channel, tabId, epoch, deliveryId) {
+  async function beginHuman(channel, tabId, epoch, deliveryId, pageSelectionId) {
     assertSelection(channel, epoch);
     if (typeof backend.beginManagedHuman !== "function") throw failure("HUMAN_UNAVAILABLE", "human control is unavailable");
     if (channel.stream?.human) throw failure("HUMAN_BUSY", "human control is already active");
-    const tab = (await tabs(channel)).find(tab => tab.id === tabId);
+    let tab = (await tabs(channel)).find(tab => tab.id === tabId);
     assertSelection(channel, epoch);
-    checkTabSelection(tab, deliveryId, "takeover");
+    checkTabSelection(tab, deliveryId, "takeover", pageSelectionId);
     await retireStream(channel, "human takeover requested");
     assertSelection(channel, epoch);
     await Promise.all([...cleanup]);
     assertSelection(channel, epoch);
     if (cleanupFailure) throw failure("CLEANUP", "original viewing cleanup is incomplete");
+    const retained = await retainSelectedPage(channel, tab, epoch, pageSelectionId);
+    assertSelection(channel, epoch);
+    tab = retained.tab; deliveryId = tab.deliveryId;
     const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null, earlyState: null, leaseGeneration: 0 };
     channel.stateEpoch++; channel.stream = record; channel.selectedTabId = tabId;
     channel.streamState = { state: "starting", streamId: null };
@@ -455,6 +506,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         const value = record.earlyFrame; record.earlyFrame = null;
         receiveFrame(channel, record, value);
       }
+      return retained.receipt;
     } catch (error) {
       if (channel.stream === record) await retireStream(channel, "human takeover unavailable");
       throw error;
@@ -506,9 +558,15 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       const channel = { id, key: value.channelKey, identity: Object.fromEntries(identityKeys.map(key => [key, value[key]])), proof, nonce: proof.nonce, sink,
         deadline, closed: false, timer: null, sequence: 0, stateEpoch: 0, selectedTabId: null, stream: null,
         streamState: { state: "idle", streamId: null }, inFlight: null, latest: null, retiredAcks: new Set(), pendingResumes: 0, selectionEpoch: 0, selections: Promise.resolve(),
-        nativeEpoch: admission?.epoch ?? null, browserVersion };
+        nativeEpoch: admission?.epoch ?? null, browserVersion, pendingSelections: 0 };
       channels.set(channel.key, channel); current = latestChannel = channel; arm(channel);
       try {
+        if (typeof backend.createManagedPageChoices === "function") {
+          channel.pageChoices = backend.createManagedPageChoices({ check: () => assertCurrent(channel) });
+          if (!channel.pageChoices || ["list", "select", "revoke", "drain"].some(key => typeof channel.pageChoices[key] !== "function"))
+            throw failure("CONFIG", "invalid managed page catalog");
+          channel.pageSelectionVersion = 1;
+        }
         const result = { ...identity(channel), status: await status(channel), recoveryState: admission?.recoveryState,
           ...(admission?.workerRecovery ? { workerRecovery: admission.workerRecovery } : {}) };
         assertCurrent(channel);
@@ -536,12 +594,13 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const fileOperation = operation === "humanFileBegin" ? "begin" : operation === "humanFileCommit" ? "commit" : operation === "humanFileCancel" ? "cancel" : null;
     const extra = fileOperation ? ["leaseId", "generation", "chooserId", ...(fileOperation === "cancel" ? [] : ["transferId"]), ...(fileOperation === "commit" ? ["files"] : [])] :
       ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : operation === "humanDialogRespond" ? ["leaseId", "generation", "dialogId", "accept"] : [];
-    const optional = fileOperation === "cancel" ? ["transferId"] : ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : operation === "humanDialogRespond" ? ["promptText"] : [];
+    const optional = fileOperation === "cancel" ? ["transferId"] : ["select", "humanBegin"].includes(operation) ? ["deliveryId", "pageSelectionId"] : operation === "humanDialogRespond" ? ["promptText"] : [];
     const value = fields(input, ["channelKey", "operation", ...extra], optional);
     if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd", "humanDialogRespond", "humanFileBegin", "humanFileCommit", "humanFileCancel"].includes(operation) ||
         typeof value.channelKey !== "string" || (operation === "select" && value.tabId !== null && !integer(value.tabId)) ||
         (operation === "humanBegin" && (!integer(value.tabId) || value.tabId < 1)) ||
         (value.deliveryId !== undefined && (!text(value.deliveryId, 128) || value.tabId === null)) ||
+        (value.pageSelectionId !== undefined && (!text(value.pageSelectionId, 128) || value.tabId === null || value.deliveryId !== undefined)) ||
         (["humanInput", "humanEnd"].includes(operation) && !text(value.leaseId, 128)) ||
         (operation === "humanInput" && (!integer(value.generation) || value.generation < 1 || !integer(value.sequence) || value.sequence < 1)) ||
         (operation === "resume" && (!integer(value.expectedRevision) || !text(value.expectedWorkerBootId))) ||
@@ -550,6 +609,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const channel = current;
     assertCurrent(channel);
     if (channel.key !== value.channelKey) throw failure("IDENTITY", "channel key does not match");
+    if (value.pageSelectionId !== undefined && !channel.pageSelectionVersion) throw failure("PROTOCOL", "browser page selection is unavailable on this channel");
     if (operation === "heartbeat") { channel.deadline = now() + LEASE_MS; arm(channel); }
     if (operation === "ack") {
       if (channel.retiredAcks.delete(value.sequence))
@@ -562,7 +622,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (operation === "disconnect") {
       return disconnectedStatus(channel);
     }
-    let inputReceipt, dialogReceipt, fileResult, checkClipboardPublication;
+    let inputReceipt, dialogReceipt, fileResult, checkClipboardPublication, pageSelectionReceipt;
     if (fileOperation) {
       const envelope = Object.fromEntries([...extra, ...optional].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
       validateHumanFileRequest(envelope, fileOperation);
@@ -637,14 +697,18 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       if (cleanupFailure) throw failure("CLEANUP", "human cleanup is unconfirmed");
     } else if (operation === "humanBegin") {
       const epoch = channel.selectionEpoch;
-      const selected = channel.selections.catch(() => {}).then(() => beginHuman(channel, value.tabId, epoch, value.deliveryId));
-      channel.selections = selected; await selected;
+      channel.pendingSelections++;
+      const selected = channel.selections.catch(() => {}).then(() => beginHuman(channel, value.tabId, epoch, value.deliveryId, value.pageSelectionId));
+      channel.selections = selected;
+      try { pageSelectionReceipt = await selected; } finally { channel.pendingSelections--; }
     } else if (operation === "select") {
       if (value.tabId === null) await cancelSelections(channel, "selection cleared");
       else {
         const epoch = channel.selectionEpoch;
-        const selected = channel.selections.catch(() => {}).then(() => select(channel, value.tabId, epoch, value.deliveryId));
-        channel.selections = selected; await selected;
+        channel.pendingSelections++;
+        const selected = channel.selections.catch(() => {}).then(() => select(channel, value.tabId, epoch, value.deliveryId, value.pageSelectionId));
+        channel.selections = selected;
+        try { pageSelectionReceipt = await selected; } finally { channel.pendingSelections--; }
       }
     } else if (operation === "pause") {
       channel.stateEpoch++;
@@ -653,6 +717,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       finally { channel.stateEpoch++; }
     } else if (operation === "resume") {
       if (value.expectedWorkerBootId !== channel.identity.workerBootId) throw failure("REVISION", "worker changed; refresh status before resuming");
+      if (channel.pendingSelections) throw failure("BUSY", "wait for original page selection before resuming the Agent");
       // User viewing has no task or input authority. Explicit Resume retires
       // its original native lease before task admission can start again.
       if (channel.stream?.view) await cancelSelections(channel, "result viewing ended before resume");
@@ -672,7 +737,8 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     // Status collection can cross a navigation or End. Publish clipboard text
     // only after that final asynchronous boundary, keeping the original ACK.
     checkClipboardPublication?.();
-    return { status: currentStatus, ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}), ...fileResult };
+    return { status: currentStatus, ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}),
+      ...(pageSelectionReceipt ? { pageSelectionReceipt } : {}), ...fileResult };
   }
   const api = Object.freeze({ open, request });
   Object.defineProperty(target, API, { value: api, configurable: false, writable: false, enumerable: false });
