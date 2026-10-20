@@ -1,0 +1,93 @@
+docs/references/README.md
+  s_08bbfd293d324f::t_d1cc25de9ae429 19-20
+docs/references/managed-human-multi-click.md
+  s_08bbfd293d324f::t_e0050e614d0268 26-29,31-38,48-52
+  s_08bbfd293d324f::t_f2ddf126700ea3 39-47
+  s_08bbfd293d324f::t_d1cc25de9ae429 1-25,30,53-62
+scripts/browser-integration/managed-human-multi-click-workflow.mjs
+  s_08bbfd293d324f::t_6b53f31827b486 88-91,143-145
+  s_08bbfd293d324f::t_6545421bc88dd2 5-8,112-135,137,149
+  s_08bbfd293d324f::t_eec875c5fd5f9d 63-66
+  s_08bbfd293d324f::t_0ae7891b5145eb 1-4,9-62,67-87,92-111,136,138-142,146-148,150
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_d1cc25de9ae429 153-155
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_b880821dbc9fed 2134
+  s_08bbfd293d324f::t_5e7cb22c4cf862 70-148
+  s_08bbfd293d324f::t_14e89f12b7892d 901
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_80027e3431c418 178-181,243,297-298
+  s_08bbfd293d324f::t_c9bbcdf2804812 299
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_d7490c39722a48 861-876,878-895,897-905,963,1117-1125,1169-1171,1222-1227,1263-1267
+  s_08bbfd293d324f::t_b4268f4ec1f894 25,176,179,271-272,274,281-282,289,294,296-297,301,423,553,1126
+  s_08bbfd293d324f::t_ac6bf063a005b6 877
+  s_08bbfd293d324f::t_6545421bc88dd2 26,896
+docs/FRONTEND.md
+  s_08bbfd293d324f::t_d1cc25de9ae429 21-24
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_e0050e614d0268 14-19,22-24
+  s_08bbfd293d324f::t_f2ddf126700ea3 20-21
+scripts/browser-integration/managed-human-multi-click-fixture.test.mjs
+  s_08bbfd293d324f::t_6b53f31827b486 1-22
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_e0050e614d0268 15-21
+  s_08bbfd293d324f::t_23ff226b2e84b4 22-30
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_167528d0818954 725,1003-1121,1599,1603-1605,1610,1612-1613,1623,1626
+internal/managedprotocol/pointer_click_count_test.go
+  s_08bbfd293d324f::t_5e7cb22c4cf862 1-48
+  s_08bbfd293d324f::t_ca1115028efcff 49-56
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_f2ddf126700ea3 17-20
+  s_08bbfd293d324f::t_23ff226b2e84b4 10-16,21-24
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_0b1d17c914e494 206,446-447,459,1101
+  s_08bbfd293d324f::t_a23cfff1d7d98b 893-900
+  s_08bbfd293d324f::t_5f9b49c82b3918 35-36,295-296,499-502,722-730,757-798,804-805,901-904
+  s_08bbfd293d324f::t_167528d0818954 711,799-803,905
+  s_08bbfd293d324f::t_cadc9e09baef1c 806
+scripts/browser-integration/managed-human-check.test.mjs
+  s_08bbfd293d324f::t_6b53f31827b486 9-21
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_80027e3431c418 49,179,667,669-672,674-675,678-682,761
+scripts/browser-integration/managed-human-multi-click-workflow.test.mjs
+  s_08bbfd293d324f::t_6b53f31827b486 1-2,4-19,21-59,62-97,99,105,122-132
+  s_08bbfd293d324f::t_6545421bc88dd2 3,98,100-104,106-121
+  s_08bbfd293d324f::t_eec875c5fd5f9d 20,60-61
+docs/histories/2026-10/20261021-0300-managed-human-multi-click.md
+  s_08bbfd293d324f::t_e0050e614d0268 1-54,63-64
+  s_08bbfd293d324f::t_f2ddf126700ea3 55-62
+docs/exec-plans/completed/2026-10-21-managed-human-multi-click.md
+  s_08bbfd293d324f::t_f2ddf126700ea3 1-56
+scripts/browser-integration/managed-human-multi-click-fixture.mjs
+  s_08bbfd293d324f::t_0ae7891b5145eb 1-52
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_a3b208ecb73cea 561,712,716,724,728
+internal/managedbrowser/managed_user_pointer_click_count_test.go
+  s_08bbfd293d324f::t_9293c3ed4e4811 1-186
+internal/managedprotocol/view.go
+  s_08bbfd293d324f::t_e58225585b53db 31
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_d6442912487fd3 48,75,89,229,306,342,370
+internal/managedviewer/pointer_click_count_test.go
+  s_08bbfd293d324f::t_b04b5d1014ba64 1-269
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_3eb7c6bd6002cf 110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "5b3d2f4329564e064419c1f2c82c5ddb2e2dd902",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
