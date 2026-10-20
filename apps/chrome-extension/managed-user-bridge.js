@@ -1,5 +1,6 @@
 import { resolveManagedNativeHost } from "./managed-native-host.js";
 import { validateHumanDialogResponse } from "./managed-human-dialogs.js";
+import { validateHumanFileRequest } from "./managed-human-file-chooser.js";
 import { validateHumanClipboardInput, validateHumanClipboardResult } from "./managed-human-clipboard.js";
 
 const API = "__obuManagedUser", BINDING = "__obuManagedViewerEvent";
@@ -163,7 +164,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const disconnected = { ...identity(channel), connected: false, leaseMs: LEASE_MS, heartbeatMs: HEARTBEAT_MS,
       expiresAt: Math.ceil(wallNow()), selectedTabId: channel.selectedTabId, automation, tabs: [],
       stream: { ...channel.streamState }, cleanupPending: 0, eventSequence: channel.sequence, human: null,
-      view: null, pendingDialog: null, ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
+      view: null, pendingDialog: null, pendingFileChooser: null, ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}) };
     if (JSON.stringify(disconnected).length > 1024 * 1024) throw failure("CAPACITY", "disconnected metadata status exceeds its bound");
     return { disconnected: true, status: disconnected };
   }
@@ -324,6 +325,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         human: channel.stream?.human ? channel.stream.handle?.info() ?? null : null,
         view: channel.stream?.view ? channel.stream.handle?.info() ?? null : null,
         pendingDialog: channel.stream?.human ? channel.stream.handle?.pendingDialog?.() ?? null : null,
+        pendingFileChooser: channel.stream?.human ? channel.stream.handle?.pendingFileChooser?.() ?? null : null,
         ...(channel.humanCleanup ? { humanCleanup: { ...channel.humanCleanup } } : {}),
         ...(cleanupFailure ? { cleanupError: String(cleanupFailure.message ?? cleanupFailure) } : {}) };
       if (JSON.stringify(value).length > 1024 * 1024) throw failure("CAPACITY", "live metadata status exceeds its bound");
@@ -531,9 +533,12 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       // heartbeat, acquire authority, or affect a newer channel.
       return disconnectedStatus(channel, true);
     }
-    const extra = ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : operation === "humanDialogRespond" ? ["leaseId", "generation", "dialogId", "accept"] : [];
-    const value = fields(input, ["channelKey", "operation", ...extra], ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : operation === "humanDialogRespond" ? ["promptText"] : []);
-    if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd", "humanDialogRespond"].includes(operation) ||
+    const fileOperation = operation === "humanFileBegin" ? "begin" : operation === "humanFileCommit" ? "commit" : operation === "humanFileCancel" ? "cancel" : null;
+    const extra = fileOperation ? ["leaseId", "generation", "chooserId", ...(fileOperation === "cancel" ? [] : ["transferId"]), ...(fileOperation === "commit" ? ["files"] : [])] :
+      ["select", "humanBegin"].includes(operation) ? ["tabId"] : operation === "resume" ? ["expectedRevision", "expectedWorkerBootId"] : operation === "ack" ? ["sequence"] : operation === "humanEnd" ? ["leaseId"] : operation === "humanInput" ? ["leaseId", "generation", "sequence", "input"] : operation === "humanDialogRespond" ? ["leaseId", "generation", "dialogId", "accept"] : [];
+    const optional = fileOperation === "cancel" ? ["transferId"] : ["select", "humanBegin"].includes(operation) ? ["deliveryId"] : operation === "humanDialogRespond" ? ["promptText"] : [];
+    const value = fields(input, ["channelKey", "operation", ...extra], optional);
+    if (!["status", "select", "pause", "resume", "heartbeat", "ack", "disconnect", "humanBegin", "humanInput", "humanEnd", "humanDialogRespond", "humanFileBegin", "humanFileCommit", "humanFileCancel"].includes(operation) ||
         typeof value.channelKey !== "string" || (operation === "select" && value.tabId !== null && !integer(value.tabId)) ||
         (operation === "humanBegin" && (!integer(value.tabId) || value.tabId < 1)) ||
         (value.deliveryId !== undefined && (!text(value.deliveryId, 128) || value.tabId === null)) ||
@@ -557,8 +562,28 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (operation === "disconnect") {
       return disconnectedStatus(channel);
     }
-    let inputReceipt, dialogReceipt, checkClipboardPublication;
-    if (operation === "humanDialogRespond") {
+    let inputReceipt, dialogReceipt, fileResult, checkClipboardPublication;
+    if (fileOperation) {
+      const envelope = Object.fromEntries([...extra, ...optional].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
+      validateHumanFileRequest(envelope, fileOperation);
+      const record = channel.stream, handle = record?.human && !record.retired && record.handle;
+      const before = handle?.info(), chooser = handle?.pendingFileChooser?.();
+      const method = { begin: "beginFile", commit: "commitFile", cancel: "cancelFile" }[fileOperation];
+      if (!before || before.state !== "active" || before.fileChooserVersion !== 1 || before.leaseId !== value.leaseId || before.generation !== value.generation ||
+          !chooser || chooser.leaseId !== value.leaseId || chooser.generation !== value.generation ||
+          chooser.chooserId !== value.chooserId || typeof handle[method] !== "function")
+        throw failure("HUMAN_FILE_STALE", "original file chooser is unavailable");
+      const accepted = await handle[method](envelope);
+      const expected = { leaseId: value.leaseId, generation: value.generation, chooserId: value.chooserId,
+        ...(value.transferId === undefined ? {} : { transferId: value.transferId }),
+        ...(fileOperation === "commit" ? { acknowledged: true } : fileOperation === "cancel" ? { cancelled: true } : {}) };
+      if (!accepted || Reflect.ownKeys(accepted).length !== Object.keys(expected).length ||
+          !Object.entries(expected).every(([key, item]) => Object.hasOwn(accepted, key) && accepted[key] === item)) {
+        if (channel.stream === record) await retireStream(channel, "original file chooser receipt unavailable");
+        throw failure("HUMAN_FILE_UNCONFIRMED", "original file operation receipt is unavailable; do not replay");
+      }
+      fileResult = { [{ begin: "fileChooserClaim", commit: "fileChooserReceipt", cancel: "fileChooserCancellation" }[fileOperation]]: expected };
+    } else if (operation === "humanDialogRespond") {
       const envelope = Object.fromEntries([...extra, "promptText"].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
       validateHumanDialogResponse(envelope);
       const record = channel.stream, handle = record?.human && !record.retired && record.handle;
@@ -647,7 +672,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     // Status collection can cross a navigation or End. Publish clipboard text
     // only after that final asynchronous boundary, keeping the original ACK.
     checkClipboardPublication?.();
-    return { status: currentStatus, ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}) };
+    return { status: currentStatus, ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}), ...fileResult };
   }
   const api = Object.freeze({ open, request });
   Object.defineProperty(target, API, { value: api, configurable: false, writable: false, enumerable: false });

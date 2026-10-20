@@ -42,7 +42,8 @@
       "eventSequence": 0,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     },
     "recoveryState": {
       "version": 1,
@@ -86,7 +87,8 @@
       "eventSequence": 1,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "status": {
@@ -124,7 +126,8 @@
       "eventSequence": 2,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "pause": {
@@ -156,7 +159,8 @@
       "eventSequence": 4,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "resume": {
@@ -194,7 +198,8 @@
       "eventSequence": 5,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "humanBegin": {
@@ -239,7 +244,8 @@
         "lastInputSequence": 0
       },
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "humanStatus": {
@@ -287,7 +293,8 @@
         "lastInputSequence": 0
       },
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "humanInput": {
@@ -335,7 +342,8 @@
         "lastInputSequence": 1
       },
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     },
     "inputReceipt": {
       "leaseId": "fixture-human-lease",
@@ -374,6 +382,7 @@
       "human": null,
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "fixture-human-lease",
         "cleanupConfirmed": true
@@ -416,6 +425,7 @@
       "human": null,
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "fixture-human-lease",
         "cleanupConfirmed": true
@@ -453,6 +463,7 @@
       "human": null,
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "fixture-human-lease",
         "cleanupConfirmed": true
@@ -503,7 +514,8 @@
         "eventSequence": 1,
         "human": null,
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 1
     },
@@ -578,7 +590,8 @@
         "eventSequence": 4,
         "human": null,
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 4
     },
@@ -625,7 +638,8 @@
         "eventSequence": 5,
         "human": null,
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 5
     },
@@ -679,7 +693,8 @@
           "lastInputSequence": 0
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 6
     },
@@ -736,7 +751,8 @@
           "lastInputSequence": 0
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 7
     },
@@ -818,7 +834,8 @@
           "lastInputSequence": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 9
     },
@@ -872,6 +889,7 @@
         "human": null,
         "view": null,
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "fixture-human-lease",
           "cleanupConfirmed": true
@@ -923,6 +941,7 @@
         "human": null,
         "view": null,
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "fixture-human-lease",
           "cleanupConfirmed": true

@@ -34,6 +34,12 @@ type managedUserIdentity struct {
 // UserController permits bounded explicit human input, never general CDP. Done signals
 // unavailable user control, separately from Close's original cleanup receipt.
 type UserController struct {
+	files                *humanFiles
+	fileOperations       map[managedprotocol.FileChooserIdentity]map[chan struct{}]bool
+	fileRevoked          bool
+	fileStatus           json.RawMessage
+	pendingFileChooser   *managedprotocol.PendingFileChooser
+	fileClaims           map[managedprotocol.FileChooserIdentity]fileClaim
 	cdp                  *userCDP
 	identity             managedUserIdentity
 	channelKey           string
@@ -63,6 +69,7 @@ type UserController struct {
 	cleanupFailed        chan struct{}
 	failureOnce          sync.Once
 	cleanupErr           error
+	terminalCleanupErr   error
 	cleanupReceipt       json.RawMessage
 	commands             map[*userCall]bool
 	workers              sync.WaitGroup
@@ -496,6 +503,10 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if err != nil {
 		return err
 	}
+	chooser, err := managedprotocol.ParsePendingFileChooser(f["pendingFileChooser"], human)
+	if err != nil {
+		return err
+	}
 	view, err := managedprotocol.ParseViewState(f["view"])
 	if err != nil || human != nil && view != nil {
 		return errors.New("managed user view and human state conflict")
@@ -505,6 +516,9 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	}
 	if previous := c.humanStatus; previous != nil && human != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 		return nil
+	}
+	if err := c.observeFileChooserLocked(chooser); err != nil {
+		return err
 	}
 	if dialog != nil {
 		original, seen := c.dialogClaims[dialog.DialogIdentity]
@@ -544,7 +558,7 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 			return nil
 		}
-		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion) {
+		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion || previous.FileChooserVersion != human.FileChooserVersion) {
 			return errors.New("managed human capabilities changed within their original lease")
 		}
 		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
@@ -560,6 +574,7 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		// replies. Only this accepted current state may advertise repeat input.
 		c.humanStatusCurrent = *value.Connected && human != nil
 	}
+	c.fileStatus = append(json.RawMessage(nil), data...)
 	return nil
 }
 
@@ -614,7 +629,7 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		if bytes.Equal(f["expectedRevision"], []byte("null")) || json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > 1<<53-1 || json.Unmarshal(f["expectedWorkerBootId"], &boot) != nil || boot == "" || len(boot) > 256 {
 			return nil, "", false, errors.New("invalid managed user resume identity")
 		}
-	case "humanBegin", "humanInput", "humanEnd", "humanDialogRespond":
+	case "humanBegin", "humanInput", "humanEnd", "humanDialogRespond", "humanFileBegin", "humanFileChunk", "humanFileCommit", "humanFileCancel":
 		if err := managedprotocol.ValidateHuman(operation, f); err != nil {
 			return nil, "", false, err
 		}
@@ -623,6 +638,9 @@ func userCommand(data json.RawMessage) (map[string]json.RawMessage, string, bool
 		}
 		if operation == "humanBegin" && f["deliveryId"] != nil {
 			allowed["deliveryId"] = true
+		}
+		if operation == "humanFileCancel" && f["transferId"] != nil {
+			allowed["transferId"] = true
 		}
 		if operation == "humanDialogRespond" && f["promptText"] != nil {
 			allowed["promptText"] = true
@@ -667,6 +685,13 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 		}
 		return nil, errors.New("managed user controller closed; original cleanup is not confirmed")
 	}
+	if managedprotocol.IsHumanFileOperation(operation) {
+		c.mu.Unlock()
+		return c.fileCommand(ctx, f, operation)
+	}
+	if operation == "humanEnd" || operation == "pause" || unselect {
+		c.retireFilesLocked()
+	}
 	if operation == "resume" {
 		var boot string
 		_ = json.Unmarshal(f["expectedWorkerBootId"], &boot)
@@ -707,6 +732,7 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	call, err := c.evaluateLocked(ctx, "request", f)
 	if err == nil {
 		if operation == "humanBegin" {
+			c.fileRevoked = false
 			c.humanRisk = true
 			c.humanRiskGeneration++
 		}
@@ -718,6 +744,9 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 		return nil, err
 	}
 	result, err := call.wait(ctx)
+	if operation == "humanEnd" || operation == "pause" || unselect {
+		err = errors.Join(err, c.waitFiles(ctx))
+	}
 	if err != nil && operation == "humanInput" && errors.Is(context.Cause(ctx), managedprotocol.ErrHumanGenerationRetired) {
 		// A navigation cancels the submission context, not its original native
 		// receipt. Continue the same wait under the original deadline. No retry
@@ -902,6 +931,12 @@ func (c *UserController) cleanupFailure(err error) {
 	c.failureOnce.Do(func() { close(c.cleanupFailed) })
 }
 
+func (c *UserController) completedCleanupError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.terminalCleanupErr
+}
+
 func (c *UserController) Close(ctx context.Context) error {
 	ownerExited := false
 	select {
@@ -913,7 +948,7 @@ func (c *UserController) Close(ctx context.Context) error {
 	c.unavailable(errors.New("managed user controller closing"))
 	select {
 	case <-c.cleanupDone:
-		return nil
+		return c.completedCleanupError()
 	default:
 	}
 	select {
@@ -932,7 +967,7 @@ func (c *UserController) Close(ctx context.Context) error {
 		}
 		select {
 		case <-c.cleanupDone:
-			return nil
+			return c.completedCleanupError()
 		case <-failure:
 			c.mu.Lock()
 			err := c.cleanupErr
@@ -945,7 +980,7 @@ func (c *UserController) Close(ctx context.Context) error {
 	}
 	select {
 	case <-c.cleanupDone:
-		return nil
+		return c.completedCleanupError()
 	case <-c.cleanupFailed:
 		c.mu.Lock()
 		err := c.cleanupErr
@@ -958,6 +993,7 @@ func (c *UserController) Close(ctx context.Context) error {
 
 func (c *UserController) shutdownUser() {
 	c.mu.Lock()
+	c.retireFilesLocked()
 	attachCall, openCall, attempted := c.attachCall, c.openCall, c.openAttempt
 	humanRisk := c.humanRisk
 	commands := make([]*userCall, 0, len(c.commands))
@@ -1062,7 +1098,19 @@ func (c *UserController) shutdownUser() {
 	<-c.cdp.readerDone
 	c.cdp.writers.Wait()
 	c.workers.Wait()
-	if len(receipt) == 0 || proof != "bridge-disconnect" {
+	fileCleanupErr := c.waitFiles(context.Background())
+	if fileCleanupErr != nil {
+		// Transport/native retirement does not erase a failed removal of
+		// Session-owned staging. Completion still settles the original workers,
+		// while both Close and its stored receipt preserve the failure.
+		c.mu.Lock()
+		c.terminalCleanupErr = fileCleanupErr
+		c.mu.Unlock()
+		c.cleanupFailure(fileCleanupErr)
+		receipt, _ = json.Marshal(map[string]any{"cleanupConfirmed": false, "cleanupProof": "file-staging-unconfirmed",
+			"status": map[string]any{"connected": false, "selectedTabId": nil}})
+	}
+	if fileCleanupErr == nil && (len(receipt) == 0 || proof != "bridge-disconnect") {
 		c.mu.Lock()
 		executionEnded := c.executionEnd != nil
 		c.mu.Unlock()

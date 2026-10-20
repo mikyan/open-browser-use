@@ -141,6 +141,7 @@ func (s *Session) retainController(controller *UserController) {
 	controller.executionEndHook = func(proof managedExecutionEnd) { s.recordControllerExecutionEnd(controller, proof) }
 	controller.mu.Unlock()
 	s.mu.Lock()
+	controller.files = s.files
 	s.controllers = append(s.controllers, controller)
 	s.mu.Unlock()
 }

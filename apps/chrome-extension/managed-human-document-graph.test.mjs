@@ -16,6 +16,7 @@ function fixture(options = {}) {
   const graph = new ManagedHumanDocumentGraph({
     check: () => { if (!authorized) throw new Error("original authority revoked"); },
     onFailure: error => failures.push(error), onChange: change => changes.push(change),
+    prepareSession: options.prepareSession,
     send: async (id, method, params, check) => {
       await options.beforeDispatch?.(id, method, params); check();
       calls.push({ id, method, params });
@@ -58,6 +59,72 @@ test("root startup uses one narrow recursive auto-attach configuration and keeps
   const proof = f.capture(await f.graph.snapshot()); f.graph.assert(proof);
   assert.deepEqual(proof.actualOrigins, ["https://child.test", "https://root.test"]);
   assert.equal(f.failures.length, 0);
+});
+
+test("file chooser source requires the actual owning root or child session and keeps emitter origin first", async () => {
+  const f = fixture(); f.child(); await f.graph.start();
+  const snapshot = await f.graph.snapshot();
+  const child = f.graph.captureSource(snapshot, { sessionId: "child-session", frameId: "child" });
+  assert.deepEqual(child.actualOrigins, ["https://child.test", "https://root.test"]);
+  assert.deepEqual(child.source, { origin: "https://child.test", frame: "child" });
+  assert.throws(() => f.graph.captureSource(snapshot, { frameId: "child" }), /UNSUPPORTED/);
+  assert.throws(() => f.graph.captureSource(snapshot, { sessionId: "child-session", frameId: "root" }), /UNSUPPORTED/);
+  assert.throws(() => f.graph.captureSource(snapshot, { sessionId: "foreign", frameId: "child" }), /UNSUPPORTED/);
+  const root = f.graph.captureSource(snapshot, { frameId: "root" });
+  assert.deepEqual(root.source, { origin: "https://root.test", frame: "top-level" });
+  f.graph.revoke();
+  assert.throws(() => f.graph.assert(child), /UNSUPPORTED/);
+  assert.equal(f.graph.sourceAddressable(child), true, "revocation leaves original cleanup objects owned");
+  f.graph.detached();
+  assert.equal(f.graph.sourceAddressable(child), false);
+});
+
+test("file chooser source never grants URL authority when the original default origin disagrees", async () => {
+  const f = fixture(); f.child();
+  f.trees.set("child-session", tree(frame("child", "root", "https://forged.test")));
+  await f.graph.start(); const snapshot = await f.graph.snapshot();
+  assert.throws(() => f.graph.captureSource(snapshot, { sessionId: "child-session", frameId: "child" }), /UNSUPPORTED/);
+});
+
+test("same-session child file chooser proves its own frame while resource cleanup survives conservative parent retirement", async () => {
+  const f = fixture();
+  f.trees.set(undefined, tree(frame("root"), [frame("local", "root")]));
+  f.created(undefined, context("local", "https://root.test", { id: 2 }));
+  await f.graph.start(); const snapshot = await f.graph.snapshot();
+  const proof = f.graph.captureSource(snapshot, { frameId: "local" });
+  assert.deepEqual(proof.source, { origin: "https://root.test", frame: "child" });
+  f.graph.observe(undefined, "Page.frameNavigated", { frame: frame("root") });
+  assert.throws(() => f.graph.assert(proof), /UNSUPPORTED/);
+  assert.equal(f.graph.sourceAddressable(proof), true);
+  assert.equal(f.graph.sourceRetirement(proof), null);
+  f.graph.observe(undefined, "Runtime.executionContextDestroyed", { executionContextId: 2, executionContextUniqueId: "context-local" });
+  assert.equal(f.graph.sourceAddressable(proof), false);
+  assert.equal(f.graph.sourceRetirement(proof), "document");
+});
+
+test("native child detach retires cleanup address without claiming renderer destruction or accepting a replacement session", async () => {
+  const f = fixture(); f.child(); await f.graph.start();
+  const proof = f.graph.captureSource(await f.graph.snapshot(), { sessionId: "child-session", frameId: "child" });
+  f.graph.observe(undefined, "Target.detachedFromTarget", { sessionId: "child-session", targetId: "child" });
+  assert.equal(f.graph.sourceAddressable(proof), false);
+  assert.equal(f.graph.sourceRetirement(proof), "session");
+  f.child("replacement-session");
+  await f.graph.drain();
+  assert.equal(f.graph.sourceAddressable(proof), false);
+  assert.equal(f.graph.sourceRetirement(proof), "session");
+});
+
+test("original root and recursive child interception setup ACKs join graph readiness and cleanup", async () => {
+  const enabled = deferred(), order = [];
+  const f = fixture({ prepareSession: async (id, check) => {
+    check(); order.push(id ?? "root"); if (id) await enabled.promise; check();
+  }, command(id, method, _params, value) { if (id === undefined && method === "Target.setAutoAttach") value.child(); } });
+  let ready = false; const start = f.graph.start().then(() => { ready = true; });
+  await tick(); assert.deepEqual(order, ["root", "child-session"]); assert.equal(ready, false);
+  let drained = false; const drain = f.graph.drain().then(() => { drained = true; });
+  await tick(); assert.equal(drained, false);
+  enabled.resolve(); await start; await drain;
+  assert.equal(ready, true); assert.equal(drained, true);
 });
 
 test("nested remote sessions join through the observed parent and its actual local intermediate frame", async () => {

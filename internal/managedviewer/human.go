@@ -46,6 +46,7 @@ func (c *connection) admitBegin(request *command) bool {
 	c.humanBudgetVersion, c.humanBudgetKnown = 0, false
 	c.humanKeyRepeatVersion = 0
 	c.humanClipboardVersion = 0
+	c.humanFileVersion = 0
 	c.humanFrameLease, c.humanFrameGeneration, c.humanFrameTabID = "", 0, 0
 	c.inputCtx, c.inputCancel = nil, nil
 	var fields struct {
@@ -55,6 +56,8 @@ func (c *connection) admitBegin(request *command) bool {
 	c.humanTabID = fields.TabID
 	c.humanCandidate = nil
 	c.pendingDialog = nil
+	c.pendingFileChooser = nil
+	c.fileClaims = make(map[managedprotocol.FileChooserIdentity]viewerFileClaim)
 	c.dialogClaims = make(map[managedprotocol.DialogIdentity]managedprotocol.DialogClaim)
 	c.humanCtx, c.humanCancel = context.WithCancel(c.ctx)
 	request.ctx, request.epoch = c.humanCtx, c.humanEpoch
@@ -175,6 +178,11 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 	if err != nil {
 		return err
 	}
+	if managedprotocol.IsHumanFileOperation(request.operation) {
+		if err := c.acceptFileResult(request, f); err != nil {
+			return err
+		}
+	}
 	if request.operation == "humanInput" {
 		receipt, err := managedprotocol.ParseInputReceipt(f["inputReceipt"])
 		fields, _ := object(request.payload)
@@ -216,7 +224,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 		c.humanStarting = false
 		c.humanLease = human.LeaseID
 		if latest := c.humanCandidate; latest != nil && latest.LeaseID == human.LeaseID {
-			if latest.InputBudgetVersion != human.InputBudgetVersion || latest.KeyRepeatVersion != human.KeyRepeatVersion || latest.ClipboardTransferVersion != human.ClipboardTransferVersion {
+			if latest.InputBudgetVersion != human.InputBudgetVersion || latest.KeyRepeatVersion != human.KeyRepeatVersion || latest.ClipboardTransferVersion != human.ClipboardTransferVersion || latest.FileChooserVersion != human.FileChooserVersion {
 				c.controlMu.Unlock()
 				return errors.New("human begin capabilities differ from its original status")
 			}
@@ -253,10 +261,11 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 
 func (c *connection) observeHumanState(data json.RawMessage) error {
 	var value struct {
-		Human         *managedprotocol.HumanState    `json:"human"`
-		Cleanup       *managedprotocol.HumanCleanup  `json:"humanCleanup"`
-		EventSequence uint64                         `json:"eventSequence"`
-		PendingDialog *managedprotocol.PendingDialog `json:"pendingDialog"`
+		Human              *managedprotocol.HumanState         `json:"human"`
+		Cleanup            *managedprotocol.HumanCleanup       `json:"humanCleanup"`
+		EventSequence      uint64                              `json:"eventSequence"`
+		PendingDialog      *managedprotocol.PendingDialog      `json:"pendingDialog"`
+		PendingFileChooser *managedprotocol.PendingFileChooser `json:"pendingFileChooser"`
 	}
 	if json.Unmarshal(data, &value) != nil {
 		return errors.New("invalid human display state")
@@ -269,6 +278,10 @@ func (c *connection) observeHumanState(data json.RawMessage) error {
 	if value.Human != nil && value.Human.LeaseID == c.humanLease && value.Human.Generation < c.humanGeneration {
 		c.controlMu.Unlock()
 		return nil
+	}
+	if err := c.observeFileChooserLocked(value.PendingFileChooser); err != nil {
+		c.controlMu.Unlock()
+		return err
 	}
 	if dialog := value.PendingDialog; dialog != nil {
 		original, seen := c.dialogClaims[dialog.DialogIdentity]
@@ -288,7 +301,7 @@ func (c *connection) observeHumanState(data json.RawMessage) error {
 	var pending []command
 	if c.humanStarting && value.Human != nil {
 		if value.Human.TabID == c.humanTabID && (c.humanCandidate == nil || value.Human.LeaseID == c.humanCandidate.LeaseID && value.Human.Generation >= c.humanCandidate.Generation) {
-			if c.humanCandidate != nil && (c.humanCandidate.InputBudgetVersion != value.Human.InputBudgetVersion || c.humanCandidate.KeyRepeatVersion != value.Human.KeyRepeatVersion || c.humanCandidate.ClipboardTransferVersion != value.Human.ClipboardTransferVersion) {
+			if c.humanCandidate != nil && (c.humanCandidate.InputBudgetVersion != value.Human.InputBudgetVersion || c.humanCandidate.KeyRepeatVersion != value.Human.KeyRepeatVersion || c.humanCandidate.ClipboardTransferVersion != value.Human.ClipboardTransferVersion || c.humanCandidate.FileChooserVersion != value.Human.FileChooserVersion) {
 				pending = c.revokeHumanLocked()
 			} else {
 				c.humanCandidate = value.Human
@@ -324,7 +337,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 	if human.Generation < c.humanGeneration {
 		return nil
 	}
-	if c.humanBudgetKnown && (human.InputBudgetVersion != c.humanBudgetVersion || human.KeyRepeatVersion != c.humanKeyRepeatVersion || human.ClipboardTransferVersion != c.humanClipboardVersion) {
+	if c.humanBudgetKnown && (human.InputBudgetVersion != c.humanBudgetVersion || human.KeyRepeatVersion != c.humanKeyRepeatVersion || human.ClipboardTransferVersion != c.humanClipboardVersion || human.FileChooserVersion != c.humanFileVersion) {
 		// A coalesced state may update display, but cannot upgrade an admitted
 		// input's deadline or silently downgrade its original native contract.
 		return c.revokeHumanLocked()
@@ -353,6 +366,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 	c.humanBudgetVersion, c.humanBudgetKnown = human.InputBudgetVersion, true
 	c.humanKeyRepeatVersion = human.KeyRepeatVersion
 	c.humanClipboardVersion = human.ClipboardTransferVersion
+	c.humanFileVersion = human.FileChooserVersion
 	c.humanActive = human.State == "active" && human.Generation > c.humanRetiredGeneration && human.Viewport != nil
 	return pending
 }

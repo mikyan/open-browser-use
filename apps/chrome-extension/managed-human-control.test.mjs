@@ -74,6 +74,303 @@ const clipboardKeyUp = operation => {
   const { clipboardTransfer, ...key } = clipboardKey(operation, { action: "up" }); return key;
 };
 
+test("human file chooser intercepts the original attachment and advertises only human capability", async () => {
+  const f = fixture(), handle = await f.begin();
+  try {
+    assert.equal(handle.info().fileChooserVersion, 1);
+    assert.equal(f.calls.filter(([method, target, params]) => method === "Page.setInterceptFileChooserDialog" &&
+      target.targetId === "original-target" && !target.sessionId && params.enabled === true).length, 1);
+    assert.equal(handle.pendingFileChooser(), null);
+  } finally { await handle.close(); }
+  const view = await f.beginView();
+  try { assert.equal(Object.hasOwn(view.info(), "fileChooserVersion"), false); }
+  finally { await view.close(); }
+});
+
+function fileChooserFixture(options = {}) {
+  let f, attached = false; const tokens = new Map();
+  f = fixture({ ...options, command: async (method, params, target) => {
+    const custom = await options.command?.(method, params, target, f);
+    if (custom !== undefined) return custom;
+    if (method === "Runtime.enable") f.event("Runtime.executionContextCreated", { context: {
+      id: 1, uniqueId: target.sessionId ? "child-context" : "root-context",
+      origin: target.sessionId ? "https://child.test" : "https://fixture.test",
+      auxData: { isDefault: true, frameId: target.sessionId ? "child-frame" : "root" }
+    } }, target);
+    if (options.child && method === "Target.setAutoAttach" && !target.sessionId && !attached) {
+      attached = true;
+      f.event("Target.attachedToTarget", { sessionId: "child-session", targetInfo: { targetId: "child-frame", type: "iframe" } });
+    }
+    if (target.sessionId && method === "Page.getFrameTree") return { frameTree: { frame: {
+      id: "child-frame", parentId: "root", loaderId: "child-loader", url: "https://child.test/input"
+    } } };
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 55 };
+    if (method === "DOM.resolveNode") return { object: { objectId: "node-" + params.backendNodeId } };
+    if (method === "Runtime.callFunctionOn") {
+      if (params.functionDeclaration.includes("__openBrowserUseDirectoryUploadGuardsV1")) {
+        const objectId = "guard-" + params.objectId; tokens.set(objectId, params.arguments[0].value);
+        return { result: { objectId } };
+      }
+      const token = tokens.get(params.objectId);
+      if (params.functionDeclaration.includes("this.describe")) return { result: { value: { token, directory: options.directory ?? false, multiple: options.multiple ?? false } } };
+      if (params.functionDeclaration.includes("this.begin")) return { result: { value: { token, phase: "ordinary-dispatched" } } };
+      if (params.functionDeclaration.includes("this.cleanup")) return { result: { value: { token, removed: true } } };
+    }
+  } });
+  f.openChooser = async (override = {}, source = options.child ? { targetId: "original-target", sessionId: "child-session" } : { targetId: "original-target" }) => {
+    f.event("Page.fileChooserOpened", { frameId: options.child ? "child-frame" : "root", backendNodeId: 9,
+      mode: options.multiple ? "selectMultiple" : "selectSingle", ...override }, source);
+    for (let n = 0; n < 20 && !f.control.current?.fileChoosers.info(); n++) await tick();
+  };
+  return f;
+}
+const fileTuple = (handle, transferId = "original-transfer") => {
+  const { leaseId, generation, chooserId } = handle.pendingFileChooser();
+  return { leaseId, generation, chooserId, transferId };
+};
+
+for (const child of [false, true]) test(`human file chooser original ${child ? "OOPIF" : "root"} node and source owns exactly one native submission`, async () => {
+  const f = fileChooserFixture({ child }), handle = await f.begin();
+  try {
+    await f.openChooser();
+    assert.deepEqual(handle.pendingFileChooser().source, { origin: child ? "https://child.test" : "https://fixture.test",
+      frame: child ? "child" : "top-level" });
+    const request = fileTuple(handle);
+    assert.deepEqual(await handle.beginFile(request), request);
+    await assert.rejects(async () => handle.beginFile(request), /FILE_STALE/);
+    const receipt = await handle.commitFile({ ...request, files: ["C:\\private-staging\\hello.txt"] });
+    assert.deepEqual(receipt, { ...request, acknowledged: true });
+    assert.equal(handle.pendingFileChooser(), null);
+    const writes = f.calls.filter(([method]) => method === "DOM.setFileInputFiles");
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].slice(1), [{ targetId: "original-target", ...(child ? { sessionId: "child-session" } : {}) },
+      { backendNodeId: 9, files: ["C:\\private-staging\\hello.txt"] }]);
+    await assert.rejects(async () => handle.commitFile({ ...request, files: ["C:\\private-staging\\hello.txt"] }), /FILE_STALE/);
+    assert.equal(f.calls.some(([method, , params]) => method === "DOM.setFileInputFiles" && params.files.length === 0), false);
+  } finally { await handle.close(); }
+  assert.equal(f.calls.filter(([method, , params]) => method === "Page.setInterceptFileChooserDialog" && params.enabled === false).length, child ? 2 : 1);
+});
+
+test("pending chooser admits only original held up ACKs before claim and never synthesizes release", async () => {
+  const f = fileChooserFixture(), handle = await f.begin();
+  const key = { type: "key", action: "down", key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, modifiers: 2 };
+  try {
+    await input(handle, key);
+    await input(handle, { type: "pointer", action: "down", button: "left", x: 5, y: 6, modifiers: 2 });
+    await f.openChooser();
+    const request = fileTuple(handle);
+    await assert.rejects(async () => handle.beginFile(request), /FILE_BUSY/);
+    for (const value of [{ type: "text", text: "unrelated" }, { type: "pointer", action: "move", x: 1, y: 2 },
+      { ...key, repeat: true }]) await assert.rejects(input(handle, value), /FILE_BUSY/);
+    assert.equal((await input(handle, { ...key, action: "up", modifiers: 0 })).acknowledged, true);
+    assert.equal((await input(handle, { type: "pointer", action: "up", button: "left", x: 5, y: 6 })).acknowledged, true);
+    assert.deepEqual(await handle.beginFile(request), request);
+    const { transferId, ...withoutTransfer } = request;
+    assert.deepEqual(await handle.cancelFile(withoutTransfer), { ...withoutTransfer, cancelled: true });
+    assert.equal(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").length, 2);
+    assert.equal(f.calls.filter(([method]) => method === "Input.dispatchMouseEvent").length, 2);
+    assert.equal(f.calls.some(([method]) => method === "DOM.setFileInputFiles"), false);
+  } finally { await handle.close(); }
+});
+
+test("End joins the original file write ACK, returns its old tuple and never replays it", async () => {
+  const ack = defer(), dispatched = defer();
+  const f = fileChooserFixture({ command: (method) => {
+    if (method === "DOM.setFileInputFiles") { dispatched.resolve(); return ack.promise; }
+  } }), handle = await f.begin();
+  await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+  const write = handle.commitFile({ ...request, files: ["C:\\staging\\original.txt"] });
+  await dispatched.promise;
+  let ended = false; const closing = handle.close().then(() => { ended = true; });
+  await tick(); assert.equal(ended, false);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  ack.resolve({});
+  assert.deepEqual(await write, { ...request, acknowledged: true });
+  await closing;
+  assert.equal(f.calls.filter(([method]) => method === "DOM.setFileInputFiles").length, 1);
+});
+
+test("retired OOPIF document cannot submit the original node even with a matching frame and replacement context", async () => {
+  const f = fileChooserFixture({ child: true }), handle = await f.begin();
+  try {
+    await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+    f.event("Runtime.executionContextCreated", { context: { id: 1, uniqueId: "replacement", origin: "https://child.test",
+      auxData: { isDefault: true, frameId: "child-frame" } } }, { targetId: "original-target", sessionId: "child-session" });
+    assert.equal(handle.pendingFileChooser(), null);
+    await assert.rejects(async () => handle.commitFile({ ...request, files: ["C:\\staging\\old.txt"] }), /FILE_STALE/);
+    assert.equal(f.calls.some(([method]) => method === "DOM.setFileInputFiles"), false);
+  } finally { await handle.close(); }
+});
+
+test("unknown original native file ACK fails once and retains cleanup without empty submission", async () => {
+  const f = fileChooserFixture({ command: method => { if (method === "DOM.setFileInputFiles") throw new Error("native outcome unknown"); } });
+  const handle = await f.begin();
+  await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+  await assert.rejects(handle.commitFile({ ...request, files: ["C:\\staging\\one.txt"] }), /native outcome unknown/);
+  await handle.close();
+  assert.equal(f.calls.filter(([method]) => method === "DOM.setFileInputFiles").length, 1);
+});
+
+test("parent commit withdraws a child chooser but still cleans its original live remote objects", async () => {
+  const cleanup = defer(), cleanupEntered = defer();
+  const f = fileChooserFixture({ child: true, command: (method, params) => {
+    if (method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("this.cleanup")) {
+      cleanupEntered.resolve(); return cleanup.promise;
+    }
+  } }), handle = await f.begin();
+  await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+  const graph = f.control.current.documentGraph;
+  // Isolate the precise graph invalidation from navigation recovery: parent
+  // authority retires the child proof without any child Runtime destruction.
+  graph.observe(undefined, "Page.frameNavigated", { frame: { id: "root", loaderId: "new-parent", url: "https://fixture.test/new" } });
+  f.control.current.fileChoosers.recheck();
+  await cleanupEntered.promise;
+  assert.equal(handle.pendingFileChooser(), null);
+  assert.equal(f.calls.find(([method, , params]) => method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("this.cleanup"))[1].sessionId, "child-session");
+  let ended = false; const closing = handle.close().then(() => { ended = true; });
+  await tick(); assert.equal(ended, false);
+  const guard = f.control.current.fileChoosers.registry.records.values().next().value;
+  cleanup.resolve({ result: { value: { token: guard.token, removed: true } } });
+  await closing; assert.equal(ended, true);
+  assert.equal(f.calls.some(([method]) => method === "DOM.setFileInputFiles"), false);
+});
+
+test("exact child context destruction joins the old file ACK without sending cleanup to a replacement", async () => {
+  const ack = defer(), entered = defer();
+  const f = fileChooserFixture({ child: true, command: method => {
+    if (method === "DOM.setFileInputFiles") { entered.resolve(); return ack.promise; }
+  } }), handle = await f.begin();
+  await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+  const commit = handle.commitFile({ ...request, files: ["C:\\server\\original.txt"] }); await entered.promise;
+  f.event("Runtime.executionContextDestroyed", { executionContextId: 1, executionContextUniqueId: "child-context" },
+    { targetId: "original-target", sessionId: "child-session" });
+  let ended = false; const closing = handle.close().then(() => { ended = true; });
+  await tick(); assert.equal(ended, false);
+  ack.resolve({});
+  assert.deepEqual(await commit, { ...request, acknowledged: true });
+  await closing;
+  assert.equal(f.calls.some(([method, , params]) => method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("this.cleanup")), false);
+  assert.equal(f.calls.filter(([method]) => method === "DOM.setFileInputFiles").length, 1);
+});
+
+for (const child of [false, true]) test(`destroyed original ${child ? "child" : "root"} file cleanup rejection does not revoke the live attachment`, async () => {
+  const cleanup = defer(), entered = defer();
+  const f = fileChooserFixture({ child, command: (method, params) => {
+    if (method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("this.cleanup")) {
+      entered.resolve(); return cleanup.promise;
+    }
+  } }), handle = await f.begin();
+  await f.openChooser(); await handle.beginFile(fileTuple(handle));
+  const record = f.control.current;
+  // Conservative parent retirement starts cleanup while the old renderer is
+  // still alive. A later native destruction is independent resource evidence.
+  record.documentGraph.observe(undefined, "Page.frameNavigated",
+    { frame: { id: "root", loaderId: "new-parent", url: "https://fixture.test/new" } });
+  record.fileChoosers.recheck(); await entered.promise;
+  let drained = false;
+  const draining = record.fileChoosers.drain().then(() => { drained = true; });
+  if (child) f.event("Runtime.executionContextDestroyed",
+    { executionContextId: 1, executionContextUniqueId: "child-context" },
+    { targetId: "original-target", sessionId: "child-session" });
+  else f.event("Runtime.executionContextsCleared");
+  await tick();
+  assert.equal(drained, false, "Destruction must not invent settlement of the original native Promise");
+  cleanup.reject(new Error("arbitrary native cleanup rejection, not a text-based exception"));
+  await draining; await tick();
+  assert.equal(record.revoked, undefined, "A destroyed original cleanup resource cannot retire the live attachment");
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 0);
+  assert.equal(f.calls.filter(([method]) => method === "DOM.setFileInputFiles").length, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Runtime.releaseObject").length, 0);
+  await handle.close();
+});
+
+test("destroyed original file object release keeps its actual rejection drain without revoking the attachment", async () => {
+  const release = defer(), entered = defer();
+  const f = fileChooserFixture({ command: (method) => {
+    if (method === "Runtime.releaseObject") { entered.resolve(); return release.promise; }
+  } }), handle = await f.begin();
+  await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+  const record = f.control.current, cancellation = handle.cancelFile(request);
+  await entered.promise;
+  f.event("Runtime.executionContextsCleared");
+  let settled = false; const draining = record.fileChoosers.drain().then(() => { settled = true; });
+  await tick(); assert.equal(settled, false);
+  release.reject(new Error("original release failed after destruction"));
+  await cancellation; await draining; await tick();
+  assert.equal(record.revoked, undefined);
+  assert.equal(f.calls.filter(([method]) => method === "Runtime.releaseObject").length, 1);
+  await handle.close();
+});
+
+for (const detach of [false, true]) test(`file cleanup rejection without document destruction remains fatal, detach=${detach}`, async () => {
+  const cleanup = defer(), entered = defer();
+  const f = fileChooserFixture({ child: true, command: (method, params) => {
+    if (method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("this.cleanup")) {
+      entered.resolve(); return cleanup.promise;
+    }
+  } }), handle = await f.begin();
+  await f.openChooser(); await handle.beginFile(fileTuple(handle));
+  const record = f.control.current;
+  record.documentGraph.observe(undefined, "Page.frameNavigated",
+    { frame: { id: "root", loaderId: "new-parent", url: "https://fixture.test/new" } });
+  record.fileChoosers.recheck(); await entered.promise;
+  if (detach) f.event("Target.detachedFromTarget", { sessionId: "child-session", targetId: "child-frame" });
+  cleanup.reject(new Error("Cannot find context with specified id"));
+  await tick(); await tick();
+  assert.equal(record.revoked, true, "Matching error text and parent/session retirement cannot prove document destruction");
+  if (!detach) f.event("Runtime.executionContextDestroyed", { executionContextId: 1, executionContextUniqueId: "child-context" },
+    { targetId: "original-target", sessionId: "child-session" });
+  await tick(); await handle.close();
+});
+
+test("native file submission rejection remains fatal even after original context destruction", async () => {
+  const write = defer(), entered = defer();
+  const f = fileChooserFixture({ command: method => {
+    if (method === "DOM.setFileInputFiles") { entered.resolve(); return write.promise; }
+  } }), handle = await f.begin();
+  await f.openChooser(); const request = fileTuple(handle); await handle.beginFile(request);
+  const record = f.control.current, commit = handle.commitFile({ ...request, files: ["C:\\server\\original.txt"] });
+  await entered.promise; f.event("Runtime.executionContextsCleared");
+  const error = new Error("original business ACK unknown"); write.reject(error);
+  await assert.rejects(commit, error); await tick();
+  assert.equal(record.revoked, true); await handle.close();
+  assert.equal(f.calls.filter(([method]) => method === "DOM.setFileInputFiles").length, 1);
+});
+
+test("End during original file guard preparation joins the late object then cleans it once", async () => {
+  const install = defer(), entered = defer(); let originalToken;
+  const f = fileChooserFixture({ command: (method, params) => {
+    if (method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("__openBrowserUseDirectoryUploadGuardsV1")) {
+      originalToken = params.arguments[0].value; entered.resolve(); return install.promise;
+    }
+    if (method === "Runtime.callFunctionOn" && params.functionDeclaration.includes("this.cleanup"))
+      return { result: { value: { token: originalToken, removed: true } } };
+  } }), handle = await f.begin();
+  f.event("Page.fileChooserOpened", { frameId: "root", backendNodeId: 9, mode: "selectSingle" });
+  await entered.promise;
+  let ended = false; const closing = handle.close().then(() => { ended = true; });
+  await tick(); assert.equal(ended, false); assert.equal(handle.pendingFileChooser(), null);
+  install.resolve({ result: { objectId: "late-original-guard" } });
+  await closing;
+  assert.equal(f.calls.filter(([method, , params]) => method === "Runtime.callFunctionOn" &&
+    params.objectId === "late-original-guard" && params.functionDeclaration.includes("this.cleanup")).length, 1);
+  assert.equal(f.calls.some(([method]) => method === "DOM.setFileInputFiles"), false);
+});
+
+test("End during original interception enable waits its ACK before disabling the same attachment", async () => {
+  const enable = defer(), entered = defer();
+  const f = fixture({ command: (method, params) => {
+    if (method === "Page.setInterceptFileChooserDialog" && params.enabled) { entered.resolve(); return enable.promise; }
+  } });
+  const handle = await f.beginAdmitted(); await entered.promise;
+  let closed = false; const closing = handle.close().then(() => { closed = true; });
+  await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.some(([method, , params]) => method === "Page.setInterceptFileChooserDialog" && !params.enabled), false);
+  enable.resolve({}); await closing;
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.setInterceptFileChooserDialog").map(([, target, params]) => [target, params]),
+    [[{ targetId: "original-target" }, { enabled: true }], [{ targetId: "original-target" }, { enabled: false }]]);
+});
+
 test("clipboard capability belongs to the original human lease, never a view", async () => {
   const f = fixture({ clipboardTransfer: async () => assert.fail("no clipboard action during Begin") });
   const handle = await f.begin();
@@ -522,7 +819,7 @@ test("actual Begin admits End before Page.enable ACK but grants no input or dial
   const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });
   const handle = await f.beginAdmitted(); await entered.promise;
   assert.deepEqual({ ...handle.info(), leaseId: "original" }, {
-    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, lastInputSequence: 0
+    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, fileChooserVersion: 1, lastInputSequence: 0
   });
   assert.equal(handle.pendingDialog(), null);
   await assert.rejects(input(handle, { type: "text", text: "must not send" }), /GENERATION_STALE/);
@@ -1755,7 +2052,7 @@ test("tab metadata uses the final original validation without changing typed hum
   f.control.validate = async (...args) => ({ ...await validate(...args), title: f.control.current?.epoch?.document ? "Final title" : "Early title" });
   const handle = await f.begin(); t.after(() => handle.close());
   assert.equal(handle.tabInfo().title, "Final title");
-  assert.deepEqual(Object.keys(handle.info()).sort(), ["generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
+  assert.deepEqual(Object.keys(handle.info()).sort(), ["fileChooserVersion", "generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
 });
 
 test("old down ACK remains its exact tuple and held release finishes before any successor stream", async () => {

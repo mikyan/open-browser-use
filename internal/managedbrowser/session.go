@@ -78,6 +78,7 @@ type lifecycle struct {
 }
 
 type Session struct {
+	files                   *humanFiles
 	mu                      sync.Mutex
 	info                    Info
 	record                  lifecycle
@@ -200,6 +201,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	if err := platformProtectDirectory(s.info.RunDir); err != nil {
 		return nil, err
 	}
+	s.files = newHumanFiles(filepath.Join(s.info.RunDir, "u"))
 	s.record.Info = s.info
 	if err := s.save(); err != nil {
 		return nil, err
@@ -638,6 +640,11 @@ func (s *Session) shutdown() {
 			_ = s.browser.close()
 		}
 		if err := s.process.Close(); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	if s.files != nil {
+		if err := s.files.closeAfterBrowser(); err != nil {
 			failures = append(failures, err)
 		}
 	}

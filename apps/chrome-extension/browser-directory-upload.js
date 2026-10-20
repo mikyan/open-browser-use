@@ -86,11 +86,11 @@ export function installDirectoryUploadController(token, deadlineAt) {
 }
 
 export class DirectoryUploadRegistry {
-  constructor({ send, checkCurrent = () => {}, canCleanup, now = () => Date.now(),
+  constructor({ send, sendCleanup = (target, method, params) => send(target, method, params), checkCurrent = () => {}, canCleanup, now = () => Date.now(),
     setTimer = (fn, delay) => globalThis.setTimeout(fn, delay), clearTimer = id => globalThis.clearTimeout(id), maxTotal = 128 } = {}) {
     if (typeof send !== "function" || typeof canCleanup !== "function" || !Number.isInteger(maxTotal) || maxTotal < 1 || maxTotal > 128)
       throw new Error("Directory upload native hooks and a capacity up to 128 are required");
-    Object.assign(this, { send, checkCurrent, canCleanup, now, setTimer, clearTimer, maxTotal });
+    Object.assign(this, { send, sendCleanup, checkCurrent, canCleanup, now, setTimer, clearTimer, maxTotal });
     this.records = new Map();
     this.operations = new Set();
     this.operationRecords = new Map();
@@ -164,7 +164,7 @@ export class DirectoryUploadRegistry {
   call(record, method, params) {
     this.check(record);
     let operation;
-    try { operation = Promise.resolve(this.send(this.target(record), method, params)); }
+    try { operation = Promise.resolve(this.send(this.target(record), method, params, () => this.check(record))); }
     catch (error) { operation = Promise.reject(error); }
     return this.track(operation, record);
   }
@@ -329,15 +329,15 @@ export class DirectoryUploadRegistry {
       if (record.controllerObjectId) {
         // The sole exceptional rollback is provably unsent native work. Even a
         // late begin() sees the released controller and cannot authorize send.
-        const response = await this.send(this.target(record), "Runtime.callFunctionOn", {
+        const response = await this.sendCleanup(this.target(record), "Runtime.callFunctionOn", {
           objectId: record.controllerObjectId, functionDeclaration: "function(abortBeforeSend) { return this.cleanup(abortBeforeSend); }",
           arguments: [{ value: !record.dispatched }], returnByValue: true
-        });
+        }, record.identity);
         if (response.exceptionDetails || response.result?.value?.token !== record.token || response.result.value.removed !== true)
           throw new Error("OBU_DIRECTORY_UPLOAD_CLEANUP_FAILED: original renderer guard remains pending");
       }
       for (const objectId of [record.controllerObjectId, record.nodeObjectId, ...record.remoteErrorObjectIds]) {
-        if (objectId && this.canCleanup(record.identity)) await this.send(this.target(record), "Runtime.releaseObject", { objectId });
+        if (objectId && this.canCleanup(record.identity)) await this.sendCleanup(this.target(record), "Runtime.releaseObject", { objectId }, record.identity);
       }
       record.cleanupDone = true;
     })();

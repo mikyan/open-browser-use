@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Managed 人工文件选择](managed-human-files.md)：原网页文件请求、本地选择、
+  有界传输、取消和结束后的文件寿命；验证范围见该文档。
 - [Managed 人工复制和剪切](managed-human-clipboard.md)：原快捷键回执、纯文本返回、
   固定浏览器版本及实际剪贴板工作清理。
 - [Managed 人工重复按键](managed-human-key-repeat.md)：长按退格、Delete及方向键，

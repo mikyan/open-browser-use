@@ -1,6 +1,7 @@
 import { NativeInputTracker } from "./browser-input-adapter.js";
 import { BrowserRendering } from "./browser-rendering.js";
 import { ManagedHumanDialogs } from "./managed-human-dialogs.js";
+import { ManagedHumanFileChoosers } from "./managed-human-file-chooser.js";
 import { ManagedHumanInputBudget, ManagedHumanPreparationBudget, ManagedHumanHintDeadline } from "./managed-human-budget.js";
 import { ManagedHumanDocumentGraph } from "./managed-human-document-graph.js";
 import { validateHumanClipboardInput, validateHumanClipboardResult, clipboardFailure } from "./managed-human-clipboard.js";
@@ -45,7 +46,7 @@ export class ManagedHumanControl {
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
-      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1 } : {}),
+      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1, fileChooserVersion: 1 } : {}),
       ...(record.clipboardTransferVersion === 1 ? { clipboardTransferVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
@@ -109,13 +110,33 @@ export class ManagedHumanControl {
     if (mode === "human") record.documentGraph = new ManagedHumanDocumentGraph({
       send: (sessionId, method, params, check) => this.send(record, method, params, check, sessionId),
       check: () => this.check(record),
+      prepareSession: (sessionId, check) => record.fileChoosers.enable(sessionId, check),
       assertCandidate: (candidate, origins) => { this.check(record); this.assertDialog(candidate, origins); },
       onFailure: error => { void this.close(record, error).catch(() => {}); },
       onChange: details => {
         this.wakeDialogs(record);
         record.dialogs?.recheck();
+        record.fileChoosers?.recheck();
         if (record.initialized) this.navigation(record.tabId, details, "committed", "native-topology");
       }
+    });
+    if (mode === "human") record.fileChoosers = new ManagedHumanFileChoosers({
+      leaseId: record.leaseId, tabId: record.tabId,
+      capture: opening => this.captureFileChooser(record, opening),
+      assertCurrent: proof => this.checkFileChooser(record, proof),
+      addressable: proof => record.documentGraph.sourceAddressable(proof.contexts),
+      retirement: proof => record.documentGraph.sourceRetirement(proof.contexts),
+      attached: sessionId => record.attached === true && record.documentGraph.owns(sessionId),
+      assertIdle: proof => {
+        this.checkFileChooser(record, proof);
+        if (proof.epoch.inputPending || proof.epoch.keys.size || proof.epoch.buttons.size)
+          throw fail("release original keys and mouse buttons before choosing files", "FILE_BUSY");
+      },
+      send: (sessionId, method, params, check, proof) => this.send(record, method, params, check, sessionId,
+        proof ? { epoch: proof.epoch, candidate: proof.candidate, check: () => this.checkFileChooser(record, proof) } : undefined),
+      sendCleanup: (proof, sessionId, method, params) => this.send(record, method, params, undefined, sessionId, undefined,
+        () => record.documentGraph.sourceRetirement(proof.contexts) === "document"),
+      notify: () => this.notify(record), onFailure: error => { void this.close(record, error).catch(() => {}); }
     });
     if (mode === "human") record.dialogs = new ManagedHumanDialogs({ leaseId: record.leaseId,
       capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
@@ -137,7 +158,9 @@ export class ManagedHumanControl {
       notify: () => { this.wakeDialogs(record); this.notify(record); }, onFailure: error => { void this.close(record, error).catch(() => {}); } });
     record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record),
       ...(mode === "human" ? { input: envelope => this.input(record, envelope), pendingDialog: () => record.dialogs.info(),
-        respondDialog: envelope => record.dialogs.respond(envelope) } : {}),
+        respondDialog: envelope => record.dialogs.respond(envelope), pendingFileChooser: () => record.fileChoosers.info(),
+        beginFile: envelope => record.fileChoosers.begin(envelope), commitFile: envelope => record.fileChoosers.commit(envelope),
+        cancelFile: envelope => record.fileChoosers.cancel(envelope) } : {}),
       close: () => this.close(record), closed: record.closed.promise });
     record.admission = deferred();
     record.start = Promise.resolve().then(() => this.start(record));
@@ -199,6 +222,8 @@ export class ManagedHumanControl {
       const sessionId = source.sessionId ?? undefined;
       if (sessionId !== undefined && !record.documentGraph?.owns(sessionId)) return;
       record.documentGraph?.observe(sessionId, method, params);
+      record.fileChoosers?.recheck();
+      if (method === "Page.fileChooserOpened") { record.fileChoosers?.observe(sessionId, params); return; }
       if (method.startsWith("Runtime.")) {
         this.wakeDialogs(record);
         record.dialogs?.recheck(); return;
@@ -235,7 +260,9 @@ export class ManagedHumanControl {
     await this.recover(record);
   }
 
-  send(record, method, params, assertAdmission, sessionId, human) {
+  send(record, method, params, assertAdmission, sessionId, human, destroyedCleanup) {
+    if (destroyedCleanup && !["Runtime.callFunctionOn", "Runtime.releaseObject"].includes(method))
+      throw fail("resource cleanup cannot dispatch a business operation", "UNAVAILABLE");
     if (record.mode === "view" && (method.startsWith("Input.") || method === "Emulation.setFocusEmulationEnabled" || method === "Page.handleJavaScriptDialog"))
       throw fail("a view lease has no native input or focus authority", "UNAVAILABLE");
     if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE");
@@ -283,7 +310,12 @@ export class ManagedHumanControl {
     actual.then(() => record.drains.delete(actual), error => {
       record.drains.delete(actual);
       // Navigation cannot turn an unknown native outcome into a safe retry.
-      if (dispatched && !record.revoked) void this.close(record, error).catch(() => {});
+      // Only cleanup of a resource whose exact original document was actually
+      // destroyed can settle without revoking the surviving attachment. The
+      // actual Promise still rejects; its registry owns that cleanup outcome.
+      let originalDestroyed = false;
+      try { originalDestroyed = destroyedCleanup?.() === true; } catch { /* Unknown ownership keeps the failure. */ }
+      if (dispatched && !record.revoked && !originalDestroyed) void this.close(record, error).catch(() => {});
     });
     return actual;
   }
@@ -682,6 +714,28 @@ export class ManagedHumanControl {
     throw fail("unsupported input type");
   }
 
+  captureFileChooser(record, opening) {
+    const epoch = record.epoch;
+    this.checkGeneration(record, epoch);
+    if (record.state !== "active" || !epoch.dialogContexts) throw fail("original file chooser document is not ready", "FILE_UNSUPPORTED");
+    const contexts = record.documentGraph.captureSource(epoch.dialogContexts, opening);
+    this.assertDialog(epoch.candidate, contexts.actualOrigins);
+    return Object.freeze({ epoch, generation: epoch.id, candidate: epoch.candidate, contexts, source: contexts.source });
+  }
+  checkFileChooser(record, proof) {
+    this.checkGeneration(record, proof.epoch);
+    record.documentGraph.assert(proof.contexts);
+    this.assertDialog(proof.candidate, proof.contexts.actualOrigins);
+    if (record.dialogs?.hasOpen()) throw fail("a native dialog blocks the original file chooser", "FILE_BUSY");
+  }
+  checkChooserInput(record, epoch, value) {
+    if (!record.fileChoosers?.hasPending()) return;
+    const key = value.type === "key" && value.action === "up" && epoch.keys.get(value.code);
+    const release = key && key.windowsVirtualKeyCode === value.windowsVirtualKeyCode ||
+      value.type === "pointer" && value.action === "up" && epoch.buttons.has(value.button);
+    if (!release) throw fail("choose or cancel the original files before sending new input", "FILE_BUSY");
+  }
+
   input(record, envelope) {
     try {
       this.check(record);
@@ -695,6 +749,7 @@ export class ManagedHumanControl {
       if (epoch.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
       if (record.dialogs.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
       fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat", "clipboardTransfer"]);
+      this.checkChooserInput(record, epoch, envelope.input);
       const clipboardOperation = validateHumanClipboardInput(envelope.input);
       if (clipboardOperation && record.clipboardTransferVersion !== 1) throw fail("clipboard transfer is unavailable for this original lease", "UNAVAILABLE");
       const [method, params, commit] = this.command(epoch, { ...envelope.input });
@@ -736,10 +791,11 @@ export class ManagedHumanControl {
             await epoch.tracker.send({ tabId: record.tabId }, epoch.token, method, params, () => {
               if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
               this.checkInputGeometry(record, epoch);
+              this.checkChooserInput(record, epoch, envelope.input);
               return this.send(record, method, params, () => {
                 operation.budget.assertAvailable();
                 if (operation.modalInterrupted) throw fail("a native dialog interrupted this unsent input", "DIALOG_BUSY");
-                this.checkInputGeometry(record, epoch); sent = true; operation.dispatched = true;
+                this.checkInputGeometry(record, epoch); this.checkChooserInput(record, epoch, envelope.input); sent = true; operation.dispatched = true;
               }, undefined, { epoch, candidate: epoch.candidate, check: () => this.checkInputGeometry(record, epoch) });
             });
             commit(); epoch.sequence = sequence;
@@ -814,6 +870,7 @@ export class ManagedHumanControl {
   retireGeneration(record, epoch) {
     if (epoch.retired) return;
     record.dialogs?.retire(epoch);
+    record.fileChoosers?.retireEpoch(epoch);
     epoch.retired = true;
     epoch.retiredSignal.resolve();
     for (const operation of epoch.clipboardOperations) operation.cancelTransfer("CANCELLED");
@@ -856,6 +913,7 @@ export class ManagedHumanControl {
     record.revoked = true; record.state = "releasing"; record.onFrame = null;
     record.documentGraph?.revoke();
     record.dialogs?.revoke();
+    record.fileChoosers?.revoke();
     record.preparationBudget?.finish(); record.preparationBudget = null; this.wakeDialogs(record);
     clearTimeout(record.recoveryTimer); record.recoveryTimer = null; record.wake?.();
     record.closed.resolve({ reason: String(error.message) });
@@ -879,8 +937,10 @@ export class ManagedHumanControl {
         // Read/domain setup failures revoke admission. Once their real calls
         // settle, root detach still has to dispose the original child sessions.
         await Promise.allSettled([record.documentGraph?.drain()]);
+        await record.fileChoosers?.close();
         for (const epoch of record.epochs) await this.releaseGeneration(record, epoch);
         await record.dialogs?.close();
+        await record.fileChoosers?.close();
         await Promise.allSettled([...record.drains]);
         if (record.attached) {
           if (record.mode === "human") await this.send(record, "Emulation.setFocusEmulationEnabled", { enabled: false });

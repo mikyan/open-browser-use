@@ -85,7 +85,7 @@ function fixture(t, options = {}) {
   return f;
 }
 
-function humanFixture(t, { inputBudgetVersion, clipboardTransferVersion } = {}) {
+function humanFixture(t, { inputBudgetVersion, clipboardTransferVersion, fileChooserVersion } = {}) {
   const f = fixture(t);
   f.humans = []; f.dialogGates = []; let dialogCounter = 0;
   f.backend.beginManagedHuman = async (tabId, authority, onFrame, onState, options = {}) => {
@@ -93,10 +93,31 @@ function humanFixture(t, { inputBudgetVersion, clipboardTransferVersion } = {}) 
     const closed = deferred(), record = { tabId, authority, onFrame, onState, options, closed, closeCalls: 0, inputCalls: 0, dialogClaims: new Set(), dialogPending: new Set(),
       info: { state: "starting", leaseId: `human-${f.humans.length + 1}`, tabId, generation: 0, viewport: { width: 800, height: 600 }, lastInputSequence: 0,
         ...(inputBudgetVersion === undefined ? {} : { inputBudgetVersion }),
+        ...(fileChooserVersion === undefined ? {} : { fileChooserVersion }),
         ...(clipboardTransferVersion === undefined ? {} : { clipboardTransferVersion }) } };
     const handle = record.handle = {
       info: () => ({ ...record.info }), closed: closed.promise,
       pendingDialog: () => record.dialog ?? null,
+      pendingFileChooser: () => record.chooser ?? null,
+      beginFile(envelope) {
+        authority();
+        if (record.fileClaim) throw new Error("OBU_HUMAN_FILE_STALE");
+        record.fileClaim = { ...envelope }; f.calls.push(["humanFileBegin", envelope]);
+        return { ...envelope };
+      },
+      async commitFile(envelope) {
+        authority(); f.calls.push(["humanFileCommit", envelope]);
+        const { files, ...receipt } = envelope;
+        if (record.fileClaim?.transferId !== envelope.transferId) throw new Error("OBU_HUMAN_FILE_STALE");
+        record.fileClaim = null;
+        await f.fileCommitGate?.promise;
+        record.chooser = null;
+        return { ...receipt, acknowledged: true, ...(f.fileReplyOverride ?? {}) };
+      },
+      cancelFile(envelope) {
+        authority(); f.calls.push(["humanFileCancel", envelope]); record.chooser = null;
+        return { ...envelope, cancelled: true };
+      },
       respondDialog(envelope) {
         authority(); const original = record.dialog;
         if (!original || original.dialogId !== envelope.dialogId || record.dialogClaims.has(original.dialogId)) throw new Error("OBU_HUMAN_DIALOG_STALE");
@@ -178,6 +199,53 @@ function humanFixture(t, { inputBudgetVersion, clipboardTransferVersion } = {}) 
   };
   return f;
 }
+
+test("typed file claim, original native receipt and logical cancellation remain separate from input receipts", async t => {
+  const f = humanFixture(t, { fileChooserVersion: 1 }); await f.open(); await f.begin();
+  const record = f.humans[0];
+  record.chooser = { leaseId: record.info.leaseId, generation: 1, chooserId: "original-file", multiple: true,
+    source: { origin: "https://child.test", frame: "child" } };
+  assert.deepEqual((await f.request("status")).status.pendingFileChooser, record.chooser);
+  const request = { leaseId: record.info.leaseId, generation: 1, chooserId: "original-file", transferId: "server-generated" };
+  const claim = await f.request("humanFileBegin", request);
+  assert.deepEqual(claim.fileChooserClaim, request); assert.equal(claim.inputReceipt, undefined);
+  await assert.rejects(f.request("humanFileBegin", request), /FILE_STALE/);
+  f.fileCommitGate = deferred();
+  const result = f.request("humanFileCommit", { ...request, files: ["C:\\server\\name.txt", "C:\\server\\other.txt"] });
+  await flush();
+  assert.equal(f.calls.filter(call => call[0] === "humanFileCommit").length, 1);
+  f.fileCommitGate.resolve();
+  const committed = await result;
+  assert.deepEqual(committed.fileChooserReceipt, { ...request, acknowledged: true });
+  assert.equal(committed.inputReceipt, undefined); assert.equal(committed.status.pendingFileChooser, null);
+  record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: "cancel-me", multiple: false };
+  const cancel = { leaseId: request.leaseId, generation: 1, chooserId: "cancel-me" };
+  assert.deepEqual((await f.request("humanFileCancel", cancel)).fileChooserCancellation, { ...cancel, cancelled: true });
+  await f.request("humanEnd", { leaseId: request.leaseId });
+  assert.equal((await f.request("disconnect")).status.pendingFileChooser, null);
+});
+
+test("file operations reject foreign, unadvertised, zero-generation and unsolicited path authority before the native handle", async t => {
+  const f = humanFixture(t, { fileChooserVersion: 1 }); await f.open(); await f.begin();
+  const record = f.humans[0], request = { leaseId: record.info.leaseId, generation: 1, chooserId: "file", transferId: "transfer" };
+  record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: "file", multiple: false };
+  for (const changed of [{ leaseId: "foreign" }, { generation: 2 }, { chooserId: "foreign" }, { generation: 0 },
+    { files: ["C:\\caller\\path"] }, { source: { origin: "https://forged.test", frame: "child" } }])
+    await assert.rejects(f.request("humanFileBegin", { ...request, ...changed }), /FILE_STALE|FILE_INVALID|PROTOCOL/);
+  delete record.info.fileChooserVersion;
+  await assert.rejects(f.request("humanFileBegin", request), /FILE_STALE/);
+  assert.equal(f.calls.some(call => call[0] === "humanFileBegin"), false);
+});
+
+test("a mismatched file receipt withdraws the original lease and cannot be called an acknowledgement", async t => {
+  const f = humanFixture(t, { fileChooserVersion: 1 }); await f.open(); await f.begin();
+  const record = f.humans[0], request = { leaseId: record.info.leaseId, generation: 1, chooserId: "file", transferId: "transfer" };
+  record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: "file", multiple: false };
+  await f.request("humanFileBegin", request); f.fileReplyOverride = { transferId: "forged" };
+  await assert.rejects(f.request("humanFileCommit", { ...request, files: ["C:\\server\\one.txt"] }), /FILE_UNCONFIRMED/);
+  assert.equal(record.closeCalls, 1);
+  assert.equal((await f.request("status")).status.pendingFileChooser, null);
+});
 
 const transferInput = { type: "key", action: "down", key: "x", code: "KeyX", windowsVirtualKeyCode: 88, modifiers: 2, clipboardTransfer: "cut" };
 test("human authority retains only its authenticated channel's immutable native browser version", async t => {

@@ -5,7 +5,216 @@ import { readFileSync } from "node:fs";
 import { captureFixture, captureResultFixture } from "../testdata/generate-bridge-fixture.mjs";
 
 const source = readFileSync(new URL("./viewer.js", import.meta.url), "utf8");
+const fileSource = readFileSync(new URL("./human-files.js", import.meta.url), "utf8");
 const ticket = "a".repeat(43);
+
+function fileHarness() {
+  const h = setup(1, 1, { fileChooserVersion: 1 }); h.readyHuman();
+  const chooser = { leaseId: "lease-a", generation: 1, chooserId: "chooser-a", multiple: true,
+    source: { origin: "https://upload.example", frame: "child" } };
+  const state = (extra = {}) => h.humanState({ eventSequence: 20002, pendingFileChooser: chooser, ...extra });
+  h.socket.message({ type: "state", ...state() });
+  const fields = { leaseId: chooser.leaseId, generation: chooser.generation, chooserId: chooser.chooserId };
+  const reply = (request, payload, extra = {}) => h.respond(request.id, { ...state(extra), ...payload });
+  const pick = files => {
+    h.event("file-choose", "click", { isTrusted: true });
+    h.element("file-picker").files = files;
+    h.event("file-picker", "change");
+    return h.socket.sent.at(-1);
+  };
+  return { ...h, chooser, fileState: state, fields, reply, pick };
+}
+const file = (name, bytes) => ({ name, size: bytes.length,
+  slice(start, end) { return { async arrayBuffer() { return Uint8Array.from(bytes.slice(start, end)).buffer; } }; } });
+const flushFiles = async () => { for (let n = 0; n < 16; n++) await Promise.resolve(); };
+
+test("files transfer original bytes in bounded acknowledged chunks, including same-name empty file", async () => {
+  const h = fileHarness(), bytes = Array.from({ length: 16385 }, (_, n) => n % 256);
+  const begin = h.pick([file("same.bin", []), file("same.bin", bytes)]);
+  assert.equal(begin.operation, "humanFileBegin");
+  assert.deepEqual(begin.files, [{ name: "same.bin", size: 0 }, { name: "same.bin", size: 16385 }]);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 2, totalBytes: bytes.length } });
+  await flushFiles();
+  const chunk = h.socket.sent.at(-1);
+  assert.equal(chunk.operation, "humanFileChunk"); assert.equal(chunk.fileIndex, 1); assert.equal(chunk.offset, 0);
+  assert.deepEqual([...Buffer.from(chunk.data, "base64")], bytes.slice(0, 16384));
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileChunk").length, 1);
+  h.reply(chunk, { fileChunk: { ...h.fields, transferId: "transfer-a", fileIndex: 1, nextOffset: 16384 } });
+  await flushFiles();
+  const last = h.socket.sent.at(-1);
+  assert.equal(last.offset, 16384); assert.deepEqual([...Buffer.from(last.data, "base64")], bytes.slice(16384));
+  h.reply(last, { fileChunk: { ...h.fields, transferId: "transfer-a", fileIndex: 1, nextOffset: 16385 } });
+  await flushFiles();
+  const commit = h.socket.sent.at(-1);
+  assert.equal(commit.operation, "humanFileCommit"); assert.equal(Object.hasOwn(commit, "files"), false);
+  assert.equal(h.element("file-cancel").disabled, true); assert.equal(h.element("human-end").disabled, false);
+  h.reply(commit, { fileChooserReceipt: { ...h.fields, transferId: "transfer-a", acknowledged: true } },
+    { eventSequence: 20003, pendingFileChooser: null });
+  await flushFiles();
+  assert.match(h.element("file-status").textContent, /网页已接收/);
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileCommit").length, 1);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+});
+
+test("file picker exception is bound to a trusted original selection and ends at change/cancel", async () => {
+  const h = fileHarness();
+  h.event("file-choose", "click", { isTrusted: false });
+  assert.equal(h.element("file-status").dataset.phase, "");
+  h.event("file-choose", "click", { isTrusted: true });
+  h.windowEvents.blur();
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+  h.event("file-picker", "cancel"); await flushFiles();
+  const cancel = h.socket.sent.at(-1);
+  assert.equal(cancel.operation, "humanFileCancel"); assert.equal(Object.hasOwn(cancel, "transferId"), false);
+  h.reply(cancel, { fileChooserCancellation: { ...h.fields, cancelled: true } }, { eventSequence: 20003, pendingFileChooser: null });
+  await flushFiles();
+  assert.match(h.element("file-status").textContent, /原有文件保持不变/);
+  h.windowEvents.blur();
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("file chooser cannot suppress ordinary blur, hidden viewer or bounded picker timeout", () => {
+  const h = fileHarness(); h.windowEvents.blur();
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  const hidden = fileHarness(); hidden.event("file-choose", "click", { isTrusted: true });
+  hidden.setHidden(true);
+  assert.equal(hidden.socket.sent.at(-1).operation, "humanEnd");
+  const picking = fileHarness(); picking.event("file-choose", "click", { isTrusted: true });
+  const timer = [...picking.timerDelays].find(([, delay]) => delay === 600000)?.[0];
+  assert.ok(timer); picking.timers.get(timer)();
+  assert.equal(picking.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("file picker waits for original held key release and ACK without synthesizing keys", () => {
+  const h = setup(1, 1, { fileChooserVersion: 1 }); h.readyHuman();
+  h.event("human-input", "keydown", { key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true });
+  const down = h.socket.sent.at(-1);
+  const chooser = { leaseId: "lease-a", generation: 1, chooserId: "held", multiple: false };
+  const state = h.humanState({ eventSequence: 20002, pendingFileChooser: chooser });
+  h.socket.message({ type: "state", ...state });
+  assert.equal(h.element("file-choose").disabled, true);
+  h.windowEvents.keyup({ key: "Control", code: "ControlLeft", keyCode: 17, preventDefault() {} });
+  assert.equal(h.socket.sent.at(-1), down);
+  h.ackInput(down, state);
+  const up = h.socket.sent.at(-1);
+  assert.equal(up.operation, "humanInput"); assert.equal(up.input.action, "up"); assert.equal(up.sequence, 2);
+  assert.equal(h.element("file-choose").disabled, true);
+  h.ackInput(up, state);
+  assert.equal(h.element("file-choose").disabled, false);
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 2);
+});
+
+for (const name of ["../escape", "a:b", "CON.txt", "CON .txt", "nul", "LPT¹", "trail.", "trail ", "bad\u0000name"]) test(`file name rejected before begin: ${JSON.stringify(name)}`, () => {
+  const h = fileHarness(); h.pick([file(name, [1])]);
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileBegin"), false);
+  assert.equal(h.element("file-choose").disabled, false);
+});
+
+for (const stage of ["begin", "read", "chunk"]) test(`file End fences all later writes/commit at ${stage}`, async () => {
+  const h = fileHarness(); let resolveRead;
+  const chosen = stage === "read" ? { name: "a.bin", size: 1, slice() { return { arrayBuffer() { return new Promise(resolve => { resolveRead = resolve; }); } }; } } : file("a.bin", [7]);
+  const begin = h.pick([chosen]);
+  if (stage !== "begin") {
+    h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } }); await flushFiles();
+  }
+  const before = h.socket.sent.at(-1);
+  h.element("human-end").click();
+  if (stage === "begin") h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } });
+  if (stage === "read") resolveRead(new Uint8Array([7]).buffer);
+  if (stage === "chunk") h.reply(before, { fileChunk: { ...h.fields, transferId: "transfer-a", fileIndex: 0, nextOffset: 1 } });
+  await flushFiles();
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileCommit").length, 0);
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileChunk").length, stage === "chunk" ? 1 : 0);
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanEnd").length, 1);
+});
+
+test("file cancellation while Begin is pending retires its late claim without any bytes", async () => {
+  const h = fileHarness(), begin = h.pick([file("a.txt", [1])]);
+  h.element("file-cancel").click(); const cancel = h.socket.sent.at(-1);
+  assert.equal(cancel.operation, "humanFileCancel");
+  h.reply(cancel, { fileChooserCancellation: { ...h.fields, cancelled: true } }, { pendingFileChooser: null, eventSequence: 20003 });
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } });
+  await flushFiles();
+  assert.equal(h.socket.sent.some(row => ["humanFileChunk", "humanFileCommit"].includes(row.operation)), false);
+});
+
+test("wrong file chunk offset ends the lease without retry or commit", async () => {
+  const h = fileHarness(), begin = h.pick([file("a.txt", [1, 2])]);
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 2 } }); await flushFiles();
+  const chunk = h.socket.sent.at(-1);
+  h.reply(chunk, { fileChunk: { ...h.fields, transferId: "transfer-a", fileIndex: 0, nextOffset: 1 } }); await flushFiles();
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileCommit"), false);
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileChunk").length, 1);
+});
+
+test("file commit retains actual ACK after End and never restores input", async () => {
+  const h = fileHarness(), begin = h.pick([file("empty.txt", [])]);
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 0 } }); await flushFiles();
+  const commit = h.socket.sent.at(-1); assert.equal(commit.operation, "humanFileCommit");
+  h.element("human-end").click();
+  h.reply(commit, { fileChooserReceipt: { ...h.fields, transferId: "transfer-a", acknowledged: true } },
+    { eventSequence: 20003, pendingFileChooser: null });
+  await flushFiles();
+  assert.match(h.element("file-status").textContent, /网页已接收/);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileCommit").length, 1);
+});
+
+test("same chooser metadata is immutable while old sequenced state is ignored", () => {
+  const h = fileHarness();
+  h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20001, pendingFileChooser: { ...h.chooser, multiple: false } }) });
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+  h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20003, pendingFileChooser: { ...h.chooser, source: { origin: "https://changed.example", frame: "child" } } }) });
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("file selection needs its original picker intent and retired selection cannot affect a new chooser", async () => {
+  const h = fileHarness();
+  h.element("file-picker").files = [file("unsolicited.txt", [1])]; h.event("file-picker", "change");
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileBegin"), false);
+  const begin = h.pick([file("empty.txt", [])]);
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 0 } }); await flushFiles();
+  const commit = h.socket.sent.at(-1);
+  h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20003, pendingFileChooser: { ...h.chooser, chooserId: "chooser-b" } }) });
+  h.reply(commit, { fileChooserReceipt: { ...h.fields, transferId: "transfer-a", acknowledged: true } });
+  await flushFiles();
+  assert.equal(h.element("file-chooser").dataset.chooserId, "chooser-b");
+  assert.equal(h.element("file-status").textContent, "");
+  assert.equal(h.element("file-choose").disabled, false);
+});
+
+test("navigation during local file read cancels old transfer and never uploads to successor", async () => {
+  const h = fileHarness(); let resolveRead;
+  const chosen = { name: "one.bin", size: 1, slice() { return { arrayBuffer() { return new Promise(resolve => { resolveRead = resolve; }); } }; } };
+  const begin = h.pick([chosen]);
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } }); await flushFiles();
+  h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  resolveRead(new Uint8Array([1]).buffer); await flushFiles();
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileChunk" || row.operation === "humanFileCommit"), false);
+  assert.equal(h.element("file-chooser").hidden, true);
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+});
+
+test("file chooser capability cannot change within an admitted lease", () => {
+  const h = fileHarness();
+  const human = { ...h.humanState().human }; delete human.fileChooserVersion;
+  h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20003, human, pendingFileChooser: null }) });
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("local file read has a fixed deadline that cannot dispatch after expiry", async () => {
+  const h = fileHarness(); let resolveRead;
+  const chosen = { name: "one.bin", size: 1, slice() { return { arrayBuffer() { return new Promise(resolve => { resolveRead = resolve; }); } }; } };
+  const begin = h.pick([chosen]);
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } }); await flushFiles();
+  const timer = [...h.timerDelays].find(([, delay]) => delay === 600000)?.[0];
+  assert.ok(timer); h.timers.get(timer)();
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  resolveRead(new Uint8Array([1]).buffer); await flushFiles();
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileChunk" || row.operation === "humanFileCommit"), false);
+});
 
 function clipboardHarness(options = {}) {
   const writes = [];
@@ -497,10 +706,12 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
     URL: class extends URL { static createObjectURL() { return `blob:${++nextBlob}`; } static revokeObjectURL(value) { revoked.push(value); } },
     Image: FakeImage, Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     atob: value => Buffer.from(value, "base64").toString("binary"),
+    btoa: value => Buffer.from(value, "binary").toString("base64"),
     setTimeout(callback, delay) { timers.set(++timerId, callback); timerDelays.set(timerId, delay); return timerId; },
     clearTimeout(id) { timers.delete(id); timerDelays.delete(id); }, setInterval() {},
     window: { addEventListener(name, handler) { windowEvents[name] = handler; } }
   });
+  vm.runInContext(fileSource, context);
   vm.runInContext(source, context);
   function authenticate() { socket.open(); socket.message({ type: "authenticated" }); }
   function state(revision = 1, mode = "running", cleanupComplete = false, extra = {}) {
@@ -511,12 +722,13 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
   function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
-  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}) }, ...extra }); }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}), ...(clipboard.fileChooserVersion !== undefined ? { fileChooserVersion: clipboard.fileChooserVersion } : {}) }, ...extra }); }
   function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
   function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
   function ackInput(request = socket.sent.at(-1), extra = {}) { respond(request.id, { ...humanState(), inputReceipt: { acknowledged: true, leaseId: request.leaseId, generation: request.generation, sequence: request.sequence }, ...extra }); }
-  return { element, socket, images, revoked, timers, timerDelays, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput };
+  return { element, socket, images, revoked, timers, timerDelays, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput,
+    setHidden(hidden) { context.document.hidden = hidden; documentEvents.visibilitychange?.(); } };
 }
 
 function beginPreparing(h, generation = 1, state = "preparing") {

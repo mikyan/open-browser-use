@@ -31,6 +31,14 @@ func HumanFields(operation string) []string {
 		return []string{"operation", "leaseId", "generation", "sequence", "input"}
 	case "humanDialogRespond":
 		return []string{"operation", "leaseId", "generation", "dialogId", "accept"}
+	case "humanFileBegin":
+		return []string{"operation", "leaseId", "generation", "chooserId", "files"}
+	case "humanFileChunk":
+		return []string{"operation", "leaseId", "generation", "chooserId", "transferId", "fileIndex", "offset", "data"}
+	case "humanFileCommit":
+		return []string{"operation", "leaseId", "generation", "chooserId", "transferId"}
+	case "humanFileCancel":
+		return []string{"operation", "leaseId", "generation", "chooserId"}
 	}
 	return nil
 }
@@ -127,12 +135,17 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 		optional = []string{"deliveryId"}
 	} else if operation == "humanDialogRespond" {
 		optional = []string{"promptText"}
+	} else if operation == "humanFileCancel" {
+		optional = []string{"transferId"}
 	}
 	if required == nil || !exact(f, required, optional) || !choice(f["operation"], operation) {
 		return bad
 	}
 	if operation == "humanDialogRespond" {
 		return validateDialogResponse(f)
+	}
+	if IsHumanFileOperation(operation) {
+		return validateHumanFileCommand(operation, f)
 	}
 	if operation == "humanBegin" {
 		if !integer(f["tabId"], 1, MaxSafeInteger) || f["deliveryId"] != nil && !DeliveryID(f["deliveryId"]) {
@@ -216,6 +229,7 @@ type Viewport struct {
 
 // HumanState deliberately omits document, target, channel and native handles.
 type HumanState struct {
+	FileChooserVersion       uint64    `json:"fileChooserVersion,omitempty"`
 	State                    string    `json:"state"`
 	LeaseID                  string    `json:"leaseId"`
 	TabID                    uint64    `json:"tabId"`
@@ -278,6 +292,9 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	}
 	if raw, ok := f["clipboardTransferVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human clipboard transfer")
+	}
+	if raw, ok := f["fileChooserVersion"]; ok && !integer(raw, 1, 1) {
+		return nil, errors.New("unsupported human file chooser")
 	}
 	return &result, nil
 }

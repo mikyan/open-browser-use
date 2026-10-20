@@ -4,6 +4,7 @@
       "eventSequence": 1,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -40,6 +41,7 @@
       "eventSequence": 2,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -95,6 +97,7 @@
       "eventSequence": 4,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -128,6 +131,7 @@
       "eventSequence": 5,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -188,6 +192,7 @@
       "eventSequence": 8,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": null,
       "status": {
         "cleanupComplete": true,
@@ -215,6 +220,7 @@
       "eventSequence": 9,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -251,6 +257,7 @@
       "eventSequence": 10,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -321,6 +328,7 @@
         }
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -358,6 +366,7 @@
         }
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -414,6 +423,7 @@
         }
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -448,6 +458,7 @@
         "viewport": null
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -485,6 +496,7 @@
         }
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -540,6 +552,7 @@
         "leaseId": "result-human-3"
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": null,
       "status": {
         "cleanupComplete": true,
@@ -571,6 +584,7 @@
         "leaseId": "result-human-3"
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -611,6 +625,7 @@
         "leaseId": "result-human-3"
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -685,6 +700,7 @@
         "leaseId": "result-human-3"
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -726,6 +742,7 @@
         "leaseId": "result-human-3"
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -781,6 +798,7 @@
         "leaseId": "result-human-5"
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": null,
       "status": {
         "cleanupComplete": true,
@@ -824,6 +842,7 @@
       }
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -854,6 +873,7 @@
       "leaseId": "result-human-3"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -896,6 +916,7 @@
       "sequence": 1
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -933,6 +954,7 @@
         }
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -966,6 +988,7 @@
         "viewport": null
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": true,
@@ -993,6 +1016,7 @@
     "eventSequence": 0,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": false,
@@ -1019,6 +1043,7 @@
     "eventSequence": 8,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -1059,6 +1084,7 @@
       "leaseId": "result-human-3"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1089,6 +1115,7 @@
       "leaseId": "result-human-5"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -1119,6 +1146,7 @@
       "leaseId": "result-human-3"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1158,6 +1186,7 @@
       "leaseId": "result-human-3"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1194,6 +1223,7 @@
       "eventSequence": 6,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -1229,6 +1259,7 @@
       "eventSequence": 4,
       "human": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "selectedTabId": 7,
       "status": {
         "cleanupComplete": false,
@@ -1262,6 +1293,7 @@
     "eventSequence": 9,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1297,6 +1329,7 @@
     "eventSequence": 11,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -1332,6 +1365,7 @@
     "eventSequence": 1,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": false,
@@ -1367,6 +1401,7 @@
     "eventSequence": 3,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": false,

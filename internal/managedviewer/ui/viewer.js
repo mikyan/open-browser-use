@@ -29,6 +29,7 @@
   let retiredHumanGeneration = -1;
   let humanEndAttempted = false;
   let pendingDialog = null, displayedDialog = "", claimedDialog = "";
+  let pendingFileChooser = null;
   const dialogSources = new Map();
   const inputQueue = [], pressedButtons = new Set(), pressedKeys = new Set(), capturedPointers = new Set();
   const maxQueuedInputs = 32;
@@ -39,6 +40,15 @@
   const clipboardInputs = new WeakMap();
   const clipboardKeys = new Set();
   const transferFailures = new Set(["UNSUPPORTED", "DENIED", "BUSY", "CANCELLED", "TIMEOUT", "CHANGED", "LIMIT", "READ_FAILED"]);
+  const fileElements = Object.fromEntries(["file-chooser", "file-source", "file-description", "file-choose", "file-cancel", "file-picker", "file-status"].map(id => [id, document.getElementById(id)]));
+  const humanFiles = ManagedHumanFiles.create({
+    elements: fileElements,
+    request: (operation, fields) => new Promise((resolve, reject) => {
+      if (send(operation, fields, { resolve, reject }) === undefined) reject(new Error("Viewer connection unavailable"));
+    }),
+    onFatal: message => endHuman(message),
+    onChange: () => render(),
+  });
 
   function renderClipboard() {
     const record = localClipboard;
@@ -192,6 +202,7 @@
       (!Object.hasOwn(value, "inputBudgetVersion") || value.inputBudgetVersion === 1) &&
       (!Object.hasOwn(value, "keyRepeatVersion") || value.keyRepeatVersion === 1) &&
       (!Object.hasOwn(value, "clipboardTransferVersion") || value.clipboardTransferVersion === 1) &&
+      (!Object.hasOwn(value, "fileChooserVersion") || value.fileChooserVersion === 1) &&
       (value.state !== "preparing" || value.viewport === null) &&
       (value.state !== "navigating" || value.generation > 0 && value.viewport === null) &&
       (value.viewport === null ? value.state !== "active" || value.generation === 0 :
@@ -263,13 +274,14 @@
   }
   function humanReady(releasingHeldInput = false) {
     return authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding &&
-      (!pendingDialog || releasingHeldInput) &&
+      (!(pendingDialog || pendingFileChooser) || releasingHeldInput) &&
       humanAdmitted && human?.state === "active" && human.leaseId === humanOwner && decodedHuman?.leaseId === humanOwner &&
       human.generation > retiredHumanGeneration && human.generation > 0 && human.viewport?.width > 0 && human.viewport?.height > 0 &&
       decodedHuman.generation === human.generation && decodedHuman.tabId === human.tabId;
   }
 
   function clearHumanInput() {
+    humanFiles.retire();
     retireClipboard();
     decodedHuman = null;
     awaitingHumanFrame = null;
@@ -369,8 +381,12 @@
     el["human-status"].hidden = !humanReserved() && !humanAction && !humanOwner;
     el["human-status"].textContent = humanAction === "humanBegin" || human?.state === "starting" ? "正在暂停 Agent 并等待原控制释放…" : humanEnding || human?.state === "releasing" ? "人工输入已禁用，正在等待释放确认；不会重试网页操作。" : human?.state === "error" ? "人工控制未完成释放。请完成接管或停止会话；Agent 保持暂停。" : human?.state === "navigating" || human && human.generation <= retiredHumanGeneration ? "页面正在跳转，输入已暂停；等待新画面后可继续，旧输入不会重放。" : ready ? "你正在操作 · 点击画面后输入；切换查看窗口会结束接管。完成后 Agent 仍保持暂停。" : "你正在接管 · 等待当前画面解码，暂不接收输入。";
     if (pendingDialog && !humanEnding) el["human-status"].textContent = "网页弹窗等待处理，页面输入暂时暂停；Agent 保持暂停。";
+    if (pendingFileChooser && !humanEnding) el["human-status"].textContent = "网页等待选择文件，页面输入暂时暂停；Agent 保持暂停。";
     renderClipboard();
     renderDialog();
+    humanFiles.update(Boolean(authenticated && available && !revoked && !stopped && !pendingAction && !humanAction && !humanEnding && !pendingDialog &&
+      humanAdmitted && admittedHumanState(human) && human.leaseId === humanOwner && pendingFileChooser),
+    !pressedKeys.size && !pressedButtons.size && !inputQueue.length && humanInputId === null);
     freshness();
   }
 
@@ -424,12 +440,17 @@
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.keyRepeatVersion !== human.keyRepeatVersion) throw new Error("原人工接管的重复按键能力发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "clipboardTransferVersion") && nextHuman.clipboardTransferVersion !== 1) throw new Error("人工剪贴板传输版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.clipboardTransferVersion !== human.clipboardTransferVersion) throw new Error("原人工接管的剪贴板传输能力发生变化。");
+    if (nextHuman && Object.hasOwn(nextHuman, "fileChooserVersion") && nextHuman.fileChooserVersion !== 1) throw new Error("人工文件选择版本无效。");
+    if (human && nextHuman?.leaseId === human.leaseId && nextHuman.fileChooserVersion !== human.fileChooserVersion) throw new Error("原人工接管的文件选择能力发生变化。");
+    const nextChooser = value.pendingFileChooser ?? null;
+    if (!ManagedHumanFiles.validPending(nextChooser, nextHuman)) throw new Error("文件选择请求身份无效。");
     const nextDialog = value.pendingDialog ?? null;
     if (!validDialog(nextDialog, nextHuman)) throw new Error("网页弹窗身份无效。");
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
     if (nextView && Object.hasOwn(nextView, "inputBudgetVersion")) throw new Error("只读查看不能声明人工等待预算。");
     if (nextView && Object.hasOwn(nextView, "keyRepeatVersion")) throw new Error("只读查看不能声明人工重复按键。");
     if (nextView && Object.hasOwn(nextView, "clipboardTransferVersion")) throw new Error("只读查看不能声明人工剪贴板传输。");
+    if (nextView && Object.hasOwn(nextView, "fileChooserVersion")) throw new Error("只读查看不能声明人工文件选择。");
     if (!validView(nextView) || nextView && nextHuman || nextView && (nextView.tabId !== value.selectedTabId || !nextTabs.some(tab => tab.id === nextView.tabId && tab.kind === "result"))) throw new Error("独立查看身份无效。");
     if (view && nextView && view.leaseId === nextView.leaseId && nextView.generation < view.generation) return;
     const waitingView = awaitingViewFrame;
@@ -466,6 +487,16 @@
     }
     human = nextHuman;
     pendingDialog = nextDialog;
+    pendingFileChooser = nextChooser;
+    humanFiles.accept(nextChooser);
+    if (nextChooser) {
+      // A chooser may open on down. Only original releases may follow; queued
+      // moves have no remaining destination, and other queued actions require End.
+      for (let index = inputQueue.length - 1; index >= 0; index--)
+        if (inputQueue[index].type === "pointer" && inputQueue[index].action === "move") inputQueue.splice(index, 1);
+      if (inputQueue.some(input => !["pointer", "key"].includes(input.type) || input.action !== "up"))
+        endHuman("文件选择已打开，先前尚未发送的输入已取消；正在释放接管。");
+    }
     if (humanAction === "humanBegin" && human && !humanOwner) {
       humanOwner = human.leaseId;
       // Blur can precede Begin's lease. Bind its progress only at the original
@@ -530,7 +561,7 @@
     if (decodedHuman && Number(el.frame.dataset.eventSequence) <= sequence) decodedHuman = null;
   }
 
-  function send(operation, fields = {}) {
+  function send(operation, fields = {}, completion = null) {
     if (!authenticated || ws.readyState !== WebSocket.OPEN) return;
     const id = ++nextId;
     // Only the native owner accounts modal time. This immutable outer watchdog
@@ -541,6 +572,7 @@
       const entry = pending.get(id);
       if (!entry) return;
       pending.delete(id);
+      entry.completion?.reject(new Error("Original command confirmation timed out"));
       if (entry.generationRetired || entry.selectionEpoch !== undefined && entry.selectionEpoch !== selectionEpoch || entry.humanEpoch !== undefined && entry.humanEpoch !== humanEpoch || entry.operation === "humanInput" && !currentInput(entry, id)) return;
       if (pendingSelectId === id) { pendingSelectId = null; pendingSelectTab = null; }
       if (pendingAction === operation) pendingAction = null;
@@ -550,7 +582,7 @@
       error("等待确认超时，不能据此判断操作是否完成。请刷新状态；不会自动重试操作。");
       render();
     }, operation === "stop" ? 55000 : budgetedInput ? 340000 : 35000);
-    pending.set(id, { operation, timeout, fields, ...(operation.startsWith("human") ? { humanEpoch } : {}), ...(operation === "select" ? { selectionEpoch } : {}) });
+    pending.set(id, { operation, timeout, fields, completion, ...(operation.startsWith("human") ? { humanEpoch } : {}), ...(operation === "select" ? { selectionEpoch } : {}) });
     if (operation === "select") { pendingSelectId = id; pendingSelectTab = fields.tabId; }
     if (["pause", "resume", "stop"].includes(operation)) pendingAction = operation;
     if (["humanBegin", "humanEnd"].includes(operation)) humanAction = operation;
@@ -639,7 +671,8 @@
   }
 
   function drainInput() {
-    if (!humanReady() || humanInputId !== null || !inputQueue.length) return;
+    const release = pendingFileChooser && ["pointer", "key"].includes(inputQueue[0]?.type) && inputQueue[0].action === "up";
+    if (!humanReady(Boolean(release)) || pendingDialog || humanInputId !== null || !inputQueue.length) return;
     const input = inputQueue.shift();
     humanInputId = send("humanInput", { leaseId: human.leaseId, generation: human.generation, sequence: ++humanSequence, input });
     const clipboard = clipboardInputs.get(input);
@@ -674,7 +707,7 @@
 
   function pointer(event, action) {
     const button = buttons[event.button];
-    const releasingHeldInput = Boolean(pendingDialog) && action === "up" && pressedButtons.has(button);
+    const releasingHeldInput = Boolean(pendingDialog || pendingFileChooser) && action === "up" && pressedButtons.has(button);
     if (!humanReady(releasingHeldInput)) return;
     if (event.pointerType && event.pointerType !== "mouse") { endHuman("当前接管仅支持鼠标输入；已请求释放控制。"); return; }
     const position = point(event, releasingHeldInput);
@@ -708,7 +741,7 @@
 
   function keyboard(event, action) {
     const heldRelease = action === "up" && pressedKeys.has(event.code);
-    const releasingHeldInput = Boolean(pendingDialog) && heldRelease;
+    const releasingHeldInput = Boolean(pendingDialog || pendingFileChooser) && heldRelease;
     if (!humanReady(releasingHeldInput) || !heldRelease && (event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key))) return;
     // The browser supplies local clipboard text through paste. Forwarding this
     // shortcut would instead ask the controlled browser to use its clipboard.
@@ -773,6 +806,7 @@
     human = null; humanOwner = ""; humanEnding = humanEndAttempted = composing = false;
     humanAdmitted = false;
     pendingDialog = null; displayedDialog = claimedDialog = "";
+    pendingFileChooser = null; humanFiles.reset();
     dialogSources.clear();
     retiredHumanGeneration = -1;
     compositionScope = null;
@@ -800,7 +834,7 @@
   // original held key's release must still be observed there, once, before
   // ordinary textarea handlers. No new keydown is admitted through this path.
   window.addEventListener("keyup", event => {
-    if (pendingDialog && pressedKeys.has(event.code)) keyboard(event, "up");
+    if ((pendingDialog || pendingFileChooser) && pressedKeys.has(event.code)) keyboard(event, "up");
   }, true);
   el["human-input"].addEventListener("paste", event => {
     event.preventDefault();
@@ -835,7 +869,7 @@
     if (humanReady())
       endHuman("输入区域已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release");
   });
-  window.addEventListener("blur", () => { if ((humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
+  window.addEventListener("blur", () => { if ((humanReserved() || humanAction === "humanBegin") && !humanEnding && !humanFiles.pickerActive()) endHuman("查看窗口已失焦，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
   document.addEventListener("visibilitychange", () => { if (document.hidden && (humanReserved() || humanAction === "humanBegin") && !humanEnding) endHuman("查看窗口已隐藏，正在释放人工控制；Agent 保持暂停。", false, "human-release"); });
 
   el.refresh.addEventListener("click", () => { error(); send("status"); });
@@ -915,6 +949,17 @@
         if (!entry) return;
         clearTimeout(entry.timeout);
         pending.delete(value.id);
+        if (entry.completion) {
+          // File receipts settle their original promise even after End or
+          // navigation. Their callback cannot revive the retired transfer.
+          if (value.error) entry.completion.reject(new Error(value.error.message || "File command failed"));
+          else {
+            try { acceptState(value.result); entry.completion.resolve(value.result); }
+            catch (error) { entry.completion.reject(error); throw error; }
+          }
+          render();
+          return;
+        }
         if (entry.generationRetired || entry.selectionEpoch !== undefined && entry.selectionEpoch !== selectionEpoch || entry.humanEpoch !== undefined && entry.humanEpoch !== humanEpoch) return;
         if (pendingSelectId === value.id) { pendingSelectId = null; pendingSelectTab = null; }
         if (pendingAction === entry.operation) pendingAction = null;
@@ -969,7 +1014,7 @@
             const original = value.result?.human;
             if (!validHuman(original) || !admittedHumanState(original) || original.tabId !== entry.fields.tabId ||
                 humanOwner && original.leaseId !== humanOwner || human &&
-                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion))
+                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion || original.fileChooserVersion !== human.fileChooserVersion))
               throw new Error("原接管回执不匹配。");
           }
           acceptState(value.result, value.id);
@@ -1001,7 +1046,10 @@
     blockHuman();
     pendingAction = null;
     pendingSelectId = pendingSelectTab = null;
-    for (const { timeout } of pending.values()) clearTimeout(timeout);
+    for (const { timeout, completion } of pending.values()) {
+      clearTimeout(timeout);
+      completion?.reject(new Error("Viewer connection closed"));
+    }
     pending.clear();
     if (!stopped) error("查看连接已断开，不能据此判断会话已停止。运行 managed view 获取新链接，或使用 managed stop 停止会话。");
     render();

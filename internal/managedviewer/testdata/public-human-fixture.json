@@ -9,6 +9,7 @@
       "viewport": null
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -38,6 +39,7 @@
       "leaseId": "fixture-human-lease"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": true,
@@ -87,6 +89,7 @@
       "sequence": 1
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -116,6 +119,7 @@
       "leaseId": "fixture-human-lease"
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": false,
@@ -150,6 +154,7 @@
       }
     },
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": true,
@@ -175,6 +180,7 @@
     "eventSequence": 0,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": null,
     "status": {
       "cleanupComplete": false,
@@ -200,6 +206,7 @@
     "eventSequence": 1,
     "human": null,
     "pendingDialog": null,
+    "pendingFileChooser": null,
     "selectedTabId": 7,
     "status": {
       "cleanupComplete": false,

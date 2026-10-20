@@ -154,6 +154,9 @@ debugger、history 和 tab groups。
   再发送原快捷键；新纯文本随原 ACK 返回，失败不撤销 ACK。结束先释放持键，
   再等待实际读取；viewer 的本地写入独立保留至结算，见
   [人工剪贴板](references/managed-human-clipboard.md)。
+  人工文件选择由独立 chooser 模块绑定原 Opening、节点和文档证明；查看器
+  只传名称与字节，Go 在原 Session 私有目录分块暂存。已提交文件保留到实际
+  浏览器退出，未提交传输在撤权时清理，见[人工上传](references/managed-human-files.md)。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及
@@ -588,6 +591,10 @@ dot；hyphen 版本 `com.ifuryst.open-computer-use.extension` 会被
   finalize关闭它而非整窗，保留后来加入的其他页面。三SDK与CLI/MCP按
   `backgroundWindowVersion:1`检查支持，详见
   [background task windows](references/background-windows.md)。
+  v5 的 `managed-result`/user 记录仅承接已验证的原 managed 结果页重新认领，
+  保持原未分组普通窗口；不使用普通无组兼容模式，也不授予 agent 删除权限。
+  worker 重启后隔离旧记录，不能由持久 tabId 恢复原交付证明。原文档/目标/
+  位置证明与显式恢复范围见[结果页接续](references/managed-browser-session.md)。
   新 session 的默认任务组名是 `Task - OBU`，上层 runtime 应通过
   `nameSession`/`name-session` 按 `<short task> - OBU` 设置更具体的任务名；
   grouped `deliverable` tabs 移动到共享 `✅ Open Browser Use` tab group，`handoff`

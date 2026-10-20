@@ -22,7 +22,7 @@ import (
 	"github.com/ifuryst/open-browser-use/internal/managedprotocol"
 )
 
-//go:embed ui/index.html ui/viewer.js ui/viewer.css
+//go:embed ui/index.html ui/viewer.js ui/viewer.css ui/human-files.js
 var assets embed.FS
 
 type Backend interface {
@@ -71,6 +71,11 @@ type Server struct {
 }
 
 type connection struct {
+	pendingFileChooser     *managedprotocol.PendingFileChooser
+	fileClaims             map[managedprotocol.FileChooserIdentity]viewerFileClaim
+	humanFileVersion       uint64
+	files                  chan struct{}
+	fileCancels            chan struct{}
 	ws                     *websocket.Conn
 	ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -328,6 +333,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		name, kind = "ui/index.html", "text/html; charset=utf-8"
 	case "/viewer.js":
 		name, kind = "ui/viewer.js", "text/javascript; charset=utf-8"
+	case "/human-files.js":
+		name, kind = "ui/human-files.js", "text/javascript; charset=utf-8"
 	case "/viewer.css":
 		name, kind = "ui/viewer.css", "text/css; charset=utf-8"
 	default:
@@ -380,7 +387,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	digest := sha256.Sum256([]byte(token))
-	c := &connection{ws: ws, ctx: ctx, cancel: cancel, replies: make(chan outbound, 16), state: make(chan json.RawMessage, 1), frames: make(chan json.RawMessage, 1), work: make(chan struct{}, 4), inputs: make(chan command, 32), releases: make(chan struct{}, 1), cleanupDone: make(chan struct{}), humanRevoked: true}
+	c := &connection{ws: ws, ctx: ctx, cancel: cancel, replies: make(chan outbound, 16), state: make(chan json.RawMessage, 1), frames: make(chan json.RawMessage, 1), work: make(chan struct{}, 4), inputs: make(chan command, 32), files: make(chan struct{}, 1), fileCancels: make(chan struct{}, 1), releases: make(chan struct{}, 1), cleanupDone: make(chan struct{}), humanRevoked: true}
 	s.mu.Lock()
 	if s.closed || s.active != nil || s.used || !time.Now().Before(s.expires) || subtle.ConstantTimeCompare(digest[:], s.ticket[:]) != 1 {
 		s.mu.Unlock()
@@ -461,6 +468,31 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			if code := c.admitInput(request); code != "" {
 				c.failure(request.id, code, "人工控制已失效或输入顺序不匹配；未发送的操作不会重放。")
 			}
+			continue
+		}
+
+		if managedprotocol.IsHumanFileOperation(request.operation) {
+			lane := c.files
+			if request.operation == "humanFileCancel" {
+				lane = c.fileCancels
+			}
+			select {
+			case lane <- struct{}{}:
+			default:
+				c.failure(request.id, "HUMAN_FILE_BUSY", "原文件传输仍在处理中。")
+				continue
+			}
+			if code := c.admitFile(&request); code != "" {
+				<-lane
+				c.failure(request.id, code, "原文件选择已失效，未发送的文件不会重放。")
+				continue
+			}
+			c.workers.Add(1)
+			go func(request command, lane chan struct{}) {
+				defer c.workers.Done()
+				defer func() { <-lane }()
+				s.command(c, request)
+			}(request, lane)
 			continue
 		}
 		release := request.operation == "humanEnd" || request.operation == "pause" || request.operation == "select" && bytesNullTab(request.payload)
@@ -565,6 +597,12 @@ func (s *Server) command(c *connection, request command) {
 	}
 	if err != nil {
 		var coded interface{ UserErrorCode() string }
+		if managedprotocol.IsHumanFileOperation(request.operation) {
+			if code := fileUnsentCode(err); code != "" {
+				c.failure(request.id, code, "文件传输未提交到原网页，请取消后重新选择。")
+				return
+			}
+		}
 		if request.operation == "humanDialogRespond" {
 			if code := dialogUnsentCode(err); code != "" {
 				c.failure(request.id, code, "原弹窗决策未提交，请等待最新状态；不会自动重试。")
@@ -576,7 +614,7 @@ func (s *Server) command(c *connection, request command) {
 			c.failure(request.id, "HUMAN_GENERATION_STALE", "原页面代次已结束，此输入未提交；不会重放到新页面。")
 			return
 		}
-		if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" {
+		if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" || managedprotocol.IsHumanFileOperation(request.operation) {
 			s.releaseFailedHuman(c, request.epoch)
 		}
 		if (request.operation == "select" || request.operation == "humanBegin") && errors.As(err, &coded) && coded.UserErrorCode() == "OBU_HUMAN_CAPTURE_UNSUPPORTED" {
@@ -598,7 +636,7 @@ func (s *Server) command(c *connection, request command) {
 		var sourceErr *dialogSourceStateError
 		if errors.As(err, &sourceErr) {
 			s.releaseFailedHuman(c, sourceErr.epoch)
-		} else if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" {
+		} else if request.operation == "humanBegin" || request.operation == "humanInput" || request.operation == "humanDialogRespond" || managedprotocol.IsHumanFileOperation(request.operation) {
 			s.releaseFailedHuman(c, request.epoch)
 		}
 		c.failure(request.id, "OPERATION_UNCONFIRMED", "人工控制原回执不匹配；输入已禁用，请完成接管或停止会话。")

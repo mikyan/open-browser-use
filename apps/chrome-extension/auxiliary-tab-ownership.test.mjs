@@ -20,6 +20,45 @@ function environment({ initial, read, write, access, maxRecords = 256 } = {}) {
 }
 const commit = (store, record, options = {}) => store.commit(record, { windowId: 10, check() {}, async validate() {}, ...options });
 
+test("version 5 managed-result requires explicit user admission and never recovers worker-local authority", async () => {
+  const { store, disk, storage } = environment(); await store.ready;
+  const record = store.reserve(params());
+  await commit(store, record, { kind: "managed-result" });
+  assert.equal(store.owner(7), record); assert.equal(record.origin, "user");
+  assert.equal(disk[KEY].version, 5);
+  const recovered = new AuxiliaryTabOwnership({ storage });
+  await recovered.ready;
+  assert.equal(recovered.owner(7), undefined);
+  assert.equal(recovered.entry(7).phase, "quarantined");
+  assert.throws(() => recovered.reserve(params()), /CLEANUP_REQUIRED/);
+  await recovered.remove(recovered.entry(7));
+  assert.deepEqual(disk[KEY].records, []);
+});
+
+test("managed-result cannot be created, imported by old schemas, or relabeled as agent/excluded", async () => {
+  const { store } = environment(); await store.ready;
+  assert.throws(() => store.reserveCreation(params(), { kind: "managed-result" }), /STATE_INVALID/);
+  const agent = store.reserveCreation(params(), { kind: "ordinary" });
+  await store.bindCreated(agent, { id: 8, windowId: 10 });
+  await assert.rejects(commit(store, agent, { kind: "managed-result" }), /Auxiliary commit/);
+  for (const value of [
+    ...[1, 2, 3, 4].map(version => ({ version, records: [persisted(7, { kind: "managed-result" })] })),
+    { version: 5, records: [persisted(7, { kind: "managed-result", origin: "agent" })] },
+    { version: 5, records: [persisted(7, { kind: "managed-result", phase: "excluded", excludedGroupId: 10 })] }
+  ]) await assert.rejects(environment({ initial: value }).store.ready, /STATE_INVALID/);
+});
+
+test("pending managed-result storage and failed cleanup preserve only the original denial", async () => {
+  const { store, disk } = environment({ initial: { version: 5, records: [persisted(7, { kind: "managed-result", phase: "pending" })] } });
+  await store.ready;
+  const record = store.entry(7);
+  assert.equal(record.phase, "quarantined"); assert.equal(store.owner(7), undefined);
+  await assert.rejects(store.remove(record, { async cleanup() { throw new Error("original detach failed"); } }), /detach failed/);
+  assert.equal(store.entry(7), record); assert.equal(disk[KEY].records[0].phase, "quarantined");
+  await store.remove(record);
+  assert.equal(store.entry(7), undefined);
+});
+
 test("explicit session storage and trusted access are required; malformed storage fails closed", async () => {
   assert.throws(() => new AuxiliaryTabOwnership(), /requires chrome.storage.session/);
   for (const initial of [{ version: 9, records: [] }, { version: 1, records: [persisted(), persisted()] },
@@ -234,9 +273,9 @@ test("cancel during initial storage read cannot revive the cancelled reservation
   assert.equal(store.owner(7)?.claimId, "claim-7", "pre-existing membership survives; the old claim operation does not");
 });
 
-test("version four storage preserves legacy popup and version two ordinary agent/user identity", async () => {
+test("version five storage preserves legacy popup and version two ordinary agent/user identity", async () => {
   const legacy = environment({ initial: { version: 1, records: [persisted()] } }); await legacy.store.ready;
-  assert.equal(legacy.store.owner(7).kind, "popup"); assert.equal(legacy.disk[KEY].version, 4);
+  assert.equal(legacy.store.owner(7).kind, "popup"); assert.equal(legacy.disk[KEY].version, 5);
   for (const origin of ["agent", "user"]) {
     const f = environment({ initial: { version: 2, records: [persisted(7, { kind: "ordinary", origin })] } }); await f.store.ready;
     assert.equal(f.store.owner(7).origin, origin);
@@ -254,7 +293,7 @@ test("created-page authority is durable only in its original worker and every re
   const original = live.store.reserve(params());
   await commit(live.store, original, { kind: "created-page" });
   assert.equal(live.store.owner(7), original);
-  assert.equal(live.disk[KEY].version, 4);
+  assert.equal(live.disk[KEY].version, 5);
   assert.equal(live.disk[KEY].records[0].kind, "created-page");
   for (const phase of ["pending", "committed", "quarantined"]) {
     const initial = clone(live.disk[KEY]); initial.records[0].phase = phase;
@@ -308,7 +347,7 @@ test("background-window identity is versioned, durable, and recovery never admit
     const f = environment({ initial: { version: 3, records: [record] } }); await f.store.ready;
     assert.equal(f.store.owner(7)?.kind, phase === "committed" ? "background-window" : undefined);
     assert.equal(f.store.entry(7).phase, phase === "pending" ? "quarantined" : phase);
-    assert.equal(f.disk[KEY].version, 4);
+    assert.equal(f.disk[KEY].version, 5);
   }
   for (const [version, changes] of [[2, {}], [3, { origin: "user" }], [3, { phase: "excluded" }],
     [3, { phase: "excluded", origin: "user", excludedGroupId: 10 }]]) {

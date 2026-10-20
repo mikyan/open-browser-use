@@ -1065,6 +1065,7 @@ class BrowserBackend {
       if (claim) void this.releaseAuxiliaryClaim(claim, { destroyed: true }).catch(() => {});
     });
     chrome.tabs?.onUpdated?.addListener((tabId, change) => {
+      if (Object.hasOwn(change, "groupId") || Object.hasOwn(change, "pinned")) this.invalidateManagedResultReclaim(tabId);
       if (Object.hasOwn(change, "groupId") || Object.hasOwn(change, "pinned")) this.managedResults.placementChanged(tabId);
       if (Object.hasOwn(change, "groupId") || Object.hasOwn(change, "pinned")) this.managedHuman.invalidateTab(tabId);
       const delivery = this.auxiliaryDeliveries.get(tabId);
@@ -1087,20 +1088,21 @@ class BrowserBackend {
         void this.clipboard.invalidateTab(tabId).catch(() => {});
         this.invalidateAuxiliaryTab(tabId);
       }
-      if (change.pinned === true && ["ordinary", "background-window", "created-page"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) this.invalidateAuxiliaryTab(tabId);
+      if (change.pinned === true && ["ordinary", "background-window", "created-page", "managed-result"].includes(this.auxiliaryTabs.owner(tabId)?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
     chrome.tabs?.onActivated?.addListener(info => this.observeCreationChange(info.tabId, "activated", info));
     chrome.webNavigation?.onCreatedNavigationTarget?.addListener(details => this.pageWaits.observe(details));
     chrome.tabs?.onMoved?.addListener(tabId => {
+      this.invalidateManagedResultReclaim(tabId);
       this.managedResults.placementChanged(tabId);
       this.managedHuman.invalidateTab(tabId);
       this.invalidateAuxiliaryDelivery(tabId);
       this.observeCreationChange(tabId, "moved");
       const record = this.auxiliaryTabs.owner(tabId);
-      if (["ordinary", "background-window", "created-page"].includes(record?.kind)) this.invalidateAuxiliaryTab(tabId);
+      if (["ordinary", "background-window", "created-page", "managed-result"].includes(record?.kind)) this.invalidateAuxiliaryTab(tabId);
     });
-    chrome.tabs?.onDetached?.addListener(tabId => { this.invalidateAuxiliaryDelivery(tabId); this.observeCreationChange(tabId, "detached"); void this.pageWaits.invalidateTab(tabId).catch(() => {}); });
-    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.invalidateAuxiliaryDelivery(removed); void this.store.forgetDeliverable(removed).catch(() => {}); this.observeCreationChange(removed, "replaced"); void this.pageWaits.invalidateTab(removed).catch(() => {}); });
+    chrome.tabs?.onDetached?.addListener(tabId => { this.invalidateManagedResultReclaim(tabId); this.invalidateAuxiliaryDelivery(tabId); this.observeCreationChange(tabId, "detached"); void this.pageWaits.invalidateTab(tabId).catch(() => {}); });
+    chrome.tabs?.onReplaced?.addListener((_added, removed) => { this.invalidateManagedResultReclaim(removed); this.invalidateAuxiliaryDelivery(removed); void this.store.forgetDeliverable(removed).catch(() => {}); this.observeCreationChange(removed, "replaced"); void this.pageWaits.invalidateTab(removed).catch(() => {}); });
     chrome.tabs?.onRemoved?.addListener(tabId => this.observeCreationChange(tabId, "removed"));
     chrome.windows?.onFocusChanged?.addListener(windowId => {
       if (!Number.isSafeInteger(windowId) || windowId < 0) return;
@@ -2498,11 +2500,14 @@ class BrowserBackend {
     const tabId = requireTabId(params, "claimUserTab");
     const epoch = this.controlLedger.assertCurrent(params).epoch;
     const revision = this.automationControl.revision;
+    let reclaim;
     const check = () => {
       checkDeadline();
       this.auxiliaryTabs.check(reservation);
       if (this.controlLedger.assertCurrent(params).epoch !== epoch || this.automationControl.revision !== revision)
         throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: browser control changed");
+      if (reclaim && (reclaim.invalid || reclaim.revoked && this.managedResults.records.has(tabId)))
+        throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: original managed result changed");
     };
     check();
     if (reservation.kind === "background-window" && reservation.phase === "excluded") {
@@ -2533,81 +2538,134 @@ class BrowserBackend {
     const window = await chrome.windows.get(tab.windowId);
     check();
     this.assertControlOpen();
-    await this.revokeManagedResultForTask(tabId);
-    check(); this.assertControlOpen();
-    this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
-    await this.resetClaimedColdAttachment(tab, check);
-    check();
-    if (reservation.kind === "created-page" && this.auxiliaryTabs.owner(tabId) === reservation) {
-      const live = await this.liveAuxiliaryTab(reservation, { strict: true }); check();
-      if (!live) throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: native child moved before explicit claim");
-      await this.setSessionActiveTab(session.sessionId, tab.id, check, params); check();
-      return { ...toBrowserTab(live), active: true };
+    // Only a live, published result grants this placement-preserving claim.
+    // Presentation markers and ordinary user tabs retain their existing path.
+    const resultRecord = this.managedResults.records.get(tabId);
+    const reads = this.managedIdentityReads.get(tabId) ?? new Set();
+    if (managedConfig && reservation.phase === "reserved" && reservation.windowId === null &&
+        window.type === "normal" && tab.groupId === -1 && !tab.pinned && resultRecord) {
+      reclaim = { invalid: false, reclaim: true, revoked: false };
+      this.managedIdentityReads.set(tabId, reads); reads.add(reclaim);
     }
-    if (window.type === "popup") {
-      const validate = async () => {
-        const live = await chrome.tabs.get(tabId);
+    try {
+      let candidate;
+      if (reclaim) {
+        candidate = await this.captureManagedResultPage(tabId, resultRecord.deliveryId);
         check();
-        assertControllableTab(live);
-        await this.assertSiteTab(tabId, { recover: true });
-        if (live.windowId !== tab.windowId || live.groupId !== -1 || live.url?.startsWith("chrome://"))
-          throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved or became uncontrollable");
-      };
-      reservation = await this.auxiliaryTabs.commit(reservation, {
-        windowId: tab.windowId, kind: "popup", control_epoch: epoch, controlRevision: revision, check, validate
-      });
+        if (candidate.windowId !== tab.windowId || candidate.groupId !== -1 || candidate.pinned)
+          throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: original managed result placement changed");
+        reclaim.revoked = true;
+      }
+      await this.revokeManagedResultForTask(tabId);
+      check(); this.assertControlOpen();
+      this.retireFreshBlankTab(this.freshBlankTabs.get(tabId));
+      await this.resetClaimedColdAttachment(tab, check);
       check();
-      await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
-      check();
-    } else {
-      const existing = this.auxiliaryTabs.owner(tabId);
-      if (existing?.kind === "background-window") {
+      if (["created-page", "managed-result"].includes(reservation.kind) && this.auxiliaryTabs.owner(tabId) === reservation) {
+        const live = await this.liveAuxiliaryTab(reservation, { strict: true }); check();
+        if (!live) throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: native child moved before explicit claim");
+        await this.setSessionActiveTab(session.sessionId, tab.id, check, params); check();
+        return { ...toBrowserTab(live), active: true };
+      }
+      if (candidate) {
+        const validate = async () => {
+          const actual = await this.readManagedPageIdentity(tabId, check);
+          check();
+          const actualWindow = await chrome.windows.get(actual.windowId);
+          check();
+          if (actualWindow.type !== "normal" || ["tabId", "targetId", "documentId", "navigationVersion", "windowId", "groupId",
+            "pinned", "incarnation", "policyGeneration", "policyRevision"].some(key => actual[key] !== candidate[key]))
+            throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: original managed result identity changed");
+        };
+        await this.auxiliaryTabs.commit(reservation, { windowId: candidate.windowId, kind: "managed-result",
+          control_epoch: epoch, controlRevision: revision, check, validate });
+        check();
         const state = await this.store.getSession(session.sessionId);
-        await this.commitBackgroundWindowTab(existing, state, check);
+        check();
+        state.tabOrigins[String(tabId)] = "user";
+        await this.store.save();
+        check();
         await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
         check();
         return { ...toBrowserTab(tab), active: true };
       }
-      if (existing && existing.kind !== "ordinary") {
-        await this.releaseAuxiliaryClaim(reservation);
-        throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved; explicitly claim it again");
-      }
-      const state = await this.store.getSession(session.sessionId);
-      if (state.ungrouped === true || existing?.kind === "ordinary" || this.auxiliaryTabs.list(session.sessionId).some(value => value.kind === "ordinary")) {
-        await this.commitUngroupedTab(reservation, state, tab.windowId, check);
+      if (window.type === "popup") {
+        const validate = async () => {
+          const live = await chrome.tabs.get(tabId);
+          check();
+          assertControllableTab(live);
+          await this.assertSiteTab(tabId, { recover: true });
+          if (live.windowId !== tab.windowId || live.groupId !== -1 || live.url?.startsWith("chrome://"))
+            throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved or became uncontrollable");
+        };
+        reservation = await this.auxiliaryTabs.commit(reservation, {
+          windowId: tab.windowId, kind: "popup", control_epoch: epoch, controlRevision: revision, check, validate
+        });
+        check();
         await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
         check();
-        return { ...toBrowserTab(tab), active: true };
-      }
-      const priorGroup = state.chromeGroupId;
-      // Re-claiming an existing task page must not turn an agent-created page
-      // into a user page. Stale origin metadata alone is insufficient after a
-      // page has left the task's native group.
-      const live = await chrome.tabs.get(tab.id);
-      check();
-      const origin = reservation.phase !== "excluded" && Number.isSafeInteger(priorGroup) && live.groupId === priorGroup &&
-        state.tabOrigins[String(tab.id)] === "agent" ? "agent" : "user";
-      let groupingError, creatingGroup = false, createdGroupId;
-      try { await this.ensureSessionGroup(session.sessionId, tab.id, origin, check, {
-        before: options => { creatingGroup = options.groupId === undefined; },
-        after: groupId => { if (creatingGroup) createdGroupId = groupId; }
-      }); }
-      catch (error) { groupingError = error; }
-      check();
-      if (groupingError && !/No group with id|Invalid group id/i.test(String(groupingError?.message))) throw groupingError;
-      if (Number.isSafeInteger(createdGroupId) && createdGroupId === state.chromeGroupId && await this.singletonGroupDisappeared(createdGroupId, tab.id, tab.windowId)) {
-        await this.commitUngroupedTab(reservation, state, tab.windowId, check);
+      } else {
+        const existing = this.auxiliaryTabs.owner(tabId);
+        if (existing?.kind === "background-window") {
+          const state = await this.store.getSession(session.sessionId);
+          await this.commitBackgroundWindowTab(existing, state, check);
+          await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
+          check();
+          return { ...toBrowserTab(tab), active: true };
+        }
+        if (existing && existing.kind !== "ordinary") {
+          await this.releaseAuxiliaryClaim(reservation);
+          throw new Error("OBU_AUXILIARY_CLAIM_CANCELLED: popup moved; explicitly claim it again");
+        }
+        const state = await this.store.getSession(session.sessionId);
+        if (state.ungrouped === true || existing?.kind === "ordinary" || this.auxiliaryTabs.list(session.sessionId).some(value => value.kind === "ordinary")) {
+          await this.commitUngroupedTab(reservation, state, tab.windowId, check);
+          await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
+          check();
+          return { ...toBrowserTab(tab), active: true };
+        }
+        const priorGroup = state.chromeGroupId;
+        // Re-claiming an existing task page must not turn an agent-created page
+        // into a user page. Stale origin metadata alone is insufficient after a
+        // page has left the task's native group.
+        const live = await chrome.tabs.get(tab.id);
+        check();
+        const origin = reservation.phase !== "excluded" && Number.isSafeInteger(priorGroup) && live.groupId === priorGroup &&
+          state.tabOrigins[String(tab.id)] === "agent" ? "agent" : "user";
+        let groupingError, creatingGroup = false, createdGroupId;
+        try { await this.ensureSessionGroup(session.sessionId, tab.id, origin, check, {
+          before: options => { creatingGroup = options.groupId === undefined; },
+          after: groupId => { if (creatingGroup) createdGroupId = groupId; }
+        }); }
+        catch (error) { groupingError = error; }
+        check();
+        if (groupingError && !/No group with id|Invalid group id/i.test(String(groupingError?.message))) throw groupingError;
+        if (Number.isSafeInteger(createdGroupId) && createdGroupId === state.chromeGroupId && await this.singletonGroupDisappeared(createdGroupId, tab.id, tab.windowId)) {
+          await this.commitUngroupedTab(reservation, state, tab.windowId, check);
+          await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
+          check();
+          return { ...toBrowserTab(tab), active: true };
+        }
+        if (groupingError) throw groupingError;
+        check();
         await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
         check();
-        return { ...toBrowserTab(tab), active: true };
+        await this.auxiliaryTabs.remove(reservation, { releaseExcluded: true });
       }
-      if (groupingError) throw groupingError;
-      check();
-      await this.setSessionActiveTab(session.sessionId, tab.id, check, params);
-      check();
-      await this.auxiliaryTabs.remove(reservation, { releaseExcluded: true });
+      return { ...toBrowserTab(tab), active: true };
+    } catch (error) {
+      if (reclaim && this.auxiliaryTabs.entry(tabId) === reservation) await this.releaseAuxiliaryClaim(reservation);
+      throw error;
+    } finally {
+      if (reclaim) {
+        reads.delete(reclaim);
+        if (!reads.size && this.managedIdentityReads.get(tabId) === reads) this.managedIdentityReads.delete(tabId);
+      }
     }
-    return { ...toBrowserTab(tab), active: true };
+  }
+
+  invalidateManagedResultReclaim(tabId) {
+    for (const read of this.managedIdentityReads.get(tabId) ?? []) if (read.reclaim) read.invalid = true;
   }
 
   async resetClaimedColdAttachment(tab, check) {
@@ -2796,7 +2854,7 @@ class BrowserBackend {
             continue;
           }
           const auxiliary = this.auxiliaryTabs.owner(tab.id);
-          if (auxiliary?.session_id === session.sessionId && ["popup", "created-page"].includes(auxiliary.kind)) {
+          if (auxiliary?.session_id === session.sessionId && ["popup", "created-page", "managed-result"].includes(auxiliary.kind)) {
             auxiliaryToRelease.push(auxiliary);
           } else if ((auxiliary?.origin ?? sessionState.tabOrigins[String(tab.id)]) === "agent") {
             agentTabsToClose.push(tab.id);
@@ -5503,7 +5561,7 @@ class BrowserBackend {
     if (!tab || this.auxiliaryTabs.entry(params.tabId) !== claim) throw unowned();
     if (claim && claim.windowId !== null) {
       if (claim.session_id !== params.session_id || this.auxiliaryTabs.owner(params.tabId) !== claim) throw unowned();
-      if (tab.windowId !== claim.windowId || tab.groupId !== -1 || (["ordinary", "background-window", "created-page"].includes(claim.kind) && tab.pinned)) {
+      if (tab.windowId !== claim.windowId || tab.groupId !== -1 || (["ordinary", "background-window", "created-page", "managed-result"].includes(claim.kind) && tab.pinned)) {
         // Never await cleanup from inside an export scope check: detach must
         // drain this same native flow. Quarantine synchronously and reject so
         // that flow can unwind, then let its exact cleanup finish independently.
@@ -6160,7 +6218,7 @@ class BrowserBackend {
       return null;
     }
     if (this.auxiliaryTabs.owner(record.tabId) !== record) return null;
-    if (tab.windowId !== record.windowId || tab.groupId !== -1 || (["ordinary", "background-window", "created-page"].includes(record.kind) && tab.pinned)) {
+    if (tab.windowId !== record.windowId || tab.groupId !== -1 || (["ordinary", "background-window", "created-page", "managed-result"].includes(record.kind) && tab.pinned)) {
       await this.releaseAuxiliaryClaim(record);
       return null;
     }
@@ -6501,7 +6559,7 @@ class BrowserBackend {
       // worker-bound authority was quarantined on load; use the same closing
       // barrier so failed exact cleanup can be retried by explicit bootstrap.
       const idleCreatedPage = record.status === "idle" && this.auxiliaryTabs.entries(sessionId)
-        .some(claim => claim.kind === "created-page" && claim.phase === "quarantined");
+        .some(claim => ["created-page", "managed-result"].includes(claim.kind) && claim.phase === "quarantined");
       if (record.status === "active" || idleCreatedPage) this.controlLedger.invalidate(record, "worker-restart");
       if (record.status === "closing") recovering.push([sessionId, record]);
     }
@@ -6513,14 +6571,14 @@ class BrowserBackend {
     }
     // Idle ledger eviction does not erase auxiliary identities. Retire those
     // exact quarantines without recreating control records or evicting others.
-    const orphaned = new Set(this.auxiliaryTabs.entries().filter(claim => claim.kind === "created-page" &&
+    const orphaned = new Set(this.auxiliaryTabs.entries().filter(claim => ["created-page", "managed-result"].includes(claim.kind) &&
       claim.phase === "quarantined" && !this.controlLedger.records.has(claim.session_id)).map(claim => claim.session_id));
     for (const sessionId of orphaned) await this.releaseRecoveredCreatedPages(sessionId).catch(() => {});
   }
 
   async releaseRecoveredCreatedPages(sessionId) {
     for (const claim of this.auxiliaryTabs.entries(sessionId)) {
-      if (claim.kind === "created-page" && claim.phase === "quarantined") await this.releaseAuxiliaryClaim(claim);
+      if (["created-page", "managed-result"].includes(claim.kind) && claim.phase === "quarantined") await this.releaseAuxiliaryClaim(claim);
     }
   }
 

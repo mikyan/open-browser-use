@@ -63,7 +63,7 @@ func parseCommand(data []byte) (command, error) {
 		if bytes.Equal(f["expectedRevision"], []byte("null")) || json.Unmarshal(f["expectedRevision"], &revision) != nil || revision > maxSafeInteger || json.Unmarshal(f["expectedWorkerBootId"], &worker) != nil || worker == "" || len(worker) > 256 {
 			return c, errors.New("invalid resume identity")
 		}
-	case "humanBegin", "humanInput", "humanEnd", "humanDialogRespond":
+	case "humanBegin", "humanInput", "humanEnd", "humanDialogRespond", "humanFileBegin", "humanFileChunk", "humanFileCommit", "humanFileCancel":
 		human := make(map[string]json.RawMessage, len(f)-1)
 		for key, value := range f {
 			if key != "id" {
@@ -78,6 +78,9 @@ func parseCommand(data []byte) (command, error) {
 		}
 		if c.operation == "humanBegin" {
 			allowed["deliveryId"] = true
+		}
+		if c.operation == "humanFileCancel" {
+			allowed["transferId"] = true
 		}
 		if c.operation == "humanDialogRespond" {
 			allowed["promptText"] = true
@@ -171,6 +174,10 @@ func publicState(data []byte) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	chooser, err := managedprotocol.ParsePendingFileChooser(f["pendingFileChooser"], human)
+	if err != nil {
+		return nil, err
+	}
 	if human != nil && (status.State == "running" || !*status.InputBlocked) {
 		return nil, errors.New("human control did not pause automation")
 	}
@@ -206,6 +213,18 @@ func publicState(data []byte) (json.RawMessage, error) {
 	}
 	out := map[string]any{"status": status, "workerBootId": worker, "tabs": tabs, "selectedTabId": selected, "viewerCleanupComplete": viewerClean, "eventSequence": eventSequence, "human": human, "view": view}
 	out["pendingDialog"] = dialog
+	if f["pendingFileChooser"] != nil || human != nil && human.FileChooserVersion == 1 {
+		out["pendingFileChooser"] = chooser
+	}
+	for _, key := range []string{"fileTransfer", "fileChunk", "fileChooserReceipt", "fileChooserCancellation"} {
+		if raw := envelope[key]; raw != nil {
+			value, err := managedprotocol.ParseFileResult(key, raw)
+			if err != nil {
+				return nil, err
+			}
+			out[key] = value
+		}
+	}
 	if cleanup != nil {
 		out["humanCleanup"] = cleanup
 	}

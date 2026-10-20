@@ -27,8 +27,9 @@ function storedRecord(value, version) {
   if (Object.keys(value).some(key => !allowed.includes(key)) || !identifier(value.claimId) ||
       !integer(value.windowId) || !["pending", "committed", "quarantined", ...(version >= 2 ? ["excluded"] : [])].includes(value.phase)) throw invalid();
   if (version === 1) { if (value.origin !== "user") throw invalid(); return { ...value, kind: "popup" }; }
-  if (!["popup", "ordinary", ...(version >= 3 ? ["background-window"] : []), ...(version >= 4 ? ["created-page"] : [])].includes(value.kind) || !["agent", "user"].includes(value.origin) ||
-      (["popup", "created-page"].includes(value.kind) && value.origin !== "user")) throw invalid();
+  if (!["popup", "ordinary", ...(version >= 3 ? ["background-window"] : []), ...(version >= 4 ? ["created-page"] : []),
+    ...(version >= 5 ? ["managed-result"] : [])].includes(value.kind) || !["agent", "user"].includes(value.origin) ||
+      (["popup", "created-page", "managed-result"].includes(value.kind) && value.origin !== "user")) throw invalid();
   if (value.kind === "background-window") {
     if (value.origin !== (value.phase === "excluded" ? "user" : "agent") || Object.hasOwn(value, "excludedGroupId")) throw invalid();
   } else if (value.phase === "excluded" ? value.kind !== "ordinary" || value.origin !== "user" || !integer(value.excludedGroupId) : Object.hasOwn(value, "excludedGroupId")) throw invalid();
@@ -58,17 +59,17 @@ export class AuxiliaryTabOwnership {
     const stored = await this.storage.get(AUXILIARY_TABS_KEY);
     const value = stored?.[AUXILIARY_TABS_KEY];
     if (value === undefined) return;
-    if (!value || ![1, 2, 3, 4].includes(value.version) || !Array.isArray(value.records) || value.records.length > this.maxRecords ||
+    if (!value || ![1, 2, 3, 4, 5].includes(value.version) || !Array.isArray(value.records) || value.records.length > this.maxRecords ||
         Object.keys(value).some(key => !["version", "records"].includes(key))) throw invalid();
     const recovered = value.records.map(record => storedRecord(record, value.version));
-    const hadCreatedPages = recovered.some(record => record.kind === "created-page");
+    const hadWorkerBoundClaims = recovered.some(record => ["created-page", "managed-result"].includes(record.kind));
     if (new Set(recovered.map(record => record.tabId)).size !== recovered.length ||
         new Set(recovered.map(record => record.claimId)).size !== recovered.length) throw invalid();
     for (const record of recovered) {
       // A worker restart loses the native provenance waiter and its delivery
       // state. Retain a denial until exact cleanup; never recover authority
       // from a persisted child ID, even if an earlier caller collected it.
-      if (record.kind === "created-page") record.phase = "quarantined";
+      if (["created-page", "managed-result"].includes(record.kind)) record.phase = "quarantined";
       if (record.phase === "pending" && record.origin === "user") continue;
       // A new native tab may already exist. Keep its denial/cleanup identity;
       // recovery must neither grant control nor replay its creation/disposition.
@@ -93,7 +94,7 @@ export class AuxiliaryTabOwnership {
         this.records.delete(tabId);
       }
     }
-    if (value.version < 4 || hadCreatedPages || value.records.some(record => record.phase === "pending")) await this.save();
+    if (value.version < 5 || hadWorkerBoundClaims || value.records.some(record => record.phase === "pending")) await this.save();
   }
 
   reserve(value) {
@@ -175,7 +176,7 @@ export class AuxiliaryTabOwnership {
   save() {
     const records = [...this.records.values()].filter(record => this.state(record).persisted && !this.state(record).removing)
       .map(record => Object.fromEntries(fields.filter(key => record[key] !== undefined).map(key => [key, record[key]])));
-    const value = { version: 4, records };
+    const value = { version: 5, records };
     const write = this.writes.catch(() => {}).then(() => this.storage.set({ [AUXILIARY_TABS_KEY]: value }));
     this.writes = write;
     this.operations.add(write);
@@ -185,9 +186,9 @@ export class AuxiliaryTabOwnership {
 
   commit(reservation, { windowId, kind = reservation?.kind, control_epoch, controlRevision, check, validate } = {}) {
     if (!integer(windowId) || (control_epoch !== undefined && !integer(control_epoch, 1)) ||
-        (controlRevision !== undefined && !integer(controlRevision)) || !["popup", "ordinary", "background-window", "created-page"].includes(kind) ||
+        (controlRevision !== undefined && !integer(controlRevision)) || !["popup", "ordinary", "background-window", "created-page", "managed-result"].includes(kind) ||
         (kind === "background-window" && reservation?.origin !== "agent") ||
-        (kind === "created-page" && reservation?.origin !== "user") || typeof check !== "function" || typeof validate !== "function")
+        (["created-page", "managed-result"].includes(kind) && reservation?.origin !== "user") || typeof check !== "function" || typeof validate !== "function")
       return Promise.reject(new Error("Auxiliary commit requires window identity, control check, and live validation"));
     return this.serial(reservation?.tabId, async () => {
       let record = reservation;

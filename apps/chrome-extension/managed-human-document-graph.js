@@ -37,8 +37,8 @@ function readTree(value, session) {
 // IDs never select an independent chrome.debugger attachment. send must invoke
 // its synchronous admission check immediately before actual native dispatch.
 export class ManagedHumanDocumentGraph {
-  constructor({ send, check, onFailure = () => {}, onChange = () => {}, assertCandidate = () => { throw fail(); } }) {
-    Object.assign(this, { send, check, onFailure, onChange });
+  constructor({ send, check, onFailure = () => {}, onChange = () => {}, prepareSession = async () => {}, assertCandidate = () => { throw fail(); } }) {
+    Object.assign(this, { send, check, onFailure, onChange, prepareSession });
     this.sessions = new Map(); this.seen = new Set(); this.pending = new Set(); this.commands = new Set();
     this.snapshots = new WeakMap(); this.proofs = new WeakMap(); this.identities = new WeakMap();
     this.preparationIdentities = new WeakMap();
@@ -51,7 +51,7 @@ export class ManagedHumanDocumentGraph {
   }
   createSession(id, parent, targetId, parentFrameId) {
     const session = { id, parent, targetId, parentFrameId, token: Object.freeze({}), alive: true, eligible: true,
-      contexts: new ManagedHumanDocumentContexts(), ready: id === undefined };
+      contexts: new ManagedHumanDocumentContexts(), resources: new Map(), destroyedContexts: new WeakSet(), ready: id === undefined };
     this.sessions.set(id, session); this.seen.add(id); return session;
   }
   owns(id) { return !this.ended && this.sessions.get(id)?.alive === true; }
@@ -119,6 +119,20 @@ export class ManagedHumanDocumentGraph {
     }
     const count = session.contexts.records.size;
     const observed = session.contexts.observe(method, params);
+    // Resource lifetime is deliberately independent of the authority ledger:
+    // parent navigation may conservatively retire a child proof while its
+    // original isolated objects still require real cleanup in that session.
+    if (method === "Runtime.executionContextCreated" && value?.auxData?.isDefault === true) {
+      const context = session.contexts.records.get(value.uniqueId);
+      if (context && !session.resources.has(context.uniqueId)) session.resources.set(context.uniqueId, context);
+    } else if (method === "Runtime.executionContextsCleared") {
+      for (const context of session.resources.values()) session.destroyedContexts.add(context);
+    } else if (method === "Runtime.executionContextDestroyed") {
+      const matches = [...session.resources.values()].filter(context => context.id === params.executionContextId &&
+        (!params.executionContextUniqueId || context.uniqueId === params.executionContextUniqueId));
+      if (params.executionContextUniqueId || matches.length === 1)
+        for (const context of matches) session.destroyedContexts.add(context);
+    }
     this.contextIdentities += session.contexts.records.size - count;
     if (observed) {
       this.advance(FRAME_EVENTS.has(method));
@@ -150,6 +164,7 @@ export class ManagedHumanDocumentGraph {
   setup(session) {
     const operation = (async () => {
       await this.command(session, "Page.enable");
+      await this.prepareSession(session.id, () => { this.assertActive(); if (!this.current(session)) throw cancelled; });
       await this.command(session, "Runtime.enable");
       await this.command(session, "Target.setAutoAttach", AUTO_ATTACH);
       if (this.current(session) && !this.revoked && !this.failure) session.ready = true;
@@ -169,6 +184,7 @@ export class ManagedHumanDocumentGraph {
       // Runtime enable ACKs, with its lifecycle listener already installed.
       this.events.reserve(initialCandidate);
       this.events.rootReady = true;
+      await this.prepareSession(undefined, () => this.assertActive());
       await this.command(this.root, "Target.setAutoAttach", AUTO_ATTACH);
       await this.drain(); this.assertActive(); this.started = true;
     })();
@@ -353,6 +369,25 @@ export class ManagedHumanDocumentGraph {
       if (!this.current(session) || !session.eligible) throw fail();
       session.contexts.assert(context);
     }
+  }
+  captureSource(snapshot, { sessionId, frameId } = {}) {
+    const emitter = this.snapshots.get(snapshot)?.frames.get(frameId);
+    if (!emitter || emitter.session.id !== sessionId) throw fail();
+    const proof = this.capture(snapshot, { frameId, url: emitter.row[3] + emitter.row[4] });
+    return proof;
+  }
+  sourceAddressable(proof) {
+    // Cleanup needs the original remote objects, not renewed user authority or
+    // a new graph snapshot. A topology change elsewhere does not erase them.
+    const emitter = this.proofs.get(proof)?.path[0];
+    return Boolean(emitter && this.current(emitter.session) &&
+      emitter.proof.path.every(({ context }) => !emitter.session.destroyedContexts.has(context)));
+  }
+  sourceRetirement(proof) {
+    const emitter = this.proofs.get(proof)?.path[0];
+    if (!emitter) throw fail();
+    if (emitter.proof.path.some(({ context }) => emitter.session.destroyedContexts.has(context))) return "document";
+    return this.current(emitter.session) ? null : "session";
   }
   revoke() { this.revoked = true; }
   detached() {

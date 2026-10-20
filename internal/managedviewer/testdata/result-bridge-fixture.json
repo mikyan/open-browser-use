@@ -52,7 +52,8 @@
       "eventSequence": 0,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     },
     "recoveryState": {
       "version": 1,
@@ -110,7 +111,8 @@
         },
         "lastInputSequence": 0
       },
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "viewRunningStatus": {
@@ -162,7 +164,8 @@
         },
         "lastInputSequence": 0
       },
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "viewNavigation": {
@@ -212,7 +215,8 @@
           "viewport": null,
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       }
     },
     "active": {
@@ -264,7 +268,8 @@
           },
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       }
     }
   },
@@ -307,7 +312,8 @@
       "eventSequence": 8,
       "human": null,
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "viewPaused": {
@@ -359,7 +365,8 @@
         },
         "lastInputSequence": 0
       },
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "viewPausedStatus": {
@@ -411,7 +418,8 @@
         },
         "lastInputSequence": 0
       },
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "humanBegin": {
@@ -464,7 +472,8 @@
         "inputBudgetVersion": 1
       },
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     }
   },
   "humanInput": {
@@ -517,7 +526,8 @@
         "inputBudgetVersion": 1
       },
       "view": null,
-      "pendingDialog": null
+      "pendingDialog": null,
+      "pendingFileChooser": null
     },
     "inputReceipt": {
       "leaseId": "result-human-3",
@@ -574,7 +584,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       }
     },
     "active": {
@@ -627,7 +638,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       }
     }
   },
@@ -671,6 +683,7 @@
       "human": null,
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -727,6 +740,7 @@
         "lastInputSequence": 0
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -783,6 +797,7 @@
         "lastInputSequence": 0
       },
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -840,6 +855,7 @@
       },
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "result-human-3",
         "cleanupConfirmed": true
@@ -886,6 +902,7 @@
       "human": null,
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "result-human-5",
         "cleanupConfirmed": true
@@ -923,6 +940,7 @@
       "human": null,
       "view": null,
       "pendingDialog": null,
+      "pendingFileChooser": null,
       "humanCleanup": {
         "leaseId": "result-human-5",
         "cleanupConfirmed": true
@@ -987,7 +1005,8 @@
           },
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 1
     },
@@ -1048,7 +1067,8 @@
           },
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 2
     },
@@ -1132,7 +1152,8 @@
           "viewport": null,
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 4
     },
@@ -1193,7 +1214,8 @@
           },
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 5
     },
@@ -1282,7 +1304,8 @@
         "eventSequence": 8,
         "human": null,
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 8
     },
@@ -1343,7 +1366,8 @@
           },
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 9
     },
@@ -1404,7 +1428,8 @@
           },
           "lastInputSequence": 0
         },
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 10
     },
@@ -1504,7 +1529,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 13
     },
@@ -1566,7 +1592,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 14
     },
@@ -1654,7 +1681,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 16
     },
@@ -1713,7 +1741,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 17
     },
@@ -1775,7 +1804,8 @@
           "inputBudgetVersion": 1
         },
         "view": null,
-        "pendingDialog": null
+        "pendingDialog": null,
+        "pendingFileChooser": null
       },
       "sequence": 18
     },
@@ -1865,6 +1895,7 @@
         "human": null,
         "view": null,
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -1930,6 +1961,7 @@
           "lastInputSequence": 0
         },
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -1995,6 +2027,7 @@
           "lastInputSequence": 0
         },
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -2099,6 +2132,7 @@
         },
         "view": null,
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -2165,6 +2199,7 @@
         },
         "view": null,
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "result-human-3",
           "cleanupConfirmed": true
@@ -2258,6 +2293,7 @@
         "human": null,
         "view": null,
         "pendingDialog": null,
+        "pendingFileChooser": null,
         "humanCleanup": {
           "leaseId": "result-human-5",
           "cleanupConfirmed": true
