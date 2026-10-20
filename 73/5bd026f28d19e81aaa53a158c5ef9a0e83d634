@@ -1,0 +1,23 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_3d97a6f63e0653 14-18
+docs/histories/2026-10/20261021-0608-requested-preview-repack.md
+  s_08bbfd293d324f::t_d00887306d7bf1 1-23
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_01edef1086fcdc 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "735bd026f28d19e81aaa53a158c5ef9a0e83d634",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
