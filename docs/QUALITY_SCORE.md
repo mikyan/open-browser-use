@@ -11,6 +11,11 @@
 
 ## 当前评分
 
+用户后续要求重新打包，已发布 [preview-20261021-3e61b68](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-3e61b68)，功能与下述 96595fc 相同。
+精确干净源码重建、离线 CLI/MCP、4,924 项制品检查和四资产回下载通过；
+本次未重跑原网页验收。未提交的 beforeunload 人工决策仍在开发，不在此包中。
+见[本次打包记录](histories/2026-10/20261021-0608-requested-preview-repack.md)。
+
 2026-10-21，本轮修复独立 managed 浏览器中父页回调导航后的只读首帧等待。
 冻结构建 `mso-build-us4hu4yb` 通过完整 Go test/vet 和 3,195 项 Node
 检查。强只读验收 `mnp-kpUpaB` 与 child-close 回归 `mnp-FCpwvq` 各七步、
