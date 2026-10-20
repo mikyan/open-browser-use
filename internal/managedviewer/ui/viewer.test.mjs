@@ -722,7 +722,7 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
   function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
-  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}), ...(clipboard.fileChooserVersion !== undefined ? { fileChooserVersion: clipboard.fileChooserVersion } : {}) }, ...extra }); }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}), ...(clipboard.fileChooserVersion !== undefined ? { fileChooserVersion: clipboard.fileChooserVersion } : {}), ...(clipboard.pointerClickCountVersion !== undefined ? { pointerClickCountVersion: clipboard.pointerClickCountVersion } : {}) }, ...extra }); }
   function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
   function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
@@ -1000,6 +1000,125 @@ test("a coalesced status retains the retirement barrier when Clear was replaced"
 });
 
 const mouse = (extra = {}) => ({ pointerId: 1, pointerType: "mouse", clientX: 330, clientY: 200, button: 0, ...extra });
+function multiMouse(h, action, detail = 1, extra = {}) {
+  const value = { ...mouse(), target: h.element("frame"), isTrusted: true, detail, preventDefault() { this.prevented = true; }, ...extra };
+  if (action === "down") h.event("frame", "mousedown", value);
+  else h.windowEvents[`mouse${action}`]?.(value);
+  return h.socket.sent.at(-1);
+}
+function multiHarness() {
+  const h = setup(1, 1, { pointerClickCountVersion: 1 }); h.readyHuman(); return h;
+}
+test("multi-click uses trusted mouse detail and never also forwards its pointer compatibility events", () => {
+  const h = multiHarness(), before = h.socket.sent.length;
+  const pointer = h.event("frame", "pointerdown", mouse({ isTrusted: true, detail: 0 }));
+  assert.equal(pointer.prevented, undefined);
+  assert.equal(h.socket.sent.length, before);
+  multiMouse(h, "down", 1, { isTrusted: false });
+  assert.equal(h.socket.sent.length, before);
+  const down = multiMouse(h, "down");
+  assert.equal(down.input.clickCount, 1); assert.equal(down.input.action, "down");
+  assert.equal(h.element("frame").capture, undefined);
+  h.event("frame", "pointerup", mouse({ isTrusted: true }));
+  assert.equal(h.socket.sent.at(-1), down);
+  multiMouse(h, "up");
+  h.ackInput(down);
+  const up = h.socket.sent.at(-1); assert.equal(up.input.clickCount, 1); assert.equal(up.input.action, "up");
+  h.ackInput(up);
+  assert.equal(h.socket.sent.filter(value => value.operation === "humanInput").length, 2);
+});
+test("multi-click preserves each original down/up through delayed ACKs, including count four", () => {
+  const h = multiHarness();
+  for (let count = 1; count <= 4; count++) { multiMouse(h, "down", count); multiMouse(h, "up", count); }
+  for (let n = 0; n < 8; n++) {
+    const request = h.socket.sent.at(-1);
+    assert.equal(request.input.action, n % 2 ? "up" : "down");
+    assert.equal(request.input.clickCount, Math.floor(n / 2) + 1);
+    assert.equal(request.sequence, n + 1); h.ackInput(request);
+  }
+  assert.equal(h.socket.sent.filter(value => value.operation === "humanInput").length, 8);
+});
+test("multi-click starts at one after an unobserved sequence and restarts on a raw count gap", () => {
+  const h = multiHarness();
+  for (const [raw, emitted] of [[3, 1], [4, 2], [7, 1], [1, 1]]) {
+    const down = multiMouse(h, "down", raw); assert.equal(down.input.clickCount, emitted); h.ackInput(down);
+    const up = multiMouse(h, "up", 0); assert.equal(up.input.clickCount, emitted); h.ackInput(up);
+  }
+});
+test("multi-click button chords break the chain and retain both actual releases", () => {
+  const h = multiHarness();
+  for (const [action, raw, button] of [["down", 1, 0], ["down", 1, 2], ["up", 1, 2], ["up", 1, 0], ["down", 2, 0]]) {
+    const request = multiMouse(h, action, raw, { button });
+    assert.equal(request.input.action, action); assert.equal(request.input.clickCount, 1);
+    assert.equal(request.input.button, button === 0 ? "left" : "right"); h.ackInput(request);
+  }
+});
+test("multi-click synthetic release cannot clear a real hold, and leaving the frame requests End", () => {
+  const h = multiHarness(), down = multiMouse(h, "down");
+  multiMouse(h, "up", 1, { isTrusted: false }); h.ackInput(down);
+  assert.equal(h.socket.sent.at(-1), down);
+  h.event("frame", "mouseleave", { isTrusted: false });
+  assert.equal(h.socket.sent.at(-1), down);
+  h.event("frame", "mouseleave", { isTrusted: true });
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  const end = h.socket.sent.at(-1);
+  multiMouse(h, "up"); h.ackInput(down);
+  assert.equal(h.socket.sent.at(-1), end);
+});
+test("multi-click held move outside the image ends control without forwarding an outside input", () => {
+  const h = multiHarness(); multiMouse(h, "down");
+  multiMouse(h, "move", 0, { clientX: -10, target: h.element("control") });
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  assert.equal(h.socket.sent.filter(value => value.operation === "humanInput").length, 1);
+});
+test("multi-click mouse cancellation releases the real hold but a late legacy capture notification does not", () => {
+  const h = multiHarness(), down = multiMouse(h, "down");
+  h.event("frame", "lostpointercapture", { isTrusted: true });
+  h.event("frame", "pointercancel", { isTrusted: false });
+  assert.equal(h.socket.sent.at(-1), down);
+  h.event("frame", "pointercancel", { isTrusted: true });
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+test("multi-click dialog hit-test changes preserve the real held release at the unchanged point", () => {
+  const h = multiHarness();
+  h.ackInput(multiMouse(h, "down")); h.ackInput(multiMouse(h, "up"));
+  const down = multiMouse(h, "down", 2);
+  showDialog(h);
+  h.event("frame", "mouseleave", { ...mouse(), isTrusted: true });
+  assert.equal(h.socket.sent.at(-1), down);
+  multiMouse(h, "up", 2, { target: h.element("page-dialog") });
+  h.ackInput(down, h.humanState({ eventSequence: 20003, pendingDialog: dialog() }));
+  assert.equal(h.socket.sent.at(-1), down);
+  h.element("dialog-cancel").click();
+  const response = h.socket.sent.at(-1);
+  h.respond(response.id, { ...h.humanState({ eventSequence: 20004, pendingDialog: null }),
+    dialogReceipt: { leaseId: "lease-a", generation: 1, dialogId: "original-dialog", acknowledged: true } });
+  const up = h.socket.sent.at(-1);
+  assert.equal(up.operation, "humanInput"); assert.equal(up.input.action, "up"); assert.equal(up.input.clickCount, 2);
+  h.ackInput(up, h.humanState({ eventSequence: 20005, pendingDialog: null }));
+  const next = multiMouse(h, "down", 3);
+  assert.equal(next.input.clickCount, 1);
+});
+test("multi-click touch or pen retirement prevents later compatibility mouse input", () => {
+  for (const pointerType of ["touch", "pen"]) {
+    const h = multiHarness();
+    const event = h.event("frame", "pointerdown", mouse({ pointerType, isTrusted: true }));
+    assert.equal(event.prevented, true); assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+    multiMouse(h, "down");
+    assert.equal(h.socket.sent.some(value => value.operation === "humanInput"), false);
+  }
+});
+test("multi-click navigation drops the old chain and cannot reuse its pending releases", () => {
+  const h = multiHarness();
+  h.ackInput(multiMouse(h, "down")); h.ackInput(multiMouse(h, "up"));
+  const next = { ...h.humanState().human, generation: 2 };
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20010, human: { ...next, state: "navigating", viewport: null } }) });
+  multiMouse(h, "up", 2);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20011, human: next }) });
+  h.humanFrame(2, { generation: 2, eventSequence: 20012 }); h.images.at(-1).onload();
+  const request = multiMouse(h, "down", 2);
+  assert.equal(request.generation, 2); assert.equal(request.sequence, 1); assert.equal(request.input.clickCount, 1);
+});
 const key = (extra = {}) => ({ key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true, ...extra });
 
 const dialog = (extra = {}) => ({ leaseId: "lease-a", generation: 1, dialogId: "original-dialog", type: "prompt", message: "<img onerror=bad>\n原网页消息", defaultPrompt: "原值", ...extra });
@@ -1477,21 +1596,21 @@ test("native repeat navigation retires queued repetitions and requires a new ori
   assert.equal(h.socket.sent.at(-1).input.repeat, undefined);
 });
 
-test("native repeat capability cannot change on an original lease or a delayed Begin", () => {
+for (const capability of ["keyRepeatVersion", "pointerClickCountVersion"]) test(`${capability} cannot change on an original lease or a delayed Begin`, () => {
   for (const version of [undefined, 1]) {
     for (const next of [undefined, 0, 1, 2, null, "1"]) {
       if (next === version) continue;
-      const h = setup(undefined, version); h.readyHuman();
-      const human = { ...h.humanState().human }; delete human.keyRepeatVersion;
-      if (next !== undefined) human.keyRepeatVersion = next;
+      const h = setup(undefined, capability === "keyRepeatVersion" ? version : undefined, { pointerClickCountVersion: capability === "pointerClickCountVersion" ? version : undefined }); h.readyHuman();
+      const human = { ...h.humanState().human }; delete human[capability];
+      if (next !== undefined) human[capability] = next;
       h.socket.message({ type: "state", ...h.humanState({ human, eventSequence: 20002 }) });
       assert.equal(h.element("human-input").dataset.enabled, "false");
       assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
     }
-    const h = setup(undefined, version), { begin, original } = beginPreparing(h);
+    const h = setup(undefined, capability === "keyRepeatVersion" ? version : undefined, { pointerClickCountVersion: capability === "pointerClickCountVersion" ? version : undefined }), { begin, original } = beginPreparing(h);
     h.socket.message({ type: "state", ...original, eventSequence: 20003 });
-    const human = { ...original.human }; delete human.keyRepeatVersion;
-    if (version === undefined) human.keyRepeatVersion = 1;
+    const human = { ...original.human }; delete human[capability];
+    if (version === undefined) human[capability] = 1;
     h.respond(begin.id, { ...original, human });
     assert.equal(h.element("human-input").dataset.enabled, "false");
     // A rejected Begin never grants the admission required to issue End.
@@ -1501,10 +1620,10 @@ test("native repeat capability cannot change on an original lease or a delayed B
   }
 });
 
-test("native repeat capability is rejected on a read-only view", () => {
+for (const capability of ["keyRepeatVersion", "pointerClickCountVersion"]) test(`${capability} is rejected on a read-only view`, () => {
   const h = setup(); readyResult(h);
   h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, tabs: [resultTab()], selectedTabId: 1,
-    view: viewState({ keyRepeatVersion: 1 }) }) });
+    view: viewState({ [capability]: 1 }) }) });
   assert.equal(h.element("watch").disabled, true);
   assert.equal(h.element("human-input").dataset.enabled, "false");
 });

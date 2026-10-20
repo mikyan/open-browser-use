@@ -175,7 +175,10 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 	}
 	switch kind {
 	case "pointer":
-		if !exact(input, []string{"type", "action", "x", "y"}, []string{"button", "modifiers"}) || !choice(input["action"], "move", "down", "up") || !finite(input["x"], 100000, true) || !finite(input["y"], 100000, true) {
+		if !exact(input, []string{"type", "action", "x", "y"}, []string{"button", "modifiers", "clickCount"}) || !choice(input["action"], "move", "down", "up") || !finite(input["x"], 100000, true) || !finite(input["y"], 100000, true) {
+			return bad
+		}
+		if raw, exists := input["clickCount"]; exists && (!integer(raw, 1, 2147483647) || choice(input["action"], "move")) {
 			return bad
 		}
 		if raw, exists := input["button"]; exists && (!choice(raw, "left", "middle", "right") || choice(input["action"], "move")) {
@@ -237,6 +240,7 @@ type HumanState struct {
 	Viewport                 *Viewport `json:"viewport"`
 	InputBudgetVersion       uint64    `json:"inputBudgetVersion,omitempty"`
 	KeyRepeatVersion         uint64    `json:"keyRepeatVersion,omitempty"`
+	PointerClickCountVersion uint64    `json:"pointerClickCountVersion,omitempty"`
 	ClipboardTransferVersion uint64    `json:"clipboardTransferVersion,omitempty"`
 }
 
@@ -289,6 +293,9 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	}
 	if raw, ok := f["keyRepeatVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human key repeat")
+	}
+	if raw, ok := f["pointerClickCountVersion"]; ok && !integer(raw, 1, 1) {
+		return nil, errors.New("unsupported human pointer click count")
 	}
 	if raw, ok := f["clipboardTransferVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human clipboard transfer")

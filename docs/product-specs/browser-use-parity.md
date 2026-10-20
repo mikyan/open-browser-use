@@ -12,6 +12,22 @@
 
 ## Baseline sources
 
+2026-10-21，人工双击/三击的点击计数已从正式查看器传递到原 native 输入。
+冻结构建 Go test/vet、3,102 项 Node 检查和正式 `mmc-VzihL3` 七步通过；
+原生选区、可信事件、独立回执及 End/Resume/唯一提交/Stop 已验。固定
+Windows 词尾空格的首轮测试预期错误和独立原生参考均保留，产品未因该
+差异改动。本片尚未进入已发布 ZIP，范围见
+[人工多击](../references/managed-human-multi-click.md)，全 P01–P15 仍开放。
+
+2026-10-21，人工文件上传已通过正式查看器接入原 root/OOPIF 文件节点，
+支持同名及空文件、取消保持和传输中 End/导航撤销。`mfc-Xswpjy` 四步、
+完整 Go test/vet、3,084 项 Node 检查及两份独立审计通过；重新认领结果页
+保持原窗口，End 后两原表单各唯一提交。配套
+[preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)
+已发布并回下载核验；发布 EXE 单独重建，未重跑内部构建的网页业务。
+具体证据与限制见[人工文件上传](../references/managed-human-files.md)。
+完整 P01–P15 保持开放，旧基线段落中的限制按各自时间理解。
+
 2026-10-21，正式人工复制/剪切纯文本通道已实现。全新冻结构建通过完整
 Go test/vet和2,999项Node检查；真实双浏览器`mhc-4Ft36v`七步通过，覆盖五种
 复制/剪切行为、原回执、本地原生粘贴与End/Resume/Stop。两端为固定

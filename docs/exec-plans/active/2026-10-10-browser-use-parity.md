@@ -7,6 +7,21 @@
 
 ## 当前基线
 
+2026-10-21，最新交付为
+[preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)。
+人工复制/剪切、其排队失败修复及人工文件上传均已进入新包。上传的冻结构建
+通过完整 Go test/vet、3,084 项 Node 检查和正式 `mfc-Xswpjy` 四步流程；
+原事件与生命周期独审通过，发布制品及四资产回下载已核对。
+范围见[人工文件上传](../../references/managed-human-files.md)与
+[人工剪贴板](../../references/managed-human-clipboard.md)。
+完整目标仍 active。其后已完成
+[人工双击/三击](../completed/2026-10-21-managed-human-multi-click.md)：新
+冻结构建 Go test/vet、3,102 项 Node 检查及 `mmc-VzihL3` 七步通过，
+原事件/生命周期独审通过；该片未加入上面已发布资产。下一项是人工
+接管的新窗口接续。普通公司 Edge 人工验收仍按用户要求延期。
+
+以下为各历史阶段记录，旧“尚未实现”只描述当时状态。
+
 2026-10-19最新包为[preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8)，
 按用户要求重新构建发布；生产功能与534b881相同，新增源码仅诊断和文档。
 440份产品输入、77份扩展、离线CLI/MCP与9213项独立制品检查通过，四项

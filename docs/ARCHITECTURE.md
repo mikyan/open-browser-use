@@ -150,6 +150,9 @@ debugger、history 和 tab groups。
   接纳已有原持键的真实重复 down，逐次等待ACK且保留最初释放身份。原生
   `autoRepeat` 不替换持键或确认未知首次输入；End取消队列并等待实际清理。
   持键后变为本地粘贴组合时须先松键，见[重复按键](references/managed-human-key-repeat.md)。
+  `pointerClickCountVersion: 1` 允许原可信鼠标多击；Go 固定原租约能力，
+  extension 只在原 ACK 后记录按钮计数，正常 up 必须匹配，原清理保持零
+  计数。UI 不另行合成点击，见[人工多击](references/managed-human-multi-click.md)。
   人工复制/剪切复用同一私有 clipboard broker，先验证原生版本并保留旧 item，
   再发送原快捷键；新纯文本随原 ACK 返回，失败不撤销 ACK。结束先释放持键，
   再等待实际读取；viewer 的本地写入独立保留至结算，见

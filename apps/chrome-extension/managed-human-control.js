@@ -46,7 +46,7 @@ export class ManagedHumanControl {
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
-      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1, fileChooserVersion: 1 } : {}),
+      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 1 } : {}),
       ...(record.clipboardTransferVersion === 1 ? { clipboardTransferVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
@@ -176,7 +176,7 @@ export class ManagedHumanControl {
   }
 
   createGeneration(record) {
-    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), keys: new Map(), listeners: new Map(), retiredSignal: deferred(), clipboardOperations: new Set() };
+    const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), pointerClickCounts: new Map(), keys: new Map(), listeners: new Map(), retiredSignal: deferred(), clipboardOperations: new Set() };
     if (record.mode === "human") {
       epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
         assertInput: () => this.checkInputGeometry(record, epoch) });
@@ -664,12 +664,22 @@ export class ManagedHumanControl {
       return { x, y };
     };
     if (input?.type === "pointer") {
-      fields(input, ["type", "action", "x", "y"], ["button", "modifiers"]);
+      fields(input, ["type", "action", "x", "y"], ["button", "modifiers", "clickCount"]);
       if (!["move", "down", "up"].includes(input.action) || input.action === "move" && input.button !== undefined || input.action !== "move" && !Object.hasOwn(buttons, input.button)) throw fail("invalid pointer input");
+      const explicitCount = Object.hasOwn(input, "clickCount");
+      if (explicitCount && (input.action === "move" || !Number.isInteger(input.clickCount) || input.clickCount < 1 || input.clickCount > 2147483647))
+        throw fail("invalid pointer click count");
+      const clickCount = input.action === "move" ? 0 : explicitCount ? input.clickCount : 1;
       if (input.action === "down" && record.buttons.has(input.button) || input.action === "up" && !record.buttons.has(input.button)) throw fail("pointer hold does not match this lease");
+      if (input.action === "up" && record.pointerClickCounts.get(input.button) !== clickCount)
+        throw fail("pointer click count does not match the acknowledged hold");
       const next = new Set(record.buttons); if (input.action === "down") next.add(input.button); if (input.action === "up") next.delete(input.button);
       return ["Input.dispatchMouseEvent", { ...point(), type: { move: "mouseMoved", down: "mousePressed", up: "mouseReleased" }[input.action],
-        button: input.button ?? "none", buttons: [...next].reduce((mask, button) => mask | buttons[button], 0), modifiers: modifier(), clickCount: input.action === "move" ? 0 : 1 }, () => { record.buttons = next; }];
+        button: input.button ?? "none", buttons: [...next].reduce((mask, button) => mask | buttons[button], 0), modifiers: modifier(), clickCount }, () => {
+          record.buttons = next;
+          if (input.action === "down") record.pointerClickCounts.set(input.button, clickCount);
+          if (input.action === "up") record.pointerClickCounts.delete(input.button);
+        }];
     }
     if (input?.type === "wheel") {
       fields(input, ["type", "x", "y", "deltaX", "deltaY"], ["modifiers"]);
@@ -748,7 +758,7 @@ export class ManagedHumanControl {
       if (!Number.isSafeInteger(envelope.sequence) || envelope.sequence !== epoch.sequence + 1) throw fail("input does not match the displayed human lease sequence", "STALE");
       if (epoch.inputPending) throw fail("wait for the original input acknowledgement", "BUSY");
       if (record.dialogs.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
-      fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat", "clipboardTransfer"]);
+      fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat", "clipboardTransfer", "clickCount"]);
       this.checkChooserInput(record, epoch, envelope.input);
       const clipboardOperation = validateHumanClipboardInput(envelope.input);
       if (clipboardOperation && record.clipboardTransferVersion !== 1) throw fail("clipboard transfer is unavailable for this original lease", "UNAVAILABLE");

@@ -6,6 +6,19 @@ import { installManagedHumanObserver, installManagedPasteObserver, assertManaged
 import { humanPasteText } from "./managed-human-check-fixture.mjs";
 import vm from "node:vm";
 
+test("multi-click wire projection preserves exact bounded down/up count but refuses count on move", () => {
+  const base = { id: 1, operation: "humanInput", leaseId: "original", generation: 1, sequence: 1,
+    input: { type: "pointer", action: "down", button: "left", x: 20, y: 30, modifiers: 0, clickCount: 2 } };
+  for (const action of ["down", "up"]) for (const count of [1, 2, 3, 2147483647]) {
+    const message = structuredClone(base); message.input.action = action; message.input.clickCount = count;
+    assert.deepEqual(projectHumanCommand(message), message);
+  }
+  for (const count of [0, -1, 1.5, 2147483648, null, "2", true]) {
+    const message = structuredClone(base); message.input.clickCount = count; assert.throws(() => projectHumanCommand(message));
+  }
+  const move = structuredClone(base); move.input.action = "move"; assert.throws(() => projectHumanCommand(move));
+});
+
 test("clipboard rejection route is opt-in and restricted to human-copy", () => {
   for (const scenario of ["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy"]) {
     assert.equal(managedCopyRejectionEnabled(scenario, undefined), false);

@@ -107,6 +107,7 @@ type connection struct {
 	humanBudgetVersion     uint64
 	humanBudgetKnown       bool
 	humanKeyRepeatVersion  uint64
+	humanClickCountVersion uint64
 	humanClipboardVersion  uint64
 	humanFrameLease        string
 	humanFrameGeneration   uint64

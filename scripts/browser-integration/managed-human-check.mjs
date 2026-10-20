@@ -22,6 +22,8 @@ import { createManagedKeyRepeatFixture, readManagedKeyRepeatDocument } from "./m
 import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger } from "./managed-human-ime.mjs";
 import { humanCopyCases, createManagedHumanCopyFixture, readManagedHumanCopyDocument, installManagedCopyReadbackObserver, assertManagedHumanCopyCase } from "./managed-human-copy-fixture.mjs";
 import { installManagedCopyRejectionRoute } from "./managed-human-copy-rejection.mjs";
+import { createManagedMultiClickFixture, readManagedMultiClickDocument } from "./managed-human-multi-click-fixture.mjs";
+import { humanMultiClickCases, managedMultiClickMode, installManagedMultiClickObserver, nativeMultiClickGesture, assertManagedMultiClickCase, assertManagedMultiClickLedger, assertManagedMultiClickTerminal } from "./managed-human-multi-click-workflow.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -171,9 +173,10 @@ export function projectHumanCommand(message) {
   assert.ok(Number.isSafeInteger(message.generation) && message.generation > 0);
   assert.ok(Number.isSafeInteger(message.sequence) && message.sequence > 0);
   const input = message.input; assert.ok(input && typeof input === "object" && !Array.isArray(input));
-  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat", "clipboardTransfer"], text: ["type", "text"] }[input.type];
+  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers", "clickCount"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat", "clipboardTransfer"], text: ["type", "text"] }[input.type];
   assert.ok(fields); assert.ok(Object.keys(input).every(key => fields.includes(key)));
   if (input.type === "pointer") { assert.ok(["move", "down", "up"].includes(input.action)); assert.ok(input.button === undefined || ["left", "middle", "right"].includes(input.button)); }
+  if (Object.hasOwn(input, "clickCount")) { assert.equal(input.type, "pointer"); assert.ok(["down", "up"].includes(input.action)); assert.ok(Number.isInteger(input.clickCount) && input.clickCount >= 1 && input.clickCount <= 2147483647); }
   if (["pointer", "wheel"].includes(input.type)) for (const key of ["x", "y"]) assert.ok(Number.isFinite(input[key]) && input[key] >= 0);
   if (input.type === "wheel") for (const key of ["deltaX", "deltaY"]) assert.ok(Number.isFinite(input[key]));
   if (input.type === "key") { assert.ok(["down", "up"].includes(input.action)); assert.equal(typeof input.key, "string"); assert.equal(typeof input.code, "string"); assert.ok(Number.isInteger(input.windowsVirtualKeyCode)); if (Object.hasOwn(input, "repeat")) { assert.equal(input.repeat, true); assert.equal(input.action, "down"); } }
@@ -265,34 +268,37 @@ async function treeHashes(root) {
 
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
-  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy"].includes(scenario));
+  const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy", "multi-click"].includes(scenario));
+  const multiClickMode = managedMultiClickMode(scenario, process.env.OBU_TEST_HUMAN_MULTI_CLICK_MODE);
   const clipboardRejection = managedCopyRejectionEnabled(scenario, process.env.OBU_TEST_HUMAN_CLIPBOARD_REJECTION);
-  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy;
+  const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", multiClick = scenario === "multi-click", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy || multiClick;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const viewerChromium = paste || humanCopy ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
   assert.ok(viewerChromium && (!explicitEnd || buildFile), "Paste/IME/keyboard/key-repeat requires a build manifest; local paste also requires an explicit guarded viewer binary");
   await Promise.all([executable, chromium, viewerChromium, extension].map(file => fs.access(file)));
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : humanCopy ? "mhc-" : "managed-human-"));
-  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : humanCopy ? "c" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
+  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : humanCopy ? "mhc-" : multiClick ? "mmc-" : "managed-human-"));
+  const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : humanCopy ? "c" : multiClick ? "m" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
     scope: humanCopy ? `Production Go/UI/extension clipboard transfer with independently guarded task and viewer HeadlessClipboard. Seven original copy/cut cases, including cancelled copy/cut, exact native receipts, End before trusted local paste readback, explicit Resume and original handoff one POST/Stop. No OS clipboard, task CDP attachment, clipboard API substitution or business replay. Shared managed clipboard is not page-origin provenance.${clipboardRejection ? " An additional explicitly instrumented case denies viewer clipboard permission and delays one original Ctrl ACK through a WebSocket route; actual UI message delivery is observed on its original socket." : " No permission override or WebSocket route."}`
       : paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
       : ime ? "Production managed human viewer with browser-native CDP IME composition on the isolated headless viewer only. Candidate updates, two identical commits and cancellation; original task text receipts/document/one POST, held-Shift End and Stop. No Windows OS input method, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyRepeat ? "Production managed viewer native key down plus explicit autoRepeat key events for Backspace/Delete/ArrowLeft/ArrowRight, prevented defaults and End-held-repeat cleanup. Original task values/selections/receipts and independent handoff one POST. CDP keyboard simulation targets only the viewer; no OS input, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyboard ? "Production managed viewer native Enter/Shift+Enter/NumpadEnter editing, prevented default, one original implicit form POST; independent original handoff POST, held-Shift End, explicit Resume and Stop. No OS input, clipboard, task CDP input or business replay."
+      : multiClick ? `Production managed viewer receives original native mouse down/up counts 1/2/3. Original textarea word/line selection, trusted task dblclick, exact input receipts, End/Resume and independent original handoff one POST/Stop. No task input injection, selection mutation, OS mouse or business replay. Mode=${multiClickMode}; baseline completion is not feature acceptance.`
       : "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
-  let copyTab, repeatTab, keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
+  let copyTab, repeatTab, keyboardTab, multiClickTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
   let copyRejectionRoute, restoreCopyPermissions = false;
-  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy ? "handoff" : scenario });
+  const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy || multiClick ? "handoff" : scenario });
+  const multiClickFixture = multiClick ? createManagedMultiClickFixture() : null;
   const copyFixture = humanCopy ? createManagedHumanCopyFixture() : null;
   const repeatFixture = keyRepeat ? createManagedKeyRepeatFixture() : null;
   const keyboardFixture = keyboard ? createManagedHumanKeyboardFixture() : null;
-  const server = createServer((request, response) => { if (!copyFixture?.handle(request, response) && !repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
+  const server = createServer((request, response) => { if (!multiClickFixture?.handle(request, response) && !copyFixture?.handle(request, response) && !repeatFixture?.handle(request, response) && !keyboardFixture?.handle(request, response) && !fixture.handle(request, response)) { request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
     const child = launch(executable, args, { timeoutMs: args[0] === "managed" && args[1] === "stop" ? 55000 : 45000 });
@@ -414,6 +420,7 @@ export async function runManagedHumanCheck() {
   const keyboardRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanKeyboardDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous keyboard root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const repeatRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedKeyRepeatDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous repeat root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const copyRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedHumanCopyDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous copy root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
+  const multiClickRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedMultiClickDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous multi-click root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const observerSnapshot = () => worker.evaluate("__managedHumanAcceptance.snapshot()");
   const posts = () => fixture.stats().requests.filter(item => item.method === "POST");
@@ -543,6 +550,7 @@ export async function runManagedHumanCheck() {
     }
     if (paste) await page.addInitScript(installManagedPasteObserver);
     if (ime) await page.addInitScript(installManagedIMEObserver);
+    if (multiClick) await page.addInitScript(installManagedMultiClickObserver);
     const geometrySession = await viewerContext.newCDPSession(page);
     try {
       const nativeWindow = await bound(geometrySession.send("Browser.getWindowForTarget"), 5000, "original viewer native window");
@@ -850,6 +858,51 @@ export async function runManagedHumanCheck() {
       await denied("repeat original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, authority), /OBU_STALE_CONTROL_EPOCH/);
     });
 
+    if (multiClick) await step("native-double-triple-click-selection", async () => {
+      multiClickTab = await taskBrowser.newTab({ url: fixtureURL + "/human-multi-click", backgroundWindow: true });
+      await multiClickTab.domSnapshot({ timeoutMs: 10000 });
+      const authority = captureTaskAuthority(taskBrowser.client, multiClickTab.id);
+      const detail = report.multiClick = { mode: multiClickMode, tabId: multiClickTab.id, authority, original: await multiClickRead(multiClickTab.id), cases: [] };
+      detail.originalTargets = await nativeMap(multiClickTab.id); assert.equal(detail.originalTargets.length, 1);
+      await uiAction("#refresh", "status"); await uiAction("#tabs", "select", multiClickTab.id);
+      detail.begin = await uiAction("#human-begin", "humanBegin"); assert.equal(detail.begin.status.state, "paused");
+      detail.firstFrame = await decodeHumanFrame(detail.begin.human); const lease = { ...state.human }; detail.lease = lease;
+      if (multiClickMode === "acceptance") assert.equal(lease.pointerClickCountVersion, 1);
+      for (const definition of humanMultiClickCases) {
+        const row = { definition, startedAt: Date.now(), nativeCommands: [] }; detail.cases.push(row);
+        row.measuredDocument = await multiClickRead(multiClickTab.id); row.position = await viewerPoint(row.measuredDocument.points[definition.id]);
+        row.positionCommands = await inputAction(`position native pointer for ${definition.id}`, () => page.mouse.move(row.position.x, row.position.y));
+        assert.ok(row.positionCommands.every(value => value.input.type === "pointer" && value.input.action === "move"));
+        row.before = await multiClickRead(multiClickTab.id);
+        assert.equal(row.before.documentId, detail.original.documentId); assert.equal(row.before.state.documentToken, detail.original.state.documentToken);
+        row.viewerBefore = await page.evaluate(() => __managedMultiClickObservation.snapshot());
+        row.commands = await inputAction(`original ${definition.count}-click gesture`, () => nativeMultiClickGesture(page.mouse, definition.count, row.nativeCommands));
+        row.viewerAfter = await page.evaluate(() => __managedMultiClickObservation.snapshot());
+        row.after = await multiClickRead(multiClickTab.id);
+        row.proof = assertManagedMultiClickCase(row, report.viewerMessages, lease, multiClickMode);
+        row.screenshot = await screenshot(`viewer-${definition.id}.png`); row.completedAt = Date.now();
+      }
+      detail.after = await multiClickRead(multiClickTab.id);
+      detail.observerFinal = await page.evaluate(() => __managedMultiClickObservation.stop());
+      assert.equal(detail.observerFinal.active, false); assert.equal(detail.observerFinal.overflow, false);
+      detail.end = await uiAction("#human-end", "humanEnd"); assert.equal(detail.end.human, null);
+      assert.deepEqual(detail.end.humanCleanup, { leaseId: lease.leaseId, cleanupConfirmed: true });
+      assert.equal(detail.end.status.state, "paused"); assert.equal(detail.end.status.cleanupComplete, true);
+      const inputs = report.viewerCommands.filter(value => value.operation === "humanInput" && value.leaseId === lease.leaseId);
+      assert.deepEqual(inputs, detail.cases.flatMap(row => [...row.positionCommands, ...row.commands]));
+      detail.endLedger = { requestIds: inputs.map(value => value.id), leaseId: lease.leaseId, generation: lease.generation };
+      detail.released = await multiClickRead(multiClickTab.id); assert.equal(detail.released.documentId, detail.original.documentId);
+      assert.deepEqual(detail.released.state.events, detail.after.state.events); assert.deepEqual(detail.released.controls, detail.after.controls);
+      detail.eventLedger = assertManagedMultiClickLedger(detail);
+      detail.afterTargets = await nativeMap(multiClickTab.id); assert.equal(detail.afterTargets.length, 1);
+      assert.equal(detail.afterTargets[0].id, detail.originalTargets[0].id); assert.equal(detail.afterTargets[0].attached, false);
+      await deniedHuman(lease, "ended multi-click lease cannot send input");
+      detail.resume = await uiAction("#control", "resume"); assert.equal(detail.resume.status.state, "running");
+      await denied("multi-click original request before explicit new turn", () => multiClickTab.domSnapshot({ timeoutMs: 1500 }), /OBU_STALE_CONTROL_EPOCH/);
+      detail.newTurn = await taskBrowser.client.beginTurn("original-handoff-after-multi-click");
+      await denied("multi-click original authority after explicit new turn", () => requestOriginalSnapshot(taskBrowser.client, authority), /OBU_STALE_CONTROL_EPOCH/);
+    });
+
     if (keyboard) await step("native-keyboard-editing-and-one-implicit-submit", async () => {
       keyboardTab = await taskBrowser.newTab({ url: fixtureURL + "/human-keyboard-form", backgroundWindow: true });
       await keyboardTab.domSnapshot({ timeoutMs: 10000 });
@@ -907,7 +960,7 @@ export async function runManagedHumanCheck() {
       assert.equal(posts().length, 0); report.agentDraft = await screenshot("viewer-agent-draft.png");
     });
 
-    await step(paste ? "same-document-native-local-paste-and-held-key-End" : ime ? "same-document-native-IME-and-held-key-End" : (keyboard || keyRepeat) ? "same-document-original-handoff-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
+    await step(paste ? "same-document-native-local-paste-and-held-key-End" : ime ? "same-document-native-IME-and-held-key-End" : (keyboard || keyRepeat || multiClick) ? "same-document-original-handoff-and-held-key-End" : "same-document-real-human-input-and-held-input-disconnect", async () => {
       const eventStart = (await observerSnapshot()).events.length;
       const begun = await uiAction("#human-begin", "humanBegin"); assert.equal(begun.status.state, "paused"); assert.ok(["preparing", "active"].includes(begun.human.state));
       businessLease = begun.human; report.business.humanBegin = begun;
@@ -1061,6 +1114,16 @@ export async function runManagedHumanCheck() {
         assert.deepEqual(report.keyboard.finalDocument.state.events, report.keyboard.released.state.events, "Released keyboard page must not receive late input");
         report.keyboard.finalReceiptProof = assertManagedHumanKeyboardReceipt({ stats: keyboardFixture.stats(), original: report.keyboard.original, after: report.keyboard.finalDocument });
       }
+      if (multiClick) {
+        const detail = report.multiClick; detail.finalDocument = await multiClickRead(multiClickTab.id);
+        assert.deepEqual(detail.finalDocument.state.events, detail.released.state.events);
+        assert.deepEqual(detail.finalDocument.controls, detail.released.controls);
+        const negatives = report.denied.filter(row => row.request?.leaseId === detail.lease.leaseId);
+        assert.equal(negatives.length, 1); assert.equal(negatives[0].response.error.code, "HUMAN_STALE");
+        const entireLease = report.viewerCommands.filter(row => row.operation === "humanInput" && row.leaseId === detail.lease.leaseId);
+        assert.deepEqual(entireLease.map(row => row.id), [...detail.endLedger.requestIds, negatives[0].request.id]);
+        detail.finalWireLedger = { requestIds: entireLease.map(row => row.id), rejectedProbeId: negatives[0].request.id };
+      }
       if (keyRepeat) {
         report.keyRepeat.finalDocument = await repeatRead(repeatTab.id);
         assert.deepEqual(report.keyRepeat.finalDocument.state.events, report.keyRepeat.released.state.events, "Released repeat page cannot receive late input");
@@ -1103,6 +1166,9 @@ export async function runManagedHumanCheck() {
     if (worker && copyTab) try {
       report.failureCopyDocument = { at: Date.now(), value: await bound(copyRead(copyTab.id), 5000, "failed original copy document observation") };
     } catch (failure) { report.failureCopyDocumentError = redact(String(failure)); }
+    if (worker && multiClickTab) try {
+      report.failureMultiClickDocument = { at: Date.now(), value: await bound(multiClickRead(multiClickTab.id), 5000, "failed original multi-click observation") };
+    } catch (failure) { report.failureMultiClickDocumentError = redact(String(failure)); }
     if (worker && oldTaskTab) try {
       report.failureDocument = { at: Date.now(), value: await bound(documentRead(oldTaskTab.id), 5000, "failed original document observation") };
     } catch (failure) { report.failureDocumentError = redact(String(failure)); }
@@ -1153,6 +1219,12 @@ export async function runManagedHumanCheck() {
       }
     } catch (error) { report.cleanup.sourceChanged = error.stack; }
     report.fixture = fixture.stats();
+    if (multiClickFixture) {
+      report.multiClickFixture = multiClickFixture.stats();
+      if (report.multiClick?.finalDocument) try {
+        report.multiClick.terminalProof = assertManagedMultiClickTerminal(report.multiClickFixture, report.multiClick, report.fixture);
+      } catch (error) { report.cleanup.multiClickLedger = error.stack; }
+    }
     if (copyFixture) {
       report.copyFixture = copyFixture.stats();
       if (report.humanCopy?.finalDocument) try {
@@ -1188,7 +1260,11 @@ export async function runManagedHumanCheck() {
     report.frameRetention = { observedFrames: report.frames.length, savedPNGs: report.frames.filter(frame => frame.file).length, maximumSavedPNGs: 96, metadataOnlyFrames: report.frames.filter(frame => !frame.file).length,
       policy: "The first 96 actual native PNG payloads are retained for independent decoding; all received frames retain hash/header metadata. viewerDecodedFrames identifies actual browser decodes, not unperformed decodes of every frame." };
     report.liveRunnerChildren = [...registry].map(value => value.pid);
-    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat || humanCopy ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    report.passed = !report.error && report.steps.length === (keyboard || keyRepeat || humanCopy || multiClick ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    if (multiClick) {
+      report.featurePassed = report.passed && multiClickMode === "acceptance";
+      report.diagnosticGapConfirmed = report.passed && multiClickMode === "baseline" && report.multiClick.cases.every(row => row.proof.gapConfirmed);
+    }
     await save(); console.log("RESULT", JSON.stringify({ runDir, passed: report.passed }));
   }
   return report;

@@ -67,6 +67,85 @@ const input = (handle, value, extra = {}) => {
   return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value, ...extra });
 };
 
+test("human pointer click counts advertise native capability and preserve each original ACK", async t => {
+  const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
+  assert.equal(handle.info().pointerClickCountVersion, 1);
+  for (const clickCount of [undefined, 1, 2, 3, 2147483647]) {
+    for (const action of ["down", "up"]) {
+      const before = handle.info(), request = { type: "pointer", action, x: 12, y: 34, button: "left",
+        ...(clickCount === undefined ? {} : { clickCount }) };
+      assert.deepEqual(await input(handle, request), { leaseId: before.leaseId, generation: before.generation,
+        sequence: before.lastInputSequence + 1, acknowledged: true });
+      assert.equal(f.calls.filter(([method]) => method === "Input.dispatchMouseEvent").at(-1)[2].clickCount, clickCount ?? 1);
+    }
+  }
+  await handle.close();
+  const view = await f.beginView(); t.after(() => view.close());
+  assert.equal(Object.hasOwn(view.info(), "pointerClickCountVersion"), false);
+});
+
+test("human pointer click counts reject malformed values and foreign input kinds before native input", async t => {
+  const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
+  for (const clickCount of [null, 0, -1, 1.5, NaN, Infinity, true, "2", 2147483648, {}, []]) {
+    await assert.rejects(input(handle, { type: "pointer", action: "down", x: 1, y: 1, button: "left", clickCount }), /INVALID/);
+  }
+  for (const request of [{ type: "pointer", action: "move", x: 1, y: 1 }, { type: "text", text: "x" },
+    { type: "wheel", x: 1, y: 1, deltaX: 0, deltaY: 1 }])
+    await assert.rejects(input(handle, { ...request, clickCount: 1 }), /INVALID/);
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+});
+
+test("human pointer up uses the same ACKed button count and mismatches do not consume the hold", async t => {
+  const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
+  const point = { type: "pointer", x: 1, y: 2, button: "left" };
+  await input(handle, { ...point, action: "down", clickCount: 2 });
+  for (const clickCount of [undefined, 1, 3]) {
+    await assert.rejects(input(handle, { ...point, action: "up", ...(clickCount === undefined ? {} : { clickCount }) }), /count.*match|match.*count/);
+  }
+  assert.equal(handle.info().lastInputSequence, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Input.dispatchMouseEvent").length, 1);
+  await input(handle, { ...point, action: "up", clickCount: 2 });
+  await input(handle, { ...point, action: "down" });
+  await input(handle, { ...point, action: "up" });
+  assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchMouseEvent").map(([, , params]) => params.clickCount), [2, 2, 1, 1]);
+});
+
+for (const retiring of ["End", "navigation", "unknown-ACK"]) test(`human multi-click ${retiring} keeps actual down and existing zero-count cleanup`, async t => {
+  const pending = defer(), entered = defer(), released = defer(), releaseEntered = defer();
+  let first = true;
+  const f = fixture({ command(method, params) {
+    if (method !== "Input.dispatchMouseEvent") return;
+    if (params.type === "mousePressed" && first) { first = false; entered.resolve(); return pending.promise; }
+    if (params.type === "mouseReleased" && params.clickCount === 0) { releaseEntered.resolve(); return released.promise; }
+  } }), handle = await f.begin(), original = handle.info();
+  t.after(async () => { pending.resolve(); released.resolve(); await handle.close(); });
+  const request = { type: "pointer", action: "down", button: "left", x: 5, y: 6, clickCount: 3 };
+  const sending = input(handle, request); sending.catch(() => {});
+  // A legacy source rejects the new field synchronously, so the red run must
+  // terminate with that original error rather than wait forever at the gate.
+  await Promise.race([entered.promise, sending]);
+  await assert.rejects(input(handle, { ...request, action: "up" }), /BUSY/);
+  let closing;
+  if (retiring === "End") closing = handle.close();
+  if (retiring === "navigation") { f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed"); }
+  await tick();
+  assert.equal(f.calls.some(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased"), false);
+  if (retiring === "unknown-ACK") pending.reject(new Error("original down acknowledgement unknown"));
+  else pending.resolve();
+  if (retiring === "unknown-ACK") await assert.rejects(sending, /acknowledgement unknown/);
+  else assert.deepEqual(await sending, { leaseId: original.leaseId, generation: original.generation, sequence: 1, acknowledged: true });
+  await releaseEntered.promise;
+  assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mousePressed").length, 1);
+  released.resolve();
+  if (retiring === "navigation") {
+    await f.control.current.recovery;
+    await assert.rejects(input(handle, { ...request, action: "up" }), /hold does not match/);
+    await input(handle, { ...request, clickCount: 1 });
+    await input(handle, { ...request, action: "up", clickCount: 1 });
+  } else await (closing ?? handle.close());
+  assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased" && params.clickCount === 0).length, 1);
+});
+
 const clipboardKey = (operation = "copy", extra = {}) => ({ type: "key", action: "down",
   key: operation === "copy" ? "c" : "x", code: operation === "copy" ? "KeyC" : "KeyX",
   windowsVirtualKeyCode: operation === "copy" ? 67 : 88, modifiers: 2, clipboardTransfer: operation, ...extra });
@@ -819,7 +898,7 @@ test("actual Begin admits End before Page.enable ACK but grants no input or dial
   const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });
   const handle = await f.beginAdmitted(); await entered.promise;
   assert.deepEqual({ ...handle.info(), leaseId: "original" }, {
-    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, fileChooserVersion: 1, lastInputSequence: 0
+    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 1, lastInputSequence: 0
   });
   assert.equal(handle.pendingDialog(), null);
   await assert.rejects(input(handle, { type: "text", text: "must not send" }), /GENERATION_STALE/);
@@ -2052,7 +2131,7 @@ test("tab metadata uses the final original validation without changing typed hum
   f.control.validate = async (...args) => ({ ...await validate(...args), title: f.control.current?.epoch?.document ? "Final title" : "Early title" });
   const handle = await f.begin(); t.after(() => handle.close());
   assert.equal(handle.tabInfo().title, "Final title");
-  assert.deepEqual(Object.keys(handle.info()).sort(), ["fileChooserVersion", "generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "state", "tabId", "viewport"]);
+  assert.deepEqual(Object.keys(handle.info()).sort(), ["fileChooserVersion", "generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "pointerClickCountVersion", "state", "tabId", "viewport"]);
 });
 
 test("old down ACK remains its exact tuple and held release finishes before any successor stream", async () => {

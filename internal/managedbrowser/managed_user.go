@@ -558,7 +558,7 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 			return nil
 		}
-		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion || previous.FileChooserVersion != human.FileChooserVersion) {
+		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.PointerClickCountVersion != human.PointerClickCountVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion || previous.FileChooserVersion != human.FileChooserVersion) {
 			return errors.New("managed human capabilities changed within their original lease")
 		}
 		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
@@ -709,10 +709,11 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	if operation == "humanInput" {
 		var input struct {
 			Repeat            bool   `json:"repeat"`
+			ClickCount        uint64 `json:"clickCount"`
 			ClipboardTransfer string `json:"clipboardTransfer"`
 		}
 		_ = json.Unmarshal(f["input"], &input)
-		if input.Repeat || input.ClipboardTransfer != "" {
+		if input.Repeat || input.ClickCount != 0 || input.ClipboardTransfer != "" {
 			var lease string
 			var generation uint64
 			_ = json.Unmarshal(f["leaseId"], &lease)
@@ -720,10 +721,11 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 			human := c.humanStatus
 			if !c.humanStatusCurrent || human == nil || human.State != "active" ||
 				input.Repeat && human.KeyRepeatVersion != 1 ||
+				input.ClickCount != 0 && human.PointerClickCountVersion != 1 ||
 				input.ClipboardTransfer != "" && human.ClipboardTransferVersion != 1 ||
 				human.LeaseID != lease || human.Generation != generation {
 				c.mu.Unlock()
-				return nil, errors.New("managed key input lacks its current native capability")
+				return nil, errors.New("managed input lacks its current native capability")
 			}
 		}
 	}

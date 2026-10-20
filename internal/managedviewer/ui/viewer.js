@@ -32,6 +32,8 @@
   let pendingFileChooser = null;
   const dialogSources = new Map();
   const inputQueue = [], pressedButtons = new Set(), pressedKeys = new Set(), capturedPointers = new Set();
+  const mouseHolds = new Map();
+  let mouseClick = null;
   const maxQueuedInputs = 32;
   const pending = new Map();
   // A real local write outlives input queue retirement. Rejecting its data is
@@ -201,6 +203,7 @@
       Number.isSafeInteger(value.generation) && value.generation >= 0 &&
       (!Object.hasOwn(value, "inputBudgetVersion") || value.inputBudgetVersion === 1) &&
       (!Object.hasOwn(value, "keyRepeatVersion") || value.keyRepeatVersion === 1) &&
+      (!Object.hasOwn(value, "pointerClickCountVersion") || value.pointerClickCountVersion === 1) &&
       (!Object.hasOwn(value, "clipboardTransferVersion") || value.clipboardTransferVersion === 1) &&
       (!Object.hasOwn(value, "fileChooserVersion") || value.fileChooserVersion === 1) &&
       (value.state !== "preparing" || value.viewport === null) &&
@@ -289,6 +292,8 @@
     pressedKeys.clear();
     clipboardKeys.clear();
     pressedButtons.clear();
+    mouseHolds.clear();
+    mouseClick = null;
     composing = false;
     compositionScope = null;
     el["human-input"].value = "";
@@ -438,6 +443,8 @@
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.inputBudgetVersion !== human.inputBudgetVersion) throw new Error("原人工接管的等待预算发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "keyRepeatVersion") && nextHuman.keyRepeatVersion !== 1) throw new Error("人工重复按键版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.keyRepeatVersion !== human.keyRepeatVersion) throw new Error("原人工接管的重复按键能力发生变化。");
+    if (nextHuman && Object.hasOwn(nextHuman, "pointerClickCountVersion") && nextHuman.pointerClickCountVersion !== 1) throw new Error("人工多击版本无效。");
+    if (human && nextHuman?.leaseId === human.leaseId && nextHuman.pointerClickCountVersion !== human.pointerClickCountVersion) throw new Error("原人工接管的多击能力发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "clipboardTransferVersion") && nextHuman.clipboardTransferVersion !== 1) throw new Error("人工剪贴板传输版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.clipboardTransferVersion !== human.clipboardTransferVersion) throw new Error("原人工接管的剪贴板传输能力发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "fileChooserVersion") && nextHuman.fileChooserVersion !== 1) throw new Error("人工文件选择版本无效。");
@@ -449,6 +456,7 @@
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
     if (nextView && Object.hasOwn(nextView, "inputBudgetVersion")) throw new Error("只读查看不能声明人工等待预算。");
     if (nextView && Object.hasOwn(nextView, "keyRepeatVersion")) throw new Error("只读查看不能声明人工重复按键。");
+    if (nextView && Object.hasOwn(nextView, "pointerClickCountVersion")) throw new Error("只读查看不能声明人工多击。");
     if (nextView && Object.hasOwn(nextView, "clipboardTransferVersion")) throw new Error("只读查看不能声明人工剪贴板传输。");
     if (nextView && Object.hasOwn(nextView, "fileChooserVersion")) throw new Error("只读查看不能声明人工文件选择。");
     if (!validView(nextView) || nextView && nextHuman || nextView && (nextView.tabId !== value.selectedTabId || !nextTabs.some(tab => tab.id === nextView.tabId && tab.kind === "result"))) throw new Error("独立查看身份无效。");
@@ -488,6 +496,10 @@
     human = nextHuman;
     pendingDialog = nextDialog;
     pendingFileChooser = nextChooser;
+    if (nextDialog || nextChooser) {
+      mouseClick = null;
+      for (const hold of mouseHolds.values()) hold.chorded = true;
+    }
     humanFiles.accept(nextChooser);
     if (nextChooser) {
       // A chooser may open on down. Only original releases may follow; queued
@@ -696,6 +708,7 @@
   const buttons = ["left", "middle", "right"];
   function point(event, releasingHeldInput = false) {
     if (!humanReady(releasingHeldInput) || !decodedHuman?.width || !decodedHuman.height) return null;
+    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
     const rect = el.frame.getBoundingClientRect();
     const scale = Math.min(rect.width / decodedHuman.width, rect.height / decodedHuman.height);
     if (!Number.isFinite(scale) || scale <= 0) return null;
@@ -706,6 +719,15 @@
   }
 
   function pointer(event, action) {
+    if (human?.pointerClickCountVersion === 1) {
+      // PointerEvent.detail is zero. Cancelling a mouse pointerdown would also
+      // suppress the real mousedown carrying the browser's click count.
+      if (event.isTrusted === true && event.pointerType && event.pointerType !== "mouse" && humanReady()) {
+        event.preventDefault();
+        endHuman("当前接管仅支持鼠标输入；已请求释放控制。");
+      }
+      return;
+    }
     const button = buttons[event.button];
     const releasingHeldInput = Boolean(pendingDialog || pendingFileChooser) && action === "up" && pressedButtons.has(button);
     if (!humanReady(releasingHeldInput)) return;
@@ -730,6 +752,56 @@
       if (el.frame.hasPointerCapture(event.pointerId)) el.frame.releasePointerCapture(event.pointerId);
       capturedPointers.delete(event.pointerId);
     }
+  }
+
+  function mouseInput(event, action) {
+    if (human?.pointerClickCountVersion !== 1 || event.isTrusted !== true) return;
+    const button = buttons[event.button], hold = mouseHolds.get(button);
+    const releasing = action === "up" && Boolean(hold) && Boolean(pendingDialog || pendingFileChooser);
+    if (!humanReady(releasing)) return;
+    // Window listeners retain real releases outside the image, while unrelated
+    // idle mouse movement cannot become input to the controlled page.
+    if (action !== "down" && event.target !== el.frame && !pressedButtons.size) return;
+    const position = point(event, releasing);
+    if (!position) {
+      if (pressedButtons.size) endHuman("指针已离开当前画面，正在释放按键和人工控制。", false, "human-release");
+      return;
+    }
+    if (action !== "move" && !button) return;
+    event.preventDefault();
+    let clickCount;
+    if (action === "down") {
+      if (pressedButtons.has(button)) return;
+      if (!Number.isInteger(event.detail) || event.detail < 1 || event.detail > 2147483647) {
+        endHuman("无法确认本次鼠标点击次数，正在释放人工控制。"); return;
+      }
+      const chorded = pressedButtons.size > 0;
+      if (chorded) for (const held of mouseHolds.values()) held.chorded = true;
+      // Browser detail owns the time/distance threshold. Only a complete local
+      // sequence within this admitted generation can continue its count.
+      clickCount = !chorded && mouseClick?.button === button && event.detail === mouseClick.detail + 1
+        ? mouseClick.count + 1 : 1;
+      mouseClick = null;
+      mouseHolds.set(button, { detail: event.detail, count: clickCount, chorded });
+      pressedButtons.add(button);
+      el["human-input"].focus({ preventScroll: true });
+    } else if (action === "up") {
+      if (!hold || !pressedButtons.delete(button)) return;
+      mouseHolds.delete(button);
+      clickCount = hold.count;
+      mouseClick = !hold.chorded && !pressedButtons.size && !pendingDialog && !pendingFileChooser
+        ? { button, detail: hold.detail, count: hold.count } : null;
+    }
+    enqueueInput({ type: "pointer", action, ...position,
+      ...(action === "move" ? {} : { button, clickCount }), modifiers: modifiers(event) }, releasing);
+  }
+
+  function leaveMouse(event, leftWindow = false) {
+    // Disabling the image for an original dialog/chooser also changes hit
+    // testing and can emit mouseleave without the pointer physically moving.
+    if (human?.pointerClickCountVersion === 1 && event.isTrusted === true && pressedButtons.size &&
+        (leftWindow || !point(event, true)))
+      endHuman("指针已离开当前画面，正在释放按键和人工控制。", false, "human-release");
   }
 
   function committedText(text) {
@@ -818,7 +890,19 @@
   el["dialog-accept"].addEventListener("click", () => respondDialog(true));
   el["dialog-cancel"].addEventListener("click", () => respondDialog(false));
   for (const action of ["down", "move", "up"]) el.frame.addEventListener(`pointer${action}`, event => pointer(event, action));
-  for (const event of ["pointercancel", "lostpointercapture"]) el.frame.addEventListener(event, () => { if (pressedButtons.size) endHuman("指针控制已中断，正在释放人工控制。", false, "human-release"); });
+  el.frame.addEventListener("pointercancel", event => {
+    if (pressedButtons.size && (human?.pointerClickCountVersion !== 1 || event.isTrusted === true))
+      endHuman("指针控制已中断，正在释放人工控制。", false, "human-release");
+  });
+  el.frame.addEventListener("lostpointercapture", () => {
+    if (human?.pointerClickCountVersion !== 1 && pressedButtons.size)
+      endHuman("指针控制已中断，正在释放人工控制。", false, "human-release");
+  });
+  el.frame.addEventListener("mousedown", event => mouseInput(event, "down"));
+  window.addEventListener("mousemove", event => mouseInput(event, "move"), true);
+  window.addEventListener("mouseup", event => mouseInput(event, "up"), true);
+  el.frame.addEventListener("mouseleave", leaveMouse);
+  window.addEventListener("mouseout", event => { if (event.relatedTarget === null) leaveMouse(event, true); }, true);
   el.frame.addEventListener("contextmenu", event => { if (humanReady()) event.preventDefault(); });
   el.frame.addEventListener("wheel", event => {
     const position = point(event);
@@ -1014,7 +1098,7 @@
             const original = value.result?.human;
             if (!validHuman(original) || !admittedHumanState(original) || original.tabId !== entry.fields.tabId ||
                 humanOwner && original.leaseId !== humanOwner || human &&
-                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion || original.fileChooserVersion !== human.fileChooserVersion))
+                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.pointerClickCountVersion !== human.pointerClickCountVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion || original.fileChooserVersion !== human.fileChooserVersion))
               throw new Error("原接管回执不匹配。");
           }
           acceptState(value.result, value.id);
