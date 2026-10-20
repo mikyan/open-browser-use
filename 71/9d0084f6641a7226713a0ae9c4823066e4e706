@@ -1,0 +1,29 @@
+docs/histories/2026-10/20261021-0400-managed-human-pages.md
+  s_08bbfd293d324f::t_cc1c914fed9f7d 7-8,80-95
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_cc1c914fed9f7d 7
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_cc1c914fed9f7d 36-41
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_cc1c914fed9f7d 28-31
+docs/exec-plans/active/2026-10-21-managed-human-pages.md
+  s_08bbfd293d324f::t_cc1c914fed9f7d 124-127
+docs/references/managed-human-pages.md
+  s_08bbfd293d324f::t_cc1c914fed9f7d 132-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "719d0084f6641a7226713a0ae9c4823066e4e706",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
