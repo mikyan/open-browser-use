@@ -301,6 +301,16 @@ original POST. This uses `Input.imeSetComposition` only on the isolated viewer;
 it is not Windows OS input-method or candidate-window acceptance. Original
 CDP ACKs, native event flags, complete lease text ledger and cleanup remain
 separate evidence. See [IME acceptance](../../docs/references/managed-human-ime.md).
+Add `OBU_TEST_HUMAN_IME_MODE=baseline` to preserve the old presentation gap without
+counting a successful workflow as feature acceptance. `acceptance` additionally
+requires original computed layout and readable preedit screenshots, a real frame
+click abandoning a candidate followed by a fresh native composition, and End
+while a candidate is uncommitted. The complete lease still contains exactly two
+original text commits; every intervening pointer/key receipt is retained. Native
+viewer sessions remain attached through their corresponding real gesture and
+evidence capture. These checks locate the local composition box near the original
+click, not the task caret or a Windows candidate window. See
+[preedit presentation](../../docs/references/managed-human-ime-presentation.md).
 Published manifests may differ only by the exact beta public key declared in
 the current CLI source; all other fields and production files must match.
 

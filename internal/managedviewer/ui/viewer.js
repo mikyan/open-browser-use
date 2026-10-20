@@ -5,7 +5,7 @@
   const fragment = new URLSearchParams(location.hash.slice(1));
   let ticket = fragment.get("ticket") || "";
   history.replaceState(null, "", location.pathname);
-  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-switch", "human-status", "human-input", "clipboard-status", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
+  const el = Object.fromEntries(["connection", "indicator", "state", "detail", "refresh", "control", "stop", "error", "tabs", "watch", "freshness", "screen", "frame", "placeholder", "page-title", "dimensions", "human-begin", "human-end", "human-switch", "human-status", "human-input", "clipboard-status", "page-dialog", "dialog-title", "dialog-source", "dialog-message", "dialog-prompt-label", "dialog-prompt", "dialog-accept", "dialog-cancel", "dialog-status"].map(id => [id, document.getElementById(id)]));
   let ws, connected = false, authenticated = false, available = false, stopped = false;
   let status = null, worker = "", pendingAction = null, nextId = 0, appliedId = 0;
   let selected = null, selectedOnce = false, tabs = [], lastFrameAt = 0, imageURL = null;
@@ -27,6 +27,7 @@
   let displayedNotice = null;
   let humanSequence = 0, humanInputId = null, decodedHuman = null, awaitingHumanFrame = null;
   let acknowledgedSequence = 0, composing = false, compositionScope = null;
+  let inputAnchor = null;
   let retiredHumanGeneration = -1;
   let humanEndAttempted = false;
   let pendingDialog = null, displayedDialog = "", claimedDialog = "";
@@ -302,9 +303,7 @@
     pressedButtons.clear();
     mouseHolds.clear();
     mouseClick = null;
-    composing = false;
-    compositionScope = null;
-    el["human-input"].value = "";
+    retireComposition(true);
     for (const pointerId of capturedPointers) {
       if (el.frame.hasPointerCapture(pointerId)) el.frame.releasePointerCapture(pointerId);
     }
@@ -390,6 +389,9 @@
     el["human-switch"].textContent = pageSwitch?.phase === "ending" ? "正在释放原页面…" : pageSwitch?.phase === "selecting" ? "正在切换…" : pageSwitch?.phase === "choosing" ? "取消切换" : "切换页面";
     const ready = humanReady();
     el.frame.dataset.interactive = String(ready);
+    // Retire before disabling: native focus changes may finish a composition.
+    if (!ready) retireComposition();
+    else positionHumanInput();
     el["human-input"].disabled = !ready;
     el["human-input"].dataset.enabled = String(ready);
     el["human-input"].dataset.pending = String(inputQueue.length + (humanInputId === null ? 0 : 1));
@@ -728,14 +730,60 @@
 
   const modifiers = event => (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
   const buttons = ["left", "middle", "right"];
-  function point(event, releasingHeldInput = false) {
-    if (!humanReady(releasingHeldInput) || !decodedHuman?.width || !decodedHuman.height) return null;
-    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
+  function frameContentRect() {
+    if (!decodedHuman?.width || !decodedHuman.height) return null;
     const rect = el.frame.getBoundingClientRect();
     const scale = Math.min(rect.width / decodedHuman.width, rect.height / decodedHuman.height);
     if (!Number.isFinite(scale) || scale <= 0) return null;
     const width = decodedHuman.width * scale, height = decodedHuman.height * scale;
     const left = rect.left + (rect.width - width) / 2, top = rect.top + (rect.height - height) / 2;
+    return { width, height, left, top };
+  }
+  function retireComposition(clearAnchor = false) {
+    composing = false;
+    compositionScope = null;
+    el["human-input"].dataset.composing = "false";
+    el["human-input"].value = "";
+    if (clearAnchor) {
+      inputAnchor = null;
+      Object.assign(el["human-input"].style, { left: "0px", top: "0px", width: "1px", height: "1px" });
+    } else positionHumanInput();
+  }
+  function positionHumanInput() {
+    const content = frameContentRect();
+    if (!content) return;
+    const screen = el.screen.getBoundingClientRect();
+    if (![screen.left, screen.top, screen.width, screen.height].every(Number.isFinite) || screen.width <= 0 || screen.height <= 0) return;
+    const visibleLeft = Math.max(screen.left, 0), visibleTop = Math.max(screen.top, 0);
+    const visibleWidth = Math.min(screen.left + screen.width, window.innerWidth) - visibleLeft;
+    const visibleHeight = Math.min(screen.top + screen.height, window.innerHeight) - visibleTop;
+    if (![visibleWidth, visibleHeight].every(value => Number.isFinite(value) && value > 0)) return;
+    const anchor = inputAnchor?.leaseId === human?.leaseId && inputAnchor?.generation === human?.generation ? inputAnchor : null;
+    const padding = Math.min(8, visibleWidth / 4, visibleHeight / 4);
+    const width = Math.min(composing ? 280 : 1, visibleWidth - padding * 2);
+    const height = Math.min(composing ? 48 : 1, visibleHeight - padding * 2);
+    const minimumX = visibleLeft - screen.left + padding, minimumY = visibleTop - screen.top + padding;
+    // This is the last admitted click, not a claim about the remote caret.
+    const x = content.left - screen.left + (anchor?.x ?? 0) * content.width;
+    const y = content.top - screen.top + (anchor?.y ?? 0) * content.height;
+    Object.assign(el["human-input"].style, {
+      left: `${Math.min(Math.max(minimumX, x), minimumX + visibleWidth - width - padding * 2)}px`,
+      top: `${Math.min(Math.max(minimumY, y), minimumY + visibleHeight - height - padding * 2)}px`,
+      width: `${width}px`, height: `${height}px`
+    });
+  }
+  function anchorHumanInput(position) {
+    // Retire the old local preedit before another remote field can receive focus.
+    retireComposition();
+    inputAnchor = { leaseId: human.leaseId, generation: human.generation,
+      x: position.x / human.viewport.width, y: position.y / human.viewport.height };
+    positionHumanInput();
+  }
+  function point(event, releasingHeldInput = false) {
+    if (!humanReady(releasingHeldInput) || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
+    const content = frameContentRect();
+    if (!content) return null;
+    const { left, top, width, height } = content;
     if (event.clientX < left || event.clientX >= left + width || event.clientY < top || event.clientY >= top + height) return null;
     return { x: (event.clientX - left) * human.viewport.width / width, y: (event.clientY - top) * human.viewport.height / height };
   }
@@ -760,6 +808,7 @@
     event.preventDefault();
     if (action === "down") {
       if (pressedButtons.has(button)) return;
+      anchorHumanInput(position);
       el["human-input"].focus({ preventScroll: true });
       pressedButtons.add(button);
       el.frame.setPointerCapture(event.pointerId);
@@ -806,6 +855,7 @@
       mouseClick = null;
       mouseHolds.set(button, { detail: event.detail, count: clickCount, chorded });
       pressedButtons.add(button);
+      anchorHumanInput(position);
       el["human-input"].focus({ preventScroll: true });
     } else if (action === "up") {
       if (!hold || !pressedButtons.delete(button)) return;
@@ -903,7 +953,7 @@
     pendingFileChooser = null; humanFiles.reset();
     dialogSources.clear();
     retiredHumanGeneration = -1;
-    compositionScope = null;
+    retireComposition(true);
     humanSequence = acknowledgedSequence = 0;
     inputQueue.length = 0; humanInputId = null;
     send("humanBegin", selectionFields());
@@ -912,7 +962,8 @@
   el["human-end"].addEventListener("click", () => { if (!el["human-end"].disabled) { pageSwitch = null; endHuman("", true); } });
   // Keep the keyboard sink focused until the explicit click starts End. Its
   // normal blur guard remains unchanged for every other destination.
-  el["human-switch"].addEventListener("mousedown", event => event.preventDefault());
+  for (const id of ["human-end", "human-switch", "stop"])
+    el[id].addEventListener("mousedown", event => event.preventDefault());
   el["human-switch"].addEventListener("click", () => {
     if (el["human-switch"].disabled) return;
     if (pageSwitch) { pageSwitch = null; render(); return; }
@@ -976,12 +1027,16 @@
   el["human-input"].addEventListener("compositionstart", () => {
     composing = humanReady();
     compositionScope = composing ? { leaseId: human.leaseId, generation: human.generation } : null;
+    el["human-input"].dataset.composing = String(composing);
+    positionHumanInput();
   });
   el["human-input"].addEventListener("compositionend", event => {
     const current = composing && compositionScope?.leaseId === human?.leaseId && compositionScope?.generation === human?.generation;
-    composing = false; compositionScope = null;
-    if (current && humanReady()) committedText(event.data); else el["human-input"].value = "";
+    retireComposition();
+    if (current && humanReady()) committedText(event.data);
   });
+  window.addEventListener("resize", positionHumanInput);
+  window.addEventListener("scroll", positionHumanInput, true);
   el["human-input"].addEventListener("blur", () => {
     // Navigating disables this focused textarea. That local blur is not a user
     // request to terminate the lease; window blur/End/Stop remain independent.

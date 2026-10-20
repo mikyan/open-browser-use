@@ -11,18 +11,31 @@
 
 ## 当前评分
 
+2026-10-21，源码新增[人工接管输入法预编辑显示](references/managed-human-ime-presentation.md)，尚未发布。
+原本隐藏的本地组合文字现在显示在最近点击处，并随可见画面边界调整位置；
+确认后仍仅发送一次已确认文字。原基线 `mhi-G1sX8c` 的六次预编辑均为
+1×1 像素、透明度 0，已独立核验并保留。新正式流程 `mhi-Dz6Bgu` 实际退出 0，
+覆盖可读中文预编辑、相同文字两次独立确认、取消后继续输入，以及组合中
+点击完成接管后不再发送旧字；随后 End/Resume、唯一业务提交和 Stop 通过。
+完整 Go test/vet 与 3,268 项 Node 检查通过，其中 UI 235 项；验收脚手架
+另有 52 项定向检查通过。原事件、来源和生命周期独立核验 222 项通过，
+42 张 PNG 完整解码，28 个原进程身份退出。
+位置来自最近有效点击，不是远端文字光标；固定 Headless Chromium 的原生
+组合输入不证明 Windows 系统输入法候选窗口、普通公司 Edge 或完整 P01–P15。
+整体能力对齐仍未完成，最新发布的 3e61b68 包不含本项与下述 beforeunload 增量。
+
 2026-10-21，源码完成独立 managed 浏览器的[人工离页确认](references/managed-human-beforeunload.md)，尚未发布。
 查看器可选择 Stay 保留原文档和草稿并继续编辑，或 Leave 后等待新文档及真实新帧；
 随后 End/Resume、新轮 SDK 认领、唯一提交、重新交付与 Stop 均已通过。
 冻结构建 `mso-build-k5ranhzd` 的完整 Go test/vet 与 3,256 项 Node 检查通过；
 主页面 `mbu-ujOpm6` 和真实跨站 OOPIF `mbu-uEnxlF` 两场正式流程实际退出 0，
 生命周期独审 91/85 项、事件与业务独审 449/505 项通过，25/27 个原进程均已退出。
-这只证明固定 Chromium 的两条流程；普通公司 Edge、真实 SSO/MFA、IME 预编辑
+这只证明固定 Chromium 的两条流程；普通公司 Edge、真实 SSO/MFA、Windows 系统输入法
 及完整 P01–P15 仍待验证，不调整为整体能力已对齐。
 
 用户后续要求重新打包，已发布 [preview-20261021-3e61b68](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-3e61b68)，功能与下述 96595fc 相同。
 精确干净源码重建、离线 CLI/MCP、4,924 项制品检查和四资产回下载通过；
-本次未重跑原网页验收。上述 beforeunload 人工决策不在此包中。
+本次未重跑原网页验收。上述 beforeunload 人工决策与输入法预编辑显示不在此包中。
 见[本次打包记录](histories/2026-10/20261021-0608-requested-preview-repack.md)。
 
 2026-10-21，本轮修复独立 managed 浏览器中父页回调导航后的只读首帧等待。

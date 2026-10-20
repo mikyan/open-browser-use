@@ -168,7 +168,11 @@ debugger、history 和 tab groups。
   原生关页先登记实际关闭 Promise 再撤销画面；确切退休租约的 End 可以
   加入原清理，新租约或断线仍撤销旧调用。Go 显式释放取消未提交输入，
   已提交调用保留原 deadline 等待确切 native ACK，不重发；断线、Stop
-  和未知失败保持原取消语义。跨站 iframe 开页与子页回调关闭已实测，
+  和未知失败保持原取消语义。跨站 iframe 开页与子页回调关闭已实测。
+  查看器的本地原生 textarea 在组合期间可见，并以最近有效画面点击定位；
+  只发送最终确认文字，不复制远端 composition 生命周期。导航、弹窗、
+  新画面点击或结束先退役本地组合 scope，显式 End/Stop 保留焦点到点击撤权。
+  布局只调整样式，不修改原生选区；准确范围见[预编辑显示](references/managed-human-ime-presentation.md)。
   只读 view 在原录屏启动 ACK 后仍未发布帧时，沿同一附件与队列请求一次
   无 clip 的原生 surface 截图，让隐藏的新文档产生画面；截图内容不作为
   查看帧或 ready 回执。原 TimeTicks 门禁、录屏 ACK、期限和真实清理不变，

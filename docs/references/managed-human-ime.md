@@ -5,7 +5,11 @@
 结束接管、换页或撤权会清空本地状态。任务页面收到的是已确认文字的原生
 insertText，不是查看器输入法的 composition 事件。
 
-## 当前真实验收
+2026-10-21，开发版新增[可见预编辑与组合清理](managed-human-ime-presentation.md)：
+原 textarea 在最近画面点击附近显示，确认/取消及组合中重新点击、End 的限定
+真实流程通过；原提交协议保持不变。此增量尚未进入最新发布的 3e61b68 包。
+
+## 原提交路径验收（2026-10-19）
 
 2026-10-19，`mhi-66idOk` 使用已发布的
 [preview-20261019-d07ae52](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-d07ae52)
@@ -52,7 +56,7 @@ compositionend 的原生读数为 false。该事件通过 scoped queue 派发，
 断言失败，原记录保留；源码确认后新建 `native-5os7rU` 完成三场独立探针。
 探针不是正式 managed 业务结果。
 
-本片不证明 Windows 实际输入法及候选窗口位置、IME 中导航或失焦、带候选
+2026-10-19 的本片不证明 Windows 实际输入法及候选窗口位置、IME 中导航或失焦、带候选
 点击 End 的原生提交语义、其他浏览器/平台或完整 P01–P15。对应目标保持开放。
 
 ## 可复用入口

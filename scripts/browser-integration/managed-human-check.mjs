@@ -19,7 +19,7 @@ import { managedHumanSourceFiles } from "./managed-human-source-snapshot.mjs";
 import { humanKeyboardCases, createManagedHumanKeyboardFixture, readManagedHumanKeyboardDocument, assertManagedHumanKeyboardCase, assertManagedHumanKeyboardReceipt, assertManagedHumanKeyboardLedger } from "./managed-human-keyboard-fixture.mjs";
 import { humanKeyRepeatCases, nativeKeyRepeatGesture, installManagedKeyRepeatObserver, assertManagedKeyRepeatCase, assertManagedKeyRepeatLedger } from "./managed-human-key-repeat.mjs";
 import { createManagedKeyRepeatFixture, readManagedKeyRepeatDocument } from "./managed-human-key-repeat-fixture.mjs";
-import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger } from "./managed-human-ime.mjs";
+import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger, managedIMEPresentationMode, readManagedIMEPresentation, assessManagedIMEPresentation, managedIMEPresentationOutcome, assertManagedIMEAbandonment } from "./managed-human-ime.mjs";
 import { humanCopyCases, createManagedHumanCopyFixture, readManagedHumanCopyDocument, installManagedCopyReadbackObserver, assertManagedHumanCopyCase } from "./managed-human-copy-fixture.mjs";
 import { installManagedCopyRejectionRoute } from "./managed-human-copy-rejection.mjs";
 import { createManagedMultiClickFixture, readManagedMultiClickDocument } from "./managed-human-multi-click-fixture.mjs";
@@ -287,6 +287,7 @@ async function treeHashes(root) {
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
   const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy", "multi-click", "new-page"].includes(scenario));
+  const imePresentationMode = managedIMEPresentationMode(scenario, process.env.OBU_TEST_HUMAN_IME_MODE);
   const multiClickMode = managedMultiClickMode(scenario, process.env.OBU_TEST_HUMAN_MULTI_CLICK_MODE);
   const newPageTrigger = managedHumanNewPageTrigger(scenario, process.env.OBU_TEST_HUMAN_NEW_PAGE_TRIGGER);
   const newPageMode = managedHumanNewPageMode(scenario, process.env.OBU_TEST_HUMAN_NEW_PAGE_MODE);
@@ -321,7 +322,7 @@ export async function runManagedHumanCheck() {
   if (parentReadonly) report.scope += " Explicit readonly-parent acceptance uses ordinary End, original parent selection, its saved and DOM-decoded user-view frame while the parent remains hidden/unfocused, then a separate real Begin click. No interception, artificial delay, extra native render command or business replay. Native focus-command exclusion relies on the frozen view implementation and its integration tests; runtime evidence is the original UI commands and passive focus/visibility snapshots.";
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
-  let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
+  let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false, imeEndSession;
   let copyTab, repeatTab, keyboardTab, multiClickTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
   let copyRejectionRoute, restoreCopyPermissions = false;
   const stopNativeTrace = async () => {
@@ -382,10 +383,12 @@ export async function runManagedHumanCheck() {
     action.acknowledgedSequence = acknowledged;
     action.completedAt = Date.now(); return commands;
   }
-  async function exerciseIME() {
+  async function exerciseIME(anchor) {
     const detail = report.business.ime = { stages: [], nativeCommands: [], boundary: "Native viewer composition simulation, not a Windows OS input method. Candidate text stays local; only each final commit enters the production humanInput channel. Fixed Chromium 156 reports scoped compositionend isTrusted=false; start/update/beforeinput/input are trusted. Original values and CDP ACKs are retained." };
+    if (imePresentationMode) Object.assign(detail, { presentationMode: imePresentationMode, presentationAnchor: structuredClone(anchor),
+      presentationBoundary: "Original computed layout, native editing value and preedit screenshots only. No OS candidate-window or remote-caret placement claim. Baseline never passes this feature." });
     const session = await viewerContext.newCDPSession(page);
-    let expectedDraft = fixture.draft;
+    let expectedDraft = fixture.draft, eventStart = 0;
     const observe = () => page.evaluate(() => __managedIMEObservation.snapshot());
     async function native(method, params) {
       const row = { method, params: structuredClone(params), startedAt: Date.now() }; detail.nativeCommands.push(row);
@@ -397,6 +400,7 @@ export async function runManagedHumanCheck() {
     async function action(phase, text) {
       assert.equal(await page.evaluate(() => document.activeElement?.id), "human-input", "IME must target the original focused viewer textarea");
       const row = { phase, text, startedAt: Date.now(), connection, wireStart: report.viewerCommands.length,
+        ...(imePresentationMode === "acceptance" ? { eventStart } : {}),
         before: await documentRead(oldTaskTab.id), viewerBefore: await observe() };
       detail.stages.push(row);
       if (phase === "commit") {
@@ -411,28 +415,72 @@ export async function runManagedHumanCheck() {
       }, `original native IME ${phase} event`);
       row.after = await documentRead(oldTaskTab.id); row.wireEnd = report.viewerCommands.length;
       row.commands = report.viewerCommands.slice(row.wireStart, row.wireEnd);
+      if (imePresentationMode) {
+        row.presentation = await page.evaluate(readManagedIMEPresentation);
+        if (phase === "preedit") row.presentationScreenshot = await screenshot(`viewer-ime-preedit-${detail.stages.length}.png`);
+        row.presentationProof = assessManagedIMEPresentation({ phase, text, presentation: row.presentation, anchor });
+        if (imePresentationMode === "acceptance") assert.equal(row.presentationProof.passed, true, JSON.stringify(row.presentationProof));
+      }
       row.proof = assertManagedIMEStage({ ...row, replies: report.viewerMessages, expectedDraft, scope: businessLease });
       row.completedAt = Date.now();
     }
     try {
       for (let confirmation = 0; confirmation < 2; confirmation++) {
+        if (imePresentationMode === "acceptance") eventStart = (await observe()).events.length;
         for (const text of humanIMEPreedit) await action("preedit", text);
         await action("commit", humanIMEText);
+        if (imePresentationMode === "acceptance" && confirmation === 0) {
+          const preedit = await beginIMELifecyclePreedit("same-field-click", "旧候选不能提交", anchor, session);
+          const row = detail.lifecycle.sameFieldClick = { preedit, before: preedit.after, viewerBefore: preedit.viewerAfter, wireStart: report.viewerCommands.length };
+          row.clickCommands = await inputAction("click original draft while local IME is uncommitted", () => page.mouse.click(anchor.x, anchor.y));
+          row.caretCommands = await inputAction("restore original draft end after abandoning local IME", () => page.keyboard.press("End"));
+          row.after = await documentRead(oldTaskTab.id); row.viewerAfter = await observe(); row.presentation = await page.evaluate(readManagedIMEPresentation);
+          row.commands = report.viewerCommands.slice(row.wireStart);
+          row.proof = assertManagedIMEAbandonment({ kind: "same-field-click", ...row, replies: report.viewerMessages, scope: businessLease });
+          detail.interveningRequestIds = row.commands.map(command => command.id);
+        } else if (imePresentationMode === "acceptance" && confirmation === 1) {
+          const first = detail.stages[3];
+          detail.lifecycle.sameFieldClick.newCompositionStarted = first.viewerAfter.events.slice(first.viewerBefore.events.length).some(row => row.type === "compositionstart");
+          assert.equal(detail.lifecycle.sameFieldClick.newCompositionStarted, true, "A fresh native compositionstart is required after the original frame click");
+        }
       }
+      if (imePresentationMode === "acceptance") eventStart = (await observe()).events.length;
       for (const text of humanIMEPreedit) await action("preedit", text);
       await action("cancel", "");
       const commits = detail.stages.filter(row => row.phase === "commit").map(row => row.commands[0]);
       assert.equal(commits.length, 2); assert.notEqual(commits[0].id, commits[1].id);
-      assert.equal(commits[1].sequence, commits[0].sequence + 1); assert.deepEqual(commits[0].input, commits[1].input);
+      assert.equal(commits[1].sequence, commits[0].sequence + 1 + (detail.interveningRequestIds?.length ?? 0)); assert.deepEqual(commits[0].input, commits[1].input);
       assert.equal(expectedDraft, fixture.expectedDraft);
       detail.commitRequestIds = commits.map(row => row.id); detail.confirmations = 2; detail.cancellations = 1;
     } finally {
-      try { detail.observerFinal = await observe(); detail.observerFinal = await page.evaluate(() => __managedIMEObservation.stop()); }
+      try { detail.observerFinal = await observe(); if (imePresentationMode !== "acceptance") detail.observerFinal = await page.evaluate(() => __managedIMEObservation.stop()); }
       finally { await session.detach(); detail.observerDetachedAt = Date.now(); }
     }
-    assert.equal(detail.observerFinal.active, false); assert.equal(detail.observerFinal.overflow, false);
-    assert.equal(detail.observerFinal.events.filter(event => event.type === "compositionstart").length, 3);
-    assert.equal(detail.observerFinal.events.filter(event => event.type === "compositionend").length, 3);
+    assert.equal(detail.observerFinal.active, imePresentationMode === "acceptance"); assert.equal(detail.observerFinal.overflow, false);
+    const businessEvents = detail.stages.flatMap(row => row.viewerAfter.events.slice(row.viewerBefore.events.length));
+    assert.equal(businessEvents.filter(event => event.type === "compositionstart").length, 3);
+    assert.equal(businessEvents.filter(event => event.type === "compositionend").length, 3);
+  }
+  async function beginIMELifecyclePreedit(label, text, anchor, originalSession) {
+    const detail = report.business.ime; detail.lifecycle ??= {};
+    const row = { label, phase: "preedit", text, wireStart: report.viewerCommands.length,
+      before: await documentRead(oldTaskTab.id), viewerBefore: await page.evaluate(() => __managedIMEObservation.snapshot()) };
+    detail.lifecycle[label] = row;
+    row.eventStart = row.viewerBefore.events.length;
+    const session = originalSession ?? (imeEndSession = await viewerContext.newCDPSession(page));
+    row.sessionLifetime = originalSession ? "original exerciseIME session retained through the click and subsequent native compositions" : "original End probe session retained through End and released-document evidence";
+    const native = row.nativeCommand = { method: "Input.imeSetComposition", params: { text, selectionStart: text.length, selectionEnd: text.length }, startedAt: Date.now() };
+    detail.nativeCommands.push(native);
+    try { native.result = await session.send(native.method, native.params); native.acknowledgedAt = Date.now(); }
+    catch (error) { native.error = String(error); throw error; }
+    finally { native.settledAt = Date.now(); }
+    row.viewerAfter = await wait(async () => { const value = await page.evaluate(() => __managedIMEObservation.snapshot()); return value.events.slice(row.eventStart).some(event => event.type === "input") && value; }, `original lifecycle preedit ${label}`);
+    row.after = await documentRead(oldTaskTab.id); row.commands = report.viewerCommands.slice(row.wireStart);
+    row.presentation = await page.evaluate(readManagedIMEPresentation); row.screenshot = await screenshot(`viewer-ime-${label}-pending.png`);
+    row.presentationProof = assessManagedIMEPresentation({ phase: "preedit", text, presentation: row.presentation, anchor });
+    assert.equal(row.presentationProof.passed, true, JSON.stringify(row.presentationProof));
+    row.proof = assertManagedIMEStage({ ...row, replies: report.viewerMessages, expectedDraft: row.before.draft, scope: businessLease });
+    return row;
   }
   async function denied(label, operation, pattern) { const record = { label, at: Date.now() }; report.denied.push(record); try { await operation(); } catch (error) { record.error = error.stack; assert.match(error.message, pattern); record.verified = true; return; } throw new Error(`${label} unexpectedly succeeded`); }
   async function deniedHuman(lease, label) {
@@ -614,7 +662,7 @@ export async function runManagedHumanCheck() {
       });
     }
     if (paste) await page.addInitScript(installManagedPasteObserver);
-    if (ime) await page.addInitScript(installManagedIMEObserver);
+    if (ime) await page.addInitScript(installManagedIMEObserver, { lifecycle: imePresentationMode === "acceptance" });
     if (multiClick) await page.addInitScript(installManagedMultiClickObserver);
     const geometrySession = await viewerContext.newCDPSession(page);
     try {
@@ -1152,7 +1200,7 @@ export async function runManagedHumanCheck() {
         const after = await documentRead(oldTaskTab.id), viewer = await page.evaluate(() => __managedPasteObservation.snapshot());
         report.business.localPaste = { before, after, viewer, commands, proof: assertManagedPasteEvidence({ viewer, commands, replies: report.viewerMessages, before, after, expectedDraft: fixture.expectedDraft }) };
       } else if (ime) {
-        await exerciseIME();
+        await exerciseIME(draftPoint);
       } else {
       const shiftedIndex = humanASCII.indexOf("A"); assert.ok(shiftedIndex > 0);
       await inputAction("type synthetic ASCII prefix through viewer", () => page.keyboard.type(humanASCII.slice(0, shiftedIndex)));
@@ -1199,6 +1247,10 @@ export async function runManagedHumanCheck() {
       report.business.held = held; report.business.heldAt = Date.now();
       businessLease = { ...state.human, lastInputSequence: Math.max(...report.viewerCommands.filter(value => value.operation === "humanInput" && value.leaseId === businessLease.leaseId).map(value => value.sequence)) };
       report.business.lastHumanLease = businessLease; report.business.humanScreenshot = await screenshot("viewer-human-edited.png");
+      if (imePresentationMode === "acceptance") {
+        const preedit = await beginIMELifecyclePreedit("end-uncommitted", "结束前未确认候选", holdPoint);
+        report.business.ime.lifecycle.endUncommitted = { preedit, before: preedit.after, viewerBefore: preedit.viewerAfter, wireStart: report.viewerCommands.length };
+      }
       const closeAt = Date.now(), commandCount = report.viewerCommands.length;
       if (explicitEnd) {
         report.business.end = await uiAction("#human-end", "humanEnd");
@@ -1206,7 +1258,12 @@ export async function runManagedHumanCheck() {
         assert.deepEqual(report.business.end.humanCleanup, { leaseId: businessLease.leaseId, cleanupConfirmed: true });
         assert.equal(await page.locator("#human-input").getAttribute("data-enabled"), "false");
         if (ime) report.business.ime.endLedger = assertManagedIMELedger({ commands: report.viewerCommands, replies: report.viewerMessages,
-          scope: businessLease, commitRequestIds: report.business.ime.commitRequestIds });
+          scope: businessLease, commitRequestIds: report.business.ime.commitRequestIds, interveningRequestIds: report.business.ime.interveningRequestIds });
+        if (imePresentationMode) {
+          report.business.ime.endPresentation = await page.evaluate(readManagedIMEPresentation);
+          report.business.ime.endPresentationProof = assessManagedIMEPresentation({ phase: "end", presentation: report.business.ime.endPresentation });
+          if (imePresentationMode === "acceptance") assert.equal(report.business.ime.endPresentationProof.passed, true, JSON.stringify(report.business.ime.endPresentationProof));
+        }
       } else {
       await page.evaluate(() => globalThis.__managedHumanTestSocket.close(1000, "synthetic held-input disconnect"));
       await wait(() => report.viewerMessages.find(value => value.type === "socketClosed" && value.connection === connection && value.at >= closeAt), "original viewer socket actually closed");
@@ -1215,6 +1272,15 @@ export async function runManagedHumanCheck() {
       assert.equal(report.business.releasedDocument.documentId, original.documentId); assert.equal(report.business.releasedDocument.draft, fixture.expectedDraft);
       const releaseEvents = report.business.releasedDocument.state.events.slice(held.state.events.length);
       assert.ok(releaseEvents.some(value => value.type === "keyup" && value.code === "ShiftLeft" && value.trusted));
+      if (imePresentationMode === "acceptance") {
+        const detail = report.business.ime, row = detail.lifecycle.endUncommitted;
+        row.after = report.business.releasedDocument; row.viewerAfter = await page.evaluate(() => __managedIMEObservation.snapshot());
+        row.commands = report.viewerCommands.slice(row.wireStart); row.presentation = detail.endPresentation;
+        row.proof = assertManagedIMEAbandonment({ kind: "end", ...row, replies: report.viewerMessages, scope: businessLease });
+        detail.observerFinal = await page.evaluate(() => __managedIMEObservation.stop());
+        assert.equal(detail.observerFinal.active, false); assert.equal(detail.observerFinal.overflow, false);
+        await imeEndSession.detach(); imeEndSession = null; row.sessionDetachedAt = Date.now();
+      }
       if (explicitEnd) {
         assert.deepEqual(report.viewerCommands.slice(commandCount).map(value => value.operation), ["humanEnd"], "Original End alone must release held input; no task keyup or retry");
         const retiredCount = report.viewerCommands.length;
@@ -1371,6 +1437,7 @@ export async function runManagedHumanCheck() {
     } catch (failure) { report.failureViewerError = redact(String(failure)); }
   }
   finally {
+    if (imeEndSession) try { await imeEndSession.detach(); imeEndSession = null; } catch (error) { report.cleanup.imeSession = error.stack; }
     if (copyRejectionRoute) try { copyRejectionRoute.release(); }
     catch (error) { report.cleanup.copyRejectionRelease = error.stack; }
     if (restoreCopyPermissions && viewerContext) try {
@@ -1459,6 +1526,7 @@ export async function runManagedHumanCheck() {
       policy: "The first 96 actual native PNG payloads are retained for independent decoding; all received frames retain hash/header metadata. viewerDecodedFrames identifies actual browser decodes, not unperformed decodes of every frame." };
     report.liveRunnerChildren = [...registry].map(value => value.pid);
     report.passed = !report.error && report.steps.length === (keyboard || keyRepeat || humanCopy || multiClick || newPage ? 7 : 6) && report.steps.every(value => value.passed) && !Object.keys(report.cleanup).length && !registry.size && report.viewerExit?.code === 0;
+    if (imePresentationMode) Object.assign(report, managedIMEPresentationOutcome(report.passed, report.business?.ime));
     if (multiClick) {
       report.featurePassed = report.passed && multiClickMode === "acceptance";
       report.diagnosticGapConfirmed = report.passed && multiClickMode === "baseline" && report.multiClick.cases.every(row => row.proof.gapConfirmed);

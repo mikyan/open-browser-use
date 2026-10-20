@@ -16,6 +16,8 @@
 
 ## 已沉淀资料
 
+- [Managed 输入法预编辑显示](managed-human-ime-presentation.md)：本地原生组合区、
+  点击附近定位、重新点击及结束接管时的取消和原提交回执。
 - [Managed 人工离页确认](managed-human-beforeunload.md)：原文档 Stay/Leave、
   导航先后两种顺序、原决定回执及 Agent 接续业务的固定场景验证。
 - [Managed 人工新页面选择](managed-human-pages.md)：独立浏览器目录、显式切页、

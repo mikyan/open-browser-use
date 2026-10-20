@@ -7,6 +7,18 @@
 
 ## 当前基线
 
+2026-10-21，源码新增[人工接管输入法预编辑显示](../../references/managed-human-ime-presentation.md)，
+尚未发布。原基线 `mhi-G1sX8c` 六次本地预编辑仍是 1×1 像素且透明，
+该缺口已独立核验；正式 `mhi-Dz6Bgu` 六步实际退出 0，原 textarea 的
+中文组合文字可读，按最近有效点击定位并在可见区域内夹持。两次相同文字
+各自确认一次，重新点击取消后可继续组合，显式 End 后不追加旧字，随后
+Resume、唯一业务提交与 Stop 通过。完整 Go test/vet、3,268 项 Node
+（含 235 项 UI）及另行 52 项验收脚手架检查通过。新正式结果的事件、来源与
+生命周期独立核验 222 项通过，42 张 PNG 完整解码，28 个原进程退出，见
+[专项计划](../completed/2026-10-21-managed-human-ime-presentation.md)。
+该定位不代表远端文字光标，原生 Headless 组合事件不证明 Windows 系统
+输入法候选窗口；任务页面仍只接收确认文字，未扩展为远端 composition。
+
 2026-10-21，源码中的[人工离页确认](../../references/managed-human-beforeunload.md)
 已完成固定 Chromium 的主页面与真实跨站 OOPIF 两条正式流程，尚未发布。
 构建 `mso-build-k5ranhzd` 的完整 Go test/vet 与 3,256 项 Node 检查通过；
@@ -17,8 +29,9 @@ Leave 后新文档与真实新帧、End/Resume、新轮 SDK claim、唯一 POST�
 旧失败与完整边界见[已完成专项计划](../completed/2026-10-21-managed-human-beforeunload.md)。
 
 最新已发布版本仍为 [preview-20261021-3e61b68](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-3e61b68)，
-功能与 96595fc 相同，不含上述 beforeunload 增量。普通公司 Edge、真实
-SSO/MFA、IME 预编辑及完整 P01–P15 仍开放；本总体计划继续保持进行中。
+功能与 96595fc 相同，不含上述 beforeunload 和输入法预编辑显示增量。
+普通公司 Edge、真实 SSO/MFA、Windows 系统输入法候选窗口及完整 P01–P15
+仍开放；本总体计划继续保持进行中。
 
 以下为各阶段的历史基线，不代表当前最新发布或未完成事项。
 

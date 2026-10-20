@@ -12,6 +12,20 @@
 
 ## Baseline sources
 
+2026-10-21，当前源码新增[人工接管输入法预编辑显示](../references/managed-human-ime-presentation.md)，
+尚未进入最新发布的 `preview-20261021-3e61b68`。本地原生 textarea 显示
+组合文字，并将输入位置映射到最近有效点击；只在确认后发送原 committed-text。
+原基线 `mhi-G1sX8c` 六次预编辑均为 1×1 像素、透明度 0，已独立核验。
+新正式 `mhi-Dz6Bgu` 六步实际退出 0，中文预编辑可读、两次相同确认分别
+发送一次；组合中重新点击后可开始新组合，点击 End 后没有额外旧文字。
+原文档草稿、显式 Resume、唯一业务提交与 Stop 同样通过。完整 Go test/vet
+和 3,268 项 Node 检查通过，包含 235 项 UI 检查；另有 52 项验收脚手架检查。
+新正式结果的原事件、来源与生命周期独立核验 222 项通过，42 张 PNG 完整
+解码，28 个原进程退出，详见
+[专项计划](../exec-plans/completed/2026-10-21-managed-human-ime-presentation.md)。
+这不是远端文字光标定位或远端 DOM composition 生命周期，也不证明 Windows
+系统输入法候选窗口；普通公司 Edge、真实 SSO/MFA 与完整 P01–P15 仍开放。
+
 2026-10-21，当前源码新增[人工离页确认](../references/managed-human-beforeunload.md)，
 尚未进入最新已发布的 `preview-20261021-3e61b68`。冻结构建
 `mso-build-k5ranhzd` 完整 Go test/vet 与 3,256 项 Node 检查通过。
@@ -21,7 +35,7 @@ Stay 保持原 document 与草稿并继续编辑，Leave 后确认新 document �
 重新交付和 Stop。OOPIF 场景覆盖 root navigation start 先于 Opening 的顺序。
 生命周期独审 91/85 项、事件与业务独审 449/505 项通过，原 25/27 个进程退出。
 证据和旧失败保留于[专项计划](../exec-plans/completed/2026-10-21-managed-human-beforeunload.md)。
-固定浏览器内的这两条流程不证明普通公司 Edge、真实 SSO/MFA、IME 预编辑
+固定浏览器内的这两条流程不证明普通公司 Edge、真实 SSO/MFA、Windows 系统输入法
 或完整 P01–P15 已完成；整体目标仍进行中。
 
 以下为前序增量与交付基线，保留各阶段当时的验证边界。

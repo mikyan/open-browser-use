@@ -671,7 +671,7 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   let focused = null;
   function element(id) {
     if (!nodes.has(id)) nodes.set(id, {
-      disabled: false, hidden: false, textContent: "", value: "", listeners: {}, dataset: {},
+      disabled: false, hidden: false, textContent: "", value: "", listeners: {}, dataset: {}, style: {},
       addEventListener(event, handler) { this.listeners[event] = handler; },
       replaceChildren(...children) { this.children = children; },
       removeAttribute(name) { delete this[name]; },
@@ -709,7 +709,7 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
     btoa: value => Buffer.from(value, "binary").toString("base64"),
     setTimeout(callback, delay) { timers.set(++timerId, callback); timerDelays.set(timerId, delay); return timerId; },
     clearTimeout(id) { timers.delete(id); timerDelays.delete(id); }, setInterval() {},
-    window: { addEventListener(name, handler) { windowEvents[name] = handler; } }
+    window: { innerWidth: 1440, innerHeight: 1000, addEventListener(name, handler) { windowEvents[name] = handler; } }
   });
   vm.runInContext(fileSource, context);
   vm.runInContext(source, context);
@@ -728,7 +728,8 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
   function ackInput(request = socket.sent.at(-1), extra = {}) { respond(request.id, { ...humanState(), inputReceipt: { acknowledged: true, leaseId: request.leaseId, generation: request.generation, sequence: request.sequence }, ...extra }); }
   return { element, socket, images, revoked, timers, timerDelays, replaced, authenticate, state, respond, running, choose, frame, event, windowEvents, documentEvents, humanState, beginHuman, humanFrame, readyHuman, ackInput,
-    setHidden(hidden) { context.document.hidden = hidden; documentEvents.visibilitychange?.(); } };
+    setHidden(hidden) { context.document.hidden = hidden; documentEvents.visibilitychange?.(); },
+    setViewport(width, height) { context.window.innerWidth = width; context.window.innerHeight = height; } };
 }
 
 const browserChoice = (id = 2, pageSelectionId = "choice-child") => ({ id, title: "Child", url: "https://child.example/", kind: "browser", pageSelectionId, watchable: true, takeover: true });
@@ -1689,6 +1690,135 @@ test("plain text, committed composition and shortcut key transitions have distin
   h.ackInput(down);
   assert.equal(h.socket.sent.at(-1).input.action, "up");
   assert.equal(h.socket.sent.filter(command => command.input?.type === "text").length, 2);
+});
+
+function imeClick(h, position = {}) {
+  h.event("frame", "pointerdown", mouse(position)); h.ackInput();
+  h.event("frame", "pointerup", mouse(position)); h.ackInput();
+}
+function imePreedit(h, text = "尚未确认") {
+  h.event("human-input", "compositionstart");
+  h.element("human-input").value = text;
+  h.event("human-input", "beforeinput", { inputType: "insertCompositionText", data: text, isComposing: true });
+}
+
+test("local preedit is visible only during its original composition and identical commits stay distinct", () => {
+  const h = setup(); h.readyHuman(); imeClick(h);
+  const input = h.element("human-input"), first = h.socket.sent.length;
+  for (let i = 0; i < 2; i++) {
+    imePreedit(h, "中文😀");
+    assert.equal(input.dataset.composing, "true"); assert.equal(input.value, "中文😀");
+    assert.equal(h.socket.sent.length, first + i);
+    assert.equal(h.element("human-status").textContent.includes("中文😀"), false);
+    h.event("human-input", "compositionend", { data: "中文😀" });
+    assert.equal(input.dataset.composing, "false"); assert.equal(input.value, "");
+    assert.deepEqual(h.socket.sent.at(-1).input, { type: "text", text: "中文😀" }); h.ackInput();
+  }
+  const commits = h.socket.sent.filter(command => command.input?.type === "text");
+  assert.equal(commits.length, 2); assert.notEqual(commits[0].id, commits[1].id);
+  imePreedit(h); h.event("human-input", "compositionend", { data: "" });
+  assert.equal(input.dataset.composing, "false"); assert.equal(h.socket.sent.length, first + 2);
+});
+
+for (const modal of ["dialog", "chooser"]) test(`${modal} retires same-generation preedit before disable and cannot revive a late commit`, () => {
+  const h = setup(undefined, undefined, { fileChooserVersion: 1 }); h.readyHuman(); imeClick(h); imePreedit(h);
+  const input = h.element("human-input"); let disabled = false;
+  Object.defineProperty(input, "disabled", { get: () => disabled, set(value) {
+    disabled = value;
+    if (value) h.event("human-input", "compositionend", { data: "结束时旧字" });
+  } });
+  const field = modal === "dialog" ? "pendingDialog" : "pendingFileChooser";
+  const pending = modal === "dialog" ? dialog() : { leaseId: "lease-a", generation: 1, chooserId: "ime-chooser", multiple: false };
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002, [field]: pending }) });
+  assert.equal(input.dataset.composing, "false"); assert.equal(input.value, ""); assert.equal(disabled, true);
+  h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20003, [field]: null }) });
+  h.event("human-input", "compositionend", { data: "迟到旧字" });
+  assert.equal(h.socket.sent.some(command => command.input?.type === "text"), false);
+  imePreedit(h, "新字"); h.event("human-input", "compositionend", { data: "新字" });
+  assert.deepEqual(h.socket.sent.at(-1).input, { type: "text", text: "新字" });
+});
+
+for (const id of ["human-end", "human-switch", "stop"]) test(`${id} preserves input focus on down and fences later compositionend on click`, () => {
+  const h = setup(undefined, undefined, { pageSelectionVersion: 1 }); h.readyHuman(); imeClick(h); imePreedit(h);
+  assert.equal(h.event(id, "mousedown").prevented, true);
+  assert.equal(h.element("human-input").dataset.composing, "true", "down alone is not the explicit End or Stop");
+  h.element(id).click();
+  assert.equal(h.element("human-input").dataset.composing, "false");
+  assert.equal(h.element("human-input").value, "");
+  h.event("human-input", "compositionend", { data: "旧字" });
+  assert.equal(h.socket.sent.some(command => command.input?.type === "text"), false);
+  assert.equal(h.socket.sent.at(-1).operation, id === "stop" ? "stop" : "humanEnd");
+});
+
+test("new frame click cancels old preedit before moving its input anchor", () => {
+  const h = setup(); h.readyHuman(); imeClick(h); imePreedit(h);
+  h.event("frame", "pointerdown", mouse({ clientX: 150, clientY: 110 }));
+  assert.equal(h.element("human-input").value, ""); assert.equal(h.element("human-input").dataset.composing, "false");
+  h.event("human-input", "compositionend", { data: "旧字段文字" });
+  assert.equal(h.socket.sent.at(-1).input.type, "pointer"); h.ackInput();
+  h.event("frame", "pointerup", mouse({ clientX: 150, clientY: 110 })); h.ackInput();
+  imePreedit(h, "新字段"); h.event("human-input", "compositionend", { data: "新字段" });
+  assert.deepEqual(h.socket.sent.at(-1).input, { type: "text", text: "新字段" });
+  assert.equal(h.socket.sent.filter(command => command.input?.type === "text").length, 1);
+});
+
+test("trusted multi-click path also retires old preedit before its native mouse down", () => {
+  const h = multiHarness(); multiMouse(h, "down"); h.ackInput(); multiMouse(h, "up"); h.ackInput();
+  imePreedit(h);
+  const down = multiMouse(h, "down", 1, { clientX: 150, clientY: 110 });
+  assert.equal(h.element("human-input").dataset.composing, "false");
+  assert.equal(h.element("human-input").style.left, "140px");
+  h.event("human-input", "compositionend", { data: "旧字" });
+  assert.equal(h.socket.sent.at(-1), down); assert.equal(down.input.type, "pointer");
+  assert.equal(h.socket.sent.some(command => command.input?.type === "text"), false);
+});
+
+test("preedit anchor accounts for letterboxing and resize preserves native text and selection", () => {
+  const h = setup(); h.readyHuman();
+  h.element("frame").rect = { left: 110, top: 70, width: 400, height: 300 };
+  imeClick(h, { clientX: 310, clientY: 220 }); imePreedit(h);
+  const input = h.element("human-input"); input.selectionStart = 1; input.selectionEnd = 3;
+  assert.deepEqual(input.style, { left: "300px", top: "200px", width: "280px", height: "48px" });
+  const count = h.socket.sent.length;
+  h.event("frame", "pointerdown", mouse({ clientX: 310, clientY: 80 }));
+  assert.equal(h.socket.sent.length, count, "letterbox space is not an admitted click");
+  assert.equal(input.dataset.composing, "true");
+  h.element("screen").rect = { left: 80, top: 100, width: 500, height: 300 };
+  h.element("frame").rect = { left: 100, top: 150, width: 320, height: 180 };
+  h.windowEvents.resize();
+  assert.deepEqual(input.style, { left: "180px", top: "140px", width: "280px", height: "48px" });
+  assert.equal(input.value, "尚未确认"); assert.equal(input.selectionStart, 1); assert.equal(input.selectionEnd, 3);
+});
+
+test("preedit clamps to right/bottom edges and a narrow visible screen", () => {
+  const h = setup(); h.readyHuman(); imeClick(h, { clientX: 649, clientY: 379 }); imePreedit(h);
+  assert.deepEqual(h.element("human-input").style, { left: "352px", top: "304px", width: "280px", height: "48px" });
+  h.element("screen").rect = { left: 10, top: 20, width: 180, height: 90 };
+  h.element("frame").rect = { left: 10, top: 20, width: 180, height: 90 };
+  h.windowEvents.resize();
+  assert.deepEqual(h.element("human-input").style, { left: "8px", top: "34px", width: "164px", height: "48px" });
+});
+
+test("scroll clamps preedit to the visible viewport intersection without changing input", () => {
+  const h = setup(); h.readyHuman(); imeClick(h); imePreedit(h);
+  h.setViewport(400, 220);
+  h.element("screen").rect = { left: -100, top: -180, width: 640, height: 360 };
+  h.element("frame").rect = { left: -100, top: -180, width: 640, height: 360 };
+  h.windowEvents.scroll();
+  assert.deepEqual(h.element("human-input").style, { left: "212px", top: "188px", width: "280px", height: "48px" });
+  assert.equal(h.element("human-input").value, "尚未确认");
+});
+
+test("generation retirement clears the old click anchor and preedit", () => {
+  const h = setup(); h.readyHuman(); imeClick(h); imePreedit(h);
+  h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+  assert.deepEqual(h.element("human-input").style, { left: "0px", top: "0px", width: "1px", height: "1px" });
+  h.event("human-input", "compositionstart");
+  assert.equal(h.element("human-input").dataset.composing, "false");
+  resumeGeneration(h, 2);
+  h.event("human-input", "compositionend", { data: "前页候选" });
+  assert.equal(h.socket.sent.some(command => command.input?.type === "text"), false);
+  assert.equal(h.element("human-input").style.left, "8px");
 });
 
 for (const [name, code] of [["Backspace", 8], ["Delete", 46], ["ArrowLeft", 37], ["ArrowRight", 39], ["Enter", 13]]) test(`native repeat ${name} preserves every real down and the one up in receipt order`, () => {
