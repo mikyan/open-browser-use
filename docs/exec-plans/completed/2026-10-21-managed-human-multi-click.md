@@ -2,11 +2,11 @@
 
 ## 目标与现有缺口
 
-完整 Browser Use 对齐继续进行，已请求的新包已发布为
+本片开始时完整 Browser Use 对齐继续进行，已有交付为
 `preview-20261021-748af2f`。本片补齐人工输入的原生多击语义；不增加 Pi
 适配、不提 PR，也不等待已延期的普通公司 Edge 人工安装验收。
 
-当前查看器只发送 pointer down/move/up，Go 不接受点击计数，扩展把每次
+原查看器只发送 pointer down/move/up，Go 不接受点击计数，扩展把每次
 down/up 固定为 `clickCount: 1`。Agent locator 的双击验收不能证明人工接管
 可用：网页 dblclick、按词和按段选择都需要原点击计数。
 
@@ -36,8 +36,11 @@ down/up 固定为 `clickCount: 1`。Agent locator 的双击验收不能证明人
 - [x] 正式 `mmc-VzihL3` 七步两击/三击，原网页可信事件、精确选区、
   逐次 ACK、End/Resume、唯一业务提交及 Stop，实际退出 0。
 - [x] 独立原事件 668 项、来源/生命周期 174 项通过，实际退出 0。
-  完整记录见[人工多击](../../references/managed-human-multi-click.md)；
-  本片源码提交用户 fork，不因目标自动续轮另发新包。
+  完整记录见[人工多击](../../references/managed-human-multi-click.md)。
+- [x] 用户再次明确要求新包后，从精确源码 `5b3d2f4` 独立重建并发布
+  [preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)。
+  离线 CLI/MCP 30 工具、4,757 项制品独审、四资产回下载及 114 份本地
+  副本核对通过；未重跑内部构建的网页业务，制品摘要见上述参考。
 
 鼠标模拟仅进入隔离查看器，不操作系统鼠标、不向任务页直接注入输入。
 有限 Windows CfT 验收不代替实体鼠标、公司 Edge 或全 P01–P15 对齐。

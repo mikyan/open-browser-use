@@ -8,17 +8,18 @@
 ## 当前基线
 
 2026-10-21，最新交付为
-[preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)。
-人工复制/剪切、其排队失败修复及人工文件上传均已进入新包。上传的冻结构建
-通过完整 Go test/vet、3,084 项 Node 检查和正式 `mfc-Xswpjy` 四步流程；
-原事件与生命周期独审通过，发布制品及四资产回下载已核对。
-范围见[人工文件上传](../../references/managed-human-files.md)与
-[人工剪贴板](../../references/managed-human-clipboard.md)。
-完整目标仍 active。其后已完成
-[人工双击/三击](../completed/2026-10-21-managed-human-multi-click.md)：新
+[preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)，
+源码 `5b3d2f4329564e064419c1f2c82c5ddb2e2dd902`。
+新增[人工双击/三击](../completed/2026-10-21-managed-human-multi-click.md)：
 冻结构建 Go test/vet、3,102 项 Node 检查及 `mmc-VzihL3` 七步通过，
-原事件/生命周期独审通过；该片未加入上面已发布资产。下一项是人工
-接管的新窗口接续。普通公司 Edge 人工验收仍按用户要求延期。
+原事件/生命周期独审通过。发布 EXE 单独重建，离线 CLI/MCP 30 工具、
+4,757 项制品独审、四资产回下载和 114 份本地副本核对通过；未重跑原
+网页业务。完整包/扩展/Skill 为 110/79/7 文件，完整 ZIP 10,685,428 字节，
+SHA256 `c7c7859f7e89617cb4d9cb15b98f3485be4598db79c2e367ad0c7ce9212de472`。
+此前已发布的[人工文件上传](../../references/managed-human-files.md)与
+[人工剪贴板](../../references/managed-human-clipboard.md)继续保留。
+完整目标仍 active，下一项是人工接管的新窗口接续。普通公司 Edge 人工
+验收仍按用户要求延期。
 
 以下为各历史阶段记录，旧“尚未实现”只描述当时状态。
 

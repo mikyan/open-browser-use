@@ -16,8 +16,12 @@
 冻结构建 Go test/vet、3,102 项 Node 检查和正式 `mmc-VzihL3` 七步通过；
 原生选区、可信事件、独立回执及 End/Resume/唯一提交/Stop 已验。固定
 Windows 词尾空格的首轮测试预期错误和独立原生参考均保留，产品未因该
-差异改动。本片尚未进入已发布 ZIP，范围见
-[人工多击](../references/managed-human-multi-click.md)，全 P01–P15 仍开放。
+差异改动。本片已随
+[preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)
+发布；发布 EXE 单独重建，离线 CLI/MCP 30 工具、4,757 项制品独审及
+四资产回下载通过，未重跑内部构建的网页业务。范围与制品摘要见
+[人工多击](../references/managed-human-multi-click.md)。全 P01–P15 仍开放，
+普通公司 Edge 验收继续延期，下一项是人工新窗口接续。
 
 2026-10-21，人工文件上传已通过正式查看器接入原 root/OOPIF 文件节点，
 支持同名及空文件、取消保持和传输中 End/导航撤销。`mfc-Xswpjy` 四步、

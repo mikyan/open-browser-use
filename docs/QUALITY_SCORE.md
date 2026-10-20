@@ -19,8 +19,14 @@ End/Resume、唯一提交与 Stop。首轮 Windows 词尾空格预期错误保�
 独立原生参考确认后只修验收脚本，40 项脚手架检查通过，产品构建不变。
 原事件 668 项、来源/生命周期 174 项独审通过；29 个原进程退出、资源
 清理无强制终止，46 张 PNG 完整解码。
-本片尚未进入已发布 ZIP；有限合成页面不代表实体鼠标、普通公司 Edge、
-复杂编辑器或完整 Browser Use 对齐。
+本片已随 [preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)
+发布，源码为 `5b3d2f4329564e064419c1f2c82c5ddb2e2dd902`。
+完整包/扩展/Skill 为 110/79/7 文件，完整 ZIP 10,685,428 字节，SHA256：
+`c7c7859f7e89617cb4d9cb15b98f3485be4598db79c2e367ad0c7ce9212de472`。
+发布 EXE 独立重建；离线 CLI/MCP 30 工具、4,757 项制品独审、四资产
+回下载和 114 份本地副本核对通过，未重跑内部构建的网页业务。
+有限合成页面不代表实体鼠标、普通公司 Edge、复杂编辑器或完整 Browser
+Use 对齐；整体目标仍 active，下一项是人工新窗口接续。
 
 2026-10-21，[人工文件选择与上传](references/managed-human-files.md)接入查看器、
 Go 暂存与原网页文件节点。最新冻结构建通过完整 Go test/vet、3,084 项 Node

@@ -26,8 +26,9 @@ capture。通用原生清理继续使用 `clickCount: 0`，不制造额外双击
 旧 UI、扩展及 Go 的失败回归保留。UI 193 项、扩展相关 311 项及 Go 三包
 检查通过，独立审查补齐能力固定、真实取消与 modal 命中变化。全新构建
 `mso-build-ebanssld` 绑定 463 份输入和 79 份扩展，完整 Go test/vet 与
-3,102 项 Node 检查通过。本功能尚未包含在
-`preview-20261021-748af2f` 的发布资产中。
+3,102 项 Node 检查通过。本功能已包含在
+[preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)，
+此前 `preview-20261021-748af2f` 不包含本片。
 
 正式 `mmc-VzihL3` 七步、实际退出 0，`featurePassed: true`。两原 textarea
 收到十次原 down/up 和匹配 ACK；双击出现一次可信 dblclick，三击保留
@@ -44,6 +45,14 @@ capture。通用原生清理继续使用 `clickCount: 0`，不制造额外双击
 `fb7e488c5754bcedca892c15f61826efcbc713b37e6ecd8a6ad1eeba8cd3e907`；
 生命周期审计 SHA256：
 `e11467cd8e94a2c50bd5de5873ad5c4a926a59b962b90ef22089243592619fd2`。
+
+发布源码为 `5b3d2f4329564e064419c1f2c82c5ddb2e2dd902`。完整包/扩展/Skill
+为 110/79/7 文件，完整 ZIP 10,685,428 字节，SHA256：
+`c7c7859f7e89617cb4d9cb15b98f3485be4598db79c2e367ad0c7ce9212de472`。
+发布 EXE 从干净精确提交独立重建，离线 CLI/MCP 30 工具和 4,757 项制品
+独审通过；三个 ZIP 与 SHA256SUMS 共四资产回下载一致，114 份本地副本
+核对通过。发布时未重跑内部构建的原网页业务。制品独审 SHA256：
+`10aa580d9c85adfa7f0757115c2f3d6535d350d20889c8f88b0f0a5e4e316fc1`。
 
 首轮 `mmc-RFHcjV` 实际退出 1 保留：测试把选区写成不含空格的 `[6,11]`，
 原事件和回执已经匹配，但原生实际包含词尾空格。独立同浏览器、同页面、
