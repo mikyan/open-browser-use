@@ -33,8 +33,12 @@
 parent-navigate `mnp-OxVElx` 首场实际失败：正确原 tab/target 上的新文档
 已产生，新选择令牌与结果登记也已确认，但查看没有首帧，select 返回未知
 操作错误。底层机制尚未确认；夹具应用迁移草稿不代表产品自动保存能力。
-当前可下载包仍是 preview-20261021-5b3d2f4，用户已要求再打包，待发布后
-更新制品证据。父页回调导航、复杂 SSO、更多 iframe 组合与公司 Edge 继续开放。
+已按用户请求发布 [preview-20261021-be3a0f9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-be3a0f9)。
+完整包/扩展/Skill 为 111/80/7 文件，发布 EXE 从精确干净提交独立重建。
+离线 CLI/MCP 30 工具、4,777 项制品独审、四资产回下载和 115 份本地副本
+核对通过；未重跑原网页业务。完整 ZIP 10,690,643 字节，SHA256：
+`0dd0670934197da3195d932e7d54753ce05fde9d6e33f3c9235e1cc9efd2a27d`。
+父页回调导航、复杂 SSO、更多 iframe 组合与公司 Edge 继续开放。
 
 2026-10-21，[人工双击与三击](references/managed-human-multi-click.md)已接通
 真实本地点击次数、Go 能力固定与原 native 持键记录。冻结构建 463 份输入、

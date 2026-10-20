@@ -129,10 +129,15 @@ result delivery；但查看保持“页面正在跳转”且没有取得首帧�
 不能用已保存结果、callback 成功或完整测试通过替代此流程验收。原结果
 SHA256：`e9f0e7eaca01f24939cd7e7ca15917bc7a644fe6b35f894ba64583d7be7f29ae`。
 
-新功能尚未发布；当前可下载包仍为
-[preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)。
-用户已再次请求打包；新制品发布确认后再更新链接。公司 Edge 人工验收继续
-延期。复杂 SSO/MFA、更多 iframe 开页变体、父页回调导航及完整 Browser
+已按用户要求发布
+[preview-20261021-be3a0f9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-be3a0f9)，
+源提交为 `be3a0f9d4dacc343944797aa96fe978e3f80429f`。完整包/扩展/Skill
+分别为 111/80/7 文件；发布 EXE 从干净提交独立重建，470 份源码与已测
+字节绑定，80 份未加 key 的扩展文件与已测制品一致。离线 CLI/MCP 30 工具、
+4,777 项制品独审、四资产回下载和 115 份本地副本核对通过；发布 EXE 未
+重跑原网页业务。完整 ZIP 10,690,643 字节，SHA256：
+`0dd0670934197da3195d932e7d54753ce05fde9d6e33f3c9235e1cc9efd2a27d`。
+公司 Edge 人工验收继续延期。复杂 SSO/MFA、更多 iframe 开页变体、父页回调导航及完整 Browser
 Use 能力对齐仍开放，不能由目前已通过的有限合成页面证明。
 
 执行记录见[本片计划](../exec-plans/active/2026-10-21-managed-human-pages.md)。
