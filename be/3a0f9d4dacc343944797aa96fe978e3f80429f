@@ -1,0 +1,73 @@
+scripts/browser-integration/managed-human-new-page-workflow.test.mjs
+  s_08bbfd293d324f::t_a32932cb1fc51b 3,40-55,57-71,113-178
+  s_08bbfd293d324f::t_9ad0b3c8a93156 56
+  s_08bbfd293d324f::t_87e7685605a260 230-274
+  s_08bbfd293d324f::t_13a10ab381ea2b 179
+scripts/browser-integration/managed-human-new-page-fixture.test.mjs
+  s_08bbfd293d324f::t_e8d3add88a8c5f 18-19,37-85
+  s_08bbfd293d324f::t_0a8cf1a8a98db4 86
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_8c0a61599f6742 24-28
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_0219c71c4c4fe5 22-37
+scripts/browser-integration/managed-human-new-page-fixture.mjs
+  s_08bbfd293d324f::t_13a525edfbc9db 7,9-10,12,20-22,37-40,48-50,70,73-87,91-94,100,105-106,116
+scripts/browser-integration/managed-human-check.test.mjs
+  s_08bbfd293d324f::t_cf5e049cd48568 26-33
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_c996366edd4c98 837
+  s_08bbfd293d324f::t_65e6da703f14e2 825
+  s_08bbfd293d324f::t_74f27148313722 29,291,310,318,448,754,760-765,773-782,789,791-796,804,812-824,826-836,838,1258-1262
+internal/managedviewer/human_retirement_test.go
+  s_08bbfd293d324f::t_8c0a61599f6742 1-57
+  s_08bbfd293d324f::t_8543f660b88fdf 58-72
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_2cb465953b51fb 168-172
+docs/references/managed-human-pages.md
+  s_08bbfd293d324f::t_5a744dd689d90f 114-115
+  s_08bbfd293d324f::t_7cd34304dfcacf 11-14,45-50,90-113,116-131,134-136
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_b3d01533d8588a 18-30
+  s_08bbfd293d324f::t_678219a6807526 15-17,31
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_8c0a61599f6742 772-774
+docs/exec-plans/active/2026-10-21-managed-human-pages.md
+  s_08bbfd293d324f::t_6cda9482fb8250 79-80,105-125
+  s_08bbfd293d324f::t_678219a6807526 98-104,126
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_8c0a61599f6742 112-119,121-123
+internal/managedbrowser/managed_user_retirement_test.go
+  s_08bbfd293d324f::t_8c0a61599f6742 1-78
+  s_08bbfd293d324f::t_1fae4d7dbdfc20 79-117
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_8c0a61599f6742 511-513
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_0116a64fc5a8f1 7
+docs/histories/2026-10/20261021-0400-managed-human-pages.md
+  s_08bbfd293d324f::t_7c21e7709771dd 7-9,36-42,60-79
+scripts/browser-integration/managed-human-new-page-workflow.mjs
+  s_08bbfd293d324f::t_71d0d86a0f6502 17
+  s_08bbfd293d324f::t_46c88f76690674 316
+  s_08bbfd293d324f::t_f3a21643b63a93 15-16,18-22,38-39,46,48-56,60-62,77,123-128,134,166-176,183-190,193,217-232,247,251,266-272,275-276,288,294-302,304,312-315,319-326,329,335,344,349,353-356,360-361,363-371,375-376
+  s_08bbfd293d324f::t_13f9eb3bb28d05 118,177-182,305-311,336
+apps/chrome-extension/managed-user-bridge.js
+  s_08bbfd293d324f::t_d034eeb6dc20e2 105,122-125,427,481,629,697,699-711,713,757
+apps/chrome-extension/managed-user-bridge.test.mjs
+  s_08bbfd293d324f::t_9d612dcb9ce4fd 1622-1796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "be3a0f9d4dacc343944797aa96fe978e3f80429f",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
