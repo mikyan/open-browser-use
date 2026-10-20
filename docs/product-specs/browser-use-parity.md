@@ -17,6 +17,9 @@ Go test/vet和2,999项Node检查；真实双浏览器`mhc-4Ft36v`七步通过，
 复制/剪切行为、原回执、本地原生粘贴与End/Resume/Stop。两端为固定
 HeadlessClipboard，不代表普通Windows系统剪贴板或公司Edge已验；
 详见[人工剪贴板](../references/managed-human-clipboard.md)。这不代表完整能力对齐。
+配套新包已发布为 [preview-20261021-b63b768](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-b63b768)，
+干净提交重建、448份输入与78份扩展绑定、离线CLI/MCP、独立制品及四资产
+回下载通过。发布EXE未重跑内部构建的原网页业务。
 
 2026-10-19，当前重复按键修复通过正式`mhr-rm5fRL`七步流程：六场原生连续
 删除、方向键、网页取消和持键End，逐次回执及完整事件账本通过；原handoff

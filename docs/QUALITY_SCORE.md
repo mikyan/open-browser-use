@@ -17,6 +17,13 @@ Node检查通过；正式未插桩`mhc-4Ft36v`七步通过，覆盖普通/重复
 无选区保持原内容和默认剪切，含原回执、本地原生粘贴、唯一业务提交与Stop。
 两端使用固定HeadlessClipboard；系统剪贴板、公司Edge和完整能力对齐仍开放。
 
+已发布 [preview-20261021-b63b768](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-b63b768)，
+源提交 `b63b76819d09789951af8fe1e56bf09db72f863e`。发布EXE从干净提交单独重建，
+448份原输入绑定、78份扩展字节一致，离线CLI/MCP、独立制品核验和四资产
+上传回下载通过。完整包/扩展/Skill为109/78/7文件；完整ZIP为10,595,881字节，
+SHA256：`08d8a74426e4f744ebb8f50d28ed0194b2ea83f3d38833dbd27e7f16b9a3742f`。
+发布EXE未重跑内部构建的原网页业务；安装说明与主机、扩展、Skill配套交付。
+
 上一轮人工复制/剪切完成[机制研究](references/managed-human-copy-research.md)，并新增
 可运行的本地异步写入诊断；三场实际通过，正常退出与清理已核对。远端原生
 版本研究保留两次错误预期失败；结论仅适用于浏览器共享clipboard，正式复制

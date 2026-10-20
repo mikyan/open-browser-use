@@ -4,7 +4,8 @@
 
 继续完整Browser Use能力对齐。用户再次要求新包；本轮已接入正式
 viewer/Go/extension 纯文本返回通道，完整 Go test/vet 和 2,999 项 Node
-检查通过。正式双浏览器五种复制/剪切行为与七步生命周期验收通过，配套打包中。
+检查通过。正式双浏览器五种复制/剪切行为与七步生命周期验收通过，配套新包
+[preview-20261021-b63b768](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-b63b768)已发布。
 具体协议与使用边界见[生产接口](../../references/managed-human-clipboard.md)。
 
 需要保留一次原生复制/剪切，包括网页自定义结果、取消与实际剪切编辑，再把
@@ -27,7 +28,8 @@ viewer/Go/extension 纯文本返回通道，完整 Go test/vet 和 2,999 项 Nod
   与End；原文档、逐次ACK、本地原生paste、唯一业务提交和Stop通过。
 - [ ] 扩展生产链路的网页取消、导航竞争与复杂iframe/OOPIF真实验收；
   普通Windows系统剪贴板及公司Edge仍待用户方便时补验。
-- [ ] 提交用户fork并发布配套新包，不创建PR。
+- [x] 提交用户fork并发布配套新包；离线CLI/MCP、独立制品、四资产回下载
+  及本地113文件副本核对通过，未创建PR。
 
 ## 已有证据与后续边界
 

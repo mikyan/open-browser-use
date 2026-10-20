@@ -8,9 +8,13 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-上一轮已发布完整包为 [preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8)，与此前534b881的生产功能相同。
-当前源码新增[人工复制和剪切](managed-human-clipboard.md)，正式双浏览器五种
-行为及七步生命周期通过，配套新包正在准备。
+最新已发布完整包为 [preview-20261021-b63b768](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-b63b768)，
+新增[人工复制和剪切](managed-human-clipboard.md)。正式双浏览器五种行为及
+七步生命周期通过，448份源码输入绑定、78份扩展字节一致。发布EXE单独重建，
+离线CLI/MCP、独立制品和四资产回下载通过；主机、扩展及Skill需配套更新。
+真实系统剪贴板及公司Edge仍待验收，完整能力对齐仍在进行。
+
+上一轮 [preview-20261019-0f65eb8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-0f65eb8) 与此前534b881的生产功能相同。
 
 此前 [preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881) 包含人工接管真实重复按键，正式七步流程及原清理通过。
 440份输入与原Go test/vet、2926项Node已测快照及提交对象相符，77份扩展
