@@ -12,8 +12,9 @@ Go test/vet、3,195 项 Node 与 470/80 份输入通过；mnp-kpUpaB 原只读
 首帧及 mnp-FCpwvq 子页关闭回归各七步 actual exit0。原 PNG/真实 DOM
 解码先于独立人工 Begin，原文档内容已目视；SDK 后续与唯一业务提交完成。
 原生诊断和最初窗口状态前提错误的失败都保留，详见
-[本片计划](2026-10-21-managed-human-pages.md)。用户再次要求新包，本轮
-完成源码交付及独立打包；所有 P01–P15 和普通公司 Edge 人工验收仍开放。
+[本片计划](2026-10-21-managed-human-pages.md)。已按用户请求发布 [preview-20261021-96595fc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-96595fc)，制品源码固定为 `96595fcae1112d81ad6d868f934fa9912cec84f5`。完整包/扩展/Skill 为 111/80/7 文件；完整 ZIP 10,693,484 字节，SHA256：`da80a8442a5a0fcfb63cca391104d68c6870b77571683045ca2aa1fb1ff2c79b`。发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、4,807 项制品独审（报告 SHA256：`cb365d4ff941e00d4ca0af69857c5ddbc8366965cbbddfeb87dc76590bb28929`）、四资产回下载及 115 份本地副本核对通过。发布 EXE 未重跑网页业务；后续文档提交只记录交付，不改变制品源码。
+
+普通公司 Edge、真实 SSO/MFA、更多 iframe 组合及完整 P01–P15 仍开放。
 
 以下为各阶段的历史基线，不代表当前最新发布或未完成事项。
 

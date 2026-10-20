@@ -29,8 +29,9 @@ document 已确认；原 user-view 首帧 PNG、实际 DOM 解码与只读截图
 以重跑改写失败，也不据此宣称全程零焦点变化。草稿跨导航保持来自夹具
 sessionStorage，不是产品保存任意网页状态的承诺。
 
-本轮待按用户请求交付，尚未发布新包；普通公司 Edge、真实 SSO、更多 iframe
-组合和完整 P01–P15 仍开放。以下内容保留各轮历史状态。
+已按用户请求发布 [preview-20261021-96595fc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-96595fc)，制品源码固定为 `96595fcae1112d81ad6d868f934fa9912cec84f5`。完整包/扩展/Skill 为 111/80/7 文件；完整 ZIP 10,693,484 字节，SHA256：`da80a8442a5a0fcfb63cca391104d68c6870b77571683045ca2aa1fb1ff2c79b`。发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、4,807 项制品独审（报告 SHA256：`cb365d4ff941e00d4ca0af69857c5ddbc8366965cbbddfeb87dc76590bb28929`）、四资产回下载及 115 份本地副本核对通过。发布 EXE 未重跑网页业务；后续文档提交只记录交付，不改变制品源码。
+
+普通公司 Edge、真实 SSO/MFA、更多 iframe 组合及完整 P01–P15 仍开放。以下内容保留各轮历史状态。
 
 2026-10-21，开发分支 `eff1cdb` 已接通人工新页面选择：查看器先确认旧接管
 释放，再选择并保留独立浏览器中的原页面。两次真实流程分别覆盖 window.open

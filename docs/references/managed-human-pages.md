@@ -1,5 +1,9 @@
 # Managed 人工新页面选择
 
+已按用户请求发布 [preview-20261021-96595fc](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-96595fc)，制品源码固定为 `96595fcae1112d81ad6d868f934fa9912cec84f5`。完整包/扩展/Skill 为 111/80/7 文件；完整 ZIP 10,693,484 字节，SHA256：`da80a8442a5a0fcfb63cca391104d68c6870b77571683045ca2aa1fb1ff2c79b`。发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、4,807 项制品独审（报告 SHA256：`cb365d4ff941e00d4ca0af69857c5ddbc8366965cbbddfeb87dc76590bb28929`）、四资产回下载及 115 份本地副本核对通过。发布 EXE 未重跑网页业务；后续文档提交只记录交付，不改变制品源码。
+
+普通公司 Edge、真实 SSO/MFA、更多 iframe 组合及完整 P01–P15 仍开放。
+
 ## 行为
 
 当前开发版允许人在独立 managed 浏览器的查看器中选择符合网站权限的原生
