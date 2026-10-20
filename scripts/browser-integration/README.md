@@ -9,13 +9,28 @@ and `OBU_TEST_VIEWER_CHROMIUM_BINARY`. Both browser paths must identify the
 exact Chromium `.4` executable accepted by `memory-clipboard.mjs`; a separate
 profile alone does not isolate the operating system clipboard.
 
-The seven-step production workflow covers default copy, the same text copied
-again, no selection, a page's custom copy handler and default cut. Each original
+The seven-step production workflow covers seven cases: default copy, the same
+text copied again, no selection, a page's custom copy handler, default cut,
+and page-cancelled copy and cut. Each original
 lease ends before a trusted local paste checks the result. It also checks the
 original native ACKs, unchanged document identities, explicit Resume, one
 independent handoff POST and Stop. No clipboard API is substituted and no
 operating system clipboard is read, written or restored. This does not verify
 headed browser clipboard permissions or hardware keyboard behavior.
+
+Optionally set `OBU_TEST_HUMAN_CLIPBOARD_REJECTION=1` for one additional
+fault-injection case after those seven cases. It opens a new viewer connection
+to the same original task page, denies clipboard permission only in the private
+viewer context, and buffers one unchanged original Ctrl-down ACK. A real local
+write rejection must end the original lease before queued KeyX reaches the
+task. The buffered ACK is then forwarded once and observed on the actual viewer
+socket's `message` event; upstream network arrival alone is not UI delivery.
+The task's value and selection must remain unchanged, and a later trusted local
+paste must still contain the preceding Cut text. Permission overrides are
+cleared and any buffered original ACK is released during cleanup.
+This case explicitly uses Playwright WebSocket routing; its message events can
+be untrusted. It does not substitute clipboard APIs or manufacture a native
+input receipt. Without the option, no route or permission override is installed.
 
 ## Five managed entrypoints (Windows, experimental)
 

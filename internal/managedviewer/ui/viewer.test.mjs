@@ -127,6 +127,90 @@ test("clipboard transfer queued behind an input is cancelled before sequence ass
   h.writes[0].reject(Error("cancelled")); await flushClipboard();
 });
 
+for (const operation of ["copy", "cut"]) for (const settlement of ["reject", "resolve-without-data"])
+test(`queued clipboard ${operation} ends the original hold when local write ${settlement} precedes modifier ACK`, async () => {
+  const h = clipboardHarness(), fields = operation === "copy"
+    ? { key: "c", code: "KeyC", keyCode: 67 } : { key: "x", code: "KeyX", keyCode: 88 };
+  h.event("human-input", "keydown", { isTrusted: true, key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true });
+  const modifier = h.socket.sent.at(-1);
+  h.key("keydown", fields); h.key("keyup", fields);
+  h.event("human-input", "keyup", { isTrusted: true, key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: false });
+  assert.equal(h.socket.sent.at(-1), modifier); assert.equal(h.writes.length, 1);
+  if (settlement === "reject") h.writes[0].reject(Error("local write denied before queued shortcut"));
+  else h.writes[0].resolve();
+  await flushClipboard();
+  assert.ok(h.writes[0].dataError); assert.equal(h.writes[0].blob, null);
+  assert.equal(h.element("clipboard-status").dataset.pending, "false");
+  h.ackInput(modifier); await flushClipboard();
+  assert.equal(h.socket.sent.filter(row => row.input?.clipboardTransfer).length, 0, "a late modifier ACK cannot send the cancelled shortcut");
+  assert.deepEqual(h.socket.sent.filter(row => row.operation === "humanInput"), [modifier]);
+  const ends = h.socket.sent.filter(row => row.operation === "humanEnd");
+  assert.equal(ends.length, 1); assert.equal(ends[0].leaseId, modifier.leaseId);
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  assert.match(h.element("clipboard-status").textContent, /未发送/);
+  assert.doesNotMatch(h.element("clipboard-status").textContent, /已写入|剪切不会回滚/);
+  h.ackInput(modifier);
+  assert.deepEqual(h.socket.sent.filter(row => row.operation === "humanEnd"), ends);
+  assert.deepEqual(h.socket.sent.filter(row => row.operation === "humanInput"), [modifier]);
+});
+
+for (const replacement of ["generation", "lease"]) for (const settlement of ["reject", "resolve-without-data"])
+test(`retired queued clipboard ${settlement} cannot end a successor ${replacement}`, async () => {
+  const h = clipboardHarness();
+  h.event("human-input", "keydown", { isTrusted: true, key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true });
+  const modifier = h.socket.sent.at(-1);
+  h.key("keydown", { key: "x", code: "KeyX", keyCode: 88 });
+  if (replacement === "generation") {
+    h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });
+    resumeGeneration(h, 2);
+  } else {
+    h.element("human-end").click();
+    h.respond(h.socket.sent.at(-1).id, { ...h.state(2, "paused", true, { eventSequence: 20010, retiredSequence: 20010 }),
+      human: null, humanCleanup: { leaseId: "lease-a", cleanupConfirmed: true } });
+    h.element("control").click(); h.respond(h.socket.sent.at(-1).id, h.state(3));
+    h.element("human-begin").click();
+    const next = h.state(4, "paused", true, { eventSequence: 40000, retiredSequence: 39999,
+      human: { ...h.humanState().human, leaseId: "lease-b" } });
+    h.respond(h.socket.sent.at(-1).id, next);
+    h.humanFrame(1, { humanLeaseId: "lease-b", eventSequence: 40001, retiredSequence: 39999, streamId: "human-b" });
+    h.images.at(-1).onload();
+  }
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  h.event("human-input", "beforeinput", { inputType: "insertText", data: "successor" });
+  const current = h.socket.sent.at(-1), count = h.socket.sent.length;
+  if (settlement === "reject") h.writes[0].reject(Error("old local write failed late"));
+  else h.writes[0].resolve();
+  await flushClipboard();
+  h.ackInput(modifier);
+  assert.equal(h.socket.sent.length, count); assert.equal(h.socket.sent.at(-1), current);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+  assert.equal(h.element("clipboard-status").dataset.pending, "false");
+  assert.equal(h.socket.sent.some(row => row.input?.clipboardTransfer), false);
+});
+
+for (const phase of ["before-receipt", "after-data"])
+test(`already sent cut retains its native ACK and original up when local write fails ${phase}`, async () => {
+  const h = clipboardHarness(), fields = { key: "x", code: "KeyX", keyCode: 88 };
+  h.key("keydown", fields); const original = h.socket.sent.at(-1);
+  assert.equal(original.input.clipboardTransfer, "cut");
+  h.key("keyup", fields);
+  if (phase === "before-receipt") { h.writes[0].reject(Error("local denial")); await flushClipboard(); }
+  h.receipt(original, { operation: "cut", status: "ready", text: "original cut already happened" });
+  await flushClipboard();
+  const up = h.socket.sent.at(-1);
+  assert.equal(up.input.code, "KeyX"); assert.equal(up.input.action, "up");
+  if (phase === "after-data") {
+    assert.equal(await h.writes[0].blob.text(), "original cut already happened");
+    h.writes[0].reject(Error("local denial after accepting data")); await flushClipboard();
+  } else assert.equal(h.writes[0].blob, null);
+  assert.equal(h.element("human-input").dataset.acknowledgedSequence, String(original.sequence));
+  assert.equal(h.socket.sent.filter(row => row.input?.clipboardTransfer === "cut").length, 1);
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+  assert.match(h.element("clipboard-status").textContent, /剪切不会回滚/);
+  h.ackInput(up);
+  assert.equal(h.element("human-input").dataset.enabled, "true");
+});
+
 test("clipboard transfer local asynchronous denial cannot lose original keyup or revoke native ACK", async () => {
   const h = clipboardHarness(); h.key(); const request = h.socket.sent.at(-1);
   h.writes[0].reject(Error("denied")); await flushClipboard();

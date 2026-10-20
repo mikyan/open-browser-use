@@ -2,9 +2,71 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import fs from "node:fs/promises";
-import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint, assertManagedExtensionManifest } from "./managed-human-check.mjs";
+import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint, assertManagedExtensionManifest, managedCopyRejectionEnabled, assertManagedCopyRejectionEvidence } from "./managed-human-check.mjs";
 import { humanPasteText } from "./managed-human-check-fixture.mjs";
 import vm from "node:vm";
+
+test("clipboard rejection route is opt-in and restricted to human-copy", () => {
+  for (const scenario of ["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy"]) {
+    assert.equal(managedCopyRejectionEnabled(scenario, undefined), false);
+    assert.equal(managedCopyRejectionEnabled(scenario, "0"), false);
+    if (scenario !== "human-copy") assert.throws(() => managedCopyRejectionEnabled(scenario, "1"));
+  }
+  assert.equal(managedCopyRejectionEnabled("human-copy", "1"), true);
+  for (const value of ["true", "yes", 1, null]) assert.throws(() => managedCopyRejectionEnabled("human-copy", value));
+});
+
+function copyRejectionEvidence() {
+  const lease = { leaseId: "original", generation: 2 };
+  const request = { id: 40, operation: "humanInput", ...lease, sequence: 7, pageArrivedAt: 10,
+    input: { type: "key", action: "down", key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, modifiers: 2 } };
+  const receipt = { ...lease, sequence: 7, acknowledged: true };
+  const raw = JSON.stringify({ type: "response", id: 40, result: { inputReceipt: receipt } });
+  const response = { id: 40, receipt, bytes: Buffer.byteLength(raw), rawSHA256: createHash("sha256").update(raw).digest("hex"), serverArrivedAt: 20 };
+  const releaseAttempt = { id: 40, bytes: response.bytes, rawSHA256: response.rawSHA256, attemptedAt: 40 };
+  const route = { armed: true, scope: lease, connections: 1, request, response, held: false, overflow: false, errors: [],
+    requests: [request], responses: [response], forwardAttempt: releaseAttempt };
+  const before = { documentId: "original-document", state: { documentToken: "original-token", eventOverflow: false,
+    controls: { copy: { value: "Selected original", selectionStart: 0, selectionEnd: 17 } }, events: [], heldKeys: [], heldButtons: [] } };
+  const down = { type: "keydown", code: "ControlLeft", trusted: true };
+  const released = structuredClone(before); released.state.events = [down, { type: "keyup", code: "ControlLeft", trusted: true }];
+  const heldDocument = structuredClone(before); heldDocument.state.events = [down]; heldDocument.state.heldKeys = ["ControlLeft"];
+  const endRequest = { id: 41, operation: "humanEnd", leaseId: lease.leaseId, at: 30 };
+  return { instrumented: true, permissionState: "denied", lease, before, heldDocument, released, afterLateACK: structuredClone(released), afterLocalRelease: structuredClone(released),
+    heldRoute: { ...structuredClone(route), held: true, forwardAttempt: null }, finalRoute: route, deliveredBeforeRelease: false,
+    releaseAttempt, lateACK: { ...JSON.parse(raw), at: 41, observation: "original-viewer-socket-message", messageTrusted: false,
+      rawSHA256: response.rawSHA256, rawBytes: response.bytes },
+    localRejected: { pending: "false", dataState: "rejected", text: "本次剪切未发送。" }, endRequest,
+    end: { human: null, viewerCleanupComplete: true, humanCleanup: { leaseId: lease.leaseId, cleanupConfirmed: true } },
+    wireAfterArm: [request, endRequest], expectedLocalText: "prior Cut",
+    local: { active: false, overflow: false, value: "prior Cut", events: [{ type: "paste", trusted: true, text: "prior Cut" }] },
+    permissionsRestored: true };
+}
+
+test("clipboard rejection proof requires exact late UI delivery and original held-key cleanup", () => {
+  const proof = assertManagedCopyRejectionEvidence(copyRejectionEvidence());
+  assert.equal(proof.originalRequestId, 40); assert.equal(proof.endRequestId, 41);
+});
+
+for (const [label, mutate] of [
+  ["native permission not denied", row => { row.permissionState = "prompt"; }],
+  ["server arrival mistaken for UI delivery", row => { row.lateACK.observation = "upstream-network"; }],
+  ["ACK delivered before rejection", row => { row.deliveredBeforeRelease = true; }],
+  ["changed ACK bytes", row => { row.lateACK.rawSHA256 = "wrong"; }],
+  ["wrong original ACK", row => { row.lateACK.result.inputReceipt.generation++; }],
+  ["successor document", row => { row.afterLateACK.documentId = "replacement"; }],
+  ["cut reached native task", row => { row.released.state.events.push({ type: "cut", trusted: true }); }],
+  ["late cut sent", row => { row.wireAfterArm.push({ operation: "humanInput", id: 42 }); }],
+  ["selection changed", row => { row.afterLateACK.state.controls.copy.selectionEnd = 0; }],
+  ["original held key not released", row => { row.released.state.heldKeys.push("ControlLeft"); }],
+  ["unrelated cleanup receipt", row => { row.end.humanCleanup.leaseId = "successor"; }],
+  ["unconfirmed viewer cleanup", row => { row.end.viewerCleanupComplete = false; }],
+  ["local clipboard changed", row => { row.local.value = "new text"; }],
+  ["permission override retained", row => { row.permissionsRestored = false; }],
+  ["lost route evidence", row => { row.finalRoute.overflow = true; }]
+]) test(`clipboard rejection proof rejects ${label}`, () => {
+  const row = copyRejectionEvidence(); mutate(row); assert.throws(() => assertManagedCopyRejectionEvidence(row));
+});
 
 test("published extension accepts only the exact declared public-key addition", () => {
   const source = Buffer.from(JSON.stringify({ manifest_version: 3, name: "fixture", permissions: ["debugger"] }));

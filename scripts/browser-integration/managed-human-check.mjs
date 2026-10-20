@@ -21,11 +21,81 @@ import { humanKeyRepeatCases, nativeKeyRepeatGesture, installManagedKeyRepeatObs
 import { createManagedKeyRepeatFixture, readManagedKeyRepeatDocument } from "./managed-human-key-repeat-fixture.mjs";
 import { humanIMEText, humanIMEPreedit, installManagedIMEObserver, assertManagedIMEStage, assertManagedIMELedger } from "./managed-human-ime.mjs";
 import { humanCopyCases, createManagedHumanCopyFixture, readManagedHumanCopyDocument, installManagedCopyReadbackObserver, assertManagedHumanCopyCase } from "./managed-human-copy-fixture.mjs";
+import { installManagedCopyRejectionRoute } from "./managed-human-copy-rejection.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const redact = text => String(text).replace(/(#ticket=)[A-Za-z0-9_-]+/g, "$1[redacted]");
 const serialize = value => JSON.stringify(value, (_key, item) => typeof item === "string" ? redact(item) : item, 2);
+
+export function managedCopyRejectionEnabled(scenario, value) {
+  assert.ok(value === undefined || value === "0" || value === "1", "OBU_TEST_HUMAN_CLIPBOARD_REJECTION must be 0 or 1");
+  if (value === "1") assert.equal(scenario, "human-copy", "Clipboard rejection injection is only valid for human-copy");
+  return value === "1";
+}
+
+export function assertManagedCopyRejectionEvidence(row) {
+  const { lease, before, released, afterLateACK, afterLocalRelease, finalRoute: route } = row;
+  assert.equal(row.instrumented, true);
+  assert.equal(row.permissionState, "denied");
+  assert.equal(route.armed, true); assert.equal(route.connections, 1); assert.equal(route.held, false);
+  assert.equal(route.overflow, false); assert.deepEqual(route.errors, []);
+  assert.deepEqual(route.scope, { leaseId: lease.leaseId, generation: lease.generation });
+  const request = route.request, response = route.response;
+  assert.equal(request.operation, "humanInput"); assert.equal(request.leaseId, lease.leaseId); assert.equal(request.generation, lease.generation);
+  assert.deepEqual(request.input, { type: "key", action: "down", key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, modifiers: 2 });
+  assert.deepEqual(route.requests, [request]); assert.equal(route.responses.length, 1);
+  assert.deepEqual(route.responses[0], response);
+  assert.deepEqual(response.receipt, { leaseId: request.leaseId, generation: request.generation, sequence: request.sequence, acknowledged: true });
+  assert.equal(response.id, request.id);
+  assert.equal(row.deliveredBeforeRelease, false);
+  assert.equal(row.heldRoute.held, true);
+  assert.deepEqual(row.heldRoute.request, request); assert.deepEqual(row.heldRoute.response, response);
+  assert.equal(row.heldDocument.documentId, before.documentId);
+  assert.equal(row.heldDocument.state.documentToken, before.state.documentToken);
+  assert.deepEqual(row.heldDocument.state.controls, before.state.controls);
+  assert.deepEqual(row.heldDocument.state.heldKeys, ["ControlLeft"]);
+  assert.deepEqual(row.heldDocument.state.events.slice(before.state.events.length).map(event => [event.type, event.code, event.trusted]),
+    [["keydown", "ControlLeft", true]]);
+  assert.deepEqual(row.releaseAttempt, route.forwardAttempt);
+  assert.equal(row.releaseAttempt.id, request.id);
+  assert.equal(row.releaseAttempt.rawSHA256, response.rawSHA256); assert.equal(row.releaseAttempt.bytes, response.bytes);
+  assert.equal(row.lateACK.observation, "original-viewer-socket-message");
+  assert.equal(typeof row.lateACK.messageTrusted, "boolean"); // Playwright's route shim may report false.
+  assert.equal(row.lateACK.rawSHA256, response.rawSHA256); assert.equal(row.lateACK.rawBytes, response.bytes);
+  assert.ok(row.lateACK.at >= row.releaseAttempt.attemptedAt);
+  assertHumanInputReceipt(request, row.lateACK);
+  assert.equal(row.localRejected.pending, "false"); assert.equal(row.localRejected.dataState, "rejected");
+  assert.match(row.localRejected.text, /未发送/);
+  assert.equal(row.endRequest.operation, "humanEnd"); assert.equal(row.endRequest.leaseId, lease.leaseId);
+  assert.equal(row.end.human, null); assert.equal(row.end.viewerCleanupComplete, true);
+  assert.deepEqual(row.end.humanCleanup, { leaseId: lease.leaseId, cleanupConfirmed: true });
+  assert.ok(row.endRequest.at >= response.serverArrivedAt);
+  assert.deepEqual(row.wireAfterArm.map(command => [command.operation, command.id]), [["humanInput", request.id], ["humanEnd", row.endRequest.id]]);
+  const originalControl = before.state.controls.copy;
+  assert.ok(originalControl.value.length > 0);
+  assert.deepEqual([originalControl.selectionStart, originalControl.selectionEnd], [0, originalControl.value.length]);
+  for (const doc of [released, afterLateACK, afterLocalRelease]) {
+    assert.equal(doc.documentId, before.documentId); assert.equal(doc.state.documentToken, before.state.documentToken);
+    assert.equal(doc.state.eventOverflow, false); assert.deepEqual(doc.state.controls, before.state.controls);
+    assert.deepEqual(doc.state.heldKeys, []); assert.deepEqual(doc.state.heldButtons, []);
+  }
+  assert.deepEqual(released.state.events.slice(0, before.state.events.length), before.state.events);
+  const events = released.state.events.slice(before.state.events.length);
+  assert.deepEqual(events.map(event => [event.type, event.code, event.trusted]), [
+    ["keydown", "ControlLeft", true], ["keyup", "ControlLeft", true]
+  ]);
+  assert.deepEqual(afterLateACK.state.events, released.state.events);
+  assert.deepEqual(afterLocalRelease.state.events, released.state.events);
+  assert.equal(row.local.active, false); assert.equal(row.local.overflow, false);
+  assert.equal(row.local.value, row.expectedLocalText);
+  const pastes = row.local.events.filter(event => event.type === "paste");
+  assert.equal(pastes.length, 1); assert.equal(pastes[0].trusted, true); assert.equal(pastes[0].text, row.expectedLocalText);
+  assert.ok(row.local.events.every(event => event.trusted));
+  assert.equal(row.permissionsRestored, true);
+  return { originalRequestId: request.id, originalResponseSHA256: response.rawSHA256, endRequestId: row.endRequest.id,
+    boundary: "Explicit transport and permission fault injection: one original Ctrl ACK delayed until native local write rejection caused End. The same raw ACK later reached the real viewer socket; no KeyX or cut reached the task, and the original shared memory clipboard was unchanged." };
+}
 
 export function assertManagedExtensionManifest(actualBytes, sourceBytes, mainSource) {
   const actualSHA256 = hash(actualBytes), sourceSHA256 = hash(sourceBytes);
@@ -196,6 +266,7 @@ async function treeHashes(root) {
 export async function runManagedHumanCheck() {
   assert.equal(process.platform, "win32");
   const scenario = process.env.OBU_TEST_HUMAN_SCENARIO ?? "handoff"; assert.ok(["handoff", "local-paste", "ime", "keyboard", "key-repeat", "human-copy"].includes(scenario));
+  const clipboardRejection = managedCopyRejectionEnabled(scenario, process.env.OBU_TEST_HUMAN_CLIPBOARD_REJECTION);
   const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const viewerChromium = paste || humanCopy ? process.env.OBU_TEST_VIEWER_CHROMIUM_BINARY : chromium, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
@@ -206,7 +277,7 @@ export async function runManagedHumanCheck() {
   const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/", paste ? "mhp-" : ime ? "mhi-" : keyboard ? "mhk-" : keyRepeat ? "mhr-" : humanCopy ? "mhc-" : "managed-human-"));
   const root = path.join(runDir, explicitEnd ? "r" : "owned-root"), name = paste ? "p" : ime ? "i" : keyboard ? "k" : keyRepeat ? "r" : humanCopy ? "c" : "human-acceptance", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { scenario, runDir, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [],
-    scope: humanCopy ? "Production Go/UI/extension clipboard transfer with independently guarded task and viewer HeadlessClipboard. Five original copy/cut cases, exact native receipts, End before trusted local paste readback, explicit Resume and original handoff one POST/Stop. No OS clipboard, permission grant, task CDP attachment, clipboard API substitution or business replay. Shared managed clipboard is not page-origin provenance."
+    scope: humanCopy ? `Production Go/UI/extension clipboard transfer with independently guarded task and viewer HeadlessClipboard. Seven original copy/cut cases, including cancelled copy/cut, exact native receipts, End before trusted local paste readback, explicit Resume and original handoff one POST/Stop. No OS clipboard, task CDP attachment, clipboard API substitution or business replay. Shared managed clipboard is not page-origin provenance.${clipboardRejection ? " An additional explicitly instrumented case denies viewer clipboard permission and delays one original Ctrl ACK through a WebSocket route; actual UI message delivery is observed on its original socket." : " No permission override or WebSocket route."}`
       : paste ? "Production managed human viewer, guarded headless memory clipboard and trusted local Ctrl+V, original multiline form, exact native receipts, End with held Shift and one final SDK POST. No OS clipboard read/write/restore, no task clipboard command, no business replay or task CDP attachment."
       : ime ? "Production managed human viewer with browser-native CDP IME composition on the isolated headless viewer only. Candidate updates, two identical commits and cancellation; original task text receipts/document/one POST, held-Shift End and Stop. No Windows OS input method, clipboard, synthetic DOM event, task CDP input or business replay."
       : keyRepeat ? "Production managed viewer native key down plus explicit autoRepeat key events for Backspace/Delete/ArrowLeft/ArrowRight, prevented defaults and End-held-repeat cleanup. Original task values/selections/receipts and independent handoff one POST. CDP keyboard simulation targets only the viewer; no OS input, clipboard, synthetic DOM event, task CDP input or business replay."
@@ -216,6 +287,7 @@ export async function runManagedHumanCheck() {
   const registry = new Set(), frameWrites = [], screenshots = [];
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
   let copyTab, repeatTab, keyboardTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
+  let copyRejectionRoute, restoreCopyPermissions = false;
   const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy ? "handoff" : scenario });
   const copyFixture = humanCopy ? createManagedHumanCopyFixture() : null;
   const repeatFixture = keyRepeat ? createManagedKeyRepeatFixture() : null;
@@ -367,12 +439,108 @@ export async function runManagedHumanCheck() {
     (report.pointerTargets ??= []).push({ at: Date.now(), connection, leaseId: state.human.leaseId, generation: state.human.generation, streamId: decoded.streamId, frameSequence: Number(decoded.frameSequence), ...proof });
     return proof.viewerPoint;
   }
-  async function openViewer(url) {
+  async function exerciseClipboardRejection(fixtureURL) {
+    assert.equal(report.taskClipboardGuard.verified, true); assert.equal(report.clipboardGuard.verified, true);
+    const row = report.humanCopy.localWriteRejection = { instrumented: true, startedAt: Date.now(),
+      boundary: "Negative-only WebSocket route delays one unchanged original Ctrl ACK. Native viewer clipboard permission is denied. Production UI and task input implementation remain unchanged; this is not uninstrumented acceptance.",
+      expectedLocalText: humanCopyCases.at(-1).text };
+    // Keep the same delivered task document. Only its released viewer transport
+    // is replaced so the preceding seven cases never run under a route.
+    const oldPage = page;
+    await oldPage.evaluate(() => __managedHumanTestSocket.close());
+    const fresh = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
+    assert.equal(new URL(fresh.viewerURL).origin, report.viewerOrigin);
+    await openViewer(fresh.viewerURL, true); await oldPage.close();
+    row.connection = connection;
+    await uiAction("#tabs", "select", copyTab.id);
+    row.begin = await uiAction("#human-begin", "humanBegin"); assert.equal(row.begin.status.state, "paused");
+    row.frame = await decodeHumanFrame(row.begin.human); row.lease = { ...state.human };
+    assert.equal(row.lease.clipboardTransferVersion, 1);
+    const position = await viewerPoint((await copyRead(copyTab.id)).boxes.copy);
+    row.focusCommands = await inputAction("focus original copy field before local write rejection", () => page.mouse.click(position.x, position.y));
+    row.selectionCommands = await inputAction("select original nonempty copy field", () => page.keyboard.press("Control+A"));
+    row.before = await copyRead(copyTab.id);
+    assert.equal(row.before.activeElement, "copy");
+    assert.ok(row.before.state.controls.copy.value.length > 0);
+    assert.deepEqual([row.before.state.controls.copy.selectionStart, row.before.state.controls.copy.selectionEnd],
+      [0, row.before.state.controls.copy.value.length]);
+    const wireStart = report.viewerCommands.length;
+    try {
+      row.permissionDeniedAt = Date.now(); restoreCopyPermissions = true;
+      await viewerContext.grantPermissions([], { origin: report.viewerOrigin });
+      row.permissionDenialAcknowledgedAt = Date.now();
+      row.permissionState = await page.evaluate(async () => (await navigator.permissions.query({ name: "clipboard-write" })).state);
+      assert.equal(row.permissionState, "denied", "The original viewer clipboard permission override must be effective");
+      copyRejectionRoute.arm({ leaseId: row.lease.leaseId, generation: row.lease.generation });
+      row.controlDownStartedAt = Date.now();
+      await page.keyboard.down("Control");
+      row.controlDownAcknowledgedAt = Date.now();
+      row.heldRoute = await wait(() => { const value = copyRejectionRoute.snapshot(); return value.held && value.response && value; }, "original Ctrl ACK held by explicit route");
+      row.heldDocument = await copyRead(copyTab.id);
+      assert.deepEqual(row.heldDocument.state.heldKeys, ["ControlLeft"]);
+      assert.deepEqual(row.heldDocument.state.controls, row.before.state.controls);
+      row.cutDownStartedAt = Date.now(); await page.keyboard.down("x"); row.cutDownAcknowledgedAt = Date.now();
+      row.localRejected = await wait(async () => {
+        const value = await page.locator("#clipboard-status").evaluate(element => ({ text: element.textContent, ...element.dataset }));
+        return value.pending === "false" && value.dataState === "rejected" && value;
+      }, "native local clipboard rejection");
+      row.endRequest = await wait(() => report.viewerCommands.slice(wireStart).find(value => value.operation === "humanEnd" && value.leaseId === row.lease.leaseId), "automatic original human End");
+      const endReply = await replyFor(row.endRequest.id);
+      assert.equal(endReply.error, undefined, serialize(endReply.error)); row.end = endReply.result;
+      assert.deepEqual(row.end.humanCleanup, { leaseId: row.lease.leaseId, cleanupConfirmed: true });
+      assert.equal(row.end.human, null); assert.equal(row.end.viewerCleanupComplete, true);
+      row.released = await copyRead(copyTab.id);
+      row.deliveredBeforeRelease = report.viewerMessages.some(value => value.connection === connection && value.type === "response" && value.id === row.heldRoute.request.id);
+      assert.equal(row.deliveredBeforeRelease, false, "Upstream network arrival cannot stand in for viewer delivery");
+      row.releaseAttempt = copyRejectionRoute.release();
+      row.lateACK = await replyFor(row.heldRoute.request.id);
+      await wait(async () => await page.locator("#human-input").getAttribute("data-pending") === "0", "original late input ACK settled in viewer");
+      row.afterLateACK = await copyRead(copyTab.id);
+      row.localKeyReleaseStartedAt = Date.now();
+      await page.keyboard.up("x"); await page.keyboard.up("Control");
+      row.localKeyReleaseAcknowledgedAt = Date.now(); row.afterLocalRelease = await copyRead(copyTab.id);
+      await viewerContext.clearPermissions(); restoreCopyPermissions = false; row.permissionsRestored = true;
+      row.permissionsRestoredAt = Date.now();
+      const localPage = await viewerContext.newPage();
+      try {
+        await localPage.addInitScript(installManagedCopyReadbackObserver);
+        await localPage.goto(fixtureURL + "/human-copy-local", { waitUntil: "domcontentloaded" });
+        await localPage.locator("#neutral").focus();
+        assert.equal(await localPage.locator("#neutral").inputValue(), "");
+        row.localPasteStartedAt = Date.now(); await localPage.keyboard.press("Control+V");
+        row.local = await localPage.evaluate(() => __managedCopyReadback.stop()); row.localPasteCompletedAt = Date.now();
+      } finally { await localPage.close(); }
+      await page.bringToFront();
+      row.wireAfterArm = report.viewerCommands.slice(wireStart);
+      row.finalRoute = copyRejectionRoute.snapshot();
+      row.proof = assertManagedCopyRejectionEvidence(row);
+      assert.deepEqual((await copyRead(copyTab.id)).state.events, row.afterLocalRelease.state.events);
+      row.completedAt = Date.now(); row.screenshot = await screenshot("viewer-human-local-write-rejected.png");
+    } finally {
+      // Release only the same buffered bytes, even when a preceding check fails.
+      try { row.cleanupReleaseAttempt = copyRejectionRoute.release(); }
+      finally {
+        row.routeAtCleanup = copyRejectionRoute.snapshot();
+        if (restoreCopyPermissions) {
+          await viewerContext.clearPermissions(); restoreCopyPermissions = false;
+          row.permissionsRestored = true; row.permissionsRestoredAt = Date.now();
+        }
+      }
+    }
+  }
+  async function openViewer(url, rejectionRoute = false) {
     connection++; const originalConnection = connection; state = undefined;
     // CDP's default context has no managed native viewport: emulating a larger
     // DOM there can leave wheel coordinates outside the original small window.
     // All viewer pages use the same explicitly sized, private test context.
     page = await viewerContext.newPage();
+    if (rejectionRoute) {
+      assert.equal(clipboardRejection, true); assert.equal(copyRejectionRoute, undefined);
+      copyRejectionRoute = await installManagedCopyRejectionRoute(page, url);
+      await page.exposeBinding("__managedCopyRejectionMessage", (_source, event) => {
+        observeMessage(event.data, { observation: "original-viewer-socket-message", messageTrusted: event.trusted, pageMessageAt: event.at });
+      });
+    }
     if (paste) await page.addInitScript(installManagedPasteObserver);
     if (ime) await page.addInitScript(installManagedIMEObserver);
     const geometrySession = await viewerContext.newCDPSession(page);
@@ -383,21 +551,30 @@ export async function runManagedHumanCheck() {
       assert.deepEqual(viewport, { width: 1280, height: 1000 });
       assert.ok(nativeWindow.bounds.width >= viewport.width && nativeWindow.bounds.height >= viewport.height, "Original viewer window must contain its emulated viewport");
     } finally { await geometrySession.detach(); }
-    // Test-only reference to the original native socket: no send/receive wrapper,
-    // no change to production input or ACK ordering. Used only for a rejected
-    // old capability and a deliberate transport close while inputs are held.
-    await page.addInitScript(() => {
+    // Normal runs only retain the original socket reference. The opt-in route
+    // case additionally observes the actual viewer object's message event:
+    // a native CDP frame on the shim's upstream socket is not UI delivery.
+    await page.addInitScript(observeDelivery => {
       const Native = WebSocket;
-      globalThis.WebSocket = new Proxy(Native, { construct(target, args) { const socket = Reflect.construct(target, args); Object.defineProperty(globalThis, "__managedHumanTestSocket", { configurable: true, value: socket }); return socket; } });
-    });
+      globalThis.WebSocket = new Proxy(Native, { construct(target, args) {
+        const socket = Reflect.construct(target, args);
+        Object.defineProperty(globalThis, "__managedHumanTestSocket", { configurable: true, value: socket });
+        if (observeDelivery) socket.addEventListener("message", event => {
+          void globalThis.__managedCopyRejectionMessage({ data: event.data, trusted: event.isTrusted, at: Date.now() });
+        });
+        return socket;
+      } });
+    }, rejectionRoute);
     page.on("pageerror", error => { report.viewerErrors.push({ at: Date.now(), connection: originalConnection, error: error.stack }); captureError ??= error; });
     page.on("websocket", socket => {
       try { assert.equal(new URL(socket.url()).origin.replace("ws:", "http:"), new URL(url).origin); } catch (error) { captureError ??= error; return; }
       socket.on("close", () => report.viewerMessages.push({ type: "socketClosed", at: Date.now(), connection: originalConnection }));
       socket.on("framesent", event => { try { const raw = JSON.parse(String(event.payload)), projected = projectHumanCommand(raw); if (!projected) return; if (report.viewerCommands.length >= 2048) throw new Error("Viewer command capacity"); report.viewerCommands.push({ ...projected, at: Date.now(), connection: originalConnection }); } catch (error) { captureError ??= error; } });
-      socket.on("framereceived", event => {
+      if (!rejectionRoute) socket.on("framereceived", event => observeMessage(event.payload));
+    });
+    function observeMessage(raw, metadata = {}) {
         try {
-          const message = JSON.parse(String(event.payload)), at = Date.now();
+          const message = JSON.parse(String(raw)), at = Date.now();
           if (report.viewerMessages.length >= 4096) throw new Error("Viewer event capacity");
           if (message.type === "frame") {
             assert.equal(message.mimeType, "image/png"); assert.ok(typeof message.data === "string" && message.data.length <= 4 * Math.ceil(4 * 1024 * 1024 / 3));
@@ -407,15 +584,15 @@ export async function runManagedHumanCheck() {
             if (report.frames.length >= 1024) throw new Error("Frame observation capacity"); report.frames.push(frame);
             report.viewerMessages.push({ type: "frame", at, connection: originalConnection, tabId: frame.tabId, streamId: frame.streamId, sequence: frame.sequence, controlMode: frame.controlMode, humanLeaseId: frame.humanLeaseId, generation: frame.generation, sha256: frame.sha256 });
           } else {
-            report.viewerMessages.push({ ...message, at, connection: originalConnection });
+            report.viewerMessages.push({ ...message, at, connection: originalConnection, ...metadata,
+              ...(rejectionRoute ? { rawSHA256: hash(Buffer.from(raw)), rawBytes: Buffer.byteLength(raw) } : {}) });
             if (originalConnection === connection && (message.type === "state" || message.type === "response" && message.result?.status)) {
               const next = message.type === "state" ? message : message.result;
               if (!state || next.eventSequence >= state.eventSequence && next.status.revision >= state.status.revision) state = next;
             }
           }
         } catch (error) { captureError ??= error; }
-      });
-    });
+    }
     await page.goto(url, { waitUntil: "domcontentloaded" }); await wait(async () => await page.locator("#connection").textContent() === "已连接", "viewer authenticated");
     assert.equal(new URL(page.url()).hash, ""); await uiAction("#refresh", "status");
   }
@@ -598,6 +775,7 @@ export async function runManagedHumanCheck() {
         row.proof = assertManagedHumanCopyCase({ ...row, original: detail.original, replies: report.viewerMessages, scope: row.lease });
         row.completedAt = Date.now(); row.screenshot = await screenshot(`viewer-human-${definition.id}.png`);
       }
+      if (clipboardRejection) await exerciseClipboardRejection(fixtureURL);
       detail.released = await copyRead(copyTab.id);
       detail.afterTargets = await nativeMap(copyTab.id);
       assert.equal(detail.afterTargets[0].id, detail.originalTargets[0].id); assert.equal(detail.afterTargets[0].attached, false);
@@ -870,6 +1048,13 @@ export async function runManagedHumanCheck() {
           const inputs = report.viewerCommands.filter(command => command.operation === "humanInput" && command.leaseId === row.lease.leaseId);
           assert.deepEqual(inputs.map(command => command.id), row.leaseLedger, "No late clipboard lease input after handoff");
         }
+        if (report.humanCopy.localWriteRejection) {
+          const row = report.humanCopy.localWriteRejection;
+          row.finalLeaseInputs = report.viewerCommands.filter(command => command.operation === "humanInput" && command.leaseId === row.lease.leaseId);
+          assert.deepEqual(row.finalLeaseInputs.map(command => command.id),
+            [...row.focusCommands, ...row.selectionCommands, row.finalRoute.request].map(command => command.id), "No late queued cut after the rest of the workflow");
+          assert.deepEqual(copyRejectionRoute.snapshot(), row.finalRoute, "The fault route cannot receive extra old-lease inputs");
+        }
       }
       if (keyboard) {
         report.keyboard.finalDocument = await keyboardRead(keyboardTab.id);
@@ -931,6 +1116,12 @@ export async function runManagedHumanCheck() {
     } catch (failure) { report.failureViewerError = redact(String(failure)); }
   }
   finally {
+    if (copyRejectionRoute) try { copyRejectionRoute.release(); }
+    catch (error) { report.cleanup.copyRejectionRelease = error.stack; }
+    if (restoreCopyPermissions && viewerContext) try {
+      await viewerContext.clearPermissions(); restoreCopyPermissions = false;
+      if (report.humanCopy?.localWriteRejection) report.humanCopy.localWriteRejection.permissionsRestoredInFinalCleanup = true;
+    } catch (error) { report.cleanup.copyRejectionPermissions = error.stack; }
     if (worker) try { report.cleanup.observerStop = await worker.evaluate("__managedHumanAcceptance.stop()"); await worker.close(); } catch (error) { report.cleanup.observerError = error.stack; }
     taskBrowser?.close();
     if (launcher && !launcher.record.closedAt) {
@@ -966,10 +1157,10 @@ export async function runManagedHumanCheck() {
       report.copyFixture = copyFixture.stats();
       if (report.humanCopy?.finalDocument) try {
         assert.equal(report.copyFixture.overflow, false);
-        assert.equal(report.copyFixture.requests.length, 2 + humanCopyCases.length);
+        assert.equal(report.copyFixture.requests.length, 2 + humanCopyCases.length + Number(clipboardRejection));
         assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-copy").length, 1);
         assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-clipboard-donor").length, 1);
-        assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-copy-local").length, humanCopyCases.length);
+        assert.equal(report.copyFixture.requests.filter(row => row.path === "/human-copy-local").length, humanCopyCases.length + Number(clipboardRejection));
         for (const hit of report.copyFixture.requests) {
           assert.equal(hit.method, "GET"); assert.equal(hit.status, 200); assert.equal(hit.finished, true); assert.equal(hit.aborted, false);
         }

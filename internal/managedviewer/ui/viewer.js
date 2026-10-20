@@ -63,6 +63,18 @@
       : "待传文字已取消；仍在等待本地剪贴板写入结束。";
     renderClipboard();
   }
+  function cancelUnsentClipboard(record) {
+    if (record !== localClipboard || record.requestId !== null || record.retired ||
+        record.humanEpoch !== humanEpoch || record.leaseId !== humanOwner ||
+        record.leaseId !== human?.leaseId || record.generation !== human.generation ||
+        !humanAdmitted || humanEnding || revoked) return false;
+    // The shortcut is still queued behind an original input. End discards that
+    // queue and releases held modifiers; a late input ACK cannot revive it.
+    record.retired = true;
+    clipboardNotice = "本地剪贴板未就绪；本次复制或剪切未发送。";
+    endHuman("本地剪贴板未就绪，正在释放人工控制。", false, "human-release");
+    return true;
+  }
   function startClipboard(operation, event) {
     if (localClipboard?.writePending) {
       clipboardNotice = "上一次本地剪贴板写入尚未结束；本次复制或剪切未发送。";
@@ -95,6 +107,7 @@
       if (record.dataState === "resolved") clipboardNotice = "文字已写入本地剪贴板。";
       else {
         rejectClipboardData(record, "Local write settled without original data");
+        if (cancelUnsentClipboard(record)) return;
         clipboardNotice = "本地剪贴板结果未确认；不会重试复制或剪切。";
       }
       renderClipboard();
@@ -102,6 +115,7 @@
       record.writePending = false;
       const hadData = record.dataState === "resolved";
       rejectClipboardData(record, "Local clipboard write rejected");
+      if (cancelUnsentClipboard(record)) return;
       if (hadData || !record.retired && record.notice === undefined)
         clipboardNotice = "本地剪贴板写入失败；网页按键不会重试，剪切不会回滚。";
       else if (record.retired) clipboardNotice = "本地剪贴板写入已结束；待传文字未提交。";
