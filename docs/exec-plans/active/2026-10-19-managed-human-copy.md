@@ -26,12 +26,22 @@ viewer/Go/extension 纯文本返回通道，完整 Go test/vet 和 2,999 项 Nod
 - [x] 保留当前实际失败基线；实现正式viewer/Go/extension链路和生命周期。
 - [x] 真实双隔离浏览器验收普通文本、重复复制、自定义复制、无选区、剪切
   与End；原文档、逐次ACK、本地原生paste、唯一业务提交和Stop通过。
-- [ ] 扩展生产链路的网页取消、导航竞争与复杂iframe/OOPIF真实验收；
+- [x] 扩展生产链路的网页取消copy/cut，原文与本地剪贴板保持不变。
+- [ ] 导航竞争与复杂iframe/OOPIF真实验收；
   普通Windows系统剪贴板及公司Edge仍待用户方便时补验。
 - [x] 提交用户fork并发布配套新包；离线CLI/MCP、独立制品、四资产回下载
   及本地113文件副本核对通过，未创建PR。
 
 ## 已有证据与后续边界
+
+2026-10-21发布后的下一片先验网页取消：保持原五场与完整End/Resume/Stop，
+追加非空选区的copy/cut处理器只preventDefault、不写入新数据。要求原快捷键
+只执行一次、回执为unchanged、本地真实paste仍是上次确认文字；取消cut不能
+删除文字或改变原选区。本轮仅扩展测试夹具，继续使用字节一致的已冻结生产
+构建；新的脚本快照与原始结果单独保留，不改写已发布五场结果。
+该片已完成：`mhc-ARTkxn`实际退出0，七场和七步均通过；273项独立事实核对
+通过，两场原取消事件、原文字/选区、本地粘贴、完整回执和清理均吻合。
+原结果SHA256：`06845cdec857fc60eb2e33c90a844c841ed4d309f00006785e691f853438226c`。
 
 详见[研究结论](../../references/managed-human-copy-research.md)及正式的
 [本地机制诊断脚本](../../../scripts/browser-integration/managed-clipboard-local-probe.mjs)。

@@ -16,6 +16,9 @@
 Node检查通过；正式未插桩`mhc-4Ft36v`七步通过，覆盖普通/重复/自定义复制、
 无选区保持原内容和默认剪切，含原回执、本地原生粘贴、唯一业务提交与Stop。
 两端使用固定HeadlessClipboard；系统剪贴板、公司Edge和完整能力对齐仍开放。
+同一生产构建后续`mhc-ARTkxn`七场通过，新增网页取消copy/cut，严格保留原文字、
+选区与本地剪贴板。73次原输入回执、9次End、唯一POST、Stop及30个原进程退出
+已独立核对；本轮只扩测试夹具及27项定向检查，没有改生产或重跑原Go/Node全套。
 
 已发布 [preview-20261021-b63b768](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-b63b768)，
 源提交 `b63b76819d09789951af8fe1e56bf09db72f863e`。发布EXE从干净提交单独重建，

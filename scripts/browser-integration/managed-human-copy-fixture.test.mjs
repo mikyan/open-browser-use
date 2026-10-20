@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import vm from "node:vm";
 import { listenFixture } from "./fixture-listener.mjs";
-import { humanCopyCases, createManagedHumanCopyFixture, assertManagedHumanCopyCase, installManagedCopyReadbackObserver } from "./managed-human-copy-fixture.mjs";
+import { humanCopyCases, humanCutText, createManagedHumanCopyFixture, assertManagedHumanCopyCase, installManagedCopyReadbackObserver } from "./managed-human-copy-fixture.mjs";
 import { createManagedHumanFixture } from "./managed-human-check-fixture.mjs";
 
 test("human-copy composed handoff server serves the real donor and neutral textarea body", async () => {
@@ -34,14 +34,21 @@ function proof(definition) {
       operation: definition.operation, status: definition.status, ...(definition.status === "ready" ? { text: definition.text } : {})
     } } : {})
   } } }));
-  const original = { documentId: "document", state: { documentToken: "token" } };
+  const initialValue = definition.id === "cut-original" ? humanCutText : definition.value;
+  const original = { documentId: "document", state: { documentToken: "token", controls: {
+    [definition.target]: { value: initialValue, selectionStart: 0, selectionEnd: 0 }
+  } } };
   const before = { ...original, state: { ...original.state, events: [], controls: {
-    [definition.target]: { value: definition.value, selectionStart: 0, selectionEnd: 0 }
+    [definition.target]: { value: initialValue, selectionStart: 0, selectionEnd: definition.selected ? initialValue.length : 0 }
   } } };
   const events = keys.map(([code, action]) => ({ type: action === "down" ? "keydown" : "keyup", code, trusted: true }));
-  events.splice(2, 0, { type: definition.operation, trusted: true, defaultPrevented: definition.target === "custom" });
-  if (definition.operation === "cut") events.splice(3, 0, ...["beforeinput", "input"].map(type => ({ type, inputType: "deleteByCut", trusted: true })));
-  const after = { ...original, state: { ...before.state, events, eventOverflow: false, heldKeys: [], heldButtons: [] } };
+  events.splice(2, 0, { type: definition.operation, trusted: true, defaultPrevented: definition.defaultPrevented });
+  events.splice(3, 0, ...definition.editEvents.map(value => {
+    const [type, inputType] = value.split(":"); return { type, inputType, trusted: true };
+  }));
+  const after = { ...original, state: { ...before.state, events, eventOverflow: false, heldKeys: [], heldButtons: [], controls: {
+    [definition.target]: { value: definition.value, selectionStart: 0, selectionEnd: definition.selectionEnd }
+  } } };
   const local = { value: definition.text, active: false, overflow: false, events: [
     { type: "paste", text: definition.text, trusted: true },
     { type: "beforeinput", inputType: "insertFromPaste", trusted: true },
@@ -58,6 +65,31 @@ test("copy fixture provides original default/cut/custom documents and passive lo
     const html = await (await fetch(origin + "/human-copy")).text();
     assert.doesNotThrow(() => new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]));
     assert.match(html, /addEventListener\('copy'/); assert.match(html, /clipboardData\.setData/);
+    const fields = new Map([...html.matchAll(/<textarea id="([^"]+)" autocomplete="off">([^<]*)<\/textarea>/g)].map(([, id, value]) => [
+      id, { id, value, selectionStart: 0, selectionEnd: value.length, handlers: new Map(), addEventListener(type, listener) { this.handlers.set(type, listener); } }
+    ]));
+    assert.equal(fields.size, 6);
+    fields.set("state", { textContent: "" });
+    const observed = new Map();
+    const context = vm.createContext({ document: {
+      getElementById(id) { assert.ok(fields.has(id)); return fields.get(id); },
+      addEventListener(type, listener, options) { assert.equal(options.passive, true); observed.set(type, listener); }
+    } });
+    vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
+    for (const [target, type] of [["cancel-copy", "copy"], ["cancel-cut", "cut"]]) {
+      const field = fields.get(target), value = field.value; let prevented = 0;
+      const event = { type, target: field, isTrusted: true, defaultPrevented: false,
+        get clipboardData() { throw Error("Cancellation must not read or modify clipboard data"); },
+        preventDefault() { prevented++; this.defaultPrevented = true; }
+      };
+      field.handlers.get(type)(event);
+      observed.get(type)(event);
+      assert.equal(prevented, 1); assert.equal(field.value, value);
+      assert.deepEqual([field.selectionStart, field.selectionEnd], [0, value.length]);
+      const recorded = JSON.parse(fields.get("state").textContent).events.at(-1);
+      assert.deepEqual({ type: recorded.type, target: recorded.target, defaultPrevented: recorded.defaultPrevented },
+        { type, target, defaultPrevented: true });
+    }
     const local = await (await fetch(origin + "/human-copy-local")).text();
     assert.match(local, /id="neutral"/); assert.doesNotMatch(local, /navigator\.clipboard|<script>/);
     assert.equal((await fetch(origin + "/human-copy", { method: "POST", body: "not permitted" })).status, 405);
@@ -68,6 +100,35 @@ test("copy fixture provides original default/cut/custom documents and passive lo
 
 for (const definition of humanCopyCases) test(`copy proof preserves exact original shortcut/receipt/document/readback: ${definition.id}`, () => {
   assert.doesNotThrow(() => assertManagedHumanCopyCase(proof(definition)));
+});
+
+test("two page cancellations follow the original five cases and preserve the last confirmed cut text", () => {
+  assert.deepEqual(humanCopyCases.map(row => row.id), [
+    "copy-original", "copy-same-again", "copy-no-selection", "copy-custom-handler", "cut-original", "copy-cancelled", "cut-cancelled"
+  ]);
+  for (const definition of humanCopyCases.slice(5)) {
+    assert.equal(definition.status, "unchanged"); assert.equal(definition.text, humanCutText);
+    assert.equal(definition.defaultPrevented, true); assert.equal(definition.selected, true);
+    assert.deepEqual(definition.editEvents, []); assert.ok(definition.value.length > 0);
+    assert.equal(definition.selectionEnd, definition.value.length);
+  }
+});
+
+test("cancelled copy and cut require the original cancelled event and unchanged selected text/local contents", () => {
+  for (const definition of humanCopyCases.slice(5)) {
+    for (const mutate of [
+      value => { value.after.state.events = value.after.state.events.filter(event => event.type !== definition.operation); },
+      value => { value.after.state.events.find(event => event.type === definition.operation).defaultPrevented = false; },
+      value => value.after.state.events.push({ type: "beforeinput", inputType: "deleteByCut", trusted: true }),
+      value => value.after.state.events.push({ type: "input", inputType: "deleteByCut", trusted: true }),
+      value => { value.after.state.controls[definition.target].value = ""; },
+      value => { value.after.state.controls[definition.target].selectionEnd = 0; },
+      value => { value.before.state.controls[definition.target].selectionEnd = 0; },
+      value => { value.replies[1].result.inputReceipt.clipboardTransfer.text = definition.value; },
+      value => { value.local.value = definition.value; value.local.events[0].text = definition.value; },
+      value => { value.local.value = ""; value.local.events[0].text = ""; }
+    ]) { const value = proof(definition); mutate(value); assert.throws(() => assertManagedHumanCopyCase(value)); }
+  }
 });
 
 test("copy proof rejects duplicate native shortcuts, stale or mismatched replies, stale local text and invented events", () => {

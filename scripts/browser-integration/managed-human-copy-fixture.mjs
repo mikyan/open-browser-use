@@ -4,12 +4,25 @@ import { randomUUID } from "node:crypto";
 export const humanCopyText = "Shared 中文 🧭 original";
 export const humanCutText = "Cut 中文 🧭 once";
 export const humanCustomCopyText = "Custom handler 中文 🧭";
+const humanCopyValues = Object.freeze({
+  copy: humanCopyText, empty: "", custom: "Selection must not replace handler output", cut: humanCutText,
+  "cancel-copy": "Keep selected copy 中文 🧭", "cancel-cut": "Keep selected cut 中文 🧭"
+});
 export const humanCopyCases = Object.freeze([
-  { id: "copy-original", target: "copy", operation: "copy", selected: true, status: "ready", text: humanCopyText, value: humanCopyText },
-  { id: "copy-same-again", target: "copy", operation: "copy", selected: true, status: "ready", text: humanCopyText, value: humanCopyText },
-  { id: "copy-no-selection", target: "empty", operation: "copy", selected: false, status: "unchanged", text: humanCopyText, value: "" },
-  { id: "copy-custom-handler", target: "custom", operation: "copy", selected: true, status: "ready", text: humanCustomCopyText, value: "Selection must not replace handler output" },
-  { id: "cut-original", target: "cut", operation: "cut", selected: true, status: "ready", text: humanCutText, value: "" }
+  { id: "copy-original", target: "copy", operation: "copy", selected: true, status: "ready", text: humanCopyText, value: humanCopyText,
+    defaultPrevented: false, editEvents: [], selectionEnd: humanCopyText.length },
+  { id: "copy-same-again", target: "copy", operation: "copy", selected: true, status: "ready", text: humanCopyText, value: humanCopyText,
+    defaultPrevented: false, editEvents: [], selectionEnd: humanCopyText.length },
+  { id: "copy-no-selection", target: "empty", operation: "copy", selected: false, status: "unchanged", text: humanCopyText, value: "",
+    defaultPrevented: false, editEvents: [], selectionEnd: 0 },
+  { id: "copy-custom-handler", target: "custom", operation: "copy", selected: true, status: "ready", text: humanCustomCopyText, value: humanCopyValues.custom,
+    defaultPrevented: true, editEvents: [], selectionEnd: humanCopyValues.custom.length },
+  { id: "cut-original", target: "cut", operation: "cut", selected: true, status: "ready", text: humanCutText, value: "",
+    defaultPrevented: false, editEvents: ["beforeinput:deleteByCut", "input:deleteByCut"], selectionEnd: 0 },
+  { id: "copy-cancelled", target: "cancel-copy", operation: "copy", selected: true, status: "unchanged", text: humanCutText, value: humanCopyValues["cancel-copy"],
+    defaultPrevented: true, editEvents: [], selectionEnd: humanCopyValues["cancel-copy"].length },
+  { id: "cut-cancelled", target: "cancel-cut", operation: "cut", selected: true, status: "unchanged", text: humanCutText, value: humanCopyValues["cancel-cut"],
+    defaultPrevented: true, editEvents: [], selectionEnd: humanCopyValues["cancel-cut"].length }
 ]);
 
 export function createManagedHumanCopyFixture() {
@@ -35,7 +48,7 @@ export function createManagedHumanCopyFixture() {
       return true;
     }
     const token = randomUUID(); hit.documentToken = token;
-    const values = { copy: humanCopyText, empty: "", custom: humanCopyCases[3].value, cut: humanCutText };
+    const values = humanCopyValues;
     const html = `<!doctype html><meta charset="utf-8"><title>Original human clipboard transfer</title>
 <style>body{font:18px sans-serif;margin:20px;background:#eef4ff;color:#132641}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}label{display:grid;gap:6px}textarea{box-sizing:border-box;width:100%;height:70px;padding:8px;font:18px sans-serif;resize:none}</style>
 <h1>Original copy and cut</h1><div class="grid">${Object.entries(values).map(([id, value]) => `<label>${id}<textarea id="${id}" autocomplete="off">${value}</textarea></label>`).join("")}</div><pre id="state" hidden></pre>
@@ -43,6 +56,8 @@ export function createManagedHumanCopyFixture() {
 const ids=${JSON.stringify(Object.keys(values))},state={documentToken:${JSON.stringify(token)},events:[],eventOverflow:false,heldKeys:[],heldButtons:[],controls:{}};
 const render=()=>{state.controls=Object.fromEntries(ids.map(id=>{const e=document.getElementById(id);return[id,{value:e.value,selectionStart:e.selectionStart,selectionEnd:e.selectionEnd}]}));document.getElementById('state').textContent=JSON.stringify(state)};
 document.getElementById('custom').addEventListener('copy',event=>{event.clipboardData.setData('text/plain',${JSON.stringify(humanCustomCopyText)});event.preventDefault()});
+document.getElementById('cancel-copy').addEventListener('copy',event=>event.preventDefault());
+document.getElementById('cancel-cut').addEventListener('cut',event=>event.preventDefault());
 for(const type of ['keydown','keyup','keypress','copy','cut','paste','beforeinput','input','mousedown','mouseup'])document.addEventListener(type,event=>{if(state.events.length>=256){state.eventOverflow=true;render();return}const row={sequence:state.events.length+1,at:Date.now(),type,target:event.target.id,trusted:event.isTrusted,defaultPrevented:event.defaultPrevented};if(type.startsWith('key')){Object.assign(row,{key:event.key,code:event.code,repeat:event.repeat});if(type==='keydown'&&!state.heldKeys.includes(event.code))state.heldKeys.push(event.code);if(type==='keyup')state.heldKeys=state.heldKeys.filter(code=>code!==event.code)}if(type==='beforeinput'||type==='input')Object.assign(row,{inputType:event.inputType,data:event.data});if(type==='mousedown'&&!state.heldButtons.includes(event.button))state.heldButtons.push(event.button);if(type==='mouseup')state.heldButtons=state.heldButtons.filter(button=>button!==event.button);state.events.push(row);render()},{passive:true});render();
 </script>`;
     response.writeHead(200, { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "no-store" }); response.end(html);
@@ -83,6 +98,11 @@ export function assertManagedHumanCopyCase({ definition, original, before, after
   assert.equal(after.documentId, original.documentId); assert.equal(before.documentId, original.documentId);
   assert.equal(after.state.documentToken, original.state.documentToken); assert.equal(before.state.documentToken, original.state.documentToken);
   assert.equal(after.state.eventOverflow, false);
+  assert.equal(original.state.controls[definition.target].value, humanCopyValues[definition.target]);
+  assert.deepEqual(before.state.controls[definition.target], {
+    value: humanCopyValues[definition.target], selectionStart: 0,
+    selectionEnd: definition.selected ? humanCopyValues[definition.target].length : 0
+  });
   assert.deepEqual(after.state.events.slice(0, before.state.events.length), before.state.events);
   const events = after.state.events.slice(before.state.events.length);
   assert.ok(events.every(event => event.trusted));
@@ -105,14 +125,15 @@ export function assertManagedHumanCopyCase({ definition, original, before, after
   assert.deepEqual(events.filter(event => event.type === "keydown" || event.type === "keyup").map(event => `${event.code}:${event.type}`),
     gestures.map(value => value.replace(":down", ":keydown").replace(":up", ":keyup")));
   const clipboardEvents = events.filter(event => ["copy", "cut", "paste"].includes(event.type));
-  if (definition.status === "unchanged") assert.ok(clipboardEvents.length <= 1 && clipboardEvents.every(event => event.type === "copy"));
-  else {
-    assert.equal(clipboardEvents.length, 1); assert.equal(clipboardEvents[0].type, definition.operation);
-    assert.equal(clipboardEvents[0].defaultPrevented, definition.target === "custom");
+  if (!definition.selected) assert.ok(clipboardEvents.length <= 1);
+  else assert.equal(clipboardEvents.length, 1);
+  for (const event of clipboardEvents) {
+    assert.equal(event.type, definition.operation);
+    assert.equal(event.defaultPrevented, definition.defaultPrevented);
   }
   assert.deepEqual(events.filter(event => ["beforeinput", "input"].includes(event.type)).map(event => `${event.type}:${event.inputType}`),
-    definition.operation === "cut" ? ["beforeinput:deleteByCut", "input:deleteByCut"] : []);
-  assert.equal(after.state.controls[definition.target].value, definition.value);
+    definition.editEvents);
+  assert.deepEqual(after.state.controls[definition.target], { value: definition.value, selectionStart: 0, selectionEnd: definition.selectionEnd });
   for (const [id, value] of Object.entries(before.state.controls)) if (id !== definition.target) assert.deepEqual(after.state.controls[id], value);
   assert.deepEqual(after.state.heldKeys, []); assert.deepEqual(after.state.heldButtons, []);
   assert.equal(local.active, false); assert.equal(local.overflow, false); assert.equal(local.value, definition.text);
