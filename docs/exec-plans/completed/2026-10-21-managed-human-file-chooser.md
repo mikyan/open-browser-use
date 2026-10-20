@@ -46,7 +46,9 @@
   保持原未分组窗口，独立 user 归属，不改变整个 session 的分组模式；
   重启、导航、移动及证明过期必须撤权。
 - [x] 定向回归、真实生产链路和独立原件核对通过后更新文档。
-- [ ] 提交用户 fork 并完成新 Windows 预览包发布。
+- [x] 源码提交用户 fork，发布
+  [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)；
+  干净重建、离线 CLI/MCP、制品核验和四资产回下载通过。
 
 本地文件选择自动验收直接填充查看器原input，不操作OS文件选择器；这是文件
 进入查看器后的产品通道验收。目录选择、更多平台和普通公司Edge仍需后续验证。

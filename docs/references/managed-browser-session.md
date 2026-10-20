@@ -8,7 +8,13 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新已发布完整包为 [preview-20261021-4249c40](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-4249c40)，
+最新完整包为 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)，
+新增[人工文件选择与上传](managed-human-files.md)，修复重新认领原结果页搬窗
+导致的后台点击超时。Go test/vet、3,084 项 Node 和正式四步上传流程通过；
+460 份输入与 79 份扩展绑定。发布 EXE 单独重建，离线 CLI/MCP、2,752 项
+制品核验、四资产回下载与 114 份本地副本核对通过。普通安装流程保持不变。
+
+此前 [preview-20261021-4249c40](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-4249c40)，
 修复本地剪贴板写入失败后尚未发送的复制/剪切仍可能留在队列中的问题。
 Go test/vet、3009 项 Node 检查及原浏览器流程通过；448 份输入、78 份
 扩展与发布构建绑定，发布 EXE 单独重建，离线检查和四资产回下载通过。

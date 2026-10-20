@@ -21,6 +21,12 @@ root 单文件、OOPIF 同名/空文件、取消保持、传输中 End/导航撤
 原进程与暂存清理完成。
 本轮没有操作桌面鼠标或个人浏览器；Windows 原生选择框焦点、普通公司 Edge、
 目录上传与完整 Codex Browser Use 对齐仍未验收。
+配套 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)
+已发布，源码 `748af2f6115d9c15882b086b7c3f7c4d7c36a958` 已推送用户 fork。
+完整包/扩展/Skill 为 110/79/7 文件，完整 ZIP 10,683,726 字节，SHA256：
+`bf1780d25b3c2f49f5e29b39127dfb486651a052407e6ff06734c2210487bcd9`。
+发布 EXE 单独重建，2,752 项制品核验、离线 CLI/MCP、四资产回下载及 114 份
+本地副本核对通过；发布 EXE 未重跑内部构建的原网页业务。
 
 2026-10-21，人工剪贴板队列修复已通过新冻结构建的完整Go test/vet、3009项
 Node检查及`mhc-c3YXeu`七步流程。原七场复制/剪切回归通过；另在独立查看页
