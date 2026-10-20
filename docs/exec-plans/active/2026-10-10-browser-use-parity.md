@@ -7,8 +7,18 @@
 
 ## 当前基线
 
+最新已发布完整包为 [preview-20261021-79206b3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-79206b3)，制品源码固定为 `79206b3f7e347f9a692111c20518ea49afcdfa5f`。
+包含人工离页确认和本地输入法预编辑显示，保留后台父页画面恢复与既有接管功能。
+完整包/扩展/Skill 为 111/80/7 文件；
+发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、
+5,411 项独立制品检查、四资产上传后回下载及 115 份本地副本核对通过。
+本次打包没有重跑网页流程或完整 Go/Node 检查；下述 Go test/vet、3,268 项 Node
+和浏览器流程属于原冻结构建的已测证据，不是发布 EXE 的新一轮网页验收。
+完整 ZIP 为 10,858,206 字节，SHA256：`08e600052f1b2cabf6fa692d55e8d046cc84f4ca1777d1c1e7aea48408818baa`。
+普通公司 Edge、真实 SSO/MFA、Windows 系统输入法候选窗口及完整能力对齐仍未完成。
+
 2026-10-21，源码新增[人工接管输入法预编辑显示](../../references/managed-human-ime-presentation.md)，
-尚未发布。原基线 `mhi-G1sX8c` 六次本地预编辑仍是 1×1 像素且透明，
+已随上述预览包发布。原基线 `mhi-G1sX8c` 六次本地预编辑仍是 1×1 像素且透明，
 该缺口已独立核验；正式 `mhi-Dz6Bgu` 六步实际退出 0，原 textarea 的
 中文组合文字可读，按最近有效点击定位并在可见区域内夹持。两次相同文字
 各自确认一次，重新点击取消后可继续组合，显式 End 后不追加旧字，随后
@@ -20,7 +30,7 @@ Resume、唯一业务提交与 Stop 通过。完整 Go test/vet、3,268 项 Node
 输入法候选窗口；任务页面仍只接收确认文字，未扩展为远端 composition。
 
 2026-10-21，源码中的[人工离页确认](../../references/managed-human-beforeunload.md)
-已完成固定 Chromium 的主页面与真实跨站 OOPIF 两条正式流程，尚未发布。
+已完成固定 Chromium 的主页面与真实跨站 OOPIF 两条正式流程，并随上述预览包发布。
 构建 `mso-build-k5ranhzd` 的完整 Go test/vet 与 3,256 项 Node 检查通过；
 `mbu-ujOpm6` / `mbu-uEnxlF` 实际退出 0。两场均完成 Stay 后原草稿续写、
 Leave 后新文档与真实新帧、End/Resume、新轮 SDK claim、唯一 POST、
@@ -28,8 +38,8 @@ Leave 后新文档与真实新帧、End/Resume、新轮 SDK claim、唯一 POST�
 独审 449/505 项通过；OOPIF 场景覆盖原 root start 先于 Opening。
 旧失败与完整边界见[已完成专项计划](../completed/2026-10-21-managed-human-beforeunload.md)。
 
-最新已发布版本仍为 [preview-20261021-3e61b68](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-3e61b68)，
-功能与 96595fc 相同，不含上述 beforeunload 和输入法预编辑显示增量。
+上述最新预览包已包含 beforeunload 和输入法预编辑显示增量；
+此前 3e61b68 包与 96595fc 功能相同，不含这两项。
 普通公司 Edge、真实 SSO/MFA、Windows 系统输入法候选窗口及完整 P01–P15
 仍开放；本总体计划继续保持进行中。
 

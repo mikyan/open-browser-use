@@ -1,9 +1,10 @@
 # Managed 人工接管的离页确认
 
-开发分支支持在已就绪的独立 managed 页面中回答 `beforeunload`：查看器显示
+支持在已就绪的独立 managed 页面中回答 `beforeunload`：查看器显示
 “留在页面”和“离开页面”。留在页面后可继续编辑原草稿；离开后等待原页面的
 新文档和真实画面，再继续操作。Agent 始终暂停，必须完成接管并显式恢复后
-才能接续工作。此功能尚未进入 `preview-20261021-3e61b68` 安装包。
+才能接续工作。此功能已随 [preview-20261021-79206b3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-79206b3) 发布。
+发布 EXE 独立重建；以下浏览器验收属于原冻结构建，本次打包没有重跑网页流程。
 
 ## 原文档与决定
 

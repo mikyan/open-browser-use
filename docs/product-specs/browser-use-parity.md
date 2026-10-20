@@ -12,8 +12,18 @@
 
 ## Baseline sources
 
+最新已发布完整包为 [preview-20261021-79206b3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-79206b3)，制品源码固定为 `79206b3f7e347f9a692111c20518ea49afcdfa5f`。
+包含人工离页确认和本地输入法预编辑显示，保留后台父页画面恢复与既有接管功能。
+完整包/扩展/Skill 为 111/80/7 文件；
+发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、
+5,411 项独立制品检查、四资产上传后回下载及 115 份本地副本核对通过。
+本次打包没有重跑网页流程或完整 Go/Node 检查；下述 Go test/vet、3,268 项 Node
+和浏览器流程属于原冻结构建的已测证据，不是发布 EXE 的新一轮网页验收。
+完整 ZIP 为 10,858,206 字节，SHA256：`08e600052f1b2cabf6fa692d55e8d046cc84f4ca1777d1c1e7aea48408818baa`。
+普通公司 Edge、真实 SSO/MFA、Windows 系统输入法候选窗口及完整能力对齐仍未完成。
+
 2026-10-21，当前源码新增[人工接管输入法预编辑显示](../references/managed-human-ime-presentation.md)，
-尚未进入最新发布的 `preview-20261021-3e61b68`。本地原生 textarea 显示
+已随上述预览包发布。本地原生 textarea 显示
 组合文字，并将输入位置映射到最近有效点击；只在确认后发送原 committed-text。
 原基线 `mhi-G1sX8c` 六次预编辑均为 1×1 像素、透明度 0，已独立核验。
 新正式 `mhi-Dz6Bgu` 六步实际退出 0，中文预编辑可读、两次相同确认分别
@@ -27,7 +37,7 @@
 系统输入法候选窗口；普通公司 Edge、真实 SSO/MFA 与完整 P01–P15 仍开放。
 
 2026-10-21，当前源码新增[人工离页确认](../references/managed-human-beforeunload.md)，
-尚未进入最新已发布的 `preview-20261021-3e61b68`。冻结构建
+已随上述预览包发布。冻结构建
 `mso-build-k5ranhzd` 完整 Go test/vet 与 3,256 项 Node 检查通过。
 主页面 `mbu-ujOpm6` 与真实跨站 OOPIF `mbu-uEnxlF` 两场正式流程实际退出 0：
 Stay 保持原 document 与草稿并继续编辑，Leave 后确认新 document 和真实新帧，

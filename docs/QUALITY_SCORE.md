@@ -11,7 +11,19 @@
 
 ## 当前评分
 
-2026-10-21，源码新增[人工接管输入法预编辑显示](references/managed-human-ime-presentation.md)，尚未发布。
+最新已发布完整包为 [preview-20261021-79206b3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-79206b3)，制品源码固定为 `79206b3f7e347f9a692111c20518ea49afcdfa5f`。
+包含人工离页确认和本地输入法预编辑显示，保留后台父页画面恢复与既有接管功能。
+完整包/扩展/Skill 为 111/80/7 文件；
+发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、
+5,411 项独立制品检查、四资产上传后回下载及 115 份本地副本核对通过。
+本次打包没有重跑网页流程或完整 Go/Node 检查；下述 Go test/vet、3,268 项 Node
+和浏览器流程属于原冻结构建的已测证据，不是发布 EXE 的新一轮网页验收。
+完整 ZIP 为 10,858,206 字节，SHA256：`08e600052f1b2cabf6fa692d55e8d046cc84f4ca1777d1c1e7aea48408818baa`。
+普通公司 Edge、真实 SSO/MFA、Windows 系统输入法候选窗口及完整能力对齐仍未完成。
+
+见[本次交付记录](histories/2026-10/20261021-0700-managed-preview-ime-delivery.md)。
+
+2026-10-21，[人工接管输入法预编辑显示](references/managed-human-ime-presentation.md)已随上述预览包发布。
 原本隐藏的本地组合文字现在显示在最近点击处，并随可见画面边界调整位置；
 确认后仍仅发送一次已确认文字。原基线 `mhi-G1sX8c` 的六次预编辑均为
 1×1 像素、透明度 0，已独立核验并保留。新正式流程 `mhi-Dz6Bgu` 实际退出 0，
@@ -22,9 +34,9 @@
 42 张 PNG 完整解码，28 个原进程身份退出。
 位置来自最近有效点击，不是远端文字光标；固定 Headless Chromium 的原生
 组合输入不证明 Windows 系统输入法候选窗口、普通公司 Edge 或完整 P01–P15。
-整体能力对齐仍未完成，最新发布的 3e61b68 包不含本项与下述 beforeunload 增量。
+整体能力对齐仍未完成；本项与下述 beforeunload 增量均已进入上述最新预览包。
 
-2026-10-21，源码完成独立 managed 浏览器的[人工离页确认](references/managed-human-beforeunload.md)，尚未发布。
+2026-10-21，独立 managed 浏览器的[人工离页确认](references/managed-human-beforeunload.md)已随上述预览包发布。
 查看器可选择 Stay 保留原文档和草稿并继续编辑，或 Leave 后等待新文档及真实新帧；
 随后 End/Resume、新轮 SDK 认领、唯一提交、重新交付与 Stop 均已通过。
 冻结构建 `mso-build-k5ranhzd` 的完整 Go test/vet 与 3,256 项 Node 检查通过；
@@ -32,6 +44,8 @@
 生命周期独审 91/85 项、事件与业务独审 449/505 项通过，25/27 个原进程均已退出。
 这只证明固定 Chromium 的两条流程；普通公司 Edge、真实 SSO/MFA、Windows 系统输入法
 及完整 P01–P15 仍待验证，不调整为整体能力已对齐。
+
+以下为此前发布与验证记录，保留各阶段当时的范围。
 
 用户后续要求重新打包，已发布 [preview-20261021-3e61b68](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-3e61b68)，功能与下述 96595fc 相同。
 精确干净源码重建、离线 CLI/MCP、4,924 项制品检查和四资产回下载通过；
