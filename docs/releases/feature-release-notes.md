@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-10-21 | Windows 完整包重新构建 | 提供可带到公司电脑安装或覆盖旧版的最新源码预览包。 | 按用户要求发布 [preview-20261021-719d008](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-719d008)，功能与 be3a0f9 包相同，包含配套主机、扩展、Skill 和安装脚本。精确干净提交重新构建，离线 CLI/MCP、4,781 项制品检查、四资产回下载通过；未重跑网页验收。后台父页导航后的首帧问题尚未修复，普通公司 Edge 和完整能力对齐仍待验证。 |
 | 2026-10-21 | 人工新页面切换与关页返回 | 在独立浏览器查看器里切到新开的页面，子页完成并关闭后可继续接管原父页。 | 已发布 [preview-20261021-be3a0f9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-be3a0f9)。显式“切换页面”先确认原接管释放，再选择原页面；不搬窗、不重新打开网址。固定 Chromium 的普通开页、noopener、跨站 iframe 开页和子页关闭流程已验证；最新构建完整 Go test/vet、3,175 项 Node 及两场七步流程通过。配套主机、扩展、Skill 和安装脚本；发布 EXE 单独重建，离线 CLI/MCP、4,777 项制品检查及四资产回下载通过，未重跑原网页业务。父页回调导航后重新显示仍有首帧超时问题，复杂 SSO/MFA、公司 Edge 和完整能力对齐仍待验证。 |
 | 2026-10-21 | 人工双击与三击 | 在接管画面中双击选词、三击选行，保留网页原生多击行为。 | 已发布 [preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)。原输入逐次确认，End/换页重置计数，未知结果不重放。Go test/vet、3,102 项 Node、正式七步流程与两份独审通过。配套主机、扩展、Skill 和安装脚本；发布 EXE 单独重建，离线 CLI/MCP 30 工具、4,757 项制品检查及四资产回下载通过，未重跑原网页业务。实体鼠标、公司 Edge、复杂编辑器和完整对齐仍待验证。 |
 | 2026-10-21 | 人工文件选择与结果页恢复 | 在查看器选择本地文件，交回 Agent 后可继续提交；重新认领原结果保持窗口位置。 | 已发布 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)。支持同名/空文件、取消保留和传输中 End/导航撤销。Go test/vet、3,084 项 Node、正式四步上传及独立验收通过；配套主机、扩展、Skill 和安装脚本。发布 EXE 单独重建，离线 CLI/MCP、2,752 项制品检查及四资产回下载通过。Windows 原生选择框焦点、公司 Edge 和完整对齐仍待验证。 |
