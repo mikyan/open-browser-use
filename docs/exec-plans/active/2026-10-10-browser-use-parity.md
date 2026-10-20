@@ -7,15 +7,15 @@
 
 ## 当前基线
 
-最新已发布完整包为 [preview-20261021-79206b3](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-79206b3)，制品源码固定为 `79206b3f7e347f9a692111c20518ea49afcdfa5f`。
-包含人工离页确认和本地输入法预编辑显示，保留后台父页画面恢复与既有接管功能。
-完整包/扩展/Skill 为 111/80/7 文件；
-发布 EXE 从精确干净源码独立重建，离线 CLI/MCP 30 工具、
-5,411 项独立制品检查、四资产上传后回下载及 115 份本地副本核对通过。
-本次打包没有重跑网页流程或完整 Go/Node 检查；下述 Go test/vet、3,268 项 Node
-和浏览器流程属于原冻结构建的已测证据，不是发布 EXE 的新一轮网页验收。
-完整 ZIP 为 10,858,206 字节，SHA256：`08e600052f1b2cabf6fa692d55e8d046cc84f4ca1777d1c1e7aea48408818baa`。
-普通公司 Edge、真实 SSO/MFA、Windows 系统输入法候选窗口及完整能力对齐仍未完成。
+最新已发布完整包为 [preview-20261021-805b1a8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-805b1a8)，制品源码固定为 `805b1a8267727b27b3dc11bf801fdccf959b2f05`。
+按用户要求重新打包，生产功能与 preview-20261021-79206b3 相同，包含离页确认和本地输入法预编辑显示。
+完整包/扩展/Skill 为 111/80/7 文件；发布 EXE 从精确干净源码独立重建，
+离线 CLI/MCP 30 工具、5,035 项独立制品检查、四资产回下载及 115 份本地副本核对通过。
+本次未重跑网页流程或完整 Go/Node 检查；原 Go test/vet、3,268 项 Node 与
+网页流程属于已测冻结构建的证据，不能视为发布 EXE 的新一轮网页验收。
+完整 ZIP 为 10,858,227 字节，SHA256：`e44ee965079d2c5eee71d49c252c3e78c638d163ea77e882e25375feba92c65b`。
+人工目录上传仍在开发，未纳入此包。普通公司 Edge、真实 SSO/MFA、
+Windows 系统输入法候选窗口及完整能力对齐仍未完成。
 
 2026-10-21，源码新增[人工接管输入法预编辑显示](../../references/managed-human-ime-presentation.md)，
 已随上述预览包发布。原基线 `mhi-G1sX8c` 六次本地预编辑仍是 1×1 像素且透明，
