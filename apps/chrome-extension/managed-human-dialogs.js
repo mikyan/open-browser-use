@@ -2,7 +2,7 @@ import { ManagedHumanDialogDeadline } from "./managed-human-budget.js";
 
 const encoder = new TextEncoder();
 const fail = (code, message) => new Error(`OBU_HUMAN_DIALOG_${code}: ${message}`);
-const types = ["alert", "confirm", "prompt"];
+const types = ["alert", "confirm", "prompt", "beforeunload"];
 function object(value, required, optional = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw fail("INVALID", "invalid dialog fields");
   const descriptors = Object.getOwnPropertyDescriptors(value);
@@ -46,7 +46,13 @@ export class ManagedHumanDialogs {
     if (method === "Page.javascriptDialogClosed") {
       if (this.current && typeof this.current.frameId === "string" && this.current.frameId && params?.frameId === this.current.frameId) {
         const original = this.current;
-        original.open = false; original.deadline?.account(); original.deadline?.finish(); this.onClosed(original.proof, original);
+        original.open = false; original.closedResult = params.result;
+        original.deadline?.account(); original.deadline?.finish();
+        try {
+          if (original.type === "beforeunload" && typeof params.result !== "boolean")
+            throw fail("UNCONFIRMED", "original beforeunload Closed result is unavailable");
+          this.onClosed(original.proof, original);
+        } catch (error) { this.onFailure(error); }
         this.prune(original); this.current = null; this.changed();
       }
       return;
@@ -59,7 +65,7 @@ export class ManagedHumanDialogs {
       this.onFailure(fail("UNCONFIRMED", "another dialog opened without the original close event"));
       return;
     }
-    const record = { frameId: params?.frameId, open: true, claimed: false, dispatched: false, acknowledged: false, pending: null, info: null };
+    const record = { frameId: params?.frameId, type: params?.type, open: true, claimed: false, dispatched: false, acknowledged: false, pending: null, info: null };
     this.current = record; this.records.add(record);
     if (this.records.size >= 64) {
       // Reserve the final bounded slot for the unhandled native object. Do not
@@ -69,7 +75,7 @@ export class ManagedHumanDialogs {
     }
     try {
       text(record.frameId, 128, false);
-      if (!types.includes(params.type)) throw fail("UNSUPPORTED", "only alert, confirm and prompt support human responses");
+      if (!types.includes(params.type)) throw fail("UNSUPPORTED", "this native dialog type does not support human responses");
       text(params.message);
       const defaultPrompt = params.type === "prompt" ? params.defaultPrompt === undefined ? "" : params.defaultPrompt : undefined;
       if (defaultPrompt !== undefined) text(defaultPrompt);

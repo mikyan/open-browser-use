@@ -265,3 +265,43 @@ test("readiness source carries the current original emitter before any renderer 
   assert.deepEqual(child.actualOrigins, ["https://child.test", "https://root.test"]);
   assert.ok(Object.isFrozen(child.source)); assert.equal(f.calls.length, count);
 });
+
+for (const remote of [false, true]) test(`cancelled departure restores exact original records and keeps old fences retired (remote=${remote})`, async () => {
+  const f = await fixture({ remote }), snapshot = await f.graph.snapshot(f.candidate());
+  const old = f.capture(), root = f.graph.events.frames.get(f.graph.root).get("root");
+  const ticket = f.graph.captureDeparture(snapshot, f.candidate()), count = f.calls.length;
+  f.emit(undefined, "Page.frameStartedNavigating", { frameId: "root", loaderId: "pending-loader" }); f.version();
+  assert.throws(() => f.graph.assertReadiness(old), /UNSUPPORTED/);
+  assert.throws(() => f.capture(), /UNSUPPORTED/);
+  const proof = f.graph.assertDeparture(ticket, f.candidate(), f.opening());
+  assert.deepEqual(proof.source, { origin: "https://root.test", frame: "top-level" });
+  assert.equal(f.calls.length, count, "pending original identity does not query a blocked renderer");
+  await f.graph.snapshot(f.candidate());
+  assert.throws(() => f.capture(), /UNSUPPORTED/, "ordinary seed cannot recycle the retired loader");
+  f.graph.restoreDeparture(ticket, f.candidate());
+  assert.equal(f.graph.events.frames.get(f.graph.root).get("root"), root);
+  assert.throws(() => f.graph.assertReadiness(old), /UNSUPPORTED/);
+  assert.throws(() => f.graph.capture(snapshot, f.opening()), /UNSUPPORTED/);
+  f.graph.assertReadiness(f.capture());
+  assert.throws(() => f.graph.restoreDeparture(ticket, f.candidate()), /UNSUPPORTED/, "ticket is one-use");
+});
+
+for (const boundary of ["new-document", "second-start", "commit", "replace-context", "clear-context", "detach-session", "new-session"]) {
+  test(`cancelled departure refuses ${boundary} rather than repopulating an old loader`, async () => {
+    const f = await fixture({ remote: true }), snapshot = await f.graph.snapshot(f.candidate());
+    const ticket = f.graph.captureDeparture(snapshot, f.candidate());
+    f.emit(undefined, "Page.frameStartedNavigating", { frameId: "root", loaderId: "pending-loader" });
+    if (boundary === "second-start") f.emit(undefined, "Page.frameStartedNavigating", { frameId: "root", loaderId: "another-loader" });
+    if (boundary === "commit") f.emit(undefined, "Page.frameNavigated", { frame: frame("root", undefined, "new-loader") });
+    if (boundary === "replace-context") f.emit(undefined, "Runtime.executionContextCreated", { context: context("root", "replacement") });
+    if (boundary === "clear-context") f.emit(undefined, "Runtime.executionContextsCleared", {});
+    if (boundary === "detach-session") f.emit(undefined, "Target.detachedFromTarget", { sessionId: "remote", targetId: "child" });
+    if (boundary === "new-session") {
+      f.trees.set("other", tree(frame("other", "root")));
+      f.emit(undefined, "Target.attachedToTarget", { sessionId: "other", targetInfo: { type: "iframe", targetId: "other", parentFrameId: "root" } });
+      await f.graph.drain();
+    }
+    assert.throws(() => f.graph.restoreDeparture(ticket, f.candidate(boundary === "new-document" ? "different-browser-document" : "browser-original")), /UNSUPPORTED/);
+    assert.equal(f.graph.events.frames.get(f.graph.root)?.get("root")?.row[2] === "loader-root", false);
+  });
+}

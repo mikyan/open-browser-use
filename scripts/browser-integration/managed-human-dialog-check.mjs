@@ -97,21 +97,40 @@ export function assertManagedDialogEnded(value, leaseId) {
   assert.equal(value.viewerCleanupComplete, true); assert.deepEqual(value.humanCleanup, { leaseId, cleanupConfirmed: true });
 }
 
-export async function runManagedHumanDialogCheck() {
+export function assertManagedHumanDialogScenario(scenario) {
+  if (scenario === undefined) return;
+  assert.ok(["beforeunload-diagnostic", "beforeunload-acceptance"].includes(scenario.kind));
+  assert.equal(scenario.instrumented, scenario.kind === "beforeunload-diagnostic");
+  assert.ok(Array.isArray(scenario.fixtures) && scenario.fixtures.length === 1);
+  for (const key of ["readDocument", "measureButton", "installObservation", "isTraceComplete", "run"]) assert.equal(typeof scenario[key], "function", key);
+  assert.equal(scenario.observerExpression, scenario.instrumented ? "__managedHumanNativeTrace" : "__managedBeforeunloadObservation");
+}
+
+export function managedDialogScenarioOutcome(scenario, completed, observationComplete) {
+  const featurePassed = completed === true && (!scenario || scenario.instrumented === false && observationComplete === true);
+  return { featurePassed, ...(scenario ? { passed: featurePassed, traceComplete: observationComplete === true,
+    diagnosticCompleted: scenario.instrumented === true && completed === true && observationComplete === true } : {}) };
+}
+
+export async function runManagedHumanDialogCheck({ scenario } = {}) {
+  assertManagedHumanDialogScenario(scenario);
   assert.equal(process.platform, "win32");
   const executable = process.env.OBU_TEST_HOST_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const chromium = process.env.OBU_TEST_CHROMIUM_BINARY, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   for (const file of [executable, extension, chromium, buildFile]) { assert.ok(typeof file === "string" && path.isAbsolute(file)); await fs.access(file); }
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/mhd-")), root = path.join(runDir, "r"), name = "n", viewerProfile = path.join(runDir, "v");
+  const runDir = await fs.mkdtemp(path.join(repo, scenario ? ".tmp/browser-integration/mbu-" : ".tmp/browser-integration/mhd-")), root = path.join(runDir, "r"), name = "n", viewerProfile = path.join(runDir, "v");
   const report = { runDir, startedAt: Date.now(), steps: [], commands: [], probes: [], lifecycleSnapshots: [], processObservations: [], screenshots: [], frames: [],
     documents: [], dialogs: [], viewerCommands: [], viewerMessages: [], viewerActions: [], uiObservations: [], nativeEvents: [], unexpectedRequests: [], cleanup: {}, cleanupErrors: [], featurePassed: false,
     scope: "Six real native dialogs on two original fixture documents explicitly finalized as deliverables before viewer access: five production viewer answers, then End cancels one unanswered prompt. No task-page CDP attach, direct dialog handling, input replay, OS input, existing profile or package publication.",
     limits: "This is bounded deterministic workflow acceptance, not complete Browser Use parity, a model solver comparison, ordinary company Edge acceptance, or OS foreground observation. Native dialog events are recorded without intercepting commands. CIM identities supplement original retained-handle/Job lifecycle; raw uint64 native FILETIME remains text and original bytes." };
+  if (scenario) Object.assign(report, { scenario: scenario.kind, instrumented: scenario.instrumented, passed: false, diagnosticCompleted: false, scope: scenario.scope, limits: scenario.limits });
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [];
-  const fixture = createManagedDialogFixture(), endFixture = createManagedDialogFixture({ cases: [{ id: "prompt-end", type: "prompt", answer: null }] });
-  const fixtures = [fixture, endFixture];
+  const fixture = scenario ? null : createManagedDialogFixture(), endFixture = scenario ? null : createManagedDialogFixture({ cases: [{ id: "prompt-end", type: "prompt", answer: null }] });
+  const fixtures = scenario ? scenario.fixtures : [fixture, endFixture];
+  const documentReader = scenario?.readDocument ?? readManagedDialogDocument, buttonMeasurer = scenario?.measureButton ?? measureManagedDialogButton;
+  const observerExpression = scenario?.observerExpression ?? "__managedDialogDiagnostic";
   const server = createServer((req, res) => { if (!fixtures.some(item => item.handle(req, res))) { report.unexpectedRequests.push({ method: req.method, url: req.url, at: Date.now() }); req.resume(); res.writeHead(404); res.end(); } });
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, page, state, tab, captureError, stopPromise, finalSaved = false;
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 8 * 1024 * 1024, ...options }); };
@@ -146,7 +165,7 @@ export async function runManagedHumanDialogCheck() {
     return value;
   }
   const endpoint = (profile, owner) => waitPrivateDevToolsEndpoint(profile, { assertAlive() { assert.ok(!owner.record.exitedAt && !owner.record.closedAt && !owner.record.spawnError, "Original browser owner ended"); } });
-  const readDocument = () => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id}},func:${readManagedDialogDocument.toString()}}).then(rows=>{if(rows.length!==1)throw Error('Ambiguous original page');return {documentId:rows[0].documentId,frameId:rows[0].frameId,...rows[0].result}})`, 5000);
+  const readDocument = () => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id}},func:${documentReader.toString()}}).then(rows=>{if(rows.length!==1)throw Error('Ambiguous original page');return {documentId:rows[0].documentId,frameId:rows[0].frameId,...rows[0].result}})`, 5000);
   const observedEvents = () => (worker?.events ?? []).filter(row => row.method === "Runtime.bindingCalled" && row.params?.name === "__obuManagedDialogEvent").map(row => ({ ...JSON.parse(row.params.payload), receivedAt: row.receivedAt }));
   async function screenshot(label) { const file = `viewer-${label}.png`, bytes = await page.screenshot({ path: path.join(runDir, file), timeout: 5000 }); const value = { file, at: Date.now(), bytes: bytes.length, sha256: hash(bytes) }; report.screenshots.push(value); return value; }
   async function uiObservation(label) {
@@ -180,7 +199,7 @@ export async function runManagedHumanDialogCheck() {
             assert.equal(message.mimeType, "image/png"); assert.ok(typeof message.data === "string" && message.data.length < 6 * 1024 * 1024);
             const bytes = Buffer.from(message.data, "base64"); assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]); assert.ok(bytes.length > 24 && report.frames.length < 1024);
             const frame = { ...message, data: undefined, at, index: report.frames.length, bytes: bytes.length, sha256: hash(bytes), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
-            if (frame.index < 12 || frame.index % 10 === 0) { frame.file = `native-frame-${String(frame.index).padStart(4, "0")}.png`; const write = fs.writeFile(path.join(runDir, frame.file), bytes, { flag: "wx" }); frameWrites.push(write); write.catch(error => { captureError ??= error; }); }
+            if (scenario?.instrumented === false || frame.index < 12 || frame.index % 10 === 0) { frame.file = `native-frame-${String(frame.index).padStart(4, "0")}.png`; const write = fs.writeFile(path.join(runDir, frame.file), bytes, { flag: "wx" }); frameWrites.push(write); write.catch(error => { captureError ??= error; }); }
             report.frames.push(frame); report.viewerMessages.push({ type: "frame", at, tabId: frame.tabId, streamId: frame.streamId, sequence: frame.sequence, humanLeaseId: frame.humanLeaseId, generation: frame.generation, sha256: frame.sha256 });
           } else {
             report.viewerMessages.push({ ...message, at });
@@ -196,6 +215,10 @@ export async function runManagedHumanDialogCheck() {
   async function stopOriginal() {
     if (stopPromise) return stopPromise;
     stopPromise = (async () => {
+      if (scenario && worker?.state() === "open") {
+        try { report.diagnosticBeforeStop = await worker.evaluate(`${observerExpression}.stop()`, 3000); }
+        catch (error) { report.diagnosticStopObservationError = error.stack; }
+      }
       await rememberProcesses("before-stop"); report.beforeStop = { at: Date.now(), nativeEvents: observedEvents(), fixtures: fixtures.map(item => item.stats()) }; await save();
       const result = await command(["managed", "stop", "--root", root, "--name", name]); report.stopReply = assertManagedStopReply(JSON.parse(result.stdout), info.runId);
       const ended = await bound(launcher.completed, 10000, "original supervisor actual close"); assert.equal(ended.code, 0); assert.equal(ended.termination, undefined);
@@ -209,10 +232,11 @@ export async function runManagedHumanDialogCheck() {
     })(); return stopPromise;
   }
   async function sourceFiles() {
-    const selected = await launch("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", "cmd", "internal", "apps/chrome-extension", "packages/open-browser-use-js", "packages/open-browser-use-go", "packages/open-browser-use-python", "scripts/browser-integration", "scripts/build-chrome-extension.mjs", ":(glob)scripts/patch-*.mjs", "go.mod", "go.sum", "package.json", "pnpm-lock.yaml"], { timeoutMs: 15000 }).completed;
+    const selected = await launch("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", "cmd", "internal", "apps/chrome-extension", "packages/open-browser-use-js", "packages/open-browser-use-go", "packages/open-browser-use-python", "scripts/browser-integration", "scripts/build-chrome-extension.mjs", ":(glob)scripts/patch-*.mjs", ":(glob)scripts/*.test.mjs", "go.mod", "go.sum", "package.json", "pnpm-lock.yaml"], { timeoutMs: 15000 }).completed;
     assert.equal(selected.code, 0); return [...new Set(selected.stdout.trim().split(/\r?\n/))].sort();
   }
-  const measureButton = caseId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id}},func:${measureManagedDialogButton.toString()},args:[${JSON.stringify(caseId)}]}).then(rows=>{if(rows.length!==1)throw Error('Ambiguous original measurement');return rows[0].result})`, 5000);
+  const measureButton = caseId => scenario?.measureOriginal ? scenario.measureOriginal({ worker, tabId: tab.id, caseId })
+    : worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id}},func:${buttonMeasurer.toString()},args:[${JSON.stringify(caseId)}]}).then(rows=>{if(rows.length!==1)throw Error('Ambiguous original measurement');return rows[0].result})`, 5000);
   const nativeFor = business => observedEvents().filter(row => row.source.tabId === business.tabId || row.source.targetId === business.target.id);
   async function decodedHuman() {
     return wait(async () => {
@@ -331,7 +355,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true });
       await listenFixture(server); report.fixtureURL = `http://127.0.0.1:${server.address().port}`;
     });
-    await step("formal-managed-start-and-two-delivered-original-pages", async () => {
+    await step(scenario ? "formal-managed-start-and-original-delivered-draft" : "formal-managed-start-and-two-delivered-original-pages", async () => {
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { assert.ok(!launcher.record.closedAt && !launcher.record.exitedAt); return parseManagedReadyOutput(launcher.record.stdout); }, "managed ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.info = info; inside(root, info.runDir);
@@ -357,7 +381,8 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       }
       await worker.call("Runtime.enable"); await worker.call("Runtime.addBinding", { name: "__obuManagedDialogEvent" });
       const originals = report.documents.map(item => ({ tabId: item.tabId, targetId: item.target.id }));
-      report.nativeObserver = await worker.evaluate(`(${installDialogObservation.toString()})(chrome,globalThis,${JSON.stringify(originals)})`);
+      report.nativeObserver = scenario ? await scenario.installObservation({ worker, originals })
+        : await worker.evaluate(`(${installDialogObservation.toString()})(chrome,globalThis,${JSON.stringify(originals)})`);
       const keep = report.documents.map(item => ({ tabId: item.tabId, status: "deliverable" }));
       report.finalize = { keep, before: { turnId: taskBrowser.client.turnId, controlEpoch: taskBrowser.client.controlEpoch }, startedAt: Date.now() };
       report.finalize.result = await taskBrowser.client.finalizeTabs(keep); report.finalize.endedAt = Date.now();
@@ -375,6 +400,11 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       tab = { id: report.documents[0].tabId }; await beginHuman(report.documents[0]);
       await rememberProcesses("both-private-browsers");
     });
+    if (scenario) await step(scenario.instrumented ? "original-viewer-beforeunload-diagnostic" : "original-beforeunload-stay-leave-and-agent-submit", () => scenario.run({
+      report, fixture: fixtures[0], worker, taskBrowser, page, business: report.documents[0], state: () => state,
+      readDocument, measureButton, decodedHuman, nativeEvents: observedEvents, wait, uiAction, uiObservation, screenshot, save,
+    }));
+    else {
     await step("five-original-dialog-answers-through-viewer", async () => {
       for (const item of fixture.cases) await dialogCase(item, report.documents[0], fixture, false);
       const after = await wait(async () => { const value = await readDocument(); return value.state.phase === "committed" && value; }, "first original receipt");
@@ -404,6 +434,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       }), "Only an explicitly ended input may lack native acknowledgement");
       assert.deepEqual(report.unexpectedRequests, []);
     });
+    }
     await step("formal-stop-of-original-managed-session", stopOriginal);
   } catch (error) { report.error = error.stack ?? String(error); console.error(redact(report.error)); }
   finally {
@@ -413,7 +444,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     if (launcher && !finalSaved) await cleanup("finalLifecycle", () => lifecycle("final"));
     if (worker) await cleanup("workerObserver", async () => {
       report.nativeEvents = observedEvents(); report.workerEventOverflow = report.workerConnection.eventsDropped;
-      if (worker.state() === "open") report.observerFinal = await worker.evaluate("__managedDialogDiagnostic.stop()", 3000);
+      if (worker.state() === "open") report.observerFinal = await worker.evaluate(`${observerExpression}.stop()`, 3000);
       else report.observerFinal = { originalWorkerEnded: true, state: worker.state(), noEvaluateAfterClose: true };
       await worker.close(); return { closed: true };
     });
@@ -440,7 +471,10 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       return { unchanged: true };
     });
     report.fixtures = fixtures.map(item => item.stats()); report.liveRunnerChildren = [...registry].map(child => child.pid); report.endedAt = Date.now();
-    report.featurePassed = !report.error && report.steps.length === 6 && report.steps.every(row => row.passed) && !report.cleanupErrors.length && !registry.size;
+    const completed = !report.error && report.steps.length === (scenario ? 5 : 6) && report.steps.every(row => row.passed) && !report.cleanupErrors.length && !registry.size &&
+      (scenario?.instrumented !== false || report.beforeunload?.businessCompleted === true);
+    const exactPassiveEvents = scenario?.instrumented !== false || JSON.stringify(report.nativeEvents.map(({ receivedAt: _receivedAt, ...event }) => event)) === JSON.stringify(report.diagnosticBeforeStop?.records);
+    Object.assign(report, managedDialogScenarioOutcome(scenario, completed, scenario?.isTraceComplete(report.diagnosticBeforeStop) && !report.workerEventOverflow && exactPassiveEvents));
     await save(); console.log("RESULT", JSON.stringify({ runDir, featurePassed: report.featurePassed, dialogs: report.dialogs.length }));
   }
   return report;

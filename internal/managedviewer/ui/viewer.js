@@ -239,7 +239,7 @@
     if (value === null) return true;
     return value && admittedHumanState(owner) && value.leaseId === owner.leaseId && value.generation === owner.generation &&
       Number.isSafeInteger(value.generation) && value.generation > 0 && typeof value.dialogId === "string" && value.dialogId.length > 0 && value.dialogId.length <= 128 &&
-      !/[\x00-\x1f\x7f]/.test(value.dialogId) && ["alert", "confirm", "prompt"].includes(value.type) && boundedText(value.message) &&
+      !/[\x00-\x1f\x7f]/.test(value.dialogId) && ["alert", "confirm", "prompt", "beforeunload"].includes(value.type) && boundedText(value.message) &&
       (value.defaultPrompt === undefined || value.type === "prompt" && boundedText(value.defaultPrompt)) &&
       (!Object.hasOwn(value, "source") || validDialogSource(value.source));
   }
@@ -256,7 +256,10 @@
       displayedDialog = key;
       el["dialog-prompt"].value = pendingDialog?.defaultPrompt ?? "";
     }
-    el["dialog-title"].textContent = pendingDialog?.type === "prompt" ? "网页请求输入" : pendingDialog?.type === "confirm" ? "网页请求确认" : "网页提示";
+    const beforeunload = pendingDialog?.type === "beforeunload";
+    el["dialog-title"].textContent = beforeunload ? "离开此页面？" : pendingDialog?.type === "prompt" ? "网页请求输入" : pendingDialog?.type === "confirm" ? "网页请求确认" : "网页提示";
+    el["dialog-cancel"].textContent = beforeunload ? "留在页面" : "取消";
+    el["dialog-accept"].textContent = beforeunload ? "离开页面" : "确定";
     const source = pendingDialog?.source;
     el["dialog-source"].textContent = !visible ? "" : source ? `来源：${source.frame === "child" ? "子页面" : "主页面"} · ${source.origin}` : "来源未提供";
     el["dialog-message"].textContent = pendingDialog?.message ?? "";
@@ -264,9 +267,11 @@
     el["dialog-prompt"].disabled = !dialogReady();
     el["dialog-accept"].disabled = el["dialog-cancel"].disabled = !dialogReady();
     el["dialog-cancel"].hidden = pendingDialog?.type === "alert";
-    el["dialog-status"].textContent = key && key === claimedDialog ? "正在等待网页确认…" : human?.inputBudgetVersion === 1 ?
+    const waiting = human?.inputBudgetVersion === 1 ?
       "以下内容来自网页。弹窗最多等待 5 分钟；同一操作中的多个弹窗共用这段等待时间。超时会结束接管，尚未回答的弹窗会取消。" :
       "以下内容来自网页。请及时处理；原操作超过 30 秒未确认时会结束接管。";
+    el["dialog-status"].textContent = key && key === claimedDialog ? "正在等待网页确认…" :
+      (beforeunload ? "离开后，未保存的更改可能丢失。" : "") + waiting;
   }
   function respondDialog(accept) {
     if (!dialogReady()) return;

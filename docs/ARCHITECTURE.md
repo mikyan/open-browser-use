@@ -191,6 +191,11 @@ debugger、history 和 tab groups。
   `inputBudgetVersion: 1` 固定在原human lease，只有对应输入使用335/340秒
   transport/UI兜底，旧版及其他命令不延长。支持范围与验收证据见
   [人工网页弹窗](references/managed-human-dialogs.md)。
+  人工 beforeunload 保留旧文档的独立 departure 证明，导航开始仅撤旧输入；
+  Closed 的实际结果与处理 ACK 分别确认。Stay 校验并恢复同一原事件记录，
+  建立新 generation；Leave 等原路径 native commit 后准备新文档。原网址
+  通知不替代此证明，取消不推进结果页登记；见
+  [人工离页确认](references/managed-human-beforeunload.md)。
   `managed-human-document-graph.js` 管理原附件递归取得的有界 flat iframe
   sessions；每个 session 的 `managed-human-document-contexts.js` 固定原默认
   Runtime context、loader 和实际源。完整图在同一事件 revision 下读取两轮，

@@ -36,6 +36,11 @@ function fixture(options = {}) {
   const control = new ManagedHumanControl({ chrome,
     capture: async (tabId, captureOptions) => { calls.push(["capture"]); await options.capture?.(tabId, captureOptions); return { tabId, targetId: "original-target", documentId, navigationVersion, title: `Title ${documentId}`, url: documentURL() }; },
     validate: async (candidate, { advance = false } = {}) => { if (!advance) assert.equal(candidate.documentId, documentId); await options.validate?.(candidate, { advance }); return { ...candidate, documentId, navigationVersion, title: `Title ${documentId}`, url: documentURL() }; },
+    validateSameDocument: async (candidate, { inspect, retain }) => {
+      inspect(); await retain(options.validateSameDocument?.(candidate)); inspect();
+      assert.equal(candidate.documentId, documentId); assert.equal(candidate.url, documentURL());
+      return { ...candidate, navigationVersion };
+    },
     pause: async reservation => { calls.push(["pause", reservation.leaseId]); await options.pause?.(reservation); paused = true; },
     assertPaused: () => { assert.equal(paused, true); },
     assertDialog: (candidate, origins) => options.assertDialog?.(candidate, origins),
@@ -734,6 +739,299 @@ const answer = (handle, extra = {}) => {
   const { leaseId, generation, dialogId } = handle.pendingDialog();
   return handle.respondDialog({ leaseId, generation, dialogId, accept: true, ...extra });
 };
+
+function departureFixture(options = {}) {
+  let f; const validations = [];
+  f = fixture({ ...options, validate: (candidate, flags) => { validations.push(flags.advance); return options.validate?.(candidate, flags); },
+    command: async (method, params, target) => {
+      if (method === "Runtime.enable") f.event("Runtime.executionContextCreated", { context: { id: 1, uniqueId: "departure-context",
+        origin: "https://fixture.test", auxData: { frameId: "root", isDefault: true } } });
+      return options.command?.(method, params, target, f);
+    }
+  });
+  f.openDeparture = async (pendingFirst = false) => {
+    if (pendingFirst) f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "departure-loader" });
+    opening(f, { type: "beforeunload", message: "" });
+    for (let i = 0; i < 20 && !f.control.current?.dialogs.info() && !f.control.current?.revoked; i++) await tick();
+    return f.control.current?.dialogs.info();
+  };
+  f.commitDeparture = () => {
+    f.changeDocument("departed");
+    f.event("Page.frameNavigated", { frame: { id: "root", loaderId: "loader-departed", url: "https://fixture.test/departed" } });
+    f.event("Runtime.executionContextCreated", { context: { id: 2, uniqueId: "departed-context", origin: "https://fixture.test",
+      auxData: { frameId: "root", isDefault: true } } });
+  };
+  return Object.assign(f, { validations });
+}
+async function activeDeparture(f, handle, generation) {
+  for (let i = 0; i < 30 && (handle.info().state !== "active" || handle.info().generation <= generation) && !f.control.current?.revoked; i++) await tick();
+  assert.equal(handle.info().state, "active"); assert.ok(handle.info().generation > generation);
+}
+
+for (const pendingFirst of [false, true]) test(`beforeunload Stay restores the original document through a new input generation (pendingFirst=${pendingFirst})`, async t => {
+  const f = departureFixture({ command(method, params, _target, owner) {
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+  } }), handle = await f.begin(); t.after(() => handle.close());
+  await input(handle, { type: "text", text: "original draft" });
+  const old = handle.info(), originalEpoch = f.control.current.epoch;
+  const dialog = await f.openDeparture(pendingFirst); assert.equal(dialog.type, "beforeunload");
+  assert.equal(dialog.generation, pendingFirst ? old.generation + 1 : old.generation);
+  if (pendingFirst) { assert.equal(handle.info().state, "navigating"); assert.equal(handle.info().viewport, null); assert.equal(originalEpoch.retired, true); }
+  const receipt = await answer(handle, { accept: false }); assert.equal(receipt.acknowledged, true);
+  await activeDeparture(f, handle, dialog.generation);
+  assert.equal(f.control.current.candidate.documentId, "original-document");
+  assert.equal(originalEpoch.cleaned, true); assert.equal(f.control.current.pendingNavigations.size, 0);
+  assert.equal(f.validations.some(Boolean), false, "Stay never advances result-page document lineage");
+  assert.equal((await input(handle, { type: "text", text: " continued" })).sequence, 1);
+  const second = await f.openDeparture(); assert.notEqual(second.dialogId, dialog.dialogId);
+  await answer(handle, { accept: false }); await activeDeparture(f, handle, second.generation);
+});
+
+for (const pendingFirst of [false, true]) test(`beforeunload Leave waits for actual native commit and a new frame (pendingFirst=${pendingFirst})`, async t => {
+  const f = departureFixture({ command(method, _params, _target, owner) {
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: true });
+  } }), handle = await f.begin(); t.after(() => handle.close());
+  const dialog = await f.openDeparture(pendingFirst); assert.ok(dialog);
+  await answer(handle); await tick();
+  assert.equal(handle.info().state, "navigating"); assert.equal(handle.info().viewport, null);
+  await assert.rejects(input(handle, { type: "text", text: "must not reach old document" }), /GENERATION_STALE|STALE|UNAVAILABLE|active/);
+  if (!pendingFirst) f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "departure-loader" });
+  await tick(); assert.equal(handle.info().state, "navigating", "native start is not a commit or ready frame");
+  f.commitDeparture(); await activeDeparture(f, handle, dialog.generation);
+  assert.equal(f.control.current.epoch.candidate.documentId, "departed");
+  assert.equal((await input(handle, { type: "text", text: "new document" })).sequence, 1);
+});
+
+for (const pendingFirst of [false, true]) for (const accept of [false, true])
+  test(`beforeunload original URL hint preserves the chosen native decision (pendingFirst=${pendingFirst}, accept=${accept})`, async t => {
+    const f = departureFixture({ command(method, params, _target, owner) {
+      if (method === "Page.handleJavaScriptDialog") {
+        owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+      }
+    } }), handle = await f.begin(); t.after(() => handle.close());
+    const dialog = await f.openDeparture(pendingFirst), record = f.control.current;
+    const original = record.dialogs.current.proof.candidate, validate = f.control.validate;
+    let hintReads = 0;
+    f.control.validate = (candidate, options) => {
+      if (options?.inspect) {
+        hintReads++; assert.equal(candidate, original);
+        assert.equal(options.advance ?? false, false); assert.equal(options.refreshNavigation ?? false, false);
+      }
+      return validate(candidate, options);
+    };
+    assert.equal(f.control.navigationHint(7, { url: original.url }), true);
+    const receipt = await answer(handle, { accept });
+    assert.equal(receipt.acknowledged, true); assert.equal(hintReads, 1); assert.equal(record.urlHint, null);
+    assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept }]);
+    if (accept) {
+      assert.equal(handle.info().state, "navigating");
+      if (!pendingFirst) f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "departure-loader" });
+      f.commitDeparture();
+    }
+    await activeDeparture(f, handle, dialog.generation);
+    assert.equal(record.epoch.candidate.documentId, accept ? "departed" : "original-document");
+    assert.equal((await input(handle, { type: "text", text: "after original decision" })).acknowledged, true);
+  });
+
+for (const boundary of ["End", "second-pending", "default-context", "browser-document", "policy", "timeout"])
+  test(`beforeunload hint read cannot authorize Leave after ${boundary}`, async t => {
+    const timing = manualTiming(), read = defer(), entered = defer(); let policyDenied = false, replaceDocument = false;
+    const f = departureFixture({ timing, assertDialog() { if (policyDenied) throw Error("original policy revoked"); },
+      command(method, params, _target, owner) {
+        if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+      } }), handle = await f.begin();
+    t.after(async () => { read.resolve(); await handle.close(); });
+    await f.openDeparture(true);
+    const record = f.control.current, original = record.dialogs.current.proof.candidate, validate = f.control.validate;
+    f.control.validate = async (candidate, options) => {
+      assert.equal(candidate, original); assert.equal(options.advance ?? false, false);
+      entered.resolve(); await options.retain(read.promise);
+      const verified = await validate(candidate, options);
+      return replaceDocument ? { ...verified, documentId: "same-url-replacement" } : verified;
+    };
+    f.control.navigationHint(7, { url: original.url });
+    const response = answer(handle), rejected = assert.rejects(response, /DIALOG_STALE/);
+    await Promise.race([entered.promise, response]);
+    const frames = f.frames.length, [actual] = record.hintReads;
+    assert.ok(actual); assert.equal(record.drains.has(actual), true);
+    let ended = false, closing;
+    if (boundary === "End") closing = handle.close().then(() => { ended = true; });
+    if (boundary === "second-pending") f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "another-departure" });
+    if (boundary === "default-context") f.event("Runtime.executionContextCreated", { context: { id: 3, uniqueId: "replacement-context",
+      origin: "https://fixture.test", auxData: { frameId: "root", isDefault: true } } });
+    if (boundary === "browser-document") replaceDocument = true;
+    if (boundary === "policy") policyDenied = true;
+    if (boundary === "timeout") { timing.advance(5000); closing = handle.close().then(() => { ended = true; }); }
+    await tick();
+    assert.equal(f.calls.some(([method, , params]) => method === "Page.handleJavaScriptDialog" && params.accept), false);
+    if (closing) {
+      await rejected; assert.equal(ended, false);
+      assert.equal(record.hintReads.has(actual), true); assert.equal(record.drains.has(actual), true);
+      assert.equal(f.calls.some(([method]) => method === "detach"), false);
+    }
+    read.resolve(); await rejected; await (closing ?? handle.close());
+    assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept: false }]);
+    assert.equal(f.frames.length, frames); assert.equal(f.control.current, null); assert.equal(record.hintReads.size, 0);
+    assert.equal(timing.timers.size, 0);
+  });
+
+for (const sameURL of [false, true]) test(`beforeunload hint read cannot clear a newer hint (sameURL=${sameURL})`, async t => {
+  const first = defer(), second = defer(), firstEntered = defer(), secondEntered = defer();
+  const f = departureFixture({ command(method, params, _target, owner) {
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: params.accept });
+  } }), handle = await f.begin();
+  t.after(async () => { first.resolve(); second.resolve(); await handle.close(); });
+  const dialog = await f.openDeparture(true), record = f.control.current, original = record.dialogs.current.proof.candidate;
+  const validate = f.control.validate; let reads = 0;
+  f.control.validate = async (candidate, options) => {
+    if (options?.inspect) {
+      assert.equal(candidate, original); assert.equal(options.advance ?? false, false);
+      reads++; assert.ok(reads <= 2);
+      (reads === 1 ? firstEntered : secondEntered).resolve();
+      await options.retain((reads === 1 ? first : second).promise);
+    }
+    return validate(candidate, options);
+  };
+  f.control.navigationHint(7, { url: original.url });
+  const response = answer(handle, { accept: false }); response.catch(() => {});
+  await Promise.race([firstEntered.promise, response]);
+  f.control.navigationHint(7, { url: sameURL ? original.url : original.url + "?replacement" });
+  const latest = record.urlHint;
+  first.resolve();
+  if (sameURL) {
+    await Promise.race([secondEntered.promise, response]);
+    assert.equal(record.urlHint, latest); assert.equal(reads, 2);
+    assert.equal(f.calls.some(([method]) => method === "Page.handleJavaScriptDialog"), false);
+    second.resolve(); assert.equal((await response).acknowledged, true);
+    assert.equal(record.urlHint, null); await activeDeparture(f, handle, dialog.generation);
+  } else {
+    await assert.rejects(response, /DIALOG_STALE/); await handle.close();
+    assert.equal(reads, 1); assert.equal(record.urlHint, latest);
+  }
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept: false }]);
+});
+
+test("beforeunload Closed, native decision ACK, and same-document read are separate input barriers", async t => {
+  const ack = defer(), read = defer(); let reads = 0;
+  const f = departureFixture({ validateSameDocument: () => ++reads === 2 ? read.promise : undefined,
+    command: method => method === "Page.handleJavaScriptDialog" ? ack.promise : undefined }), handle = await f.begin();
+  t.after(async () => { ack.resolve(); read.resolve(); await handle.close(); });
+  const dialog = await f.openDeparture(true), response = answer(handle, { accept: false }); await tick();
+  f.event("Page.javascriptDialogClosed", { frameId: "root", result: false }); await tick();
+  assert.equal(handle.info().state, "navigating"); assert.equal(reads, 1, "Closed does not invent native ACK");
+  ack.resolve(); assert.equal((await response).acknowledged, true); await tick();
+  assert.equal(reads, 2); assert.equal(handle.info().state, "navigating", "ACK does not complete browser identity verification");
+  await assert.rejects(input(handle, { type: "text", text: "not yet" }), /GENERATION_STALE|STALE|UNAVAILABLE|active/);
+  read.resolve(); await activeDeparture(f, handle, dialog.generation);
+});
+
+test("beforeunload ACK alone keeps the original modal and cannot enable input", async t => {
+  const f = departureFixture(), handle = await f.begin(); t.after(() => handle.close());
+  const dialog = await f.openDeparture(); await answer(handle, { accept: false });
+  assert.equal(handle.pendingDialog().dialogId, dialog.dialogId); assert.equal(f.control.current.departure.phase, "deciding");
+  await assert.rejects(input(handle, { type: "text", text: "not before Closed" }), /DIALOG_BUSY/);
+  f.event("Page.javascriptDialogClosed", { frameId: "root", result: false }); await activeDeparture(f, handle, dialog.generation);
+});
+
+for (const stage of ["decision-ACK", "identity-read"]) test(`End during departure ${stage} retains original work and late success cannot restore input`, async () => {
+  const ack = defer(), read = defer(); let reads = 0;
+  const f = departureFixture({ validateSameDocument: () => ++reads === 2 && stage === "identity-read" ? read.promise : undefined,
+    command: method => method === "Page.handleJavaScriptDialog" && stage === "decision-ACK" ? ack.promise : undefined });
+  const handle = await f.begin(); await f.openDeparture(true);
+  const response = answer(handle, { accept: false }); response.catch(() => {}); await tick();
+  f.event("Page.javascriptDialogClosed", { frameId: "root", result: false }); await tick();
+  const frames = f.frames.length; let ended = false;
+  const ending = handle.close().then(() => { ended = true; }); await tick();
+  assert.equal(ended, false); assert.equal(handle.info().state, "releasing");
+  ack.resolve(); read.resolve(); await response; await ending;
+  assert.equal(f.frames.length, frames); assert.equal(f.control.current, null);
+});
+
+test("the original input ACK survives a beforeunload Stay and new generation", async t => {
+  const up = defer(); let f;
+  f = departureFixture({ command(method, params, _target, owner) {
+    if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased") { opening(owner, { type: "beforeunload", message: "" }); return up.promise; }
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: false });
+  } });
+  const handle = await f.begin(); t.after(async () => { up.resolve(); await handle.close(); });
+  await input(handle, { type: "pointer", action: "down", button: "left", x: 1, y: 1 });
+  const old = handle.info(), sending = input(handle, { type: "pointer", action: "up", button: "left", x: 1, y: 1 });
+  await tick(); const dialog = handle.pendingDialog(); assert.ok(dialog); await answer(handle, { accept: false }); await tick();
+  assert.equal(handle.info().state, "navigating", "actual old input remains in cleanup");
+  up.resolve(); assert.deepEqual(await sending, { leaseId: old.leaseId, generation: old.generation, sequence: 2, acknowledged: true });
+  await activeDeparture(f, handle, dialog.generation);
+  assert.equal(f.calls.filter(([method, , params]) => method === "Input.dispatchMouseEvent" && params.type === "mouseReleased").length, 1);
+});
+
+test("End before a beforeunload choice keeps releasing after its native Closed and waits the original cancel ACK", async () => {
+  const ack = defer();
+  const f = departureFixture({ command: method => method === "Page.handleJavaScriptDialog" ? ack.promise : undefined });
+  const handle = await f.begin(); await f.openDeparture(true);
+  let done = false; const ending = handle.close().then(() => { done = true; }); await tick();
+  const generation = handle.info().generation;
+  f.event("Page.javascriptDialogClosed", { frameId: "root", result: false }); await tick();
+  assert.equal(done, false); assert.equal(handle.info().state, "releasing"); assert.equal(handle.info().generation, generation);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept: false }]);
+  ack.resolve(); await ending; assert.equal(f.control.current, null);
+});
+
+for (const boundary of ["second-pending", "replaced-context", "different-document", "unknown-decision-ACK"]) {
+  test(`beforeunload cannot restore original input after ${boundary}`, async () => {
+    const ack = defer(), read = defer(); let reads = 0;
+    const f = departureFixture({ validateSameDocument: () => ++reads === 2 ? read.promise : undefined,
+      command: method => method === "Page.handleJavaScriptDialog" ? ack.promise : undefined });
+    const handle = await f.begin(); await f.openDeparture(true);
+    const response = answer(handle, { accept: false }); response.catch(() => {}); await tick();
+    f.event("Page.javascriptDialogClosed", { frameId: "root", result: false });
+    if (boundary === "unknown-decision-ACK") ack.reject(new Error("original native ACK unknown"));
+    else ack.resolve();
+    await tick(); const frames = f.frames.length;
+    if (boundary === "second-pending") f.event("Page.frameStartedNavigating", { frameId: "root", loaderId: "second-pending" });
+    if (boundary === "replaced-context") f.event("Runtime.executionContextCreated", { context: { id: 3, uniqueId: "replacement-context",
+      origin: "https://fixture.test", auxData: { frameId: "root", isDefault: true } } });
+    if (boundary === "different-document") f.changeDocument();
+    read.resolve();
+    if (boundary === "unknown-decision-ACK") await assert.rejects(response, /UNCONFIRMED/); else assert.equal((await response).acknowledged, true);
+    for (let i = 0; i < 20 && f.control.current && !f.control.current.revoked; i++) await tick();
+    assert.ok(!f.control.current || f.control.current.revoked);
+    await handle.close(); assert.equal(f.frames.length, frames);
+    assert.equal(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").length, 1);
+  });
+}
+
+test("beforeunload uses native cancellation even when the acknowledged request asked to leave", async t => {
+  const f = departureFixture({ command(method, _params, _target, owner) {
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: false });
+  } }), handle = await f.begin(); t.after(() => handle.close());
+  const dialog = await f.openDeparture(true); assert.equal((await answer(handle)).acknowledged, true);
+  await activeDeparture(f, handle, dialog.generation);
+  assert.equal(f.control.current.epoch.candidate.documentId, "original-document");
+  assert.deepEqual(f.calls.filter(([method]) => method === "Page.handleJavaScriptDialog").map(call => call[2]), [{ accept: true }]);
+});
+
+test("beforeunload accepted departure ignores unrelated native or web commit as completion", async t => {
+  const f = departureFixture({ command(method, _params, _target, owner) {
+    if (method === "Page.handleJavaScriptDialog") owner.event("Page.javascriptDialogClosed", { frameId: "root", result: true });
+  } }), handle = await f.begin(); t.after(() => handle.close());
+  const dialog = await f.openDeparture(true); await answer(handle);
+  f.control.navigation(7, { frameId: 0 }, "committed", "web");
+  f.event("Page.frameStartedNavigating", { frameId: "unrelated-child", loaderId: "child-next" });
+  f.event("Page.frameNavigated", { frame: { id: "unrelated-child", parentId: "root", loaderId: "child-next", url: "https://fixture.test/child" } });
+  await tick(); assert.equal(handle.info().state, "navigating"); assert.equal(f.control.current.departure.phase, "accepted");
+  f.commitDeparture(); await activeDeparture(f, handle, dialog.generation);
+});
+
+test("departure recovery timeout revokes immediately but cannot forget the original late decision ACK", async () => {
+  const timing = manualTiming(), ack = defer();
+  const f = departureFixture({ timing, command: method => method === "Page.handleJavaScriptDialog" ? ack.promise : undefined });
+  const handle = await f.begin(); await f.openDeparture(true);
+  const response = answer(handle, { accept: false }); await tick();
+  f.event("Page.javascriptDialogClosed", { frameId: "root", result: false }); const frames = f.frames.length;
+  timing.advance(10001); await tick(); assert.equal(f.control.current.revoked, true);
+  let done = false; const ending = handle.close().then(() => { done = true; }); await tick(); assert.equal(done, false);
+  ack.resolve(); assert.equal((await response).acknowledged, true); await ending;
+  assert.equal(f.frames.length, frames); assert.equal(timing.timers.size, 0);
+});
 
 function childFixture(options = {}) {
   const tree = { frameTree: { frame: { id: "root", loaderId: "root-loader", url: "https://fixture.test/original-document" }, childFrames: [

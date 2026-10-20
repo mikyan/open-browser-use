@@ -34,6 +34,7 @@ export class ManagedHumanDocumentEvents {
     this.frames = new Map(); this.seen = new Map(); this.pending = new Map();
     this.fences = new WeakMap(); this.proofs = new WeakMap(); this.bindings = new WeakMap();
     this.rootHints = new WeakMap();
+    this.departures = new WeakMap(); this.departure = null;
     this.preparations = new WeakMap(); this.preparationVersion = 0;
     this.rootDocuments = new Map(); this.revision = 0; this.identities = 0;
     this.rootReady = false; this.blocked = false;
@@ -93,6 +94,16 @@ export class ManagedHumanDocumentEvents {
     return record;
   }
   observe(session, method, params) {
+    const departure = this.departure;
+    if (departure && !departure.consumed) {
+      if (method === "Page.frameStartedNavigating") {
+        if (departure.pending || !departure.records.some(record => record.session === session && record.row[0] === params.frameId) ||
+            !text(params.loaderId)) departure.invalid = true;
+        else departure.pending = { session, frameId: params.frameId, loaderId: params.loaderId };
+      } else if (["Page.frameNavigated", "Page.documentOpened", "Page.frameAttached", "Page.frameDetached", "Page.navigatedWithinDocument",
+        "Runtime.executionContextDestroyed", "Runtime.executionContextsCleared"].includes(method) ||
+        method === "Runtime.executionContextCreated" && params.context?.auxData?.isDefault === true) departure.invalid = true;
+    }
     if (method === "Runtime.executionContextCreated") {
       if (params.context?.auxData?.isDefault !== true) return;
       this.advance();
@@ -233,6 +244,63 @@ export class ManagedHumanDocumentEvents {
       else if (!["about:blank", "about:srcdoc"].includes(row[3]) || !path[index + 1] ||
           path[index + 1].context?.origin !== actualOrigin) throw fail();
     }
+  }
+  captureDeparture(frames, candidate) {
+    this.active();
+    if ([...this.pending.values()].some(value => value.size)) throw fail();
+    const records = [...frames.values()].map(({ session, row }) => {
+      const record = this.frames.get(session)?.get(row[0]);
+      if (!record || JSON.stringify(record.row) !== JSON.stringify(row)) throw fail();
+      this.assertPath(this.path(record)); return record;
+    });
+    const roots = records.filter(record => record.session === this.root && record.row[1] === null);
+    if (roots.length !== 1 || this.bindings.get(roots[0])?.documentId !== candidate?.documentId) throw fail();
+    this.assertBrowserIdentity(roots[0], candidate);
+    const ticket = Object.freeze({}), saved = { records: Object.freeze(records), root: roots[0],
+      documentId: candidate.documentId, url: candidate.url, pending: null, invalid: false, consumed: false };
+    this.departures.set(ticket, saved); this.departure = saved; return ticket;
+  }
+  invalidateDeparture() { if (this.departure) this.departure.invalid = true; }
+  assertDeparture(ticket, candidate, opening) {
+    this.active();
+    const saved = this.departures.get(ticket);
+    if (!saved || saved !== this.departure || saved.invalid || saved.consumed || candidate?.documentId !== saved.documentId || candidate.url !== saved.url)
+      throw fail();
+    const pending = [...this.pending].flatMap(([session, values]) => [...values].map(([frameId, value]) => ({ session, frameId, ...value })));
+    if (saved.pending ? pending.length !== 1 || pending[0].session !== saved.pending.session ||
+        pending[0].frameId !== saved.pending.frameId || pending[0].loaderId !== saved.pending.loaderId : pending.length) throw fail();
+    for (const record of saved.records) {
+      const { session, row, context } = record, current = this.frames.get(session)?.get(row[0]);
+      if (!record.usable || !this.ready(session) || !context || session.contexts.blocked || !session.contexts.alive.has(context) ||
+          session.contexts.current.get(row[0]) !== context || session.contexts.records.get(context.uniqueId) !== context ||
+          this.seen.get(session)?.get(row[0])?.get(row[2]) !== record || current && current !== record) throw fail();
+      // Only the one observed pending navigation may have removed an original
+      // event record. Contexts and loader tombstones must still be the originals.
+      if (!current && (!saved.pending || !this.path(record).some(ancestor => ancestor.session === saved.pending.session && ancestor.row[0] === saved.pending.frameId))) throw fail();
+    }
+    this.assertBrowserIdentity(saved.root, candidate);
+    if (!opening) return;
+    const matches = saved.records.filter(record => record.row[0] === opening.frameId && record.row[3] + record.row[4] === opening.url);
+    if (matches.length !== 1) throw fail();
+    const path = this.path(matches[0]), actualOrigins = Object.freeze(path.map(record => record.context.origin));
+    if (saved.pending && !path.some(record => record.session === saved.pending.session && record.row[0] === saved.pending.frameId)) throw fail();
+    return Object.freeze({ actualOrigins, source: humanDialogSource(actualOrigins),
+      navigationFrameIds: Object.freeze(path.map(record => record.row[0])) });
+  }
+  restoreDeparture(ticket, candidate) {
+    this.assertDeparture(ticket, candidate);
+    const saved = this.departures.get(ticket);
+    // Restore those exact objects, never create another record for a seen
+    // loader. Old fences stay stale through the new observation revision.
+    for (const record of saved.records) this.sessionFrames(record.session).set(record.row[0], record);
+    if (saved.pending) this.pending.get(saved.pending.session)?.delete(saved.pending.frameId);
+    this.bindCandidate(saved.root, candidate);
+    saved.consumed = true; this.departure = null;
+    this.retirePreparation(); this.advance();
+  }
+  discardDeparture(ticket) {
+    const saved = this.departures.get(ticket);
+    if (saved) { saved.consumed = true; if (this.departure === saved) this.departure = null; }
   }
   checkpoint(opening) {
     this.active();

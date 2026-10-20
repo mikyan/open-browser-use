@@ -864,6 +864,7 @@ class BrowserBackend {
     this.managedHuman = new ManagedHumanControl({ chrome,
       capture: (tabId, options) => this.captureManagedHumanPage(tabId, options),
       validate: (candidate, options) => this.validateManagedHumanPage(candidate, options),
+      validateSameDocument: (candidate, options) => this.validateSameManagedHumanDocument(candidate, options),
       clipboardTransfer: managedConfig ? (...args) => this.transferManagedHumanClipboard(...args) : null,
       assertDialog: (candidate, actualOrigins = []) => {
         // Modal responses cannot wait on page reads. Fence the already verified
@@ -4042,7 +4043,25 @@ class BrowserBackend {
     return this.readManagedPageIdentity(tabId, check);
   }
 
-  async validateManagedHumanPage(candidate, { advance = false, retain = value => value, inspect = () => {} } = {}) {
+  async validateSameManagedHumanDocument(candidate, { retain = value => value, inspect = () => {} } = {}) {
+    const owner = this.managedHuman.current, epoch = owner?.epoch;
+    const check = () => {
+      inspect();
+      if (!owner || this.managedHuman.current !== owner || owner.mode !== "human" || !owner.attached || owner.revoked ||
+          owner.epoch !== epoch || owner.tabId !== candidate.tabId || owner.candidate?.targetId !== candidate.targetId ||
+          owner.candidate?.resultRecord !== candidate.resultRecord)
+        throw new Error("OBU_HUMAN_STALE: original same-document human owner ended");
+      this.managedHuman.check(owner);
+    };
+    check();
+    // A cancelled departure may have advanced the navigation observation
+    // version without replacing the document. Refresh only that original
+    // document's permission evidence; never advance result-page lineage.
+    return this.validateManagedHumanPage(candidate, { refreshNavigation: true, retain, inspect: check });
+  }
+
+  async validateManagedHumanPage(candidate, { advance = false, refreshNavigation = false, retain = value => value, inspect = () => {} } = {}) {
+    if (advance && refreshNavigation) throw new Error("OBU_HUMAN_STALE: same-document verification cannot advance a document");
     inspect();
     const owner = candidate.resultRecord ? this.managedHuman.current : null;
     const epoch = owner?.epoch;
@@ -4060,10 +4079,11 @@ class BrowserBackend {
     if (proof && proof.documentId !== frame?.documentId)
       throw new Error("OBU_SITE_ACCESS_UNVERIFIED: document changed after human permission inspection");
     if (navigationVersion !== (this.siteNavigationVersions.get(candidate.tabId) ?? 0) ||
-        !advance && candidate.navigationVersion !== navigationVersion ||
+        !advance && !refreshNavigation && candidate.navigationVersion !== navigationVersion ||
         !this.browserLifetime.isCurrent(candidate.incarnation) || this.sitePolicyUpdate || candidate.policyGeneration !== this.siteAccess.generation ||
         candidate.policyRevision !== this.siteAccess.status().revision || typeof frame?.documentId !== "string" || !frame.documentId ||
         (!advance && frame.documentId !== candidate.documentId) ||
+        refreshNavigation && tab.url !== candidate.url ||
         tab.windowId !== candidate.windowId || tab.groupId !== candidate.groupId || tab.pinned !== candidate.pinned ||
         !targets.some(target => target.id === candidate.targetId && target.tabId === candidate.tabId && target.type === "page"))
       throw new Error("OBU_HUMAN_STALE: original document, ownership, or permission changed");

@@ -7,6 +7,21 @@
 
 ## 当前基线
 
+2026-10-21，源码中的[人工离页确认](../../references/managed-human-beforeunload.md)
+已完成固定 Chromium 的主页面与真实跨站 OOPIF 两条正式流程，尚未发布。
+构建 `mso-build-k5ranhzd` 的完整 Go test/vet 与 3,256 项 Node 检查通过；
+`mbu-ujOpm6` / `mbu-uEnxlF` 实际退出 0。两场均完成 Stay 后原草稿续写、
+Leave 后新文档与真实新帧、End/Resume、新轮 SDK claim、唯一 POST、
+重新交付与 Stop，原 25/27 个进程退出。生命周期独审 91/85 项与事件业务
+独审 449/505 项通过；OOPIF 场景覆盖原 root start 先于 Opening。
+旧失败与完整边界见[已完成专项计划](../completed/2026-10-21-managed-human-beforeunload.md)。
+
+最新已发布版本仍为 [preview-20261021-3e61b68](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-3e61b68)，
+功能与 96595fc 相同，不含上述 beforeunload 增量。普通公司 Edge、真实
+SSO/MFA、IME 预编辑及完整 P01–P15 仍开放；本总体计划继续保持进行中。
+
+以下为各阶段的历史基线，不代表当前最新发布或未完成事项。
+
 2026-10-21，后台父页新文档的只读首帧修复已完成固定场景验证：新构建
 Go test/vet、3,195 项 Node 与 470/80 份输入通过；mnp-kpUpaB 原只读
 首帧及 mnp-FCpwvq 子页关闭回归各七步 actual exit0。原 PNG/真实 DOM

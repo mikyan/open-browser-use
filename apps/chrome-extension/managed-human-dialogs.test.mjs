@@ -218,8 +218,8 @@ test("UTF-8 and Unicode bounds apply to messages, defaults and prompt decisions"
   validateHumanDialogResponse({ leaseId: "l", generation: 1, dialogId: "d", accept: true, promptText: "😀".repeat(2048) });
 });
 
-test("beforeunload is never offered or accepted, and a duplicate opening cannot borrow an original claim", async () => {
-  const f = fixture(); assert.equal(f.open({ type: "beforeunload" }), null); await tick();
+test("an unknown type is not offered, and a duplicate opening cannot borrow an original claim", async () => {
+  const f = fixture(); assert.equal(f.open({ type: "unknown" }), null); await tick();
   assert.deepEqual(f.calls, [{ accept: false }]); assert.match(f.failures[0].message, /UNSUPPORTED/);
   f.gates[0].resolve(); await f.manager.close();
   const other = fixture(), info = other.open(); other.open();
@@ -227,6 +227,26 @@ test("beforeunload is never offered or accepted, and a duplicate opening cannot 
   await assert.rejects(other.respond({}, info), /DIALOG_STALE/);
   await assert.rejects(other.manager.close(), /CLEANUP_INCOMPLETE/); assert.deepEqual(other.calls, []);
   other.destroyed = true; await other.manager.close();
+});
+
+for (const closedFirst of [false, true]) test(`beforeunload retains native Closed independently from requested accept and ACK (${closedFirst})`, async () => {
+  const f = fixture(), closed = [];
+  f.manager.onClosed = (_proof, original) => closed.push({ result: original.closedResult, acknowledged: original.acknowledged });
+  const info = f.open({ type: "beforeunload", message: "" });
+  assert.equal(info.type, "beforeunload"); await assert.rejects(f.respond({ promptText: "never" }), /INVALID/);
+  const response = f.respond({ accept: true }); await tick();
+  if (closedFirst) f.closed({ frameId: "root", result: false });
+  f.gates[0].resolve(); assert.equal((await response).acknowledged, true);
+  if (!closedFirst) f.closed({ frameId: "root", result: false });
+  assert.deepEqual(closed, [{ result: false, acknowledged: !closedFirst }]);
+  assert.deepEqual(f.calls, [{ accept: true }]); await f.manager.close();
+});
+
+for (const result of [undefined, null, "false", 0]) test(`beforeunload cannot infer a missing native close result (${result})`, async () => {
+  const f = fixture(); let closed = false; f.manager.onClosed = () => { closed = true; };
+  f.open({ type: "beforeunload", message: "" }); f.closed({ frameId: "root", result });
+  assert.equal(closed, false); assert.match(f.failures[0].message, /UNCONFIRMED/);
+  assert.equal(f.manager.hasOpen(), false); await f.manager.close();
 });
 
 test("a closed dialog cannot send a queued choice, and a new dialog during End is independently cancelled", async () => {

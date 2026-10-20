@@ -30,8 +30,8 @@ function clientGeometry(metrics) {
 // One native attachment belongs to an immutable view or human lease. Only a
 // human lease owns input intent and durable risk; both share document cleanup.
 export class ManagedHumanControl {
-  constructor({ chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, clipboardTransfer = null, viewJournal = null, onFailure = () => {}, timing }) {
-    Object.assign(this, { chrome, capture, validate, pause, assertPaused, markRisk, clearRisk, assertDialog, clipboardTransfer, viewJournal, onFailure, timing });
+  constructor({ chrome, capture, validate, validateSameDocument, pause, assertPaused, markRisk, clearRisk, assertDialog = () => {}, clipboardTransfer = null, viewJournal = null, onFailure = () => {}, timing }) {
+    Object.assign(this, { chrome, capture, validate, validateSameDocument, pause, assertPaused, markRisk, clearRisk, assertDialog, clipboardTransfer, viewJournal, onFailure, timing });
     this.current = null;
     this.recoveryTimeoutMs = 10000;
   }
@@ -142,7 +142,8 @@ export class ManagedHumanControl {
       capture: params => this.captureDialog(record, params), assertCurrent: proof => this.checkDialog(record, proof),
       attached: () => record.attached === true, destroyed: () => record.destroyed === true,
       send: (params, check, humanProof) => this.send(record, "Page.handleJavaScriptDialog", params, check, undefined,
-        humanProof ? { epoch: humanProof.epoch, candidate: humanProof.candidate, check: () => this.checkDialog(record, humanProof) } : undefined),
+        humanProof ? { epoch: humanProof.epoch, candidate: humanProof.candidate, departure: humanProof.departure,
+          check: () => this.checkDialog(record, humanProof) } : undefined),
       timing: this.timing,
       onOpened: (proof, original) => {
         record.preparationBudget?.openModal(original);
@@ -154,7 +155,10 @@ export class ManagedHumanControl {
         if (operation.dispatched) { original.inputOperation = operation; operation.budget.openModal(original); }
         else operation.modalInterrupted = true;
       },
-      onClosed: (_proof, original) => { original.inputOperation?.budget.closeModal(original); record.preparationBudget?.closeModal(original); },
+      onClosed: (proof, original) => {
+        original.inputOperation?.budget.closeModal(original); record.preparationBudget?.closeModal(original);
+        if (original.type === "beforeunload") this.departureClosed(record, proof, original);
+      },
       notify: () => { this.wakeDialogs(record); this.notify(record); }, onFailure: error => { void this.close(record, error).catch(() => {}); } });
     record.handle = Object.freeze({ info: () => this.info(record), tabInfo: () => this.tabInfo(record),
       ...(mode === "human" ? { input: envelope => this.input(record, envelope), pendingDialog: () => record.dialogs.info(),
@@ -177,6 +181,7 @@ export class ManagedHumanControl {
 
   createGeneration(record) {
     const epoch = { id: record.generation || 1, token: {}, sequence: 0, buttons: new Set(), pointerClickCounts: new Map(), keys: new Map(), listeners: new Map(), retiredSignal: deferred(), clipboardOperations: new Set() };
+    if (record.sameDocumentRecovery) { epoch.sameDocumentRecovery = record.sameDocumentRecovery; record.sameDocumentRecovery = null; }
     if (record.mode === "human") {
       epoch.tracker = new NativeInputTracker({ beforeInput: () => this.markRisk(record.leaseId, record.tabId),
         assertInput: () => this.checkInputGeometry(record, epoch) });
@@ -221,6 +226,9 @@ export class ManagedHumanControl {
       if (!this.ownsAttachmentEnvelope(record, source)) return;
       const sessionId = source.sessionId ?? undefined;
       if (sessionId !== undefined && !record.documentGraph?.owns(sessionId)) return;
+      // Pin the still-current document before the native pending event removes
+      // its event records. This ticket grants decisions only, never old input.
+      if (method === "Page.frameStartedNavigating") this.rememberDeparture(record);
       record.documentGraph?.observe(sessionId, method, params);
       record.fileChoosers?.recheck();
       if (method === "Page.fileChooserOpened") { record.fileChoosers?.observe(sessionId, params); return; }
@@ -239,7 +247,7 @@ export class ManagedHumanControl {
         // retain the existing initial-document invalidation boundary.
         if (sessionId !== undefined && !record.initialized) return;
         const frameId = params?.frame?.id ?? params?.frameId;
-        this.navigation(record.tabId, { frameId, root: sessionId === undefined && Boolean(params?.frame && !params.frame.parentId) },
+        this.navigation(record.tabId, { frameId, method, root: sessionId === undefined && Boolean(params?.frame && !params.frame.parentId) },
           method === "Page.frameStartedNavigating" ? "pending" : "committed", "native");
       } else if (sessionId === undefined && method === "Page.frameResized") this.recheckResize(record, record.epoch);
     };
@@ -331,12 +339,19 @@ export class ManagedHumanControl {
   }
 
   async verifyHint(record, human, deadline) {
-    const hint = record.urlHint, { candidate, epoch, check } = human;
+    const hint = record.urlHint, { candidate, epoch, check, departure } = human;
     check(); deadline.assertAvailable();
     if (!hint || hint.url !== candidate.url) throw fail("URL hint does not match the original proved document", "HINT_STALE");
     if (record.hintReads.size >= 8) throw fail("original hint reads are still pending", "HINT_CAPACITY");
-    const ticket = record.documentGraph.checkpointRootDocumentHint(candidate);
-    if (!ticket) throw fail("the original native document cannot verify this hint", "HINT_STALE");
+    // A pending departure removed the live root event record, but its one
+    // original dialog still owns the saved document/context ticket. Only that
+    // decision may use it; ordinary input keeps the strict live-root proof.
+    const ticket = departure ? departure.ticket : record.documentGraph.checkpointRootDocumentHint(candidate);
+    if (!ticket || departure && (record.departure !== departure || departure.phase !== "deciding" || departure.decisionEpoch !== epoch))
+      throw fail("the original native document cannot verify this hint", "HINT_STALE");
+    const assertDocument = actual => departure ? record.documentGraph.assertDeparture(ticket, actual, departure.opening) :
+      record.documentGraph.assertRootDocumentHint(ticket, actual);
+    assertDocument(candidate);
     const inspect = () => { check(); deadline.assertAvailable(); };
     const retain = pending => {
       const read = Promise.resolve(pending);
@@ -349,7 +364,7 @@ export class ManagedHumanControl {
       inspect();
       const verified = await this.validate(candidate, { retain, inspect });
       inspect();
-      record.documentGraph.assertRootDocumentHint(ticket, verified ?? candidate);
+      assertDocument(verified ?? candidate);
       if (record.urlHint === hint) record.urlHint = null;
     })();
     record.hintReads.add(actual); record.drains.add(actual);
@@ -378,6 +393,7 @@ export class ManagedHumanControl {
 
   captureDialog(record, params) {
     this.check(record);
+    if (params?.type === "beforeunload") return this.captureDepartureDialog(record, params);
     let epoch = record.epoch;
     if ((!epoch || epoch.retired) && record.initialized && !record.pendingNavigations.size) epoch = this.createGeneration(record);
     if (!epoch || epoch.retired || !["preparing", "navigating", "active"].includes(record.state))
@@ -427,11 +443,107 @@ export class ManagedHumanControl {
     this.assertDialog(proof.candidate, proof.contexts?.actualOrigins ?? []);
     if (!["preparing", "navigating", "active"].includes(record.state) || proof.generation !== record.generation)
       throw fail("original dialog document changed", "DIALOG_STALE");
-    if (proof.readiness) record.documentGraph.assertReadiness(proof.contexts);
+    if (proof.departure) {
+      if (record.departure !== proof.departure || proof.departure.phase !== "deciding" || proof.departure.invalid)
+        throw fail("original departure decision ended", "DIALOG_STALE");
+      record.documentGraph.assertDeparture(proof.departure.ticket, proof.candidate, proof.departure.opening);
+    } else if (proof.readiness) record.documentGraph.assertReadiness(proof.contexts);
     else {
       if (proof.document !== proof.epoch.document) throw fail("original dialog document changed", "DIALOG_STALE");
       if (proof.contexts) record.documentGraph.assert(proof.contexts);
     }
+  }
+
+  rememberDeparture(record) {
+    if (record.departure) return record.departure;
+    const epoch = record.epoch;
+    if (record.mode !== "human" || !record.initialized || record.state !== "active" || !epoch || epoch.retired || !epoch.dialogContexts) return null;
+    try {
+      const ticket = record.documentGraph.captureDeparture(epoch.dialogContexts, epoch.candidate);
+      return record.departure = { ticket, candidate: epoch.candidate, originalEpoch: epoch,
+        phase: "captured", pendingKeys: new Set(), invalid: false, committed: false };
+    } catch { return null; } // Ordinary navigation keeps its existing path.
+  }
+  retainDeparture(record, pending) {
+    const actual = Promise.resolve(pending); record.drains.add(actual);
+    const settled = () => record.drains.delete(actual); actual.then(settled, settled); return actual;
+  }
+  captureDepartureDialog(record, params) {
+    const owner = this.rememberDeparture(record);
+    if (!owner || owner.phase !== "captured" || owner.invalid || typeof this.validateSameDocument !== "function")
+      throw fail("the original departure document is unavailable", "DIALOG_UNSUPPORTED");
+    owner.opening = Object.freeze({ frameId: params.frameId, url: params.url });
+    const original = record.documentGraph.assertDeparture(owner.ticket, owner.candidate, owner.opening);
+    owner.navigationFrameIds = original.navigationFrameIds;
+    let epoch = record.epoch;
+    if (!epoch || epoch.retired) epoch = this.createGeneration(record);
+    owner.decisionEpoch = epoch; owner.phase = "deciding";
+    const operations = [...record.epochs].map(value => value.inputOperation).filter(value => value?.dispatched && !value.settled);
+    if (operations.length > 1) throw fail("original departure input ownership is ambiguous", "DIALOG_UNSUPPORTED");
+    const inputOperation = operations[0] ?? null;
+    const inspect = () => {
+      this.checkGeneration(record, epoch);
+      if (record.departure !== owner || owner.phase !== "deciding" || owner.invalid) throw fail("original departure ended", "DIALOG_STALE");
+      record.documentGraph.assertDeparture(owner.ticket, owner.candidate, owner.opening);
+    };
+    const pending = (async () => {
+      inspect();
+      const candidate = await this.validateSameDocument(owner.candidate, { inspect, retain: value => this.retainDeparture(record, value) });
+      inspect();
+      const verified = candidate ?? owner.candidate;
+      const contexts = record.documentGraph.assertDeparture(owner.ticket, verified, owner.opening);
+      this.assertDialog(verified, contexts.actualOrigins);
+      epoch.candidate = verified; record.generation = epoch.id;
+      return Object.freeze({ epoch, generation: epoch.id, candidate: verified, contexts, source: contexts.source, departure: owner, inputOperation });
+    })();
+    return { epoch, pending };
+  }
+  departureClosed(record, proof, original) {
+    // End may have already sent the one original cleanup cancellation. Its
+    // Closed event still settles that native object but cannot restart a lease.
+    if (record.revoked) return;
+    const owner = record.departure;
+    if (!owner || owner.phase !== "deciding" || (proof?.epoch ?? original.captureEpoch) !== owner.decisionEpoch)
+      throw fail("original departure close cannot be associated", "DIALOG_UNCONFIRMED");
+    owner.phase = "closed"; owner.result = original.closedResult;
+    // Closed is native evidence, not the requested accept value. Withdraw the
+    // old UI/input tuple synchronously, before publishing an absent dialog.
+    this.retireGeneration(record, owner.decisionEpoch);
+    if (record.generation >= Number.MAX_SAFE_INTEGER) throw fail("departure generation capacity exceeded", "UNAVAILABLE");
+    record.generation++; record.viewport = null; record.state = "navigating";
+    this.startPreparationBudget(record, true); this.notify(record); record.wake?.();
+    const actual = (async () => {
+      if (original.pending) await original.pending;
+      this.check(record);
+      if (record.departure !== owner || owner.invalid || original.dispatched && !original.acknowledged)
+        throw fail("original departure response is unconfirmed", "DIALOG_UNCONFIRMED");
+      if (owner.result) {
+        owner.phase = "accepted"; this.finishAcceptedDeparture(record, owner); return;
+      }
+      const inspect = () => {
+        this.check(record);
+        if (record.departure !== owner || owner.phase !== "closed" || owner.invalid ||
+            record.pendingNavigations.size !== owner.pendingKeys.size || [...owner.pendingKeys].some(key => !record.pendingNavigations.has(key)))
+          throw fail("original cancelled navigation changed", "DIALOG_STALE");
+        record.documentGraph.assertDeparture(owner.ticket, owner.candidate, owner.opening);
+      };
+      inspect();
+      const candidate = await this.validateSameDocument(owner.candidate, { inspect, retain: value => this.retainDeparture(record, value) });
+      inspect();
+      const verified = candidate ?? owner.candidate;
+      record.documentGraph.restoreDeparture(owner.ticket, verified);
+      for (const key of owner.pendingKeys) record.pendingNavigations.delete(key);
+      record.candidate = verified; record.sameDocumentRecovery = verified;
+      owner.phase = "cancelled"; record.departure = null;
+      record.wake?.(); void this.recover(record).catch(() => {});
+    })();
+    owner.completion = this.retainDeparture(record, actual);
+    actual.catch(error => { if (!record.revoked) void this.close(record, error).catch(() => {}); });
+  }
+  finishAcceptedDeparture(record, owner) {
+    if (record.departure !== owner || owner.phase !== "accepted" || !owner.committed) return;
+    record.documentGraph.discardDeparture(owner.ticket); record.departure = null;
+    record.wake?.(); void this.recover(record).catch(() => {});
   }
 
   startPreparationBudget(record, navigation) {
@@ -454,7 +566,7 @@ export class ManagedHumanControl {
     const check = () => this.checkGeneration(record, epoch);
     check();
     await this.waitForDialog(record, epoch);
-    const candidate = await this.validate(record.candidate, { advance: epoch.id > 1 });
+    const candidate = await this.validate(epoch.sameDocumentRecovery ?? record.candidate, { advance: !epoch.sameDocumentRecovery && epoch.id > 1 });
     check(); epoch.candidate = candidate ?? record.candidate;
     if (record.documentGraph) {
       // A committed destination can precede its first default-context event.
@@ -510,7 +622,7 @@ export class ManagedHumanControl {
     const work = (async () => {
       while (!record.revoked) {
         this.check(record);
-        while (record.pendingNavigations.size) {
+        while (record.pendingNavigations.size || ["closed", "accepted"].includes(record.departure?.phase)) {
           await new Promise(resolve => { record.wake = resolve; }); record.wake = null;
           this.check(record);
         }
@@ -572,8 +684,28 @@ export class ManagedHumanControl {
     const record = this.current;
     if (!record || record.tabId !== tabId || record.revoked) return;
     record.urlHint = null;
+    // A later real navigation cannot inherit the cancelled document's narrow
+    // no-advance recovery mode, even before the recovery waiter resumes.
+    record.sameDocumentRecovery = null;
     if (!record.initialized || phase === "error") { this.invalidateTab(tabId); return; }
     const key = `${source}:${details.frameId ?? "unknown"}`;
+    if (phase === "pending") {
+      const departure = this.rememberDeparture(record);
+      if (departure) {
+        const accepted = ["closed", "accepted"].includes(departure.phase) && departure.result === true;
+        if (!accepted && (departure.phase !== "captured" || departure.pendingKeys.has(key))) departure.invalid = true;
+        departure.pendingKeys.add(key);
+      }
+    } else if (phase === "committed" && record.departure) {
+      const departure = record.departure;
+      if (departure.phase === "captured") {
+        record.documentGraph.discardDeparture(departure.ticket); record.departure = null;
+      } else if (["closed", "accepted"].includes(departure.phase) && departure.result === true &&
+          source === "native" && ["Page.frameNavigated", "Page.documentOpened"].includes(details.method) &&
+          departure.pendingKeys.has(key) && departure.navigationFrameIds.includes(details.frameId)) departure.committed = true;
+      else if (["closed", "accepted"].includes(departure.phase) && departure.result === true) { /* Native departure commit remains required. */ }
+      else departure.invalid = true;
+    }
     if (phase === "pending") record.pendingNavigations.add(key);
     else if (phase === "committed") {
       if (details.root || details.frameId === 0) for (const item of record.pendingNavigations) if (item.startsWith(`${source}:`)) record.pendingNavigations.delete(item);
@@ -586,6 +718,7 @@ export class ManagedHumanControl {
     record.generation = Math.max(1, record.generation) + 1;
     record.viewport = null; record.state = "navigating";
     this.notify(record); record.wake?.();
+    if (record.departure) this.finishAcceptedDeparture(record, record.departure);
     this.wakeDialogs(record);
     if (record.revoked) return;
     if (record.mode === "human") this.startPreparationBudget(record, true);
@@ -627,7 +760,7 @@ export class ManagedHumanControl {
     // Recheck the original displayed child identities after every asynchronous
     // admission step. A new snapshot must never authorize this old input.
     if (epoch.inputIdentity) record.documentGraph.assertIdentity(epoch.inputIdentity);
-    if (record.dialogs?.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
+    if (record.dialogs?.hasOpen() || record.departure && record.departure.phase !== "captured") throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
     if (epoch.geometryPending) throw fail("original viewport resize check is still pending", "GEOMETRY");
   }
   checkClientGeometry(epoch, metrics) {

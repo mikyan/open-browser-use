@@ -1,5 +1,10 @@
 # Managed 人工接管的网页弹窗
 
+2026-10-21 开发分支另支持已就绪原页面的 `beforeunload` 人工 Stay/Leave，
+两种导航事件顺序及 Agent 后续业务已通过固定场景验收，见
+[人工离页确认](managed-human-beforeunload.md)。这项增量尚未进入 3e61b68 包；
+下文发布记录及旧限制按各自历史范围理解。
+
 本轮来源标签配套预览已发布：[preview-20261019-3241ff0](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-3241ff0)。包含完整主机、扩展和Skill；安装与覆盖步骤在包内README。
 
 
@@ -61,7 +66,8 @@ Chrome 读取及权限检查循环仍等待原结果；超时或并行读取失�
   当前开发版已通过下面两个固定准备期场景；generation 数值本身不授予回答权限。
   子 frame 的每一层祖先须有原生图谱关联及存活的默认执行上下文；实际源必须
   为非 opaque HTTP(S)。跨站路径逐层接受当前网站策略检查，不借父站权限放行。
-  接管前已有和 `beforeunload` 不支持；ff1d9d3及更早包的首帧/导航期仍未验收。
+  接管前已有弹窗不支持；`beforeunload` 的当前增量范围见上文链接。
+  ff1d9d3及更早包的首帧/导航期仍未验收。
   无法确认的 emitter 不取得回答权限；原 human attachment 可以取消并结束
   接管，但不会默认接受离开页面。只读 view 没有弹窗响应权限。
 - 静态 HTTP 同源子页、两层同源嵌套及单层跨站 OOPIF 的 prompt 已真实验收。

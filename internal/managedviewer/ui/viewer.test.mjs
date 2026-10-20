@@ -1247,6 +1247,77 @@ function dialogReply(h, request, extra = {}) {
     dialogReceipt: { leaseId: request.leaseId, generation: request.generation, dialogId: request.dialogId, acknowledged: true }, ...extra }));
 }
 
+test("beforeunload exposes explicit Stay and Leave decisions without prompt text or input ACK", () => {
+  for (const [button, accept] of [["dialog-cancel", false], ["dialog-accept", true]]) {
+    const h = setup(); h.readyHuman();
+    h.event("human-input", "beforeinput", { inputType: "insertText", data: "original-trigger" });
+    const input = h.socket.sent.at(-1);
+    const original = dialog({ type: "beforeunload", message: "", defaultPrompt: undefined });
+    showDialog(h, original);
+    assert.equal(h.element("dialog-title").textContent, "离开此页面？");
+    assert.equal(h.element("dialog-cancel").textContent, "留在页面");
+    assert.equal(h.element("dialog-accept").textContent, "离开页面");
+    assert.match(h.element("dialog-status").textContent, /未保存的更改可能丢失/);
+    assert.equal(h.element("dialog-prompt-label").hidden, true);
+    assert.equal(h.element("dialog-cancel").hidden, false);
+    h.element("dialog-prompt").value = "never send leftover prompt";
+    h.element(button).click(); const answer = h.socket.sent.at(-1);
+    assert.deepEqual(answer, { id: answer.id, operation: "humanDialogRespond", leaseId: "lease-a", generation: 1, dialogId: "original-dialog", accept });
+    showDialog(h, original, 20003);
+    h.element(button).click();
+    assert.equal(h.socket.sent.filter(x => x.operation === "humanDialogRespond").length, 1);
+    dialogReply(h, answer);
+    assert.equal(h.element("human-input").dataset.pending, "1");
+    assert.equal(h.element("human-input").dataset.acknowledgedSequence, "0");
+    h.ackInput(input, { eventSequence: 20005, pendingDialog: null });
+    assert.equal(h.element("human-input").dataset.acknowledgedSequence, "1");
+    assert.equal(h.socket.sent.some(x => x.operation === "humanEnd" || x.operation === "resume"), false);
+  }
+});
+
+test("beforeunload labels do not leak into later alert confirm or prompt dialogs", () => {
+  const h = setup(); h.readyHuman();
+  for (const [index, type] of ["beforeunload", "alert", "beforeunload", "confirm", "beforeunload", "prompt"].entries()) {
+    showDialog(h, dialog({ type, dialogId: `dialog-${index}`, defaultPrompt: type === "prompt" ? "new prompt" : undefined }), 20002 + index);
+    const leaving = type === "beforeunload";
+    assert.equal(h.element("dialog-cancel").textContent, leaving ? "留在页面" : "取消");
+    assert.equal(h.element("dialog-accept").textContent, leaving ? "离开页面" : "确定");
+    assert.equal(h.element("dialog-cancel").hidden, type === "alert");
+    assert.equal(h.element("dialog-prompt-label").hidden, type !== "prompt");
+    if (!leaving) assert.doesNotMatch(h.element("dialog-status").textContent, /未保存的更改/);
+  }
+  assert.equal(h.element("dialog-prompt").value, "new prompt");
+});
+
+test("beforeunload during navigation authorizes only the current decision without a new frame", () => {
+  const h = setup(1); h.readyHuman();
+  const next = generationState(h, 2, "navigating");
+  next.pendingDialog = dialog({ type: "beforeunload", generation: 2, defaultPrompt: undefined });
+  h.socket.message({ type: "state", ...next });
+  assert.equal(h.element("human-input").dataset.enabled, "false");
+  h.element("dialog-cancel").click(); const answer = h.socket.sent.at(-1);
+  assert.equal(answer.operation, "humanDialogRespond"); assert.equal(answer.generation, 2); assert.equal(answer.accept, false);
+  h.respond(answer.id, { ...next, eventSequence: next.eventSequence + 1, pendingDialog: null,
+    dialogReceipt: { leaseId: "lease-a", generation: 2, dialogId: answer.dialogId, acknowledged: true } });
+  assert.equal(h.element("human-input").dataset.enabled, "false", "decision ACK is not a recovered document frame");
+  assert.equal(h.socket.sent.some(x => x.operation === "humanInput" || x.operation === "resume"), false);
+});
+
+test("beforeunload End Stop and disconnect revoke decisions and never replay a late ACK", () => {
+  for (const action of ["human-end", "stop", "disconnect"]) {
+    const h = setup(); h.readyHuman();
+    showDialog(h, dialog({ type: "beforeunload", defaultPrompt: undefined }));
+    h.element("dialog-cancel").click(); const answer = h.socket.sent.at(-1);
+    assert.equal(answer.operation, "humanDialogRespond");
+    if (action === "disconnect") h.socket.close(); else h.element(action).click();
+    dialogReply(h, answer);
+    h.element("dialog-accept").click();
+    assert.equal(h.socket.sent.filter(x => x.operation === "humanDialogRespond").length, 1);
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+    assert.equal(h.socket.sent.some(x => x.operation === "resume"), false);
+  }
+});
+
 test("dialog source is separate plain text from page messages and absent legacy metadata", () => {
   for (const source of [undefined, { origin: "https://child.example:8443", frame: "child" }, { origin: "https://xn--bcher-kva.example", frame: "top-level" }]) {
     const h = setup(); h.readyHuman();

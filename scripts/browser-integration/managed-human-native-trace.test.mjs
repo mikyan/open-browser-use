@@ -9,12 +9,51 @@ function eventChannel() {
     emit: (...args) => { for (const listener of listeners) listener(...args); }, size: () => listeners.size };
 }
 function setup(send = () => Promise.resolve({}), options = {}) {
-  const target = {}, calls = [], api = { debugger: { onEvent: eventChannel(), onDetach: eventChannel(),
+  const published = [], target = { __obuManagedDialogEvent: value => published.push(JSON.parse(value)) }, calls = [], api = { debugger: { onEvent: eventChannel(), onDetach: eventChannel(),
     sendCommand: function (...args) { calls.push({ receiver: this, args }); return Reflect.apply(send, this, args); } } };
+  api.webNavigation = Object.fromEntries(["onBeforeNavigate", "onCommitted", "onErrorOccurred", "onHistoryStateUpdated"].map(name => [name, eventChannel()]));
   const original = api.debugger.sendCommand, initial = installManagedHumanNativeTrace(api, target, options);
-  return { api, target, calls, original, initial, controller: target.__managedHumanNativeTrace };
+  return { api, target, calls, original, initial, controller: target.__managedHumanNativeTrace, published };
 }
 const settled = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+test("beforeunload mode keeps original Promise and interleaves exact native and web-navigation observation", async () => {
+  let resolve; const originalPromise = new Promise(done => { resolve = done; });
+  const state = setup(() => originalPromise, { beforeunload: true, originals: [{ tabId: 7, targetId: "target" }], publishDialogBinding: true });
+  const source = { targetId: "target", sessionId: "original-session" }, params = { type: "mouseReleased", x: 12, y: 34 };
+  assert.equal(state.api.debugger.sendCommand(source, "Input.dispatchMouseEvent", params), originalPromise);
+  state.api.webNavigation.onBeforeNavigate.emit({ tabId: 7, frameId: 0, timeStamp: 123.5, url: "SECRET" });
+  state.api.debugger.onEvent.emit(source, "Page.frameStartedNavigating", { frameId: "root", loaderId: "loader", navigationType: "differentDocument", url: "SECRET" });
+  state.api.debugger.onEvent.emit(source, "Page.javascriptDialogOpening", { type: "beforeunload", frameId: "root", hasBrowserHandler: true, message: "SECRET", url: "SECRET" });
+  state.api.debugger.onEvent.emit(source, "Runtime.executionContextCreated", { context: { id: 8, uniqueId: "unique", name: "SECRET", origin: "SECRET", auxData: { frameId: "root", isDefault: true, secret: "SECRET" } } });
+  state.api.debugger.onEvent.emit(source, "Page.javascriptDialogClosed", { frameId: "root", result: true, userInput: "SECRET" });
+  state.api.webNavigation.onCommitted.emit({ tabId: 7, frameId: 0, documentId: "doc2", timeStamp: 124.5, url: "SECRET" });
+  state.api.webNavigation.onErrorOccurred.emit({ tabId: 7, frameId: 0, timeStamp: 125, error: "net::ERR_ABORTED", url: "SECRET" });
+  resolve({ secret: "SECRET" }); await originalPromise; await settled();
+  const final = state.controller.stop(); assert.equal(managedHumanNativeTraceComplete(final), true);
+  assert.deepEqual(final.records.map(row => row.kind), ["send", "webNavigation", "event", "event", "event", "event", "webNavigation", "webNavigation", "resolved"]);
+  assert.deepEqual(state.published, final.records); assert.equal(JSON.stringify(final).includes("SECRET"), false);
+  assert.deepEqual(final.records[4].params, { context: { id: 8, uniqueId: "unique", auxData: { frameId: "root", isDefault: true } } });
+  assert.equal(final.webListenersPresent, false); assert.ok(Object.values(state.api.webNavigation).every(channel => channel.size() === 0));
+  assert.equal(state.calls[0].receiver, state.api.debugger); assert.equal(state.calls[0].args[2], params);
+});
+
+test("beforeunload additions are opt-in, target scoped and never retain dialog text or arbitrary navigation errors", async () => {
+  const normal = setup(); await normal.api.debugger.sendCommand({ tabId: 7 }, "Page.handleJavaScriptDialog", { accept: true, promptText: "SECRET" });
+  normal.api.debugger.onEvent.emit({ tabId: 7 }, "Page.javascriptDialogOpening", { type: "beforeunload" });
+  assert.equal(normal.controller.snapshot().records.length, 0); normal.controller.stop();
+  const state = setup(undefined, { beforeunload: true, originals: [{ tabId: 7, targetId: "target" }] });
+  await state.api.debugger.sendCommand({ tabId: 8 }, "Page.handleJavaScriptDialog", { accept: false });
+  state.api.webNavigation.onBeforeNavigate.emit({ tabId: 8, frameId: 0, timeStamp: 1 });
+  state.api.debugger.onEvent.emit({ targetId: "other" }, "Page.javascriptDialogOpening", { type: "beforeunload" });
+  assert.equal(state.controller.snapshot().records.length, 0);
+  await state.api.debugger.sendCommand({ tabId: 7 }, "Page.handleJavaScriptDialog", { accept: false, promptText: "SECRET" });
+  state.api.webNavigation.onErrorOccurred.emit({ tabId: 7, frameId: 0, timeStamp: 2, error: "PRIVATE arbitrary message" }); await settled();
+  const final = state.controller.stop(); assert.equal(managedHumanNativeTraceComplete(final), true);
+  assert.deepEqual(final.records[0].params, { accept: false }); assert.equal(final.records.at(-1).params.error, "unclassified");
+  assert.equal(JSON.stringify(final).includes("SECRET"), false); assert.equal(JSON.stringify(final).includes("PRIVATE"), false);
+  for (const options of [{ beforeunload: "1" }, { beforeunload: true }, { beforeunload: true, originals: [] }, { publishDialogBinding: true }]) assert.throws(() => setup(undefined, options));
+});
 
 test("native trace is explicit and restricted to new-page parent navigation", () => {
   for (const value of [undefined, "0"]) assert.equal(managedHumanNativeTraceEnabled("handoff", "standard", value), false);

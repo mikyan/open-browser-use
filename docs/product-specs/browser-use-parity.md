@@ -12,6 +12,20 @@
 
 ## Baseline sources
 
+2026-10-21，当前源码新增[人工离页确认](../references/managed-human-beforeunload.md)，
+尚未进入最新已发布的 `preview-20261021-3e61b68`。冻结构建
+`mso-build-k5ranhzd` 完整 Go test/vet 与 3,256 项 Node 检查通过。
+主页面 `mbu-ujOpm6` 与真实跨站 OOPIF `mbu-uEnxlF` 两场正式流程实际退出 0：
+Stay 保持原 document 与草稿并继续编辑，Leave 后确认新 document 和真实新帧，
+再完成 End/Resume、新轮 SDK claim、唯一 219 字节 POST、189 字节原响应、
+重新交付和 Stop。OOPIF 场景覆盖 root navigation start 先于 Opening 的顺序。
+生命周期独审 91/85 项、事件与业务独审 449/505 项通过，原 25/27 个进程退出。
+证据和旧失败保留于[专项计划](../exec-plans/completed/2026-10-21-managed-human-beforeunload.md)。
+固定浏览器内的这两条流程不证明普通公司 Edge、真实 SSO/MFA、IME 预编辑
+或完整 P01–P15 已完成；整体目标仍进行中。
+
+以下为前序增量与交付基线，保留各阶段当时的验证边界。
+
 2026-10-21，本轮完成独立 managed 浏览器中父页回调导航后的只读首帧修复。
 冻结构建 `mso-build-us4hu4yb` 的完整 Go test/vet、3,195 项 Node 检查通过。
 强只读 `mnp-kpUpaB` 和 child-close 回归 `mnp-FCpwvq` 各七步、实际退出 0，

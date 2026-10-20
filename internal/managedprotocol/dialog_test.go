@@ -80,3 +80,35 @@ func TestHumanDialogStateAndIndependentReceipt(t *testing.T) {
 		t.Fatal("new dialog supplied old receipt")
 	}
 }
+
+func TestHumanBeforeUnloadKeepsTypedDecisionAndGenerationBoundary(t *testing.T) {
+	raw := json.RawMessage(`{"leaseId":"lease","generation":2,"dialogId":"leave-original","type":"beforeunload","message":""}`)
+	for _, state := range []string{"active", "preparing", "navigating"} {
+		human := &HumanState{State: state, LeaseID: "lease", Generation: 2}
+		pending, err := ParsePendingDialog(raw, human)
+		if err != nil || pending.DefaultPrompt != nil || pending.Message != "" {
+			t.Fatalf("original empty beforeunload rejected in %s: %v", state, err)
+		}
+		for _, accept := range []bool{false, true} {
+			request, _ := Object(mustJSON(map[string]any{"operation": "humanDialogRespond", "leaseId": "lease", "generation": 2, "dialogId": "leave-original", "accept": accept}))
+			if !MatchDialogResponse(request, pending) {
+				t.Fatalf("explicit decision %v rejected", accept)
+			}
+			request["promptText"] = json.RawMessage(`""`)
+			if MatchDialogResponse(request, pending) {
+				t.Fatal("beforeunload accepted prompt text")
+			}
+		}
+	}
+	for _, owner := range []*HumanState{nil, {State: "starting", LeaseID: "lease", Generation: 2}, {State: "active", LeaseID: "lease", Generation: 3}, {State: "active", LeaseID: "foreign", Generation: 2}} {
+		if _, err := ParsePendingDialog(raw, owner); err == nil {
+			t.Fatal("beforeunload escaped its admitted generation")
+		}
+	}
+	for _, extra := range []string{`,"defaultPrompt":""`, `,"nativeTarget":"private"`} {
+		invalid := append(append([]byte(nil), raw[:len(raw)-1]...), []byte(extra+`}`)...)
+		if _, err := ParsePendingDialog(invalid, &HumanState{State: "active", LeaseID: "lease", Generation: 2}); err == nil {
+			t.Fatal("beforeunload accepted unrelated fields")
+		}
+	}
+}

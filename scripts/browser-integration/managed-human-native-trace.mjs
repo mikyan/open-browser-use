@@ -21,11 +21,22 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
   if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 1 || maximumRecords > 4096 ||
       !Number.isSafeInteger(maximumCharacters) || maximumCharacters < 1024 || maximumCharacters > 4 * 1024 * 1024) throw new Error("Invalid native trace capacity");
   const owner = api.debugger, original = owner.sendCommand, nativeThen = Promise.prototype.then;
+  const beforeunload = options.beforeunload === true, originals = options.originals;
+  if (options.beforeunload !== undefined && typeof options.beforeunload !== "boolean") throw new Error("Invalid beforeunload trace mode");
+  if (beforeunload && (!Array.isArray(originals) || originals.length !== 1 || !Number.isSafeInteger(originals[0]?.tabId) || originals[0].tabId < 0 || typeof originals[0]?.targetId !== "string" || !originals[0].targetId)) throw new Error("One original beforeunload target required");
+  if (options.publishDialogBinding === true && (!beforeunload || typeof target.__obuManagedDialogEvent !== "function")) throw new Error("Original diagnostic binding required");
   if (typeof original !== "function" || !owner.onEvent?.addListener || !owner.onDetach?.addListener) throw new Error("Native trace API unavailable");
   const methods = new Set(["Page.enable", "Page.startScreencast", "Page.stopScreencast", "Page.screencastFrameAck", "Page.getFrameTree", "Page.captureScreenshot", "Performance.enable", "Performance.getMetrics",
     "Input.dispatchMouseEvent", "Input.dispatchKeyEvent", "Input.insertText"]);
   const eventMethods = new Set(["Page.screencastFrame", "Page.screencastVisibilityChanged", "Page.frameNavigated", "Page.frameStartedLoading", "Page.frameStoppedLoading", "Page.lifecycleEvent",
     "Page.domContentEventFired", "Page.loadEventFired", "Runtime.executionContextsCleared", "Runtime.executionContextDestroyed", "Target.attachedToTarget", "Target.detachedFromTarget"]);
+  const webMethods = beforeunload ? ["onBeforeNavigate", "onCommitted", "onErrorOccurred", "onHistoryStateUpdated"] : [];
+  if (beforeunload) {
+    methods.add("Page.handleJavaScriptDialog");
+    for (const method of ["Page.javascriptDialogOpening", "Page.javascriptDialogClosed", "Page.frameStartedNavigating", "Runtime.executionContextCreated"]) eventMethods.add(method);
+    if (webMethods.some(name => !api.webNavigation?.[name]?.addListener || !api.webNavigation[name].removeListener || !api.webNavigation[name].hasListener)) throw new Error("Beforeunload navigation observation unavailable");
+  }
+  const matches = value => !beforeunload || originals.some(original => value?.tabId === original.tabId || value?.targetId === original.targetId);
   const metricNames = new Set(["Timestamp", "NavigationStart", "DomContentLoaded", "FirstMeaningfulPaint", "LayoutCount", "RecalcStyleCount", "TaskDuration", "ScriptDuration", "JSHeapUsedSize", "JSHeapTotalSize", "Documents", "Frames", "Nodes"]);
   const records = [], pending = new Map();
   let active = true, restored = false, sequence = 0, calls = 0, retainedCharacters = 0, overflow = false, dropped = 0, projectionErrors = 0, unknownSettlements = 0;
@@ -54,10 +65,12 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
       const row = { sequence: ++sequence, at: Date.now(), ...value }, length = JSON.stringify(row).length;
       if (records.length >= maximumRecords || retainedCharacters + length > maximumCharacters || length > 32768) { overflow = true; dropped++; return; }
       retainedCharacters += length; records.push(row);
+      if (options.publishDialogBinding === true) target.__obuManagedDialogEvent(JSON.stringify(row));
     } catch { projectionErrors++; }
   }
   function safe(run) { try { return run(); } catch { projectionErrors++; return undefined; } }
   function parameters(method, params) {
+    if (method === "Page.handleJavaScriptDialog") return typeof data(params, "accept") === "boolean" ? { accept: data(params, "accept") } : {};
     if (method.startsWith("Input.")) {
       const type = data(params, "type");
       return ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel", "keyDown", "rawKeyDown", "keyUp", "char"].includes(type) ? { inputType: type } : {};
@@ -96,7 +109,7 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
   }
   function traced(...args) {
     const [debuggee, method, params] = args;
-    if (!active || !methods.has(method)) return Reflect.apply(original, this, args);
+    if (!active || !methods.has(method) || !matches(debuggee)) return Reflect.apply(original, this, args);
     const callId = ++calls; let identity;
     safe(() => { identity = { callId, method, source: source(debuggee) }; append({ kind: "send", ...identity, params: parameters(method, params) });
       if (pending.size < maximumRecords) pending.set(callId, identity); else { overflow = true; dropped++; } });
@@ -109,10 +122,21 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
     return promise;
   }
   function event(debuggee, method, params) {
-    if (!active || !eventMethods.has(method)) return;
+    if (!active || !eventMethods.has(method) || !matches(debuggee)) return;
     safe(() => {
       let detail = {};
-      if (method === "Page.screencastFrame") detail = { ...numberFields(params, ["sessionId"]), metadata: numberFields(data(params, "metadata"), ["timestamp", "monotonicTimestamp", "offsetTop", "pageScaleFactor", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY"]) };
+      if (method === "Page.javascriptDialogOpening") detail = { ...idFields(params, ["frameId"]),
+        ...(["alert", "confirm", "prompt", "beforeunload"].includes(data(params, "type")) ? { type: data(params, "type") } : {}),
+        ...(typeof data(params, "hasBrowserHandler") === "boolean" ? { hasBrowserHandler: data(params, "hasBrowserHandler") } : {}) };
+      else if (method === "Page.javascriptDialogClosed") detail = { ...idFields(params, ["frameId"]), ...(typeof data(params, "result") === "boolean" ? { result: data(params, "result") } : {}) };
+      else if (method === "Page.frameStartedNavigating") detail = { ...idFields(params, ["frameId", "loaderId"]),
+        ...(["reload", "reloadBypassingCache", "restore", "restoreWithPost", "historySameDocument", "historyDifferentDocument", "sameDocument", "differentDocument"].includes(data(params, "navigationType")) ? { navigationType: data(params, "navigationType") } : {}) };
+      else if (method === "Runtime.executionContextCreated") {
+        const context = data(params, "context"), auxiliary = data(context, "auxData");
+        detail = { context: { ...numberFields(context, ["id"]), ...idFields(context, ["uniqueId"]), auxData: {
+          ...idFields(auxiliary, ["frameId"]), ...(typeof data(auxiliary, "isDefault") === "boolean" ? { isDefault: data(auxiliary, "isDefault") } : {}) } } };
+      }
+      else if (method === "Page.screencastFrame") detail = { ...numberFields(params, ["sessionId"]), metadata: numberFields(data(params, "metadata"), ["timestamp", "monotonicTimestamp", "offsetTop", "pageScaleFactor", "deviceWidth", "deviceHeight", "scrollOffsetX", "scrollOffsetY"]) };
       else if (method === "Page.screencastVisibilityChanged") detail = typeof data(params, "visible") === "boolean" ? { visible: data(params, "visible") } : {};
       else if (method === "Page.frameNavigated") detail = { frame: frame(data(params, "frame")) };
       else if (method === "Target.attachedToTarget") detail = { ...idFields(params, ["sessionId"]), target: { ...idFields(data(params, "targetInfo"), ["targetId"]),
@@ -123,10 +147,20 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
       append({ kind: "event", method, source: source(debuggee), params: detail });
     });
   }
-  function detach(debuggee, reason) { if (active) safe(() => append({ kind: "detach", source: source(debuggee), reason: ["target_closed", "canceled_by_user"].includes(reason) ? reason : "unclassified" })); }
+  function detach(debuggee, reason) { if (active && matches(debuggee)) safe(() => append({ kind: "detach", source: source(debuggee), reason: ["target_closed", "canceled_by_user"].includes(reason) ? reason : "unclassified" })); }
+  const webListeners = webMethods.map(method => [method, detail => {
+    if (!active || !matches(detail)) return;
+    safe(() => {
+      const error = data(detail, "error");
+      append({ kind: "webNavigation", method, source: { tabId: data(detail, "tabId") }, params: {
+        ...numberFields(detail, ["frameId", "parentFrameId", "timeStamp"]), ...idFields(detail, ["documentId", "parentDocumentId"]),
+        ...(method === "onErrorOccurred" ? { error: typeof error === "string" && /^net::ERR_[A-Z_]{1,80}$/.test(error) ? error : "unclassified" } : {}) } });
+    });
+  }]);
   const snapshot = () => structuredClone({ diagnosticOnly: true, version: 1, active, restored, methods: [...methods], eventMethods: [...eventMethods],
     maximumRecords, maximumCharacters, retainedCharacters, sequence, calls, overflow, dropped, projectionErrors, unknownSettlements,
-    pending: [...pending.values()], restorationErrors, listenerPresent: owner.onEvent.hasListener(event) || owner.onDetach.hasListener(detach), records,
+    pending: [...pending.values()], restorationErrors, listenerPresent: owner.onEvent.hasListener(event) || owner.onDetach.hasListener(detach),
+    ...(beforeunload ? { beforeunload: true, originals: structuredClone(originals), webMethods, webListenersPresent: webListeners.some(([name, listener]) => api.webNavigation[name].hasListener(listener)) } : {}), records,
     boundary: "Instrumented diagnostic only. Original receiver, arguments, return Promise and errors are preserved. Side-chain observation may change scheduling. Whitelisted identities/numeric metadata only; no image payload, URL, input text or arbitrary error text. Pending calls remain unknown; collection does not wait, dispatch, retry or repair." });
   const stop = () => {
     if (active) {
@@ -134,6 +168,7 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
       if (owner.sendCommand === traced) { owner.sendCommand = original; if (owner.sendCommand !== original) restorationErrors.push("RESTORE_NOT_RETAINED"); }
       else restorationErrors.push("WRAPPER_REPLACED");
       for (const [channel, listener] of [[owner.onEvent, event], [owner.onDetach, detach]]) try { channel.removeListener(listener); } catch { restorationErrors.push("LISTENER_REMOVE_FAILED"); }
+      for (const [name, listener] of webListeners) try { api.webNavigation[name].removeListener(listener); } catch { restorationErrors.push("WEB_LISTENER_REMOVE_FAILED"); }
       restored = restorationErrors.length === 0;
     }
     return snapshot();
@@ -141,6 +176,7 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
   try {
     owner.sendCommand = traced; if (owner.sendCommand !== traced) throw new Error("Native trace wrapper assignment failed");
     owner.onEvent.addListener(event); owner.onDetach.addListener(detach);
+    for (const [name, listener] of webListeners) api.webNavigation[name].addListener(listener);
     Object.defineProperty(target, key, { value: Object.freeze({ snapshot, stop }), configurable: false });
   } catch (error) { stop(); throw error; }
   return snapshot();
@@ -149,7 +185,7 @@ export function installManagedHumanNativeTrace(api, target, options = {}) {
 export function managedHumanNativeTraceComplete(value) {
   if (!value || value.diagnosticOnly !== true || value.version !== 1 || value.active !== false || value.restored !== true || value.listenerPresent !== false ||
       value.overflow !== false || value.dropped !== 0 || value.projectionErrors !== 0 || value.unknownSettlements !== 0 || value.pending?.length !== 0 || value.restorationErrors?.length !== 0 ||
-      !Array.isArray(value.records) || value.records.length !== value.sequence) return false;
+      !Array.isArray(value.records) || value.records.length !== value.sequence || value.beforeunload === true && value.webListenersPresent !== false) return false;
   const open = new Map(); let calls = 0, characters = 0;
   for (let index = 0; index < value.records.length; index++) {
     const row = value.records[index]; characters += JSON.stringify(row).length;
@@ -160,6 +196,7 @@ export function managedHumanNativeTraceComplete(value) {
       if (!original || original.method !== row.method || JSON.stringify(original.source) !== JSON.stringify(row.source) || row.result?.truncated === true) return false;
       open.delete(row.callId);
     } else if (row.kind === "event") { if (!value.eventMethods.includes(row.method)) return false; }
+    else if (row.kind === "webNavigation") { if (value.beforeunload !== true || !value.webMethods.includes(row.method)) return false; }
     else if (row.kind !== "detach") return false;
   }
   return calls > 0 && calls === value.calls && open.size === 0 && characters === value.retainedCharacters && characters <= value.maximumCharacters && value.records.length <= value.maximumRecords;

@@ -99,7 +99,7 @@ func ParsePendingDialog(data json.RawMessage, human *HumanState) (*PendingDialog
 	}
 	f, err := Object(data)
 	if err != nil || !exact(f, []string{"leaseId", "generation", "dialogId", "type", "message"}, []string{"defaultPrompt", "source"}) || !dialogIdentity(f) ||
-		!choice(f["type"], "alert", "confirm", "prompt") || !dialogText(f["message"], MaxDialogTextBytes, true, true) ||
+		!choice(f["type"], "alert", "confirm", "prompt", "beforeunload") || !dialogText(f["message"], MaxDialogTextBytes, true, true) ||
 		f["defaultPrompt"] != nil && (!choice(f["type"], "prompt") || !dialogText(f["defaultPrompt"], MaxDialogTextBytes, true, true)) {
 		return nil, errors.New("invalid pending human dialog")
 	}

@@ -1,5 +1,38 @@
 # Browser integration acceptance
 
+## Managed human beforeunload
+
+Run `node scripts/browser-integration/managed-human-beforeunload-check.mjs`
+with absolute `OBU_TEST_HOST_BINARY`, `OBU_TEST_EXTENSION_DIR`,
+`OBU_TEST_BUILD_MANIFEST` and `OBU_TEST_CHROMIUM_BINARY` paths. The host,
+extension and all recorded build inputs must match the frozen manifest.
+The default fixture uses one ordinary link on an unsaved draft page. The
+production viewer supplies the only click and any Stay response; no task-page
+CDP input, direct dialog answer, navigation retry or personal profile is used.
+
+This is an instrumented diagnostic, always `featurePassed:false` and exit 1.
+Read the original error, steps and `beforeunload` evidence to determine what
+actually occurred; exit 1 alone is not a product failure. The bounded native
+trace preserves send arguments, receiver and Promise identity, recording
+dialog/navigation/context identities and original settlements without input
+text, dialog text or URLs. Its shared sequence is observer order, not browser
+causality. `traceComplete` proves collection/restoration only. The original
+result, actual Stop and process/resource cleanup remain separate evidence.
+Preserve failures. Add `--child-navigates-parent` for a real cross-site child
+anchor with `target=_top`; root and child document/context identities and
+distinct renderer processes are required. Both diagnostic variants keep the
+same always-false feature result.
+
+Add `--acceptance` for the formal workflow, optionally together with
+`--child-navigates-parent`. This mode uses passive native/web event listeners,
+without wrapping native sends. It edits the original draft, chooses Stay,
+continues editing the same document, then chooses Leave and verifies the new
+document's original decoded frame. End, explicit Resume, a new SDK turn/claim,
+one original business POST/receipt, re-finalization and genuine Stop complete
+the workflow. New generations cannot reuse old input authority. Source binding,
+actual receipts and cleanup are required even when the page looks correct;
+this finite scenario does not establish general browser parity or OS focus.
+
 ## Managed page selection and native first-frame diagnosis
 
 Run `managed-human-check.mjs` with `OBU_TEST_HUMAN_SCENARIO=new-page`,

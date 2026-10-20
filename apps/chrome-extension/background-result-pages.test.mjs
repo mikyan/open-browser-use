@@ -160,6 +160,27 @@ test("result human operation advances the exact document and can be viewed again
   assert.equal(f.backend.automationControl.state, "paused");
 });
 
+test("cancelled departure keeps the delivered document and rejects a same-URL replacement", async t => {
+  const f = await delivered(t), handle = await human(f);
+  const original = f.backend.managedHuman.current.epoch.candidate;
+  const lineage = { document: f.record.currentDocument, original: f.record.originalDocument,
+    revision: f.record.revision, deliveryId: f.record.deliveryId, recordId: f.record.recordId };
+  f.backend.siteNavigationVersions.set(7, original.navigationVersion + 1);
+  const verified = await f.backend.validateSameManagedHumanDocument(original);
+  assert.equal(verified.documentId, original.documentId);
+  assert.equal(verified.resultRecord, f.record);
+  assert.equal(verified.navigationVersion, original.navigationVersion + 1);
+  f.frameRecords.get(7)[0].documentId = "same-url-replacement";
+  await assert.rejects(f.backend.validateSameManagedHumanDocument(original), /HUMAN_STALE/);
+  assert.deepEqual({ document: f.record.currentDocument, original: f.record.originalDocument,
+    revision: f.record.revision, deliveryId: f.record.deliveryId, recordId: f.record.recordId }, lineage);
+  assert.equal(f.backend.managedResults.get(7, lineage.deliveryId), f.record);
+  f.frameRecords.get(7)[0].documentId = original.documentId;
+  await handle.close();
+  const watching = await view(f);
+  assert.equal(watching.info().state, "active"); await watching.close();
+});
+
 test("real result lease navigation recovers native B frames and End permits a fresh view of B", async t => {
   for (const mode of ["view", "human"]) await t.test(mode, async t => {
     const f = await delivered(t), frames = [];

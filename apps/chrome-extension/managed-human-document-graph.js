@@ -43,6 +43,7 @@ export class ManagedHumanDocumentGraph {
     this.snapshots = new WeakMap(); this.proofs = new WeakMap(); this.identities = new WeakMap();
     this.preparationIdentities = new WeakMap();
     this.rootHints = new WeakMap();
+    this.departures = new WeakMap();
     this.revision = 0; this.structure = 0; this.contextIdentities = 0; this.revoked = false; this.ended = false;
     this.failure = null; this.started = false; this.starting = null;
     this.root = this.createSession(undefined, null, null);
@@ -91,6 +92,7 @@ export class ManagedHumanDocumentGraph {
     if (!session || !this.current(session)) return false;
     if (!params || typeof params !== "object" || Array.isArray(params)) { this.invalidate(); return false; }
     if (method === "Target.attachedToTarget") {
+      this.events.invalidateDeparture();
       const childId = params.sessionId, target = params.targetInfo;
       this.advance(true);
       this.events.advance();
@@ -110,6 +112,7 @@ export class ManagedHumanDocumentGraph {
       const child = this.sessions.get(params.sessionId);
       if (!child || child.parent !== session || !this.current(child) ||
           (params.targetId !== undefined && params.targetId !== child.targetId)) return false;
+      this.events.invalidateDeparture();
       this.advance(true); this.events.advance(); this.retire(child); this.change(child, method); return true;
     }
     const value = params.context;
@@ -274,6 +277,36 @@ export class ManagedHumanDocumentGraph {
   }
   captureReadiness(fence, candidate, opening) { this.assertActive(); return this.events.capture(fence, candidate, opening); }
   assertReadiness(proof) { this.assertActive(); this.events.assert(proof); }
+  captureDeparture(snapshot, candidate) {
+    this.assertActive();
+    const saved = this.snapshots.get(snapshot);
+    if (!saved || saved.structure !== this.structure) throw fail();
+    const ticket = Object.freeze({});
+    const sessions = [...this.sessions.values()].filter(session => this.current(session));
+    const identities = sessions.map(session => ({ session, identity: session.contexts.captureIdentity() }));
+    const events = this.events.captureDeparture(saved.frames, candidate);
+    this.departures.set(ticket, { events, identities }); return ticket;
+  }
+  assertDeparture(ticket, candidate, opening) {
+    this.assertActive();
+    const saved = this.departures.get(ticket);
+    if (!saved || saved.identities.length !== [...this.sessions.values()].filter(session => this.current(session)).length) throw fail();
+    for (const { session, identity } of saved.identities) {
+      if (!this.current(session) || !session.eligible) throw fail();
+      session.contexts.assertIdentity(identity);
+    }
+    return this.events.assertDeparture(saved.events, candidate, opening);
+  }
+  restoreDeparture(ticket, candidate) {
+    this.assertDeparture(ticket, candidate);
+    this.events.restoreDeparture(this.departures.get(ticket).events, candidate);
+    this.departures.delete(ticket); this.advance(true);
+  }
+  discardDeparture(ticket) {
+    const saved = this.departures.get(ticket);
+    if (saved) this.events.discardDeparture(saved.events);
+    this.departures.delete(ticket);
+  }
   checkpointRootDocumentHint(expected) {
     this.assertActive();
     const root = this.events.checkpointRootDocumentHint(expected);

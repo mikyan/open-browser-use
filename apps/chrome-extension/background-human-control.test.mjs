@@ -158,6 +158,76 @@ test("Default navigation invalidates the old dialog fence before the controller 
   assert.equal(f.backend.sitePendingFrames.has(7), false);
 });
 
+test("cancelled departure verification refreshes only the original document's navigation evidence", async t => {
+  const f = await fixture(), handle = await f.begin(); t.after(() => handle.close());
+  const original = f.backend.managedHuman.current.epoch.candidate;
+  f.backend.siteNavigationVersions.set(7, original.navigationVersion + 1);
+  await assert.rejects(f.backend.validateManagedHumanPage(original), /HUMAN_STALE/);
+  const verified = await f.backend.validateSameManagedHumanDocument(original);
+  assert.equal(verified.documentId, original.documentId);
+  assert.equal(verified.navigationVersion, original.navigationVersion + 1);
+  assert.equal(original.navigationVersion + 1, f.backend.siteNavigationVersions.get(7));
+  f.backend.managedHuman.assertDialog(verified);
+  await assert.rejects(f.backend.validateManagedHumanPage(original, { advance: true, refreshNavigation: true }), /cannot advance/);
+});
+
+test("same-document refresh rejects a replacement document, changed URL, target, placement or permissions", async t => {
+  for (const change of ["document", "url", "target", "placement", "policy"]) await t.test(change, async t => {
+    const f = await fixture(), handle = await f.begin(); t.after(() => handle.close());
+    const original = f.backend.managedHuman.current.epoch.candidate;
+    f.backend.siteNavigationVersions.set(7, original.navigationVersion + 1);
+    if (change === "document") f.changeDocument();
+    if (change === "url") f.tab.url += "/replacement";
+    if (change === "target") f.chrome.debugger.getTargets = async () => [{ id: "replacement", tabId: 7, type: "page" }];
+    if (change === "placement") f.tab.windowId++;
+    if (change === "policy") f.backend.sitePolicyUpdate = true;
+    await assert.rejects(f.backend.validateSameManagedHumanDocument(original));
+    if (change === "policy") f.backend.sitePolicyUpdate = false;
+  });
+});
+
+test("same-document reads retain original work when End or another navigation wins", async t => {
+  for (const change of ["end", "navigation", "inspection"]) await t.test(change, async t => {
+    const f = await fixture(), handle = await f.begin(); t.after(() => handle.close());
+    const original = f.backend.managedHuman.current.epoch.candidate, entered = defer(), release = defer(), retained = [];
+    const getTargets = f.chrome.debugger.getTargets;
+    f.chrome.debugger.getTargets = async () => { entered.resolve(); await release.promise; return getTargets(); };
+    let current = true;
+    const reading = f.backend.validateSameManagedHumanDocument(original, {
+      retain(promise) { retained.push(promise); return promise; },
+      inspect() { if (!current) throw Error("original departure retired"); }
+    });
+    reading.catch(() => {});
+    await entered.promise; assert.equal(retained.length, 3);
+    let ended;
+    if (change === "end") ended = handle.close();
+    if (change === "navigation") f.backend.siteNavigationVersions.set(7, original.navigationVersion + 1);
+    if (change === "inspection") current = false;
+    let settled = false; reading.finally(() => { settled = true; }).catch(() => {});
+    await tick(); assert.equal(settled, false);
+    release.resolve();
+    await assert.rejects(reading);
+    await Promise.allSettled(retained);
+    if (ended) await ended;
+  });
+});
+
+test("restricted same-document refresh requires the original complete site proof", async t => {
+  const f = await fixture({ policy: { mode: "allow", origins: ["https://fixture.test"] } });
+  const handle = await f.begin(); t.after(() => handle.close());
+  const original = f.backend.managedHuman.current.epoch.candidate;
+  f.backend.siteNavigationVersions.set(7, original.navigationVersion + 1);
+  const verified = await f.backend.validateSameManagedHumanDocument(original);
+  assert.equal(verified.siteProof.documentId, original.documentId);
+  f.backend.managedHuman.assertDialog(verified, ["https://fixture.test"]);
+  f.chrome.webNavigation.getAllFrames = async () => [
+    { frameId: 0, parentFrameId: -1, url: f.tab.url, documentId: original.documentId, documentLifecycle: "active", errorOccurred: false },
+    { frameId: 2, parentFrameId: 0, url: "https://unapproved.test/frame", documentId: "unapproved", documentLifecycle: "active", errorOccurred: false }
+  ];
+  await assert.rejects(f.backend.validateSameManagedHumanDocument(original), /SITE_ACCESS/);
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+});
+
 test("Default navigation ledger excludes unrelated user tabs and never wraps its original version", async t => {
   const f = await fixture(); t.after(() => f.backend.pauseAutomation());
   for (const tabId of [-1, 8, 9]) f.backend.onSiteNavigation({ tabId, frameId: 0, url: "https://personal.test" }, "committed");

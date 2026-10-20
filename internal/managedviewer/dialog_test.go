@@ -36,6 +36,118 @@ func dialogReply(request, state json.RawMessage) json.RawMessage {
 	return jsonBytes(f)
 }
 
+func beforeUnloadTestState(state string, generation, sequence uint64, id string) json.RawMessage {
+	f, _ := object(preparingTestState(state, generation, sequence, id))
+	s, _ := object(f["status"])
+	d, _ := object(s["pendingDialog"])
+	d["type"], d["message"] = jsonBytes("beforeunload"), jsonBytes("")
+	delete(d, "defaultPrompt")
+	s["pendingDialog"] = jsonBytes(d)
+	f["status"] = jsonBytes(s)
+	return jsonBytes(f)
+}
+
+func TestHumanBeforeUnloadDecisionBypassesInputWithoutBorrowingItsReceipt(t *testing.T) {
+	for _, item := range []struct {
+		state      string
+		generation uint64
+		accept     bool
+	}{{"active", 1, false}, {"navigating", 2, true}} {
+		t.Run(item.state, func(t *testing.T) {
+			b := humanTestBackend()
+			base := b.command
+			release := make(chan struct{})
+			var once sync.Once
+			b.command = func(ctx context.Context, data json.RawMessage) (json.RawMessage, error) {
+				switch humanTestOperation(data) {
+				case "humanBegin":
+					return preparingTestState("active", 1, 2, ""), nil
+				case "humanInput":
+					<-release
+					result, _ := object(preparingTestState(item.state, item.generation, 8, ""))
+					result["inputReceipt"] = jsonBytes(map[string]any{"leaseId": humanTestLease, "generation": 1, "sequence": 1, "acknowledged": true})
+					return jsonBytes(result), nil
+				case "humanDialogRespond":
+					return dialogReply(data, preparingTestState(item.state, item.generation, 7, "")), nil
+				}
+				return base(ctx, data)
+			}
+			s := startTest(t, b, nil)
+			t.Cleanup(func() { once.Do(func() { close(release) }) })
+			c := humanTestBegin(t, b, s)
+			send(t, c, humanTestInput(2, 1))
+			humanTestCall(t, b, "humanInput")
+			publishGeneration(b, beforeUnloadTestState(item.state, item.generation, 6, "leave-original"))
+			for string(readMessage(t, c)["type"]) != `"state"` {
+			}
+			send(t, c, fmt.Sprintf(`{"id":3,"operation":"humanDialogRespond","leaseId":%q,"generation":%d,"dialogId":"leave-original","accept":%t}`, humanTestLease, item.generation, item.accept))
+			call, _ := object(humanTestCall(t, b, "humanDialogRespond"))
+			if string(call["accept"]) != fmt.Sprint(item.accept) || call["promptText"] != nil {
+				t.Fatal("explicit beforeunload decision changed in transit")
+			}
+			f, _ := object(humanTestSuccess(t, c, 3))
+			if f["inputReceipt"] != nil || f["dialogReceipt"] == nil {
+				t.Fatal("beforeunload answer borrowed the unsettled input receipt")
+			}
+			once.Do(func() { close(release) })
+			humanTestSuccess(t, c, 2)
+		})
+	}
+}
+
+func TestHumanBeforeUnloadEndRevokesChoicesWhileOriginalAnswerSettles(t *testing.T) {
+	b := humanTestBackend()
+	base := b.command
+	release := make(chan struct{})
+	var once sync.Once
+	var answers atomic.Int32
+	b.command = func(ctx context.Context, data json.RawMessage) (json.RawMessage, error) {
+		switch humanTestOperation(data) {
+		case "humanBegin":
+			return preparingTestState("active", 1, 2, ""), nil
+		case "humanDialogRespond":
+			answers.Add(1)
+			<-release
+			return dialogReply(data, preparingTestState("active", 1, 8, "")), nil
+		case "humanEnd":
+			<-release // The original backend cleanup joins its actual answer.
+			return humanTestState(false, 0), nil
+		}
+		return base(ctx, data)
+	}
+	s := startTest(t, b, nil)
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	c := humanTestBegin(t, b, s)
+	publishGeneration(b, beforeUnloadTestState("active", 1, 5, "leave-original"))
+	for string(readMessage(t, c)["type"]) != `"state"` {
+	}
+	send(t, c, fmt.Sprintf(`{"id":2,"operation":"humanDialogRespond","leaseId":%q,"generation":1,"dialogId":"leave-original","accept":false}`, humanTestLease))
+	humanTestCall(t, b, "humanDialogRespond")
+	send(t, c, fmt.Sprintf(`{"id":3,"operation":"humanEnd","leaseId":%q}`, humanTestLease))
+	humanTestCall(t, b, "humanEnd") // End cannot queue behind a modal answer.
+	send(t, c, fmt.Sprintf(`{"id":4,"operation":"humanDialogRespond","leaseId":%q,"generation":1,"dialogId":"leave-original","accept":true}`, humanTestLease))
+	humanTestError(t, c, 4, "HUMAN_DIALOG_STALE")
+	once.Do(func() { close(release) })
+	replies := make(map[string]map[string]json.RawMessage)
+	for len(replies) < 2 {
+		m := readMessage(t, c)
+		if string(m["type"]) == `"response"` {
+			id := string(m["id"])
+			if id != "2" && id != "3" || m["error"] != nil {
+				t.Fatalf("unexpected original settlement: %s", jsonBytes(m))
+			}
+			replies[id] = m
+		}
+	}
+	answer, _ := object(replies["2"]["result"])
+	end, _ := object(replies["3"]["result"])
+	if answer["dialogReceipt"] == nil || end["humanCleanup"] == nil || answers.Load() != 1 {
+		t.Fatal("lost original answer or cleanup, or dispatched another choice")
+	}
+	send(t, c, humanTestInput(5, 1))
+	humanTestError(t, c, 5, "HUMAN_STALE")
+}
+
 func publishDialog(t *testing.T, b *testBackend, c *websocket.Conn, id string, sequence uint64) {
 	t.Helper()
 	publishGeneration(b, dialogState(id, sequence))
