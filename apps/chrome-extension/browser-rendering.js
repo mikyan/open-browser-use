@@ -28,9 +28,10 @@ export class BrowserRendering {
     return actual;
   }
 
-  async subscribe(tabId, attachment, check, onFrame, { acceptFrame = () => true, startupBudget } = {}) {
+  async subscribe(tabId, attachment, check, onFrame, { acceptFrame = () => true, startupBudget, captureHiddenSurface = false } = {}) {
     if (typeof onFrame !== "function") throw new Error("OBU_VIEWER_INVALID: a frame receiver is required");
     if (typeof acceptFrame !== "function") throw new Error("OBU_VIEWER_INVALID: a frame admission predicate is required");
+    if (typeof captureHiddenSurface !== "boolean") throw new Error("OBU_VIEWER_INVALID: hidden surface capture must be a boolean");
     if (startupBudget !== undefined && (typeof startupBudget?.assertAvailable !== "function" || typeof startupBudget?.expired?.then !== "function"))
       throw new Error("OBU_VIEWER_INVALID: an original startup budget is required");
     startupBudget?.assertAvailable();
@@ -74,6 +75,14 @@ export class BrowserRendering {
       await setup("Page.startScreencast", { format: "png", everyNthFrame: 1 });
       record.started = true;
       this.checkStartup(record);
+      if (captureHiddenSurface && record.published === 0) {
+        // A hidden replacement document may have no painted surface for the
+        // screencast to capture. Its owner can request one original surface
+        // copy without activating the tab. Discard the screenshot: only the
+        // independently admitted and ACKed screencast frame completes ready.
+        await setup("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
+        this.checkStartup(record);
+      }
       await ready.promise;
       this.check(record);
     });

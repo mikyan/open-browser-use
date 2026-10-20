@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { managedHumanNewPageTrigger, managedHumanNewPageMode, managedHumanNewPageVariant, assertManagedHumanNewPageSource, assertManagedHumanNewPageGap, assertManagedHumanNewPageTerminal, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageSwitch, assertManagedHumanNewPageClaim, assertManagedHumanNewPageInputs, assertManagedHumanNewPageClosed } from "./managed-human-new-page-workflow.mjs";
+import { managedHumanNewPageTrigger, managedHumanNewPageMode, managedHumanNewPageVariant, managedHumanParentReadonlyEnabled, assertManagedHumanParentReadonly, assertManagedHumanNewPageSource, assertManagedHumanNewPageGap, assertManagedHumanNewPageTerminal, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageSwitch, assertManagedHumanNewPageClaim, assertManagedHumanNewPageInputs, assertManagedHumanNewPageClosed } from "./managed-human-new-page-workflow.mjs";
 
 function evidence() {
   const urls = { parent: "http://127.0.0.1:50001/parent", child: "http://localhost:50001/child" };
@@ -46,6 +46,17 @@ test("new-page variants are opt-in acceptance only with a single fixed trigger",
     assert.throws(() => managedHumanNewPageVariant("new-page", "acceptance", "target-blank", variant));
   }
   for (const variant of [null, "", "iframe,child-close", "unknown"]) assert.throws(() => managedHumanNewPageVariant("new-page", "acceptance", "window-open", variant));
+});
+
+test("readonly parent pixels require their explicit uninstrumented single-scenario acceptance flag", () => {
+  const accepted = ["new-page", "acceptance", "window-open", "parent-navigate", false];
+  for (const flag of [undefined, "0"]) assert.equal(managedHumanParentReadonlyEnabled(...accepted, flag), false);
+  assert.equal(managedHumanParentReadonlyEnabled(...accepted, "1"), true);
+  for (const flag of [null, "", true, 1, "true"]) assert.throws(() => managedHumanParentReadonlyEnabled(...accepted, flag));
+  for (const [index, value] of [[0, "handoff"], [1, "diagnostic"], [2, "target-blank"], [3, "iframe"], [3, "standard"], [3, "child-close"], [4, true]]) {
+    const invalid = [...accepted]; invalid[index] = value;
+    assert.throws(() => managedHumanParentReadonlyEnabled(...invalid, "1"));
+  }
 });
 
 function frameEvidence() {
@@ -122,6 +133,61 @@ function navigated() {
   fixture.returnedParentToken = "returned-token"; fixture.requests.push({ path: "/parent-returned", method: "GET", status: 200, finished: true, aborted: false });
   return value;
 }
+
+function readonlyParent() {
+  const result = navigated(), { row } = result, value = row.parentSwitch;
+  row.parentReadonly = true; row.trigger = "window-open";
+  row.parentNavigated = { ...structuredClone(row.parentReturned), native: structuredClone(row.agent.beforeNative) };
+  row.parentNavigated.hasFocus = false; row.parentNavigated.visibilityState = "hidden"; row.parentNavigated.native.tab.active = false;
+  const lease = { state: "active", leaseId: "readonly-parent", tabId: 10, generation: 1, viewport: { width: 800, height: 600 } };
+  Object.assign(value.selected, { human: null, status: { state: "paused" }, view: lease });
+  value.endSelector = "#human-end"; value.beginSelector = "#human-begin"; value.selectRequest.connection = 1; value.beginRequest.at = 20;
+  const frame = { controlMode: "user-view", tabId: 10, viewLeaseId: lease.leaseId, generation: 1, connection: 1, at: 12,
+    streamId: "readonly-stream", sequence: 1, eventSequence: 31, metadata: { monotonicTimestamp: 123.4 },
+    file: "native-frame-0001.png", sha256: "a".repeat(64), bytes: 100, width: 800, height: 600 };
+  const decoded = { controlMode: "user-view", viewLeaseId: lease.leaseId, humanLeaseId: "", streamId: frame.streamId,
+    frameSequence: "1", generation: "1", eventSequence: "31", hidden: false, complete: true, width: 800, height: 600 };
+  const document = { ...structuredClone(row.parentReturned), hasFocus: false, visibilityState: "hidden" };
+  const native = structuredClone(row.parentNavigated.native); Object.assign(native.tab, { id: 10, active: false });
+  value.readonly = { lease: structuredClone(lease), frame, decoded, decodedAt: 13, savedSHA256: frame.sha256, savedBytes: frame.bytes,
+    screenshot: { file: "viewer-parent-readonly-before-begin.png", at: 14, sha256: "b".repeat(64), bytes: 200 },
+    state: { human: null, view: structuredClone(lease), selectedTabId: 10 }, document, native, completedAt: 15,
+    commandsBeforeBegin: [structuredClone(value.selectRequest)],
+    messagesBeforeBegin: [{ type: "response", id: value.selectRequest.id, result: structuredClone(value.selected) }, { type: "frame", ...frame }] };
+  return result;
+}
+
+test("readonly parent proof binds retained PNG and actual decoded scope before explicit Begin", () => {
+  const { row } = readonlyParent();
+  assert.deepEqual(assertManagedHumanParentReadonly(row), { originalReadonlyFrame: true, leaseId: "readonly-parent", streamId: "readonly-stream",
+    sequence: 1, sha256: "a".repeat(64), documentId: "returned-document", targetId: "parent-target", beforeBegin: true });
+  for (const focused of [true, false]) {
+    const { row } = readonlyParent();
+    row.parentNavigated.native.window.focused = focused; row.parentSwitch.readonly.native.window.focused = focused;
+    assert.equal(assertManagedHumanParentReadonly(row).originalReadonlyFrame, true);
+  }
+  const mutations = [
+    r => { r.parentSwitch.endSelector = "#human-switch"; }, r => { r.parentSwitch.beginSelector = undefined; },
+    r => { r.parentSwitch.readonly.commandsBeforeBegin.push({ operation: "humanBegin" }); },
+    r => { r.parentSwitch.readonly.commandsBeforeBegin.push({ operation: "humanInput" }); },
+    r => { r.parentSwitch.beginRequest.at = 14; }, r => { r.parentSwitch.readonly.frame.controlMode = "human"; },
+    r => { r.parentSwitch.readonly.frame.viewLeaseId = "successor"; }, r => { r.parentSwitch.readonly.frame.generation = 2; },
+    r => { r.parentSwitch.readonly.frame.file = undefined; }, r => { r.parentSwitch.readonly.savedSHA256 = "c".repeat(64); },
+    r => { r.parentSwitch.readonly.decoded.complete = false; }, r => { r.parentSwitch.readonly.decoded.streamId = "another"; },
+    r => { r.parentSwitch.readonly.decoded.frameSequence = "2"; }, r => { r.parentSwitch.readonly.decoded.viewLeaseId = "successor"; },
+    r => { r.parentSwitch.readonly.document.documentId = r.original.documentId; }, r => { r.parentSwitch.readonly.document.hasFocus = true; },
+    r => { r.parentSwitch.readonly.document.visibilityState = "visible"; }, r => { r.parentSwitch.readonly.native.tab.active = true; },
+    r => { r.parentNavigated.hasFocus = true; }, r => { r.parentNavigated.native.tab.active = true; },
+    r => { r.parentSwitch.readonly.native.targets[0].id = "replacement"; }, r => { r.parentSwitch.readonly.native.window.id = 2; },
+    r => { r.parentSwitch.readonly.native.window.focused = true; }, r => { r.parentSwitch.readonly.native.window.state = "minimized"; },
+    r => { r.parentSwitch.readonly.native.window.type = "popup"; },
+    r => { r.parentNavigated.native.window.focused = "false"; r.parentSwitch.readonly.native.window.focused = "false"; },
+    r => { r.parentSwitch.readonly.state.human = { leaseId: "early-human" }; },
+    r => { r.parentSwitch.readonly.messagesBeforeBegin.push({ type: "state", human: { leaseId: "early-human" } }); },
+    r => { r.parentSwitch.readonly.messagesBeforeBegin.pop(); }, r => { r.parentSwitch.readonly.screenshot.at = 12; }
+  ];
+  for (const change of mutations) { const { row } = readonlyParent(); change(row); assert.throws(() => assertManagedHumanParentReadonly(row)); }
+});
 
 test("parent callback navigation accepts a new document on the original target with explicit application draft migration", () => {
   const value = navigated(); assert.equal(assertManagedHumanNewPageClaim(value.row).documentId, "returned-document");
@@ -227,8 +293,8 @@ test("acceptance facade switches twice, End/Resume/newTurn precedes original SDK
   for (const [a, b] of [["switch-11", "callback"], ["callback", "switch-10"], ["switch-10", "End"], ["End", "Resume"], ["Resume", "newTurn"], ["newTurn", "SDK-claim-read-10"]]) assert.ok(calls.indexOf(a) < calls.indexOf(b));
 });
 
-for (const variant of ["iframe", "parent-navigate", "child-close"]) test(`${variant} acceptance facade uses original input, native state and explicit selection in order`, async () => {
-  const value = variant === "parent-navigate" ? navigated().row : variant === "child-close" ? closed().row : accepted().row;
+for (const [variant, parentReadonly] of [["iframe", false], ["parent-navigate", false], ["child-close", false], ["parent-navigate", true]]) test(`${variant}${parentReadonly ? " readonly" : ""} acceptance facade uses original input, native state and explicit selection in order`, async () => {
+  const value = parentReadonly ? readonlyParent().row : variant === "parent-navigate" ? navigated().row : variant === "child-close" ? closed().row : accepted().row;
   value.variant = variant; value.trigger = "window-open"; const calls = []; let parentReads = 0;
   if (variant === "iframe") {
     const frame = frameEvidence();
@@ -237,14 +303,14 @@ for (const variant of ["iframe", "parent-navigate", "child-close"]) test(`${vari
   }
   if (variant === "parent-navigate") {
     value.nativeBefore.tab = { windowId: 1, groupId: -1, pinned: false };
-    value.parentNavigated = { ...structuredClone(value.released), native: structuredClone(value.agent.beforeNative) };
+    value.parentNavigated ??= { ...structuredClone(value.released), native: structuredClone(value.agent.beforeNative) };
   }
   if (variant === "child-close") {
     delete value.parentSwitch.end; delete value.parentSwitch.endRequest; delete value.parentSwitch.endCompletedAt;
     Object.assign(value.parentSwitch, { selectionReadyAt: 22, closedCleanup: structuredClone(value.childClosed.status.humanCleanup) });
     value.parentSwitch.selectRequest.at = 23; value.parentSwitch.selectCompletedAt = 24; value.parentSwitch.beginRequest.at = 25;
   }
-  const row = { trigger: value.trigger, variant, urls: value.urls }, call = (name, result) => async () => { calls.push(name); return structuredClone(result); };
+  const row = { trigger: value.trigger, variant, parentReadonly, urls: value.urls }, call = (name, result) => async () => { calls.push(name); return structuredClone(result); };
   await runManagedHumanNewPageAcceptance({
     createParent: call("create-parent", 10), read: async (id, documentId) => {
       if (documentId === "source-document") return structuredClone(calls.includes("trusted-parent-click") ? value.sourceAfterClick : value.sourceOriginal);
@@ -269,6 +335,7 @@ for (const variant of ["iframe", "parent-navigate", "child-close"]) test(`${vari
   assert.ok(calls.indexOf("End") < calls.indexOf("Resume")); assert.ok(calls.indexOf("newTurn") < calls.indexOf("SDK-claim-read"));
   if (variant === "iframe") assert.equal(row.sourceProof.sourceDocumentId, "source-document");
   if (variant === "parent-navigate") { assert.ok(calls.indexOf("parent-new-document") < calls.indexOf("switch-10")); assert.match(row.proof.draftPreservation, /fixture application/); }
+  if (parentReadonly) { assert.equal(row.parentReadonlyProof.originalReadonlyFrame, true); assert.equal(row.proof.originalParentReadonlyFrame, true); }
   if (variant === "child-close") { assert.equal(calls.includes("callback"), false); assert.ok(calls.indexOf("native-closed-and-cleaned") < calls.indexOf("switch-10")); assert.equal(row.parentSwitch.end, undefined); }
 });
 

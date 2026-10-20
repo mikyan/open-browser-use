@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import { installManagedHumanObserver, installManagedPasteObserver, assertManagedPasteEvidence, projectHumanCommand, assertHumanInputReceipt, captureTaskAuthority, requestOriginalSnapshot, visibleHumanViewerPoint, assertManagedExtensionManifest, managedCopyRejectionEnabled, assertManagedCopyRejectionEvidence, managedNewPageDiagnosticOutcome } from "./managed-human-check.mjs";
 import { humanPasteText } from "./managed-human-check-fixture.mjs";
 import vm from "node:vm";
+import { managedHumanNativeTraceOutcome } from "./managed-human-native-trace.mjs";
 
 test("new-page baseline completion never becomes product acceptance, and incomplete cleanup cannot confirm the gap", () => {
   const detail = { proof: { classification: "native-child-created-not-selectable", diagnosticGapConfirmed: true } };
@@ -29,6 +30,24 @@ test("variant failure and native-close cleanup failure cannot be promoted to pro
     assert.equal(managedNewPageDiagnosticOutcome(false, detail).featurePassed, false);
     delete detail.terminalProof; assert.equal(managedNewPageDiagnosticOutcome(true, detail).featurePassed, false);
   }
+});
+
+test("opt-in readonly parent acceptance cannot borrow a subsequent human frame or omit its readonly proof", () => {
+  const detail = { mode: "acceptance", parentReadonly: true, proof: { featurePassed: true, originalParentReadonlyFrame: true },
+    parentReadonlyProof: { originalReadonlyFrame: true }, agentProof: { originalPlacementPreserved: true }, terminalProof: { childCallbackPOSTs: 1 } };
+  assert.equal(managedNewPageDiagnosticOutcome(true, detail).featurePassed, true);
+  assert.equal(managedNewPageDiagnosticOutcome(false, detail).featurePassed, false);
+  for (const change of [r => { delete r.parentReadonlyProof; }, r => { r.parentReadonlyProof.originalReadonlyFrame = false; },
+    r => { delete r.proof.originalParentReadonlyFrame; }, r => { r.proof.originalParentReadonlyFrame = false; }]) {
+    const broken = structuredClone(detail); change(broken); assert.equal(managedNewPageDiagnosticOutcome(true, broken).featurePassed, false);
+  }
+});
+
+test("native trace outcome overrides successful new-page evidence without claiming uninstrumented acceptance", () => {
+  const detail = { mode: "acceptance", proof: { featurePassed: true }, agentProof: { originalPlacementPreserved: true }, terminalProof: { childCallbackPOSTs: 1 } };
+  const report = { passed: true, ...managedNewPageDiagnosticOutcome(true, detail), ...managedHumanNativeTraceOutcome(true, true) };
+  assert.equal(report.passed, false); assert.equal(report.featurePassed, false); assert.equal(report.instrumented, true);
+  assert.equal(report.diagnosticWorkflowPassed, true); assert.equal(report.diagnosticCompleted, true);
 });
 
 test("viewer page choices preserve exact IDs without accepting combined or malformed identities", () => {

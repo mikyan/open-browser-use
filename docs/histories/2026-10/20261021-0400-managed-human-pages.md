@@ -109,3 +109,31 @@ sessionStorage 迁移应用草稿，不能归功于 Browser Use 自动保存。�
 检查、四资产上传后回下载及 115 份本地副本核对通过。独立审计 SHA256：
 `384bb88e3f9d41b409abe9023b8d632713ffda2b862d2c1dc337b22cfaf584f8`。
 发布为非草稿预览版；原父页导航首帧问题、公司 Edge 和整体能力对齐仍未完成。
+
+## 后台父页新文档首帧与再次打包请求
+
+用户询问是否结束并明确再次要求新包；整体目标仍未结束，本轮先完成已经
+接近收尾的父页首帧修复验证，再交付新版本。原产品 mnp-vY2HSC 的有界
+原生诊断确认录屏 start 已 ACK，约五秒没有原帧；77 原调用全部结算，
+526 项诊断审核通过。诊断不当作产品通过，旧报告保留。
+
+BrowserRendering 增加默认关闭的 captureHiddenSurface。仅 fresh 只读
+view 在原 start ACK 后尚未发布帧时发起一次无 clip 的原 surface 截图；
+截图回复不解决 ready，仍要求原 TimeTicks 门禁与实际录屏 ACK。调用进入
+原队列、代次检查和实际清理屏障，不激活页面或设置焦点，人工输入路径不变。
+rendering 35 项、human control 220 项及新全量构建 3,195 项 Node、Go
+test/vet 通过；470 源码和 80 扩展冻结一致。
+
+默认自动切换 mnp-uazoRV 通过但缺只读帧图像，所以新增普通 UI 的只读
+阶段验收。mnp-yZ1Gwm 因错误要求整个窗口 focused=false 失败；原报告
+与旧未修复报告均显示开子页后该值已经为 true。Chromium headless 的此
+字段是逻辑活动状态，与父文档隐藏和系统前台不同。只改验收为原窗口状态
+保持，页面依然严格 hidden/noFocus/inactive；新增前后变化反例，84 项通过。
+
+mnp-kpUpaB（父页只读）和 mnp-FCpwvq（子页关闭）各七步真实退出 0，
+事件业务独审分别 408/361 项通过。只读场确切 user-view seq1 PNG、原
+lease/stream/generation、实际查看器解码和 Begin 前截图一致；根 agent
+目视新父页标题、草稿及 callback 文本正确。SDK 原父页认领、独立唯一
+POST 和正常 Stop 完成。原 PNG 证明与被动焦点快照不冒充全 OS 观测。
+草稿由夹具网站自己迁移，普通 Edge/SSO/MFA 与完整能力对齐仍待验。
+完整哈希与实现边界记录在 managed-human-pages 参考文档中。

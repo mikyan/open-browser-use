@@ -77,7 +77,7 @@ IDB transaction 成功是实际提交点。原调用方之后失联不伪称提�
 - [x] 运行模块/跨层反例及 root window.open、target=_blank/noopener
   真实浏览器验收，检查实际原文档、唯一 callback 和 Agent SDK 后续读取。
 - [x] 验收跨站 iframe 发起的新顶层页，以及子页回调后关闭、原清理与返回父页。
-- [ ] 修复父页回调后跨文档导航的查看首帧失败，完成原页返回与 Agent 后续验收。
+- [x] 修复父页回调后跨文档导航的查看首帧失败，完成固定场景原页返回与 Agent 后续验收。
 - [x] 同步架构、权限说明、产品状态与 history；通过后提交用户 fork。
 
 当前实现中：扩展目录/真实结果登记、Go/查看器合同、桥接由三个互不覆盖的
@@ -125,6 +125,33 @@ document，业务草稿由夹具 sessionStorage 迁移；child End 后使用正�
 完整包 111 文件、10,690,643 字节；470 份已测源码绑定到精确提交，发布
 EXE 独立重建，离线 CLI/MCP、4,777 项制品独审、四资产回下载与本地副本
 核对通过，未重跑原网页业务。制品摘要见参考说明；打包完成不关闭本计划或整体目标。
+
+## 父页新文档首帧修复
+
+原产品诊断 `mnp-vY2HSC` 再次在返回父页的 select 失败，实际退出 1；
+它明确标为 instrumented，不作为正式验收。原生记录完整恢复且无丢失，
+77 次发送均收到真实成功回执。父页新文档的两次 frame tree 一致，
+TimeTicks barrier 取得后 startScreencast 立即成功，visibility 为 false；
+之后约五秒没有原 screencastFrame，原 stop 也成功。不是已收到帧被门禁
+丢弃，亦不是启动命令仍未确认。报告 SHA256：
+`66fb98f434b724701e55b047e33769f11b9b4b6eed49e27839e4b5d3dbaec8f7`。
+
+修复仅在 fresh-attachment 的只读 view 启动中，原 start ACK 后仍无
+已发布帧时，使用同队列和真实 drain 发起一次无 clip 的原生 surface 截图。
+不模拟焦点、不激活页面，也不以截图回复完成 ready；原 TimeTicks 和真实
+录屏 ACK 门禁、五秒期限、撤权及原清理保持。新冻结构建的完整 Go test/vet、
+3,195 项 Node 与 470/80 份输入通过。默认自动切换 mnp-uazoRV 七步通过，
+但没有只读 PNG，故另验实际 End/select/只读解码/Begin 的正常 UI 路径。
+
+首场 mnp-yZ1Gwm 保留为失败：脚手架把整个 headless 窗口 focused=false
+错误当作前提；原页隐藏失焦不意味着整个逻辑窗口失焦。旧未修复场也在开
+子页后变为 focused=true。仅修脚手架为前后窗口原状态不变，84 项检查通过。
+最终 mnp-kpUpaB 的原只读 seq1 PNG、查看器解码和 Begin 前截图均核对；
+根 agent 目视新父文档内容正确。mnp-FCpwvq 子页关闭回归亦七步通过，
+两场 actual exit0，原 callback、SDK 后续、唯一独立提交与清理完成。
+事件独审分别 408/361 项。原失败与所有快照保留，完整证据见参考说明。
+用户本轮明确再次要求新包；因此在本修复提交后独立构建和核验发行包。
+旧 719d008 包不含此修复，打包不结束整体目标或普通公司 Edge 待验事项。
 
 ## 验证要求
 

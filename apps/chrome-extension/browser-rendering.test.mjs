@@ -5,7 +5,7 @@ import { ManagedHumanPreparationBudget } from "./managed-human-budget.js";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
-function fixture(command = async () => {}, { startupData = "aW1hZ2U=" } = {}) {
+function fixture(command = async () => {}, { startupData = "aW1hZ2U=", startupFrames = true } = {}) {
   const calls = [], frames = [], listeners = new Set(), queues = new Map(), drains = new Set(), streams = new Map();
   let attachment = {}, allowed = true, external = false;
   const emit = (data = "aW1hZ2U=", metadata = {}) => { for (const listener of [...listeners]) listener({ tabId: 7 }, "Page.screencastFrame", { sessionId: 42, data, metadata }); };
@@ -16,14 +16,14 @@ function fixture(command = async () => {}, { startupData = "aW1hZ2U=" } = {}) {
       const settled = () => { drains.delete(result); if (queues.get(tabId) === result) queues.delete(tabId); };
       result.then(settled, settled); return result;
     },
-    async send(target, method, params, finalCheck) { finalCheck?.(); calls.push({ target, method, params }); await command(method); if (method === "Page.startScreencast") queueMicrotask(() => emit(startupData)); return {}; },
+    async send(target, method, params, finalCheck) { finalCheck?.(); calls.push({ target, method, params }); const result = await command(method); if (method === "Page.startScreencast" && startupFrames) queueMicrotask(() => emit(startupData)); return result ?? {}; },
     addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener),
     isCurrent: (_tabId, token) => token === attachment,
     isExternal: () => external
   });
   const check = () => { if (!allowed) throw new Error("permission changed"); };
   return { broker, calls, frames, emit, listeners, drains, streams, token: () => attachment,
-    subscribe: () => broker.subscribe(7, attachment, check, frame => frames.push(frame)),
+    subscribe: options => broker.subscribe(7, attachment, check, frame => frames.push(frame), options),
     replace() { const old = attachment; attachment = {}; broker.released(7, old); queues.delete(7); },
     revoke() { allowed = false; }, external() { external = true; } };
 }
@@ -271,4 +271,180 @@ test("a first published frame finishes the owner clock while the original start 
   clock.skip(5001); start.resolve(); const subscription = await opening;
   assert.equal(f.frames.length, 2); assert.equal(f.listeners.size, 1);
   await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+for (const options of [undefined, { captureHiddenSurface: false }]) test(`hidden surface capture is opt-in (${options ? "false" : "default"})`, async () => {
+  const f = fixture(), subscription = await f.subscribe(options);
+  assert.equal(f.calls.some(call => call.method === "Page.captureScreenshot"), false);
+  await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+test("hidden surface capture rejects non-boolean options before acquiring resources", async () => {
+  for (const captureHiddenSurface of [null, 0, 1, "true", {}, []]) {
+    const f = fixture();
+    await assert.rejects(f.subscribe({ captureHiddenSurface }), /OBU_VIEWER_INVALID/);
+    assert.deepEqual(f.calls, []); assert.equal(f.broker.records.size, 0);
+    assert.equal(f.listeners.size, 0); assert.equal(f.drains.size, 0);
+  }
+});
+
+test("an accepted native frame before start ACK skips hidden surface capture", async () => {
+  const start = deferred(), f = fixture(method => method === "Page.startScreencast" ? start.promise : undefined, { startupFrames: false });
+  let settled = false;
+  const opening = f.subscribe({ captureHiddenSurface: true }).then(value => { settled = true; return value; });
+  await tick(); f.emit(); await tick();
+  assert.equal(f.frames.length, 1); assert.equal(settled, false);
+  assert.equal(f.calls.filter(call => call.method === "Page.screencastFrameAck").length, 1);
+  start.resolve(); const subscription = await opening;
+  assert.equal(f.calls.some(call => call.method === "Page.captureScreenshot"), false);
+  await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+test("hidden surface screenshot ACK cannot replace the original screencast capture barrier", async () => {
+  const f = fixture(method => method === "Page.captureScreenshot" ? { data: "c2NyZWVuc2hvdA==" } : undefined, { startupFrames: false });
+  let settled = false;
+  const opening = f.subscribe({ captureHiddenSurface: true, acceptFrame: frame => frame.metadata.monotonicTimestamp > 100 })
+    .then(value => { settled = true; return value; });
+  await tick();
+  assert.deepEqual(f.calls.map(call => call.method), ["Page.enable", "Page.startScreencast", "Page.captureScreenshot"]);
+  assert.deepEqual(f.calls[2], { target: { tabId: 7 }, method: "Page.captureScreenshot", params: { format: "png", fromSurface: true, captureBeyondViewport: false } });
+  assert.equal(settled, false); assert.deepEqual(f.frames, []);
+  for (const metadata of [{ timestamp: 9999999999 }, { monotonicTimestamp: 99 }, { monotonicTimestamp: 100 }]) {
+    f.emit("b2xk", metadata); await tick();
+    assert.equal(settled, false); assert.equal(f.frames.length, 0);
+  }
+  f.emit("bmV3", { monotonicTimestamp: 101 }); const subscription = await opening;
+  assert.equal(f.calls.filter(call => call.method === "Page.screencastFrameAck").length, 4);
+  assert.equal(f.calls.filter(call => call.method === "Page.captureScreenshot").length, 1);
+  assert.equal(f.frames.length, 1); assert.equal(f.frames[0].data, "bmV3");
+  assert.equal(f.frames[0].metadata.monotonicTimestamp, 101);
+  await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+for (const pendingAck of [false, true]) test(`an ${pendingAck ? "unacknowledged" : "old rejected"} frame cannot skip hidden surface capture`, async () => {
+  const start = deferred(), ack = deferred();
+  const f = fixture(method => method === "Page.startScreencast" ? start.promise : method === "Page.screencastFrameAck" && pendingAck ? ack.promise : undefined,
+    { startupFrames: false });
+  const opening = f.subscribe({ captureHiddenSurface: true, acceptFrame: frame => frame.metadata.monotonicTimestamp > 100 });
+  await tick(); f.emit("b2xk", { monotonicTimestamp: pendingAck ? 101 : 99 }); await tick();
+  assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.some(call => call.method === "Page.captureScreenshot"), false, "capture cannot precede the actual start ACK");
+  start.resolve(); await tick();
+  assert.equal(f.calls.filter(call => call.method === "Page.captureScreenshot").length, 1);
+  assert.equal(f.frames.length, 0);
+  if (pendingAck) ack.resolve();
+  else f.emit("bmV3", { monotonicTimestamp: 101 });
+  const subscription = await opening;
+  await subscription.close(); assert.equal(f.drains.size, 0);
+});
+
+test("a failed hidden surface capture stops the acknowledged stream before rejecting startup", async () => {
+  const stop = deferred();
+  const f = fixture(method => {
+    if (method === "Page.captureScreenshot") throw new Error("original screenshot failed");
+    if (method === "Page.stopScreencast") return stop.promise;
+  }, { startupFrames: false });
+  let settled = false;
+  const failed = assert.rejects(f.subscribe({ captureHiddenSurface: true }), /original screenshot failed/).then(() => { settled = true; });
+  await tick();
+  assert.equal(settled, false); assert.equal(f.listeners.size, 0); assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  assert.equal(f.broker.records.size, 1); assert.ok(f.drains.size);
+  stop.resolve(); await failed;
+  assert.equal(f.broker.records.size, 0); assert.equal(f.drains.size, 0);
+});
+
+test("a native frame during pending hidden capture cannot turn a later capture failure into startup success", async () => {
+  const capture = deferred(), f = fixture(method => method === "Page.captureScreenshot" ? capture.promise : undefined, { startupFrames: false });
+  let settled = false;
+  const outcome = f.subscribe({ captureHiddenSurface: true }).then(subscription => ({ subscription }), error => ({ error })).then(value => { settled = true; return value; });
+  await tick(); f.emit(); await tick();
+  assert.equal(f.frames.length, 1); assert.equal(settled, false); assert.ok(f.drains.size);
+  capture.reject(new Error("original capture failed after frame")); const result = await outcome;
+  assert.equal(result.subscription, undefined); assert.match(result.error.message, /original capture failed after frame/);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  assert.equal(f.listeners.size, 0); assert.equal(f.broker.records.size, 0); assert.equal(f.drains.size, 0);
+});
+
+test("the original view timeout retains a pending hidden capture even after an accepted frame", async () => {
+  const capture = deferred(), stop = deferred();
+  const f = fixture(method => {
+    if (method === "Page.captureScreenshot") { f.emit(); return capture.promise; }
+    if (method === "Page.stopScreencast") return stop.promise;
+  }, { startupFrames: false });
+  f.broker.startupTimeoutMs = 20;
+  let settled = false;
+  const failed = assert.rejects(f.subscribe({ captureHiddenSurface: true }), /OBU_VIEWER_TIMEOUT/).then(() => { settled = true; });
+  await tick(); assert.equal(f.frames.length, 1);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.equal(settled, false); assert.equal(f.listeners.size, 0); assert.ok(f.drains.size);
+  assert.equal(f.calls.some(call => call.method === "Page.stopScreencast"), false);
+  await assert.rejects(f.subscribe(), /OBU_VIEWER_BUSY/);
+  f.emit(); assert.equal(f.frames.length, 1);
+  capture.resolve({ data: "bGF0ZQ==" }); await tick();
+  assert.equal(settled, false); assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  stop.resolve(); await failed; assert.equal(f.broker.records.size, 0); assert.equal(f.drains.size, 0);
+});
+
+test("cancelling hidden capture joins its actual reply and stop before allowing a successor", async () => {
+  const capture = deferred(), stop = deferred();
+  const f = fixture(method => method === "Page.captureScreenshot" ? capture.promise : method === "Page.stopScreencast" ? stop.promise : undefined,
+    { startupFrames: false });
+  let settled = false, closed = false;
+  const failed = assert.rejects(f.subscribe({ captureHiddenSurface: true }), /cancelled because tab control ended/).then(() => { settled = true; });
+  await tick(); const record = f.broker.records.get(7);
+  const closing = f.broker.cancel(7, f.token()); closing.then(() => { closed = true; });
+  assert.equal(f.broker.cancel(7, f.token()), closing);
+  await record.closed.promise; f.emit(); await tick();
+  assert.equal(f.listeners.size, 0); assert.equal(f.frames.length, 0); assert.equal(settled, false); assert.equal(closed, false);
+  await assert.rejects(f.subscribe(), /OBU_VIEWER_BUSY/);
+  assert.equal(f.calls.some(call => call.method === "Page.stopScreencast"), false);
+  capture.resolve({ data: "bGF0ZQ==" }); await tick();
+  assert.equal(settled, false); assert.equal(closed, false);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  stop.resolve(); await Promise.all([closing, failed]); assert.equal(f.drains.size, 0);
+  const next = f.subscribe(); await tick(); f.emit(); const successor = await next;
+  await successor.close(); assert.equal(f.drains.size, 0);
+});
+
+test("revocation at the final hidden capture dispatch sends no obsolete native capture", async () => {
+  const gate = deferred(), f = fixture(undefined, { startupFrames: false }), send = f.broker.send;
+  let queued = false;
+  f.broker.send = async (target, method, params, finalCheck) => {
+    if (method === "Page.captureScreenshot") { queued = true; await gate.promise; }
+    return send(target, method, params, finalCheck);
+  };
+  const failed = assert.rejects(f.subscribe({ captureHiddenSurface: true }), /cancelled because tab control ended/);
+  await tick(); assert.equal(queued, true);
+  const closing = f.broker.cancel(7, f.token()); gate.resolve();
+  await Promise.all([closing, failed]);
+  assert.equal(f.calls.some(call => call.method === "Page.captureScreenshot"), false);
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1);
+  assert.equal(f.frames.length, 0); assert.equal(f.drains.size, 0);
+});
+
+test("failed hidden capture cleanup retains the original stop barrier until explicit retry", async () => {
+  let stops = 0;
+  const f = fixture(method => {
+    if (method === "Page.captureScreenshot") throw new Error("original capture failed");
+    if (method === "Page.stopScreencast" && ++stops === 1) throw new Error("original stop unconfirmed");
+  }, { startupFrames: false });
+  await assert.rejects(f.subscribe({ captureHiddenSurface: true }), error => error.viewerCleanupIncomplete === true && /original stop unconfirmed/.test(error.message));
+  assert.equal(stops, 1); assert.equal(f.broker.records.size, 1); assert.equal(f.listeners.size, 0);
+  await assert.rejects(f.subscribe(), /OBU_VIEWER_BUSY/); assert.equal(stops, 1);
+  await f.broker.cancel(7, f.token()); assert.equal(stops, 2); assert.equal(f.broker.records.size, 0);
+  const next = f.subscribe(); await tick(); f.emit(); const successor = await next;
+  await successor.close(); assert.equal(f.drains.size, 0);
+});
+
+test("a destroyed attachment's pending hidden capture never stops the successor stream", async () => {
+  const capture = deferred(), f = fixture(method => method === "Page.captureScreenshot" ? capture.promise : undefined, { startupFrames: false });
+  const failed = assert.rejects(f.subscribe({ captureHiddenSurface: true }), /cancelled because tab control ended/);
+  await tick(); f.replace();
+  const next = f.subscribe(); await tick(); f.emit(); const successor = await next;
+  assert.ok(f.drains.size, "the original actual capture remains tracked after detach");
+  capture.resolve(); await failed;
+  assert.equal(f.calls.some(call => call.method === "Page.stopScreencast"), false);
+  await successor.close();
+  assert.equal(f.calls.filter(call => call.method === "Page.stopScreencast").length, 1); assert.equal(f.drains.size, 0);
 });

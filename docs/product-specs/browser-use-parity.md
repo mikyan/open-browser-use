@@ -12,6 +12,26 @@
 
 ## Baseline sources
 
+2026-10-21，本轮完成独立 managed 浏览器中父页回调导航后的只读首帧修复。
+冻结构建 `mso-build-us4hu4yb` 的完整 Go test/vet、3,195 项 Node 检查通过。
+强只读 `mnp-kpUpaB` 和 child-close 回归 `mnp-FCpwvq` 各七步、实际退出 0，
+原事件与业务独审分别 408/361 项通过。父页原 target/tab/window 保持，新
+document 已确认；原 user-view 首帧 PNG、实际 DOM 解码与只读截图先于
+独立 Begin，不能与随后 human 帧混用。根代理目视两张原图，确认返回页
+标题、原草稿、子页回传和只读工具栏；接管、End/Resume、SDK 认领读取与
+后续独立唯一 POST 同样通过。
+
+旧失败 `mnp-OxVElx`、插桩诊断 `mnp-vY2HSC` 均保留。`mnp-uazoRV`
+业务通过但未留只读 PNG，保留该证据缺口。强验收首轮 `mnp-yZ1Gwm` 错误
+要求整个窗口 `focused=false`；旧成功与未修复运行均表明子页打开后、父页
+选择前窗口已 focused=true。脚手架改核原窗口 id/type/state/focused 前后
+严格相等，仍独立要求页面 hidden、hasFocus=false 和 tab inactive；没有
+以重跑改写失败，也不据此宣称全程零焦点变化。草稿跨导航保持来自夹具
+sessionStorage，不是产品保存任意网页状态的承诺。
+
+本轮待按用户请求交付，尚未发布新包；普通公司 Edge、真实 SSO、更多 iframe
+组合和完整 P01–P15 仍开放。以下内容保留各轮历史状态。
+
 2026-10-21，开发分支 `eff1cdb` 已接通人工新页面选择：查看器先确认旧接管
 释放，再选择并保留独立浏览器中的原页面。两次真实流程分别覆盖 window.open
 和 target=_blank/noopener，子页回传、返回原父页、Resume 后 Agent 认领读取
@@ -22,10 +42,11 @@ Go 显式释放对已提交输入原 ACK 的等待；不重发或制造成功回
 353 项、来源/生命周期独审 3,871/3,875 项，正常返回原父页并完成 Agent
 后续与 Stop。关闭实测 ACK 先于 close，迟到 ACK 分支仅有定向测试证据。
 
-父页回调跨文档导航 `mnp-OxVElx` 首次验收失败：新文档与选择令牌正确，
+此前父页回调跨文档导航 `mnp-OxVElx` 首次验收失败：新文档与选择令牌正确，
 新结果已登记，但查看未取得首帧，select 最后返回未知操作错误，底层机制
-尚未确认。夹具应用主动迁移草稿，不能算产品自动保存能力。原失败保留，
-该流程及复杂 SSO/更多 iframe 组合仍未完成。新增功能已按用户要求随
+当时尚未确认。夹具应用主动迁移草稿，不能算产品自动保存能力。原失败保留，
+该固定流程后续修复见上文本轮状态；复杂 SSO/更多 iframe 组合仍未完成。
+此前新增功能已按用户要求随
 [preview-20261021-be3a0f9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-be3a0f9)
 发布；完整包 111 文件，发布 EXE 独立重建，离线 CLI/MCP、4,777 项
 制品核验和四资产回下载通过，未重跑原网页业务。已知失败写入包内说明。

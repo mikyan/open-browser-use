@@ -11,6 +11,25 @@
 
 ## 当前评分
 
+2026-10-21，本轮修复独立 managed 浏览器中父页回调导航后的只读首帧等待。
+冻结构建 `mso-build-us4hu4yb` 通过完整 Go test/vet 和 3,195 项 Node
+检查。强只读验收 `mnp-kpUpaB` 与 child-close 回归 `mnp-FCpwvq` 各七步、
+实际退出 0；事件与业务独审分别 408/361 项通过。父页保留原 target/tab/window，
+文档确实更新；原只读 lease 的首帧 PNG、查看器实际解码和只读截图均在独立
+Begin 前留存并核对。根代理目视原 PNG 与截图，确认返回页标题、原草稿、
+子页回传内容及只读工具栏；后续接管、End/Resume、SDK 读取和独立 POST 通过。
+
+原 `mnp-OxVElx` 和原产品插桩诊断 `mnp-vY2HSC` 的失败继续保留。
+`mnp-uazoRV` 虽完成业务流程，但缺父页只读 PNG，未用其后 human 帧替代。
+强验收首轮 `mnp-yZ1Gwm` 因脚手架错误要求整个窗口 `focused=false` 而失败；
+旧成功及未修复运行均证明该窗口在子页打开后、父页选择前已为 true。仅修正
+验收合同为前后窗口 id/type/state/focused 严格相等，并继续要求父页 hidden、
+hasFocus=false、tab inactive；原失败记录不改写为成功。草稿迁移仍由夹具
+sessionStorage 实现，不能称产品自动保存任意网页状态。
+
+本轮待按用户请求交付，尚未发布新包。普通公司 Edge、真实 SSO、更多 iframe
+组合及完整 P01–P15 保持开放；以下发布记录和未完成项按各自历史轮次理解。
+
 2026-10-21，[人工新页面选择](references/managed-human-pages.md)接通正式查看器。
 旧版 `mnp-zusBw5` 七步诊断及 291 项独审确认真实子页不可选；45 张 PNG
 解码，原父子身份保留，End/Resume 后唯一独立业务 POST 和 Stop 清理通过。
@@ -30,15 +49,17 @@
 28/30 原进程退出、51/52 PNG 解码，原业务与清理闭环通过。关闭实测原 ACK
 先于 close，迟到 ACK 分支没有据此宣称真实覆盖。
 
-parent-navigate `mnp-OxVElx` 首场实际失败：正确原 tab/target 上的新文档
+此前 parent-navigate `mnp-OxVElx` 首场实际失败：正确原 tab/target 上的新文档
 已产生，新选择令牌与结果登记也已确认，但查看没有首帧，select 返回未知
-操作错误。底层机制尚未确认；夹具应用迁移草稿不代表产品自动保存能力。
+操作错误。当时尚未确认底层机制；该固定流程的后续修复与验收见上文本轮状态。
+夹具应用迁移草稿不代表产品自动保存能力。
 已按用户请求发布 [preview-20261021-be3a0f9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-be3a0f9)。
 完整包/扩展/Skill 为 111/80/7 文件，发布 EXE 从精确干净提交独立重建。
 离线 CLI/MCP 30 工具、4,777 项制品独审、四资产回下载和 115 份本地副本
 核对通过；未重跑原网页业务。完整 ZIP 10,690,643 字节，SHA256：
 `0dd0670934197da3195d932e7d54753ce05fde9d6e33f3c9235e1cc9efd2a27d`。
-父页回调导航、复杂 SSO、更多 iframe 组合与公司 Edge 继续开放。
+该旧包发布时父页回调导航仍开放；复杂 SSO、更多 iframe 组合与公司 Edge
+至本轮仍未完成。
 
 2026-10-21，[人工双击与三击](references/managed-human-multi-click.md)已接通
 真实本地点击次数、Go 能力固定与原 native 持键记录。冻结构建 463 份输入、

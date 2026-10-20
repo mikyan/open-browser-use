@@ -2317,6 +2317,150 @@ const assertViewOnly = f => {
   assert.equal(f.risks.size, 0);
 };
 
+test("view hidden surface capture follows the original start ACK and cannot replace a fresh frame ACK", async t => {
+  const start = defer(), startEntered = defer(), captured = defer(), ack = defer(), freshAckEntered = defer(); let acks = 0;
+  const f = fixture({ frames: false, command: (method, params, target) => {
+    if (method === "Page.startScreencast") { startEntered.resolve(); return start.promise; }
+    if (method === "Page.captureScreenshot") {
+      assert.deepEqual(target, { targetId: "original-target" });
+      assert.deepEqual(params, { format: "png", fromSurface: true, captureBeyondViewport: false });
+      captured.resolve(); return { data: "c2NyZWVuc2hvdC1vbmx5" };
+    }
+    if (method === "Page.screencastFrameAck" && ++acks === 2) { freshAckEntered.resolve(); return ack.promise; }
+  } });
+  t.after(async () => { start.resolve(); ack.resolve(); await f.control.revokeView(); });
+  let ready = false;
+  const beginning = f.beginView().then(handle => { ready = true; return handle; }); beginning.catch(() => {});
+  await startEntered.promise; await tick();
+  assert.equal(f.calls.some(([method]) => method === "Page.captureScreenshot"), false);
+  start.resolve(); await captured.promise; await tick();
+  assert.equal(ready, false); assert.equal(f.frames.length, 0);
+  f.emit(undefined, { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0, monotonicTimestamp: 100 });
+  await tick(); assert.equal(acks, 1); assert.equal(ready, false); assert.equal(f.frames.length, 0);
+  f.emit(); await freshAckEntered.promise; await tick();
+  assert.equal(ready, false); assert.equal(f.frames.length, 0);
+  ack.resolve(); const handle = await beginning;
+  assert.equal(handle.info().state, "active"); assert.equal(f.frames.length, 1);
+  assert.equal(f.frames[0].data, "cGl4ZWxz");
+  assert.equal(f.calls.filter(([method]) => method === "Page.captureScreenshot").length, 1);
+  await handle.close(); assertViewOnly(f); f.control.assertReleased();
+});
+
+test("human preparation never captures a hidden surface even while its first frame is absent", async t => {
+  const started = defer();
+  const f = fixture({ frames: false, command: method => { if (method === "Page.startScreencast") started.resolve(); } });
+  const handle = await f.beginAdmitted(); t.after(() => handle.close());
+  const original = f.control.current;
+  await started.promise; await tick();
+  assert.equal(handle.info().state, "preparing"); assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.some(([method]) => method === "Page.captureScreenshot"), false);
+  f.emit(); await original.start; assert.equal(handle.info().state, "active");
+  await handle.close();
+  assert.equal(f.calls.some(([method]) => method === "Page.captureScreenshot"), false);
+  f.control.assertReleased();
+});
+
+test("view hidden surface screenshot ACK supplies no missing native TimeTicks evidence", async t => {
+  const captured = defer();
+  const f = fixture({ frames: false, command: method => {
+    if (method === "Page.captureScreenshot") { captured.resolve(); return { data: "c2NyZWVuc2hvdC1vbmx5" }; }
+  } });
+  t.after(() => f.control.revokeView());
+  const beginning = f.beginView(); beginning.catch(() => {});
+  await captured.promise; await tick(); assert.equal(f.frames.length, 0);
+  const rejected = assert.rejects(beginning, /OBU_HUMAN_CAPTURE_UNSUPPORTED/);
+  f.emit(undefined, { deviceWidth: 800, deviceHeight: 600, pageScaleFactor: 1, offsetTop: 0,
+    timestamp: Date.now() / 1000, monotonicTimestamp: undefined });
+  await rejected;
+  assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Page.screencastFrameAck").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+  assertViewOnly(f); f.control.assertReleased();
+});
+
+test("view End joins its pending hidden surface screenshot before original stop and detach", async t => {
+  const capture = defer(), captured = defer(), stop = defer(), stopping = defer(), detach = defer(), detaching = defer();
+  const f = fixture({ frames: false, command: method => {
+    if (method === "Page.captureScreenshot") { captured.resolve(); return capture.promise; }
+    if (method === "Page.stopScreencast") { stopping.resolve(); return stop.promise; }
+  }, detach: () => { detaching.resolve(); return detach.promise; } });
+  t.after(async () => { capture.resolve(); stop.resolve(); detach.resolve(); await f.control.revokeView(); });
+  const beginning = f.beginView(); beginning.catch(() => {}); await captured.promise;
+  let ended = false;
+  const closing = f.control.revokeView(7).then(() => { ended = true; });
+  f.emit(); await tick();
+  assert.equal(ended, false); assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.some(([method]) => method === "Page.stopScreencast" || method === "detach"), false);
+  assert.throws(() => f.beginView(), /OBU_HUMAN_BUSY/); assert.throws(() => f.begin(), /OBU_HUMAN_BUSY/);
+  capture.resolve({ data: "c2NyZWVuc2hvdC1vbmx5" }); await stopping.promise;
+  assert.equal(ended, false); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  stop.resolve(); await detaching.promise; await tick();
+  assert.equal(ended, false); assert.throws(() => f.beginView(), /OBU_HUMAN_BUSY/);
+  detach.resolve(); await assert.rejects(beginning, /Rendered action was cancelled because tab control ended/); await closing;
+  assert.equal(f.calls.filter(([method]) => method === "Page.captureScreenshot").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "detach").length, 1);
+  assert.equal(f.listeners.size, 0); assertViewOnly(f); f.control.assertReleased();
+});
+
+test("view navigation joins the original hidden surface capture and stop before starting its next epoch", async t => {
+  const capture = defer(), captured = defer(), nextCaptured = defer(), stop = defer(), stopping = defer(); let captures = 0, stops = 0;
+  const f = fixture({ frames: false, command: method => {
+    if (method === "Page.captureScreenshot") {
+      if (++captures === 1) { captured.resolve(); return capture.promise; }
+      nextCaptured.resolve(); return { data: "c2NyZWVuc2hvdC1vbmx5" };
+    }
+    if (method === "Page.stopScreencast" && ++stops === 1) { stopping.resolve(); return stop.promise; }
+  } });
+  t.after(async () => { capture.resolve(); stop.resolve(); await f.control.revokeView(); });
+  const beginning = f.beginView(); beginning.catch(() => {}); await captured.promise;
+  const original = f.control.current, epoch = original.epoch, leaseId = original.leaseId;
+  f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed"); f.emit(); await tick();
+  assert.equal(epoch.retired, true); assert.equal(epoch.cleaned, undefined); assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1);
+  assert.equal(stops, 0); assert.equal(captures, 1); assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  capture.resolve({ data: "c2NyZWVuc2hvdC1vbmx5" }); await stopping.promise; await tick();
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 1); assert.equal(captures, 1);
+  stop.resolve(); await nextCaptured.promise; await tick();
+  assert.equal(epoch.cleaned, true); assert.equal(f.control.current, original); assert.equal(original.leaseId, leaseId);
+  assert.equal(original.generation, 2); assert.equal(f.frames.length, 0);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 2);
+  assert.equal(f.calls.filter(([method]) => method === "attach").length, 1);
+  assert.equal(f.calls.some(([method]) => method === "detach"), false);
+  f.emit(); const handle = await beginning;
+  assert.equal(handle.info().leaseId, leaseId); assert.equal(f.frames.length, 1); assert.equal(f.frames[0].generation, 2);
+  await handle.close(); assert.equal(stops, 2); assertViewOnly(f); f.control.assertReleased();
+});
+
+test("view hidden surface capture queued before generation retirement fails its final native guard", async t => {
+  const nextCaptured = defer(); let queued, retired, requests = 0;
+  const f = fixture({ frames: false, command: method => { if (method === "Page.captureScreenshot") nextCaptured.resolve(); } });
+  const send = f.control.send;
+  f.control.send = function (...args) {
+    const actual = send.apply(this, args);
+    if (args[1] === "Page.captureScreenshot" && ++requests === 1) {
+      queued = actual; retired = args[0].epoch;
+      // Retire after the owner's send queues its actual microtask, before the
+      // native call. Returning the same Promise keeps its real failure visible.
+      actual.catch(() => {});
+      f.changeDocument(); f.control.navigation(7, { frameId: 0 }, "committed");
+    }
+    return actual;
+  };
+  t.after(() => f.control.revokeView());
+  const beginning = f.beginView(); beginning.catch(() => {}); await nextCaptured.promise;
+  await assert.rejects(queued, /OBU_HUMAN_GENERATION_STALE/);
+  assert.equal(retired.retired, true); assert.equal(retired.cleaned, true); assert.equal(requests, 2);
+  assert.equal(f.calls.filter(([method]) => method === "Page.captureScreenshot").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.stopScreencast").length, 1);
+  assert.equal(f.calls.filter(([method]) => method === "Page.startScreencast").length, 2);
+  assert.equal(f.frames.length, 0);
+  f.emit(); const handle = await beginning;
+  assert.equal(handle.info().generation, 2); assert.equal(f.frames.length, 1);
+  await handle.close(); assertViewOnly(f); f.control.assertReleased();
+});
+
 test("view mode shares original native frames without Pause, input, focus or durable input risk", async () => {
   const forbidden = () => assert.fail("view acquired human authority");
   const f = fixture({ pause: forbidden, markRisk: forbidden, clearRisk: forbidden });

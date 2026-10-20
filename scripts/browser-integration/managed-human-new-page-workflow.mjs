@@ -20,6 +20,62 @@ export function managedHumanNewPageVariant(scenario, mode, trigger, value) {
   return variant;
 }
 
+export function managedHumanParentReadonlyEnabled(scenario, mode, trigger, variant, nativeTrace, value) {
+  assert.ok(value === undefined || value === "0" || value === "1", "OBU_TEST_HUMAN_PARENT_READONLY must be 0 or 1");
+  if (value === "1") {
+    assert.equal(scenario, "new-page"); assert.equal(mode, "acceptance");
+    assert.equal(trigger, "window-open"); assert.equal(variant, "parent-navigate");
+    assert.equal(nativeTrace, false, "Readonly parent acceptance cannot use instrumented native tracing");
+  }
+  return value === "1";
+}
+
+export function assertManagedHumanParentReadonly(row) {
+  assert.equal(row.parentReadonly, true); assert.equal(row.variant, "parent-navigate");
+  const value = row.parentSwitch, observed = value.readonly, lease = value.selected.view;
+  assert.equal(value.endSelector, "#human-end"); assert.equal(value.beginSelector, "#human-begin");
+  assert.equal(value.selected.human, null); assert.equal(value.selected.status.state, "paused");
+  assert.equal(lease.state, "active"); assert.equal(lease.tabId, row.tabId); assert.ok(lease.leaseId); assert.ok(lease.generation > 0);
+  assert.deepEqual(observed.lease, lease);
+  assert.deepEqual(observed.commandsBeforeBegin, [value.selectRequest]);
+  assert.ok(observed.completedAt >= value.selectCompletedAt); assert.ok(value.beginRequest.at >= observed.completedAt);
+  const { frame, decoded, screenshot } = observed;
+  assert.equal(frame.controlMode, "user-view"); assert.equal(frame.humanLeaseId, undefined);
+  assert.equal(frame.tabId, row.tabId); assert.equal(frame.viewLeaseId, lease.leaseId); assert.equal(frame.generation, lease.generation);
+  assert.equal(frame.connection, value.selectRequest.connection); assert.ok(frame.at >= value.selectRequest.at);
+  assert.ok(frame.streamId); assert.ok(Number.isSafeInteger(frame.sequence) && frame.sequence > 0);
+  assert.ok(Number.isFinite(frame.metadata.monotonicTimestamp) && frame.metadata.monotonicTimestamp > 0);
+  assert.match(frame.file, /^native-frame-\d{4}\.png$/); assert.match(frame.sha256, /^[a-f0-9]{64}$/);
+  assert.ok(frame.bytes > 24); assert.equal(observed.savedSHA256, frame.sha256); assert.equal(observed.savedBytes, frame.bytes);
+  assert.equal(decoded.controlMode, "user-view"); assert.equal(decoded.viewLeaseId, lease.leaseId); assert.equal(decoded.humanLeaseId, "");
+  assert.equal(decoded.streamId, frame.streamId); assert.equal(Number(decoded.frameSequence), frame.sequence);
+  assert.equal(Number(decoded.generation), frame.generation); assert.equal(Number(decoded.eventSequence), frame.eventSequence);
+  assert.equal(decoded.hidden, false); assert.equal(decoded.complete, true);
+  assert.equal(decoded.width, frame.width); assert.equal(decoded.height, frame.height);
+  assert.equal(frame.width, lease.viewport.width); assert.equal(frame.height, lease.viewport.height);
+  assert.ok(observed.decodedAt >= frame.at); assert.ok(screenshot.at >= observed.decodedAt); assert.ok(observed.completedAt >= screenshot.at);
+  assert.equal(screenshot.file, "viewer-parent-readonly-before-begin.png"); assert.match(screenshot.sha256, /^[a-f0-9]{64}$/); assert.ok(screenshot.bytes > 24);
+  assert.equal(observed.state.human, null); assert.deepEqual(observed.state.view, lease); assert.equal(observed.state.selectedTabId, row.tabId);
+  const messages = observed.messagesBeforeBegin;
+  assert.equal(messages.filter(message => message.type === "response" && message.id === value.selectRequest.id).length, 1);
+  assert.ok(messages.filter(message => message.type === "state" || message.type === "response").every(message => !(message.type === "state" ? message : message.result)?.human));
+  assert.ok(messages.some(message => message.type === "frame" && message.connection === frame.connection && message.streamId === frame.streamId && message.sequence === frame.sequence && message.sha256 === frame.sha256));
+  const document = observed.document, original = row.parentNavigated, native = observed.native;
+  returnedParent(row, document); assert.equal(document.documentId, original.documentId);
+  assert.equal(document.hasFocus, false); assert.equal(document.visibilityState, "hidden");
+  assert.equal(original.hasFocus, false); assert.equal(original.visibilityState, "hidden");
+  assert.equal(original.native.tab.active, false);
+  assert.equal(native.targets.length, 1); assert.equal(native.targets[0].id, original.native.targets[0].id); assert.equal(native.targets[0].tabId, row.tabId);
+  assert.equal(native.tab.id, row.tabId); assert.equal(native.tab.active, false);
+  for (const key of ["windowId", "groupId", "pinned"]) assert.equal(native.tab[key], original.native.tab[key]);
+  assert.equal(typeof original.native.window.focused, "boolean");
+  for (const key of ["id", "type", "state", "focused"]) assert.equal(native.window[key], original.native.window[key], `readonly preserves window ${key}`);
+  const root = native.frames.filter(frame => frame.frameId === 0); assert.equal(root.length, 1);
+  assert.equal(root[0].documentId, original.documentId); assert.equal(root[0].url, original.url);
+  return { originalReadonlyFrame: true, leaseId: lease.leaseId, streamId: frame.streamId, sequence: frame.sequence,
+    sha256: frame.sha256, documentId: document.documentId, targetId: native.targets[0].id, beforeBegin: true };
+}
+
 function sameDocument(before, after, callbacks = []) {
   assert.ok(before.documentId); assert.equal(after.documentId, before.documentId);
   assert.equal(after.frameId, before.frameId); assert.equal(after.url, before.url);
@@ -311,6 +367,7 @@ export async function runManagedHumanNewPageAcceptance(f, row) {
   }
   row.parentSwitch = {}; Object.assign(row.parentSwitch, await f.switchPage(row.tabId, row.parentSwitch, row.childClosed));
   row.parentSwitch.proof = assertManagedHumanNewPageSwitch(row.parentSwitch, row.childSwitch.lease, row.tabId, row.variant === "parent-navigate", row.childClosed);
+  if (row.parentReadonly) row.parentReadonlyProof = assertManagedHumanParentReadonly(row);
   row.parentReturned = await f.waitParent(row.tabId, row.parentNavigated?.documentId ?? row.original.documentId);
   returnedParent(row, row.parentReturned);
   if (row.parentNavigated) { assert.equal(row.parentReturned.documentId, row.parentNavigated.documentId); assert.equal(row.parentReturned.state.documentToken, row.parentNavigated.state.documentToken); }
@@ -333,6 +390,7 @@ export async function runManagedHumanNewPageAcceptance(f, row) {
   row.featurePassed = true;
   return row.proof = { classification: row.classification, featurePassed: true, diagnosticGapConfirmed: false,
     childTabId: row.sourceProof.childTabId, variant: row.variant ?? "standard", originalParentDraft: true, originalCallback: true,
+    ...(row.parentReadonly ? { originalParentReadonlyFrame: row.parentReadonlyProof.originalReadonlyFrame } : {}),
     ...(row.variant === "parent-navigate" ? { draftPreservation: "fixture application migrates its own draft through sessionStorage during callback navigation" } : {}),
     boundary: "Native source only locates the child. Explicit viewer selection retains the managed-browser page; SDK separately claims the original parent after Resume and a new turn. No full SSO or OS-focus claim." };
 }
@@ -355,6 +413,7 @@ export function assertManagedHumanNewPageTerminal(row, fixture, handoff) {
     assert.equal(hit.bodyBytes, Buffer.byteLength(JSON.stringify(expectedBody)));
     if (row.variant === "child-close") { assert.equal(hit.body, JSON.stringify(expectedBody)); assertManagedHumanNewPageClosed(row, row.childClosed); }
     assert.equal(row.proof.featurePassed, true); assertManagedHumanNewPageClaim(row);
+    if (row.parentReadonly) assertManagedHumanParentReadonly(row);
   }
   assert.equal(fixture.parentToken, row.original.state.documentToken); assert.equal(fixture.childToken, row.child.state.documentToken);
   if (accepted) returnedParent(row, row.finalParent); else sameDocument(row.original, row.finalParent);

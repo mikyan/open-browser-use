@@ -1,5 +1,46 @@
 # Browser integration acceptance
 
+## Managed page selection and native first-frame diagnosis
+
+Run `managed-human-check.mjs` with `OBU_TEST_HUMAN_SCENARIO=new-page`,
+`OBU_TEST_HUMAN_NEW_PAGE_MODE=acceptance`, and an exact matching host,
+extension, build manifest and Chromium binary. `OBU_TEST_HUMAN_NEW_PAGE_TRIGGER`
+selects `window-open` or `target-blank`. The optional
+`OBU_TEST_HUMAN_NEW_PAGE_VARIANT` selects `iframe`, `parent-navigate` or
+`child-close` with `window-open`; leave it unset for the standard workflow.
+These use the actual viewer's End, page selection, Begin and Resume controls,
+then the SDK claims and reads the original parent and completes the independent
+handoff fixture. The parent-navigation fixture migrates its own draft through
+sessionStorage; that behavior is not a Browser Use autosave guarantee.
+
+For the `acceptance` / `window-open` / `parent-navigate` configuration only,
+`OBU_TEST_HUMAN_NATIVE_TRACE=1` observes bounded, whitelisted original
+`chrome.debugger.sendCommand` sends and settlements plus native frame/lifecycle
+events in the existing worker. It preserves original arguments, receivers,
+Promise identities and errors; it adds no native command, business retry or
+readiness wait. It records neither image data, input text, URLs nor arbitrary
+error messages. Original Performance Timestamp, screencast wall time and
+monotonicTimestamp remain distinct fields. Side-chain observation can change
+scheduling, so this mode always reports `instrumented:true`, `passed:false`
+and `featurePassed:false`, even if the workflow completes; process exit 1 is
+therefore expected. `nativeTrace.traceComplete` only certifies the bounded
+ledger and restoration, not successful product behavior. Pending calls,
+overflow and projection/restore errors remain visible. Disable the trace for
+formal acceptance; preserve every failed run.
+
+For the same parent-navigation configuration, `OBU_TEST_HUMAN_PARENT_READONLY=1`
+uses ordinary End, parent selection and a separate Begin click. Before Begin it
+retains the original `user-view` PNG, requires its exact lease/generation/stream/
+sequence to decode in the real viewer, then captures the readonly viewer and
+checks the original parent document remains hidden, unfocused and inactive.
+The original browser window identity and state must remain unchanged; its
+logical `focused` value need not start false. This is not an OS foreground
+measurement. The viewer screenshot is not atomic with the earlier DOM read;
+exact first-frame pixels come from the saved native PNG and matching decode.
+If a later frame replaces that first frame before observation, the strict
+check fails rather than substituting it. This flag rejects native tracing and
+adds no artificial delay, input replay or controlled-page render command.
+
 ## Managed human clipboard return (Windows, experimental)
 
 Run `managed-human-check.mjs` with `OBU_TEST_HUMAN_SCENARIO=human-copy`,

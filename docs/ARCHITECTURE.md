@@ -169,7 +169,10 @@ debugger、history 和 tab groups。
   加入原清理，新租约或断线仍撤销旧调用。Go 显式释放取消未提交输入，
   已提交调用保留原 deadline 等待确切 native ACK，不重发；断线、Stop
   和未知失败保持原取消语义。跨站 iframe 开页与子页回调关闭已实测，
-  父页回调跨文档导航后的查看首帧仍有未解决失败。
+  只读 view 在原录屏启动 ACK 后仍未发布帧时，沿同一附件与队列请求一次
+  无 clip 的原生 surface 截图，让隐藏的新文档产生画面；截图内容不作为
+  查看帧或 ready 回执。原 TimeTicks 门禁、录屏 ACK、期限和真实清理不变，
+  不激活页面、不设置焦点；人工输入与默认录屏不启用此选项。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

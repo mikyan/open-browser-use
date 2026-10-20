@@ -10,7 +10,8 @@
 
 子页完成业务后自行关闭时，查看器先确认该原租约的实际清理，再允许选择
 父页并明确开始接管。跨站 iframe 发起的原生新顶层页也经过同一个显式选页
-入口。父页在回调后发生跨文档导航的返回流程仍有已知查看启动失败，尚未完成验收。
+入口。父页回调后跨文档导航的只读首帧已在本轮固定 Chromium 场景验证，
+随后可明确开始接管；具体证据和范围见下方“隐藏父页新文档首帧”。
 
 这里只列原独立 Browser 内的页面，不打开替代网址、不搬动或重新分组页面。
 页面 title、URL 和 opener 关系只用于展示或诊断；原生来源事件不授予 Agent
@@ -125,7 +126,7 @@ false。callback 后原 tab/target 已导航到新 document，夹具应用通过
 sessionStorage 迁移草稿，这不属于 Browser Use 自动保存草稿的能力。
 原 child End 成功，随后选择使用该回执提供的新令牌，父页也已出现新的
 result delivery；但查看保持“页面正在跳转”且没有取得首帧，select 最终
-返回 `OPERATION_UNCONFIRMED`。底层机制尚未确认，不能称为已解决，也
+返回 `OPERATION_UNCONFIRMED`。当时底层机制尚未确认，不能称为已解决，也
 不能用已保存结果、callback 成功或完整测试通过替代此流程验收。原结果
 SHA256：`e9f0e7eaca01f24939cd7e7ca15917bc7a644fe6b35f894ba64583d7be7f29ae`。
 
@@ -137,7 +138,62 @@ SHA256：`e9f0e7eaca01f24939cd7e7ca15917bc7a644fe6b35f894ba64583d7be7f29ae`。
 4,777 项制品独审、四资产回下载和 115 份本地副本核对通过；发布 EXE 未
 重跑原网页业务。完整 ZIP 10,690,643 字节，SHA256：
 `0dd0670934197da3195d932e7d54753ce05fde9d6e33f3c9235e1cc9efd2a27d`。
-公司 Edge 人工验收继续延期。复杂 SSO/MFA、更多 iframe 开页变体、父页回调导航及完整 Browser
+该包没有包含下述父页首帧修复。公司 Edge 人工验收继续延期。复杂 SSO/MFA、更多 iframe 开页变体及完整 Browser
 Use 能力对齐仍开放，不能由目前已通过的有限合成页面证明。
+
+## 隐藏父页新文档首帧
+
+旧产品增加原生命令诊断后的 `mnp-vY2HSC` 实际退出 1，保留原失败。
+208 条有界记录含 77 个原发送和 77 个成功结算，完整恢复包装且没有丢失。
+父页新文档的原 startScreencast 已 ACK，随后约 5 秒没有任何原录屏帧，
+原 stop 也已 ACK。这排除了本次“启动未回执”或“收到帧后被门禁丢弃”
+的解释，不能唯一证明 Chromium 内部的合成原因。526 项诊断独审通过；
+诊断运行始终 `instrumented:true`、`featurePassed:false`。
+原报告 SHA256：`66fb98f434b724701e55b047e33769f11b9b4b6eed49e27839e4b5d3dbaec8f7`。
+
+生产修复只为 fresh attachment 的只读 view 启用 `captureHiddenSurface`：
+原录屏 start ACK 后仍无已发布帧时，经原队列请求一次无 clip、fromSurface
+的 `Page.captureScreenshot`。不激活标签或设置焦点，不改几何、不重发输入。
+截图数据丢弃；只有原录屏事件通过原 TimeTicks 门禁并完成原 ACK 才可 ready。
+原五秒期限保持，失败、导航、取消后的实际 capture/stop/detach 仍参加清理，
+未结算的旧调用不能越过屏障污染后继。人工接管和默认录屏不启用此选项。
+
+固定 Chromium 156.0.8078.12 的
+[PageHandler](https://github.com/chromium/chromium/blob/634b046faf2137b83af71c87baf362b533af9104/content/browser/devtools/protocol/page_handler.cc)
+表明 surface capture 暂时请求 hidden capture；
+[WebContents](https://github.com/chromium/chromium/blob/634b046faf2137b83af71c87baf362b533af9104/content/browser/web_contents/web_contents_impl.cc)
+在仍隐藏时允许绘制。代码机制不代替实际新文档像素验收，也不保证其他版本或
+OS 前台行为。fresh view 无 device metrics override；截图不提供 clip。
+
+冻结构建 `mso-build-us4hu4yb` 的 470 份输入、80 份扩展、完整 Go test/vet
+和 3,195 项 Node 检查通过。rendering 35 项、human control 220 项覆盖
+原 ACK 前不 capture、迟到/挂起/取消、无时间戳及旧帧拒绝、失败 stop 与
+后继隔离。纯脚手架最终 84 项通过。构建 SHA256：
+`bffa05dc0dde8a58337e33449cd37a91fec7c1515199338d91365e9d3f79d55c`。
+
+默认自动切换 `mnp-uazoRV` 七步通过，382 项事件业务独审通过；它未保存
+父页只读阶段的 PNG，不能以稍后的 human 帧替代这项证据。新增普通 UI 的
+End → select → 只读首帧实际解码 → 独立 Begin 路径。首场 `mnp-yZ1Gwm`
+因脚手架错误要求整个窗口 focused=false 而退出 1。新旧原报告都显示此值
+在开子页后、选择父页前已为 true；页面保持 hidden/noFocus/inactive。
+只修检查为原窗口 id/type/state/focused 不变，保留布尔检查和页面隐藏门禁，
+增加变化反例。原报告和旧脚手架冻结不覆盖，也不将本次失败算成功。
+
+正式 `mnp-kpUpaB`（只读父页）与 `mnp-FCpwvq`（子页关闭回归）各七步
+实际退出 0，`featurePassed:true`，均绑定上述构建；原 callback 各一次、
+SDK 认领读取原父页、独立 handoff 唯一 POST、End/Resume/Stop 均通过。
+事件业务独审分别 408、361 项通过。原结果 SHA256 分别为：
+`072176ef10407e9d79da6be1b5a6878c3a79e01c3d3d0db8682f27939b31082e`、
+`f0fa0d1d21601c859fedfe538e979f99fbff7fce7becee8afc48dca873fbee1c`。
+
+只读场保存原 user-view 的 seq 1 PNG，绑定原 lease/generation/stream，
+实际查看器 DOM 解码身份一致，再保存只读截图，然后才独立 Begin。
+根 agent 目视原 PNG 和只读查看器：新标题、原草稿与 child-returned 内容
+正确。原 PNG SHA256 为
+`8f642caa6312152415781258e3951d75091623ec1dc247bff167ef73b2ba8b26`。
+前后页面 hidden、hasFocus=false、tab inactive，窗口原状态保持。
+这些是被动快照，不是完整 OS 焦点监控；查看器截图与此前 DOM 读取非原子，
+确切首帧以原 PNG 和对应解码身份为证。草稿迁移来自夹具应用 sessionStorage，
+不是产品自动保存能力。普通公司 Edge、真实 SSO/MFA 与完整能力对齐仍开放。
 
 执行记录见[本片计划](../exec-plans/active/2026-10-21-managed-human-pages.md)。

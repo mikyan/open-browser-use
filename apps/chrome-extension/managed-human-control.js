@@ -186,7 +186,7 @@ export class ManagedHumanControl {
     epoch.rendering = new BrowserRendering({ streams: new Map(), drains: record.drains,
       queue: (_tabId, operation) => { const next = queue.catch(() => {}).then(operation); queue = next; return next; },
       send: (_target, method, params, finalCheck) => this.send(record, method, params,
-        ["Page.enable", "Page.startScreencast"].includes(method) ? () => { this.checkGeneration(record, epoch); finalCheck?.(); } : undefined),
+        ["Page.enable", "Page.startScreencast", "Page.captureScreenshot"].includes(method) ? () => { this.checkGeneration(record, epoch); finalCheck?.(); } : undefined),
       addListener: listener => {
         const wrapped = (source, method, params) => { if (this.ownsSource(record, source)) listener({ tabId: record.tabId }, method, params); };
         epoch.listeners.set(listener, wrapped); this.chrome.debugger.onEvent.addListener(wrapped);
@@ -527,7 +527,11 @@ export class ManagedHumanControl {
           this.checkGeneration(record, epoch);
           epoch.start = epoch.rendering.subscribe(record.tabId, epoch.token,
             () => { if (!record.attached) throw fail("original debugger attachment ended", "UNAVAILABLE"); },
-            frame => this.frame(record, epoch, frame), { ...(record.mode === "human" ? { startupBudget: record.preparationBudget } : {}), acceptFrame: frame => {
+            frame => this.frame(record, epoch, frame), {
+              // View owns a fresh debugger attachment with no device metrics
+              // override; a clip-free surface copy preserves its viewport.
+              captureHiddenSurface: record.mode === "view",
+              ...(record.mode === "human" ? { startupBudget: record.preparationBudget } : {}), acceptFrame: frame => {
               if (epoch.retired || record.revoked) return false;
               this.checkGeneration(record, epoch);
               record.preparationBudget?.assertAvailable();
