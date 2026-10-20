@@ -1,0 +1,77 @@
+scripts/browser-integration/managed-human-ime.mjs
+  s_08bbfd293d324f::t_aac93d53cc8569 75-76,79-91,93,99,101-112
+  s_08bbfd293d324f::t_6d2e09b6465582 100
+  s_08bbfd293d324f::t_d636bbf1e739a1 7-74,77-78,113-114
+  s_08bbfd293d324f::t_12fa9b859d08cb 92,94-98
+  s_08bbfd293d324f::t_95846521c1aff2 117,119,125-136,147,149,154,164,171,211,216-220,223-224
+scripts/browser-integration/managed-human-ime.test.mjs
+  s_08bbfd293d324f::t_66b829b248081f 5,56-57,59-60,140-177,179-180,183-185
+  s_08bbfd293d324f::t_f93b80aad785a7 6-55,58,61-75
+  s_08bbfd293d324f::t_0ef7c8cc2db511 178,181-182,186-202
+  s_08bbfd293d324f::t_9b281c7dd918d4 203
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_be9c50fcc1fbbe 21-22
+  s_08bbfd293d324f::t_f2456c7ff9c48a 14-20,23-26,33,38
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_bd8d2eba0baecc 8,30,306,392-394,733-734,740-756,761,766-769,772-786,811,858,956,965-966,1030-1031,1035-1036,1038
+  s_08bbfd293d324f::t_5303006d8bd610 757-760,762-765,770-771,1039
+docs/exec-plans/completed/2026-10-21-managed-human-ime-presentation.md
+  s_08bbfd293d324f::t_a8363f0fb688f3 76
+  s_08bbfd293d324f::t_be9c50fcc1fbbe 1-75,77-94
+internal/managedviewer/ui/index.html
+  s_08bbfd293d324f::t_b51be0a41b9509 41,44
+docs/histories/2026-10/20261021-0650-managed-human-ime-presentation.md
+  s_08bbfd293d324f::t_ffcdab82dc7f5c 1-7,9-18,34-45
+  s_08bbfd293d324f::t_be9c50fcc1fbbe 8,19-33,46-47
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_93ee2ed8e644d2 22,391,403,429,432,434-445,447,452,456,459-463,465-469,472-475,477-483,665
+  s_08bbfd293d324f::t_10b6a2cc1b4f82 290,386,388-389,418-423,1203,1262-1266,1529
+  s_08bbfd293d324f::t_2fd7987f259860 1250-1253,1261,1275-1281,1283
+  s_08bbfd293d324f::t_a38d39199f7257 325,433,464,470-471,476,1282,1440
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_8f2d1d793766ff 172-175
+  s_08bbfd293d324f::t_09701e91f64db4 171
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_be9c50fcc1fbbe 16-18
+  s_08bbfd293d324f::t_f2456c7ff9c48a 10-15,19-21,32-34
+docs/references/managed-human-ime.md
+  s_08bbfd293d324f::t_8f2d1d793766ff 8-12,59
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_b51be0a41b9509 674
+  s_08bbfd293d324f::t_f76e9d42e8fcde 1695-1764,1776-1781,1786-1823
+  s_08bbfd293d324f::t_dfd5d479e6b900 1765-1775,1782-1785
+  s_08bbfd293d324f::t_5303006d8bd610 712,731-732
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_a8363f0fb688f3 7
+  s_08bbfd293d324f::t_f2456c7ff9c48a 8
+docs/references/README.md
+  s_08bbfd293d324f::t_8f2d1d793766ff 19-20
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_f2456c7ff9c48a 15-22,25-28,38
+  s_08bbfd293d324f::t_be9c50fcc1fbbe 23-24
+internal/managedviewer/ui/viewer.css
+  s_08bbfd293d324f::t_b51be0a41b9509 6
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_8f2d1d793766ff 11-15
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_8f2d1d793766ff 304-313
+docs/references/managed-human-ime-presentation.md
+  s_08bbfd293d324f::t_be9c50fcc1fbbe 57-60
+  s_08bbfd293d324f::t_8f2d1d793766ff 1-56,61-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "79206b3f7e347f9a692111c20518ea49afcdfa5f",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
