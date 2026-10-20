@@ -102,9 +102,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     channel.streamState = { state: "idle", streamId: null };
     if (!record) return Promise.resolve();
     record.retired = true;
-    if (publish && !channel.closed) {
-      try { emit(channel, { type: "clear", reason }); } catch { /* revoke already fenced delivery */ }
-    }
+    if (record.human) channel.retiredHuman = record;
     if (!record.closing) record.closing = trackCleanup((async () => {
       let handle;
       try { handle = await record.started; }
@@ -121,6 +119,10 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         if (record.human) channel.humanCleanup = { leaseId: info.leaseId, cleanupConfirmed: true };
       }
     })());
+    // A reentrant receiver must see the original cleanup Promise before Clear.
+    if (publish && !channel.closed) {
+      try { emit(channel, { type: "clear", reason }); } catch { /* revoke already fenced delivery */ }
+    }
     return record.closing;
   }
   function revoke(channel, reason, publish = true) {
@@ -422,6 +424,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     const record = { tabId, tab, view: tab.kind === "result", retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null,
       handle: null, earlyFrame: null, earlyState: null, leaseGeneration: 0 };
     channel.stateEpoch++;
+    channel.retiredHuman = null;
     channel.stream = record; channel.selectedTabId = tabId;
     channel.streamState = { state: "starting", streamId: null };
     const authority = () => {
@@ -475,6 +478,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     assertSelection(channel, epoch);
     tab = retained.tab; deliveryId = tab.deliveryId;
     const record = { human: true, tabId, tab, retired: false, streamId: null, lastFrameSequence: 0, started: null, closing: null, handle: null, earlyFrame: null, earlyState: null, leaseGeneration: 0 };
+    channel.retiredHuman = null;
     channel.stateEpoch++; channel.stream = record; channel.selectedTabId = tabId;
     channel.streamState = { state: "starting", streamId: null };
     const authority = () => {
@@ -622,7 +626,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     if (operation === "disconnect") {
       return disconnectedStatus(channel);
     }
-    let inputReceipt, dialogReceipt, fileResult, checkClipboardPublication, pageSelectionReceipt;
+    let inputReceipt, dialogReceipt, fileResult, checkClipboardPublication, pageSelectionReceipt, checkRetiredHuman;
     if (fileOperation) {
       const envelope = Object.fromEntries([...extra, ...optional].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
       validateHumanFileRequest(envelope, fileOperation);
@@ -690,10 +694,23 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
         };
       }
     } else if (operation === "humanEnd") {
-      const record = channel.stream;
+      const record = channel.stream ?? channel.retiredHuman;
       if (!record?.human || !record.handle || record.handle.info().leaseId !== value.leaseId) throw failure("HUMAN_STALE", "original human lease is no longer active");
-      await retireStream(channel, "human control finished");
+      if (channel.stream === record) await retireStream(channel, "human control finished");
+      else {
+        // Native page closure retires publication before its actual cleanup.
+        // The same lease may join that original close; it never ends a successor.
+        checkRetiredHuman = () => {
+          assertCurrent(channel);
+          if (channel.stream || channel.retiredHuman !== record || record.handle.info().leaseId !== value.leaseId)
+            throw failure("HUMAN_STALE", "original retired human lease was superseded");
+        };
+        checkRetiredHuman();
+        await record.closing;
+        checkRetiredHuman();
+      }
       await Promise.all([...cleanup]);
+      checkRetiredHuman?.();
       if (cleanupFailure) throw failure("CLEANUP", "human cleanup is unconfirmed");
     } else if (operation === "humanBegin") {
       const epoch = channel.selectionEpoch;
@@ -737,6 +754,7 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
     // Status collection can cross a navigation or End. Publish clipboard text
     // only after that final asynchronous boundary, keeping the original ACK.
     checkClipboardPublication?.();
+    checkRetiredHuman?.();
     return { status: currentStatus, ...(inputReceipt ? { inputReceipt } : {}), ...(dialogReceipt ? { dialogReceipt } : {}),
       ...(pageSelectionReceipt ? { pageSelectionReceipt } : {}), ...fileResult };
   }

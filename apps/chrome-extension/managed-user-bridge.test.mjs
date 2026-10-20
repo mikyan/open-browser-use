@@ -1619,3 +1619,178 @@ test("catalog drain failure remains a cleanup barrier for channel replacement", 
   await assert.rejects(f.request("disconnect"), /cleanup unconfirmed/);
   await assert.rejects(f.open({ channelKey: "b".repeat(64) }), /CLEANUP/);
 });
+
+async function closedOriginal(t) {
+  const f = humanFixture(t);
+  await f.open(); await f.begin();
+  f.humanCloseGate = deferred();
+  f.liveTabs = [];
+  const child = f.humans[0];
+  const realClose = child.handle.close();
+  await flush();
+  assert.ok(f.events.some(event => event.type === "clear"));
+  const state = (await f.request("status")).status;
+  assert.equal(state.human, null);
+  assert.equal(state.selectedTabId, null);
+  assert.equal(state.cleanupPending, 1);
+  assert.equal(state.humanCleanup, undefined);
+  return { f, child, realClose };
+}
+
+test("native child close lets exact humanEnd wait for actual cleanup and return its receipt", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  let settled = false;
+  const result = f.request("humanEnd", { leaseId: child.info.leaseId }).then(value => { settled = true; return value; }, error => { settled = true; throw error; });
+  result.catch(() => {});
+  await flush();
+  assert.equal(settled, false, "exact retired lease End must join actual original close, not reject immediately");
+  f.humanCloseGate.resolve(); await realClose;
+  const response = await result;
+  assert.deepEqual(response.status.humanCleanup, { leaseId: child.info.leaseId, cleanupConfirmed: true });
+  assert.equal(response.status.cleanupPending, 0);
+  assert.equal(response.status.human, null);
+});
+
+test("unknown retired lease is rejected without starting another close", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  await assert.rejects(f.request("humanEnd", { leaseId: "unknown" }), /HUMAN_STALE/);
+  assert.equal(child.closeCalls, 1);
+  f.humanCloseGate.resolve(); await realClose;
+});
+test("concurrent exact End joins one actual close and repeated cleanup preserves exact receipt", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  const requests = [f.request("humanEnd", { leaseId: child.info.leaseId }), f.request("humanEnd", { leaseId: child.info.leaseId })];
+  let settled = 0; for (const request of requests) request.then(() => settled++, () => settled++);
+  await flush(); assert.equal(settled, 0); assert.equal(child.closeCalls, 1);
+  f.humanCloseGate.resolve(); await realClose;
+  for (const result of await Promise.all(requests)) assert.deepEqual(result.status.humanCleanup, { leaseId: child.info.leaseId, cleanupConfirmed: true });
+  const repeated = await f.request("humanEnd", { leaseId: child.info.leaseId });
+  assert.deepEqual(repeated.status.humanCleanup, { leaseId: child.info.leaseId, cleanupConfirmed: true });
+  assert.equal(child.closeCalls, 1);
+});
+test("failed actual cleanup never manufactures a retired release receipt", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  f.humanCleanupError = new Error("original cleanup failed");
+  const result = f.request("humanEnd", { leaseId: child.info.leaseId });
+  const rejected = assert.rejects(result, /original cleanup failed/);
+  realClose.catch(() => {});
+  f.humanCloseGate.resolve(); await rejected;
+  const state = (await f.request("status")).status;
+  assert.equal(state.humanCleanup, undefined);
+  assert.match(state.cleanupError, /original cleanup failed/);
+});
+test("a new human lease prevents old End from touching its owner", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  f.humanCloseGate.resolve(); await realClose; await flush();
+  f.liveTabs = [{ id: 7, title: "Parent", url: "https://example.test/parent" }];
+  await f.begin();
+  await assert.rejects(f.request("humanEnd", { leaseId: child.info.leaseId }), /HUMAN_STALE/);
+  assert.equal(f.humans[1].closeCalls, 0);
+  assert.equal((await f.request("status")).status.human.leaseId, "human-2");
+});
+test("a new selected view prevents old End from touching its owner", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  f.humanCloseGate.resolve(); await realClose; await flush();
+  f.liveTabs = [{ id: 7, title: "Parent", url: "https://example.test/parent" }];
+  await f.request("select", { tabId: 7 });
+  await assert.rejects(f.request("humanEnd", { leaseId: child.info.leaseId }), /HUMAN_STALE/);
+  assert.equal(f.subscriptions.at(-1).closeCalls, 0);
+  assert.equal((await f.request("status")).status.selectedTabId, 7);
+});
+test("disconnect while retired End is awaiting cleanup revokes its publication", async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  const result = f.request("humanEnd", { leaseId: child.info.leaseId });
+  const rejected = assert.rejects(result, /CLOSED/);
+  const disconnected = f.request("disconnect");
+  f.humanCloseGate.resolve(); await realClose; await rejected; await disconnected;
+});
+test("actual native input receipt survives original child closure in bridge", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const child = f.humans[0], native = deferred();
+  child.handle.input = envelope => { child.pending = native.promise; return native.promise.then(() => ({ leaseId: envelope.leaseId, generation: envelope.generation, sequence: envelope.sequence, acknowledged: true })); };
+  const result = f.input(1); await flush();
+  const realClose = child.handle.close(); await flush();
+  const end = f.request("humanEnd", { leaseId: child.info.leaseId });
+  native.resolve();
+  const original = await result; await realClose; const released = await end;
+  assert.deepEqual(original.inputReceipt, { leaseId: child.info.leaseId, generation: 1, sequence: 1, acknowledged: true });
+  assert.deepEqual(released.status.humanCleanup, { leaseId: child.info.leaseId, cleanupConfirmed: true });
+});
+
+for (const successor of ["human", "view"]) test(`retired End response cannot cross a new ${successor} admitted during status read`, async t => {
+  const { f, child, realClose } = await closedOriginal(t);
+  f.humanCloseGate.resolve(); await realClose; await flush();
+  const readEntered = deferred(), readReturned = deferred();
+  const original = f.backend.getManagedViewerTabs;
+  let first = true;
+  f.backend.getManagedViewerTabs = async (...args) => {
+    if (first) { first = false; readEntered.resolve(); await readReturned.promise; }
+    return original(...args);
+  };
+  const end = f.request("humanEnd", { leaseId: child.info.leaseId });
+  const rejected = assert.rejects(end, /HUMAN_STALE/);
+  await readEntered.promise;
+  f.liveTabs = [{ id: 7, title: "Parent", url: "https://example.test/parent" }];
+  if (successor === "human") await f.begin(); else await f.request("select", { tabId: 7 });
+  readReturned.resolve(); await rejected;
+  assert.equal((await f.request("status")).status.selectedTabId, 7);
+  assert.equal(successor === "human" ? f.humans[1].closeCalls : f.subscriptions.at(-1).closeCalls, 0);
+});
+test("actual native input rejection survives child closure without a manufactured ACK", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const child = f.humans[0], native = deferred();
+  child.handle.input = () => { child.pending = native.promise; return native.promise; };
+  const result = f.input(1); const rejected = assert.rejects(result, /actual native target closed/); await flush();
+  const realClose = child.handle.close(); await flush();
+  const end = f.request("humanEnd", { leaseId: child.info.leaseId });
+  native.reject(new Error("actual native target closed"));
+  await rejected; await realClose;
+  const released = await end;
+  assert.equal(released.inputReceipt, undefined);
+  assert.deepEqual(released.status.humanCleanup, { leaseId: child.info.leaseId, cleanupConfirmed: true });
+});
+
+for (const failCleanup of [false, true]) test(`reentrant exact End joins original actual cleanup (${failCleanup ? "reject" : "resolve"})`, async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const child = f.humans[0]; f.humanCloseGate = deferred();
+  if (failCleanup) f.humanCleanupError = new Error("original cleanup failed");
+  let reentrant, outcome = "pending";
+  const push = f.events.push;
+  f.events.push = function(event) {
+    const value = push.call(this, event);
+    if (event.type === "clear" && !reentrant) {
+      reentrant = f.request("humanEnd", { leaseId: child.info.leaseId });
+      reentrant.then(() => { outcome = "resolved"; }, () => { outcome = "rejected"; });
+    }
+    return value;
+  };
+  const actual = child.handle.close(); actual.catch(() => {});
+  await flush();
+  assert.ok(reentrant, "Clear must trigger the same original End synchronously");
+  assert.equal(outcome, "pending", "End must join actual original cleanup rather than await null or return early");
+  f.humanCloseGate.resolve();
+  if (failCleanup) { await assert.rejects(actual, /original cleanup failed/); await assert.rejects(reentrant, /original cleanup failed/); }
+  else {
+    await actual; const result = await reentrant;
+    assert.deepEqual(result.status.humanCleanup, { leaseId: child.info.leaseId, cleanupConfirmed: true });
+    assert.equal(result.status.cleanupPending, 0);
+  }
+  assert.equal(child.closeCalls, 1);
+});
+test("reentrant disconnect joins original cleanup already registered before Clear", async t => {
+  const f = humanFixture(t); await f.open(); await f.begin();
+  const child=f.humans[0]; f.humanCloseGate=deferred();
+  let disconnected, settled=false;
+  const push=f.events.push;
+  f.events.push=function(event) {
+    const value=push.call(this,event);
+    if(event.type === "clear" && !disconnected) { disconnected=f.request("disconnect"); disconnected.then(()=> {settled=true;},()=> {settled=true;}); }
+    return value;
+  };
+  const actual=child.handle.close(); await flush();
+  assert.ok(disconnected); assert.equal(settled,false);
+  f.humanCloseGate.resolve(); await actual;
+  const result=await disconnected;
+  assert.equal(result.status.connected,false);
+  assert.deepEqual(result.status.humanCleanup,{leaseId:child.info.leaseId,cleanupConfirmed:true});
+});

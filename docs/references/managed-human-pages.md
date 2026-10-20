@@ -8,6 +8,10 @@
 该页；普通“完成接管”只结束当前租约。最终 Resume 仍须明确点击，Agent
 在新轮次重新认领原页面后才能继续任务。
 
+子页完成业务后自行关闭时，查看器先确认该原租约的实际清理，再允许选择
+父页并明确开始接管。跨站 iframe 发起的原生新顶层页也经过同一个显式选页
+入口。父页在回调后发生跨文档导航的返回流程仍有已知查看启动失败，尚未完成验收。
+
 这里只列原独立 Browser 内的页面，不打开替代网址、不搬动或重新分组页面。
 页面 title、URL 和 opener 关系只用于展示或诊断；原生来源事件不授予 Agent
 控制权。普通安装的个人浏览器不会获得此目录。
@@ -37,6 +41,12 @@ IDB 事务完成是提交事实。调用者之后失联时，仍有效的原页�
 等待 journal 清理。逻辑取消不替代原 Chrome 读取、提交或撤销的实际结算。
 Resume 不得跨尚未结束的选页操作。当前人工页面的目录展示使用原租约元数据，
 避免只读刷新撤销正在导航的结果。
+
+原生关页撤销画面发布前，桥接先保留确切 `record.closing`。同一原租约的
+End 可以加入该实际清理 Promise；新选择、新接管或断线后的旧 End 仍拒绝，
+清理失败不能由后来状态改称成功。Go 将显式 End、Pause 或取消选择造成的
+输入撤销与断线区分：未提交输入取消，已经提交的原调用沿原 deadline 等待
+确切 native ACK，不重发、不延长期限。Stop、断线及未知失败保持原取消语义。
 
 ## 验证状态
 
@@ -77,9 +87,52 @@ target/window/placement 保持；独立 handoff 另有一次唯一业务 POST。
 生命周期报告 SHA256：`09453698be0903429bdf2e48b320a0f29bb4c500a1ee7ba77b4eec976ae6b495`、
 `b2bc1e0fa711c8068b266ab8238cbdbb5dc0ca685dfe803576cbc937b45ed767`。
 
+随后增加 91 项纯脚手架检查和三个显式变体。旧产品的 `mnp-u7zi86` 实际
+退出 1：原可信 callback 已成功，子页确实关闭，但原 up 与自动 End 都返回
+`OPERATION_UNCONFIRMED`，后来清理状态成功不能覆盖这次失败。72 项失败
+清理独审确认原记录、27 个原进程退出及资源清理；原失败完整保留。
+
+修复上述桥接退休清理和 Go 已提交输入回执后，桥接 118 项及 Go 定向检查
+通过。全新 `mso-build-5hq5mhv0` 绑定 470 份输入、80 份扩展，完整 Go
+test/vet 和 3,175 项 Node 通过；构建 SHA256：
+`46fa5346371d2338605de789e76f30c6181a4f2946a9c72458ce095d9d3122e4`。
+
+该构建的 `mnp-rFuyoq`（child-close）和 `mnp-sCc9Xa`（iframe）各七步
+实际退出 0、featurePassed true。关闭场由原可信点击提交 callback，实际
+响应后立即 window.close，没有为 ACK 增加延时；原 tab/target 消失和原
+清理确认后，用户明确选择父页及 Begin。iframe 场核对原跨站 frame 的
+document、真实点击和到顶层画面的坐标投影。两轮都返回原父文档，经
+End/Resume/新轮次和 SDK 原页认领读取，再完成独立唯一 POST 与 Stop。
+两场原结果 SHA256：
+`453d7b16000953316f457eb3565ba584d819ef4d74b33592cab6e8b82727ee13`、
+`684fbb5c5249bbd2542f47ee9a4ec25d75b6afd652576779b2d1f32fc1c52c4d`。
+
+两场事件/业务独审各 353 项通过；来源/生命周期分别 3,871、3,875 项，
+核对 980 份原快照、80 份扩展、26 份 SDK，28/30 个原进程均退出，51/52
+张 PNG 解码，Job、注册、管道和 endpoint 清理完成。根 agent 目视关闭后
+父页及 iframe 子页截图，原文字、工具栏和切换入口正常。每轮五次 End 与
+实际业务输入回执成功；两个 End 后的负探针按预期拒绝。关闭实测中的 up ACK
+先于 close，不能声称现场覆盖了
+迟到 ACK 分支，该分支由定向测试证明。关闭场保留 198 字节原 callback
+正文；iframe 场保留 116 字节计数、回执和可信 DOM，未保留原正文抓包。
+事件报告 SHA256：`266811fb7f62aec1c9b993eef2931fbbf27589f4a97115337847d340fa70a3e4`、
+`9fa2dd7bf876328056b685cb9a1b59d0fdc38119c47e57c436c702fe58f92e34`；
+生命周期报告 SHA256：`79ee726cbfac177b88409bd6d17f4e0dffe98865cb9b5334db64a799fe330dc5`、
+`a556059bf382ef9ff3c029af4e14c806c705d682397ef8de8b30edf8bc68d738`。
+
+同构建 `mnp-OxVElx` 的 parent-navigate 首场实际退出 1、featurePassed
+false。callback 后原 tab/target 已导航到新 document，夹具应用通过
+sessionStorage 迁移草稿，这不属于 Browser Use 自动保存草稿的能力。
+原 child End 成功，随后选择使用该回执提供的新令牌，父页也已出现新的
+result delivery；但查看保持“页面正在跳转”且没有取得首帧，select 最终
+返回 `OPERATION_UNCONFIRMED`。底层机制尚未确认，不能称为已解决，也
+不能用已保存结果、callback 成功或完整测试通过替代此流程验收。原结果
+SHA256：`e9f0e7eaca01f24939cd7e7ca15917bc7a644fe6b35f894ba64583d7be7f29ae`。
+
 新功能尚未发布；当前可下载包仍为
 [preview-20261021-5b3d2f4](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-5b3d2f4)。
-公司 Edge 人工验收继续延期。复杂 SSO/MFA、所有 iframe 开页变体、父页回调
-导航、子页关闭回传及完整 Browser Use 能力对齐不能由这两种合成页面证明。
+用户已再次请求打包；新制品发布确认后再更新链接。公司 Edge 人工验收继续
+延期。复杂 SSO/MFA、更多 iframe 开页变体、父页回调导航及完整 Browser
+Use 能力对齐仍开放，不能由目前已通过的有限合成页面证明。
 
 执行记录见[本片计划](../exec-plans/active/2026-10-21-managed-human-pages.md)。

@@ -21,6 +21,11 @@ const MaxCommandBytes = 32 << 10
 // channel; this local cause is never proof of a native acknowledgement.
 var ErrHumanGenerationRetired = errors.New("human input generation retired")
 
+// ErrHumanLeaseRetired cancels unsent input when the viewer requests release.
+// An already submitted input still owns its original receipt and deadline.
+// Connection loss and unknown failures must not use this cause.
+var ErrHumanLeaseRetired = errors.New("human input lease retired")
+
 func HumanFields(operation string) []string {
 	switch operation {
 	case "humanBegin":

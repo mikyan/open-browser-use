@@ -12,6 +12,14 @@ export function managedHumanNewPageMode(scenario, value) {
   return value ?? "diagnostic";
 }
 
+export function managedHumanNewPageVariant(scenario, mode, trigger, value) {
+  if (value !== undefined) assert.equal(scenario, "new-page");
+  const variant = value === undefined ? "standard" : value;
+  assert.ok(["standard", "iframe", "parent-navigate", "child-close"].includes(variant));
+  if (variant !== "standard") { assert.equal(mode, "acceptance"); assert.equal(trigger, "window-open"); }
+  return variant;
+}
+
 function sameDocument(before, after, callbacks = []) {
   assert.ok(before.documentId); assert.equal(after.documentId, before.documentId);
   assert.equal(after.frameId, before.frameId); assert.equal(after.url, before.url);
@@ -27,23 +35,31 @@ export function assertManagedHumanNewPageSource(row) {
   assert.equal(observerAfter.events.length, 1, "Only one original native child is evidence; absence is not a gap proof");
   const event = observerAfter.events[0], details = event.details;
   assert.equal(event.sequence, observerReady.readySequence + 1);
-  assert.equal(details.sourceTabId, row.tabId); assert.equal(details.sourceFrameId, original.frameId);
+  const source = row.sourceOriginal ?? original, sourceAfter = row.sourceAfterClick ?? afterClick;
+  assert.equal(details.sourceTabId, row.tabId); assert.equal(details.sourceFrameId, source.frameId);
   assert.ok(Number.isSafeInteger(details.sourceProcessId) && details.sourceProcessId >= 0);
   assert.ok(Number.isFinite(details.timeStamp)); assert.equal(details.url, urls.child);
   assert.ok(Number.isSafeInteger(details.tabId) && details.tabId >= 0 && details.tabId !== row.tabId);
   assert.equal(nativeBefore.targets.length, 1); assert.equal(nativeAfter.targets.length, 1);
   assert.equal(nativeAfter.targets[0].id, nativeBefore.targets[0].id);
   assert.equal(nativeBefore.targets[0].tabId, row.tabId); assert.equal(nativeAfter.targets[0].tabId, row.tabId);
-  const before = nativeBefore.frames.filter(frame => frame.frameId === original.frameId), after = nativeAfter.frames.filter(frame => frame.frameId === original.frameId);
+  const before = nativeBefore.frames.filter(frame => frame.frameId === source.frameId), after = nativeAfter.frames.filter(frame => frame.frameId === source.frameId);
   assert.equal(before.length, 1); assert.equal(after.length, 1);
-  assert.equal(before[0].frameId, 0); assert.equal(before[0].documentId, original.documentId);
-  assert.equal(after[0].documentId, original.documentId); assert.equal(after[0].url, before[0].url);
+  assert.equal(before[0].documentId, source.documentId);
+  assert.equal(after[0].documentId, source.documentId); assert.equal(after[0].url, before[0].url);
+  if (row.variant === "iframe") {
+    assert.ok(source.frameId > 0); assert.equal(source.state.role, "source-frame"); assert.equal(source.url, urls.frame);
+    assert.notEqual(new URL(source.url).origin, new URL(original.url).origin);
+    const rootBefore = nativeBefore.frames.find(frame => frame.frameId === 0), rootAfter = nativeAfter.frames.find(frame => frame.frameId === 0);
+    assert.equal(rootBefore.documentId, original.documentId); assert.equal(rootAfter.documentId, original.documentId);
+    assert.deepEqual(afterClick.state.events, []); sameDocument(source, sourceAfter);
+  } else assert.equal(before[0].frameId, 0);
   if (before[0].processId >= 0) assert.equal(details.sourceProcessId, before[0].processId);
   if (after[0].processId >= 0) assert.equal(details.sourceProcessId, after[0].processId);
   sameDocument(original, afterClick); assert.equal(original.state.role, "parent");
-  assert.deepEqual(original.state.events, []);
-  assert.deepEqual(afterClick.state.events.map(e => e.type), ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]);
-  for (const e of afterClick.state.events) {
+  assert.deepEqual(original.state.events, []); assert.deepEqual(source.state.events, []);
+  assert.deepEqual(sourceAfter.state.events.map(e => e.type), ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]);
+  for (const e of sourceAfter.state.events) {
     assert.equal(e.trusted, true); assert.equal(e.button, 0);
     assert.equal(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey, false);
   }
@@ -58,7 +74,7 @@ export function assertManagedHumanNewPageSource(row) {
   }
   assert.equal(pointer[1].sequence, pointer[0].sequence + 1);
   return { childTabId: details.tabId, sourceTabId: row.tabId, sourceFrameId: details.sourceFrameId,
-    sourceProcessId: details.sourceProcessId, sourceDocumentId: original.documentId, sourceTargetId: nativeBefore.targets[0].id,
+    sourceProcessId: details.sourceProcessId, sourceDocumentId: source.documentId, sourceTargetId: nativeBefore.targets[0].id,
     eventSequence: event.sequence, nativeTimeStamp: details.timeStamp, inputRequestIds: pointer.map(command => command.id) };
 }
 
@@ -99,16 +115,23 @@ async function prepareOriginalChild(f, row) {
   row.featurePassed = false; row.classification = "not-observed";
   row.tabId = await f.createParent(row.urls.parent);
   row.original = await f.read(row.tabId); row.nativeBefore = await f.native(row.tabId);
+  if (row.variant === "iframe") { row.sourceOriginal = await f.readSource(row.tabId, row.urls.frame); row.nativeBefore = await f.native(row.tabId); }
   row.observerInstall = await f.installObserver(); row.observerReady = await f.register(row.tabId);
   await f.select(row.tabId); row.begin = await f.begin(); row.firstFrame = await f.frame(row.begin.human);
   row.lease = f.state().human; assert.equal(row.lease.tabId, row.tabId);
   row.measured = await f.read(row.tabId, row.original.documentId); sameDocument(row.original, row.measured);
-  row.point = await f.point(row.measured.point);
+  if (row.variant === "iframe") {
+    row.sourceMeasured = await f.read(row.tabId, row.sourceOriginal.documentId); sameDocument(row.sourceOriginal, row.sourceMeasured);
+    const frame = row.measured.point, control = row.sourceMeasured.point;
+    assert.ok(control.x >= 0 && control.y >= 0 && control.x + control.width <= frame.width && control.y + control.height <= frame.height);
+    row.point = await f.point({ ...control, x: frame.x + control.x, y: frame.y + control.y });
+  } else row.point = await f.point(row.measured.point);
   row.positionCommands = await f.position(row.point);
   row.commands = await f.click(row.point); row.replies = f.messages();
   try { row.observerAfter = await f.waitCreated(row.tabId); }
   catch (error) { row.observerAfter = await f.trace(); row.classification = "native-child-unobserved"; throw error; }
   row.nativeAfter = await f.native(row.tabId); row.afterClick = await f.read(row.tabId, row.original.documentId);
+  if (row.variant === "iframe") row.sourceAfterClick = await f.read(row.tabId, row.sourceOriginal.documentId);
   row.sourceProof = assertManagedHumanNewPageSource(row);
   row.child = await f.waitChild(row.sourceProof.childTabId, row.urls.child);
   row.childNative = await f.native(row.sourceProof.childTabId);
@@ -140,11 +163,34 @@ function ended(lease, result, request) {
   assert.deepEqual(result.humanCleanup, { leaseId: lease.leaseId, cleanupConfirmed: true });
 }
 
-export function assertManagedHumanNewPageSwitch(value, oldLease, tabId, requireChoice = false) {
-  ended(oldLease, value.end, value.endRequest);
+export function assertManagedHumanNewPageClosed(row, value) {
+  assert.equal(row.variant, "child-close");
+  assert.equal(value.status.human, null); assert.equal(value.status.view, null);
+  assert.equal(value.status.status.state, "paused"); assert.equal(value.status.status.cleanupComplete, true);
+  assert.equal(value.status.viewerCleanupComplete, true);
+  assert.deepEqual(value.status.humanCleanup, { leaseId: row.childSwitch.lease.leaseId, cleanupConfirmed: true });
+  assert.equal(value.native.tabId, row.sourceProof.childTabId); assert.equal(value.native.targetId, row.childNative.targets[0].id);
+  assert.deepEqual(value.native.tabs, []); assert.deepEqual(value.native.targets, []);
+  assert.ok(value.observedAt >= value.callbackReceivedAt); assert.ok(value.message.at >= value.callbackReceivedAt);
+  assert.deepEqual(value.message.type === "state" ? value.message : value.message.result, value.status);
+  assert.ok(!value.status.tabs.some(tab => tab.id === row.sourceProof.childTabId));
+  assert.ok(Array.isArray(value.endReplies)); assert.ok(value.endReplies.every(reply => !reply.error)); assert.equal(value.viewerErrors, "");
+  for (const command of value.commands.filter(command => command.operation === "humanEnd")) {
+    assert.equal(command.leaseId, row.childSwitch.lease.leaseId);
+    const replies = value.endReplies.filter(reply => reply.id === command.id && reply.connection === command.connection); assert.equal(replies.length, 1);
+    ended(row.childSwitch.lease, replies[0].result, command);
+  }
+  return { leaseId: row.childSwitch.lease.leaseId, originalTabClosed: true, originalTargetClosed: true, cleanupConfirmed: true };
+}
+
+export function assertManagedHumanNewPageSwitch(value, oldLease, tabId, requireChoice = false, closed = null) {
+  if (closed) {
+    assert.equal(value.end, undefined); assert.equal(value.endRequest, undefined);
+    assert.ok(value.selectionReadyAt >= closed.observedAt); assert.deepEqual(value.closedCleanup, closed.status.humanCleanup);
+  } else ended(oldLease, value.end, value.endRequest);
   const request = value.selectRequest;
   assert.equal(request.operation, "select"); assert.equal(request.tabId, tabId);
-  assert.ok(request.at >= value.endCompletedAt);
+  assert.ok(request.at >= (closed ? value.selectionReadyAt : value.endCompletedAt));
   assert.ok(value.options.some(option => option.value === String(tabId)));
   const choice = value.status.tabs.find(tab => tab.id === tabId); assert.ok(choice);
   assert.equal(value.status.human, null); assert.equal(value.status.status.state, "paused");
@@ -168,7 +214,22 @@ export function assertManagedHumanNewPageSwitch(value, oldLease, tabId, requireC
   assert.notEqual(value.lease.leaseId, oldLease.leaseId);
   assert.ok(value.lease.generation > 0); assert.equal(value.frame.humanLeaseId, value.lease.leaseId);
   return { originalLeaseId: oldLease.leaseId, newLeaseId: value.lease.leaseId, tabId,
-    endRequestId: value.endRequest.id, selectRequestId: request.id, beginRequestId: value.beginRequest.id };
+    ...(closed ? { closedCleanup: value.closedCleanup } : { endRequestId: value.endRequest.id }), selectRequestId: request.id, beginRequestId: value.beginRequest.id };
+}
+
+function returnedParent(row, value) {
+  if (row.variant === "parent-navigate") {
+    assert.equal(value.frameId, 0); assert.ok(value.documentId); assert.notEqual(value.documentId, row.original.documentId);
+    assert.equal(value.url, row.urls.returnedParent); assert.equal(value.state.role, "parent-returned");
+    assert.notEqual(value.state.documentToken, row.original.state.documentToken);
+    assert.equal(value.state.previousDocumentToken, row.original.state.documentToken);
+    assert.equal(value.state.key, row.original.state.key); assert.equal(value.state.overflow, false);
+    assert.equal(value.draft, row.original.draft); assert.deepEqual(value.state.callbacks, [row.callback]); assert.deepEqual(value.state.events, []);
+    if (row.parentReturned) { assert.equal(value.documentId, row.parentReturned.documentId); assert.equal(value.state.documentToken, row.parentReturned.state.documentToken); }
+  } else {
+    sameDocument(row.original, value, [row.callback]); assert.deepEqual(value.state.events, row.afterClick.state.events);
+  }
+  assert.equal(value.state.waitState, "returned");
 }
 
 function stableNative(before, after, tabId) {
@@ -183,12 +244,11 @@ function stableNative(before, after, tabId) {
 export function assertManagedHumanNewPageClaim(row) {
   const value = row.agent;
   assert.equal(row.resume.status.state, "running"); assert.ok(value.startedAt >= row.newTurnCompletedAt);
-  assert.equal(value.receipt.id, row.tabId); assert.equal(value.receipt.url, row.urls.parent); assert.ok(value.claimCompletedAt >= value.startedAt);
+  assert.equal(value.receipt.id, row.tabId); assert.equal(value.receipt.url, row.variant === "parent-navigate" ? row.urls.returnedParent : row.urls.parent); assert.ok(value.claimCompletedAt >= value.startedAt);
   assert.ok(value.readStartedAt >= value.claimCompletedAt); assert.ok(value.readCompletedAt >= value.readStartedAt);
   stableNative(value.beforeNative, value.afterNative, row.tabId);
   assert.equal(value.beforeNative.targets[0].id, row.nativeBefore.targets[0].id);
-  sameDocument(row.original, value.before, [row.callback]); sameDocument(row.original, value.after, [row.callback]);
-  assert.deepEqual(value.before.state.events, row.afterClick.state.events); assert.deepEqual(value.after.state.events, row.afterClick.state.events);
+  returnedParent(row, value.before); returnedParent(row, value.after);
   assert.deepEqual(value.state, value.after.state); assert.equal(value.draft, row.original.draft);
   assert.equal(value.state.waitState, "returned");
   return { tabId: row.tabId, targetId: value.afterNative.targets[0].id, documentId: value.after.documentId,
@@ -203,11 +263,17 @@ export function assertManagedHumanNewPageInputs(row, all, replies) {
     assert.deepEqual(inputs, scope.inputs, "Full original lease includes no late or extra input");
     for (const command of inputs) {
       const matching = replies.filter(reply => reply.type === "response" && reply.id === command.id && reply.connection === command.connection);
-      assert.equal(matching.length, 1); assert.equal(matching[0].error, undefined);
-      assert.deepEqual(matching[0].result.inputReceipt, { leaseId: command.leaseId, generation: command.generation, sequence: command.sequence, acknowledged: true });
+      assert.equal(matching.length, 1);
+      if (matching[0].error) {
+        assert.equal(row.variant, "child-close"); assert.equal(scope.lease.leaseId, row.childSwitch.lease.leaseId);
+        assert.equal(command.input.action, "up"); assert.equal(command.input.type, "pointer");
+        assert.ok(["HUMAN_STALE", "HUMAN_UNAVAILABLE"].includes(matching[0].error.code));
+        assertManagedHumanNewPageClosed(row, row.childClosed);
+      } else assert.deepEqual(matching[0].result.inputReceipt, { leaseId: command.leaseId, generation: command.generation, sequence: command.sequence, acknowledged: true });
     }
   }
-  return scopes.map(scope => ({ leaseId: scope.lease.leaseId, requestIds: scope.inputs.map(input => input.id) }));
+  return scopes.map(scope => ({ leaseId: scope.lease.leaseId, requestIds: scope.inputs.map(input => input.id),
+    ...(row.variant === "child-close" ? { results: scope.inputs.map(input => { const reply = replies.find(value => value.type === "response" && value.id === input.id && value.connection === input.connection); return { requestId: input.id, ...(reply.error ? { acknowledged: false, error: reply.error } : { acknowledged: true }) }; }) } : {}) }));
 }
 
 export async function runManagedHumanNewPageAcceptance(f, row) {
@@ -219,38 +285,55 @@ export async function runManagedHumanNewPageAcceptance(f, row) {
   row.childBeforeClick = await f.read(row.sourceProof.childTabId, row.child.documentId);
   assert.deepEqual(row.childBeforeClick.state, row.child.state);
   row.childPoint = await f.point(row.childBeforeClick.point);
-  row.childPositionCommands = await f.position(row.childPoint); row.childCommands = await f.click(row.childPoint);
+  row.childPositionCommands = await f.position(row.childPoint); row.childCommands = row.variant === "child-close" ? await f.clickClosing(row.childPoint) : await f.click(row.childPoint);
   assert.deepEqual(row.childCommands.map(command => command.input.action), ["down", "up"]);
   for (const command of row.childCommands) {
     assert.equal(command.input.type, "pointer"); assert.equal(command.input.button, "left"); assert.equal(command.input.modifiers, 0);
     assert.equal(command.leaseId, row.childSwitch.lease.leaseId); assert.equal(command.generation, row.childSwitch.lease.generation);
   }
-  row.childAfterClick = await f.waitCallback(row.sourceProof.childTabId, row.child.documentId);
-  row.callback = row.childAfterClick.state.receipt;
+  if (row.variant === "child-close") {
+    row.callbackObservation = await f.waitClosedCallback(); row.callback = row.callbackObservation.receipt;
+    row.childClosed = await f.waitClosed(row, row.callbackObservation.receivedAt);
+    row.childClosed.proof = assertManagedHumanNewPageClosed(row, row.childClosed);
+  } else {
+    row.childAfterClick = await f.waitCallback(row.sourceProof.childTabId, row.child.documentId);
+    row.callback = row.childAfterClick.state.receipt;
+    assert.deepEqual(row.childAfterClick.state.events, [{ type: "click", trusted: true }]); assert.equal(row.childAfterClick.state.submitted, true);
+  }
   assert.deepEqual(row.callback, { key: row.original.state.key, documentToken: row.child.state.documentToken, sequence: 1 });
-  assert.deepEqual(row.childAfterClick.state.events, [{ type: "click", trusted: true }]); assert.equal(row.childAfterClick.state.submitted, true);
-  row.childScreenshot = await f.screenshot("viewer-original-child-returned.png");
-  row.parentSwitch = {}; Object.assign(row.parentSwitch, await f.switchPage(row.tabId, row.parentSwitch));
-  row.parentSwitch.proof = assertManagedHumanNewPageSwitch(row.parentSwitch, row.childSwitch.lease, row.tabId);
-  row.parentReturned = await f.waitParent(row.tabId, row.original.documentId);
-  sameDocument(row.original, row.parentReturned, [row.callback]); assert.deepEqual(row.parentReturned.state.events, row.afterClick.state.events);
+  row.childScreenshot = await f.screenshot(row.variant === "child-close" ? "viewer-original-child-closed.png" : "viewer-original-child-returned.png");
+  if (row.variant === "parent-navigate") {
+    row.parentNavigated = await f.waitNavigatedParent(row.tabId, row.urls.returnedParent);
+    returnedParent(row, row.parentNavigated);
+    assert.equal(row.parentNavigated.native.targets.length, 1); assert.equal(row.parentNavigated.native.targets[0].id, row.nativeBefore.targets[0].id);
+    assert.equal(row.parentNavigated.native.targets[0].tabId, row.tabId);
+    for (const key of ["windowId", "groupId", "pinned"]) assert.equal(row.parentNavigated.native.tab[key], row.nativeBefore.tab[key]);
+  }
+  row.parentSwitch = {}; Object.assign(row.parentSwitch, await f.switchPage(row.tabId, row.parentSwitch, row.childClosed));
+  row.parentSwitch.proof = assertManagedHumanNewPageSwitch(row.parentSwitch, row.childSwitch.lease, row.tabId, row.variant === "parent-navigate", row.childClosed);
+  row.parentReturned = await f.waitParent(row.tabId, row.parentNavigated?.documentId ?? row.original.documentId);
+  returnedParent(row, row.parentReturned);
+  if (row.parentNavigated) { assert.equal(row.parentReturned.documentId, row.parentNavigated.documentId); assert.equal(row.parentReturned.state.documentToken, row.parentNavigated.state.documentToken); }
   row.parentScreenshot = await f.screenshot("viewer-original-parent-returned.png");
   row.end = await f.end(); row.endRequest = f.lastCommand("humanEnd"); ended(row.parentSwitch.lease, row.end, row.endRequest);
-  row.released = await f.read(row.tabId, row.original.documentId);
-  sameDocument(row.original, row.released, [row.callback]); assert.deepEqual(row.released.state.events, row.afterClick.state.events);
-  row.childAfterEnd = await f.read(row.sourceProof.childTabId, row.child.documentId);
-  assert.equal(row.childAfterEnd.documentId, row.child.documentId); assert.deepEqual(row.childAfterEnd.state, row.childAfterClick.state);
-  row.childNativeAfterEnd = await f.native(row.sourceProof.childTabId);
-  originalChild(row, row.childAfterEnd, row.childNativeAfterEnd, true); assert.equal(row.childNativeAfterEnd.targets[0].id, row.childNative.targets[0].id);
+  row.released = await f.read(row.tabId, row.parentReturned.documentId); returnedParent(row, row.released);
+  if (row.variant === "child-close") row.childAbsentAfterEnd = await f.closedNative(row);
+  else {
+    row.childAfterEnd = await f.read(row.sourceProof.childTabId, row.child.documentId);
+    assert.equal(row.childAfterEnd.documentId, row.child.documentId); assert.deepEqual(row.childAfterEnd.state, row.childAfterClick.state);
+    row.childNativeAfterEnd = await f.native(row.sourceProof.childTabId);
+    originalChild(row, row.childAfterEnd, row.childNativeAfterEnd, true); assert.equal(row.childNativeAfterEnd.targets[0].id, row.childNative.targets[0].id);
+  }
   row.resume = await f.resume(); assert.equal(row.resume.status.state, "running");
   row.newTurn = await f.newTurn(); row.newTurnCompletedAt = Date.now();
-  row.agent = {}; Object.assign(row.agent, await f.claimAndRead(row.tabId, row.original.documentId, row.agent));
+  row.agent = {}; Object.assign(row.agent, await f.claimAndRead(row.tabId, row.parentReturned.documentId, row.agent));
   row.agentProof = assertManagedHumanNewPageClaim(row);
   row.observerAfterResume = await f.trace(); assert.deepEqual(row.observerAfterResume.events, row.observerAfter.events);
   row.classification = "explicit-user-selection-original-child-and-parent";
   row.featurePassed = true;
   return row.proof = { classification: row.classification, featurePassed: true, diagnosticGapConfirmed: false,
-    childTabId: row.sourceProof.childTabId, originalParentDraft: true, originalCallback: true,
+    childTabId: row.sourceProof.childTabId, variant: row.variant ?? "standard", originalParentDraft: true, originalCallback: true,
+    ...(row.variant === "parent-navigate" ? { draftPreservation: "fixture application migrates its own draft through sessionStorage during callback navigation" } : {}),
     boundary: "Native source only locates the child. Explicit viewer selection retains the managed-browser page; SDK separately claims the original parent after Resume and a new turn. No full SSO or OS-focus claim." };
 }
 
@@ -258,25 +341,37 @@ export function assertManagedHumanNewPageTerminal(row, fixture, handoff) {
   const accepted = row.mode === "acceptance";
   assert.equal(fixture.overflow, false); assert.equal(fixture.closed, true); assert.equal(fixture.pendingReads, 0);
   assert.deepEqual(fixture.callback, accepted ? row.callback : null); assert.equal(fixture.requests.filter(hit => hit.method === "POST").length, accepted ? 1 : 0);
-  for (const suffix of ["/parent", "/child", "/await-return"]) {
+  for (const suffix of ["/parent", "/child", "/await-return", ...(row.variant === "iframe" ? ["/frame"] : []), ...(row.variant === "parent-navigate" ? ["/parent-returned"] : [])]) {
     const hits = fixture.requests.filter(hit => hit.path.endsWith(suffix)); assert.equal(hits.length, 1);
     assert.equal(hits[0].method, "GET");
     if (accepted || suffix !== "/await-return") { assert.equal(hits[0].status, 200); assert.equal(hits[0].finished, true); assert.equal(hits[0].aborted, false); }
   }
-  assert.equal(fixture.requests.length, accepted ? 4 : 3);
+  assert.equal(fixture.requests.length, (accepted ? 4 : 3) + (["iframe", "parent-navigate"].includes(row.variant) ? 1 : 0));
   if (accepted) {
     const hit = fixture.requests.find(hit => hit.method === "POST"); assert.ok(hit.path.endsWith("/callback"));
     assert.equal(hit.status, 200); assert.equal(hit.finished, true); assert.equal(hit.aborted, false); assert.deepEqual(hit.receipt, row.callback);
-    assert.equal(hit.bodyBytes, Buffer.byteLength(JSON.stringify({ key: row.original.state.key, documentToken: row.child.state.documentToken, trusted: true })));
+    const expectedBody = { key: row.original.state.key, documentToken: row.child.state.documentToken, trusted: true,
+      ...(row.variant === "child-close" ? { events: [{ type: "click", trusted: true }], submitted: true, closeRequested: true } : {}) };
+    assert.equal(hit.bodyBytes, Buffer.byteLength(JSON.stringify(expectedBody)));
+    if (row.variant === "child-close") { assert.equal(hit.body, JSON.stringify(expectedBody)); assertManagedHumanNewPageClosed(row, row.childClosed); }
     assert.equal(row.proof.featurePassed, true); assertManagedHumanNewPageClaim(row);
   }
   assert.equal(fixture.parentToken, row.original.state.documentToken); assert.equal(fixture.childToken, row.child.state.documentToken);
-  sameDocument(row.original, row.finalParent, accepted ? [row.callback] : []); assert.deepEqual(row.finalParent.state.events, row.released.state.events);
-  assert.deepEqual(row.finalChild.state, row.childAfterEnd.state); assert.equal(row.finalChild.documentId, row.child.documentId);
+  if (accepted) returnedParent(row, row.finalParent); else sameDocument(row.original, row.finalParent);
+  assert.deepEqual(row.finalParent.state.events, row.released.state.events);
   assert.equal(row.finalParentNative.targets.length, 1); assert.equal(row.finalParentNative.targets[0].id, row.nativeBefore.targets[0].id);
-  originalChild(row, row.finalChild, row.finalChildNative, accepted); assert.equal(row.finalChildNative.targets[0].id, row.childNative.targets[0].id);
+  if (row.variant === "child-close") {
+    assert.deepEqual(row.finalChildAbsent, row.childClosed.native); assert.deepEqual(row.childAbsentAfterEnd, row.childClosed.native);
+    assert.equal(row.finalChild, undefined); assert.equal(row.finalChildNative, undefined);
+  } else {
+    assert.deepEqual(row.finalChild.state, row.childAfterEnd.state); assert.equal(row.finalChild.documentId, row.child.documentId);
+    originalChild(row, row.finalChild, row.finalChildNative, accepted); assert.equal(row.finalChildNative.targets[0].id, row.childNative.targets[0].id);
+  }
+  if (row.variant === "iframe") { sameDocument(row.sourceOriginal, row.finalSource); assert.deepEqual(row.finalSource.state.events, row.sourceAfterClick.state.events); assert.equal(fixture.frameToken, row.sourceOriginal.state.documentToken); }
+  if (row.variant === "parent-navigate") assert.equal(fixture.returnedParentToken, row.finalParent.state.documentToken);
   assert.equal(row.observerFinal.closed, true); assert.equal(row.observerFinal.listenerPresent, false); assert.equal(row.observerFinal.overflow, false);
   assert.deepEqual(row.observerFinal.events, row.observerAfter.events);
   assert.equal(handoff.requests.filter(hit => hit.method === "POST").length, 1, "The independent handoff has exactly one original POST");
-  return { childCallbackPOSTs: accepted ? 1 : 0, independentHandoffPOSTs: 1, originalParentRetained: true, originalChildRetained: true };
+  return { childCallbackPOSTs: accepted ? 1 : 0, independentHandoffPOSTs: 1, originalParentRetained: true, originalChildRetained: row.variant !== "child-close",
+    ...(row.variant === "child-close" ? { originalChildClosed: true, originalCleanupConfirmed: true } : {}), ...(row.variant === "parent-navigate" ? { originalParentNewDocument: true } : {}) };
 }

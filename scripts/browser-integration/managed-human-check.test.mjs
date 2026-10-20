@@ -23,6 +23,14 @@ test("new-page acceptance needs original SDK claim and final callback ledger as 
   for (const key of ["proof", "agentProof", "terminalProof"]) { const broken = structuredClone(detail); delete broken[key]; assert.equal(managedNewPageDiagnosticOutcome(true, broken).featurePassed, false); }
 });
 
+test("variant failure and native-close cleanup failure cannot be promoted to product acceptance", () => {
+  for (const variant of ["iframe", "parent-navigate", "child-close"]) {
+    const detail = { mode: "acceptance", variant, proof: { featurePassed: true }, agentProof: { originalPlacementPreserved: true }, terminalProof: { childCallbackPOSTs: 1 } };
+    assert.equal(managedNewPageDiagnosticOutcome(false, detail).featurePassed, false);
+    delete detail.terminalProof; assert.equal(managedNewPageDiagnosticOutcome(true, detail).featurePassed, false);
+  }
+});
+
 test("viewer page choices preserve exact IDs without accepting combined or malformed identities", () => {
   for (const operation of ["select", "humanBegin"]) {
     const command = { id: 10, operation, tabId: 20, pageSelectionId: "original-page-choice" };

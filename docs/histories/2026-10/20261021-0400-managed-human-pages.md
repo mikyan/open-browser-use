@@ -4,7 +4,9 @@
 
 持续推进 Browser Use 能力对齐，使用用户 fork，不新增 Pi 适配、不提 PR。
 此前明确请求的新包已交付为 preview-20261021-5b3d2f4；本轮继续开发人工
-接管中新窗口的接续，不自动重发包。公司 Edge 人工验收继续延期。
+接管中新窗口的接续。用户随后再次要求新包，准备交付已验证的新增功能并
+明确父页回调导航的已知限制；发布确认前仍以旧包为当前可下载版本。
+公司 Edge 人工验收继续延期。
 
 ## 改动和原因
 
@@ -31,6 +33,13 @@ Go、桥接和 UI 固定 pageSelectionVersion，选择令牌与 deliveryId 互�
 Go managedprotocol/managedbrowser/managedviewer，以及正式查看器和六个
 new-page 验收文件。完整合同与证据见[人工新页面选择](../../references/managed-human-pages.md)。
 
+后续 child-close 首场揭示原生关页已完成，但桥接先撤销 stream 再处理同租约
+自动 End，导致真实清理与原 End 错误矛盾。桥接现在先登记实际 close Promise，
+确切退休租约可加入原清理；后继选择/接管、断线和实际清理失败仍阻止成功。
+Go 为显式释放增加专用取消原因，已提交输入继续等待同一调用的原 native ACK
+与原 deadline，不重新发送或用页面业务成功补造 ACK。未提交输入、断线、
+Stop 和其他失败仍按原方式撤销。
+
 ## 验证
 
 扩展相关 77 项、桥接 104 项、UI 219 项及三个 Go 包定向检查通过；验收
@@ -48,5 +57,23 @@ SHA256 为 `4fb0b4a16d65f2d6628a42cc449fa753cd4e287200d68da2729a7ffeba205bc3`。
 管道清理通过，无强制终止。原 SDK await 结果和服务器精确 callback 验值
 构成业务证据，未另做 IPC 或原正文抓包。精确报告摘要见上述参考说明。
 
-尚未发布本功能；iframe 发起开页、父页回调导航、子页关闭回传、复杂 SSO、
-公司 Edge 和完整能力对齐仍开放，本片计划保持 active。
+新增三个变体的 91 项纯检查通过，保留 null 配置默认值与 iframe mock 矩形
+两次脚手架失败；未为验收改变关闭速度。桥接 118 项及 Go 定向检查通过。
+新 mso-build-5hq5mhv0 绑定 470 输入/80 扩展，完整 Go test/vet、3,175
+项 Node 通过。旧 child-close mnp-u7zi86 实际退出 1，原 up/End 错误及
+其后真实清理保留，72 项失败清理独审通过，不能当成功验收。
+
+新 child-close mnp-rFuyoq 和 iframe mnp-sCc9Xa 各七步实际退出 0。
+子页可信 callback、原 page 身份、真实清理和显式返父页、原 SDK 后续、
+独立唯一 POST 与 Stop 均通过。事件独审各 353 项，来源/生命周期独审
+3,871/3,875 项，28/30 原进程退出、51/52 PNG 解码、原资源清理通过。
+根 agent 目视原截图，工具栏与回传内容正常。关闭场保留 198 字节原正文，
+iframe 场只有原 116 字节计数、回执和可信 DOM；不声称原正文抓包。关闭
+实测 up ACK 先于 close，迟到 ACK 代码分支的证据仅为定向测试。
+
+parent-navigate mnp-OxVElx 首场实际退出 1。原父 tab/target 与新的文档
+身份已确认，child End 和新选择令牌正确，结果登记已完成；查看未取得首帧，
+select 最后返回 OPERATION_UNCONFIRMED。底层机制尚未确认。该夹具用
+sessionStorage 迁移应用草稿，不能归功于 Browser Use 自动保存。此失败不
+阻止交付另外两项已验变体，但不能标记导航返回流程完成。父页回调导航、
+更多 iframe/SSO 组合、公司 Edge 和完整能力对齐仍开放，本片计划保持 active。

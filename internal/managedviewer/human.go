@@ -109,7 +109,18 @@ func (c *connection) admitInput(request command) string {
 }
 
 func (c *connection) revokeHuman() {
+	c.revokeHumanWithInputCause(nil)
+}
+
+func (c *connection) revokeHumanForRelease() {
+	c.revokeHumanWithInputCause(managedprotocol.ErrHumanLeaseRetired)
+}
+
+func (c *connection) revokeHumanWithInputCause(cause error) {
 	c.controlMu.Lock()
+	if cause != nil && c.inputCancel != nil {
+		c.inputCancel(cause)
+	}
 	pending := c.revokeHumanLocked()
 	c.controlMu.Unlock()
 	c.rejectRevokedInputs(pending)

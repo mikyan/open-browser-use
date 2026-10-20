@@ -26,7 +26,7 @@ import { createManagedMultiClickFixture, readManagedMultiClickDocument } from ".
 import { humanMultiClickCases, managedMultiClickMode, installManagedMultiClickObserver, nativeMultiClickGesture, assertManagedMultiClickCase, assertManagedMultiClickLedger, assertManagedMultiClickTerminal } from "./managed-human-multi-click-workflow.mjs";
 import { installCreatedPageObserver } from "./created-page-provenance.mjs";
 import { createManagedHumanNewPageFixture, readManagedHumanNewPageDocument } from "./managed-human-new-page-fixture.mjs";
-import { managedHumanNewPageTrigger, managedHumanNewPageMode, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageInputs, assertManagedHumanNewPageTerminal } from "./managed-human-new-page-workflow.mjs";
+import { managedHumanNewPageTrigger, managedHumanNewPageMode, managedHumanNewPageVariant, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageInputs, assertManagedHumanNewPageTerminal } from "./managed-human-new-page-workflow.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -288,6 +288,7 @@ export async function runManagedHumanCheck() {
   const multiClickMode = managedMultiClickMode(scenario, process.env.OBU_TEST_HUMAN_MULTI_CLICK_MODE);
   const newPageTrigger = managedHumanNewPageTrigger(scenario, process.env.OBU_TEST_HUMAN_NEW_PAGE_TRIGGER);
   const newPageMode = managedHumanNewPageMode(scenario, process.env.OBU_TEST_HUMAN_NEW_PAGE_MODE);
+  const newPageVariant = managedHumanNewPageVariant(scenario, newPageMode, newPageTrigger, process.env.OBU_TEST_HUMAN_NEW_PAGE_VARIANT);
   const clipboardRejection = managedCopyRejectionEnabled(scenario, process.env.OBU_TEST_HUMAN_CLIPBOARD_REJECTION);
   const paste = scenario === "local-paste", ime = scenario === "ime", keyboard = scenario === "keyboard", keyRepeat = scenario === "key-repeat", humanCopy = scenario === "human-copy", multiClick = scenario === "multi-click", newPage = scenario === "new-page", explicitEnd = paste || ime || keyboard || keyRepeat || humanCopy || multiClick || newPage;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
@@ -306,7 +307,7 @@ export async function runManagedHumanCheck() {
       : keyboard ? "Production managed viewer native Enter/Shift+Enter/NumpadEnter editing, prevented default, one original implicit form POST; independent original handoff POST, held-Shift End, explicit Resume and Stop. No OS input, clipboard, task CDP input or business replay."
       : multiClick ? `Production managed viewer receives original native mouse down/up counts 1/2/3. Original textarea word/line selection, trusted task dblclick, exact input receipts, End/Resume and independent original handoff one POST/Stop. No task input injection, selection mutation, OS mouse or business replay. Mode=${multiClickMode}; baseline completion is not feature acceptance.`
       : newPage ? newPageMode === "diagnostic" ? `Diagnostic only: one real viewer click (${newPageTrigger}) opens a cross-site native child. Passive native source event, original parent/child documents and authoritative viewer inventory are observed without arming a waiter, adopting a child, or injecting task/child input. The untouched child cannot callback; the independent original handoff still performs its one POST after End/Resume. No OS input or personal profile. Completion is not feature acceptance or proof of window focus behavior.`
-        : `Production viewer explicit page switching (${newPageTrigger}): native cross-site child, original End cleanup, user selection receipt and automatic Begin, one trusted child callback, return to original parent with unsaved draft, End/Resume/new turn and public SDK claim/read of that original parent, independent handoff POST and Stop. Native opener provenance only locates; selection grants authority. No task/child input injection, URL reopening, OS input, personal profile or full SSO/OS-focus claim.`
+        : `Production viewer explicit page switching (${newPageTrigger}/${newPageVariant}): native cross-site child, original cleanup, user selection receipt and Begin, one trusted child callback, return to original parent, End/Resume/new turn and public SDK claim/read, independent handoff POST and Stop. The parent-navigate fixture explicitly migrates its own draft through sessionStorage; that is application behavior. Native opener provenance only locates; selection grants authority. No task/child input injection, URL reopening, OS input, personal profile or full SSO/OS-focus claim.`
       : "Production managed human UI, one original synthetic form and one final SDK POST; separate nonbusiness explicit-release page; original viewer WebSocket disconnect with held inputs; no real credentials, OS input, input retry, or extra task page CDP attachment" };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
@@ -314,7 +315,7 @@ export async function runManagedHumanCheck() {
   let copyTab, repeatTab, keyboardTab, multiClickTab, oldTaskTab, oldTaskAuthority, freshTaskTab, original, normalLease, businessLease;
   let copyRejectionRoute, restoreCopyPermissions = false;
   const fixture = createManagedHumanFixture({ scenario: keyboard || keyRepeat || humanCopy || multiClick || newPage ? "handoff" : scenario });
-  const newPageFixture = newPage ? createManagedHumanNewPageFixture({ trigger: newPageTrigger }) : null;
+  const newPageFixture = newPage ? createManagedHumanNewPageFixture({ trigger: newPageTrigger, variant: newPageVariant }) : null;
   const multiClickFixture = multiClick ? createManagedMultiClickFixture() : null;
   const copyFixture = humanCopy ? createManagedHumanCopyFixture() : null;
   const repeatFixture = keyRepeat ? createManagedKeyRepeatFixture() : null;
@@ -444,6 +445,7 @@ export async function runManagedHumanCheck() {
   const multiClickRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readManagedMultiClickDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous multi-click root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const newPageRead = (tabId, documentId) => worker.evaluate(`chrome.scripting.executeScript({target:${JSON.stringify({ tabId, ...(documentId ? { documentIds: [documentId] } : {}) })},func:${readManagedHumanNewPageDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous original new-page root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const newPageNative = tabId => worker.evaluate(`(async()=>{const tab=await chrome.tabs.get(${tabId}),win=await chrome.windows.get(tab.windowId);return {targets:(await chrome.debugger.getTargets()).filter(t=>t.type==='page'&&t.tabId===tab.id).map(t=>({id:t.id,tabId:t.tabId,type:t.type,attached:t.attached,url:t.url})),frames:await chrome.webNavigation.getAllFrames({tabId:tab.id}),tab:{id:tab.id,url:tab.url,windowId:tab.windowId,groupId:tab.groupId,active:tab.active,pinned:tab.pinned,openerTabId:tab.openerTabId},window:{id:win.id,type:win.type,state:win.state,focused:win.focused}}})()`);
+  const newPageClosedNative = row => worker.evaluate(`(async()=>({tabId:${row.sourceProof.childTabId},targetId:${JSON.stringify(row.childNative.targets[0].id)},tabs:(await chrome.tabs.query({})).filter(t=>t.id===${row.sourceProof.childTabId}).map(t=>({id:t.id,url:t.url})),targets:(await chrome.debugger.getTargets()).filter(t=>t.tabId===${row.sourceProof.childTabId}||t.id===${JSON.stringify(row.childNative.targets[0].id)}).map(t=>({id:t.id,tabId:t.tabId,type:t.type,url:t.url}))}))()`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const observerSnapshot = () => worker.evaluate("__managedHumanAcceptance.snapshot()");
   const posts = () => fixture.stats().requests.filter(item => item.method === "POST");
@@ -749,12 +751,18 @@ export async function runManagedHumanCheck() {
     });
 
     if (newPage) await step(newPageMode === "acceptance" ? "human-created-native-child-switch-return" : "human-created-native-child-diagnostic", async () => {
-      const detail = report.newPage = { mode: newPageMode, trigger: newPageTrigger, urls: newPageFixture.urls(fixtureURL) };
+      const detail = report.newPage = { mode: newPageMode, trigger: newPageTrigger, variant: newPageVariant, urls: newPageFixture.urls(fixtureURL) };
       const trace = () => worker.evaluate("__createdPageProvenance.snapshot()");
       const run = newPageMode === "acceptance" ? runManagedHumanNewPageAcceptance : runManagedHumanNewPageDiagnostic;
       await run({
         createParent: async url => { const tab = await taskBrowser.newTab({ url, backgroundWindow: true }); await tab.domSnapshot({ timeoutMs: 10000 }); return tab.id; },
         read: newPageRead, native: newPageNative,
+        readSource: (tabId, url) => wait(async () => {
+          const frames = await worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${tabId}})`);
+          const sources = frames.filter(frame => frame.frameId > 0 && frame.url === url); assert.ok(sources.length <= 1);
+          if (!sources.length) return false; const value = await newPageRead(tabId, sources[0].documentId);
+          return value.ready && value.state.role === "source-frame" && value;
+        }, "original cross-site source frame ready", 10000),
         installObserver: () => worker.evaluate(`(${installCreatedPageObserver.toString()})(chrome,globalThis,{maxSources:1})`),
         register: tabId => worker.evaluate(`__createdPageProvenance.register(${tabId})`), trace,
         select: async tabId => { await uiAction("#refresh", "status"); await uiAction("#tabs", "select", tabId); },
@@ -762,17 +770,30 @@ export async function runManagedHumanCheck() {
         state: () => structuredClone(state), messages: () => structuredClone(report.viewerMessages), point: viewerPoint,
         position: point => inputAction("position original new-page trigger", () => page.mouse.move(point.x, point.y)),
         click: () => inputAction("one original new-page trigger", async () => { await page.mouse.down({ button: "left", clickCount: 1 }); await page.mouse.up({ button: "left", clickCount: 1 }); }),
+        clickClosing: async () => {
+          const before = report.viewerCommands.length, action = { label: "original child callback then native close", connection, startedAt: Date.now(), kind: "real viewer input" };
+          report.viewerActions.push(action); detail.closeWireStart = before; detail.closeMessageStart = report.viewerMessages.length;
+          await page.mouse.down({ button: "left", clickCount: 1 }); await page.mouse.up({ button: "left", clickCount: 1 });
+          await wait(() => report.viewerCommands.slice(before).filter(command => command.operation === "humanInput").length === 2, "original closing child down/up requests");
+          const inputs = report.viewerCommands.slice(before).filter(command => command.operation === "humanInput");
+          action.requestIds = inputs.map(input => input.id); action.replies = [];
+          for (const input of inputs) action.replies.push(await replyFor(input.id));
+          action.completedAt = Date.now(); return inputs;
+        },
         waitCreated: tabId => wait(async () => { const value = await trace(); assert.equal(value.overflow, false); return value.events.some(event => event.details.sourceTabId === tabId) && value; }, "original native human-created child", 10000),
         waitChild: (tabId, url) => wait(async () => { const native = await worker.evaluate(`(async()=>({status:(await chrome.tabs.get(${tabId})).status,frames:await chrome.webNavigation.getAllFrames({tabId:${tabId}})}))()`); const root = native.frames?.find(frame => frame.frameId === 0 && frame.url === url); if (native.status !== "complete" || !root) return false; const value = await newPageRead(tabId, root.documentId); return value?.state?.role === "child" && value; }, "original child document ready", 10000),
         options: () => page.locator("#tabs").evaluate(element => [...element.options].map(option => ({ value: option.value, text: option.textContent }))),
         screenshot, end: () => uiAction("#human-end", "humanEnd"), refresh: () => uiAction("#refresh", "status"),
         lastCommand: operation => structuredClone(report.viewerCommands.findLast(command => command.operation === operation)),
         resume: () => uiAction("#control", "resume"), newTurn: () => taskBrowser.client.beginTurn("original-handoff-after-new-page"),
-        switchPage: async (tabId, value) => {
+        switchPage: async (tabId, value, closed) => {
           Object.assign(value, { tabId, startedAt: Date.now() });
-          value.end = await uiAction("#human-switch", "humanEnd");
-          value.endRequest = structuredClone(report.viewerCommands.findLast(command => command.operation === "humanEnd"));
-          value.endCompletedAt = (await replyFor(value.endRequest.id)).at;
+          if (closed) { value.closedCleanup = structuredClone(closed.status.humanCleanup); value.selectionReadyAt = Date.now(); }
+          else {
+            value.end = await uiAction("#human-switch", "humanEnd");
+            value.endRequest = structuredClone(report.viewerCommands.findLast(command => command.operation === "humanEnd"));
+            value.endCompletedAt = (await replyFor(value.endRequest.id)).at;
+          }
           await wait(async () => !(await page.locator("#tabs").isDisabled()), "original End enables page selection");
           value.status = structuredClone(state);
           value.options = await page.locator("#tabs").evaluate(element => [...element.options].map(option => ({ value: option.value, text: option.textContent })));
@@ -780,6 +801,7 @@ export async function runManagedHumanCheck() {
           value.selected = await uiAction("#tabs", "select", tabId);
           value.selectRequest = structuredClone(report.viewerCommands.slice(start).find(command => command.operation === "select"));
           value.selectCompletedAt = (await replyFor(value.selectRequest.id)).at;
+          if (closed) await uiAction("#human-begin", "humanBegin");
           value.beginRequest = structuredClone(await wait(() => report.viewerCommands.slice(start).find(command => command.operation === "humanBegin" && command.tabId === tabId), "one automatic Begin for original selection"));
           const reply = await replyFor(value.beginRequest.id); assert.equal(reply.error, undefined, serialize(reply.error)); value.begin = reply.result;
           value.frame = await decodeHumanFrame(value.begin.human); value.lease = structuredClone(state.human);
@@ -787,6 +809,33 @@ export async function runManagedHumanCheck() {
           return value;
         },
         waitCallback: (tabId, documentId) => wait(async () => { const value = await newPageRead(tabId, documentId); return value.state.receipt !== null && value; }, "original trusted child callback receipt", 10000),
+        waitClosedCallback: () => wait(() => {
+          const hit = newPageFixture.stats().requests.find(hit => hit.method === "POST" && hit.path.endsWith("/callback"));
+          return hit?.status === 200 && hit.finished && { receipt: hit.receipt, receivedAt: hit.at, request: hit };
+        }, "original closing child callback response finished", 10000),
+        closedNative: newPageClosedNative,
+        waitClosed: async (row, callbackReceivedAt) => {
+          const result = row.childClosed = { callbackReceivedAt };
+          result.native = await wait(async () => { const value = await newPageClosedNative(row); return value.tabs.length === 0 && value.targets.length === 0 && value; }, "original child native close", 10000);
+          result.message = structuredClone(await wait(() => report.viewerMessages.slice(row.closeMessageStart).find(message => {
+            const value = message.type === "state" ? message : message.type === "response" ? message.result : null;
+            return value?.human === null && value.view === null && value.humanCleanup?.leaseId === row.childSwitch.lease.leaseId && value.humanCleanup.cleanupConfirmed === true && value.status?.state === "paused" && value.status.cleanupComplete === true && value.viewerCleanupComplete === true;
+          }), "production original child cleanup state", 15000));
+          result.status = structuredClone(result.message.type === "state" ? result.message : result.message.result);
+          await wait(async () => !(await page.locator("#tabs").isDisabled()), "closed child cleanup enables actual page selection", 10000);
+          result.observedAt = Date.now(); result.commands = structuredClone(report.viewerCommands.slice(row.closeWireStart));
+          result.messages = structuredClone(report.viewerMessages.slice(row.closeMessageStart));
+          result.endReplies = [];
+          for (const command of result.commands.filter(command => command.operation === "humanEnd")) result.endReplies.push(await replyFor(command.id));
+          result.viewerErrors = await page.locator("#error").textContent();
+          assert.ok(result.endReplies.every(reply => !reply.error), "Automatic child close must not report a stale or failed original End");
+          assert.ok(!result.viewerErrors, "Automatic child close must leave no viewer error");
+          return result;
+        },
+        waitNavigatedParent: (tabId, url) => wait(async () => {
+          const native = await newPageNative(tabId), root = native.frames.find(frame => frame.frameId === 0 && frame.url === url);
+          if (!root) return false; const value = await newPageRead(tabId, root.documentId); return value.ready && value.state.role === "parent-returned" && { ...value, native };
+        }, "original parent callback new document", 10000),
         waitParent: (tabId, documentId) => wait(async () => { const value = await newPageRead(tabId, documentId); return value.state.callbacks.length > 0 && value; }, "original parent callback", 10000),
         claimAndRead: async (tabId, documentId, value) => {
           value.startedAt = Date.now(); value.beforeNative = await newPageNative(tabId); value.before = await newPageRead(tabId, documentId);
@@ -1206,9 +1255,11 @@ export async function runManagedHumanCheck() {
       }
       if (newPage) {
         const detail = report.newPage;
-        detail.finalParent = await newPageRead(detail.tabId, detail.original.documentId);
-        detail.finalChild = await newPageRead(detail.sourceProof.childTabId, detail.child.documentId);
-        detail.finalParentNative = await newPageNative(detail.tabId); detail.finalChildNative = await newPageNative(detail.sourceProof.childTabId);
+        detail.finalParent = await newPageRead(detail.tabId, detail.parentReturned?.documentId ?? detail.original.documentId);
+        detail.finalParentNative = await newPageNative(detail.tabId);
+        if (newPageVariant === "child-close") detail.finalChildAbsent = await newPageClosedNative(detail);
+        else { detail.finalChild = await newPageRead(detail.sourceProof.childTabId, detail.child.documentId); detail.finalChildNative = await newPageNative(detail.sourceProof.childTabId); }
+        if (newPageVariant === "iframe") detail.finalSource = await newPageRead(detail.tabId, detail.sourceOriginal.documentId);
         detail.observerFinal = await worker.evaluate("__createdPageProvenance.stop()");
         detail.finalInputLedger = assertManagedHumanNewPageInputs(detail, report.viewerCommands, report.viewerMessages);
         detail.finalInputIds = detail.finalInputLedger.flatMap(scope => scope.requestIds);

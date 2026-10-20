@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { managedHumanNewPageTrigger, managedHumanNewPageMode, assertManagedHumanNewPageSource, assertManagedHumanNewPageGap, assertManagedHumanNewPageTerminal, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageSwitch, assertManagedHumanNewPageClaim, assertManagedHumanNewPageInputs } from "./managed-human-new-page-workflow.mjs";
+import { managedHumanNewPageTrigger, managedHumanNewPageMode, managedHumanNewPageVariant, assertManagedHumanNewPageSource, assertManagedHumanNewPageGap, assertManagedHumanNewPageTerminal, runManagedHumanNewPageDiagnostic, runManagedHumanNewPageAcceptance, assertManagedHumanNewPageSwitch, assertManagedHumanNewPageClaim, assertManagedHumanNewPageInputs, assertManagedHumanNewPageClosed } from "./managed-human-new-page-workflow.mjs";
 
 function evidence() {
   const urls = { parent: "http://127.0.0.1:50001/parent", child: "http://localhost:50001/child" };
@@ -35,6 +35,38 @@ test("new-page mode is explicit and does not apply trigger settings to ordinary 
   assert.equal(managedHumanNewPageMode("new-page", "acceptance"), "acceptance");
   assert.throws(() => managedHumanNewPageMode("handoff", "acceptance"));
   for (const mode of [null, "", "true"]) assert.throws(() => managedHumanNewPageMode("new-page", mode));
+});
+
+test("new-page variants are opt-in acceptance only with a single fixed trigger", () => {
+  assert.equal(managedHumanNewPageVariant("handoff", "diagnostic", "window-open", undefined), "standard");
+  for (const variant of ["iframe", "parent-navigate", "child-close"]) {
+    assert.equal(managedHumanNewPageVariant("new-page", "acceptance", "window-open", variant), variant);
+    assert.throws(() => managedHumanNewPageVariant("handoff", "acceptance", "window-open", variant));
+    assert.throws(() => managedHumanNewPageVariant("new-page", "diagnostic", "window-open", variant));
+    assert.throws(() => managedHumanNewPageVariant("new-page", "acceptance", "target-blank", variant));
+  }
+  for (const variant of [null, "", "iframe,child-close", "unknown"]) assert.throws(() => managedHumanNewPageVariant("new-page", "acceptance", "window-open", variant));
+});
+
+function frameEvidence() {
+  const row = evidence(); row.variant = "iframe"; row.urls.frame = "http://localhost:50001/frame";
+  row.sourceOriginal = structuredClone(row.original); row.sourceOriginal.frameId = 3; row.sourceOriginal.documentId = "source-document";
+  row.sourceOriginal.url = row.urls.frame; row.sourceOriginal.state.role = "source-frame"; row.sourceOriginal.state.documentToken = "frame-token";
+  row.sourceAfterClick = structuredClone(row.sourceOriginal); row.sourceAfterClick.state.events = row.afterClick.state.events; row.afterClick.state.events = [];
+  row.original.point = { x: 18, y: 180, width: 620, height: 180 }; row.afterClick.point = structuredClone(row.original.point);
+  row.observerAfter.events[0].details.sourceFrameId = 3; row.observerAfter.events[0].details.sourceProcessId = 100;
+  for (const native of [row.nativeBefore, row.nativeAfter]) native.frames.push({ frameId: 3, documentId: "source-document", processId: 100, url: row.urls.frame });
+  return row;
+}
+
+test("iframe opener proof binds original cross-site frame document and trusted source input while root stays untouched", () => {
+  const row = frameEvidence(); const proof = assertManagedHumanNewPageSource(row);
+  assert.equal(proof.sourceFrameId, 3); assert.equal(proof.sourceDocumentId, "source-document");
+  for (const change of [r => { r.sourceAfterClick.documentId = "replacement"; }, r => { r.afterClick.state.events.push({ type: "click" }); },
+    r => { r.observerAfter.events[0].details.sourceFrameId = 0; }, r => { r.nativeAfter.frames[1].documentId = "replacement"; },
+    r => { r.nativeAfter.frames[0].documentId = "replacement"; }, r => { r.sourceAfterClick.state.events.at(-1).trusted = false; }]) {
+    const broken = frameEvidence(); change(broken); assert.throws(() => assertManagedHumanNewPageSource(broken));
+  }
 });
 
 function switched(oldLease, tabId, index) {
@@ -77,6 +109,73 @@ function accepted() {
   fixture.requests.push({ method: "POST", path: "/callback", status: 200, finished: true, aborted: false, receipt: row.callback, bodyBytes: Buffer.byteLength(JSON.stringify({ key: "key", documentToken: "child-token", trusted: true })) });
   return { row, fixture, handoff: { requests: [{ method: "POST" }] } };
 }
+
+function navigated() {
+  const value = accepted(), { row, fixture } = value; row.variant = "parent-navigate"; row.urls.returnedParent = "http://127.0.0.1:50001/parent-returned";
+  const returned = structuredClone(row.released); returned.documentId = "returned-document"; returned.url = row.urls.returnedParent;
+  returned.state.role = "parent-returned"; returned.state.previousDocumentToken = row.original.state.documentToken; returned.state.documentToken = "returned-token"; returned.state.events = [];
+  row.parentReturned = structuredClone(returned); row.released = structuredClone(returned); row.finalParent = structuredClone(returned);
+  row.agent.receipt.url = returned.url; row.agent.before = structuredClone(returned); row.agent.after = structuredClone(returned); row.agent.state = structuredClone(returned.state);
+  for (const native of [row.agent.beforeNative, row.agent.afterNative, row.finalParentNative]) {
+    native.targets[0].url = returned.url; native.frames[0].url = returned.url; native.frames[0].documentId = returned.documentId;
+  }
+  fixture.returnedParentToken = "returned-token"; fixture.requests.push({ path: "/parent-returned", method: "GET", status: 200, finished: true, aborted: false });
+  return value;
+}
+
+test("parent callback navigation accepts a new document on the original target with explicit application draft migration", () => {
+  const value = navigated(); assert.equal(assertManagedHumanNewPageClaim(value.row).documentId, "returned-document");
+  assert.equal(assertManagedHumanNewPageTerminal(value.row, value.fixture, value.handoff).originalParentNewDocument, true);
+  for (const change of [r => { r.agent.after.documentId = r.original.documentId; }, r => { r.agent.after.state.previousDocumentToken = "other"; },
+    r => { r.agent.after.state.documentToken = r.original.state.documentToken; }, r => { r.agent.afterNative.targets[0].id = "replacement"; },
+    r => { r.agent.after.draft = "lost"; }, r => { r.agent.receipt.url = r.urls.parent; }]) {
+    const { row } = navigated(); change(row); assert.throws(() => assertManagedHumanNewPageClaim(row));
+  }
+});
+
+function closed() {
+  const value = accepted(), { row, fixture } = value; row.variant = "child-close";
+  const status = { human: null, view: null, humanCleanup: { leaseId: row.childSwitch.lease.leaseId, cleanupConfirmed: true },
+    status: { state: "paused", cleanupComplete: true }, viewerCleanupComplete: true, tabs: [{ id: 10 }] };
+  row.childClosed = { status, message: { type: "response", result: structuredClone(status), at: 20 }, callbackReceivedAt: 10, observedAt: 21,
+    native: { tabId: 11, targetId: "child-target", tabs: [], targets: [] }, commands: [], endReplies: [], viewerErrors: "" };
+  row.childAbsentAfterEnd = structuredClone(row.childClosed.native); row.finalChildAbsent = structuredClone(row.childClosed.native);
+  delete row.finalChild; delete row.finalChildNative;
+  const hit = fixture.requests.at(-1); hit.body = JSON.stringify({ key: "key", documentToken: "child-token", trusted: true, events: [{ type: "click", trusted: true }], submitted: true, closeRequested: true }); hit.bodyBytes = Buffer.byteLength(hit.body);
+  return value;
+}
+
+test("native child closure requires original tab/target absence and matching production cleanup without a fabricated End", () => {
+  const value = closed(); assert.equal(assertManagedHumanNewPageClosed(value.row, value.row.childClosed).cleanupConfirmed, true);
+  assert.equal(assertManagedHumanNewPageTerminal(value.row, value.fixture, value.handoff).originalChildClosed, true);
+  for (const change of [v => { v.status.humanCleanup.leaseId = "other"; }, v => { v.native.tabs.push({ id: 11 }); }, v => { v.native.targets.push({ id: "child-target" }); },
+    v => { v.status.viewerCleanupComplete = false; }, v => { v.observedAt = 9; }, v => { v.endReplies.push({ error: { code: "HUMAN_STALE" } }); },
+    v => { v.viewerErrors = "stale human"; }, v => { v.commands.push({ operation: "humanEnd", id: 99, leaseId: "lease-1" }); }]) {
+    const { row } = closed(); change(row.childClosed); assert.throws(() => assertManagedHumanNewPageClosed(row, row.childClosed));
+  }
+});
+
+test("selection after native child closure uses explicit Begin only after actual original cleanup", () => {
+  const { row } = closed(), value = row.parentSwitch;
+  delete value.end; delete value.endRequest; delete value.endCompletedAt;
+  value.selectionReadyAt = 22; value.closedCleanup = structuredClone(row.childClosed.status.humanCleanup);
+  value.selectRequest.at = 23; value.selectCompletedAt = 24; value.beginRequest.at = 25;
+  assert.equal(assertManagedHumanNewPageSwitch(value, row.childSwitch.lease, 10, true, row.childClosed).closedCleanup.cleanupConfirmed, true);
+  const broken = structuredClone(value); broken.end = {};
+  assert.throws(() => assertManagedHumanNewPageSwitch(broken, row.childSwitch.lease, 10, true, row.childClosed));
+});
+
+test("closing child records a native up failure as unconfirmed and never changes it into an ACK", () => {
+  const { row } = closed(); row.positionCommands = []; row.childPositionCommands = [];
+  row.childCommands = row.commands.map((command, index) => ({ ...command, id: command.id + 10, leaseId: row.childSwitch.lease.leaseId, sequence: index + 1 }));
+  const childReplies = row.childCommands.map(command => ({ type: "response", id: command.id, connection: command.connection, result: { inputReceipt: { leaseId: command.leaseId, generation: command.generation, sequence: command.sequence, acknowledged: true } } }));
+  delete childReplies[1].result; childReplies[1].error = { code: "HUMAN_STALE", message: "original child closed" };
+  const all = [...row.commands, ...row.childCommands], replies = [...row.replies, ...childReplies];
+  const ledger = assertManagedHumanNewPageInputs(row, all, replies); assert.equal(ledger[1].results[1].acknowledged, false); assert.equal(ledger[1].results[1].error.code, "HUMAN_STALE");
+  assert.throws(() => assertManagedHumanNewPageInputs(row, all, replies.slice(0, -1)));
+  const broken = structuredClone(replies); broken.at(-1).error.code = "UNKNOWN"; assert.throws(() => assertManagedHumanNewPageInputs(row, all, broken));
+  row.childClosed.native.targets.push({ id: "child-target" }); assert.throws(() => assertManagedHumanNewPageInputs(row, all, replies));
+});
 
 test("SDK reclaim proof requires exact original document, placement and public read after new turn", () => {
   assert.equal(assertManagedHumanNewPageClaim(accepted().row).originalPlacementPreserved, true);
@@ -126,6 +225,51 @@ test("acceptance facade switches twice, End/Resume/newTurn precedes original SDK
   assert.equal(row.proof.featurePassed, true); assert.equal(calls.filter(name => name === "trusted-click").length, 2);
   assert.equal(calls.filter(name => name === "createParent").length, 1);
   for (const [a, b] of [["switch-11", "callback"], ["callback", "switch-10"], ["switch-10", "End"], ["End", "Resume"], ["Resume", "newTurn"], ["newTurn", "SDK-claim-read-10"]]) assert.ok(calls.indexOf(a) < calls.indexOf(b));
+});
+
+for (const variant of ["iframe", "parent-navigate", "child-close"]) test(`${variant} acceptance facade uses original input, native state and explicit selection in order`, async () => {
+  const value = variant === "parent-navigate" ? navigated().row : variant === "child-close" ? closed().row : accepted().row;
+  value.variant = variant; value.trigger = "window-open"; const calls = []; let parentReads = 0;
+  if (variant === "iframe") {
+    const frame = frameEvidence();
+    for (const key of ["urls", "original", "afterClick", "sourceOriginal", "sourceAfterClick", "nativeBefore", "nativeAfter", "observerAfter"]) value[key] = frame[key];
+    value.released.state.events = []; value.agent.before.state.events = []; value.agent.after.state.events = []; value.agent.state.events = [];
+  }
+  if (variant === "parent-navigate") {
+    value.nativeBefore.tab = { windowId: 1, groupId: -1, pinned: false };
+    value.parentNavigated = { ...structuredClone(value.released), native: structuredClone(value.agent.beforeNative) };
+  }
+  if (variant === "child-close") {
+    delete value.parentSwitch.end; delete value.parentSwitch.endRequest; delete value.parentSwitch.endCompletedAt;
+    Object.assign(value.parentSwitch, { selectionReadyAt: 22, closedCleanup: structuredClone(value.childClosed.status.humanCleanup) });
+    value.parentSwitch.selectRequest.at = 23; value.parentSwitch.selectCompletedAt = 24; value.parentSwitch.beginRequest.at = 25;
+  }
+  const row = { trigger: value.trigger, variant, urls: value.urls }, call = (name, result) => async () => { calls.push(name); return structuredClone(result); };
+  await runManagedHumanNewPageAcceptance({
+    createParent: call("create-parent", 10), read: async (id, documentId) => {
+      if (documentId === "source-document") return structuredClone(calls.includes("trusted-parent-click") ? value.sourceAfterClick : value.sourceOriginal);
+      if (id === 11) return structuredClone(calls.includes("End") ? value.childAfterEnd : value.child);
+      return structuredClone(++parentReads <= 2 ? value.original : calls.includes("End") ? value.released : value.afterClick);
+    }, native: async id => structuredClone(id === 10 ? value.nativeBefore : value.childNative), readSource: call("read-source", value.sourceOriginal),
+    installObserver: call("observer", {}), register: call("register", value.observerReady), select: call("select-parent", {}), begin: call("begin-parent", { human: value.lease }),
+    frame: call("frame", {}), state: () => ({ human: value.lease }), point: call("point", {}), position: call("position", []),
+    click: async () => { const second = calls.includes("trusted-parent-click"); calls.push(second ? "trusted-child-click" : "trusted-parent-click"); return structuredClone(value.commands).map(command => ({ ...command, ...(second ? { leaseId: value.childSwitch.lease.leaseId } : {}) })); },
+    clickClosing: async () => { calls.push("trusted-closing-click"); return structuredClone(value.commands).map(command => ({ ...command, leaseId: value.childSwitch.lease.leaseId })); },
+    messages: () => value.replies, waitCreated: call("created", value.observerAfter), waitChild: call("read-child", value.child),
+    switchPage: async (id, _target, closedProof) => { calls.push(`switch-${id}`); if (variant === "child-close" && id === 10) assert.deepEqual(closedProof, { ...value.childClosed, proof: assertManagedHumanNewPageClosed(value, value.childClosed) }); return structuredClone(id === 11 ? value.childSwitch : value.parentSwitch); },
+    waitCallback: call("callback", value.childAfterClick), waitClosedCallback: call("callback-before-close", { receipt: value.callback, receivedAt: 10 }),
+    waitClosed: call("native-closed-and-cleaned", value.childClosed), closedNative: call("still-closed", value.childClosed?.native),
+    waitNavigatedParent: call("parent-new-document", value.parentNavigated), waitParent: call("parent-returned", value.released), screenshot: call("screenshot", {}),
+    end: call("End", { human: null, viewerCleanupComplete: true, status: { state: "paused", cleanupComplete: true }, humanCleanup: { leaseId: value.parentSwitch.lease.leaseId, cleanupConfirmed: true } }),
+    lastCommand: () => ({ operation: "humanEnd", leaseId: value.parentSwitch.lease.leaseId }), resume: call("Resume", value.resume), newTurn: call("newTurn", {}),
+    claimAndRead: async () => { calls.push("SDK-claim-read"); const result = structuredClone(value.agent); result.startedAt = Date.now(); result.claimCompletedAt = result.startedAt; result.readStartedAt = result.startedAt; result.readCompletedAt = result.startedAt; return result; },
+    trace: call("trace", value.observerAfter)
+  }, row);
+  assert.equal(row.proof.featurePassed, true); assert.equal(row.proof.variant, variant);
+  assert.ok(calls.indexOf("End") < calls.indexOf("Resume")); assert.ok(calls.indexOf("newTurn") < calls.indexOf("SDK-claim-read"));
+  if (variant === "iframe") assert.equal(row.sourceProof.sourceDocumentId, "source-document");
+  if (variant === "parent-navigate") { assert.ok(calls.indexOf("parent-new-document") < calls.indexOf("switch-10")); assert.match(row.proof.draftPreservation, /fixture application/); }
+  if (variant === "child-close") { assert.equal(calls.includes("callback"), false); assert.ok(calls.indexOf("native-closed-and-cleaned") < calls.indexOf("switch-10")); assert.equal(row.parentSwitch.end, undefined); }
 });
 
 test("exact native provenance plus fresh viewer omission is only a diagnostic gap", () => {

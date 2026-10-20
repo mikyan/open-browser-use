@@ -165,6 +165,11 @@ debugger、history 和 tab groups。
   Agent 仍暂停，不调用 finalize 或改变窗口位置。channel 固定选择能力，
   原回执匹配后才进入新租约；目录不授予任务成员权，见
   [人工新页面选择](references/managed-human-pages.md)。
+  原生关页先登记实际关闭 Promise 再撤销画面；确切退休租约的 End 可以
+  加入原清理，新租约或断线仍撤销旧调用。Go 显式释放取消未提交输入，
+  已提交调用保留原 deadline 等待确切 native ACK，不重发；断线、Stop
+  和未知失败保持原取消语义。跨站 iframe 开页与子页回调关闭已实测，
+  父页回调跨文档导航后的查看首帧仍有未解决失败。
   当前源码的 human Begin 在原 Pause、风险记录、attachment 和 listener 建立后
   返回 preparing handle，不再等待首帧。只有原 Begin 成功回执才能启用 End；
   preparing generation 0 没有输入或回答权限。正 generation 还须原文档证明及

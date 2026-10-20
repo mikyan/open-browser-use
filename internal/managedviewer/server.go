@@ -508,7 +508,9 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		release := request.operation == "humanEnd" || request.operation == "pause" || request.operation == "select" && bytesNullTab(request.payload)
-		if release || request.operation == "stop" {
+		if release {
+			c.revokeHumanForRelease()
+		} else if request.operation == "stop" {
 			c.revokeHuman()
 		}
 		if request.operation == "stop" {

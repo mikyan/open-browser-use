@@ -769,8 +769,9 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	if operation == "humanEnd" || operation == "pause" || unselect {
 		err = errors.Join(err, c.waitFiles(ctx))
 	}
-	if err != nil && operation == "humanInput" && errors.Is(context.Cause(ctx), managedprotocol.ErrHumanGenerationRetired) {
-		// A navigation cancels the submission context, not its original native
+	if err != nil && operation == "humanInput" &&
+		(errors.Is(context.Cause(ctx), managedprotocol.ErrHumanGenerationRetired) || errors.Is(context.Cause(ctx), managedprotocol.ErrHumanLeaseRetired)) {
+		// Navigation or explicit release cancels submission, not its original native
 		// receipt. Continue the same wait under the original deadline. No retry
 		// or new deadline is introduced, and the HTTP input lane stays occupied.
 		original := context.WithoutCancel(ctx)
