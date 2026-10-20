@@ -1,0 +1,155 @@
+apps/chrome-extension/background.js
+  s_08bbfd293d324f::t_f33d1a0ebf54ca 865,3831-3849,3851-3852
+  s_08bbfd293d324f::t_2d18d3161843a0 3823-3826,3850
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_cdbb79bcf2f991 7
+internal/managedbrowser/managed_user_test.go
+  s_08bbfd293d324f::t_4d86371c796c0a 250-251
+internal/managedbrowser/managed_user_browser_version.go
+  s_08bbfd293d324f::t_888b46412c7923 1-36
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_05add3d3d04139 251-255
+  s_08bbfd293d324f::t_cdbb79bcf2f991 11-15
+internal/managedprotocol/view.go
+  s_08bbfd293d324f::t_519c64f480e97c 31
+apps/chrome-extension/managed-human-clipboard.test.mjs
+  s_08bbfd293d324f::t_0a45d1869f6218 1-60
+apps/chrome-extension/clipboard-broker.js
+  s_08bbfd293d324f::t_a103cc0ea76f6f 298
+  s_08bbfd293d324f::t_0992b722693d2f 2,249-252,280-282,284-287,302-303,305-308,312,321,325,328,340-344,347-350,358,360-367,369-374,376-377,380,386
+  s_08bbfd293d324f::t_6b79fcf214b2ce 283,288-297,299-301,304,322
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_f98dc6f11b4592 10-149
+  s_08bbfd293d324f::t_e1954db4340e72 186
+  s_08bbfd293d324f::t_b3d723586b195a 373,412,430
+  s_08bbfd293d324f::t_a8ee012ecdc062 150-185,187-231
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_297b7cb3090a29 3-19
+scripts/browser-integration/managed-human-copy-fixture.test.mjs
+  s_08bbfd293d324f::t_a24eaa40abda16 7-25
+  s_08bbfd293d324f::t_628a990a4407c4 62
+  s_08bbfd293d324f::t_cf8e5c59dedffd 1-6,26-61,63-105
+apps/chrome-extension/managed-user-bridge.js
+  s_08bbfd293d324f::t_2d18d3161843a0 436-439,462,466-468,470-474,507
+  s_08bbfd293d324f::t_e854dc3ee49959 560,600-605,646-650
+  s_08bbfd293d324f::t_3eb17ed468906f 593-599,606
+  s_08bbfd293d324f::t_00386666e1134a 469
+  s_08bbfd293d324f::t_f33d1a0ebf54ca 3,582-584
+docs/exec-plans/active/2026-10-19-managed-human-copy.md
+  s_08bbfd293d324f::t_cdbb79bcf2f991 5-7,26-30,66-69
+  s_08bbfd293d324f::t_4460bcdbe91c8d 8,24-25
+internal/managedprotocol/clipboard_transfer.go
+  s_08bbfd293d324f::t_519c64f480e97c 1-21,24-78
+  s_08bbfd293d324f::t_d91bf82943ac42 22-23
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_cf8e5c59dedffd 578
+  s_08bbfd293d324f::t_5a3a9c82d85814 543-549,553-577,579-608,866-873,918-920,965-968,970,972-979,1000
+  s_08bbfd293d324f::t_664bcb97a13d3a 23,104,111-115,123-136,198-199,201,206-207,209-210,218-220,223,344,475-482,485
+  s_08bbfd293d324f::t_a9a6f5af091c93 493,495,501,504,550-552
+  s_08bbfd293d324f::t_a84aae63e55a7b 498-500,969,971
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_d552d74d6b5f69 723
+  s_08bbfd293d324f::t_6891808a1144c7 8,36-39,41-47,50-132,140-144,180,259,358,411-412,418,631-632,750-752,950,958
+  s_08bbfd293d324f::t_635a8a2bfda773 40,264,733,746-749
+  s_08bbfd293d324f::t_a8ee012ecdc062 133-139
+  s_08bbfd293d324f::t_36395e08a898b0 48-49
+  s_08bbfd293d324f::t_ce324942ca2687 724-732,734
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_0627e77d5ab938 539
+internal/managedviewer/clipboard_transfer_test.go
+  s_08bbfd293d324f::t_d91bf82943ac42 1-380
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_888b46412c7923 229-232,297,686
+  s_08bbfd293d324f::t_519c64f480e97c 547,687,690,696-699,701
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_d8804bfc72b91a 14,19-20,23
+  s_08bbfd293d324f::t_cdbb79bcf2f991 15-18
+apps/chrome-extension/managed-user-bridge.test.mjs
+  s_08bbfd293d324f::t_0627e77d5ab938 216-234
+  s_08bbfd293d324f::t_c217b84b78aa35 182,206-215,235-255
+  s_08bbfd293d324f::t_00386666e1134a 91,93
+  s_08bbfd293d324f::t_3eb17ed468906f 88,95-96
+  s_08bbfd293d324f::t_e5879e1123763f 183-205
+internal/managedbrowser/managed_user_browser_version_test.go
+  s_08bbfd293d324f::t_4d86371c796c0a 1-157
+apps/chrome-extension/clipboard-offscreen.js
+  s_08bbfd293d324f::t_0992b722693d2f 2,48-53,56-60,90-108,110-128,167,176,180-182,193,240,250-252
+  s_08bbfd293d324f::t_0a45d1869f6218 54-55,109
+docs/references/managed-human-clipboard.md
+  s_08bbfd293d324f::t_297b7cb3090a29 27-30
+  s_08bbfd293d324f::t_1660d45e56b23f 50-52
+  s_08bbfd293d324f::t_cdbb79bcf2f991 40-49
+  s_08bbfd293d324f::t_4460bcdbe91c8d 1-26,31-39,53-56
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_519c64f480e97c 48,70-71,84,219,291,327,355
+internal/managedviewer/ui/index.html
+  s_08bbfd293d324f::t_a8ee012ecdc062 35
+  s_08bbfd293d324f::t_6891808a1144c7 24
+internal/managedprotocol/clipboard_transfer_test.go
+  s_08bbfd293d324f::t_2b7506b413ec29 1-140
+  s_08bbfd293d324f::t_e77293da3f7e00 141-171
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_cdbb79bcf2f991 16-18
+  s_08bbfd293d324f::t_d8804bfc72b91a 15,19-20
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_05add3d3d04139 153-156
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_84cdbc5279ffde 705,707,752,763-764,777,810
+  s_08bbfd293d324f::t_cd4904130d89c9 95,97-102
+  s_08bbfd293d324f::t_d3170ce87b9bb6 6,32-33,49,106-107,156,697-699,702-704,706,708-709,713,718-721,732-735,757,759-762,765,767-773,775-776,778-779,789-790,794-797,804-809,819,828-830,845-847
+  s_08bbfd293d324f::t_f33d1a0ebf54ca 647,736-751,753-756,758
+apps/chrome-extension/background-result-pages.test.mjs
+  s_08bbfd293d324f::t_cd4904130d89c9 28-29
+  s_08bbfd293d324f::t_e5879e1123763f 17-18,24-27,30-33
+apps/chrome-extension/background-human-control.test.mjs
+  s_08bbfd293d324f::t_cd4904130d89c9 78-79
+  s_08bbfd293d324f::t_00386666e1134a 59-60,75-76
+  s_08bbfd293d324f::t_6dcfe37ae30872 73-74,77,80-111
+scripts/browser-integration/managed-human-copy-fixture.mjs
+  s_08bbfd293d324f::t_4616b1290a2425 1-18,20-26,32-126
+  s_08bbfd293d324f::t_a84aae63e55a7b 19,27-31
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_519c64f480e97c 105
+docs/references/README.md
+  s_08bbfd293d324f::t_05add3d3d04139 19-20
+scripts/browser-integration/managed-human-check.test.mjs
+  s_08bbfd293d324f::t_cf8e5c59dedffd 23-41
+docs/histories/2026-10/20261021-0100-managed-human-clipboard.md
+  s_08bbfd293d324f::t_69f9c363b49afa 1-17,20-22,24,26-28,39,44-48
+  s_08bbfd293d324f::t_cdbb79bcf2f991 18-19,23,25,29-38
+  s_08bbfd293d324f::t_1660d45e56b23f 40-43
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_519c64f480e97c 179,185-187,219-226,235-239,279-281,308-313,319
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_f33d1a0ebf54ca 26
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_3eb17ed468906f 44
+  s_08bbfd293d324f::t_0627e77d5ab938 123-140
+  s_08bbfd293d324f::t_3671be606b375a 70-122,141-213
+docs/references/managed-human-copy-research.md
+  s_08bbfd293d324f::t_4460bcdbe91c8d 3-6,82-83
+apps/chrome-extension/clipboard-broker.test.mjs
+  s_08bbfd293d324f::t_a103cc0ea76f6f 78,459-460,483,526-527,529-568
+  s_08bbfd293d324f::t_91ff66da49517f 458,461-482,484-525,528,569-640
+  s_08bbfd293d324f::t_0a45d1869f6218 641-715
+apps/chrome-extension/managed-human-clipboard.js
+  s_08bbfd293d324f::t_0992b722693d2f 1-56
+internal/managedbrowser/managed_user_clipboard_transfer_test.go
+  s_08bbfd293d324f::t_6df163fca984fa 1-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "b63b76819d09789951af8fe1e56bf09db72f863e",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
