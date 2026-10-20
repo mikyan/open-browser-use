@@ -4,7 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
-| 2026-10-21 | 本地剪贴板失败时取消排队剪切 | 本地写入已失败时，尚未发送的复制/剪切不会在迟到回执后继续执行。 | 当前原操作走End释放持键，旧租约不能结束新接管；已发剪切不承诺回滚。Go test/vet、3009项Node、七种正常行为及原权限拒绝/延后原ACK负例通过；负例明确使用传输故障注入。公司Edge、系统剪贴板及完整对齐仍待验收。 |
+| 2026-10-21 | 本地剪贴板失败时取消排队剪切 | 本地写入已失败时，尚未发送的复制/剪切不会在迟到回执后继续执行。 | 已发布[preview-20261021-4249c40](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-4249c40)。当前原操作走End释放持键，旧租约不能结束新接管；已发剪切不承诺回滚。Go test/vet、3009项Node、七种正常行为及原权限拒绝/延后原ACK负例通过；负例明确使用传输故障注入。发布EXE单独重建，9908项制品检查、离线CLI/MCP及四资产回下载通过；公司Edge、系统剪贴板及完整对齐仍待验收。 |
 | 2026-10-21 | 人工接管纯文本复制和剪切 | 可把接管页面的复制/剪切结果交给本地浏览器，分别显示操作和写入状态。 | 已发布[preview-20261021-b63b768](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-b63b768)，包含主程序、扩展、Skill及安装脚本。最多64 KiB纯文本，无新内容不覆盖本地，剪切不重发。Go test/vet、2999项Node及五种行为的七步流程通过；独立制品、离线CLI/MCP和四资产回下载通过。发布EXE单独重建，未重跑网页业务；系统剪贴板、公司Edge和完整对齐仍待验收。 |
 | 2026-10-19 | 人工接管重复按键与Windows新包 | 长按退格、Delete及左右方向键可连续操作，结束接管释放原持键。 | 已发布[preview-20261019-534b881](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-534b881)，主机、扩展和Skill配套更新。Go test/vet、2926项Node及六场真实浏览器行为通过；独立制品、离线CLI/MCP及四资产回下载通过。发布EXE单独重建，未重跑网页业务；完整能力对齐仍在进行。 |
 | 2026-10-19 | 人工接管 Enter 与Windows新包 | Enter及Shift+Enter可自然换行，保留网页取消默认行为和单行表单提交。 | 已发布[preview-20261019-99c1be1](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261019-99c1be1)，包含配套主机、扩展、安装脚本及Skill。原Go test/vet、2898项Node、七场浏览器行为及End/Stop通过；新包核对相同输入与扩展、离线CLI/MCP、制品和四资产回下载。发布EXE单独重建，打包未重跑网页业务；完整能力对齐仍在进行。 |

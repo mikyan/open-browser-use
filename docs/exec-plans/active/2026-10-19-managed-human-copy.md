@@ -35,6 +35,9 @@ viewer/Go/extension 纯文本返回通道，完整 Go test/vet 和 2,999 项 Nod
   走原End释放，已发送操作保留原回执，不声称回滚。
 - [x] 在真实浏览器拒绝写入权限、仅延后原Ctrl回执的故障注入下验证修复，
   核未发送KeyX、原选区/文字与本地内容不变，再完整End/Resume/Stop。
+- [x] 队列修复推送用户fork，并发布配套
+  [preview-20261021-4249c40](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-4249c40)；
+  干净重建、离线CLI/MCP、独立制品和四资产回下载通过。
 
 ## 已有证据与后续边界
 
