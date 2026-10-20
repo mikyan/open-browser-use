@@ -86,11 +86,14 @@ export function installDirectoryUploadController(token, deadlineAt) {
 }
 
 export class DirectoryUploadRegistry {
-  constructor({ send, sendCleanup = (target, method, params) => send(target, method, params), checkCurrent = () => {}, canCleanup, now = () => Date.now(),
+  constructor({ send, sendCleanup = (target, method, params) => send(target, method, params),
+    sendFileInput = (target, params, check, markDispatched) => {
+      markDispatched(); return send(target, "DOM.setFileInputFiles", params, check);
+    }, checkCurrent = () => {}, canCleanup, now = () => Date.now(),
     setTimer = (fn, delay) => globalThis.setTimeout(fn, delay), clearTimer = id => globalThis.clearTimeout(id), maxTotal = 128 } = {}) {
-    if (typeof send !== "function" || typeof canCleanup !== "function" || !Number.isInteger(maxTotal) || maxTotal < 1 || maxTotal > 128)
+    if (typeof send !== "function" || typeof sendFileInput !== "function" || typeof canCleanup !== "function" || !Number.isInteger(maxTotal) || maxTotal < 1 || maxTotal > 128)
       throw new Error("Directory upload native hooks and a capacity up to 128 are required");
-    Object.assign(this, { send, sendCleanup, checkCurrent, canCleanup, now, setTimer, clearTimer, maxTotal });
+    Object.assign(this, { send, sendCleanup, sendFileInput, checkCurrent, canCleanup, now, setTimer, clearTimer, maxTotal });
     this.records = new Map();
     this.operations = new Set();
     this.operationRecords = new Map();
@@ -166,6 +169,21 @@ export class DirectoryUploadRegistry {
     let operation;
     try { operation = Promise.resolve(this.send(this.target(record), method, params, () => this.check(record))); }
     catch (error) { operation = Promise.reject(error); }
+    return this.track(operation, record);
+  }
+
+  dispatchFileInput(record, files) {
+    this.check(record);
+    // The default native adapter is synchronous. Adapters with an asynchronous
+    // admission gate must mark only after its last check, immediately before
+    // invoking the native API. A rejection after that point remains unknown;
+    // a gate rejected before it can safely dispose the unmutated node guard.
+    const markDispatched = () => { this.check(record); record.dispatched = true; };
+    let operation;
+    try {
+      operation = Promise.resolve(this.sendFileInput(this.target(record),
+        { backendNodeId: record.identity.backendNodeId, files: [...files] }, () => this.check(record), markDispatched));
+    } catch (error) { operation = Promise.reject(error); }
     return this.track(operation, record);
   }
 
@@ -262,8 +280,7 @@ export class DirectoryUploadRegistry {
       });
       record.wait.catch(error => { record.observationError = error; this.cancel(record, error); });
       this.check(record);
-      record.dispatched = true;
-      record.native = this.call(record, "DOM.setFileInputFiles", { backendNodeId: record.identity.backendNodeId, files: [...files] });
+      record.native = this.dispatchFileInput(record, files);
       this.observeNative(record);
       await this.within(record, () => Promise.all([record.native, record.wait]));
       if (record.terminal.kind !== "input") throw cancelled();

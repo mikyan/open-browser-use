@@ -237,7 +237,7 @@ func publicState(data []byte) (json.RawMessage, error) {
 		out["pageSelectionReceipt"] = selection
 	}
 	out["pendingDialog"] = dialog
-	if f["pendingFileChooser"] != nil || human != nil && human.FileChooserVersion == 1 {
+	if f["pendingFileChooser"] != nil || human != nil && (human.FileChooserVersion == 1 || human.FileChooserVersion == 2) {
 		out["pendingFileChooser"] = chooser
 	}
 	for _, key := range []string{"fileTransfer", "fileChunk", "fileChooserReceipt", "fileChooserCancellation"} {

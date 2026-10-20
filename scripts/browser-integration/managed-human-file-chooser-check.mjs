@@ -10,6 +10,10 @@ import { createManagedHumanFileChooserFixture, readManagedHumanFileChooserDocume
   createManagedFileWorkflowFixture, managedFileWorkflowCases, readManagedFileWorkflowDocument } from "./managed-human-file-chooser-fixture.mjs";
 import { projectManagedFileCommand, runManagedFileWorkflow, assertManagedFileWorkflowFinalFixtures } from "./managed-human-file-chooser-workflow.mjs";
 import { installManagedFileChooserErrorDiagnostic } from "./managed-human-file-chooser-diagnostic.mjs";
+import { createManagedHumanDirectoryBaselineFixture, readManagedHumanDirectoryBaselineDocument,
+  classifyManagedHumanDirectoryBaseline, assertManagedHumanDirectoryBaselineDocument } from "./managed-human-directory-baseline.mjs";
+import { managedDirectoryCases, prepareManagedDirectory, createManagedDirectoryFixture, readManagedDirectoryDocument } from "./managed-human-directory-fixture.mjs";
+import { runManagedDirectoryWorkflow, assertManagedDirectoryTerminalFixtures } from "./managed-human-directory-workflow.mjs";
 import { projectHumanCommand, assertHumanInputReceipt, visibleHumanViewerPoint } from "./managed-human-check.mjs";
 import { assertManagedDialogEnded } from "./managed-human-dialog-check.mjs";
 import { parseManagedReadyOutput, assertManagedStopReply } from "./managed-download-check.mjs";
@@ -89,11 +93,11 @@ export function assertManagedFileChooserLedger(commands, lease) {
 }
 
 export function managedFileChooserCompletion(mode, diagnostic, completed) {
-  assert.ok(["baseline", "workflow"].includes(mode));
+  assert.ok(["baseline", "workflow", "directory-baseline", "directory-workflow"].includes(mode));
   assert.equal(typeof diagnostic, "boolean"); assert.equal(typeof completed, "boolean");
-  assert.ok(!diagnostic || mode === "workflow", "Private diagnostics require the explicit workflow mode");
-  return { featurePassed: mode === "workflow" && !diagnostic && completed,
-    diagnosticCompleted: (mode === "baseline" || diagnostic) && completed };
+  assert.ok(!diagnostic || mode.endsWith("workflow"), "Private diagnostics require the explicit workflow mode");
+  return { featurePassed: mode.endsWith("workflow") && !diagnostic && completed,
+    diagnosticCompleted: (mode.endsWith("baseline") || diagnostic) && completed };
 }
 
 export async function submitManagedFileWorkflowOriginal(current, item, row) {
@@ -130,7 +134,8 @@ export async function readManagedFileTarget(chromeAPI, tabId) {
 export async function runManagedHumanFileChooserBaseline() {
   assert.equal(process.platform, "win32");
   const mode = process.env.OBU_TEST_HUMAN_FILE_CHOOSER_MODE ?? "baseline";
-  assert.ok(["baseline", "workflow"].includes(mode)); const workflow = mode === "workflow";
+  assert.ok(["baseline", "workflow", "directory-baseline", "directory-workflow"].includes(mode));
+  const directoryWorkflow = mode === "directory-workflow", workflow = mode === "workflow" || directoryWorkflow, directoryBaseline = mode === "directory-baseline";
   const diagnostic = process.env.OBU_TEST_HUMAN_FILE_CHOOSER_DIAGNOSTIC === "1";
   managedFileChooserCompletion(mode, diagnostic, false);
   const executable = process.env.OBU_TEST_HOST_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
@@ -152,7 +157,16 @@ export async function runManagedHumanFileChooserBaseline() {
     report.limits += " This instrumented diagnostic can never establish feature acceptance. Hook installation capabilities and bounded original observations are recorded separately.";
     report.privateDiagnostic = { requested: true, snapshots: [], errors: [] };
   }
-  const registry = new Set(), frameWrites = [], fixture = createManagedHumanFileChooserFixture(), workflowFixtures = [], workflowCases = [];
+  if (directoryBaseline) {
+    report.scope = "One original delivered directory input, existing ordinary-file viewer channel, and one real viewer click. Preserve native Opening, original input errors/ACKs, automatic or explicit End and unchanged empty FileList. No directory bytes or task file assignment.";
+    report.limits = "An observed directory rejection is a baseline gap, never feature acceptance. No OS picker, mouse, personal profile or input replay. All original replies and actual Stop/cleanup remain mandatory.";
+  }
+  if (directoryWorkflow) {
+    report.scope = "Production human directory picker and byte transfer on root, real OOPIF, transfer-End and transfer-navigation documents. Exact relative paths, original FileList and bytes; one business POST per positive original page only after End/Resume/new SDK claim. A small synchronous original input witness is recorded independently before the original Commit reply.";
+    report.limits = "Only the independent viewer's original directory picker receives a generated local directory. No task setFiles, synthetic FileList, OS input or personal profile. Empty directories are absent from FileList. Headless picker and internal focus do not prove OS picker or foreground behavior.";
+    report.directoryCommitWitnesses = [];
+  }
+  const registry = new Set(), frameWrites = [], fixture = directoryBaseline ? createManagedHumanDirectoryBaselineFixture() : createManagedHumanFileChooserFixture(), workflowFixtures = [], workflowCases = [];
   const server = createServer((req, res) => { if (![fixture, ...workflowFixtures].some(value => value.handle(req, res))) { report.unexpectedRequests.push({ method: req.method, url: req.url }); req.resume(); res.writeHead(404); res.end(); } });
   let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, page, state, tab, captureError, stopPromise, finalSaved = false;
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 8 * 1024 * 1024, ...options }); };
@@ -187,7 +201,7 @@ export async function runManagedHumanFileChooserBaseline() {
     return value;
   }
   const endpoint = (profile, owner) => waitPrivateDevToolsEndpoint(profile, { assertAlive() { assert.ok(!owner.record.exitedAt && !owner.record.closedAt && !owner.record.spawnError, "Original browser owner ended"); } });
-  const readDocument = original => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id},${original ? 'documentIds:'+JSON.stringify([original.documentId]) : 'frameIds:[0]'}},func:${readManagedHumanFileChooserDocument.toString()}}).then(rows=>rows.map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`, 5000);
+  const readDocument = original => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id},${original ? 'documentIds:'+JSON.stringify([original.documentId]) : 'frameIds:[0]'}},func:${(directoryBaseline ? readManagedHumanDirectoryBaselineDocument : readManagedHumanFileChooserDocument).toString()}}).then(rows=>rows.map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`, 5000);
   const observedEvents = () => report.nativeEvents;
   const observerSnapshot = async () => { const value = await worker.evaluate("__managedFileChooserDiagnostic.snapshot()", 3000); assert.equal(value.overflow, false); assert.equal(report.workerConnection.eventsDropped, 0); report.nativeEvents = value.events; return value; };
   async function privateDiagnosticSnapshot(label) {
@@ -238,6 +252,11 @@ export async function runManagedHumanFileChooserBaseline() {
             report.frames.push(frame); report.viewerMessages.push({ type: "frame", at, tabId: frame.tabId, streamId: frame.streamId, sequence: frame.sequence, humanLeaseId: frame.humanLeaseId, generation: frame.generation, sha256: frame.sha256 });
           } else {
             report.viewerMessages.push({ ...message, at });
+            if (directoryWorkflow && message.type === "response") {
+              const request = report.viewerCommands.find(row => row.id === message.id && row.operation === "humanFileCommit");
+              if (request) report.directoryCommitWitnesses.push({ requestId: message.id, observedAt: at,
+                fixtures: workflowFixtures.map(value => ({ workflowId: value.workflowId, witnesses: value.stats().witnesses })) });
+            }
             const next = message.type === "state" ? message : message.type === "response" && message.result?.status ? message.result : null;
             if (next && (!state || next.eventSequence >= state.eventSequence && next.status.revision >= state.status.revision)) state = next;
           }
@@ -305,7 +324,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
   }
   async function readWorkflow(item, original = true) {
     const selection = original ? `documentIds:${JSON.stringify(item.before.map(value => value.documentId))}` : "allFrames:true";
-    const rows = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${item.tabId},${selection}},func:${readManagedFileWorkflowDocument.toString()}}).then(rows=>rows.filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`, 5000);
+    const rows = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${item.tabId},${selection}},func:${(directoryWorkflow ? readManagedDirectoryDocument : readManagedFileWorkflowDocument).toString()}}).then(rows=>rows.filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`, 5000);
     if (original) assert.deepEqual(rows.map(value => value.documentId).sort(), item.before.map(value => value.documentId).sort());
     return rows;
   }
@@ -368,6 +387,31 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         await chooser.setFiles(files, { timeout: 10000 });
         return { startedAt, suppliedAt: Date.now(), pending, card, pickerIntentPhase, count: files.length, viaTrustedChooseButton: true };
       },
+      async pickDirectory(item) {
+        assert.equal(directoryWorkflow, true);
+        const startedAt = Date.now(), pending = structuredClone(state.pendingFileChooser);
+        assert.equal(pending.directory, true);
+        const card = await page.evaluate(() => ({ hidden: document.querySelector("#file-chooser").hidden,
+          chooserId: document.querySelector("#file-chooser").dataset.chooserId, source: document.querySelector("#file-source").textContent }));
+        assert.equal(card.hidden, false); assert.equal(card.chooserId, pending.chooserId); assert.ok(card.source.includes(pending.source.origin));
+        const chooserPromise = page.waitForEvent("filechooser", { timeout: 5000 }); chooserPromise.catch(() => {});
+        await page.locator("#file-choose").click({ timeout: 5000 });
+        const chooser = await chooserPromise;
+        const picker = await page.locator("#file-picker").evaluate(element => ({ directory: element.webkitdirectory, multiple: element.multiple }));
+        assert.equal(picker.directory, true);
+        const pickerIntentPhase = await page.locator("#file-status").getAttribute("data-phase"); assert.equal(pickerIntentPhase, "picking");
+        await chooser.setFiles(item.directory.root, { timeout: 10000 });
+        return { startedAt, suppliedAt: Date.now(), pending, card, picker, pickerIntentPhase, nativeMultiple: chooser.isMultiple(),
+          inputDirectory: inside(runDir, item.directory.root), files: item.directory.files, viaTrustedChooseButton: true };
+      },
+      commitWitnesses(requestId) {
+        const rows = report.directoryCommitWitnesses.filter(row => row.requestId === requestId); assert.equal(rows.length, 1);
+        const request = report.viewerCommands.find(row => row.id === requestId);
+        const result = report.workflow.find(row => row.pending?.chooserId === request.chooserId); assert.ok(result);
+        const fixture = workflowCases.find(item => item.tabId === result.tabId).fixture;
+        const observed = rows[0].fixtures.find(row => row.workflowId === fixture.workflowId); assert.ok(observed);
+        return structuredClone(observed.witnesses);
+      },
       async waitReply(operation, pending, budget) {
         const request = await wait(() => report.viewerCommands.find(row => row.operation === operation && row.leaseId === pending.leaseId && row.chooserId === pending.chooserId), `original ${operation}`, budget);
         const reply = await wait(() => report.viewerMessages.find(row => row.type === "response" && row.id === request.id), `original ${operation} ACK`, budget);
@@ -386,6 +430,13 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         assert.match(transferId, /^[A-Za-z0-9_-]+$/);
         const directory = path.join(info.runDir, "u", transferId); inside(info.runDir, directory);
         const actual = await treeHashes(directory), expected = Object.fromEntries(payloads.map((file, i) => [`${i}/${file.name}`, hash(file.buffer)]));
+        assert.deepEqual(actual, expected);
+        return { directory: inside(info.runDir, directory), files: actual, checkedAt: Date.now() };
+      },
+      async transferDirectoryFiles(transferId, payloads) {
+        assert.match(transferId, /^[A-Za-z0-9_-]+$/);
+        const directory = path.join(info.runDir, "u", transferId); inside(info.runDir, directory);
+        const actual = await treeHashes(directory), expected = Object.fromEntries(payloads.map(file => [file.relativePath, hash(file.buffer)]));
         assert.deepEqual(actual, expected);
         return { directory: inside(info.runDir, directory), files: actual, checkedAt: Date.now() };
       },
@@ -423,7 +474,8 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true });
       await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), path.join(runDir, "sdk-input"), { recursive: true });
       await listenFixture(server); report.fixtureURL = `http://127.0.0.1:${server.address().port}${fixture.route}`;
-      if (workflow) for (const kind of managedFileWorkflowCases) workflowFixtures.push(createManagedFileWorkflowFixture({ kind, baseURL: new URL(report.fixtureURL).origin }));
+      if (workflow) for (const kind of directoryWorkflow ? managedDirectoryCases : managedFileWorkflowCases)
+        workflowFixtures.push((directoryWorkflow ? createManagedDirectoryFixture : createManagedFileWorkflowFixture)({ kind, baseURL: new URL(report.fixtureURL).origin }));
     });
     await step(workflow ? "formal-session-and-four-original-delivered-pages" : "formal-session-and-original-delivered-page", async () => {
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
@@ -447,6 +499,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         for (const value of workflowFixtures) {
           const original = await taskBrowser.newTab({ url: value.urls.root, backgroundWindow: true });
           const item = { fixture: value, tabId: original.id };
+          if (directoryWorkflow) item.directory = await prepareManagedDirectory(runDir, value.kind);
           workflowCases.push(item);
           item.snapshot = await original.domSnapshot({ timeoutMs: 10000 });
           item.before = await wait(async () => { const rows = await readWorkflow(item, false); return rows.length === (value.kind === "oopif" ? 2 : 1) && rows.every(row => row.state.workflowId === value.workflowId) && rows; }, "original upload documents loaded");
@@ -472,7 +525,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await openViewer(url.href); await uiAction("#refresh", "status");
       if (workflow) {
         await rememberProcesses("both-private-browsers");
-        await runManagedFileWorkflow(workflowFacade(), workflowCases);
+        await (directoryWorkflow ? runManagedDirectoryWorkflow : runManagedFileWorkflow)(workflowFacade(), workflowCases);
         report.observerFinal = await worker.evaluate("__managedFileChooserDiagnostic.stop()", 3000);
         report.nativeEvents = report.observerFinal.events; assert.equal(report.observerFinal.overflow, false); assert.equal(report.observerFinal.active, false); assert.equal(report.workerConnection.eventsDropped, 0);
         assert.deepEqual(report.unexpectedRequests, []); return;
@@ -507,11 +560,24 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.inputReplies = report.inputs.map(request => report.viewerMessages.find(row => row.type === "response" && row.id === request.id) ?? { id: request.id, pending: true });
       for (let i = 0; i < report.inputs.length; i++) if (!report.inputReplies[i].pending && !report.inputReplies[i].error) assertHumanInputReceipt(report.inputs[i], report.inputReplies[i]);
       report.uiAfter = await uiObservation("observation-end"); await screenshot("native-chooser-observation");
-      report.classification = classifyManagedFileChooserBaseline({ events: report.nativeEvents, target: report.target, frameId: rootFrame.id, clickAt: report.click.startedAt, ui: report.uiAfter, inputReplies: report.inputReplies });
-      if (state?.human?.leaseId === report.lease.leaseId) report.end = await uiAction("#human-end", "humanEnd", undefined, 30000);
+      report.classification = (directoryBaseline ? classifyManagedHumanDirectoryBaseline : classifyManagedFileChooserBaseline)({ events: report.nativeEvents, target: report.target, frameId: rootFrame.id, clickAt: report.click.startedAt, ui: report.uiAfter, inputReplies: report.inputReplies, commands: report.viewerCommands, lease: report.lease });
+      if (directoryBaseline) {
+        const after = await readDocument(report.originalDocument); assert.equal(after.length, 1); report.after = after[0];
+        report.documentProof = assertManagedHumanFileChooserDocument(report.before, report.after);
+        report.directoryDocumentProof = assertManagedHumanDirectoryBaselineDocument(report.before, report.after);
+      }
+      if (state?.human?.leaseId === report.lease.leaseId) {
+        try { report.end = await uiAction("#human-end", "humanEnd", undefined, 30000); }
+        catch (error) {
+          if (!directoryBaseline) throw error;
+          const action = report.viewerActions.at(-1); assert.equal(action.operation, "humanEnd");
+          assert.equal(action.reply?.error?.code, "BACKEND_UNAVAILABLE", "Only the original unsupported-directory disconnection is an expected baseline result");
+          report.baselineEndFailure = { error: String(error.stack ?? error), action: structuredClone(action), acknowledged: false };
+        }
+      }
       else report.end = await wait(() => { try { assertManagedDialogEnded(state, report.lease.leaseId); return structuredClone(state); } catch { return false; } }, "original automatic End");
-      assertManagedDialogEnded(report.end, report.lease.leaseId);
-      const after = await readDocument(report.originalDocument); assert.equal(after.length, 1); report.after = after[0]; report.documentProof = assertManagedHumanFileChooserDocument(report.before, report.after);
+      if (!report.baselineEndFailure) assertManagedDialogEnded(report.end, report.lease.leaseId);
+      if (!directoryBaseline) { const after = await readDocument(report.originalDocument); assert.equal(after.length, 1); report.after = after[0]; report.documentProof = assertManagedHumanFileChooserDocument(report.before, report.after); }
       report.inputRepliesAfterEnd = report.inputs.map(request => report.viewerMessages.find(row => row.type === "response" && row.id === request.id) ?? { id: request.id, pending: true });
       assertManagedFileChooserLedger(report.viewerCommands, report.lease);
       report.observerFinal = await worker.evaluate("__managedFileChooserDiagnostic.stop()", 3000);
@@ -540,7 +606,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
             // repeat a snapshot, click, claim or POST to obtain this evidence.
             const value = await worker.evaluate(`(async()=>{
               const target=[await (${readManagedFileTarget.toString()})(chrome,${item.tabId})];
-              const documents=(await chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(observation.documentIds)}},func:${readManagedFileWorkflowDocument.toString()}})).filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result}));
+              const documents=(await chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(observation.documentIds)}},func:${(directoryWorkflow ? readManagedDirectoryDocument : readManagedFileWorkflowDocument).toString()}})).filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result}));
               const json=JSON.stringify({target,documents}),bytes=new TextEncoder().encode(json).length;
               return bytes<=65536?{json,bytes,limitExceeded:false}:{bytes,limitExceeded:true};
             })()`, 5000);
@@ -589,7 +655,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       // Preserve the actual terminal observations even when a late POST makes
       // this proof fail. Any failure joins cleanupErrors and fails the run.
       report.workflowFixtures = workflowFixtures.map(value => value.stats());
-      return assertManagedFileWorkflowFinalFixtures(report.workflowFixtures, report.workflow ?? []);
+      return (directoryWorkflow ? assertManagedDirectoryTerminalFixtures : assertManagedFileWorkflowFinalFixtures)(report.workflowFixtures, report.workflow ?? []);
     });
     if (report.source) await cleanup("sourceIntegrity", async () => {
       assert.equal(hash(await fs.readFile(executable)), report.source.executable); assert.equal(hash(await fs.readFile(chromium)), report.source.browser);

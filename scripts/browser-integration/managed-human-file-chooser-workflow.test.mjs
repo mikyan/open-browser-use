@@ -73,6 +73,13 @@ test("native chooser proves root and the actual original attached OOPIF session/
   assert.equal(proveManagedFileOpening(opening()).documentId, "root-document");
   assert.equal(proveManagedFileOpening(opening(true)).documentId, "child-document");
 });
+test("directory Opening mode does not redefine the original input multiple attribute", () => {
+  const value = opening(true); value.pending.directory = true; value.pending.multiple = false;
+  assert.equal(proveManagedFileOpening(value).documentId, "child-document");
+  value.events.at(-1).params.mode = "unknown"; assert.throws(() => proveManagedFileOpening(value));
+  const ordinary = opening(true); ordinary.pending.directory = false; ordinary.pending.multiple = false;
+  assert.throws(() => proveManagedFileOpening(ordinary));
+});
 test("native chooser refuses URL-only child proof, stale attach, equal process, source mismatch and duplicated opening", () => {
   for (const mutate of [
     value => { value.events.at(-1).source.tabId = 8; },

@@ -47,7 +47,7 @@ func (c *connection) admitFile(request *command) string {
 	defer c.controlMu.Unlock()
 	current := c.pendingFileChooser
 	claim, seen := c.fileClaims[tuple]
-	if !c.humanClaimed || c.humanStarting || c.humanRevoked || c.ctx.Err() != nil || c.humanFileVersion != 1 ||
+	if !c.humanClaimed || c.humanStarting || c.humanRevoked || c.ctx.Err() != nil || (c.humanFileVersion != 1 && c.humanFileVersion != 2) ||
 		current == nil || current.FileChooserIdentity != tuple || !seen || claim.terminal ||
 		tuple.LeaseID != c.humanLease || tuple.Generation != c.humanGeneration || tuple.Generation <= c.humanRetiredGeneration {
 		return "HUMAN_FILE_STALE"
@@ -55,7 +55,8 @@ func (c *connection) admitFile(request *command) string {
 	switch request.operation {
 	case "humanFileBegin":
 		files, _, err := managedprotocol.ParseHumanFiles(fields["files"])
-		if err != nil || claim.begun || !current.Multiple && len(files) != 1 {
+		if err != nil || claim.begun || managedprotocol.ValidateHumanFileMode(files, current.Directory) != nil ||
+			current.Directory && c.humanFileVersion != 2 || !current.Directory && !current.Multiple && len(files) != 1 {
 			return "HUMAN_FILE_INVALID"
 		}
 		claim.begun = true

@@ -201,11 +201,11 @@ function humanFixture(t, { inputBudgetVersion, clipboardTransferVersion, fileCho
   return f;
 }
 
-test("typed file claim, original native receipt and logical cancellation remain separate from input receipts", async t => {
-  const f = humanFixture(t, { fileChooserVersion: 1 }); await f.open(); await f.begin();
+for (const version of [1, 2]) test(`v${version} typed file claim, native receipt and logical cancellation remain separate from input receipts`, async t => {
+  const f = humanFixture(t, { fileChooserVersion: version }); await f.open(); await f.begin();
   const record = f.humans[0];
   record.chooser = { leaseId: record.info.leaseId, generation: 1, chooserId: "original-file", multiple: true,
-    source: { origin: "https://child.test", frame: "child" } };
+    ...(version === 2 ? { directory: false } : {}), source: { origin: "https://child.test", frame: "child" } };
   assert.deepEqual((await f.request("status")).status.pendingFileChooser, record.chooser);
   const request = { leaseId: record.info.leaseId, generation: 1, chooserId: "original-file", transferId: "server-generated" };
   const claim = await f.request("humanFileBegin", request);
@@ -219,11 +219,33 @@ test("typed file claim, original native receipt and logical cancellation remain 
   const committed = await result;
   assert.deepEqual(committed.fileChooserReceipt, { ...request, acknowledged: true });
   assert.equal(committed.inputReceipt, undefined); assert.equal(committed.status.pendingFileChooser, null);
-  record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: "cancel-me", multiple: false };
+  record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: "cancel-me", multiple: false, ...(version === 2 ? { directory: false } : {}) };
   const cancel = { leaseId: request.leaseId, generation: 1, chooserId: "cancel-me" };
   assert.deepEqual((await f.request("humanFileCancel", cancel)).fileChooserCancellation, { ...cancel, cancelled: true });
   await f.request("humanEnd", { leaseId: request.leaseId });
   assert.equal((await f.request("disconnect")).status.pendingFileChooser, null);
+});
+
+test("v2 directory claim uses the original typed handle without exposing its server path in the receipt", async t => {
+  const f = humanFixture(t, { fileChooserVersion: 2 }); await f.open(); await f.begin();
+  const record = f.humans[0], request = { leaseId: record.info.leaseId, generation: 1, chooserId: "directory", transferId: "server-transfer" };
+  record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: "directory", directory: true, multiple: false };
+  assert.deepEqual((await f.request("status")).status.pendingFileChooser, record.chooser);
+  await f.request("humanFileBegin", request); f.fileCommitGate = deferred(); let completed = false;
+  const commit = f.request("humanFileCommit", { ...request, files: ["C:\\server\\original-root"] }).then(value => { completed = true; return value; });
+  await flush(); assert.equal(completed, false); f.fileCommitGate.resolve();
+  assert.deepEqual((await commit).fileChooserReceipt, { ...request, acknowledged: true });
+  assert.equal(f.calls.filter(row => row[0] === "humanFileCommit").length, 1);
+});
+
+test("file chooser version and directory shape cannot downgrade a directory into a legacy ordinary claim", async t => {
+  for (const [version, extra] of [[1, { directory: false }], [1, { directory: true }], [2, {}], [2, { directory: null }], [2, { directory: 1 }], [3, { directory: true }]]) {
+    const f = humanFixture(t, { fileChooserVersion: version }); await f.open(); await f.begin();
+    const record = f.humans[0], request = { leaseId: record.info.leaseId, generation: 1, chooserId: "original", transferId: "server-transfer" };
+    record.chooser = { leaseId: request.leaseId, generation: 1, chooserId: request.chooserId, multiple: true, ...extra };
+    await assert.rejects(f.request("humanFileBegin", request), /FILE_STALE/);
+    assert.equal(f.calls.some(row => row[0] === "humanFileBegin"), false);
+  }
 });
 
 test("file operations reject foreign, unadvertised, zero-generation and unsolicited path authority before the native handle", async t => {

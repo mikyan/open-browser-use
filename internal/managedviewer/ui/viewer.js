@@ -44,7 +44,7 @@
   const clipboardInputs = new WeakMap();
   const clipboardKeys = new Set();
   const transferFailures = new Set(["UNSUPPORTED", "DENIED", "BUSY", "CANCELLED", "TIMEOUT", "CHANGED", "LIMIT", "READ_FAILED"]);
-  const fileElements = Object.fromEntries(["file-chooser", "file-source", "file-description", "file-choose", "file-cancel", "file-picker", "file-status"].map(id => [id, document.getElementById(id)]));
+  const fileElements = Object.fromEntries(["file-chooser", "file-title", "file-source", "file-description", "file-choose", "file-cancel", "file-picker", "file-status"].map(id => [id, document.getElementById(id)]));
   const humanFiles = ManagedHumanFiles.create({
     elements: fileElements,
     request: (operation, fields) => new Promise((resolve, reject) => {
@@ -209,7 +209,7 @@
       (!Object.hasOwn(value, "keyRepeatVersion") || value.keyRepeatVersion === 1) &&
       (!Object.hasOwn(value, "pointerClickCountVersion") || value.pointerClickCountVersion === 1) &&
       (!Object.hasOwn(value, "clipboardTransferVersion") || value.clipboardTransferVersion === 1) &&
-      (!Object.hasOwn(value, "fileChooserVersion") || value.fileChooserVersion === 1) &&
+      (!Object.hasOwn(value, "fileChooserVersion") || [1, 2].includes(value.fileChooserVersion)) &&
       (value.state !== "preparing" || value.viewport === null) &&
       (value.state !== "navigating" || value.generation > 0 && value.viewport === null) &&
       (value.viewport === null ? value.state !== "active" || value.generation === 0 :
@@ -465,7 +465,7 @@
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.pointerClickCountVersion !== human.pointerClickCountVersion) throw new Error("原人工接管的多击能力发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "clipboardTransferVersion") && nextHuman.clipboardTransferVersion !== 1) throw new Error("人工剪贴板传输版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.clipboardTransferVersion !== human.clipboardTransferVersion) throw new Error("原人工接管的剪贴板传输能力发生变化。");
-    if (nextHuman && Object.hasOwn(nextHuman, "fileChooserVersion") && nextHuman.fileChooserVersion !== 1) throw new Error("人工文件选择版本无效。");
+    if (nextHuman && Object.hasOwn(nextHuman, "fileChooserVersion") && ![1, 2].includes(nextHuman.fileChooserVersion)) throw new Error("人工文件选择版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.fileChooserVersion !== human.fileChooserVersion) throw new Error("原人工接管的文件选择能力发生变化。");
     const nextChooser = value.pendingFileChooser ?? null;
     if (!ManagedHumanFiles.validPending(nextChooser, nextHuman)) throw new Error("文件选择请求身份无效。");

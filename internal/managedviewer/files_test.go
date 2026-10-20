@@ -82,6 +82,42 @@ func viewerFileBackend() *testBackend {
 
 const viewerFileMetadata = `,"files":[{"name":"same.txt","size":0},{"name":"same.txt","size":3}]`
 
+const viewerDirectoryMetadata = `,"files":[{"name":"same.txt","size":0,"relativePath":"资料/甲/same.txt"},{"name":"same.txt","size":3,"relativePath":"资料/乙/same.txt"}]`
+
+func viewerFileVersion(data json.RawMessage, version uint64, directory, multiple bool) json.RawMessage {
+	f, _ := object(data)
+	state, _ := object(f["status"])
+	if string(state["human"]) != "null" {
+		h, _ := object(state["human"])
+		h["fileChooserVersion"] = jsonBytes(version)
+		state["human"] = jsonBytes(h)
+	}
+	if string(state["pendingFileChooser"]) != "null" && state["pendingFileChooser"] != nil {
+		chooser, _ := object(state["pendingFileChooser"])
+		chooser["multiple"] = jsonBytes(multiple)
+		delete(chooser, "directory")
+		if version == 2 {
+			chooser["directory"] = jsonBytes(directory)
+		}
+		state["pendingFileChooser"] = jsonBytes(chooser)
+	}
+	f["status"] = jsonBytes(state)
+	return jsonBytes(f)
+}
+
+func viewerVersionedFileBackend(version uint64, directory, multiple bool) *testBackend {
+	b := viewerFileBackend()
+	base := b.command
+	b.command = func(ctx context.Context, request json.RawMessage) (json.RawMessage, error) {
+		data, err := base(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+		return viewerFileVersion(data, version, directory, multiple), nil
+	}
+	return b
+}
+
 func TestHumanFilesWebSocketRoundTripAndStrictOriginalReceipts(t *testing.T) {
 	b := viewerFileBackend()
 	c := humanTestBegin(t, b, startTest(t, b, nil))
@@ -294,5 +330,125 @@ func TestHumanFileOriginalCommitGetsViewerGenerationCauseAndKeepsLateReceipt(t *
 		t.Fatal("viewer did not preserve its actual generation-retirement cause", got)
 	}
 	send(t, c, viewerFileRequest(4, "humanFileCommit", `,"transferId":"transfer"`))
+	humanTestError(t, c, 4, "HUMAN_FILE_STALE")
+}
+
+func TestHumanFileProjectionPreservesVersionedDirectoryMode(t *testing.T) {
+	for _, mode := range []struct {
+		name      string
+		version   uint64
+		directory bool
+	}{{"v1", 1, false}, {"v2-file", 2, false}, {"v2-directory", 2, true}} {
+		t.Run(mode.name, func(t *testing.T) {
+			data := viewerFileVersion(viewerFileState("chooser", 2), mode.version, mode.directory, false)
+			projected, err := publicState(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields, _ := object(projected)
+			chooser, _ := object(fields["pendingFileChooser"])
+			if mode.version == 1 && chooser["directory"] != nil || mode.version == 2 && string(chooser["directory"]) != fmt.Sprint(mode.directory) {
+				t.Fatal("projection lost or invented directory mode", string(projected))
+			}
+			// A capable status without a chooser must still explicitly clear the
+			// previous displayed chooser, including when its source omitted null.
+			envelope, _ := object(data)
+			state, _ := object(envelope["status"])
+			delete(state, "pendingFileChooser")
+			envelope["status"] = jsonBytes(state)
+			projected, err = publicState(jsonBytes(envelope))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields, _ = object(projected)
+			if string(fields["pendingFileChooser"]) != "null" {
+				t.Fatal("missing explicit chooser retirement", string(projected))
+			}
+		})
+	}
+}
+
+func TestHumanDirectoryWebSocketAdmissionUsesOriginalMode(t *testing.T) {
+	for _, mode := range []struct {
+		name      string
+		version   uint64
+		directory bool
+	}{{"v1-file", 1, false}, {"v2-file", 2, false}, {"v2-directory-single-flag", 2, true}} {
+		t.Run(mode.name, func(t *testing.T) {
+			b := viewerVersionedFileBackend(mode.version, mode.directory, !mode.directory)
+			c := humanTestBegin(t, b, startTest(t, b, nil))
+			good, bad := viewerFileMetadata, viewerDirectoryMetadata
+			if mode.directory {
+				good, bad = bad, good
+			}
+			send(t, c, viewerFileRequest(2, "humanFileBegin", bad))
+			humanTestError(t, c, 2, "HUMAN_FILE_INVALID")
+			select {
+			case call := <-b.calls:
+				t.Fatalf("wrong manifest mode reached backend: %s", call)
+			default:
+			}
+			// Rejection did not consume the one original chooser claim.
+			send(t, c, viewerFileRequest(3, "humanFileBegin", good))
+			original := humanTestCall(t, b, "humanFileBegin")
+			if mode.directory && !strings.Contains(string(original), `"relativePath":"资料/乙/same.txt"`) {
+				t.Fatal("original relative hierarchy was rewritten", string(original))
+			}
+			humanTestSuccess(t, c, 3)
+			send(t, c, viewerFileRequest(4, "humanFileChunk", `,"transferId":"transfer","fileIndex":1,"offset":0,"data":"YWJj"`))
+			humanTestCall(t, b, "humanFileChunk")
+			humanTestSuccess(t, c, 4)
+			send(t, c, viewerFileRequest(5, "humanFileCommit", `,"transferId":"transfer"`))
+			humanTestCall(t, b, "humanFileCommit")
+			result, _ := object(humanTestSuccess(t, c, 5))
+			if result["fileChooserReceipt"] == nil {
+				t.Fatal("missing original commit receipt")
+			}
+			send(t, c, viewerFileRequest(6, "humanFileCommit", `,"transferId":"transfer"`))
+			humanTestError(t, c, 6, "HUMAN_FILE_STALE")
+		})
+	}
+}
+
+func TestHumanDirectoryModeChangeRevokesOriginalChooser(t *testing.T) {
+	for _, original := range []bool{false, true} {
+		t.Run(fmt.Sprint(original), func(t *testing.T) {
+			b := viewerVersionedFileBackend(2, original, true)
+			c := humanTestBegin(t, b, startTest(t, b, nil))
+			changed := viewerFileVersion(viewerFileState("chooser", 5), 2, !original, true)
+			publishGeneration(b, changed)
+			humanTestCall(t, b, "select")
+			metadata := viewerFileMetadata
+			if original {
+				metadata = viewerDirectoryMetadata
+			}
+			send(t, c, viewerFileRequest(2, "humanFileBegin", metadata))
+			humanTestError(t, c, 2, "HUMAN_FILE_STALE")
+		})
+	}
+}
+
+func TestHumanDirectoryCancelPendingBeginCannotReviveTransfer(t *testing.T) {
+	b := viewerVersionedFileBackend(2, true, false)
+	base := b.command
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	b.command = func(ctx context.Context, request json.RawMessage) (json.RawMessage, error) {
+		if humanTestOperation(request) == "humanFileBegin" {
+			<-release
+			return viewerFileVersion(viewerFileReply(request, "chooser", 4), 2, true, false), nil
+		}
+		return base(ctx, request)
+	}
+	c := humanTestBegin(t, b, startTest(t, b, nil))
+	send(t, c, viewerFileRequest(2, "humanFileBegin", viewerDirectoryMetadata))
+	humanTestCall(t, b, "humanFileBegin")
+	send(t, c, viewerFileRequest(3, "humanFileCancel", ""))
+	humanTestCall(t, b, "humanFileCancel")
+	humanTestSuccess(t, c, 3)
+	once.Do(func() { close(release) })
+	humanTestSuccess(t, c, 2)
+	send(t, c, viewerFileRequest(4, "humanFileChunk", `,"transferId":"transfer","fileIndex":1,"offset":0,"data":"YWJj"`))
 	humanTestError(t, c, 4, "HUMAN_FILE_STALE")
 }

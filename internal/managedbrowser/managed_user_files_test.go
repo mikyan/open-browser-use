@@ -41,6 +41,20 @@ func fileFixtureReply(f *userFixture, req userTestRequest, key string, state map
 }
 
 func openFileFixture(t *testing.T, intercept func(*userFixture, userTestRequest) bool) (*UserController, *userFixture) {
+	return openFileFixtureWithState(t, intercept, fileFixtureState)
+}
+
+func directoryFixtureState(f *userFixture, sequence uint64, chooser string) map[string]any {
+	state := fileFixtureState(f, sequence, chooser)
+	state["human"].(map[string]any)["fileChooserVersion"] = 2
+	if chooser != "" {
+		pending := state["pendingFileChooser"].(map[string]any)
+		pending["directory"], pending["multiple"] = true, false
+	}
+	return state
+}
+
+func openFileFixtureWithState(t *testing.T, intercept func(*userFixture, userTestRequest) bool, state func(*userFixture, uint64, string) map[string]any) (*UserController, *userFixture) {
 	t.Helper()
 	store := newHumanFiles(filepath.Join(t.TempDir(), "u"))
 	t.Cleanup(func() {
@@ -52,7 +66,7 @@ func openFileFixture(t *testing.T, intercept func(*userFixture, userTestRequest)
 	c := f.open()
 	c.mu.Lock()
 	c.files = store
-	raw, _ := json.Marshal(fileFixtureState(f, 10, "chooser"))
+	raw, _ := json.Marshal(state(f, 10, "chooser"))
 	err := c.validateStatusLocked(raw)
 	c.mu.Unlock()
 	if err != nil {
@@ -371,5 +385,119 @@ func TestManagedFileCloseCannotConfirmFailedStagingRemoval(t *testing.T) {
 	c.mu.Unlock()
 	if receipt.CleanupConfirmed {
 		t.Fatal("failed staging removal published cleanupConfirmed")
+	}
+}
+
+func TestManagedDirectoryModeComesFromOriginalChooserBeforeBegin(t *testing.T) {
+	for _, mode := range []string{"v1-file", "v2-file", "v2-directory"} {
+		t.Run(mode, func(t *testing.T) {
+			state := func(f *userFixture, n uint64, id string) map[string]any {
+				if mode == "v1-file" {
+					return fileFixtureState(f, n, id)
+				}
+				s := directoryFixtureState(f, n, id)
+				if id != "" && mode == "v2-file" {
+					s["pendingFileChooser"].(map[string]any)["directory"] = false
+				}
+				return s
+			}
+			c, _ := openFileFixtureWithState(t, func(f *userFixture, req userTestRequest) bool {
+				if managedprotocol.IsHumanFileOperation(req.Operation) {
+					t.Error("invalid mode reached native channel")
+					return true
+				}
+				return false
+			}, state)
+			files := `[{"name":"a","size":0,"relativePath":"root/a"}]`
+			if mode == "v2-directory" {
+				files = `[{"name":"a","size":0}]`
+			}
+			if _, err := c.Command(context.Background(), fileRequest("humanFileBegin", `,"files":`+files)); err == nil {
+				t.Fatal("manifest overrode native chooser mode")
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			for _, claim := range c.fileClaims {
+				if claim.begun {
+					t.Fatal("invalid manifest consumed native claim")
+				}
+			}
+			if len(c.files.records) != 0 {
+				t.Fatal("invalid manifest allocated storage")
+			}
+		})
+	}
+}
+
+func TestManagedDirectoryCommitUsesOneOwnedRootDespiteMultipleFalse(t *testing.T) {
+	var committedRoot string
+	c, _ := openFileFixtureWithState(t, func(f *userFixture, req userTestRequest) bool {
+		switch req.Operation {
+		case "humanFileBegin":
+			if req.Arguments["files"] != nil || req.Arguments["relativePath"] != nil {
+				t.Error("caller paths reached private claim")
+			}
+			fileFixtureReply(f, req, "fileChooserClaim", directoryFixtureState(f, 11, "chooser"))
+			return true
+		case "humanFileCommit":
+			var roots []string
+			if json.Unmarshal(req.Arguments["files"], &roots) != nil || len(roots) != 1 {
+				t.Error("directory commit did not carry one root")
+				return true
+			}
+			committedRoot = roots[0]
+			if filepath.Base(committedRoot) != "资料" {
+				t.Error("original root name lost")
+			}
+			for relative, want := range map[string]string{"甲/同名.txt": "abc", "乙/同名.txt": "", "空": ""} {
+				data, err := os.ReadFile(filepath.Join(committedRoot, filepath.FromSlash(relative)))
+				if err != nil || string(data) != want {
+					t.Error("wrong original nested bytes", relative, err)
+				}
+			}
+			fileFixtureReply(f, req, "fileChooserReceipt", directoryFixtureState(f, 12, ""))
+			return true
+		}
+		return false
+	}, directoryFixtureState)
+	result, err := c.Command(context.Background(), fileRequest("humanFileBegin", `,"files":[{"name":"同名.txt","size":3,"relativePath":"资料/甲/同名.txt"},{"name":"同名.txt","size":0,"relativePath":"资料/乙/同名.txt"},{"name":"空","size":0,"relativePath":"资料/空"}]`))
+	if err != nil {
+		t.Fatal("directory wrongly interpreted as single-file chooser", err)
+	}
+	var receipt struct{ FileTransfer managedprotocol.FileTransfer }
+	if err := json.Unmarshal(result, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	id := receipt.FileTransfer.TransferID
+	if id == "" || receipt.FileTransfer.FileCount != 3 || receipt.FileTransfer.TotalBytes != 3 {
+		t.Fatal("incorrect directory transfer receipt")
+	}
+	if _, err := c.Command(context.Background(), fileRequest("humanFileChunk", `,"transferId":"`+id+`","fileIndex":0,"offset":0,"data":"YWJj"`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Command(context.Background(), fileRequest("humanFileCommit", `,"transferId":"`+id+`"`)); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	c.retireFilesLocked()
+	c.mu.Unlock()
+	if data, err := os.ReadFile(filepath.Join(committedRoot, "甲", "同名.txt")); err != nil || string(data) != "abc" {
+		t.Fatal("revocation deleted already submitted tree", err)
+	}
+	if _, err := c.Command(context.Background(), fileRequest("humanFileCommit", `,"transferId":"`+id+`"`)); err == nil {
+		t.Fatal("directory commit replayed")
+	}
+}
+
+func TestManagedDirectoryChooserCannotChangeModeAtSameIdentity(t *testing.T) {
+	c, f := openFileFixtureWithState(t, nil, directoryFixtureState)
+	changed := directoryFixtureState(f, 11, "chooser")
+	changed["pendingFileChooser"].(map[string]any)["directory"] = false
+	raw, _ := json.Marshal(changed)
+	c.mu.Lock()
+	err := c.validateStatusLocked(raw)
+	c.mu.Unlock()
+	if err == nil {
+		t.Fatal("original chooser directory mode changed")
 	}
 }

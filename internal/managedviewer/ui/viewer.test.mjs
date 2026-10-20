@@ -8,9 +8,10 @@ const source = readFileSync(new URL("./viewer.js", import.meta.url), "utf8");
 const fileSource = readFileSync(new URL("./human-files.js", import.meta.url), "utf8");
 const ticket = "a".repeat(43);
 
-function fileHarness() {
-  const h = setup(1, 1, { fileChooserVersion: 1 }); h.readyHuman();
-  const chooser = { leaseId: "lease-a", generation: 1, chooserId: "chooser-a", multiple: true,
+function fileHarness({ version = 1, directory = false, multiple = true } = {}) {
+  const h = setup(1, 1, { fileChooserVersion: version }); h.readyHuman();
+  const chooser = { leaseId: "lease-a", generation: 1, chooserId: "chooser-a", multiple,
+    ...(version === 2 ? { directory } : {}),
     source: { origin: "https://upload.example", frame: "child" } };
   const state = (extra = {}) => h.humanState({ eventSequence: 20002, pendingFileChooser: chooser, ...extra });
   h.socket.message({ type: "state", ...state() });
@@ -24,9 +25,120 @@ function fileHarness() {
   };
   return { ...h, chooser, fileState: state, fields, reply, pick };
 }
-const file = (name, bytes) => ({ name, size: bytes.length,
+const file = (name, bytes, relativePath) => ({ name, size: bytes.length, ...(relativePath === undefined ? {} : { webkitRelativePath: relativePath }),
   slice(start, end) { return { async arrayBuffer() { return Uint8Array.from(bytes.slice(start, end)).buffer; } }; } });
 const flushFiles = async () => { for (let n = 0; n < 16; n++) await Promise.resolve(); };
+
+test("directory picker preserves paths and original indexed bytes when the webpage multiple flag is false", async () => {
+  const h = fileHarness({ version: 2, directory: true, multiple: false });
+  assert.match(h.element("file-title").textContent, /文件夹/);
+  assert.match(h.element("file-description").textContent, /空子文件夹不会上传/);
+  const begin = h.pick([file("same.bin", [], "资料/空/same.bin"), file("same.bin", [0, 255, 128], "资料/正文/same.bin"), file("中文.txt", [7], "资料/中文.txt")]);
+  assert.equal(h.element("file-picker").webkitdirectory, true);
+  assert.equal(h.element("file-picker").multiple, false);
+  assert.equal(begin.operation, "humanFileBegin");
+  assert.deepEqual(begin.files, [
+    { name: "same.bin", size: 0, relativePath: "资料/空/same.bin" },
+    { name: "same.bin", size: 3, relativePath: "资料/正文/same.bin" },
+    { name: "中文.txt", size: 1, relativePath: "资料/中文.txt" }
+  ]);
+  h.reply(begin, { fileTransfer: { ...h.fields, transferId: "directory-a", fileCount: 3, totalBytes: 4 } });
+  await flushFiles();
+  for (const [fileIndex, bytes] of [[1, [0, 255, 128]], [2, [7]]]) {
+    const chunk = h.socket.sent.at(-1);
+    assert.equal(chunk.operation, "humanFileChunk"); assert.equal(chunk.fileIndex, fileIndex); assert.equal(chunk.offset, 0);
+    assert.deepEqual([...Buffer.from(chunk.data, "base64")], bytes);
+    h.reply(chunk, { fileChunk: { ...h.fields, transferId: "directory-a", fileIndex, nextOffset: bytes.length } });
+    await flushFiles();
+  }
+  const commit = h.socket.sent.at(-1);
+  assert.equal(commit.operation, "humanFileCommit"); assert.equal(Object.hasOwn(commit, "files"), false);
+  h.reply(commit, { fileChooserReceipt: { ...h.fields, transferId: "directory-a", acknowledged: true } }, { eventSequence: 20003, pendingFileChooser: null });
+  await flushFiles();
+  assert.match(h.element("file-status").textContent, /网页已接收/);
+  assert.equal(h.socket.sent.filter(row => row.operation === "humanFileCommit").length, 1);
+});
+
+for (const paths of [
+  [""], ["a.txt"], ["/root/a.txt"], ["C:/root/a.txt"], ["root\\a.txt"], ["root//a.txt"], ["root/../a.txt"],
+  ["root/./a.txt"], ["root/CON/a.txt"], ["root/conın$/a.txt"], ["root/trail./a.txt"], ["root/a.txt", "other/b.txt"],
+  ["root/a.txt", "root/a.txt"], ["root/child/a.txt", "root/Child/b.txt"],
+  ["root/ſ/a.txt", "root/S/b.txt"], ["root/ς/a.txt", "root/σ/b.txt"],
+  ["root/a.txt", "root/a.txt/b.txt"], ["root/a.txt/b.txt", "root/a.txt"],
+  ["root/" + "x/".repeat(15) + "a.txt"], ["root/" + ("中".repeat(80) + "/").repeat(5) + "a.txt"],
+  ["root/\ud800/a.txt"], ["root/other.bin"]
+]) test(`directory path rejected locally before Begin: ${JSON.stringify(paths)}`, () => {
+  const h = fileHarness({ version: 2, directory: true });
+  h.pick(paths.map((path, index) => file(paths.length === 1 ? "a.txt" : path.split("/").at(-1), [index], path)));
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileBegin"), false);
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+  assert.equal(h.element("file-choose").disabled, false);
+  assert.ok(h.element("file-status").textContent);
+});
+
+test("directory spelling is preserved without full-case expansion or Unicode normalization", () => {
+  const h = fileHarness({ version: 2, directory: true });
+  const paths = ["root/ß/a", "root/ss/a", "root/ı/a", "root/i/a", "root/é/a", "root/e\u0301/a", "root/[x]/a", "root/xxx/a"];
+  const begin = h.pick(paths.map(path => file("a", [], path)));
+  assert.equal(begin.operation, "humanFileBegin");
+  assert.deepEqual(begin.files.map(row => row.relativePath), paths);
+});
+
+test("an empty directory selection cancels instead of reporting a successful zero-file upload", () => {
+  const h = fileHarness({ version: 2, directory: true });
+  assert.equal(h.pick([]).operation, "humanFileCancel");
+  assert.equal(h.socket.sent.some(row => ["humanFileBegin", "humanFileCommit"].includes(row.operation)), false);
+});
+
+for (const sizes of [Array(17).fill(0), [32 * 1024 * 1024 + 1], [32 * 1024 * 1024, 32 * 1024 * 1024, 1]])
+  test(`directory limits reject before file reads: ${sizes.length} files, ${sizes.reduce((a, b) => a + b)} bytes`, () => {
+    const h = fileHarness({ version: 2, directory: true, multiple: false });
+    h.pick(sizes.map((size, index) => ({ name: `${index}.bin`, webkitRelativePath: `root/${index}.bin`, size,
+      slice() { assert.fail("Invalid directory must not read local file contents"); } })));
+    assert.equal(h.socket.sent.some(row => row.operation === "humanFileBegin"), false);
+    assert.equal(h.element("file-choose").disabled, false);
+  });
+
+for (const version of [1, 2]) test(`ordinary v${version} rejects directory paths instead of dropping them`, () => {
+  const h = fileHarness({ version }); h.pick([file("a.txt", [1], "root/a.txt")]);
+  assert.equal(h.element("file-picker").webkitdirectory, false);
+  assert.equal(h.socket.sent.some(row => row.operation === "humanFileBegin"), false);
+  const begin = h.pick([file("a.txt", [1], "")]);
+  assert.deepEqual(begin.files, [{ name: "a.txt", size: 1 }]);
+});
+
+for (const directory of [undefined, null, "true", 1]) test(`v2 rejects missing or invalid directory mode: ${directory}`, () => {
+  const h = fileHarness({ version: 2 });
+  const chooser = { ...h.chooser, directory }; if (directory === undefined) delete chooser.directory;
+  h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20003, pendingFileChooser: chooser }) });
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+});
+
+test("legacy chooser cannot acquire a directory field and v2 mode is immutable", () => {
+  for (const options of [{}, { version: 2, directory: true }]) {
+    const h = fileHarness(options);
+    h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20003, pendingFileChooser: { ...h.chooser, directory: false } }) });
+    assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  }
+});
+
+test("directory native cancellation preserves the old selection and a later ordinary chooser resets picker mode", async () => {
+  const h = fileHarness({ version: 2, directory: true });
+  h.event("file-choose", "click", { isTrusted: true });
+  assert.equal(h.element("file-picker").webkitdirectory, true);
+  h.windowEvents.blur();
+  assert.equal(h.socket.sent.some(row => row.operation === "humanEnd"), false);
+  h.event("file-picker", "cancel");
+  const cancel = h.socket.sent.at(-1);
+  assert.equal(cancel.operation, "humanFileCancel");
+  h.reply(cancel, { fileChooserCancellation: { ...h.fields, cancelled: true } }, { eventSequence: 20003, pendingFileChooser: null });
+  await flushFiles();
+  assert.match(h.element("file-status").textContent, /原有文件保持不变/);
+  h.socket.message({ type: "state", ...h.fileState({ eventSequence: 20004, pendingFileChooser: { ...h.chooser, chooserId: "ordinary-b", directory: false } }) });
+  h.event("file-choose", "click", { isTrusted: true });
+  assert.equal(h.element("file-picker").webkitdirectory, false);
+  assert.equal(h.element("file-choose").textContent, "选择本地文件");
+});
 
 test("files transfer original bytes in bounded acknowledged chunks, including same-name empty file", async () => {
   const h = fileHarness(), bytes = Array.from({ length: 16385 }, (_, n) => n % 256);
@@ -105,15 +217,16 @@ test("file picker waits for original held key release and ACK without synthesizi
   assert.equal(h.socket.sent.filter(row => row.operation === "humanInput").length, 2);
 });
 
-for (const name of ["../escape", "a:b", "CON.txt", "CON .txt", "nul", "LPT¹", "trail.", "trail ", "bad\u0000name"]) test(`file name rejected before begin: ${JSON.stringify(name)}`, () => {
+for (const name of ["../escape", "a:b", "CON.txt", "CON .txt", "conın$", "nul", "LPT¹", "trail.", "trail ", "bad\u0000name"]) test(`file name rejected before begin: ${JSON.stringify(name)}`, () => {
   const h = fileHarness(); h.pick([file(name, [1])]);
   assert.equal(h.socket.sent.some(row => row.operation === "humanFileBegin"), false);
   assert.equal(h.element("file-choose").disabled, false);
 });
 
-for (const stage of ["begin", "read", "chunk"]) test(`file End fences all later writes/commit at ${stage}`, async () => {
-  const h = fileHarness(); let resolveRead;
+for (const directory of [false, true]) for (const stage of ["begin", "read", "chunk"]) test(`file End fences all later writes/commit at ${stage}, directory=${directory}`, async () => {
+  const h = fileHarness(directory ? { version: 2, directory } : {}); let resolveRead;
   const chosen = stage === "read" ? { name: "a.bin", size: 1, slice() { return { arrayBuffer() { return new Promise(resolve => { resolveRead = resolve; }); } }; } } : file("a.bin", [7]);
+  if (directory) chosen.webkitRelativePath = "root/a.bin";
   const begin = h.pick([chosen]);
   if (stage !== "begin") {
     h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } }); await flushFiles();
@@ -185,9 +298,10 @@ test("file selection needs its original picker intent and retired selection cann
   assert.equal(h.element("file-choose").disabled, false);
 });
 
-test("navigation during local file read cancels old transfer and never uploads to successor", async () => {
-  const h = fileHarness(); let resolveRead;
+for (const directory of [false, true]) test(`navigation during local file read cancels old transfer and never uploads to successor, directory=${directory}`, async () => {
+  const h = fileHarness(directory ? { version: 2, directory } : {}); let resolveRead;
   const chosen = { name: "one.bin", size: 1, slice() { return { arrayBuffer() { return new Promise(resolve => { resolveRead = resolve; }); } }; } };
+  if (directory) chosen.webkitRelativePath = "root/one.bin";
   const begin = h.pick([chosen]);
   h.reply(begin, { fileTransfer: { ...h.fields, transferId: "transfer-a", fileCount: 1, totalBytes: 1 } }); await flushFiles();
   h.socket.message({ type: "state", ...generationState(h, 2, "navigating") });

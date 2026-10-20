@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,23 +30,24 @@ type humanFiles struct {
 }
 
 type humanFileRecord struct {
-	mu       sync.Mutex // actual disk operations, independent of caller timeout
-	owner    *UserController
-	identity managedprotocol.FileChooserIdentity
-	id       string
-	dir      string
-	files    []managedprotocol.HumanFile
-	paths    []string
-	offsets  []uint64
-	total    uint64
-	deadline time.Time
-	timer    *time.Timer
-	busy     bool
-	ready    bool
-	retired  bool
-	retained bool
-	deleting bool
-	done     chan struct{}
+	mu            sync.Mutex // actual disk operations, independent of caller timeout
+	owner         *UserController
+	identity      managedprotocol.FileChooserIdentity
+	id            string
+	dir           string
+	directoryRoot string
+	files         []managedprotocol.HumanFile
+	paths         []string
+	offsets       []uint64
+	total         uint64
+	deadline      time.Time
+	timer         *time.Timer
+	busy          bool
+	ready         bool
+	retired       bool
+	retained      bool
+	deleting      bool
+	done          chan struct{}
 }
 
 func newHumanFiles(root string) *humanFiles {
@@ -53,6 +55,9 @@ func newHumanFiles(root string) *humanFiles {
 }
 
 func writeHumanChunk(path string, data []byte, offset int64) error {
+	if err := platformValidatePath(path); err != nil {
+		return err
+	}
 	file, err := os.OpenFile(path, os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
@@ -67,6 +72,20 @@ func writeHumanChunk(path string, data []byte, offset int64) error {
 func fileError(code string) error { return &userBridgeError{code: "OBU_HUMAN_FILE_" + code} }
 
 func (s *humanFiles) begin(owner *UserController, identity managedprotocol.FileChooserIdentity, files []managedprotocol.HumanFile, total uint64) (*humanFileRecord, error) {
+	directory := len(files) > 0 && files[0].RelativePath != ""
+	if err := managedprotocol.ValidateHumanFileMode(files, directory); err != nil {
+		return nil, fileError("INVALID")
+	}
+	var actualTotal uint64
+	for _, file := range files {
+		if file.Size > managedprotocol.MaxHumanFileBytes {
+			return nil, fileError("LIMIT")
+		}
+		actualTotal += file.Size
+	}
+	if actualTotal != total || total > managedprotocol.MaxHumanUploadBytes {
+		return nil, fileError("LIMIT")
+	}
 	id, err := randomID()
 	if err != nil {
 		return nil, fileError("STORAGE")
@@ -85,6 +104,9 @@ func (s *humanFiles) begin(owner *UserController, identity managedprotocol.FileC
 	r := &humanFileRecord{owner: owner, identity: identity, id: id, dir: filepath.Join(s.root, id),
 		files: append([]managedprotocol.HumanFile(nil), files...), offsets: make([]uint64, len(files)), total: total,
 		deadline: s.now().Add(humanFileLifetime), busy: true, done: make(chan struct{})}
+	if directory {
+		r.directoryRoot = filepath.Join(r.dir, strings.Split(files[0].RelativePath, "/")[0])
+	}
 	r.mu.Lock()
 	s.records[id], s.bytes = r, s.bytes+total
 	s.jobs.Add(1)
@@ -125,10 +147,24 @@ func (s *humanFiles) create(r *humanFileRecord) error {
 	if err := os.Mkdir(r.dir, 0o700); err != nil {
 		return err
 	}
+	created := make(map[string]bool)
 	for i, metadata := range r.files {
-		directory := filepath.Join(r.dir, fmt.Sprint(i))
-		if err := os.Mkdir(directory, 0o700); err != nil {
-			return err
+		parts := []string{fmt.Sprint(i), metadata.Name}
+		if r.directoryRoot != "" {
+			parts = strings.Split(metadata.RelativePath, "/")
+		}
+		directory := r.dir
+		for _, part := range parts[:len(parts)-1] {
+			directory = filepath.Join(directory, part)
+			if err := platformValidatePath(directory); err != nil {
+				return err
+			}
+			if !created[directory] {
+				if err := os.Mkdir(directory, 0o700); err != nil {
+					return err
+				}
+				created[directory] = true
+			}
 		}
 		name := filepath.Join(directory, metadata.Name)
 		if err := platformValidatePath(name); err != nil {
@@ -218,10 +254,20 @@ func (s *humanFiles) retain(owner *UserController, identity managedprotocol.File
 		if r.offsets[i] != file.Size {
 			return nil, fileError("INCOMPLETE")
 		}
+		if err := platformValidatePath(r.paths[i]); err != nil {
+			return nil, fileError("STORAGE")
+		}
+		info, err := os.Stat(r.paths[i])
+		if err != nil || !info.Mode().IsRegular() || uint64(info.Size()) != file.Size {
+			return nil, fileError("STORAGE")
+		}
 	}
 	r.retained = true
 	if r.timer != nil {
 		r.timer.Stop()
+	}
+	if r.directoryRoot != "" {
+		return []string{r.directoryRoot}, nil
 	}
 	return append([]string(nil), r.paths...), nil
 }

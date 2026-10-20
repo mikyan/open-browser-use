@@ -22,10 +22,23 @@
 释放都走原串行回执队列；旧 pointer 路径停用以防双发。持键越界结束控制，
 弹窗禁用画面产生的命中变化按原几何判断，见[人工多击](references/managed-human-multi-click.md)。
 
-人工文件选择由独立 `human-files.js` 管理；卡片显示原请求来源和单/多文件
-要求。可信本地点击立即打开文件框，逐块确认后仅提交一次；取消、导航或 End
-撤销旧选择，已发送操作继续保留原回执。支持范围见
-[人工上传](references/managed-human-files.md)。
+人工文件选择由独立 `human-files.js` 管理；卡片显示原请求来源，以及普通
+单/多文件或目录要求。开发版 `fileChooserVersion: 2` 的 pending 必须明确
+携带布尔 `directory`，同一请求不可改变模式；仍兼容不带该字段的 v1 普通
+文件请求。可信本地点击立即设置原 picker 的 `multiple/webkitdirectory`
+并打开文件或目录框，目录的 `multiple=false` 不限制其内部文件数。
+
+本地清单校验最多 16 文件、单个 32 MiB、总量 64 MiB；目录保留单根相对
+路径，最多 1,024 UTF-8 字节、16 段，拒绝大小写或文件/目录冲突。空文件
+保留，空目录不伪造；会话最多保留 256 MiB 由主程序执行。逐块确认后仅提交
+一次，目录成功以原节点可信 input 与原生 ACK、清理回执共同确认。
+
+取消、导航或 End 撤销旧选择，收到原撤权状态后不续传、不提交给新页；
+原生导航事件与状态送达之间可能还有旧暂存块，已发送操作继续保留原回执。
+目录按钮、清单与生命周期已通过固定 Headless Chromium 正式流程，普通
+文件同构建回归也通过，独立审计仍在进行。目录功能尚未进入最新
+`preview-20261021-805b1a8` 包；Windows 原生选择框焦点、公司 Edge 和完整
+能力对齐仍未验证，详见[人工上传](references/managed-human-files.md)。
 
 每轮人工请求保留独立本地代次，旧错误、超时和回复不得结束后来接管或
 改变其按钮状态。UI 行为用 `node --test internal/managedviewer/ui/viewer.test.mjs`

@@ -161,7 +161,7 @@ const clipboardKeyUp = operation => {
 test("human file chooser intercepts the original attachment and advertises only human capability", async () => {
   const f = fixture(), handle = await f.begin();
   try {
-    assert.equal(handle.info().fileChooserVersion, 1);
+    assert.equal(handle.info().fileChooserVersion, 2);
     assert.equal(f.calls.filter(([method, target, params]) => method === "Page.setInterceptFileChooserDialog" &&
       target.targetId === "original-target" && !target.sessionId && params.enabled === true).length, 1);
     assert.equal(handle.pendingFileChooser(), null);
@@ -217,6 +217,7 @@ for (const child of [false, true]) test(`human file chooser original ${child ? "
   const f = fileChooserFixture({ child }), handle = await f.begin();
   try {
     await f.openChooser();
+    assert.equal(handle.pendingFileChooser().directory, false);
     assert.deepEqual(handle.pendingFileChooser().source, { origin: child ? "https://child.test" : "https://fixture.test",
       frame: child ? "child" : "top-level" });
     const request = fileTuple(handle);
@@ -1196,7 +1197,7 @@ test("actual Begin admits End before Page.enable ACK but grants no input or dial
   const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });
   const handle = await f.beginAdmitted(); await entered.promise;
   assert.deepEqual({ ...handle.info(), leaseId: "original" }, {
-    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 1, lastInputSequence: 0
+    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 2, lastInputSequence: 0
   });
   assert.equal(handle.pendingDialog(), null);
   await assert.rejects(input(handle, { type: "text", text: "must not send" }), /GENERATION_STALE/);

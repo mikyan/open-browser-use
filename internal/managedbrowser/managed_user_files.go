@@ -65,7 +65,7 @@ func (c *UserController) currentFileLocked(tuple managedprotocol.FileChooserIden
 	claim, known := c.fileClaims[tuple]
 	h := c.humanStatus
 	if c.closing || c.fileRevoked || !known || claim.terminal || c.files == nil || !c.humanStatusCurrent || h == nil ||
-		h.FileChooserVersion != 1 || h.LeaseID != tuple.LeaseID || h.Generation != tuple.Generation ||
+		(h.FileChooserVersion != 1 && h.FileChooserVersion != 2) || h.LeaseID != tuple.LeaseID || h.Generation != tuple.Generation ||
 		c.pendingFileChooser == nil || c.pendingFileChooser.FileChooserIdentity != tuple {
 		return claim, fileError("STALE")
 	}
@@ -75,6 +75,8 @@ func (c *UserController) currentFileLocked(tuple managedprotocol.FileChooserIden
 func (c *UserController) fileCommand(ctx context.Context, fields map[string]json.RawMessage, operation string) (json.RawMessage, error) {
 	tuple := fileTuple(fields)
 	var id string
+	var files []managedprotocol.HumanFile
+	var total uint64
 	_ = json.Unmarshal(fields["transferId"], &id)
 	c.mu.Lock()
 	claim, err := c.currentFileLocked(tuple)
@@ -103,8 +105,10 @@ func (c *UserController) fileCommand(ctx context.Context, fields map[string]json
 		return result, err
 	}
 	if operation == "humanFileBegin" {
-		files, _, parseErr := managedprotocol.ParseHumanFiles(fields["files"])
-		if parseErr != nil || !claim.metadata.Multiple && len(files) != 1 {
+		var parseErr error
+		files, total, parseErr = managedprotocol.ParseHumanFiles(fields["files"])
+		if parseErr != nil || managedprotocol.ValidateHumanFileMode(files, claim.metadata.Directory) != nil ||
+			claim.metadata.Directory && c.humanStatus.FileChooserVersion != 2 || !claim.metadata.Directory && !claim.metadata.Multiple && len(files) != 1 {
 			c.mu.Unlock()
 			return nil, fileError("INVALID")
 		}
@@ -118,7 +122,6 @@ func (c *UserController) fileCommand(ctx context.Context, fields map[string]json
 	defer c.finishFileOperation(tuple, done)
 	switch operation {
 	case "humanFileBegin":
-		files, total, _ := managedprotocol.ParseHumanFiles(fields["files"])
 		record, err := c.files.begin(c, tuple, files, total)
 		if err != nil {
 			return nil, err

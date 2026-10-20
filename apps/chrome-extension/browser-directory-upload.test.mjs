@@ -52,7 +52,7 @@ function fixture(t, { directory = true, child = false, timeout = 1000 } = {}) {
   const reserve = (owner = registry, extra = {}) => owner.reserve({ identity, scope: { session_id: "original", turn_id: "turn", control_epoch: 1 },
     deadlineAt: Date.now() + timeout, ...extra });
   t.after(() => { for (const current of registries) current.invalidate({}, new Error("test cleanup")); });
-  return { registry, create, reserve, node, context, commands, objects, identity,
+  return { registry, create, reserve, node, context, commands, objects, identity, send,
     intercept: fn => { intercept = fn; }, setCanCleanup: value => { cleanupAllowed = value; }, revoke: error => { authorityError = error; },
     emit: (kind, trusted = true) => node.emit(kind, trusted),
     sets: () => commands.filter(command => command.method === "DOM.setFileInputFiles") };
@@ -77,6 +77,50 @@ test("input arriving before ACK is not early success or early local retirement",
   await until(() => f.sets().length); f.emit("input"); await until(() => record.terminal);
   assert.equal(done, false); assert.equal(f.registry.size, 1); hold.resolve({}); await pending;
   assert.equal(f.registry.size, 0);
+});
+
+test("asynchronous native admission failure before dispatch disposes the guard without input or cancel", async t => {
+  const f = fixture(t);
+  const owner = f.create({ sendFileInput: async () => { await tick(); throw new Error("original final admission failed"); } });
+  const record = f.reserve(owner); await owner.prepare(record);
+  await assert.rejects(owner.submit(record, ["/fixture"]), /final admission failed/);
+  await until(() => record.cleanupDone); await owner.drain();
+  assert.equal(record.dispatched, false); assert.equal(record.nativeSettled, true); assert.equal(record.terminal, null);
+  assert.equal(f.sets().length, 0); assert.equal(owner.size, 0); assert.equal(owner.operations.size, 0);
+  assert.equal(f.objects.size, 0); assert.equal(f.context.__openBrowserUseDirectoryUploadGuardsV1.count, 0);
+});
+
+test("revocation while admission is pending cleans unsent work but still drains the original gate", async t => {
+  const f = fixture(t), gate = deferred(), entered = deferred();
+  const owner = f.create({ sendFileInput: async (target, params, check, markDispatched) => {
+    entered.resolve(); await gate.promise;
+    markDispatched(); return f.send(target, "DOM.setFileInputFiles", params, check);
+  } });
+  const record = f.reserve(owner); await owner.prepare(record);
+  const pending = assert.rejects(owner.submit(record, ["/fixture"]), /original owner ended/);
+  await entered.promise; owner.cancel(record, new Error("original owner ended"));
+  await pending; await until(() => record.cleanupDone);
+  let drained = false; const draining = owner.drain().then(() => { drained = true; });
+  await tick(); assert.equal(drained, false);
+  assert.equal(record.dispatched, false); assert.equal(record.terminal, null); assert.equal(f.sets().length, 0);
+  gate.resolve(); await until(() => drained); await draining;
+  assert.equal(record.dispatched, false); assert.equal(f.sets().length, 0);
+  assert.equal(owner.size, 0); assert.equal(owner.operations.size, 0); assert.equal(f.objects.size, 0);
+});
+
+test("the synchronous Agent native adapter remains dispatched even when the API throws before returning", async t => {
+  const f = fixture(t), record = f.reserve(); await f.registry.prepare(record);
+  f.intercept((command, run) => {
+    if (command.method === "DOM.setFileInputFiles") throw new Error("native invocation outcome unknown");
+    return run();
+  });
+  await assert.rejects(f.registry.submit(record, ["/fixture"]), /outcome unknown/);
+  assert.equal(record.dispatched, true); assert.equal(record.nativeSettled, true); assert.equal(record.cleanupDone, false);
+  let drained = false; const draining = f.registry.drain().then(() => { drained = true; });
+  await tick(); assert.equal(drained, false); assert.equal(f.registry.size, 1);
+  f.emit("input"); await draining;
+  assert.equal(f.sets().length, 1); assert.equal(f.registry.size, 0); assert.equal(f.objects.size, 0);
+  assert.match(record.error.message, /outcome unknown/);
 });
 
 test("ordinary writes and clear retain ACK-only completion and return value", async t => {

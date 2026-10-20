@@ -45,6 +45,17 @@ export class ManagedHumanFileChoosers {
     this.attachment = Object.freeze({});
     this.registry = new DirectoryUploadRegistry({
       send: (target, method, params, check) => this.send(target.sessionId, method, params, check),
+      sendFileInput: (target, params, check, markDispatched) => {
+        const original = this.current;
+        if (!original?.info.directory || !original.submitted || original.sessionId !== target.sessionId ||
+            original.reservation.identity.backendNodeId !== params.backendNodeId)
+          throw fail("STALE", "original directory submission is unavailable");
+        // Registry enumeration owns its native Promise, while this exact human
+        // choice still requires the normal final document/hint admission.
+        return this.send(target.sessionId, "DOM.setFileInputFiles", params, () => {
+          check(); this.check(original); markDispatched();
+        }, original.proof);
+      },
       sendCleanup: (target, method, params, identity) => sendCleanup(identity.proof, target.sessionId, method, params),
       checkCurrent: scope => {
         if (scope.kind !== "human" || scope.leaseId !== leaseId || scope.tabId !== tabId) throw fail("STALE", "foreign chooser owner");
@@ -96,8 +107,11 @@ export class ManagedHumanFileChoosers {
       record.preparation = this.track((async () => {
         const metadata = await this.registry.prepare(record.reservation);
         this.check(record);
-        if (metadata.directory || metadata.multiple !== record.info.multiple)
-          throw fail("UNSUPPORTED", "directory upload or changed file input mode is unsupported");
+        if (!metadata.directory && metadata.multiple !== record.info.multiple)
+          throw fail("UNSUPPORTED", "original file input mode changed");
+        // Opening's selection mode cannot distinguish a directory from an
+        // ordinary multiple input. Only the original resolved node decides.
+        record.info = Object.freeze({ ...record.info, multiple: metadata.multiple, directory: metadata.directory });
         record.ready = true; this.notify();
       })());
       record.preparation.catch(error => { this.retire(record); if (!this.revoked) this.onFailure(error); });
@@ -124,22 +138,31 @@ export class ManagedHumanFileChoosers {
     const record = this.lookup(value, "commit");
     this.assertIdle(record.proof);
     if (record.transferId !== value.transferId || record.submitted) throw fail("STALE", "original chooser claim is unavailable");
-    if (!record.info.multiple && value.files.length !== 1) throw fail("INVALID", "original input accepts one file");
+    if ((record.info.directory || !record.info.multiple) && value.files.length !== 1)
+      throw fail("INVALID", record.info.directory ? "original directory input requires one server-owned root" : "original input accepts one file");
     const files = [...value.files]; record.submitted = true;
     const actual = this.track((async () => {
       let native;
       try {
-        await this.registry.write(record.reservation, () => {
-          this.check(record);
-          native = this.send(record.sessionId, "DOM.setFileInputFiles",
-            { backendNodeId: record.reservation.identity.backendNodeId, files }, () => this.check(record), record.proof);
-          return native;
-        });
-      } catch (error) {
-        // Once sent, neither End nor a post-write navigation can erase the
-        // original ACK. A native rejection still rejects and cannot be retried.
-        if (!native) throw error;
-        await native;
+        if (record.info.directory) {
+          // A directory ACK only starts enumeration. Preserve the registry's
+          // original trusted input/cancel and cleanup result, including errors.
+          await this.registry.submit(record.reservation, files);
+        } else {
+          try {
+            await this.registry.write(record.reservation, () => {
+              this.check(record);
+              native = this.send(record.sessionId, "DOM.setFileInputFiles",
+                { backendNodeId: record.reservation.identity.backendNodeId, files }, () => this.check(record), record.proof);
+              return native;
+            });
+          } catch (error) {
+            // Ordinary files retain the original native ACK after navigation.
+            // This fallback must never stand in for directory enumeration.
+            if (!native) throw error;
+            await native;
+          }
+        }
       } finally { this.retire(record); }
       await this.registry.drain(entry => entry === record.reservation);
       return Object.freeze({ ...tuple(record), acknowledged: true });

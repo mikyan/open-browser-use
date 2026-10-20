@@ -305,7 +305,7 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	if raw, ok := f["clipboardTransferVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human clipboard transfer")
 	}
-	if raw, ok := f["fileChooserVersion"]; ok && !integer(raw, 1, 1) {
+	if raw, ok := f["fileChooserVersion"]; ok && !integer(raw, 1, 2) {
 		return nil, errors.New("unsupported human file chooser")
 	}
 	return &result, nil

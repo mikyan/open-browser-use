@@ -1,6 +1,6 @@
 "use strict";
 
-// The viewer supplies names and bytes only. Temporary paths and the original
+// The viewer supplies names, relative directory paths and bytes. Temporary paths and the original
 // renderer node stay behind the managed session's authenticated command channel.
 globalThis.ManagedHumanFiles = (() => {
   const chunkBytes = 16 * 1024, maxFileBytes = 32 * 1024 * 1024, maxTotalBytes = 64 * 1024 * 1024;
@@ -17,24 +17,53 @@ globalThis.ManagedHumanFiles = (() => {
   function validPending(value, owner) {
     if (value === null) return true;
     return Boolean(value && typeof value === "object" && !Array.isArray(value) &&
-      Object.keys(value).every(name => ["leaseId", "generation", "chooserId", "multiple", "source"].includes(name)) &&
-      owner?.fileChooserVersion === 1 && ["preparing", "active", "navigating"].includes(owner.state) &&
+      Object.keys(value).every(name => ["leaseId", "generation", "chooserId", "multiple", "source", "directory"].includes(name)) &&
+      [1, 2].includes(owner?.fileChooserVersion) && ["preparing", "active", "navigating"].includes(owner.state) &&
+      (owner.fileChooserVersion === 2 ? typeof value.directory === "boolean" : !Object.hasOwn(value, "directory")) &&
       value.leaseId === owner.leaseId && value.generation === owner.generation &&
       Number.isSafeInteger(value.generation) && value.generation > 0 && identifier(value.chooserId) &&
       typeof value.multiple === "boolean" && (!Object.hasOwn(value, "source") || validSource(value.source)));
   }
-  function metadata(files, multiple) {
-    if (!files.length || files.length > 16 || !multiple && files.length !== 1) throw Error("请选择符合网页要求的文件，最多 16 个。");
+  function validName(name) {
+    return typeof name === "string" && name.isWellFormed() && name.length > 0 && new TextEncoder().encode(name).length <= 240 &&
+      !/[<>:"/\\|?*\x00-\x1f\x7f]/.test(name) && !/[. ]$/.test(name) && name !== "." && name !== ".." &&
+      !/^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|CLOCK\$|COM[1-9¹²³]|LPT[1-9¹²³]) *(?:\.|$)/.test(name.toUpperCase());
+  }
+  // Unicode-aware regex comparison uses simple case folding, without expanding
+  // names such as ß into multiple characters or silently normalizing spelling.
+  const equalFold = (a, b) => new RegExp("^" + a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "iu").test(b);
+  function metadata(files, multiple, directory) {
+    if (!files.length || files.length > 16 || !directory && !multiple && files.length !== 1) throw Error("请选择符合网页要求的文件，最多 16 个。");
     let total = 0;
+    let root = "";
+    const tree = [];
     const values = files.map(file => {
       const name = file.name;
-      if (typeof name !== "string" || !name.isWellFormed() || !name || new TextEncoder().encode(name).length > 240 ||
-          /[<>:"/\\|?*\x00-\x1f\x7f]/.test(name) || /[. ]$/.test(name) || name === "." || name === ".." ||
-          /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|com[1-9¹²³]|lpt[1-9¹²³]) *(?:\.|$)/i.test(name))
+      if (!validName(name))
         throw Error("文件名不受支持。请使用不含路径、特殊字符或 Windows 保留名称的文件名。");
       if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > maxFileBytes) throw Error("每个文件最多 32 MiB。");
       total += file.size;
-      return { name, size: file.size };
+      const value = { name, size: file.size };
+      if (directory) {
+        const path = file.webkitRelativePath;
+        if (typeof path !== "string" || !path.isWellFormed() || new TextEncoder().encode(path).length > 1024)
+          throw Error("无法读取所选文件夹的相对路径。");
+        const parts = path.split("/");
+        if (parts.length < 2 || parts.length > 16 || !parts.every(validName) || parts.at(-1) !== name || root && root !== parts[0])
+          throw Error("请选择一个文件夹；目录层级或文件名不受支持。");
+        root = parts[0];
+        for (let i = 0; i < parts.length; i++) {
+          const current = parts.slice(0, i + 1).join("/"), leaf = i === parts.length - 1;
+          const previous = tree.find(entry => equalFold(entry.path, current));
+          if (previous && (previous.path !== current || previous.leaf || leaf))
+            throw Error("所选目录中存在重名、大小写冲突或文件与文件夹冲突。");
+          if (!previous) tree.push({ path: current, leaf });
+        }
+        value.relativePath = path;
+      } else if (file.webkitRelativePath !== undefined && file.webkitRelativePath !== "") {
+        throw Error("网页请求普通文件，请重新选择文件。");
+      }
+      return value;
     });
     if (total > maxTotalBytes) throw Error("一次选择的文件合计最多 64 MiB。");
     return { values, total };
@@ -73,10 +102,13 @@ globalThis.ManagedHumanFiles = (() => {
       e["file-chooser"].hidden = !visible;
       e["file-chooser"].dataset.chooserId = visible ? pending.chooserId : "";
       e["file-choose"].disabled = !visible || !inputIdle || Boolean(transfer || picker);
+      e["file-title"].textContent = pending?.directory ? "网页请求选择文件夹" : "网页请求选择文件";
+      e["file-choose"].textContent = pending?.directory ? "选择本地文件夹" : "选择本地文件";
       e["file-cancel"].disabled = !visible || Boolean(picker) || transfer?.phase === "committing" || transfer?.phase === "cancelling";
       const source = pending?.source;
       e["file-source"].textContent = !visible ? "" : source ? `来源：${source.frame === "child" ? "子页面" : "主页面"} · ${source.origin}` : "来源未提供";
       e["file-description"].textContent = !inputIdle ? "请先松开按键和鼠标，等待原操作确认后再选择文件。" :
+        pending?.directory ? "将上传所选文件夹中的文件并保留层级。最多 16 个文件，单个最多 32 MiB，合计最多 64 MiB；空子文件夹不会上传。" :
         pending?.multiple ? "网页允许选择多个文件。最多 16 个，单个最多 32 MiB，合计最多 64 MiB。" :
           "网页请求选择一个文件，最多 32 MiB。";
       e["file-status"].hidden = !notice;
@@ -87,7 +119,7 @@ globalThis.ManagedHumanFiles = (() => {
     function accept(value) {
       const identity = key(value);
       if (value) {
-        const descriptor = JSON.stringify([value.multiple, value.source?.origin ?? "", value.source?.frame ?? ""]);
+        const descriptor = JSON.stringify([value.multiple, value.directory, value.source?.origin ?? "", value.source?.frame ?? ""]);
         if (identities.has(identity) && identities.get(identity) !== descriptor) throw Error("原文件选择请求发生变化。");
         if (!identities.has(identity) && identities.size >= 1024) throw Error("文件选择记录已达上限，请结束后重新接管。");
         identities.set(identity, descriptor);
@@ -116,7 +148,7 @@ globalThis.ManagedHumanFiles = (() => {
     }
     async function upload(files, original) {
       let manifest;
-      try { manifest = metadata(files, original.multiple); }
+      try { manifest = metadata(files, original.multiple, original.directory === true); }
       catch (error) { notice = error.message; changed(); return; }
       const record = { ...tuple(original), retired: false, phase: "transferring", transferId: undefined, displayEpoch };
       transfer = record; notice = "正在准备文件传输…"; changed();
@@ -182,11 +214,12 @@ globalThis.ManagedHumanFiles = (() => {
       if (event.isTrusted !== true || !pending || !enabled || !inputIdle || transfer || picker) return;
       const original = pending;
       e["file-picker"].multiple = original.multiple;
+      e["file-picker"].webkitdirectory = original.directory === true;
       e["file-picker"].value = "";
       picker = { key: key(original), timer: setTimeout(() => {
         clearPicker(); notice = "文件选择等待超时，正在结束接管。"; changed(); onFatal(notice);
       }, 600000) };
-      notice = "请选择要交给此网页的文件。"; changed();
+      notice = original.directory ? "请选择要交给此网页的文件夹。" : "请选择要交给此网页的文件。"; changed();
       try { e["file-picker"].click(); }
       catch { clearPicker(); notice = "无法打开本地文件选择。请重新选择或取消。"; changed(); }
     });

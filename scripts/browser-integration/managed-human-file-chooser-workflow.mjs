@@ -98,7 +98,8 @@ export function proveManagedFileOpening({ events, pending, original, documents, 
   if (opening.source.targetId !== undefined) assert.equal(opening.source.targetId, target.id);
   if (opening.source.tabId !== undefined) assert.equal(opening.source.tabId, target.tabId);
   assert.ok(opening.source.targetId !== undefined || opening.source.tabId !== undefined);
-  assert.equal(opening.params.mode, pending.multiple ? "selectMultiple" : "selectSingle");
+  if (pending.directory === true) assert.ok(["selectSingle", "selectMultiple"].includes(opening.params.mode));
+  else assert.equal(opening.params.mode, pending.multiple ? "selectMultiple" : "selectSingle");
   assert.ok(Number.isSafeInteger(opening.params.backendNodeId) && opening.params.backendNodeId > 0);
   const rootContext = originalDefaultContext(events, target, null, target.id, begunAt, opening);
   assert.equal(rootContext.origin, new URL(root.url).origin);
@@ -208,10 +209,11 @@ export async function runManagedFileWorkflow(io, cases) {
     const row = { kind: item.fixture.kind, tabId: item.tabId, startedAt: Date.now(), instrumented: Boolean(io.instrumented) };
     results.push(row); io.record(results);
     row.begin = await io.begin(item); row.lease = structuredClone(io.state().human);
-    assert.equal(row.lease.fileChooserVersion, 1);
+    assert.ok([1, 2].includes(row.lease.fileChooserVersion));
     row.before = await io.read(item); row.webFrames = await io.webFrames(item);
     row.click = await io.clickInput(item, row.before);
     row.pending = await io.wait(() => io.state()?.pendingFileChooser, "original pending chooser");
+    if (row.lease.fileChooserVersion === 2) assert.equal(row.pending.directory, false);
     row.nativeProof = proveManagedFileOpening({ events: await io.nativeEvents(), pending: row.pending, original: row.lease,
       documents: row.before, webFrames: row.webFrames, target: item.target, begunAt: row.startedAt, clickedAt: row.click.startedAt });
     row.payloads = managedFileWorkflowPayloads(row.kind).map(file => ({ name: file.name, bytes: file.buffer.length, sha256: sha(file.buffer) }));

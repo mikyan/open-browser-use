@@ -46,7 +46,7 @@ export class ManagedHumanControl {
   info(record) {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
-      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 1 } : {}),
+      ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 2 } : {}),
       ...(record.clipboardTransferVersion === 1 ? { clipboardTransferVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }

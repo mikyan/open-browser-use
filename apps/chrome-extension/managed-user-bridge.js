@@ -633,8 +633,9 @@ export function installManagedUserBridge({ config, backend, getInstanceId, targe
       const record = channel.stream, handle = record?.human && !record.retired && record.handle;
       const before = handle?.info(), chooser = handle?.pendingFileChooser?.();
       const method = { begin: "beginFile", commit: "commitFile", cancel: "cancelFile" }[fileOperation];
-      if (!before || before.state !== "active" || before.fileChooserVersion !== 1 || before.leaseId !== value.leaseId || before.generation !== value.generation ||
+      if (!before || before.state !== "active" || ![1, 2].includes(before.fileChooserVersion) || before.leaseId !== value.leaseId || before.generation !== value.generation ||
           !chooser || chooser.leaseId !== value.leaseId || chooser.generation !== value.generation ||
+          (before.fileChooserVersion === 1 ? Object.hasOwn(chooser, "directory") : typeof chooser.directory !== "boolean") ||
           chooser.chooserId !== value.chooserId || typeof handle[method] !== "function")
         throw failure("HUMAN_FILE_STALE", "original file chooser is unavailable");
       const accepted = await handle[method](envelope);
