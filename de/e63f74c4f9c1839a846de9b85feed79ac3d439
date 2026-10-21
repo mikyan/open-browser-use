@@ -1,0 +1,95 @@
+internal/managedviewer/ui/viewer.js
+  s_08bbfd293d324f::t_67556777b96c31 41-79,962-969,1111
+  s_08bbfd293d324f::t_4f74e7e9a45d14 31,250,505-506,520,787,925,933-935,938-939,961,970-981,1017-1023,1101-1102,1105-1110,1112-1119,1122,1320
+scripts/browser-integration/managed-human-printable-fixture.mjs
+  s_08bbfd293d324f::t_7a9e0ed443fb19 1-111
+internal/managedviewer/ui/viewer.test.mjs
+  s_08bbfd293d324f::t_7a8586a8235630 1461,1463-1464
+  s_08bbfd293d324f::t_8a7d9baaf6dd61 815,838-839,1356-1460,1462,1465-1492
+  s_08bbfd293d324f::t_66db8089662acd 1493-1546
+  s_08bbfd293d324f::t_23fc12c5a9029a 1547-1558
+docs/histories/2026-10/20261021-0851-managed-human-printable-keys.md
+  s_08bbfd293d324f::t_c9f56820285fe9 1-36,39-55,58-70
+  s_08bbfd293d324f::t_ded65ea9e8cee7 37-38,56-57
+apps/chrome-extension/managed-human-control.js
+  s_08bbfd293d324f::t_abdec024ba60e0 21-26,56,115,834,837-839,856-860,914-917
+scripts/browser-integration/managed-human-printable-workflow.mjs
+  s_08bbfd293d324f::t_77a651f441c114 121-125,130-131,133
+  s_08bbfd293d324f::t_d65f2db2d18959 141-167,215-216,269-271
+  s_08bbfd293d324f::t_63b825038a1ee6 1-3,5-15,18-21,24-25,29-30,53-72,74-76,78-120,126-129,132,134-140,168-188,204-206,214,217-266,272-275
+  s_08bbfd293d324f::t_18fc5d4521ea22 16-17,22-23,26-28,31-52,73,77
+  s_08bbfd293d324f::t_23d9300b168a23 4,189-203,207-213,267-268
+scripts/browser-integration/managed-human-printable-check.mjs
+  s_08bbfd293d324f::t_06f3990a8f60b6 1-21
+apps/chrome-extension/managed-human-control.test.mjs
+  s_08bbfd293d324f::t_98b88eada3ede4 144-175,1301,2534
+  s_08bbfd293d324f::t_c0ac5a6b8655c5 75-143
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_f6573b15b3c243 7
+scripts/browser-integration/managed-human-check.mjs
+  s_08bbfd293d324f::t_18fc5d4521ea22 194,201-205
+docs/references/managed-human-printable-keys.md
+  s_08bbfd293d324f::t_4957307ee61e29 1-64
+scripts/browser-integration/managed-human-printable-repeat.mjs
+  s_08bbfd293d324f::t_23d9300b168a23 1-67
+internal/managedprotocol/human.go
+  s_08bbfd293d324f::t_f234237f85e555 200,203-208,239-258,274,329-331
+scripts/browser-integration/managed-human-file-chooser-check.mjs
+  s_08bbfd293d324f::t_cab526c08f9637 182,361,363-378,381,395-407,705
+  s_08bbfd293d324f::t_06f3990a8f60b6 17-18,136,138-139,142-143,145,151,175-179,250,303,339,346-360,362,394,408-416,531,535,545-546,596,677,727,743
+scripts/browser-integration/managed-human-printable.test.mjs
+  s_08bbfd293d324f::t_8806271b09e242 7,85-105
+  s_08bbfd293d324f::t_ebb3d5c09a72da 8-9,15-16,32-36,49-50,65,77-84,106-157
+  s_08bbfd293d324f::t_77a651f441c114 1-6,10-14,17-31,37-48,51-63,66-76,158-196
+  s_08bbfd293d324f::t_d65f2db2d18959 64
+internal/managedbrowser/managed_user.go
+  s_08bbfd293d324f::t_e4233a84751f68 571,584,731-732,738,745
+internal/managedprotocol/printable_key_test.go
+  s_08bbfd293d324f::t_88a79b8ff3f047 55-57
+  s_08bbfd293d324f::t_481fae91e2d7ec 1-54,58-65
+  s_08bbfd293d324f::t_de9e811816c356 66-79
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_92d9e0ba69f145 149-152
+docs/FRONTEND.md
+  s_08bbfd293d324f::t_0a6c82b38f1c1d 21-25
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_938cd859b8acec 16,24-29
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_e99c6079496928 12,20-25
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_1e2b5f16137896 17,25-30
+docs/references/README.md
+  s_08bbfd293d324f::t_8e4d63d39b7664 19-21
+docs/references/managed-human-key-repeat.md
+  s_08bbfd293d324f::t_009843866d44a4 7-8
+docs/references/managed-human-keyboard.md
+  s_08bbfd293d324f::t_19282a256c1ac0 3-5
+internal/managedbrowser/managed_user_printable_key_test.go
+  s_08bbfd293d324f::t_faba173bc63b43 1-143
+internal/managedprotocol/view.go
+  s_08bbfd293d324f::t_5aad8fc117bb89 82
+internal/managedviewer/human.go
+  s_08bbfd293d324f::t_24665934f0636c 48,75-76,92,248,342,378,406
+internal/managedviewer/printable_key_test.go
+  s_08bbfd293d324f::t_b69c5740f5a2d0 1-219
+internal/managedviewer/server.go
+  s_08bbfd293d324f::t_36992c58daf806 112
+docs/exec-plans/completed/2026-10-21-managed-human-printable-keys.md
+  s_08bbfd293d324f::t_c7d785b16406d3 1-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "dee63f74c4f9c1839a846de9b85feed79ac3d439",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
