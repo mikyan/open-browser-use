@@ -1,5 +1,8 @@
 # Managed 人工接管的 Enter
 
+普通字符的控件、快捷键和取消语义见[普通字符按键](managed-human-printable-keys.md)；
+以下保留 Enter 专项的原契约与历史验证范围。
+
 ## 原缺口与修复
 
 原人工接管把每次按下都映射成 rawKeyDown。固定 Chromium 的该路径不产生

@@ -191,13 +191,18 @@ export function projectHumanCommand(message) {
   assert.ok(Number.isSafeInteger(message.generation) && message.generation > 0);
   assert.ok(Number.isSafeInteger(message.sequence) && message.sequence > 0);
   const input = message.input; assert.ok(input && typeof input === "object" && !Array.isArray(input));
-  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers", "clickCount"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat", "clipboardTransfer"], text: ["type", "text"] }[input.type];
+  const fields = { pointer: ["type", "action", "x", "y", "button", "modifiers", "clickCount"], wheel: ["type", "x", "y", "deltaX", "deltaY", "modifiers"], key: ["type", "action", "key", "code", "windowsVirtualKeyCode", "modifiers", "repeat", "clipboardTransfer", "text"], text: ["type", "text"] }[input.type];
   assert.ok(fields); assert.ok(Object.keys(input).every(key => fields.includes(key)));
   if (input.type === "pointer") { assert.ok(["move", "down", "up"].includes(input.action)); assert.ok(input.button === undefined || ["left", "middle", "right"].includes(input.button)); }
   if (Object.hasOwn(input, "clickCount")) { assert.equal(input.type, "pointer"); assert.ok(["down", "up"].includes(input.action)); assert.ok(Number.isInteger(input.clickCount) && input.clickCount >= 1 && input.clickCount <= 2147483647); }
   if (["pointer", "wheel"].includes(input.type)) for (const key of ["x", "y"]) assert.ok(Number.isFinite(input[key]) && input[key] >= 0);
   if (input.type === "wheel") for (const key of ["deltaX", "deltaY"]) assert.ok(Number.isFinite(input[key]));
   if (input.type === "key") { assert.ok(["down", "up"].includes(input.action)); assert.equal(typeof input.key, "string"); assert.equal(typeof input.code, "string"); assert.ok(Number.isInteger(input.windowsVirtualKeyCode)); if (Object.hasOwn(input, "repeat")) { assert.equal(input.repeat, true); assert.equal(input.action, "down"); } }
+  if (input.type === "key" && Object.hasOwn(input, "text")) {
+    assert.equal(input.action, "down"); assert.equal(typeof input.text, "string");
+    assert.ok(input.text.length >= 1 && input.text.length <= 3 && input.text.isWellFormed() && !/[\x00-\x1f\x7f-\x9f]/.test(input.text));
+    assert.equal(Array.from(input.key).length, 1); assert.ok(input.key.isWellFormed() && !/[\x00-\x1f\x7f-\x9f]/.test(input.key));
+  }
   if (input.modifiers !== undefined) assert.ok(Number.isInteger(input.modifiers) && input.modifiers >= 0 && input.modifiers <= 15);
   if (Object.hasOwn(input, "clipboardTransfer")) {
     assert.equal(input.action, "down"); assert.equal(input.repeat, undefined); assert.ok([2, 4].includes(input.modifiers));

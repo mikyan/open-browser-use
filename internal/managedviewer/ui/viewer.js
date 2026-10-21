@@ -28,6 +28,7 @@
   let humanSequence = 0, humanInputId = null, decodedHuman = null, awaitingHumanFrame = null;
   let acknowledgedSequence = 0, composing = false, compositionScope = null;
   let inputAnchor = null;
+  let printableCandidate = null;
   let retiredHumanGeneration = -1;
   let humanEndAttempted = false;
   let pendingDialog = null, displayedDialog = "", claimedDialog = "";
@@ -37,6 +38,45 @@
   const mouseHolds = new Map();
   let mouseClick = null;
   const maxQueuedInputs = 32;
+  // Named DOM keys from Chromium 156.0.8078.12 ui/events/keycodes/dom/dom_key_data.inc
+  // (SHA256 f5f43926d374272c151bdfd06b772898996f519dbccf1b8d8f15957bc3cfe4ed),
+  // plus KeyStringToDomKey's Dead special case. Other multi-scalar keys
+  // use confirmed text; they cannot be faithfully encoded as a CDP key.
+  const namedDOMKeys = new Set(`
+    .AltGraphLatch AVRInput AVRPower Accel Accept Again AllCandidates Alphanumeric Alt AltGraph AppSwitch
+    ArrowDown ArrowLeft ArrowRight ArrowUp Attn AudioBalanceLeft AudioBalanceRight AudioBassBoostDown
+    AudioBassBoostToggle AudioBassBoostUp AudioFaderFront AudioFaderRear AudioSurroundModeNext AudioTrebleDown
+    AudioTrebleUp AudioVolumeDown AudioVolumeMute AudioVolumeUp Backspace BrightnessDown BrightnessUp
+    BrowserBack BrowserFavorites BrowserForward BrowserHome BrowserRefresh BrowserSearch BrowserStop Call
+    Camera CameraFocus Cancel CapsLock ChannelDown ChannelUp Clear Close ClosedCaptionToggle CodeInput
+    ColorF0Red ColorF1Green ColorF2Yellow ColorF3Blue ColorF4Grey ColorF5Brown Compose ContextMenu Control
+    Convert Copy CrSel Cut DVR Dead Delete Dimmer DisplaySwap Eisu Eject End EndCall Enter EraseEof Escape
+    ExSel Execute Exit F1 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F2 F20 F21 F22 F23 F24 F3 F4 F5 F6 F7 F8 F9
+    FavoriteClear0 FavoriteClear1 FavoriteClear2 FavoriteClear3 FavoriteRecall0 FavoriteRecall1
+    FavoriteRecall2 FavoriteRecall3 FavoriteStore0 FavoriteStore1 FavoriteStore2 FavoriteStore3 FinalMode Find
+    Fn FnLock GoBack GoHome GroupFirst GroupLast GroupNext GroupPrevious Guide GuideNextDay GuidePreviousDay
+    HangulMode HanjaMode Hankaku HeadsetHook Help Hibernate Hiragana HiraganaKatakana Home Hyper Info Insert
+    InstantReplay JunjaMode KanaMode KanjiMode Katakana Key11 Key12 LastNumberRedial LaunchApplication1
+    LaunchApplication2 LaunchAssistant LaunchCalendar LaunchContacts LaunchControlPanel LaunchMail
+    LaunchMediaPlayer LaunchMusicPlayer LaunchPhone LaunchScreenSaver LaunchSpreadsheet LaunchWebBrowser
+    LaunchWebCam LaunchWordProcessor Link ListProgram LiveContent Lock LogOff MailForward MailReply MailSend
+    MannerMode MediaApps MediaAudioTrack MediaClose MediaFastForward MediaLast MediaPause MediaPlay
+    MediaPlayPause MediaRecord MediaRewind MediaSkip MediaSkipBackward MediaSkipForward MediaStepBackward
+    MediaStepForward MediaStop MediaTopMenu MediaTrackNext MediaTrackPrevious Meta MicrophoneToggle
+    MicrophoneVolumeDown MicrophoneVolumeMute MicrophoneVolumeUp ModeChange NavigateIn NavigateNext
+    NavigateOut NavigatePrevious New NextCandidate NextFavoriteChannel NextUserProfile NonConvert Notification
+    NumLock OnDemand Open PageDown PageUp Pairing Paste Pause PinPDown PinPMove PinPToggle PinPUp Play
+    PlaySpeedDown PlaySpeedReset PlaySpeedUp Power PowerOff PreviousCandidate Print PrintScreen Process Props
+    RandomToggle RcLowBattery RecordSpeedNext Redo RfBypass Romaji STBInput STBPower Save ScanChannelsToggle
+    ScreenModeNext ScrollLock Select Settings Shift ShiftLevel5 SingleCandidate Soft1 Soft2 Soft3 Soft4 Soft5
+    Soft6 Soft7 Soft8 SpeechCorrectionList SpeechInputToggle SpellCheck SplitScreenToggle Standby Subtitle
+    Super Symbol SymbolLock TV TV3DMode TVAntennaCable TVAudioDescription TVAudioDescriptionMixDown
+    TVAudioDescriptionMixUp TVContentsMenu TVDataService TVInput TVInputComponent1 TVInputComponent2
+    TVInputComposite1 TVInputComposite2 TVInputHDMI1 TVInputHDMI2 TVInputHDMI3 TVInputHDMI4 TVInputVGA1
+    TVMediaContext TVNetwork TVNumberEntry TVPower TVRadioService TVSatellite TVSatelliteBS TVSatelliteCS
+    TVSatelliteToggle TVTerrestrialAnalog TVTerrestrialDigital TVTimer Tab Teletext Undo Unidentified
+    VideoModeNext VoiceDial WakeUp Wink Zenkaku ZenkakuHankaku ZoomIn ZoomOut ZoomToggle
+  `.trim().split(/\s+/));
   const pending = new Map();
   // A real local write outlives input queue retirement. Rejecting its data is
   // not proof of native settlement, and resolved data cannot be retracted.
@@ -207,6 +247,7 @@
       Number.isSafeInteger(value.generation) && value.generation >= 0 &&
       (!Object.hasOwn(value, "inputBudgetVersion") || value.inputBudgetVersion === 1) &&
       (!Object.hasOwn(value, "keyRepeatVersion") || value.keyRepeatVersion === 1) &&
+      (!Object.hasOwn(value, "printableKeyVersion") || value.printableKeyVersion === 1) &&
       (!Object.hasOwn(value, "pointerClickCountVersion") || value.pointerClickCountVersion === 1) &&
       (!Object.hasOwn(value, "clipboardTransferVersion") || value.clipboardTransferVersion === 1) &&
       (!Object.hasOwn(value, "fileChooserVersion") || [1, 2].includes(value.fileChooserVersion)) &&
@@ -461,6 +502,8 @@
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.inputBudgetVersion !== human.inputBudgetVersion) throw new Error("原人工接管的等待预算发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "keyRepeatVersion") && nextHuman.keyRepeatVersion !== 1) throw new Error("人工重复按键版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.keyRepeatVersion !== human.keyRepeatVersion) throw new Error("原人工接管的重复按键能力发生变化。");
+    if (nextHuman && Object.hasOwn(nextHuman, "printableKeyVersion") && nextHuman.printableKeyVersion !== 1) throw new Error("人工字符按键版本无效。");
+    if (human && nextHuman?.leaseId === human.leaseId && nextHuman.printableKeyVersion !== human.printableKeyVersion) throw new Error("原人工接管的字符按键能力发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "pointerClickCountVersion") && nextHuman.pointerClickCountVersion !== 1) throw new Error("人工多击版本无效。");
     if (human && nextHuman?.leaseId === human.leaseId && nextHuman.pointerClickCountVersion !== human.pointerClickCountVersion) throw new Error("原人工接管的多击能力发生变化。");
     if (nextHuman && Object.hasOwn(nextHuman, "clipboardTransferVersion") && nextHuman.clipboardTransferVersion !== 1) throw new Error("人工剪贴板传输版本无效。");
@@ -474,6 +517,7 @@
     const nextView = value.view ?? null, nextTabs = normalizedTabs(value.tabs, next);
     if (nextView && Object.hasOwn(nextView, "inputBudgetVersion")) throw new Error("只读查看不能声明人工等待预算。");
     if (nextView && Object.hasOwn(nextView, "keyRepeatVersion")) throw new Error("只读查看不能声明人工重复按键。");
+    if (nextView && Object.hasOwn(nextView, "printableKeyVersion")) throw new Error("只读查看不能声明人工字符按键。");
     if (nextView && Object.hasOwn(nextView, "pointerClickCountVersion")) throw new Error("只读查看不能声明人工多击。");
     if (nextView && Object.hasOwn(nextView, "clipboardTransferVersion")) throw new Error("只读查看不能声明人工剪贴板传输。");
     if (nextView && Object.hasOwn(nextView, "fileChooserVersion")) throw new Error("只读查看不能声明人工文件选择。");
@@ -740,6 +784,7 @@
     return { width, height, left, top };
   }
   function retireComposition(clearAnchor = false) {
+    printableCandidate = null;
     composing = false;
     compositionScope = null;
     el["human-input"].dataset.composing = "false";
@@ -877,6 +922,7 @@
   }
 
   function committedText(text) {
+    printableCandidate = null;
     el["human-input"].value = "";
     if (typeof text !== "string" || !text) return;
     if (text.length > 4096) { endHuman("一次输入过长，已请求释放；文字未发送。请分段输入。"); return; }
@@ -884,9 +930,13 @@
   }
 
   function keyboard(event, action) {
+    const nativePrintable = human?.printableKeyVersion === 1;
+    if (nativePrintable && event.isTrusted !== true) return;
+    if (action === "down" || printableCandidate?.code === event.code) printableCandidate = null;
     const heldRelease = action === "up" && pressedKeys.has(event.code);
     const releasingHeldInput = Boolean(pendingDialog || pendingFileChooser) && heldRelease;
-    if (!humanReady(releasingHeldInput) || !heldRelease && (event.isComposing || composing || ["Dead", "Process", "Unidentified"].includes(event.key))) return;
+    if (!humanReady(releasingHeldInput) || !heldRelease && (event.isComposing || composing || nativePrintable && event.keyCode === 229 || ["Dead", "Process", "Unidentified"].includes(event.key))) return;
+    if (nativePrintable && !heldRelease && (event.target !== el["human-input"] || document.activeElement !== el["human-input"])) return;
     // The browser supplies local clipboard text through paste. Forwarding this
     // shortcut would instead ask the controlled browser to use its clipboard.
     // A key already sent to that browser still owns its original real release.
@@ -908,6 +958,27 @@
     }
     const shortcut = event.ctrlKey || event.altKey || event.metaKey;
     const printable = Array.from(event.key || "").length === 1;
+    if (nativePrintable && !shortcut && !heldRelease && typeof event.key === "string" && event.key.isWellFormed() &&
+        !printable && !namedDOMKeys.has(event.key)) {
+      // A layout change during an existing hold cannot switch to insertText,
+      // which would bypass that hold. Still wait for local confirmation in
+      // case this down instead starts an IME composition.
+      if (action === "down" && pressedKeys.has(event.code))
+        printableCandidate = { leaseId: human.leaseId, generation: human.generation, code: event.code };
+      return;
+    }
+    if (nativePrintable && printable && !shortcut && action === "down") {
+      if (!event.code || !Number.isInteger(event.keyCode) || event.keyCode < 1 || event.keyCode > 255 || !nativeKeyText(event.key)) return;
+      const repeat = event.repeat === true;
+      const rejected = clipboardKeys.has(event.code) || (repeat ? !pressedKeys.has(event.code) || human.keyRepeatVersion !== 1 : pressedKeys.has(event.code));
+      printableCandidate = { leaseId: human.leaseId, generation: human.generation, code: event.code, rejected,
+        input: { type: "key", action: "down", key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode,
+          modifiers: modifiers(event), ...(repeat ? { repeat: true } : {}) } };
+      // A local IME can start after this down. Only its real non-composition
+      // beforeinput may confirm a printable key; never guess text on keyup.
+      if (rejected) event.preventDefault();
+      return;
+    }
     if (printable && !shortcut && !pressedKeys.has(event.code)) return; // Committed text has exactly one path below.
     if (!event.code || !Number.isInteger(event.keyCode) || event.keyCode < 1 || event.keyCode > 255) return;
     event.preventDefault();
@@ -941,6 +1012,13 @@
     const input = { type: "key", action, key: event.key, code: event.code, windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event), ...(repeat ? { repeat: true } : {}), ...(clipboard ? { clipboardTransfer: clipboard.operation } : {}) };
     if (clipboard) clipboardInputs.set(input, clipboard);
     if (!enqueueInput(input, releasingHeldInput) && clipboard) retireClipboard();
+  }
+
+  function nativeKeyText(text) {
+    // Chromium reserves one of four UTF-16 units for NUL. Never truncate a
+    // layout result or manufacture a scalar key from a multi-scalar value.
+    return typeof text === "string" && text.length > 0 && text.length <= 3 && text.isWellFormed() &&
+      !/[\u0000-\u001f\u007f-\u009f]/.test(text);
   }
 
   function beginSelectedHuman() {
@@ -1020,11 +1098,28 @@
     committedText(text);
   });
   el["human-input"].addEventListener("beforeinput", event => {
+    const nativePrintable = human?.printableKeyVersion === 1;
+    if (nativePrintable && (event.isTrusted !== true || event.target !== el["human-input"] || document.activeElement !== el["human-input"])) return;
     if (!humanReady() || event.isComposing || composing || /Composition/.test(event.inputType)) return;
     event.preventDefault();
-    if (["insertText", "insertReplacementText"].includes(event.inputType)) committedText(event.data ?? event.dataTransfer?.getData("text/plain"));
+    const candidate = printableCandidate;
+    if (candidate && (candidate.leaseId !== human.leaseId || candidate.generation !== human.generation)) { printableCandidate = null; return; }
+    if (candidate?.rejected) return;
+    printableCandidate = null;
+    if (!["insertText", "insertReplacementText"].includes(event.inputType)) return;
+    const text = event.data ?? event.dataTransfer?.getData("text/plain");
+    if (candidate?.input && event.inputType === "insertText" && nativeKeyText(text)) {
+      el["human-input"].value = "";
+      if (enqueueInput({ ...candidate.input, text })) pressedKeys.add(candidate.code);
+      return;
+    }
+    if (candidate && pressedKeys.has(candidate.code)) {
+      endHuman("当前按键产生的文字超出原生按键限制，已请求释放；本次文字未发送。"); return;
+    }
+    committedText(text);
   });
   el["human-input"].addEventListener("compositionstart", () => {
+    printableCandidate = null;
     composing = humanReady();
     compositionScope = composing ? { leaseId: human.leaseId, generation: human.generation } : null;
     el["human-input"].dataset.composing = String(composing);
@@ -1222,7 +1317,7 @@
             const original = value.result?.human;
             if (!validHuman(original) || !admittedHumanState(original) || original.tabId !== entry.fields.tabId ||
                 humanOwner && original.leaseId !== humanOwner || human &&
-                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.pointerClickCountVersion !== human.pointerClickCountVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion || original.fileChooserVersion !== human.fileChooserVersion))
+                (original.inputBudgetVersion !== human.inputBudgetVersion || original.keyRepeatVersion !== human.keyRepeatVersion || original.printableKeyVersion !== human.printableKeyVersion || original.pointerClickCountVersion !== human.pointerClickCountVersion || original.clipboardTransferVersion !== human.clipboardTransferVersion || original.fileChooserVersion !== human.fileChooserVersion))
               throw new Error("原接管回执不匹配。");
           }
           acceptState(value.result, value.id);

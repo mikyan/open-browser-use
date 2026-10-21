@@ -45,6 +45,7 @@ func (c *connection) admitBegin(request *command) bool {
 	c.humanActive = false
 	c.humanBudgetVersion, c.humanBudgetKnown = 0, false
 	c.humanKeyRepeatVersion = 0
+	c.humanPrintableVersion = 0
 	c.humanClickCountVersion = 0
 	c.humanClipboardVersion = 0
 	c.humanFileVersion = 0
@@ -71,6 +72,8 @@ func (c *connection) admitInput(request command) string {
 		Generation uint64
 		Sequence   uint64
 		Input      struct {
+			Type              string `json:"type"`
+			Text              string `json:"text"`
 			Repeat            bool   `json:"repeat"`
 			ClickCount        uint64 `json:"clickCount"`
 			ClipboardTransfer string `json:"clipboardTransfer"`
@@ -86,7 +89,7 @@ func (c *connection) admitInput(request command) string {
 		c.controlMu.Unlock()
 		return "HUMAN_STALE"
 	}
-	if input.Input.Repeat && c.humanKeyRepeatVersion != 1 || input.Input.ClickCount != 0 && c.humanClickCountVersion != 1 || input.Input.ClipboardTransfer != "" && c.humanClipboardVersion != 1 {
+	if input.Input.Type == "key" && input.Input.Text != "" && c.humanPrintableVersion != 1 || input.Input.Repeat && c.humanKeyRepeatVersion != 1 || input.Input.ClickCount != 0 && c.humanClickCountVersion != 1 || input.Input.ClipboardTransfer != "" && c.humanClipboardVersion != 1 {
 		c.controlMu.Unlock()
 		return "HUMAN_STALE"
 	}
@@ -242,7 +245,7 @@ func (c *connection) acceptHumanResult(request command, result json.RawMessage) 
 		c.humanStarting = false
 		c.humanLease = human.LeaseID
 		if latest := c.humanCandidate; latest != nil && latest.LeaseID == human.LeaseID {
-			if latest.InputBudgetVersion != human.InputBudgetVersion || latest.KeyRepeatVersion != human.KeyRepeatVersion || latest.PointerClickCountVersion != human.PointerClickCountVersion || latest.ClipboardTransferVersion != human.ClipboardTransferVersion || latest.FileChooserVersion != human.FileChooserVersion {
+			if latest.InputBudgetVersion != human.InputBudgetVersion || latest.KeyRepeatVersion != human.KeyRepeatVersion || latest.PrintableKeyVersion != human.PrintableKeyVersion || latest.PointerClickCountVersion != human.PointerClickCountVersion || latest.ClipboardTransferVersion != human.ClipboardTransferVersion || latest.FileChooserVersion != human.FileChooserVersion {
 				c.controlMu.Unlock()
 				return errors.New("human begin capabilities differ from its original status")
 			}
@@ -336,7 +339,7 @@ func (c *connection) observeHumanState(data json.RawMessage) error {
 	var pending []command
 	if c.humanStarting && value.Human != nil {
 		if value.Human.TabID == c.humanTabID && (c.humanCandidate == nil || value.Human.LeaseID == c.humanCandidate.LeaseID && value.Human.Generation >= c.humanCandidate.Generation) {
-			if c.humanCandidate != nil && (c.humanCandidate.InputBudgetVersion != value.Human.InputBudgetVersion || c.humanCandidate.KeyRepeatVersion != value.Human.KeyRepeatVersion || c.humanCandidate.PointerClickCountVersion != value.Human.PointerClickCountVersion || c.humanCandidate.ClipboardTransferVersion != value.Human.ClipboardTransferVersion || c.humanCandidate.FileChooserVersion != value.Human.FileChooserVersion) {
+			if c.humanCandidate != nil && (c.humanCandidate.InputBudgetVersion != value.Human.InputBudgetVersion || c.humanCandidate.KeyRepeatVersion != value.Human.KeyRepeatVersion || c.humanCandidate.PrintableKeyVersion != value.Human.PrintableKeyVersion || c.humanCandidate.PointerClickCountVersion != value.Human.PointerClickCountVersion || c.humanCandidate.ClipboardTransferVersion != value.Human.ClipboardTransferVersion || c.humanCandidate.FileChooserVersion != value.Human.FileChooserVersion) {
 				pending = c.revokeHumanLocked()
 			} else {
 				c.humanCandidate = value.Human
@@ -372,7 +375,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 	if human.Generation < c.humanGeneration {
 		return nil
 	}
-	if c.humanBudgetKnown && (human.InputBudgetVersion != c.humanBudgetVersion || human.KeyRepeatVersion != c.humanKeyRepeatVersion || human.PointerClickCountVersion != c.humanClickCountVersion || human.ClipboardTransferVersion != c.humanClipboardVersion || human.FileChooserVersion != c.humanFileVersion) {
+	if c.humanBudgetKnown && (human.InputBudgetVersion != c.humanBudgetVersion || human.KeyRepeatVersion != c.humanKeyRepeatVersion || human.PrintableKeyVersion != c.humanPrintableVersion || human.PointerClickCountVersion != c.humanClickCountVersion || human.ClipboardTransferVersion != c.humanClipboardVersion || human.FileChooserVersion != c.humanFileVersion) {
 		// A coalesced state may update display, but cannot upgrade an admitted
 		// input's deadline or silently downgrade its original native contract.
 		return c.revokeHumanLocked()
@@ -400,6 +403,7 @@ func (c *connection) applyHumanStateLocked(human *managedprotocol.HumanState) []
 	}
 	c.humanBudgetVersion, c.humanBudgetKnown = human.InputBudgetVersion, true
 	c.humanKeyRepeatVersion = human.KeyRepeatVersion
+	c.humanPrintableVersion = human.PrintableKeyVersion
 	c.humanClickCountVersion = human.PointerClickCountVersion
 	c.humanClipboardVersion = human.ClipboardTransferVersion
 	c.humanFileVersion = human.FileChooserVersion

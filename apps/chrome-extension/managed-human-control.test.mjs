@@ -72,6 +72,107 @@ const input = (handle, value, extra = {}) => {
   return handle.input({ leaseId: info.leaseId, generation: info.generation, sequence: info.lastInputSequence + 1, input: value, ...extra });
 };
 
+test("printable native keys advertise immutable authority and map one down with text", async t => {
+  const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
+  assert.equal(handle.info().printableKeyVersion, 1);
+  assert.equal(Object.getOwnPropertyDescriptor(f.control.current, "printableKeyVersion").writable, false);
+  for (const [key, text] of [["a", "a"], [" ", " "], ["!", "!"], ["é", "e\u0301"], ["😀", "😀a"], ["a", "abc"], ["�", "�"]]) {
+    const identity = { key, code: "KeyA", windowsVirtualKeyCode: 65 };
+    await input(handle, { type: "key", action: "down", ...identity, modifiers: 8, text });
+    await input(handle, { type: "key", action: "up", ...identity });
+    assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").slice(-2).map(row => row[2]), [
+      { ...identity, type: "keyDown", modifiers: 8, text, unmodifiedText: text },
+      { ...identity, type: "keyUp", modifiers: 0 }
+    ]);
+  }
+  await input(handle, { type: "key", action: "down", key: "a", code: "KeyA", windowsVirtualKeyCode: 65 });
+  assert.equal(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").at(-1)[2].type, "rawKeyDown");
+  await handle.close();
+  assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+  const view = await f.beginView(); t.after(() => view.close());
+  assert.equal(Object.hasOwn(view.info(), "printableKeyVersion"), false);
+});
+
+test("printable native keys reject invalid UTF16 text, shortcuts, named keys and releases before dispatch", async t => {
+  const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
+  const down = { type: "key", action: "down", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, text: "a" };
+  for (const text of [undefined, null, "", true, 1, {}, [], "abcd", "😀😀", "\ud800", "\udc00", "a\ud800", "\0", "\t", "\n", "\r", "\x7f", "\x85", "\x9f"])
+    await assert.rejects(input(handle, { ...down, text }), /INVALID/);
+  for (const key of ["Enter", "Shift", "Dead", "ab", "e\u0301", "\ud800", "\udc00", "\x85"])
+    await assert.rejects(input(handle, { ...down, key }), /INVALID/);
+  for (const modifiers of [1, 2, 3, 4, 9, 10, 12, 15])
+    await assert.rejects(input(handle, { ...down, modifiers }), /INVALID/);
+  await assert.rejects(input(handle, { ...down, action: "up" }), /INVALID/);
+  await assert.rejects(input(handle, { ...down, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, modifiers: 2, clipboardTransfer: "copy" }), /INVALID/);
+  assert.equal(handle.info().lastInputSequence, 0);
+  assert.equal(f.calls.some(([method]) => method.startsWith("Input.")), false);
+});
+
+for (const boundary of ["End", "navigation", "unknown"])
+test(`printable native repeat ${boundary} retains actual command and releases original hold without text`, async t => {
+  const repeated = defer(), entered = defer(), key = { key: "A", code: "KeyA", windowsVirtualKeyCode: 65 };
+  const f = fixture({ command(method, params) {
+    if (method === "Input.dispatchKeyEvent" && params.autoRepeat) { entered.resolve(); return repeated.promise; }
+  } }), handle = await f.begin(), original = handle.info();
+  t.after(async () => { repeated.resolve(); await handle.close(); });
+  await input(handle, { type: "key", action: "down", ...key, modifiers: 8, text: "A" });
+  await assert.rejects(input(handle, { type: "key", action: "down", ...key, windowsVirtualKeyCode: 66, text: "A", repeat: true }), /original virtual key/);
+  const pending = input(handle, { type: "key", action: "down", ...key, key: "a", text: "a", repeat: true });
+  await Promise.race([entered.promise, pending]);
+  let closing, closed = false;
+  if (boundary === "End") closing = handle.close().then(() => { closed = true; });
+  if (boundary === "navigation") { f.changeDocument("printable-next"); f.control.navigation(7, { frameId: 0 }, "committed"); }
+  await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.some(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp"), false);
+  if (boundary === "unknown") {
+    const failure = new Error("original printable repeat outcome unknown"), rejected = assert.rejects(pending, error => error === failure);
+    repeated.reject(failure); await rejected; await handle.close();
+  } else {
+    repeated.resolve();
+    assert.deepEqual(await pending, { leaseId: original.leaseId, generation: original.generation, sequence: 2, acknowledged: true });
+    if (closing) await closing;
+    else { await f.control.current.recovery; await assert.rejects(input(handle, { type: "key", action: "down", ...key, text: "A", repeat: true }), /key hold does not match/); }
+  }
+  assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]), [
+    { ...key, type: "keyDown", modifiers: 8, text: "A", unmodifiedText: "A" },
+    { ...key, key: "a", type: "keyDown", modifiers: 0, text: "a", unmodifiedText: "a", autoRepeat: true },
+    { ...key, type: "keyUp", modifiers: 0 }
+  ]);
+  assert.equal(f.calls.some(([method]) => method === "Input.insertText"), false);
+});
+
+for (const boundary of ["End", "navigation", "unknown"])
+test(`printable native original down ${boundary} waits for actual outcome before text-free cleanup`, async t => {
+  const down = defer(), entered = defer(), release = defer(), releaseEntered = defer();
+  const key = { key: " ", code: "Space", windowsVirtualKeyCode: 32 };
+  const f = fixture({ command(method, params) {
+    if (method !== "Input.dispatchKeyEvent") return;
+    if (params.type === "keyDown") { entered.resolve(); return down.promise; }
+    if (params.type === "keyUp") { releaseEntered.resolve(); return release.promise; }
+  } }), handle = await f.begin();
+  t.after(async () => { down.resolve(); release.resolve(); await handle.close(); });
+  const pending = input(handle, { type: "key", action: "down", ...key, text: " " });
+  await Promise.race([entered.promise, pending]);
+  await assert.rejects(input(handle, { type: "key", action: "down", ...key, text: " ", repeat: true }), /BUSY/);
+  let closing, closed = false;
+  if (boundary === "End") closing = handle.close().then(() => { closed = true; });
+  if (boundary === "navigation") { f.changeDocument("printable-down-next"); f.control.navigation(7, { frameId: 0 }, "committed"); }
+  await tick(); assert.equal(closed, false);
+  assert.equal(f.calls.some(([method, , params]) => method === "Input.dispatchKeyEvent" && params.type === "keyUp"), false);
+  if (boundary === "unknown") {
+    const failure = new Error("original printable down outcome unknown"), rejected = assert.rejects(pending, error => error === failure);
+    down.reject(failure); await rejected;
+  } else { down.resolve(); assert.equal((await pending).acknowledged, true); }
+  await releaseEntered.promise;
+  assert.equal(closed, false);
+  assert.deepEqual(f.calls.filter(([method]) => method === "Input.dispatchKeyEvent").map(row => row[2]), [
+    { ...key, type: "keyDown", modifiers: 0, text: " ", unmodifiedText: " " }, { ...key, type: "keyUp", modifiers: 0 }
+  ]);
+  release.resolve();
+  if (boundary === "navigation") await f.control.current.recovery;
+  else await (closing ?? handle.close());
+});
+
 test("human pointer click counts advertise native capability and preserve each original ACK", async t => {
   const f = fixture(), handle = await f.begin(); t.after(() => handle.close());
   assert.equal(handle.info().pointerClickCountVersion, 1);
@@ -1197,7 +1298,7 @@ test("actual Begin admits End before Page.enable ACK but grants no input or dial
   const f = fixture({ command: method => { if (method === "Page.enable") { entered.resolve(); return page.promise; } } });
   const handle = await f.beginAdmitted(); await entered.promise;
   assert.deepEqual({ ...handle.info(), leaseId: "original" }, {
-    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 2, lastInputSequence: 0
+    state: "preparing", leaseId: "original", tabId: 7, generation: 0, viewport: null, inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 2, printableKeyVersion: 1, lastInputSequence: 0
   });
   assert.equal(handle.pendingDialog(), null);
   await assert.rejects(input(handle, { type: "text", text: "must not send" }), /GENERATION_STALE/);
@@ -2430,7 +2531,7 @@ test("tab metadata uses the final original validation without changing typed hum
   f.control.validate = async (...args) => ({ ...await validate(...args), title: f.control.current?.epoch?.document ? "Final title" : "Early title" });
   const handle = await f.begin(); t.after(() => handle.close());
   assert.equal(handle.tabInfo().title, "Final title");
-  assert.deepEqual(Object.keys(handle.info()).sort(), ["fileChooserVersion", "generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "pointerClickCountVersion", "state", "tabId", "viewport"]);
+  assert.deepEqual(Object.keys(handle.info()).sort(), ["fileChooserVersion", "generation", "inputBudgetVersion", "keyRepeatVersion", "lastInputSequence", "leaseId", "pointerClickCountVersion", "printableKeyVersion", "state", "tabId", "viewport"]);
 });
 
 test("old down ACK remains its exact tuple and held release finishes before any successor stream", async () => {

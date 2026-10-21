@@ -568,7 +568,7 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 		if previous != nil && previous.LeaseID == human.LeaseID && human.Generation < previous.Generation {
 			return nil
 		}
-		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.PointerClickCountVersion != human.PointerClickCountVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion || previous.FileChooserVersion != human.FileChooserVersion) {
+		if previous != nil && previous.LeaseID == human.LeaseID && (previous.InputBudgetVersion != human.InputBudgetVersion || previous.KeyRepeatVersion != human.KeyRepeatVersion || previous.PrintableKeyVersion != human.PrintableKeyVersion || previous.PointerClickCountVersion != human.PointerClickCountVersion || previous.ClipboardTransferVersion != human.ClipboardTransferVersion || previous.FileChooserVersion != human.FileChooserVersion) {
 			return errors.New("managed human capabilities changed within their original lease")
 		}
 		if previous != nil && (previous.LeaseID != human.LeaseID || human.Generation > previous.Generation) {
@@ -581,7 +581,7 @@ func (c *UserController) validateStatusLocked(data json.RawMessage) error {
 	if *value.EventSequence >= c.dialogStatusSequence {
 		c.pendingDialog, c.dialogStatusSequence = dialog, *value.EventSequence
 		// humanStatus also retains historical identity for cleanup and stale
-		// replies. Only this accepted current state may advertise repeat input.
+		// replies. Only this accepted current state grants optional input capabilities.
 		c.humanStatusCurrent = *value.Connected && human != nil
 	}
 	c.fileStatus = append(json.RawMessage(nil), data...)
@@ -728,18 +728,21 @@ func (c *UserController) Command(ctx context.Context, data json.RawMessage) (jso
 	}
 	if operation == "humanInput" {
 		var input struct {
+			Type              string `json:"type"`
+			Text              string `json:"text"`
 			Repeat            bool   `json:"repeat"`
 			ClickCount        uint64 `json:"clickCount"`
 			ClipboardTransfer string `json:"clipboardTransfer"`
 		}
 		_ = json.Unmarshal(f["input"], &input)
-		if input.Repeat || input.ClickCount != 0 || input.ClipboardTransfer != "" {
+		if input.Type == "key" && input.Text != "" || input.Repeat || input.ClickCount != 0 || input.ClipboardTransfer != "" {
 			var lease string
 			var generation uint64
 			_ = json.Unmarshal(f["leaseId"], &lease)
 			_ = json.Unmarshal(f["generation"], &generation)
 			human := c.humanStatus
 			if !c.humanStatusCurrent || human == nil || human.State != "active" ||
+				input.Type == "key" && input.Text != "" && human.PrintableKeyVersion != 1 ||
 				input.Repeat && human.KeyRepeatVersion != 1 ||
 				input.ClickCount != 0 && human.PointerClickCountVersion != 1 ||
 				input.ClipboardTransfer != "" && human.ClipboardTransferVersion != 1 ||

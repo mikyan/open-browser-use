@@ -197,8 +197,14 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 			return bad
 		}
 	case "key":
-		if !exact(input, []string{"type", "action", "key", "code", "windowsVirtualKeyCode"}, []string{"modifiers", "repeat", "clipboardTransfer"}) || !choice(input["action"], "down", "up") || !text(input["key"], 64, false) || !text(input["code"], 64, false) || !integer(input["windowsVirtualKeyCode"], 0, 255) {
+		if !exact(input, []string{"type", "action", "key", "code", "windowsVirtualKeyCode"}, []string{"modifiers", "repeat", "clipboardTransfer", "text"}) || !choice(input["action"], "down", "up") || !text(input["key"], 64, false) || !text(input["code"], 64, false) || !integer(input["windowsVirtualKeyCode"], 0, 255) {
 			return bad
+		}
+		if raw, exists := input["text"]; exists {
+			if !choice(input["action"], "down") || !printableKeyText(raw, false) || !printableKeyText(input["key"], true) || input["clipboardTransfer"] != nil ||
+				input["modifiers"] != nil && !integer(input["modifiers"], 0, 0) && !integer(input["modifiers"], 8, 8) {
+				return bad
+			}
 		}
 		if raw, exists := input["repeat"]; exists && (!bytes.Equal(raw, []byte("true")) || !choice(input["action"], "down")) {
 			return bad
@@ -230,6 +236,26 @@ func ValidateHuman(operation string, f map[string]json.RawMessage) error {
 
 var keyCodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{0,63}$`)
 
+// Chromium 156's keyboard event has four UTF-16 slots, including its trailing
+// NUL. Its DOM key converter accepts only one scalar for a printable key; the
+// independent layout-produced text can contain up to three UTF-16 units.
+func printableKeyText(raw json.RawMessage, singleScalar bool) bool {
+	if !dialogText(raw, 9, false, false) {
+		return false
+	}
+	var value string
+	_ = json.Unmarshal(raw, &value)
+	if len(utf16.Encode([]rune(value))) > 3 || singleScalar && utf8.RuneCountInString(value) != 1 {
+		return false
+	}
+	for _, r := range value {
+		if r >= 0x80 && r <= 0x9f {
+			return false
+		}
+	}
+	return true
+}
+
 type Viewport struct {
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
@@ -245,6 +271,7 @@ type HumanState struct {
 	Viewport                 *Viewport `json:"viewport"`
 	InputBudgetVersion       uint64    `json:"inputBudgetVersion,omitempty"`
 	KeyRepeatVersion         uint64    `json:"keyRepeatVersion,omitempty"`
+	PrintableKeyVersion      uint64    `json:"printableKeyVersion,omitempty"`
 	PointerClickCountVersion uint64    `json:"pointerClickCountVersion,omitempty"`
 	ClipboardTransferVersion uint64    `json:"clipboardTransferVersion,omitempty"`
 }
@@ -298,6 +325,9 @@ func ParseHumanState(data json.RawMessage) (*HumanState, error) {
 	}
 	if raw, ok := f["keyRepeatVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human key repeat")
+	}
+	if raw, ok := f["printableKeyVersion"]; ok && !integer(raw, 1, 1) {
+		return nil, errors.New("unsupported human printable key")
 	}
 	if raw, ok := f["pointerClickCountVersion"]; ok && !integer(raw, 1, 1) {
 		return nil, errors.New("unsupported human pointer click count")

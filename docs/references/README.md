@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Managed 人工普通字符按键](managed-human-printable-keys.md)：空格控件、裸字符
+  快捷键、网页取消、原输入确认及重复释放；固定浏览器与输入法边界。
+
 - [Managed 输入法预编辑显示](managed-human-ime-presentation.md)：本地原生组合区、
   点击附近定位、重新点击及结束接管时的取消和原提交回执。
 - [Managed 人工离页确认](managed-human-beforeunload.md)：原文档 Stay/Leave、

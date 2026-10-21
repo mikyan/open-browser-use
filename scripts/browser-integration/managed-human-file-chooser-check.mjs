@@ -14,6 +14,8 @@ import { createManagedHumanDirectoryBaselineFixture, readManagedHumanDirectoryBa
   classifyManagedHumanDirectoryBaseline, assertManagedHumanDirectoryBaselineDocument } from "./managed-human-directory-baseline.mjs";
 import { managedDirectoryCases, prepareManagedDirectory, createManagedDirectoryFixture, readManagedDirectoryDocument } from "./managed-human-directory-fixture.mjs";
 import { runManagedDirectoryWorkflow, assertManagedDirectoryTerminalFixtures } from "./managed-human-directory-workflow.mjs";
+import { managedPrintableLayouts, createManagedPrintableFixture, readManagedPrintableDocument } from "./managed-human-printable-fixture.mjs";
+import { installManagedPrintableObserver, runManagedPrintableWorkflow, assertManagedPrintableTerminalFixtures, managedPrintableOutcome } from "./managed-human-printable-workflow.mjs";
 import { projectHumanCommand, assertHumanInputReceipt, visibleHumanViewerPoint } from "./managed-human-check.mjs";
 import { assertManagedDialogEnded } from "./managed-human-dialog-check.mjs";
 import { parseManagedReadyOutput, assertManagedStopReply } from "./managed-download-check.mjs";
@@ -131,18 +133,22 @@ export async function readManagedFileTarget(chromeAPI, tabId) {
     window: { id: window.id, type: window.type, state: window.state, focused: window.focused } };
 }
 
-export async function runManagedHumanFileChooserBaseline() {
+export async function runManagedHumanFileChooserBaseline({ printableMode } = {}) {
   assert.equal(process.platform, "win32");
+  assert.ok(printableMode === undefined || ["baseline", "acceptance"].includes(printableMode));
+  const printable = printableMode !== undefined, frozenPrintableBaseline = printableMode === "baseline";
   const mode = process.env.OBU_TEST_HUMAN_FILE_CHOOSER_MODE ?? "baseline";
   assert.ok(["baseline", "workflow", "directory-baseline", "directory-workflow"].includes(mode));
-  const directoryWorkflow = mode === "directory-workflow", workflow = mode === "workflow" || directoryWorkflow, directoryBaseline = mode === "directory-baseline";
+  assert.ok(!printable || mode === "baseline", "The printable entry cannot also select an upload scenario");
+  const directoryWorkflow = mode === "directory-workflow", workflow = mode === "workflow" || directoryWorkflow || printable, directoryBaseline = mode === "directory-baseline";
   const diagnostic = process.env.OBU_TEST_HUMAN_FILE_CHOOSER_DIAGNOSTIC === "1";
+  assert.ok(!printable || !diagnostic, "Printable input must use the unchanged production path");
   managedFileChooserCompletion(mode, diagnostic, false);
   const executable = process.env.OBU_TEST_HOST_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const chromium = process.env.OBU_TEST_CHROMIUM_BINARY, buildFile = process.env.OBU_TEST_BUILD_MANIFEST;
   for (const file of [executable, extension, chromium, buildFile]) { assert.ok(typeof file === "string" && path.isAbsolute(file)); await fs.access(file); }
   await fs.mkdir(path.join(repo, ".tmp/browser-integration"), { recursive: true });
-  const runDir = await fs.mkdtemp(path.join(repo, ".tmp/browser-integration/mfc-")), root = path.join(runDir, "r"), name = "f", viewerProfile = path.join(runDir, "v");
+  const runDir = await fs.mkdtemp(path.join(repo, printable ? ".tmp/browser-integration/mpk-" : ".tmp/browser-integration/mfc-")), root = path.join(runDir, "r"), name = "f", viewerProfile = path.join(runDir, "v");
   const report = { runDir, mode, instrumented: diagnostic, startedAt: Date.now(), steps: [], commands: [], probes: [], lifecycleSnapshots: [], processObservations: [], screenshots: [], frames: [],
     viewerCommands: [], viewerMessages: [], viewerActions: [], uiObservations: [], nativeEvents: [], unexpectedRequests: [], cleanup: {}, cleanupErrors: [], featurePassed: false,
     scope: "One delivered root document and one real viewer click. Original human attachment only. Observational Page.enable(enableFileChooserOpenedEvent:true) and Page.getFrameTree are explicitly recorded; no interception, task attach, task CDP input, file assignment, OS input, personal profile or replay.",
@@ -166,9 +172,14 @@ export async function runManagedHumanFileChooserBaseline() {
     report.limits = "Only the independent viewer's original directory picker receives a generated local directory. No task setFiles, synthetic FileList, OS input or personal profile. Empty directories are absent from FileList. Headless picker and internal focus do not prove OS picker or foreground behavior.";
     report.directoryCommitWitnesses = [];
   }
+  if (printable) {
+    report.mode = printableMode;
+    report.scope = "Production managed viewer physical printable keys on two original delivered documents: root and cross-site OOPIF. Observe original trusted key/edit events, values, all input ACKs, End/Resume/new SDK claim and one unchanged-value POST per page. Failed behavior assessments do not interrupt collection or original Stop.";
+    report.limits = "Only the isolated viewer receives native keyboard/mouse input. Task pages are read passively and submitted through the public SDK after End. No task setter, synthetic event, personal profile, OS input or replay. Baseline binds the old frozen runtime independently and can never establish feature acceptance.";
+  }
   const registry = new Set(), frameWrites = [], fixture = directoryBaseline ? createManagedHumanDirectoryBaselineFixture() : createManagedHumanFileChooserFixture(), workflowFixtures = [], workflowCases = [];
   const server = createServer((req, res) => { if (![fixture, ...workflowFixtures].some(value => value.handle(req, res))) { report.unexpectedRequests.push({ method: req.method, url: req.url }); req.resume(); res.writeHead(404); res.end(); } });
-  let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, page, state, tab, captureError, stopPromise, finalSaved = false;
+  let launcher, info, worker, taskBrowser, viewerProcess, viewerBrowser, page, state, tab, captureError, stopPromise, printableSession, finalSaved = false;
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 8 * 1024 * 1024, ...options }); };
   const check = () => { if (captureError) throw captureError; };
   const wait = (read, label, timeoutMs = 15000) => poll(async () => { check(); return read(); }, { timeoutMs, intervalMs: 50, label });
@@ -236,6 +247,7 @@ export async function runManagedHumanFileChooserBaseline() {
     item.reply = reply; item.endedAt = Date.now(); assert.equal(reply.error, undefined, JSON.stringify(reply.error)); return reply.result;
   }
   async function openViewer(url) {
+    if (printable) await page.addInitScript(installManagedPrintableObserver);
     page.on("pageerror", error => { (report.viewerErrors ??= []).push(error.stack); captureError ??= error; });
     page.on("websocket", socket => {
       if (new URL(socket.url()).origin.replace("ws:", "http:") !== new URL(url).origin) { captureError ??= Error("Unexpected viewer socket"); return; }
@@ -288,7 +300,7 @@ export async function runManagedHumanFileChooserBaseline() {
   }
   async function sourceFiles() {
     const result = await launch("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", "packages/open-browser-use-js", "scripts/browser-integration"], { timeoutMs: 15000 }).completed;
-    assert.equal(result.code, 0); return [...new Set([...result.stdout.trim().split(/\r?\n/), ...(workflow ? Object.keys(report.source.builtInputs) : [])])].sort();
+    assert.equal(result.code, 0); return [...new Set([...result.stdout.trim().split(/\r?\n/), ...(workflow && !frozenPrintableBaseline ? Object.keys(report.source.builtInputs) : [])])].sort();
   }
   async function decodedHuman() {
     return wait(async () => {
@@ -324,16 +336,49 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
   }
   async function readWorkflow(item, original = true) {
     const selection = original ? `documentIds:${JSON.stringify(item.before.map(value => value.documentId))}` : "allFrames:true";
-    const rows = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${item.tabId},${selection}},func:${(directoryWorkflow ? readManagedDirectoryDocument : readManagedFileWorkflowDocument).toString()}}).then(rows=>rows.filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`, 5000);
+    const rows = await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${item.tabId},${selection}},func:${(printable ? readManagedPrintableDocument : directoryWorkflow ? readManagedDirectoryDocument : readManagedFileWorkflowDocument).toString()}}).then(rows=>rows.filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`, 5000);
     if (original) assert.deepEqual(rows.map(value => value.documentId).sort(), item.before.map(value => value.documentId).sort());
     return rows;
   }
   async function originalTarget(tabId) {
     return worker.evaluate(`(${readManagedFileTarget.toString()})(chrome,${tabId})`, 5000);
   }
+  async function printableInput(label, action) {
+    const start = report.viewerCommands.length, before = await page.evaluate(() => __managedPrintableObservation.snapshot());
+    const record = { label, startedAt: Date.now(), kind: "original native viewer input" }; report.viewerActions.push(record);
+    await action(); record.localGestureAcknowledgedAt = Date.now();
+    await wait(() => report.viewerCommands.slice(start).some(value => value.operation === "humanInput"), `original printable input ${label}`, 5000);
+    await wait(async () => await page.locator("#human-input").getAttribute("data-pending") === "0", `printable input actual ACKs ${label}`);
+    const commands = report.viewerCommands.slice(start); assert.ok(commands.length && commands.every(value => value.operation === "humanInput"));
+    for (const request of commands) {
+      const replies = report.viewerMessages.filter(value => value.type === "response" && value.id === request.id);
+      assert.equal(replies.length, 1); assertHumanInputReceipt(request, replies[0]);
+    }
+    const last = commands.at(-1); assert.equal(Number(await page.locator("#human-input").getAttribute("data-acknowledged-sequence")), last.sequence);
+    const after = await page.evaluate(() => __managedPrintableObservation.snapshot()); assert.equal(after.overflow, false);
+    assert.deepEqual(after.events.slice(0, before.events.length), before.events);
+    Object.assign(record, { endedAt: Date.now(), inputRequestIds: commands.map(value => value.id) });
+    return { ...record, commands, viewer: { events: after.events.slice(before.events.length), overflow: after.overflow, before, after } };
+  }
+  async function printableNativeSequence(label, sequence) {
+    assert.equal(printableMode, "acceptance");
+    if (!printableSession) {
+      printableSession = await page.context().newCDPSession(page);
+      report.printableNativeSession = { createdAt: Date.now(), scope: "Original isolated viewer only; retained through hold, End and local release", url: page.url() };
+    }
+    const calls = []; (report.printableNativeCommands ??= []);
+    for (const params of sequence) {
+      const call = { label, method: "Input.dispatchKeyEvent", params: structuredClone(params), startedAt: Date.now() };
+      calls.push(call); report.printableNativeCommands.push(call);
+      try { call.result = await printableSession.send(call.method, call.params); call.acknowledgedAt = Date.now(); }
+      catch (error) { call.error = String(error); throw error; }
+      finally { call.settledAt = Date.now(); }
+    }
+    return calls;
+  }
   function workflowFacade() {
     return {
-      instrumented: diagnostic, state: () => state, commands: () => report.viewerCommands, messages: () => report.viewerMessages, wait, uiAction, screenshot,
+      instrumented: diagnostic, printableMode, state: () => state, commands: () => report.viewerCommands, messages: () => report.viewerMessages, wait, uiAction, screenshot,
       record: results => { report.workflow = results; }, read: readWorkflow,
       async begin(item) {
         tab = { id: item.tabId };
@@ -346,6 +391,29 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       },
       async webFrames(item) { return worker.evaluate(`chrome.webNavigation.getAllFrames({tabId:${item.tabId}})`); },
       async nativeEvents() { return (await observerSnapshot()).events; },
+      printableKey: key => printableInput(key, () => page.keyboard.press(key)),
+      async printableNative(label, sequence) {
+        let nativeCommands;
+        const gesture = await printableInput(label, async () => { nativeCommands = await printableNativeSequence(label, sequence); });
+        return { ...gesture, nativeCommands };
+      },
+      async printableLate(sequence) {
+        const start = report.viewerCommands.length, before = await page.evaluate(() => __managedPrintableObservation.snapshot()), startedAt = Date.now();
+        assert.equal(state.human, null); assert.equal(before.sink.disabled, true);
+        const nativeCommands = await printableNativeSequence("local key release after original End", sequence);
+        await page.waitForTimeout(100); // Bounded negative observation; never an input ACK substitute.
+        const after = await page.evaluate(() => __managedPrintableObservation.snapshot());
+        return { startedAt, observedUntilAt: Date.now(), nativeCommands, commands: report.viewerCommands.slice(start), viewer: { before, after } };
+      },
+      async printableClick(item, documents, id) {
+        const decoded = await decodedHuman(), rootDocument = documents.find(value => value.frameId === 0), leaf = documents.find(value => value.controls !== null);
+        assert.ok(rootDocument && leaf?.boxes[id]); const rect = { ...leaf.boxes[id] };
+        if (leaf !== rootDocument) { assert.ok(rootDocument.childRect && rootDocument.childInset); rect.x += rootDocument.childRect.x + rootDocument.childInset.x; rect.y += rootDocument.childRect.y + rootDocument.childInset.y; }
+        const image = await page.locator("#frame").boundingBox(); assert.ok(image);
+        const point = visibleHumanViewerPoint(rect, state.human.viewport, image, decoded.image);
+        const gesture = await printableInput(`focus ${item.fixture.kind}/${id}`, () => page.mouse.click(point.viewerPoint.x, point.viewerPoint.y));
+        return { ...gesture, point };
+      },
       async clickInput(item, documents) {
         const decoded = await decodedHuman(), rootDocument = documents.find(value => value.frameId === 0);
         const emitter = documents.find(value => value.inputRect); assert.ok(rootDocument && emitter);
@@ -460,11 +528,11 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), extension: await treeHashes(extension), sdk: await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")), snapshot: {}, builtInputs: build.sourceInputs, buildSnapshot: path.join(path.dirname(buildFile), "source-snapshot") };
       assert.equal(report.source.executable, build.exeSHA256); assert.deepEqual(report.source.extension, build.extensionFiles);
       assert.equal(report.source.browser, "566971689aecea06a88355ea1e9020c908b7a3b093dd0d2a12ae7073489a77aa");
-      report.buildEvidence = { path: buildFile, file: "build-manifest.json", sha256: hash(bytes), scope: workflow ? "Frozen production build; this workflow harness is separately frozen." : "Previously tested frozen runtime; new baseline harness is separately frozen, not retroactively part of that build." };
+      report.buildEvidence = { path: buildFile, file: "build-manifest.json", sha256: hash(bytes), scope: workflow && !frozenPrintableBaseline ? "Frozen production build; this workflow harness is separately frozen." : "Previously tested frozen runtime; new baseline harness is separately frozen, not retroactively part of that build." };
       await fs.writeFile(path.join(runDir, "build-manifest.json"), bytes, { flag: "wx" });
       for (const [file, expected] of Object.entries(build.sourceInputs)) {
         inside(report.source.buildSnapshot, path.resolve(report.source.buildSnapshot, file)); const original = await fs.readFile(path.join(report.source.buildSnapshot, file)); assert.equal(hash(original), expected);
-        if (workflow) assert.equal(hash(await fs.readFile(path.join(repo, file))), expected, `Current production must match frozen build: ${file}`);
+        if (workflow && !frozenPrintableBaseline) assert.equal(hash(await fs.readFile(path.join(repo, file))), expected, `Current production must match frozen build: ${file}`);
         const target = path.join(runDir, "built-source-snapshot", file); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, original, { flag: "wx" });
       }
       for (const file of await sourceFiles()) {
@@ -474,8 +542,8 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true });
       await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), path.join(runDir, "sdk-input"), { recursive: true });
       await listenFixture(server); report.fixtureURL = `http://127.0.0.1:${server.address().port}${fixture.route}`;
-      if (workflow) for (const kind of directoryWorkflow ? managedDirectoryCases : managedFileWorkflowCases)
-        workflowFixtures.push((directoryWorkflow ? createManagedDirectoryFixture : createManagedFileWorkflowFixture)({ kind, baseURL: new URL(report.fixtureURL).origin }));
+      if (workflow) for (const kind of printable ? managedPrintableLayouts : directoryWorkflow ? managedDirectoryCases : managedFileWorkflowCases)
+        workflowFixtures.push((printable ? createManagedPrintableFixture : directoryWorkflow ? createManagedDirectoryFixture : createManagedFileWorkflowFixture)({ kind, baseURL: new URL(report.fixtureURL).origin }));
     });
     await step(workflow ? "formal-session-and-four-original-delivered-pages" : "formal-session-and-original-delivered-page", async () => {
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
@@ -525,7 +593,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await openViewer(url.href); await uiAction("#refresh", "status");
       if (workflow) {
         await rememberProcesses("both-private-browsers");
-        await (directoryWorkflow ? runManagedDirectoryWorkflow : runManagedFileWorkflow)(workflowFacade(), workflowCases);
+        await (printable ? runManagedPrintableWorkflow : directoryWorkflow ? runManagedDirectoryWorkflow : runManagedFileWorkflow)(workflowFacade(), workflowCases);
         report.observerFinal = await worker.evaluate("__managedFileChooserDiagnostic.stop()", 3000);
         report.nativeEvents = report.observerFinal.events; assert.equal(report.observerFinal.overflow, false); assert.equal(report.observerFinal.active, false); assert.equal(report.workerConnection.eventsDropped, 0);
         assert.deepEqual(report.unexpectedRequests, []); return;
@@ -606,7 +674,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
             // repeat a snapshot, click, claim or POST to obtain this evidence.
             const value = await worker.evaluate(`(async()=>{
               const target=[await (${readManagedFileTarget.toString()})(chrome,${item.tabId})];
-              const documents=(await chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(observation.documentIds)}},func:${(directoryWorkflow ? readManagedDirectoryDocument : readManagedFileWorkflowDocument).toString()}})).filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result}));
+              const documents=(await chrome.scripting.executeScript({target:{tabId:${item.tabId},documentIds:${JSON.stringify(observation.documentIds)}},func:${(printable ? readManagedPrintableDocument : directoryWorkflow ? readManagedDirectoryDocument : readManagedFileWorkflowDocument).toString()}})).filter(row=>row.result).map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result}));
               const json=JSON.stringify({target,documents}),bytes=new TextEncoder().encode(json).length;
               return bytes<=65536?{json,bytes,limitExceeded:false}:{bytes,limitExceeded:true};
             })()`, 5000);
@@ -634,6 +702,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await worker.close(); return { closed: true };
     });
     if (viewerBrowser) await cleanup("viewerBrowser", async () => {
+      if (printableSession) { await bound(printableSession.detach(), 5000, "original printable viewer session detach"); report.printableNativeSession.detachedAt = Date.now(); printableSession = null; }
       const session = await bound(viewerBrowser.newBrowserCDPSession(), 5000, "original viewer close session"); await bound(session.send("Browser.close"), 5000, "original viewer close");
       const result = await bound(viewerProcess.completed, 12000, "original viewer actual exit"); assert.equal(result.code, 0); assert.equal(result.termination, undefined);
       await bound(viewerBrowser.close(), 5000, "original viewer client close"); return { code: result.code, exitedAt: result.exitedAt, closedAt: result.closedAt };
@@ -655,7 +724,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       // Preserve the actual terminal observations even when a late POST makes
       // this proof fail. Any failure joins cleanupErrors and fails the run.
       report.workflowFixtures = workflowFixtures.map(value => value.stats());
-      return (directoryWorkflow ? assertManagedDirectoryTerminalFixtures : assertManagedFileWorkflowFinalFixtures)(report.workflowFixtures, report.workflow ?? []);
+      return (printable ? assertManagedPrintableTerminalFixtures : directoryWorkflow ? assertManagedDirectoryTerminalFixtures : assertManagedFileWorkflowFinalFixtures)(report.workflowFixtures, report.workflow ?? []);
     });
     if (report.source) await cleanup("sourceIntegrity", async () => {
       assert.equal(hash(await fs.readFile(executable)), report.source.executable); assert.equal(hash(await fs.readFile(chromium)), report.source.browser);
@@ -671,7 +740,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     report.liveRunnerChildren = [...registry].map(child => child.pid); report.endedAt = Date.now();
     report.completed = !report.error && report.steps.length === 4 && report.steps.every(row => row.passed) && !report.cleanupErrors.length && !registry.size &&
       (!diagnostic || !report.privateDiagnostic.errors.length);
-    Object.assign(report, managedFileChooserCompletion(mode, diagnostic, report.completed));
+    Object.assign(report, printable ? managedPrintableOutcome(printableMode, report.completed, report.workflow ?? []) : managedFileChooserCompletion(mode, diagnostic, report.completed));
     await save(); console.log("RESULT", JSON.stringify({ runDir, completed: report.completed, featurePassed: report.featurePassed, classification: report.classification?.outcome }));
   }
   return report;

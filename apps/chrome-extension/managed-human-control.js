@@ -18,6 +18,12 @@ function fields(value, required, optional = []) {
   return value;
 }
 function finite(value, min, max) { if (!Number.isFinite(value) || value < min || value > max) throw fail("input is outside its supported bounds"); return value; }
+// The pinned Chromium keyboard buffer includes a trailing NUL in four UTF-16
+// slots. DOM key conversion additionally requires a single Unicode scalar.
+function printableKeyText(value, singleScalar = false) {
+  return typeof value === "string" && value.length >= 1 && value.length <= 3 && value.isWellFormed() &&
+    !/[\u0000-\u001f\u007f-\u009f]/u.test(value) && (!singleScalar || Array.from(value).length === 1);
+}
 function clientGeometry(metrics) {
   const viewport = metrics?.cssVisualViewport;
   if (!viewport || viewport.scale !== 1 || viewport.zoom !== 1 || viewport.offsetX !== 0 || viewport.offsetY !== 0 ||
@@ -47,6 +53,7 @@ export class ManagedHumanControl {
     return Object.freeze({ state: record.state, leaseId: record.leaseId, tabId: record.tabId,
       generation: record.generation, viewport: record.viewport,
       ...(record.mode === "human" ? { inputBudgetVersion: 1, keyRepeatVersion: 1, pointerClickCountVersion: 1, fileChooserVersion: 2 } : {}),
+      ...(record.printableKeyVersion === 1 ? { printableKeyVersion: 1 } : {}),
       ...(record.clipboardTransferVersion === 1 ? { clipboardTransferVersion: 1 } : {}),
       lastInputSequence: record.mode === "view" || record.epoch?.retired ? 0 : record.epoch?.sequence ?? 0 });
   }
@@ -105,6 +112,7 @@ export class ManagedHumanControl {
     const record = { tabId, assertAuthority, onFrame, onState, leaseId: crypto.randomUUID(), state: "starting",
       generation: 0, viewport: null, closed: deferred(), drains: new Set(), epochs: new Set(), pendingNavigations: new Set(), dialogWaiters: new Set(), hintReads: new Set() };
     Object.defineProperties(record, { mode: { value: mode, enumerable: true }, options: { value: Object.freeze({ ...options }) },
+      printableKeyVersion: { value: mode === "human" ? 1 : undefined },
       clipboardTransferVersion: { value: mode === "human" && typeof this.clipboardTransfer === "function" ? 1 : undefined } });
     this.current = record;
     if (mode === "human") record.documentGraph = new ManagedHumanDocumentGraph({
@@ -823,9 +831,12 @@ export class ManagedHumanControl {
       return ["Input.dispatchMouseEvent", { ...point(), type: "mouseWheel", deltaX: finite(input.deltaX, -4096, 4096), deltaY: finite(input.deltaY, -4096, 4096), modifiers: modifier() }, () => {}];
     }
     if (input?.type === "key") {
-      fields(input, ["type", "action", "key", "code", "windowsVirtualKeyCode"], ["modifiers", "repeat", "clipboardTransfer"]);
+      fields(input, ["type", "action", "key", "code", "windowsVirtualKeyCode"], ["modifiers", "repeat", "clipboardTransfer", "text"]);
       if (!["down", "up"].includes(input.action) || typeof input.key !== "string" || !input.key.length || input.key.length > 64 || typeof input.code !== "string" || !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(input.code) ||
           !Number.isInteger(input.windowsVirtualKeyCode) || input.windowsVirtualKeyCode < 0 || input.windowsVirtualKeyCode > 255) throw fail("invalid key input");
+      const printable = Object.hasOwn(input, "text");
+      if (printable && (input.action !== "down" || !printableKeyText(input.text) || !printableKeyText(input.key, true) ||
+          ![0, 8].includes(modifier()) || Object.hasOwn(input, "clipboardTransfer"))) throw fail("invalid printable key input");
       if (Object.hasOwn(input, "repeat") && (input.repeat !== true || input.action !== "down")) throw fail("repeat requires a key down and true");
       const repeat = input.repeat === true;
       const held = record.keys.get(input.code);
@@ -842,8 +853,11 @@ export class ManagedHumanControl {
       // insertText would bypass it. Releases never carry character data.
       const enter = input.action === "down" && key.key === "Enter" && ["Enter", "NumpadEnter"].includes(key.code) &&
         key.windowsVirtualKeyCode === 13 && (modifiers & 7) === 0;
-      return ["Input.dispatchKeyEvent", { ...key, type: input.action === "up" ? "keyUp" : enter ? "keyDown" : "rawKeyDown", modifiers,
-        ...(enter ? { text: "\r", unmodifiedText: "\r" } : {}), ...(repeat ? { autoRepeat: true } : {}) },
+      // A single combined down keeps the character phase behind the page's
+      // keydown cancellation. No separate char/insertText can bypass it.
+      const character = printable ? input.text : enter ? "\r" : undefined;
+      return ["Input.dispatchKeyEvent", { ...key, type: input.action === "up" ? "keyUp" : character !== undefined ? "keyDown" : "rawKeyDown", modifiers,
+        ...(character !== undefined ? { text: character, unmodifiedText: character } : {}), ...(repeat ? { autoRepeat: true } : {}) },
         () => { if (input.action === "up") record.keys.delete(input.code); else if (!repeat) record.keys.set(input.code, key); }];
     }
     if (input?.type === "text") {
@@ -897,6 +911,10 @@ export class ManagedHumanControl {
       if (record.dialogs.hasOpen()) throw fail("answer the original native dialog before sending page input", "DIALOG_BUSY");
       fields(envelope.input, ["type"], ["action", "x", "y", "button", "modifiers", "deltaX", "deltaY", "key", "code", "windowsVirtualKeyCode", "text", "repeat", "clipboardTransfer", "clickCount"]);
       this.checkChooserInput(record, epoch, envelope.input);
+      if (envelope.input.type === "key" && Object.hasOwn(envelope.input, "text")) {
+        if (Object.hasOwn(envelope.input, "clipboardTransfer")) throw fail("printable key cannot transfer the clipboard");
+        if (record.printableKeyVersion !== 1) throw fail("printable key input is unavailable for this original lease", "UNAVAILABLE");
+      }
       const clipboardOperation = validateHumanClipboardInput(envelope.input);
       if (clipboardOperation && record.clipboardTransferVersion !== 1) throw fail("clipboard transfer is unavailable for this original lease", "UNAVAILABLE");
       const [method, params, commit] = this.command(epoch, { ...envelope.input });

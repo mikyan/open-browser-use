@@ -146,6 +146,10 @@ debugger、history 和 tab groups。
   严格 Enter/NumpadEnter 在普通或 Shift 情况下以单次带 CR 的 keyDown 保留
   原生编辑和表单语义；原抬键与清理不携带文本，不额外 insertText。对应
   身份条件、网页取消和验收边界见[人工 Enter](references/managed-human-keyboard.md)。
+  原 human lease 的 `printableKeyVersion: 1` 允许单个可打印 key 携带原确认
+  文字，以一次原生 keyDown 保留网页取消与默认动作；本地可信 beforeinput
+  确认候选，组合开始撤销，重复和释放沿用原持键。详见
+  [普通字符按键](references/managed-human-printable-keys.md)。
   原 human lease 可声明固定的 `keyRepeatVersion: 1`；查看器、Go及扩展只
   接纳已有原持键的真实重复 down，逐次等待ACK且保留最初释放身份。原生
   `autoRepeat` 不替换持键或确认未知首次输入；End取消队列并等待实际清理。

@@ -812,7 +812,7 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   }
   let nextBlob = 0;
   const context = vm.createContext({
-    document: { getElementById: element, addEventListener(name, handler) { documentEvents[name] = handler; } },
+    document: { getElementById: element, get activeElement() { return focused; }, addEventListener(name, handler) { documentEvents[name] = handler; } },
     location: { hash: `#ticket=${ticket}`, host: "127.0.0.1:44555", pathname: "/" },
     history: { replaceState(...args) { replaced = args; } },
     URLSearchParams, WebSocket: FakeSocket, Blob, Uint8Array, TextEncoder,
@@ -835,8 +835,8 @@ function setup(inputBudgetVersion, keyRepeatVersion, clipboard = {}) {
   function running() { authenticate(); respond(1, state()); }
   function choose(tab = 1) { element("tabs").value = String(tab); element("tabs").listeners.change(); }
   function frame(sequence, extra = {}) { socket.message({ type: "frame", tabId: 1, streamId: "stream-a", sequence, eventSequence: 10000 + sequence, retiredSequence: 0, data: "aW1hZ2U=", mimeType: "image/png", metadata: {}, ...extra }); }
-  function event(id, name, data = {}) { const e = { preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
-  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}), ...(clipboard.fileChooserVersion !== undefined ? { fileChooserVersion: clipboard.fileChooserVersion } : {}), ...(clipboard.pointerClickCountVersion !== undefined ? { pointerClickCountVersion: clipboard.pointerClickCountVersion } : {}) }, ...extra }); }
+  function event(id, name, data = {}) { const e = { target: element(id), preventDefault() { this.prevented = true; }, ...data }; element(id).listeners[name]?.(e); return e; }
+  function humanState(extra = {}) { return state(2, "paused", true, { eventSequence: 20000, retiredSequence: 19999, human: { state: "active", leaseId: "lease-a", generation: 1, tabId: 1, viewport: { width: 1280, height: 720 }, ...(inputBudgetVersion !== undefined ? { inputBudgetVersion } : {}), ...(keyRepeatVersion !== undefined ? { keyRepeatVersion } : {}), ...(clipboard.version !== undefined ? { clipboardTransferVersion: clipboard.version } : {}), ...(clipboard.fileChooserVersion !== undefined ? { fileChooserVersion: clipboard.fileChooserVersion } : {}), ...(clipboard.pointerClickCountVersion !== undefined ? { pointerClickCountVersion: clipboard.pointerClickCountVersion } : {}), ...(clipboard.printableKeyVersion !== undefined ? { printableKeyVersion: clipboard.printableKeyVersion } : {}) }, ...extra }); }
   function beginHuman() { running(); choose(); respond(2, state(1, "running", false, { selectedTabId: 1 })); element("human-begin").click(); respond(3, humanState()); }
   function humanFrame(sequence = 1, extra = {}) { frame(sequence, { streamId: "human-stream", eventSequence: 20000 + sequence, retiredSequence: 19999, controlMode: "human", humanLeaseId: "lease-a", generation: 1, ...extra }); }
   function readyHuman() { beginHuman(); humanFrame(); images.at(-1).onload(); }
@@ -1352,6 +1352,209 @@ test("multi-click navigation drops the old chain and cannot reuse its pending re
   assert.equal(request.generation, 2); assert.equal(request.sequence, 1); assert.equal(request.input.clickCount, 1);
 });
 const key = (extra = {}) => ({ key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true, ...extra });
+
+function printableHarness() {
+  const h = setup(1, 1, { printableKeyVersion: 1 }); h.readyHuman(); h.element("human-input").focus();
+  const down = (extra = {}) => h.event("human-input", "keydown", key({ isTrusted: true, key: "a", code: "KeyA", keyCode: 65, shiftKey: false, ...extra }));
+  const up = (extra = {}) => h.event("human-input", "keyup", key({ isTrusted: true, key: "a", code: "KeyA", keyCode: 65, shiftKey: false, ...extra }));
+  const input = (data = "a", extra = {}) => h.event("human-input", "beforeinput", { isTrusted: true, inputType: "insertText", data, ...extra });
+  const requests = () => h.socket.sent.filter(row => row.operation === "humanInput");
+  return { h, down, up, input, requests };
+}
+
+test("printable waits for local character confirmation and forwards one native down and original up", () => {
+  const { h, down, up, input, requests } = printableHarness();
+  assert.equal(down().prevented, undefined, "Initial default must remain available to the local IME");
+  assert.equal(requests().length, 0);
+  assert.equal(input().prevented, true);
+  assert.deepEqual(requests()[0].input, { type: "key", action: "down", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 0, text: "a" });
+  up(); assert.equal(requests().length, 1, "Real up waits behind the original down ACK");
+  h.ackInput();
+  assert.equal(requests()[1].input.action, "up"); assert.equal(requests()[1].input.text, undefined);
+  h.ackInput(); assert.equal(requests().length, 2);
+});
+
+for (const [name, localKey, text] of [["space", " ", " "], ["combining layout", "e", "e\u0301"], ["astral", "😀", "😀"], ["three UTF16 units", "a", "😀a"]]) {
+  test(`printable keeps original key and confirmed ${name} without US-layout guessing`, () => {
+    const { h, down, up, input, requests } = printableHarness();
+    down({ key: localKey }); input(text);
+    assert.equal(requests()[0].input.key, localKey); assert.equal(requests()[0].input.text, text);
+    up({ key: localKey }); h.ackInput(); h.ackInput();
+    assert.equal(requests().length, 2); assert.equal(requests().some(row => row.input.type === "text"), false);
+  });
+}
+
+test("printable composition start retires the unconfirmed native candidate", () => {
+  const { h, down, up, input, requests } = printableHarness();
+  down(); h.event("human-input", "compositionstart");
+  input("中", { inputType: "insertCompositionText", isComposing: true });
+  assert.equal(requests().length, 0);
+  h.event("human-input", "compositionend", { data: "中文", isTrusted: false });
+  up(); assert.equal(requests().length, 1); assert.deepEqual(requests()[0].input, { type: "text", text: "中文" });
+});
+
+test("printable queued repeats retain all real transitions before the first ACK", () => {
+  const { h, down, up, input, requests } = printableHarness();
+  down(); input(); down({ repeat: true }); input(); up();
+  assert.equal(requests().length, 1);
+  h.ackInput(); assert.equal(requests()[1].input.repeat, true); assert.equal(requests()[1].input.text, "a");
+  h.ackInput(); assert.equal(requests()[2].input.action, "up"); h.ackInput();
+  assert.equal(requests().length, 3);
+});
+
+test("printable repeat uses current Shift and text while the final up remains text-free", () => {
+  const { h, down, up, input, requests } = printableHarness();
+  down({ key: "A", shiftKey: true }); input("A"); h.ackInput();
+  down({ key: "a", shiftKey: false, repeat: true }); input("a"); h.ackInput();
+  up(); h.ackInput();
+  assert.deepEqual(requests().map(row => [row.input.key, row.input.modifiers, row.input.text, row.input.repeat]),
+    [["A", 8, "A", undefined], ["a", 0, "a", true], ["a", 0, undefined, undefined]]);
+});
+
+test("printable orphan repeat is cancelled without falling back to a text side effect", () => {
+  const { down, up, input, requests } = printableHarness();
+  assert.equal(down({ repeat: true }).prevented, true);
+  input(); assert.equal(requests().length, 0);
+  up(); down(); input(); assert.equal(requests().length, 1); assert.equal(requests()[0].input.type, "key");
+});
+
+test("printable untrusted events cannot submit or retire a real pending candidate", () => {
+  const { down, up, input, requests } = printableHarness();
+  down({ isTrusted: false }); input("x", { isTrusted: false }); assert.equal(requests().length, 0);
+  down(); up({ isTrusted: false }); input("x", { isTrusted: false }); input("a");
+  assert.equal(requests().length, 1); assert.equal(requests()[0].input.type, "key"); assert.equal(requests()[0].input.text, "a");
+});
+
+test("printable beforeinput requires the actual local input focus and event target", () => {
+  const { h, down, input, requests } = printableHarness();
+  down(); input("x", { target: h.element("frame") }); assert.equal(requests().length, 0);
+  input(); assert.equal(requests()[0].input.text, "a"); h.ackInput();
+  h.element("refresh").focus(); input("never"); assert.equal(requests().length, 1);
+});
+
+test("printable named navigation keys retain their immediate native path", () => {
+  for (const [value, code, keyCode] of [["Tab", "Tab", 9], ["End", "Numpad1", 35], ["F1", "F1", 112]]) {
+    const { down, requests } = printableHarness();
+    assert.equal(down({ key: value, code, keyCode }).prevented, true);
+    assert.equal(requests()[0].input.type, "key"); assert.equal(requests()[0].input.key, value); assert.equal(requests()[0].input.text, undefined);
+  }
+});
+
+test("printable keyup or a later navigation key retires an unconfirmed character", () => {
+  for (const retire of ["up", "next-key"]) {
+    const { h, down, up, input, requests } = printableHarness();
+    down();
+    if (retire === "up") up(); else { down({ key: "ArrowLeft", code: "ArrowLeft", keyCode: 37 }); h.ackInput(); }
+    input("direct");
+    assert.equal(requests().some(row => row.input.code === "KeyA"), false);
+    assert.deepEqual(requests().at(-1).input, { type: "text", text: "direct" }, "A fresh independent text event cannot recover the retired key");
+  }
+});
+
+test("printable paste retires a candidate and keeps one plain-text submission", () => {
+  const { h, down, up, requests } = printableHarness();
+  down(); h.event("human-input", "paste", { clipboardData: { getData: () => "paste" } }); up();
+  assert.deepEqual(requests().map(row => row.input), [{ type: "text", text: "paste" }]);
+});
+
+test("printable native text limits preserve the independent text path without truncation", () => {
+  for (const [localKey, text] of [["e\u0301", "e\u0301"], ["ab", "ab"], ["👩‍💻", "👩‍💻"], ["a", "😀😀"]]) {
+    const { down, up, input, requests } = printableHarness();
+    assert.equal(down({ key: localKey }).prevented, undefined);
+    input(text); up({ key: localKey });
+    assert.deepEqual(requests().map(row => row.input), [{ type: "text", text }]);
+  }
+});
+
+test("printable End discards pending characters and unsent repeats without replay", () => {
+  for (const phase of ["candidate", "held"]) {
+    const { h, down, up, input, requests } = printableHarness();
+    down();
+    if (phase === "held") { input(); down({ repeat: true }); input(); }
+    const original = requests()[0]; h.element("human-end").click(); const end = h.socket.sent.at(-1);
+    assert.equal(end.operation, "humanEnd"); input("late"); up();
+    if (original) h.ackInput(original);
+    assert.equal(requests().length, phase === "held" ? 1 : 0); assert.equal(h.socket.sent.at(-1), end);
+  }
+});
+
+test("printable capability cannot change or appear on read-only state", () => {
+  for (const next of [undefined, 0, 2, null, "1"]) {
+    const { h } = printableHarness(); const human = { ...h.humanState().human }; delete human.printableKeyVersion;
+    if (next !== undefined) human.printableKeyVersion = next;
+    h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20002, human }) });
+    assert.equal(h.element("human-input").dataset.enabled, "false"); assert.equal(h.socket.sent.at(-1).operation, "humanEnd");
+  }
+  const h = setup(); readyResult(h);
+  h.socket.message({ type: "state", ...h.state(2, "paused", true, { eventSequence: 20002, tabs: [resultTab()], selectedTabId: 1, view: viewState({ printableKeyVersion: 1 }) }) });
+  assert.equal(h.element("watch").disabled, true);
+});
+
+test("printable a delayed Begin cannot change its original capability", () => {
+  for (const version of [undefined, 1]) {
+    const h = setup(1, 1, { printableKeyVersion: version }), { begin, original } = beginPreparing(h);
+    h.socket.message({ type: "state", ...original, eventSequence: 20003 });
+    const human = { ...original.human }; delete human.printableKeyVersion;
+    if (version === undefined) human.printableKeyVersion = 1;
+    h.respond(begin.id, { ...original, human });
+    assert.equal(h.element("human-input").dataset.enabled, "false");
+    assert.equal(h.element("connection").textContent, "控制状态不可用");
+    assert.equal(h.socket.sent.some(row => ["humanInput", "humanEnd"].includes(row.operation)), false);
+  }
+});
+
+test("printable navigation revokes candidate and held repeat without admitting a successor orphan", () => {
+  for (const phase of ["candidate", "held"]) {
+    const { h, down, up, input, requests } = printableHarness();
+    down();
+    if (phase === "held") { input(); down({ repeat: true }); input(); }
+    const original = requests()[0], human = { ...h.humanState().human, generation: 2 };
+    h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20003, human: { ...human, state: "navigating", viewport: null } }) });
+    input("old"); up(); if (original) h.ackInput(original);
+    h.socket.message({ type: "state", ...h.humanState({ eventSequence: 20004, human }) });
+    h.humanFrame(1, { generation: 2, streamId: "successor", eventSequence: 20005 }); h.images.at(-1).onload();
+    h.element("human-input").focus();
+    assert.equal(down({ repeat: true }).prevented, true); input("old"); up();
+    assert.equal(requests().length, phase === "held" ? 1 : 0);
+    down(); input("a");
+    assert.equal(requests().at(-1).generation, 2); assert.equal(requests().at(-1).sequence, 1);
+    assert.equal(requests().at(-1).input.text, "a"); assert.equal(requests().at(-1).input.repeat, undefined);
+  }
+});
+
+test("printable pointer refocus retires a pending key before independent text", () => {
+  const { h, down, up, input, requests } = printableHarness();
+  down(); imeClick(h); input("direct"); up();
+  assert.equal(requests().some(row => row.input.type === "key"), false);
+  assert.deepEqual(requests().at(-1).input, { type: "text", text: "direct" });
+});
+
+test("printable keyCode229 remains available to the local composition", () => {
+  const { h, down, up, input, requests } = printableHarness();
+  assert.equal(down({ keyCode: 229 }).prevented, undefined);
+  h.event("human-input", "compositionstart"); input("中", { inputType: "insertCompositionText", isComposing: true });
+  h.event("human-input", "compositionend", { data: "中文" }); up();
+  assert.deepEqual(requests().map(row => row.input), [{ type: "text", text: "中文" }]);
+});
+
+test("printable oversized repeat ends control without a second text path", () => {
+  const { h, down, input, requests } = printableHarness();
+  down(); input(); h.ackInput(); down({ repeat: true }); input("😀😀");
+  assert.equal(h.socket.sent.at(-1).operation, "humanEnd"); assert.equal(requests().length, 1);
+  assert.match(h.element("error").textContent, /文字未发送/);
+});
+
+test("printable multi-scalar repeat confirms locally then releases the original hold without text fallback", () => {
+  for (const text of ["e\u0301", "ab", "👩‍💻"]) {
+    const { h, down, input, requests } = printableHarness();
+    down(); input(); h.ackInput();
+    assert.equal(down({ key: text, repeat: true }).prevented, undefined);
+    assert.equal(requests().length, 1);
+    input(text);
+    assert.equal(h.socket.sent.at(-1).operation, "humanEnd"); assert.equal(requests().length, 1);
+    assert.match(h.element("error").textContent, /文字未发送/);
+  }
+});
 
 const dialog = (extra = {}) => ({ leaseId: "lease-a", generation: 1, dialogId: "original-dialog", type: "prompt", message: "<img onerror=bad>\n原网页消息", defaultPrompt: "原值", ...extra });
 function showDialog(h, value = dialog(), eventSequence = 20002) {

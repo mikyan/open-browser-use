@@ -79,7 +79,7 @@ func ParseViewState(data json.RawMessage) (*HumanState, error) {
 		return state, err
 	}
 	f, err := Object(data)
-	if err != nil || state.State == "preparing" || f["inputBudgetVersion"] != nil || f["keyRepeatVersion"] != nil || f["pointerClickCountVersion"] != nil || f["clipboardTransferVersion"] != nil || f["fileChooserVersion"] != nil || f["lastInputSequence"] != nil && !integer(f["lastInputSequence"], 0, 0) {
+	if err != nil || state.State == "preparing" || f["inputBudgetVersion"] != nil || f["keyRepeatVersion"] != nil || f["printableKeyVersion"] != nil || f["pointerClickCountVersion"] != nil || f["clipboardTransferVersion"] != nil || f["fileChooserVersion"] != nil || f["lastInputSequence"] != nil && !integer(f["lastInputSequence"], 0, 0) {
 		return nil, errors.New("read-only view reported input")
 	}
 	return state, nil
