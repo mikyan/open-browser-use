@@ -13,6 +13,7 @@ const entry = await fs.readFile(path.join(packageDir, "lib/index.mjs"), "utf8");
 const chunkName = /from ["']\.\/([^"']+\.mjs)/.exec(entry)[1];
 const upstream = await fs.readFile(path.join(packageDir, "lib", chunkName), "utf8");
 import { buildChromeExtension, patchCrxTransport } from "./build-chrome-extension.mjs";
+import * as frameAdapter from "../apps/chrome-extension/browser-frame-adapter.js";
 
 const injectedLine = upstream.split("\n").find(line => line.startsWith("const source$4 = "));
 const originalInjected = vm.runInNewContext(injectedLine.slice("const source$4 = ".length, -1));
@@ -591,4 +592,184 @@ test("build rejects junction or symlink ancestors before clearing output", async
     await assert.rejects(buildChromeExtension(path.join(link, "nested")), /symlink|junction/);
     assert.equal(await fs.readFile(path.join(target, "preserve.txt"), "utf8"), "preserve");
   } finally { await fs.unlink(link).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+});
+
+const childSessionPatched = patchCrxTransport(upstream);
+function childSessionMethod(start, end, globals) {
+  const a = childSessionPatched.indexOf(start), b = childSessionPatched.indexOf(end, a);
+  assert.ok(a > 0 && b > a);
+  return vm.runInNewContext('({' + childSessionPatched.slice(a, b) + '})', globals);
+}
+
+async function childSessionFixture(early = false, retire = false, pendingInitialization = false) {
+  const event = { sessionId: 'original-child', targetInfo: { type: 'iframe', targetId: 'leaf' } };
+  const tree = { frame: { id: 'leaf', parentId: 'root', loaderId: 'leaf-loader', url: 'http://localhost/leaf' } };
+  const transport = { _tabToTarget: new Map([[7, {}]]), _sessions: new Map([['original-child', 7]]),
+    getTargetId: () => 'root', _emitMessage(message) { frameAdapter.observeCrxFrameMessage(this, message); } };
+  frameAdapter.observeCrxFrameMessage(transport, { method: 'Page.getFrameTree', sessionId: 'crx-tab-7', result: { frameTree: { frame: { id: 'root', loaderId: 'root-loader' } } } });
+  await frameAdapter.prepareCrxChildFrame(transport, { tabId: 7, sessionId: 'crx-tab-7' }, event, async () => ({ frameTree: tree }));
+  const count = { childSessions: 0, frameSessions: 0, initialize: 0, trees: 0, destroyed: [], worlds: [], lifecycle: [], attached: [], navigated: [] };
+  class Frame {
+    constructor(_page, id, parent) { this._id = id; this.parent = parent; this.marker = 'restored-frame'; }
+    parentFrame() { return this.parent; }
+  }
+  const root = new Frame(null, 'root', null), frames = new Map([['root', root]]);
+  if (early) { const original = new Frame(null, 'leaf', root); original.marker = 'original-frame'; frames.set('leaf', original); }
+  // Use the actual pinned FrameManager attachment method. Its duplicate-child
+  // assertion is essential: a Map-overwriting fake hid the original defect.
+  const nativeAttach = childSessionMethod('  frameAttached(frameId, parentFrameId) {', '\n  async waitForSignalsCreatedBy(', {
+    assert, Frame$1: Frame, Page$1: { Events: { FrameAttached: 'frameattached' } }
+  }).frameAttached;
+  const frameManager = { _frames: frames, _page: { emit(_event, frame) { count.attached.push(frame._id); } },
+    frame: id => frames.get(id), frameAttached: nativeAttach,
+    removeChildFramesRecursively(frame) {
+      for (const [id, child] of frames) if (child.parentFrame() === frame) { this.removeChildFramesRecursively(child); frames.delete(id); }
+    },
+    frameCommittedNewDocumentNavigation(id, url, name, loaderId, initial) {
+      assert.ok(frames.has(id)); this.removeChildFramesRecursively(frames.get(id)); count.trees++;
+      count.navigated.push({ id, url, name, loaderId, initial });
+    }
+  };
+  const connection = { _sessions: new Map(), _transport: transport };
+  const client = { _closed: false, _sessionId: 'crx-tab-7', _connection: connection,
+    createChildSession(id) { count.childSessions++; const child = Object.assign(new EventEmitter(), { _closed: false, _sessionId: id, _connection: connection, _sendMayFail: (...args) => count.worlds.push(args) }); connection._sessions.set(id, child); return child; } };
+  connection._sessions.set(client._sessionId, client);
+  const crPage = { _sessions: new Map(), _sessionForFrame(frame) { while (frame && !this._sessions.has(frame._id)) frame = frame.parentFrame(); return frame && this._sessions.get(frame._id); } }; let controller;
+  class FrameSession {
+    constructor(_crPage, session, targetId) {
+      count.frameSessions++; this._contextIdToContext = new Map(); this._client = session;
+      this._targetId = targetId; this._crPage = _crPage; this._page = { frameManager }; this._eventListeners = [];
+      this.ready = new Promise(resolve => { this.settleReady = resolve; });
+    }
+    _isMainFrame() { return false; }
+    _onLifecycleEvent(event) { count.lifecycle.push(event); }
+    _initialize() {
+      count.initialize++;
+      if (!pendingInitialization) return Promise.resolve();
+      const nativeRead = new Promise(resolve => { count.settleInitialRead = resolve; });
+      return Promise.all([nativeRead.then(childInitializationTreeCallback(this)), this.ready]);
+    }
+    _onExecutionContextDestroyed(id) { count.destroyed.push(id); this._contextIdToContext.delete(id); }
+    _firstNonInitialNavigationCommittedFulfill() { assert.ok(count.trees > 0); count.ready = (count.ready ?? 0) + 1; this.settleReady(); }
+  }
+  for (const [start, end] of [
+    ['  _handleFrameTree(frameTree) {', '\n  _eventBelongsToStaleFrame(frameId)'],
+    ['  _eventBelongsToStaleFrame(frameId) {', '\n  _onFrameAttached(frameId, parentFrameId)'],
+    ['  _onFrameAttached(frameId, parentFrameId) {', '\n  _onFrameNavigated(framePayload, initial)'],
+    ['  _onFrameNavigated(framePayload, initial) {', '\n  _onFrameRequestedNavigation(payload)']
+  ]) Object.assign(FrameSession.prototype, childSessionMethod(start, end, {}));
+  const object = childSessionMethod('  _onAttachedToTarget(event) {', '\n  _onDetachedFromTarget(event)', {
+    FrameSession, getCrxChildFrameAdmission: frameAdapter.getCrxChildFrameAdmission,
+    bindCrxChildFrameSession(...args) { controller = args[3]; return frameAdapter.bindCrxChildFrameSession(...args); }
+  });
+  const parent = { _client: client, _page: { frameManager }, _crPage: crPage, _contextIdToContext: new Map() };
+  if (retire) frameAdapter.observeCrxFrameMessage(transport, { method: 'Page.frameNavigated', sessionId: 'crx-tab-7',
+    params: { frame: { id: 'root', loaderId: 'successor-root' }, type: 'Navigation' } });
+  object._onAttachedToTarget.call(parent, event);
+  return { event, tree, frames, frameManager, connection, transport, crPage, controller, count };
+}
+
+test('pinned iframe handler adopts a missing Frame using only one original child session', async () => {
+  const f = await childSessionFixture(); assert.equal(f.count.childSessions, 1); assert.equal(f.count.initialize, 0);
+  assert.ok(f.controller); await f.controller.restore(f.tree); await f.controller.restore(f.tree);
+  assert.equal(f.count.childSessions, 1); assert.equal(f.count.frameSessions, 1); assert.equal(f.count.initialize, 1);
+  assert.equal(f.frames.get('leaf').marker, 'restored-frame');
+});
+
+test('pinned iframe handler rebinds an already initialized Frame without another initialization', async () => {
+  const f = await childSessionFixture(true), original = f.frames.get('leaf'), session = f.crPage._sessions.get('leaf');
+  session._contextIdToContext.set(11, { frame: original });
+  f.frames.delete('leaf'); await f.controller.restore(f.tree);
+  assert.notEqual(f.frames.get('leaf'), original); assert.deepEqual(f.count.destroyed, [11]);
+  assert.equal(f.count.childSessions, 1); assert.equal(f.count.frameSessions, 1); assert.equal(f.count.initialize, 1);
+  assert.equal(session._contextIdToContext.size, 0);
+});
+
+test('replacement child CRSession cannot be adopted by the old controller', async () => {
+  const f = await childSessionFixture(); f.connection._sessions.set('original-child', {});
+  assert.equal(f.controller.isCurrent(), false); assert.equal(f.controller.restore(f.tree), null);
+  assert.equal(f.count.initialize, 0); assert.equal(f.frames.has('leaf'), false);
+});
+
+test('retired native attachment cannot create a new CRSession or initialize a replacement Frame', async () => {
+  const f = await childSessionFixture(true, true);
+  assert.equal(f.count.childSessions, 0); assert.equal(f.count.frameSessions, 0); assert.equal(f.count.initialize, 0);
+  assert.equal(f.controller, undefined);
+});
+
+test('late old frame-session detach disposes itself without deleting a successor frame session', async () => {
+  const disposed = [], detached = [], sessions = new Map(); let settle;
+  const dispose = childSessionMethod('  dispose() {\n    this._firstNonInitialNavigationCommittedReject', '\n  async _navigate(', {
+    TargetClosedError$1: Error, eventsHelper: { removeEventListeners() {} }
+  }).dispose;
+  const crPage = { _sessions: sessions, _networkManager: { removeSession() {} } };
+  const old = { _targetId: 'leaf', _crPage: crPage, _firstNonInitialNavigationCommittedReject() {}, _childSessions: new Set(),
+    _eventListeners: [], _client: { dispose() { disposed.push('old'); } }, dispose() { dispose.call(this); } };
+  sessions.set('leaf', old);
+  const parent = { _workerSessions: new Map(), _crPage: crPage, _page: { frameManager: { frameDetached: id => detached.push(id) } },
+    _client: { send() { return new Promise(resolve => { settle = resolve; }); } } };
+  const handler = childSessionMethod('  _onDetachedFromTarget(event) {\n    const workerSession', '\n  _onWindowOpen(event)', {});
+  handler._onDetachedFromTarget.call(parent, { targetId: 'leaf', sessionId: 'old' });
+  const successor = {}; sessions.set('leaf', successor); settle(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(sessions.get('leaf'), successor); assert.deepEqual(detached, []); assert.deepEqual(disposed, ['old']);
+});
+
+
+// Execute the real pinned initialization callback, not a duplicate of its guards.
+function childInitializationTreeCallback(frameSession) {
+  const start = childSessionPatched.indexOf('      this._client.send("Page.getFrameTree").then(') + '      this._client.send("Page.getFrameTree").then('.length;
+  const end = childSessionPatched.indexOf('),\n      this._client.send("Log.enable",', start);
+  assert.ok(start > 0 && end > start);
+  return vm.runInNewContext('(function() { return ' + childSessionPatched.slice(start, end) + '; }).call(frameSession)', {
+    frameSession, isCrxChildFrameSessionCurrent: frameAdapter.isCrxChildFrameSessionCurrent,
+    eventsHelper: { addEventListener(client, event, listener) { client.on(event, listener); return { client, event, listener }; } }
+  });
+}
+
+test('pinned original initialization crossing a restored Frame retains one native lifecycle listener and original readiness', async () => {
+  const f = await childSessionFixture(true, false, true);
+  f.frames.delete('leaf');
+  const restoring = f.controller.restore(f.tree); let completed = false;
+  restoring.then(() => { completed = true; }); await Promise.resolve();
+  assert.equal(completed, false, 'Native initialization still awaits its original getFrameTree ACK');
+  assert.equal(f.count.ready, 1, 'Only the validated restore tree has settled readiness');
+  f.count.settleInitialRead({ frameTree: f.tree }); await restoring;
+  assert.equal(f.count.initialize, 1); assert.equal(f.count.worlds.length, 0, 'The stale original Frame cannot receive a late isolated world');
+  const child = f.connection._sessions.get('original-child');
+  assert.equal(child.listenerCount('Page.lifecycleEvent'), 1);
+  const nativeLoad = { frameId: 'leaf', loaderId: 'leaf-loader', name: 'load', timestamp: 1 };
+  child.emit('Page.lifecycleEvent', nativeLoad);
+  assert.equal(f.count.lifecycle.length, 1); assert.equal(f.count.lifecycle[0], nativeLoad);
+  await f.controller.restore(f.tree);
+  assert.equal(child.listenerCount('Page.lifecycleEvent'), 1); assert.equal(f.count.initialize, 1);
+});
+
+test('pinned retired original initialization cannot install late lifecycle listeners or isolated worlds', async () => {
+  const f = await childSessionFixture(true, false, true), child = f.connection._sessions.get('original-child');
+  frameAdapter.observeCrxFrameMessage(f.transport, { method: 'Target.detachedFromTarget', sessionId: 'crx-tab-7', params: { sessionId: 'original-child' } });
+  f.count.settleInitialRead({ frameTree: f.tree }); await Promise.resolve(); await Promise.resolve();
+  assert.equal(child.listenerCount('Page.lifecycleEvent'), 0); assert.equal(f.count.worlds.length, 0);
+  assert.equal(f.count.ready, undefined); assert.equal(f.controller.restore(f.tree), null);
+});
+
+
+test('pinned restored child root commits once before its native local descendants attach', async () => {
+  for (const early of [false, true]) {
+    const f = await childSessionFixture(early);
+    if (early) {
+      f.frameManager.frameAttached('old-local', 'leaf');
+      f.frames.delete('leaf'); f.frames.delete('old-local');
+      f.count.attached.length = 0;
+    }
+    f.tree.childFrames = [{ frame: { id: 'local', parentId: 'leaf', loaderId: 'local-loader', url: 'http://localhost/local' },
+      childFrames: [{ frame: { id: 'nested', parentId: 'local', loaderId: 'nested-loader', url: 'http://localhost/nested' } }] }];
+    await f.controller.restore(f.tree);
+    assert.deepEqual(f.count.attached, ['leaf', 'local', 'nested']);
+    assert.deepEqual(f.count.navigated.map(row => [row.id, row.loaderId, row.initial]),
+      [['leaf', 'leaf-loader', true], ['local', 'local-loader', true], ['nested', 'nested-loader', true]]);
+    assert.equal(f.count.childSessions, 1); assert.equal(f.count.frameSessions, 1); assert.equal(f.count.initialize, 1);
+    assert.equal(f.frames.get('local').parentFrame(), f.frames.get('leaf'));
+    assert.equal(f.frames.get('nested').parentFrame(), f.frames.get('local'));
+    assert.throws(() => f.frameManager.frameAttached('leaf', 'root'), { code: 'ERR_ASSERTION' }, 'The pinned duplicate-child assertion remains active');
+  }
 });

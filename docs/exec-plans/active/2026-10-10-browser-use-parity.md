@@ -7,6 +7,12 @@
 
 ## 当前基线
 
+2026-10-21，当前源码完成[跨站 iframe 历史恢复](../../references/managed-oopif-history-restore.md)
+业务验收：原两页草稿经 BFCache 返回后，由公开 API 快照、定位并唯一提交。
+首次快照失败和两次候选超时保留；3388 项 Node 检查及既有八下载流程回归通过。
+Go/嵌入 UI/SDK/锁文件未变，按原字节复用此前 Go 证据及 EXE。本项尚未打包，
+普通公司 Edge、更多缓存/frame 组合及完整对齐目标仍开放。
+
 最新已发布完整包为 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)，制品源码固定为 `dee63f74c4f9c1839a846de9b85feed79ac3d439`。
 本版新增人工普通字符按键，保留目录上传、离页确认、中文预编辑与 AI 操作反馈。
 完整包/扩展/Skill 为 111/80/7 文件；精确干净源码重建、离线 CLI/MCP 30 工具、

@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [跨站 iframe 历史恢复](managed-oopif-history-restore.md)：原草稿经 BFCache
+  返回后的公开观察、定位和唯一提交，原失败、原命令结算及恢复边界。
+
 - [Managed 人工普通字符按键](managed-human-printable-keys.md)：空格控件、裸字符
   快捷键、网页取消、原输入确认及重复释放；固定浏览器与输入法边界。
 

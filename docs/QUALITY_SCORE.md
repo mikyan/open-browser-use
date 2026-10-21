@@ -11,6 +11,12 @@
 
 ## 当前评分
 
+2026-10-21，当前源码修复[跨站 iframe 历史恢复](references/managed-oopif-history-restore.md)。
+保留首次快照失败及两次候选超时；最终原页面/iframe 草稿经真实 BFCache 返回后，
+公开导航、快照、定位与唯一 POST 完成。3388 项 Node 检查和八下载流程回归通过；
+Go、嵌入 UI、SDK 与锁文件原字节未变，复用此前 Go test/vet 和 EXE，未声称重跑。
+该修复尚未打包；普通公司 Edge、更多 frame 拓扑及完整 P01–P15 仍开放。
+
 最新已发布完整包为 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)，制品源码固定为 `dee63f74c4f9c1839a846de9b85feed79ac3d439`。
 本版新增人工普通字符按键，保留目录上传、离页确认、中文预编辑与 AI 操作反馈。
 完整包/扩展/Skill 为 111/80/7 文件；精确干净源码重建、离线 CLI/MCP 30 工具、

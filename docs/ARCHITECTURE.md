@@ -54,8 +54,12 @@ debugger、history 和 tab groups。
   空 PING 仅可通过原文档 ISOLATED 世界的不可变 receiver 标记缺失读数
   确认无需隐藏；该实际读取同样参与清理。未知结果保持失败，不涵盖旧版升级。
   BFCache 返回后，frame adapter 用原 attachment/graph/loader 校验的原生
-  frame tree 和仍有效的原 context 恢复本地子 frame；不重载或重放输入。
-  契约及跨 worker/OOPIF 未验边界见[可视消息清理](references/visual-delivery-cleanup.md)。
+  frame tree 和仍有效的原 context 恢复本地子 frame，并等待原 OOPIF attachment
+  的一次交付，重绑原 child session。已有 root Frame 只提交导航，避免重复 attach；
+  原初始化完成后再开启实际 lifecycle 报告。旧 session、context 和晚到初始化回执
+  按身份撤权，不重载或重放输入。跨站原草稿返回及继续提交已实测，范围见
+  [历史恢复](references/managed-oopif-history-restore.md)；视觉接收器契约和其他
+  未验边界见[可视消息清理](references/visual-delivery-cleanup.md)。
   原响应正文由诊断 capture 保留原 Response，`browser-response-body.js` 管理
   期限、撤权和编码，engine 在页面操作队列外等待；私有 runtime bridge 仅向
   原请求最终 session 发出一次 getResponseBody，不走 URL 重取 fallback。

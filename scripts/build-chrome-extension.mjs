@@ -78,8 +78,30 @@ export function patchCrxTransport(source) {
   const appDetach = '  async _doDetach(targetId) {\n    var _a2;\n    if (!targetId)\n      return;\n    if (this._transport.isIncognito(targetId) !== this.isIncognito())\n      throw new Error("Tab is not in the expected browser context");\n    const crPage = this._crPageByTargetId(targetId);\n    if (!crPage)\n      return;';
   const appTransportDetach = '    await this._transport.detach(targetId);\n    await closed;';
   const appClosed = '    const closed = new Promise((x) => pageOrError.once(Page$1.Events.Close, x));';
+  const childAttachment = `    if (event.targetInfo.type === "iframe") {
+      const targetId = event.targetInfo.targetId;
+      const frame = this._page.frameManager.frame(targetId);
+      if (!frame)
+        return;
+      this._page.frameManager.removeChildFramesRecursively(frame);
+      for (const [contextId, context] of this._contextIdToContext) {
+        if (context.frame === frame)
+          this._onExecutionContextDestroyed(contextId);
+      }
+      const frameSession = new FrameSession(this._crPage, session, targetId, this);
+      this._crPage._sessions.set(targetId, frameSession);
+      frameSession._initialize(false).catch((e) => e);
+      return;
+    }`;
+  const childTree = '      this._client.send("Page.getFrameTree").then(({ frameTree }) => {\n        if (this._isMainFrame()) {';
+  const childDispose = '    this._crPage._sessions.delete(this._targetId);\n    this._client.dispose();';
+  const childDetach = '    this._client.send("Page.enable").catch((e) => null).then(() => {\n      if (!childFrameSession._swappedIn)';
+  const childEntry = '  _onAttachedToTarget(event) {\n    const session = this._client.createChildSession(event.sessionId);';
   for (const expression of [eventHandler, eventDelivery, emitMessage]) {
     if (source.split(expression).length !== 2) throw new Error("Pinned Playwright CRX frame transport shape changed; review the frame attachment adapter before building");
+  }
+  for (const expression of [childAttachment, childTree, childDispose, childDetach, childEntry]) {
+    if (source.split(expression).length !== 2) throw new Error("Pinned Playwright CRX child session shape changed; review BFCache restoration before building");
   }
   if (source.split(popupHandler).length !== 2) throw new Error("Pinned Playwright CRX popup attachment shape changed; review before building");
   if (source.split(nativeDetach).length !== 2) throw new Error("Pinned Playwright CRX input cleanup transport shape changed; review before building");
@@ -96,7 +118,61 @@ export function patchCrxTransport(source) {
     .replace(popupHandler, popupHandler + '\n      // Production Page attachment requires backend ownership and admission.\n      // Chrome-created popups must not bypass those hooks via this listener.\n      if (openBrowserUseInputHooks) return;')
     .replace(eventHandler, eventHandler.replace('({ tabId', 'async ({ tabId') + '\n      if (message === "Page.screencastFrame" && openBrowserUseEventFilter?.({ tabId, sessionId }, message, params)) return;')
     .replace(eventDelivery, '      if (message === "Target.attachedToTarget") await prepareCrxChildFrame(this, { tabId, sessionId }, params);\n' + eventDelivery)
-    .replace(emitMessage, '  _emitMessage(message) {\n    observeCrxFrameMessage(this, message);\n    if (this.onmessage) this.onmessage(message);\n    refreshCrxCachedLifecycle(this, message).catch(() => {});\n  }')
+    .replace(emitMessage, '  _emitMessage(message) {\n    observeCrxFrameMessage(this, message);\n    if (this.onmessage) this.onmessage(message);\n    finishCrxFrameMessage(this, message);\n    refreshCrxCachedLifecycle(this, message).catch(() => {});\n  }')
+    .replace(childEntry, '  _onAttachedToTarget(event) {\n    const childAdmission = event.targetInfo.type === "iframe" ? getCrxChildFrameAdmission(this._client._connection._transport, this._client._sessionId, event) : null;\n    if (event.targetInfo.type === "iframe" && !childAdmission) return;\n    const session = this._client.createChildSession(event.sessionId);')
+    .replace(childAttachment, `    if (event.targetInfo.type === "iframe") {
+      const targetId = event.targetInfo.targetId;
+      const transport = this._client._connection._transport;
+      let frameSession, initialFrame, initialization;
+      const isCurrent = () => childAdmission() && !this._client._closed && !session._closed &&
+        session._connection._sessions.get(event.sessionId) === session &&
+        session._connection._sessions.get(this._client._sessionId) === this._client &&
+        (!frameSession || this._crPage._sessions.get(targetId) === frameSession);
+      const adopt = () => {
+        if (initialization) return initialization;
+        const frame = this._page.frameManager.frame(targetId);
+        if (!frame || !isCurrent()) return null;
+        initialFrame = frame;
+        this._page.frameManager.removeChildFramesRecursively(frame);
+        for (const [contextId, context] of this._contextIdToContext) {
+          if (context.frame === frame) this._onExecutionContextDestroyed(contextId);
+        }
+        frameSession = new FrameSession(this._crPage, session, targetId, this);
+        this._crPage._sessions.set(targetId, frameSession);
+        initialization = frameSession._initialize(false);
+        initialization.catch((e) => e);
+        return initialization;
+      };
+      const bound = bindCrxChildFrameSession(transport, this._client._sessionId, event, {
+        isCurrent,
+        initialFrameCurrent: () => isCurrent() && !!initialFrame && this._page.frameManager.frame(targetId) === initialFrame,
+        restore: (tree) => {
+          if (!isCurrent() || tree.frame.id !== targetId || !this._page.frameManager.frame(tree.frame.parentId)) return null;
+          if (!this._page.frameManager.frame(targetId)) this._page.frameManager.frameAttached(targetId, tree.frame.parentId);
+          const ready = adopt();
+          if (!ready || !isCurrent()) return null;
+          // Replace only stale Frame associations, never native Runtime state.
+          for (const [contextId, context] of frameSession._contextIdToContext) {
+            if (this._page.frameManager.frame(context.frame._id) !== context.frame) frameSession._onExecutionContextDestroyed(contextId);
+          }
+          // The child root already exists for adopt(). Pinned frameAttached
+          // rejects a second attachment; only its local descendants are new.
+          frameSession._onFrameNavigated(tree.frame, true);
+          for (const descendant of tree.childFrames ?? []) frameSession._handleFrameTree(descendant);
+          // This validated native tree supplies the same readiness proof as
+          // the original child initialization read, even if that earlier read
+          // lost its Frame while the root committed the cache restore.
+          frameSession._firstNonInitialNavigationCommittedFulfill();
+          return ready;
+        }
+      });
+      if (!bound) { session.dispose(); return; }
+      adopt();
+      return;
+    }`)
+    .replace(childTree, '      this._client.send("Page.getFrameTree").then(({ frameTree }) => {\n        if (!this._isMainFrame() && !isCrxChildFrameSessionCurrent(this._client._connection._transport, this._client._sessionId)) {\n          // A validated restore may have replaced only the Frame while this original read was pending.\n          // Keep the original session listener, but never use its stale tree or Frame for worlds/readiness.\n          if (isCrxChildFrameSessionCurrent(this._client._connection._transport, this._client._sessionId, false))\n            this._eventListeners.push(eventsHelper.addEventListener(this._client, "Page.lifecycleEvent", (event) => this._onLifecycleEvent(event)));\n          return;\n        }\n        if (this._isMainFrame()) {')
+    .replace(childDispose, '    if (this._crPage._sessions.get(this._targetId) === this) this._crPage._sessions.delete(this._targetId);\n    this._client.dispose();')
+    .replace(childDetach, '    this._client.send("Page.enable").catch((e) => null).then(() => {\n      if (this._crPage._sessions.get(event.targetId) !== childFrameSession) { childFrameSession.dispose(); return; }\n      if (!childFrameSession._swappedIn)')
     .replace(transportDetach, transportDetach.replace('detach(tabOrTarget)', 'detach(tabOrTarget, expectedTargetInfo)').replace('      return;', '      return false;') + `
     if (expectedTargetInfo && targetInfo !== expectedTargetInfo) return false;
     const inputRelease = openBrowserUseInputHooks?.prepareRelease(tabId);`)
@@ -115,7 +191,7 @@ export function patchCrxTransport(source) {
       await releaseCrxInput(this, tabId);
 ${nativeDetach}
     }`);
-  return `// Modified by Open Browser Use: pointer observation, native OOPIF/BFCache lifecycle repair, backend-authorized Page attachment, shared rendering event ownership, and bounded input release after Playwright cancellation.\nimport { observeCrxFrameMessage, prepareCrxChildFrame, refreshCrxCachedLifecycle } from "../../../browser-frame-adapter.js";\nimport { observeCrxInputCommand, releaseCrxInput } from "../../../browser-input-adapter.js";\nlet openBrowserUseCommandObserver, openBrowserUseEventFilter, openBrowserUseInputHooks;\nexport function setOpenBrowserUseCommandObserver(observer) { openBrowserUseCommandObserver = observer; }\nexport function setOpenBrowserUseEventFilter(filter) { openBrowserUseEventFilter = filter; }\nexport function setOpenBrowserUseInputHooks(hooks) { openBrowserUseInputHooks = hooks; }\n${patched.replace(/^\/\/# sourceMappingURL=.*$/gm, "")}`;
+  return `// Modified by Open Browser Use: pointer observation, native OOPIF/BFCache lifecycle repair, backend-authorized Page attachment, shared rendering event ownership, and bounded input release after Playwright cancellation.\nimport { observeCrxFrameMessage, prepareCrxChildFrame, refreshCrxCachedLifecycle, bindCrxChildFrameSession, finishCrxFrameMessage, isCrxChildFrameSessionCurrent, getCrxChildFrameAdmission } from "../../../browser-frame-adapter.js";\nimport { observeCrxInputCommand, releaseCrxInput } from "../../../browser-input-adapter.js";\nlet openBrowserUseCommandObserver, openBrowserUseEventFilter, openBrowserUseInputHooks;\nexport function setOpenBrowserUseCommandObserver(observer) { openBrowserUseCommandObserver = observer; }\nexport function setOpenBrowserUseEventFilter(filter) { openBrowserUseEventFilter = filter; }\nexport function setOpenBrowserUseInputHooks(hooks) { openBrowserUseInputHooks = hooks; }\n${patched.replace(/^\/\/# sourceMappingURL=.*$/gm, "")}`;
 }
 
 export async function buildChromeExtension(outputDir = path.join(repoRoot, "dist/chrome-extension-unpacked")) {
@@ -148,7 +224,7 @@ export async function buildChromeExtension(outputDir = path.join(repoRoot, "dist
   await fs.writeFile(path.join(vendor, "upstream", chunks[0]), chunk);
   await fs.writeFile(path.join(vendor, "index.mjs"), `export { crx } from "./upstream/index.mjs";\nexport { setOpenBrowserUseCommandObserver, setOpenBrowserUseEventFilter, setOpenBrowserUseInputHooks, assertOpenBrowserUseSelector, createOpenBrowserUseNavigationWait, runOpenBrowserUseMediaTask, createOpenBrowserUseResponseBodyRead, captureOpenBrowserUseNetworkWaitRequest, captureOpenBrowserUseDiagnosticSource, createOpenBrowserUseRawPointerRead } from "./upstream/${chunks[0]}";\n`);
   for (const name of ["LICENSE", "NOTICE"]) await fs.copyFile(path.join(packageDir, name), path.join(vendor, name));
-  await fs.writeFile(path.join(vendor, "MODIFICATIONS.txt"), "Open Browser Use modifies the pinned Playwright CRX transport to notify an optional observer after successful pointer commands and to deliver a missing Page.frameAttached before an already-loaded OOPIF target attachment. Frame ids and parent ids come exclusively from that attached child session's native Page.getFrameTree response; known frames and detached sessions are not replayed. After a native BackForwardCacheRestore navigation, it validates the original attachment, frame graph and loader against the native Page.getFrameTree response, restores only missing local child frames to Playwright, and rebinds their still-live original Runtime context payloads. Native clear/destroy events retire cached contexts; stale trees cannot cross navigation or attachment replacement. It then re-enables native lifecycle reporting so Chromium supplies actual cached-document milestones, without fabricating load events or reloading. This local frame tree repair does not establish OOPIF restoration coverage. Internal rendering-lease screencast frames are filtered from the CRX transport so the backend remains their sole acknowledger; caller-owned screencasts are not filtered. Scoped native-send hooks share input intent, native in-flight promises, and attachment identity with the raw CDP route. After Playwright Page cancellation, bounded cleanup drains native sends and releases remaining input through its original root or child target before native debugger detachment. With production input hooks configured, Page cancellation is dispatched synchronously before optional recorder/highlight teardown; OBU exposes neither UI API. All new CRX native commands pass admission/release fences, while cleanup uses a separate native path. Production hooks also disable the upstream tabs.onCreated popup auto-attachment: every new Page must pass backend session ownership, admission, and attachment hooks first. This does not change native popup activation behavior or flat child-frame auto-attachment. Standalone CRX without hooks retains upstream popup attachment and UI teardown. Detachment captures the original CRX target object before asynchronous Page cleanup and binds release/native detach to the original backend attachment token, so late cleanup cannot release or detach a replacement connection. Cleanup failure retains the native attachment for an explicit cleanup retry; it does not reattach or replay the failed action. Locator resolution and the existing actionability checks remain Playwright's; the locator pointer preparation adaptation is described below. The pointer observer cannot change or fail the original command. The original Apache-2.0 LICENSE and NOTICE are included.\n");
+  await fs.writeFile(path.join(vendor, "MODIFICATIONS.txt"), "Open Browser Use modifies the pinned Playwright CRX transport to notify an optional observer after successful pointer commands and to deliver a missing Page.frameAttached before an already-loaded OOPIF target attachment. Frame ids and parent ids come exclusively from that attached child session's native Page.getFrameTree response; known frames and detached sessions are not replayed. After a native BackForwardCacheRestore navigation, it validates the original attachment, frame graph and loader against the native Page.getFrameTree response, restores missing local child frames and joins each original live OOPIF attachment delivery. The same original CRSession is adopted once or its existing FrameSession is rebound from that child session's native tree, without another Target attachment or initialization. Only still-live original Runtime context payloads are rebound; old Frame associations are removed. Native clear/destroy events retire cached contexts; stale trees cannot cross navigation or attachment replacement. It then re-enables native lifecycle reporting so Chromium supplies actual cached-document milestones, without fabricating load events or reloading. Original child initialization reads that cross a Frame replacement retain their lifecycle listener only while the original controller remains owned; validated restored native trees settle original readiness. Late old-session cleanup cannot delete a successor FrameSession. This mechanism does not itself establish real-browser restoration coverage. Internal rendering-lease screencast frames are filtered from the CRX transport so the backend remains their sole acknowledger; caller-owned screencasts are not filtered. Scoped native-send hooks share input intent, native in-flight promises, and attachment identity with the raw CDP route. After Playwright Page cancellation, bounded cleanup drains native sends and releases remaining input through its original root or child target before native debugger detachment. With production input hooks configured, Page cancellation is dispatched synchronously before optional recorder/highlight teardown; OBU exposes neither UI API. All new CRX native commands pass admission/release fences, while cleanup uses a separate native path. Production hooks also disable the upstream tabs.onCreated popup auto-attachment: every new Page must pass backend session ownership, admission, and attachment hooks first. This does not change native popup activation behavior or flat child-frame auto-attachment. Standalone CRX without hooks retains upstream popup attachment and UI teardown. Detachment captures the original CRX target object before asynchronous Page cleanup and binds release/native detach to the original backend attachment token, so late cleanup cannot release or detach a replacement connection. Cleanup failure retains the native attachment for an explicit cleanup retry; it does not reattach or replay the failed action. Locator resolution and the existing actionability checks remain Playwright's; the locator pointer preparation adaptation is described below. The pointer observer cannot change or fail the original command. The original Apache-2.0 LICENSE and NOTICE are included.\n");
   await fs.appendFile(path.join(vendor, "MODIFICATIONS.txt"), "Open Browser Use binds native console and exception execution contexts to their original document, ancestors and attachment. Private object/message maps carry that proof through the existing local dispatcher without changing public event schemas; unknown worker and Log sources do not acquire document authority. Restricted diagnostics and original response reads validate retained provenance before delivery.\n");
   await fs.appendFile(path.join(vendor, "MODIFICATIONS.txt"), "Original locator target feedback carries a private border snapshot through the existing pointer options and transport copies. It projects the original native BoxModel border through the original renderer maps, without resolving a replacement selector or changing native coordinates. Optional native reads retain actual settlement separately from input readiness. Pointer command metadata is captured before native delivery, and late visual results are fenced by their original scope, attachment, document and feedback sequence. Existing Pages also read raw coordinate targets with fractional utility-world hit tests, exact frame-owner identities and the same renderer-boundary projection. High-level raw clicks share one candidate through their original move/down/up sequence; native input never waits for this read. It describes the hit at read time, not proof of a previously delivered Input target or continuous same-document tracking. Temporary hit and exception objects retain their original native cleanup leases until actual release acknowledgement or native context destruction; failed cleanup blocks lifecycle completion and remains explicitly retryable. Native-only attachments without a Page retain their existing fallback in this implementation slice.\n");
   await fs.writeFile(path.join(vendor, "version.json"), `${JSON.stringify({ package: "playwright-crx", version: PLAYWRIGHT_CRX_VERSION, playwrightVersion: "1.53.0", license: packageInfo.license, upstreamChunkSha256 }, null, 2)}\n`);
