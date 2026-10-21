@@ -1,0 +1,74 @@
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_7af3c1d6f61ba4 7
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_783154877007bb 10-15
+docs/histories/2026-10/20261021-1005-managed-oopif-history-restore.md
+  s_08bbfd293d324f::t_783154877007bb 1-33
+docs/exec-plans/completed/2026-10-21-managed-oopif-history-restore.md
+  s_08bbfd293d324f::t_7c572342826856 1-112
+apps/chrome-extension/browser-frame-adapter.js
+  s_08bbfd293d324f::t_f0fd695a01a9ea 5,196-202,226-227
+  s_08bbfd293d324f::t_42cfc36b52d7c2 7-25,32-33,35,37-52,78,85-87,118-121,132,146-156,172-174,181,185,188-195,203-205,223-225,228-250
+  s_08bbfd293d324f::t_e654dd800e0a11 26-31,34,36
+  s_08bbfd293d324f::t_94c66c01b628e1 127-131
+  s_08bbfd293d324f::t_cab6cb51f5e9fb 122,136,251
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_ae5ec4fbbd4bc6 900
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_783154877007bb 14-19
+docs/references/README.md
+  s_08bbfd293d324f::t_9100573e9212a6 19-21
+scripts/browser-integration/managed-oopif-bfcache-check.mjs
+  s_08bbfd293d324f::t_301e266a977ba9 190,377-378
+  s_08bbfd293d324f::t_c67e8e18a00094 1-9,11-47,51-52,121-124,126-127,130-131,134-135,151,153-154,204-214,216-262,268-343,346-353,358-359,361-366,369-370,374-376,380,384-387,391,394-396,398-400,405-407,412-413,424-454
+  s_08bbfd293d324f::t_d87066df151634 53,82,94,128
+  s_08bbfd293d324f::t_55eedf7fa2f8cf 10,155-166,168-175,197,202-203,344-345,354-357,360,382-383,388-390,392-393,397,402-403,408-411
+  s_08bbfd293d324f::t_7a38d97364a1cd 125
+  s_08bbfd293d324f::t_f978bdf4f6486e 48-50,54-81,83-93,95-120,129,132-133,136-150,152,263-267,417-422
+  s_08bbfd293d324f::t_4ffccfc2525f4f 167,176-189,191-196,198-201,215,367-368,371-373,379,381,401,404,414-416,423
+scripts/browser-integration/managed-oopif-bfcache-check.test.mjs
+  s_08bbfd293d324f::t_d87066df151634 59-60,62,64-65
+  s_08bbfd293d324f::t_301e266a977ba9 131,141,144-146,148-149,151-152,158-159,161-167
+  s_08bbfd293d324f::t_de5da05daa70ea 1-11,13,15-28,32-36,38-40,127-130,132-140,142-143,147,150,153-157,160,168
+  s_08bbfd293d324f::t_7a38d97364a1cd 12,14,29-31,37,41-58,61,63,66-126
+scripts/build-chrome-extension.mjs
+  s_08bbfd293d324f::t_d6ba3a5cbeb846 81-99,103-105,121-175,194,227
+scripts/browser-integration/managed-oopif-bfcache-fixture.mjs
+  s_08bbfd293d324f::t_8bb8563a51856f 1-125,127,130,134-135,138,142-143,188
+  s_08bbfd293d324f::t_dff32cf2da94ac 126,128-129,131-133,136-137,139-141,144-187
+scripts/browser-integration/managed-oopif-bfcache-fixture.test.mjs
+  s_08bbfd293d324f::t_ae3a1a961f53b8 1-130
+apps/chrome-extension/browser-frame-adapter.test.mjs
+  s_08bbfd293d324f::t_dbdf08f1244130 3,218-234
+  s_08bbfd293d324f::t_b15198ebd268eb 123-217
+  s_08bbfd293d324f::t_5622cf3276a8e9 235-257
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_783154877007bb 57-62
+docs/references/managed-oopif-history-restore.md
+  s_08bbfd293d324f::t_17be49bb5810f8 126-129
+  s_08bbfd293d324f::t_656337ddfefcf2 50,93-125,130-131
+  s_08bbfd293d324f::t_a53ef9a3c4f06b 53-67
+  s_08bbfd293d324f::t_01a2afcd2c9a30 91-92
+  s_08bbfd293d324f::t_4ff1a608a10746 68-69
+  s_08bbfd293d324f::t_90f9c0175e2162 70-90
+  s_08bbfd293d324f::t_ac7a3f63f319a0 1-37,39-49,51-52
+  s_08bbfd293d324f::t_cc0e4688d42987 38
+scripts/build-chrome-extension.test.mjs
+  s_08bbfd293d324f::t_1e5d53bb61fe7a 16,596-775
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "afb415a8e312ec08bd50793880ebbc1fe5e50e3d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
