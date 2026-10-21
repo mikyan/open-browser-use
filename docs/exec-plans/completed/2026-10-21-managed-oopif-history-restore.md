@@ -108,5 +108,10 @@ tree 的 listener/readiness 分离，以及旧 detach 不删除新会话的保�
 停止清理另作独立核验。完整 SHA、失败记录及来源边界见
 [专题](../../references/managed-oopif-history-restore.md)。
 
-专项开发完成，未重复发布包；更多 frame/BFCache 组合、公司 Edge 和完整
-能力对齐留在总计划。本专项归档不表示整体目标完成。
+专项开发完成，用户要求的新包已发布为 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)。
+发布 EXE 独立重建；474 份生产输入与 80 份扩展对应最终冻结构建。
+沿用 3,388 项 Node、617 项原草稿恢复和 138 项八下载独审；351 份未变
+Go/嵌入 UI/SDK/锁文件输入复用原 Go test/vet，打包未重跑完整测试或网页。
+离线 CLI/MCP 与独立制品核验、四资产回下载及本地副本核对通过；校验和见本次 history。
+更多 frame/BFCache 组合、公司 Edge 和完整能力对齐留在总计划。
+本专项归档不表示整体目标完成。

@@ -49,7 +49,7 @@ session 仍然有效。
 
 最终生产修复和下述固定场景验收已完成。单一固定 Chromium 场景不能证明所有
 frame 拓扑、普通公司 Edge、跨平台、旧 capture ref 在其他文档的拒绝行为，
-或完整 P01–P15 持平。已发布预览包保持原版本。
+或完整 P01–P15 持平。本项预览包交付范围见文末记录。
 
 ## 首个修复候选的原始结果
 
@@ -128,4 +128,9 @@ SDK/EXE 与最终构建另作字节比对，不能称该 runner 自行验证了�
 扩展输入、26 份 SDK 输出和 EXE。launcher 私有扩展副本的 78 份原字节不变，
 其 manifest 公钥及本次 Native Host 配置按实际运行身份分别验证。
 
-本项已完成开发验证，尚未打包。完整 Browser Use 对齐目标保持进行中。
+本项已随 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a) 发布，制品源码固定为 `afb415a8e312ec08bd50793880ebbc1fe5e50e3d`。
+发布 EXE 从精确干净提交独立重建；474 份生产输入和 80 份扩展绑定上述
+最终冻结构建，沿用 3,388 项 Node、617 项原草稿恢复及 138 项下载独审。
+351 份未变输入复用此前 Go test/vet；打包未重跑完整测试或网页业务。
+离线 CLI/MCP 与独立制品核验、四资产回下载及本地副本核对通过。
+完整 Browser Use 对齐目标保持进行中。

@@ -31,3 +31,18 @@
 - `scripts/build-chrome-extension.mjs` 及 pinned 方法测试。
 - `scripts/browser-integration/managed-oopif-bfcache-*`。
 - 架构、质量评分、能力规格及 execution plan。
+
+### 新包交付（preview-20261021-afb415a）
+
+用户要求的新包已发布为 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)，制品源码固定 `afb415a8e312ec08bd50793880ebbc1fe5e50e3d`。
+发布 EXE 从精确干净提交独立重建；474 份生产输入与最终冻结构建逐项绑定，
+80 份未加 key 的扩展文件字节一致，配套程序、扩展、完整 Skill 和安装说明同步交付。
+离线 CLI/MCP 与独立制品核验、四资产上传回下载及本地副本核验通过。
+完整 ZIP 为 10,713,804 字节，SHA256：`7a1285bf38f279d4e53489aee73f987db0e68af3be39ca55d9743472b42be1ee`。
+制品审计 SHA256：`7843facf5b2891325f7524ca16f690e52749201c35bb37e6fddd06c7a2bd6cda`。
+沿用最终冻结构建的 3,388 项 Node、617 项原草稿恢复独审及 138 项八下载独审；
+351 份 Go/嵌入 UI/SDK/锁文件输入未变，复用此前 Go test/vet，未声称重新执行。
+打包未重跑完整测试或网页业务。原首次快照失败、两次候选超时及其证据全部保留；
+普通公司 Edge、更多 frame/BFCache 组合、系统焦点和完整能力对齐仍未验证完成。
+安装保持固定目录解压、运行对应 install 脚本、加载 extension 和复制完整 Skill；
+覆盖升级前正常结束旧 Agent/MCP 与 managed 会话，再同步更新主机和扩展。

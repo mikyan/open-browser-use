@@ -10,17 +10,20 @@
 2026-10-21，当前源码完成[跨站 iframe 历史恢复](../../references/managed-oopif-history-restore.md)
 业务验收：原两页草稿经 BFCache 返回后，由公开 API 快照、定位并唯一提交。
 首次快照失败和两次候选超时保留；3388 项 Node 检查及既有八下载流程回归通过。
-Go/嵌入 UI/SDK/锁文件未变，按原字节复用此前 Go 证据及 EXE。本项尚未打包，
+Go/嵌入 UI/SDK/锁文件未变，按原字节复用此前 Go 证据及 EXE。本项已随下述预览包发布，
 普通公司 Edge、更多缓存/frame 组合及完整对齐目标仍开放。
 
-最新已发布完整包为 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)，制品源码固定为 `dee63f74c4f9c1839a846de9b85feed79ac3d439`。
-本版新增人工普通字符按键，保留目录上传、离页确认、中文预编辑与 AI 操作反馈。
-完整包/扩展/Skill 为 111/80/7 文件；精确干净源码重建、离线 CLI/MCP 30 工具、
-21,394 项独立制品检查、四资产回下载及 115 份本地副本核对通过。
-Go test/vet、3,357 项 Node 和五场浏览器流程属于最终冻结构建证据；
-发布 EXE 独立重建，打包未重跑完整测试或网页业务。
-完整 ZIP 为 10,715,472 字节，SHA256：`c998f7a29f6167b508a5e320b585f488b8d309c66ba1f1a5cc8acf37e4242239`。
-主机与扩展需配套更新；普通公司 Edge、系统焦点、系统输入法和完整能力对齐仍未完成。
+最新已发布完整包为 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)，制品源码固定为 `afb415a8e312ec08bd50793880ebbc1fe5e50e3d`。
+本版新增跨站 iframe 历史恢复，保留人工普通字符按键、目录上传、离页确认、
+中文预编辑与 AI 操作反馈。474 份生产输入绑定最终冻结构建，80 份未加 key
+的扩展文件逐字节一致；发布 EXE 从精确干净提交独立重建。
+离线 CLI/MCP 与独立制品核验、四资产上传回下载及本地副本核对通过。
+3,388 项 Node、617 项原草稿恢复独审及 138 项八下载独审属于最终冻结构建证据；
+351 份 Go/嵌入 UI/SDK/锁文件输入未变，复用此前 Go test/vet，未声称重新执行。
+打包未重跑完整测试或网页业务。
+完整 ZIP 为 10,713,804 字节，SHA256：`7a1285bf38f279d4e53489aee73f987db0e68af3be39ca55d9743472b42be1ee`。
+主机与扩展需配套更新；普通公司 Edge、更多 frame/BFCache 组合、系统焦点、
+系统输入法和完整能力对齐仍未完成。
 
 2026-10-21，当前源码完成[人工普通字符按键](../../references/managed-human-printable-keys.md)。
 最终冻结构建 Go test/vet、3,357 项 Node（299 项 UI）通过；主页面和真实

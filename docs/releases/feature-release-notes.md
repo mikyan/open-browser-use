@@ -4,7 +4,8 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
-| 2026-10-21 | 跨站 iframe 历史恢复（尚未打包） | 返回上一页后，可读取和继续提交浏览器缓存中的原 iframe 草稿。 | 修复原子会话丢失、晚到初始化及重复 Frame 登记；3388 项 Node、原草稿恢复/唯一提交和八下载回归通过。保留三次原失败；普通公司 Edge 和更多缓存组合仍未验证。见[历史恢复](../references/managed-oopif-history-restore.md)。 |
+| 2026-10-21 | Windows 完整包更新 | 提供包含跨站 iframe 历史恢复的配套程序、扩展、安装脚本与 Skill。 | 已发布 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)；精确源码重建、离线 CLI/MCP 与独立制品核验、四资产回下载及本地副本核对通过。474 份生产输入与 80 份扩展绑定最终冻结构建；沿用 3,388 项 Node 和 617/138 项原草稿/下载独审，351 份未变输入复用原 Go test/vet。发布 EXE 独立重建，打包未重跑完整测试或网页；普通安装步骤保持，完整能力对齐仍未完成。 |
+| 2026-10-21 | 跨站 iframe 历史恢复 | 返回上一页后，可读取和继续提交浏览器缓存中的原 iframe 草稿。 | 修复原子会话丢失、晚到初始化及重复 Frame 登记；3,388 项 Node、原草稿恢复/唯一提交和八下载回归通过。已随 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a) 发布；保留三次原失败，普通公司 Edge 和更多缓存组合仍未验证。见[历史恢复](../references/managed-oopif-history-restore.md)。 |
 | 2026-10-21 | Windows 完整包更新 | 提供包含人工普通字符按键修复的配套程序、扩展、安装脚本与 Skill。 | 已发布 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)；精确源码重建、离线 CLI/MCP、21,394 项制品检查和四资产回下载通过。完整测试和五场网页验收沿用最终冻结构建；普通安装步骤保持，完整能力对齐仍未完成。 |
 | 2026-10-21 | 人工普通字符按键 | 接管时可用空格操作控件、字符快捷键及长按；网页禁止的按键不会再被强行插入。 | Go test/vet、3,357 项 Node、主页面与跨站 iframe 正式流程及中文预编辑、Enter、重复键、粘贴回归通过。保留旧租约与组合输入兼容；已随 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7) 发布。见[普通字符按键](../references/managed-human-printable-keys.md)。 |
 | 2026-10-21 | Windows 完整包重新构建 | 按要求提供可直接安装的配套程序、扩展和 Skill。 | 已发布 [preview-20261021-cf3655a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-cf3655a)；生产功能与 e3d60e9 一致，仅提交中的发布记录文档不同。离线 CLI/MCP、11,358 项独立制品检查、四资产回下载及本地副本核对通过。沿用冻结构建的网页和完整测试证据，未重跑；普通字符按键改进未入包，整体对齐仍未完成。 |
