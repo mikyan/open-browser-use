@@ -1,0 +1,33 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_a7b8d61c06c285 18-30
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_75c3f899b8e986 13,16-26
+docs/exec-plans/completed/2026-10-21-managed-oopif-history-restore.md
+  s_08bbfd293d324f::t_41674d96783c5e 111-117
+docs/histories/2026-10/20261021-1005-managed-oopif-history-restore.md
+  s_08bbfd293d324f::t_912b9f7d68017e 34-48
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_22a805946dc12d 15-25
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_d27712d822c293 11-17
+docs/references/managed-oopif-history-restore.md
+  s_08bbfd293d324f::t_7d92f60fa93700 52,131-136
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_9ef0ae1055722a 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "6e4d3284e3a53973b1195c633c9d536647c25ea2",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
