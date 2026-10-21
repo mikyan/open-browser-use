@@ -157,7 +157,7 @@ debugger、history 和 tab groups。
   再发送原快捷键；新纯文本随原 ACK 返回，失败不撤销 ACK。结束先释放持键，
   再等待实际读取；viewer 的本地写入独立保留至结算，见
   [人工剪贴板](references/managed-human-clipboard.md)。
-  人工文件选择由独立 chooser 模块绑定原 Opening、节点和文档证明。开发版
+  人工文件选择由独立 chooser 模块绑定原 Opening、节点和文档证明。
   `fileChooserVersion: 2` 固定原节点的目录模式，Go/查看器仍兼容 v1 普通文件；
   目录不由 Opening 的多选模式推断，`multiple=false` 也可接收一棵目录树。
   查看器传名称、字节和受限单根相对路径，Go 在原 Session 私有传输目录保留
@@ -165,7 +165,7 @@ debugger、history 和 tab groups。
   清理共同确认；最终发送前才标记已调用原生写入，准入期间取消按未发送清理。
   已发起 Commit 的文件保留到实际浏览器退出，未提交传输撤权后等真实写入
   结算再清理。收到原撤权状态后不续传、不提交给新页，不承诺原生导航事件
-  到状态送达之间零旧暂存块。目录功能未进入 `preview-20261021-805b1a8` 包，
+  到状态送达之间零旧暂存块。目录功能已进入 `preview-20261021-e3d60e9` 包，
   容量、路径限制和两种模式的验收边界见[人工上传](references/managed-human-files.md)。
   当前开发版的 `managed-human-pages.js` 管理原独立 Browser 的只读目录和
   用户显式选择。切页等待原 human End 后，以真实 IDB 结果登记交接原页；

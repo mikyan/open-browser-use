@@ -8,11 +8,11 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261021-805b1a8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-805b1a8)，功能与 preview-20261021-79206b3 相同，
-包含[离页确认](managed-human-beforeunload.md)和
-[输入法预编辑显示](managed-human-ime-presentation.md)，保留后台父页导航画面恢复。
-发布 EXE 独立重建，离线 CLI/MCP、5,035 项制品检查和四资产回下载通过；
-本次打包未重跑原冻结构建的网页业务。普通安装步骤保持不变，主程序与扩展需配套更新。
+最新完整包为 [preview-20261021-e3d60e9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-e3d60e9)，新增[人工目录上传](managed-human-files.md)，
+保留离页确认、输入法预编辑和后台父页画面恢复。
+发布 EXE 独立重建，离线 CLI/MCP、11,343 项制品检查及四资产回下载通过。
+原冻结构建 Go test/vet、3,326 项 Node 与目录/普通上传流程通过；打包未重跑网页。
+普通安装步骤保持不变，主程序与扩展需配套更新，旧 managed 会话需正常结束后重启。
 
 此前 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)
 新增[人工文件选择与上传](managed-human-files.md)，修复重新认领原结果页搬窗

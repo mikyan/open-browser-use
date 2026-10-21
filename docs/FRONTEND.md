@@ -23,7 +23,7 @@
 弹窗禁用画面产生的命中变化按原几何判断，见[人工多击](references/managed-human-multi-click.md)。
 
 人工文件选择由独立 `human-files.js` 管理；卡片显示原请求来源，以及普通
-单/多文件或目录要求。开发版 `fileChooserVersion: 2` 的 pending 必须明确
+单/多文件或目录要求。`fileChooserVersion: 2` 的 pending 必须明确
 携带布尔 `directory`，同一请求不可改变模式；仍兼容不带该字段的 v1 普通
 文件请求。可信本地点击立即设置原 picker 的 `multiple/webkitdirectory`
 并打开文件或目录框，目录的 `multiple=false` 不限制其内部文件数。
@@ -36,8 +36,8 @@
 取消、导航或 End 撤销旧选择，收到原撤权状态后不续传、不提交给新页；
 原生导航事件与状态送达之间可能还有旧暂存块，已发送操作继续保留原回执。
 目录按钮、清单与生命周期已通过固定 Headless Chromium 正式流程，普通
-文件同构建回归也通过，独立审计仍在进行。目录功能尚未进入最新
-`preview-20261021-805b1a8` 包；Windows 原生选择框焦点、公司 Edge 和完整
+文件同构建回归与两类独立审计均通过。目录功能已随 [preview-20261021-e3d60e9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-e3d60e9) 发布。
+发布 EXE 独立重建，打包未重跑网页；Windows 原生选择框焦点、公司 Edge 和完整
 能力对齐仍未验证，详见[人工上传](references/managed-human-files.md)。
 
 每轮人工请求保留独立本地代次，旧错误、超时和回复不得结束后来接管或

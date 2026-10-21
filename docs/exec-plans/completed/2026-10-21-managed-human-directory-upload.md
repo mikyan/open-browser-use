@@ -3,9 +3,9 @@
 ## 目标与当前证据
 
 继续完整 Browser Use 能力对齐。上一轮完成新包发布、制品独审与回下载，属于
-实际进展。最近交付源码为 `805b1a8`，最新安装包为 `preview-20261021-805b1a8`；
+实际进展。本计划开始时交付源码为 `805b1a8`，当时安装包为 `preview-20261021-805b1a8`；
 交付记录提交为 `f9fd5cf`。本计划源码实现、正式验证和独立审计已完成。
-用户再次要求打包；本轮将从包含此功能的干净提交独立制作新包，交付另记。
+用户再次要求打包，已发布 [preview-20261021-e3d60e9](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-e3d60e9)；交付细节见发布记录。
 本片补齐人工接管网页的目录上传，不以专项通过代替完整能力对齐。
 
 原基线 `ManagedHumanFileChoosers.observe` 明确拒绝原输入的 `webkitdirectory`，
