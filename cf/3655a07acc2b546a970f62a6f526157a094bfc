@@ -1,0 +1,37 @@
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_2073214556c549 160,168
+docs/FRONTEND.md
+  s_08bbfd293d324f::t_8457a2c6e02e3d 26,39-40
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_ff0d5eb516a4dd 14-15,17-23,39
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_ef6e65b405d844 10-11,13-17,19
+docs/exec-plans/completed/2026-10-21-managed-human-directory-upload.md
+  s_08bbfd293d324f::t_0e29a56bf769ad 6,8
+docs/histories/2026-10/20261021-0809-managed-directory-preview-delivery.md
+  s_08bbfd293d324f::t_2f99a07d737b79 1-24
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_f009823bc3ef00 15-16,18-22,24
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_4eb6bd35260ea4 11-15
+docs/references/managed-human-files.md
+  s_08bbfd293d324f::t_b7de232b398deb 7-9,144-145
+docs/releases/feature-release-notes.md
+  s_08bbfd293d324f::t_f6a1c0f3ef378a 7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "cf3655a07acc2b546a970f62a6f526157a094bfc",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
