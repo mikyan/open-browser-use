@@ -84,3 +84,5 @@ cleanupErrors/liveRunnerChildren 为空。该基线没有被改成“功能成�
 Chromium 的 306 个名字，当前生产字节与冻结构建相同。根代理确认四张原
 截图可读，系统 IME/AltGraph、普通公司 Edge 与完整能力对齐仍未验。
 详情及证据索引见[本次 history](../../histories/2026-10/20261021-0851-managed-human-printable-keys.md)。
+
+用户要求的新包已发布为 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)，具体制品校验和安装说明见本次 history。

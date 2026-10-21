@@ -68,3 +68,13 @@
 `internal/managedbrowser/managed_user.go`、`apps/chrome-extension/managed-human-control.js`、
 `scripts/browser-integration/managed-human-printable-*.mjs`，专题说明见
 [普通字符按键](../../references/managed-human-printable-keys.md)。
+
+### 新包交付
+
+用户要求的新包已发布为 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)，源码固定 `dee63f74c4f9c1839a846de9b85feed79ac3d439`。
+精确提交重建 EXE，474 份生产输入与冻结构建逐一绑定，80 份未加 key 的扩展
+字节一致；完整包/扩展/Skill 为 111/80/7 文件。离线 CLI/MCP 30
+工具、21,394 项独立制品检查、四资产上传回下载及 115 份本地副本核验通过。
+完整 ZIP 10,715,472 字节，SHA256 `c998f7a29f6167b508a5e320b585f488b8d309c66ba1f1a5cc8acf37e4242239`。
+制品审计 SHA256 `6c813d91a321fccaac8b5a8a253a50819ec7a796c146efc62a70a726d22c251f`。
+打包未重跑网页或完整 Go/Node；沿用本轮最终冻结证据，不外推系统焦点或整体对齐。

@@ -4,6 +4,9 @@
 快捷键可被网页接收，网页取消 keydown 时不会再绕过取消而插入文字。普通
 字符的长按逐次确认；松开或结束接管时释放原按键，避免重复提交和卡键。
 
+已随 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7) 发布，主程序与扩展需配套更新。
+发布 EXE 从固定提交独立重建；下述网页流程使用冻结内部构建，打包未重跑。
+
 ## 协议和查看器行为
 
 原 human lease 可声明 `printableKeyVersion: 1`，同一租约能力固定；只读
