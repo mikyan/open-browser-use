@@ -616,6 +616,30 @@ public traces, six-source reading, same-round material, unique report POSTs,
 actual reports and resource cleanup. Do not score an early ledger snapshot or
 treat static checks as a passed browser comparison.
 
+The next formal task is a complete React controlled form, including a protected
+billing field, dependent choices, Unicode and End, shadow input, same-origin
+save, and a cross-origin iframe created and replaced by ordinary page actions.
+The [agent-form protocol](../../docs/exec-plans/active/2026-10-23-managed-agent-form.md)
+keeps four first attempts in the same OBU1, Codex1, Codex2, OBU2 order:
+
+```powershell
+node scripts/browser-integration/managed-agent-form-server.mjs --output <new-absolute-directory>
+node scripts/browser-integration/managed-agent-form-check.mjs --ready <absolute-ready.json> --round 1
+```
+
+Use the same five explicit artifact environment variables above. The fixed
+shared runner retains the research contract and all actual delivery, viewer,
+Stop and resource checks. The form solver receives only its own launch card;
+preparation time is recorded separately from the first business start marker.
+The terminal remains exactly seven fields, with diagnostics in separate files.
+The application build binds the final source loads to before/after snapshots;
+its tool snapshots do not attest a loaded process or continuous immutability.
+Keep the original server stdin open until all attempts actually finish, send
+`stop`, and observe its real process exit. Final independent review must match
+React state, trusted End/click/submit observations, original frame generations,
+two saves, one application POST, public traces and the receipt. Server acceptance
+or local HTTP unit tests alone cannot prove native browser task success.
+
 The [P15 comparison protocol](../../docs/exec-plans/completed/2026-10-16-task-comparison.md)
 fixes six tasks, two sides and two rounds before execution. Solvers receive only
 public task instructions and use their formal browser interfaces; fixture
