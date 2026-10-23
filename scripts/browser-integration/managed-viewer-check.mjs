@@ -1,5 +1,6 @@
 // One original business transaction and real viewer DOM controls. The viewer
 // owns a second headless profile; task input uses only the production OBU SDK.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -266,11 +267,12 @@ export async function runManagedViewerCheck() {
       report.hostBuild = { mode: "reused verified build, not rebuilt by this runner", validationFile, copy: "host-build-validation.json", validationSHA256: hash(bytes), executableSHA256: validation.executableSHA256, originalStartedAt: validation.startedAt, originalEndedAt: validation.endedAt, currentSourceFilesMatched: Object.keys(validation.before).length };
     } else report.hostBuild = { mode: "caller supplied binary; source/build provenance unverified", executableSHA256: report.source.executable };
     const snapshot = path.join(runDir, "source-snapshot");
-    for (const source of ["cmd/open-browser-use", "internal", "packages/open-browser-use-go", "go.mod", "go.sum", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/managed-viewer-check.test.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/observed-process-descendants.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
+    for (const source of ["cmd/open-browser-use", "internal", "packages/open-browser-use-go", "go.mod", "go.sum", "apps/chrome-extension/browser-rendering.js", "apps/chrome-extension/managed-user-bridge.js", "apps/chrome-extension/background.js", "scripts/browser-integration/managed-worker-target.mjs", "scripts/browser-integration/managed-worker-target.test.mjs", "scripts/browser-integration/managed-viewer-check.mjs", "scripts/browser-integration/managed-viewer-check.test.mjs", "scripts/browser-integration/private-devtools-endpoint.mjs", "scripts/browser-integration/observed-process-descendants.mjs", "scripts/browser-integration/created-page-fixture.mjs", "scripts/browser-integration/created-page-provenance.mjs", "scripts/browser-integration/normal-browser-downloads-support.mjs", "scripts/browser-integration/native-browser-installation.mjs", "scripts/browser-integration/browser-startup.mjs", "scripts/browser-integration/fixture-listener.mjs", "scripts/browser-integration/package.json", "scripts/browser-integration/package-lock.json"]) {
       const destination = path.join(snapshot, source); await fs.mkdir(path.dirname(destination), { recursive: true });
       await fs.cp(path.join(repo, source), destination, { recursive: true });
     }
     report.source.snapshot = await treeHashes(snapshot);
+    assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
     for (const relative of ["cmd/open-browser-use/managed_browser.go", "cmd/open-browser-use/managed_setup.go", "go.mod", "go.sum"]) assert.ok(report.source.snapshot[relative], `Missing managed runtime source: ${relative}`);
     assert.ok(Object.keys(report.source.snapshot).some(file => file.startsWith("internal/managedruntime/") && file.endsWith(".go")), "Managed runtime source must be frozen before acceptance");
     await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true });
@@ -363,7 +365,7 @@ export async function runManagedViewerCheck() {
     await step("original-child-and-native-frame-stream", async () => {
       const endpoint = await devToolsEndpoint(info.profileDir, launcher);
       const targets = await (await fetch(`http://127.0.0.1:${endpoint.port}/json/list`)).json();
-      const target = targets.find(value => value.type === "service_worker" && value.url === `chrome-extension://${info.extensionId}/background.js`); assert.ok(target);
+      const target = targets.find(value => value.type === "service_worker" && value.url === managedWorkerScriptURL(info)); assert.ok(target);
       report.observerConnection = {};
       worker = await connectNormalCDP(target.webSocketDebuggerUrl, { record: report.observerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       report.observer = await worker.evaluate(`(${installCreatedPageObserver.toString()})(chrome,globalThis,{maxSources:1})`);

@@ -373,7 +373,11 @@ func (s *Session) Recover(parent context.Context, previous *UserController) (nex
 	}
 	deadline, _ := ctx.Deadline()
 	var binding json.RawMessage
-	if err = ops.call(ctx, descriptor.SocketPath, "host.bindBrowser", map[string]any{"cdpURL": root, "exclusive": true, "timeoutMs": time.Until(deadline).Milliseconds()}, &binding); err != nil {
+	workerScript, err := managedWorkerScript(info.RunID)
+	if err != nil {
+		return nil, err
+	}
+	if err = ops.call(ctx, descriptor.SocketPath, "host.bindBrowser", map[string]any{"cdpURL": root, "exclusive": true, "timeoutMs": time.Until(deadline).Milliseconds(), "workerScript": workerScript}, &binding); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()

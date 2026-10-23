@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import WebSocket from "ws";
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 
 const fields = ["versionId", "registrationId", "scriptURL", "runningStatus", "status", "targetId", "scriptLastModified", "scriptResponseTime"];
 export function workerVersionEvents(events, { scriptURL, versionId } = {}) {
@@ -59,7 +60,11 @@ export function workerReplacementProgress(events, { scriptURL, versionId, regist
 // Start. Old execution/native termination must be confirmed before returning;
 // only the explicit Start invocation is ordered after those witnesses.
 export async function replaceOriginalWorker({ service, worker, scriptURL, targetId, until, originalTerminated, detail, timeoutMs = 40000 }) {
-  assert.match(scriptURL, /^chrome-extension:\/\/[a-p]{32}\/background\.js$/);
+  assert.equal(typeof scriptURL, "string");
+  const parsed = new URL(scriptURL), entry = /^\/managed-worker-([0-9a-f]{32})\.js$/.exec(parsed.pathname);
+  assert.ok(entry, "Expected the exact managed worker entry");
+  assert.equal(scriptURL, managedWorkerScriptURL({ extensionId: parsed.hostname, runId: entry[1] }));
+  const scopeURL = new URL(".", scriptURL).href;
   assert.ok(typeof targetId === "string" && targetId.length > 0);
   const deadline = performance.now() + timeoutMs;
   const remaining = () => { const value = Math.floor(deadline - performance.now()); assert.ok(value > 0, "Original worker replacement deadline expired"); return value; };
@@ -84,7 +89,7 @@ export async function replaceOriginalWorker({ service, worker, scriptURL, target
     } else {
       assert.equal(beforeStart.phase, "stopped");
       detail.startMode = "explicit"; detail.startRequestedAt = Date.now(); detail.startInvocations = 1;
-      detail.startReply = await service.call("ServiceWorker.startWorker", { scopeURL: scriptURL.slice(0, -"background.js".length) }, remaining());
+      detail.startReply = await service.call("ServiceWorker.startWorker", { scopeURL }, remaining());
       detail.startAcknowledgedAt = Date.now();
     }
     detail.running = await until(() => progress().running, "actual replacement worker running event", remaining());

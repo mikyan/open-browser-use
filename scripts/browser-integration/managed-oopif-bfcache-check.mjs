@@ -1,6 +1,7 @@
 // One original A -> B -> Back task through the frozen managed launcher and SDK.
 // The exact worker observer records native events and reads original documents;
 // it never sends page/debugger commands, repairs an attachment or replays input.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -322,6 +323,7 @@ export async function runManagedOopifBfcacheCheck() {
       await listenFixture(server); fixture = createManagedOopifBfcacheFixture({ baseURL: `http://127.0.0.1:${server.address().port}/` }); report.fixtureSetup = { workflowId: fixture.workflowId, urls: fixture.urls };
     });
     await step("production-managed-run-and-readonly-native-observer", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extensionInput, "--startup-timeout", "30s"], { timeoutMs: 8 * 60 * 1000 });
       const ready = await until(() => { if (launcher.record.exitedAt || launcher.record.closedAt || launcher.record.spawnError) throw Error(`Original launch ended: ${redact(launcher.record.stderr)}`); return parseManagedReadyOutput(launcher.record.stdout); }, "original managed ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.info = info; inside(root, info.runDir); assert.equal(info.name, name);
@@ -333,7 +335,7 @@ export async function runManagedOopifBfcacheCheck() {
       await lifecycle("ready"); assert.equal(report.readyLifecycle.state, "ready"); assert.deepEqual(report.readyLifecycle.info, info);
       const endpoint = await waitPrivateDevToolsEndpoint(info.profileDir, { assertAlive() { assert.ok(!launcher.record.exitedAt && !launcher.record.closedAt && !launcher.record.spawnError); } });
       const response = await fetch(`http://127.0.0.1:${endpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) }); assert.equal(response.status, 200);
-      const workers = (await response.json()).filter(row => row.type === "service_worker" && row.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(workers.length, 1);
+      const workers = (await response.json()).filter(row => row.type === "service_worker" && row.url === managedWorkerScriptURL(info)); assert.equal(workers.length, 1);
       report.workerTarget = workers[0]; report.observerConnection = {};
       worker = await connectNormalCDP(workers[0].webSocketDebuggerUrl, { record: report.observerConnection, authorizationRequired: false, handshakeTimeoutMs: 10000 });
       report.observerReady = await worker.evaluate(`(${installManagedOopifBfcacheObserver.toString()})(chrome,globalThis)`);

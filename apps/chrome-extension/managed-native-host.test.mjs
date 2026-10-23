@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "./test-support/backend-vm.mjs";
 import managedConfig from "./managed-config.js";
-import { resolveManagedNativeHost } from "./managed-native-host.js";
+import { resolveManagedNativeHost, resolveManagedWorkerScript } from "./managed-native-host.js";
 import { NativeInputTracker } from "./browser-input-adapter.js";
 
 const ordinaryHost = "com.ifuryst.open_browser_use.extension";
@@ -26,6 +26,14 @@ test("only the packaged null default selects the ordinary native host", () => {
   assert.equal(resolveManagedNativeHost(validConfig, ordinaryHost), privateHost);
   for (const config of invalidConfigs) {
     assert.throws(() => resolveManagedNativeHost(config, ordinaryHost), /OBU_MANAGED_CONFIG_INVALID/);
+  }
+});
+
+test("private worker entry uses the complete validated run configuration", () => {
+  assert.equal(resolveManagedWorkerScript(managedConfig), "background.js");
+  assert.equal(resolveManagedWorkerScript(validConfig), "managed-worker-0123456789abcdef0123456789abcdef.js");
+  for (const config of invalidConfigs) {
+    assert.throws(() => resolveManagedWorkerScript(config), /OBU_MANAGED_CONFIG_INVALID/);
   }
 });
 

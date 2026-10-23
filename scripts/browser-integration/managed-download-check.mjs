@@ -1,5 +1,6 @@
 // Original webpage downloads through the formal managed supervisor. No viewer
 // browser, download-directory override, Native Port adapter, or input retry.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -260,6 +261,7 @@ export async function runManagedDownloadCheck() {
     });
 
     await step("production-managed-run-status-and-original-binding", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extensionInput, "--startup-timeout", "30s"], { timeoutMs: 8 * 60 * 1000 });
       const ready = await until(() => {
         if (launcher.record.exitedAt !== undefined || launcher.record.closedAt !== undefined || launcher.record.spawnError) throw new Error(`Original managed startup exited: ${redact(launcher.record.stderr)}`);
@@ -277,7 +279,7 @@ export async function runManagedDownloadCheck() {
       await lifecycle("ready"); assert.equal(report.readyLifecycle.state, "ready"); assert.deepEqual(report.readyLifecycle.info, info);
       const endpoint = await waitPrivateDevToolsEndpoint(info.profileDir, { assertAlive() { if (launcher.record.exitedAt !== undefined || launcher.record.closedAt !== undefined || launcher.record.spawnError) throw new Error("Original owner ended before DevTools publication"); } });
       const response = await fetch(`http://127.0.0.1:${endpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) }); assert.equal(response.status, 200);
-      const targets = await response.json(), workers = targets.filter(value => value.type === "service_worker" && value.url === `chrome-extension://${info.extensionId}/background.js`);
+      const targets = await response.json(), workers = targets.filter(value => value.type === "service_worker" && value.url === managedWorkerScriptURL(info));
       assert.equal(workers.length, 1, "Only the exact original extension worker may be observed");
       report.workerTarget = workers[0]; report.observerConnection = {};
       worker = await connectNormalCDP(workers[0].webSocketDebuggerUrl, { record: report.observerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,15 +21,22 @@ import (
 
 const commandTimeout = 10 * time.Second
 
-// DialOptions permits a discovered port file's address-family fallback only.
-// Explicit endpoints keep their original single-address behavior.
+// DialOptions selects an exact worker script and an optional address-family
+// fallback for a discovered port. It never replaces the native port challenge.
 type DialOptions struct {
 	LoopbackFallback bool
+	// Empty retains the ordinary extension's background.js entry.
+	WorkerScript string
 }
+
+var managedWorkerScript = regexp.MustCompile(`^managed-worker-[0-9a-f]{32}\.js$`)
 
 func ValidateDialOptions(endpoint string, options DialOptions) error {
 	if err := ValidateURL(endpoint); err != nil {
 		return err
+	}
+	if options.WorkerScript != "" && options.WorkerScript != "background.js" && !managedWorkerScript.MatchString(options.WorkerScript) {
+		return failure("IDENTITY", "workerScript must name the ordinary worker or one exact managed run entry")
 	}
 	if options.LoopbackFallback {
 		u, _ := url.Parse(endpoint)

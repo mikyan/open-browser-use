@@ -12,3 +12,11 @@ export function resolveManagedNativeHost(config, defaultHostName) {
   }
   return name;
 }
+
+// Offscreen documents lack runtime.getManifest. Their packaged configuration
+// still identifies the exact worker entry, without accepting a sender's claim.
+export function resolveManagedWorkerScript(config) {
+  if (config === null) return "background.js";
+  const nativeHost = resolveManagedNativeHost(config);
+  return `managed-worker-${nativeHost.slice(MANAGED_HOST_PREFIX.length)}.js`;
+}

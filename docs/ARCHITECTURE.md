@@ -133,6 +133,19 @@ debugger、history 和 tab groups。
   实验性的 `StartSetup` 与 `Start` 共用资料目录锁和进程生命周期；显式 setup
   打开可见浏览器但禁用扩展，不产生 native 注册或任务 endpoint。管理 status
   明确报告 setup，CLI/MCP 任务选择拒绝该模式；只有原树退出后才释放资料目录。
+  实验性 `run --restore` 创建全新 run 和任务身份，仅显式选项同时设置
+  `--restore-last-session` 与 `--hide-crash-restore-bubble`；不改旧退出记录，
+  不绕过原生新 profile 检查，也不保证 cookie 或页面恢复。当前正常 Stop
+  接续已通过；已有 profile 的 crash 恢复了页面/localStorage 但缺 cookie，
+  fresh crash 的 B 启动前 Preferences 不存在且任务页未恢复，整体仍未完成。
+  暂存扩展用每 run 缓存版本与 `managed-worker-<runId>.js` 入口隔离模块缓存；
+  下载绑定、UserController、Native 恢复和后台文档重连仍校验精确入口及原身份；
+  offscreen 剪贴板文档从严格 managed 配置派生该入口，不调用缺失的 manifest API。
+  `getInfo.version` 是实际暂存版本，`version_name` 保留源显示版本。目录归属
+  检查只读取实际目录与 marker；取得名称锁后完整验证复用的 profile，检查
+  新运行路径后独占创建，不遍历历史 run 的私有环境。扩展源仍完整拒绝链接。
+  最新正常流程的 cache/no-store 页均无 DOM 证据；旧单次 cache 回执不代表
+  当前结果。契约、精确 Chromium 源码与限定验证见[浏览器进程重启接续](references/managed-browser-restart.md)。
 - `internal/managedviewer/`：实验性的本地 HTTP/WS 实时查看界面。只绑定
   loopback，核验精确 Host/Origin、一次性票据和单个观看连接；投影已验证
   worker 状态及 PNG。本次 Windows 预览的功能基线包含显式页面租约内的

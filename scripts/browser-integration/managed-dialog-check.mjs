@@ -1,5 +1,6 @@
 // One old-runtime diagnostic, using only the production viewer to trigger a
 // prompt. This deliberately does not answer it or claim dialog feature success.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -185,7 +186,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       for (const [file, bytes] of [["candidate-manifest.json", manifestBytes], ["candidate-build.json", buildBytes], ["candidate-audit.json", auditBytes]]) await fs.writeFile(path.join(runDir, file), bytes, { flag: "wx" });
       // The candidate's own manifest/audit binds its old product source. Current
       // in-development product/UI files are deliberately not substituted for it.
-      for (const file of ["managed-dialog-check.mjs", "managed-dialog-fixture.mjs", "managed-dialog-fixture.test.mjs", "managed-human-check.mjs", "managed-human-check-fixture.mjs", "managed-download-check.mjs", "managed-viewer-check.mjs", "normal-browser-downloads-support.mjs", "fixture-listener.mjs", "browser-startup.mjs", "private-devtools-endpoint.mjs", "observed-process-descendants.mjs", "native-browser-installation.mjs"]) {
+      for (const file of ["managed-worker-target.mjs", "managed-worker-target.test.mjs", "managed-dialog-check.mjs", "managed-dialog-fixture.mjs", "managed-dialog-fixture.test.mjs", "managed-human-check.mjs", "managed-human-check-fixture.mjs", "managed-download-check.mjs", "managed-viewer-check.mjs", "normal-browser-downloads-support.mjs", "fixture-listener.mjs", "browser-startup.mjs", "private-devtools-endpoint.mjs", "observed-process-descendants.mjs", "native-browser-installation.mjs"]) {
         const bytes = await fs.readFile(path.join(repo, "scripts/browser-integration", file)), relative = `scripts/browser-integration/${file}`; report.source.diagnostic[relative] = hash(bytes);
         const target = path.join(runDir, "source-snapshot", relative); await fs.mkdir(path.dirname(target), { recursive: true }); await fs.writeFile(target, bytes, { flag: "wx" });
       }
@@ -194,13 +195,14 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await listenFixture(server); report.fixtureURL = `http://127.0.0.1:${server.address().port}`;
     });
     await step("formal-managed-start-and-original-agent-page", async () => {
+      assert.ok(report.source.diagnostic["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { assert.ok(!launcher.record.closedAt && !launcher.record.exitedAt); return parseManagedReadyOutput(launcher.record.stdout); }, "managed ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.info = info; inside(root, info.runDir);
       const life = await lifecycle("ready"); assertManagedViewerBrowserCommand(life, chromium); assert.deepEqual(life.info, info);
       assert.deepEqual(JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout).info, info);
       const privateEndpoint = await endpoint(info.profileDir, launcher), response = await fetch(`http://127.0.0.1:${privateEndpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) });
-      const targets = (await response.json()).filter(row => row.type === "service_worker" && row.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(targets.length, 1);
+      const targets = (await response.json()).filter(row => row.type === "service_worker" && row.url === managedWorkerScriptURL(info)); assert.equal(targets.length, 1);
       report.workerTarget = { id: targets[0].id, url: targets[0].url }; report.workerConnection = {};
       worker = await connectNormalCDP(targets[0].webSocketDebuggerUrl, { record: report.workerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(runDir, "sdk-input/index.js")));

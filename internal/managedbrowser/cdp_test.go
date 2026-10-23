@@ -93,7 +93,7 @@ func TestExpiredContextCannotSendBrowserCommand(t *testing.T) {
 }
 
 func TestBrowserArgumentsRejectProfileSwapAndSandboxBypass(t *testing.T) {
-	wanted := browserArguments("private-profile", "staged-extension", "private-log")
+	wanted := browserArguments("private-profile", "staged-extension", "private-log", false)
 	if err := validateBrowserArguments(wanted, wanted); err != nil {
 		t.Fatal(err)
 	}

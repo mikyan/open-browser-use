@@ -30,6 +30,8 @@ type Info struct {
 	ExtensionID         string `json:"extensionId"`
 	NativeHostName      string `json:"nativeHostName"`
 	ExtensionInstanceID string `json:"extensionInstanceId"`
+	// RestoreRequested records launch intent, not proof of restored pages.
+	RestoreRequested bool `json:"restoreRequested,omitempty"`
 }
 
 type exitReceipt struct {
@@ -180,7 +182,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	if err != nil {
 		return nil, err
 	}
-	s.info = Info{Name: config.Name, RunID: id, RunDir: filepath.Join(nameDir, "runs", id), ProfileDir: filepath.Join(nameDir, "profile")}
+	s.info = Info{Name: config.Name, RunID: id, RunDir: filepath.Join(nameDir, "runs", id), ProfileDir: filepath.Join(nameDir, "profile"), RestoreRequested: !setup && config.RestoreLastSession}
 	if setup {
 		s.info.Mode = "setup"
 	} else {
@@ -189,10 +191,22 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	if err := ownDirectory(s.info.ProfileDir, ".managed-profile.json", config.Name); err != nil {
 		return nil, err
 	}
+	// Only this locked profile is reused by the new browser. Old runs contain
+	// private OS/runtime data and are neither traversed nor consumed here.
+	if err := validateTree(s.info.ProfileDir); err != nil {
+		return nil, err
+	}
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.info.RunDir), 0o700); err != nil {
+	runsDir := filepath.Dir(s.info.RunDir)
+	if err := platformValidatePath(runsDir); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(runsDir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := platformValidatePath(s.info.RunDir); err != nil {
 		return nil, err
 	}
 	if err := os.Mkdir(s.info.RunDir, 0o700); err != nil {
@@ -248,7 +262,7 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	if err := os.Remove(portFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	args := browserArguments(s.info.ProfileDir, extension, filepath.Join(s.info.RunDir, "chrome.log"))
+	args := browserArguments(s.info.ProfileDir, extension, filepath.Join(s.info.RunDir, "chrome.log"), config.RestoreLastSession)
 	if setup {
 		args = setupBrowserArguments(s.info.ProfileDir)
 	}
@@ -346,7 +360,11 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 		if remaining < 1 {
 			return nil, context.DeadlineExceeded
 		}
-		if err := nativeCall(ctx, s.info.SocketPath, "host.bindBrowser", map[string]any{"cdpURL": cdpURL, "exclusive": true, "timeoutMs": remaining}, &s.record.Binding); err != nil {
+		workerScript, err := managedWorkerScript(s.info.RunID)
+		if err != nil {
+			return nil, err
+		}
+		if err := nativeCall(ctx, s.info.SocketPath, "host.bindBrowser", map[string]any{"cdpURL": cdpURL, "exclusive": true, "timeoutMs": remaining, "workerScript": workerScript}, &s.record.Binding); err != nil {
 			return nil, err
 		}
 		if err := validateBinding(s.record.Binding, s.info); err != nil {
@@ -382,8 +400,16 @@ func startSession(parent context.Context, config Config, setup bool) (_ *Session
 	return s, nil
 }
 
-func browserArguments(profile, extension, log string) []string {
-	return []string{"--headless=new", "--enable-automation", "--user-data-dir=" + profile, "--remote-debugging-port=0", "--disable-extensions-except=" + extension, "--load-extension=" + extension, "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-background-networking", "--site-per-process", "--disable-field-trial-config", "--enable-logging", "--log-file=" + log, "about:blank"}
+func browserArguments(profile, extension, log string, restore bool) []string {
+	args := []string{"--headless=new", "--enable-automation", "--user-data-dir=" + profile, "--remote-debugging-port=0", "--disable-extensions-except=" + extension, "--load-extension=" + extension, "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-background-networking", "--site-per-process", "--disable-field-trial-config", "--enable-logging", "--log-file=" + log}
+	if restore {
+		// This requests Chromium's native session restore. Every browser-bound
+		// identity is still new; no old page state or task authority is promised.
+		// Explicit opt-in replaces the crash-restore bubble that headless mode
+		// cannot present. It does not retry a crash or rewrite the prior exit.
+		return append(args, "--restore-last-session", "--hide-crash-restore-bubble")
+	}
+	return append(args, "about:blank")
 }
 
 func setupBrowserArguments(profile string) []string {

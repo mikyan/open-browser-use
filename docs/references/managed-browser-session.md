@@ -9,6 +9,15 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
 
+当前源码另有实验性 `managed run --restore`，在同一专用 profile 中创建
+新 run 并请求 Chromium 原生恢复。当前构建的默认再次启动与正常停止后的
+限定接续已复验通过；已有 profile 崩溃后虽恢复页面和 localStorage，cookie
+未保留，仍判失败。首次 profile 崩溃流程在 B 启动前未找到 Preferences，
+没有恢复任务页。最新正常流程的 cache/no-store 页均未读到 DOM。
+旧 DOM、轮次和权限不保留，详见
+[浏览器进程重启接续](managed-browser-restart.md)。此前的 `1e1881d` 包不含此功能，
+须使用配套的新预览包；包内是否包含以 `VERSION.txt` 和发布说明为准。
+
 2026-10-23，[Managed 独立 Agent 多页研究](managed-agent-research.md)的原六阶段及独审通过，
 正式 managed 运行 `mra-Ldr4sE` 实际退出 0，67/67 项定向检查通过。两轮各读六份
 当前来源并唯一提交报告，保留原 blank 页与前轮报告；四次真实 viewer 解码及正式 Stop
@@ -399,9 +408,15 @@ target 和 document，Agent 仍暂停；要继续自动操作，需在新查看�
 原 Browser 存活及确切清理，未知输入与浏览器重启仍不授权恢复。
 
 Go `internal/managedbrowser` 负责专用目录归属、profile 锁、随机运行目录、
-唯一 HKCU Native Messaging 注册和浏览器进程树。暂存扩展只变更公开 key
-与 managed 数据配置，普通扩展的默认配置为 `null`，仍使用原固定 host。
+唯一 HKCU Native Messaging 注册和浏览器进程树。当前开发版的暂存扩展除了
+公开 key 与 managed 数据配置，还使用每 run 的缓存版本和精确模块入口。
+`getInfo.version` 如实返回暂存版本，产品显示版本保留在 `version_name`，
+两者不能混用；普通源扩展仍使用原入口、默认 `null` 配置与固定 host。
 专用 host 直接复制到运行目录，不调用普通安装器，不覆盖其稳定注册。
+启动只复用经过完整检查的锁定 profile，不消费历史 run 的私有环境；
+offscreen 剪贴板文档从严格配置派生精确入口，不依赖其缺失的 manifest API；
+修复后七项限定复制/剪切回归通过，旧 clipboard seed 失败记录仍保留。版本语义、目录
+保护与当前构建/崩溃限制见[重启接续说明](managed-browser-restart.md)。
 
 浏览器在创建时加入自有 Windows Job，句柄不可继承；启动器不按进程名或
 旧 PID 文件清场。浏览器使用独立 TEMP/TMP、应用数据目录及用户目录环境。

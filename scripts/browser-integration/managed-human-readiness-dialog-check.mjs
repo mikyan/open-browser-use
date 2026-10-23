@@ -1,4 +1,5 @@
 // Independent production-viewer readiness acceptance. Historical runners and evidence remain unchanged.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -511,13 +512,14 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       fixtures.push(createManagedReadinessDialogFixture({baseURL:report.fixtureURL,scenario}));
     });
     await step("formal-managed-start-and-delivered-original-pages", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { assert.ok(!launcher.record.closedAt && !launcher.record.exitedAt); return parseManagedReadyOutput(launcher.record.stdout); }, "managed ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.info = info; inside(root, info.runDir);
       const life = await lifecycle("ready"); assertManagedViewerBrowserCommand(life, chromium); assert.deepEqual(life.info, info);
       assert.deepEqual(JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout).info, info);
       const privateEndpoint = await endpoint(info.profileDir, launcher), response = await fetch(`http://127.0.0.1:${privateEndpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) });
-      const targets = (await response.json()).filter(row => row.type === "service_worker" && row.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(targets.length, 1);
+      const targets = (await response.json()).filter(row => row.type === "service_worker" && row.url === managedWorkerScriptURL(info)); assert.equal(targets.length, 1);
       report.workerTarget = { id: targets[0].id, url: targets[0].url }; report.workerConnection = {};
       worker = await connectNormalCDP(targets[0].webSocketDebuggerUrl, { record: report.workerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       await worker.call("Runtime.enable"); await worker.call("Runtime.addBinding", { name: "__obuManagedReadinessDialogEvent" });

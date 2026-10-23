@@ -1,5 +1,6 @@
 // One original workflow through the production managed CLI. No fixture host
 // registry, Native Port shim or replacement browser launcher is used here.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -76,7 +77,7 @@ const { connectOpenBrowserUse } = await import(pathToFileURL(path.join(repo, "pa
 let launcher, info, browser, worker, stopped = false;
 const runArgs = ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"];
 try {
-  report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), runner: hash(await fs.readFile(fileURLToPath(import.meta.url))) };
+  report.source = { executable: hash(await fs.readFile(executable)), browser: hash(await fs.readFile(chromium)), runner: hash(await fs.readFile(fileURLToPath(import.meta.url))), workerTarget: hash(await fs.readFile(new URL("./managed-worker-target.mjs", import.meta.url))) };
   report.source.extension = await treeHashes(extension);
   report.source.sdk = await treeHashes(path.join(repo, "packages/open-browser-use-js/dist"));
   await step("production-launch-and-live-selection", async () => {
@@ -108,7 +109,7 @@ try {
   await step("original-native-child-and-receipt", async () => {
     const lines = (await fs.readFile(path.join(info.profileDir, "DevToolsActivePort"), "utf8")).trim().split("\n");
     const targets = await (await fetch(`http://127.0.0.1:${lines[0]}/json/list`)).json();
-    const target = targets.find(value => value.type === "service_worker" && value.url === `chrome-extension://${info.extensionId}/background.js`); assert.ok(target);
+    const target = targets.find(value => value.type === "service_worker" && value.url === managedWorkerScriptURL(info)); assert.ok(target);
     report.observerConnection = {};
     worker = await connectNormalCDP(target.webSocketDebuggerUrl, { record: report.observerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
     report.observer = await worker.evaluate(`(${installCreatedPageObserver.toString()})(chrome,globalThis,{maxSources:1})`);
@@ -185,6 +186,7 @@ finally {
   report.fixture = fixtures.allStats(); report.endedAt = Date.now();
   try {
     assert.equal(hash(await fs.readFile(executable)), report.source.executable);
+    assert.equal(hash(await fs.readFile(new URL("./managed-worker-target.mjs", import.meta.url))), report.source.workerTarget);
     assert.deepEqual(await treeHashes(extension), report.source.extension);
     assert.deepEqual(await treeHashes(path.join(repo, "packages/open-browser-use-js/dist")), report.source.sdk);
   } catch (error) { report.cleanup.sourceChanged = error.stack; }

@@ -1,4 +1,5 @@
 // Native transport diagnostic, not a managed human feature acceptance.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -133,10 +134,11 @@ export async function runManagedModalBoundaryCheck() {
       await listenFixture(server);fixture=createManagedModalBoundaryFixture({baseURL:`http://127.0.0.1:${server.address().port}`,scenario});report.fixtureDefinition={workflowId:fixture.workflowId,urls:fixture.urls,prompt:fixture.prompt};
     });
     await step("formal-start-and-original-delivery",async()=>{
+      assert.ok(report.source.harness["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher=launch(executable,["managed","run","--root",root,"--name",name,"--browser-path",chromium,"--extension-dir",extension,"--startup-timeout","30s"]);
       const ready=await poll(()=>{assert.ok(!launcher.record.closedAt);return parseManagedReadyOutput(launcher.record.stdout);},{timeoutMs:40000,intervalMs:50,label:"managed ready"});assert.equal(ready.state,"ready");info=ready.info;report.info=info;
       const life=await lifecycle("ready");assertManagedViewerBrowserCommand(life,chromium);assert.deepEqual(life.info,info);
-      const endpoint=await waitPrivateDevToolsEndpoint(info.profileDir,{assertAlive(){assert.ok(!launcher.record.closedAt);}});const response=await fetch(`http://127.0.0.1:${endpoint.port}/json/list`,{signal:AbortSignal.timeout(10000)});const workers=(await response.json()).filter(row=>row.type==="service_worker"&&row.url===`chrome-extension://${info.extensionId}/background.js`);assert.equal(workers.length,1);
+      const endpoint=await waitPrivateDevToolsEndpoint(info.profileDir,{assertAlive(){assert.ok(!launcher.record.closedAt);}});const response=await fetch(`http://127.0.0.1:${endpoint.port}/json/list`,{signal:AbortSignal.timeout(10000)});const workers=(await response.json()).filter(row=>row.type==="service_worker"&&row.url===managedWorkerScriptURL(info));assert.equal(workers.length,1);
       report.workerConnection={};worker=await connectNormalCDP(workers[0].webSocketDebuggerUrl,{record:report.workerConnection,handshakeTimeoutMs:10000,authorizationRequired:false});await worker.call("Runtime.enable");await worker.call("Runtime.addBinding",{name:"__obuModalProbeEvent"});
       const{connectOpenBrowserUse}=await import(pathToFileURL(path.join(runDir,"sdk-input/index.js")));sdk=await connectOpenBrowserUse({socketPath:info.socketPath,sessionId:"native-modal-boundary",timeoutMs:10000});tab=await sdk.newTab({url:fixture.urls.source,backgroundWindow:true});report.initialSnapshot=await tab.domSnapshot();
       report.originalDocuments=await worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tab.id}},func:${readManagedModalBoundaryDocument.toString()}}).then(rows=>rows.map(row=>({documentId:row.documentId,frameId:row.frameId,...row.result})))`,3000);assert.equal(report.originalDocuments.length,1);assert.equal(report.originalDocuments[0].state.workflowId,fixture.workflowId);

@@ -195,6 +195,10 @@ func (c *UserController) workerIdentity() managedWorkerIdentity {
 }
 
 func openUserControllerRetained(ctx context.Context, root string, identity managedUserIdentity, ownerDone <-chan struct{}, expected *managedWorkerAdmission, retain func(*UserController)) (_ *UserController, err error) {
+	workerScript, err := managedWorkerScript(identity.RunID)
+	if err != nil {
+		return nil, err
+	}
 	key, err := randomID()
 	if err != nil {
 		return nil, err
@@ -248,7 +252,7 @@ func openUserControllerRetained(ctx context.Context, root string, identity manag
 	if err = c.cdp.call(ctx, "", "Target.getTargets", map[string]any{}, &targets); err != nil {
 		return nil, err
 	}
-	url := "chrome-extension://" + identity.ExtensionID + "/background.js"
+	url := "chrome-extension://" + identity.ExtensionID + "/" + workerScript
 	var targetID string
 	for _, target := range targets.TargetInfos {
 		if target.Type == "service_worker" && target.URL == url {

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { exactRunningWorkerVersion, workerReplacementProgress, replaceOriginalWorker, assertWorkerExecutionEnded, assertWorkerReplacement, assertWorkerRecoveryReceipt, assertSameResultPlacement, assertHeldInputUnreleased, probeRetiredDelivery } from "./managed-worker-recovery-support.mjs";
 import { createManagedWorkerHeldFixture, assertZeroBusinessHeldFixture } from "./managed-worker-recovery-fixture.mjs";
 
-const scriptURL = "chrome-extension://" + "a".repeat(32) + "/background.js";
+const scriptURL = managedWorkerScriptURL({ extensionId: "a".repeat(32), runId: "b".repeat(32) });
 const version = { versionId: "12", registrationId: "4", scriptURL, targetId: "same-target", runningStatus: "running", status: "activated" };
 const event = value => ({ method: "ServiceWorker.workerVersionUpdated", receivedAt: Date.now(), params: { versions: [value] } });
 const browser = { ProcessId: 17, ExecutablePath: "C:\\owned\\chrome.exe", CreationDate: "2026-10-17T12:00:00.0000001Z" };
@@ -44,9 +45,17 @@ test("single stop/start requires actual stopped plus original termination and pe
   const result = await replaceOriginalWorker({ ...control, scriptURL, targetId: version.targetId, detail });
   assert.equal(result.targetId, version.targetId); assert.equal(detail.targetReused, true);
   assert.deepEqual(control.calls.map(x => x.method), ["ServiceWorker.enable", "ServiceWorker.stopWorker", "original-production-witness", "ServiceWorker.startWorker"]);
-  assert.deepEqual(control.calls[1].params, { versionId: "12" }); assert.deepEqual(control.calls.at(-1).params, { scopeURL: scriptURL.slice(0, -"background.js".length) });
+  assert.deepEqual(control.calls[1].params, { versionId: "12" }); assert.deepEqual(control.calls.at(-1).params, { scopeURL: "chrome-extension://" + "a".repeat(32) + "/" });
   assert.equal(detail.stopInvocations, 1); assert.equal(detail.startInvocations, 1);
   assert.equal(detail.startMode, "explicit"); assert.ok(detail.startRequestedAt >= detail.terminationConfirmedAt);
+});
+
+test("invalid managed worker URL is rejected before any browser operation", async () => {
+  for (const invalid of [undefined, null, scriptURL.replace("chrome-extension:", "https:"), scriptURL.replace(/managed-worker-[a-f0-9]+\.js$/, "background.js"), scriptURL + "?query", scriptURL + "#fragment", scriptURL + "\n", scriptURL.replace("//", "//user@"), scriptURL.replace("/managed-worker-", ":80/managed-worker-"), scriptURL.replace("/managed-worker-", "/%6danaged-worker-"), scriptURL.replace("b".repeat(32), "g".repeat(32)), scriptURL.replace("a".repeat(32), "q".repeat(32))]) {
+    const calls = [];
+    await assert.rejects(replaceOriginalWorker({ scriptURL: invalid, targetId: "target", detail: {}, service: { call() { calls.push("service"); } }, worker: { close() { calls.push("close"); } } }));
+    assert.deepEqual(calls, []);
+  }
 });
 
 test("automatic starting or running after actual stopped suppresses explicit Start but still requires running", async () => {

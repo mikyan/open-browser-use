@@ -138,12 +138,19 @@ func (b *browserBinding) handleClient(client *clientConn, payload []byte, receiv
 		Exclusive        bool            `json:"exclusive"`
 		TimeoutMS        int64           `json:"timeoutMs"`
 		LoopbackFallback json.RawMessage `json:"loopbackFallback"`
+		WorkerScript     json.RawMessage `json:"workerScript"`
 	}
 	if strictDecode(message["params"], &params) != nil || !params.Exclusive || params.TimeoutMS < 1 || params.TimeoutMS > 120000 {
 		reject(bindingError("INVALID", "require cdpURL, exclusive:true and timeoutMs from 1 to 120000"))
 		return true
 	}
 	options := browserdownloads.DialOptions{}
+	if len(params.WorkerScript) != 0 {
+		if json.Unmarshal(params.WorkerScript, &options.WorkerScript) != nil || options.WorkerScript == "" {
+			reject(bindingError("INVALID", "workerScript must be a nonempty exact worker filename"))
+			return true
+		}
+	}
 	if len(params.LoopbackFallback) != 0 {
 		switch string(bytes.TrimSpace(params.LoopbackFallback)) {
 		case "true":

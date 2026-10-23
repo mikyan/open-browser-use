@@ -175,8 +175,8 @@ func newRecoveryFixture(t *testing.T, configure ...func(*recoveryFixture)) *reco
 			} else if method == "host.bindBrowser" {
 				f.bindCalls++
 				p := params.(map[string]any)
-				if p["cdpURL"] != f.s.userRootURL || p["exclusive"] != true {
-					t.Errorf("original root was not preserved: %v", p)
+				if p["cdpURL"] != f.s.userRootURL || p["exclusive"] != true || p["workerScript"] != "managed-worker-"+info.RunID+".js" {
+					t.Errorf("original root and run entry were not preserved: %v", p)
 				}
 				value = map[string]any{"bound": true, "exclusive": true, "behavior": "default", "generation": "replacement-generation", "extensionId": info.ExtensionID, "extensionInstanceId": info.ExtensionInstanceID, "workerBootId": f.next.identity.WorkerBootID, "portId": f.next.identity.PortID}
 			} else {
@@ -282,7 +282,7 @@ func TestManagedRecoveryRejectsChangedWorkerAndRetainsFailedController(t *testin
 					if r.Method != "Target.getTargets" {
 						return false
 					}
-					f.reply(r, map[string]any{"targetInfos": []any{map[string]any{"targetId": "replacement-worker-target", "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"}}})
+					f.reply(r, map[string]any{"targetInfos": []any{map[string]any{"targetId": "replacement-worker-target", "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/managed-worker-" + f.identity.RunID + ".js"}}})
 					return true
 				}
 			case "not-paused":

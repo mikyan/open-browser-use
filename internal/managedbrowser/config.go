@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,6 +24,9 @@ import (
 type Config struct {
 	Root, Name, BrowserPath, ExtensionDir, HostPath, ExtensionPublicKey string
 	StartupTimeout                                                      time.Duration
+	// RestoreLastSession requests native restore in this dedicated profile.
+	// It does not reuse the old run, page handles or task permissions.
+	RestoreLastSession bool
 }
 
 // SetupConfig opens only the dedicated profile for explicit human use. There
@@ -32,6 +37,7 @@ type SetupConfig struct {
 }
 
 var managedName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,47}$`)
+var stagedNativeName = regexp.MustCompile(`^com\.openbrowseruse\.managed\.n[0-9a-f]{32}$`)
 
 func validateConfig(c Config) (Config, error) {
 	return validateLaunchConfig(c, false)
@@ -98,6 +104,8 @@ func randomID() (string, error) {
 
 // A marker is an ownership record, not authentication against another process
 // running as the same OS user. Unknown nonempty directories are never adopted.
+// Validate only this directory and its marker. Historical runs are not inputs to
+// a new run; callers must validate any descendant tree they actually reuse.
 func ownDirectory(directory, marker, name string) error {
 	if err := platformValidatePath(directory); err != nil {
 		return err
@@ -114,9 +122,6 @@ func ownDirectory(directory, marker, name string) error {
 	if err == nil {
 		if string(got) != string(want) {
 			return fmt.Errorf("managed ownership record does not match: %s", file)
-		}
-		if err := validateTree(directory); err != nil {
-			return err
 		}
 		return platformProtectDirectory(directory)
 	}
@@ -207,6 +212,16 @@ func (r *contextReader) Read(p []byte) (int, error) {
 }
 
 func stageExtension(ctx context.Context, source, target, key, nativeName string) (string, error) {
+	if err := contextError(ctx); err != nil {
+		return "", err
+	}
+	if !stagedNativeName.MatchString(nativeName) {
+		return "", errors.New("managed extension requires a run-specific native host name")
+	}
+	workerScript, err := managedWorkerScript(strings.TrimPrefix(nativeName, "com.openbrowseruse.managed.n"))
+	if err != nil {
+		return "", err
+	}
 	info, err := os.Stat(source)
 	if err != nil {
 		return "", err
@@ -217,6 +232,12 @@ func stageExtension(ctx context.Context, source, target, key, nativeName string)
 	if err := validateTree(source); err != nil {
 		return "", err
 	}
+	if _, err := os.Lstat(filepath.Join(source, workerScript)); err == nil {
+		return "", errors.New("managed worker entry conflicts with a source file")
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	const workerEntry = "import \"./background.js\";\n"
 	var files int
 	var bytes int64
 	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
@@ -240,7 +261,7 @@ func stageExtension(ctx context.Context, source, target, key, nativeName string)
 		}
 		files++
 		bytes += info.Size()
-		if files > 8192 || bytes > 512<<20 {
+		if files+1 > 8192 || bytes+int64(len(workerEntry)) > 512<<20 {
 			return errors.New("managed extension exceeds staging limits")
 		}
 		return copyRegular(ctx, path, out)
@@ -256,6 +277,20 @@ func stageExtension(ctx context.Context, source, target, key, nativeName string)
 	var manifest map[string]any
 	if len(payload) > 1<<20 || json.Unmarshal(payload, &manifest) != nil || manifest["manifest_version"] != float64(3) {
 		return "", errors.New("managed extension requires a valid Manifest V3 manifest")
+	}
+	version, ok := manifest["version"].(string)
+	if !validExtensionVersion(version) {
+		return "", errors.New("managed extension requires a valid source version")
+	}
+	displayVersion := version
+	if display, exists := manifest["version_name"]; exists {
+		name, ok := display.(string)
+		if !ok {
+			return "", errors.New("managed extension version_name must be a string")
+		}
+		if name != "" {
+			displayVersion = name
+		}
 	}
 	background, ok := manifest["background"].(map[string]any)
 	if !ok || background["service_worker"] != "background.js" || background["type"] != "module" {
@@ -274,13 +309,23 @@ func stageExtension(ctx context.Context, source, target, key, nativeName string)
 		return "", err
 	}
 	manifest["key"] = key
-	payload, err = json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return "", err
+	// Chromium reuses registered service-worker modules when the manifest
+	// version is unchanged, even when --load-extension names a new directory.
+	// Give each managed run a cache generation while retaining the product's
+	// display version. Command-line extensions permit version decreases.
+	// This truncated digest is not authority: the full native host/run binding
+	// still authenticates the worker and all task permissions.
+	digest := sha256.Sum256([]byte(nativeName))
+	generation := binary.BigEndian.Uint64(digest[:8])
+	if generation == 0 {
+		generation = 1
 	}
-	if err := os.WriteFile(manifestPath, append(payload, '\n'), 0o600); err != nil {
-		return "", err
-	}
+	manifest["version"] = fmt.Sprintf("%d.%d.%d.%d", uint16(generation>>48), uint16(generation>>32), uint16(generation>>16), uint16(generation))
+	manifest["version_name"] = displayVersion
+	// A changed version reaches Chromium's registration path; a changed script
+	// URL prevents its same-script registration fast path from reusing the old
+	// module graph. The source worker and its static imports remain unchanged.
+	background["service_worker"] = workerScript
 	config, _ := json.Marshal(struct {
 		Version        int    `json:"version"`
 		NativeHostName string `json:"nativeHostName"`
@@ -288,7 +333,48 @@ func stageExtension(ctx context.Context, source, target, key, nativeName string)
 	if err := os.WriteFile(filepath.Join(target, "managed-config.js"), append(append([]byte("export default "), config...), ';', '\n'), 0o600); err != nil {
 		return "", err
 	}
+	if err := contextError(ctx); err != nil {
+		return "", err
+	}
+	entry, err := os.OpenFile(filepath.Join(target, workerScript), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create managed worker entry: %w", err)
+	}
+	_, writeErr := io.WriteString(entry, workerEntry)
+	if err := errors.Join(writeErr, entry.Close()); err != nil {
+		return "", err
+	}
+	payload, err = json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(manifestPath, append(payload, '\n'), 0o600); err != nil {
+		return "", err
+	}
 	return id, nil
+}
+
+func managedWorkerScript(runID string) (string, error) {
+	if !stagedNativeName.MatchString("com.openbrowseruse.managed.n" + runID) {
+		return "", errors.New("managed worker entry requires a complete run ID")
+	}
+	return "managed-worker-" + runID + ".js", nil
+}
+
+func validExtensionVersion(version string) bool {
+	parts := strings.Split(version, ".")
+	if len(parts) > 4 {
+		return false
+	}
+	nonzero := false
+	for _, part := range parts {
+		value, err := strconv.ParseUint(part, 10, 16)
+		if err != nil || strconv.FormatUint(value, 10) != part {
+			return false
+		}
+		nonzero = nonzero || value != 0
+	}
+	return nonzero
 }
 
 func extensionID(key string) (string, error) {

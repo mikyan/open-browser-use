@@ -1,5 +1,6 @@
 // Actual continuous managed human navigation acceptance. The task page is controlled only by
 // the production SDK and the production viewer. Observer scripting only reads.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -242,6 +243,7 @@ export async function runManagedHumanNavigationCheck({ deliveredResult = false }
     await listenFixture(server); const fixtureURL = `http://127.0.0.1:${server.address().port}`;
 
     await step("production-run-and-original-worker-observer", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => {
         if (launcher.record.closedAt) throw new Error(`Managed launcher exited ${launcher.record.code}: ${redact(launcher.record.stderr)}`);
@@ -264,7 +266,7 @@ export async function runManagedHumanNavigationCheck({ deliveredResult = false }
       await openViewer(viewerURL.href); assert.equal(state.status.state, "running"); report.viewerInitial = await screenshot("viewer-initial.png");
       const endpoint = await endpointFor(info.profileDir, launcher);
       const targets = await (await fetch(`http://127.0.0.1:${endpoint.port}/json/list`)).json();
-      const workers = targets.filter(value => value.type === "service_worker" && value.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(workers.length, 1);
+      const workers = targets.filter(value => value.type === "service_worker" && value.url === managedWorkerScriptURL(info)); assert.equal(workers.length, 1);
       report.observerConnection = {}; worker = await connectNormalCDP(workers[0].webSocketDebuggerUrl, { record: report.observerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       report.observer = await worker.evaluate(`(${installManagedHumanObserver.toString()})(chrome,globalThis)`);
       taskBrowser = await connectOpenBrowserUse({ socketPath: info.socketPath, sessionId: "managed-human-navigation-acceptance", turnId: "original-navigation-workflow", timeoutMs: 10000 });

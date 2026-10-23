@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+2026-10-23，当前源码加入实验性[浏览器进程重启接续](references/managed-browser-restart.md)。
+冻结构建 `mbr-build-hpfufae_` 的 480 份输入、Go test/vet 和 3,381 项 Node 检查通过；
+默认新 run 与正常 Stop 后恢复 GET/PRG、读取原回执、显式认领并独立后续提交的两场
+正式流程通过。每轮唯一 worker 入口修复二次启动连接旧 Native host，输入目录检查
+不再遍历旧 run 缓存。配置派生的 offscreen 入口修复及七项复制/剪切回归另有原记录。
+已有 profile 崩溃后 cookie 丢失、首次 profile 崩溃后无任务页，两场仍失败；
+普通公司 Edge 及完整 P01–P15 未完成。此次按用户要求准备包含上述增量的新预览包，
+发布与制品核验记录在完成后补入；不以打包宣称整体能力对齐。
+
 2026-10-23，[Managed 独立 Agent 多页研究](references/managed-agent-research.md)的原六阶段及独审通过，
 正式 managed 运行 `mra-Ldr4sE` 实际退出 0，67/67 项定向检查通过。两轮各读六份
 当前来源并唯一提交报告，保留原 blank 页与前轮报告；四次真实 viewer 解码及正式 Stop

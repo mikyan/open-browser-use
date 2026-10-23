@@ -1,5 +1,6 @@
 // One service-worker stop/replacement in an owned Browser; independent positive
 // and held-input modes, plus explicit recovered Agent continuation. No page reload, business replay, adapter or OS input.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -109,7 +110,7 @@ export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
   const endpointTargets = async () => (await fetch(`http://127.0.0.1:${managedEndpoint.port}/json/list`, { signal: AbortSignal.timeout(5000) })).json();
   async function bindWorkerObserver(label, expectedTargetId) {
     const target = await wait(async () => {
-      const targets = (await endpointTargets()).filter(item => item.type === "service_worker" && item.url === `chrome-extension://${info.extensionId}/background.js`);
+      const targets = (await endpointTargets()).filter(item => item.type === "service_worker" && item.url === managedWorkerScriptURL(info));
       if (!targets.length) return null; assert.equal(targets.length, 1); return targets[0];
     }, `unique ${label} worker diagnostic target`);
     assert.equal(target.id, expectedTargetId);
@@ -235,7 +236,7 @@ export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
     assert.deepEqual(destroyed, [], "Original worker context must not end");
     const contexts = worker.events.filter(event => event.method === "Runtime.executionContextCreated"); assert.equal(contexts.length, 1, "Original worker context must be unique");
     const context = contexts[0].params.context; assert.ok(context.id && typeof context.uniqueId === "string" && context.uniqueId);
-    const targets = (await rootObserver.call("Target.getTargets")).targetInfos.filter(item => item.type === "service_worker" && item.url === `chrome-extension://${info.extensionId}/background.js`);
+    const targets = (await rootObserver.call("Target.getTargets")).targetInfos.filter(item => item.type === "service_worker" && item.url === managedWorkerScriptURL(info));
     assert.equal(targets.length, 1); assert.equal(targets[0].targetId, currentWorkerTargetId);
     const tree = descendants(await processTable(), info.browserPID), browser = tree.find(item => item.ProcessId === info.browserPID);
     const host = tree.find(item => item.ProcessId === info.nativePID); assert.ok(host);
@@ -434,6 +435,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     } else report.hostBuild = { mode: "caller supplied binary; source/build provenance unverified", executableSHA256: report.source.executable };
 
     await step("original-managed-run-worker-binding-and-viewer", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { if (launcher.record.closedAt) throw new Error(`Original launcher ended: ${redact(launcher.record.stderr)}`); return parseManagedReadyOutput(launcher.record.stdout); }, "one formal managed ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.initialInfo = { ...info }; report.info = { ...info };
@@ -446,7 +448,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.rootObserverConnection = {}; rootObserver = await connectNormalCDP(managedEndpoint.url, { record: report.rootObserverConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       await rootObserver.call("Target.setDiscoverTargets", { discover: true });
       const targets = await endpointTargets();
-      const workers = targets.filter(item => item.type === "service_worker" && item.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(workers.length, 1);
+      const workers = targets.filter(item => item.type === "service_worker" && item.url === managedWorkerScriptURL(info)); assert.equal(workers.length, 1);
       report.workerTargetId = workers[0].id; await bindWorkerObserver("original", report.workerTargetId);
       const diagnostic = await rootObserver.call("Target.createTarget", { url: "about:blank", background: true });
       report.serviceWorkerDiagnosticTarget = { targetId: diagnostic.targetId, url: "about:blank", background: true, browserPID: info.browserPID, createdAt: Date.now(), role: "Independent ServiceWorker domain; no production recovery authority or business-page attachment" };
@@ -529,7 +531,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.workerReplacement = {};
       let running;
       try { running = await replaceOriginalWorker({ service: serviceObserver, worker,
-        scriptURL: `chrome-extension://${info.extensionId}/background.js`, targetId: beforeIdentity.worker.targetId,
+        scriptURL: managedWorkerScriptURL(info), targetId: beforeIdentity.worker.targetId,
         until: wait, detail: report.workerReplacement,
         originalTerminated: async timeoutMs => {
           const ended = await poll(async () => {

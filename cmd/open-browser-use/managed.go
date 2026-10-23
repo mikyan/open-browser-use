@@ -478,6 +478,7 @@ func newManagedCommandWithBrowser(browser managedBrowserAccess) *cobra.Command {
 	runCommand.Flags().StringVar(&browserCache, "browser-cache", "", "absolute owned browser cache directory; ignored with --browser-path")
 	runCommand.Flags().StringVar(&config.ExtensionDir, "extension-dir", "", "built extension directory; defaults only to extension next to this executable")
 	runCommand.Flags().DurationVar(&config.StartupTimeout, "startup-timeout", 30*time.Second, "total startup budget")
+	runCommand.Flags().BoolVar(&config.RestoreLastSession, "restore", false, "request Chromium's native session restore in the same dedicated profile; starts a new run with new handles and explicit page claims, without guaranteeing restored pages or memory")
 	command.AddCommand(runCommand)
 	for _, operation := range []string{"status", "stop", "view", "recover"} {
 		var root, name string

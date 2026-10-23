@@ -1,4 +1,5 @@
 // Shared isolated lifecycle for the frozen baseline and production upload workflow.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -546,6 +547,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         workflowFixtures.push((printable ? createManagedPrintableFixture : directoryWorkflow ? createManagedDirectoryFixture : createManagedFileWorkflowFixture)({ kind, baseURL: new URL(report.fixtureURL).origin }));
     });
     await step(workflow ? "formal-session-and-four-original-delivered-pages" : "formal-session-and-original-delivered-page", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { assert.ok(!launcher.record.closedAt && !launcher.record.exitedAt); return parseManagedReadyOutput(launcher.record.stdout); }, "managed ready", 40000);
       info = report.info = ready.info; inside(root, info.runDir); assert.equal(ready.state, "ready");
@@ -553,7 +555,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       assert.equal(life.browserVersion.product, "Chrome/156.0.8078.12"); assert.equal(life.browserVersion.revision, "@634b046faf2137b83af71c87baf362b533af9104");
       assert.deepEqual(JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout).info, info);
       const privateEndpoint = await endpoint(info.profileDir, launcher);
-      const targets = (await (await fetch(`http://127.0.0.1:${privateEndpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) })).json()).filter(row => row.type === "service_worker" && row.url === `chrome-extension://${info.extensionId}/background.js`);
+      const targets = (await (await fetch(`http://127.0.0.1:${privateEndpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) })).json()).filter(row => row.type === "service_worker" && row.url === managedWorkerScriptURL(info));
       assert.equal(targets.length, 1); report.workerConnection = {};
       worker = await connectNormalCDP(targets[0].webSocketDebuggerUrl, { record: report.workerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       report.observer = await worker.evaluate(`(${installManagedFileChooserObserver.toString()})(chrome,globalThis)`);

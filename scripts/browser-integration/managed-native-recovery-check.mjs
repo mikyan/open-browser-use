@@ -1,5 +1,6 @@
 // One original result, one exact native-host fault, one explicit same-worker recovery.
 // No page reload, business replay, production adapter or OS input.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -210,7 +211,7 @@ export async function runManagedNativeRecoveryCheck() {
     assert.deepEqual(destroyed, [], "Original worker context must not end");
     const contexts = worker.events.filter(event => event.method === "Runtime.executionContextCreated"); assert.equal(contexts.length, 1, "Original worker context must be unique");
     const context = contexts[0].params.context; assert.ok(context.id && typeof context.uniqueId === "string" && context.uniqueId);
-    const targets = (await rootObserver.call("Target.getTargets")).targetInfos.filter(item => item.type === "service_worker" && item.url === `chrome-extension://${info.extensionId}/background.js`);
+    const targets = (await rootObserver.call("Target.getTargets")).targetInfos.filter(item => item.type === "service_worker" && item.url === managedWorkerScriptURL(info));
     assert.equal(targets.length, 1); assert.equal(targets[0].targetId, report.workerTargetId);
     assert.ok(!rootObserver.events.some(event => event.method === "Target.targetDestroyed" && event.params.targetId === report.workerTargetId));
     const tree = descendants(await processTable(), info.browserPID), browser = tree.find(item => item.ProcessId === info.browserPID);
@@ -317,6 +318,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     } else report.hostBuild = { mode: "caller supplied binary; source/build provenance unverified", executableSHA256: report.source.executable };
 
     await step("original-managed-run-worker-binding-and-viewer", async () => {
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { if (launcher.record.closedAt) throw new Error(`Original launcher ended: ${redact(launcher.record.stderr)}`); return parseManagedReadyOutput(launcher.record.stdout); }, "one formal managed ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.initialInfo = { ...info }; report.info = { ...info };
@@ -329,7 +331,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.rootObserverConnection = {}; rootObserver = await connectNormalCDP(endpoint.url, { record: report.rootObserverConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       await rootObserver.call("Target.setDiscoverTargets", { discover: true });
       const targets = await (await fetch(`http://127.0.0.1:${endpoint.port}/json/list`, { signal: AbortSignal.timeout(5000) })).json();
-      const workers = targets.filter(item => item.type === "service_worker" && item.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(workers.length, 1);
+      const workers = targets.filter(item => item.type === "service_worker" && item.url === managedWorkerScriptURL(info)); assert.equal(workers.length, 1);
       report.workerTargetId = workers[0].id; report.workerObserverConnection = {};
       worker = await connectNormalCDP(workers[0].webSocketDebuggerUrl, { record: report.workerObserverConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       await worker.call("Runtime.enable"); report.observer = await worker.evaluate(`(${installManagedNativeRecoveryObserver.toString()})(chrome,globalThis)`);

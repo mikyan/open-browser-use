@@ -250,9 +250,10 @@ func (f *userFixture) respond(req userTestRequest) {
 	case "Browser.getVersion":
 		f.reply(req, map[string]any{"protocolVersion": "1.3", "product": "Chrome/156.0.8078.12", "revision": "@634b046faf2137b83af71c87baf362b533af9104", "userAgent": "fixture only", "jsVersion": "fixture only"})
 	case "Target.getTargets":
-		targets := []any{map[string]any{"targetId": "page-must-not-attach", "type": "page", "url": "https://fixture.invalid"}, map[string]any{"targetId": "foreign-worker", "type": "service_worker", "url": "chrome-extension://foreign/background.js"}, map[string]any{"targetId": f.targetID, "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"}}
+		workerURL := "chrome-extension://" + f.identity.ExtensionID + "/managed-worker-" + f.identity.RunID + ".js"
+		targets := []any{map[string]any{"targetId": "page-must-not-attach", "type": "page", "url": "https://fixture.invalid"}, map[string]any{"targetId": "foreign-worker", "type": "service_worker", "url": "chrome-extension://foreign/background.js"}, map[string]any{"targetId": "old-worker", "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"}, map[string]any{"targetId": f.targetID, "type": "service_worker", "url": workerURL}}
 		if f.duplicate {
-			targets = append(targets, map[string]any{"targetId": "duplicate-worker", "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/background.js"})
+			targets = append(targets, map[string]any{"targetId": "duplicate-worker", "type": "service_worker", "url": workerURL})
 		}
 		f.reply(req, map[string]any{"targetInfos": targets})
 	case "Target.attachToTarget":
@@ -662,6 +663,34 @@ func TestManagedUserAmbiguousWorkerNeverAttaches(t *testing.T) {
 		if req.Method == "Target.attachToTarget" || req.Method == "Runtime.evaluate" {
 			t.Fatal("ambiguous discovery gained authority")
 		}
+	}
+}
+
+func TestManagedUserOldRunWorkerNeverAttaches(t *testing.T) {
+	for _, script := range []string{"background.js", "managed-worker-" + strings.Repeat("b", 32) + ".js"} {
+		t.Run(script, func(t *testing.T) {
+			f := newUserFixture(t, func(f *userFixture, req userTestRequest) bool {
+				if req.Method != "Target.getTargets" {
+					return false
+				}
+				f.reply(req, map[string]any{"targetInfos": []any{map[string]any{"targetId": f.targetID, "type": "service_worker", "url": "chrome-extension://" + f.identity.ExtensionID + "/" + script}}})
+				return true
+			}, false)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			identity := f.identity
+			identity.ChannelID = ""
+			if c, err := openUserController(ctx, f.endpoint(), identity, f.owner); err == nil || c != nil || !strings.Contains(err.Error(), "exact worker target") {
+				t.Fatalf("old entry accepted: %v", err)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			for _, req := range f.requests {
+				if req.Method == "Target.attachToTarget" || req.Method == "Runtime.evaluate" {
+					t.Fatal("old entry gained authority")
+				}
+			}
+		})
 	}
 }
 

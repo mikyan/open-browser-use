@@ -1,5 +1,6 @@
 // Two independently solved research tasks in the formal managed browser.
 // This process owns infrastructure and post-task auditing, never task actions.
+import { managedWorkerScriptURL } from "./managed-worker-target.mjs";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
@@ -207,6 +208,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       observer = await startWindowsObservation({ executable: observerBinary, sampleMs: 50, onRecord(record) {
         const line = JSON.stringify(record) + "\n"; osWrites = osWrites.then(() => osHandle.write(line)).catch(error => { osWriteError ??= error; });
       } }); report.osReady = observer.ready;
+      assert.ok(report.source.snapshot["scripts/browser-integration/managed-worker-target.mjs"], "Managed worker helper must be frozen before acceptance");
       launcher = launch(executable, ["managed", "run", "--root", root, "--name", name, "--browser-path", chromium, "--extension-dir", extension, "--startup-timeout", "30s"]);
       const ready = await wait(() => { assert.ok(!launcher.record.closedAt && !launcher.record.exitedAt && !launcher.record.spawnError, "Original supervisor ended before ready"); return parseManagedReadyOutput(launcher.record.stdout); }, "formal managed run ready", 40000);
       assert.equal(ready.state, "ready"); info = ready.info; report.info = info; inside(root, info.runDir); assert.equal(info.name, name);
@@ -215,7 +217,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       assert.deepEqual(JSON.parse((await command(["managed", "status", "--root", root, "--name", name])).stdout).info, info);
       const groups = await rememberProcesses("ready"); assert.ok(groups[0].processes.some(row => row.ProcessId === info.nativePID));
       const privateEndpoint = await endpoint(info.profileDir, launcher), response = await fetch(`http://127.0.0.1:${privateEndpoint.port}/json/list`, { signal: AbortSignal.timeout(10000) }); assert.equal(response.status, 200);
-      const targets = (await response.json()).filter(row => row.type === "service_worker" && row.url === `chrome-extension://${info.extensionId}/background.js`); assert.equal(targets.length, 1);
+      const targets = (await response.json()).filter(row => row.type === "service_worker" && row.url === managedWorkerScriptURL(info)); assert.equal(targets.length, 1);
       report.workerTarget = { id: targets[0].id, url: targets[0].url }; report.workerConnection = {};
       worker = await connectNormalCDP(targets[0].webSocketDebuggerUrl, { record: report.workerConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       report.nativeObserver = await worker.evaluate(`(${installManagedResearchObservation.toString()})(chrome,globalThis)`);

@@ -1,5 +1,7 @@
 import { validateClipboardRequest, validateClipboardResult } from "./browser-clipboard.js";
 import { HUMAN_CLIPBOARD_MAX_BYTES, HUMAN_CLIPBOARD_PROBE_TYPE, validateHumanClipboardResult, validateHumanClipboardText } from "./managed-human-clipboard.js";
+import managedConfig from "./managed-config.js";
+import { resolveManagedWorkerScript } from "./managed-native-host.js";
 
 const PORT_NAME = "obu.clipboard.private.v1";
 const MAX_PIXELS = 16 * 1024 * 1024;
@@ -259,8 +261,9 @@ export class ClipboardOffscreen {
 if (typeof chrome !== "undefined" && typeof document !== "undefined") {
   const controller = new ClipboardOffscreen({ chrome, clipboard: navigator.clipboard, ClipboardItem: globalThis.ClipboardItem, Blob, createImageBitmap, crypto });
   Object.defineProperty(globalThis, "__obuClipboardDocumentNonce", { value: controller.nonce, configurable: false, writable: false });
+  const workerURL = chrome.runtime.getURL(resolveManagedWorkerScript(managedConfig));
   chrome.runtime.onMessage.addListener((message, sender) => {
-    if (message?.type === "obu.clipboard.reconnect" && sender.id === chrome.runtime.id && sender.url === chrome.runtime.getURL("background.js") && !sender.tab) controller.connect();
+    if (message?.type === "obu.clipboard.reconnect" && sender.id === chrome.runtime.id && sender.url === workerURL && !sender.tab) controller.connect();
   });
   controller.connect();
 }

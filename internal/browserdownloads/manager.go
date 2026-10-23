@@ -110,7 +110,7 @@ func DialWithOptions(ctx context.Context, endpoint string, identity Identity, op
 			t.close()
 		}
 	}()
-	if err := m.verifyWorker(setup, identity); err != nil {
+	if err := m.verifyWorker(setup, identity, options.WorkerScript); err != nil {
 		return nil, err
 	}
 	m.mu.Lock()
@@ -143,7 +143,10 @@ func validateIdentity(identity Identity) error {
 	return nil
 }
 
-func (m *Manager) verifyWorker(ctx context.Context, identity Identity) error {
+func (m *Manager) verifyWorker(ctx context.Context, identity Identity, script string) error {
+	if script == "" {
+		script = "background.js"
+	}
 	var targets struct {
 		Targets []struct {
 			ID      string `json:"targetId"`
@@ -157,7 +160,7 @@ func (m *Manager) verifyWorker(ctx context.Context, identity Identity) error {
 	}
 	worker := ""
 	for _, target := range targets.Targets {
-		if target.Type == "service_worker" && target.URL == "chrome-extension://"+identity.ExtensionID+"/background.js" {
+		if target.Type == "service_worker" && target.URL == "chrome-extension://"+identity.ExtensionID+"/"+script {
 			if worker != "" {
 				return failure("IDENTITY", "more than one matching extension worker")
 			}
