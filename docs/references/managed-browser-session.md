@@ -24,16 +24,17 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 清理完成，29 个原进程退出。此结果只覆盖固定 Windows 的有限采购研究任务；旧 24 次
 比较的分母与失败不变，未作同材料 Codex 比速，P15 及整体能力目标继续开放。
 
-最新已发布完整包为 [preview-20261023-1e1881d](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-1e1881d)，制品源码固定为 `1e1881d1c2e0166e1dd9bcccfbf7bb8f33810d8e`。
-按用户再次要求从干净提交重新构建，产品功能与 preview-20261023-9163ec8 相同；
-源提交差异只有6份交付记录文档，未提交的浏览器进程重启恢复不包含在包中。
-包内含主程序、扩展、完整 Skill、公司电脑安装和覆盖更新说明。
-474份生产输入与冻结构建绑定，80份扩展文件字节一致；离线 CLI/MCP、6,471项
-独立制品核验、四资产上传后回下载和115份本地交付文件核对通过。
-原完整 Node、Go test/vet 与网页验收按相同生产输入复用；重新打包没有重跑网页业务。
-完整 ZIP 为10,716,350字节，SHA256：`de3220d79f4c8db432f23646c42c3e0a27814d27e6f729e158ea8fdb5f29ff57`。
-主机、扩展与 Skill 需配套更新；普通公司 Edge、更多 frame/BFCache 组合、
-系统焦点/输入法、浏览器进程重启后的任务恢复与完整能力对齐仍开放。
+最新已发布完整包为 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03)，制品源码固定为 `b71be03af56283a8c7bd70cd60edce9974491eac`。
+本包新增实验性正常关闭后的 `managed run --restore`，修复第二次启动连接旧
+Native host、历史 run 缓存目录阻挡新启动及 offscreen worker 来源兼容问题。
+主程序从精确干净提交重建；480 份输入绑定已测构建，80 份扩展原字节与实测一致，
+完整 Skill 和公司电脑安装/覆盖更新说明配套交付。离线 CLI/MCP、独立制品审计、
+四资产上传后回下载及本地副本核验通过。原 Go test/vet、3,381 项 Node 和正式
+默认/正常恢复流程均来自冻结构建；打包期间未重跑网页业务。
+完整 ZIP 为 10,724,097 字节，SHA256：`84ea0ee45da9f38264cd56e582b19434c94f72edc560cafad45eccd228b9be16`。
+正常 Stop 后的 GET/PRG 接续已验；两种强制崩溃恢复仍失败，不能保证新写
+cookie、首次 profile 或任意 POST 页恢复。普通公司 Edge、系统输入法与完整
+能力对齐继续开放；主机、扩展和完整 Skill 需配套更新。
 普通公司电脑安装步骤不变，旧会话正常结束后重启。
 
 此前 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)

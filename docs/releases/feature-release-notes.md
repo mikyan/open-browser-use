@@ -4,7 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
-| 2026-10-23 | 独立浏览器正常重启接续（实验性） | 正常关闭后可明确请求恢复原工作页和报告，再用新连接继续任务。 | `managed run --restore`、每轮独立 worker 入口、旧 run 缓存目录边界和 offscreen 重连修复；Go test/vet、3,381 项 Node 及默认/正常恢复实测通过。强制崩溃恢复仍有限制，旧权限不恢复，未知提交不重放；新预览包准备中。见[接续范围](../references/managed-browser-restart.md)。 |
+| 2026-10-23 | 独立浏览器正常重启接续（实验性） | 正常关闭后可明确请求恢复原工作页和报告，再用新连接继续任务。 | `managed run --restore`、每轮独立 worker 入口、旧 run 缓存目录边界和 offscreen 重连修复；Go test/vet、3,381 项 Node 及默认/正常恢复实测通过。强制崩溃恢复仍有限制，旧权限不恢复，未知提交不重放；已随 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03) 发布，离线检查、独立制品审计和上传回下载通过。见[接续范围](../references/managed-browser-restart.md)。 |
 | 2026-10-21 | Windows 完整包更新 | 提供包含跨站 iframe 历史恢复的配套程序、扩展、安装脚本与 Skill。 | 已发布 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)；精确源码重建、离线 CLI/MCP 与独立制品核验、四资产回下载及本地副本核对通过。474 份生产输入与 80 份扩展绑定最终冻结构建；沿用 3,388 项 Node 和 617/138 项原草稿/下载独审，351 份未变输入复用原 Go test/vet。发布 EXE 独立重建，打包未重跑完整测试或网页；普通安装步骤保持，完整能力对齐仍未完成。 |
 | 2026-10-21 | 跨站 iframe 历史恢复 | 返回上一页后，可读取和继续提交浏览器缓存中的原 iframe 草稿。 | 修复原子会话丢失、晚到初始化及重复 Frame 登记；3,388 项 Node、原草稿恢复/唯一提交和八下载回归通过。已随 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a) 发布；保留三次原失败，普通公司 Edge 和更多缓存组合仍未验证。见[历史恢复](../references/managed-oopif-history-restore.md)。 |
 | 2026-10-21 | Windows 完整包更新 | 提供包含人工普通字符按键修复的配套程序、扩展、安装脚本与 Skill。 | 已发布 [preview-20261021-dee63f7](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-dee63f7)；精确源码重建、离线 CLI/MCP、21,394 项制品检查和四资产回下载通过。完整测试和五场网页验收沿用最终冻结构建；普通安装步骤保持，完整能力对齐仍未完成。 |

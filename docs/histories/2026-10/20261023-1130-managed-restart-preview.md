@@ -41,3 +41,14 @@ offscreen 依据严格打包配置确认 worker 来源，避免调用其不可�
 - `apps/chrome-extension/managed-native-host.js`、`clipboard-offscreen.js` 及测试
 - `scripts/browser-integration/managed-browser-restart-*` 与各 managed 入口匹配脚手架
 - `docs/references/managed-browser-restart.md`、架构/稳定性/质量与发布记录
+
+### 实际交付
+
+已发布 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03)，固定源码 `b71be03af56283a8c7bd70cd60edce9974491eac`。
+主程序从独立干净源码重新构建，480 份生产输入绑定冻结构建；80 份扩展和
+7 份完整 Skill 核对完成。离线 CLI/MCP、独立制品审计、四资产上传回下载和
+本地副本校验均通过；本次打包未重跑原网页流程。发布包没有账号、用户 profile
+或本机凭证，保留普通公司 Edge 安装及覆盖更新步骤。
+
+完整 ZIP 为 10,724,097 字节，SHA256：`84ea0ee45da9f38264cd56e582b19434c94f72edc560cafad45eccd228b9be16`。
+代码与发布记录仅推用户 fork，未提 PR。正常接续试用交付完成；完整目标未完成。

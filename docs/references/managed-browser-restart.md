@@ -1,8 +1,7 @@
 # Managed 浏览器进程重启后的接续
 
-本文描述当前源码的实验性 `managed run --restore`。此前发布的
-`preview-20261023-1e1881d` 不包含此功能及本轮 staging、目录边界修复；
-普通公司电脑的安装步骤不变。当前 `mbr-build-hpfufae_` 构建已通过默认再次
+本文描述实验性 `managed run --restore`，已随 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03) 发布，
+包含本轮 staging、目录边界及 offscreen 修复；普通公司电脑的安装步骤不变。当前 `mbr-build-hpfufae_` 构建已通过默认再次
 启动对照和正常退出后的限定任务接续。已有 profile 的崩溃流程恢复了 GET
 工作页、PRG 报告和 localStorage，但 cookie 未保留，仍按原门槛判失败；
 首次 profile 的崩溃流程没有恢复任务页。完整崩溃接续尚未成功，工作仍在进行。

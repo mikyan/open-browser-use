@@ -909,3 +909,7 @@ OS 前台观测。测试 adapter、临时注册与生产安装的差异必须公
   `2ece817f3a5fad32af40fd2194ebfa8621a7d737114c69303ef281e5456d1b0b`。
   既有相关 helper 测试 23 项、最终语法、文档骨架、仓库卫生和 diff 检查通过；
   本片未重跑历史完整生产回归，不扩大安装包的验收声明。
+
+2026-10-23 交付更新：已发布并核验 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03)，源码 `b71be03af56283a8c7bd70cd60edce9974491eac`。
+正常恢复及连接/复制修复进入配套包；两种 crash 原失败、普通公司 Edge 和整体
+目标继续开放，本计划保持 active。打包未运行浏览器，原验收按冻结来源引用。

@@ -17,8 +17,8 @@
 正式流程通过。每轮唯一 worker 入口修复二次启动连接旧 Native host，输入目录检查
 不再遍历旧 run 缓存。配置派生的 offscreen 入口修复及七项复制/剪切回归另有原记录。
 已有 profile 崩溃后 cookie 丢失、首次 profile 崩溃后无任务页，两场仍失败；
-普通公司 Edge 及完整 P01–P15 未完成。此次按用户要求准备包含上述增量的新预览包，
-发布与制品核验记录在完成后补入；不以打包宣称整体能力对齐。
+普通公司 Edge 及完整 P01–P15 未完成。此次按用户要求已发布包含上述增量的新预览包，
+制品与下载已核验；不以打包宣称整体能力对齐。
 
 2026-10-23，[Managed 独立 Agent 多页研究](references/managed-agent-research.md)的原六阶段及独审通过，
 正式 managed 运行 `mra-Ldr4sE` 实际退出 0，67/67 项定向检查通过。两轮各读六份
@@ -41,16 +41,17 @@
 Go、嵌入 UI、SDK 与锁文件原字节未变，复用此前 Go test/vet 和 EXE，未声称重跑。
 该修复已随下述预览包发布；普通公司 Edge、更多 frame 拓扑及完整 P01–P15 仍开放。
 
-最新已发布完整包为 [preview-20261023-1e1881d](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-1e1881d)，制品源码固定为 `1e1881d1c2e0166e1dd9bcccfbf7bb8f33810d8e`。
-按用户再次要求从干净提交重新构建，产品功能与 preview-20261023-9163ec8 相同；
-源提交差异只有6份交付记录文档，未提交的浏览器进程重启恢复不包含在包中。
-包内含主程序、扩展、完整 Skill、公司电脑安装和覆盖更新说明。
-474份生产输入与冻结构建绑定，80份扩展文件字节一致；离线 CLI/MCP、6,471项
-独立制品核验、四资产上传后回下载和115份本地交付文件核对通过。
-原完整 Node、Go test/vet 与网页验收按相同生产输入复用；重新打包没有重跑网页业务。
-完整 ZIP 为10,716,350字节，SHA256：`de3220d79f4c8db432f23646c42c3e0a27814d27e6f729e158ea8fdb5f29ff57`。
-主机、扩展与 Skill 需配套更新；普通公司 Edge、更多 frame/BFCache 组合、
-系统焦点/输入法、浏览器进程重启后的任务恢复与完整能力对齐仍开放。
+最新已发布完整包为 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03)，制品源码固定为 `b71be03af56283a8c7bd70cd60edce9974491eac`。
+本包新增实验性正常关闭后的 `managed run --restore`，修复第二次启动连接旧
+Native host、历史 run 缓存目录阻挡新启动及 offscreen worker 来源兼容问题。
+主程序从精确干净提交重建；480 份输入绑定已测构建，80 份扩展原字节与实测一致，
+完整 Skill 和公司电脑安装/覆盖更新说明配套交付。离线 CLI/MCP、独立制品审计、
+四资产上传后回下载及本地副本核验通过。原 Go test/vet、3,381 项 Node 和正式
+默认/正常恢复流程均来自冻结构建；打包期间未重跑网页业务。
+完整 ZIP 为 10,724,097 字节，SHA256：`84ea0ee45da9f38264cd56e582b19434c94f72edc560cafad45eccd228b9be16`。
+正常 Stop 后的 GET/PRG 接续已验；两种强制崩溃恢复仍失败，不能保证新写
+cookie、首次 profile 或任意 POST 页恢复。普通公司 Edge、系统输入法与完整
+能力对齐继续开放；主机、扩展和完整 Skill 需配套更新。
 
 2026-10-21，当前源码完成[人工普通字符按键](references/managed-human-printable-keys.md)。
 最终冻结构建 Go test/vet、3,357 项 Node（299 项 UI）通过；主页面和真实
