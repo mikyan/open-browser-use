@@ -1,0 +1,41 @@
+docs/references/managed-paired-research.md
+  s_08bbfd293d324f::t_cb13d05871c73d 1-73
+  s_08bbfd293d324f::t_7d47c442c243ba 74-76
+  s_08bbfd293d324f::t_f141633bb20651 77-102
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_8197ba480920eb 14-20,68-69
+docs/exec-plans/active/2026-10-23-managed-paired-research.md
+  s_08bbfd293d324f::t_bdece2fb2cad39 59-60,74-90
+docs/references/README.md
+  s_08bbfd293d324f::t_7c0c0b8e3bf33e 175-177
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_db49297771edc5::t_15034b6f1c254b 10-16,43-44
+docs/histories/2026-10/20261023-1255-managed-paired-research.md
+  s_08bbfd293d324f::t_85080c4fadd580 18-20,32-55
+docs/product-specs/browser-use-parity.md
+  s_db49297771edc5::t_4581f2d12567d0 15-21,45-46,947
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "25802ec048eb2748464a4710d6d7a0a9ce0d809b",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_db49297771edc5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12652-cad5-7553-b588-7deedd963f38",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
