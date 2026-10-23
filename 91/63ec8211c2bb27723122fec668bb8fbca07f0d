@@ -1,0 +1,75 @@
+scripts/browser-integration/recorded-agent-sdk.mjs
+  s_08bbfd293d324f::t_1d4d727c5d9da9 1-4,6-7,10-13,17-23,43,49,60-62,64-81,83-112,114-128,132-136,138-169,177-202,206-219,221-223,230-232
+  s_08bbfd293d324f::t_2a205961b9c433 5,8-9,14-16
+  s_08bbfd293d324f::t_3791e936c48084 24-42,44-48,50-59,63
+  s_08bbfd293d324f::t_d97ca4e09decfa 82,113,129-131,137,170-176,203-205,220,224-229
+scripts/browser-integration/recorded-agent-sdk.test.mjs
+  s_08bbfd293d324f::t_2a205961b9c433 8,75-126
+  s_08bbfd293d324f::t_458f34d7ab2b3d 1-7,9-74,127-276
+  s_08bbfd293d324f::t_b29500baa53b72 277-308
+scripts/browser-integration/managed-research-check.mjs
+  s_08bbfd293d324f::t_da52b425b7e8f8 1-19,22-52,54-126,132-133,153-227,230-234,237-240,257,262-276,282-284,287-298,300-302,309,311-350,355-367
+  s_08bbfd293d324f::t_017f7d6e56bef7 53,130,143-152,235-236,251,258,261,279,351-354
+  s_08bbfd293d324f::t_199e0284ac60a8 127-129,131
+  s_08bbfd293d324f::t_af70fcb34bfd7f 277-278,280-281,299,310
+  s_08bbfd293d324f::t_00d35cd4a6a7c5 303-308
+  s_08bbfd293d324f::t_34efb8202be165 21,228-229,285-286
+  s_08bbfd293d324f::t_9d17cf7ac9d86b 20,134-142,241-250,252-256,259-260
+docs/exec-plans/completed/2026-10-23-managed-agent-research.md
+  s_08bbfd293d324f::t_d847835a11df6e 1-106
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_bb745130a2af2b 119-185
+docs/histories/2026-10/20261023-0926-managed-agent-research.md
+  s_08bbfd293d324f::t_d847835a11df6e 1-45
+scripts/browser-integration/managed-research-support.test.mjs
+  s_08bbfd293d324f::t_9d17cf7ac9d86b 4,40-43,45-46
+  s_08bbfd293d324f::t_da78e6df6b4aed 28,104-109,131-144
+  s_08bbfd293d324f::t_34efb8202be165 5,110-130
+  s_08bbfd293d324f::t_af70fcb34bfd7f 1-3,6-27,29-36,38-39,47-103,145
+  s_08bbfd293d324f::t_55ea58daae9681 37,44
+scripts/browser-integration/managed-research-support.mjs
+  s_08bbfd293d324f::t_34efb8202be165 1-154
+scripts/browser-integration/recorded-agent-sdk.md
+  s_08bbfd293d324f::t_611297b6179bc7 1-12,18-75,86-113,117-119
+  s_08bbfd293d324f::t_2a205961b9c433 13-17,76-85,114-116
+docs/references/managed-agent-research.md
+  s_08bbfd293d324f::t_d847835a11df6e 6,31-38,55,60-61
+  s_08bbfd293d324f::t_42235be14c9afb 14
+  s_08bbfd293d324f::t_bb745130a2af2b 1-5,7-13,15-30,39-54,56-59,62-77
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_d72b58031971d8 14-19,43-45
+docs/references/README.md
+  s_08bbfd293d324f::t_4a3e1f3e01985e 19-21
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_93978fa9165708 11-18,23-24
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_db49297771edc5::t_fe809f0308735e 10-15,36-38
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_82d146838a651e 10-21
+docs/product-specs/browser-use-parity.md
+  s_db49297771edc5::t_ca110fea53322f 15-20,29-31,929
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "9163ec8211c2bb27723122fec668bb8fbca07f0d",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    },
+    "s_db49297771edc5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12652-cad5-7553-b588-7deedd963f38",
+        "model": "unknown"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
