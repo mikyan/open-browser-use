@@ -8,13 +8,12 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
-最新完整包为 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)，新增[跨站 iframe 历史恢复](managed-oopif-history-restore.md)。
-保留人工普通字符按键、目录上传、离页确认、输入法预编辑和后台父页画面恢复。
-精确源码重建、离线 CLI/MCP 与独立制品核验、四资产回下载及本地副本核对通过。
-474 份生产输入和 80 份扩展绑定最终冻结构建；3,388 项 Node、617 项原草稿恢复
-独审和 138 项八下载独审通过。351 份未变输入复用此前 Go test/vet；
-发布 EXE 独立重建，打包未重跑完整测试或网页业务。普通安装步骤不变，
-主程序与扩展配套更新，旧会话需正常结束后重启。
+最新完整包为 [preview-20261023-7043c58](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-7043c58)，产品功能与 preview-20261021-afb415a 相同。
+本次从精确干净提交 `7043c5815a6f7bfd24a3bf3b502362b94045870e` 重建发布 EXE；474份生产输入与原冻结构建绑定，
+80份扩展字节一致。离线 CLI/MCP、独立制品核验、四资产回下载与本地副本核对通过。
+原完整测试和网页验收按相同生产输入复用，本次未重跑。保留跨站 iframe 历史恢复、
+人工接管与 AI 操作反馈；源码另补充 worker 恢复后完整任务接续验证，独立研究任务仍未完成。
+普通公司电脑安装步骤不变，主程序、扩展与 Skill 配套更新，旧会话正常结束后重启。
 
 此前 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)
 新增[人工文件选择与上传](managed-human-files.md)，修复重新认领原结果页搬窗

@@ -26,17 +26,16 @@
 Go、嵌入 UI、SDK 与锁文件原字节未变，复用此前 Go test/vet 和 EXE，未声称重跑。
 该修复已随下述预览包发布；普通公司 Edge、更多 frame 拓扑及完整 P01–P15 仍开放。
 
-最新已发布完整包为 [preview-20261021-afb415a](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-afb415a)，制品源码固定为 `afb415a8e312ec08bd50793880ebbc1fe5e50e3d`。
-本版新增跨站 iframe 历史恢复，保留人工普通字符按键、目录上传、离页确认、
-中文预编辑与 AI 操作反馈。474 份生产输入绑定最终冻结构建，80 份未加 key
-的扩展文件逐字节一致；发布 EXE 从精确干净提交独立重建。
-离线 CLI/MCP 与独立制品核验、四资产上传回下载及本地副本核对通过。
-3,388 项 Node、617 项原草稿恢复独审及 138 项八下载独审属于最终冻结构建证据；
-351 份 Go/嵌入 UI/SDK/锁文件输入未变，复用此前 Go test/vet，未声称重新执行。
-打包未重跑完整测试或网页业务。
-完整 ZIP 为 10,713,804 字节，SHA256：`7a1285bf38f279d4e53489aee73f987db0e68af3be39ca55d9743472b42be1ee`。
-主机与扩展需配套更新；普通公司 Edge、更多 frame/BFCache 组合、系统焦点、
-系统输入法和完整能力对齐仍未完成。
+最新已发布完整包为 [preview-20261023-7043c58](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-7043c58)，制品源码固定为 `7043c5815a6f7bfd24a3bf3b502362b94045870e`。
+本次按用户要求重新打包，产品功能与 preview-20261021-afb415a 相同；源码新增的
+worker 恢复后完整任务接续验证不作为新增产品功能。保留跨站 iframe 历史恢复、
+人工接管及 AI 光标、点击位置和元素高亮，附公司电脑安装和覆盖更新说明。
+474 份生产输入与原冻结构建绑定，80 份未加 key 的扩展文件逐字节一致；发布 EXE
+从精确干净提交重建。离线 CLI/MCP、独立制品核验、四资产上传回下载与本地副本核对通过。
+原 3,388 项 Node、Go test/vet 与网页验收按相同生产输入复用；本次未重跑完整测试或网页业务。
+完整 ZIP 为 10,714,144 字节，SHA256：`5fb8ee700174efa7542758ba53e40912e61401389e22ae08fc1f3690fa44aed3`。
+主机、扩展与 Skill 需配套更新；新增独立研究任务、普通公司 Edge、更多 frame/BFCache
+组合、系统焦点/输入法与完整能力对齐仍未完成。
 
 2026-10-21，当前源码完成[人工普通字符按键](references/managed-human-printable-keys.md)。
 最终冻结构建 Go test/vet、3,357 项 Node（299 项 UI）通过；主页面和真实
