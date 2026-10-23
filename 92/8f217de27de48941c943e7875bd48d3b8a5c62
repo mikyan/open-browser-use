@@ -1,0 +1,41 @@
+docs/ARCHITECTURE.md
+  s_08bbfd293d324f::t_9da691c17ea2fe 141-142
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_3b83da49b4aa5b 14-22,57
+docs/RELIABILITY.md
+  s_08bbfd293d324f::t_e7090cc429b37a 42-44
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_c534550557bf18 32
+docs/exec-plans/active/2026-10-23-managed-browser-restart.md
+  s_08bbfd293d324f::t_4247479d93b6a1 181-197
+docs/histories/2026-10/20261023-1130-managed-restart-preview.md
+  s_08bbfd293d324f::t_22318f4c13df3a 74-82
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_522fa016977e95 15-23,34
+docs/references/managed-browser-restart.md
+  s_08bbfd293d324f::t_f593f16d41f296 7-9,206-207,209,211-213,218-258
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_58effc8b6fa106 31
+scripts/browser-integration/managed-browser-restart-check.mjs
+  s_08bbfd293d324f::t_2e9da07d0e5498 11,292-306
+scripts/browser-integration/managed-browser-restart-support.mjs
+  s_08bbfd293d324f::t_dec568fac448eb 235-253
+scripts/browser-integration/managed-browser-restart-support.test.mjs
+  s_08bbfd293d324f::t_e345cd1cd55b16 6,309-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "928f217de27de48941c943e7875bd48d3b8a5c62",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
