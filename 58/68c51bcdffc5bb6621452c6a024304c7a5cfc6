@@ -1,0 +1,27 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_c401e9c63cd835 29-38
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_fe71e683820a9d 22-31
+docs/histories/2026-10/20261023-0900-requested-preview-repack.md
+  s_08bbfd293d324f::t_d659e688333f9e 1-20
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_fde21e0b197ffb 15-24,27
+docs/references/managed-browser-session.md
+  s_08bbfd293d324f::t_ba7b2e3cff8123 11-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "5868c51bcdffc5bb6621452c6a024304c7a5cfc6",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
