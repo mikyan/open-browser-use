@@ -41,17 +41,17 @@
 Go、嵌入 UI、SDK 与锁文件原字节未变，复用此前 Go test/vet 和 EXE，未声称重跑。
 该修复已随下述预览包发布；普通公司 Edge、更多 frame 拓扑及完整 P01–P15 仍开放。
 
-最新已发布完整包为 [preview-20261023-b71be03](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-b71be03)，制品源码固定为 `b71be03af56283a8c7bd70cd60edce9974491eac`。
-本包新增实验性正常关闭后的 `managed run --restore`，修复第二次启动连接旧
-Native host、历史 run 缓存目录阻挡新启动及 offscreen worker 来源兼容问题。
-主程序从精确干净提交重建；480 份输入绑定已测构建，80 份扩展原字节与实测一致，
-完整 Skill 和公司电脑安装/覆盖更新说明配套交付。离线 CLI/MCP、独立制品审计、
-四资产上传后回下载及本地副本核验通过。原 Go test/vet、3,381 项 Node 和正式
-默认/正常恢复流程均来自冻结构建；打包期间未重跑网页业务。
-完整 ZIP 为 10,724,097 字节，SHA256：`84ea0ee45da9f38264cd56e582b19434c94f72edc560cafad45eccd228b9be16`。
-正常 Stop 后的 GET/PRG 接续已验；两种强制崩溃恢复仍失败，不能保证新写
-cookie、首次 profile 或任意 POST 页恢复。普通公司 Edge、系统输入法与完整
-能力对齐继续开放；主机、扩展和完整 Skill 需配套更新。
+最新已发布完整包为 [preview-20261023-db87f52](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-db87f52)，源码固定为 `db87f52958d134923c75cbc81fb5ef66f813795e`。
+本次按用户要求刷新安装包；生产功能与 `b71be03` 相同，保留正常关闭后的
+实验性 `managed run --restore`、二次启动和复制修复，未新增产品能力。
+新提交仅补充独立认证崩溃恢复的验收准备及说明，64/64 项本地 HTTP/helper/
+recorded-SDK 检查通过；该新场景尚未运行真实浏览器，不能算恢复成功。
+主程序从干净提交重建；480 份生产输入绑定原冻结构建，80 份扩展和完整
+7 文件 Skill 与前包一致。原 Go test/vet、3,381 项 Node 与网页流程证据沿用，
+没有在打包时重跑；本次离线 CLI/MCP、独立制品审计及四资产上传回下载通过。
+完整 ZIP 为 10,724,932 字节，SHA256：`3c94e11e2a05001e08e717bd0a5d5ad4dcc0b11c533ad7b67740422983484d15`。
+已有两种 crash 原失败、普通公司 Edge 和整体能力对齐继续开放；主机、扩展
+和完整 Skill 需配套更新，公司电脑安装与覆盖步骤见包内 README。
 
 2026-10-21，当前源码完成[人工普通字符按键](references/managed-human-printable-keys.md)。
 最终冻结构建 Go test/vet、3,357 项 Node（299 项 UI）通过；主页面和真实
