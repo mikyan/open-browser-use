@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal } from "./managed-browser-restart-support.mjs";
+import http from "node:http";
+import { createHash } from "node:crypto";
+import { createManagedBrowserRestartFixture, managedBrowserRestartURLs } from "./managed-browser-restart-fixture.mjs";
+import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, assertManagedRestartRestoredDraft, assertManagedRestartAuthenticationSeed, assertManagedRestartAuthenticatedPostLedger, assertManagedRestartAuthentication } from "./managed-browser-restart-support.mjs";
 
 const stats = () => ({ overflow: false, originalPOST: ["prg", "cache", "no-store"].map(kind => ({ kind, status: kind === "prg" ? 303 : 200, receiptId: kind })), followupPOST: [], receipts: Object.fromEntries(["prg", "cache", "no-store"].map(kind => [kind, { receiptId: kind }])) });
 test("case arguments are explicit and do not silently select crash", () => {
-  assert.equal(managedBrowserRestartMode([]), "normal"); for (const mode of ["normal", "crash", "crash-established", "default"]) assert.equal(managedBrowserRestartMode(["--case", mode]), mode);
+  assert.equal(managedBrowserRestartMode([]), "normal"); for (const mode of ["normal", "crash", "crash-established", "crash-authenticated", "default"]) assert.equal(managedBrowserRestartMode(["--case", mode]), mode);
   for (const args of [["--crash"], ["--case", "all"], ["--case", "crash", "ignored"]]) assert.throws(() => managedBrowserRestartMode(args));
 });
 const preferenceIO = (value, file = {}) => {
@@ -152,6 +155,100 @@ test("the final stopped observer also rejects delayed default restoration", () =
   assertManagedRestartDefaultEmpty(stopped, [oldURL]);
   for (const changed of [{ ...stopped, tabs: [{ pendingUrl: oldURL }] }, { ...stopped, targets: [{ url: oldURL }] }, { ...stopped, overflow: true }]) assert.throws(() => assertManagedRestartDefaultEmpty(changed, [oldURL]));
 });
+
+test("only the separate authenticated crash case observes rather than requires the new draft cookie", () => {
+  const restored = { persistent: "saved", memory: "未暂存", cookie: "未保存" };
+  const observed = assertManagedRestartRestoredDraft(restored, "saved", "crash-authenticated");
+  assert.equal(observed.newDraftCookiePreserved, false); assert.equal(observed.newDraftCookieRequired, false);
+  for (const mode of ["normal", "crash", "crash-established"]) {
+    assert.throws(() => assertManagedRestartRestoredDraft(restored, "saved", mode));
+    assert.equal(assertManagedRestartRestoredDraft({ ...restored, cookie: "saved" }, "saved", mode).newDraftCookieRequired, true);
+  }
+  for (const mode of ["normal", "crash", "crash-established", "crash-authenticated"]) {
+    assert.throws(() => assertManagedRestartRestoredDraft({ ...restored, persistent: "lost" }, "saved", mode));
+    assert.throws(() => assertManagedRestartRestoredDraft({ ...restored, memory: "old memory" }, "saved", mode));
+  }
+  assert.throws(() => assertManagedRestartRestoredDraft(restored, "saved", "default"));
+});
+
+// Real local HTTP fixture + assertion contract only. These tests do not launch
+// a browser or claim native persistence; the formal runner owns those proofs.
+async function withAuthenticatedFixture(operation) {
+  const fixture = createManagedBrowserRestartFixture({ authenticated: true });
+  const server = http.createServer((request, response) => {
+    if (!fixture.handle(request, response, server.address().port)) { response.writeHead(404); response.end("outside"); }
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const id = "support-auth", urls = managedBrowserRestartURLs(server.address().port, id, { authenticated: true });
+  const request = async (url, options = {}) => { const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000), ...options }); return { url, status: response.status, headers: response.headers, body: await response.text() }; };
+  const post = (url, fields, cookie) => request(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) }, body: new URLSearchParams(fields).toString() });
+  const document = response => {
+    const encoded = response.body.match(/<pre id="server-auth-json">([\s\S]*?)<\/pre>/)?.[1]; assert.ok(encoded);
+    return { url: response.url, cookieNames: [], serverAuthText: encoded.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") };
+  };
+  try {
+    const startedAt = Date.now(), login = await request(urls.auth.login), before = fixture.stats(id);
+    const credential = login.body.match(/<code id="synthetic-login-token">([^<]+)<\/code>/)?.[1]; assert.ok(credential);
+    const loginReply = await post(urls.auth.login, { scenarioId: id, operationId: before.auth.loginOperationId, credential }); assert.equal(loginReply.status, 303);
+    const header = loginReply.headers.get("set-cookie"), cookie = header.split(";", 1)[0];
+    const check = document(await request(urls.auth.check, { headers: { Cookie: cookie } }));
+    const seed = fixture.stats(id), originalAuth = structuredClone(seed.auth);
+    assert.equal(originalAuth.loginPOST[0].setCookie.headerSHA256, createHash("sha256").update(header).digest("hex"));
+    assert.match(header, /; Max-Age=86400; HttpOnly; SameSite=Strict$/);
+    assertManagedRestartAuthenticationSeed(seed, fixture.rejectedStats(), []);
+    assertManagedRestartAuthentication(check, seed, originalAuth, startedAt);
+    return await operation({ fixture, id, urls, request, post, document, cookie, credential, seed, originalAuth, startedAt, check });
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+}
+
+test("actual fixture login, fresh authenticated GETs and 3+1 business POSTs satisfy one-login ledger", () => withAuthenticatedFixture(async ({ fixture, id, urls, request, post, document, cookie, originalAuth }) => {
+  const startedAt = Date.now(), work = document(await request(urls.work, { headers: { Cookie: cookie } }));
+  assertManagedRestartAuthentication(work, fixture.stats(id), originalAuth, startedAt);
+  for (const kind of ["prg", "cache", "no-store"]) {
+    const stats = fixture.stats(id), reply = await post(urls.original[kind], { scenarioId: id, operationId: stats.operations[kind], note: `report-${kind}` }, cookie);
+    assert.equal(reply.status, kind === "prg" ? 303 : 200);
+  }
+  assert.equal(assertManagedRestartAuthenticatedPostLedger(fixture.stats(id), fixture.rejectedStats(), [], 0, originalAuth).allPOSTs, 4);
+  const secondStartedAt = Date.now(), secondWork = document(await request(urls.work, { headers: { Cookie: cookie } })), report = document(await request(urls.report, { headers: { Cookie: cookie } }));
+  for (const page of [secondWork, report]) assertManagedRestartAuthentication(page, fixture.stats(id), originalAuth, secondStartedAt);
+  const stats = fixture.stats(id); assert.equal((await post(urls.followup.work, { scenarioId: id, operationId: stats.operations.followup, receiptId: stats.receipts.prg.receiptId, note: "independent" }, cookie)).status, 303);
+  const followup = document(await request(urls.followupReport, { headers: { Cookie: cookie } }));
+  assertManagedRestartAuthentication(followup, fixture.stats(id), originalAuth, secondStartedAt);
+  const ledger = assertManagedRestartAuthenticatedPostLedger(fixture.stats(id), fixture.rejectedStats(), [], 1, originalAuth);
+  assert.equal(ledger.loginPOSTs, 1); assert.equal(ledger.originalPOSTs, 3); assert.equal(ledger.followupPOSTs, 1); assert.equal(ledger.allPOSTs, 5);
+  assert.throws(() => assertManagedRestartPostLedger(fixture.stats(id), fixture.rejectedStats(), [], 1), "Old modes must not silently ignore a login POST");
+  const unauthorized = structuredClone(fixture.stats(id)); unauthorized.requests.find(row => row.method === "POST" && row.authentication).authentication.accepted = false;
+  assert.throws(() => assertManagedRestartAuthenticatedPostLedger(unauthorized, fixture.rejectedStats(), [], 1, originalAuth));
+  const unknown = structuredClone(fixture.stats(id)); unknown.requests.push({ method: "POST", sequence: 999, path: "/unknown", at: Date.now(), status: 405 });
+  assert.throws(() => assertManagedRestartAuthenticatedPostLedger(unknown, fixture.rejectedStats(), [], 1, originalAuth));
+  assert.throws(() => assertManagedRestartAuthenticatedPostLedger(fixture.stats(id), fixture.rejectedStats(), [], 1));
+}));
+
+test("actual authentication proof rejects old-generation HTML, changed login, missing HTTP evidence and non-HttpOnly exposure", () => withAuthenticatedFixture(async ({ fixture, id, seed, originalAuth, startedAt, check }) => {
+  const proof = JSON.parse(check.serverAuthText), request = seed.requests.find(row => row.sequence === proof.requestSequence);
+  assert.throws(() => assertManagedRestartAuthentication(check, seed, originalAuth, request.at + 1));
+  for (const mutate of [value => value.auth.receipt.loginId = "replacement", value => value.auth.receipt.principal = "other", value => value.auth.receipt.cookie.httpOnly = false,
+    value => value.auth.loginPOST.push({ ...value.auth.loginPOST[0], status: 409 }), value => delete value.auth.loginPOST[0].responseFinishedAt,
+    value => value.auth.loginPOST[0].setCookie.httpOnly = false, value => value.auth.loginPOST[0].setCookie.headerSHA256 = "unbound",
+    value => value.requests.splice(value.requests.findIndex(row => row.sequence === proof.requestSequence), 1), value => value.auth.refusals.push({ reason: "missing-cookie" })]) {
+    const changed = structuredClone(seed); mutate(changed); assert.throws(() => assertManagedRestartAuthentication(check, changed, originalAuth, startedAt));
+  }
+  for (const mutate of [value => value.loginId = "other", value => value.cookieSHA256 = "0".repeat(64), value => value.requestSequence = 999, value => value.requestMethod = "POST", value => value.requestPath = "/wrong", value => value.authenticated = false]) {
+    const changed = structuredClone(proof); mutate(changed); assert.throws(() => assertManagedRestartAuthentication({ ...check, serverAuthText: JSON.stringify(changed) }, seed, originalAuth, startedAt));
+  }
+  assert.throws(() => assertManagedRestartAuthentication({ ...check, serverAuthText: null }, seed, originalAuth, startedAt));
+  assert.throws(() => assertManagedRestartAuthentication({ ...check, cookieNames: [seed.auth.cookieName] }, seed, originalAuth, startedAt));
+  assert.throws(() => assertManagedRestartAuthentication({ ...check, url: check.url + "?stale" }, seed, originalAuth, startedAt));
+  const business = structuredClone(seed); business.originalPOST.push({ status: 200 }); assert.throws(() => assertManagedRestartAuthenticationSeed(business, fixture.rejectedStats(), []));
+  assert.throws(() => assertManagedRestartAuthenticationSeed(seed, fixture.rejectedStats(), [{ method: "POST", url: "/outside" }]));
+}));
+
+test("real duplicate login and missing-cookie requests remain failures instead of recovery", () => withAuthenticatedFixture(async ({ fixture, id, urls, request, post, cookie, credential, originalAuth, startedAt, check }) => {
+  assert.equal((await request(urls.work)).status, 401);
+  assert.throws(() => assertManagedRestartAuthentication(check, fixture.stats(id), originalAuth, startedAt));
+  assert.equal((await post(urls.auth.login, { scenarioId: id, operationId: originalAuth.loginOperationId, credential }, cookie)).status, 409);
+  assert.throws(() => assertManagedRestartAuthenticationSeed(fixture.stats(id), fixture.rejectedStats(), []));
+}));
 const crash = () => {
   const ack = { at: "2026-10-23T00:00:00Z" }, info = { runId: "original", extensionId: "extension" }, nativeExit = { ...ack, code: 0 };
   return { version: 1, state: "closed", info, readyAt: ack.at, endedAt: ack.at, forced: false, error: "managed process exited with code 9", browserClose: { ...ack, result: {} }, browserExit: { ...ack, code: 9, error: "managed process exited with code 9" }, nativeExit,

@@ -4,9 +4,9 @@ import fs from "node:fs/promises";
 
 export function managedBrowserRestartMode(args) {
   if (!args.length) return "normal";
-  assert.equal(args.length, 2, "Use --case normal|crash|crash-established|default");
+  assert.equal(args.length, 2, "Use --case normal|crash|crash-established|crash-authenticated|default");
   assert.equal(args[0], "--case");
-  assert.ok(["normal", "crash", "crash-established", "default"].includes(args[1]));
+  assert.ok(["normal", "crash", "crash-established", "crash-authenticated", "default"].includes(args[1]));
   return args[1];
 }
 
@@ -156,6 +156,73 @@ export function assertManagedRestartPostLedger(stats, rejected, unexpected, foll
   return { originalPOSTs: 3, followupPOSTs: followups, allPOSTs: requests.length, rejectedPOSTs: 0, unclassifiedPOSTs: 0 };
 }
 
+function authenticatedLogin(stats, original) {
+  assert.equal(stats.overflow, false); const auth = stats.auth;
+  assert.equal(auth?.required, true); assert.equal(auth.loginPOST.length, 1, "Authenticated restart must never log in again or rotate its cookie");
+  assert.deepEqual(auth.refusals, [], "A rejected authenticated request remains a failed observation");
+  assert.deepEqual(auth.requests, stats.requests.filter(row => row.authentication), "Protected requests must retain the complete original server authentication entries");
+  const receipt = auth.receipt, post = auth.loginPOST[0];
+  assert.equal(receipt?.scenarioId, stats.scenarioId); assert.equal(receipt.loginOperationId, auth.loginOperationId);
+  for (const value of [receipt.loginId, receipt.principal, auth.cookieName, auth.cookiePath]) assert.ok(typeof value === "string" && value);
+  assert.match(auth.cookieSHA256, /^[0-9a-f]{64}$/); assert.equal(receipt.cookieSHA256, auth.cookieSHA256);
+  assert.deepEqual(receipt.cookie, { name: auth.cookieName, path: auth.cookiePath, maxAge: 86400, httpOnly: true, sameSite: "Strict" });
+  assert.equal(auth.cookiePath, new URL(stats.urls.work).pathname.slice(0, -"work".length));
+  assert.equal(post.status, 303); assert.equal(post.path, new URL(stats.urls.auth.login).pathname);
+  assert.equal(post.processingError, undefined); assert.equal(post.readError, undefined); assert.equal(post.truncated, false);
+  assert.ok(Number.isSafeInteger(post.sequence) && post.sequence > 0); assert.equal(receipt.loginRequestSequence, post.sequence);
+  assert.equal(typeof receipt.issuedAt, "string"); const issuedAt = Date.parse(receipt.issuedAt); assert.ok(Number.isFinite(issuedAt) && issuedAt >= post.at);
+  assert.ok(Number.isSafeInteger(post.responseFinishedAt) && post.responseFinishedAt >= issuedAt, "Original login response must have finished before profile establishment");
+  assert.equal(post.loginId, receipt.loginId);
+  for (const field of ["name", "path", "maxAge", "httpOnly", "sameSite"]) assert.equal(post.setCookie?.[field], receipt.cookie[field]);
+  assert.equal(post.setCookie.cookieSHA256, receipt.cookieSHA256);
+  for (const field of ["valueSHA256", "headerSHA256"]) assert.match(post.setCookie[field], /^[0-9a-f]{64}$/);
+  const requests = stats.requests.filter(row => row.sequence === post.sequence); assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "POST"); assert.equal(requests[0].search, "");
+  for (const field of ["path", "at", "status"]) assert.equal(requests[0][field], post[field]);
+  if (original) { assert.deepEqual(auth.receipt, original.receipt); assert.deepEqual(auth.loginPOST, original.loginPOST); assert.equal(auth.cookieSHA256, original.cookieSHA256); }
+  return post;
+}
+
+export function assertManagedRestartAuthenticationSeed(stats, rejected, unexpected) {
+  const post = authenticatedLogin(stats);
+  assert.deepEqual(stats.originalPOST, []); assert.deepEqual(stats.followupPOST, []); assert.deepEqual(stats.receipts, { prg: null, cache: null, "no-store": null, followup: null });
+  assert.equal(rejected.overflow, false); assert.deepEqual(rejected.requests.filter(row => row.method === "POST"), []); assert.deepEqual(unexpected.filter(row => row.method === "POST"), []);
+  assert.deepEqual(stats.requests.filter(row => row.method === "POST").map(row => row.sequence), [post.sequence]);
+  return { loginPOSTs: 1, originalPOSTs: 0, followupPOSTs: 0, allPOSTs: 1, rejectedGETs: rejected.requests.filter(row => row.method === "GET").length,
+    unexpectedGETs: unexpected.filter(row => row.method === "GET").length, loginId: stats.auth.receipt.loginId, cookieSHA256: stats.auth.cookieSHA256 };
+}
+
+export function assertManagedRestartAuthenticatedPostLedger(stats, rejected, unexpected, followups, originalAuth) {
+  assert.ok(originalAuth?.receipt, "Business must retain the originally established login evidence");
+  const login = authenticatedLogin(stats, originalAuth);
+  const result = assertManagedRestartPostLedger({ ...stats, requests: stats.requests.filter(row => row.sequence !== login.sequence) }, rejected, unexpected, followups);
+  for (const post of [...stats.originalPOST, ...stats.followupPOST]) {
+    const request = stats.requests.find(row => row.sequence === post.sequence), authentication = request.authentication;
+    assert.equal(authentication?.required, true); assert.equal(authentication.accepted, true);
+    assert.equal(authentication.loginId, stats.auth.receipt.loginId); assert.equal(authentication.cookieSHA256, stats.auth.cookieSHA256);
+  }
+  return { ...result, loginPOSTs: 1, businessPOSTs: result.allPOSTs, allPOSTs: result.allPOSTs + 1, loginId: stats.auth.receipt.loginId };
+}
+
+export function assertManagedRestartAuthentication(document, stats, originalAuth, generationStartedAt) {
+  authenticatedLogin(stats, originalAuth);
+  assert.ok(Number.isSafeInteger(generationStartedAt) && generationStartedAt > 0);
+  assert.ok(typeof document.serverAuthText === "string" && document.serverAuthText, "A page label or URL cannot prove server authentication");
+  const proof = JSON.parse(document.serverAuthText), receipt = stats.auth.receipt, url = new URL(document.url);
+  assert.equal(url.search, ""); assert.equal(url.hash, ""); assert.equal(url.origin, new URL(stats.urls.work).origin);
+  assert.equal(proof.authenticated, true); assert.equal(proof.scenarioId, stats.scenarioId);
+  for (const field of ["loginId", "principal", "loginRequestSequence", "cookieSHA256"]) assert.equal(proof[field], receipt[field]);
+  assert.equal(proof.requestMethod, "GET"); assert.equal(proof.requestPath, url.pathname);
+  assert.ok(Number.isSafeInteger(proof.requestSequence) && proof.requestSequence > receipt.loginRequestSequence);
+  const requests = stats.requests.filter(row => row.sequence === proof.requestSequence); assert.equal(requests.length, 1);
+  const request = requests[0]; assert.equal(request.method, "GET"); assert.equal(request.path, url.pathname); assert.equal(request.search, ""); assert.equal(request.status, 200);
+  assert.ok(Number.isSafeInteger(request.at) && request.at >= generationStartedAt, "Cached old authentication HTML does not prove this browser generation sent the cookie");
+  assert.equal(request.authentication?.required, true); assert.equal(request.authentication.accepted, true);
+  assert.equal(request.authentication.loginId, receipt.loginId); assert.equal(request.authentication.cookieSHA256, receipt.cookieSHA256);
+  assert.ok(Array.isArray(document.cookieNames)); assert.equal(document.cookieNames.includes(stats.auth.cookieName), false, "HttpOnly login must not be exposed by document.cookie");
+  return { proof, serverRequest: structuredClone(request), generationStartedAt, httpOnlyAbsentFromDocumentCookie: true, loginUnchanged: true };
+}
+
 export function assertManagedRestartNativeTarget(observation, tabId, previous) {
   assert.equal(observation.overflow, false); assert.ok(Number.isSafeInteger(tabId));
   assert.equal(observation.tabs.filter(row => row.id === tabId).length, 1, "Expected exactly one current native tab");
@@ -187,6 +254,16 @@ export function assertManagedRestartDefaultEmpty(observation, oldURLs) {
   assert.deepEqual(observation.tabs.filter(row => old.has(row.url) || old.has(row.pendingUrl)), [], "Default run restored an old task tab");
   assert.deepEqual(observation.targets.filter(row => old.has(row.url)), [], "Default run restored an old task target");
   return { restoredTaskTabs: 0, restoredTaskTargets: 0 };
+}
+
+export function assertManagedRestartRestoredDraft(document, draft, mode) {
+  assert.ok(["normal", "crash", "crash-established", "crash-authenticated"].includes(mode));
+  assert.equal(document.persistent, draft); assert.equal(document.memory, "未暂存");
+  assert.equal(typeof document.cookie, "string");
+  if (mode !== "crash-authenticated") assert.equal(document.cookie, draft, "Original mode still requires its newly written draft cookie");
+  return { persistent: document.persistent, memory: document.memory, draftCookie: document.cookie,
+    newDraftCookiePreserved: document.cookie === draft, newDraftCookieRequired: mode !== "crash-authenticated",
+    scope: mode === "crash-authenticated" ? "New draft cookie is an observation only; authenticated recovery separately requires the previously established HttpOnly login." : "Original draft, cookie and memory assertions unchanged." };
 }
 
 export function assertManagedRestartCrashTerminal(life, info, evidence) {
@@ -264,7 +341,9 @@ export function assertManagedRestartCrashTerminal(life, info, evidence) {
 // Access failure (including chrome-error pages) is retained by the caller.
 export function readManagedRestartDocument() {
   const text = selector => document.querySelector(selector)?.textContent ?? null;
+  let cookieNames = null;
+  try { cookieNames = document.cookie.split(";").map(pair => pair.trim().split("=", 1)[0]).filter(Boolean); } catch { /* Browser-owned error pages may deny cookie reads. */ }
   return { url: location.href, title: document.title, visibility: document.visibilityState, hasFocus: document.hasFocus(),
     documentInstance: text("#document-instance"), persistent: text("#persistent-status"), cookie: text("#cookie-status"), memory: text("#memory-status"),
-    receiptText: text("#receipt-json"), body: document.body?.innerText.slice(0, 12000) ?? null };
+    serverAuthText: text("#server-auth-json"), cookieNames, receiptText: text("#receipt-json"), body: document.body?.innerText.slice(0, 12000) ?? null };
 }

@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium as playwrightChromium } from "playwright";
 import { createManagedBrowserRestartFixture, managedBrowserRestartURLs } from "./managed-browser-restart-fixture.mjs";
-import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, readManagedRestartDocument } from "./managed-browser-restart-support.mjs";
+import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, assertManagedRestartRestoredDraft, assertManagedRestartAuthenticationSeed, assertManagedRestartAuthenticatedPostLedger, assertManagedRestartAuthentication, readManagedRestartDocument } from "./managed-browser-restart-support.mjs";
 import { observeManagedWorkflowViewer } from "./managed-workflow-viewer.mjs";
 import { installManagedResearchObservation, managedResearchObservationDelta } from "./managed-research-support.mjs";
 import { createRecordedAgentSDK } from "./recorded-agent-sdk.mjs";
@@ -34,8 +34,8 @@ async function treeHashes(root) {
 }
 
 export async function runManagedBrowserRestartCheck({ mode = "normal" } = {}) {
-  assert.equal(process.platform, "win32"); assert.ok(["normal", "crash", "crash-established", "default"].includes(mode));
-  const establishedProfile = mode === "crash-established", crashOriginal = mode === "crash" || establishedProfile;
+  assert.equal(process.platform, "win32"); assert.ok(["normal", "crash", "crash-established", "crash-authenticated", "default"].includes(mode));
+  const authenticatedProfile = mode === "crash-authenticated", establishedProfile = mode === "crash-established" || authenticatedProfile, crashOriginal = mode === "crash" || establishedProfile;
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   const observerBinary = process.env.OBU_TEST_OBSERVER_BINARY, observerBuild = process.env.OBU_TEST_OBSERVER_BUILD_REPORT, hostValidation = process.env.OBU_TEST_HOST_VALIDATION;
   for (const file of [executable, chromium, extension, observerBinary, observerBuild, hostValidation]) { assert.ok(typeof file === "string" && path.isAbsolute(file), "Explicit build/browser/observer inputs and fresh host validation are required"); await fs.access(file); }
@@ -43,11 +43,11 @@ export async function runManagedBrowserRestartCheck({ mode = "normal" } = {}) {
   const runDir = await fs.mkdtemp(path.join(repo, `.tmp/browser-integration/mbr-${mode[0]}-`)), root = path.join(runDir, "r"), name = "n", viewerProfile = path.join(runDir, "v");
   const scenarioId = `restart-${mode}-${randomUUID().slice(0, 8)}`, draft = `persistent-${randomUUID()}`, memoryDraft = `memory-${randomUUID()}`, followupNote = `followup-${randomUUID()}`;
   const report = { runDir, mode, scenarioId, startedAt: Date.now(), steps: [], commands: [], probes: [], generations: [], denials: [], processObservations: [], cleanup: {}, cleanupErrors: [], unexpectedRequests: [],
-    scope: "Two task generations in one dedicated profile. crash-established additionally establishes that profile through generation 0 blank managed run/Stop, then requires a read-only observed native Crashed preference checkpoint before the original Browser.crash. It does not cover fresh profiles before preference persistence. Original SDK GET work, three one-shot POST reports, finalize and real viewer; exact Browser exit, explicit native restore, new run/SDK/turn and explicit claim for one independent follow-up POST. default mode observes the original no-restore gap without claiming recovery.",
+    scope: "Two task generations in one dedicated profile. crash-established additionally establishes that profile through generation 0 blank managed run/Stop, then requires a read-only observed native Crashed preference checkpoint before the original Browser.crash. It does not cover fresh profiles before preference persistence. crash-authenticated independently establishes one synthetic persistent HttpOnly login through generation 0 native form/normal Stop and verifies that same login at the server in A and restored B; the newly written draft cookie is only an observation in this separate mode. Original SDK GET work, three one-shot POST reports, finalize and real viewer; exact Browser exit, explicit native restore, new run/SDK/turn and explicit claim for one independent follow-up POST. default mode observes the original no-restore gap without claiming recovery.",
     limits: "Windows fixed Chromium synthetic site only. Native restored page is a new document, never the original Document or task grant. Cache and no-store POST outcomes are recorded without a navigation or resubmission repair. No offline snapshot recovery, real account, pending input, unknown transaction recovery, cross-platform or Codex parity claim. Native tab/focus observer starts after each managed startup and ends before its shutdown; OS observation spans both runs. CIM is supplemental and non-atomic; original manager lifecycle/Job/process receipts remain authoritative." };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
-  const registry = new Set(), generations = []; let viewerProcess, viewerBrowser, viewerContext, osObserver, osHandle, osWriteError, osWrites = Promise.resolve(), fixtureWriteError, fixtureWrites = Promise.resolve();
-  const fixture = createManagedBrowserRestartFixture({ changed() { const bytes = JSON.stringify(fixture.allStats(), null, 2); fixtureWrites = fixtureWrites.then(() => fs.writeFile(path.join(runDir, "server-evidence.json"), bytes)).catch(error => { fixtureWriteError ??= error; }); } });
+  const registry = new Set(), generations = []; let originalAuthentication, viewerProcess, viewerBrowser, viewerContext, osObserver, osHandle, osWriteError, osWrites = Promise.resolve(), fixtureWriteError, fixtureWrites = Promise.resolve();
+  const fixture = createManagedBrowserRestartFixture({ authenticated: authenticatedProfile, changed() { const bytes = JSON.stringify(fixture.allStats(), null, 2); fixtureWrites = fixtureWrites.then(() => fs.writeFile(path.join(runDir, "server-evidence.json"), bytes)).catch(error => { fixtureWriteError ??= error; }); } });
   const server = createServer((request, response) => { if (!fixture.handle(request, response, server.address().port)) { report.unexpectedRequests.push({ method: request.method, url: request.url, at: Date.now() }); request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 4 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) { const result = await launch(executable, args, { timeoutMs: args[1] === "stop" ? 55000 : 45000 }).completed; assert.equal(result.code, expected, redact(result.stderr)); return result; }
@@ -170,6 +170,8 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
   }
   async function rejected(label, call) { const entry = { label, startedAt: Date.now() }; report.denials.push(entry); try { await call(); } catch (error) { entry.error = error.stack; entry.completedAt = Date.now(); assert.match(error.message, /OBU_SDK_BROWSER_DISCONNECTED/, "Original SDK must remain permanently bound to its ended connection"); entry.rejected = true; return entry; } throw Error(`${label} unexpectedly succeeded`); }
   async function publicRead(tab) { return tab.evaluate(`(${readManagedRestartDocument.toString()})()`); }
+  const postLedger = (stats, followups) => authenticatedProfile ? assertManagedRestartAuthenticatedPostLedger(stats, fixture.rejectedStats(), report.unexpectedRequests, followups, originalAuthentication) : assertManagedRestartPostLedger(stats, fixture.rejectedStats(), report.unexpectedRequests, followups);
+  const authentication = (g, document) => assertManagedRestartAuthentication(document, fixture.stats(scenarioId), originalAuthentication, g.detail.startedAt);
   async function connectSDK(g, label) { g.recorder = await createRecordedAgentSDK({ sdkPath: path.join(runDir, "sdk-input/index.js"), directory: path.join(runDir, `recording-${g.number}`) }); g.browser = await g.recorder.connect({ socketPath: g.info.socketPath, sessionId: `${scenarioId}-${label}`, turnId: `${label}-turn`, timeoutMs: 10000 }); g.detail.sdk = { sessionId: g.browser.client.sessionId, turnId: g.browser.client.turnId, backend: await g.browser.client.getInfo() }; return g.browser; }
 
   try {
@@ -187,10 +189,10 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       const listed = await launch("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", "cmd", "internal", "apps/chrome-extension", "packages/open-browser-use-js", "scripts/browser-integration", "scripts/build-chrome-extension.mjs", ":(glob)scripts/patch-*.mjs", "go.mod", "go.sum", "pnpm-lock.yaml"], { timeoutMs: 15000 }).completed; assert.equal(listed.code, 0);
       for (const file of [...new Set(listed.stdout.trim().split(/\r?\n/))]) { inside(repo, path.resolve(repo, file)); const bytes = await fs.readFile(path.join(repo, file)); report.source.snapshot[file] = hash(bytes); const destination = path.join(runDir, "source-snapshot", file); await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.writeFile(destination, bytes, { flag: "wx" }); }
       await fs.cp(extension, path.join(runDir, "extension-input"), { recursive: true }); await fs.cp(path.join(repo, "packages/open-browser-use-js/dist"), path.join(runDir, "sdk-input"), { recursive: true });
-      await listenFixture(server); report.urls = managedBrowserRestartURLs(server.address().port, scenarioId); report.expected = { draft, memoryDraft, followupNote };
+      await listenFixture(server); report.urls = managedBrowserRestartURLs(server.address().port, scenarioId, { authenticated: authenticatedProfile }); report.expected = { draft, memoryDraft, followupNote };
     });
     let first, second, originalStats;
-    await step(establishedProfile ? "formal-blank-profile-establishment-stop-and-first-task-run" : "formal-first-managed-run-and-continuous-os-observation", async () => {
+    await step(authenticatedProfile ? "formal-authenticated-profile-establishment-stop-and-first-task-run" : establishedProfile ? "formal-blank-profile-establishment-stop-and-first-task-run" : "formal-first-managed-run-and-continuous-os-observation", async () => {
       osHandle = await fs.open(path.join(runDir, "windows-observation.jsonl"), "wx"); osObserver = await startWindowsObservation({ executable: observerBinary, sampleMs: 50, onRecord(record) { osWrites = osWrites.then(() => osHandle.write(JSON.stringify(record) + "\n")).catch(error => { osWriteError ??= error; }); } }); report.osReady = osObserver.ready;
       const startup = browserStartupOptions([`--user-data-dir=${viewerProfile}`, "--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "about:blank"], process.env.OBU_TEST_FIELD_TRIAL_CONFIG); report.viewerStartup = startup; viewerProcess = launch(chromium, startup.args);
       viewerBrowser = await bound(playwrightChromium.connectOverCDP((await endpoint(viewerProfile, viewerProcess)).url), 15000, "owned viewer browser connect"); viewerContext = await bound(viewerBrowser.newContext({ viewport: { width: 1280, height: 1000 } }), 10000, "owned viewer context");
@@ -200,11 +202,29 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         assert.equal(seed.detail.initialObservation.tabs.length, 1); assert.equal(seed.detail.initialObservation.tabs[0].url, "about:blank");
         seed.detail.blankTarget = assertManagedRestartNativeTarget(seed.detail.initialObservation, seed.detail.initialObservation.tabs[0].id);
         assert.equal(seed.detail.blankTarget.url, "about:blank"); assert.equal(seed.detail.initialViewerState.tabs.length, 1); assert.equal(seed.detail.initialViewerState.tabs[0].kind, "browser"); assert.equal(seed.detail.initialViewerState.tabs[0].url, "about:blank");
+        if (authenticatedProfile) {
+          await connectSDK(seed, "establish-login");
+          const login = await seed.browser.newTab({ url: report.urls.auth.login });
+          const token = await login.playwright.locator("#synthetic-login-token").textContent({ timeoutMs: 10000 }); assert.ok(typeof token === "string" && token.length > 0 && token.length <= 1000);
+          seed.detail.login = { tabId: login.id, tokenSHA256: hash(token), submittedAt: Date.now() };
+          await login.getByLabel("合成登录口令", { exact: true }).fill(token); await login.getByRole("button", { name: "建立合成登录", exact: true }).click();
+          seed.detail.login.document = await publicRead(login); assert.equal(seed.detail.login.document.url, report.urls.auth.check);
+          seed.detail.login.authentication = authentication(seed, seed.detail.login.document);
+          seed.detail.login.serverState = fixture.stats(scenarioId).auth; originalAuthentication = structuredClone(seed.detail.login.serverState);
+          seed.detail.login.postLedger = assertManagedRestartAuthenticationSeed(fixture.stats(scenarioId), fixture.rejectedStats(), report.unexpectedRequests);
+          seed.detail.login.finalize = await seed.browser.client.finalizeTabs([]);
+          assert.equal(seed.detail.login.finalize.endedTurnId, seed.detail.sdk.turnId);
+          seed.detail.afterLoginFinalize = await snapshot(seed, "login-finalized-before-profile-stop");
+          assert.deepEqual(seed.detail.afterLoginFinalize.tabs.map(tab => ({ id: tab.id, url: tab.url })), [{ id: seed.detail.initialObservation.tabs[0].id, url: "about:blank" }]);
+          assert.equal(assertManagedRestartNativeTarget(seed.detail.afterLoginFinalize, seed.detail.initialObservation.tabs[0].id).id, seed.detail.blankTarget.id);
+          seed.detail.afterLoginViewer = await seed.viewer.refresh(); assert.equal(seed.detail.afterLoginViewer.tabs.length, 1); assert.equal(seed.detail.afterLoginViewer.tabs[0].kind, "browser"); assert.equal(seed.detail.afterLoginViewer.tabs[0].url, "about:blank");
+        }
         await seed.page.close(); await seed.viewer.settle(); seed.detail.viewerPageClosedBeforeStop = seed.page.isClosed(); assert.equal(seed.detail.viewerPageClosedBeforeStop, true);
         await stopGeneration(seed);
         seed.detail.establishedPreferences = await readManagedRestartPreferences(path.join(seed.info.profileDir, "Default/Preferences"));
         assert.equal(seed.detail.establishedPreferences.exists, true); assert.equal(seed.detail.establishedPreferences.exitType, "Normal");
-        assert.deepEqual(fixture.allStats(), []); assert.deepEqual(fixture.rejectedStats().requests, []); assert.deepEqual(report.unexpectedRequests, []);
+        if (authenticatedProfile) { seed.detail.authenticatedSeed = assertManagedRestartAuthenticationSeed(fixture.stats(scenarioId), fixture.rejectedStats(), report.unexpectedRequests); assert.deepEqual(fixture.stats(scenarioId).auth.receipt, originalAuthentication.receipt); }
+        else { assert.deepEqual(fixture.allStats(), []); assert.deepEqual(fixture.rejectedStats().requests, []); assert.deepEqual(report.unexpectedRequests, []); }
         seed.detail.businessRequests = 0; established = seed;
       }
       first = await startGeneration(1, false);
@@ -213,6 +233,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     });
     await step("original-sdk-work-three-posts-finalize-and-view", async () => {
       const work = await first.browser.newTab({ url: report.urls.work }); first.work = work; first.oldLocator = work.getByLabel("持久草稿", { exact: true });
+      if (authenticatedProfile) { first.detail.authenticatedBeforeBusiness = { document: await publicRead(work) }; assert.equal(first.detail.authenticatedBeforeBusiness.document.url, report.urls.work); first.detail.authenticatedBeforeBusiness.authentication = authentication(first, first.detail.authenticatedBeforeBusiness.document); }
       await first.oldLocator.fill(draft); await work.getByRole("button", { name: "保存浏览器草稿", exact: true }).click();
       await work.getByLabel("内存草稿", { exact: true }).fill(memoryDraft); await work.getByRole("button", { name: "暂存内存草稿", exact: true }).click();
       first.detail.work = { kind: "work", tabId: work.id, publicBefore: await publicRead(work), before: await observeDocument(first, work.id) }; assert.equal(first.detail.work.publicBefore.persistent, draft); assert.equal(first.detail.work.publicBefore.cookie, draft); assert.equal(first.detail.work.publicBefore.memory, memoryDraft);
@@ -224,7 +245,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         first.detail.reports.push({ kind, tabId: tab.id, receipt, before: await observeDocument(first, tab.id) });
       }
       originalStats = fixture.stats(scenarioId); first.detail.originalStats = originalStats;
-      first.detail.postLedger = assertManagedRestartPostLedger(originalStats, fixture.rejectedStats(), report.unexpectedRequests, 0);
+      first.detail.postLedger = postLedger(originalStats, 0);
       for (const item of first.detail.reports) assert.deepEqual(item.receipt, originalStats.receipts[item.kind], "Original live DOM receipt must equal its original server receipt");
       first.detail.finalize = await first.browser.client.finalizeTabs([work.id, ...first.detail.reports.map(value => value.tabId)].map(tabId => ({ tabId, status: "deliverable" })));
       first.detail.afterFinalize = await snapshot(first, "after-finalize");
@@ -273,13 +294,14 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         }
         if (["cache", "no-store"].includes(item.kind) && !row.read) await observeRawErrorPage(second, row);
       }
-      assertManagedRestartOriginalPosts(fixture.stats(scenarioId), originalStats); second.detail.restoredPostLedger = assertManagedRestartPostLedger(fixture.stats(scenarioId), fixture.rejectedStats(), report.unexpectedRequests, 0);
+      assertManagedRestartOriginalPosts(fixture.stats(scenarioId), originalStats); second.detail.restoredPostLedger = postLedger(fixture.stats(scenarioId), 0);
       second.detail.rawPostOutcome = second.detail.restoredDocuments.filter(row => ["cache", "no-store"].includes(row.kind));
     });
     await step(mode === "default" ? "default-no-restore-observation-only" : "explicit-resume-fresh-sdk-claim-and-independent-followup", async () => {
       if (mode === "default") { assert.ok(second.detail.restoredDocuments.every(row => row.candidates.length === 0), "Default run unexpectedly restored a task page"); report.defaultGap = { observed: true, restoredTaskPages: 0, recoveryClaimed: false, initial: assertManagedRestartDefaultEmpty(second.detail.beforeNewWork, second.detail.restoredDocuments.map(row => row.expectedURL)) }; return; }
       const work = second.detail.restoredDocuments.find(row => row.kind === "work"), prg = second.detail.restoredDocuments.find(row => row.kind === "prg"); assert.equal(work.candidates.length, 1); assert.equal(prg.candidates.length, 1);
-      assert.ok(work.read && prg.read, "Restored GET pages must have actual readable documents"); assert.notEqual(work.read.documentId, first.detail.work.before.documentId); assert.notEqual(prg.read.documentId, first.detail.reports.find(row => row.kind === "prg").before.documentId); assert.notEqual(work.read.documentInstance, first.detail.work.before.documentInstance); assert.equal(work.read.persistent, draft); assert.equal(work.read.cookie, draft); assert.equal(work.read.memory, "未暂存"); assert.deepEqual(JSON.parse(prg.read.receiptText), first.detail.reports.find(row => row.kind === "prg").receipt);
+      assert.ok(work.read && prg.read, "Restored GET pages must have actual readable documents"); assert.notEqual(work.read.documentId, first.detail.work.before.documentId); assert.notEqual(prg.read.documentId, first.detail.reports.find(row => row.kind === "prg").before.documentId); assert.notEqual(work.read.documentInstance, first.detail.work.before.documentInstance); second.detail.restoredDraft = assertManagedRestartRestoredDraft(work.read, draft, mode); assert.deepEqual(JSON.parse(prg.read.receiptText), first.detail.reports.find(row => row.kind === "prg").receipt);
+      if (authenticatedProfile) second.detail.authenticatedRestored = { work: authentication(second, work.read), prg: authentication(second, prg.read) };
       const current = await second.viewer.refresh(); assert.equal(current.status.state, "paused", "Original explicit Pause must survive native restart");
       second.detail.resume = await uiControl(second, "resume"); assert.equal(second.detail.resume.result.status.state, "running");
       await connectSDK(second, "after-restart"); second.detail.explicitTurn = await second.browser.client.beginTurn("explicit-after-browser-restart"); second.detail.ownedBeforeClaim = await second.browser.getTabs(); assert.deepEqual(second.detail.ownedBeforeClaim, []);
@@ -288,9 +310,11 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       for (const row of [work, prg]) { second.detail.claims.push({ kind: row.kind, tabId: row.tabId, result: await second.browser.client.claimUserTab(row.tabId) }); }
       const freshWork = second.browser.tab(work.tabId), freshReport = second.browser.tab(prg.tabId); second.detail.publicWork = await publicRead(freshWork); second.detail.publicReceipt = JSON.parse(await freshReport.playwright.locator("#receipt-json").textContent({ timeoutMs: 10000 }));
       assert.equal(second.detail.publicWork.persistent, draft); assert.deepEqual(second.detail.publicReceipt, first.detail.reports.find(row => row.kind === "prg").receipt);
+      if (authenticatedProfile) { second.detail.publicReportDocument = await publicRead(freshReport); second.detail.authenticatedPublic = { work: authentication(second, second.detail.publicWork), prg: authentication(second, second.detail.publicReportDocument) }; assert.deepEqual(second.detail.authenticatedPublic.work.proof, second.detail.authenticatedRestored.work.proof); assert.deepEqual(second.detail.authenticatedPublic.prg.proof, second.detail.authenticatedRestored.prg.proof); }
       await rejected("old SDK still disconnected after fresh claim", () => first.work.domSnapshot({ timeoutMs: 1500 }));
       await freshWork.getByLabel("原报告回执", { exact: true }).fill(second.detail.publicReceipt.receiptId); await freshWork.getByLabel("后续说明", { exact: true }).fill(followupNote); await freshWork.getByRole("button", { name: "提交后续操作", exact: true }).click();
       second.detail.followupReceipt = JSON.parse(await freshWork.playwright.locator("#receipt-json").textContent({ timeoutMs: 10000 })); assert.deepEqual(second.detail.followupReceipt, assertManagedRestartFollowup(fixture.stats(scenarioId), second.detail.publicReceipt, followupNote)); assertManagedRestartOriginalPosts(fixture.stats(scenarioId), originalStats);
+      if (authenticatedProfile) { second.detail.followupDocument = await publicRead(freshWork); assert.equal(second.detail.followupDocument.url, report.urls.followupReport); second.detail.authenticatedFollowup = authentication(second, second.detail.followupDocument); assert.deepEqual(JSON.parse(second.detail.followupDocument.receiptText), second.detail.followupReceipt); second.detail.followupPostLedger = postLedger(fixture.stats(scenarioId), 1); }
       second.detail.finalize = await second.browser.client.finalizeTabs([work.tabId, prg.tabId].map(tabId => ({ tabId, status: "deliverable" })));
       second.detail.deliveries = [];
       for (const [tabId, label] of [[work.tabId, "after-followup"], [prg.tabId, "after-original-report"]]) { second.detail.deliveries.push(await second.viewer.select(tabId, "result")); await second.viewer.capture({ tabId, kind: "result", label }); await second.viewer.deselect(); }
@@ -299,7 +323,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     });
     await step("formal-second-stop-and-final-resources", async () => {
       await stopGeneration(second); assertManagedRestartOriginalPosts(fixture.stats(scenarioId), originalStats);
-      report.finalPostLedger = assertManagedRestartPostLedger(fixture.stats(scenarioId), fixture.rejectedStats(), report.unexpectedRequests, mode === "default" ? 0 : 1); assert.equal(fixture.allStats().length, 1);
+      report.finalPostLedger = postLedger(fixture.stats(scenarioId), mode === "default" ? 0 : 1); assert.equal(fixture.allStats().length, 1);
       if (mode === "default") report.defaultGap.final = assertManagedRestartDefaultEmpty(second.detail.nativeObserverStopped, second.detail.restoredDocuments.map(row => row.expectedURL));
     });
   } catch (error) { report.error = error.stack ?? String(error); console.error(redact(report.error)); }
