@@ -1,0 +1,22 @@
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_831b9922c938e9 60-61,63-65,68-71
+docs/histories/2026-10/20261023-1130-managed-restart-preview.md
+  s_08bbfd293d324f::t_831b9922c938e9 99-118,121
+  s_08bbfd293d324f::t_05709674b42476 119-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "44ed39ca9e01f4c6476de2d1fbe331950b270308",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
