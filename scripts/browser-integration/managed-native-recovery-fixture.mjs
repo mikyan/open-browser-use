@@ -5,12 +5,16 @@ const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 export const recoveryBeforeNote = "before-native-loss";
 export const recoveryAfterNote = " recovered-人工π";
 
-// Exactly one real business request; result-note/review gestures never submit.
+// By default exactly one business request; note/review gestures never submit.
+// Continuation explicitly opts into one separate, receipt-bound confirmation.
 // Hidden observation data cannot change the original viewport's scrollbars.
-export function createManagedNativeRecoveryFixture() {
+export function createManagedNativeRecoveryFixture({ continuation = false } = {}) {
+  assert.equal(typeof continuation, "boolean");
   const workflowId = randomUUID(), draft = `original-${randomUUID()}`;
   const paths = { form: "/managed-recovery-form", receipt: "/managed-recovery-receipt" };
-  const requests = []; let originalToken = null, committed = false, overflow = false;
+  if (continuation) paths.followup = "/managed-recovery-followup";
+  const expectedNote = recoveryAfterNote;
+  const requests = []; let originalToken = null, committed = false, overflow = false, originalReceipt = null, followupCommitted = false;
   const reply = (response, hit, status, body, contentType = "application/json; charset=utf-8") => {
     const data = Buffer.from(body);
     Object.assign(hit, { status, response: { bytes: data.length, sha256: hash(data), base64: data.toString("base64") } });
@@ -28,43 +32,58 @@ export function createManagedNativeRecoveryFixture() {
       request.resume();
       if (originalToken !== null) { reply(response, hit, 409, '{"error":"original document cannot be recreated"}'); return true; }
       originalToken = randomUUID(); hit.documentToken = originalToken;
+      const continuationMarkup = continuation ? `<section aria-label="Continue reviewed result"><h2 style="font-size:18px;margin:8px 0 4px">Continue this result</h2><p style="font-size:15px;margin:4px 0">After recovery, add a result note and mark it reviewed. Confirm the reviewed result once.</p><form id="continuation-form"><button id="confirm-review" type="submit" disabled>Confirm reviewed result</button></form><output id="continuation-receipt">No follow-up receipt yet</output></section>` : "";
+      const continuationRender = continuation ? `;document.querySelector('#confirm-review').disabled=!(state.receipt?.ok&&document.querySelector('#note').value===${JSON.stringify(expectedNote)}&&state.reviews.length===1&&state.reviews[0].trusted&&state.continuation.submits===0)` : "";
+      const continuationScript = continuation ? `
+document.querySelector('#continuation-form').addEventListener('submit',async e=>{e.preventDefault();state.continuation.submits++;const values={workflowId:state.workflowId,documentToken:state.documentToken,originalReceiptId:state.receipt?.receiptId??'',draftSHA256:state.receipt?.draftSHA256??'',note:document.querySelector('#note').value,reviews:String(state.reviews.length),reviewTrusted:String(state.reviews.length===1&&state.reviews[0].trusted),submits:String(state.continuation.submits),trusted:String(e.isTrusted)};state.continuation.events.push({type:e.type,target:e.target.id,trusted:e.isTrusted,eventIndex:state.events.length,fields:values});render();const r=await fetch(${JSON.stringify(paths.followup)},{method:'POST',body:new URLSearchParams(values)});state.continuation.receipt=await r.json();document.querySelector('#continuation-receipt').textContent=state.continuation.receipt.ok?'Reviewed receipt '+state.continuation.receipt.receiptId:'Follow-up failed';render()});` : "";
       const html = `<!doctype html><meta charset="utf-8"><title>Original delivered recovery result</title>
 <style>html{overflow:hidden}body{font:17px sans-serif;margin:16px;background:#edf5ff;color:#14283b}h1{font-size:22px;margin:0 0 10px}label{display:block;margin:6px 0}input{box-sizing:border-box;font:17px sans-serif;width:650px;max-width:95%;padding:5px}button{font:16px sans-serif;margin:6px 0;padding:6px}#receipt{display:block;white-space:normal;overflow-wrap:anywhere}#state{display:none}</style>
 <h1>Original delivered result</h1><form id="form"><label>Original draft<input id="draft" autocomplete="off"></label><button id="submit" type="submit">Commit once</button></form>
-<output id="receipt">No business receipt yet</output><label>Result note<input id="note" autocomplete="off"></label><button id="review" type="button">Mark result reviewed</button><span id="review-count">0 reviews</span><pre id="state"></pre>
+<output id="receipt">No business receipt yet</output><label>Result note<input id="note" autocomplete="off"></label><button id="review" type="button">Mark result reviewed</button><span id="review-count">0 reviews</span><pre id="state"></pre>${continuationMarkup}
 <script>
-const state={workflowId:${JSON.stringify(workflowId)},documentToken:${JSON.stringify(originalToken)},submits:0,receipt:null,reviews:[],events:[],overflow:false,heldKeys:[],heldButtons:[]};
-const render=()=>{document.querySelector('#state').textContent=JSON.stringify(state);document.querySelector('#review-count').textContent=state.reviews.length+' reviews'};
+const state={workflowId:${JSON.stringify(workflowId)},documentToken:${JSON.stringify(originalToken)},submits:0,receipt:null,reviews:[],events:[],overflow:false,heldKeys:[],heldButtons:[]${continuation ? ",continuation:{submits:0,receipt:null,events:[]}" : ""}};
+const render=()=>{document.querySelector('#state').textContent=JSON.stringify(state);document.querySelector('#review-count').textContent=state.reviews.length+' reviews'${continuationRender}};
 const record=e=>{if(state.events.length>=256){state.overflow=true;render();return}const v={type:e.type,target:e.target?.id??'',trusted:e.isTrusted};if(e.type==='input'){v.inputType=e.inputType;v.data=e.data}if(e.type.startsWith('key')){v.key=e.key;v.code=e.code;if(e.type==='keydown'&&!state.heldKeys.includes(e.code))state.heldKeys.push(e.code);if(e.type==='keyup')state.heldKeys=state.heldKeys.filter(x=>x!==e.code)}if(e.type==='mousedown'){v.button=e.button;if(!state.heldButtons.includes(e.button))state.heldButtons.push(e.button)}if(e.type==='mouseup'){v.button=e.button;state.heldButtons=state.heldButtons.filter(x=>x!==e.button)}state.events.push(v);render()};
 for(const name of ['keydown','keyup','mousedown','mouseup','input'])document.addEventListener(name,record,{capture:true,passive:true});
 document.querySelector('#review').addEventListener('click',e=>{state.reviews.push({trusted:e.isTrusted,sequence:state.reviews.length+1});render()});
-document.querySelector('#form').addEventListener('submit',async e=>{e.preventDefault();state.submits++;document.querySelector('#submit').disabled=true;render();const body=new URLSearchParams({workflowId:state.workflowId,documentToken:state.documentToken,draft:document.querySelector('#draft').value,submits:String(state.submits),trusted:String(e.isTrusted)});const r=await fetch(${JSON.stringify(paths.receipt)},{method:'POST',body});state.receipt=await r.json();document.querySelector('#receipt').textContent=state.receipt.ok?'Original receipt '+state.receipt.receiptId:'Business failed';render()});render();
+document.querySelector('#form').addEventListener('submit',async e=>{e.preventDefault();state.submits++;document.querySelector('#submit').disabled=true;render();const body=new URLSearchParams({workflowId:state.workflowId,documentToken:state.documentToken,draft:document.querySelector('#draft').value,submits:String(state.submits),trusted:String(e.isTrusted)});const r=await fetch(${JSON.stringify(paths.receipt)},{method:'POST',body});state.receipt=await r.json();document.querySelector('#receipt').textContent=state.receipt.ok?'Original receipt '+state.receipt.receiptId:'Business failed';render()});${continuationScript}render();
 </script>`;
       reply(response, hit, 200, html, "text/html; charset=utf-8"); return true;
     }
-    if (request.method !== "POST" || url.pathname !== paths.receipt) { request.resume(); reply(response, hit, 405, '{"error":"method"}'); return true; }
+    const followup = continuation && url.pathname === paths.followup;
+    if (request.method !== "POST" || (url.pathname !== paths.receipt && !followup)) { request.resume(); reply(response, hit, 405, '{"error":"method"}'); return true; }
     const chunks = []; let size = 0;
     request.on("data", data => { size += data.length; if (size <= 8192) chunks.push(data); }); request.once("aborted", () => { hit.requestAborted = true; });
     request.once("end", () => {
       const data = Buffer.concat(chunks), fields = new URLSearchParams(data.toString());
       hit.body = { bytes: size, sha256: hash(data), base64: data.toString("base64"), truncated: size > 8192 };
-      const names = ["workflowId", "documentToken", "draft", "submits", "trusted"];
+      const names = followup ? ["workflowId", "documentToken", "originalReceiptId", "draftSHA256", "note", "reviews", "reviewTrusted", "submits", "trusted"] : ["workflowId", "documentToken", "draft", "submits", "trusted"];
       if (size > 8192 || names.some(name => fields.getAll(name).length !== 1) || [...fields.keys()].some(name => !names.includes(name))) { reply(response, hit, 400, '{"error":"fields"}'); return; }
       hit.originalDocument = originalToken !== null && fields.get("documentToken") === originalToken;
+      if (followup) {
+        if (!committed || !originalReceipt) { reply(response, hit, 409, '{"error":"original receipt required"}'); return; }
+        if (!hit.originalDocument || fields.get("workflowId") !== workflowId || fields.get("originalReceiptId") !== originalReceipt.receiptId || fields.get("draftSHA256") !== originalReceipt.draftSHA256 || fields.get("note") !== expectedNote || fields.get("reviews") !== "1" || fields.get("reviewTrusted") !== "true" || fields.get("submits") !== "1" || fields.get("trusted") !== "true") { reply(response, hit, 400, '{"error":"original reviewed result required"}'); return; }
+        if (followupCommitted) { reply(response, hit, 409, '{"error":"follow-up consumed"}'); return; }
+        followupCommitted = true; hit.once = true;
+        hit.receipt = { ok: true, workflowId, documentToken: originalToken, receiptId: randomUUID(), originalReceiptId: originalReceipt.receiptId, draftSHA256: originalReceipt.draftSHA256, note: expectedNote, reviews: 1 };
+        reply(response, hit, 200, JSON.stringify(hit.receipt)); return;
+      }
       if (!hit.originalDocument || fields.get("workflowId") !== workflowId || fields.get("draft") !== draft || fields.get("submits") !== "1" || fields.get("trusted") !== "true") { reply(response, hit, 400, '{"error":"original one-shot form required"}'); return; }
       if (committed) { reply(response, hit, 409, '{"error":"receipt consumed"}'); return; }
       committed = true; hit.once = true;
       hit.receipt = { ok: true, workflowId, documentToken: originalToken, receiptId: randomUUID(), draftSHA256: hash(draft) };
+      originalReceipt = hit.receipt;
       reply(response, hit, 200, JSON.stringify(hit.receipt));
     }); return true;
   }
-  return { handle, paths, workflowId, draft, stats: () => structuredClone({ workflowId, originalToken, committed, overflow, requests }) };
+  return { handle, paths, workflowId, draft, ...(continuation ? { expectedNote } : {}), stats: () => structuredClone({ workflowId, originalToken, committed, overflow, requests, ...(continuation ? { continuation, expectedNote, followupCommitted } : {}) }) };
 }
 
 export function readManagedNativeRecoveryDocument() {
   const state = JSON.parse(document.getElementById("state")?.textContent ?? "null");
   const rectangle = id => { const r = document.getElementById(id)?.getBoundingClientRect(); return r && { x: r.x, y: r.y, width: r.width, height: r.height }; };
   return { state, title: document.title, url: location.href, draft: document.getElementById("draft")?.value, note: document.getElementById("note")?.value, receiptText: document.getElementById("receipt")?.textContent,
+    ...(state?.continuation ? { continuationReceiptText: document.getElementById("continuation-receipt")?.textContent, confirmDisabled: document.getElementById("confirm-review")?.disabled } : {}),
     viewport: { width: innerWidth, height: innerHeight, clientWidth: document.documentElement.clientWidth, clientHeight: document.documentElement.clientHeight, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight, scrollX, scrollY },
     boxes: Object.fromEntries(["note", "review"].map(id => [id, rectangle(id)])) };
 }
@@ -83,4 +102,38 @@ export function assertManagedNativeRecoveryReceipt(stats, original, current) {
   assert.deepEqual(JSON.parse(Buffer.from(post.response.base64, "base64")), current.state.receipt); assert.deepEqual(post.receipt, current.state.receipt);
   for (const hit of stats.requests) { assert.equal(hit.finished, true); assert.equal(hit.aborted, false); assert.deepEqual(hit.errors, []); }
   return { originalDocument: current.documentId, documentToken: current.state.documentToken, gets: gets.length, posts: posts.length, receipt: post.receipt, originalBytes: post.body, originalResponseBytes: post.response };
+}
+
+// This verifies the extra business request, not worker/SDK/authority recovery.
+// The runner must separately retain End/Resume/new claim and actual Stop proof.
+export function assertManagedNativeRecoveryContinuationReceipt(stats, original, current) {
+  assert.equal(stats.continuation, true); assert.equal(stats.followupCommitted, true); assert.equal(stats.expectedNote, recoveryAfterNote);
+  assert.deepEqual(stats.requests.map(hit => [hit.sequence, hit.method, hit.path]), [
+    [1, "GET", "/managed-recovery-form"], [2, "POST", "/managed-recovery-receipt"], [3, "POST", "/managed-recovery-followup"],
+  ], "One original document and exactly one POST for each business operation are required");
+  assert.equal(typeof original.documentId, "string"); assert.ok(original.documentId.length);
+  const initial = assertManagedNativeRecoveryReceipt({ ...stats, requests: stats.requests.slice(0, 2) }, original, current);
+  assert.equal(current.state.workflowId, stats.workflowId); assert.equal(initial.receipt.workflowId, stats.workflowId);
+  assert.equal(initial.receipt.draftSHA256, hash(current.draft));
+  assert.equal(current.note, stats.expectedNote); assert.deepEqual(current.state.reviews, [{ trusted: true, sequence: 1 }]);
+  assert.equal(current.state.continuation.submits, 1); assert.equal(current.confirmDisabled, true);
+  assert.equal(current.state.continuation.events.length, 1);
+  const event = current.state.continuation.events[0];
+  assert.equal(event.type, "submit"); assert.equal(event.target, "continuation-form"); assert.equal(event.trusted, true);
+  assert.ok(Number.isInteger(event.eventIndex) && event.eventIndex > 0 && event.eventIndex <= current.state.events.length);
+  const noteInputs = current.state.events.slice(0, event.eventIndex).filter(value => value.type === "input" && value.target === "note");
+  assert.ok(noteInputs.length > 0, "The human note must have original input evidence before confirmation"); assert.ok(noteInputs.every(value => value.trusted === true));
+  const post = stats.requests[2];
+  assert.equal(post.status, 200); assert.equal(post.once, true); assert.equal(post.originalDocument, true); assert.equal(post.body.truncated, false);
+  for (const evidence of [post.body, post.response]) { const data = Buffer.from(evidence.base64, "base64"); assert.equal(data.length, evidence.bytes); assert.equal(hash(data), evidence.sha256); }
+  const fields = new URLSearchParams(Buffer.from(post.body.base64, "base64").toString());
+  const expected = { workflowId: stats.workflowId, documentToken: original.state.documentToken, originalReceiptId: initial.receipt.receiptId, draftSHA256: initial.receipt.draftSHA256, note: stats.expectedNote, reviews: "1", reviewTrusted: "true", submits: "1", trusted: "true" };
+  assert.deepEqual([...fields.keys()].sort(), Object.keys(expected).sort()); assert.deepEqual(Object.fromEntries(fields), expected); assert.deepEqual(event.fields, expected);
+  const receipt = JSON.parse(Buffer.from(post.response.base64, "base64").toString());
+  assert.deepEqual(receipt, post.receipt); assert.deepEqual(receipt, current.state.continuation.receipt);
+  assert.equal(typeof receipt.receiptId, "string"); assert.ok(receipt.receiptId.length); assert.notEqual(receipt.receiptId, initial.receipt.receiptId);
+  assert.deepEqual(receipt, { ok: true, workflowId: stats.workflowId, documentToken: original.state.documentToken, receiptId: receipt.receiptId, originalReceiptId: initial.receipt.receiptId, draftSHA256: initial.receipt.draftSHA256, note: stats.expectedNote, reviews: 1 });
+  assert.equal(current.continuationReceiptText, `Reviewed receipt ${receipt.receiptId}`);
+  for (const hit of stats.requests) { assert.equal(hit.finished, true); assert.equal(hit.aborted, false); assert.deepEqual(hit.errors, []); }
+  return { originalDocument: current.documentId, documentToken: current.state.documentToken, gets: 1, posts: 2, initial, followup: { receipt, originalBytes: post.body, originalResponseBytes: post.response } };
 }

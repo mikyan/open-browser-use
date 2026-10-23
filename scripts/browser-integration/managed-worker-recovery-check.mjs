@@ -1,5 +1,5 @@
 // One service-worker stop/replacement in an owned Browser; independent positive
-// and held-input modes. No page reload, business replay, adapter or OS input.
+// and held-input modes, plus explicit recovered Agent continuation. No page reload, business replay, adapter or OS input.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -7,7 +7,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium as playwrightChromium } from "playwright";
-import { createManagedNativeRecoveryFixture, readManagedNativeRecoveryDocument, assertManagedNativeRecoveryReceipt, recoveryAfterNote } from "./managed-native-recovery-fixture.mjs";
+import { createManagedNativeRecoveryFixture, readManagedNativeRecoveryDocument, assertManagedNativeRecoveryReceipt, assertManagedNativeRecoveryContinuationReceipt, recoveryAfterNote } from "./managed-native-recovery-fixture.mjs";
 import { projectNativeRecoveryLifecycle, assertNativeRecoveryExit, assertPublicPausedViewerCleanup, probeRejectedViewerToken, readRecommendedBrowserVersion, installManagedNativeRecoveryObserver } from "./managed-native-recovery-support.mjs";
 import { replaceOriginalWorker, assertWorkerExecutionEnded, assertWorkerReplacement, assertWorkerRecoveryReceipt, assertSameResultPlacement, assertHeldInputUnreleased, probeRetiredDelivery } from "./managed-worker-recovery-support.mjs";
 import { createManagedWorkerHeldFixture, readManagedWorkerHeldDocument, assertZeroBusinessHeldFixture } from "./managed-worker-recovery-fixture.mjs";
@@ -18,6 +18,8 @@ import { listenFixture } from "./fixture-listener.mjs";
 import { browserStartupOptions } from "./browser-startup.mjs";
 import { waitPrivateDevToolsEndpoint } from "./private-devtools-endpoint.mjs";
 import { observedProcessDescendants as descendants } from "./observed-process-descendants.mjs";
+
+import { workerRecoveryMode, assertRejectedContinuationUnchanged, probeEndedWorkerHumanLease } from "./managed-worker-continuation-support.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -33,7 +35,8 @@ async function treeHashes(root) {
 }
 
 export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
-  assert.ok(["result", "held-input"].includes(mode), "Worker recovery accepts only result or independent held-input mode");
+  assert.ok(["result", "held-input", "continuation"].includes(mode), "Worker recovery accepts result, held-input or continuation mode");
+  const positive = mode !== "held-input";
   assert.equal(process.platform, "win32");
   const executable = process.env.OBU_TEST_HOST_BINARY, chromium = process.env.OBU_TEST_CHROMIUM_BINARY, extension = process.env.OBU_TEST_EXTENSION_DIR;
   assert.ok(executable && chromium && extension, "Set explicit OBU_TEST_HOST_BINARY, OBU_TEST_CHROMIUM_BINARY, OBU_TEST_EXTENSION_DIR");
@@ -43,16 +46,16 @@ export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
   // Keep the owned Chromium profile shallow. The first long-path run failed
   // creating IndexedDB's 262-character MANIFEST path; the same frozen inputs
   // admitted the initial journal at 181 characters in a zero-business check.
-  const runDir = await fs.mkdtemp(path.join(repo, `.tmp/browser-integration/mwr-${mode === "result" ? "r" : "h"}-`));
+  const runDir = await fs.mkdtemp(path.join(repo, `.tmp/browser-integration/mwr-${mode === "continuation" ? "c" : mode === "result" ? "r" : "h"}-`));
   const root = path.join(runDir, "r"), name = "n", viewerProfile = path.join(runDir, "viewer-profile");
   const report = { runDir, mode, startedAt: Date.now(), commands: [], steps: [], cleanup: {}, frames: [], viewerCommands: [], viewerMessages: [], viewerActions: [], viewerDecodedFrames: [], viewerErrors: [], denied: [], business: {}, lifecycleSnapshots: [], unexpectedFixtureRequests: [],
-    scope: mode === "result" ? "One original synthetic POST and SDK finalize, actual active result-view stream during exact service-worker stop/start, explicit recovery with a new worker context and boot (target may be reused), fresh paused view/human on the same original result document without another POST." : "Independent zero-business original document: exactly acknowledged held Shift and pointer survive actual worker replacement; explicit recovery must refuse unknown input; only final formal Stop terminates the owned browser.",
+    scope: mode === "continuation" ? "Original SDK POST/finalize and active result view survive real worker replacement; explicit paused recovery, human note/review and actual End, real viewer Resume, fresh SDK/turn claim of the same original document, one distinct follow-up POST and final result-view decode before Stop. No original business replay." : mode === "result" ? "One original synthetic POST and SDK finalize, actual active result-view stream during exact service-worker stop/start, explicit recovery with a new worker context and boot (target may be reused), fresh paused view/human on the same original result document without another POST." : "Independent zero-business original document: exactly acknowledged held Shift and pointer survive actual worker replacement; explicit recovery must refuse unknown input; only final formal Stop terminates the owned browser.",
     limits: "No ordinary profile, extension reload, browser restart, real account, IME, SSO/MFA or arbitrary worker-down move-return history is tested. Current original tab position is compared before and after replacement. CIM is supplemental non-atomic observation; retained Go process/Job and exact execution/cleanup receipts remain authority." };
   const save = () => fs.writeFile(path.join(runDir, "results.json"), serialize(report));
   const registry = new Set(), frameWrites = [], screenshots = [];
-  let launcher, info, worker, rootObserver, serviceObserver, taskBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
+  let launcher, info, worker, rootObserver, serviceObserver, taskBrowser, continuedBrowser, viewerProcess, viewerBrowser, viewerContext, page, captureError, state, stopped = false;
   let oldTaskTab, oldTaskAuthority, original, beforeIdentity, oldViewerURL, finalLifecycleSaved = false, stopPromise, currentWorkerTargetId, managedEndpoint;
-  const fixture = mode === "result" ? createManagedNativeRecoveryFixture() : createManagedWorkerHeldFixture();
+  const fixture = positive ? createManagedNativeRecoveryFixture({ continuation: mode === "continuation" }) : createManagedWorkerHeldFixture();
   const server = createServer((request, response) => { if (!fixture.handle(request, response)) { report.unexpectedFixtureRequests.push({ method: request.method, url: request.url, at: Date.now() }); request.resume(); response.writeHead(404); response.end("NOT_FOUND"); } });
   const launch = (program, args, options = {}) => { const record = {}; report.commands.push(record); return managedProcess(program, args, { cwd: repo, registry, record, maximumBytes: 2 * 1024 * 1024, ...options }); };
   async function command(args, expected = 0) {
@@ -99,7 +102,7 @@ export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
     action.completedAt = Date.now(); return commands;
   }
   async function denied(label, operation, pattern) { const record = { label, at: Date.now() }; report.denied.push(record); try { await operation(); } catch (error) { record.error = error.stack; assert.match(error.message, pattern); record.verified = true; return; } throw new Error(`${label} unexpectedly succeeded`); }
-  const readDocument = mode === "result" ? readManagedNativeRecoveryDocument : readManagedWorkerHeldDocument;
+  const readDocument = positive ? readManagedNativeRecoveryDocument : readManagedWorkerHeldDocument;
   const documentRead = tabId => worker.evaluate(`chrome.scripting.executeScript({target:{tabId:${tabId}},func:${readDocument.toString()}}).then(results=>{if(results.length!==1)throw new Error('ambiguous root read');return {documentId:results[0].documentId,frameId:results[0].frameId,...results[0].result}})`);
   const nativeMap = tabId => worker.evaluate(`chrome.debugger.getTargets().then(items=>items.filter(item=>item.type==='page'&&item.tabId===${tabId}).map(item=>({id:item.id,tabId:item.tabId,type:item.type,attached:item.attached,url:item.url})))`);
   const placement = tabId => worker.evaluate(`chrome.tabs.get(${tabId}).then(tab=>({id:tab.id,windowId:tab.windowId,groupId:tab.groupId,pinned:tab.pinned}))`);
@@ -247,7 +250,9 @@ export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
     const value = await documentRead(oldTaskTab.id); assert.equal(value.documentId, original.documentId); assert.equal(value.state.documentToken, original.state.documentToken);
     assert.equal(value.draft, fixture.draft); assert.equal(value.state.submits, 1); assert.deepEqual(value.state.receipt, report.business.receipt);
     const targets = await nativeMap(oldTaskTab.id); assert.equal(targets.length, 1); assert.equal(targets[0].id, report.business.originalTarget.id);
-    assertManagedNativeRecoveryReceipt(fixture.stats(), original, value); return value;
+    if (mode === "continuation" && value.state.continuation?.receipt) assertManagedNativeRecoveryContinuationReceipt(fixture.stats(), original, value);
+    else assertManagedNativeRecoveryReceipt(fixture.stats(), original, value);
+    return value;
   }
   async function readHeldDocument() {
     const value = await documentRead(oldTaskTab.id); assert.equal(value.documentId, original.documentId); assert.equal(value.state.documentToken, original.state.documentToken);
@@ -279,6 +284,86 @@ export async function runManagedWorkerRecoveryCheck({ mode = "result" } = {}) {
     const inputs = report.viewerCommands.slice(before).filter(item => item.operation === "humanInput"); assert.ok(inputs.length);
     for (let index = 0; index < inputs.length; index++) { assert.equal(inputs[index].leaseId, begun.human.leaseId); assert.equal(inputs[index].sequence, index + 1); assertHumanInputReceipt(inputs[index], await replyFor(inputs[index].id)); }
     return { begun, frame, edited, ended, settled, screenshot: screenshotProof, nativeInputs: inputs.length };
+  }
+  async function continueOriginalResult(connectOpenBrowserUse) {
+    const detail = report.continuation = { startedAt: Date.now(), recoveredDeliveryId: report.business.deliveryId, actions: [] };
+    const human = report.business.recoveredHuman;
+    assertPublicPausedViewerCleanup(human.ended, { leaseId: human.begun.human.leaseId });
+    detail.beforeLeaseProbe = await readSameResult();
+    const leaseInputs = report.viewerCommands.filter(item => item.operation === "humanInput" && item.leaseId === human.begun.human.leaseId);
+    const lastInput = leaseInputs.at(-1); assert.ok(lastInput);
+    const previousPage = page; await previousPage.close(); assert.equal(previousPage.isClosed(), true); page = null;
+    const ticket = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
+    assert.equal(ticket.runId, info.runId); assert.equal(ticket.state, "viewer");
+    try { detail.oldHumanLeaseProbe = await probeEndedWorkerHumanLease(ticket.viewerURL, { tabId: oldTaskTab.id, deliveryId: detail.recoveredDeliveryId,
+      lease: { leaseId: human.begun.human.leaseId, generation: lastInput.generation }, lastSequence: lastInput.sequence }); }
+    catch (error) { detail.oldHumanLeaseProbe = error.workerHumanLeaseProbe; throw error; }
+    const next = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
+    assert.equal(next.runId, info.runId); assert.equal(next.state, "viewer");
+    detail.probeRetirement = { actualSocketClosedAt: detail.oldHumanLeaseProbe.closedAt, cleanupBarrierAt: Date.now() };
+    await openViewer(next.viewerURL); assertPublicPausedViewerCleanup(state);
+    detail.afterLeaseProbe = await readSameResult(); detail.oldHumanNoInput = assertRejectedContinuationUnchanged(detail.beforeLeaseProbe, detail.afterLeaseProbe);
+    const beforeResume = detail.beforeResume = structuredClone(state), resumeStart = report.viewerCommands.length;
+    assert.equal(beforeResume.workerBootId, report.afterIdentity.worker.workerBootId);
+    assert.equal(await page.locator("#control").textContent(), "继续操作");
+    detail.resume = await uiAction("#control", "resume");
+    const resumeCommands = report.viewerCommands.slice(resumeStart).filter(item => item.operation === "resume"); assert.equal(resumeCommands.length, 1);
+    detail.resumeRequest = resumeCommands[0];
+    assert.equal(detail.resumeRequest.expectedWorkerBootId, beforeResume.workerBootId); assert.equal(detail.resumeRequest.expectedRevision, beforeResume.status.revision);
+    assert.equal(detail.resume.status.state, "running"); assert.equal(detail.resume.status.inputBlocked, false); assert.equal(detail.resume.status.revision, beforeResume.status.revision + 1);
+    assert.equal(detail.resume.human, null); assert.equal(detail.resume.view, null); assert.equal(detail.resume.selectedTabId, null);
+    detail.resumedAt = Date.now();
+    const connection = { socketPath: info.socketPath, sessionId: "managed-worker-continuation-fresh", turnId: "after-original-worker-recovery", timeoutMs: 10000 };
+    detail.connection = { ...connection, startedAt: Date.now() };
+    continuedBrowser = await connectOpenBrowserUse(connection);
+    assert.notEqual(continuedBrowser, taskBrowser); assert.notEqual(continuedBrowser.client.sessionId, oldTaskAuthority.sessionId);
+    detail.newTurn = await continuedBrowser.client.beginTurn("explicit-after-worker-recovery");
+    assert.equal(detail.newTurn.lifecycleVersion, 1); assert.ok(detail.newTurn.controlEpoch > oldTaskAuthority.epoch);
+    detail.newBackend = await continuedBrowser.client.getInfo();
+    assert.equal(detail.newBackend.metadata.extensionId, info.extensionId); assert.equal(detail.newBackend.metadata.extensionInstanceId, info.extensionInstanceId);
+    assert.equal(detail.newBackend.metadata.pageDownloads.generation, report.afterIdentity.binding.generation);
+    detail.beforeClaim = await readSameResult(); detail.beforeClaimPlacement = await placement(oldTaskTab.id);
+    detail.claimRequestedAt = Date.now(); detail.claim = await continuedBrowser.client.claimUserTab(oldTaskTab.id); detail.claimSettledAt = Date.now();
+    detail.afterClaim = await readSameResult(); detail.afterClaimPlacement = await placement(oldTaskTab.id);
+    assertSameResultPlacement(report.business.originalPlacement, detail.beforeClaimPlacement); assertSameResultPlacement(report.business.originalPlacement, detail.afterClaimPlacement);
+    assertRejectedContinuationUnchanged(detail.beforeClaim, detail.afterClaim);
+    const tab = continuedBrowser.tab(oldTaskTab.id);
+    detail.snapshot = await tab.domSnapshot({ timeoutMs: 10000 });
+    detail.publicNote = await tab.getByLabel("Result note", { exact: true }).inputValue({ timeoutMs: 10000 });
+    detail.publicReview = await tab.playwright.locator("#review-count").textContent({ timeoutMs: 10000 });
+    detail.publicState = JSON.parse(await tab.playwright.locator("#state").textContent({ timeoutMs: 10000 }));
+    assert.equal(detail.publicNote, fixture.expectedNote); assert.equal(detail.publicReview, "1 reviews");
+    assert.equal(detail.publicState.documentToken, original.state.documentToken); assert.deepEqual(detail.publicState.receipt, report.business.receipt);
+    assert.deepEqual(detail.publicState.reviews, [{ trusted: true, sequence: 1 }]); assert.equal(detail.publicState.continuation.submits, 0);
+    const beforeOld = await readSameResult();
+    await denied("original SDK remains disconnected after new SDK claim", () => oldTaskTab.domSnapshot({ timeoutMs: 1500 }), /OBU_SDK_BROWSER_DISCONNECTED/);
+    detail.oldSDKAfterClaimNoInput = assertRejectedContinuationUnchanged(beforeOld, await readSameResult());
+    detail.authority = captureTaskAuthority(continuedBrowser.client, oldTaskTab.id);
+    const submit = { label: "one public follow-up confirmation", startedAt: Date.now() }; detail.actions.push(submit);
+    // This is a distinct phase-two transaction, never a retry of the first POST.
+    await tab.getByRole("button", { name: "Confirm reviewed result", exact: true }).click({ timeoutMs: 10000 }); submit.settledAt = Date.now();
+    detail.confirmed = await wait(async () => { const value = await documentRead(oldTaskTab.id); return value.state?.continuation?.receipt?.ok && value; }, "one original follow-up POST response");
+    detail.receiptProof = assertManagedNativeRecoveryContinuationReceipt(fixture.stats(), original, detail.confirmed);
+    assert.equal(posts().length, 2);
+    detail.publicReceiptRead = { requestedAt: Date.now() };
+    detail.publicReceiptRead.text = await tab.playwright.locator("#continuation-receipt").textContent({ timeoutMs: 10000 });
+    detail.publicReceiptRead.settledAt = Date.now();
+    assert.equal(detail.publicReceiptRead.text, `Reviewed receipt ${detail.receiptProof.followup.receipt.receiptId}`, "The continuing Agent must read the original final receipt before delivering the result");
+    detail.finalizeRequestedAt = Date.now(); detail.finalize = await continuedBrowser.client.finalizeTabs([{ tabId: oldTaskTab.id, status: "deliverable" }]); detail.finalizeSettledAt = Date.now();
+    const beforeStale = await readSameResult();
+    await denied("fresh continuation authority after final finalize", () => requestOriginalSnapshot(continuedBrowser.client, detail.authority), /OBU_STALE_CONTROL_EPOCH/);
+    detail.finalizedEpochNoInput = assertRejectedContinuationUnchanged(beforeStale, await readSameResult());
+    await uiAction("#refresh", "status"); const result = state.tabs.find(item => item.id === oldTaskTab.id);
+    assert.equal(result?.kind, "result"); assert.ok(result.deliveryId);
+    assert.notEqual(result.deliveryId, report.business.originalDeliveryId); assert.notEqual(result.deliveryId, detail.recoveredDeliveryId);
+    detail.finalDeliveryId = report.business.deliveryId = result.deliveryId;
+    detail.finalPlacement = await placement(oldTaskTab.id); assertSameResultPlacement(report.business.originalPlacement, detail.finalPlacement);
+    detail.finalResultView = await selectOriginalResult();
+    detail.finalDocument = await readSameResult(); detail.finalReceiptProof = assertManagedNativeRecoveryContinuationReceipt(fixture.stats(), original, detail.finalDocument);
+    detail.finalScreenshot = await screenshot("viewer-original-followup-result.png");
+    assert.equal(detail.finalDocument.note, fixture.expectedNote); assert.equal(detail.finalDocument.documentId, original.documentId);
+    assert.equal(report.viewerCommands.filter(item => item.operation === "resume").length, 1);
+    assert.equal(detail.actions.length, 1); detail.completedAt = Date.now();
   }
   async function stopOriginal() {
     if (stopPromise) return stopPromise;
@@ -369,7 +454,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       report.serviceObserverConnection = {}; serviceObserver = await connectNormalCDP(observerTarget.webSocketDebuggerUrl, { record: report.serviceObserverConnection, handshakeTimeoutMs: 10000, authorizationRequired: false });
       beforeIdentity = report.beforeIdentity = await exactIdentity(status.nativeEpoch, await lifecycle("ready"));
       assert.equal(JSON.parse((await fs.readFile(path.join(runDir, "lifecycle-ready.json"))).toString()).browserVersion.product, `Chrome/${report.recommendedBrowser.version}`, "This acceptance targets the frozen production recommendation");
-      taskBrowser = await connectOpenBrowserUse({ socketPath: info.socketPath, sessionId: "managed-worker-recovery-acceptance", turnId: mode === "result" ? "original-one-shot-business" : "independent-zero-business-held", timeoutMs: 10000 });
+      taskBrowser = await connectOpenBrowserUse({ socketPath: info.socketPath, sessionId: "managed-worker-recovery-acceptance", turnId: positive ? "original-one-shot-business" : "independent-zero-business-held", timeoutMs: 10000 });
       const backend = await taskBrowser.client.getInfo(); report.originalBackendInfo = backend;
       assert.equal(backend.metadata.extensionId, info.extensionId); assert.equal(backend.metadata.extensionInstanceId, info.extensionInstanceId);
       assert.equal(backend.metadata.pageDownloads.generation, beforeIdentity.binding.generation);
@@ -382,16 +467,16 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       await openViewer(ready.viewerURL); report.viewerInitial = await screenshot("viewer-initial.png"); assert.equal(state.status.state, "running");
     });
 
-    await step(mode === "result" ? "one-original-post-finalize-and-active-result-view" : "independent-zero-business-confirmed-held-key-and-pointer", async () => {
+    await step(positive ? "one-original-post-finalize-and-active-result-view" : "independent-zero-business-confirmed-held-key-and-pointer", async () => {
       oldTaskTab = await taskBrowser.newTab({ url: fixtureURL + fixture.paths.form, backgroundWindow: true });
-      if (mode === "result") await oldTaskTab.getByLabel("Original draft", { exact: true }).fill(fixture.draft, { timeoutMs: 10000 });
+      if (positive) await oldTaskTab.getByLabel("Original draft", { exact: true }).fill(fixture.draft, { timeoutMs: 10000 });
       else await oldTaskTab.domSnapshot({ timeoutMs: 10000 });
       oldTaskAuthority = captureTaskAuthority(taskBrowser.client, oldTaskTab.id);
       original = await documentRead(oldTaskTab.id); assert.equal(original.frameId, 0); assert.ok(original.documentId);
       const targets = await nativeMap(oldTaskTab.id); assert.equal(targets.length, 1);
       Object.assign(report.business, { tabId: oldTaskTab.id, original, originalAuthority: oldTaskAuthority, originalTarget: targets[0] });
       assert.equal(posts().length, 0);
-      if (mode === "result") {
+      if (positive) {
         assert.equal(original.draft, fixture.draft);
         await oldTaskTab.getByRole("button", { name: "Commit once", exact: true }).click({ timeoutMs: 10000 });
         const committed = await wait(async () => { const value = await documentRead(oldTaskTab.id); return value.state?.receipt?.ok && value; }, "one original POST response");
@@ -432,7 +517,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       }
       report.business.beforeFaultCommands = report.viewerCommands.length;
       assert.equal(report.viewerCommands.filter(item => item.operation === "resume" || item.operation === "humanEnd").length, 0);
-      taskBrowser.close(); taskBrowser = null;
+      if (mode !== "continuation") { taskBrowser.close(); taskBrowser = null; }
     });
 
     await step("exact-original-worker-stop-native-eof-and-new-execution", async () => {
@@ -476,7 +561,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       assert.deepEqual(tree.find(item => item.ProcessId === info.browserPID), beforeIdentity.browser);
       report.replacementProcessesBeforeRecovery = tree;
       assertSameResultPlacement(report.business.originalPlacement, await placement(oldTaskTab.id));
-      if (mode === "result") {
+      if (positive) {
         report.business.afterWorkerReplacement = await readSameResult();
         report.business.orphanAttachment = (await nativeMap(oldTaskTab.id))[0];
         assert.equal(report.business.orphanAttachment.attached, true, "This positive run must recover the actual original orphan view attachment");
@@ -486,7 +571,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       assert.equal(report.viewerCommands.filter(item => item.operation === "resume").length, 0);
     });
 
-    await step(mode === "result" ? "explicit-worker-recovery-new-delivery-and-old-capability-rejection" : "explicit-recovery-refuses-unknown-original-held-input", async () => {
+    await step(positive ? "explicit-worker-recovery-new-delivery-and-old-capability-rejection" : "explicit-recovery-refuses-unknown-original-held-input", async () => {
       if (mode === "held-input") {
         const rejected = await command(["managed", "recover", "--root", root, "--name", name], 1);
         assert.match(rejected.stderr, /original worker ended before human cleanup was confirmed; waiting for owned browser exit|original human input cleanup remains unknown; Stop this run/);
@@ -536,12 +621,19 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       assert.equal(result?.kind, "result"); assert.ok(result.deliveryId); assert.notEqual(result.deliveryId, report.business.originalDeliveryId);
       report.business.deliveryId = result.deliveryId; report.recoveredViewerState = state;
       const initialRecoveredPage = page; await initialRecoveredPage.close(); assert.equal(initialRecoveredPage.isClosed(), true); page = null;
+      const retiredDeliveryBefore = mode === "continuation" ? await readSameResult() : null;
       const probeTicket = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
       assert.equal(probeTicket.state, "viewer"); assert.equal(probeTicket.runId, info.runId);
       try { report.oldDeliveryProbe = await probeRetiredDelivery(probeTicket.viewerURL, { tabId: oldTaskTab.id, oldDeliveryId: report.business.originalDeliveryId, newDeliveryId: report.business.deliveryId }); }
       catch (error) { report.oldDeliveryProbe = error.workerDeliveryProbe; throw error; }
       const next = JSON.parse((await command(["managed", "view", "--root", root, "--name", name])).stdout);
       assert.equal(next.state, "viewer"); assert.equal(next.runId, info.runId);
+      if (mode === "continuation") {
+        report.oldDeliveryNoInput = assertRejectedContinuationUnchanged(retiredDeliveryBefore, await readSameResult());
+        const before = await readSameResult();
+        await denied("original SDK after actual worker/native EOF", () => oldTaskTab.domSnapshot({ timeoutMs: 1500 }), /OBU_SDK_BROWSER_DISCONNECTED/);
+        report.oldSDKAfterRecoveryNoInput = assertRejectedContinuationUnchanged(before, await readSameResult());
+      }
       report.probeRetirement = { actualSocketClosedAt: report.oldDeliveryProbe.closedAt, serverCleanupBarrierAt: Date.now(), proof: "one formal managed view joins previous reader/workers and actual cleanup" };
       await openViewer(next.viewerURL); assertPublicPausedViewerCleanup(state);
       report.business.afterRecovery = await readSameResult(); assertSameResultPlacement(report.business.originalPlacement, await placement(oldTaskTab.id));
@@ -549,8 +641,8 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
       assert.equal(currentStatus.state, "ready"); assert.equal(currentStatus.nativeEpoch, 2); assert.deepEqual(currentStatus.info, info); report.recoveredStatus = currentStatus;
     });
 
-    await step(mode === "result" ? "fresh-paused-view-and-real-human-continuation-without-replay" : "unknown-input-remains-held-until-formal-stop", async () => {
-      if (mode === "result") {
+    await step(positive ? (mode === "continuation" ? "fresh-paused-human-end-resume-fresh-agent-and-original-followup" : "fresh-paused-view-and-real-human-continuation-without-replay") : "unknown-input-remains-held-until-formal-stop", async () => {
+      if (positive) {
         report.business.recoveredResultView = await selectOriginalResult(); assert.equal(state.status.state, "paused");
         assert.notEqual(state.view.leaseId, report.business.originalView.leaseId);
         assert.notEqual(report.business.recoveredResultView.frame.streamId, report.business.baselineResultView.frame.streamId);
@@ -571,8 +663,9 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         assert.equal(report.viewerCommands.slice(report.business.beforeFaultCommands).filter(item => item.operation === "humanInput").length, 0);
         assert.equal(launcher.record.closedAt, undefined, "Rejected recovery must not terminate the original browser implicitly");
       }
+      if (mode === "continuation") await continueOriginalResult(connectOpenBrowserUse);
       assertSameResultPlacement(report.business.originalPlacement, await placement(oldTaskTab.id));
-      assert.equal(report.viewerCommands.filter(item => item.operation === "resume").length, 0);
+      assert.equal(report.viewerCommands.filter(item => item.operation === "resume").length, mode === "continuation" ? 1 : 0);
       assert.equal(report.unexpectedFixtureRequests.filter(item => item.method === "POST").length, 0);
       report.observerFinal = await worker.evaluate("__managedHumanAcceptance.stop()"); assert.equal(report.observerFinal.overflow, false); assert.equal(report.observerFinal.listenerPresent, false);
       report.workerContextFinal = worker.events.filter(item => item.method?.startsWith("Runtime.executionContext"));
@@ -591,7 +684,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         assert.ok(Number.isSafeInteger(entry.descriptor.pid) && entry.descriptor.pid > 0);
         assert.match(life.exact.nativeConnections[index].creationTime, /^[1-9][0-9]{0,19}$/);
         assert.equal(entry.error, undefined); assert.equal(entry.exitConfirmed, true); assertNativeRecoveryExit(entry.exit, 0);
-        if (index === 0 || mode === "result") {
+        if (index === 0 || positive) {
           const source = index === 0 ? beforeIdentity : report.afterIdentity;
           assert.equal(entry.descriptor.pid, source.info.nativePID); assert.equal(entry.descriptor.socketPath, source.info.socketPath);
           assert.equal(life.exact.nativeConnections[index].creationTime, source.nativeCreationTime); assert.deepEqual(entry.binding, source.binding);
@@ -619,6 +712,7 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
     if (serviceObserver) try { await serviceObserver.close(); } catch (error) { report.cleanup.serviceTransport = error.stack; }
     if (rootObserver) try { await rootObserver.close(); } catch (error) { report.cleanup.rootTransport = error.stack; }
     taskBrowser?.close();
+    continuedBrowser?.close();
     if (launcher && !launcher.record.closedAt) {
       if (!stopped) try { await stopOriginal(); } catch (error) { report.cleanup.stop = error.stack; }
       try { await bound(launcher.completed, 12000, "original supervisor cleanup terminal exit"); }
@@ -655,6 +749,5 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
-  assert.ok(process.argv.length === 2 || process.argv.length === 3 && process.argv[2] === "--held-input", "Use explicit environment inputs and optional --held-input for an independent zero-business run");
-  const report = await runManagedWorkerRecoveryCheck({ mode: process.argv[2] === "--held-input" ? "held-input" : "result" }); process.exitCode = report.passed ? 0 : 1;
+  const report = await runManagedWorkerRecoveryCheck({ mode: workerRecoveryMode(process.argv.slice(2)) }); process.exitCode = report.passed ? 0 : 1;
 }

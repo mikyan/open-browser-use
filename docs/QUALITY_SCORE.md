@@ -11,6 +11,15 @@
 
 ## 当前评分
 
+2026-10-23，补齐[worker 恢复后完整任务接续](references/managed-worker-recovery.md)的真实链路证据。
+原只读结果经后台执行和 Native 替换后，显式 recover 保持暂停；人工补充、End、
+一次 Resume、新 SDK/新轮次认领、公开读取及独立后续确认、再次交付与正式 Stop
+六阶段通过，原业务未重放。48 项定向检查通过；首次运行因脚手架按钮选择器错误
+中止，保留原失败，修正后使用新场景验证。生产代码未变，沿用已冻结构建与其
+原字节校验，未重跑 Go 或重新发布安装包。旧人工租约探针使用新连接，不能据此
+证明原连接 End 后迟到输入；浏览器进程重启、普通公司 Edge 和完整对齐仍开放。
+详情见[专项记录](exec-plans/completed/2026-10-21-worker-recovery-continuation.md)。
+
 2026-10-21，当前源码修复[跨站 iframe 历史恢复](references/managed-oopif-history-restore.md)。
 保留首次快照失败及两次候选超时；最终原页面/iframe 草稿经真实 BFCache 返回后，
 公开导航、快照、定位与唯一 POST 完成。3388 项 Node 检查和八下载流程回归通过；

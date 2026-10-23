@@ -75,8 +75,38 @@ Stop 前 controller 可报告“等待原 Browser 退出”。只有这个确切
   fixture 模拟 backend、存储和原生 ACK，不单独证明真实浏览器清理。
 - `scripts/browser-integration/managed-worker-recovery-check.mjs` 使用固定
   正式 EXE/扩展与独立专用浏览器；默认模式保留唯一 POST 的原结果及活动
-  只读 view，真实停止 worker 后恢复并人工接续。`--held-input` 为独立零业务
-  场景，确认原 Shift/指针按下后拒绝恢复，且不补发 release，最后正式 Stop。
+  只读 view，真实停止 worker 后恢复并人工编辑，Resume 次数仍为零。
+  `--continuation` 另验人工 End、明确 Resume 和新 Agent 轮次的完整接续。
+  `--held-input` 保持独立零业务场景，确认原 Shift/指针按下后拒绝恢复，
+  且不补发 release，最后正式 Stop。
+
+### 恢复后完整接续验收
+
+2026-10-23，固定 Windows headless CfT 156.0.8078.12 的 `mwr-c-P5udBb` 六阶段
+实际退出 0。沿用与 `preview-20261021-afb415a` 相同生产源的冻结测试构建，
+本轮只增加验收脚手架与文档，未修改生产实现或制作新包。流程核对：
+
+1. 原表单只提交一次并交付；活动只读 view 期间真实结束原 worker，确认旧
+   Native EOF、新 context uniqueId、workerBootId 及新 Native，保留原 Browser。
+2. 明确 recover 清理原 view 并签发新结果权限，仍暂停；旧 delivery 拒绝，
+   跨故障保留的旧 SDK 因真实 EOF 报 `OBU_SDK_BROWSER_DISCONNECTED`。
+3. 查看器接管原文档，添加人工备注并标记 review；End 等待原清理 ACK 与
+   debugger detach，随后实际点击“继续操作”按钮，恰好发出一次 Resume。
+4. 新 SDK 明确开始新 turn、claim 原 tab，公开读取人工备注和 review；只点击
+   一次后续确认，读取最终回执后 finalize，再验证原结果的实际解码画面。
+5. 全程仅原 GET、原业务 POST、关联原回执与人工备注的独立 follow-up POST
+   各一次；Stop 核对原 Browser、两代 Native、Job、注册、pipe、endpoint
+   及查看器实际退出和清理。
+
+End 后另用新 WebSocket 探测旧 human lease，收到 `HUMAN_STALE` 且原页面
+状态/事件不变。这只证明新连接不能复用旧租约；连接的 `humanClaimed` 门禁
+即可拒绝该请求，不能据此声称同一 WebSocket 的 End 后迟到输入已验收。
+故障发生在只读查看期间，本场景也不证明人工输入在途时能安全恢复。
+
+相关纯测试 48 项通过。首轮 `mwr-c-BreJxA` 因脚本误用 `#resume` 选择器
+退出 1，尚未 Resume 或提交 follow-up；改用现有 `#control` 后从新场景验收。
+原失败保留，不计为生产修复。证据见
+[接续计划](../exec-plans/completed/2026-10-21-worker-recovery-continuation.md)。
 
 本片实际运行、原失败和停止后独审见
 [执行计划](../exec-plans/active/2026-10-16-managed-browser-session.md)。

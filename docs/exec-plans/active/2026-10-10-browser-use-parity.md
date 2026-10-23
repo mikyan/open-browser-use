@@ -7,6 +7,12 @@
 
 ## 当前基线
 
+2026-10-23，[worker 恢复后的完整任务接续](../completed/2026-10-21-worker-recovery-continuation.md)
+完成固定 Windows 浏览器真实六阶段验收：recover 保持暂停，人工 End 后明确 Resume，
+新 SDK/新轮次认领原页并公开读取人工内容、完成独立后续确认和再次交付，正式 Stop
+清理原 Browser 与两代 Native。48 项定向检查通过；第一次失败来自脚手架按钮选择器，
+原记录保留。生产代码和最新安装包均不变，完整 P01–P15 与公司 Edge 验收仍开放。
+
 2026-10-21，当前源码完成[跨站 iframe 历史恢复](../../references/managed-oopif-history-restore.md)
 业务验收：原两页草稿经 BFCache 返回后，由公开 API 快照、定位并唯一提交。
 首次快照失败和两次候选超时保留；3388 项 Node 检查及既有八下载流程回归通过。

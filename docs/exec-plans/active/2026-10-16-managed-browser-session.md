@@ -7,6 +7,14 @@
 不会占用系统鼠标。它是完整 Browser Use 目标的一条新部署路线；普通已登录
 浏览器的后台弹窗焦点问题仍按原计划处理，不能被此模式的结果替代。
 
+## 2026-10-23 恢复后的完整任务接续
+
+[专项已完成](../completed/2026-10-21-worker-recovery-continuation.md)：固定浏览器经历
+真实 worker/Native 替换后，显式恢复保持暂停，人工 End 后一次 Resume，新 SDK/新轮次
+认领原结果并完成独立后续确认、再次交付和正式 Stop。48 项定向检查与六阶段真实
+流程通过；原失败 61 项、成功流程 74 项独审留存。生产与最新 `preview-20261021-afb415a`
+相同，本轮仅补验收。输入中断、浏览器进程重启及完整对齐不据此关闭。
+
 ## 2026-10-18 用户要求的新包
 
 用户再次明确要求打包，已从干净提交 `853ea9211b15ccdebe84dd3fe0df955853b80a0b` 发布 [preview-20261018-853ea92](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261018-853ea92)，首次将已验证的 worker 替换恢复放入 Windows 包。
