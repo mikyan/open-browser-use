@@ -172,3 +172,6 @@
 - `codex-chrome-extension-1.1.4/`：Codex Chrome Web Store extension
   `hehggadaopoacecdllhhajmbjkdcmajg` 的本机安装快照、格式化入口文件和
   native messaging host 形状记录。
+
+- [正式 managed 与 Codex 研究比较](managed-paired-research.md)：四次首次尝试、
+  原业务/协议错误、服务器封存与生命周期证据；不改写旧24次比较。

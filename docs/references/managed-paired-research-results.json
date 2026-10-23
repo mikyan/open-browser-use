@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "sourceCommit": "b363d95320447de2254ea39c2cd1ce218db55cd6",
+  "scope": "Four original attempts, two paired rounds of one synthetic research task; old 24-attempt denominator unchanged.",
+  "summary": {
+    "businessAnswerAndSixSourcesPassed": 4,
+    "strictProtocolPassed": 2,
+    "strictProtocolFailedSlots": [
+      2,
+      4
+    ],
+    "OBUActualViewerDecodedPassedSlots": [
+      1
+    ],
+    "OBUActualViewerDecodedUnknownSlots": [
+      4
+    ],
+    "completeComparisonPass": false,
+    "scope": "2 rounds,1 synthetic task; original24 denominator unchanged; no P15 closure or full parity/speed equivalence claim."
+  },
+  "server": {
+    "exitCode": 0,
+    "received": 82,
+    "responseFinished": 82,
+    "postCount": 4,
+    "pending": 0,
+    "aborted": 0,
+    "overflow": 0,
+    "ledgerSHA256": "b8b5a0f9be1c7bea8e6cca39aa7cfde66fbb7514ce0d96170a877476d3344345"
+  },
+  "auditSHA256": "fd888d39d0593e6f903af6c3c3bf19ee7b105ff56bef70f727c1f4fa5e1335da",
+  "slots": [
+    {
+      "slot": 1,
+      "side": "obu",
+      "round": 1,
+      "businessPassed": true,
+      "protocolPassed": true,
+      "defects": [],
+      "missingEvidence": [],
+      "recordedCalls": 129,
+      "APIThrows": 0,
+      "timing": {
+        "preparationObservationMs": 63465,
+        "businessMs": 60204,
+        "cleanupMs": 18740,
+        "firstNonPrepAt": 1792731523090,
+        "firstTaskURLAt": 1792731523121,
+        "lastBusinessAt": 1792731583294,
+        "sealedAt": 1792731602034
+      },
+      "firstTaskURLSpanMs": 60173,
+      "selection": "none",
+      "rows": [
+        {
+          "vendorId": "a",
+          "unitPrice": 794,
+          "available": 15,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 108,
+          "deliverBy": "2026-11-17",
+          "warrantyMonths": 36,
+          "total": 9636,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r1-obu-6e4da90010074b5e89ea601c57d5ca48/source/a/quote?revision=Q-d88f2c99-a",
+          "termsURL": "http://localhost:2240/research-task/p15-r1-obu-6e4da90010074b5e89ea601c57d5ca48/source/a/terms?revision=T-0319-443-a",
+          "eligible": false,
+          "reason": "预算超限"
+        },
+        {
+          "vendorId": "b",
+          "unitPrice": 623,
+          "available": 21,
+          "pdWatts": 100,
+          "ethernetMbps": 100,
+          "shipping": 219,
+          "deliverBy": "2026-11-18",
+          "warrantyMonths": 36,
+          "total": 7695,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r1-obu-6e4da90010074b5e89ea601c57d5ca48/source/b/quote?revision=Q-d88f2c99-b",
+          "termsURL": "http://localhost:2240/research-task/p15-r1-obu-6e4da90010074b5e89ea601c57d5ca48/source/b/terms?revision=T-0319-443-b",
+          "eligible": false,
+          "reason": "网速不足"
+        },
+        {
+          "vendorId": "c",
+          "unitPrice": 641,
+          "available": 24,
+          "pdWatts": 100,
+          "ethernetMbps": 100,
+          "shipping": 222,
+          "deliverBy": "2026-11-16",
+          "warrantyMonths": 24,
+          "total": 7914,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r1-obu-6e4da90010074b5e89ea601c57d5ca48/source/c/quote?revision=Q-d88f2c99-c",
+          "termsURL": "http://localhost:2240/research-task/p15-r1-obu-6e4da90010074b5e89ea601c57d5ca48/source/c/terms?revision=T-0319-443-c",
+          "eligible": false,
+          "reason": "网速不足"
+        }
+      ],
+      "originalReportReadCalls": [
+        "call-127"
+      ],
+      "image": {
+        "sha256": "8cfe3d199736b96b4a3d6b3a8d6fb7851722182321654c679ebfbb4daf0a9c43",
+        "dimensions": [
+          758,
+          369
+        ],
+        "format": "PNG"
+      }
+    },
+    {
+      "slot": 2,
+      "side": "codex",
+      "round": 1,
+      "businessPassed": true,
+      "protocolPassed": false,
+      "defects": [
+        "First initializer UTC absent; original terminal preparation unknown-failure retained.",
+        "Original calls3-6 incorrectly phase=preparation despite start marker and actual business times.",
+        "Terminal firstError points to call7, while original first API error is call6."
+      ],
+      "missingEvidence": [],
+      "recordedCalls": 83,
+      "APIThrows": 3,
+      "timing": {
+        "businessMs": 227126,
+        "firstNonPrepSpanMs": 227126,
+        "cleanupMs": 104,
+        "firstNonPrepAt": 1792731738673,
+        "firstTaskURLAt": 1792731738685,
+        "lastBusinessAt": 1792731965799,
+        "sealedAt": 1792731965933,
+        "preparationExactMs": null,
+        "preparationUpperBoundMs": 132153,
+        "preparationUpperBoundSource": "Root previous OBU runner ended at1792731606520 before Codex spawn; upper bound, not an invented start time."
+      },
+      "firstTaskURLSpanMs": 227114,
+      "selection": "none",
+      "rows": [
+        {
+          "vendorId": "a",
+          "unitPrice": 794,
+          "available": 15,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 108,
+          "deliverBy": "2026-11-17",
+          "warrantyMonths": 36,
+          "total": 9636,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r1-codex-5a764620fe4045cbb9960d8690091a28/source/a/quote?revision=Q-d88f2c99-a",
+          "termsURL": "http://localhost:2240/research-task/p15-r1-codex-5a764620fe4045cbb9960d8690091a28/source/a/terms?revision=T-0319-443-a",
+          "eligible": false,
+          "reason": "预算超限"
+        },
+        {
+          "vendorId": "b",
+          "unitPrice": 623,
+          "available": 21,
+          "pdWatts": 100,
+          "ethernetMbps": 100,
+          "shipping": 219,
+          "deliverBy": "2026-11-18",
+          "warrantyMonths": 36,
+          "total": 7695,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r1-codex-5a764620fe4045cbb9960d8690091a28/source/b/quote?revision=Q-d88f2c99-b",
+          "termsURL": "http://localhost:2240/research-task/p15-r1-codex-5a764620fe4045cbb9960d8690091a28/source/b/terms?revision=T-0319-443-b",
+          "eligible": false,
+          "reason": "网速不足"
+        },
+        {
+          "vendorId": "c",
+          "unitPrice": 641,
+          "available": 24,
+          "pdWatts": 100,
+          "ethernetMbps": 100,
+          "shipping": 222,
+          "deliverBy": "2026-11-16",
+          "warrantyMonths": 24,
+          "total": 7914,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r1-codex-5a764620fe4045cbb9960d8690091a28/source/c/quote?revision=Q-d88f2c99-c",
+          "termsURL": "http://localhost:2240/research-task/p15-r1-codex-5a764620fe4045cbb9960d8690091a28/source/c/terms?revision=T-0319-443-c",
+          "eligible": false,
+          "reason": "网速不足"
+        }
+      ],
+      "originalReportReadCalls": [
+        76
+      ],
+      "image": {
+        "sha256": "9f0dd5b7ad72ad3499e94a2d814ae224d41b884f3c5db14a2a84a15dc7460568",
+        "dimensions": [
+          1265,
+          712
+        ],
+        "format": "JPEG"
+      }
+    },
+    {
+      "slot": 3,
+      "side": "codex",
+      "round": 2,
+      "businessPassed": true,
+      "protocolPassed": true,
+      "defects": [],
+      "missingEvidence": [],
+      "recordedCalls": 79,
+      "APIThrows": 0,
+      "timing": {
+        "businessMs": 81778,
+        "firstNonPrepSpanMs": 81777,
+        "cleanupMs": 107,
+        "firstNonPrepAt": 1792731997504,
+        "firstTaskURLAt": 1792731997515,
+        "lastBusinessAt": 1792732079281,
+        "sealedAt": 1792732079417,
+        "preparationExactMs": 231
+      },
+      "firstTaskURLSpanMs": 81766,
+      "selection": "c",
+      "rows": [
+        {
+          "vendorId": "a",
+          "unitPrice": 644,
+          "available": 20,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 132,
+          "deliverBy": "2026-11-19",
+          "warrantyMonths": 36,
+          "total": 7860,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r2-codex-bd6b95286fc647c1ab84bc93db4010f2/source/a/quote?revision=Q-327e8c8e-a",
+          "termsURL": "http://localhost:2240/research-task/p15-r2-codex-bd6b95286fc647c1ab84bc93db4010f2/source/a/terms?revision=T-01bc-41c-a",
+          "eligible": true,
+          "reason": "满足全部要求"
+        },
+        {
+          "vendorId": "b",
+          "unitPrice": 629,
+          "available": 17,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 135,
+          "deliverBy": "2026-11-20",
+          "warrantyMonths": 24,
+          "total": 7683,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r2-codex-bd6b95286fc647c1ab84bc93db4010f2/source/b/quote?revision=Q-327e8c8e-b",
+          "termsURL": "http://localhost:2240/research-task/p15-r2-codex-bd6b95286fc647c1ab84bc93db4010f2/source/b/terms?revision=T-01bc-41c-b",
+          "eligible": true,
+          "reason": "满足全部要求"
+        },
+        {
+          "vendorId": "c",
+          "unitPrice": 534,
+          "available": 14,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 150,
+          "deliverBy": "2026-11-16",
+          "warrantyMonths": 24,
+          "total": 6558,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r2-codex-bd6b95286fc647c1ab84bc93db4010f2/source/c/quote?revision=Q-327e8c8e-c",
+          "termsURL": "http://localhost:2240/research-task/p15-r2-codex-bd6b95286fc647c1ab84bc93db4010f2/source/c/terms?revision=T-01bc-41c-c",
+          "eligible": true,
+          "reason": "满足全部要求"
+        }
+      ],
+      "originalReportReadCalls": [
+        71
+      ],
+      "image": {
+        "sha256": "35a98e222adb800b6ad5975f0e222e7598025b1eb7690fc551caf2b8c0245af2",
+        "dimensions": [
+          1265,
+          712
+        ],
+        "format": "JPEG"
+      }
+    },
+    {
+      "slot": 4,
+      "side": "obu",
+      "round": 2,
+      "businessPassed": true,
+      "protocolPassed": false,
+      "defects": [
+        "Original terminal extra firstLocalError rejected by strict schema; original runner exit1 remains failed."
+      ],
+      "missingEvidence": [
+        "Runner did not reach independent report DOM/result-entry/viewer frame checks. SDK original report DOM and finalize return are available but do not replace decoded-viewer proof."
+      ],
+      "recordedCalls": 129,
+      "APIThrows": 0,
+      "timing": {
+        "preparationObservationMs": 73780,
+        "businessMs": 54295,
+        "cleanupMs": 13346,
+        "firstNonPrepAt": 1792732222093,
+        "firstTaskURLAt": 1792732222118,
+        "lastBusinessAt": 1792732276388,
+        "sealedAt": 1792732289734
+      },
+      "firstTaskURLSpanMs": 54270,
+      "selection": "c",
+      "rows": [
+        {
+          "vendorId": "a",
+          "unitPrice": 644,
+          "available": 20,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 132,
+          "deliverBy": "2026-11-19",
+          "warrantyMonths": 36,
+          "total": 7860,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r2-obu-93c7f609f5bf454dae218c7990b78e88/source/a/quote?revision=Q-327e8c8e-a",
+          "termsURL": "http://localhost:2240/research-task/p15-r2-obu-93c7f609f5bf454dae218c7990b78e88/source/a/terms?revision=T-01bc-41c-a",
+          "eligible": true,
+          "reason": "满足全部要求"
+        },
+        {
+          "vendorId": "b",
+          "unitPrice": 629,
+          "available": 17,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 135,
+          "deliverBy": "2026-11-20",
+          "warrantyMonths": 24,
+          "total": 7683,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r2-obu-93c7f609f5bf454dae218c7990b78e88/source/b/quote?revision=Q-327e8c8e-b",
+          "termsURL": "http://localhost:2240/research-task/p15-r2-obu-93c7f609f5bf454dae218c7990b78e88/source/b/terms?revision=T-01bc-41c-b",
+          "eligible": true,
+          "reason": "满足全部要求"
+        },
+        {
+          "vendorId": "c",
+          "unitPrice": 534,
+          "available": 14,
+          "pdWatts": 100,
+          "ethernetMbps": 1000,
+          "shipping": 150,
+          "deliverBy": "2026-11-16",
+          "warrantyMonths": 24,
+          "total": 6558,
+          "quoteURL": "http://127.0.0.1:2240/research-task/p15-r2-obu-93c7f609f5bf454dae218c7990b78e88/source/c/quote?revision=Q-327e8c8e-c",
+          "termsURL": "http://localhost:2240/research-task/p15-r2-obu-93c7f609f5bf454dae218c7990b78e88/source/c/terms?revision=T-01bc-41c-c",
+          "eligible": true,
+          "reason": "满足全部要求"
+        }
+      ],
+      "originalReportReadCalls": [
+        "call-127"
+      ],
+      "image": null
+    }
+  ],
+  "limits": [
+    "Exact model ID and effort unknown.",
+    "OBU uses fresh managed profiles; Codex uses continuous IAB turn and retains prior deliverable.",
+    "SDK locator construction is separately recorded; Codex composed locator/action is one call.",
+    "Codex has no independent OS foreground observation.",
+    "Slot 4 did not reach actual viewer verification; original exit 1 retained.",
+    "Codex slot 2 has one mandatory initial blank-tab creation before the logger; excluded from the 83 recorded calls and its exact UTC is unknown."
+  ]
+}

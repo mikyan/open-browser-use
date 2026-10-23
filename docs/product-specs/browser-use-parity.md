@@ -12,6 +12,13 @@
 
 ## Baseline sources
 
+2026-10-23，[正式 managed / Codex 两轮研究比较](../references/managed-paired-research.md)四次首次尝试
+及原服务器均已终结。OBU 第 1 槽正式 runner 通过；第 4 槽严格终态 schema
+失败保留，后置 viewer 验收未执行。Codex 第 1 槽准备时钟及日志记录缺陷保留。
+业务答案与六源读取独审为 4/4；严格协议为 2/4，不能记成整场通过。
+两场 OBU 原进程和私有资源清理通过；不以清理或报告正确代替完整验收。
+生产代码与最新包相同，旧 24 次分母及完整 P15 继续开放。
+
 2026-10-23，新增[已有持久登录的崩溃接续验收](../references/managed-browser-restart.md#独立认证场景与结果)。
 原 `mbr-c-xjToh2` 因恢复报告尚未加载而缺少 DOM 证据，实际失败保留；脚手架增加
 确切原标签的有界只读就绪观察，69 项定向检查通过。新 `mbr-c-1bDtSK` 七阶段
@@ -35,7 +42,8 @@ AI 光标、点击位置、元素高亮、独立后台浏览器、人工接管�
 480份生产输入绑定原冻结构建，80份扩展及完整7文件Skill核对；离线CLI/MCP、
 独立制品审计、四资产上传回下载和115份本地交付文件核验通过。
 此前Go test/vet、3,381项Node及网页证据沿用，本次打包没有重新运行浏览器业务
-或全量测试。未提交的P15比较验收准备不进入包，四次正式对照尚未执行。
+或全量测试。打包时 P15 比较准备尚未执行且不进入包；其后四次首次尝试
+已全部终结，详见本页最新比较记录。
 完整ZIP为 10,725,508 字节，SHA256：`41ffe9ce180269c0e039f7fabdc6744f759d02b75b4ab15ec7adeabda30ec856`。
 普通公司Edge、真实SSO/MFA及完整能力对齐仍未完成；主机、扩展和完整Skill
 需配套更新，公司电脑新装及覆盖步骤见包内README。
@@ -936,7 +944,7 @@ P04位置快照已完成三种原生DPR的五入口专项：`oVaN3m`、`wTM1CH`�
 | P12 | 后台并行与可视反馈 | 多任务 tab 隔离；鼠标不动、前台不变；光标、点击和目标实时可见，结束后无迟回复活 | targetId 归属、光标/蓝框/点击圈及后台操作已实测。此前完整 `run-5TPsWz` 104 项连续 observer 中，六次测试窗口创建各有首 tab 激活；四条 focus 仅来自两次明确控制面板打开，均精确归因，原 sentinel 不变，没有额外前台事件。新增研究专项16/16为零激活/零focus，75创建、60关闭、15个非活动报告保留且既有tabs元数据不变。新增后台专项3独立任务、31轮、172POST、490渲染区间/563跨owner重叠，A闲置310秒、C结束时B原scope继续，8创建/8关闭、零激活/零focus。同文档根重建的自有图层恢复已有原PNG/提交红绿证据，旧动画、隐藏与同ID页面节点有生命周期保护，见[重建反馈](../references/dom-rebuild-feedback.md)。新增原 iframe 叶元素高亮与同 turn 反馈顺序保护，见[iframe反馈](../references/frame-target-feedback.md)。同 worker 的原视觉消息按实际结算及精确最终隐藏清理，受控 End/Pause/detach 红绿证据、原 receiver token 退役及恢复已验，见[可视消息清理](../references/visual-delivery-cleanup.md)。不是全套零事件；原生 popup 激活、跨 worker 在途交付与更广压力仍有缺口 |
 | P13 | 取消与恢复 | deadline、取消、旧 turn 失效、detach、worker/host 重启、断线；不得静默重试有副作用操作 | Windows managed 真实 worker 替换后的人工 End/明确 Resume/新 SDK 新轮次、原页独立后续提交与 Stop 已完成限定链路验收，见[恢复后接续](../references/managed-worker-recovery.md#恢复后完整接续验收)；不覆盖人工输入在途恢复。持久 epoch、结束取消、移组/跨窗口撤权、可信输入释放、网络/导航/下载 handle 失效与 session incarnation 已验。真实 browser restart/reload `browser-restart-w5chI9` 8/8 含未知输入经 startup witness 的保守恢复。最终 Chrome 原生 launcher `native-lifecycle-dnAdTC` 3/3 增加实际 host 退出和两次原生 EOF exit0；挂起请求及时失败，原 deadline+250ms 无迟到动作，暂停经同 popup 显式恢复。主回归 `run-aZyBs1` 77/77。Edge `native-lifecycle-R7MPzo` 清单隔离通过但出现未知窗口 focus，整项失败且 reload 未执行。drag新增原attachment guard资源屏障，实际HTML cancel ACK先于按钮释放；原node/read晚到异常对象保留归属，底层每条native清理核独立释放预算，已确认cancel/release不重发。实际tracker/media/backend链的三种late ACK反例与十场实机通过，但持有guard时worker丢失恢复仍未实机验证；早页面监听器与capture释放不保证零副作用。未决原生调用可能阻止清理，worker 丢失下载 handle 不保证底层传输取消；三SDK新增实际连接固定，EOF/close后旧client/locator/waits不能因同路径或active变化迁移，fresh client显式恢复；Windows原生IPC及三SDK六场浏览器证据通过；Linux真实Unix socket三SDK验证通过，523 Go/142 JS/109 Python pass，平台skip另记。视觉消息新增实际结算屏障、精确 pagehide 退役及 cleanup-only worker 恢复；纯 hide 可由精确退役完成义务但原 Promise 保留到实际结算，任意跨 worker 传输仍未证明，见[可视消息清理](../references/visual-delivery-cleanup.md)。签名更新/禁启、packed alarm、其他 OS 及更多压力顺序待补 |
 | P14 | 用户控制与数据边界 | 全局暂停/恢复、网站访问可配置、任务只能操作其拥有的 tab/target、上传下载边界明确；凭据不入日志 | Windows managed 同文档人工接管 `6U55vc` 六步通过，30 项输入回执、断线 held-input 释放及新轮次同文档唯一提交已验；d0605b1 包已含连续导航与交付结果接续，固定浏览器限定流程已验；真实 IME/登录与更广跨站兼容仍未验，见[独立会话](../references/managed-browser-session.md)。全局暂停与真实 popup 已验收；七条等待/数据入口的未绑定预约ID不再授予detach权限，实际pending保留，14后端反例与完整`eRYJ16`125/125通过，见[权限边界](../references/control-lifecycle.md)。新增 exact-origin all/allow/block，保存暂停且旧 epoch 失效，整页 frame 验证、导航撤权、受限 raw/data 入口拒绝和 worker 持久化通过。已结算的策略写失败可由真实 popup 明确重试原候选，原生配额拒绝、持久读回及恢复后唯一提交已验，见[网站权限](../references/site-access-policy.md)。启动读取失败可显式只读恢复，实际 Pause 后保留原设置且仍暂停；损坏记录可通过独立审阅显式替换，保持暂停，运行时代号防旧请求/证明复用。受限原生弹窗三接口绑定原策略及 emitter/document 证明，五入口与拒绝边界已验；允许 frame 提交期间仅在原期限内有界重读快照，实际输入不重放。策略是 Agent 文档控制而非网络防火墙；受限模式更多数据能力、peer 认证、未知持久写及更广浏览器/扩展恢复顺序仍待完成 |
-| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 六任务两轮固定 24 次已独审：OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。 保留全部首次结果；正式 API、业务 wall、清理、原文件/报告及观测分别记录。OBU 使用隔离 Chromium 和测试 Native Port，Codex 使用 IAB；两轮不证明速度或整体持平。普通安装 Edge、独立 OS 焦点和更广任务/平台仍开放。详见[两轮结果](../references/paired-task-comparison.md)；另有[正式 managed 独立研究](../references/managed-agent-research.md)两份有限任务验收，不改变上述分母或关闭 P15。历史研究证据见[共享研究](../references/shared-research-workflow.md)。 |
+| P15 | 完整任务与性能 | 同一组动态表单、研究、多 tab、frame、上传下载、诊断任务重复运行；记录成功率/时延/资源和 Codex 基准 | 六任务两轮固定 24 次已独审：OBU 12 项：1 blocked-environment、1 failed、10 success；Codex 12 项：1 blocked-environment、9 success、2 unsupported。 保留全部首次结果；正式 API、业务 wall、清理、原文件/报告及观测分别记录。OBU 使用隔离 Chromium 和测试 Native Port，Codex 使用 IAB；两轮不证明速度或整体持平。普通安装 Edge、独立 OS 焦点和更广任务/平台仍开放。详见[两轮结果](../references/paired-task-comparison.md)；另有[正式 managed 独立研究](../references/managed-agent-research.md)两份有限任务验收，不改变上述分母或关闭 P15。新增[正式 managed / Codex 四次研究](../references/managed-paired-research.md)：业务4/4、严格协议2/4，两场OBU有有限OS观察；不改变旧24分母或关闭P15。历史研究证据见[共享研究](../references/shared-research-workflow.md)。 |
 
 ## Browser lifetime implementation and acceptance boundary
 
