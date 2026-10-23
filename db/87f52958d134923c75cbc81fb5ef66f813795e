@@ -1,0 +1,40 @@
+scripts/browser-integration/managed-browser-restart-support.test.mjs
+  s_08bbfd293d324f::t_336262fdcedc51 3-6,10,158-251
+docs/exec-plans/active/2026-10-23-managed-browser-restart.md
+  s_08bbfd293d324f::t_bc7de0030e95d8 40-55
+  s_08bbfd293d324f::t_c0fd2558a63919 56,166-173
+scripts/browser-integration/managed-browser-restart-support.mjs
+  s_08bbfd293d324f::t_d922fe95daf4cd 159-162,164-168,170-172,179-187,190,193-195,197-225
+  s_08bbfd293d324f::t_0653c9e5cb1b05 163,189,191-192
+  s_08bbfd293d324f::t_f23e81b6ae39bf 169,173-178,188,196
+  s_08bbfd293d324f::t_1301f824f337c5 7,9,259-268,344-345,348
+scripts/browser-integration/managed-browser-restart-fixture.mjs
+  s_08bbfd293d324f::t_041bcefb07c323 14-15,20-21,31-39,49,51,64-65,69-70,102,106,108-109
+  s_08bbfd293d324f::t_4e69fc9cbc1eab 123,132-136,152-157,159-187,189-200,204,208,220,235,237-238,240,243
+  s_08bbfd293d324f::t_4490794e6ab2ca 144-151,158,203
+scripts/browser-integration/managed-browser-restart-fixture.test.mjs
+  s_08bbfd293d324f::t_65954772c2b426 8-9,26-50
+  s_08bbfd293d324f::t_00bff8a8bed43b 225-388
+docs/histories/2026-10/20261023-1130-managed-restart-preview.md
+  s_08bbfd293d324f::t_33492631d394db 55-66
+docs/references/managed-browser-restart.md
+  s_08bbfd293d324f::t_1b2eb4451cd17a 206-223
+scripts/browser-integration/managed-browser-restart-check.mjs
+  s_08bbfd293d324f::t_5657bc5ff06ec1 11,37-38,46,49-50,173-174,192,195,205-221,226-227,236,248,297,303-304,313,317,326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "db87f52958d134923c75cbc81fb5ef66f813795e",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
