@@ -1,0 +1,48 @@
+docs/exec-plans/active/2026-10-16-managed-browser-session.md
+  s_08bbfd293d324f::t_898e89724436ed 10-17
+docs/product-specs/browser-use-parity.md
+  s_08bbfd293d324f::t_cbaab69d639865 28,36-37,921
+  s_08bbfd293d324f::t_22734d964bba97 27,29-35,38
+scripts/browser-integration/managed-worker-continuation-fixture.test.mjs
+  s_08bbfd293d324f::t_bbc56612488173 1-131
+docs/exec-plans/active/2026-10-10-browser-use-parity.md
+  s_08bbfd293d324f::t_455b4de5ca3621 10-15
+scripts/browser-integration/managed-native-recovery-fixture.mjs
+  s_08bbfd293d324f::t_8cd55b3e15d915 8-9,11-12,15-17,35-37,42,44-45,49,53-54,60,63-70,75,79,86
+  s_08bbfd293d324f::t_da71c8baab5e72 38,106-138
+  s_08bbfd293d324f::t_e73836198dc17c 139
+scripts/browser-integration/managed-worker-continuation.test.mjs
+  s_08bbfd293d324f::t_c4c825d6de9058 1-85
+scripts/browser-integration/managed-worker-recovery-check.mjs
+  s_08bbfd293d324f::t_012b971000f4d6 348-351
+  s_08bbfd293d324f::t_34ca671530e191 2,10,22-23,38-39,49,52,56,58,105,253-255,288-307,310-347,352-367,457,470,472,479,520,564,574,624,631-636,644-645,666,668,687,715,752
+  s_08bbfd293d324f::t_5f8bcc40a8ec4d 308-309
+docs/references/managed-worker-recovery.md
+  s_08bbfd293d324f::t_cbaab69d639865 85
+  s_08bbfd293d324f::t_22734d964bba97 78-84,86-109
+docs/QUALITY_SCORE.md
+  s_08bbfd293d324f::t_455b4de5ca3621 14-22
+scripts/browser-integration/managed-worker-continuation-support.mjs
+  s_08bbfd293d324f::t_70ff80cae5d844 1-79
+docs/histories/2026-10/20261023-0832-worker-recovery-continuation.md
+  s_08bbfd293d324f::t_455b4de5ca3621 1-31,33-46
+  s_08bbfd293d324f::t_898e89724436ed 32
+docs/exec-plans/completed/2026-10-21-worker-recovery-continuation.md
+  s_08bbfd293d324f::t_44dbdc284cbaf0 1-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "7043c5815a6f7bfd24a3bf3b502362b94045870e",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
