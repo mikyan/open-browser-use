@@ -11,6 +11,12 @@
 
 ## 当前评分
 
+2026-10-23，[Managed 独立 Agent 多页研究](references/managed-agent-research.md)的原六阶段及独审通过，
+正式 managed 运行 `mra-Ldr4sE` 实际退出 0，67/67 项定向检查通过。两轮各读六份
+当前来源并唯一提交报告，保留原 blank 页与前轮报告；四次真实 viewer 解码及正式 Stop
+清理完成，29 个原进程退出。此结果只覆盖固定 Windows 的有限采购研究任务；旧 24 次
+比较的分母与失败不变，未作同材料 Codex 比速，P15 及整体能力目标继续开放。
+
 2026-10-23，补齐[worker 恢复后完整任务接续](references/managed-worker-recovery.md)的真实链路证据。
 原只读结果经后台执行和 Native 替换后，显式 recover 保持暂停；人工补充、End、
 一次 Resume、新 SDK/新轮次认领、公开读取及独立后续确认、再次交付与正式 Stop
@@ -34,8 +40,9 @@ worker 恢复后完整任务接续验证不作为新增产品功能。保留跨�
 从精确干净提交重建。离线 CLI/MCP、独立制品核验、四资产上传回下载与本地副本核对通过。
 原 3,388 项 Node、Go test/vet 与网页验收按相同生产输入复用；本次未重跑完整测试或网页业务。
 完整 ZIP 为 10,714,144 字节，SHA256：`5fb8ee700174efa7542758ba53e40912e61401389e22ae08fc1f3690fa44aed3`。
-主机、扩展与 Skill 需配套更新；新增独立研究任务、普通公司 Edge、更多 frame/BFCache
-组合、系统焦点/输入法与完整能力对齐仍未完成。
+以上为该包打包时状态，当时独立研究验收尚未完成；后续有限任务结果见上文专题。
+主机、扩展与 Skill 需配套更新；普通公司 Edge、更多 frame/BFCache 组合、系统焦点/
+输入法与完整能力对齐仍开放。
 
 2026-10-21，当前源码完成[人工普通字符按键](references/managed-human-printable-keys.md)。
 最终冻结构建 Go test/vet、3,357 项 Node（299 项 UI）通过；主页面和真实

@@ -8,11 +8,20 @@ profile 和真实 Native Messaging。当前源码的实验功能包含本地实�
 在扩展页加载 `extension`；不需要为普通安装运行 managed 命令。
 
 本文记录当前源码的使用方式与已验证边界；包内版本以 `VERSION.txt` 为准。
+
+2026-10-23，[Managed 独立 Agent 多页研究](managed-agent-research.md)的原六阶段及独审通过，
+正式 managed 运行 `mra-Ldr4sE` 实际退出 0，67/67 项定向检查通过。两轮各读六份
+当前来源并唯一提交报告，保留原 blank 页与前轮报告；四次真实 viewer 解码及正式 Stop
+清理完成，29 个原进程退出。此结果只覆盖固定 Windows 的有限采购研究任务；旧 24 次
+比较的分母与失败不变，未作同材料 Codex 比速，P15 及整体能力目标继续开放。
+
+以下包段落记录该包打包时状态。
 最新完整包为 [preview-20261023-7043c58](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-7043c58)，产品功能与 preview-20261021-afb415a 相同。
 本次从精确干净提交 `7043c5815a6f7bfd24a3bf3b502362b94045870e` 重建发布 EXE；474份生产输入与原冻结构建绑定，
 80份扩展字节一致。离线 CLI/MCP、独立制品核验、四资产回下载与本地副本核对通过。
 原完整测试和网页验收按相同生产输入复用，本次未重跑。保留跨站 iframe 历史恢复、
-人工接管与 AI 操作反馈；源码另补充 worker 恢复后完整任务接续验证，独立研究任务仍未完成。
+人工接管与 AI 操作反馈；源码另补充 worker 恢复后完整任务接续验证。当时独立研究验收尚未完成，
+后续有限任务结果见上文专题。
 普通公司电脑安装步骤不变，主程序、扩展与 Skill 配套更新，旧会话正常结束后重启。
 
 此前 [preview-20261021-748af2f](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261021-748af2f)

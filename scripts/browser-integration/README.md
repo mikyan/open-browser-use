@@ -116,6 +116,73 @@ Build its two helpers with `build-managed-workflow-helpers.mjs`, then run
 `managed-workflow-check.mjs` with explicit release and helper provenance inputs.
 See [setup, evidence rules and limits](../../docs/references/managed-entrypoint-workflow.md).
 
+## Independent managed Agent research (Windows, experimental)
+
+`managed-research-check.mjs` owns the formal managed supervisor, two fresh
+variant-3 material sets, passive observers, actual viewer and final Stop. It
+does not start a solver, read sources for it or generate/submit its answers.
+Arrange a separate solver with no inherited task/fixture context before launch.
+The operator observes that solver's actual status; protocol files are not a
+process-liveness signal. This is procedural separation, not a filesystem or
+process sandbox.
+
+Supply five absolute inputs (replace these example paths):
+
+```powershell
+$env:OBU_TEST_HOST_BINARY = 'C:\obu-test\open-browser-use.exe'
+$env:OBU_TEST_EXTENSION_DIR = 'C:\obu-test\extension'
+$env:OBU_TEST_CHROMIUM_BINARY = 'C:\obu-test\chrome-win64\chrome.exe'
+$env:OBU_TEST_OBSERVER_BINARY = 'C:\obu-test\observer.exe'
+$env:OBU_TEST_OBSERVER_BUILD_REPORT = 'C:\obu-test\observer-build.json'
+node scripts/browser-integration/managed-research-check.mjs
+```
+
+Use the fixed CfT 156.0.8078.12 executable and matching frozen production
+artifacts. The formal JS SDK must already exist at
+`packages/open-browser-use-js/dist`; this runner does not build it. Independently
+bind the supplied host, extension and SDK to their tested source/build report:
+the runner deliberately labels host provenance unverified. The observer report
+must retain `passed:true`, equal `before`/`after` source hash maps matching the
+checkout, `observer.sha256` matching the binary and at least three successful
+original command records. Do not reuse a helper whose build inputs changed.
+
+Wait for `SOLVER_READY`, then give the solver only the printed
+`solver/launch-card.json`, the public SDK API documentation and the supplied
+[recorder contract](recorded-agent-sdk.md). The card supplies the original named
+pipe, frozen SDK path, recorder path, two task URLs and separate recording
+directories; it contains no private seed or answers. Do not expose fixture
+source, `server-evidence.json`, private audits or another solver's output.
+
+For each round, read the card's full protocol and follow these milestones:
+
+1. Create the recorder in the card's new `recordingDir` and connect through the
+   public SDK. Immediately before the first task-URL call, atomically write
+   `start-N.json` with `{attempt, taskId, startedAt}`. All protocol timestamps
+   are safe integer UTC epoch milliseconds from `Date.now()`, never fractional
+   filesystem timestamps. Preparation has its own 180-second observation limit.
+2. Solve the visible task with public SDK calls; retain the report and finalize
+   other task pages. Business has 900 seconds from the actual first task-URL
+   call, followed by a separate 60-second cleanup budget. The runner's combined
+   observation deadline is not proof of those two separate durations.
+3. After finalize settles, explicitly close the SDK connection with
+   `browser.close()` and await `recording.closeLog()`. Atomically write
+   `attempt-N.json` with `{attempt, taskId, success, reportTabId, summary,
+   startedAt, completedAt}`, including failures. Preserve pending calls and
+   first failures; closing the log never cancels, waits for or retries a call.
+   A preparation failure writes a failed terminal immediately with its actual
+   integer start/completion times, even if no start marker exists.
+4. Wait for `ack-N.json` containing `{attempt, continue}`. Only `continue:true`
+   permits round 2; `ack-2` ends solver work after the joint report checks.
+   The runner then performs formal Stop and verifies original resource cleanup.
+
+The runner retains original receipts, public call logs and their byte hashes,
+private server evidence, native tab events, actual viewer frames and lifecycle
+records. Final inventory includes both reports **and** every original browser
+page, including `about:blank`. Independent review must additionally establish
+solver provenance, actual source reads and strict business/cleanup timing.
+Final `mra-Ldr4sE` passed all six runner stages with actual exit 0; two preceding
+failed runs remain failed. See [evidence and limits](../../docs/references/managed-agent-research.md).
+
 ## Managed worker replacement (Windows, experimental)
 
 Build the current host, extension and SDK. Set `OBU_TEST_HOST_BINARY`,

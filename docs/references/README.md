@@ -16,6 +16,9 @@
 
 ## 已沉淀资料
 
+- [Managed 独立 Agent 多页研究](managed-agent-research.md)：两轮正式 SDK 研究、
+  原来源与唯一报告、页面保留及真实查看、时限和 Stop 清理；原失败与独审边界。
+
 - [跨站 iframe 历史恢复](managed-oopif-history-restore.md)：原草稿经 BFCache
   返回后的公开观察、定位和唯一提交，原失败、原命令结算及恢复边界。
 
