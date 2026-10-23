@@ -9,9 +9,10 @@
 
 ## 2026-10-23 用户要求新包
 
-已发布 [preview-20261023-9163ec8](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-9163ec8)，
-从本次研究提交重新构建，产品功能与上一包相同。离线检查、独立制品审计和
-四资产回下载通过，安装方式不变；整体 managed 及 Browser Use 目标继续开放。
+用户再次要求打包后，已发布 [preview-20261023-1e1881d](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-1e1881d)。
+从最新已提交的验收基线重新构建，产品功能与上一包相同，未提交的浏览器进程
+重启恢复不包含在包中。离线检查、6,471项独立制品审计和四资产回下载通过，
+安装方式不变；整体 managed 及 Browser Use 目标继续开放。
 
 ## 2026-10-23 独立 Agent 多页研究（有限任务验收完成）
 

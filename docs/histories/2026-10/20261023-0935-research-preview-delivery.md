@@ -43,3 +43,20 @@
 - `docs/references/managed-browser-session.md`
 - `docs/exec-plans/active/2026-10-10-browser-use-parity.md`
 - `docs/exec-plans/active/2026-10-16-managed-browser-session.md`
+
+### 用户再次要求打包后的交付
+
+同日用户再次询问是否结束并要求新包。已明确完整能力目标仍在进行，随后发布
+[preview-20261023-1e1881d](https://github.com/mikyan/open-browser-use/releases/tag/preview-20261023-1e1881d)，
+源码固定为 `1e1881d1c2e0166e1dd9bcccfbf7bb8f33810d8e`。相对前包仅6份文档变化，
+生产功能相同；未提交的浏览器进程重启恢复开发留在工作树，不进入此包。
+
+从独立干净提交重建 EXE 与扩展，474份生产输入、80份扩展和7份 Skill 核对完成。
+离线 CLI/MCP（30工具）、6,471项独立制品审计、四资产回下载和115份本地
+交付文件验证通过。原网页与完整测试证据按相同生产输入复用，本次未重跑浏览器。
+包内仍含正常安装及覆盖更新说明，不改变安装路径或要求公司 Edge 人工验收。
+
+完整 ZIP 为10,716,350字节，SHA256：
+`de3220d79f4c8db432f23646c42c3e0a27814d27e6f729e158ea8fdb5f29ff57`。
+新制品独审 SHA256：`b4a80f3bd704b40948d47ac0d43b6045c530b081e89df46c616169611aad336a`。
+实际构建、独审与发布退出码均为0；标签和下载资产均已核对。完整对齐目标继续开放。
