@@ -585,6 +585,37 @@ public launcher remain open in the
 
 ## Fixed complete-task comparison
 
+The current formal managed research comparison is separate from the historical
+24 attempts below. Follow the [active protocol](../../docs/exec-plans/active/2026-10-23-managed-paired-research.md):
+start the paired research server once, retain its original process/stdin handle,
+and run slots OBU1, Codex1, Codex2, OBU2 against its four original URLs. For each
+OBU slot, use the original server ready file and its round:
+
+```powershell
+node scripts/browser-integration/managed-paired-research-check.mjs --ready <absolute-ready.json> --round 1
+```
+
+Set absolute `OBU_TEST_HOST_BINARY`, `OBU_TEST_EXTENSION_DIR`,
+`OBU_TEST_CHROMIUM_BINARY`, `OBU_TEST_OBSERVER_BINARY` and
+`OBU_TEST_OBSERVER_BUILD_REPORT` paths. Bind the supplied build and SDK to their
+original tested source before execution. The runner creates a fresh profile,
+publishes one public solver card, records the real managed lifecycle and checks
+the original delivered DOM/viewer after the solver seals its recording. It does
+not solve the task or read private server evidence. Its `passed` field covers
+infrastructure/public evidence only; `comparisonStatus` remains
+`pending-final-server-audit`. The old two-task runner is unchanged.
+
+The paired server now records every HTTP request, including unknown routes,
+with bounded metadata and request/response completion or abort fields. Normal
+stdin `stop` waits for HTTP termination and writes `request-ledger.json`, whose
+original byte hash is bound by `closed.json`; overflow, unsettled requests or
+write failures cannot exit successfully. A complete ledger can contain explicit
+aborts, which the final business audit must inspect. After all solvers and the
+original server actually end, independently audit all four first attempts,
+public traces, six-source reading, same-round material, unique report POSTs,
+actual reports and resource cleanup. Do not score an early ledger snapshot or
+treat static checks as a passed browser comparison.
+
 The [P15 comparison protocol](../../docs/exec-plans/completed/2026-10-16-task-comparison.md)
 fixes six tasks, two sides and two rounds before execution. Solvers receive only
 public task instructions and use their formal browser interfaces; fixture
