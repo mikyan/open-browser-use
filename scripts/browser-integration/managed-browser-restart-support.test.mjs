@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { createManagedBrowserRestartFixture, managedBrowserRestartURLs } from "./managed-browser-restart-fixture.mjs";
-import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, assertManagedRestartRestoredDraft, assertManagedRestartAuthenticationSeed, assertManagedRestartAuthenticatedPostLedger, assertManagedRestartAuthentication } from "./managed-browser-restart-support.mjs";
+import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, managedRestartDocumentReady, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, assertManagedRestartRestoredDraft, assertManagedRestartAuthenticationSeed, assertManagedRestartAuthenticatedPostLedger, assertManagedRestartAuthentication } from "./managed-browser-restart-support.mjs";
 
 const stats = () => ({ overflow: false, originalPOST: ["prg", "cache", "no-store"].map(kind => ({ kind, status: kind === "prg" ? 303 : 200, receiptId: kind })), followupPOST: [], receipts: Object.fromEntries(["prg", "cache", "no-store"].map(kind => [kind, { receiptId: kind }])) });
 test("case arguments are explicit and do not silently select crash", () => {
@@ -305,4 +305,27 @@ test("normal controller ACK must contain actual original channel cleanup", () =>
   native.controllerCleanup.result = { disconnected: true, status: { ...native.binding, runId: value.info.runId, extensionId: value.info.extensionId, connected: false, selectedTabId: null, tabs: [], cleanupPending: 0, automation: { cleanupComplete: true }, human: null, view: null, pendingDialog: null, pendingFileChooser: null, stream: { state: "idle", streamId: null } } };
   assertManagedRestartCrashTerminal(value, value.info);
   native.controllerCleanup.result.status.cleanupPending = 1; assert.throws(() => assertManagedRestartCrashTerminal(value, value.info));
+});
+
+const readinessExpected = { tabId: 17, targetId: "restored-target", url: "http://fixture.test/report" };
+const readinessSnapshot = (tab = {}, target = {}) => ({ tabs: [{ id: 17, status: "complete", url: readinessExpected.url, discarded: false, ...tab }], targets: [{ tabId: 17, id: "restored-target", url: readinessExpected.url, ...target }] });
+test("restored document waits through native unloaded and loading states without mutating them", () => {
+  for (const status of ["unloaded", "loading"]) {
+    const snapshot = readinessSnapshot({ status }); const before = structuredClone(snapshot);
+    assert.equal(managedRestartDocumentReady(snapshot, readinessExpected), false); assert.deepEqual(snapshot, before);
+  }
+  assert.equal(managedRestartDocumentReady(readinessSnapshot(), readinessExpected), true);
+});
+test("complete restored tab is not ready while pending or discarded", () => {
+  assert.equal(managedRestartDocumentReady(readinessSnapshot({ pendingUrl: readinessExpected.url }), readinessExpected), false);
+  assert.equal(managedRestartDocumentReady(readinessSnapshot({ discarded: true }), readinessExpected), false);
+});
+test("restored readiness rejects removed, duplicate or replaced native identities", () => {
+  for (const snapshot of [{ tabs: [], targets: readinessSnapshot().targets }, { tabs: readinessSnapshot().tabs, targets: [] }, { tabs: [...readinessSnapshot().tabs, ...readinessSnapshot().tabs], targets: readinessSnapshot().targets }, { tabs: readinessSnapshot().tabs, targets: [...readinessSnapshot().targets, ...readinessSnapshot().targets] }, readinessSnapshot({}, { id: "replacement" }), readinessSnapshot({}, { tabId: 18 })]) assert.throws(() => managedRestartDocumentReady(snapshot, readinessExpected));
+});
+test("restored readiness rejects navigation and unknown native status instead of retrying the read", () => {
+  for (const snapshot of [readinessSnapshot({ url: "http://fixture.test/other" }), readinessSnapshot({ pendingUrl: "http://fixture.test/other" }), readinessSnapshot({}, { url: "http://fixture.test/other" }), readinessSnapshot({ status: "unknown" })]) assert.throws(() => managedRestartDocumentReady(snapshot, readinessExpected));
+});
+test("restored readiness does not accept malformed or browser-owned expected targets", () => {
+  for (const expected of [{ ...readinessExpected, tabId: -1 }, { ...readinessExpected, targetId: "" }, { ...readinessExpected, url: "chrome://newtab/" }]) assert.throws(() => managedRestartDocumentReady(readinessSnapshot(), expected));
 });

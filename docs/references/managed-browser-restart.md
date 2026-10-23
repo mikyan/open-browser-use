@@ -4,7 +4,9 @@
 包含本轮 staging、目录边界及 offscreen 修复；普通公司电脑的安装步骤不变。当前 `mbr-build-hpfufae_` 构建已通过默认再次
 启动对照和正常退出后的限定任务接续。已有 profile 的崩溃流程恢复了 GET
 工作页、PRG 报告和 localStorage，但 cookie 未保留，仍按原门槛判失败；
-首次 profile 的崩溃流程没有恢复任务页。完整崩溃接续尚未成功，工作仍在进行。
+首次 profile 的崩溃流程没有恢复任务页。另一个独立场景已验证：预先正常
+退出保存的合成登录，在后续真实崩溃后可用于原报告读取和明确的后续操作。
+这不保证任意网站、首次 profile 或刚写入数据的崩溃恢复，范围见下文。
 
 ## 显式创建新 run
 
@@ -201,23 +203,56 @@ exit 0。SDK 复用已逐字节核对的既有产物，并未重新执行 TypeSc
 OS 观察覆盖各流程的两代或三代，记录前台事件与离散光标样本；不能据此
 宣称系统光标在所有时刻都不移动，标签与窗口观察也仅覆盖各 run ready 后
 至停止前的区间。
-最新构建的完整崩溃接续尚未成功，更广网站和平台仍待验证。普通公司
-Edge 尚需用户手动授权完成验收；完整输入法与整体 Codex 能力对齐仍开放。
+最新构建仅通过下述已有持久合成登录的限定崩溃接续，更广网站和平台仍待验证。
+普通公司 Edge 尚需用户手动授权完成验收；完整输入法与整体 Codex 能力对齐仍开放。
 
-## 独立认证场景的验收准备
+## 独立认证场景与结果
 
-新增 `--case crash-authenticated` 是独立测试入口：第 0 代通过实际网页表单
-建立合成持久 HttpOnly 登录并正常 Stop；A、B 分别要求原服务器确认同一登录。
-B 仍须完成真实崩溃后的原生恢复、原成果读取、明确 Resume、新 SDK/claim、
+`--case crash-authenticated` 是独立测试入口：第 0 代通过实际网页表单建立
+合成持久 HttpOnly 登录并正常 Stop；A、B 分别要求原服务器确认同一登录。
+B 须完成真实崩溃后的原生恢复、原成果读取、明确 Resume、新 SDK/claim、
 一次独立后续提交、真实查看器交付和资源清理。登录不重提，cookie 不回写。
 本用例分别记录已有认证、A 新写 draft cookie、localStorage 和内存草稿；
 只在该独立用例中把新 draft cookie 作为观察项，旧四模式的断言不变。
 
-本次 64/64 项本地 HTTP/helper/recorded-SDK 检查通过，五份输入在检查前后
-摘要一致，语法与 import-only 检查通过。真实 Browser 场景尚未执行，不能据此
-宣称登录状态的崩溃恢复已成功。生产代码与 `b71be03` 相同，既有两个 crash
-失败保留；当前新包只刷新构建与说明，不新增已验证的产品能力。
+首次 `mbr-c-xjToh2` 实际 exit 1，保留原失败。B 工作页已有正确登录证明；
+报告候选首次观察为 unloaded，单次 executeScript 无法读取，随后服务器才收到
+同登录的报告 GET 并返回 200。没有再次取得 DOM/原收据，也没有 Resume、
+新 SDK、claim 或 follow-up；不能把 HTTP 成功改算整个任务通过。
 
-运行来源快照与构建输入分别核对：原运行的 934 份快照中与 480 份构建输入
-交集为 429 份，其余 51 份由原构建快照、产物与当前源码另行绑定，不能说
-单份运行快照包含全部 480 份构建输入。
+脚手架现对工作页/PRG 的确切原 tabId、native targetId 与 URL，最多用 10 秒
+只读观察其原生加载状态；身份/URL 变化立即拒绝，complete 且无 pending/discard
+才单次读取 DOM。不刷新、激活、导航或自动提交，也不把权限错误泛化成重试。
+raw cache/no-store 路径不变。69/69 项本地 HTTP/helper/recorded-SDK 检查、
+语法和 import-only 检查通过；生产 480 份输入保持不变。
+
+新独立 `mbr-c-1bDtSK` 七阶段实际 exit 0，完整证据独审通过。第 0 代一次真实
+表单登录后正常 Stop；A 新 Browser 验证同一登录后完成三个原报告，再真实
+Browser.crash。B 的工作页及 PRG 是新文档/target，由当前 GET 请求确认原登录
+仍有效，并读取原业务收据；明确 Resume、新 SDK/turn 和 claim 后新增一笔
+独立后续提交，最终交付两个新结果并实际显示查看器画面。登录 POST 1 次、
+原业务 POST 3 次、后续 POST 1 次，无重复/未知/拒绝 POST。三代原进程、
+Job、注册项、pipe 和 endpoint 清理完成，无强制兜底或存活 runner 子进程。
+
+本次 localStorage 保留、内存草稿重置，新写 draft cookie 仍为未保存；不会据此
+改写旧严格 cookie 失败。cache/no-store 均无可读 DOM。两个 GET 的 readiness
+首个快照已 complete，各约 2ms，不能说本次原生流程覆盖了 unloaded 到 complete
+的等待转换。两张查看器截图可见各报告标题和登录证明；业务收据的完整一致性
+由 SDK DOM 与服务器账本证明，不声称首屏截图显示了下方全部收据。
+
+| 原结果/独审 | SHA256 |
+| --- | --- |
+| `mbr-c-xjToh2/results.json`（失败） | `a1efc55b87baabcab4f2ab0efb948456ebd54108ad411ecfa1187a651de0d5c8` |
+| `mbr-c-1bDtSK/results.json`（通过） | `959488175157176fb579409cec9e021360985357e2e11541479fac1b443315d6` |
+| 首次认证失败独审 | `9e2b0e2e21cb89fbac297b9d1422d50baec00ea19544818644770dc28a22e6c3` |
+| 新完整契约独审 | `b3deb44ff0f6278c8e389ef7d498f0975eee0b9662d7cbd52cc80539b7fd9620` |
+
+原结果保存在对应本地运行目录，认证独审在 `.tmp/restart-authenticated-audit/`。
+运行来源快照与构建输入分别核对：934 份运行快照与 480 份构建输入交集为
+429 份，其余 51 份由原构建快照、产物与当前源码另行绑定，不能说单份运行
+快照包含全部 480 份构建输入。原 hpfufae_ EXE、80 扩展及 26 SDK 输出复用，
+本轮没有重新构建生产或重新发布包；测试脚手架的原始快照按各轮分别保留。
+
+此结果只覆盖固定 Windows headless Chromium 的合成业务，真实账号/SSO/MFA、
+刚写入数据的任意崩溃耐久性、未知事务恢复、普通公司 Edge、跨平台和完整
+P01–P15 仍未完成。下一片优先补正式 managed 与当前 Codex 的同材料完整任务比较。

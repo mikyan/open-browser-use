@@ -39,7 +39,9 @@ profile 和运行目录路径检查仍保留，扩展源仍完整验证。原生
 首次 profile 流程在新启动前缺 Preferences 且任务页未恢复，两者仍为失败。
 剪贴板重连改为严格配置派生入口后，七项限定复制/剪切回归通过，原失败不
 改写。当前构建、原始证据与此前有限结果分开记录，见
-[浏览器进程重启接续](references/managed-browser-restart.md)；完整崩溃接续仍未完成。
+[浏览器进程重启接续](references/managed-browser-restart.md)。随后独立已有持久
+合成登录的崩溃接续已通过：新文档读取原成果、明确新身份后只提交一次后续业务。
+原失败保留，刚写入数据、首次 profile、真实登录和任意事务恢复仍无保证。
 
 实验性 viewer 共用原页面 rendering 流，保留实际 start/ACK/stop 回执；
 用户网络接收速度不控制 native frame ACK。观看端仅保留有界最新帧，控制

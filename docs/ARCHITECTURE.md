@@ -138,6 +138,8 @@ debugger、history 和 tab groups。
   不绕过原生新 profile 检查，也不保证 cookie 或页面恢复。当前正常 Stop
   接续已通过；已有 profile 的 crash 恢复了页面/localStorage 但缺 cookie，
   fresh crash 的 B 启动前 Preferences 不存在且任务页未恢复，整体仍未完成。
+  独立已有持久合成登录的 crash 场景已验证新文档读取原成果及明确后续操作；
+  该前提不覆盖新写 cookie 耐久性，不改变两项原失败，也不自动恢复旧任务权限。
   暂存扩展用每 run 缓存版本与 `managed-worker-<runId>.js` 入口隔离模块缓存；
   下载绑定、UserController、Native 恢复和后台文档重连仍校验精确入口及原身份；
   offscreen 剪贴板文档从严格 managed 配置派生该入口，不调用缺失的 manifest API。

@@ -232,6 +232,25 @@ export function assertManagedRestartNativeTarget(observation, tabId, previous) {
   return structuredClone(target);
 }
 
+// A restored native tab can exist before its document loads. Observing readiness
+// never activates it, navigates it, attaches a debugger or replays an operation.
+export function managedRestartDocumentReady(observation, expected) {
+  assert.ok(Number.isSafeInteger(expected.tabId) && expected.tabId > 0);
+  assert.ok(typeof expected.targetId === "string" && expected.targetId);
+  const url = new URL(expected.url); assert.ok(["http:", "https:"].includes(url.protocol));
+  const tabs = observation.tabs.filter(tab => tab.id === expected.tabId);
+  const targets = observation.targets.filter(target => target.tabId === expected.tabId);
+  assert.equal(tabs.length, 1, "The original restored tab disappeared or became ambiguous");
+  assert.equal(targets.length, 1, "The original restored native target disappeared or became ambiguous");
+  const tab = tabs[0], target = targets[0];
+  assert.equal(target.id, expected.targetId, "Readiness cannot select a replacement native target");
+  assert.ok(["unloaded", "loading", "complete"].includes(tab.status), "Unknown restored tab status");
+  assert.equal(tab.url, expected.url, "Restored tab navigated away while awaiting its document");
+  assert.ok(!tab.pendingUrl || tab.pendingUrl === expected.url, "Restored tab has an unrelated pending navigation");
+  assert.equal(target.url, expected.url, "Restored target URL changed while awaiting its document");
+  return tab.status === "complete" && !tab.pendingUrl && !tab.discarded;
+}
+
 export function assertManagedRestartFinalResults(observation, viewerState, expected, oldDeliveries) {
   assert.equal(expected.length, 2); assert.equal(new Set(expected.map(row => row.id)).size, 2);
   assert.equal(new Set(expected.map(row => row.deliveryId)).size, 2);

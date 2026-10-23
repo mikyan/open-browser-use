@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium as playwrightChromium } from "playwright";
 import { createManagedBrowserRestartFixture, managedBrowserRestartURLs } from "./managed-browser-restart-fixture.mjs";
-import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, assertManagedRestartRestoredDraft, assertManagedRestartAuthenticationSeed, assertManagedRestartAuthenticatedPostLedger, assertManagedRestartAuthentication, readManagedRestartDocument } from "./managed-browser-restart-support.mjs";
+import { managedBrowserRestartMode, readManagedRestartPreferences, managedRestartTaskGeneration, readManagedRestartRunInventory, classifyManagedRestartStartup, assertManagedRestartLaunch, assertManagedRestartManifest, selectManagedRestartWorker, assertManagedRestartWorkerRuntime, assertManagedRestartIdentity, assertManagedRestartOriginalPosts, assertManagedRestartFollowup, assertManagedRestartPostLedger, assertManagedRestartNativeTarget, managedRestartDocumentReady, assertManagedRestartFinalResults, assertManagedRestartDefaultEmpty, assertManagedRestartCrashTerminal, assertManagedRestartRestoredDraft, assertManagedRestartAuthenticationSeed, assertManagedRestartAuthenticatedPostLedger, assertManagedRestartAuthentication, readManagedRestartDocument } from "./managed-browser-restart-support.mjs";
 import { observeManagedWorkflowViewer } from "./managed-workflow-viewer.mjs";
 import { installManagedResearchObservation, managedResearchObservationDelta } from "./managed-research-support.mjs";
 import { createRecordedAgentSDK } from "./recorded-agent-sdk.mjs";
@@ -289,7 +289,21 @@ $present=@([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object {$scope.pipes -c
         if (candidates.length === 1) {
           row.tabId = candidates[0].id; row.targets = observed.targets.filter(target => target.tabId === row.tabId);
           row.nativeTarget = assertManagedRestartNativeTarget(observed, row.tabId, item.nativeTarget);
-          try { row.read = await observeDocument(second, row.tabId); } catch (error) { row.readError = error.stack; }
+          try {
+            if (["work", "prg"].includes(item.kind)) {
+              const readiness = row.readiness = { startedAt: Date.now(), timeoutMs: 10000, observations: [], scope: "Read-only native snapshot polling; no activation, navigation, attachment or input retry" };
+              try {
+                await wait(async () => {
+                  const current = await snapshot(second, `restored-${item.kind}-readiness`);
+                  readiness.observations.push({ at: Date.now(), tab: current.tabs.find(tab => tab.id === row.tabId), targets: current.targets.filter(target => target.tabId === row.tabId) });
+                  return managedRestartDocumentReady(current, { tabId: row.tabId, targetId: row.nativeTarget.id, url: row.expectedURL });
+                }, `restored ${item.kind} native document readiness`, readiness.timeoutMs);
+                readiness.ready = true;
+              } finally { readiness.completedAt = Date.now(); }
+            }
+            row.readAttemptedAt = Date.now(); row.read = await observeDocument(second, row.tabId);
+          } catch (error) { row.readError = error.stack; }
+          finally { row.readCompletedAt = Date.now(); }
           if (row.read) { assert.notEqual(row.read.documentId, item.before.documentId); row.identity = { originalTargetId: item.nativeTarget.id, targetId: row.nativeTarget.id, tabId: row.tabId, originalDocumentId: item.before.documentId, documentId: row.read.documentId, frameId: row.read.frameId }; }
         }
         if (["cache", "no-store"].includes(item.kind) && !row.read) await observeRawErrorPage(second, row);
