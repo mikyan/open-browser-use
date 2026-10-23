@@ -1,0 +1,39 @@
+docs/exec-plans/active/2026-10-23-managed-paired-research.md
+  s_08bbfd293d324f::t_eb60c04e1c8d9a 1-60,64-71
+  s_08bbfd293d324f::t_92b5ff7887e3c3 61-63,72-73
+scripts/browser-integration/managed-paired-research-support.test.mjs
+  s_08bbfd293d324f::t_ee2c396b6ee34e 1-193
+scripts/browser-integration/managed-paired-research-check.mjs
+  s_08bbfd293d324f::t_84525fcd804ee3 1-361
+scripts/browser-integration/research-request-ledger.mjs
+  s_08bbfd293d324f::t_317537384fe9c8 1-68
+scripts/browser-integration/README.md
+  s_08bbfd293d324f::t_92b5ff7887e3c3 588-618
+docs/histories/2026-10/20261023-1255-managed-paired-research.md
+  s_08bbfd293d324f::t_92b5ff7887e3c3 1-31
+scripts/browser-integration/research-workflow-server.test.mjs
+  s_08bbfd293d324f::t_4ef21f955f354f 4-5,42-43,47-57,71-92
+  s_08bbfd293d324f::t_d2ff021ce5c419 93
+scripts/browser-integration/managed-paired-research-support.mjs
+  s_08bbfd293d324f::t_fa05f52a71699f 1-156
+scripts/browser-integration/research-workflow-server.mjs
+  s_08bbfd293d324f::t_317537384fe9c8 8,27-28,34,38,61-87
+scripts/browser-integration/research-request-ledger.test.mjs
+  s_08bbfd293d324f::t_4ef21f955f354f 1-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.3",
+  "base_commit_sha": "b363d95320447de2254ea39c2cd1ce218db55cd6",
+  "prompts": {},
+  "sessions": {
+    "s_08bbfd293d324f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ca1b-130b-7850-9236-49a62f018adc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "AI_BA <ai_ball@outlook.com>"
+    }
+  }
+}
